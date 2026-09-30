@@ -8,7 +8,9 @@
 //! refuses such a target outright ([`AUTOMATION_REQUIRED_INPUTS_HINT`]) — so
 //! the dialog never offers a pick that cannot be saved. The builtins
 //! ("Create action", "Fix merge conflicts") are excluded the same way the
-//! server excludes them: they aren't DB rows and can never be automated.
+//! server excludes them — except "Tidy up" (FEED-50), the one automatable
+//! builtin ([`api::actions::is_automatable_builtin_id`]): every input
+//! optional, no free text required.
 //!
 //! Everything below the action picker is [`AutomationEditorState`] (the
 //! suggestion-seeded creator flow appends its wire JSON to the composer's
@@ -158,15 +160,11 @@ impl AutomationDialogView {
     }
 
     /// The automatable actions: this team's CUSTOM rows with no required
-    /// input. Builtins are excluded — they are client-constructed, not DB
-    /// rows, and the server rejects them as automation targets.
+    /// input, plus the automatable builtins (FEED-50: Tidy up). The other
+    /// builtins are excluded — the server rejects them as targets.
     fn automatable_actions(&self, cx: &App) -> Vec<api::actions::Action> {
         let (actions, _) = queries::team_actions(cx, &self.team_id);
-        actions
-            .into_iter()
-            .filter(|action| !action.builtin && !api::actions::is_builtin_action_id(&action.id))
-            .filter(|action| !action.inputs.iter().any(|input| input.required))
-            .collect()
+        automatable(actions)
     }
 
     fn submit(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
@@ -408,5 +406,51 @@ impl Render for AutomationDialogView {
                 this.child(div().text_sm().text_color(danger).child(error))
             })
             .child(footer.pt_3().border_t_1().border_color(cx.theme().border))
+    }
+}
+
+/// The automation-target filter: custom rows with no required input, plus
+/// the automatable builtins (FEED-50: Tidy up). Every other builtin is
+/// refused by the server, so it is never offered.
+fn automatable(actions: Vec<api::actions::Action>) -> Vec<api::actions::Action> {
+    actions
+        .into_iter()
+        .filter(|action| {
+            if action.builtin || api::actions::is_builtin_action_id(&action.id) {
+                api::actions::is_automatable_builtin_id(&action.id)
+            } else {
+                true
+            }
+        })
+        .filter(|action| !action.inputs.iter().any(|input| input.required))
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// FEED-50: Tidy up is the one builtin an automation may target; the
+    /// other builtins stay out, custom rows with a required input too.
+    #[test]
+    fn automation_targets_admit_tidy_up_only_among_builtins() {
+        let mut custom = api::actions::builtin_chat_action("team-1");
+        custom.id = "act-1".to_string();
+        custom.builtin = false;
+        let mut needs_input = api::actions::builtin_fix_conflicts_action("team-1");
+        needs_input.id = "act-2".to_string();
+        needs_input.builtin = false;
+        let ids: Vec<String> = automatable(vec![
+            api::actions::builtin_create_action("team-1"),
+            api::actions::builtin_fix_conflicts_action("team-1"),
+            api::actions::builtin_tidy_up_action("team-1"),
+            api::actions::builtin_chat_action("team-1"),
+            custom,
+            needs_input,
+        ])
+        .into_iter()
+        .map(|action| action.id)
+        .collect();
+        assert_eq!(ids, vec![api::actions::BUILTIN_TIDY_UP_ID.to_string(), "act-1".to_string()]);
     }
 }

@@ -421,6 +421,75 @@ describe(`automations.update`, () => {
   })
 })
 
+// FEED-50: Tidy up is the ONE automatable builtin (both inputs optional);
+// its runner must advertise the `tidy-up` cap on top of `automations`.
+describe(`automations — tidy-up builtin (FEED-50)`, () => {
+  const TIDY_UP = `builtin:tidy-up`
+  const tidyDevice = { ...ownDevice, caps: [`automations`, `tidy-up`] }
+
+  it(`creates an automation targeting builtin:tidy-up without an action row`, async () => {
+    selectResults.push([tidyDevice]) // automations cap
+    selectResults.push([tidyDevice]) // tidy-up cap
+    selectResults.push([]) // sortOrder probe
+    const { automation } = await caller.create({
+      teamId: TEAM_ID,
+      actionId: TIDY_UP,
+      deviceId: `device-1`,
+      trigger: schedule,
+    })
+    expect(automation).toMatchObject({ actionId: TIDY_UP, enabled: true })
+  })
+
+  it(`refuses a runner that lacks the tidy-up cap`, async () => {
+    selectResults.push([ownDevice])
+    selectResults.push([ownDevice])
+    const error = await rejectionOf(
+      caller.create({ teamId: TEAM_ID, actionId: TIDY_UP, deviceId: `d`, trigger: schedule })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect((error as TRPCError).message).toContain(`cannot tidy up`)
+    expect(inserts).toHaveLength(0)
+  })
+
+  it(`still refuses every other builtin`, async () => {
+    for (const actionId of [
+      `builtin:create-action`,
+      `builtin:fix-conflicts`,
+      `builtin:chat`,
+      `builtin:plan-workflow`,
+    ]) {
+      const error = await rejectionOf(
+        caller.create({ teamId: TEAM_ID, actionId, deviceId: `d`, trigger: schedule })
+      )
+      expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    }
+    expect(inserts).toHaveLength(0)
+  })
+
+  it(`re-targeting an automation to tidy-up checks the cap on its device`, async () => {
+    selectResults.push([
+      {
+        id: AUTOMATION_ID,
+        teamId: TEAM_ID,
+        actionId: ACTION_ID,
+        deviceId: `device-1`,
+        enabled: true,
+        trigger: schedule,
+        agent: null,
+        account: null,
+        model: null,
+        effort: null,
+      },
+    ])
+    selectResults.push([ownDevice]) // tidy-up cap probe: missing
+    const error = await rejectionOf(
+      caller.update({ id: AUTOMATION_ID, actionId: TIDY_UP })
+    )
+    expect((error as TRPCError).message).toContain(`cannot tidy up`)
+    expect(updates).toHaveLength(0)
+  })
+})
+
 describe(`automations.delete`, () => {
   it(`is owner-gated on the row's team`, async () => {
     selectResults.push([{ id: AUTOMATION_ID, teamId: TEAM_ID }])

@@ -5,6 +5,7 @@ import { actionCollection, automationCollection } from "@/lib/collections"
 import {
   BUILTIN_CREATE_ACTION_ID,
   builtinFixConflictsAction,
+  builtinTidyUpAction,
 } from "@/lib/builtin-actions"
 import { LoaderCircle, Ellipsis, Pencil, Trash2 } from "lucide-react"
 import {
@@ -310,13 +311,17 @@ export function TeamActionsPanel({
       .map((row) => ({ ...row, builtin: false as const }))
   }, [isMember, actionRows])
 
-  // …but the Automations tab still has to NAME a fix-conflicts run, so its
-  // lookup pool keeps the builtin.
+  // …but the Automations tab still has to NAME a fix-conflicts run and a
+  // tidy-up automation (FEED-50), so its lookup pool keeps both builtins.
   const automationActions = useMemo<TeamAction[] | null>(
     () =>
       sortedActions === null
         ? null
-        : [builtinFixConflictsAction(teamId), ...sortedActions],
+        : [
+            builtinTidyUpAction(teamId),
+            builtinFixConflictsAction(teamId),
+            ...sortedActions,
+          ],
     [teamId, sortedActions]
   )
 

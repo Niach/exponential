@@ -328,6 +328,8 @@ pub(crate) struct ChatScreenView {
     pending_action: Option<String>,
     pending_pr: Option<String>,
     pending_icon: Option<String>,
+    /// FEED-50: a Tidy up seed's board, filling the builtin's `board` input.
+    pending_board: Option<String>,
     /// EXP-981: the DRAFT workflow a planner start plans. Set by a
     /// [`ChatSeed::plan_workflow`] and cleared with the subject — the hidden
     /// planner builtin is meaningless without it, and no other subject may
@@ -477,6 +479,7 @@ impl ChatScreenView {
             pending_action: None,
             pending_pr: None,
             pending_icon: None,
+            pending_board: None,
             workflow_id: None,
             hidden_action: None,
             issue_pick_memo: RefCell::new(issue_picker::VisibleRowsMemo::default()),
@@ -549,6 +552,7 @@ impl ChatScreenView {
         self.pending_action = None;
         self.pending_pr = None;
         self.pending_icon = None;
+        self.pending_board = None;
         self.workflow_id = None;
         self.hidden_action = None;
         self.error = None;
@@ -615,6 +619,7 @@ impl ChatScreenView {
             self.pending_action = Some(action_id);
             self.pending_pr = seed.pr_issue_id;
             self.pending_icon = seed.icon;
+            self.pending_board = seed.board_id;
             self.refresh_actions(window, cx);
         } else if !seed.issue_ids.is_empty() {
             self.workflow_id = None;
@@ -904,6 +909,7 @@ impl ChatScreenView {
         self.seed_action_repo_inputs();
         let pending_pr = self.pending_pr.take();
         let pending_icon = self.pending_icon.take();
+        let pending_board = self.pending_board.take();
         let Some(action) = self.selected_action().cloned() else {
             return;
         };
@@ -916,6 +922,19 @@ impl ChatScreenView {
         }
         if let Some(icon) = pending_icon {
             subject.picks.preselect_icon(&action, &icon);
+        }
+        // FEED-50: the board list's Tidy up button names its board; a board
+        // that no longer resolves in the team leaves the pick empty.
+        if let Some(board_id) = pending_board {
+            let name = Store::global(cx)
+                .collections()
+                .boards_in_team(&action.team_id, cx)
+                .into_iter()
+                .find(|board| board.id == board_id)
+                .map(|board| board.name);
+            if let Some(name) = name {
+                subject.picks.preselect_board(&action, &board_id, &name);
+            }
         }
         cx.notify();
     }

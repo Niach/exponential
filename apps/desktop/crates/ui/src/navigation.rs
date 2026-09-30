@@ -507,6 +507,9 @@ pub(crate) struct ChatSeed {
     /// without it — and it rides the start as the prompt's first line
     /// (`Workflow: <uuid>`, web `?workflow=<id>`).
     pub(crate) workflow_id: Option<String>,
+    /// FEED-50: the board a Tidy up start cleans — fills the Tidy up
+    /// builtin's `board` input (the board list's quick-action button).
+    pub(crate) board_id: Option<String>,
 }
 
 impl ChatSeed {
@@ -534,6 +537,16 @@ impl ChatSeed {
         Self {
             action_id: Some(api::actions::BUILTIN_PLAN_WORKFLOW_ID.to_string()),
             workflow_id: Some(workflow_id.into()),
+            ..Default::default()
+        }
+    }
+
+    /// FEED-50: the board list's Tidy up button — the Tidy up builtin as the
+    /// composer's subject with its `board` input set to that board.
+    pub(crate) fn tidy_up(board_id: impl Into<String>) -> Self {
+        Self {
+            action_id: Some(api::actions::BUILTIN_TIDY_UP_ID.to_string()),
+            board_id: Some(board_id.into()),
             ..Default::default()
         }
     }
@@ -856,6 +869,8 @@ fn parse_dev_chat_seed(spec: &str) -> Option<ChatSeed> {
             "icon" => seed.icon = Some(value.to_string()),
             // EXP-981: `chat?action=builtin:plan-workflow&workflow=<uuid>`.
             "workflow" => seed.workflow_id = Some(value.to_string()),
+            // FEED-50: `chat?action=builtin:tidy-up&board=<uuid>`.
+            "board" => seed.board_id = Some(value.to_string()),
             _ => {}
         }
     }
@@ -1974,6 +1989,10 @@ mod tests {
         assert!(ChatSeed::action("act-1").has_subject());
         assert!(ChatSeed::fix_conflicts("issue-1").has_subject());
         assert!(ChatSeed::plan_workflow("wf-1").has_subject());
+        let tidy = ChatSeed::tidy_up("board-1");
+        assert!(tidy.has_subject());
+        assert_eq!(tidy.action_id.as_deref(), Some("builtin:tidy-up"));
+        assert_eq!(tidy.board_id.as_deref(), Some("board-1"));
     }
 
     /// EXP-686: the three full-page rail screens each have their own
@@ -2518,6 +2537,7 @@ mod tests {
             full,
             ChatSeed {
                 workflow_id: None,
+                board_id: None,
                 issue_ids: vec!["a".into(), "b".into()],
                 action_id: Some("builtin:fix-conflicts".into()),
                 device_id: Some("dev-1".into()),

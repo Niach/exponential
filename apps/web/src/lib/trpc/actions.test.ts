@@ -11,6 +11,7 @@ const h = vi.hoisted(() => {
   const selectResults: unknown[][] = []
   const inserts: Record<string, unknown>[] = []
   const updates: Record<string, unknown>[] = []
+  const deletes: unknown[] = []
   const makeChain = () => {
     const chain = {
       from: () => chain,
@@ -29,6 +30,7 @@ const h = vi.hoisted(() => {
     selectResults,
     inserts,
     updates,
+    deletes,
     fakeDb: (() => {
       const fakeDb: Record<string, unknown> = {
         select: () => makeChain(),
@@ -52,7 +54,10 @@ const h = vi.hoisted(() => {
             }
           },
         }),
-        delete: () => ({ where: async () => undefined }),
+        delete: (table: unknown) => {
+          deletes.push(table)
+          return { where: async () => undefined }
+        },
       }
       // EXP-707: writes run in a txId-minting transaction now.
       fakeDb.transaction = async (fn: (tx: unknown) => Promise<unknown>) =>
@@ -76,8 +81,9 @@ vi.mock(`@/lib/trpc`, async (importOriginal) => {
 })
 
 import { actionsRouter } from "@/lib/trpc/actions"
+import { actions, automations } from "@/db/schema"
 
-const { selectResults, inserts, updates, fakeDb } = h
+const { selectResults, inserts, updates, deletes, fakeDb } = h
 
 const TEAM_ID = `11111111-1111-4111-8111-111111111111`
 const ACTION_ID = `22222222-2222-4222-8222-222222222222`
@@ -101,6 +107,7 @@ beforeEach(() => {
   selectResults.length = 0
   inserts.length = 0
   updates.length = 0
+  deletes.length = 0
   h.assertTeamMember.mockClear()
   h.assertTeamOwner.mockClear()
 })
@@ -166,6 +173,38 @@ describe(`actions — builtin is read/write-protected`, () => {
       expect(error).toBeInstanceOf(TRPCError)
       expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
     }
+  })
+})
+
+describe(`actions — tidy-up builtin (FEED-50)`, () => {
+  it(`get/update/delete refuse the tidy-up builtin id`, async () => {
+    for (const call of [
+      caller.get({ id: `builtin:tidy-up` }),
+      caller.update({ id: `builtin:tidy-up`, name: `Hijack` }),
+      caller.delete({ id: `builtin:tidy-up` }),
+    ]) {
+      const error = await rejectionOf(call)
+      expect(error).toBeInstanceOf(TRPCError)
+      expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    }
+  })
+
+  it(`refuses the reserved Tidy up name`, async () => {
+    const error = await rejectionOf(
+      caller.create({ teamId: TEAM_ID, name: `Tidy Up`, body: `x` })
+    )
+    expect((error as TRPCError).code).toBe(`CONFLICT`)
+    expect(inserts).toHaveLength(0)
+  })
+
+  // automations.action_id lost its FK (it may name the builtin), so the
+  // delete itself cascades: automations first, then the action row.
+  it(`delete removes the action's automations in the same transaction`, async () => {
+    selectResults.push([
+      { id: ACTION_ID, teamId: TEAM_ID, name: `Nightly`, inputs: [] },
+    ])
+    await caller.delete({ id: ACTION_ID })
+    expect(deletes).toEqual([automations, actions])
   })
 })
 

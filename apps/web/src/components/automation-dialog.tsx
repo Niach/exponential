@@ -4,7 +4,11 @@ import { LoaderCircle } from "lucide-react"
 import type { AutomationTrigger } from "@exp/db-schema/domain"
 import type { Automation, SyncedAction } from "@/db/schema"
 import { actionCollection, automationCollection } from "@/lib/collections"
-import { isBuiltinActionId } from "@/lib/builtin-actions"
+import {
+  builtinTidyUpAction,
+  isAutomatableBuiltinId,
+  isBuiltinActionId,
+} from "@/lib/builtin-actions"
 import { parseAutomationTrigger } from "@/lib/action-triggers"
 import {
   ActionPicker,
@@ -47,6 +51,8 @@ import {
 // wording, wherever a required input blocks automating an action.
 export const REQUIRED_INPUTS_HINT = `This action has required inputs, and an automated run has none to fill them with. Make the inputs optional to enable it.`
 
+type AutomationTargetOption = Pick<SyncedAction, `id` | `name` | `icon` | `inputs`>
+
 function hasRequiredInputs(action: Pick<SyncedAction, `inputs`>): boolean {
   return (action.inputs ?? []).some((def) => def.required)
 }
@@ -78,19 +84,25 @@ export function AutomationDialog({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Custom actions only — builtins are server-shipped prompts with required
-  // inputs and no team row to target.
+  // Custom actions plus the ONE automatable builtin, Tidy up (FEED-50,
+  // pinned first like every builtin); the other builtins need free text or
+  // a required pick an automated run can't supply.
   const { data: actionRows } = useLiveQuery(
     (query) =>
       query.from({ a: actionCollection }).where(({ a }) => eq(a.teamId, teamId)),
     [teamId]
   )
-  const actionOptions = useMemo(
+  const actionOptions = useMemo<AutomationTargetOption[]>(
     () =>
-      [...((actionRows ?? []) as SyncedAction[])]
-        .filter((action) => !isBuiltinActionId(action.id))
-        .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)),
-    [actionRows]
+      [
+        builtinTidyUpAction(teamId),
+        ...[...((actionRows ?? []) as SyncedAction[])].sort(
+          (a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)
+        ),
+      ].filter(
+        (action) => !isBuiltinActionId(action.id) || isAutomatableBuiltinId(action.id)
+      ),
+    [teamId, actionRows]
   )
 
   const capableDevices = useMemo(() => automationDevices(devices), [devices])
@@ -253,11 +265,6 @@ export function AutomationDialog({
                   }
                 />
               </GlassGroup>
-              {actionOptions.length === 0 && (
-                <p className="text-xs text-muted-foreground">
-                  No custom actions yet. Create one first, then automate it.
-                </p>
-              )}
               {blockedByInputs && (
                 <p className="text-xs text-muted-foreground">
                   {REQUIRED_INPUTS_HINT}

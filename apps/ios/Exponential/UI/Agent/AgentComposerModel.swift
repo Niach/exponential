@@ -240,15 +240,17 @@ final class AgentComposerModel {
         sessions.startCandidates(teamId: teamId, exempt: Set(checked))
     }
 
-    /// The action picker's pool: both LISTED builtins pinned FIRST by the
-    /// `builtin` flag (EXP-257 — never by sort order), "Fix merge conflicts"
-    /// ahead of "Create action" (the web order), then the team's rows. Chat
-    /// is in NO pool: it is what "no subject" means.
+    /// The action picker's pool: the three LISTED builtins pinned FIRST by
+    /// the `builtin` flag (EXP-257 — never by sort order), "Fix merge
+    /// conflicts" ahead of "Create action" (the web order), then "Tidy up"
+    /// (FEED-50), then the team's rows. Chat is in NO pool: it is what "no
+    /// subject" means.
     var actions: [ActionDto] {
         guard let teamId else { return [] }
         return [
             ActionDto.builtinFixConflictsAction(teamId: teamId),
             ActionDto.builtinCreateAction(teamId: teamId),
+            ActionDto.builtinTidyUpAction(teamId: teamId),
         ] + sessions.teamActions(teamId: teamId)
     }
 

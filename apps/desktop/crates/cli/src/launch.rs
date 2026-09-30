@@ -10,7 +10,7 @@ use std::sync::Arc;
 use anyhow::{anyhow, bail, Context as _};
 use api::actions::{
     BUILTIN_CHAT_ID, BUILTIN_CREATE_ACTION_ID, BUILTIN_FIX_CONFLICTS_ID,
-    BUILTIN_PLAN_WORKFLOW_ID,
+    BUILTIN_PLAN_WORKFLOW_ID, BUILTIN_TIDY_UP_ID,
 };
 use api::issues::FetchedIssue;
 use coding::{
@@ -286,6 +286,9 @@ pub fn resolve_action_request(
     // EXP-981: the hidden planner builtin — a scratch run that shapes ONE
     // draft workflow through the MCP tools and writes no code.
     let planning = action_id == BUILTIN_PLAN_WORKFLOW_ID;
+    // FEED-50: the Tidy up builtin — its optional `repo` input resolves like
+    // a chat's (none = the scratch dir).
+    let tidying = action_id == BUILTIN_TIDY_UP_ID;
 
     // EXP-259: the fix-conflicts PR target — resolved from the `pr` input
     // BEFORE anything else so a bad pick fails fast.
@@ -337,6 +340,7 @@ pub fn resolve_action_request(
         let mut action = match action_id {
             BUILTIN_FIX_CONFLICTS_ID => api::actions::builtin_fix_conflicts_action(team_id),
             BUILTIN_CHAT_ID => api::actions::builtin_chat_action(team_id),
+            BUILTIN_TIDY_UP_ID => api::actions::builtin_tidy_up_action(team_id),
             BUILTIN_PLAN_WORKFLOW_ID => api::actions::builtin_plan_workflow_action(team_id),
             BUILTIN_CREATE_ACTION_ID => api::actions::builtin_create_action(team_id),
             other => bail!(
@@ -346,11 +350,11 @@ pub fn resolve_action_request(
         // The runner composes the builtin prompts itself — the input schema
         // is a dialog-side concern only (desktop parity).
         action.inputs = Vec::new();
-        let repo_group = if chatting {
+        let repo_group = if chatting || tidying {
             // EXP-615/EXP-739: a chat's `repo` input picks the run's own cwd,
             // and it is OPTIONAL — no `--input repo=<id>` is a repo-LESS chat
             // the launcher runs worktree-less in a scratch dir. Only a pick
-            // that no longer resolves is an error.
+            // that no longer resolves is an error. FEED-50: Tidy up likewise.
             match repo {
                 ActionRepo::Provided(group) => group,
                 ActionRepo::Resolve => {
@@ -480,6 +484,7 @@ pub fn resolve_action_request(
         // EXP-615/EXP-981: the builtin kinds are id-dispatched (desktop
         // parity); the factory above already refused an unknown id.
         None if chatting => ActionRunKind::Chat,
+        None if tidying => ActionRunKind::TidyUp,
         None if planning => ActionRunKind::PlanWorkflow,
         None if builtin => ActionRunKind::CreateAction,
         None => ActionRunKind::Team,
@@ -575,5 +580,39 @@ mod tests {
         assert!(
             coding_deps(&ctx, HashMap::new(), LaunchHost::Daemon, Some(&runtime)).acp_available
         );
+    }
+
+    /// FEED-50: `exponential run tidy-up` without a repo pick resolves to the
+    /// Tidy up builtin's scratch run — no network, the board pick carried
+    /// through as an input, the kind named (never the creator fallthrough).
+    #[test]
+    fn a_repo_less_tidy_up_launch_resolves_to_the_tidy_up_kind() {
+        let (_dir, ctx) = temp_ctx("launch-tidy-up");
+        let board = ActionInputValue {
+            key: "board".to_string(),
+            label: "Board".to_string(),
+            input_type: "board".to_string(),
+            value: "board-1".to_string(),
+            display: None,
+        };
+        let request = resolve_action_request(
+            &ctx,
+            BUILTIN_TIDY_UP_ID,
+            "team-1",
+            ActionRepo::Resolve,
+            vec![board.clone()],
+            LaunchOptions::defaults_for(&ctx.settings, coding::CodingAgent::Claude),
+            LaunchOrigin::Local,
+            None,
+            None,
+            None,
+        )
+        .expect("resolves without the network");
+        assert_eq!(request.kind, ActionRunKind::TidyUp);
+        assert_eq!(request.action_name, "Tidy up");
+        assert_eq!(request.team_id, "team-1");
+        assert!(request.repo.is_none());
+        assert!(request.body.is_empty());
+        assert_eq!(request.inputs, vec![board]);
     }
 }

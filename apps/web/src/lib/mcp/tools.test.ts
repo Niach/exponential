@@ -49,7 +49,7 @@ const h = vi.hoisted(() => {
     attachments: { delete: vi.fn() },
     // EXP-660: the deferred families.
     statuses: { create: vi.fn(), update: vi.fn(), delete: vi.fn() },
-    automations: { list: vi.fn(), update: vi.fn(), delete: vi.fn() },
+    automations: { list: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
     workflows: {
       update: vi.fn(),
       setIssues: vi.fn(),
@@ -328,6 +328,7 @@ import { verifySessionResultToken } from "@/lib/storage/session-result-token"
 import {
   builtinCreateAction,
   builtinFixConflictsAction,
+  builtinTidyUpAction,
 } from "@/lib/builtin-actions"
 import { FULL_ACCESS, type McpAccess } from "@/lib/mcp/scope"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "@/lib/mcp/gates"
@@ -552,6 +553,7 @@ const descriptors: Array<Descriptor> = [
       { id: UUID, name: `Code review` },
       JSON.parse(JSON.stringify(builtinCreateAction(WS))),
       JSON.parse(JSON.stringify(builtinFixConflictsAction(WS))),
+      JSON.parse(JSON.stringify(builtinTidyUpAction(WS))),
     ],
     calledWith: { teamId: WS },
   },
@@ -5022,6 +5024,23 @@ describe(`exponential_automations_update trigger`, () => {
     expect(parseOk(result)).toEqual({ id: AUTO })
     expect(caller.automations.update).toHaveBeenCalledWith(
       expect.objectContaining({ id: AUTO, trigger })
+    )
+  })
+})
+
+describe(`exponential_automations_create tidy-up (FEED-50)`, () => {
+  it(`forwards the builtin:tidy-up target to the router`, async () => {
+    caller.automations.create.mockResolvedValue({ automation: { id: AUTO }, txId: 1 })
+    const trigger = { kind: `schedule`, interval: `weekly`, minuteOfDay: 540, weekday: 1 }
+    const result = await tool(`exponential_automations_create`)({
+      teamId: WS,
+      actionId: `builtin:tidy-up`,
+      deviceId: `mac-1`,
+      trigger,
+    })
+    expect(parseOk(result)).toEqual({ id: AUTO })
+    expect(caller.automations.create).toHaveBeenCalledWith(
+      expect.objectContaining({ actionId: `builtin:tidy-up`, trigger })
     )
   })
 })

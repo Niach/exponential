@@ -1217,6 +1217,87 @@ describe(`codingSessions — builtin create-action (EXP-257)`, () => {
   })
 })
 
+// FEED-50: Tidy up is the ONE automatable builtin — its schedule/event
+// starts carry their automation (action_id stays NULL: a uuid FK), and the
+// automation probe is TEAM-scoped because the builtin id repeats per team.
+describe(`codingSessions — builtin tidy-up (FEED-50)`, () => {
+  const TIDY_UP = `builtin:tidy-up`
+  const AUTOMATION_ID = `55555555-5555-4555-8555-555555555555`
+
+  it(`a schedule start stamps the reason + the team's automation`, async () => {
+    selectResults.push([{ id: AUTOMATION_ID }]) // automations probe hit
+    await caller.start({
+      actionId: TIDY_UP,
+      teamId: TEAM_ID,
+      startedReason: `schedule`,
+      automationId: AUTOMATION_ID,
+    })
+    expect(inserts[0]!.values).toMatchObject({
+      teamId: TEAM_ID,
+      actionId: null,
+      actionName: `Tidy up`,
+      startedReason: `schedule`,
+      automationId: AUTOMATION_ID,
+    })
+    const shape = whereShape(selectWheres.at(-1))
+    expect(shape).toEqual(
+      expect.arrayContaining([
+        `col:id`,
+        AUTOMATION_ID,
+        `col:action_id`,
+        TIDY_UP,
+        `col:team_id`,
+        TEAM_ID,
+      ])
+    )
+  })
+
+  it(`another team's automation degrades to NULL, never a refusal`, async () => {
+    selectResults.push([]) // the team-scoped probe misses
+    await caller.start({
+      actionId: TIDY_UP,
+      teamId: TEAM_ID,
+      startedReason: `event`,
+      automationId: AUTOMATION_ID,
+    })
+    expect(inserts[0]!.values).toMatchObject({
+      startedReason: `event`,
+      automationId: null,
+    })
+  })
+
+  it(`other builtins still refuse schedule/event`, async () => {
+    await expect(
+      caller.start({
+        actionId: `builtin:fix-conflicts`,
+        teamId: TEAM_ID,
+        startedReason: `schedule`,
+      })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    expect(inserts).toHaveLength(0)
+  })
+
+  it(`heartbeat resurrects a tidy-up run keeping its reason + automation`, async () => {
+    selectResults.push([]) // row swept
+    selectResults.push([{ id: AUTOMATION_ID }]) // automations probe hit
+    await caller.heartbeat({
+      id: SESSION_ID,
+      teamId: TEAM_ID,
+      actionId: TIDY_UP,
+      startedReason: `schedule`,
+      automationId: AUTOMATION_ID,
+    })
+    expect(inserts[0]!.values).toMatchObject({
+      id: SESSION_ID,
+      actionId: null,
+      actionName: `Tidy up`,
+      startedReason: `schedule`,
+      automationId: AUTOMATION_ID,
+    })
+    expect(whereShape(selectWheres.at(-1))).toContain(TEAM_ID)
+  })
+})
+
 describe(`codingSessions — builtin fix-conflicts (EXP-259)`, () => {
   const FIX_CONFLICTS_ID = `builtin:fix-conflicts`
 

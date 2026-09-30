@@ -101,7 +101,7 @@ struct ActionsListView: View {
             if let teamId = teamState.activeTeam?.id, let vm = viewModel {
                 AutomationFormSheet(
                     teamId: teamId,
-                    actions: vm.actions,
+                    actions: automationTargets(vm, teamId: teamId),
                     devices: vm.allDevices.filter(\.canRunAutomations),
                     editing: target.automation,
                     onSubmit: { actionId, deviceId, trigger, launch in
@@ -133,13 +133,23 @@ struct ActionsListView: View {
             Button("Cancel", role: .cancel) { pendingDelete = nil }
         } message: { automation in
             Text(AutomationCopy.deleteBody(
-                actionName: viewModel?.actions.first { $0.id == automation.actionId }?.name
+                actionName: viewModel.flatMap { vm in
+                    automationTargets(vm, teamId: automation.teamId)
+                        .first { $0.id == automation.actionId }?.name
+                }
             ))
         }
         .navigationDestination(item: $sessionTarget) { target in
             WorkScreen(subject: .session(id: target.sessionId))
                 .environment(\.accountId, accountId)
         }
+    }
+
+    /// FEED-50: every action an automation may target or name — the team's
+    /// rows plus the ONE automatable builtin, "Tidy up" (client-constructed,
+    /// never a synced row), so its automations show its name + glyph.
+    private func automationTargets(_ vm: ActionsViewModel, teamId: String) -> [ActionDto] {
+        vm.actions + [ActionDto.builtinTidyUpAction(teamId: teamId)]
     }
 
     private func ensureViewModel() {
@@ -336,7 +346,8 @@ struct ActionsListView: View {
     /// absolute next-run date (EXP-812 — the calendar moved it under every
     /// screenshot, and the recurrence says the same thing).
     private func automationRow(_ automation: AutomationDto, vm: ActionsViewModel) -> some View {
-        let action = vm.actions.first { $0.id == automation.actionId }
+        let action = automationTargets(vm, teamId: automation.teamId)
+            .first { $0.id == automation.actionId }
         let trigger = automation.parsedTrigger
         let boundDevice = vm.allDevices.first { $0.deviceId == automation.deviceId }
         let busy = vm.automationBusyId == automation.id

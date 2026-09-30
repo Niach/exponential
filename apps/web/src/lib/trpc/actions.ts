@@ -23,6 +23,8 @@ import {
   BUILTIN_CREATE_ACTION_NAME,
   BUILTIN_FIX_CONFLICTS_ID,
   BUILTIN_FIX_CONFLICTS_NAME,
+  BUILTIN_TIDY_UP_ID,
+  BUILTIN_TIDY_UP_NAME,
   isBuiltinActionId,
 } from "@/lib/builtin-actions"
 
@@ -170,6 +172,7 @@ const actionIdSchema = z
   .or(z.literal(BUILTIN_PLAN_WORKFLOW_ID))
   .or(z.literal(BUILTIN_REVIEW_NODE_ID))
   .or(z.literal(BUILTIN_FIX_REVIEW_FINDINGS_ID))
+  .or(z.literal(BUILTIN_TIDY_UP_ID))
 
 function rejectBuiltin(id: string, verb: string): void {
   if (isBuiltinActionId(id)) {
@@ -194,6 +197,7 @@ function assertNotReservedName(name: string): void {
     BUILTIN_PLAN_WORKFLOW_NAME,
     BUILTIN_REVIEW_NODE_NAME,
     BUILTIN_FIX_REVIEW_FINDINGS_NAME,
+    BUILTIN_TIDY_UP_NAME,
   ]) {
     if (normalized === reserved.toLowerCase()) {
       throw new TRPCError({
@@ -402,7 +406,9 @@ export const actionsRouter = router({
 
   // Live coding_sessions rows survive a delete batch-shaped: action_id nulls
   // (FK SET NULL) while the action_name snapshot keeps labeling the run.
-  // Automations targeting the action cascade away with it (EXP-583).
+  // Automations targeting the action go with it in the same transaction
+  // (EXP-583; FEED-50: `automations.action_id` is text so it can name the
+  // tidy-up builtin, so this delete IS the cascade).
   delete: authedProcedure
     .input(z.object({ id: actionIdSchema }))
     .mutation(async ({ ctx, input }) => {
@@ -411,6 +417,7 @@ export const actionsRouter = router({
       await assertTeamOwner(ctx.session.user.id, existing.teamId)
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
+        await tx.delete(automations).where(eq(automations.actionId, input.id))
         await tx.delete(actions).where(eq(actions.id, input.id))
         return { ok: true as const, id: input.id, txId }
       })

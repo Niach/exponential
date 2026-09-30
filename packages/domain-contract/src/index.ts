@@ -265,6 +265,8 @@ export interface DomainContract {
     /** EXP-984: the agent-review run of one workflow node (device-started). */
     reviewNodeId: string
     fixReviewFindingsId: string
+    /** FEED-50: the listed, automatable board cleanup. */
+    tidyUpId: string
   }
   /** Action-input limits — parity-locked with @exp/db-schema/domain. */
   actionInputs: { max: number; maxTextLength: number }

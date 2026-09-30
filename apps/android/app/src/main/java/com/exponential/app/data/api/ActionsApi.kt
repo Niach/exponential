@@ -71,11 +71,12 @@ data class ActionDto(
     val isBuiltin: Boolean get() = builtin == true
 
     /** Whether an automation can target this action (EXP-583): a real team
-     * row (never a builtin) whose every input is optional — an automated run
-     * has nobody to type a required one, and the server refuses to enable
-     * such an automation. */
+     * row — or Tidy up, the ONLY automatable builtin (FEED-50) — whose every
+     * input is optional: an automated run has nobody to type a required one,
+     * and the server refuses to enable such an automation. */
     val automatable: Boolean
-        get() = !isBuiltin && inputs.orEmpty().none { it.required }
+        get() = (!isBuiltin || id == DomainContract.builtinTidyUpId) &&
+            inputs.orEmpty().none { it.required }
 
     companion object {
         /**
@@ -151,6 +152,39 @@ fun builtinFixConflictsAction(teamId: String): ActionDto = ActionDto(
 )
 
 /**
+ * The LISTED builtin "Tidy up" (FEED-50): let the agent dedupe, label and link
+ * a board's issues over MCP — nothing is deleted. Both picks are optional, so
+ * it is the ONLY builtin an automation may target. Mirrors
+ * apps/web/src/lib/builtin-actions.ts field-for-field.
+ */
+fun builtinTidyUpAction(teamId: String): ActionDto = ActionDto(
+    id = DomainContract.builtinTidyUpId,
+    teamId = teamId,
+    name = "Tidy up",
+    description = "Let your agent dedupe, label and link a board's issues. Nothing is deleted",
+    icon = "brush-cleaning",
+    repositoryId = null,
+    body = "",
+    inputs = listOf(
+        ActionInputDto(
+            key = "board",
+            label = "Board",
+            type = "board",
+            required = false,
+        ),
+        ActionInputDto(
+            key = "repo",
+            label = "Repository",
+            type = "repo",
+            required = false,
+        ),
+    ),
+    sortOrder = 1e9 + 4,
+    builtin = true,
+    promptPlaceholder = "Anything the tidy-up should focus on or leave alone (optional)…",
+)
+
+/**
  * The HIDDEN "Chat" builtin (EXP-615): a conversation with your agent over the
  * tracker's MCP tools, OPTIONALLY anchored to a repository (EXP-739).
  * Deliberately in NO list — the Agent page composer constructs this row
@@ -201,13 +235,16 @@ fun builtinPlanWorkflowAction(teamId: String): ActionDto = ActionDto(
 )
 
 /**
- * Both LISTED builtins in the order every client pins them (the hidden chat
- * and plan-workflow rows are deliberately absent). EXP-270: mobile used to
- * construct only "Create action", so "Fix merge conflicts" silently vanished
- * from Android when EXP-268 moved the list onto the synced shape.
+ * The three LISTED builtins in the order every client pins them (the hidden
+ * chat and plan-workflow rows are deliberately absent). EXP-270: mobile used
+ * to construct only "Create action", so "Fix merge conflicts" silently
+ * vanished from Android when EXP-268 moved the list onto the synced shape.
  */
-fun builtinActions(teamId: String): List<ActionDto> =
-    listOf(builtinCreateAction(teamId), builtinFixConflictsAction(teamId))
+fun builtinActions(teamId: String): List<ActionDto> = listOf(
+    builtinCreateAction(teamId),
+    builtinFixConflictsAction(teamId),
+    builtinTidyUpAction(teamId),
+)
 
 /** `actions.get`'s / `.update`'s answer — the full row, body included. */
 @Serializable

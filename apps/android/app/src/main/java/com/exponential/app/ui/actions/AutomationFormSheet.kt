@@ -66,9 +66,9 @@ fun AutomationFormSheet(
     val labelOptions by filterViewModel.labels.collectAsStateWithLifecycle()
     val statusOptions by filterViewModel.statuses.collectAsStateWithLifecycle()
 
-    // Custom actions only — builtins are server-shipped prompts with required
-    // inputs and no team row to target (web parity).
-    val targets = remember(actions) { actions.filter { !it.isBuiltin } }
+    // Custom actions plus the ONE automatable builtin, Tidy up (FEED-50) —
+    // the other builtins need free text or a required pick (web parity).
+    val targets = remember(actions) { actions.filter { !it.isBuiltin || it.automatable } }
     var actionId by remember {
         mutableStateOf(editing?.actionId ?: targets.firstOrNull { it.automatable }?.id)
     }

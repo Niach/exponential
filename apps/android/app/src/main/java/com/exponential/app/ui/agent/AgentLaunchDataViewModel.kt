@@ -9,6 +9,7 @@ import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.data.api.builtinCreateAction
 import com.exponential.app.data.api.builtinFixConflictsAction
+import com.exponential.app.data.api.builtinTidyUpAction
 import com.exponential.app.data.api.toActionDto
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
@@ -126,9 +127,9 @@ class AgentLaunchDataViewModel @Inject constructor(
     val teamId: StateFlow<String?> = selection.selectedId
 
     /**
-     * The selected team's actions: the two LISTED builtins pinned first —
-     * "Fix merge conflicts" ahead of "Create action" (the web order, EXP-825)
-     * — then the synced rows in server order. Chat is in NO list: it is what
+     * The selected team's actions: the three LISTED builtins pinned first —
+     * "Fix merge conflicts" ahead of "Create action" (the web order, EXP-825),
+     * then "Tidy up" (FEED-50) — then the synced rows in server order. Chat is in NO list: it is what
      * "no subject" means on the composer.
      */
     val actionsState: StateFlow<SheetActionsState> = combine(dbFlow, selection.selectedId) { db, teamId ->
@@ -142,6 +143,7 @@ class AgentLaunchDataViewModel @Inject constructor(
                     actions = listOf(
                         builtinFixConflictsAction(teamId),
                         builtinCreateAction(teamId),
+                        builtinTidyUpAction(teamId),
                     ) + rows.map { it.toActionDto(json) },
                 )
             }

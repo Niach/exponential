@@ -3,14 +3,16 @@
 // are non-editable and non-deletable, and their prompt is composed by the
 // DESKTOP from its own shipped constants, so the `body` here stays empty and
 // is never fetched (EXP-268 removed the per-device trust gate entirely; these
-// are product-shipped prompts, not team-owner ones). Two builtins exist
-// today: "Create action", which runs the
+// are product-shipped prompts, not team-owner ones). Three builtins are
+// LISTED: "Create action", which runs the
 // MCP-enabled action-creator prompt as a normal, steer-visible action
 // run (it replaced every manual action-creation UI), and "Fix merge
 // conflicts" (EXP-259), which takes a `pr` input (an issue-linked open PR),
 // rebases its branch onto the default branch in a worktree, resolves the
 // conflicts, pushes, and merges the PR via the `exponential_pr_merge` MCP
-// tool.
+// tool, and "Tidy up" (FEED-50), a non-destructive cleanup of a board's
+// issues (duplicates, existing labels, relations) and the ONLY builtin an
+// automation may target.
 
 import type { ActionInputDef } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
@@ -73,9 +75,29 @@ export const BUILTIN_FIX_REVIEW_FINDINGS_ID = contract.builtinAction.fixReviewFi
 
 export const BUILTIN_FIX_REVIEW_FINDINGS_NAME = `Fix review findings`
 
+/** FEED-50: the "Tidy up" builtin — a non-destructive board cleanup
+ * (duplicates, existing labels, relations; nothing is deleted). LISTED like
+ * Create action / Fix conflicts, and the ONLY automatable builtin. */
+export const BUILTIN_TIDY_UP_ID = contract.builtinAction.tidyUpId
+
+export const BUILTIN_TIDY_UP_NAME = `Tidy up`
+
+/** The device capability a tidy-up start needs (an older build would fall
+ * through to the Create-action prompt). */
+export const TIDY_UP_CAP = `tidy-up`
+
+/** The builtins an automation may target: every input optional, no free
+ * text required. Create action needs its prompt, Fix conflicts a `pr`. */
+export const AUTOMATABLE_BUILTIN_IDS: readonly string[] = [BUILTIN_TIDY_UP_ID]
+
+export function isAutomatableBuiltinId(id: string): boolean {
+  return AUTOMATABLE_BUILTIN_IDS.includes(id)
+}
+
 export function isBuiltinActionId(id: string): boolean {
   return (
     id === BUILTIN_CREATE_ACTION_ID ||
+    id === BUILTIN_TIDY_UP_ID ||
     id === BUILTIN_FIX_CONFLICTS_ID ||
     id === BUILTIN_CHAT_ID ||
     id === BUILTIN_PLAN_WORKFLOW_ID ||
@@ -97,7 +119,9 @@ export function builtinActionName(id: string): string {
           ? BUILTIN_REVIEW_NODE_NAME
           : id === BUILTIN_FIX_REVIEW_FINDINGS_ID
             ? BUILTIN_FIX_REVIEW_FINDINGS_NAME
-            : BUILTIN_CREATE_ACTION_NAME
+            : id === BUILTIN_TIDY_UP_ID
+              ? BUILTIN_TIDY_UP_NAME
+              : BUILTIN_CREATE_ACTION_NAME
 }
 
 // EXP-825: the request itself (what the action should do, and its name if
@@ -123,6 +147,14 @@ const CHAT_INPUTS: ActionInputDef[] = [
   // tracker, where code is an anchor you may add rather than a precondition.
   // With a repo it keeps its own `exp/chat-<id8>` worktree. Byte-locked ×4
   // (desktop `api::actions`, iOS `ActionsApi`, Android `ActionsApi`).
+  { key: `repo`, label: `Repository`, type: `repo`, required: false },
+]
+
+// FEED-50: both optional. No board = every board of the team; a repo lets
+// the agent check code while judging duplicates (a worktree), absent = the
+// scratch dir. Byte-locked ×4.
+export const TIDY_UP_INPUTS: ActionInputDef[] = [
+  { key: `board`, label: `Board`, type: `board`, required: false },
   { key: `repo`, label: `Repository`, type: `repo`, required: false },
 ]
 
@@ -226,6 +258,27 @@ export function builtinPlanWorkflowAction(teamId: string): BuiltinAction {
     inputs: [],
     promptPlaceholder: `Anything the plan should respect (optional)…`,
     sortOrder: 1e9 + 3,
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
+    builtin: true,
+  }
+}
+
+/** The virtual "Tidy up" row (FEED-50) appended to `actions.list` beside
+ * Create action / Fix conflicts. Dedupes, labels and links one board's
+ * issues (or the whole team's); nothing is deleted. */
+export function builtinTidyUpAction(teamId: string): BuiltinAction {
+  return {
+    id: BUILTIN_TIDY_UP_ID,
+    teamId,
+    repositoryId: null,
+    name: BUILTIN_TIDY_UP_NAME,
+    description: `Let your agent dedupe, label and link a board's issues. Nothing is deleted`,
+    icon: `brush-cleaning`,
+    body: ``,
+    inputs: TIDY_UP_INPUTS,
+    promptPlaceholder: `Anything the tidy-up should focus on or leave alone (optional)…`,
+    sortOrder: 1e9 + 4,
     createdAt: new Date(0),
     updatedAt: new Date(0),
     builtin: true,

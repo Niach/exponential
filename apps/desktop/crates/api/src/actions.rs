@@ -51,9 +51,27 @@ pub const BUILTIN_FIX_REVIEW_FINDINGS_ID: &str = domain::contract::BUILTIN_FIX_R
 /// server refuses a device without it.
 pub const PLAN_WORKFLOW_CAP: &str = "plan-workflow";
 
+/// FEED-50: the "Tidy up" builtin — a non-destructive cleanup of a board's
+/// issues (duplicates, existing labels, relations; nothing is deleted).
+/// LISTED like Create action / Fix conflicts, and the ONLY builtin an
+/// automation may target ([`is_automatable_builtin_id`]).
+pub const BUILTIN_TIDY_UP_ID: &str = domain::contract::BUILTIN_TIDY_UP_ID;
+
+/// FEED-50: the device capability a tidy-up start needs — an older build
+/// would fall through to the Create-action prompt.
+pub const TIDY_UP_CAP: &str = "tidy-up";
+
+/// FEED-50: whether an automation may target this builtin (every input
+/// optional, no free text required). Create action needs its prompt, Fix
+/// conflicts a `pr`; Tidy up is the only one. Web `isAutomatableBuiltinId`.
+pub fn is_automatable_builtin_id(id: &str) -> bool {
+    id == BUILTIN_TIDY_UP_ID
+}
+
 /// Whether `id` is a server-defined virtual builtin action id.
 pub fn is_builtin_action_id(id: &str) -> bool {
     id == BUILTIN_CREATE_ACTION_ID
+        || id == BUILTIN_TIDY_UP_ID
         || id == BUILTIN_FIX_CONFLICTS_ID
         || id == BUILTIN_CHAT_ID
         || id == BUILTIN_PLAN_WORKFLOW_ID
@@ -70,6 +88,7 @@ pub fn builtin_action_name(id: &str) -> Option<&'static str> {
         BUILTIN_FIX_CONFLICTS_ID => Some(BUILTIN_FIX_CONFLICTS_NAME),
         BUILTIN_CHAT_ID => Some(BUILTIN_CHAT_NAME),
         BUILTIN_PLAN_WORKFLOW_ID => Some(BUILTIN_PLAN_WORKFLOW_NAME),
+        BUILTIN_TIDY_UP_ID => Some(BUILTIN_TIDY_UP_NAME),
         // EXP-984: the hidden reviewer. It has no factory (no client ever
         // constructs it — only the workflow engine starts it), but its run
         // rows carry this name snapshot, byte-identical to the server's.
@@ -88,6 +107,7 @@ pub fn builtin_action_icon(id: &str) -> Option<&'static str> {
         BUILTIN_FIX_CONFLICTS_ID => Some("git-branch"),
         BUILTIN_CHAT_ID => Some("message-circle"),
         BUILTIN_PLAN_WORKFLOW_ID => Some("layers"),
+        BUILTIN_TIDY_UP_ID => Some("brush-cleaning"),
         _ => None,
     }
 }
@@ -114,6 +134,11 @@ pub const BUILTIN_FIX_REVIEW_FINDINGS_NAME: &str = "Fix review findings";
 /// (`builtinPlanWorkflowAction.promptPlaceholder`).
 const BUILTIN_PLAN_WORKFLOW_PROMPT_PLACEHOLDER: &str =
     "Anything the plan should respect (optional)…";
+const BUILTIN_TIDY_UP_NAME: &str = "Tidy up";
+/// FEED-50: the tidy-up composer's hint — byte-identical to the web factory
+/// (`builtinTidyUpAction.promptPlaceholder`).
+pub const TIDY_UP_PROMPT_PLACEHOLDER: &str =
+    "Anything the tidy-up should focus on or leave alone (optional)…";
 
 /// One typed run-time input definition on an action (EXP-257 — filled in the
 /// unified launch dialog, resolved server-side for remote starts).
@@ -501,6 +526,49 @@ pub fn builtin_plan_workflow_action(team_id: &str) -> Action {
     }
 }
 
+/// The client-constructed virtual "Tidy up" row (FEED-50): dedupes, labels
+/// and links one board's issues (or every board of the team without a
+/// `board` pick) over MCP; nothing is deleted. An optional `repo` gives the
+/// run an `exp/tidy-up-<id8>` worktree as READ-ONLY context, none = the
+/// scratch dir. APPENDED to the lists beside Create action / Fix conflicts
+/// and the only automatable builtin. Mirrors the web's `builtinTidyUpAction`.
+pub fn builtin_tidy_up_action(team_id: &str) -> Action {
+    Action {
+        id: BUILTIN_TIDY_UP_ID.to_string(),
+        team_id: team_id.to_string(),
+        repository_id: None,
+        name: BUILTIN_TIDY_UP_NAME.to_string(),
+        description: Some(
+            "Let your agent dedupe, label and link a board's issues. Nothing is deleted"
+                .to_string(),
+        ),
+        icon: Some("brush-cleaning".to_string()),
+        body: String::new(),
+        builtin: true,
+        // Byte-locked ×4 (web `TIDY_UP_INPUTS`): board → repo, both optional.
+        inputs: vec![
+            ActionInput {
+                key: "board".to_string(),
+                label: "Board".to_string(),
+                input_type: "board".to_string(),
+                required: false,
+                placeholder: None,
+            },
+            ActionInput {
+                key: "repo".to_string(),
+                label: "Repository".to_string(),
+                input_type: "repo".to_string(),
+                required: false,
+                placeholder: None,
+            },
+        ],
+        prompt_placeholder: Some(TIDY_UP_PROMPT_PLACEHOLDER.to_string()),
+        sort_order: 1e9 + 4.0,
+        created_at: None,
+        updated_at: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -841,6 +909,10 @@ mod tests {
             builtin_action_icon(BUILTIN_PLAN_WORKFLOW_ID),
             builtin_plan_workflow_action("team-1").icon.as_deref()
         );
+        assert_eq!(
+            builtin_action_icon(BUILTIN_TIDY_UP_ID),
+            builtin_tidy_up_action("team-1").icon.as_deref()
+        );
         assert_eq!(builtin_action_icon("act-1"), None);
     }
 
@@ -883,6 +955,53 @@ mod tests {
     /// (the workflow id rides the start's `prompt`), its composer hint and
     /// the sortOrder that keeps it behind the other three builtins wherever
     /// a naive renderer ever sees it.
+    #[test]
+    fn builtin_tidy_up_action_matches_the_web_factory() {
+        let builtin = builtin_tidy_up_action("team-1");
+        assert_eq!(builtin.id, "builtin:tidy-up");
+        assert_eq!(builtin.team_id, "team-1");
+        assert_eq!(builtin.repository_id, None);
+        assert_eq!(builtin.name, "Tidy up");
+        assert_eq!(
+            builtin.description.as_deref(),
+            Some("Let your agent dedupe, label and link a board's issues. Nothing is deleted")
+        );
+        assert_eq!(builtin.icon.as_deref(), Some("brush-cleaning"));
+        assert!(builtin.body.is_empty());
+        assert!(builtin.builtin);
+        let inputs: Vec<(&str, &str, &str, bool)> = builtin
+            .inputs
+            .iter()
+            .map(|i| (i.key.as_str(), i.label.as_str(), i.input_type.as_str(), i.required))
+            .collect();
+        assert_eq!(
+            inputs,
+            vec![("board", "Board", "board", false), ("repo", "Repository", "repo", false)]
+        );
+        assert!(builtin.inputs.iter().all(|i| i.placeholder.is_none()));
+        assert_eq!(
+            builtin.prompt_placeholder.as_deref(),
+            Some("Anything the tidy-up should focus on or leave alone (optional)…")
+        );
+        assert_eq!(builtin.sort_order, 1e9 + 4.0);
+        assert_eq!(builtin_action_name(BUILTIN_TIDY_UP_ID), Some("Tidy up"));
+        assert!(is_builtin_action_id(BUILTIN_TIDY_UP_ID));
+        assert_eq!(TIDY_UP_CAP, "tidy-up");
+        // The ONLY automatable builtin.
+        assert!(is_automatable_builtin_id(BUILTIN_TIDY_UP_ID));
+        for id in [
+            BUILTIN_CREATE_ACTION_ID,
+            BUILTIN_FIX_CONFLICTS_ID,
+            BUILTIN_CHAT_ID,
+            BUILTIN_PLAN_WORKFLOW_ID,
+            BUILTIN_REVIEW_NODE_ID,
+            BUILTIN_FIX_REVIEW_FINDINGS_ID,
+            "act-1",
+        ] {
+            assert!(!is_automatable_builtin_id(id), "{id}");
+        }
+    }
+
     #[test]
     fn builtin_plan_workflow_action_matches_the_web_factory() {
         let builtin = builtin_plan_workflow_action("team-1");

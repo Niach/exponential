@@ -560,6 +560,8 @@ pub fn team_actions(cx: &App, team_id: &str) -> (Vec<api::actions::Action>, bool
             .total_cmp(&b.sort_order)
             .then_with(|| a.name.cmp(&b.name))
     });
+    // FEED-50: Create action → Fix conflicts → Tidy up, then the team's rows.
+    out.insert(0, api::actions::builtin_tidy_up_action(team_id));
     out.insert(0, api::actions::builtin_fix_conflicts_action(team_id));
     out.insert(0, api::actions::builtin_create_action(team_id));
     (out, collection.is_ready())

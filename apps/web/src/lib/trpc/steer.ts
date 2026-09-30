@@ -61,6 +61,9 @@ import {
   BUILTIN_PLAN_WORKFLOW_ID,
   PLAN_WORKFLOW_CAP,
   builtinPlanWorkflowAction,
+  BUILTIN_TIDY_UP_ID,
+  TIDY_UP_CAP,
+  builtinTidyUpAction,
   planWorkflowPrompt,
   BUILTIN_CREATE_ACTION_ID,
   BUILTIN_FIX_CONFLICTS_ID,
@@ -300,6 +303,7 @@ export const steerRouter = router({
             .or(z.literal(BUILTIN_FIX_CONFLICTS_ID))
             .or(z.literal(BUILTIN_CHAT_ID))
             .or(z.literal(BUILTIN_PLAN_WORKFLOW_ID))
+            .or(z.literal(BUILTIN_TIDY_UP_ID))
             .optional(),
           // EXP-981: the draft workflow a Plan-workflow start is about.
           // Required when actionId is that builtin. EXP-1082 §1: on any
@@ -1048,7 +1052,9 @@ export const steerRouter = router({
                 ? builtinChatAction(input.teamId!)
                 : input.actionId === BUILTIN_PLAN_WORKFLOW_ID
                   ? builtinPlanWorkflowAction(input.teamId!)
-                  : builtinCreateAction(input.teamId!)
+                  : input.actionId === BUILTIN_TIDY_UP_ID
+                    ? builtinTidyUpAction(input.teamId!)
+                    : builtinCreateAction(input.teamId!)
           action = {
             id: virtual.id,
             teamId: virtual.teamId,
@@ -1258,8 +1264,12 @@ export const steerRouter = router({
               ),
             }
           }
-        } else if (input.actionId === BUILTIN_CHAT_ID) {
-          // The chat builtin's repo is its OPTIONAL `repo` input (EXP-739) —
+        } else if (
+          input.actionId === BUILTIN_CHAT_ID ||
+          input.actionId === BUILTIN_TIDY_UP_ID
+        ) {
+          // The chat and tidy-up (FEED-50) builtins' repo is their OPTIONAL
+          // `repo` input (EXP-739) —
           // resolved above (team-owned, exists), re-fetched here for the
           // override-aware default branch the frame must carry (EXP-615).
           // Omitted entirely: the frame carries no `repo` and the launcher
@@ -1336,6 +1346,16 @@ export const steerRouter = router({
         }
         requireUsageHeadroom(device, actionAgent, input.account, input.model)
         requireStartPromptCap(device, prompt)
+        // FEED-50: likewise an older build has no Tidy-up kind.
+        if (
+          input.actionId === BUILTIN_TIDY_UP_ID &&
+          !device.caps.includes(TIDY_UP_CAP)
+        ) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `That machine runs an older Exponential app that cannot tidy up. Update it first.`,
+          })
+        }
         // An older build has no Plan-workflow kind: it would fall through to
         // the Create-action prompt and author an ACTION instead.
         if (
