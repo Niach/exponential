@@ -128,6 +128,9 @@ function paramSchema(tool: string, param: string): z.ZodType {
 const READ_ONLY_EXTRA = new Set([
   `exponential_issues_pr_files`,
   `exponential_repositories_branch_diff`,
+  // EXP-1153: the MCP App views read what they show.
+  `exponential_board_view`,
+  `exponential_issue_view`,
 ])
 function isRead(name: string): boolean {
   return /_(get|list)$/.test(name) || READ_ONLY_EXTRA.has(name)

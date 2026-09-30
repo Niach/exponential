@@ -996,6 +996,28 @@
         "result": "list"
       },
       {
+        "name": "board_view",
+        "title": "Show board",
+        "blurb": "Shows a board's open issues as an interactive view.",
+        "progressive": "Showing board",
+        "done": "Showed board",
+        "progressiveMany": "Showing {n} boards",
+        "doneMany": "Showed {n} boards",
+        "subjectKey": "boardId",
+        "result": "board"
+      },
+      {
+        "name": "issue_view",
+        "title": "Show issue",
+        "blurb": "Shows one issue as an interactive view.",
+        "progressive": "Showing issue",
+        "done": "Showed issue",
+        "progressiveMany": "Showing {n} issues",
+        "doneMany": "Showed {n} issues",
+        "subjectKey": "id",
+        "result": "issue"
+      },
+      {
         "name": "issues_pr_files",
         "title": "Read pull request files",
         "blurb": "Lists the files an issue's pull request changes.",
@@ -1669,6 +1691,8 @@
       { "name": "issues_delete", "refs": "" },
       { "name": "issues_get", "refs": "issue@" },
       { "name": "issues_list", "refs": "list:issue@" },
+      { "name": "board_view", "refs": "board@" },
+      { "name": "issue_view", "refs": "issue@" },
       { "name": "issues_pr_files", "refs": "issue@$issueId" },
       { "name": "issues_subscribe", "refs": "issue@" },
       { "name": "issues_unsubscribe", "refs": "issue@" },

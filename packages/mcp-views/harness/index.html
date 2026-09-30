@@ -1,0 +1,156 @@
+<!doctype html>
+<!--
+  A stand-in HOST for the built views: plays ChatGPT/Claude for local
+  development. Loads dist/<view>.html into a sandboxed iframe, answers
+  ui/initialize with a theme, sends tool-input + tool-result with sample
+  data, answers tools/call from canned data, and logs what the view sends up.
+
+    bun run --filter @exp/mcp-views build
+    cd packages/mcp-views && python3 -m http.server 8765
+    open http://localhost:8765/harness/?view=board   (or ?view=issue, &theme=light)
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MCP App harness · Exponential</title>
+<style>
+  body { margin: 0; background: var(--bg, #0c0c0e); color: var(--fg, #e4e4e7); font: 14px/1.4 ui-sans-serif, system-ui; display: grid; grid-template-columns: 1fr 320px; height: 100vh; }
+  body[data-theme="light"] { --bg: #ffffff; --fg: #18181b; --bubble: #f4f4f5; --line: #e4e4e7; }
+  main { padding: 24px; overflow: auto; }
+  .chat { max-width: 680px; margin: 0 auto; }
+  .bubble { background: var(--bubble, #18181b); border: 1px solid var(--line, #27272a); border-radius: 12px; padding: 10px 14px; margin-bottom: 14px; opacity: .8; }
+  .bubble.user { margin-left: 80px; opacity: 1; }
+  iframe { width: 100%; border: 0; display: block; height: 200px; }
+  aside { border-left: 1px solid var(--line, #27272a); padding: 12px; font: 12px/1.5 ui-monospace, monospace; overflow: auto; opacity: .8; }
+  aside div { border-bottom: 1px solid var(--line, #1f1f22); padding: 4px 0; word-break: break-all; }
+  aside b { opacity: 1; }
+</style>
+</head>
+<body>
+<main>
+  <div class="chat">
+    <div class="bubble user" id="prompt"></div>
+    <div class="bubble" id="answer"></div>
+    <iframe id="view" sandbox="allow-scripts" title="Exponential"></iframe>
+  </div>
+</main>
+<aside id="log"><div><b>host log</b></div></aside>
+
+<script>
+const params = new URLSearchParams(location.search)
+const VIEW = params.get(`view`) === `issue` ? `issue` : `board`
+const THEME = params.get(`theme`) === `light` ? `light` : `dark`
+document.body.dataset.theme = THEME
+
+const BOARD = { id: `b1`, name: `Demo`, prefix: `DEMO`, color: `#6366f1`, icon: null, repositoryId: `r1`, url: `https://app.exponential.at/t/acme/boards/demo` }
+const STATUSES = [
+  { id: `s1`, name: `Backlog`, color: `#71717a`, category: `backlog`, icon: `circle-dashed` },
+  { id: `s2`, name: `Todo`, color: `#a1a1aa`, category: `unstarted`, icon: `circle` },
+  { id: `s3`, name: `In progress`, color: `#f59e0b`, category: `started`, icon: `progress-2-4` },
+  { id: `s4`, name: `In review`, color: `#6366f1`, category: `started`, icon: `progress-3-4` },
+  { id: `s5`, name: `Done`, color: `#22c55e`, category: `completed`, icon: `circle-check` },
+]
+const U = {
+  mara: { id: `u1`, name: `Mara Lind`, email: `mara@acme.dev` },
+  jonas: { id: `u2`, name: `Jonas Berg`, email: `jonas@acme.dev` },
+  ana: { id: `u3`, name: `Ana Ruiz`, email: `ana@acme.dev` },
+}
+const L = { bug: { id: `l1`, name: `bug`, color: `#ef4444` }, web: { id: `l2`, name: `web`, color: `#3b82f6` }, email: { id: `l3`, name: `email`, color: `#10b981` }, ux: { id: `l4`, name: `ux`, color: `#f472b6` }, android: { id: `l5`, name: `android`, color: `#84cc16` } }
+const issue = (n, title, statusId, priority, extra = {}) => ({
+  id: `i${n}`, identifier: `DEMO-${n}`, title, statusId, priority, assignee: null, labels: [], pr: null, dueDate: null,
+  url: `https://app.exponential.at/t/acme/boards/demo/issues/DEMO-${n}`, ...extra,
+})
+const ISSUES = [
+  issue(12, `Login button unresponsive on Safari`, `s3`, `high`, { assignee: U.mara, labels: [L.bug], pr: { state: `open`, url: `https://github.com/acme/app/pull/88`, number: 88 } }),
+  issue(9, `Composer loses draft when switching boards`, `s3`, `medium`, { assignee: U.jonas, labels: [L.web] }),
+  issue(2, `Onboarding wizard: skip repo step`, `s4`, `medium`, { assignee: U.mara, pr: { state: `open`, url: null, number: 91 } }),
+  issue(3, `Notifications digest arrives twice on Mondays`, `s2`, `urgent`, { labels: [L.bug, L.email], dueDate: `2026-10-10` }),
+  issue(7, `Add keyboard shortcut for "assign to me"`, `s2`, `low`, { labels: [L.ux] }),
+  issue(14, `Board archive card shows stale count`, `s2`, `none`),
+  issue(5, `Investigate slow initial sync on Android`, `s1`, `medium`, { assignee: U.ana, labels: [L.android] }),
+  issue(16, `Widget: dark theme swatch contrast`, `s1`, `low`),
+]
+const BOARD_DATA = { board: BOARD, statuses: STATUSES, issues: ISSUES }
+const issueData = (ident) => {
+  const base = ISSUES.find((i) => i.identifier === ident) ?? ISSUES[3]
+  const status = STATUSES.find((s) => s.id === base.statusId)
+  const isDemo3 = base.identifier === `DEMO-3`
+  return {
+    issue: {
+      ...base,
+      description: isDemo3
+        ? `Users with the daily digest at 08:00 local time get two emails on Mondays.\n\nSteps:\n1. Set the digest hour to 08:00 in Settings → Notifications.\n2. Leave unread notifications over the weekend.\n3. On Monday two digests arrive four minutes apart.\n\nExpected: one digest.`
+        : `Sample description for ${base.identifier}.`,
+      estimate: null, createdAt: `2026-09-28T09:12:00Z`, updatedAt: `2026-09-30T18:40:00Z`,
+    },
+    status, board: BOARD,
+    comments: isDemo3
+      ? [
+          { id: `c2`, author: U.jonas, body: `Reproduced on staging. The hourly legacy schedule still fires for accounts migrated before the daily digest landed.`, createdAt: `2026-09-30T15:02:00Z`, source: `user` },
+          { id: `c1`, author: U.mara, body: `Saw this too, both mails carry the same items.`, createdAt: `2026-09-29T08:30:00Z`, source: `user` },
+        ]
+      : [],
+    relations: isDemo3 ? [{ type: `blocks`, direction: `forward`, otherIdentifier: `DEMO-14`, otherTitle: `Board archive card shows stale count` }] : [],
+  }
+}
+
+document.getElementById(`prompt`).textContent = VIEW === `board` ? `What's open on the Demo board?` : `Show me DEMO-3.`
+document.getElementById(`answer`).textContent = VIEW === `board` ? `Here is the Demo board.` : `Here is DEMO-3.`
+
+const log = (label, data) => {
+  const el = document.createElement(`div`)
+  el.innerHTML = `<b>${label}</b> ${data === undefined ? `` : JSON.stringify(data)}`
+  document.getElementById(`log`).appendChild(el)
+}
+const frame = document.getElementById(`view`)
+const send = (msg) => frame.contentWindow.postMessage(msg, `*`)
+const DARK_VARS = { "--color-background-primary": `#111113`, "--color-background-secondary": `#18181b`, "--color-text-primary": `#fafafa`, "--color-text-secondary": `#a1a1aa`, "--color-border-primary": `#27272a`, "--font-sans": `ui-sans-serif, system-ui, sans-serif` }
+const LIGHT_VARS = { "--color-background-primary": `#ffffff`, "--color-background-secondary": `#f4f4f5`, "--color-text-primary": `#18181b`, "--color-text-secondary": `#71717a`, "--color-border-primary": `#e4e4e7`, "--font-sans": `ui-sans-serif, system-ui, sans-serif` }
+
+window.addEventListener(`message`, (event) => {
+  const msg = event.data
+  if (!msg || msg.jsonrpc !== `2.0` || !msg.method) return
+  const reply = (result) => send({ jsonrpc: `2.0`, id: msg.id, result })
+  switch (msg.method) {
+    case `ui/initialize`:
+      log(`ui/initialize`, msg.params.appCapabilities)
+      reply({
+        protocolVersion: `2025-11-25`,
+        hostInfo: { name: `harness`, version: `0.0.0` },
+        hostCapabilities: { openLinks: {}, serverTools: {}, message: {}, updateModelContext: {} },
+        hostContext: {
+          theme: THEME, displayMode: `inline`, availableDisplayModes: [`inline`, `fullscreen`],
+          containerDimensions: { maxHeight: 720 }, locale: `en-US`, platform: `web`,
+          toolInfo: { tool: { name: VIEW === `board` ? `exponential_board_view` : `exponential_issue_view` } },
+          styles: { variables: THEME === `light` ? LIGHT_VARS : DARK_VARS },
+        },
+      })
+      break
+    case `ui/notifications/initialized`:
+      log(`initialized → tool-input + tool-result`)
+      send({ jsonrpc: `2.0`, method: `ui/notifications/tool-input`, params: { arguments: VIEW === `board` ? {} : { id: `DEMO-3` } } })
+      setTimeout(() => send({ jsonrpc: `2.0`, method: `ui/notifications/tool-result`, params: {
+        content: [{ type: `text`, text: `(text half)` }],
+        structuredContent: VIEW === `board` ? BOARD_DATA : issueData(`DEMO-3`),
+      } }), 120)
+      break
+    case `ui/notifications/size-changed`:
+      frame.style.height = `${Math.min(msg.params.height + 2, 720)}px`
+      break
+    case `tools/call`:
+      log(`tools/call`, { name: msg.params.name, arguments: msg.params.arguments })
+      if (msg.params.name === `exponential_board_view`) reply({ content: [], structuredContent: BOARD_DATA })
+      else if (msg.params.name === `exponential_issue_view`) setTimeout(() => reply({ content: [], structuredContent: issueData(msg.params.arguments.id) }), 200)
+      else reply({ content: [{ type: `text`, text: `unknown tool` }], isError: true })
+      break
+    case `ui/open-link`: log(`ui/open-link`, msg.params); reply({}); break
+    case `ui/message`: log(`ui/message`, msg.params.content.text); reply({}); break
+    case `ui/update-model-context`: log(`ui/update-model-context`, msg.params.content?.[0]?.text); reply({}); break
+    default: log(msg.method, msg.params)
+  }
+})
+
+fetch(`../dist/${VIEW}.html`).then((r) => r.text()).then((html) => { frame.srcdoc = html })
+</script>
+</body>
+</html>

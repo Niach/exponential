@@ -71,6 +71,13 @@ Do not: iframe the web app; build a settings extension; chase file viewers.
   publishes the same document as `oauth-authorization-server`; ChatGPT
   Enterprise's workspace domain restriction reads `email` +
   `email_verified` from the userinfo endpoint it discovers there.
+- **MCP App views** (`packages/mcp-views/`): the board and issue views,
+  React on `@exp/ui`, built into one HTML document each and served by
+  `lib/mcp/views.ts` as `ui://exponential/{board,issue}`; linked from
+  `exponential_board_view` (also ChatGPT's thread-panel entrypoint) and
+  `exponential_issue_view`. The views load nothing external (no CSP
+  origins; avatars are initials), so the "with UI" review needs only the
+  screenshots, which the package ships.
 - **The package**: `packages/chatgpt-plugin/` in the portable Agent
   Plugins format: `plugin.json` (listing copy, review test cases,
   publication metadata), `mcp.json` (the one connected server), two skills
@@ -78,8 +85,8 @@ Do not: iframe the web app; build a settings extension; chase file viewers.
   square icons. `bun run --filter @exp/chatgpt-plugin pack` writes
   `dist/exponential-<version>.zip`; `plugin.test.ts` enforces the
   submission limits (lengths, HTTPS URLs, square icons, real tool names,
-  five positive + three negative cases, no pricing or comparative copy, no
-  screenshots because there is no UI, provider-neutral skills).
+  five positive + three negative cases, no pricing or comparative copy,
+  bounded screenshots of the views, provider-neutral skills).
 
 ## 4. Getting listed: the runbook
 
@@ -162,8 +169,10 @@ matters.
 
 ## 6. Notes for phase 2 and 3
 
-`packages/mcp-app/` holds a runnable draft of the phase-3 view (`board.html`)
-with a fake host (`harness.html`) and the server wiring in its README.
+`packages/mcp-views/` IS the phase-3 UI: React views built from `@exp/ui`,
+served as `ui://exponential/{board,issue}` by `lib/mcp/views.ts` and linked
+from `exponential_board_view` / `exponential_issue_view`; `harness/` is a fake
+host for local development.
 
 - Composer mentions: tool `_meta["openai/extensions"]["mentions/search"] = {}`
   and `_meta.ui.visibility = ["app"]`; input `{query}`; output

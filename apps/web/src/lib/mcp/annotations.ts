@@ -93,6 +93,9 @@ export const TOOL_ANNOTATIONS = {
   exponential_issues_subscribe: ADD,
   exponential_issues_unsubscribe: CHANGE,
   exponential_issues_pr_files: READ,
+  // EXP-1153: the MCP App views — reads that a host renders as UI.
+  exponential_board_view: READ,
+  exponential_issue_view: READ,
 
   // Pull requests: every one of these acts on GitHub.
   exponential_pr_open: ADD_OPEN,

@@ -5,6 +5,7 @@ import { mcpServerInstructions } from "./instructions"
 import { buildRuntimeConfig } from "@/lib/runtime-config"
 import type { McpAccess } from "./scope"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "./gates"
+import { registerViewResources } from "./views"
 
 export type McpUser = typeof users.$inferSelect
 
@@ -41,5 +42,8 @@ export function createExponentialMcpServer(
     }
   )
   registerExponentialTools(server, user, request, access, sessionId, gates)
+  // EXP-1153: the ui:// resources the view tools link to (a real McpServer
+  // only; the tests' fake servers register tools alone).
+  registerViewResources(server)
   return server
 }

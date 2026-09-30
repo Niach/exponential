@@ -226,6 +226,13 @@ import { requestSessionCompaction } from "./handlers/sessions-compact"
 import { ALWAYS_LOAD_META } from "./always-load"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "./gates"
 import { annotationsFor } from "./annotations"
+import {
+  loadBoardViewData,
+  loadIssueViewData,
+  viewBaseUrl,
+  viewResult,
+  viewToolMeta,
+} from "./views"
 import type { McpUser } from "./server"
 import {
   assertFullAccess,
@@ -1186,7 +1193,7 @@ export function registerExponentialTools(
   registerTool(
     `exponential_boards_create`,
     {
-      description: `Create a board in a team (member; owner/admin to connect a new repo). The repository is optional. Coding features gate on repo presence. Pass repository.repositoryId (registry repo) or repository.fullName ("owner/name") to connect one inline; defaultBranch pins the branch this board's coding sessions branch from and its PRs target (omit = the repo's default). icon is a curated icon name.`,
+      description: `Create a board in a team (member; owner/admin to connect a new repo). Repository optional; coding features gate on its presence: repository.repositoryId (registry repo) or repository.fullName ("owner/name") connects one inline; defaultBranch pins the branch coding sessions branch from and PRs target (omit = the repo's default). icon = a curated icon name.`,
       inputSchema: strictInput({
         teamId: uuidString,
         name: z.string().min(1).max(255),
@@ -1274,7 +1281,7 @@ export function registerExponentialTools(
       // inline value lists out too, so status/statusCategory, their exclude*
       // twins and priority all validate at runtime (the refusal names the
       // values; issues_create spells the status enum out).
-      description: `List issues, OPEN only: completed/cancelled/duplicate need includeClosed or a status* filter. Descriptions cut to 200 chars (issues_get has all). statusId: exponential_statuses_list; exclude* invert. created*/updated*: ISO datetime. sort: [-]createdAt|updatedAt|priority. search: full text + identifier; assigneeId null = unassigned.`,
+      description: `List issues, OPEN only: completed/cancelled/duplicate need includeClosed or a status* filter. Descriptions cut to 200 chars. statusId: exponential_statuses_list; exclude* invert. created*/updated*: ISO datetime. sort: [-]createdAt|updatedAt|priority. search: full text + identifier; assigneeId null = unassigned.`,
       inputSchema: strictInput({
         boardId: uuidString.optional(),
         boardIds: z.array(uuidString).optional(),
@@ -1620,6 +1627,77 @@ export function registerExponentialTools(
     }
   )
 
+  // EXP-1153: the MCP App views (packages/mcp-views, lib/mcp/views.ts). A
+  // host that renders MCP Apps (ChatGPT, Claude, VS Code) shows the linked
+  // `ui://` resource fed by `structuredContent`; every other client reads
+  // the text half, which carries the same facts.
+  registerTool(
+    `exponential_board_view`,
+    {
+      description: `Interactive view of a board's open issues grouped by status. boardId omitted = the most recently updated board.`,
+      inputSchema: strictInput({ boardId: uuidString.optional() }),
+      _meta: viewToolMeta(`board`, { threadEntrypoint: true }),
+    },
+    async ({ boardId }) => {
+      try {
+        let id = boardId
+        if (id) {
+          const board = await getBoardTeamId(id)
+          assertBoardGranted(access, board.id, board.teamId)
+          await resolveTeamAccess(user.id, board.teamId)
+        } else {
+          // The thread-panel entrypoint opens the view with `{}`.
+          const teamIds = filterVisibleTeamIds(
+            access,
+            await getUserTeamIds(user.id)
+          )
+          const candidates =
+            teamIds.length === 0
+              ? []
+              : await db
+                  .select({ id: boards.id, teamId: boards.teamId })
+                  .from(boards)
+                  .where(and(inArray(boards.teamId, teamIds), boardVisible()))
+                  .orderBy(desc(boards.updatedAt))
+          id = candidates.find((b) => isBoardGranted(access, b.id, b.teamId))?.id
+          if (!id) {
+            throw new TRPCError({ code: `NOT_FOUND`, message: `No board to show` })
+          }
+        }
+        const { data, text } = await loadBoardViewData(id, viewBaseUrl())
+        return viewResult(text, data)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  registerTool(
+    `exponential_issue_view`,
+    {
+      description: `Interactive view of one issue: status, assignee, labels, description, comments, relations, PR.`,
+      inputSchema: strictInput({ id: z.string().min(1) }),
+      _meta: viewToolMeta(`issue`),
+    },
+    async ({ id: idInput }) => {
+      try {
+        const id = await resolveIssueId(idInput, user.id, access)
+        const ctxIssue = await getIssueTeamContext(id)
+        assertBoardGranted(access, ctxIssue.boardId, ctxIssue.teamId)
+        await resolveTeamAccess(user.id, ctxIssue.teamId)
+        const { data, text } = await loadIssueViewData(
+          id,
+          viewBaseUrl(),
+          (relation) =>
+            isBoardGranted(access, relation.otherBoardId, relation.otherTeamId)
+        )
+        return viewResult(text, data)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
   registerTool(
     `exponential_issues_create`,
     {
@@ -1764,7 +1842,7 @@ export function registerExponentialTools(
   registerTool(
     `exponential_attachments_get`,
     {
-      description: `Fetch an attachment by id — every content type. Markdown embeds look like ![alt](/api/attachments/{id}); pass that {id}. Always returns metadata plus a short-lived signed downloadUrl: fetch it (curl/wget) into your working directory to read non-image files (xlsx, PDF, CSV, ...) with real tooling. Images additionally come back as inline image content, downscaled when large (the JSON's inline field reports what was sent; downloadUrl always has the original); small text files include their text inline.`,
+      description: `Fetch an attachment by id (every content type; a Markdown embed ![alt](/api/attachments/{id}) carries the id). Returns metadata plus a short-lived signed downloadUrl: fetch it (curl/wget) to read non-image files (xlsx, PDF, CSV…) with real tooling. Images also come back inline, downscaled when large (the JSON's inline field says what was sent; downloadUrl has the original); small text files include their text inline.`,
       inputSchema: strictInput({ id: uuidString }),
     },
     async ({ id }) => {
@@ -3069,7 +3147,7 @@ export function registerExponentialTools(
   registerTool(
     `exponential_pr_open`,
     {
-      description: `Open a GitHub PR on the linked repository via the GitHub App (no 'gh' or token) and link it to the issue(s). Pass EXACTLY ONE of 'issueId', 'issueIds' (batch: ONE combined PR, same repo; 'head' then REQUIRED, e.g. 'exp/batch-<id>'), or 'repositoryId' + 'head' for an issue-less PR (nothing linked or moved). Single issue: 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>'; 'base' to the repo default branch. 'stackOnIssueId' (not with 'base') stacks your PR on that issue's open PR instead. A 'head' with an open PR links the issues to it. Linked issues record prUrl/prNumber/prState/branch and move to the team's PR-open status (default 'in_review'), on merge to its PR-merge status (default 'done'). Accepts UUIDs or identifiers ("MET-12").`,
+      description: `Open a GitHub PR on the linked repository via the GitHub App (no 'gh' or token) and link it to the issue(s). EXACTLY ONE of 'issueId', 'issueIds' (ONE combined PR, same repo; 'head' REQUIRED, e.g. 'exp/batch-<id>') or 'repositoryId' + 'head' (an issue-less PR: nothing linked or moved). Single issue: 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>', 'base' to the repo default branch; 'stackOnIssueId' (not with 'base') stacks on that issue's open PR. A 'head' with an open PR links the issues to it. Linked issues record prUrl/prNumber/prState/branch and move to the team's PR-open status (default 'in_review'), on merge to its PR-merge status (default 'done'). Accepts UUIDs or identifiers ("MET-12").`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: prOpenInput,
     },
@@ -3391,7 +3469,7 @@ export function registerExponentialTools(
   registerTool(
     `exponential_pr_merge`,
     {
-      description: `Squash-merge open PRs via the GitHub App (no 'gh' or token). Pass EXACTLY ONE of 'issueId', 'issueIds' (one merge per distinct prUrl, so issues sharing a batch PR merge once), or 'repositoryId' + 'prNumber' for a PR with no issue. Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'); live coding sessions on them end unless the team's "end sessions on merge" setting is off; 'endSessions' overrides that setting for this call (false keeps them running), and YOUR OWN session always keeps running (it ends on its own exit or close-out). Each results[] element carries 'merged' + optional 'error' or 'queued' (in GitHub's merge queue; merged=false until it lands), plus issueId/identifier (issue path) or repositoryId/prNumber (chore path); one unmergeable PR never blocks the rest. 'mergeStack' merges the PR's whole stack, bottom-up, in one call. A merge rejected for a stale base: fix with exponential_pr_retarget first. Idempotent: an already-merged PR answers merged=true.`,
+      description: `Squash-merge open PRs via the GitHub App (no 'gh' or token). EXACTLY ONE of 'issueId', 'issueIds' (one merge per distinct prUrl; a batch PR merges once) or 'repositoryId' + 'prNumber' (a PR with no issue). Linked issues flip to prState='merged' and the team's PR-merge status (default 'done'); their live coding sessions end unless the team's "end sessions on merge" is off or 'endSessions' overrides it for this call; YOUR OWN session always keeps running. results[]: 'merged' + optional 'error' or 'queued' (GitHub merge queue; merged=false until it lands), with issueId/identifier or repositoryId/prNumber; one unmergeable PR never blocks the rest. 'mergeStack' merges the whole stack bottom-up. Stale base: exponential_pr_retarget first. Idempotent: already merged answers merged=true.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: prMergeInput,
     },
@@ -3447,7 +3525,7 @@ export function registerExponentialTools(
   registerTool(
     `exponential_pr_update`,
     {
-      description: `Rewrite the title and/or body of an open PR via the GitHub App: the fix for a description later commits made stale (pr_open never edits an existing PR). Subjects as exponential_pr_merge: EXACTLY ONE of 'issueId', 'issueIds' (one update per distinct PR) or 'repositoryId' + 'prNumber'; omit all to edit the PR of the run this call comes from. Pass 'title', 'body' (max 60000) or both; an omitted field keeps its value. results[]: issueId/identifier or repositoryId/prNumber, 'updated', optional 'error'. Accepts identifiers ("MET-12").`,
+      description: `Rewrite the title and/or body of an open PR via the GitHub App (a description later commits made stale; pr_open never edits an existing PR). Subjects as exponential_pr_merge: EXACTLY ONE of 'issueId', 'issueIds' (one update per PR) or 'repositoryId' + 'prNumber'; omit all = the PR of the run this call comes from. 'title', 'body' (max 60000) or both; an omitted field keeps its value. results[]: subject, 'updated', optional 'error'. Accepts identifiers ("MET-12").`,
       inputSchema: prUpdateInput,
     },
     async ({ issueId, issueIds, repositoryId, prNumber, title, body }) => {
@@ -3915,7 +3993,7 @@ export function registerExponentialTools(
     registerTool(
       `exponential_sessions_results`,
       {
-        description: `Publish your run's REPORT on the issue's Results face: per topic, a GFM text (what you did, #IDENT refs) above its screenshots, topics in first-seen order ('Summary' first). text sets the topic's text. label asks for a picture (web/ios/android): an uploadUrl, its expiry and a curl line (PNG/JPEG/WebP, 10 MB); the same topic+label REPLACES it. remove: true deletes that label, the text (text: ''), or the whole topic. Returns the run's list. Prefer viewport-sized shots: a full page crops to its top.`,
+        description: `Publish your run's REPORT on the issue's Results face: per topic, a GFM text (what you did, #IDENT refs) above its screenshots, topics in first-seen order ('Summary' first). text sets the topic's text. label asks for a picture (web/ios/android): an uploadUrl, its expiry and a curl line (PNG/JPEG/WebP, 10 MB); the same topic+label REPLACES it. remove: true deletes that label, the text (text: '') or the topic. Prefer viewport-sized shots: a full page crops to its top.`,
         _meta: ALWAYS_LOAD_META,
         inputSchema: strictInput({
           topic: z.string().trim().min(1).max(SESSION_RESULT_TEXT_MAX),
@@ -4258,7 +4336,7 @@ export function registerExponentialTools(
   registerTool(
     `exponential_sessions_get`,
     {
-      description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open, still live) → ended; endedBy = who ended it; agentBusy = working now. ackedAt = the device's liveness ack, stamped seconds after launch; null for minutes = the launch died. blocked is set only when the agent itself REFUSED a call at its usage wall (never for a usage warning): blocked.window (session = 5h, weekly, model) and blocked.resetsAt describe the SAME window; the run stays running and clears it on its next successful turn.`,
+      description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open, still live) → ended; endedBy = who ended it; agentBusy = working now. ackedAt = the device's liveness ack (seconds after launch; null for minutes = the launch died). blocked = the agent REFUSED a call at its usage wall (never a warning): blocked.window (session = 5h, weekly, model) + blocked.resetsAt; the run stays running and clears it on its next successful turn.`,
       inputSchema: strictInput({ id: uuidString }),
     },
     async ({ id }) => {
@@ -4501,7 +4579,7 @@ export function registerExponentialTools(
   registerTool(
     `exponential_sessions_start`,
     {
-      description: `Start a coding session on an ONLINE device (exponential_devices_list); offline = refused. One subject: issueId (UUID/identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs) or resumeSessionId (ended run; + account = switch a live claude run's account). account = a profile id from agentAccounts.<agent>.profiles[]. prompt = free text (REQUIRED for builtin:chat / builtin:create-action). stackOnIssueId = stack on that issue's PR. Track it with exponential_sessions_get. A child started from a run is unattended: its question, finish or usage wall (wait it out) arrives as '[Exponential child run ...]' input; answer with exponential_sessions_message. Read its report before merging.`,
+      description: `Start a coding session on an ONLINE device (exponential_devices_list; offline = refused). One subject: issueId (UUID/identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs) or resumeSessionId (ended run; + account = switch a live claude run's account; account = a profile id from agentAccounts.<agent>.profiles[]). prompt = free text (REQUIRED for builtin:chat / builtin:create-action). stackOnIssueId = stack on that issue's PR. Track with exponential_sessions_get. A child run is unattended: its question, finish or usage wall (wait it out) arrives as '[Exponential child run ...]' input; answer with exponential_sessions_message; read its report before merging.`,
       inputSchema: strictInput({
         deviceId: z.string().min(1).max(128),
         issueId: z.string().min(1).optional(),
@@ -4738,7 +4816,7 @@ export function registerExponentialTools(
   registerTool(
     `exponential_devices_list`,
     {
-      description: `List your registered machines (desktop app / CLI daemon), plus servers teammates shared with teamId. Pick an online device whose agents includes the agent you want; caps must include resume-run to resume an ended run. agentUsage.<agent> = the machine's DEFAULT login: windows[] (percent + resetsAt), fetchedAt = when those numbers were read, stale: true = the last refresh failed and they are as old as fetchedAt; agentUsageAt = when the device last reported. A session running on another account moves that account's own row under agentAccounts.<agent>.profiles[].usage instead. A live session refreshes only the account it runs on, per turn; once it ends — or a window's resetsAt passes — that login returns to the polled cadence.`,
+      description: `List your registered machines (desktop app / CLI daemon) plus servers teammates shared with teamId. Pick an online device whose agents includes the agent you want; caps must include resume-run to resume an ended run. agentUsage.<agent> = the machine's DEFAULT login: windows[] (percent + resetsAt), fetchedAt = when read, stale: true = the last refresh failed; agentUsageAt = the device's last report. A session on another account reports under agentAccounts.<agent>.profiles[].usage instead; a live session refreshes only its own account per turn, then that login returns to the polled cadence.`,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
         ...pageInput,
@@ -5010,7 +5088,7 @@ export function registerExponentialTools(
   registerTool(
     `exponential_notifications_send`,
     {
-      description: `Notify people (inbox row + push): a long task finished, a decision is needed, or someone asked to be pinged. recipients = team members' user ids or emails, default yourself. issueId (UUID or identifier) = what the row opens: that issue's Results, which every member may see; default this run's issue. teamId defaults to the issue's team or this run's. A member who turned off messages from teammates' agents is reported as declined; your own user always receives.`,
+      description: `Notify people (inbox row + push): a long task finished, a decision is needed, or someone asked to be pinged. recipients = team members' user ids or emails, default yourself. issueId (UUID or identifier) = what the row opens (that issue's Results; default this run's issue). teamId defaults to the issue's team or this run's. A member who turned off teammates' agent messages is reported as declined; you always receive.`,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
         recipients: z.array(z.string().min(1).max(320)).min(1).max(20).optional(),
@@ -5660,7 +5738,7 @@ export function registerExponentialTools(
   registerTool(
     `exponential_workflows_request_upstream`,
     {
-      description: `Workflow node runs only: ask the run of an issue that BLOCKS yours to change what it gave you (a missing field, a wrong signature). It lands in that run's channel; go on with what you can. Your branch is FROZEN on the upstream tip you started from: nobody pushes a newer one into it while you run, so once the change is up, pull it yourself (git fetch origin && git merge origin/<the base branch of your prompt>). You may reject upstream work, but never settle an interface dispute between two runs: if it refuses or has ended, escalate with exponential_sessions_ask_parent.`,
+      description: `Workflow node runs only: ask the run of an issue that BLOCKS yours to change what it gave you (a missing field, a wrong signature). It lands in that run's channel; go on with what you can. Your branch is FROZEN on the upstream tip you started from, so once the change is up, pull it yourself (git fetch origin && git merge origin/<your prompt's base branch>). Never settle an interface dispute between two runs: if it refuses or has ended, escalate with exponential_sessions_ask_parent.`,
       inputSchema: strictInput({
         issueId: z.string().min(1),
         message: z.string().min(1).max(4_000),
@@ -5721,7 +5799,7 @@ export function registerExponentialTools(
   registerTool(
     `exponential_workflows_review_submit`,
     {
-      description: `Workflow REVIEW runs only: your verdict on the node named in your prompt. verdict approve|request_changes; findings = what is wrong and where (the wave's fix run gets it verbatim); oracle = {command, passed} for the checks you actually RAN (the exact commands, up to 2000 chars); head = the commit sha you reviewed. Reviews happen in waves over landed work: every request of the wave goes to ONE fix run, then whatever stays open is carried to the final pull request.`,
+      description: `Workflow REVIEW runs only: your verdict on the node named in your prompt. verdict approve|request_changes; findings = what is wrong and where (the wave's fix run gets it verbatim); oracle = {command, passed} for the checks you actually RAN (exact commands, ≤2000 chars); head = the commit sha reviewed. Reviews run in waves over landed work: the wave's requests go to ONE fix run, what stays open is carried to the final PR.`,
       inputSchema: strictInput({
         nodeId: uuidString,
         verdict: z.enum(contract.wfReviewVerdict.values as [string, ...string[]]),

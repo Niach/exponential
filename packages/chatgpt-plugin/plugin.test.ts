@@ -128,8 +128,16 @@ describe(`plugin.json (Agent Plugins format)`, () => {
     expect(review.commerce).toBe(false)
   })
 
-  it(`has no screenshots: the plugin has no UI`, () => {
-    expect(ui.screenshots).toBeUndefined()
+  it(`ships screenshots of its UI (the views), as bounded PNGs`, () => {
+    // A plugin WITH UI provides screenshots; one without must not.
+    expect(ui.screenshots?.length).toBeGreaterThan(0)
+    for (const rel of ui.screenshots ?? []) {
+      expect(rel).toMatch(/^\.\/assets\/screenshot-.*\.png$/)
+      const png = readFileSync(join(root, rel))
+      expect(png.readUInt32BE(16)).toBeLessThanOrEqual(4096)
+      expect(png.readUInt32BE(20)).toBeLessThanOrEqual(4096)
+      expect(png.byteLength).toBeLessThanOrEqual(5 * 1024 * 1024)
+    }
   })
 
   it(`ships every referenced asset, square`, () => {

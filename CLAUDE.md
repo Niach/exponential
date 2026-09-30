@@ -77,21 +77,21 @@ bun run {dev,start}:push-relay / {dev,start,test}:steer-relay  # :4001 / :4002
 bun run build  # widget FIRST, then web + marketing
 bun run build:web / build:widget / test:widget / dev:widget (watch, /widget/v1/demo.html)
 bun run typecheck / test / test:e2e  # web
-bun run migrate / migrate:generate / psql / backend:{up,down,clear} (clear wipes volumes) / storage:init (Garage bootstrap)
+bun run migrate / migrate:generate / psql / backend:{up,down,clear} (clear wipes volumes) / storage:init
 bun run dev:desktop / {build,appimage,macapp,test}:desktop  # gpui IDE vs the local backend
 bun run --filter @exp/{domain-contract,design-tokens,icons} generate
 cd apps/web && bun run seed:screenshots  # demo data; then `bun run shots` → shots/
 ```
 
-Workspace scripts: `bun --filter @exp/web <script>`; plain `cargo` in `apps/desktop/`. Never `bun run lint` (corrupts `typeof import()`) or `bun run format`.
+Workspace scripts: `bun --filter @exp/<dir> <script>`; `cargo` in `apps/desktop/`. Never `bun run lint` (corrupts `typeof import()`) or `bun run format`.
 
 ## Deploys
 
-Coolify (`coolify.home.straehhuber.com`, Hetzner), **home-LAN-only**: `coolify deploy uuid <uuid>` after a green Actions run. `build-web.yml` publishes multi-arch `ghcr.io/niach/exponential-web` on master pushes + `v*` tags; the SAME image = cloud, staging and self-host (package PUBLIC, self-hosters pin semver). Its runtime `bun install` = `--filter '@exp/web'` (EXP-380); licence/notice rules: `docs/third-party-licences.md` (gated by `third-party-licences.test.ts`). Native releases = tag-triggered (`build-{android,desktop,cli,ios}.yml`): `android-v*` (APK + Play bundle), `desktop-v*` (production + staging × 3 OSes, `make_latest: true`, self-update `crates/updater`), `cli-v*` (bare `exponential-<target>` binaries, marketing `install.sh`, self-host via `EXP_INSTANCE`), `ios-v*` (ASC upload).
+Coolify (`coolify.home.straehhuber.com`, Hetzner), **home-LAN-only**: `coolify deploy uuid <uuid>` after a green Actions run. `build-web.yml` publishes multi-arch `ghcr.io/niach/exponential-web` on master pushes + `v*` tags; the SAME image = cloud, staging and self-host (package PUBLIC, self-hosters pin semver). Its runtime `bun install` = `--filter '@exp/web'` (EXP-380); licence/notice rules: `docs/third-party-licences.md` (gated by `third-party-licences.test.ts`). Native releases = tag-triggered (`build-*.yml`): `android-v*` (APK + Play bundle), `desktop-v*` (production + staging × 3 OSes, `make_latest: true`, self-update `crates/updater`), `cli-v*` (bare `exponential-<target>` binaries, marketing `install.sh`, self-host via `EXP_INSTANCE`), `ios-v*` (ASC upload).
 
 **The operations runbook (infra uuids, buckets, signing, releases) lives OUTSIDE the repo.**
 
-Every user-facing release PREPENDS a `ChangelogEntry` to `lib/changelog.ts` (gated by `changelog.test.ts`; head id = "What's new" on web + `crates/ui/src/changelog.rs`).
+Every user-facing release PREPENDS a `ChangelogEntry` to `lib/changelog.ts` (gated; head id = "What's new" on web + `crates/ui/src/changelog.rs`).
 
 After schema changes: `bun run migrate:generate && bun run migrate`. Custom triggers auto-apply at boot (`applyCustomSql`, idempotent).
 
@@ -210,4 +210,4 @@ Server-only `widget_configs` (public `expw_` key + domain allowlist) + `widget_s
 
 ## Agent context budget (EXP-353/EXP-637)
 
-Keep this file under 40k chars. MCP clients DEFER tool defs behind tool search (`_meta["anthropic/alwaysLoad"]` opts back in): the always-loaded set == `lib/mcp/always-load.ts`, <10k serialized, whole surface <60k, per-tool <1.8k, `MCP_SERVER_INSTRUCTIONS` <2k with a self-contained first 512; gated by `lib/mcp/context-budget.test.ts`. `issues_list` = OPEN work, limit 50/max 1000, descriptions ≤200 chars. EXP-1153: every tool's 3 hints = `lib/mcp/annotations.ts` (explicit, gated); ChatGPT/Codex plugin = `packages/chatgpt-plugin` (`pack` → ZIP, `docs/chatgpt-plugin.md`). **Compress, never append**: a rule over its rationale, a citation over a list.
+Keep this file under 40k chars. MCP clients DEFER tool defs behind tool search (`_meta["anthropic/alwaysLoad"]` opts back in): the always-loaded set == `lib/mcp/always-load.ts`, <10k serialized, whole surface <60k, per-tool <1.8k, `MCP_SERVER_INSTRUCTIONS` <2k with a self-contained first 512; gated by `lib/mcp/context-budget.test.ts`. `issues_list` = OPEN work, ≤200-char descriptions. EXP-1153: every tool's 3 hints = `lib/mcp/annotations.ts` (explicit, gated); ChatGPT/Codex plugin = `packages/chatgpt-plugin` (`pack` → ZIP), MCP App views = `packages/mcp-views` (`ui://` resources, `lib/mcp/views.ts`; runbook `docs/chatgpt-plugin.md`). **Compress, never append**: a rule over its rationale, a citation over a list.

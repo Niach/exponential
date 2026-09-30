@@ -105,6 +105,8 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   exponential_automations_update: [`automation`],
   exponential_boards_create: [`board`],
   exponential_boards_delete: [],
+  // EXP-1153: the MCP App views preview like the reads they render.
+  exponential_board_view: [`board`],
   exponential_boards_get: [`board`],
   exponential_boards_list: [`list`, `board`],
   exponential_boards_set_repository: [`board`],
@@ -133,6 +135,7 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   exponential_issues_get: [`issue`],
   exponential_issues_list: [`list`, `issue`],
   exponential_issues_pr_files: [`issue`],
+  exponential_issue_view: [`issue`],
   exponential_issues_subscribe: [`issue`],
   exponential_issues_unsubscribe: [`issue`],
   exponential_issues_update: [`issue`],
