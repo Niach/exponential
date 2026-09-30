@@ -831,6 +831,7 @@ fn launch(
             on_settled: Some(on_settled),
             // An automation fires with no composer text.
             prompt: None,
+            report: crate::steer_wiring::StartReport::none(),
         },
         cx,
     );

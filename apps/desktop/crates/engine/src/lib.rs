@@ -52,6 +52,7 @@ pub mod sink;
 // interrupted, one that ignores the interrupt for `STALL_KILL_GRACE` ends the
 // run with a reason. Pure; the lifecycle ticker drives it.
 pub mod stall;
+pub mod stop_save;
 // EXP-750: the ACP `terminal/*` capability. Session-owned, host-local: the
 // registry lives on `SessionCtx` and nothing it produces leaves the machine.
 mod terminals;
@@ -83,4 +84,5 @@ pub use session::{
     HistoryHandle, OpenTranscript, ResumeHandle,
 };
 pub use sink::{EventSink, RecordingSink};
+pub use stop_save::{save_stopped_run_work, stopped_by_person};
 pub use transport::{spawn_lines, ChildLines, LineWriter, StderrPolicy};

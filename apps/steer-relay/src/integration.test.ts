@@ -1020,6 +1020,78 @@ describe(`steer relay end-to-end`, () => {
     desktop.close()
   })
 
+  test(`startId rides /start verbatim on every subject incl. resume; absent stays absent; malformed is 400 (FEED-63)`, async () => {
+    const desktop = await connect(ticket({ role: `control`, sub: `owner-63` }))
+    const desktopIn = collector(desktop)
+    desktop.send(JSON.stringify({ t: `online`, deviceId: `dev-63` }))
+
+    const start = await startWhenOnline({
+      userId: `owner-63`,
+      deviceId: `dev-63`,
+      issueId: `issue-630`,
+      startId: `start-1`,
+    })
+    expect(start.ok).toBe(true)
+    expect(await desktopIn.nextJson()).toEqual({
+      t: `start_session`,
+      issueId: `issue-630`,
+      startId: `start-1`,
+    })
+
+    const post = (body: Record<string, unknown>) =>
+      fetch(`${base}/start`, {
+        method: `POST`,
+        headers: {
+          "x-relay-secret": `integration-secret`,
+          "content-type": `application/json`,
+        },
+        body: JSON.stringify({ userId: `owner-63`, deviceId: `dev-63`, ...body }),
+      })
+    const repo = { repositoryId: `r-1`, fullName: `o/r`, defaultBranch: `master` }
+    const maxId = `s`.repeat(128)
+
+    for (const [body, frame] of [
+      [
+        { issueIds: [`issue-1`, `issue-2`], teamId: `t-1`, repo, startId: maxId },
+        { t: `start_session`, issueIds: [`issue-1`, `issue-2`], teamId: `t-1`, repo, startId: maxId },
+      ],
+      [
+        { actionId: `act-1`, actionName: `Act`, teamId: `t-1`, startId: `start-3` },
+        { t: `start_session`, actionId: `act-1`, actionName: `Act`, teamId: `t-1`, startId: `start-3` },
+      ],
+      [
+        { resumeSessionId: `sess-63`, teamId: `t-1`, startId: `start-4` },
+        { t: `start_session`, resumeSessionId: `sess-63`, teamId: `t-1`, startId: `start-4` },
+      ],
+      // Absent in the body (an older web build): absent in the frame.
+      [{ issueId: `issue-631` }, { t: `start_session`, issueId: `issue-631` }],
+      [
+        { resumeSessionId: `sess-64`, teamId: `t-1` },
+        { t: `start_session`, resumeSessionId: `sess-64`, teamId: `t-1` },
+      ],
+    ] as const) {
+      const res = await post(body)
+      expect(res.ok, JSON.stringify(body)).toBe(true)
+      await res.text()
+      const got = await desktopIn.nextJson()
+      expect(got).toEqual(frame)
+      if (!(`startId` in body)) expect(got).not.toHaveProperty(`startId`)
+    }
+
+    for (const bad of [
+      { startId: 7 },
+      { startId: `` },
+      { startId: null },
+      { startId: [`start-1`] },
+      { startId: `x`.repeat(129) },
+    ]) {
+      const res = await post({ issueId: `issue-632`, ...bad })
+      expect(res.status, JSON.stringify(bad)).toBe(400)
+      await res.text()
+    }
+    desktop.close()
+  })
+
   test(`mcpServerIds + account ride /start; malformed ones are 400 (EXP-792)`, async () => {
     const desktop = await connect(ticket({ role: `control`, sub: `owner-7` }))
     const desktopIn = collector(desktop)

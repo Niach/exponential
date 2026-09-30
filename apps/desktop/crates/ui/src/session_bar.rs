@@ -685,6 +685,7 @@ impl SessionBar {
                 automation_id: None,
                 on_settled: None,
                 prompt,
+                report: crate::steer_wiring::StartReport::none(),
             },
             cx,
         );

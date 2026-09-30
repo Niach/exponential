@@ -819,6 +819,10 @@ export interface StartSessionOptions {
    * byte-identical to the pre-EXP-897 wire. Pass-through: the web server
    * resolved the chain (`lib/stack-plan.ts`), the device cuts the branch. */
   stack?: StartStack
+  /** FEED-63: the web server's id for THIS start request, on every subject
+   * incl. a resume. Verbatim pass-through: the device reports a failed start
+   * back to the web server under it. Absent from older web builds. */
+  startId?: string
 }
 
 /** EXP-897: one issue of the stack a stacked start builds on, exactly as the
@@ -931,6 +935,8 @@ export type ServerFrame =
       workflowId?: string
       workflowNodeId?: string
       workflowRole?: string
+      /** FEED-63: the start request's id, verbatim (see StartSessionOptions). */
+      startId?: string
     }
   | { t: `input`; data: string } // viewer keystrokes, relay → publisher
   | { t: `answer`; questionId: string; askId?: string; keys: string[]; text?: string } // relay → publisher

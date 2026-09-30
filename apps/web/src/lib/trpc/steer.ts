@@ -44,6 +44,7 @@ import {
   type SteerStartStack,
 } from "@/lib/steer"
 import { resolveActionInputs } from "@/lib/action-inputs"
+import { mintStartId, recordStartFailure } from "@/lib/start-failures"
 import {
   resolveStartPrompt,
   type StartPromptLookups,
@@ -993,9 +994,13 @@ export const steerRouter = router({
         // origin in step.
         const inheritedAgentStart: { startedReason?: `agent` } =
           session.startedReason === `agent` ? { startedReason: `agent` } : {}
+        // FEED-63: names this start so the device can report a launch
+        // failure back (steer.reportStartFailure).
+        const startId = mintStartId(ownerId, userId)
         const result = await relayPostStart(config, {
           userId: ownerId,
           deviceId: input.deviceId,
+          startId,
           ...(shared ? { startedBy: userId } : {}),
           ...inheritedAgentStart,
           ...agentStarted,
@@ -1020,7 +1025,7 @@ export const steerRouter = router({
             message: `Steer relay error (${result.status})`,
           })
         }
-        return { ok: true as const }
+        return { ok: true as const, startId }
       }
 
       // Action run (EXP-253/EXP-257): resolve the action (a DB row, or the
@@ -1358,9 +1363,11 @@ export const steerRouter = router({
           })
         }
 
+        const startId = mintStartId(ownerId, userId)
         const result = await relayPostStart(config, {
           userId: ownerId,
           deviceId: input.deviceId,
+          startId,
           ...(shared ? { startedBy: userId } : {}),
           ...agentStarted,
           ...membershipFrame,
@@ -1391,7 +1398,7 @@ export const steerRouter = router({
             message: `Steer relay error (${result.status})`,
           })
         }
-        return { ok: true as const }
+        return { ok: true as const, startId }
       }
 
       // One issue (wire-unchanged) or a batch. Collapse duplicates so a caller
@@ -1555,10 +1562,12 @@ export const steerRouter = router({
         }
       }
 
+      const startId = mintStartId(ownerId, userId)
       const result = input.issueId
         ? await relayPostStart(config, {
             userId: ownerId,
             deviceId: input.deviceId,
+            startId,
             ...(shared ? { startedBy: userId } : {}),
             ...agentStarted,
             ...membershipFrame,
@@ -1570,6 +1579,7 @@ export const steerRouter = router({
         : await relayPostStart(config, {
             userId: ownerId,
             deviceId: input.deviceId,
+            startId,
             ...(shared ? { startedBy: userId } : {}),
             ...agentStarted,
             ...membershipFrame,
@@ -1592,8 +1602,28 @@ export const steerRouter = router({
           message: `Steer relay error (${result.status})`,
         })
       }
-      return { ok: true as const }
+      return { ok: true as const, startId }
     }),
+
+  // FEED-63: the device's answer to a start frame it could not launch (a
+  // refused `git checkout`, a missing worktree...). Called by the device
+  // OWNER with the frame's `startId`; an unknown, expired or foreign id is
+  // dropped (`recorded: false`), never an error. exponential_sessions_start
+  // reads it back and names the reason instead of timing out.
+  reportStartFailure: authedProcedure
+    .input(
+      z.object({
+        startId: z.string().uuid(),
+        reason: z.string().min(1).max(2000),
+      })
+    )
+    .mutation(({ ctx, input }) => ({
+      recorded: recordStartFailure({
+        startId: input.startId,
+        userId: ctx.session.user.id,
+        reason: input.reason,
+      }),
+    })),
 
   // Kill-switch: flip the synced row to ended (the desktop watches its own
   // coding_sessions row over Electric, so this aborts the run even if the

@@ -404,6 +404,7 @@ fn act(run: &WalledRun, decision: Decision, cx: &mut App) -> bool {
                 None,
                 coding::LaunchOrigin::Local,
                 Some(prompt),
+                crate::steer_wiring::StartReport::none(),
                 cx,
             ) {
                 record("account_switched", event_message, cx);

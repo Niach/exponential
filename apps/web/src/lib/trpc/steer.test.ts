@@ -137,6 +137,7 @@ vi.mock(`@/lib/steer`, () => ({
 }))
 
 import { steerRouter } from "@/lib/trpc/steer"
+import { takeStartFailure } from "@/lib/start-failures"
 
 const ISSUE_A = `11111111-1111-4111-8111-111111111111`
 const ISSUE_B = `22222222-2222-4222-8222-222222222222`
@@ -559,7 +560,7 @@ describe(`steer.startSession — offline devices (EXP-701)`, () => {
       issueId: ISSUE_A,
       deviceId: `dev-1`,
     })
-    expect(result).toEqual({ ok: true })
+    expect(result).toEqual({ ok: true, startId: expect.any(String) })
     expect(h.relayPostStart).toHaveBeenCalledTimes(1)
   })
 })
@@ -1231,7 +1232,7 @@ describe(`steer.startSession — builtin chat (EXP-615)`, () => {
       deviceId: `dev-1`,
       prompt: `What is on my plate?`,
     })
-    expect(result).toEqual({ ok: true })
+    expect(result).toEqual({ ok: true, startId: expect.any(String) })
     expect(lastStartBody()).toMatchObject({
       actionId: CHAT_ID,
       actionName: `Chat`,
@@ -1295,7 +1296,7 @@ describe(`steer.startSession — builtin chat (EXP-615)`, () => {
       prompt: `hello`,
       inputs: { repo: REPO_INPUT_ID },
     })
-    expect(result).toEqual({ ok: true })
+    expect(result).toEqual({ ok: true, startId: expect.any(String) })
     expect(lastStartBody()).toMatchObject({
       actionId: CHAT_ID,
       repo: { fullName: `acme/api`, defaultBranch: `main` },
@@ -1738,7 +1739,7 @@ describe(`steer.startSession — resume (EXP-481)`, () => {
       deviceId: `dev-1`,
       resume: true,
     })
-    expect(result).toEqual({ ok: true })
+    expect(result).toEqual({ ok: true, startId: expect.any(String) })
     expect(lastStartBody()).toMatchObject({ issueId: ISSUE_A, resume: true })
   })
 
@@ -1953,7 +1954,7 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
       deviceId: `dev-1`,
     })
 
-    expect(result).toEqual({ ok: true })
+    expect(result).toEqual({ ok: true, startId: expect.any(String) })
     expect(lastStartBody()).toMatchObject({
       resumeSessionId: RESUME,
       teamId: `ws-1`,
@@ -2028,7 +2029,7 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
       resumeSessionId: RESUME,
       deviceId: `dev-1`,
     })
-    expect(result).toEqual({ ok: true })
+    expect(result).toEqual({ ok: true, startId: expect.any(String) })
   })
 
   it(`refuses a run whose worktree lives on another machine`, async () => {
@@ -2520,7 +2521,7 @@ describe(`steer.startSession — usage headroom (EXP-804)`, () => {
     })
     await expect(
       caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
-    ).resolves.toEqual({ ok: true })
+    ).resolves.toEqual({ ok: true, startId: expect.any(String) })
     expect(h.relayPostStart).toHaveBeenCalledTimes(1)
   })
 
@@ -2539,7 +2540,7 @@ describe(`steer.startSession — usage headroom (EXP-804)`, () => {
     })
     await expect(
       caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, model: `opus` })
-    ).resolves.toEqual({ ok: true })
+    ).resolves.toEqual({ ok: true, startId: expect.any(String) })
     expect(h.relayPostStart).toHaveBeenCalledTimes(1)
   })
 
@@ -2554,7 +2555,7 @@ describe(`steer.startSession — usage headroom (EXP-804)`, () => {
         deviceId: `dev-1`,
         allowRateLimited: true,
       })
-    ).resolves.toEqual({ ok: true })
+    ).resolves.toEqual({ ok: true, startId: expect.any(String) })
     expect(h.relayPostStart).toHaveBeenCalledTimes(1)
   })
 
@@ -2567,7 +2568,7 @@ describe(`steer.startSession — usage headroom (EXP-804)`, () => {
     queueOwnDevice({ label: `mint`, agentUsage })
     await expect(
       caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
-    ).resolves.toEqual({ ok: true })
+    ).resolves.toEqual({ ok: true, startId: expect.any(String) })
     expect(h.relayPostStart).toHaveBeenCalledTimes(1)
   })
 
@@ -2835,5 +2836,69 @@ describe(`steer.startSession — workflow membership (EXP-1082)`, () => {
     )
     expect((bad as TRPCError).code).toBe(`BAD_REQUEST`)
     expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+})
+
+describe(`steer.startSession — start failure channel (FEED-63)`, () => {
+  function callerFor(id: string) {
+    return steerRouter.createCaller({
+      session: { user: { id, name: id, email: `${id}@example.com` } },
+      db: ctxDb,
+      request: new Request(`http://localhost/`),
+    } as never)
+  }
+
+  it(`mints a startId, rides it on the relay body and returns it`, async () => {
+    queueOwnDevice()
+    const result = await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+    })
+    expect(result.startId).toMatch(/^[0-9a-f-]{36}$/)
+    expect(lastStartBody().startId).toBe(result.startId)
+  })
+
+  it(`records a failure only for the minter, readable by the requester`, async () => {
+    queueOwnDevice()
+    const { startId } = await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+    })
+    await expect(
+      callerFor(`someone-else`).reportStartFailure({
+        startId,
+        reason: `nope`,
+      })
+    ).resolves.toEqual({ recorded: false })
+    await expect(
+      caller.reportStartFailure({ startId, reason: `git checkout refused` })
+    ).resolves.toEqual({ recorded: true })
+    expect(takeStartFailure(startId, `actor`)?.reason).toBe(
+      `git checkout refused`
+    )
+  })
+
+  it(`a shared device's OWNER reports; the requester reads it`, async () => {
+    queueSharedDevice()
+    const { startId } = await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: SHARED_DEVICE,
+    })
+    await expect(
+      caller.reportStartFailure({ startId, reason: `x` })
+    ).resolves.toEqual({ recorded: false })
+    await expect(
+      callerFor(`owner-1`).reportStartFailure({ startId, reason: `dirty` })
+    ).resolves.toEqual({ recorded: true })
+    expect(takeStartFailure(startId, `actor`)?.reason).toBe(`dirty`)
+  })
+
+  it(`an unknown id is dropped, never an error`, async () => {
+    await expect(
+      caller.reportStartFailure({
+        startId: `00000000-0000-4000-8000-000000000000`,
+        reason: `x`,
+      })
+    ).resolves.toEqual({ recorded: false })
   })
 })

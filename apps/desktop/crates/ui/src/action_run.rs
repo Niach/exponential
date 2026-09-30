@@ -229,6 +229,10 @@ pub(crate) struct StartActionArgs {
     /// for the two builtins, the additional-instructions section for every
     /// other action. `None` on automation and dock starts.
     pub prompt: Option<String>,
+    /// FEED-67: a relay start's report handle; every refusal and failure
+    /// below reports its reason through it (`StartReport::none()` for local
+    /// and automation starts).
+    pub report: crate::steer_wiring::StartReport,
 }
 
 /// Start an action: fetch FRESH body (`actions.get`) → resolve repo →
@@ -248,12 +252,14 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
         automation_id,
         on_settled,
         prompt,
+        report,
     } = args;
     // EXP-530: every early return below has to release the hook, or an
     // automation whose watermark already advanced would sit without a backoff.
     let mut on_settled = on_settled;
     let Some(trpc) = queries::trpc_client(cx) else {
         log::warn!("actions: run ignored — not signed in");
+        report.fail(SIGNED_OUT_REASON, cx);
         fire_settled(&mut on_settled, false, cx);
         return;
     };
@@ -266,6 +272,7 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
             Err(message) => {
                 log::warn!("actions: fix-conflicts start refused — {message}");
                 notify_target_error(target, &message, cx);
+                report.fail(message, cx);
                 fire_settled(&mut on_settled, false, cx);
                 return;
             }
@@ -455,6 +462,7 @@ Update Exponential on this machine."
                 Err(message) => {
                     log::warn!("actions: {message}");
                     notify_target_error(target, &message, cx);
+                    report.fail(message, cx);
                     fire_settled(&mut on_settled, false, cx);
                     return;
                 }
@@ -462,6 +470,7 @@ Update Exponential on this machine."
             let Some(window) = target.or_else(|| crate::steer_wiring::find_team_window(cx))
             else {
                 log::warn!("actions: run for {} — no shell window open", action.name);
+                report.fail(crate::steer_wiring::NO_WINDOW_REASON, cx);
                 fire_settled(&mut on_settled, false, cx);
                 return;
             };
@@ -492,6 +501,7 @@ team settings → Repositories.";
                         let _ = window.update(cx, |_, window, cx| {
                             crate::toast::error(message, window, cx);
                         });
+                        report.fail(message, cx);
                         fire_settled(&mut on_settled, false, cx);
                         return;
                     }
@@ -524,6 +534,7 @@ team settings → Repositories.";
             // them down for nothing.
             if let Some(branch) = fix_branch {
                 if !take_over_branch(&branch, window, cx) {
+                    report.fail(FIX_RUN_BUSY_REASON, cx);
                     fire_settled(&mut on_settled, false, cx);
                     return;
                 }
@@ -547,7 +558,7 @@ team settings → Repositories.";
                 options,
                 prompt,
             };
-            launch_action(request, window, reservation, on_settled, cx);
+            launch_action(request, window, reservation, on_settled, report, cx);
         });
     })
     .detach();
@@ -584,7 +595,7 @@ fn take_over_branch(branch: &str, window: gpui::AnyWindowHandle, cx: &mut App) -
         .collect();
     match coding_flow::plan_branch_takeover(claims) {
         coding_flow::BranchTakeover::Refuse => {
-            let message = "A fix-conflicts run is already working this pull request.";
+            let message = FIX_RUN_BUSY_REASON;
             log::warn!("actions: fix-conflicts start refused — {message}");
             let _ = window.update(cx, |_, window, cx| {
                 crate::toast::error(message, window, cx);
@@ -638,54 +649,81 @@ pub(crate) fn resume_run_on_account(
     prompt: Option<String>,
     cx: &mut App,
 ) {
+    resume_run_reporting(
+        session_id,
+        target,
+        activate_app,
+        origin,
+        account,
+        prompt,
+        crate::steer_wiring::StartReport::none(),
+        cx,
+    )
+}
+
+/// [`resume_run_on_account`] for a RELAY resume (FEED-67): every refusal
+/// and failure also reports its reason through `report`, so the requester
+/// reads it instead of a bare timeout.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn resume_run_reporting(
+    session_id: String,
+    target: Option<gpui::AnyWindowHandle>,
+    activate_app: bool,
+    origin: LaunchOrigin,
+    account: Option<String>,
+    prompt: Option<String>,
+    report: crate::steer_wiring::StartReport,
+    cx: &mut App,
+) {
     // The same duplicate-frame claim the action path takes (EXP-505): a
     // retried relay resume must not relaunch the run twice.
     let Some(reservation) = crate::steer_wiring::action_start_reservations()
         .claim(format!("resume:{session_id}"))
     else {
         log::info!("actions: duplicate resume for {session_id} ignored");
+        report.fail(steer::START_DUPLICATE_REASON, cx);
         return;
     };
     // Signed-in check + the registry's location in one (the RESUME's own deps
     // are built below, once the record says what kind of run this is).
     let Some(data_dir) = coding_flow::build_action_deps(cx).map(|deps| deps.data_dir) else {
         log::warn!("actions: resume ignored — not signed in");
+        report.fail(SIGNED_OUT_REASON, cx);
         return;
     };
     let Some(record) = coding::run_registry::get(&data_dir, &session_id) else {
-        notify_target_error(
-            target,
-            "This run can't be resumed on this machine: it has no local record. It ran on another \
+        let message = "This run can't be resumed on this machine: it has no local record. It ran on another \
 machine, was a repo-less run (purged when it ends), or was removed by this machine's session \
-history setting.",
-            cx,
-        );
+history setting.";
+        notify_target_error(target, message, cx);
+        report.fail(message, cx);
         return;
     };
     // A reclaimed run worktree is re-created by the launcher; only a
     // branch-less record or a purged scratch dir has nothing to resume into.
     if !record.resumable() {
-        notify_target_error(
-            target,
-            "This run's workspace is gone and can't be re-created.",
-            cx,
-        );
+        let message = "This run's workspace is gone and can't be re-created.";
+        notify_target_error(target, message, cx);
+        report.fail(message, cx);
         return;
     }
     // EXP-662: an issue/batch record resumes back into `exp/<ID>` — the
     // one-session-per-issue rule applies exactly as it does to a fresh start.
     if let Some(message) = coding_flow::resume_blocker_for(&record, account.is_some(), cx) {
         notify_target_error(target, &message, cx);
+        report.fail(message, cx);
         return;
     }
     // The deps a RESUME needs: an issue record's fallback prompt asks for the
     // issue's seed, which only the foreground can snapshot.
     let Some(deps) = coding_flow::build_resume_deps(&record, cx) else {
         log::warn!("actions: resume ignored — not signed in");
+        report.fail(SIGNED_OUT_REASON, cx);
         return;
     };
     let Some(window) = target.or_else(|| crate::steer_wiring::find_team_window(cx)) else {
         log::warn!("actions: resume for {session_id} — no shell window open");
+        report.fail(crate::steer_wiring::NO_WINDOW_REASON, cx);
         return;
     };
     if activate_app {
@@ -730,21 +768,30 @@ history setting.",
                 if let Err(message) = coding_flow::spawn_into_window(prepared, subject, window, cx)
                 {
                     log::warn!("actions: resume spawn failed: {message}");
+                    report.fail(message.clone(), cx);
                     crate::toast::error(message, window, cx);
                 }
             }
             Ok(Prepared::Disabled(reason)) => {
                 log::warn!("actions: resume disabled — {}", reason.message());
+                report.fail(steer::disabled_launch_reason(&reason.message()), cx);
                 crate::toast::error(reason.message(), window, cx);
             }
             Err(err) => {
                 log::warn!("actions: resume prepare failed: {err}");
+                report.fail(err.to_string(), cx);
                 crate::toast::error(format!("Could not resume the run: {err}"), window, cx);
             }
         });
     })
     .detach();
 }
+
+/// FEED-67: the reason a relay start reports when this desktop is signed out.
+const SIGNED_OUT_REASON: &str = "remote start failed: the desktop app is signed out";
+
+/// The refusal a second fix-conflicts run on one pull request gets.
+const FIX_RUN_BUSY_REASON: &str = "A fix-conflicts run is already working this pull request.";
 
 /// Surface a runner failure on the target window (best-effort). A RELAY start
 /// carries no target (EXP-357) — it used to swallow the refusal into the log,
@@ -774,11 +821,13 @@ fn launch_action(
     target: gpui::AnyWindowHandle,
     reservation: Option<crate::steer_wiring::ReservationGuard>,
     on_settled: Option<ActionSettledHook>,
+    report: crate::steer_wiring::StartReport,
     cx: &mut App,
 ) {
     let mut on_settled = on_settled;
     let Some(deps) = coding_flow::build_action_deps(cx) else {
         log::warn!("actions: launch ignored — not signed in");
+        report.fail(SIGNED_OUT_REASON, cx);
         fire_settled(&mut on_settled, false, cx);
         return;
     };
@@ -806,6 +855,7 @@ fn launch_action(
                     Ok(()) => fire_settled(&mut on_settled, true, cx),
                     Err(message) => {
                         log::warn!("actions: spawn failed: {message}");
+                        report.fail(message.clone(), cx);
                         crate::toast::error(message, window, cx);
                         fire_settled(&mut on_settled, false, cx);
                     }
@@ -813,11 +863,13 @@ fn launch_action(
             }
             Ok(Prepared::Disabled(reason)) => {
                 log::warn!("actions: run disabled — {}", reason.message());
+                report.fail(steer::disabled_launch_reason(&reason.message()), cx);
                 crate::toast::error(reason.message(), window, cx);
                 fire_settled(&mut on_settled, false, cx);
             }
             Err(err) => {
                 log::warn!("actions: prepare failed: {err}");
+                report.fail(err.to_string(), cx);
                 crate::toast::error(format!("Could not start the action: {err}"), window, cx);
                 fire_settled(&mut on_settled, false, cx);
             }

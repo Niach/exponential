@@ -5,6 +5,7 @@ import {
   HISTORY_ROOM_LINGER_MS,
   Hub,
   type RelaySocket,
+  type StartSubject,
 } from "./hub"
 import {
   CLOSE_PUBLISHER_IDLE,
@@ -181,6 +182,32 @@ describe(`device presence + remote start`, () => {
     expect(
       hub.startSession(`owner`, `dev-1`, { issueId: `issue-9` })
     ).toEqual({ ok: false, reason: `device_offline` })
+  })
+
+  test(`startSession carries startId verbatim on every subject, absent stays absent (FEED-63)`, () => {
+    const hub = new Hub()
+    const desktop = new FakeSocket()
+    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
+    hub.onMessage(desktop, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
+    const repo = { repositoryId: `r-1`, fullName: `o/r`, defaultBranch: `master` }
+    const subjects: StartSubject[] = [
+      { issueId: `issue-9` },
+      { issueIds: [`issue-1`, `issue-2`], teamId: `t-1`, repo },
+      { actionId: `act-1`, actionName: `Act`, teamId: `t-1` },
+      { resumeSessionId: `sess-1`, teamId: `t-1` },
+    ]
+    for (const subject of subjects) {
+      hub.startSession(`owner`, `dev-1`, subject, { startId: `start-1` })
+      expect(desktop.lastFrame(`start_session`)).toEqual({
+        t: `start_session`,
+        ...subject,
+        startId: `start-1`,
+      })
+      hub.startSession(`owner`, `dev-1`, subject, {})
+      const plain = desktop.lastFrame(`start_session`)
+      expect(plain).toEqual({ t: `start_session`, ...subject })
+      expect(plain).not.toHaveProperty(`startId`)
+    }
   })
 
   test(`startSession passes resume through to the frame (EXP-481)`, () => {

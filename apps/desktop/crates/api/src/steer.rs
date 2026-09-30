@@ -233,6 +233,39 @@ pub fn kill_session(trpc: &TrpcClient, coding_session_id: &str) -> Result<(), Ap
     Ok(())
 }
 
+/// FEED-63: the longest `reason` the server accepts on
+/// `steer.reportStartFailure`, in chars.
+pub const START_FAILURE_REASON_MAX_CHARS: usize = 2000;
+
+/// `steer.reportStartFailure` (FEED-63), a mutation: this device could not
+/// honour the `start_session` frame whose `startId` it names, and `reason`
+/// says why (a git error, a duplicate drop, a refusal). The requester then
+/// sees the reason instead of a bare "no run within 10s". `reason` is cut
+/// to [`START_FAILURE_REASON_MAX_CHARS`] here, so callers may pass a whole
+/// error chain. Returns the server's `recorded` flag (`false` = the start id
+/// was unknown or already settled). Best-effort for callers: log a transport
+/// error, never retry in a loop.
+pub fn report_start_failure(
+    trpc: &TrpcClient,
+    start_id: &str,
+    reason: &str,
+) -> Result<bool, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        start_id: &'a str,
+        reason: String,
+    }
+    #[derive(Deserialize)]
+    struct Envelope {
+        recorded: bool,
+    }
+    let reason: String = reason.chars().take(START_FAILURE_REASON_MAX_CHARS).collect();
+    let envelope: Envelope =
+        trpc.mutation("steer.reportStartFailure", &Input { start_id, reason })?;
+    Ok(envelope.recorded)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -256,6 +289,21 @@ mod tests {
         assert_eq!(config.relay_url.as_deref(), Some("http://relay.lan:4002"));
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("GET /api/trpc/steer.config HTTP/1.1"));
+    }
+
+    #[test]
+    fn report_start_failure_posts_camel_case_and_truncates() {
+        let (base, captured) =
+            one_shot_server(200, r#"{"result":{"data":{"recorded":true}}}"#);
+        let long = "x".repeat(START_FAILURE_REASON_MAX_CHARS + 50);
+        assert!(report_start_failure(&client(&base), "start-1", &long).unwrap());
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/steer.reportStartFailure HTTP/1.1"));
+        let expected = format!(
+            r#"{{"startId":"start-1","reason":"{}"}}"#,
+            "x".repeat(START_FAILURE_REASON_MAX_CHARS)
+        );
+        assert!(request.ends_with(&expected));
     }
 
     #[test]

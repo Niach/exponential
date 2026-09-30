@@ -55,6 +55,8 @@ import {
   workflows,
   codingSessions,
   comments,
+  devices,
+  deviceWorktrees,
   issueLabels,
   issueRelations,
   issues,
@@ -104,6 +106,7 @@ import { findRelationCycle } from "@/lib/relation-cycles"
 import { liveWorkflowBaseForIssue } from "@/lib/workflows"
 import { appendDecisionLine } from "@/lib/trpc/workflows"
 import { resolveWorkflowMembership } from "@/lib/sessions/workflow-membership"
+import { takeStartFailure } from "@/lib/start-failures"
 import { resolveIssueReference, retiredIdentifiers } from "@/lib/issue-resolver"
 import {
   issueWireColumns,
@@ -579,6 +582,11 @@ const sessionColumns = {
   resumedFromId: codingSessions.resumedFromId,
   parentSessionId: codingSessions.parentSessionId,
   needsInput: codingSessions.needsInput,
+  // FEED-63: `status` is the PR/review state (in_review = PR open, the run
+  // still live); `agentBusy` is the ONLY "working right now" signal (EXP-848,
+  // device-written per turn edge), `agentCaption` what it is doing.
+  agentBusy: codingSessions.agentBusy,
+  agentCaption: codingSessions.agentCaption,
   // EXP-804: the agent's usage wall. Non-null on a row that still reads
   // `running` — the ONE state a polling orchestrator cannot infer.
   blocked: codingSessions.blocked,
@@ -667,6 +675,12 @@ async function stampChildOfRun(
 const SESSION_START_POLL_MS = 10_000
 const SESSION_START_POLL_STEP_MS = 500
 
+// FEED-60/63: how long exponential_sessions_message waits for the target's
+// agent to start a turn after the relay delivered the text (the device
+// ticker writes `agent_busy` about 1s after a turn starts).
+const MESSAGE_CONSUME_WAIT_MS = 6_000
+const MESSAGE_CONSUME_STEP_MS = 500
+
 /** FEED-57/46: what `exponential_sessions_start` answers when the device
  *  reported no run within the wait. */
 export function noRunReportedMessage(deviceId: string): string {
@@ -694,6 +708,78 @@ export function batchStartRowMatch(
 
 function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms))
+}
+
+/** FEED-63: the device's reported launch failure for this start, as the
+ *  tool's error text; null while none was reported. */
+function startFailureMessage(
+  started: { startId?: string } | undefined,
+  deviceId: string,
+  userId: string
+): string | null {
+  if (!started?.startId) return null
+  const failure = takeStartFailure(started.startId, userId)
+  return failure
+    ? `Device ${deviceId} could not start the run: ${failure.reason}`
+    : null
+}
+
+/** FEED-60: after a delivered message, wait for the run's agent to start a
+ *  turn (`agent_busy` flips true). False = the text reached the device but
+ *  nothing picked it up within MESSAGE_CONSUME_WAIT_MS. */
+async function waitForAgentTurn(sessionId: string): Promise<boolean> {
+  const deadline = Date.now() + MESSAGE_CONSUME_WAIT_MS
+  for (;;) {
+    await sleep(MESSAGE_CONSUME_STEP_MS)
+    const [row] = await db
+      .select({ agentBusy: codingSessions.agentBusy })
+      .from(codingSessions)
+      .where(eq(codingSessions.id, sessionId))
+      .limit(1)
+    if (row?.agentBusy) return true
+    if (Date.now() >= deadline) return false
+  }
+}
+
+/** FEED-63: a killed run whose worktree held uncommitted work, as the
+ *  device last reported it (`device_worktrees`). Best-effort: null on any
+ *  miss or failure, never failing the kill. */
+async function killedWorktreeNote(session: {
+  deviceId?: string | null
+  branch?: string | null
+  userId?: string | null
+  hostUserId?: string | null
+}): Promise<string | null> {
+  const { deviceId, branch } = session
+  const ownerId = session.hostUserId ?? session.userId
+  if (!deviceId || !branch || !ownerId) return null
+  try {
+    // coding_sessions.device_id is the device's own id string; the devices
+    // row is keyed (owner, device_id) and device_worktrees hangs off its id.
+    const [worktree] = await db
+      .select({
+        dirty: deviceWorktrees.dirty,
+        reportedAt: deviceWorktrees.reportedAt,
+      })
+      .from(deviceWorktrees)
+      .innerJoin(devices, eq(devices.id, deviceWorktrees.deviceRowId))
+      .where(
+        and(
+          eq(devices.userId, ownerId),
+          eq(devices.deviceId, deviceId),
+          eq(deviceWorktrees.branch, branch)
+        )
+      )
+      .orderBy(desc(deviceWorktrees.reportedAt))
+      .limit(1)
+    if (!worktree) return null
+    if (worktree.dirty !== `tracked` && worktree.dirty !== `untracked`) {
+      return null
+    }
+    return `The run's worktree on its device reported uncommitted changes (${worktree.dirty}, as of ${new Date(worktree.reportedAt).toISOString()}); the device saves them as a WIP commit on ${branch} when it tears the run down.`
+  } catch {
+    return null
+  }
 }
 
 const codingAgentValues = contract.codingAgent.values as [string, ...string[]]
@@ -4090,7 +4176,7 @@ export function registerExponentialTools(
     `exponential_sessions_list`,
     {
       annotations: READ_ONLY,
-      description: `List coding sessions (newest first) across your teams or one team: status, issue, action, branch, device, blocked (a real usage-wall refusal, see exponential_sessions_get), depth in its run tree, and once ended who ended it. mine limits to runs you started or host; subtreeOf to one run and everything it started, however deep.`,
+      description: `List coding sessions (newest first) across your teams or one team: status (in_review = PR open, still live), agentBusy (working now), issue, action, branch, device, blocked (usage-wall refusal, see exponential_sessions_get), run-tree depth, endedBy. mine = runs you started or host; subtreeOf = one run and all it started.`,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
         status: z.enum([`running`, `in_review`, `ended`]).optional(),
@@ -4175,7 +4261,7 @@ export function registerExponentialTools(
     `exponential_sessions_get`,
     {
       annotations: READ_ONLY,
-      description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open) → ended, and endedBy says who ended it. ackedAt is the device's liveness ack, stamped within seconds of the launch; null for more than a couple of minutes = the launch died on the device. blocked is set only when the agent itself REFUSED a call at its usage wall (never for a usage warning): blocked.window (session = 5h, weekly, model) and blocked.resetsAt describe the SAME window; the run stays running and clears it on its next successful turn.`,
+      description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open, still live) → ended; endedBy = who ended it; agentBusy = working now. ackedAt = the device's liveness ack, stamped seconds after launch; null for minutes = the launch died. blocked is set only when the agent itself REFUSED a call at its usage wall (never for a usage warning): blocked.window (session = 5h, weekly, model) and blocked.resetsAt describe the SAME window; the run stays running and clears it on its next successful turn.`,
       inputSchema: strictInput({ id: uuidString }),
     },
     async ({ id }) => {
@@ -4295,11 +4381,13 @@ export function registerExponentialTools(
             endedBy: `user`,
           })
         }
+        const note = await killedWorktreeNote(result.session)
         return ok({
           ok: true,
           id,
           status: result.session.status,
           endedAt: result.session.endedAt,
+          ...(note ? { note } : {}),
         })
       } catch (e) {
         return err(e)
@@ -4314,7 +4402,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_message`,
     {
-      description: `Send text into a live coding session you own or host; it arrives as user input to that agent, prefixed with its source. Use it to answer a child run's exponential_sessions_ask_parent question (id = the child's session UUID from the bracketed message) or to steer a run you started. Never your own session.`,
+      description: `Send text into a live coding session you own or host, as user input prefixed with its source: answer a child's exponential_sessions_ask_parent question (id = the child's UUID) or steer a run you started. Never your own session. queued = mid-turn, consumed = a turn started; consumed false = nobody reads it: kill, resumeSessionId.`,
       inputSchema: strictInput({
         id: uuidString,
         message: z.string().min(1).max(4_000),
@@ -4335,6 +4423,8 @@ export function registerExponentialTools(
             hostUserId: codingSessions.hostUserId,
             status: codingSessions.status,
             parentSessionId: codingSessions.parentSessionId,
+            // FEED-60: mid-turn before the injection = the text queues.
+            agentBusy: codingSessions.agentBusy,
           })
           .from(codingSessions)
           .where(eq(codingSessions.id, targetId))
@@ -4369,7 +4459,28 @@ export function registerExponentialTools(
         // question (`ask_parent`): off the row, into the workflow's log.
         const { answerPendingQuestion } = await import(`@/lib/sessions/answer-pending-question`)
         await answerPendingQuestion(db, targetId)
-        return ok({ ok: true, id: targetId, delivered: true })
+        // FEED-60: `delivered` only means the relay found the run's device
+        // socket. Say whether the agent actually picked the text up.
+        if (row.agentBusy) {
+          return ok({
+            ok: true,
+            id: targetId,
+            delivered: true,
+            queued: true,
+            note: `The agent is mid-turn; the message lands when it reads it (claude replays it into the running turn).`,
+          })
+        }
+        const consumed = await waitForAgentTurn(targetId)
+        if (consumed) {
+          return ok({ ok: true, id: targetId, delivered: true, consumed: true })
+        }
+        return ok({
+          ok: true,
+          id: targetId,
+          delivered: true,
+          consumed: false,
+          note: `The run's agent did not start a turn within ${MESSAGE_CONSUME_WAIT_MS / 1000}s: the text reached its device but nothing is reading it. Kill the run (exponential_sessions_kill) and start it again with resumeSessionId (the resumed run continues the transcript), then message the new run.`,
+        })
       } catch (e) {
         return err(e)
       }
@@ -4536,7 +4647,7 @@ export function registerExponentialTools(
             }
           }
         }
-        await caller(user, request).steer.startSession({
+        const started = await caller(user, request).steer.startSession({
           ...startInput,
           ...membership,
           issueId,
@@ -4580,6 +4691,9 @@ export function registerExponentialTools(
             session = row
             break
           }
+          // FEED-63: the device reported why it could not launch the run.
+          const failure = startFailureMessage(started, input.deviceId, user.id)
+          if (failure) return err(new Error(failure))
           if (Date.now() >= deadline) break
           await sleep(SESSION_START_POLL_STEP_MS)
         }
@@ -4587,7 +4701,10 @@ export function registerExponentialTools(
         // refused or dropped it). Never an `ok` with a null id: the caller
         // would wait on a run that does not exist.
         if (!session) {
-          return err(new Error(noRunReportedMessage(input.deviceId)))
+          const failure = startFailureMessage(started, input.deviceId, user.id)
+          return err(
+            new Error(failure ?? noRunReportedMessage(input.deviceId))
+          )
         }
         return ok({
           ok: true,

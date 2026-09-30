@@ -192,6 +192,59 @@ pub struct RemoteStart {
     /// planner run, `WorkflowMembership::from_wire`). Never on a resume,
     /// which inherits server-side.
     pub workflow: Option<coding::workflows::WorkflowMembership>,
+    /// FEED-63: the frame's `startId`, the server's id for this start
+    /// attempt. When set, a machine that refuses or fails the start reports
+    /// the reason with `steer.reportStartFailure`. Set after
+    /// [`remote_start_from_frame`] like `workflow`; `None` on pre-FEED-63
+    /// frames.
+    pub start_id: Option<String>,
+}
+
+/// FEED-63: the reason a duplicate `start_session` frame is dropped with.
+/// One string for both hosts (the CLI daemon's REV-9 reservations and the
+/// desktop IDE's EXP-505 claims, FEED-67).
+pub const START_DUPLICATE_REASON: &str =
+    "duplicate start dropped: a start for the same subject is already in flight on this device";
+
+/// FEED-63: the refusal reason when a live run on THIS device already holds
+/// the issue (the one-session-per-issue guard).
+pub fn issue_held_here_reason(session_id: &str) -> String {
+    format!("a live run already holds this issue on this device: {session_id}")
+}
+
+/// FEED-63: the refusal reason when a live run on ANOTHER device holds the
+/// issue. `session_id` is `None` where the host only knows the machine (the
+/// desktop's synced-row probe names the device, not the row).
+pub fn issue_held_elsewhere_reason(device: &str, session_id: Option<&str>) -> String {
+    match session_id {
+        Some(session_id) => format!(
+            "a live run already holds this issue on {device}: {session_id} (one session per issue)"
+        ),
+        None => format!("a live run already holds this issue on {device} (one session per issue)"),
+    }
+}
+
+/// FEED-63: the refusal reason for a launch the launcher disabled
+/// (`coding::Prepared::Disabled`), from its user-facing message.
+pub fn disabled_launch_reason(message: &str) -> String {
+    format!("refused: {message}")
+}
+
+/// FEED-63: tell the server why the start `start_id` names did not happen
+/// (`steer.reportStartFailure`), so the requester reads the reason instead
+/// of a bare timeout. Best-effort and BLOCKING (an HTTP round trip: call it
+/// off any UI or tick thread): a frame without a start id (a pre-FEED-63
+/// server) reports nothing, and a transport failure is only logged.
+pub fn report_start_failure(trpc: &api::TrpcClient, start_id: Option<&str>, reason: &str) {
+    let Some(start_id) = start_id else {
+        return;
+    };
+    match api::steer::report_start_failure(trpc, start_id, reason) {
+        Ok(recorded) => {
+            log::info!("remote start {start_id}: failure reported (recorded={recorded})")
+        }
+        Err(err) => log::warn!("remote start {start_id}: failure report failed: {err}"),
+    }
 }
 
 /// EXP-897 — the launcher's view of an inbound [`StartStack`]: the same plan
@@ -274,6 +327,7 @@ pub(crate) fn remote_start_from_frame(
             stack: None,
             subagent_model: None,
             workflow: None,
+            start_id: None,
         });
     }
     let subject = match (issue_id, issue_ids, action_id) {
@@ -310,6 +364,7 @@ pub(crate) fn remote_start_from_frame(
         stack,
         subagent_model,
         workflow: None,
+        start_id: None,
     })
 }
 
@@ -701,6 +756,7 @@ async fn connect_and_listen(
                             workflow_id,
                             workflow_node_id,
                             workflow_role,
+                            start_id,
                         }) => match remote_start_from_frame(
                             issue_id, issue_ids, action_id, action_name, team_id, repo, inputs,
                             started_by, started_reason, agent, model, effort, ultracode,
@@ -714,6 +770,7 @@ async fn connect_and_listen(
                                     workflow_node_id.as_deref(),
                                     workflow_role.as_deref(),
                                 );
+                                start.start_id = start_id;
                                 log::info!("steer control: remote start_session ({:?})", start.subject);
                                 on_start_session(start);
                             }
@@ -1013,6 +1070,7 @@ mod tests {
                 stack: None,
                 subagent_model: None,
                 workflow: None,
+                start_id: None,
             })
         );
 
@@ -1061,6 +1119,7 @@ mod tests {
                 stack: None,
                 subagent_model: None,
                 workflow: None,
+                start_id: None,
             })
         );
     }
@@ -1118,6 +1177,7 @@ mod tests {
                 stack: None,
                 subagent_model: None,
                 workflow: None,
+                start_id: None,
             })
         );
     }
@@ -1280,6 +1340,7 @@ mod tests {
                 stack: None,
                 subagent_model: None,
                 workflow: None,
+                start_id: None,
             })
         );
     }
@@ -1515,6 +1576,7 @@ mod tests {
                 stack: None,
                 subagent_model: None,
                 workflow: None,
+                start_id: None,
             })
         );
         // Repo-less action: repo simply absent.
@@ -1619,6 +1681,7 @@ mod tests {
                 stack: None,
                 subagent_model: None,
                 workflow: None,
+                start_id: None,
             })
         );
     }

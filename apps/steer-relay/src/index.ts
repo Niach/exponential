@@ -380,6 +380,18 @@ app.post(`/start`, async (c) => {
     stack = parsed.data
   }
 
+  // FEED-63: startId is an OPTIONAL pass-through on every subject (resume
+  // included) naming this start request, so the device can report a failed
+  // start back to the web server; a PRESENT key must be a non-empty string
+  // ≤128 chars, else 400 (the startedBy stance).
+  let startId: string | undefined
+  if (body && `startId` in body) {
+    startId = asString(body.startId)
+    if (!startId || startId.length > 128) {
+      return c.json({ error: `Bad request` }, 400)
+    }
+  }
+
   const options: StartSessionOptions = {
     ...(startedBy ? { startedBy } : {}),
     ...(startedReason ? { startedReason } : {}),
@@ -395,6 +407,7 @@ app.post(`/start`, async (c) => {
     ...(prompt ? { prompt } : {}),
     ...(stack ? { stack } : {}),
     ...membership,
+    ...(startId ? { startId } : {}),
   }
   const result = hub.startSession(userId, deviceId, subject, options)
   if (!result.ok) return c.json({ error: result.reason }, 404)

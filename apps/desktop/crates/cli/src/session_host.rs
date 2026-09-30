@@ -284,6 +284,7 @@ pub fn launch(
     let host = Arc::new(CliEngineHost {
         data_dir: env.ctx.data_dir.clone(),
         refresher_hold: Mutex::new(refresher_hold),
+        worktree: worktree.clone(),
     });
     let session = engine::start(
         engine::EngineStart {
@@ -377,6 +378,8 @@ struct CliEngineHost {
     data_dir: PathBuf,
     /// EXP-447: released exactly when the run ends, on every path.
     refresher_hold: Mutex<Option<coding::RefresherHold>>,
+    /// FEED-63: where a stopped run's uncommitted work is saved.
+    worktree: PathBuf,
 }
 
 impl engine::EngineHost for CliEngineHost {
@@ -395,6 +398,9 @@ impl engine::EngineHost for CliEngineHost {
         if exit.end.is_none() {
             registry::mark_ended(&self.data_dir, &exit.session_id);
         }
+        // FEED-63: a run a PERSON stopped keeps its uncommitted work as a
+        // local WIP commit on its branch (never pushed).
+        engine::save_stopped_run_work(&exit, &self.worktree);
         if let Ok(mut hold) = self.refresher_hold.lock() {
             drop(hold.take());
         }
