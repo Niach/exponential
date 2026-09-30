@@ -1,4 +1,3 @@
-import { toast } from "sonner"
 import { useState } from "react"
 import {
   conceptIcon,
@@ -15,6 +14,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  toast,
 } from "@exp/ui"
 import { BoardPicker } from "@/components/issue-properties/board-picker"
 

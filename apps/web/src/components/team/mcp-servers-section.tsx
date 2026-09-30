@@ -12,7 +12,6 @@
 // Everything technical (auth override, transport, header/env names, scopes)
 // hides behind "Advanced".
 import { useEffect, useMemo, useRef, useState } from "react"
-import { toast } from "sonner"
 import type { McpAuth, McpTransport } from "@exp/db-schema/domain"
 import {
   conceptIcon,
@@ -55,6 +54,7 @@ import {
   mcpServerPickerItems,
   type McpCatalogEntry,
   type PickerItem,
+  toast,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"

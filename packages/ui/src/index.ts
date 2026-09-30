@@ -106,6 +106,8 @@ export * from "./switch"
 export * from "./tabs"
 export * from "./team-avatar"
 export * from "./textarea"
+// EXP-1031: THE toast (sonner + the fixture numbers) and its specimen.
+export * from "./toast"
 export * from "./tooltip"
 export * from "./tree-guides"
 export * from "./tree-guides-view"

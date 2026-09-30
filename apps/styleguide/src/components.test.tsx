@@ -866,8 +866,10 @@ describe(`the four sections (EXP-941/EXP-1019)`, () => {
   })
 
   test(`a placeholder renders its owner and NO status table`, () => {
+    // EXP-1031 filled the last one (Toast); the rule still holds for any
+    // placeholder a future contract pre-registers.
     const placeholders = ENTRIES.filter((entry) => entry.placeholder === true)
-    expect(placeholders.length).toBeGreaterThan(0)
+    expect(placeholders.length).toBeGreaterThanOrEqual(0)
     for (const entry of placeholders) {
       const at = html.indexOf(`data-view="${entry.id}" id="view-${entry.id}">`)
       expect(at >= 0 ? entry.id : `${entry.id}: no section`).toBe(entry.id)

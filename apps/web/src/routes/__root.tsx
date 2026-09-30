@@ -6,8 +6,7 @@ import {
   createRootRoute,
 } from "@tanstack/react-router"
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools"
-import { Toaster } from "sonner"
-import { TooltipProvider } from "@exp/ui"
+import { Toaster, TooltipProvider } from "@exp/ui"
 import { SessionProvider } from "@/hooks/use-session"
 
 import "../styles.css?url"
@@ -105,7 +104,7 @@ function RootComponent() {
     <SessionProvider>
       <TooltipProvider>
         <Outlet />
-        <Toaster richColors position="bottom-right" theme="dark" />
+        <Toaster />
         {showRouterDevtools && <TanStackRouterDevtools />}
       </TooltipProvider>
     </SessionProvider>

@@ -62,7 +62,8 @@ vi.mock(`@tanstack/react-router`, () => ({
     select({}),
 }))
 
-vi.mock(`sonner`, () => ({
+vi.mock(`sonner`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("sonner")>()),
   toast: { error: vi.fn() },
 }))
 

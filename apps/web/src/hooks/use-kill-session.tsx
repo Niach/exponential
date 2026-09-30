@@ -1,5 +1,4 @@
 import { useState } from "react"
-import { toast } from "sonner"
 import type { CodingSession } from "@/db/schema"
 import {
   conceptIcon,
@@ -11,6 +10,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  toast,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"

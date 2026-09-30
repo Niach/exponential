@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import type * as React from "react"
 import { Files } from "lucide-react"
-import { toast } from "sonner"
 import {
   conceptIcon,
   useIsMobile,
@@ -10,6 +9,7 @@ import {
   MOBILE_WORK_BAR_CLEARANCE,
   WORK_COLUMN_CLASS,
   WorkHeader,
+  toast,
 } from "@exp/ui"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import type { Issue, User, Board } from "@/db/schema"

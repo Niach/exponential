@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useLiveQuery } from "@tanstack/react-db"
-import { toast } from "sonner"
+import { toast } from "@exp/ui"
 import type { CodingSession, Device } from "@/db/schema"
 import { codingSessionCollection, deviceCollection } from "@/lib/collections"
 import {

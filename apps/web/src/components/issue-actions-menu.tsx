@@ -1,6 +1,5 @@
 import { Link2 } from "lucide-react"
 import { useNavigate } from "@tanstack/react-router"
-import { toast } from "sonner"
 import type { Board, Issue } from "@/db/schema"
 import {
   conceptIcon,
@@ -13,6 +12,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
   IconTooltip,
+  toast,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import {

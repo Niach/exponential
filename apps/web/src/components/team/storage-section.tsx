@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Link } from "@tanstack/react-router"
 import { useLiveQuery } from "@tanstack/react-db"
-import { toast } from "sonner"
 import { Eraser, LoaderCircle, Trash2 } from "lucide-react"
 import type { Issue, Team } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
@@ -32,6 +31,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  toast,
 } from "@exp/ui"
 
 type StorageList = Awaited<

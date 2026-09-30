@@ -14,6 +14,7 @@ import {
   SheetTitle,
   conceptIcon,
   useIsMobile,
+  toast,
 } from "@exp/ui"
 import {
   READINESS_COPY,
@@ -31,7 +32,6 @@ import {
 import { ReadinessRepoPicker } from "@/components/coding-readiness-repo-picker"
 import { AddDeviceDialog } from "@/components/add-device-dialog"
 import type { CodingReadinessState } from "@/hooks/use-coding-readiness"
-import { toast } from "sonner"
 
 // EXP-1121: the "Ready to code?" checklist. Start coding ALWAYS renders for a
 // member; while a step is missing it is a dashed amber capsule, and a click

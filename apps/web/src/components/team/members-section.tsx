@@ -26,9 +26,9 @@ import {
   DropdownMenuTrigger,
   Separator,
   UserAvatar,
+  toast,
 } from "@exp/ui"
 import { isPlanLimitError } from "@/lib/plan-limit-error"
-import { toast } from "sonner"
 import type { User, TeamMember } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import { invalidateBillingCache } from "@/hooks/use-billing"

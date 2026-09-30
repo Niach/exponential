@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { and, eq, inArray, or, useLiveQuery } from "@tanstack/react-db"
-import { toast } from "sonner"
+import { toast } from "@exp/ui"
 import type { Board, CodingSession, Issue, SyncedDeviceWorktree } from "@/db/schema"
 import { isCodingSessionStale } from "@exp/db-schema/domain"
 import { useNow } from "@/hooks/use-now"

@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react"
 import { LoaderCircle } from "lucide-react"
-import { Button, Input, conceptIcon } from "@exp/ui"
-import { toast } from "sonner"
+import { Button, Input, conceptIcon, toast } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import { isPlanLimitError } from "@/lib/plan-limit-error"
 import { getRuntimeConfig } from "@/lib/runtime-config"
