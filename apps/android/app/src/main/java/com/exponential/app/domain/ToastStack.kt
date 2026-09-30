@@ -38,6 +38,15 @@ object ToastStack {
         const val SWIPE_THRESHOLD = 45.0
         const val VIEWPORT_OFFSET = 24.0
         const val MOBILE_VIEWPORT_OFFSET = 16.0
+
+        /** `placement.pointer`: web from [TOUCH_MAX_WIDTH] up and the IDE. */
+        const val PLACEMENT_POINTER = "bottom-right"
+
+        /** `placement.touch`: phones (Android, iOS, mobile web) stack from the TOP. */
+        const val PLACEMENT_TOUCH = "top-center"
+
+        /** Below this width (px/dp) a surface is `touch`. */
+        const val TOUCH_MAX_WIDTH = 600.0
         val KINDS: List<String> = ToastKind.entries.map { it.wire }
     }
 

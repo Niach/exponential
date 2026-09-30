@@ -15,9 +15,12 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -44,7 +47,6 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -77,57 +79,34 @@ import kotlin.math.sign
 /**
  * EXP-1031: THE toast (web `@exp/ui` toast, desktop `crates/ui` toast, iOS
  * ExpUI Toast). One [Toaster] per app, provided as [LocalToaster] by
- * AppNavHost and drawn by ONE [ToastWindow] (its own window, above every
- * sheet and dialog); screens call `LocalToaster.current.error("…")` and never
- * host a snackbar of their own. Geometry = [ToastStack.geometry]
- * (fixture-locked), motion = [Motion].
- *
- * Everything a window re-creation must keep (the rendered list, measured
- * heights, enter/exit states, timers, expansion) lives HERE, not in the
- * window's composition: every [show] bumps [generation], which re-raises the
- * window above whatever opened since.
+ * AppNavHost and drawn by ONE [ToastHost] at the top of the screen (contract
+ * `placement.touch` = top-center); screens call
+ * `LocalToaster.current.error("…")` and never host a snackbar of their own.
+ * Geometry = [ToastStack.geometry] (fixture-locked), motion = [Motion].
  */
 @Stable
-class Toaster(private val clock: () -> Long = { System.nanoTime() / 1_000_000 }) {
+class Toaster {
     /** Live toasts, OLDEST first — the newest draws in front. */
     val toasts: SnapshotStateList<ToastItem> = mutableStateListOf()
 
     /** Tap expands the stack; the auto-dismiss clocks pause while it is. */
     var expanded: Boolean by mutableStateOf(false)
 
-    /**
-     * Bumped by every [show] (and [raise]): the toast window re-creates
-     * itself on top of whatever window opened since.
-     */
-    var generation: Int by mutableIntStateOf(0)
-        private set
-
-    /**
-     * What the stack must clear above the navigation bar: the shell writes
-     * its bottom nav bar + banner height here (0 while signed out).
-     */
-    var bottomInset: Dp by mutableStateOf(0.dp)
-
-    /** Live + the ones still animating out; the window shows while non-empty. */
+    /** Live + the ones still animating out. */
     val rendered: SnapshotStateList<ToastItem> = mutableStateListOf()
 
     // Remaining auto-dismiss time per toast, so a pause resumes rather than restarts.
     internal val remainingMs = HashMap<String, Long>()
     internal val heights = mutableStateMapOf<String, Double>()
     internal val lastGeometry = HashMap<String, ToastStack.ItemGeometry>()
-    internal val visibility = HashMap<String, MutableTransitionState<Boolean>>()
-    private val shownAt = HashMap<String, Long>()
     private var counter = 0L
 
     fun show(item: ToastItem): String {
         toasts.removeAll { it.id == item.id }
         rendered.removeAll { it.id == item.id }
         remainingMs.remove(item.id)
-        visibility.remove(item.id)
         toasts.add(item)
         rendered.add(item)
-        shownAt[item.id] = clock()
-        generation++
         return item.id
     }
 
@@ -150,42 +129,24 @@ class Toaster(private val clock: () -> Long = { System.nanoTime() / 1_000_000 })
         action: ToastAction? = null,
     ): String = show(ToastItem("toast-${++counter}", kind, title, description, action))
 
-    /** Re-raises the window over a sheet/dialog that opened above a showing toast. */
-    fun raise() {
-        if (rendered.isNotEmpty()) generation++
-    }
-
     fun dismiss(id: String) {
         toasts.removeAll { it.id == id }
         remainingMs.remove(id)
         if (toasts.isEmpty()) expanded = false
     }
 
-    /**
-     * Whether [id] is still inside its enter animation. A re-created window
-     * animates only these in; older toasts appear where they already were.
-     */
-    fun isEntering(id: String): Boolean =
-        clock() - (shownAt[id] ?: Long.MIN_VALUE / 2) < ToastDefaults.ENTER_MS
-
-    /** The enter/exit state for [id], shared by every window that draws it. */
-    internal fun visibilityOf(id: String): MutableTransitionState<Boolean> =
-        visibility.getOrPut(id) { MutableTransitionState(!isEntering(id)).apply { targetState = true } }
-
     /** Drops an exited toast's leftovers (called once its exit animation ends). */
     internal fun forget(id: String) {
         if (toasts.any { it.id == id }) return
         rendered.removeAll { it.id == id }
-        visibility.remove(id)
         heights.remove(id)
         lastGeometry.remove(id)
-        shownAt.remove(id)
     }
 }
 
 /** The app's one [Toaster]; AppNavHost provides it above both nav graphs. */
 val LocalToaster = staticCompositionLocalOf<Toaster> {
-    error("LocalToaster is not provided — AppNavHost provides it and mounts the ToastWindow")
+    error("LocalToaster is not provided — AppNavHost provides it and mounts the ToastHost")
 }
 
 /** The host/card numbers, every one derived from [ToastStack.Constants] or a token. */
@@ -193,14 +154,23 @@ object ToastDefaults {
     /** Phones: full width minus this on each side (`mobileViewportOffset`). */
     val HorizontalInset: Dp = ToastStack.Constants.MOBILE_VIEWPORT_OFFSET.dp
 
-    /** The gap between the stack and whatever it sits above. */
-    val BottomGap: Dp = ToastStack.Constants.MOBILE_VIEWPORT_OFFSET.dp
+    /** The gap between the status bar and the stack's top. */
+    val TopGap: Dp = ToastStack.Constants.MOBILE_VIEWPORT_OFFSET.dp
 
-    /** Tablets: the pointer-width card (`width`), bottom-centre. */
+    /** Tablets: the pointer-width card (`width`), still top-centre. */
     val Width: Dp = ToastStack.Constants.WIDTH.dp
 
-    /** At or above this available width the card stops filling the row. */
-    val TabletBreakpoint: Dp = 600.dp
+    /** At or above this available width (`touchMaxWidth`) the card stops filling the row. */
+    val TabletBreakpoint: Dp = ToastStack.Constants.TOUCH_MAX_WIDTH.dp
+
+    /** Android is a touch surface: contract `placement.touch`. */
+    const val PLACEMENT: String = ToastStack.Constants.PLACEMENT_TOUCH
+
+    /** Where [ToastHost] sits on screen — top-centre, never the bottom. */
+    val HostAlignment: Alignment = Alignment.TopCenter
+
+    /** What [ToastStackBox] passes to [ToastStack.geometry]: a TOP stack. */
+    const val ANCHORED_BOTTOM: Boolean = false
 
     val SwipeThreshold: Dp = ToastStack.Constants.SWIPE_THRESHOLD.dp
     val CornerRadius: Dp = DesignTokens.Radius.Lg
@@ -210,9 +180,6 @@ object ToastDefaults {
 
     /** Before a card is measured it stands in at this height. */
     const val FALLBACK_HEIGHT = 56.0
-
-    /** A toast younger than this is still entering (the standard motion rung). */
-    const val ENTER_MS: Long = DesignTokens.Motion.Duration.Standard.toLong()
 
     /** The card width for [available] (the row minus the side insets). */
     fun cardWidth(available: Dp): Dp = if (available >= TabletBreakpoint) Width else available
@@ -317,18 +284,19 @@ fun ToastCard(
 }
 
 /**
- * The stack, bottom-centre, inside a full-width row. [bottomInset] = what it
- * must clear; the caller applies the system-bar insets. The app draws the
- * stack through [ToastWindow]; this padded form serves previews/styleguide.
+ * The stack, TOP-centre (contract `placement.touch`): `mobileViewportOffset`
+ * below the status bar, the row minus that inset on each side. Only the cards
+ * take touches; the rest of the row passes them to the screen underneath.
  */
 @Composable
-fun ToastHost(toaster: Toaster, modifier: Modifier = Modifier, bottomInset: Dp = 0.dp) {
+fun ToastHost(toaster: Toaster, modifier: Modifier = Modifier) {
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = ToastDefaults.HorizontalInset)
-            .padding(bottom = bottomInset + ToastDefaults.BottomGap),
-        contentAlignment = Alignment.BottomCenter,
+            .statusBarsPadding()
+            .padding(top = ToastDefaults.TopGap)
+            .padding(horizontal = ToastDefaults.HorizontalInset),
+        contentAlignment = ToastDefaults.HostAlignment,
     ) {
         ToastStackBox(toaster, Modifier.width(ToastDefaults.cardWidth(maxWidth)))
     }
@@ -336,8 +304,8 @@ fun ToastHost(toaster: Toaster, modifier: Modifier = Modifier, bottomInset: Dp =
 
 /**
  * The bare stack: exactly as wide as [modifier] makes it, exactly as tall as
- * [ToastStack.geometry] says — [ToastWindow] sizes its window to it, so
- * nothing beside or above the cards swallows a touch.
+ * [ToastStack.geometry] says (a TOP stack: older cards peek out BELOW the
+ * front one, expanded ones grow downward).
  */
 @Composable
 fun ToastStackBox(toaster: Toaster, modifier: Modifier = Modifier) {
@@ -356,7 +324,7 @@ fun ToastStackBox(toaster: Toaster, modifier: Modifier = Modifier) {
             if (expanded) heights[it.id] ?: ToastDefaults.FALLBACK_HEIGHT else frontHeight
         },
         expanded = expanded,
-        anchoredBottom = true,
+        anchoredBottom = ToastDefaults.ANCHORED_BOTTOM,
     )
     live.forEachIndexed { i, item -> toaster.lastGeometry[item.id] = layout.items[i] }
     val boxHeight by animateFloatAsState(layout.height.toFloat(), Motion.slow(), label = "toast-stack-height")
@@ -365,8 +333,7 @@ fun ToastStackBox(toaster: Toaster, modifier: Modifier = Modifier) {
     val slow = Motion.slow<Float>()
     val standard = Motion.standard<Float>()
 
-    // Auto-dismiss: 4 s per toast, paused (remaining kept) while expanded or
-    // while the window is being re-created.
+    // Auto-dismiss: 4 s per toast, paused (remaining kept) while expanded.
     for (item in live) {
         key(item.id) {
             LaunchedEffect(item.id, expanded) {
@@ -390,7 +357,7 @@ fun ToastStackBox(toaster: Toaster, modifier: Modifier = Modifier) {
         val cardWidthPx = with(density) { maxWidth.toPx() }
         for (item in rendered.toList()) {
             key(item.id) {
-                val state = toaster.visibilityOf(item.id)
+                val state = remember { MutableTransitionState(false) }
                 state.targetState = item.id in liveIds
                 if (state.isIdle && !state.currentState && !state.targetState) {
                     LaunchedEffect(Unit) { toaster.forget(item.id) }
@@ -415,19 +382,23 @@ fun ToastStackBox(toaster: Toaster, modifier: Modifier = Modifier) {
                 val offset by animateFloatAsState(geo.offset.toFloat(), slow, label = "toast-offset")
                 val scale by animateFloatAsState(geo.scale.toFloat(), slow, label = "toast-scale")
                 val alpha by animateFloatAsState(if (geo.visible) 1f else 0f, slow, label = "toast-alpha")
-                // The swipe offset: written synchronously per drag delta,
-                // animated only on release (a launched snapTo per delta
-                // raced — and cancelled — the release animation).
+                // The swipe: sideways either way, or UP (a downward drag is
+                // clamped to 0). The axis locks on the first movement. Written
+                // synchronously per delta, animated only on release.
                 var dx by remember { mutableFloatStateOf(0f) }
+                var dy by remember { mutableFloatStateOf(0f) }
+                var axis by remember { mutableStateOf<Orientation?>(null) }
                 val thresholdPx = with(density) { ToastDefaults.SwipeThreshold.toPx() }
+                val isLive = item.id in liveIds
                 AnimatedVisibility(
                     visibleState = state,
-                    enter = fadeIn(standard) + slideInVertically(Motion.standard()) { it },
-                    exit = fadeOut(standard) + slideOutVertically(Motion.standard()) { it / 2 },
+                    enter = fadeIn(standard) + slideInVertically(Motion.standard()) { -it },
+                    exit = fadeOut(standard) + slideOutVertically(Motion.standard()) { -it / 2 },
                     modifier = Modifier
                         .fillMaxWidth()
                         .offset { IntOffset(0, with(density) { offset.dp.roundToPx() }) },
                 ) {
+                    val scope = rememberCoroutineScope()
                     ToastCard(
                         item = item,
                         onDismiss = { toaster.dismiss(item.id) },
@@ -439,26 +410,51 @@ fun ToastStackBox(toaster: Toaster, modifier: Modifier = Modifier) {
                             .fillMaxWidth()
                             .graphicsLayer {
                                 translationX = dx
+                                translationY = dy
                                 scaleX = scale
                                 scaleY = scale
-                                this.alpha = alpha *
-                                    (1f - (abs(dx) / cardWidthPx).coerceIn(0f, 1f))
-                                transformOrigin = TransformOrigin(0.5f, 1f)
+                                val travel = maxOf(abs(dx) / cardWidthPx, abs(dy) / size.height.coerceAtLeast(1f))
+                                this.alpha = alpha * (1f - travel.coerceIn(0f, 1f))
+                                // A top stack shrinks from its TOP edge.
+                                transformOrigin = TransformOrigin(0.5f, 0f)
                             }
-                            .draggable(
-                                orientation = Orientation.Horizontal,
-                                enabled = item.id in liveIds,
-                                state = rememberDraggableState { delta -> dx += delta },
-                                onDragStopped = {
-                                    val past = abs(dx) > thresholdPx
-                                    val target = if (past) sign(dx) * cardWidthPx else 0f
-                                    try {
-                                        animate(dx, target, animationSpec = standard) { v, _ -> dx = v }
-                                    } finally {
-                                        if (past) toaster.dismiss(item.id)
-                                    }
-                                },
-                            ),
+                            .pointerInput(isLive) {
+                                if (!isLive) return@pointerInput
+                                detectDragGestures(
+                                    onDragStart = { axis = null },
+                                    onDrag = { change, delta ->
+                                        change.consume()
+                                        val locked = axis ?: (
+                                            if (abs(delta.x) >= abs(delta.y)) Orientation.Horizontal
+                                            else Orientation.Vertical
+                                            ).also { axis = it }
+                                        if (locked == Orientation.Horizontal) dx += delta.x
+                                        else dy = (dy + delta.y).coerceAtMost(0f)
+                                    },
+                                    onDragCancel = {
+                                        scope.launch {
+                                            launch { animate(dx, 0f, animationSpec = standard) { v, _ -> dx = v } }
+                                            animate(dy, 0f, animationSpec = standard) { v, _ -> dy = v }
+                                        }
+                                    },
+                                    onDragEnd = {
+                                        val horizontal = axis == Orientation.Horizontal
+                                        val travel = if (horizontal) dx else dy
+                                        val past = abs(travel) > thresholdPx
+                                        val far = if (horizontal) cardWidthPx else size.height.toFloat()
+                                        val target = if (past) sign(travel) * far else 0f
+                                        scope.launch {
+                                            try {
+                                                animate(travel, target, animationSpec = standard) { v, _ ->
+                                                    if (horizontal) dx = v else dy = v
+                                                }
+                                            } finally {
+                                                if (past) toaster.dismiss(item.id)
+                                            }
+                                        }
+                                    },
+                                )
+                            },
                     )
                 }
             }

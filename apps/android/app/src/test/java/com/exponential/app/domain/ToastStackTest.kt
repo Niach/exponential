@@ -32,8 +32,13 @@ class ToastStackTest {
             "swipeThreshold" to k.SWIPE_THRESHOLD,
             "viewportOffset" to k.VIEWPORT_OFFSET,
             "mobileViewportOffset" to k.MOBILE_VIEWPORT_OFFSET,
+            "touchMaxWidth" to k.TOUCH_MAX_WIDTH,
         )
-        assertEquals(c.keys - "kinds", expected.keys)
+        assertEquals(c.keys - "kinds" - "placement", expected.keys)
+        val placement = c.getValue("placement").jsonObject
+        assertEquals(setOf("pointer", "touch"), placement.keys)
+        assertEquals(k.PLACEMENT_POINTER, placement.getValue("pointer").jsonPrimitive.content)
+        assertEquals(k.PLACEMENT_TOUCH, placement.getValue("touch").jsonPrimitive.content)
         for ((key, value) in expected) assertEquals(key, c.num(key), value, 0.0)
         assertEquals(
             c.getValue("kinds").jsonArray.map { it.jsonPrimitive.content },
