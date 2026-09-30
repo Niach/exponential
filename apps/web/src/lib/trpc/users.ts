@@ -1,7 +1,19 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { router, authedProcedure } from "@/lib/trpc"
-import { apikeys, users } from "@/db/auth-schema"
+import { accounts, apikeys, passkeys, users } from "@/db/auth-schema"
+import {
+  accountRowFilter,
+  assertNotLastWayIn,
+  configuredProviders,
+  loadSignInMethods,
+  passkeyRowFilter,
+} from "@/lib/auth/sign-in-methods"
+import {
+  SIGN_IN_LINK_TICKET_TTL_MS,
+  mintSignInLinkTicket,
+} from "@/lib/auth/sign-in-link-ticket"
+import { buildAuthConfig } from "@/lib/auth/config"
 import { auth } from "@/lib/auth"
 import { getReadableUserIdsInTeams } from "@/lib/team-membership"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
@@ -98,6 +110,81 @@ export const usersRouter = router({
       .orderBy(desc(apikeys.createdAt))
     return { keys: rows }
   }),
+
+  // ── Sign-in methods (EXP-1126) ─────────────────────────────────────────────
+  // ONE payload for every client's Settings › Account › Sign-in methods: the
+  // primary email, the configured providers with their link state, the
+  // passkeys, and how many ways in the account has. Linking a provider is a
+  // browser round-trip (web: authClient.linkSocial / oauth2.link; natives:
+  // mintSignInLinkTicket + the handoff's link mode); the email changes
+  // through the Better Auth email-otp endpoints; removals come here so the
+  // last-way-in rule is enforced in one place and never behind Better Auth's
+  // 1-day fresh-session gate.
+
+  signInMethods: authedProcedure.query(async ({ ctx }) => {
+    const methods = await loadSignInMethods(ctx.db, ctx.session.user.id)
+    if (!methods) throw new TRPCError({ code: `NOT_FOUND` })
+    return methods
+  }),
+
+  unlinkSignInMethod: authedProcedure
+    .input(z.object({ providerId: z.string().min(1).max(120) }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      const [row] = await ctx.db
+        .select({ id: accounts.id })
+        .from(accounts)
+        .where(accountRowFilter(userId, input.providerId))
+        .limit(1)
+      if (!row) throw new TRPCError({ code: `NOT_FOUND` })
+      await assertNotLastWayIn(ctx.db, userId, { providerId: input.providerId })
+      // The provider grant outlives the row unless revoked (deleteAccount
+      // precedent): capture the tokens first, revoke best-effort after.
+      const tokens = (await captureOAuthTokens(ctx.db, userId)).filter(
+        (t) => t.providerId === input.providerId
+      )
+      await ctx.db.delete(accounts).where(eq(accounts.id, row.id))
+      await revokeOAuthTokensBestEffort(tokens)
+      return { ok: true }
+    }),
+
+  deletePasskey: authedProcedure
+    .input(z.object({ id: z.string().min(1).max(200) }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      const [row] = await ctx.db
+        .select({ id: passkeys.id })
+        .from(passkeys)
+        .where(passkeyRowFilter(userId, input.id))
+        .limit(1)
+      if (!row) throw new TRPCError({ code: `NOT_FOUND` })
+      await assertNotLastWayIn(ctx.db, userId, { passkeyId: input.id })
+      await ctx.db.delete(passkeys).where(eq(passkeys.id, row.id))
+      return { ok: true }
+    }),
+
+  // A native app's entry into the browser handoff's LINK mode: the ticket
+  // names the caller's session and one configured provider, and
+  // /api/mobile-oauth-start?link=<ticket> runs Better Auth's link-social on
+  // that session. Two minutes, single-use (lib/auth/sign-in-link-ticket.ts).
+  mintSignInLinkTicket: authedProcedure
+    .input(z.object({ provider: z.string().min(1).max(120) }))
+    .mutation(async ({ ctx, input }) => {
+      const known = configuredProviders(buildAuthConfig()).some(
+        (p) => p.id === input.provider
+      )
+      if (!known) {
+        throw new TRPCError({
+          code: `BAD_REQUEST`,
+          message: `That sign-in provider is not offered on this instance.`,
+        })
+      }
+      const sessionId = ctx.session.session.id
+      return {
+        ticket: mintSignInLinkTicket({ sessionId, provider: input.provider }),
+        expiresInSeconds: SIGN_IN_LINK_TICKET_TTL_MS / 1000,
+      }
+    }),
 
   // Stamp signup attribution (EXP-362) onto the caller's OWN fresh account.
   // Cookieless: ref/utm params ride URLs from the marketing site through the

@@ -1,8 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { trpc } from "@/lib/trpc-client"
 import { ApiKeysSection } from "@/components/account/api-keys-section"
-import { PasskeysSection } from "@/components/account/passkeys-section"
-import { getAuthConfig } from "@/lib/auth/config"
 import { pageTitle } from "@/lib/page-title"
 
 export const Route = createFileRoute(`/t/$teamSlug/settings/security`)({
@@ -10,25 +8,21 @@ export const Route = createFileRoute(`/t/$teamSlug/settings/security`)({
     meta: [{ title: pageTitle(`Security`, `Settings`) }],
   }),
   loader: async () => {
-    const [{ keys }, authConfig] = await Promise.all([
-      trpc.users.listPersonalApiKeys.query(),
-      // EXP-857: whether this instance offers passkeys at all (https base).
-      getAuthConfig().catch(() => null),
-    ])
-    return { keys, passkeyEnabled: authConfig?.passkeyEnabled ?? false }
+    const { keys } = await trpc.users.listPersonalApiKeys.query()
+    return { keys }
   },
   component: SettingsSecurity,
 })
 
-// Personal section (EXP-862): everything that signs you in or acts as you —
-// self-service expu_ API keys and passkeys (moved off the Account page).
-// Account-level: the team in the URL is just the settings surface you are on.
+// Personal section (EXP-862): what acts AS you — the self-service expu_ API
+// keys. What signs you in (email, providers, passkeys) is Settings › Account
+// › Sign-in methods since EXP-1126. Account-level: the team in the URL is
+// just the settings surface you are on.
 function SettingsSecurity() {
-  const { keys, passkeyEnabled } = Route.useLoaderData()
+  const { keys } = Route.useLoaderData()
   return (
     <div className="space-y-6">
       <ApiKeysSection initialKeys={keys} />
-      <PasskeysSection passkeyEnabled={passkeyEnabled} />
     </div>
   )
 }

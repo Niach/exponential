@@ -352,6 +352,25 @@ export async function sendSignInCodeEmail(args: {
   })
 }
 
+// EXP-1126: the code that confirms a NEW primary email (Better Auth's
+// emailOTP `change-email` type). Mailed to the address being adopted, never
+// the current one — proving the new mailbox is the whole point.
+export async function sendEmailChangeCodeEmail(args: {
+  to: string
+  code: string
+}): Promise<EmailSendResult> {
+  return await sendEmail({
+    to: args.to,
+    subject: `${args.code} confirms your new Exponential email`,
+    html: codeEmailHtml({
+      heading: `Confirm your new email`,
+      body: `Enter this code in Exponential to make this address your sign-in email. It expires in 10 minutes and works once. If you didn't ask for this, ignore this email.`,
+      code: args.code,
+    }),
+    text: `Your Exponential code is ${args.code}\n\nEnter it to make this address your sign-in email. It expires in 10 minutes and works once. If you didn't ask for this, ignore this email.`,
+  })
+}
+
 export async function sendPasswordResetEmail(args: {
   to: string
   url: string

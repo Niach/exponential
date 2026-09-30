@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm"
+import { and, eq, isNull, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { users } from "@/db/auth-schema"
 import { emailEnabled } from "@/lib/email-enabled"
@@ -32,7 +32,11 @@ async function promoteInitialAdmins() {
         // With open sign-up anyone can create a row for an admin email, so
         // promotion must wait for proven mailbox ownership. Skip the gate when
         // email flows are off (no way to ever verify on such instances).
-        emailEnabled ? eq(users.emailVerified, true) : undefined
+        emailEnabled ? eq(users.emailVerified, true) : undefined,
+        // EXP-1126: an account that CHANGED its email never qualifies, however
+        // well it proved the new mailbox — the list names the address a person
+        // registered with, and a changed one must never grant admin.
+        isNull(users.emailChangedAt)
       )
     )
 }
@@ -118,6 +122,12 @@ export function bootstrapCloud(): Promise<void> {
 // is open on the cloud and does not prove mailbox ownership, so an attacker
 // could otherwise register an INITIAL_ADMIN_EMAILS address before its real
 // owner and walk away with a global-admin session.
+//
+// EXP-1126: the OTP change-email flow ALSO lands in afterEmailVerification
+// with the new address verified. A changed email never promotes (the
+// `email_changed_at` stamp, written by the user.update hook), so the update
+// below carries the same predicate the boot pass uses; an already-admin
+// account keeps its flag either way (promotion only ever adds it).
 export async function maybePromoteNewUser(
   userId: string,
   email: string,
@@ -130,5 +140,5 @@ export async function maybePromoteNewUser(
   await db
     .update(users)
     .set({ isAdmin: true, updatedAt: new Date() })
-    .where(eq(users.id, userId))
+    .where(and(eq(users.id, userId), isNull(users.emailChangedAt)))
 }

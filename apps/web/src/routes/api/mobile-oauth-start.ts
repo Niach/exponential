@@ -1,10 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { randomBytes } from "crypto"
+import { eq } from "drizzle-orm"
 import { auth } from "@/lib/auth"
+import { db } from "@/db/connection"
+import { sessions } from "@/db/auth-schema"
 import {
   isValidCodeChallenge,
   stateCookieSecureAttribute,
 } from "@/lib/auth/mobile-oauth-code"
+import { redeemSignInLinkTicket } from "@/lib/auth/sign-in-link-ticket"
 
 // Custom Tabs only emit GETs, but Better Auth's /sign-in/oauth2 and
 // /sign-in/social are POST-only. Bridge: client opens this GET endpoint,
@@ -47,7 +51,46 @@ async function handle({ request }: { request: Request }) {
     return new Response(`Unsupported code_challenge_method`, { status: 400 })
   }
 
-  const callbackURL = `${originForRequest(request)}/api/mobile-oauth-return`
+  // EXP-1126 LINK mode: a signed-in native attaches a provider to its
+  // account. The ticket (tRPC users.mintSignInLinkTicket) names the app's
+  // session and the provider; Better Auth's link-social runs on that session
+  // and the callback lands on the return route with `?linked=<provider>`,
+  // which deep-links `exponential://oauth-return?linked=…` (no credential:
+  // the link callback creates no browser session). Any refusal here rides
+  // the return route's `?error=` branch so the auth sheet always completes.
+  const linkTicket = url.searchParams.get(`link`)
+  const requestedProvider = social ?? providerId!
+  const linkReturnURL = `${originForRequest(request)}/api/mobile-oauth-return?linked=${encodeURIComponent(requestedProvider)}`
+  const linkFailure = (reason: string) =>
+    Response.redirect(`${linkReturnURL}&error=${encodeURIComponent(reason)}`, 302)
+
+  let linkHeaders: Headers | null = null
+  if (linkTicket !== null) {
+    if (browserHandoff) return linkFailure(`link_ticket_invalid`)
+    const redeemed = redeemSignInLinkTicket(linkTicket)
+    if (!redeemed || redeemed.provider !== requestedProvider) {
+      return linkFailure(`link_ticket_invalid`)
+    }
+    const [row] = await db
+      .select({ token: sessions.token, expiresAt: sessions.expiresAt })
+      .from(sessions)
+      .where(eq(sessions.id, redeemed.sessionId))
+      .limit(1)
+    if (!row || row.expiresAt.getTime() <= Date.now()) {
+      return linkFailure(`link_ticket_invalid`)
+    }
+    // The browser's own cookies are irrelevant (and possibly another
+    // account's): the bearer plugin resolves the app's session from the
+    // Authorization header; the rest of the request headers ride along for
+    // Better Auth's origin/user-agent handling.
+    linkHeaders = new Headers(request.headers)
+    linkHeaders.delete(`cookie`)
+    linkHeaders.set(`authorization`, `Bearer ${row.token}`)
+  }
+
+  const callbackURL = linkHeaders
+    ? linkReturnURL
+    : `${originForRequest(request)}/api/mobile-oauth-return`
   // Failures must come back through the SAME endpoint (REV2-53): Better Auth
   // otherwise lands provider denials (the user cancelling at Google is the
   // most common failure of all) on its own https error page, which no native
@@ -56,7 +99,19 @@ async function handle({ request }: { request: Request }) {
   // `exponential://oauth-return?error=…` handoff.
   const errorCallbackURL = callbackURL
 
-  const response = browserHandoff
+  const response = linkHeaders
+    ? social
+      ? await auth.api.linkSocialAccount({
+          body: { provider: social as never, callbackURL, errorCallbackURL },
+          headers: linkHeaders,
+          asResponse: true,
+        })
+      : await auth.api.oAuth2LinkAccount({
+          body: { providerId: providerId!, callbackURL, errorCallbackURL },
+          headers: linkHeaders,
+          asResponse: true,
+        })
+    : browserHandoff
     ? Response.json({
         url: `/auth/login?redirect=${encodeURIComponent(`/api/mobile-oauth-return`)}`,
         redirect: true,
@@ -88,6 +143,9 @@ async function handle({ request }: { request: Request }) {
     console.error(
       `[mobile-oauth-start] Better Auth did not return a redirect url: status=${response.status} body=${raw.slice(0, 500)}`
     )
+    // Link mode has a completion channel of its own: a refused link (dead
+    // session, unknown provider, 401) must still close the auth sheet.
+    if (linkHeaders) return linkFailure(`unable_to_link_account`)
   }
 
   const headers = new Headers(response.headers)

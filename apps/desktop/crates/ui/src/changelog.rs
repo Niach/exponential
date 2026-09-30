@@ -46,26 +46,25 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-30-sign-in-methods",
+    date: "2026-09-30",
+    title: "Sign-in methods and a changeable email",
+    summary: "Settings › Account lists every way into your account: change your email with a code, link or unlink Google, Apple and OIDC logins, and manage passkeys, on web, desktop, iOS and Android.",
+    body: r#"- **One primary email**: it starts as the address you registered with (the Google or Apple address for those sign-ups) and Change under Settings › Account swaps it for any other after a code sent to the new address. Sign-in codes, notifications and new mentions use it from then on; earlier @mentions keep the address they were written with.
+- **Sign-in methods**: Google, Apple and every OIDC provider your instance offers appear with Link or Unlink, a password row shows while one is set, and passkeys sit right below (moved back from Security, which keeps the API keys). Every method is optional, but the last way in can never be removed.
+- **Natives**: the same list on the desktop app, iPhone and Android. Linking runs through the browser as sign-in does and returns to the app; passkeys are still added from the web.
+- **Admins**: an email change never grants admin. INITIAL_ADMIN_EMAILS keeps promoting only the address an account registered and verified with."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-29-stack-merge-asks",
     date: "2026-09-29",
     title: "Merging a stacked pull request asks first",
     summary: "Merge on a pull request that belongs to a stack asks whether to merge the whole stack or this pull request only, on every client.",
     body: r#"- **Stacked pull requests**: the Merge button on the Changes face, the issue header and the run view asks first when the pull request is part of a stack with other open members. Merge stack lands every open pull request bottom-up; Merge this pull request lands it and the open ones below it, while the ones above stay open on the base branch. A pull request whose stack has nothing else open merges as before.
 - **Agents**: the result of exponential_pr_merge on a stack member names the pull requests it landed below and the ones it left open, and never lists an already merged one."#,
-};
-
-/// The previous head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-29-release-train-evening",
-    date: "2026-09-29",
-    title: "Release train 2026-09-29, evening",
-    summary: "Team MCP servers with one connect per member, invite links that survive the sign-in detour, chat runs named by Claude again, agent logins that sign out, and a desktop app whose Files and Source Control follow the active repository.",
-    body: r#"- **MCP servers**: one list per team. Every member connects their own account once (Connect for OAuth, Set key for an API key) and the server keeps the credential encrypted, so every run on every machine, remote starts and automations use it; unconnected servers are skipped, never block a start. Owners add a server from a catalog or a pasted URL, the technical fields sit behind Advanced, and the per-device server lists are gone.
-- **Invites**: an invite link opened before signing in survives the detour: a cancelled or refused provider sign-in returns to the login page with the invite, a visitor who is already signed in goes straight on, and the invite accepts itself once you are back. Deleting a team also removes the invited placeholders it leaves behind.
-- **Agent accounts**: every agent login under a machine offers Sign out in its "..." menu on every client, and the machine's own login can be removed too.
-- **Chat runs**: a chat run gets its name from Claude again.
-- **Desktop app**: Files and Source Control follow the repository you pick, the + shell opens in that repository, the edited-files card rows run edge to edge with a cleaner diff box, and Linux windows paint opaque instead of showing unblurred transparency on Wayland."#,
 };
 
 /// The previous head entry, kept so the mirror's history reads in place.

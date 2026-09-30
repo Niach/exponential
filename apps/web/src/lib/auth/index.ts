@@ -31,6 +31,7 @@ import {
 import { androidPasskeyOrigins, parseFingerprints } from "@/lib/app-links"
 import {
   recordEmailDelivery,
+  sendEmailChangeCodeEmail,
   sendPasswordResetEmail,
   sendSignInCodeEmail,
   sendVerificationEmail,
@@ -48,6 +49,7 @@ import {
 import { mintAppleClientSecret } from "./apple"
 import { withAuthDbFailureSignal } from "./db-failure-signal"
 import { askNameBeforeHook, fallbackUserName } from "./ask-name"
+import { signInMethodsGuardPlugin } from "./sign-in-methods"
 import {
   resolveDesktopCardDismissal,
   resolveOnboardingCompletedAt,
@@ -241,6 +243,15 @@ export const auth = betterAuth({
         required: false,
         input: false,
       },
+      // EXP-1126: stamped by the user.update hook below when the primary
+      // email changes; INITIAL_ADMIN_EMAILS promotion skips stamped rows.
+      // Declared so the adapter writes it; never client-settable.
+      emailChangedAt: {
+        type: `date`,
+        defaultValue: null,
+        required: false,
+        input: false,
+      },
     },
   },
   trustedOrigins: [
@@ -271,6 +282,11 @@ export const auth = betterAuth({
       // human, and it bounds the mail a NAT can make us send. The plugin's
       // own 3/60s default on the same path stays underneath as the floor.
       "/email-otp/send-verification-otp": { window: 60, max: 3 },
+      // EXP-1126: the change-email code is mail too; provider linking starts
+      // are bounded like sign-ins.
+      "/email-otp/request-email-change": { window: 60, max: 3 },
+      "/link-social": { window: 60, max: 10 },
+      "/oauth2/link": { window: 60, max: 10 },
       "/passkey/*": { window: 60, max: 30 },
     },
   },
@@ -317,6 +333,12 @@ export const auth = betterAuth({
       // Logged-in user's email (from an OIDC provider) likely differs from
       // their Google account email — without this, Better Auth refuses to link.
       allowDifferentEmails: true,
+      // EXP-1126: Better Auth's last-account check counts `accounts` rows only
+      // and would refuse to drop the sole Google row of an account that also
+      // signs in by code or passkey. The real rule ("at least one way in
+      // remains") lives in lib/auth/sign-in-methods.ts: the tRPC mutations
+      // and the guard plugin below enforce it.
+      allowUnlinkingAll: true,
     },
   },
   logger: {
@@ -424,6 +446,17 @@ export const auth = betterAuth({
           }
         },
       },
+      // EXP-1126: the ONLY Better Auth path that writes users.email is the
+      // OTP change-email flow (core changeEmail stays off, updateUser refuses
+      // the field, updateUserInfoOnLink is unset). Stamp the change so
+      // INITIAL_ADMIN_EMAILS promotion (boot pass + verification hook) skips
+      // this account for good: a changed address never grants admin.
+      update: {
+        before: async (data) => {
+          if (typeof data.email !== `string`) return
+          return { data: { ...data, emailChangedAt: new Date() } }
+        },
+      },
     },
   },
   hooks: {
@@ -498,17 +531,37 @@ export const auth = betterAuth({
             // a 10-minute session for anyone with a database read.
             storeOTP: `hashed`,
             disableSignUp: isPasswordSignupDisabled(),
+            // EXP-1126: the primary email is changeable — a code mailed to
+            // the NEW address (`/email-otp/request-email-change` then
+            // `/email-otp/change-email`) proves the mailbox and swaps it,
+            // verified. The current address is not re-proven (the session
+            // is the proof of ownership here).
+            changeEmail: { enabled: true },
             sendVerificationOTP: async ({ email, otp, type }) => {
-              // Only the sign-in code is offered anywhere in the product;
-              // the plugin's other flows (verification/reset by code) are
-              // never called by a client, so their mail stays unsent.
-              if (type !== `sign-in`) return
-              const result = await sendSignInCodeEmail({ to: email, code: otp })
-              await recordEmailDelivery({
-                toEmail: email,
-                kind: `sign_in_code`,
-                result,
-              })
+              // Two codes are offered in the product: the sign-in code and
+              // the change-email code. The plugin's other flows
+              // (verification/reset by code) are never called by a client,
+              // so their mail stays unsent.
+              if (type === `sign-in`) {
+                const result = await sendSignInCodeEmail({ to: email, code: otp })
+                await recordEmailDelivery({
+                  toEmail: email,
+                  kind: `sign_in_code`,
+                  result,
+                })
+                return
+              }
+              if (type === `change-email`) {
+                const result = await sendEmailChangeCodeEmail({
+                  to: email,
+                  code: otp,
+                })
+                await recordEmailDelivery({
+                  toEmail: email,
+                  kind: `email_change_code`,
+                  result,
+                })
+              }
             },
           }),
         ]
@@ -536,6 +589,9 @@ export const auth = betterAuth({
           }),
         ]
       : []),
+    // EXP-1126: "at least one way in remains" in front of /unlink-account and
+    // /passkey/delete-passkey for direct API callers (clients use tRPC).
+    signInMethodsGuardPlugin(),
     apiKey({
       // Personal API keys (desktop coding sessions / MCP clients) — minted by
       // the user for their own auth, never a synthetic identity.

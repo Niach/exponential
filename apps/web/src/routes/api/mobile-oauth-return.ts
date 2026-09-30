@@ -3,8 +3,10 @@ import { auth } from "@/lib/auth"
 import {
   normalizeOauthErrorReason,
   oauthErrorMessage,
+  oauthLinkErrorMessage,
   oauthReturnCodeDeepLink,
   oauthReturnErrorDeepLink,
+  oauthReturnLinkedDeepLink,
 } from "@/lib/deep-link"
 import {
   isValidCodeChallenge,
@@ -114,19 +116,30 @@ function renderHandoffPage(page: {
 // error deep link instead of a credential — so the native auth sheet completes
 // and the app can say what went wrong. The secondary link keeps the desktop
 // browser case (no app registered for the scheme) recoverable.
-function failureResponse(request: Request, rawReason: unknown): Response {
+function failureResponse(
+  request: Request,
+  rawReason: unknown,
+  // EXP-1126: the LINK mode of the same hop (a signed-in account attaching a
+  // provider) fails with its own copy and no "sign in on the web" escape —
+  // there is nothing to sign in to, the app is already signed in.
+  mode: `sign-in` | `link` = `sign-in`
+): Response {
   const reason = normalizeOauthErrorReason(rawReason)
   return new Response(
     renderHandoffPage({
       ok: false,
-      title: `Sign-in failed · Exponential`,
-      heading: `Sign-in didn't finish`,
-      body: `${oauthErrorMessage(reason)} You can close this tab and try again in the app.`,
+      title:
+        mode === `link` ? `Linking failed · Exponential` : `Sign-in failed · Exponential`,
+      heading: mode === `link` ? `Linking didn't finish` : `Sign-in didn't finish`,
+      body: `${mode === `link` ? oauthLinkErrorMessage(reason) : oauthErrorMessage(reason)} You can close this tab and try again in the app.`,
       deepLink: oauthReturnErrorDeepLink(reason),
-      webLink: new URL(
-        `/auth/login?error=${encodeURIComponent(reason)}`,
-        request.url
-      ).toString(),
+      webLink:
+        mode === `link`
+          ? undefined
+          : new URL(
+              `/auth/login?error=${encodeURIComponent(reason)}`,
+              request.url
+            ).toString(),
     }),
     {
       status: 200,
@@ -149,10 +162,20 @@ export const Route = createFileRoute(`/api/mobile-oauth-return`)({
         // points `errorCallbackURL` back here, and Better Auth appends its
         // reason as `?error=`. Handled before the state check: the app must
         // learn the flow failed even if the anti-CSRF cookie has expired.
-        const providerError = new URL(request.url).searchParams.get(`error`)
+        const params = new URL(request.url).searchParams
+        // EXP-1126: `linked=<provider>` marks the LINK mode of the hop
+        // (/api/mobile-oauth-start?link=<ticket> sets it on both callback
+        // URLs). It changes the copy of a failure and, below, ends the
+        // success in a credential-less deep link.
+        const linkedProvider = params.get(`linked`)
+        const providerError = params.get(`error`)
         if (providerError) {
           console.warn(`[mobile-oauth-return] provider error: ${providerError}`)
-          return failureResponse(request, providerError)
+          return failureResponse(
+            request,
+            providerError,
+            linkedProvider ? `link` : `sign-in`
+          )
         }
 
         // Anti-CSRF for the deep-link hop: the cookie was set by
@@ -165,7 +188,11 @@ export const Route = createFileRoute(`/api/mobile-oauth-return`)({
           console.warn(
             `[mobile-oauth-return] missing ${STATE_COOKIE_NAME} cookie — rejecting`
           )
-          return failureResponse(request, `state_missing`)
+          return failureResponse(
+            request,
+            `state_missing`,
+            linkedProvider ? `link` : `sign-in`
+          )
         }
 
         // PKCE (REV-13, required since EXP-543): /api/mobile-oauth-start
@@ -178,7 +205,36 @@ export const Route = createFileRoute(`/api/mobile-oauth-return`)({
           console.warn(
             `[mobile-oauth-return] missing or malformed code_challenge in ${STATE_COOKIE_NAME} cookie — rejecting`
           )
-          return failureResponse(request, `state_invalid`)
+          return failureResponse(
+            request,
+            `state_invalid`,
+            linkedProvider ? `link` : `sign-in`
+          )
+        }
+
+        // Link mode: the account was extended server-side (Better Auth's
+        // link callback wrote the accounts row and created NO browser
+        // session), so there is nothing to mint — the app refetches its
+        // sign-in methods on the deep link. The state cookie above still
+        // proves this tab came through /api/mobile-oauth-start.
+        if (linkedProvider) {
+          return new Response(
+            renderHandoffPage({
+              ok: true,
+              title: `Linked · Exponential`,
+              heading: `Sign-in method linked`,
+              body: `Exponential is opening. You can close this tab and return to the app.`,
+              deepLink: oauthReturnLinkedDeepLink(linkedProvider),
+            }),
+            {
+              status: 200,
+              headers: {
+                "Content-Type": `text/html; charset=utf-8`,
+                "Set-Cookie": clearStateCookie(request),
+                "Cache-Control": `no-store`,
+              },
+            }
+          )
         }
 
         const session = await auth.api.getSession({ headers: request.headers })

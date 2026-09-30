@@ -5,8 +5,10 @@ import {
   githubConnectedDeepLink,
   normalizeOauthErrorReason,
   oauthErrorMessage,
+  oauthLinkErrorMessage,
   oauthReturnCodeDeepLink,
   oauthReturnErrorDeepLink,
+  oauthReturnLinkedDeepLink,
 } from "@/lib/deep-link"
 
 describe(`success deep links`, () => {
@@ -90,5 +92,37 @@ describe(`oauthErrorMessage`, () => {
     const fallback = oauthErrorMessage(OAUTH_ERROR_FALLBACK)
     expect(oauthErrorMessage(`mobile_oauth_failed`)).toBe(fallback)
     expect(oauthErrorMessage(undefined)).toBe(fallback)
+  })
+})
+
+describe(`oauthReturnLinkedDeepLink (EXP-1126)`, () => {
+  it(`doubles the provider id into query and fragment`, () => {
+    expect(oauthReturnLinkedDeepLink(`google`)).toBe(
+      `${DEEP_LINK_SCHEME}://oauth-return?linked=google#linked=google`
+    )
+  })
+
+  it(`clamps a hostile provider id to a slug`, () => {
+    expect(oauthReturnLinkedDeepLink(`My IdP<script>`)).toBe(
+      `${DEEP_LINK_SCHEME}://oauth-return?linked=my_idp_script#linked=my_idp_script`
+    )
+  })
+})
+
+describe(`oauthLinkErrorMessage (EXP-1126)`, () => {
+  it(`explains the link-mode reasons`, () => {
+    expect(oauthLinkErrorMessage(`access_denied`)).toBe(`Linking was cancelled.`)
+    expect(oauthLinkErrorMessage(`link_ticket_invalid`)).toBe(
+      `That link request expired. Please try again.`
+    )
+    expect(oauthLinkErrorMessage(`account_already_linked_to_different_user`)).toBe(
+      `That account is already linked to a different user.`
+    )
+    expect(oauthLinkErrorMessage(`unable_to_link_account`)).toBe(
+      `Couldn't link that account. Please try again.`
+    )
+    expect(oauthLinkErrorMessage(undefined)).toBe(
+      `Couldn't link that account. Please try again.`
+    )
   })
 })
