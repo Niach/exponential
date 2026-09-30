@@ -135,10 +135,11 @@ impl CodingHub {
             (this.settings.clone(), this.doctor.generation)
         });
         let hub = hub.clone();
+        let data_dir = coding_data_dir(cx);
         cx.spawn(async move |cx| {
             let report = cx
                 .background_executor()
-                .spawn(async move { run_doctor(&settings) })
+                .spawn(async move { run_doctor(&settings, &data_dir) })
                 .await;
             let landed = hub.update(cx, |this, cx| {
                 if this.doctor.generation != generation {

@@ -181,6 +181,8 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
     let page_runtime = Arc::clone(&runtime);
     // EXP-1137: the register's account rows honour a removed ambient login.
     let register_dir = auth.data_dir.clone();
+    // EXP-1138: the doctor reads the account profiles beside the ambient login.
+    let doctor_dir = auth.data_dir.clone();
     // Boot pass (EXP-886): apply the device's "Keep session history" window
     // to stored transcripts and resume records. Unlimited, the default, keeps
     // everything; Settings → Sessions re-runs it when the window shrinks.
@@ -197,7 +199,7 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
         // derives — `devices.register` also carries the per-agent accounts.
         let report: coding::DoctorReport = cx
             .background_executor()
-            .spawn(async move { coding::run_doctor(&settings) })
+            .spawn(async move { coding::run_doctor(&settings, &doctor_dir) })
             .await;
         let advertisement: coding::AgentAdvertisement = report.agent_advertisement(&settings2);
         let caps = device_caps(&advertisement);

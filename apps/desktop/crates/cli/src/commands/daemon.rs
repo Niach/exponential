@@ -1088,7 +1088,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
 /// one beside the advertisement instead of re-probing for it.
 fn probe_agents(ctx: &Ctx) -> (coding::AgentAdvertisement, coding::DoctorReport) {
     let settings = coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir));
-    let report = coding::run_doctor(&settings);
+    let report = coding::run_doctor(&settings, &ctx.data_dir);
     let advertisement = report.agent_advertisement(&settings);
     (advertisement, report)
 }
@@ -2674,7 +2674,7 @@ fn run_device_command(
             match coding::CodingAgent::parse(agent) {
                 None => (false, "Malformed command payload.".to_string()),
                 Some(agent) => {
-                    let report = coding::run_doctor(&settings);
+                    let report = coding::run_doctor(&settings, &ctx.data_dir);
                     // EXP-808: every account PROFILE refreshes, not just the
                     // device's default one.
                     match coding::force_collect(
@@ -2717,7 +2717,7 @@ fn run_device_command(
             match coding::CodingAgent::parse(agent) {
                 None => (false, "Malformed command payload.".to_string()),
                 Some(agent) => {
-                    let report = coding::run_doctor(&settings);
+                    let report = coding::run_doctor(&settings, &ctx.data_dir);
                     match coding::use_profile(
                         &ctx.data_dir,
                         &settings,
@@ -2756,7 +2756,7 @@ fn run_device_command(
             match coding::CodingAgent::parse(agent) {
                 None => (false, "Malformed command payload.".to_string()),
                 Some(agent) => {
-                    let report = coding::run_doctor(&settings);
+                    let report = coding::run_doctor(&settings, &ctx.data_dir);
                     // The accounts the runs THIS daemon hosts are on: the
                     // live row does not carry one, its run record does. The
                     // ids are copied out under the sessions lock and the

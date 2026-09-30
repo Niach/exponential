@@ -23,16 +23,16 @@ pub fn run(args: &[String]) -> CommandResult {
     reject_unknown_flags(args)?;
     let data_dir = context::data_dir();
     let settings = coding::Settings::load(&coding::Settings::default_path(&data_dir));
-    let mut report = coding::run_doctor(&settings);
+    let mut report = coding::run_doctor(&settings, &data_dir);
     // EXP-746: `run_doctor` also runs on the launch path and inline in the
     // daemon every 5 minutes, so it takes codex's readiness on presence. A
     // hand-typed `exponential doctor` can afford the real handshake, and it
     // is the check a user running this command actually wants.
     deep_probe_codex_acp(&settings, &mut report.codex);
 
-    print_check("git", &report.git);
-    print_check("claude", &report.claude);
-    print_check("codex", &report.codex);
+    print_check("git", &report.git, &data_dir);
+    print_check("claude", &report.claude, &data_dir);
+    print_check("codex", &report.codex, &data_dir);
 
     if report.check_for(settings.default_agent).acp != Some(true) {
         println!();
@@ -55,11 +55,24 @@ pub fn run(args: &[String]) -> CommandResult {
     Ok(ExitCode::SUCCESS)
 }
 
-fn print_check(name: &str, check: &ToolCheck) {
+fn print_check(name: &str, check: &ToolCheck, data_dir: &std::path::Path) {
     if check.ok {
         let version = check.version.as_deref().unwrap_or("ok");
-        match check.authed {
-            Some(true) => println!("  ✓ {name:<8} {version} — signed in"),
+        // EXP-1138: runnable on a named profile while the ambient login is
+        // signed out — say which, so "signed in" is never claimed for it.
+        let profile = check.signed_in_profile.as_deref().and_then(|id| {
+            check
+                .tool
+                .agent()
+                .and_then(|agent| coding::agent_profiles::get(data_dir, agent, id))
+                .map(|profile| profile.label)
+        });
+        match (check.authed, profile) {
+            (_, Some(label)) => println!(
+                "  ✓ {name:<8} {version} — {} login signed out; runs on «{label}»",
+                coding::agent_profiles::SYSTEM_LABEL
+            ),
+            (Some(true), None) => println!("  ✓ {name:<8} {version} — signed in"),
             _ => println!("  ✓ {name:<8} {version}"),
         }
     } else if check.signed_out() {
