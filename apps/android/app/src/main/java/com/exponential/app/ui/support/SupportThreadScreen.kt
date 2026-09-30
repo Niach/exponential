@@ -56,6 +56,7 @@ import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.IssueChip
 import com.exponential.app.ui.components.LoadingState
+import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.PillMode
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.TopBarActionButton
@@ -67,7 +68,6 @@ import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
-import kotlinx.coroutines.delay
 
 /** Amber accent for internal notes (member-only annotations). */
 private val InternalAmber = DesignTokens.Semantic.Yellow
@@ -96,10 +96,11 @@ fun SupportThreadScreen(
     LaunchedEffect(state.messages.size) {
         if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.size - 1)
     }
-    // Transient action errors auto-dismiss.
+    // Transient action errors are error toasts (EXP-1031), consumed at once.
+    val toaster = LocalToaster.current
     LaunchedEffect(state.transient) {
-        if (state.transient != null) {
-            delay(4_000)
+        state.transient?.let {
+            toaster.error(it)
             viewModel.consumeTransient()
         }
     }
@@ -210,14 +211,6 @@ fun SupportThreadScreen(
                         MessageBubble(message)
                     }
                 }
-            }
-            state.transient?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = DesignTokens.Semantic.Red,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
             }
             if (thread != null) {
                 Composer(

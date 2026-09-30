@@ -7,6 +7,13 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -23,6 +30,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -63,6 +72,9 @@ import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.BottomBarSuppression
 import com.exponential.app.ui.components.BottomNavBar
 import com.exponential.app.ui.components.LocalBottomBarSuppression
+import com.exponential.app.ui.components.LocalToaster
+import com.exponential.app.ui.components.ToastHost
+import com.exponential.app.ui.components.Toaster
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.instance.InstanceScreen
 import com.exponential.app.ui.invite.InviteAcceptScreen
@@ -217,12 +229,19 @@ fun AppNavHost() {
     val activeAccount = state.accounts.firstOrNull { it.id == state.activeAccountId }
     val needsOnboarding = activeAccount?.needsOnboarding == true
 
+    // EXP-1031: the app's ONE toaster, above both nav graphs; each graph's
+    // shell mounts the one ToastHost that draws it.
+    val toaster = remember { Toaster() }
+
     AppBackground {
         // Every screen floats on AppBackground (a Box, not a Material Surface), so
         // without this provider bare `Text`/`Icon` would inherit LocalContentColor's
         // black default and render near-invisible on the dark gradient. Anchor the
         // default to onSurface (light) app-wide; explicit colors still win.
-        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+        CompositionLocalProvider(
+            LocalContentColor provides MaterialTheme.colorScheme.onSurface,
+            LocalToaster provides toaster,
+        ) {
         val updateRequired = state.updateRequired
         if (updateRequired != null) {
             // Highest priority: the ACTIVE account's server has 426'd this
@@ -305,6 +324,7 @@ private fun UnauthenticatedNav(
     onChangeInstance: () -> Unit,
     cloudAlreadyAdded: Boolean,
 ) {
+    Box(Modifier.fillMaxSize()) {
     NavHost(navController = navController, startDestination = startDestination) {
         composable("instance") {
             InstanceScreen(
@@ -322,8 +342,16 @@ private fun UnauthenticatedNav(
             )
         }
     }
+    ToastHost(
+        toaster = LocalToaster.current,
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)),
+    )
+    }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AuthenticatedNav(
     navController: NavHostController,
@@ -903,12 +931,17 @@ private fun AuthenticatedNav(
     // here would cover or reflow every screen's own header. Never during
     // onboarding, which has no cached data to explain.
     val showsOfflineBanner = syncHealth == SyncHealth.Offline && !needsOnboarding
+    // EXP-1031: toasts stack ABOVE the banners, so the banners' measured height
+    // joins the bar inset; with the keyboard up they sit on the keyboard instead.
+    var bannerHeight by remember { mutableStateOf(0.dp) }
+    val density = LocalDensity.current
     if (showsGatedBanner || showsOfflineBanner) {
         // One stack, so the two never overlap. The gated banner stays last —
         // its position is unchanged from when it was the only one.
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
+                .onSizeChanged { bannerHeight = with(density) { it.height.toDp() } }
                 .navigationBarsPadding()
                 // Route-level, NOT barShown: while a selection suppresses
                 // the nav bar, the screen's own 52dp bar is standing in that
@@ -925,6 +958,20 @@ private fun AuthenticatedNav(
             }
         }
     }
+    val bannersShown = showsGatedBanner || showsOfflineBanner
+    val imeVisible = WindowInsets.isImeVisible
+    ToastHost(
+        toaster = LocalToaster.current,
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)),
+        // The banners' rule: route-level barVisible, never the suppressed barShown.
+        bottomInset = if (imeVisible) {
+            0.dp
+        } else {
+            (if (barVisible) BottomBarInset else 0.dp) + (if (bannersShown) bannerHeight else 0.dp)
+        },
+    )
 
     AnimatedVisibility(
         visible = barShown,
