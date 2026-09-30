@@ -70,13 +70,15 @@ internal fun attachmentCacheFile(context: Context, attachment: AttachmentEntity)
  * [AttachmentsApi.download] keeps its HTTP status, so the sheet can tell a
  * deleted file from any other failure). Served from the per-id cache when the
  * file is already there at the expected size, and written back to it so a
- * later Download/Share is instant.
+ * later Download/Share is instant. A body cut at [maxBytes] is never cached.
  */
 internal suspend fun fetchAttachmentBytes(
     context: Context,
     api: AttachmentsApi,
     accountId: String?,
     attachment: AttachmentEntity,
+    /** A read ceiling: the download stops at `maxBytes + 1` (never cached then). */
+    maxBytes: Long? = null,
 ): ByteArray {
     val target = attachmentCacheFile(context, attachment)
     val cached = withContext(Dispatchers.IO) {
@@ -84,7 +86,8 @@ internal suspend fun fetchAttachmentBytes(
     }
     if (cached != null) return cached
     if (accountId == null) throw TrpcException("Sign in to view this file.")
-    val bytes = api.download(accountId, attachment.url)
+    val bytes = api.download(accountId, attachment.url, maxBytes)
+    if (maxBytes != null && bytes.size > maxBytes) return bytes
     withContext(Dispatchers.IO) {
         runCatching {
             target.parentFile?.mkdirs()

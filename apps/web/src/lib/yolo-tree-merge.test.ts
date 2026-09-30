@@ -393,6 +393,68 @@ describe(`executeYoloTree`, () => {
     expect(result.outcomes.get(`gc`)).toMatchObject({ kind: `waiting` })
   })
 
+  // EXP-1146: a REAL GitHub stack member is retargeted by GitHub itself,
+  // seconds after the PR below it lands. One read after the settle delay
+  // called it failed (owner messaged, never retried); the base is polled on
+  // the mergeability ladder first.
+  it(`waits for GitHub's own retarget of a stack member: the base moves on the third read`, async () => {
+    const state = freshState()
+    state.healWorks = false
+    const tree = followUpTree(state)
+    const plan = planYoloTree(tree)
+    const reads = new Map<number, number>()
+    const sleeps: number[] = []
+    const deps = fakeDeps(state)
+    const getPull = deps.getPull
+    deps.getPull = async (repo, n) => {
+      const count = (reads.get(n) ?? 0) + 1
+      reads.set(n, count)
+      // GitHub's lagging retarget: #2 leaves the merged root's branch on its
+      // third read (the first poll step after the settle read); #4 follows
+      // once #2 is in.
+      const p = state.pulls.get(n)
+      if (p && p.baseRef === `exp/EXP-1` && count >= 3) p.baseRef = `master`
+      if (p && p.baseRef === `exp/EXP-2` && count >= 3 && state.pulls.get(2)!.merged) {
+        p.baseRef = `master`
+      }
+      return getPull(repo, n)
+    }
+    deps.sleep = async (ms) => {
+      sleeps.push(ms)
+    }
+
+    const result = await executeYoloTree(tree, plan, deps)
+
+    expect(result.outcomes.get(`c1`)).toEqual({ kind: `merged` })
+    expect(result.outcomes.get(`c2`)).toEqual({ kind: `merged` })
+    expect(result.outcomes.get(`gc`)).toEqual({ kind: `merged` })
+    expect(result.mergedNow).toBe(4)
+    expect(reads.get(2)).toBe(3)
+    // The settle read then the ladder's first step, per child; never the
+    // whole ladder once the base moved.
+    expect(sleeps.slice(0, 2)).toEqual([2_000, 1_000])
+  })
+
+  it(`gives a child about ten seconds on the ladder before calling it stuck on the merged branch`, async () => {
+    const state = freshState()
+    state.healWorks = false
+    const tree = followUpTree(state)
+    const plan = planYoloTree(tree)
+    const sleeps: number[] = []
+    const deps = fakeDeps(state)
+    deps.sleep = async (ms) => {
+      sleeps.push(ms)
+    }
+
+    const result = await executeYoloTree(tree, plan, deps)
+
+    expect(result.outcomes.get(`c1`)).toMatchObject({ kind: `failed` })
+    expect(result.outcomes.get(`c1`)!.detail).toContain(`still based on the merged branch exp/EXP-1`)
+    // c1's base poll: the settle delay plus the full mergeability ladder.
+    expect(sleeps.slice(0, 5)).toEqual([2_000, 1_000, 2_000, 3_000, 4_000])
+    expect(state.events.filter((e) => e === `read:#2`)).toHaveLength(6)
+  })
+
   it(`heals the children of a root that merged before they existed, then merges them`, async () => {
     const state = freshState()
     const tree = followUpTree(state, { root: { issuePrState: `merged` } })

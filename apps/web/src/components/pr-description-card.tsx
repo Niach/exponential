@@ -148,7 +148,7 @@ export function PrDescriptionCard({
         </div>
       )}
       {expanded && state.kind === `ready` && (
-        <div className="border-t border-border px-3 py-2 text-sm">
+        <div className="min-w-0 overflow-x-hidden border-t border-border px-3 py-2 text-sm [&_code]:whitespace-pre-wrap [&_code]:[overflow-wrap:anywhere]">
           {state.body.trim() ? (
             <MarkdownEditor
               editable={false}

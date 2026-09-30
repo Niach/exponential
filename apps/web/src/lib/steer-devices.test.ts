@@ -924,3 +924,66 @@ describe(`update blockers (FEED-36)`, () => {
     expect(deviceCanUpdateNow(server())).toBe(false)
   })
 })
+
+import { resolveStartAccount } from "./steer-devices"
+
+describe(`resolveStartAccount (EXP-1138 gate split)`, () => {
+  const accounts = (profiles: Array<Record<string, unknown>>) => ({
+    agentAccounts: { claude: { signedIn: true, profiles } } as never,
+  })
+
+  it(`stays ambient with no profiles reported or a signed-in default`, () => {
+    expect(resolveStartAccount({}, `claude`)).toEqual({ kind: `ambient` })
+    expect(resolveStartAccount({ agentAccounts: null }, `claude`)).toEqual({ kind: `ambient` })
+    expect(resolveStartAccount(accounts([]), `claude`)).toEqual({ kind: `ambient` })
+    expect(
+      resolveStartAccount(
+        accounts([
+          { id: `system`, signedIn: true, active: true },
+          { id: `work`, signedIn: false },
+        ]),
+        `claude`
+      )
+    ).toEqual({ kind: `ambient` })
+    // Another agent's profiles say nothing about this one.
+    expect(resolveStartAccount(accounts([{ id: `system`, signedIn: false, active: true }]), `codex`)).toEqual({
+      kind: `ambient`,
+    })
+  })
+
+  it(`names the first signed-in profile when the default is signed out`, () => {
+    expect(
+      resolveStartAccount(
+        accounts([
+          { id: `system`, signedIn: false, active: true },
+          { id: `old`, signedIn: false },
+          { id: `work`, signedIn: true },
+          { id: `other`, signedIn: true },
+        ]),
+        `claude`
+      )
+    ).toEqual({ kind: `profile`, account: `work` })
+    // No `active` flag: the system profile is the default.
+    expect(
+      resolveStartAccount(
+        accounts([
+          { id: `work`, signedIn: true },
+          { id: `system`, signedIn: false },
+        ]),
+        `claude`
+      )
+    ).toEqual({ kind: `profile`, account: `work` })
+  })
+
+  it(`is none when the default is signed out and nothing else is signed in`, () => {
+    expect(
+      resolveStartAccount(
+        accounts([
+          { id: `system`, signedIn: false, active: true },
+          { id: `work`, signedIn: false },
+        ]),
+        `claude`
+      )
+    ).toEqual({ kind: `none` })
+  })
+})

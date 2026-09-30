@@ -174,6 +174,14 @@ final class WorkFacesTests: XCTestCase {
         XCTAssertEqual(WorkFaces.fallbackFace(shown: .run, available: [.issue, .run]), .run)
         XCTAssertEqual(WorkFaces.fallbackFace(shown: .issue, available: [.run]), .run)
         XCTAssertNil(WorkFaces.fallbackFace(shown: .run, available: []))
+        // A session subject opened with the page's face: Issue lands on Run,
+        // a run face it has is kept (`WorkScreen.init`).
+        XCTAssertEqual(
+            WorkFaces.fallbackFace(shown: .issue, available: [.run, .changes, .results]), .run
+        )
+        XCTAssertEqual(
+            WorkFaces.fallbackFace(shown: .results, available: [.run, .changes, .results]), .results
+        )
     }
 
     func testReadsTheSessionModelOffTheConfigOption() {

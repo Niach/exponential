@@ -2,10 +2,14 @@ import { and, eq } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
 import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api"
 import type { BetterAuthPlugin } from "better-auth"
-import { accounts, passkeys, users } from "@/db/auth-schema"
+import { accounts, apikeys, passkeys, users } from "@/db/auth-schema"
 import type { db as Database } from "@/db/connection"
 import { db } from "@/db/connection"
 import { buildAuthConfig, type AuthConfig } from "@/lib/auth/config"
+import {
+  API_KEY_IDENTITY_CODE,
+  API_KEY_IDENTITY_MESSAGE,
+} from "@/lib/auth/api-key-kind"
 
 // EXP-1126: the account's sign-in methods as ONE payload for every client
 // (tRPC `users.signInMethods`), plus the invariant every removal respects:
@@ -293,20 +297,116 @@ export async function assertNotLastWayIn(
 
 const GUARDED_PATHS = new Set([`/unlink-account`, `/passkey/delete-passkey`])
 
-/** Better Auth flavour: the same rule in front of the two endpoints a direct
- *  API caller could still reach (the clients go through tRPC). Registered as
- *  a plugin so it composes with the config-level `hooks.before`. */
+// The Better Auth endpoints that change WHO can sign in as this account: the
+// primary email, the linked providers and the passkeys. Every one of them
+// needs a real browser/native session; an `expu_` key (a person's or the
+// launcher's hidden agent key, lib/auth/api-key-kind.ts) is refused, because
+// the api-key plugin mocks a session for every endpoint and a leaked or
+// prompt-injected key could otherwise re-home the whole account.
+const IDENTITY_PATHS = new Set([
+  `/email-otp/request-email-change`,
+  `/email-otp/change-email`,
+  `/link-social`,
+  `/oauth2/link`,
+  `/unlink-account`,
+])
+
+/** Pure: is `path` an identity-changing endpoint (`/passkey/*` included)? */
+export function isIdentityPath(path: string | undefined): boolean {
+  if (!path) return false
+  return IDENTITY_PATHS.has(path) || path.startsWith(`/passkey/`)
+}
+
+/** Pure: the `expu_` credential a request carries, in either header form
+ * the api-key plugin's `customAPIKeyGetter` accepts, else `null`. Sniffed
+ * from the headers because this guard runs BEFORE the api-key plugin's own
+ * hook mocks the session (plugin order), so the resolved session alone
+ * cannot tell a key request apart in time. */
+export function apiKeyCredentialFromHeaders(
+  headers: Headers | undefined | null
+): string | null {
+  if (!headers) return null
+  const direct = headers.get(`x-api-key`)
+  if (direct) return direct
+  const authz = headers.get(`authorization`)
+  if (!authz) return null
+  const match = authz.match(/^Bearer\s+(expu_[^\s]+)$/i)
+  return match ? match[1]! : null
+}
+
+async function isApiKeyRowId(dbLike: DbLike, sessionId: string): Promise<boolean> {
+  const [row] = await dbLike
+    .select({ id: apikeys.id })
+    .from(apikeys)
+    .where(eq(apikeys.id, sessionId))
+    .limit(1)
+  return row !== undefined
+}
+
+export const PLACEHOLDER_EMAIL_CHANGE_MESSAGE = `That address is already known to a team you are in; ask the owner to invite you instead.`
+
+/** Pure: the notice the OLD address gets when a `users` update swaps the
+ * primary email. `data` is the update payload, `session` the requester's
+ * (Better Auth's `change-email` runs under the account being changed, so its
+ * session user still carries the OLD address). `null` = not an email change. */
+export function emailChangeNotice(
+  data: { email?: unknown },
+  session: { user?: { email?: string | null } } | null | undefined
+): { to: string; newEmail: string } | null {
+  if (typeof data.email !== `string`) return null
+  const newEmail = data.email.trim().toLowerCase()
+  const current = session?.user?.email?.trim().toLowerCase() ?? ``
+  if (!newEmail || !current || newEmail === current) return null
+  return { to: current, newEmail }
+}
+
+/** Better Auth flavour: the same rules in front of the endpoints a direct
+ *  API caller could still reach (the clients go through tRPC): no identity
+ *  change on an API key, the placeholder refusal on a requested email change,
+ *  and the last-way-in rule on the two removals. Registered as a plugin so
+ *  it composes with the config-level `hooks.before`. */
 export function signInMethodsGuardPlugin(): BetterAuthPlugin {
   return {
     id: `exp-sign-in-methods-guard`,
     hooks: {
       before: [
         {
-          matcher: (ctx) => GUARDED_PATHS.has(ctx.path ?? ``),
+          matcher: (ctx) => isIdentityPath(ctx.path),
           handler: createAuthMiddleware(async (ctx) => {
+            const refuse = () => {
+              throw new APIError(`UNAUTHORIZED`, {
+                code: API_KEY_IDENTITY_CODE,
+                message: API_KEY_IDENTITY_MESSAGE,
+              })
+            }
+            if (apiKeyCredentialFromHeaders(ctx.headers)) refuse()
             const session = await getSessionFromCtx(ctx)
             // No session: the endpoint's own middleware answers 401.
             if (!session?.user) return
+            // Belt and braces: a session whose id IS an api-key row (the
+            // plugin's mock) is a key request whatever header carried it.
+            if (session.session?.id && (await isApiKeyRowId(db, session.session.id))) {
+              refuse()
+            }
+            if (ctx.path === `/email-otp/request-email-change`) {
+              // A placeholder member (EXP-630) holds the address without an
+              // account: Better Auth would answer success and mail nothing.
+              const body = (ctx.body ?? {}) as { newEmail?: unknown }
+              if (typeof body.newEmail === `string`) {
+                const [existing] = await db
+                  .select({ placeholderAt: users.placeholderAt })
+                  .from(users)
+                  .where(eq(users.email, body.newEmail.trim().toLowerCase()))
+                  .limit(1)
+                if (existing?.placeholderAt) {
+                  throw new APIError(`BAD_REQUEST`, {
+                    code: `EMAIL_HELD_BY_PLACEHOLDER`,
+                    message: PLACEHOLDER_EMAIL_CHANGE_MESSAGE,
+                  })
+                }
+              }
+            }
+            if (!GUARDED_PATHS.has(ctx.path ?? ``)) return
             const body = (ctx.body ?? {}) as { providerId?: unknown; id?: unknown }
             const removal: SignInMethodRemoval | null =
               ctx.path === `/unlink-account`

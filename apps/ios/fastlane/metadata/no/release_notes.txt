@@ -1,3 +1,8 @@
-- Agenter: hver agentinnlogging under en maskin har «Sign out» i menyen, og maskinens egen innlogging kan også fjernes
-- Agentkjøringer: chatkjøringer får igjen navnet sitt fra Claude
-- MCP-servere: koble din egen konto til en av teamets MCP-servere én gang på nettet, så bruker alle kjøringer du starter på hvilken som helst maskin den
+- Arbeidsskjerm: Issue, Kjøring, Endringer og Resultater er faner i toppen du kan sveipe mellom, med Merge ved siden av mens pull requesten er åpen
+- Settings > Account: bytt e-postadresse med en kode, koble Google-, Apple- og OIDC-pålogginger til eller fra, og administrer passnøkler
+- Når du merger en stablet pull request, blir du spurt om hele stabelen eller bare denne pull requesten skal merges
+- Resultater: rapporten fra en kjøring vises ved siden av skjermbildene, lange skjermbilder åpnes i en rullbar visning, og et varsel kan åpne Resultater direkte
+- Markdown-vedlegg åpnes i en forhåndsvisning i appen
+- Varsler: én felles, stablet stil overalt, trykk for å utvide, sveip for å lukke
+- Tidy up: en innebygd handling for å rydde opp i tavler, med matchende ikoner for stabler, batcher og arbeidsflyter
+- Sub-issues opprettet med et vedlegg etterlater ikke lenger et utkast

@@ -132,6 +132,7 @@ import {
 import { mintAttachmentToken } from "@/lib/storage/attachment-token"
 import { mintSessionResultToken } from "@/lib/storage/session-result-token"
 import {
+  isTextEntry,
   removeSessionResults,
   upsertSessionResultText,
   resultsSummary,
@@ -2483,6 +2484,10 @@ export function registerExponentialTools(
       const callerSession = await loadCallerSession()
       if (callerSession) {
         const outcome = await maybeMergeYoloTree(callerSession.id)
+        // EXP-1146: no tree to merge (a workflow chore PR, a run outside yolo
+        // mode): nothing will ever auto-merge this PR, so no `deferred`
+        // promise that "the tree merges when the last run ends".
+        if (outcome.status === `not_yolo`) return opened
         const own =
           outcome.status === `merged`
             ? outcome.outcomes[callerSession.id]
@@ -4318,11 +4323,19 @@ export function registerExponentialTools(
           depth: chain?.depth ?? 0,
           rootSessionId: chain?.rootSessionId ?? row.id,
           stack,
-          results: (results ?? []).map((result) => ({
-            topic: result.topic,
-            label: result.label,
-            url: `${resultsOrigin}/api/attachments/${result.attachmentId}`,
-          })),
+          // EXP-933: a topic's report text rides beside its pictures. A text
+          // entry has no attachment, so it carries only `topic` + `text`, no
+          // `label`/`url`/`attachmentId`; a picture's `label` is emitted
+          // when set.
+          results: (results ?? []).map((result) =>
+            isTextEntry(result)
+              ? { topic: result.topic, text: result.text ?? `` }
+              : {
+                  topic: result.topic,
+                  ...(typeof result.label === `string` ? { label: result.label } : {}),
+                  url: `${resultsOrigin}/api/attachments/${result.attachmentId}`,
+                }
+          ),
         })
       } catch (e) {
         return err(e)

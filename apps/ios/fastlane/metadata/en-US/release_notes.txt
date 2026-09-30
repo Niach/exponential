@@ -1,3 +1,8 @@
-- Agents: every agent login under a machine offers Sign out in its menu, and the machine's own login can be removed too
-- Agent runs: chat runs get their name from Claude again
-- MCP servers: connect your own account to a team MCP server once on the web, and every run you start on any machine uses it
+- Work screen: Issue, Run, Changes and Results are swipeable tabs in the header, with Merge beside them while the pull request is open
+- Settings > Account: change your email with a code, link or unlink Google, Apple and OIDC logins, and manage passkeys
+- Merging a stacked pull request asks whether to merge the whole stack or this pull request only
+- Results: a run's report sits beside its screenshots, tall screenshots open in a scrolling viewer, and a notification can open Results directly
+- Markdown attachments open in an in-app preview
+- Toasts: one stacking notice style everywhere, tap to expand, swipe to dismiss
+- Tidy up: a built-in action for board cleanup, with matching icons for stacks, batches and workflows
+- Sub-issues composed with an attachment no longer leave a draft behind

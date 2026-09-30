@@ -25,6 +25,20 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-30-release-train`,
+    date: `2026-09-30`,
+    title: `Release train 2026-09-30`,
+    summary: `Runs report on Results and notifications open them, tall screenshots and markdown attachments preview in-app, one stacking toast everywhere, yolo mode, a Tidy up action, editable pull request descriptions, and honest session tools for agents.`,
+    body: `- **Results**: a run's close-out report sits beside its screenshots on the issue's Results, visible to every member, and a notification an agent sends can open it directly. Runs publish screenshots of their visible changes by default. A tall screenshot shows a framed tile and opens a scrolling viewer; Android pinches to zoom.
+- **Markdown attachments**: .md files open in an in-app preview on the desktop app, iPhone and Android, with Download beside it.
+- **Toasts**: one stacking toast on every platform, bottom-right on a pointer and top-centre on touch, tap to expand, swipe to dismiss. Alerts that only informed became toasts; destructive actions still confirm.
+- **Yolo mode**: an owner switch under Settings › General. A pull request an agent opens merges at once, a follow-up tree merges root first once every run in it is done, and Reviews leaves the navigation unless a merge failed.
+- **Tidy up**: a built-in action for non-destructive board cleanup (duplicates, labels, relations), the one builtin an automation can run, with matching icons for stacks, batches and workflows.
+- **Pull requests**: agents update a pull request's title or description with exponential_pr_update, and Reviews shows the description with Edit while it is open. A merge that GitHub answered with a server error after landing reads as merged, and an issue moved across boards mid-run still resolves.
+- **Session tools**: a failed remote start names its reason, a message reports whether the agent consumed it, queued messages reach the agent together, and a run you stop keeps its uncommitted work as a WIP commit on its branch.
+- **Fixes**: a signed-out default agent login no longer blocks a signed-in named profile, MCP credentials reach only the run that picked them, an invite to a still referenced placeholder binds and merges on accept, a sub-issue composed with an attachment leaves no draft behind, the desktop app's Files and Source Control no longer flash "No repository linked" on cold start, stacked issue chips draw as outlines, and the web onboarding wizard shows who is signed in with a Sign out.`,
+  },
+  {
     id: `2026-09-30-phone-work-tabs`,
     date: `2026-09-30`,
     title: `Issue, Run, Changes and Results are tabs on the phone`,

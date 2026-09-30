@@ -180,15 +180,18 @@ fn started_reason<'a>(
 fn apply_start_pick(
     options: &mut LaunchOptions,
     deps: &CodingDeps,
+    check: &ToolCheck,
 ) -> Option<crate::account_rotation::StartPick> {
     // EXP-1138: a launch bound for a REMOVED ambient login lands on the
-    // device default first, so the rotation below judges a login that exists
-    // (a hidden `system` has no usage row, and an unlisted launch account is
-    // never moved).
+    // device default first, and one bound for a SIGNED-OUT ambient login on
+    // the profile the doctor found signed in, so the rotation below judges a
+    // login that exists (a hidden `system` has no usage row, and an unlisted
+    // launch account is never moved).
     options.account = crate::agent_profiles::launch_account(
         &deps.data_dir,
         options.agent,
         options.account.take(),
+        Some(check),
     );
     let profiles = crate::agent_usage::profile_usage_snapshot(options.agent, &deps.data_dir);
     let model = Some(options.model.as_str()).filter(|model| !model.is_empty());
@@ -1679,10 +1682,13 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     // profile of its agent with the MOST headroom, read off the usage cache
     // (`Settings.auto_rotate_accounts`, default on, turns it off; codex
     // never moves). The launch's own account stands on a tie.
-    let account_pick = apply_start_pick(&mut options, deps);
+    // The doctor runs FIRST (EXP-1138): the pick lands an ambient launch on
+    // the signed-in profile it found; the gate below judges the result.
+    let report = run_doctor(&deps.settings, &deps.data_dir);
+    let agent = options.agent;
+    let account_pick = apply_start_pick(&mut options, deps, report.check_for(agent));
     note_start_pick(account_pick.as_ref());
     let options = &options;
-    let agent = options.agent;
     // EXP-909: the LOGIN this run spends, in the vocabulary the server column
     // and the usage cache share — `system` for the ambient login, else the
     // device-local profile id. Hoisted once so the row, the heartbeat and
@@ -1693,7 +1699,6 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     // agent must resolve — a missing codex never blocks a claude launch).
     // Cheap relative to clone/mint and structural: the relay origin has no
     // button whose disabled state could have gated this.
-    let report = run_doctor(&deps.settings, &deps.data_dir);
     if let Some(failed) = doctor_gate(&report, deps, agent, options.account.as_deref(), true) {
         return Ok(Prepared::Disabled(DisabledReason::DoctorFailed(failed)));
     }
@@ -2388,10 +2393,12 @@ fn prepare_action(
     // EXP-257: options apply AS-IS — same per-agent vocabulary as an issue
     // run (the server validates remote starts identically).
     let mut options = req.options.clone();
-    // EXP-1005: the same start-time account pick an issue launch takes.
-    let account_pick = apply_start_pick(&mut options, deps);
-    note_start_pick(account_pick.as_ref());
+    // EXP-1005: the same start-time account pick an issue launch takes (the
+    // doctor first, EXP-1138 — its gate runs below).
+    let report = run_doctor(&deps.settings, &deps.data_dir);
     let agent = options.agent;
+    let account_pick = apply_start_pick(&mut options, deps, report.check_for(agent));
+    note_start_pick(account_pick.as_ref());
     // EXP-909: the LOGIN this run spends — hoisted once so the row, the
     // heartbeat and the account env can never name different accounts.
     let agent_account = crate::agent_profiles::profile_id(options.account.as_deref());
@@ -2476,7 +2483,6 @@ fn prepare_action(
 
     // Step 0 — doctor: the selected agent always; git only when a clone is
     // involved ([`doctor_gate`]).
-    let report = run_doctor(&deps.settings, &deps.data_dir);
     if let Some(failed) =
         doctor_gate(&report, deps, agent, options.account.as_deref(), repo.is_some())
     {
@@ -4205,13 +4211,17 @@ pub fn prepare_agent_shell(
     let agent = options.agent;
     // EXP-1138: a shell on a removed ambient login opens on the device
     // default instead (the same rule a session launch takes).
-    options.account =
-        crate::agent_profiles::launch_account(&deps.data_dir, agent, options.account.take());
+    let report = run_doctor(&deps.settings, &deps.data_dir);
+    options.account = crate::agent_profiles::launch_account(
+        &deps.data_dir,
+        agent,
+        options.account.take(),
+        Some(report.check_for(agent)),
+    );
     let options = &options;
 
     // Doctor — the picked agent AND git (a trunk clone is always involved),
     // then the login the shell opens on.
-    let report = run_doctor(&deps.settings, &deps.data_dir);
     if let Some(failed) = doctor_gate(&report, deps, agent, options.account.as_deref(), true) {
         return Ok(PreparedAgentShell::Disabled(DisabledReason::DoctorFailed(failed)));
     }
@@ -8564,22 +8574,54 @@ mod tests {
         req
     }
 
-    /// The agent is runnable (a named profile is signed in), but THIS launch
-    /// spends the ambient login, which is signed out: refused by name, before
-    /// any network call, with copy that points at another account.
+    /// The agent is runnable (a named profile is signed in) and THIS launch
+    /// names no account: the ambient login it would spend is signed out, so
+    /// the launch lands on the signed-in profile (EXP-1138 gate split — a
+    /// server-accepted frame with no account, an MCP `sessions_start` or an
+    /// automation with a null account, must not die on the device with
+    /// "Pick another account"). A launch that NAMES the ambient login of an
+    /// agent with no signed-in profile is still refused by name
+    /// (`a_signed_out_ambient_login_with_no_profile_refuses_by_name`).
     #[cfg(unix)]
     #[test]
-    fn a_signed_out_ambient_login_refuses_an_ambient_launch_by_name() {
+    fn a_signed_out_ambient_login_moves_an_ambient_launch_to_the_signed_in_profile() {
         let dir = temp_dir("gate-ambient");
+        let (base, _captured) = canned_server_recording(vec![(200, START_ACTION_OK.to_string())]);
+        let deps = auth_deps(&base, &dir.0);
+        let work = crate::agent_profiles::create(&dir.0, CodingAgent::Codex, "Work").unwrap();
+        crate::test_support::sign_in_profile(&dir.0, CodingAgent::Codex, &work.id);
+
+        let prepared = match prepare(&PrepareRequest::Action(codex_action(None)), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        let work_dir = crate::agent_profiles::profile_dir(&dir.0, CodingAgent::Codex, &work.id)
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        assert!(prepared
+            .spawn
+            .env
+            .contains(&("CODEX_HOME".to_string(), work_dir)));
+        assert_eq!(
+            prepared.heartbeat_scope.agent_account.as_deref(),
+            Some(work.id.as_str())
+        );
+    }
+
+    /// With NO signed-in profile the hop has nowhere to go: the agent has no
+    /// login at all, so its own doctor check refuses before any network call.
+    #[cfg(unix)]
+    #[test]
+    fn a_signed_out_ambient_login_with_no_profile_refuses_by_name() {
+        let dir = temp_dir("gate-ambient-bare");
         let deps = auth_deps("http://127.0.0.1:1", &dir.0);
-        let work = crate::agent_profiles::create(&dir.0, CodingAgent::Claude, "Work").unwrap();
-        crate::test_support::sign_in_profile(&dir.0, CodingAgent::Claude, &work.id);
 
         match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
             Prepared::Disabled(reason @ DisabledReason::DoctorFailed(_)) => {
                 assert_eq!(
                     reason.message(),
-                    "claude's Default login is signed out on this machine. Pick another account, or sign in from Settings → Agents."
+                    "claude is installed but not signed in. Sign in from Settings → Agents, or from the Sign in button on the failed start."
                 );
             }
             other => panic!("expected DoctorFailed, got {other:?}"),
@@ -8698,20 +8740,42 @@ mod tests {
         }
     }
 
-    /// The agent shell takes the same two rules: a removed ambient login
-    /// opens the shell on the device default, a signed-out one refuses it.
+    /// The agent shell takes the same rules as a session launch: an ambient
+    /// shell on a signed-out login opens on the signed-in profile (the gate
+    /// passes and the prepare reaches the network — the fake server refuses
+    /// the connection, never the doctor); with no signed-in profile it is
+    /// refused by name.
     #[cfg(unix)]
     #[test]
     fn an_agent_shell_judges_its_login_like_a_session() {
         let dir = temp_dir("gate-shell");
         let deps = auth_deps("http://127.0.0.1:1", &dir.0);
-        let work = crate::agent_profiles::create(&dir.0, CodingAgent::Claude, "Work").unwrap();
-        crate::test_support::sign_in_profile(&dir.0, CodingAgent::Claude, &work.id);
         match prepare_agent_shell(&agent_shell_request(None), &deps).unwrap() {
             PreparedAgentShell::Disabled(reason @ DisabledReason::DoctorFailed(_)) => {
-                assert!(reason.message().starts_with("claude's Default login is signed out"));
+                assert!(
+                    reason.message().starts_with("claude is installed but not signed in"),
+                    "{}",
+                    reason.message()
+                );
             }
             other => panic!("expected DoctorFailed, got {other:?}"),
+        }
+
+        let work = crate::agent_profiles::create(&dir.0, CodingAgent::Claude, "Work").unwrap();
+        crate::test_support::sign_in_profile(&dir.0, CodingAgent::Claude, &work.id);
+        let report = run_doctor(&deps.settings, &deps.data_dir);
+        assert_eq!(
+            crate::agent_profiles::launch_account(
+                &deps.data_dir,
+                CodingAgent::Claude,
+                None,
+                Some(report.check_for(CodingAgent::Claude)),
+            ),
+            Some(work.id.clone())
+        );
+        match prepare_agent_shell(&agent_shell_request(None), &deps) {
+            Err(CodingError::Api(ApiError::Transport { .. })) => {}
+            other => panic!("expected the launch to pass the gate and reach the network, got {other:?}"),
         }
     }
 

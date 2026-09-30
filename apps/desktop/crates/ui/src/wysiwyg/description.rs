@@ -242,9 +242,11 @@ impl WysiwygDescription {
                             window,
                             cx,
                         );
-                    } else if let Err(error) = api::opener::open_in_browser(&request.open_target)
-                    {
-                        log::warn!("open link failed: {error}");
+                    } else {
+                        // Same scheme gate as the block editor's rendered
+                        // links: http(s)/mailto only, never a file: or a
+                        // relative path from an uploaded .md.
+                        crate::markdown::open_link_href(&request.open_target);
                     }
                 }
                 MarkdownEditorEvent::ImageContextMenuRequested { src, position } => {
@@ -783,6 +785,10 @@ impl WysiwygDescription {
                     }
                     ImageSlot::Loading => ImageSourceResolution::Pending,
                     ImageSlot::Failed(_) => ImageSourceResolution::Failed,
+                    ImageSlot::Unrenderable => {
+                        unrenderable.insert(key.clone());
+                        ImageSourceResolution::Failed
+                    }
                 }
             };
             // EXP-285: natural size — the synced `attachments` row first
@@ -851,6 +857,10 @@ impl WysiwygDescription {
                         }
                         ImageSlot::Loading => ImageSourceResolution::Pending,
                         ImageSlot::Failed(_) => ImageSourceResolution::Failed,
+                        ImageSlot::Unrenderable => {
+                            unrenderable.insert(key.clone());
+                            ImageSourceResolution::Failed
+                        }
                     }
                 }
                 None => ImageSourceResolution::Pending,

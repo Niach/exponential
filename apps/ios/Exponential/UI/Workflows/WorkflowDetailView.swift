@@ -215,7 +215,8 @@ struct WorkflowDetailView: View {
                 WorkFaceTabs(
                     faces: availableFaces(model),
                     shown: allShownFace(model),
-                    multipleRuns: model.sessions.count > 1,
+                    // `All` has no run menu: the tab stays `Run`.
+                    multipleRuns: false,
                     runsAnchor: $runsAnchor,
                     onSelect: { face = $0 }
                 )

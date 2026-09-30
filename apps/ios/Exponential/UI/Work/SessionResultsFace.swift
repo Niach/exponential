@@ -189,6 +189,7 @@ private struct SessionResultTile: View {
     let httpClient: HTTPClient?
     let isLoading: Bool
 
+    @Environment(\.displayScale) private var displayScale
     @State private var image: UIImage?
 
     private var isTall: Bool { sessionResultIsTall(entry) }
@@ -247,15 +248,31 @@ private struct SessionResultTile: View {
                 httpClient: httpClient,
                 pendingImages: [:]
             )
-            let loaded = try? await loader.load(entry.url)
             // A tall capture keeps only its 4:3 top: the whole page would
             // draw blank past the texture cap, and the tile shows the top.
-            if isTall, let loaded {
-                image = sessionResultTallTopCrop(loaded) ?? loaded
+            // It decodes at the tile's width, off main (`DownsampledImage`),
+            // and caches just the crop under its own width-keyed entry.
+            if isTall {
+                image = await loadTallTop(loader)
             } else {
-                image = loaded
+                image = try? await loader.load(entry.url)
             }
         }
+    }
+
+    private func loadTallTop(_ loader: AttachmentImageLoader) async -> UIImage? {
+        let maxPixelWidth = Int((width * displayScale).rounded(.up))
+        let cacheKey = AttachmentURL.resolve(entry.url, baseURL: baseURL)
+            .map { "\($0.absoluteString)#tile\(maxPixelWidth)" }
+        if let cacheKey, let cached = MarkdownImageCache.shared.image(for: cacheKey) {
+            return cached
+        }
+        guard let data = try? await loader.data(entry.url) else { return nil }
+        let tile = await Task.detached(priority: .userInitiated) {
+            DownsampledImage.decode(data, maxPixelWidth: maxPixelWidth)?.tallTopTile()
+        }.value
+        if let tile, let cacheKey { MarkdownImageCache.shared.store(tile, for: cacheKey) }
+        return tile
     }
 }
 

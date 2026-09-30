@@ -3,6 +3,7 @@ import { contract } from "@exp/domain-contract"
 import type {
   Device,
   DeviceAgentAccounts,
+  DeviceAgentProfileEntry,
   DeviceAgentUsageMap,
   SyncedDeviceWorktree,
   User,
@@ -360,6 +361,39 @@ export function deviceUsageWallAt(
     if (at > wallAt) wallAt = at
   }
   return wallAt === 0 ? null : new Date(wallAt)
+}
+
+/** EXP-1138 gate split: which login a start with NO `account` lands on.
+ *
+ * The device advertises `agent` as runnable when ANY of its logins is signed
+ * in, but a frame without `account` lands on the machine's AMBIENT login
+ * (the active/system profile), which the doctor refuses when that one is
+ * signed out ("Pick another account"). So the server fills the gap:
+ *   - `ambient`: the default login is signed in (or the machine reports no
+ *     profiles, an older build): send the frame as is;
+ *   - `profile`: the default login is signed out and another profile is
+ *     signed in: name that profile (the machine's default first, then the
+ *     reported order);
+ *   - `none`: nothing is signed in: refuse the start.
+ */
+export function resolveStartAccount(
+  device: Pick<UsageReporting, `agentAccounts`>,
+  agent: string
+): { kind: `ambient` } | { kind: `profile`; account: string } | { kind: `none` } {
+  const profiles = (device.agentAccounts?.[agent]?.profiles ?? []).filter(
+    (entry): entry is DeviceAgentProfileEntry =>
+      Boolean(entry) && typeof entry.id === `string` && entry.id.length > 0
+  )
+  if (profiles.length === 0) return { kind: `ambient` }
+  const ambient =
+    profiles.find((entry) => entry.active) ??
+    profiles.find((entry) => entry.id === SYSTEM_PROFILE_ID)
+  if (!ambient || ambient.signedIn !== false) return { kind: `ambient` }
+  const signedIn = profiles.find(
+    (entry) => entry !== ambient && entry.signedIn === true
+  )
+  if (!signedIn) return { kind: `none` }
+  return { kind: `profile`, account: signedIn.id }
 }
 
 /** EXP-481: whether a devices row reads "online" — `last_seen_at` within the

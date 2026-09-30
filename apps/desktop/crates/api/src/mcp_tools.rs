@@ -233,10 +233,21 @@ pub fn teams_list(trpc: &TrpcClient) -> Result<Vec<RemoteTeam>, ApiError> {
 pub struct SessionResult {
     #[serde(default)]
     pub topic: String,
-    #[serde(default)]
+    /// EXP-933: a text-only entry has no label — the web sends `null` or
+    /// omits the key; both read as empty.
+    #[serde(default, deserialize_with = "null_string")]
     pub label: String,
     #[serde(default)]
     pub url: String,
+}
+
+/// `null` → `""` (a plain `String` field rejects `null` even with `default`,
+/// which only covers a MISSING key).
+fn null_string<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(<Option<String> as Deserialize>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 /// One coding-session row as the MCP session tools project it.
@@ -494,6 +505,23 @@ mod tests {
             serde_json::to_string(&input).unwrap(),
             r#"{"deviceId":"d1","actionId":"builtin:chat","teamId":"t1","prompt":"hi"}"#
         );
+    }
+
+    #[test]
+    /// EXP-933: a result's `label` decodes as empty from `null` AND from a
+    /// missing key (the web omits it for text entries).
+    #[test]
+    fn session_results_tolerate_a_null_and_a_missing_label() {
+        let with_null: SessionResult =
+            serde_json::from_str(r#"{"topic":"home","label":null,"url":"/api/x"}"#).unwrap();
+        assert_eq!(with_null.label, "");
+        assert_eq!(with_null.topic, "home");
+        let missing: SessionResult =
+            serde_json::from_str(r#"{"topic":"home","url":"/api/x"}"#).unwrap();
+        assert_eq!(missing.label, "");
+        let labelled: SessionResult =
+            serde_json::from_str(r#"{"topic":"home","label":"ios","url":"/api/x"}"#).unwrap();
+        assert_eq!(labelled.label, "ios");
     }
 
     #[test]

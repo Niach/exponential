@@ -1,3 +1,8 @@
-- Agentit: jokainen koneen alla oleva agenttikirjautuminen tarjoaa valikossaan ”Sign out” -toiminnon, ja myös koneen oman kirjautumisen voi poistaa
-- Agenttiajot: Claude nimeää chat-ajot taas
-- MCP-palvelimet: yhdistä oma tilisi tiimin MCP-palvelimeen kerran verkossa, niin jokainen millä tahansa koneella käynnistämäsi ajo käyttää sitä
+- Työnäkymä: Issue, Ajo, Muutokset ja Tulokset ovat pyyhkäistäviä välilehtiä yläpalkissa, ja Merge on niiden vieressä, kun pull request on auki
+- Settings > Account: vaihda sähköpostiosoitteesi koodilla, yhdistä tai irrota Google-, Apple- ja OIDC-kirjautumiset ja hallitse pääsyavaimia
+- Pinotun pull requestin yhdistäminen kysyy, yhdistetäänkö koko pino vai vain tämä pull request
+- Tulokset: ajon raportti näkyy kuvakaappausten vieressä, pitkät kuvakaappaukset avautuvat vieritettävään näkymään ja ilmoitus voi avata Tulokset suoraan
+- Markdown-liitteet avautuvat sovelluksen sisäiseen esikatseluun
+- Ilmoitukset: yksi yhtenäinen, pinoutuva tyyli kaikkialla, napauta laajentaaksesi, pyyhkäise sulkeaksesi
+- Tidy up: sisäänrakennettu toiminto taulujen siivoamiseen sekä yhtenäiset kuvakkeet pinoille, erille ja työnkuluille
+- Liitteen kanssa luodut ali-issuet eivät enää jätä jälkeensä luonnosta

@@ -33,6 +33,7 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.electric.SyncStats
+import com.exponential.app.domain.MARKDOWN_PREVIEW_MAX_BYTES
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueRelationType
@@ -1313,7 +1314,13 @@ class IssueDetailViewModel @AssistedInject constructor(
      * status) instead of reporting, so the sheet shows its own error copy.
      */
     suspend fun loadAttachmentBytes(attachment: AttachmentEntity): ByteArray =
-        fetchAttachmentBytes(appContext, attachmentsApi, auth.activeAccountId.value, attachment)
+        fetchAttachmentBytes(
+            appContext,
+            attachmentsApi,
+            auth.activeAccountId.value,
+            attachment,
+            maxBytes = MARKDOWN_PREVIEW_MAX_BYTES,
+        )
 }
 
 /**

@@ -1,3 +1,8 @@
-- Agenti: každé prihlásenie agenta pod strojom ponúka v ponuke „Sign out“ a odstrániť sa dá aj vlastné prihlásenie stroja
-- Behy agenta: chatové behy opäť dostávajú názov od Claude
-- MCP servery: raz na webe pripojte svoj účet k tímovému MCP serveru a použije ho každý beh, ktorý spustíte na akomkoľvek stroji
+- Pracovná obrazovka: Issue, Beh, Zmeny a Výsledky sú karty v hlavičke, medzi ktorými sa dá prechádzať potiahnutím, a vedľa nich je Merge, kým je pull request otvorený
+- Settings > Account: zmeňte e-mail pomocou kódu, prepojte alebo odpojte prihlásenie cez Google, Apple a OIDC a spravujte prístupové kľúče
+- Pri zlučovaní pull requestu zo stacku sa aplikácia opýta, či zlúčiť celý stack, alebo len tento pull request
+- Výsledky: správa z behu je vedľa jeho snímok obrazovky, dlhé snímky sa otvárajú v posúvateľnom prehliadači a upozornenie môže Výsledky otvoriť priamo
+- Prílohy Markdown sa otvárajú v náhľade priamo v aplikácii
+- Upozornenia: jeden jednotný, skladaný štýl všade, ťuknutím rozbalíte, potiahnutím zavriete
+- Tidy up: vstavaná akcia na upratanie nástenok, s ladiacimi ikonami pre stacky, dávky a workflow
+- Sub-issues vytvorené s prílohou už nezanechávajú koncept

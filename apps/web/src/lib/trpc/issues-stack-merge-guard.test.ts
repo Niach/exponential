@@ -111,7 +111,12 @@ vi.mock(`@/lib/integrations/activity`, () => ({
   recordIssueEvent: vi.fn(),
 }))
 
-import { WORKFLOW_MERGE_REFUSAL, issuesRouter } from "@/lib/trpc/issues"
+import {
+  WORKFLOW_MERGE_REFUSAL,
+  issuesRouter,
+  stackedOnMessage,
+  stackedOnOpenPr,
+} from "@/lib/trpc/issues"
 import {
   _clearPrActorClaims,
   takePrMergeClaim,
@@ -275,6 +280,8 @@ describe(`issues.mergePr after a merge confirmed from the PR's state (FEED-64)`,
 
   it(`treats our own App's confirmed merge exactly like a normal one`, async () => {
     h.selectQueue.push([plainRow])
+    // EXP-1145: the candidate-stack read (nobody's PR branch is `master`).
+    h.selectQueue.push([])
     h.selectQueue.push([{ id: UPPER_ISSUE }])
     h.mergePullRequestSmart.mockResolvedValueOnce({
       merged: true,
@@ -292,5 +299,115 @@ describe(`issues.mergePr after a merge confirmed from the PR's state (FEED-64)`,
     expect(h.applyPrMergeState).toHaveBeenCalledTimes(1)
     // The claim stays for the webhook echo (consumed there, attributed to us).
     expect(takePrMergeClaim(`owner/repo`, 242)).toMatchObject({ userId: `actor` })
+  })
+})
+
+// EXP-1145: the dialog's "Merge this pull request" promises to land THIS PR
+// and the ones below it — true only for a REAL GitHub stack (merge-async takes
+// the members below along). On a candidate stack (the preview API 404'd, or
+// the edge came from a raw `base`) the single-PR path would squash the member
+// INTO its base = the lower PR's head branch, so the diff never reached the
+// default branch while the issue flipped to Done. MCP `pr_merge` routes
+// through the same procedure, so one guard covers both.
+describe(`issues.mergePr on a candidate stack member (EXP-1145)`, () => {
+  it(`refuses the plain merge, naming the PR it is stacked on, before any claim or GitHub call`, async () => {
+    h.selectQueue.push([upperEntryRow])
+    h.selectQueue.push([{ identifier: `EXP-11` }])
+
+    await expect(caller.mergePr({ issueId: UPPER_ISSUE })).rejects.toMatchObject({
+      code: `PRECONDITION_FAILED`,
+      message: `This pull request is stacked on EXP-11; merge the stack or retarget it first`,
+    })
+    expect(stackedOnMessage(`EXP-11`)).toBe(
+      `This pull request is stacked on EXP-11; merge the stack or retarget it first`
+    )
+    expect(h.mergePullRequestSmart).not.toHaveBeenCalled()
+    expect(h.getPullRequest).not.toHaveBeenCalled()
+    expect(takePrMergeClaim(`owner/repo`, 242)).toBeNull()
+  })
+
+  it(`leaves a REAL stack member (prStackNumber set) to merge-async, which lands the PRs below`, async () => {
+    h.selectQueue.push([{ ...upperEntryRow, prStackNumber: 7 }])
+    // No candidate read happens; the next select is the linked-issues one.
+    h.selectQueue.push([{ id: UPPER_ISSUE }])
+
+    await expect(caller.mergePr({ issueId: UPPER_ISSUE })).resolves.toMatchObject({
+      merged: true,
+    })
+    expect(h.mergePullRequestSmart).toHaveBeenCalledTimes(1)
+    expect(h.mergePullRequestSmart).toHaveBeenCalledWith(
+      expect.objectContaining({ prNumber: 242, knownStackNumber: 7 })
+    )
+    expect(db.select).toHaveBeenCalledTimes(2)
+  })
+
+  it(`merges a plain PR whose base is nobody's open PR branch`, async () => {
+    h.selectQueue.push([upperEntryRow])
+    // The lower PR is merged/closed (or the branch belongs to no team issue).
+    h.selectQueue.push([])
+    h.selectQueue.push([{ id: UPPER_ISSUE }])
+
+    await expect(caller.mergePr({ issueId: UPPER_ISSUE })).resolves.toMatchObject({
+      merged: true,
+    })
+    expect(h.mergePullRequestSmart).toHaveBeenCalledTimes(1)
+  })
+
+  it(`mergeStack on the same member is untouched (it walks the chain instead)`, async () => {
+    h.selectQueue.push([upperEntryRow])
+    h.selectQueue.push(stackRows)
+
+    await expect(
+      caller.mergePr({ issueId: UPPER_ISSUE, mergeStack: true })
+    ).resolves.toMatchObject({ merged: true })
+    expect(h.mergePullRequestSmart).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe(`stackedOnOpenPr (EXP-1145)`, () => {
+  it(`asks for the team issue whose OPEN PR head, in the same repo, is this PR's base`, async () => {
+    const wheres: unknown[] = []
+    const p = Promise.resolve([{ identifier: `EXP-11` }]) as Promise<unknown[]> &
+      Record<string, (arg?: unknown) => unknown>
+    for (const m of [`from`, `limit`]) p[m] = () => p
+    p.where = (cond?: unknown) => {
+      wheres.push(cond)
+      return p
+    }
+    await expect(
+      stackedOnOpenPr({ select: () => p } as never, {
+        issueId: UPPER_ISSUE,
+        teamId: `ws-1`,
+        repoFullName: `owner/repo`,
+        prBaseBranch: `exp/EXP-11`,
+      })
+    ).resolves.toBe(`EXP-11`)
+    const { PgDialect } = await import(`drizzle-orm/pg-core`)
+    const query = new PgDialect().sqlToQuery(wheres[0] as never)
+    expect(query.sql).toContain(`"team_id" =`)
+    expect(query.sql).toContain(`"id" <>`)
+    expect(query.sql).toContain(`"branch" =`)
+    expect(query.sql).toContain(`"pr_state" =`)
+    expect(query.sql).toContain(`"pr_url" like`)
+    expect(query.params).toEqual([
+      `ws-1`,
+      UPPER_ISSUE,
+      `exp/EXP-11`,
+      `open`,
+      `https://github.com/owner/repo/pull/%`,
+    ])
+  })
+
+  it(`never queries for a PR without a recorded base`, async () => {
+    const select = vi.fn()
+    await expect(
+      stackedOnOpenPr({ select } as never, {
+        issueId: UPPER_ISSUE,
+        teamId: `ws-1`,
+        repoFullName: `owner/repo`,
+        prBaseBranch: null,
+      })
+    ).resolves.toBeNull()
+    expect(select).not.toHaveBeenCalled()
   })
 })

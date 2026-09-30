@@ -329,16 +329,24 @@ impl Render for ImagePreview {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let url = self.url.clone();
         let slot = self.images.update(cx, |cache, cx| cache.slot(&url, cx));
+        // EXP-1128: a strip-decoded picture knows its own size, so a slot
+        // that arrived without a probed `natural` (no synced dimensions)
+        // still takes the scrolling column instead of the clipped box.
+        let decoded = match &slot {
+            ImageSlot::ReadyTall(tall) => Some((tall.width as f32, tall.height as f32)),
+            _ => None,
+        };
+        let natural = self.natural.or(decoded);
+        let tall = self.tall || is_tall(decoded);
 
-        if self.tall {
+        if tall {
             // The column is the window's content width: padding off both
             // sides and a gutter for the overlay scrollbar (md preview).
             let inner_w = (f32::from(window.viewport_size().width)
                 - TALL_BODY_PAD * 2.
                 - TALL_SCROLLBAR_GUTTER)
                 .max(1.);
-            let aspect = self
-                .natural
+            let aspect = natural
                 .map(|(width, height)| width / height)
                 .unwrap_or(1.);
             let body = match slot {
@@ -350,7 +358,9 @@ impl Render for ImagePreview {
                     .into_any_element(),
                 ImageSlot::ReadyTall(tall) => crate::tall_image::render_tall(&tall, inner_w),
                 ImageSlot::Loading => placeholder_box("Loading image…", cx),
-                ImageSlot::Failed(_) => placeholder_box("Image unavailable", cx),
+                ImageSlot::Failed(_) | ImageSlot::Unrenderable => {
+                    placeholder_box("Image unavailable", cx)
+                }
             };
             return v_flex()
                 .size_full()
@@ -385,7 +395,9 @@ impl Render for ImagePreview {
                     .into_any_element()
             }
             ImageSlot::Loading => placeholder_box("Loading image…", cx),
-            ImageSlot::Failed(_) => placeholder_box("Image unavailable", cx),
+            ImageSlot::Failed(_) | ImageSlot::Unrenderable => {
+                placeholder_box("Image unavailable", cx)
+            }
         };
 
         // One centered fill — the window already matches the image's aspect

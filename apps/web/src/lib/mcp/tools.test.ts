@@ -3597,6 +3597,30 @@ describe(`exponential_pr_open — repositoryId path`, () => {
     ).toContain(`root first`)
   })
 
+  // EXP-1146: no tree to merge (a workflow chore PR, a run outside yolo mode)
+  // means nothing will ever auto-merge this PR — no `deferred` promise.
+  it(`returns the plain opened result when the run has no yolo tree`, async () => {
+    armRepoPr()
+    dbRows.current = [
+      { id: SESSION, teamId: WS, status: `running`, userId: `user-1`, hostUserId: null, yoloMode: true },
+    ]
+    vi.mocked(maybeMergeYoloTree).mockResolvedValue({ status: `not_yolo` })
+
+    const result = await collectTools(USER, SESSION).get(`exponential_pr_open`)!({
+      repositoryId: REPO,
+      head: `exp/chat-1a2b3c4d`,
+      title: `Chore`,
+    })
+
+    expect(maybeMergeYoloTree).toHaveBeenCalledWith(SESSION)
+    expect(caller.repositories.mergePull).not.toHaveBeenCalled()
+    expect(parseOk(result)).toEqual({
+      url: `https://github.com/acme/app/pull/9`,
+      number: 9,
+    })
+    expect(parseOk(result)).not.toHaveProperty(`autoMerge`)
+  })
+
   it(`reports the caller's own PR merged when its idle tree of one landed at pr_open`, async () => {
     armRepoPr()
     dbRows.current = [
@@ -4538,6 +4562,36 @@ describe(`exponential_sessions_get`, () => {
     ]
     expect(parseOk(await tool(`exponential_sessions_get`)({ id: RUN })))
       .not.toHaveProperty(`hostUserId`)
+  })
+
+  // EXP-933: a text entry has no attachment, so it carries only `topic` +
+  // `text` (no attachment fields); pictures keep their label and url.
+  it(`a text result carries only topic and text; pictures keep label and url`, async () => {
+    dbRows.current = [
+      {
+        id: RUN,
+        userId: `user-1`,
+        teamId: WS,
+        status: `ended`,
+        results: [
+          { topic: `nav`, label: `web`, attachmentId: `att-1`, width: 1600, height: 900 },
+          { topic: `nav`, label: null, attachmentId: null, width: null, height: null, text: `# Report` },
+        ],
+      },
+    ]
+    const payload = parseOk(await tool(`exponential_sessions_get`)({ id: RUN })) as {
+      results: Array<Record<string, unknown>>
+    }
+    expect(payload.results).toEqual([
+      {
+        topic: `nav`,
+        label: `web`,
+        url: expect.stringMatching(/\/api\/attachments\/att-1$/),
+      },
+      { topic: `nav`, text: `# Report` },
+    ])
+    expect(payload.results[1]).not.toHaveProperty(`label`)
+    expect(JSON.stringify(payload.results)).not.toContain(`null`)
   })
 })
 

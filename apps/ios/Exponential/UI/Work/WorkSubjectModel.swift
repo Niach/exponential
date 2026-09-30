@@ -217,6 +217,9 @@ final class WorkSubjectModel {
                         guard let self else { return }
                         self.boundSession = row
                         self.boundResolved = true
+                        // An issue-less run has no issue runs to read: its
+                        // own row is the read a held `initialFace` waits on.
+                        if let row, row.issueId == nil { self.runsResolved = true }
                         // EXP-876: the header names an issue-less bound run
                         // off its covered issues; the shown-row observation
                         // re-points this the moment the reader switches runs.

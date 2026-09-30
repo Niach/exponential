@@ -1,3 +1,8 @@
-- Agenter: hvert agentlogin under en maskine har "Sign out" i sin menu, og maskinens eget login kan også fjernes
-- Agentkørsler: chatkørsler får igen deres navn fra Claude
-- MCP-servere: forbind din egen konto til en af teamets MCP-servere én gang på webben, så bruger alle kørsler, du starter på en hvilken som helst maskine, den
+- Arbejdsskærm: Issue, Kørsel, Ændringer og Resultater er faner i toppen, du kan swipe mellem, med Merge ved siden af, mens pull requesten er åben
+- Settings > Account: skift din e-mail med en kode, tilknyt eller fjern Google-, Apple- og OIDC-logins, og administrer passkeys
+- Når du merger en stablet pull request, bliver du spurgt, om hele stakken eller kun denne pull request skal merges
+- Resultater: en kørsels rapport vises ved siden af dens skærmbilleder, lange skærmbilleder åbnes i en rullbar visning, og en notifikation kan åbne Resultater direkte
+- Markdown-vedhæftninger åbnes i en forhåndsvisning i appen
+- Toasts: én ensartet, stablet beskedstil overalt, tryk for at udvide, swipe for at lukke
+- Tidy up: en indbygget handling til oprydning af boards, med matchende ikoner for stakke, batches og workflows
+- Sub-issues oprettet med en vedhæftning efterlader ikke længere en kladde

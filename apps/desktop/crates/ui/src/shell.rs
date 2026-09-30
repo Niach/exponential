@@ -1057,6 +1057,9 @@ impl Render for Shell {
         if viewport.width < px(1.) || viewport.height < px(1.) {
             return div().into_any_element();
         }
+        // EXP-1128: release the atlas tiles of strip-decoded pictures whose
+        // per-issue cache dropped since the last frame (needs a window).
+        crate::tall_image::release_dropped_strips(window);
 
         // EXP-104: the server 426'd this build — nothing is usable until it
         // updates. This wins over the session switch (login OR board): the

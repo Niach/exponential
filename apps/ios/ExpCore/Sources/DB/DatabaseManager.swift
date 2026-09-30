@@ -1790,7 +1790,6 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("device_id", .text)
                 // The launch jsonb, stored as stringified JSON.
                 t.column("launch", .text)
-                t.column("gate", .text).notNull().defaults(to: "human")
                 t.column("integration_branch", .text).notNull().defaults(to: "")
                 t.column("final_pr_url", .text)
                 t.column("final_pr_number", .integer)
@@ -2082,6 +2081,20 @@ public final class DatabaseManager: @unchecked Sendable {
                     SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
                     WHERE "shape" = 'teams'
                     """)
+            }
+        }
+
+        // v58 (compat cleanup r29): the server dropped `workflows.gate`
+        // (migration 0149) and no entity reads it, so the cache drops the
+        // column too (the v56 precedent); guarded on presence so fresh
+        // installs (which no longer create it) and re-runs are no-ops.
+        migrator.registerMigration("v58_workflows_gate_dropped") { db in
+            guard try db.tableExists("workflows") else { return }
+            let existing = Set(try db.columns(in: "workflows").map(\.name))
+            if existing.contains("gate") {
+                try db.alter(table: "workflows") { t in
+                    t.drop(column: "gate")
+                }
             }
         }
 

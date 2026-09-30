@@ -225,6 +225,16 @@ impl HttpAttachmentTransport {
         }
     }
 
+    /// Whether `absolute` is on THIS instance's origin: the only host the
+    /// account bearer may be sent to. A third-party image URL in a comment
+    /// or an uploaded `.md` (`![](https://evil.example/x.png)`) is fetched
+    /// like a browser would, with no credentials at all.
+    fn is_instance_url(&self, absolute: &str) -> bool {
+        absolute
+            .strip_prefix(self.base_url.as_str())
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with(['/', '?', '#']))
+    }
+
     fn authorize(
         &self,
         request: reqwest::blocking::RequestBuilder,
@@ -354,8 +364,15 @@ impl AttachmentTransport for HttpAttachmentTransport {
 
     fn fetch(&self, url: &str) -> anyhow::Result<Vec<u8>> {
         let absolute = self.absolute(url);
-        let response = self
-            .authorize(self.client.get(&absolute))
+        let request = self.client.get(&absolute);
+        // Only our own origin is authorized; a foreign image URL rides a
+        // bare GET (the web renderer's `<img src>` sends nothing either).
+        let request = if self.is_instance_url(&absolute) {
+            self.authorize(request)
+        } else {
+            request.timeout(ATTACHMENT_TIMEOUT)
+        };
+        let response = request
             .send()
             .map_err(|e| anyhow!("attachment fetch failed: {e}"))?;
         let status = response.status();
@@ -1023,6 +1040,30 @@ mod tests {
             Some(&AttachmentFetchStatus(404))
         );
         assert_eq!(error.to_string(), "attachment fetch failed: HTTP 404 Not Found");
+    }
+
+    /// A foreign image URL (a third-party `![](https://…)` in a comment or an
+    /// uploaded `.md`) is fetched WITHOUT the account bearer: the token goes
+    /// to this instance's origin only.
+    #[test]
+    fn fetch_never_sends_the_bearer_to_a_foreign_host() {
+        let (base, _own) = one_shot_server(200, "OWN");
+        let (foreign, captured) = one_shot_server(200, "FOREIGN");
+        let transport = HttpAttachmentTransport::new(&base, Arc::new(NullToken));
+        assert!(transport.is_instance_url(&format!("{base}/api/attachments/a")));
+        assert!(transport.is_instance_url(&base));
+        assert!(!transport.is_instance_url(&format!("{base}5/api/attachments/a")));
+        assert!(!transport.is_instance_url(&format!("{foreign}/img.png")));
+        let bytes = transport
+            .fetch(&format!("{foreign}/img.png"))
+            .expect("fetch");
+        assert_eq!(bytes, b"FOREIGN");
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("GET /img.png HTTP/1.1"), "{request}");
+        assert!(
+            !request.to_ascii_lowercase().contains("authorization:"),
+            "bearer leaked to a foreign host: {request}"
+        );
     }
 
     #[test]

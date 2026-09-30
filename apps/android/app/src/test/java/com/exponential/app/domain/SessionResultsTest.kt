@@ -149,6 +149,7 @@ class SessionResultsTest {
     // capture flags tall and takes the 4:3 frame; a phone shot never does.
     @Test
     fun `frames a tall capture at 4-3 and flags it`() {
+        assertEquals(1.0 / 3.0, SESSION_RESULT_TALL_ASPECT, 1e-10)
         val cases = sessionResultsFixture()["tiles"]!!.jsonObject["cases"]!!.jsonArray
         assertTrue(cases.isNotEmpty())
         for (element in cases) {

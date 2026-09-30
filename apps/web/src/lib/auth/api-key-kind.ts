@@ -17,6 +17,7 @@
 // answers "was this an agent key?"; a cookie or bearer-session request finds
 // no row and reads as not-an-agent. Metadata is the plugin's JSON string.
 import { and, eq } from "drizzle-orm"
+import { TRPCError } from "@trpc/server"
 import { apikeys } from "@/db/auth-schema"
 import type { Context } from "@/lib/trpc"
 
@@ -42,14 +43,14 @@ export function apiKeyKindOf(metadata: string | null | undefined): ApiKeyKind {
   return `personal`
 }
 
-/** True when the request that built `session` authenticated with a key the
- * launcher minted for an agent. */
-export async function isAgentApiKeySession(
+/** The kind of the caller's own `expu_` key behind `session`, or `null` when
+ * the request rode a real (cookie/bearer) session — one indexed lookup. */
+export async function apiKeySessionKind(
   db: Context[`db`],
   session: NonNullable<Context[`session`]>
-): Promise<boolean> {
+): Promise<ApiKeyKind | null> {
   const sessionId = session.session?.id
-  if (!sessionId) return false
+  if (!sessionId) return null
   const [row] = await db
     .select({ metadata: apikeys.metadata })
     .from(apikeys)
@@ -57,5 +58,58 @@ export async function isAgentApiKeySession(
       and(eq(apikeys.id, sessionId), eq(apikeys.referenceId, session.user.id))
     )
     .limit(1)
-  return row !== undefined && apiKeyKindOf(row.metadata) === `agent`
+  return row === undefined ? null : apiKeyKindOf(row.metadata)
 }
+
+/** True when the request that built `session` authenticated with a key the
+ * launcher minted for an agent. */
+export async function isAgentApiKeySession(
+  db: Context[`db`],
+  session: NonNullable<Context[`session`]>
+): Promise<boolean> {
+  return (await apiKeySessionKind(db, session)) === `agent`
+}
+
+/** True when the request authenticated with ANY `expu_` key (a person's or
+ * an agent's), never with a browser/native session. */
+export async function isApiKeySession(
+  db: Context[`db`],
+  session: NonNullable<Context[`session`]>
+): Promise<boolean> {
+  return (await apiKeySessionKind(db, session)) !== null
+}
+
+// Identity changes (the primary email, linked providers, passkeys) need a
+// REAL session: the api-key plugin mocks one for every endpoint
+// (`enableSessionForAPIKeys`), so without this rule a leaked key, or the
+// agent's hidden one, could re-home the whole account. The Better Auth guard
+// (lib/auth/sign-in-methods.ts) answers with the same code and message.
+export const API_KEY_IDENTITY_CODE = `API_KEY_CANNOT_CHANGE_IDENTITY`
+export const API_KEY_IDENTITY_MESSAGE = `Sign-in methods and the account email can only be changed from a signed-in browser or app, not with an API key.`
+
+/** tRPC flavour: refuse an identity-changing mutation reached with a key. */
+export async function assertNotApiKeySession(
+  db: Context[`db`],
+  session: NonNullable<Context[`session`]>
+): Promise<void> {
+  if (await isApiKeySession(db, session)) {
+    throw new TRPCError({
+      code: `UNAUTHORIZED`,
+      message: API_KEY_IDENTITY_MESSAGE,
+    })
+  }
+}
+
+/** tRPC flavour: refuse the agent's own key (a person's key passes). */
+export async function assertNotAgentApiKeySession(
+  db: Context[`db`],
+  session: NonNullable<Context[`session`]>,
+  message: string
+): Promise<void> {
+  if (await isAgentApiKeySession(db, session)) {
+    throw new TRPCError({ code: `FORBIDDEN`, message })
+  }
+}
+
+export const AGENT_KEY_MANAGES_KEYS_MESSAGE = `Agent keys cannot manage API keys`
+export const AGENT_KEY_MANAGES_MCP_MESSAGE = `Agent keys cannot manage MCP servers or their credentials`

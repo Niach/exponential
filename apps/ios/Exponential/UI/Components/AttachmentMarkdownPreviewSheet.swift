@@ -45,13 +45,15 @@ struct AttachmentMarkdownPreviewSheet: View {
             accountId: accountId,
             httpClient: deps.httpClient,
             // `#IDENT` refs chip to same-team issues like on desktop/Android
-            // (and the web dialog); a tap navigates out of the sheet.
+            // (and the web dialog); a tap navigates out of the sheet. A bare
+            // `EXP-12` in a file stays text, as on the web.
             issueRefs: AgentIssueRefContext(
                 teamId: attachment.teamId,
                 db: deps.db,
                 onOpen: { issueId in
                     deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
-                }
+                },
+                bareRefs: false
             )
         )
     }

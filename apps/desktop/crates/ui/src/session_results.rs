@@ -196,7 +196,7 @@ fn tile(
                     }
                     // A label would only clip — the neutral box IS the
                     // loading/unavailable state here.
-                    ImageSlot::Loading | ImageSlot::Failed(_) => {
+                    ImageSlot::Loading | ImageSlot::Failed(_) | ImageSlot::Unrenderable => {
                         tile.child(placeholder_box("", cx))
                     }
                 })

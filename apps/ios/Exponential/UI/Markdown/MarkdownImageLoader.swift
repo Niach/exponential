@@ -89,16 +89,28 @@ struct AttachmentImageLoader {
         let cacheKey = resolved.absoluteString
         if let cached = MarkdownImageCache.shared.image(for: cacheKey) { return cached }
 
-        let data: Data
-        if urlString.contains("/api/"),
-           AttachmentURL.isSameOrigin(resolved, as: baseURL),
-           let httpClient, !accountId.isEmpty {
-            (data, _) = try await httpClient.get(resolved, accountId: accountId)
-        } else {
-            (data, _) = try await URLSession.shared.data(from: resolved)
-        }
+        let data = try await fetch(resolved, urlString: urlString)
         guard let image = UIImage(data: data) else { throw LoadError.decodeFailed }
         MarkdownImageCache.shared.store(image, for: cacheKey)
         return image
+    }
+
+    /// The raw bytes, same auth rule as `load`, nothing decoded: for a caller
+    /// that downsamples through ImageIO instead of decoding whole (a TALL
+    /// Results capture, EXP-1128). Drafts are not attachments and never tall.
+    func data(_ urlString: String) async throws -> Data {
+        guard let resolved = AttachmentURL.resolve(urlString, baseURL: baseURL) else {
+            throw LoadError.noData
+        }
+        return try await fetch(resolved, urlString: urlString)
+    }
+
+    private func fetch(_ resolved: URL, urlString: String) async throws -> Data {
+        if urlString.contains("/api/"),
+           AttachmentURL.isSameOrigin(resolved, as: baseURL),
+           let httpClient, !accountId.isEmpty {
+            return try await httpClient.get(resolved, accountId: accountId).0
+        }
+        return try await URLSession.shared.data(from: resolved).0
     }
 }

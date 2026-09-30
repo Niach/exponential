@@ -1,3 +1,8 @@
-- Agenti: svaka prijava agenta ispod stroja u svom izborniku nudi „Sign out“, a može se ukloniti i vlastita prijava stroja
-- Izvođenja agenta: chat izvođenjima naziv ponovno daje Claude
-- MCP poslužitelji: jednom na webu povežite svoj račun s timskim MCP poslužiteljem i koristit će ga svako izvođenje koje pokrenete na bilo kojem stroju
+- Radni zaslon: Issue, Pokretanje, Promjene i Rezultati kartice su u zaglavlju između kojih se prelazi povlačenjem, a pokraj njih je Merge dok je pull request otvoren
+- Settings > Account: promijenite e-poštu pomoću koda, povežite ili odspojite prijave za Google, Apple i OIDC te upravljajte pristupnim ključevima
+- Pri spajanju složenog pull requesta aplikacija pita želite li spojiti cijeli stog ili samo ovaj pull request
+- Rezultati: izvješće pokretanja stoji pokraj njegovih snimki zaslona, duge snimke otvaraju se u pregledniku s pomicanjem, a obavijest može izravno otvoriti Rezultate
+- Markdown privitci otvaraju se u pregledu unutar aplikacije
+- Obavijesti: jedinstven, složeni stil posvuda, dodirnite za proširenje, povucite za zatvaranje
+- Tidy up: ugrađena radnja za pospremanje ploča, s usklađenim ikonama za stogove, skupine i tijekove rada
+- Sub-issues stvoreni s privitkom više ne ostavljaju skicu

@@ -1,3 +1,8 @@
-- Agenti: každé přihlášení agenta pod strojem nabízí v nabídce „Sign out“ a odebrat lze i vlastní přihlášení stroje
-- Běhy agentů: chatové běhy opět dostávají název od Claude
-- MCP servery: jednou na webu připojte svůj účet k týmovému MCP serveru a použije ho každý běh, který spustíte na jakémkoli stroji
+- Pracovní obrazovka: Issue, Běh, Změny a Výsledky jsou karty v záhlaví, mezi kterými lze přejíždět, a vedle nich je Merge, dokud je pull request otevřený
+- Settings > Account: změňte e-mail pomocí kódu, propojte nebo odpojte přihlášení přes Google, Apple a OIDC a spravujte přístupové klíče
+- Při slučování pull requestu ze stacku se aplikace zeptá, zda sloučit celý stack, nebo jen tento pull request
+- Výsledky: zpráva z běhu je vedle jeho snímků obrazovky, dlouhé snímky se otevírají v posuvném prohlížeči a oznámení může Výsledky otevřít přímo
+- Přílohy Markdown se otevírají v náhledu přímo v aplikaci
+- Oznámení: jeden jednotný, skládaný styl všude, klepnutím rozbalíte, přejetím zavřete
+- Tidy up: vestavěná akce pro úklid nástěnek, s odpovídajícími ikonami pro stacky, dávky a workflow
+- Sub-issues vytvořené s přílohou už nezanechávají koncept

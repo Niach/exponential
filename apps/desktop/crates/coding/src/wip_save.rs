@@ -48,6 +48,17 @@ pub fn save_wip_commit(worktree: &Path) -> WipSave {
         DirtyState::Clean => return WipSave::Clean,
         DirtyState::UntrackedOnly | DirtyState::TrackedChanges => {}
     }
+    // FEED-67: a Stop mid-rebase leaves HEAD detached. A commit there lands
+    // on no branch, the tree then reads clean and run cleanup removes the
+    // worktree — the commit surviving only in the reflog. The DIRTY tree is
+    // what cleanup keeps, so leave it be.
+    let branch = current_branch(worktree);
+    if branch.as_deref() == Some("HEAD") {
+        return WipSave::Failed(
+            "detached HEAD (a rebase or checkout in progress) — the uncommitted work stays in the worktree"
+                .to_string(),
+        );
+    }
     if let Err(err) = run_git(Some(worktree), &["add", "-A"], None, "git add -A") {
         return WipSave::Failed(err.detail);
     }
@@ -72,15 +83,23 @@ pub fn save_wip_commit(worktree: &Path) -> WipSave {
             return WipSave::Failed(err.detail);
         }
     }
-    let branch = run_git(
+    WipSave::Committed {
+        branch: branch.unwrap_or_else(|| "HEAD".to_string()),
+    }
+}
+
+/// `git rev-parse --abbrev-ref HEAD`: the branch name, `HEAD` when detached,
+/// `None` when git cannot say (an unborn branch).
+fn current_branch(worktree: &Path) -> Option<String> {
+    run_git(
         Some(worktree),
         &["rev-parse", "--abbrev-ref", "HEAD"],
         None,
         "git rev-parse",
     )
+    .ok()
     .map(|out| out.trim().to_string())
-    .unwrap_or_else(|_| "HEAD".to_string());
-    WipSave::Committed { branch }
+    .filter(|branch| !branch.is_empty())
 }
 
 /// Whether a failed `git commit` failed for want of an author/committer
@@ -177,6 +196,23 @@ mod tests {
         std::fs::write(scratch.join("file.txt"), "x\n").unwrap();
         assert_eq!(save_wip_commit(&scratch), WipSave::NotARepo);
         let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    /// FEED-67: a detached HEAD (Stop mid-rebase) is refused without a
+    /// commit — the tree stays dirty, which is what run cleanup keeps.
+    #[test]
+    fn a_detached_head_is_refused_and_the_tree_stays_dirty() {
+        let dir = repo("detached");
+        git(&dir, &["checkout", "-q", "--detach"]);
+        let head = git(&dir, &["rev-parse", "HEAD"]);
+        std::fs::write(dir.join("README.md"), "mid-rebase\n").unwrap();
+        match save_wip_commit(&dir) {
+            WipSave::Failed(detail) => assert!(detail.contains("detached HEAD"), "{detail}"),
+            other => panic!("expected Failed, got {other:?}"),
+        }
+        assert_eq!(worktree_dirty_state(&dir), DirtyState::TrackedChanges);
+        assert_eq!(git(&dir, &["rev-parse", "HEAD"]), head);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

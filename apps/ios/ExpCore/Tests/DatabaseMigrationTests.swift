@@ -121,7 +121,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v52_issue_estimate",
              "v53_invite_placeholder", "v54_invite_sent_at",
              "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped",
-             "v57_team_yolo_mode"]
+             "v57_team_yolo_mode", "v58_workflows_gate_dropped"]
         )
     }
 
@@ -169,7 +169,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v52_issue_estimate",
              "v53_invite_placeholder", "v54_invite_sent_at",
              "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped",
-             "v57_team_yolo_mode"]
+             "v57_team_yolo_mode", "v58_workflows_gate_dropped"]
         )
     }
 
@@ -563,7 +563,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v52_issue_estimate",
              "v53_invite_placeholder", "v54_invite_sent_at",
              "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped",
-             "v57_team_yolo_mode"]
+             "v57_team_yolo_mode", "v58_workflows_gate_dropped"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -659,7 +659,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v52_issue_estimate",
              "v53_invite_placeholder", "v54_invite_sent_at",
              "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped",
-             "v57_team_yolo_mode"]
+             "v57_team_yolo_mode", "v58_workflows_gate_dropped"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1375,7 +1375,7 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(
             try columnNames(pool, "workflows"),
             ["id", "team_id", "repository_id", "name", "status", "device_id",
-             "launch", "gate", "integration_branch", "final_pr_url",
+             "launch", "integration_branch", "final_pr_url",
              "final_pr_number", "final_pr_state", "decisions", "metrics",
              "started_at", "ended_at", "created_at", "updated_at"]
         )

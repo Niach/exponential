@@ -8,6 +8,7 @@ import {
   membersAtOrBelowNumber,
   mergedByPerson,
   mergePullRequestAsync,
+  isFetchFailure,
   mergePullRequestSmart,
   pollAsyncMerge,
   unstack,
@@ -271,6 +272,51 @@ describe(`mergePullRequestAsync / pollAsyncMerge`, () => {
     expect(sleepImpl).toHaveBeenCalledTimes(1)
   })
 
+  // FEED-64: only a dropped connection is "no answer yet". A bug (or a
+  // caller's own throw) used to be swallowed into a silent 60 s of polling.
+  it(`keeps polling across a dropped connection`, async () => {
+    const { impl } = routedFetch([
+      {
+        match: `/merge-async/u-1`,
+        status: 200,
+        body: { status: `merged`, sha: `deadbeef`, details: { uuid: `u-1` } },
+      },
+    ])
+    impl.mockImplementationOnce(async () => {
+      throw new TypeError(`fetch failed`)
+    })
+    const sleepImpl = vi.fn(async () => {})
+    const state = await pollAsyncMerge({
+      repo: `o/r`,
+      prNumber: 242,
+      uuid: `u-1`,
+      token: `tok`,
+      fetchImpl: impl as never,
+      sleepImpl,
+    })
+    expect(state).toMatchObject({ status: `merged`, sha: `deadbeef` })
+    expect(sleepImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it(`rethrows an error that is not a network failure instead of burning the deadline`, async () => {
+    const impl = vi.fn(async () => {
+      throw new RangeError(`programming error`)
+    })
+    const sleepImpl = vi.fn(async () => {})
+    await expect(
+      pollAsyncMerge({
+        repo: `o/r`,
+        prNumber: 242,
+        uuid: `u-1`,
+        token: `tok`,
+        fetchImpl: impl as never,
+        sleepImpl,
+      })
+    ).rejects.toThrow(`programming error`)
+    expect(impl).toHaveBeenCalledTimes(1)
+    expect(sleepImpl).not.toHaveBeenCalled()
+  })
+
   it(`returns the last pending state at the injected deadline`, async () => {
     const { impl } = routedFetch([
       {
@@ -291,6 +337,29 @@ describe(`mergePullRequestAsync / pollAsyncMerge`, () => {
       nowImpl: () => 0,
     })
     expect(state.status).toBe(`pending`)
+  })
+})
+
+describe(`isFetchFailure (FEED-64)`, () => {
+  it(`classifies the shapes a dropped connection takes`, () => {
+    expect(isFetchFailure(new TypeError(`fetch failed`))).toBe(true)
+    expect(
+      isFetchFailure(Object.assign(new Error(`socket hang up`), { code: `ECONNRESET` }))
+    ).toBe(true)
+    expect(
+      isFetchFailure(Object.assign(new Error(`timeout`), { code: `UND_ERR_CONNECT_TIMEOUT` }))
+    ).toBe(true)
+    expect(
+      isFetchFailure(new Error(`wrapped`, { cause: Object.assign(new Error(), { code: `ETIMEDOUT` }) }))
+    ).toBe(true)
+    expect(isFetchFailure(Object.assign(new Error(`aborted`), { name: `AbortError` }))).toBe(true)
+  })
+
+  it(`leaves programming errors and GitHub's own answers alone`, () => {
+    expect(isFetchFailure(new RangeError(`bad index`))).toBe(false)
+    expect(isFetchFailure(new Error(`unrouted GET`))).toBe(false)
+    expect(isFetchFailure(new GitHubMergeError(500, `Server Error`))).toBe(false)
+    expect(isFetchFailure(`string`)).toBe(false)
   })
 })
 
@@ -697,6 +766,55 @@ describe(`mergePullRequestSmart (FEED-43)`, () => {
       expect((error as GitHubMergeError).message).toBe(
         `Pull Request has merge conflicts`
       )
+    })
+
+    // FEED-64 follow-up: the 405 is GitHub's answer ABOUT the PR, so an open
+    // first read is final — a genuine conflict costs one read, not two and a
+    // second of sleep.
+    it(`settles a real 405 conflict on the FIRST open read: no second read, no sleep`, async () => {
+      const sleepImpl = vi.fn(async () => {})
+      const { calls } = install([
+        {
+          match: `/pulls/241/merge`,
+          method: `PUT`,
+          status: 405,
+          body: { message: `Pull Request has merge conflicts` },
+        },
+        { match: `/pulls/241`, status: 200, body: openPull },
+      ])
+      const error = await mergePullRequestSmart({
+        repo: `o/r`,
+        prNumber: 241,
+        token: `tok`,
+        sleepImpl,
+      }).catch((e: unknown) => e)
+      expect(error).toBeInstanceOf(GitHubMergeError)
+      expect((error as GitHubMergeError).status).toBe(405)
+      expect(calls.map((call) => call.method)).toEqual([`PUT`, `GET`])
+      expect(sleepImpl).not.toHaveBeenCalled()
+    })
+
+    it(`still reads twice after a 5xx: GitHub may still be writing the merge`, async () => {
+      const sleepImpl = vi.fn(async () => {})
+      const { calls } = install([
+        {
+          match: `/pulls/241/merge`,
+          method: `PUT`,
+          status: 500,
+          body: { message: `Server Error` },
+        },
+        { match: `/pulls/241`, status: 200, body: openPull },
+        { match: `/pulls/241`, status: 200, body: mergedPull },
+      ])
+      const result = await mergePullRequestSmart({
+        repo: `o/r`,
+        prNumber: 241,
+        token: `tok`,
+        sleepImpl,
+      })
+      expect(result).toMatchObject({ merged: true, sha: `d6ef0be6e5` })
+      expect(calls.map((call) => call.method)).toEqual([`PUT`, `GET`, `GET`])
+      expect(sleepImpl).toHaveBeenCalledTimes(1)
     })
 
     it(`never verifies a 4xx GitHub decided (409 head moved: one call, no read)`, async () => {

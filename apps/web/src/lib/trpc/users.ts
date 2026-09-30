@@ -18,7 +18,12 @@ import { auth } from "@/lib/auth"
 import { getReadableUserIdsInTeams } from "@/lib/team-membership"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { invalidateSessionCache } from "@/lib/auth/resolve-bearer"
-import { API_KEY_KINDS } from "@/lib/auth/api-key-kind"
+import {
+  AGENT_KEY_MANAGES_KEYS_MESSAGE,
+  API_KEY_KINDS,
+  assertNotAgentApiKeySession,
+  assertNotApiKeySession,
+} from "@/lib/auth/api-key-kind"
 import { guardAndCleanupTeamsForUserDeletion } from "@/lib/account-deletion"
 import { relayKillSessionsBestEffort } from "@/lib/coding-session-kill"
 import {
@@ -62,7 +67,9 @@ export const usersRouter = router({
   // EXP-1140: `purpose: 'agent'` tags the hidden key the launcher mints for
   // the AGENT it spawns (lib/auth/api-key-kind.ts). Such a key is refused
   // where a person's key is not (`mcpServers.resolveForLaunch`). A key the
-  // person mints in Settings stays `personal`.
+  // person mints in Settings stays `personal`. The agent key itself manages
+  // NO keys: minting a `personal` one would be its way around every
+  // kind-gated procedure.
   mintPersonalApiKey: authedProcedure
     .input(
       z
@@ -73,6 +80,11 @@ export const usersRouter = router({
         .optional()
     )
     .mutation(async ({ ctx, input }) => {
+      await assertNotAgentApiKeySession(
+        ctx.db,
+        ctx.session,
+        AGENT_KEY_MANAGES_KEYS_MESSAGE
+      )
       const created = await auth.api.createApiKey({
         body: {
           name: (input?.name ?? `Personal key`).slice(0, 180),
@@ -96,6 +108,11 @@ export const usersRouter = router({
     }),
 
   listPersonalApiKeys: authedProcedure.query(async ({ ctx }) => {
+    await assertNotAgentApiKeySession(
+      ctx.db,
+      ctx.session,
+      AGENT_KEY_MANAGES_KEYS_MESSAGE
+    )
     const rows = await ctx.db
       .select({
         id: apikeys.id,
@@ -127,9 +144,12 @@ export const usersRouter = router({
     return methods
   }),
 
+  // Identity changes need a real browser/native session, never an `expu_`
+  // key (a person's or the agent's): see lib/auth/api-key-kind.ts.
   unlinkSignInMethod: authedProcedure
     .input(z.object({ providerId: z.string().min(1).max(120) }))
     .mutation(async ({ ctx, input }) => {
+      await assertNotApiKeySession(ctx.db, ctx.session)
       const userId = ctx.session.user.id
       const [row] = await ctx.db
         .select({ id: accounts.id })
@@ -151,6 +171,7 @@ export const usersRouter = router({
   deletePasskey: authedProcedure
     .input(z.object({ id: z.string().min(1).max(200) }))
     .mutation(async ({ ctx, input }) => {
+      await assertNotApiKeySession(ctx.db, ctx.session)
       const userId = ctx.session.user.id
       const [row] = await ctx.db
         .select({ id: passkeys.id })
@@ -170,6 +191,7 @@ export const usersRouter = router({
   mintSignInLinkTicket: authedProcedure
     .input(z.object({ provider: z.string().min(1).max(120) }))
     .mutation(async ({ ctx, input }) => {
+      await assertNotApiKeySession(ctx.db, ctx.session)
       const known = configuredProviders(buildAuthConfig()).some(
         (p) => p.id === input.provider
       )
@@ -302,6 +324,11 @@ export const usersRouter = router({
   revokePersonalApiKey: authedProcedure
     .input(z.object({ id: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
+      await assertNotAgentApiKeySession(
+        ctx.db,
+        ctx.session,
+        AGENT_KEY_MANAGES_KEYS_MESSAGE
+      )
       await ctx.db
         .delete(apikeys)
         .where(

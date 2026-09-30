@@ -15,6 +15,12 @@ use crate::host::EngineExit;
 /// decides: `user` (web/mobile Stop, MCP `exponential_sessions_kill`) or
 /// `client` (this host's own forced end). An agent close-out and an
 /// account switch end `ended`; a merge/system end is not a stop.
+///
+/// FEED-67: a FAILED end call (offline, a 5xx) still saves — the outcome is
+/// a hard stop and the save is a local commit that is never pushed, so a
+/// spurious one (a merge end whose echo was lost) costs nothing while a lost
+/// one loses work. A replay skips the end call (`None`): it spawned nothing
+/// and has no worktree work to keep.
 pub fn stopped_by_person(
     outcome: &str,
     end: Option<&Result<api::coding_sessions::CodingSession, api::ApiError>>,
@@ -22,14 +28,15 @@ pub fn stopped_by_person(
     if outcome != "killed" {
         return false;
     }
-    let Some(Ok(row)) = end else {
-        return false;
-    };
-    matches!(
-        row.ended_by.as_deref(),
-        Some(domain::contract::CODING_SESSION_ENDED_BY_USER)
-            | Some(domain::contract::CODING_SESSION_ENDED_BY_CLIENT)
-    )
+    match end {
+        Some(Ok(row)) => matches!(
+            row.ended_by.as_deref(),
+            Some(domain::contract::CODING_SESSION_ENDED_BY_USER)
+                | Some(domain::contract::CODING_SESSION_ENDED_BY_CLIENT)
+        ),
+        Some(Err(_)) => true,
+        None => false,
+    }
 }
 
 /// FEED-63: on a run's exit, save `worktree`'s uncommitted work as a WIP
@@ -82,9 +89,16 @@ mod tests {
         assert!(!stopped_by_person("ended", end("agent").as_ref()));
         assert!(!stopped_by_person("exit:0", end("client").as_ref()));
         assert!(!stopped_by_person("killed", None));
-        assert!(!stopped_by_person(
-            "killed",
-            Some(Err(api::ApiError::UpgradeRequired)).as_ref()
-        ));
+    }
+
+    /// FEED-67: the end call failing (offline, a 5xx) must not lose the
+    /// stopped run's work — a `killed` outcome with a failed end saves; an
+    /// agent close-out whose end failed still does not.
+    #[test]
+    fn a_failed_end_call_still_saves_a_killed_run() {
+        let failed = Some(Err(api::ApiError::UpgradeRequired));
+        assert!(stopped_by_person("killed", failed.as_ref()));
+        assert!(!stopped_by_person("ended", failed.as_ref()));
+        assert!(!stopped_by_person("exit:1", failed.as_ref()));
     }
 }
