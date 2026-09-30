@@ -377,6 +377,24 @@ pub fn active_profile(data_dir: &Path, agent: CodingAgent) -> String {
         .unwrap_or_else(|| SYSTEM_PROFILE.to_string())
 }
 
+/// EXP-1138 — the account a LAUNCH of `agent` actually runs on: `account`
+/// as given, except that a launch whose effective login is the ambient one
+/// (`None`, blank, `system` or a stale id — [`account_dir`] is `None`) lands
+/// on the device default ([`active_profile`]) while the ambient login is
+/// HIDDEN (EXP-1137's "Remove account"). A removed login is never a launch
+/// target, so `None` there can only mean "no pick". Limited to hidden on
+/// purpose: otherwise `None` may be an explicit pick of the Default login.
+pub fn launch_account(data_dir: &Path, agent: CodingAgent, account: Option<String>) -> Option<String> {
+    if !ambient_hidden(data_dir, agent) || account_dir(data_dir, Some(agent), account.as_deref()).is_some() {
+        return account;
+    }
+    let active = active_profile(data_dir, agent);
+    if active == SYSTEM_PROFILE {
+        return account;
+    }
+    Some(active)
+}
+
 /// EXP-1137: whether "Remove account" hid the ambient login of `agent`.
 pub fn ambient_hidden(data_dir: &Path, agent: CodingAgent) -> bool {
     config_env_var(agent).is_some() && read_index(data_dir, agent).ambient_hidden
@@ -627,5 +645,37 @@ mod tests {
         remember_emails(&dir, &mut after);
         assert_eq!(after["claude"].profiles[1].email, None);
         assert_eq!(after["claude"].profiles[0].email.as_deref(), Some("dev@acme.test"));
+    }
+
+    /// EXP-1138: a launch bound for the ambient login lands on the device
+    /// default while that login is HIDDEN — and only then: an explicit named
+    /// pick is kept, and a visible ambient login may be an explicit pick of
+    /// the Default.
+    #[test]
+    fn an_ambient_launch_lands_on_the_default_while_the_ambient_login_is_hidden() {
+        let dir = temp_dir("launch-account");
+        let agent = CodingAgent::Codex;
+        let work = create(&dir, agent, "Work").unwrap();
+        let home = create(&dir, agent, "Home").unwrap();
+        // Not hidden: nothing moves.
+        assert_eq!(launch_account(&dir, agent, None), None);
+        assert_eq!(launch_account(&dir, agent, Some(home.id.clone())), Some(home.id.clone()));
+        // Hidden, no active pointer: the first named profile is the default.
+        set_ambient_hidden(&dir, agent, true).unwrap();
+        assert_eq!(launch_account(&dir, agent, None), Some(work.id.clone()));
+        assert_eq!(launch_account(&dir, agent, Some("system".into())), Some(work.id.clone()));
+        // A stale id degrades to the ambient login, so it moves too.
+        assert_eq!(launch_account(&dir, agent, Some("deadbeef".into())), Some(work.id.clone()));
+        // An explicit named pick is the person's.
+        assert_eq!(launch_account(&dir, agent, Some(home.id.clone())), Some(home.id.clone()));
+        // The active pointer is the default.
+        set_active_profile(&dir, agent, &home.id).unwrap();
+        assert_eq!(launch_account(&dir, agent, None), Some(home.id.clone()));
+        // Hidden with no named profile at all: nowhere to go.
+        let bare = temp_dir("launch-account-bare");
+        set_ambient_hidden(&bare, agent, true).unwrap();
+        assert_eq!(launch_account(&bare, agent, None), None);
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&bare);
     }
 }

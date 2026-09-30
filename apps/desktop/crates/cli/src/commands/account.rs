@@ -65,7 +65,7 @@ pub fn status(args: &[String]) -> CommandResult {
     };
     println!("Updates   {} {auto_update}", crate::cli_version());
 
-    let report = coding::run_doctor(&ctx.settings);
+    let report = coding::run_doctor(&ctx.settings, &ctx.data_dir);
     let agents = report.installed_agents();
     let unauthed = report.unauthed_agents();
     if agents.is_empty() && unauthed.is_empty() {
@@ -166,6 +166,7 @@ mod tests {
             authed: None,
             account: None,
             usage_eligible: false,
+            signed_in_profile: None,
             acp,
             acp_note: None,
         }

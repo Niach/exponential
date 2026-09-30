@@ -181,6 +181,15 @@ fn apply_start_pick(
     options: &mut LaunchOptions,
     deps: &CodingDeps,
 ) -> Option<crate::account_rotation::StartPick> {
+    // EXP-1138: a launch bound for a REMOVED ambient login lands on the
+    // device default first, so the rotation below judges a login that exists
+    // (a hidden `system` has no usage row, and an unlisted launch account is
+    // never moved).
+    options.account = crate::agent_profiles::launch_account(
+        &deps.data_dir,
+        options.agent,
+        options.account.take(),
+    );
     let profiles = crate::agent_usage::profile_usage_snapshot(options.agent, &deps.data_dir);
     let model = Some(options.model.as_str()).filter(|model| !model.is_empty());
     crate::account_rotation::apply_start_pick(
@@ -1326,17 +1335,26 @@ fn acp_gate(
 }
 
 /// EXP-758: the step-0 doctor gate for the launch's agent — the agent's own
-/// CLI check, plus git when the launch clones (`needs_git`).
-fn doctor_gate<'a>(
-    report: &'a crate::doctor::DoctorReport,
+/// CLI check, plus git when the launch clones (`needs_git`). EXP-1138: then
+/// the LOGIN the launch spends (`account`, [`DoctorReport::account_failure`])
+/// — a signed-out ambient login refuses only a launch ON it.
+fn doctor_gate(
+    report: &crate::doctor::DoctorReport,
+    deps: &CodingDeps,
     agent: CodingAgent,
+    account: Option<&str>,
     needs_git: bool,
-) -> Option<&'a ToolCheck> {
-    if needs_git {
-        return report.first_failure_for(agent);
+) -> Option<ToolCheck> {
+    let failed = if needs_git {
+        report.first_failure_for(agent)
+    } else {
+        let check = report.check_for(agent);
+        (!check.ok).then_some(check)
+    };
+    if let Some(failed) = failed {
+        return Some(failed.clone());
     }
-    let check = report.check_for(agent);
-    (!check.ok).then_some(check)
+    report.account_failure(&deps.settings, &deps.data_dir, agent, account)
 }
 
 /// Drop settings files past the TTL wherever they sit in the tree — per-pid
@@ -1664,11 +1682,9 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     // agent must resolve — a missing codex never blocks a claude launch).
     // Cheap relative to clone/mint and structural: the relay origin has no
     // button whose disabled state could have gated this.
-    let report = run_doctor(&deps.settings);
-    if let Some(failed) = doctor_gate(&report, agent, true) {
-        return Ok(Prepared::Disabled(DisabledReason::DoctorFailed(
-            failed.clone(),
-        )));
+    let report = run_doctor(&deps.settings, &deps.data_dir);
+    if let Some(failed) = doctor_gate(&report, deps, agent, options.account.as_deref(), true) {
+        return Ok(Prepared::Disabled(DisabledReason::DoctorFailed(failed)));
     }
     // EXP-773: the ACP engine is the ONE coding transport — an agent that
     // cannot speak it says so here instead of falling back to a terminal tab.
@@ -2449,11 +2465,11 @@ fn prepare_action(
 
     // Step 0 — doctor: the selected agent always; git only when a clone is
     // involved ([`doctor_gate`]).
-    let report = run_doctor(&deps.settings);
-    if let Some(failed) = doctor_gate(&report, agent, repo.is_some()) {
-        return Ok(Prepared::Disabled(DisabledReason::DoctorFailed(
-            failed.clone(),
-        )));
+    let report = run_doctor(&deps.settings, &deps.data_dir);
+    if let Some(failed) =
+        doctor_gate(&report, deps, agent, options.account.as_deref(), repo.is_some())
+    {
+        return Ok(Prepared::Disabled(DisabledReason::DoctorFailed(failed)));
     }
     // EXP-773: an action run takes the same ACP gate as a session run.
     if let Some(reason) = acp_gate(&report, agent, deps) {
@@ -3372,11 +3388,17 @@ fn prepare_resume_run(
     }
     // Step 0 — doctor: the RECORDED agent (a resume never switches agents),
     // plus git when the run lives in a clone ([`doctor_gate`]).
-    let report = run_doctor(&deps.settings);
-    if let Some(failed) = doctor_gate(&report, agent, record.clone.is_some()) {
-        return Ok(Prepared::Disabled(DisabledReason::DoctorFailed(
-            failed.clone(),
-        )));
+    // EXP-1138: judged on the login the CONTINUATION spends (the switch
+    // target on a switch) — a resume never falls back to another account.
+    let report = run_doctor(&deps.settings, &deps.data_dir);
+    if let Some(failed) = doctor_gate(
+        &report,
+        deps,
+        agent,
+        options.account.as_deref(),
+        record.clone.is_some(),
+    ) {
+        return Ok(Prepared::Disabled(DisabledReason::DoctorFailed(failed)));
     }
     // EXP-773: same ACP gate as a fresh launch — a downgraded CLI or a host
     // with no engine refuses the resume with
@@ -4154,15 +4176,19 @@ pub fn prepare_agent_shell(
     req: &AgentShellRequest,
     deps: &CodingDeps,
 ) -> Result<PreparedAgentShell, CodingError> {
-    let options = &req.options;
+    let mut options = req.options.clone();
     let agent = options.agent;
+    // EXP-1138: a shell on a removed ambient login opens on the device
+    // default instead (the same rule a session launch takes).
+    options.account =
+        crate::agent_profiles::launch_account(&deps.data_dir, agent, options.account.take());
+    let options = &options;
 
-    // Doctor — the picked agent AND git (a trunk clone is always involved).
-    let report = run_doctor(&deps.settings);
-    if let Some(failed) = report.first_failure_for(agent) {
-        return Ok(PreparedAgentShell::Disabled(DisabledReason::DoctorFailed(
-            failed.clone(),
-        )));
+    // Doctor — the picked agent AND git (a trunk clone is always involved),
+    // then the login the shell opens on.
+    let report = run_doctor(&deps.settings, &deps.data_dir);
+    if let Some(failed) = doctor_gate(&report, deps, agent, options.account.as_deref(), true) {
+        return Ok(PreparedAgentShell::Disabled(DisabledReason::DoctorFailed(failed)));
     }
 
     // §7.2 — the personal key (the MCP credential), raced like a session's.
@@ -4463,6 +4489,7 @@ mod tests {
             authed: None,
             account: None,
             usage_eligible: false,
+            signed_in_profile: None,
             acp: Some(true),
             acp_note: None,
         };
@@ -8476,5 +8503,190 @@ mod tests {
             resolve.to_ascii_lowercase().contains("x-exp-session-id: sess-new"),
             "{resolve}"
         );
+    }
+
+    // ---- EXP-1138: the gate judges the login the launch spends ----
+
+    /// Deps whose agent stubs answer sign-in per config dir
+    /// (`test_support::auth_stub`): the ambient login is always signed out,
+    /// a profile only with its marker.
+    #[cfg(unix)]
+    fn auth_deps(base: &str, dir: &Path) -> CodingDeps {
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.join("unused"),
+            seen: Default::default(),
+        });
+        let mut deps = make_deps(base, dir, worktrees);
+        deps.settings.claude_path =
+            crate::test_support::auth_stub(dir, "claude", "9.9.9 (Claude Code)");
+        deps.settings.codex_path = crate::test_support::auth_stub(dir, "codex", "9.9.9");
+        deps
+    }
+
+    fn codex_action(account: Option<String>) -> ActionLaunchRequest {
+        let mut req = action_request();
+        req.options = LaunchOptions {
+            workflow: None,
+            agent: CodingAgent::Codex,
+            model: "gpt-5.6-sol".to_string(),
+            effort: "high".to_string(),
+            ultracode: false,
+            plan_mode: false,
+            subagent_model: String::new(),
+            mcp_server_ids: Vec::new(),
+            account,
+        };
+        req
+    }
+
+    /// The agent is runnable (a named profile is signed in), but THIS launch
+    /// spends the ambient login, which is signed out: refused by name, before
+    /// any network call, with copy that points at another account.
+    #[cfg(unix)]
+    #[test]
+    fn a_signed_out_ambient_login_refuses_an_ambient_launch_by_name() {
+        let dir = temp_dir("gate-ambient");
+        let deps = auth_deps("http://127.0.0.1:1", &dir.0);
+        let work = crate::agent_profiles::create(&dir.0, CodingAgent::Claude, "Work").unwrap();
+        crate::test_support::sign_in_profile(&dir.0, CodingAgent::Claude, &work.id);
+
+        match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
+            Prepared::Disabled(reason @ DisabledReason::DoctorFailed(_)) => {
+                assert_eq!(
+                    reason.message(),
+                    "claude's Default login is signed out on this machine. Pick another account, or sign in from Settings → Agents."
+                );
+            }
+            other => panic!("expected DoctorFailed, got {other:?}"),
+        }
+    }
+
+    /// The fix the issue asks for: a launch ON the signed-in profile starts
+    /// while the ambient login is signed out, inside that profile's dir.
+    #[cfg(unix)]
+    #[test]
+    fn a_signed_in_profile_launches_while_the_ambient_login_is_signed_out() {
+        let dir = temp_dir("gate-profile");
+        let (base, _captured) = canned_server_recording(vec![(200, START_ACTION_OK.to_string())]);
+        let deps = auth_deps(&base, &dir.0);
+        let work = crate::agent_profiles::create(&dir.0, CodingAgent::Codex, "Work").unwrap();
+        crate::test_support::sign_in_profile(&dir.0, CodingAgent::Codex, &work.id);
+
+        let prepared = match prepare(
+            &PrepareRequest::Action(codex_action(Some(work.id.clone()))),
+            &deps,
+        )
+        .unwrap()
+        {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        let work_dir = crate::agent_profiles::profile_dir(&dir.0, CodingAgent::Codex, &work.id)
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        assert!(prepared
+            .spawn
+            .env
+            .contains(&("CODEX_HOME".to_string(), work_dir)));
+        assert_eq!(
+            prepared.heartbeat_scope.agent_account.as_deref(),
+            Some(work.id.as_str())
+        );
+    }
+
+    /// EXP-1137's "Remove account" on the ambient login: a launch that
+    /// names no account lands on the device default (the first named
+    /// profile) instead of the removed login.
+    #[cfg(unix)]
+    #[test]
+    fn a_hidden_ambient_login_moves_an_ambient_launch_to_the_device_default() {
+        let dir = temp_dir("gate-hidden");
+        let (base, _captured) = canned_server_recording(vec![(200, START_ACTION_OK.to_string())]);
+        let deps = auth_deps(&base, &dir.0);
+        let work = crate::agent_profiles::create(&dir.0, CodingAgent::Codex, "Work").unwrap();
+        crate::test_support::sign_in_profile(&dir.0, CodingAgent::Codex, &work.id);
+        crate::agent_profiles::set_ambient_hidden(&dir.0, CodingAgent::Codex, true).unwrap();
+
+        let prepared = match prepare(&PrepareRequest::Action(codex_action(None)), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        let work_dir = crate::agent_profiles::profile_dir(&dir.0, CodingAgent::Codex, &work.id)
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        assert!(prepared
+            .spawn
+            .env
+            .contains(&("CODEX_HOME".to_string(), work_dir)));
+        assert_eq!(
+            prepared.heartbeat_scope.agent_account.as_deref(),
+            Some(work.id.as_str())
+        );
+    }
+
+    /// A named account that is signed out refuses by its label — the agent
+    /// stays runnable on its other profile, so the copy asks for a sign-in
+    /// OR another pick.
+    #[cfg(unix)]
+    #[test]
+    fn a_signed_out_named_account_refuses_the_launch() {
+        let dir = temp_dir("gate-named-out");
+        let deps = auth_deps("http://127.0.0.1:1", &dir.0);
+        let work = crate::agent_profiles::create(&dir.0, CodingAgent::Codex, "Work").unwrap();
+        let home = crate::agent_profiles::create(&dir.0, CodingAgent::Codex, "Home").unwrap();
+        crate::test_support::sign_in_profile(&dir.0, CodingAgent::Codex, &work.id);
+
+        match prepare(&PrepareRequest::Action(codex_action(Some(home.id))), &deps).unwrap() {
+            Prepared::Disabled(reason @ DisabledReason::DoctorFailed(_)) => {
+                assert_eq!(
+                    reason.message(),
+                    "codex account «Home» is signed out on this machine. Sign in from Settings → Agents, or pick another account."
+                );
+            }
+            other => panic!("expected DoctorFailed, got {other:?}"),
+        }
+    }
+
+    /// A resume keeps its recorded login: on a signed-out ambient login it is
+    /// refused (never silently moved), the switch path being the way back.
+    #[cfg(unix)]
+    #[test]
+    fn a_resume_on_a_signed_out_ambient_login_is_refused() {
+        let dir = temp_dir("gate-resume");
+        let deps = auth_deps("http://127.0.0.1:1", &dir.0);
+        let work = crate::agent_profiles::create(&dir.0, CodingAgent::Claude, "Work").unwrap();
+        crate::test_support::sign_in_profile(&dir.0, CodingAgent::Claude, &work.id);
+        crate::agent_profiles::set_ambient_hidden(&dir.0, CodingAgent::Claude, true).unwrap();
+
+        let req = resume_request(resume_record(&dir.0, "sess-old"));
+        match prepare(&PrepareRequest::ResumeRun(req), &deps).unwrap() {
+            Prepared::Disabled(reason @ DisabledReason::DoctorFailed(_)) => {
+                assert!(
+                    reason.message().starts_with("claude's Default login is signed out"),
+                    "{}",
+                    reason.message()
+                );
+            }
+            other => panic!("expected DoctorFailed, got {other:?}"),
+        }
+    }
+
+    /// The agent shell takes the same two rules: a removed ambient login
+    /// opens the shell on the device default, a signed-out one refuses it.
+    #[cfg(unix)]
+    #[test]
+    fn an_agent_shell_judges_its_login_like_a_session() {
+        let dir = temp_dir("gate-shell");
+        let deps = auth_deps("http://127.0.0.1:1", &dir.0);
+        let work = crate::agent_profiles::create(&dir.0, CodingAgent::Claude, "Work").unwrap();
+        crate::test_support::sign_in_profile(&dir.0, CodingAgent::Claude, &work.id);
+        match prepare_agent_shell(&agent_shell_request(None), &deps).unwrap() {
+            PreparedAgentShell::Disabled(reason @ DisabledReason::DoctorFailed(_)) => {
+                assert!(reason.message().starts_with("claude's Default login is signed out"));
+            }
+            other => panic!("expected DoctorFailed, got {other:?}"),
+        }
     }
 }

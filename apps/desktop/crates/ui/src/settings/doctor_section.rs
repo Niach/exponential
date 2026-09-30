@@ -447,6 +447,7 @@ mod tests {
             authed: None,
             account: None,
             usage_eligible: false,
+            signed_in_profile: None,
             // EXP-746: ACP readiness is non-fatal and never touches these
             // severity rules.
             acp: None,
@@ -463,6 +464,7 @@ mod tests {
             authed: None,
             account: None,
             usage_eligible: false,
+            signed_in_profile: None,
             // EXP-746: ACP readiness is non-fatal and never touches these
             // severity rules.
             acp: None,
@@ -528,6 +530,7 @@ mod tests {
             tool,
             account: None,
             usage_eligible: false,
+            signed_in_profile: None,
             acp: None,
             acp_note: None,
         };

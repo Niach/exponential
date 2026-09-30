@@ -233,6 +233,42 @@ echo '{{\"id\":\"1\",\"type\":\"response\",\"command\":\"get_state\",\"success\"
     stub.to_string_lossy().into_owned()
 }
 
+/// EXP-1138: [`acp_ready_stub`] whose sign-in answer depends on the config
+/// dir it is asked in — signed IN only where a `.signed-in` marker file sits
+/// in `$CLAUDE_CONFIG_DIR` / `$CODEX_HOME`, signed OUT everywhere else (the
+/// ambient probe passes no dir, so a marker FILE keeps it out even when the
+/// test process inherits a real config dir). `name` picks the vocabulary:
+/// `claude` answers `auth status` JSON, anything else codex's `login status`.
+#[cfg(unix)]
+pub(crate) fn auth_stub(data_dir: &Path, name: &str, version: &str) -> String {
+    use std::os::unix::fs::PermissionsExt;
+    let stub = data_dir.join("bin").join(name);
+    fs::create_dir_all(stub.parent().unwrap()).unwrap();
+    let auth_branch = if name == "claude" {
+        "auth) if [ -n \"$CLAUDE_CONFIG_DIR\" ] && [ -f \"$CLAUDE_CONFIG_DIR/.signed-in\" ]; then echo '{\"loggedIn\": true, \"authMethod\": \"claude.ai\", \"email\": \"work@acme.test\"}'; else echo '{\"loggedIn\": false, \"authMethod\": \"none\"}'; fi;;"
+    } else {
+        "login) if [ -n \"$CODEX_HOME\" ] && [ -f \"$CODEX_HOME/.signed-in\" ]; then echo 'Logged in'; exit 0; else echo 'Not logged in' >&2; exit 1; fi;;"
+    };
+    fs::write(
+        &stub,
+        format!(
+            "#!/bin/sh\ncase \"$1\" in\n--version) echo '{version}';;\n{auth_branch}\n*) read line\n\
+echo '{{\"id\":\"1\",\"type\":\"response\",\"command\":\"get_state\",\"success\":true}}';;\nesac\n"
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+    wait_until_executable(&stub);
+    stub.to_string_lossy().into_owned()
+}
+
+/// Mark `profile` of `agent` signed in for [`auth_stub`].
+#[cfg(unix)]
+pub(crate) fn sign_in_profile(data_dir: &Path, agent: crate::agent::CodingAgent, profile: &str) {
+    let dir = crate::agent_profiles::profile_dir(data_dir, agent, profile).expect("profile dir");
+    fs::write(dir.join(".signed-in"), "1").unwrap();
+}
+
 /// EXP-781: probe a freshly written stub until exec'ing it stops answering
 /// `ETXTBSY`, then hand it out.
 ///

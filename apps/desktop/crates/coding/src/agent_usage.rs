@@ -1425,7 +1425,7 @@ pub fn sign_out_profile(
     // read as a live one. Its identity stays in `emails.json`.
     usage_cache::forget_profile(data_dir, agent.id(), &profile);
     let mut report = report.clone();
-    report.reprobe_agent(settings, agent);
+    report.reprobe_agent(settings, data_dir, agent);
     if profile_signed_in(data_dir, settings, &report, agent, &profile) {
         return Err(format!(
             "{} still reports that login after the sign-out. Sign out in a terminal on that machine instead.",
@@ -2517,6 +2517,7 @@ mod tests {
             authed: Some(false),
             account: Some(AgentAccount::default()),
             usage_eligible: false,
+            signed_in_profile: None,
             acp: None,
             acp_note: None,
         };
@@ -2528,6 +2529,7 @@ mod tests {
             authed: None,
             account: None,
             usage_eligible: false,
+            signed_in_profile: None,
             acp: None,
             acp_note: None,
         };
@@ -2607,6 +2609,7 @@ mod tests {
             authed: None,
             account: None,
             usage_eligible: false,
+            signed_in_profile: None,
             acp: None,
             acp_note: None,
         };
@@ -2620,6 +2623,7 @@ mod tests {
                 authed: Some(true),
                 account: None,
                 usage_eligible: false,
+                signed_in_profile: None,
                 acp: None,
                 acp_note: None,
             },
@@ -2957,6 +2961,7 @@ mod tests {
             authed: None,
             account: None,
             usage_eligible: false,
+            signed_in_profile: None,
             acp: None,
             acp_note: None,
         };
@@ -2969,6 +2974,7 @@ mod tests {
                 authed: Some(true),
                 account: None,
                 usage_eligible: true,
+                signed_in_profile: None,
                 acp: None,
                 acp_note: None,
             },

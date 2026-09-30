@@ -268,6 +268,23 @@ impl Tool {
             Tool::Git => "",
         }
     }
+
+    /// EXP-1138: a launch on the AMBIENT login while that login is signed out
+    /// and another login of the agent works — the fix is a different account
+    /// pick or a sign-in, never a terminal command.
+    fn ambient_signed_out_message(self) -> String {
+        format!(
+            "{self}'s {} login is signed out on this machine. Pick another account, or sign in from Settings → Agents.",
+            crate::agent_profiles::SYSTEM_LABEL
+        )
+    }
+
+    /// EXP-1138: a launch on a NAMED account profile that is signed out.
+    fn profile_signed_out_message(self, label: &str) -> String {
+        format!(
+            "{self} account «{label}» is signed out on this machine. Sign in from Settings → Agents, or pick another account."
+        )
+    }
 }
 
 impl fmt::Display for Tool {
@@ -308,12 +325,27 @@ pub struct ToolCheck {
     /// Why `acp` is not `Some(true)` — one short line, rendered under the
     /// agent's doctor row ("not supported (…)").
     pub acp_note: Option<String>,
+    /// EXP-1138: a NAMED account profile of this agent that probed signed in
+    /// while the AMBIENT login is signed out (the device default first, the
+    /// first hit wins). It keeps the agent runnable (`ok`); `authed`,
+    /// `account` and `usage_eligible` stay the ambient login's answer, which
+    /// the heartbeat's `system` row reads. `None` while the ambient login is
+    /// signed in (never probed) or when no profile is.
+    pub signed_in_profile: Option<String>,
 }
 
 impl ToolCheck {
-    /// Whether this row is the installed-but-signed-out state — the one
-    /// failure whose fix is a login, not an install.
+    /// Whether NO login of this agent is signed in on this machine — the one
+    /// failure whose fix is a login, not an install. EXP-1138: a signed-in
+    /// named profile ([`Self::signed_in_profile`]) is a login too.
     pub fn signed_out(&self) -> bool {
+        self.ambient_signed_out() && self.signed_in_profile.is_none()
+    }
+
+    /// Whether the AMBIENT login (`~/.claude` / `~/.codex`) is provably
+    /// signed out — what a launch on it is judged by, and what the
+    /// heartbeat's `system` row says.
+    pub fn ambient_signed_out(&self) -> bool {
         self.authed == Some(false)
     }
 }
@@ -342,8 +374,8 @@ impl DoctorReport {
     /// that just left, and everything the heartbeat says about the ambient
     /// login (`agent_accounts_detailed`'s `system` row, its usage
     /// eligibility) reads off this check.
-    pub fn reprobe_agent(&mut self, settings: &Settings, agent: CodingAgent) {
-        let check = check_agent(settings, agent);
+    pub fn reprobe_agent(&mut self, settings: &Settings, data_dir: &Path, agent: CodingAgent) {
+        let check = check_agent(settings, data_dir, agent);
         match agent {
             CodingAgent::Claude => self.claude = check,
             CodingAgent::Codex => self.codex = check,
@@ -369,7 +401,8 @@ impl DoctorReport {
     /// The agents this machine can actually launch — the steer presence
     /// advertisement (EXP-201). A too-old claude is NOT usable (its argv
     /// would carry flags the CLI rejects), so it drops out here too — as
-    /// does a signed-out agent (EXP-409).
+    /// does an agent with no signed-in login (EXP-409; EXP-1138: ANY login,
+    /// a named profile keeps the agent here when the ambient one is out).
     pub fn installed_agents(&self) -> Vec<CodingAgent> {
         CodingAgent::ALL
             .into_iter()
@@ -377,14 +410,82 @@ impl DoctorReport {
             .collect()
     }
 
-    /// The agents that are installed but SIGNED OUT (EXP-409) — advertised
-    /// separately so remote UIs can say "sign in on that machine" instead of
-    /// pretending the binary is missing.
+    /// The agents that are installed but have NO signed-in login (EXP-409) —
+    /// advertised separately so remote UIs can say "sign in on that machine"
+    /// instead of pretending the binary is missing.
     pub fn unauthed_agents(&self) -> Vec<CodingAgent> {
         CodingAgent::ALL
             .into_iter()
             .filter(|agent| self.check_for(*agent).signed_out())
             .collect()
+    }
+
+    /// EXP-1138: the launch gate's ACCOUNT half — `None` when the LOGIN a
+    /// launch of `agent` on `account` would spend is usable, else a red copy
+    /// of the agent's check naming what to do. Runs AFTER the agent's own
+    /// check passed (install, version, any login). The login judged is the
+    /// one [`crate::launcher::apply_account_env`] would hand the spawn:
+    /// ambient for `None`/`system`/a stale id, the profile's dir otherwise.
+    /// Only a PROVABLE sign-out refuses — an unreadable profile probe fails
+    /// open like the ambient gate does.
+    pub fn account_failure(
+        &self,
+        settings: &Settings,
+        data_dir: &Path,
+        agent: CodingAgent,
+        account: Option<&str>,
+    ) -> Option<ToolCheck> {
+        self.account_failure_with_path(
+            settings,
+            data_dir,
+            agent,
+            account,
+            &terminal::pty::login_path(),
+        )
+    }
+
+    /// [`Self::account_failure`] with the PATH injected (tests).
+    pub(crate) fn account_failure_with_path(
+        &self,
+        settings: &Settings,
+        data_dir: &Path,
+        agent: CodingAgent,
+        account: Option<&str>,
+        path_env: &str,
+    ) -> Option<ToolCheck> {
+        let check = self.check_for(agent);
+        if !check.ok {
+            return None;
+        }
+        let Some(dir) = crate::agent_profiles::account_dir(data_dir, Some(agent), account) else {
+            if !check.ambient_signed_out() {
+                return None;
+            }
+            return Some(ToolCheck {
+                ok: false,
+                error: Some(check.tool.ambient_signed_out_message()),
+                signed_in_profile: None,
+                ..check.clone()
+            });
+        };
+        let id = account.map(str::trim).unwrap_or_default();
+        if check.signed_in_profile.as_deref() == Some(id) {
+            return None;
+        }
+        let program = settings.resolved_path_for(agent);
+        if probe_profile_signed_in(agent, &program, path_env, &dir) != Some(false) {
+            return None;
+        }
+        let label = crate::agent_profiles::get(data_dir, agent, id)
+            .map(|profile| profile.label)
+            .unwrap_or_else(|| id.to_string());
+        Some(ToolCheck {
+            ok: false,
+            error: Some(check.tool.profile_signed_out_message(&label)),
+            authed: Some(false),
+            signed_in_profile: None,
+            ..check.clone()
+        })
     }
 
     /// The steer presence advertisement as wire ids — the ONE shape both
@@ -475,7 +576,9 @@ impl DoctorReport {
     /// installed and signed in (it answers over its own surface).
     pub fn ambient_usage_eligible(&self, agent: CodingAgent) -> bool {
         let check = self.check_for(agent);
-        if check.version.is_none() || check.signed_out() {
+        // EXP-1138: the AMBIENT login's own state — a signed-in named
+        // profile keeps the agent runnable, not this login's usage readable.
+        if check.version.is_none() || check.ambient_signed_out() {
             return false;
         }
         match agent {
@@ -714,14 +817,18 @@ impl AgentAdvertisement {
 /// EXP-849: every check here is a millisecond `--version`/credential probe —
 /// the only real handshake left is [`probe_codex_acp`], which `exponential
 /// doctor` runs on demand.
-pub fn run_doctor(settings: &Settings) -> DoctorReport {
+///
+/// EXP-1138: `data_dir` holds the account profiles — an agent whose ambient
+/// login is signed out stays runnable on a signed-in named profile
+/// ([`apply_profile_fallback`]).
+pub fn run_doctor(settings: &Settings, data_dir: &Path) -> DoctorReport {
     // EXP-419: a Windows installer edits the registry PATH, which a running
     // process never sees — re-read it so "Check tools" (and every later
     // spawn) finds a just-installed git/agent without an app restart.
     terminal::process::refresh_windows_path();
     DoctorReport {
-        claude: check_agent(settings, CodingAgent::Claude),
-        codex: check_agent(settings, CodingAgent::Codex),
+        claude: check_agent(settings, data_dir, CodingAgent::Claude),
+        codex: check_agent(settings, data_dir, CodingAgent::Codex),
         git: check_tool(Tool::Git, "git"),
     }
 }
@@ -729,20 +836,70 @@ pub fn run_doctor(settings: &Settings) -> DoctorReport {
 /// ONE agent's row of [`run_doctor`]: the tool check plus its gates, so a
 /// re-probe of a single agent (EXP-1137: after a sign-out) reads exactly what
 /// the full doctor would.
-fn check_agent(settings: &Settings, agent: CodingAgent) -> ToolCheck {
+fn check_agent(settings: &Settings, data_dir: &Path, agent: CodingAgent) -> ToolCheck {
     let program = settings.resolved_path_for(agent);
+    let path_env = terminal::pty::login_path();
     match agent {
         CodingAgent::Claude => {
             let mut claude = check_tool(Tool::Claude, &program);
             apply_version_gate(&mut claude);
             apply_auth_gate(&mut claude, &program);
+            apply_profile_fallback(&mut claude, agent, &program, &path_env, data_dir);
             claude
         }
         CodingAgent::Codex => {
             let mut codex = check_tool(Tool::Codex, &program);
             apply_auth_gate(&mut codex, &program);
+            // Before the ACP readiness, which reads `ok`.
+            apply_profile_fallback(&mut codex, agent, &program, &path_env, data_dir);
             apply_codex_acp(&mut codex);
             codex
+        }
+    }
+}
+
+/// EXP-1138: a check the auth gate turned red (the AMBIENT login is signed
+/// out — `authed == Some(false)` is set by nothing else, so a missing binary
+/// or a too-old claude is never restored here) goes green again on the first
+/// NAMED profile of `agent` that probes signed in — the device default
+/// first, then the rest in creation order, stopping at the first hit. The
+/// ambient answer (`authed`, `account`, `usage_eligible`) is kept: the
+/// heartbeat's `system` row reads it. A profile's unreadable probe reads as
+/// signed out, the rule [`DoctorReport::agent_accounts_detailed`] applies.
+fn apply_profile_fallback(
+    check: &mut ToolCheck,
+    agent: CodingAgent,
+    program: &str,
+    path_env: &str,
+    data_dir: &Path,
+) {
+    if check.authed != Some(false) || crate::agent_profiles::config_env_var(agent).is_none() {
+        return;
+    }
+    let active = crate::agent_profiles::active_profile(data_dir, agent);
+    let mut candidates: Vec<String> = Vec::new();
+    for profile in crate::agent_profiles::list(data_dir, agent) {
+        if profile.is_system() {
+            continue;
+        }
+        if profile.id == active {
+            candidates.insert(0, profile.id);
+        } else {
+            candidates.push(profile.id);
+        }
+    }
+    let now = now_iso();
+    for id in candidates {
+        let Some(dir) = crate::agent_profiles::profile_dir(data_dir, agent, &id) else {
+            continue;
+        };
+        let signed_in = probe_profile_auth(agent, program, path_env, &dir, &now)
+            .is_some_and(|probe| probe.account.signed_in);
+        if signed_in {
+            check.ok = true;
+            check.error = None;
+            check.signed_in_profile = Some(id);
+            return;
         }
     }
 }
@@ -980,6 +1137,28 @@ pub(crate) fn probe_profile_auth(
     }
 }
 
+/// EXP-1138: the RAW sign-in answer inside one profile dir — `Some(false)`
+/// only when the CLI provably says signed out, `None` for a probe that never
+/// ran or answered unreadably. The launch gate's rule: only a provable
+/// sign-out refuses (the ambient gate fails open the same way), unlike
+/// [`probe_profile_auth`], whose silence reads as signed out for the
+/// heartbeat.
+pub(crate) fn probe_profile_signed_in(
+    agent: CodingAgent,
+    program: &str,
+    path_env: &str,
+    config_dir: &Path,
+) -> Option<bool> {
+    let key = crate::agent_profiles::config_env_var(agent)?;
+    let config = Some((key, config_dir));
+    match agent {
+        CodingAgent::Claude => {
+            probe_claude_auth_status_in(program, path_env, config).map(|status| status.logged_in)
+        }
+        CodingAgent::Codex => probe_codex_auth_in(program, path_env, config),
+    }
+}
+
 /// Pull `loggedIn` out of `claude auth status` output, tolerating noise
 /// before the JSON object.
 pub fn parse_claude_auth_status(stdout: &str) -> Option<bool> {
@@ -1079,7 +1258,7 @@ fn check_tool_with_path(tool: Tool, program: &str, path_env: &str) -> ToolCheck 
         Ok(output) if output.status.success() => {
             let stdout = String::from_utf8_lossy(&output.stdout);
             match parse_version_output(tool, &stdout) {
-                Some(version) => ToolCheck { tool, ok: true, version: Some(version), error: None, authed: None, account: None, usage_eligible: false, acp: None, acp_note: None },
+                Some(version) => ToolCheck { tool, ok: true, version: Some(version), error: None, authed: None, account: None, usage_eligible: false, acp: None, acp_note: None, signed_in_profile: None },
                 None => ToolCheck {
                     tool,
                     ok: false,
@@ -1088,6 +1267,7 @@ fn check_tool_with_path(tool: Tool, program: &str, path_env: &str) -> ToolCheck 
                     authed: None,
                     account: None,
                     usage_eligible: false,
+                    signed_in_profile: None,
                     acp: None,
                     acp_note: None,
                 },
@@ -1106,6 +1286,7 @@ fn check_tool_with_path(tool: Tool, program: &str, path_env: &str) -> ToolCheck 
                 authed: None,
                 account: None,
                 usage_eligible: false,
+                signed_in_profile: None,
                 acp: None,
                 acp_note: None,
             }
@@ -1118,6 +1299,7 @@ fn check_tool_with_path(tool: Tool, program: &str, path_env: &str) -> ToolCheck 
             authed: None,
             account: None,
             usage_eligible: false,
+            signed_in_profile: None,
             acp: None,
             acp_note: None,
         },
@@ -1129,6 +1311,7 @@ fn check_tool_with_path(tool: Tool, program: &str, path_env: &str) -> ToolCheck 
             authed: None,
             account: None,
             usage_eligible: false,
+            signed_in_profile: None,
             acp: None,
             acp_note: None,
         },
@@ -1325,6 +1508,7 @@ mod tests {
             authed: None,
             account: None,
             usage_eligible: false,
+            signed_in_profile: None,
             acp: None,
             acp_note: None,
         }
@@ -1339,6 +1523,7 @@ mod tests {
             authed: None,
             account: None,
             usage_eligible: false,
+            signed_in_profile: None,
             acp: None,
             acp_note: None,
         }
@@ -1410,7 +1595,7 @@ mod tests {
         // children) — retry the transient race instead of flaking.
         let run_doctor_retrying = |settings: &Settings| {
             for _ in 0..20 {
-                let report = run_doctor(settings);
+                let report = run_doctor(settings, &dir);
                 let busy = report
                     .first_failure_for(CodingAgent::Claude)
                     .and_then(|check| check.error.as_deref())
@@ -1420,7 +1605,7 @@ mod tests {
                 }
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
-            run_doctor(settings)
+            run_doctor(settings, &dir)
         };
 
         let old = write_stub("claude-old", "2.1.100");
@@ -1720,10 +1905,16 @@ mod tests {
     #[test]
     fn signed_out_message_never_asks_for_a_terminal_command() {
         for tool in [Tool::Claude, Tool::Codex] {
-            let message = tool.signed_out_message();
-            assert!(message.contains("Sign in from Settings → Agents"), "{message}");
-            assert!(!message.contains('`'), "{message}");
-            assert!(!message.contains("terminal"), "{message}");
+            // EXP-1138: the two account-aware refusals hold the same line.
+            for message in [
+                tool.signed_out_message().to_string(),
+                tool.ambient_signed_out_message(),
+                tool.profile_signed_out_message("Work"),
+            ] {
+                assert!(message.contains("Settings → Agents"), "{message}");
+                assert!(!message.contains('`'), "{message}");
+                assert!(!message.contains("terminal"), "{message}");
+            }
         }
     }
 
@@ -2329,5 +2520,192 @@ mod tests {
         assert_eq!(String::from_utf8_lossy(&output.stdout), "out\n");
         assert_eq!(String::from_utf8_lossy(&output.stderr), "err\n");
         assert_eq!(output.status.code(), Some(3));
+    }
+
+    // ---- EXP-1138: any login keeps the agent runnable ----
+
+    /// The stub agents + a data dir for the profile-aware doctor: every
+    /// login probes signed OUT unless its config dir carries the marker.
+    #[cfg(unix)]
+    fn profile_doctor(tag: &str) -> (std::path::PathBuf, Settings) {
+        let dir = profile_data_dir(tag);
+        let settings = Settings {
+            claude_path: crate::test_support::auth_stub(&dir, "claude", "9.9.9 (Claude Code)"),
+            codex_path: crate::test_support::auth_stub(&dir, "codex", "9.9.9"),
+            ..Settings::default()
+        };
+        (dir, settings)
+    }
+
+    /// EXP-1138: a signed-out AMBIENT login no longer makes an agent
+    /// unrunnable when a named profile of it is signed in — the check stays
+    /// green on that profile, the ambient answer stays what it was, the
+    /// advertisement lists the agent as runnable (and the action caps with
+    /// it), and codex's ACP readiness follows.
+    #[cfg(unix)]
+    #[test]
+    fn a_signed_in_profile_keeps_the_agent_runnable_when_the_ambient_login_is_signed_out() {
+        let (dir, settings) = profile_doctor("fallback");
+        for agent in CodingAgent::ALL {
+            let work = crate::agent_profiles::create(&dir, agent, "Work").unwrap();
+            crate::test_support::sign_in_profile(&dir, agent, &work.id);
+        }
+        let report = run_doctor(&settings, &dir);
+        for agent in CodingAgent::ALL {
+            let check = report.check_for(agent);
+            assert!(check.ok, "{agent:?}: {:?}", check.error);
+            assert_eq!(check.error, None);
+            assert_eq!(check.authed, Some(false), "the ambient truth is kept");
+            assert!(check.ambient_signed_out());
+            assert!(!check.signed_out(), "a named login is a login");
+            let work = crate::agent_profiles::list(&dir, agent)[1].id.clone();
+            assert_eq!(check.signed_in_profile.as_deref(), Some(work.as_str()));
+            assert!(
+                check.account.as_ref().is_some_and(|account| !account.signed_in),
+                "the heartbeat's system row still reads signed out"
+            );
+        }
+        assert_eq!(report.codex.acp, Some(true));
+        assert!(report.any_agent_ok());
+        assert_eq!(report.installed_agents(), CodingAgent::ALL.to_vec());
+        assert!(report.unauthed_agents().is_empty());
+        let advertised = report.agent_advertisement(&settings);
+        assert_eq!(advertised.agents, vec!["claude", "codex"]);
+        assert!(advertised.unauthed_agents.is_empty());
+        assert!(device_caps(&advertised).contains(&"automations".to_string()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The other half of the rule: a named profile that is signed out too
+    /// leaves the ambient gate exactly as EXP-409 had it.
+    #[cfg(unix)]
+    #[test]
+    fn a_signed_out_profile_leaves_the_ambient_gate_red() {
+        let (dir, settings) = profile_doctor("still-red");
+        for agent in CodingAgent::ALL {
+            crate::agent_profiles::create(&dir, agent, "Work").unwrap();
+        }
+        let report = run_doctor(&settings, &dir);
+        for agent in CodingAgent::ALL {
+            let check = report.check_for(agent);
+            assert!(!check.ok);
+            assert!(check.signed_out());
+            assert_eq!(check.signed_in_profile, None);
+            assert_eq!(check.error.as_deref(), Some(check.tool.signed_out_message()));
+        }
+        assert_eq!(report.codex.acp, Some(false));
+        assert!(report.installed_agents().is_empty());
+        assert_eq!(report.unauthed_agents(), CodingAgent::ALL.to_vec());
+        assert!(!device_caps(&report.agent_advertisement(&settings))
+            .contains(&"automations".to_string()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The device default is probed first, so the profile the check names is
+    /// the one a default launch lands on.
+    #[cfg(unix)]
+    #[test]
+    fn the_profile_fallback_probes_the_device_default_first() {
+        let (dir, settings) = profile_doctor("default-first");
+        let agent = CodingAgent::Claude;
+        let home = crate::agent_profiles::create(&dir, agent, "Home").unwrap();
+        let work = crate::agent_profiles::create(&dir, agent, "Work").unwrap();
+        crate::test_support::sign_in_profile(&dir, agent, &home.id);
+        crate::test_support::sign_in_profile(&dir, agent, &work.id);
+        crate::agent_profiles::set_active_profile(&dir, agent, &work.id).unwrap();
+        let report = run_doctor(&settings, &dir);
+        assert_eq!(report.claude.signed_in_profile.as_deref(), Some(work.id.as_str()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Usage eligibility is the AMBIENT login's own: a signed-in profile
+    /// keeps codex runnable, not its signed-out ambient login's usage
+    /// readable.
+    #[test]
+    fn ambient_usage_eligible_follows_the_ambient_login_not_the_profiles() {
+        let mut codex = green(Tool::Codex, "0.46.0");
+        codex.authed = Some(false);
+        codex.signed_in_profile = Some("0a1b2c3d".to_string());
+        let report = DoctorReport {
+            claude: red(Tool::Claude),
+            codex,
+            git: green(Tool::Git, "2.44.0"),
+        };
+        assert!(!report.ambient_usage_eligible(CodingAgent::Codex));
+        let mut report = report;
+        report.codex.authed = Some(true);
+        assert!(report.ambient_usage_eligible(CodingAgent::Codex));
+    }
+
+    /// The launch gate's account half: the LOGIN a launch spends is judged —
+    /// the ambient one refuses a launch on it (and on a stale id, which
+    /// degrades to it) by name while the agent itself stays runnable; the
+    /// signed-in profile passes without a second probe; a signed-out
+    /// named profile refuses by its label.
+    #[cfg(unix)]
+    #[test]
+    fn account_failure_judges_the_login_the_launch_spends() {
+        let (dir, settings) = profile_doctor("account-gate");
+        let agent = CodingAgent::Codex;
+        let work = crate::agent_profiles::create(&dir, agent, "Work").unwrap();
+        let home = crate::agent_profiles::create(&dir, agent, "Home").unwrap();
+        crate::test_support::sign_in_profile(&dir, agent, &work.id);
+        let report = run_doctor(&settings, &dir);
+        assert!(report.codex.ok);
+        let path = terminal::pty::login_path();
+        let gate = |account: Option<&str>| {
+            report.account_failure_with_path(&settings, &dir, agent, account, &path)
+        };
+
+        for ambient in [None, Some("system"), Some(""), Some("deadbeef")] {
+            let failed = gate(ambient).unwrap_or_else(|| panic!("{ambient:?} must refuse"));
+            assert!(!failed.ok);
+            assert_eq!(
+                failed.error.as_deref(),
+                Some("codex's Default login is signed out on this machine. Pick another account, or sign in from Settings → Agents.")
+            );
+            assert!(failed.signed_out(), "the red copy offers a sign-in");
+            assert_eq!(failed.version.as_deref(), Some("9.9.9"), "the check is kept");
+        }
+        assert_eq!(gate(Some(&work.id)), None);
+        let failed = gate(Some(&home.id)).expect("a signed-out profile refuses");
+        assert_eq!(
+            failed.error.as_deref(),
+            Some("codex account «Home» is signed out on this machine. Sign in from Settings → Agents, or pick another account.")
+        );
+        assert_eq!(failed.authed, Some(false));
+        assert!(failed.signed_out());
+
+        // A check the agent gate already refused has nothing to add.
+        let mut red_report = report.clone();
+        red_report.codex.ok = false;
+        assert_eq!(
+            red_report.account_failure_with_path(&settings, &dir, agent, None, &path),
+            None
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An UNREADABLE profile probe fails open, like the ambient gate: a stub
+    /// whose `auth status` is not the sign-in JSON never refuses a launch.
+    #[cfg(unix)]
+    #[test]
+    fn account_failure_passes_an_unreadable_profile_probe() {
+        let dir = profile_data_dir("unreadable");
+        let settings = Settings {
+            claude_path: crate::test_support::acp_ready_stub(&dir, "claude", "9.9.9 (Claude Code)"),
+            ..Settings::default()
+        };
+        let agent = CodingAgent::Claude;
+        let work = crate::agent_profiles::create(&dir, agent, "Work").unwrap();
+        let report = run_doctor(&settings, &dir);
+        assert!(report.claude.ok);
+        assert_eq!(report.claude.authed, None);
+        assert_eq!(
+            report.account_failure(&settings, &dir, agent, Some(&work.id)),
+            None
+        );
+        assert_eq!(report.account_failure(&settings, &dir, agent, None), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

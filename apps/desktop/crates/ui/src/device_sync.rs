@@ -985,7 +985,7 @@ fn run_device_command(
                 Some(agent) => {
                     let report = match &snapshot.doctor {
                         Some(report) => report.clone(),
-                        None => coding::run_doctor(&snapshot.settings),
+                        None => coding::run_doctor(&snapshot.settings, &snapshot.data_dir),
                     };
                     // EXP-808: every account PROFILE refreshes, not just the
                     // device's default one.
@@ -1102,7 +1102,7 @@ fn use_agent_profile(
 ) -> Result<coding::agent_usage::AgentStatusPayload, String> {
     let report = match &snapshot.doctor {
         Some(report) => report.clone(),
-        None => coding::run_doctor(&snapshot.settings),
+        None => coding::run_doctor(&snapshot.settings, &snapshot.data_dir),
     };
     coding::use_profile(
         &snapshot.data_dir,
@@ -1128,7 +1128,7 @@ fn change_agent_profile(
 ) -> Result<coding::agent_usage::AgentStatusPayload, String> {
     let report = match &snapshot.doctor {
         Some(report) => report.clone(),
-        None => coding::run_doctor(&snapshot.settings),
+        None => coding::run_doctor(&snapshot.settings, &snapshot.data_dir),
     };
     let live = live_run_accounts(&snapshot.data_dir, &snapshot.live_session_ids);
     let body = if remove {
@@ -1182,7 +1182,7 @@ pub(crate) fn use_agent_profile_here(
         hub.read_with(cx, |hub, _| (hub.settings.clone(), hub.doctor.report.clone()));
     let report = match report {
         Some(report) => report,
-        None => coding::run_doctor(&settings),
+        None => coding::run_doctor(&settings, &data_dir),
     };
     let status = coding::use_profile(
         &data_dir,
@@ -1227,7 +1227,7 @@ pub(crate) fn refresh_agent_usage_here(
             .spawn(async move {
                 let report = match report {
                     Some(report) => report,
-                    None => coding::run_doctor(&settings),
+                    None => coding::run_doctor(&settings, &data_dir),
                 };
                 coding::refresh_on_demand(
                     &data_dir,
@@ -1294,7 +1294,7 @@ fn change_agent_profile_here(
         hub.read_with(cx, |hub, _| (hub.settings.clone(), hub.doctor.report.clone()));
     let report = match report {
         Some(report) => report,
-        None => coding::run_doctor(&settings),
+        None => coding::run_doctor(&settings, &data_dir),
     };
     let live = LocalSessions::global(cx);
     let live_session_ids = live.read(cx).session_ids();
