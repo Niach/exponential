@@ -176,6 +176,13 @@ struct AppNavigator: View {
             let userInfo = GithubConnect.errorSlug(from: url).map { ["error": $0] }
             NotificationCenter.default.post(name: .githubConnected, object: nil, userInfo: userInfo)
         }
+        // exponential://oauth-return?linked=<providerId> (EXP-1126) — a
+        // link-mode handoff that finished OUTSIDE its auth sheet (an external
+        // browser). The in-app SignInLinkSession normally consumes it; this
+        // path just tells the Sign-in methods section to refetch.
+        if url.host == "oauth-return", case .linked = OAuthReturn.parse(url) {
+            NotificationCenter.default.post(name: .signInMethodsChanged, object: nil)
+        }
         // exponential://issue/<issueId>
         if url.host == "issue", let issueId = url.pathComponents.dropFirst().first {
             deps.deepLinkBus.navigateToIssue(String(issueId))
@@ -1102,6 +1109,9 @@ extension Notification.Name {
     /// `exponential://github-connected` arrived — a GitHub App install just
     /// completed.
     static let githubConnected = Notification.Name("githubConnected")
+    /// A sign-in method was linked outside the in-app auth sheet (EXP-1126)
+    /// — the account's Sign-in methods section refetches.
+    static let signInMethodsChanged = Notification.Name("signInMethodsChanged")
     /// A team was deleted in-app (EXP-43) — MainNavigator pops to root so
     /// no pushed view still targets the deleted team.
     static let teamDeleted = Notification.Name("teamDeleted")

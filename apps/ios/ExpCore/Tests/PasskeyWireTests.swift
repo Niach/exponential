@@ -158,6 +158,14 @@ final class PasskeyWireTests: XCTestCase {
         )
     }
 
+    // EXP-1126: the email change's bad-address refusal.
+    func testInvalidEmailGetsOurOwnCopy() {
+        XCTAssertEqual(
+            EmailCodeCopy.message(code: "INVALID_EMAIL", serverMessage: "Invalid email"),
+            "Enter a valid email address."
+        )
+    }
+
     func testUnknownCodesFallBackToTheServerMessage() {
         XCTAssertEqual(
             EmailCodeCopy.message(code: "SOMETHING_ELSE", serverMessage: "Nope."),

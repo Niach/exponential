@@ -141,6 +141,14 @@ public final class AuthRepository: @unchecked Sendable {
         republish()
     }
 
+    /// EXP-1126: persist a changed email/name for ONE account (any account,
+    /// not only the active one) and republish so every identity surface
+    /// re-renders.
+    public func updateIdentity(accountId: String, email: String, name: String?) {
+        accountStore.updateIdentity(id: accountId, email: email, name: name)
+        republish()
+    }
+
     // MARK: - Multi-account
 
     public func switchAccount(id: String) {

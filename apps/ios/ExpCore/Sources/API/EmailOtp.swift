@@ -9,9 +9,9 @@ public enum SendCodeResult: Sendable, Equatable {
     case failure(message: String)
 }
 
-/// Login copy for the one-time code errors. The three codes below get our own
-/// wording (byte-identical across the four clients); everything else falls
-/// through to the server's own `message`, which is already user-facing.
+/// Login copy for the one-time code errors (and the EXP-1126 email change).
+/// The codes below get our own wording (byte-identical across the four
+/// clients); everything else falls through to the server's own `message`, which is already user-facing.
 public enum EmailCodeCopy {
     public static func message(code: String?, serverMessage: String?) -> String {
         switch code?.uppercased() {
@@ -21,6 +21,8 @@ public enum EmailCodeCopy {
             return "That code expired. Request a new one."
         case "TOO_MANY_ATTEMPTS":
             return "Too many attempts. Request a new code."
+        case "INVALID_EMAIL":
+            return "Enter a valid email address."
         default:
             if let serverMessage, !serverMessage.isEmpty { return serverMessage }
             return "Couldn't check that code. Please try again."

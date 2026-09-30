@@ -110,6 +110,28 @@ final class AccountStoreTests: XCTestCase {
         XCTAssertEqual(store.accounts.first { $0.userId == "A" }?.token, "tA", "A must be untouched")
     }
 
+    // EXP-1126: an in-app email change rewrites ONLY the identity fields —
+    // the token, userId and per-user id (the DB file) stay put, and a nil
+    // name keeps the stored one.
+    func testUpdateIdentityTouchesOnlyEmailAndName() {
+        let store = AccountStore(keychain: FakeKeychain())
+        store.upsertAndActivate(instanceUrl: url)
+        resolve(store, userId: "A", token: "tA")
+        let id = ServerAccount.makeId(instanceUrl: url, userId: "A")
+
+        store.updateIdentity(id: id, email: "new@x.com", name: nil)
+        XCTAssertEqual(store.activeAccount?.userEmail, "new@x.com")
+        XCTAssertEqual(store.activeAccount?.userName, "A", "nil name keeps the stored one")
+        XCTAssertEqual(store.activeAccount?.token, "tA")
+        XCTAssertEqual(store.activeAccountId, id)
+
+        store.updateIdentity(id: id, email: "new@x.com", name: "Alice")
+        XCTAssertEqual(store.activeAccount?.userName, "Alice")
+
+        store.updateIdentity(id: "missing", email: "x@x.com", name: "X")
+        XCTAssertEqual(store.accounts.count, 1)
+    }
+
     // Two users on the same server get distinct ids → distinct DB files.
     func testTwoUsersSameServerGetDistinctIds() {
         XCTAssertNotEqual(
