@@ -234,3 +234,21 @@ fun sessionResultTileHeightFitting(
     if (widest <= availableWidth) return base
     return maxOf(1, floor(base.toDouble() * availableWidth.toDouble() / widest.toDouble()).toInt())
 }
+
+/**
+ * EXP-1128: a tall picture's decode STRIPS as `(y, rows)` source-pixel
+ * ranges of at most [rows] each, the last one shorter — the viewer decodes
+ * one region per strip so no bitmap crosses the texture limit. Zero or a
+ * negative height is empty.
+ */
+fun tallImageStripRanges(height: Int, rows: Int = 4096): List<Pair<Int, Int>> {
+    if (height <= 0 || rows <= 0) return emptyList()
+    val ranges = mutableListOf<Pair<Int, Int>>()
+    var y = 0
+    while (y < height) {
+        val chunk = minOf(rows, height - y)
+        ranges += y to chunk
+        y += chunk
+    }
+    return ranges
+}

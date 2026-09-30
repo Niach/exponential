@@ -163,6 +163,16 @@ class SessionResultsTest {
         }
     }
 
+    @Test
+    fun `splits a tall image into strip ranges`() {
+        assertEquals(listOf(0 to 4096), tallImageStripRanges(4096))
+        val strips = tallImageStripRanges(25094)
+        assertEquals(7, strips.size)
+        assertEquals(24576 to 518, strips.last())
+        assertEquals(25094, strips.sumOf { it.second })
+        assertTrue(tallImageStripRanges(0).isEmpty())
+    }
+
     private fun entry(width: Int?, height: Int?) =
         SessionResultEntry("t", "l", "a", width, height)
 
