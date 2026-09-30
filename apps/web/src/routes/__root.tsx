@@ -103,8 +103,13 @@ function RootComponent() {
   return (
     <SessionProvider>
       <TooltipProvider>
-        <Outlet />
+        {/* The Toaster comes BEFORE the Outlet: effects run in tree order,
+            and sonner's Toaster only subscribes in an effect and never
+            replays earlier toasts, so it must subscribe before any route
+            effect can toast (a first-render toast is otherwise lost).
+            Gated by src/root-toaster-order.test.tsx. */}
         <Toaster />
+        <Outlet />
         {showRouterDevtools && <TanStackRouterDevtools />}
       </TooltipProvider>
     </SessionProvider>

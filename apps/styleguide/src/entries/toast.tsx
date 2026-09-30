@@ -24,7 +24,7 @@ export const entry: StyleguideEntry = {
   section: `general`,
   owner: `EXP-1031`,
   title: `Toast`,
-  blurb: `The one transient notice, identical on all four clients (packages/domain-contract/fixtures/toast-stack.json, sonner 2.0.7's numbers). One sentence, an optional description, an optional action. The kind (success, error, info, warning) colours the ICON only; the text stays foreground. The card is the opaque glass card fill with the card hairline at radius lg, no shadow, ${c.width} wide on a pointer and full width minus ${c.mobileViewportOffset} on phones; bottom-right on web and the IDE, bottom-centre above the tab bar on phones, ${c.viewportOffset} from the edges. Newest in front, older ones peek ${c.peek} behind and shrink ${c.scaleStep * 100}% per rank, ${c.visible} visible. Hover or tap expands the stack ${c.gap} apart and pauses the ${c.durationMs / 1000} s clock. Dismiss = the close glyph, a swipe past ${c.swipeThreshold}, or the action. Persistent states stay banners, confirmations stay dialogs.`,
+  blurb: `The one transient notice, identical on all four clients (packages/domain-contract/fixtures/toast-stack.json, sonner 2.0.7's numbers). One sentence, an optional description, an optional action. The kind (success, error, info, warning) colours the ICON only; the text stays foreground. The card is the opaque glass card fill with the card hairline at radius lg, no shadow, ${c.width} wide on a pointer and full width minus ${c.mobileViewportOffset} on phones; bottom-right on web and the IDE, bottom-centre above the tab bar on phones, ${c.viewportOffset} from the edges. Newest in front, older ones peek ${c.peek} behind and shrink ${c.scaleStep * 100}% per rank, ${c.visible} visible. Hover or tap expands the stack ${c.gap} apart and pauses the ${c.durationMs / 1000} s clock. Dismiss = the close glyph, a swipe past ${c.swipeThreshold}, or the action. On iOS and Android the stack draws in its own see-through window, so it clears sheets and dialogs. Persistent states stay banners, confirmations stay dialogs.`,
   status: {
     web: {
       state: `ok`,
@@ -35,7 +35,7 @@ export const entry: StyleguideEntry = {
       state: `ok`,
       symbol: `toast::show`,
       file: `apps/desktop/crates/ui/src/toast.rs`,
-      note: `gpui-component's Notification list: 5 s lifetime and the crate's easing stay`,
+      note: `its own ToastLayer per window; gpui_base::ToastManager for the lifecycle, theme::motion for every transition`,
     },
     ios: {
       state: `ok`,
