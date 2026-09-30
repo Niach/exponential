@@ -50,7 +50,10 @@ import { IssueTimeline } from "@/components/issue-timeline"
 import { IssueCodingControl, IssuePrRow } from "@/components/issue-coding-rows"
 import { IssueDetailMobileBar } from "@/components/issue-detail-mobile-bar"
 import { IssueMobileHeader } from "@/components/issue-mobile-header"
-import type { FaceSwipeHandlers } from "@/components/mobile-face-tabs"
+import {
+  FACE_BODY_TOUCH_CLASS,
+  type FaceSwipeHandlers,
+} from "@/components/mobile-face-tabs"
 import { IssueEditorMobileProperties } from "@/components/issue-editor/mobile-properties"
 import { IssueFilesSection } from "@/components/issue-files-section"
 import {
@@ -88,8 +91,8 @@ interface IssueDetailViewProps {
    *  column IN PLACE of the issue body, under the same header. */
   faceBody?: React.ReactNode
   /** EXP-893: the phone's Work screen parts — EXP-1150: the face TABS under
-   *  the header (`MobileFaceTabs`), the swipe handlers the root spreads
-   *  (`useFaceSwipe`) and the shown session's state dot for the header
+   *  the header (`MobileFaceTabs`), the pager the root spreads
+   *  (`useFaceSwipe`, EXP-1152: it moves the `data-face-body`) and the shown session's state dot for the header
    *  title. The bar's right circle is always Start coding now. */
   mobileWork?: {
     tabs?: React.ReactNode
@@ -714,7 +717,14 @@ export function IssueDetailView({
             route, so nothing else is reserved here. */}
         <div
           ref={bodyScrollRef}
-          className={cn(`flex-1 overflow-y-auto`, MOBILE_WORK_BAR_CLEARANCE)}
+          className={cn(
+            `flex-1 overflow-y-auto`,
+            MOBILE_WORK_BAR_CLEARANCE,
+            mobileWork?.swipe && FACE_BODY_TOUCH_CLASS
+          )}
+          /* EXP-1152: the pager's body — it follows the finger between
+             faces; the header band and the bar stay put. */
+          data-face-body=""
         >
           {propsTray(false, false)}
           {parentLine}

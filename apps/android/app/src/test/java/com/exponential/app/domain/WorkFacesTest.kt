@@ -71,6 +71,20 @@ class WorkFacesTest {
         assertEquals("Plan mode", PLAN_MODE_LABEL)
     }
 
+    // EXP-1152: the Changes tab wears the desktop's `+N −M` once known.
+    @Test
+    fun `labels Changes with its counts once the files are known`() {
+        assertNull(changesFaceCounts(null))
+        assertNull(changesFaceCounts(Diff.Totals(files = 0, additions = 0, deletions = 0)))
+        assertEquals(
+            ChangesFaceCounts(additions = 12, deletions = 2),
+            changesFaceCounts(Diff.Totals(files = 3, additions = 12, deletions = 2)),
+        )
+        // U+2212 MINUS SIGN, never a hyphen — the contract's `deletionsLabel`.
+        assertEquals("+12 \u22122", changesFaceText(ChangesFaceCounts(additions = 12, deletions = 2)))
+        assertEquals("+0 \u22120", changesFaceText(ChangesFaceCounts(additions = 0, deletions = 0)))
+    }
+
     @Test
     fun `targets the bound run when it is mine and live`() {
         val rows = listOf(

@@ -1,7 +1,8 @@
 package com.exponential.app.ui.work
 
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerDefaults
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,36 +16,39 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import com.exponential.app.domain.SwipeDirection
+import com.exponential.app.domain.ChangesFaceCounts
+import com.exponential.app.domain.Diff
 import com.exponential.app.domain.WorkFaceKind
+import com.exponential.app.domain.changesFaceText
 import com.exponential.app.domain.faceLabel
 import com.exponential.app.domain.isLiveRun
 import com.exponential.app.domain.issueRunWhen
 import com.exponential.app.domain.pastRunByline
-import com.exponential.app.domain.swipeTarget
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassSegmentedControl
+import com.exponential.app.ui.components.GlassSegmentedControlDefaults
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.session.PastRunRow
-import kotlin.math.abs
 
 // EXP-1150: the Work screen's face TABS — the ONE segmented strip (the Inbox /
 // My Issues control) naming every available face in its fixed order
@@ -55,26 +59,81 @@ import kotlin.math.abs
 // hairline under the strip), so title and tabs read as one band that never
 // moves between faces. The row is `[strip][Merge PR pill]`: with a merge
 // the strip shrinks left and the pill trails at the row's end (every face).
-// [WorkFaceFrame] wraps the face BODY with the swipe.
+// [WorkFaceFrame] hosts the face BODIES as a pager (EXP-1152: the neighbour
+// follows the finger like native tabs), and the Changes segment wears the
+// diff's `+N −M` once known (desktop `FaceToggle::diff`, [changesFaceCounts]).
 // With two or more own runs the Run tab reads `Runs`, and tapping it while it
 // is ALREADY selected opens the run menu under the strip (`<device> ·
 // <when>`, a check on the shown run).
 
-/** The minimum horizontal travel that counts as a face swipe. */
-private val SwipeThreshold: Dp = 56.dp
-
-/** The face body with the neighbour swipe; [padding] passes straight through. */
+/**
+ * EXP-1152: the face bodies as a native PAGER — the neighbour follows the
+ * finger and settles with the platform fling, instead of the EXP-1150 swipe
+ * that decided on release and cut over instantly. [beyondViewportPageCount]
+ * = 1 composes the neighbours before a drag starts, so the first frame of a
+ * swipe never stutters on a cold page. Nested horizontal scrollers (the
+ * diff's code rows) and text selection keep priority through Compose's nested
+ * scroll: the pager only moves once the child has nothing left to scroll.
+ *
+ * Two-way sync with the screen's [face]: a tab tap ANIMATES the pager there;
+ * the pager's settled-past-half-way page reports back through [onFace], so the
+ * strip follows the finger like native tabs. When [faces] itself changes (a
+ * face appeared or vanished) the pager SNAPS to the shown face's new index
+ * before anything reports back, so an index shift never names the wrong face.
+ * [padding] passes straight through to [content], called per PAGE.
+ */
 @Composable
 fun WorkFaceFrame(
     faces: List<WorkFaceKind>,
     face: WorkFaceKind,
     padding: PaddingValues,
     onFace: (WorkFaceKind) -> Unit,
-    content: @Composable (PaddingValues) -> Unit,
+    content: @Composable (WorkFaceKind, PaddingValues) -> Unit,
 ) {
+    val pagerState = rememberPagerState(initialPage = faces.indexOf(face).coerceAtLeast(0)) { faces.size }
+    val latestFace by rememberUpdatedState(face)
+    val latestFaces by rememberUpdatedState(faces)
     val latestOnFace by rememberUpdatedState(onFace)
-    Box(modifier = Modifier.fillMaxSize().faceSwipe(faces, face) { latestOnFace(it) }) {
-        content(padding)
+    // The faces the pager last laid out: a change means the indices moved.
+    var laidOut by remember { mutableStateOf(faces) }
+    // Scrolls WE drive (a tab tap's animation, a faces-change snap) in flight.
+    // A counter, not a flag: a relaunched effect's cancelled `finally` may run
+    // after its successor already started one.
+    var driving by remember { mutableIntStateOf(0) }
+    LaunchedEffect(face, faces) {
+        val target = faces.indexOf(face)
+        if (target < 0) return@LaunchedEffect
+        val snap = faces != laidOut
+        laidOut = faces
+        if (pagerState.currentPage == target) return@LaunchedEffect
+        driving++
+        try {
+            if (snap) pagerState.scrollToPage(target) else pagerState.animateScrollToPage(target)
+        } finally {
+            driving--
+        }
+    }
+    LaunchedEffect(pagerState) {
+        // Only the READER's drag or fling reports back — read in ONE snapshot
+        // with the page, so a tab tap's animation passing through the pages
+        // between (or a snap after a faces change) never re-picks them.
+        snapshotFlow {
+            if (pagerState.isScrollInProgress && driving == 0) pagerState.currentPage else null
+        }.collect { page ->
+            val picked = page?.let { latestFaces.getOrNull(it) } ?: return@collect
+            if (picked != latestFace) latestOnFace(picked)
+        }
+    }
+    HorizontalPager(
+        state = pagerState,
+        modifier = Modifier.fillMaxSize(),
+        beyondViewportPageCount = 1,
+        userScrollEnabled = faces.size > 1,
+        key = { faces.getOrNull(it)?.name ?: it },
+        flingBehavior = PagerDefaults.flingBehavior(pagerState),
+    ) { page ->
+        val pageFace = faces.getOrNull(page) ?: return@HorizontalPager
+        Box(modifier = Modifier.fillMaxSize()) { content(pageFace, padding) }
     }
 }
 
@@ -93,6 +152,8 @@ fun WorkFaceTabs(
     onPickRun: (String) -> Unit = {},
     /** EXP-1150: the header's Merge PR ([MergePrHeaderPill]); null = none. */
     trailing: (@Composable () -> Unit)? = null,
+    /** EXP-1152: the Changes face's diff counts; null = the word `Changes`. */
+    changesCounts: ChangesFaceCounts? = null,
 ) {
     if (faces.size < 2 && trailing == null) return
     val multipleRuns = runs.size >= 2
@@ -109,7 +170,24 @@ fun WorkFaceTabs(
                 if (faces.size >= 2) GlassSegmentedControl(
                     options = faces,
                     selected = face,
-                    label = { faceLabel(it, multipleRuns) },
+                    // The counts' ONE string is the segment's accessible name.
+                    label = { f ->
+                        if (f == WorkFaceKind.Changes && changesCounts != null) {
+                            changesFaceText(changesCounts)
+                        } else {
+                            faceLabel(f, multipleRuns)
+                        }
+                    },
+                    labelContent = { f ->
+                        if (f == WorkFaceKind.Changes && changesCounts != null) {
+                            val slot: @Composable (Color) -> Unit = { color ->
+                                ChangesCountsLabel(changesCounts, color.alpha)
+                            }
+                            slot
+                        } else {
+                            null
+                        }
+                    },
                     onSelect = { picked ->
                         // `selectable` fires for the ALREADY selected segment too:
                         // a second tap on `Runs` is the way into the run menu.
@@ -153,6 +231,35 @@ fun WorkFaceTabs(
     }
 }
 
+/**
+ * EXP-1152: the Changes segment's label — the desktop `FaceToggle::diff` pair:
+ * mono `+N` / `−M` in the diff's own add/delete tints, at the strip's label
+ * size and constant weight so the segment never re-measures between faces.
+ * [alpha] carries the strip's selected/unselected emphasis (EXP-698).
+ */
+@Composable
+private fun ChangesCountsLabel(counts: ChangesFaceCounts, alpha: Float) {
+    val size = MaterialTheme.typography.labelLarge.fontSize
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            Diff.additionsLabel(counts.additions),
+            color = DesignTokens.Diff.AddFg.copy(alpha = alpha),
+            fontFamily = FontFamily.Monospace,
+            fontSize = size,
+            fontWeight = GlassSegmentedControlDefaults.LabelWeight,
+            maxLines = 1,
+        )
+        Text(
+            Diff.deletionsLabel(counts.deletions),
+            color = DesignTokens.Diff.DelFg.copy(alpha = alpha),
+            fontFamily = FontFamily.Monospace,
+            fontSize = size,
+            fontWeight = GlassSegmentedControlDefaults.LabelWeight,
+            maxLines = 1,
+        )
+    }
+}
+
 @Composable
 private fun RunMenuRow(run: PastRunRow, shown: Boolean, onClick: () -> Unit) {
     val live = isLiveRun(run.session)
@@ -184,39 +291,4 @@ private fun faceTag(face: WorkFaceKind): String = when (face) {
     WorkFaceKind.Run -> "work-face-run"
     WorkFaceKind.Changes -> "work-face-changes"
     WorkFaceKind.Results -> "work-face-results"
-}
-
-/**
- * The body swipe: OBSERVES the pointer on the Final pass without consuming
- * anything, and decides on release — at least [SwipeThreshold] sideways and
- * more than twice as far sideways as down. A drag a child already consumed
- * (the diff's horizontal code scroll, a text selection) is the child's, so
- * vertical lists, sideways code and the composer keep working.
- */
-private fun Modifier.faceSwipe(
-    faces: List<WorkFaceKind>,
-    shown: WorkFaceKind,
-    onFace: (WorkFaceKind) -> Unit,
-): Modifier = pointerInput(faces, shown) {
-    val threshold = SwipeThreshold.toPx()
-    awaitEachGesture {
-        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Final)
-        val start: Offset = down.position
-        var last = start
-        var claimed = false
-        while (true) {
-            val event = awaitPointerEvent(PointerEventPass.Final)
-            val change = event.changes.firstOrNull { it.id == down.id } ?: break
-            if (change.isConsumed && change.positionChanged()) claimed = true
-            last = change.position
-            if (!change.pressed) break
-        }
-        if (claimed) return@awaitEachGesture
-        val dx = last.x - start.x
-        val dy = last.y - start.y
-        if (abs(dx) >= threshold && abs(dx) > 2 * abs(dy)) {
-            val direction = if (dx < 0) SwipeDirection.Left else SwipeDirection.Right
-            swipeTarget(faces, shown, direction)?.let(onFace)
-        }
-    }
 }

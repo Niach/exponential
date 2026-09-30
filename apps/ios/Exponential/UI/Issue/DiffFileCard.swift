@@ -171,6 +171,10 @@ struct DiffCountsLabel: View {
     let additions: Int
     let deletions: Int
     var compact = false
+    /// EXP-1152: an explicit type size — the Work screen's Changes TAB draws
+    /// the counts at the strip's own `.subheadline` rung. nil = the card's
+    /// caption (compact: caption2).
+    var font: Font?
 
     var body: some View {
         HStack(spacing: 6) {
@@ -179,7 +183,7 @@ struct DiffCountsLabel: View {
             Text(Diff.deletionsLabel(deletions))
                 .foregroundStyle(DesignTokens.Diff.delFg)
         }
-        .font((compact ? Font.caption2 : Font.caption).monospaced())
+        .font(font ?? (compact ? Font.caption2 : Font.caption).monospaced())
         .accessibilityElement(children: .combine)
     }
 }

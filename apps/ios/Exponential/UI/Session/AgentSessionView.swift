@@ -18,8 +18,9 @@ import UniformTypeIdentifiers
 /// belong to `WorkScreen`; this view reports what they need through
 /// `RunChrome` and takes the screen's requests (`RunRequest`) and its Start
 /// coding offer (`startReadiness`).
-/// `face` picks the transcript (`.run`) or the run's live diff
-/// (`.changes`, `SessionDiffList` + the Merge bar).
+/// EXP-1152: the Run face ONLY — the run's live diff is `RunChangesFace`, its
+/// own page beside this one in the Work screen's pager (both pages are up at
+/// once, and ONE view must consume `request` and report `RunChrome`).
 /// The feed's scroll constants — outside the view (EXP-893: it used to be
 /// generic, and a generic type cannot hold stored statics).
 enum AgentSessionLayout {
@@ -60,7 +61,6 @@ extension View {
 struct AgentSessionView: View {
     let accountId: String
     let session: CodingSessionEntity
-    let face: WorkFaceKind
     /// The screen's Stop pill asks; the kill confirm and the model are here.
     @Binding var request: RunRequest?
     /// EXP-935: the SCREEN's continuation hold — a Resume or an account
@@ -114,13 +114,6 @@ struct AgentSessionView: View {
     /// View state, not model state: it is a place in the card, and a fresh
     /// screen starts on the current step.
     @State private var editingSteps: [String: String] = [:]
-    /// EXP-895: the model's ONE memoised parse (`AgentSessionModel.parsedDiff`)
-    /// — the Changes face and the file sheet read the same `Diff.Parsed`.
-    private var parsedDiff: Diff.Parsed { model?.parsedDiff ?? Diff.Parsed(files: []) }
-    /// The phone's file list, off the Changes bar's leading slot, and the path
-    /// it last picked.
-    @State private var diffFileSheet = false
-    @State private var selectedDiffPath: String?
     /// EXP-897: the synced rows behind the stack position line — the run's
     /// issue and every pull request around it.
     @State private var stackModel: PrGraphModel?
@@ -150,11 +143,7 @@ struct AgentSessionView: View {
     private var sessionContent: some View {
         VStack(spacing: 0) {
             if let model {
-                if face == .changes {
-                    changesFace(model)
-                } else {
-                    runFace(model)
-                }
+                runFace(model)
             } else {
                 Spacer()
             }
@@ -188,35 +177,6 @@ struct AgentSessionView: View {
             }
         }
         bottomBar(model)
-    }
-
-    /// EXP-893: the Changes face — the run's latest worktree diff as a full
-    /// page, with the Merge bar under it. The screen only shows this face
-    /// while there IS a diff (it falls back to the issue's PR files, or to
-    /// the Run face, when it vanishes).
-    @ViewBuilder
-    private func changesFace(_ model: AgentSessionModel) -> some View {
-        if model.latestDiff != nil {
-            // EXP-895: the raw `git diff` was read by the ONE parser the
-            // moment it landed (`diffChanged`), so the face draws the same
-            // cards every other Changes surface does.
-            SessionDiffList(
-                files: parsedDiff.files,
-                truncatedLines: parsedDiff.truncatedLines,
-                focusPath: selectedDiffPath
-            )
-            .safeAreaInset(edge: .bottom, spacing: 0) { changesFaceBar(model) }
-            .sheet(isPresented: $diffFileSheet) {
-                DiffFileListSheet(
-                    files: parsedDiff.files,
-                    selected: selectedDiffPath,
-                    onSelect: { selectedDiffPath = $0 }
-                )
-            }
-        } else {
-            Spacer()
-            changesFaceBar(model)
-        }
     }
 
     /// The confirms: Kill, Merge, and a `/`-command's own.
@@ -308,10 +268,6 @@ struct AgentSessionView: View {
             .onChange(of: request, initial: true) { _, request in
                 requestChanged(request)
             }
-            // EXP-893: the +/− counts follow the diff edge, not the frame.
-            .onChange(of: model?.latestDiff, initial: true) { _, diff in
-                diffChanged(diff)
-            }
             // EXP-893: what the Work screen draws its nav bar and tabs
             // from. No scenePhase handler here: foreground revival (EXP-243)
             // is app-scoped since EXP-621.
@@ -321,21 +277,7 @@ struct AgentSessionView: View {
                 // screen re-attaches to the SAME model, so the feed is already
                 // there, the composer still holds its draft, and there is no
                 // connect phase to sit through.
-                model = deps.steerSessions.attach(accountId: accountId, sessionId: session.id) {
-                    AgentSessionModel(
-                        accountId: accountId,
-                        session: session,
-                        currentUserId: deps.auth.userId,
-                        steerApi: deps.steerApi,
-                        attachmentsApi: deps.attachmentsApi,
-                        issuesApi: deps.issuesApi,
-                        db: deps.db
-                    )
-                }
-                // EXP-909: the overlay's one-shot usage refresh rides the
-                // device command queue. Set on every appearance — a reattached
-                // model was built on an earlier one.
-                model?.devicesApi = deps.devicesApi
+                model = deps.attachSteerModel(accountId: accountId, session: session)
             }
             .onDisappear {
                 // NOT a teardown: the store keeps the socket up while the session
@@ -428,13 +370,6 @@ struct AgentSessionView: View {
         case .stop:
             if model?.canKill == true { showKillConfirm = true }
         }
-    }
-
-    /// EXP-895: the worktree diff is parsed ONCE, on the model (`parsedDiff`,
-    /// memoised on the diff string) — the Changes face and the file sheet
-    /// read the same `Diff.Parsed`. Off the edge, only the file selection has to follow a vanished diff.
-    private func diffChanged(_ diff: String?) {
-        if diff == nil { selectedDiffPath = nil }
     }
 
     // MARK: - Chrome report (EXP-893)
@@ -1705,42 +1640,6 @@ struct AgentSessionView: View {
         let count = model.slashMatches.count
         guard count > 0 else { return }
         slashHighlight = ((slashHighlight + delta) % count + count) % count
-    }
-
-    // MARK: - Changes face bar (EXP-893)
-
-    /// The PR page a GitHub circle opens — the issue's, or the run's OWN
-    /// issue-less one (EXP-734).
-    private func prURL(_ model: AgentSessionModel) -> URL? {
-        (model.mergeIssue?.prUrl ?? model.session?.prUrl).flatMap { URL(string: $0) }
-    }
-
-    /// The file list (else GitHub), alone — EXP-1150 moved Merge PR up into
-    /// the Work screen's header band (`WorkMergePill`).
-    @ViewBuilder
-    private func changesFaceBar(_ model: AgentSessionModel) -> some View {
-        if !parsedDiff.files.isEmpty || prURL(model) != nil {
-        FloatingBarCluster {
-            // EXP-895: the leading slot is the file list. GitHub keeps the
-            // slot only where there is no list to put there — an issue-less
-            // run has no header action slot to move it to.
-            if !parsedDiff.files.isEmpty {
-                DiffFilesBarCircle(count: parsedDiff.files.count) { diffFileSheet = true }
-            } else if let url = prURL(model) {
-                FloatingBarCircle(
-                    accessibilityLabel: DomainContract.diffUiOpenOnGithub,
-                    action: { openURL(url) }
-                ) {
-                    AppIcon(AppIcons.uiGithub, size: AppIcon.Size.medium, weight: .medium)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                }
-            }
-        } center: {
-            EmptyView()
-        } trailing: {
-            EmptyView()
-        }
-        }
     }
 
     // MARK: - Composer card
@@ -4085,5 +3984,33 @@ private struct FeedBottomOverflowKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
+    }
+}
+
+extension AppDependencies {
+    /// EXP-1152: the ONE claim on a run's socket owner (EXP-621's
+    /// ref-counted `SteerSessionStore.attach`), shared by the Run page and
+    /// the Changes page: each holds its own claim while it is up, so a
+    /// FINISHED run's model (and its diff) survives whichever page the pager
+    /// happens to unmount first. Pair every call with
+    /// `steerSessions.detach`.
+    @MainActor
+    func attachSteerModel(accountId: String, session: CodingSessionEntity) -> AgentSessionModel {
+        let model = steerSessions.attach(accountId: accountId, sessionId: session.id) {
+            AgentSessionModel(
+                accountId: accountId,
+                session: session,
+                currentUserId: auth.userId,
+                steerApi: steerApi,
+                attachmentsApi: attachmentsApi,
+                issuesApi: issuesApi,
+                db: db
+            )
+        }
+        // EXP-909: the overlay's one-shot usage refresh rides the device
+        // command queue. Set on every claim — a reattached model was built on
+        // an earlier one.
+        model.devicesApi = devicesApi
+        return model
     }
 }

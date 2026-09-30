@@ -14,7 +14,10 @@ import { cn } from "@/lib/utils"
 import type { ReviewFilesState } from "@/hooks/use-review-files"
 import { ChangesView } from "@/components/changes-view"
 import { IssueMobileHeader } from "@/components/issue-mobile-header"
-import type { FaceSwipeHandlers } from "@/components/mobile-face-tabs"
+import {
+  FACE_BODY_TOUCH_CLASS,
+  type FaceSwipeHandlers,
+} from "@/components/mobile-face-tabs"
 import { PrGraphBadge } from "@/components/pr-graph-badge"
 import { MERGE_PR_LABEL } from "@/components/run-action-pills"
 import { SessionMergePill } from "@/components/session-merge-button"
@@ -82,8 +85,8 @@ export function IssueChangesFace({
   /** EXP-952: the issue's PR / branch files, fetched by the route
    *  (`useReviewFiles`) — the switcher's `+N −M` reads the same list. */
   filesState: ReviewFilesState
-  /** EXP-1150: the face strip (`MobileFaceTabs`) and the swipe handlers the
-   *  root spreads (`useFaceSwipe`). */
+  /** EXP-1150: the face strip (`MobileFaceTabs`) and the pager the root
+   *  spreads (`useFaceSwipe`; EXP-1152: it moves the `data-face-body`). */
   tabs: ReactNode
   swipe?: FaceSwipeHandlers
   dot?: { tone: SessionDotTone; connecting?: boolean } | null
@@ -129,8 +132,11 @@ export function IssueChangesFace({
       <div
         className={cn(
           `min-h-0 flex-1 overflow-y-auto overscroll-contain bg-card/40`,
-          MOBILE_WORK_BAR_CLEARANCE
+          MOBILE_WORK_BAR_CLEARANCE,
+          FACE_BODY_TOUCH_CLASS
         )}
+        /* EXP-1152: the pager's body — it follows the finger. */
+        data-face-body=""
       >
         {state.kind === `loading` && (
           <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted-foreground">

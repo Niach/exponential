@@ -20,13 +20,23 @@ export function DiffCounts({
   additions,
   deletions,
   className,
+  title,
+  "aria-label": ariaLabel,
 }: {
   additions: number
   deletions: number
   className?: string
+  /** EXP-1152: the counts as one string (`+12 −2`) when they ARE a control's
+   *  label — the Changes face segment (`ChangesFaceLabel`). */
+  title?: string
+  "aria-label"?: string
 }) {
   return (
-    <span className={cn(`shrink-0 font-mono`, className)}>
+    <span
+      className={cn(`shrink-0 font-mono`, className)}
+      title={title}
+      aria-label={ariaLabel}
+    >
       <span className="text-diff-add-fg">{additionsLabel(additions)}</span>
       {` `}
       <span className="text-diff-del-fg">{deletionsLabel(deletions)}</span>

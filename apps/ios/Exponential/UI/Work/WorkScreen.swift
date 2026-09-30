@@ -14,9 +14,9 @@ import SwiftUI
 /// title dot + identifier (or the session title) · on the Run face only,
 /// Stop / Resume · for issue subjects, the `…` menu. EXP-1150: directly under
 /// it the face TABS (`WorkFaceTabs`, two or more faces) sit at the same place
-/// on every face — tapping the selected `Runs` tab opens the run menu — and a
-/// horizontal swipe on the face body moves to the neighbouring face
-/// (`WorkFaces.swipeTarget`). The tab row ends in the ONE Merge PR pill
+/// on every face — tapping the selected `Runs` tab opens the run menu — and
+/// (EXP-1152) the faces are PAGES under it (`WorkFacePager`) that follow the
+/// finger to the neighbouring face. The tab row ends in the ONE Merge PR pill
 /// (`WorkMergePill`) on every face while there is a PR to merge. The floating
 /// bottom bar is per face: Issue `[Properties][+ Comment][Start]`, Run
 /// `[usage][composer][Start once ended for good]`, Changes `[files]`,
@@ -29,6 +29,7 @@ struct WorkScreen: View {
     @Environment(\.pushRoute) private var pushRoute
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    @Environment(\.motion) private var motion
     @State private var face: WorkFaceKind
     /// The run the Run and Changes faces show. Follows `WorkFaces.codingTarget`
     /// until the reader picks one from the run menu.
@@ -40,8 +41,8 @@ struct WorkScreen: View {
     @State private var pendingInitialFace: WorkFaceKind?
     @State private var issueVM: IssueDetailViewModel?
     @State private var subjectModel: WorkSubjectModel?
-    /// What the session view last reported (`RunChrome`). Held across a
-    /// switch to the Issue face, where the session view is unmounted.
+    /// What the session view last reported (`RunChrome`). Held while the
+    /// pager has the Run page unmounted (its preference resets then).
     @State private var runChrome = RunChrome()
     @State private var runRequest: RunRequest?
     /// EXP-1150: the run menu, anchored under the `Runs` tab — opened by
@@ -192,6 +193,19 @@ struct WorkScreen: View {
     /// (and a model the store already reaped leaves the last report standing).
     private var runHasDiff: Bool {
         runChrome.hasDiff || shownDiff != nil
+    }
+
+    /// EXP-1152: what the Changes tab wears — the counts of the files the
+    /// Changes face DRAWS: the shown run's live diff (the model's memoised
+    /// parse), else the issue's loaded PR files; nil (the word) until known.
+    private var changesCounts: WorkFaces.ChangesFaceCounts? {
+        if runHasDiff, let model = shownModel, model.latestDiff != nil {
+            return WorkFaces.changesFaceCounts(Diff.totals(model.parsedDiff.files))
+        }
+        if case let .loaded(files) = prChangesModel?.load {
+            return WorkFaces.changesFaceCounts(Diff.totals(files))
+        }
+        return nil
     }
 
     /// EXP-933: the run whose Results this screen shows. An ISSUE shows its
@@ -397,7 +411,7 @@ struct WorkScreen: View {
     }
 
     /// EXP-1150: the tab strip OUTSIDE every face, so it never jumps, and
-    /// the swipe on the face body under it. Standalone, the strip is part of
+    /// (EXP-1152) the face pager under it. Standalone, the strip is part of
     /// the HEADER BAND (title row, then tabs, one hairline under both — see
     /// `workHeaderBand`); embedded in the workflow page (which draws its own
     /// rows under its nav bar) it stays a plain row above the face.
@@ -408,10 +422,10 @@ struct WorkScreen: View {
             if isEmbedded {
                 VStack(spacing: 0) {
                     faceTabs
-                    swipeableFaceBody
+                    facePager
                 }
             } else {
-                swipeableFaceBody
+                facePager
                     .workHeaderBand { faceTabs }
             }
         }
@@ -425,8 +439,9 @@ struct WorkScreen: View {
             faces: availableFaces,
             shown: face,
             multipleRuns: multipleRuns,
+            changesCounts: changesCounts,
             runsAnchor: $runsMenuAnchor,
-            onSelect: switchFace,
+            onSelect: selectFace,
             onReselectRuns: toggleRunsMenu,
             showsTrailing: mergeTarget != nil
         ) {
@@ -474,30 +489,43 @@ struct WorkScreen: View {
         }
     }
 
-    private var swipeableFaceBody: some View {
-        faceBody
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .workFaceSwipe(faces: availableFaces, shown: face, onSwitch: switchFace)
+    /// EXP-1152: every face is a PAGE; a settled drag moves `face` through
+    /// `switchFace` like a tab tap does (keyboard down, overlays closed, the
+    /// workflow page told).
+    private var facePager: some View {
+        WorkFacePager(
+            faces: availableFaces,
+            selection: Binding(get: { face }, set: { switchFace($0) })
+        ) { page in
+            facePage(page)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// The Run and Changes-with-a-diff faces are ONE `AgentSessionView`
-    /// identity that only changes its `face`: a remount would detach the
-    /// model, and `SteerSessionStore` drops a FINISHED run's model the moment
-    /// nothing is attached — its transcript with it.
+    /// One face's page. The Run page is the ONE `AgentSessionView` (the Stop
+    /// `request`, the `RunChrome` report); the Changes page draws the run's
+    /// live diff off the same retained model (`RunChangesFace`), else the
+    /// issue's PR files.
     @ViewBuilder
-    private var faceBody: some View {
-        if face == .issue {
+    private func facePage(_ page: WorkFaceKind) -> some View {
+        switch page {
+        case .issue:
             issueFace
-        } else if face == .results {
-            // EXP-879: BEFORE the session-view branch — a run with a live diff
-            // would otherwise swallow its own Results face.
+        case .run:
+            if let shownSession {
+                sessionView(shownSession)
+            } else {
+                ProgressView().tint(.white)
+            }
+        case .changes:
+            if let shownSession, runHasDiff {
+                RunChangesFace(accountId: accountId, session: shownSession)
+                    .id(shownSession.id)
+            } else {
+                changesFace
+            }
+        case .results:
             resultsFace
-        } else if let shownSession, face == .run || runHasDiff {
-            sessionView(shownSession, face: face)
-        } else if face == .changes {
-            changesFace
-        } else {
-            ProgressView().tint(.white)
         }
     }
 
@@ -509,7 +537,7 @@ struct WorkScreen: View {
                 issue: issue,
                 barTrailing: issueBarTrailing,
                 onStartCoding: startCodingTapped,
-                onOpenChanges: { switchFace(.changes) }
+                onOpenChanges: { selectFace(.changes) }
             )
         } else if let vm = issueVM, vm.loadTimedOut {
             unavailableState(vm: vm)
@@ -519,7 +547,7 @@ struct WorkScreen: View {
     }
 
     /// The issue's PR files — the Changes face when the run has no live diff
-    /// (`faceBody` routes a live diff to the session view). EXP-952: drawn
+    /// (`facePage` routes a live diff to `RunChangesFace`). EXP-952: drawn
     /// off the screen's own model.
     @ViewBuilder
     private var changesFace: some View {
@@ -542,11 +570,10 @@ struct WorkScreen: View {
         }
     }
 
-    private func sessionView(_ session: CodingSessionEntity, face: WorkFaceKind) -> some View {
+    private func sessionView(_ session: CodingSessionEntity) -> some View {
         AgentSessionView(
             accountId: accountId,
             session: session,
-            face: face,
             request: $runRequest,
             continuation: continuation,
             startReadiness: offerStart ? readiness : nil,
@@ -555,7 +582,7 @@ struct WorkScreen: View {
         .id(session.id)
         // EXP-933: the inline `sessions_results` card opens THIS screen's
         // Results face.
-        .environment(\.openResultsFace, { switchFace(.results) })
+        .environment(\.openResultsFace, { selectFace(.results) })
     }
 
     // Shown once the bounded load clock gives up (EXP-264): the issue is
@@ -901,8 +928,8 @@ struct WorkScreen: View {
                 runsMenuOpen = false
                 onFaceChange?(next)
             }
-            // EXP-893: the session view's report, held across the Issue face
-            // (where the emitter is unmounted and the preference resets).
+            // EXP-893: the session view's report, held while the pager has
+            // the Run page unmounted (the preference resets then).
             .onPreferenceChange(RunChrome.Key.self) { chrome in
                 chromeChanged(chrome)
             }
@@ -1083,8 +1110,10 @@ struct WorkScreen: View {
     }
 
     private func chromeChanged(_ chrome: RunChrome) {
-        // The Issue face has no emitter: the reset it triggers is not news.
-        guard face != .issue else { return }
+        // EXP-1152: the Run page comes and goes with the pager, not with the
+        // face — an unmounted emitter's reset is not news on ANY face (a new
+        // run's reset is `shownSessionId`'s own).
+        guard chrome != RunChrome() else { return }
         runChrome = chrome
     }
 
@@ -1111,7 +1140,13 @@ struct WorkScreen: View {
 
     // MARK: - Actions
 
+    /// A tab tap (or an in-face link): the pages SLIDE to the face.
+    private func selectFace(_ next: WorkFaceKind) {
+        withAnimation(motion.standard) { switchFace(next) }
+    }
+
     private func switchFace(_ next: WorkFaceKind) {
+        guard next != face else { return }
         UIApplication.endEditing()
         // EXP-934: the `…` overlay closes off the `face` edge (`withLifecycle`).
         face = next
@@ -1121,7 +1156,7 @@ struct WorkScreen: View {
     private func pickRun(_ id: String) {
         userPickedRun = true
         shownSessionId = id
-        switchFace(.run)
+        selectFace(.run)
     }
 
     private func toggleRunsMenu() {

@@ -8,6 +8,8 @@ import com.exponential.app.data.db.CodingSessionEntity
 // a segmented strip under the top bar (the ONE segmented control every list
 // strip wears) names every available face in its fixed order, and a
 // horizontal swipe on the face's body moves to the neighbour ([swipeTarget]).
+// EXP-1152: that swipe is a native PAGER (the neighbour follows the finger),
+// and the Changes tab wears the diff's `+N −M` ([changesFaceCounts]).
 // The header band carries the strip with the Merge PR pill at its end (every
 // face); the bottom bar keeps only the face's OWN controls, and Stop / Resume
 // sit in the top bar's trailing slot while the Run face shows. These are
@@ -48,6 +50,25 @@ fun faceLabel(face: WorkFaceKind, multipleRuns: Boolean = false): String = when 
     WorkFaceKind.Changes -> CHANGES_FACE_LABEL
     WorkFaceKind.Results -> RESULTS_FACE_LABEL
 }
+
+/**
+ * EXP-1152: what the Changes tab WEARS — the desktop `work_header.rs`
+ * `FaceToggle::diff` rule on every phone: the `+N −M` counts of the files the
+ * face draws (the run's live diff, else the issue's loaded PR files) once they
+ * are known, the word `Changes` until then. `null` = the word. Mirrors web
+ * `changesFaceCounts`.
+ */
+data class ChangesFaceCounts(val additions: Int, val deletions: Int)
+
+fun changesFaceCounts(totals: Diff.Totals?): ChangesFaceCounts? {
+    if (totals == null || totals.files <= 0) return null
+    return ChangesFaceCounts(totals.additions, totals.deletions)
+}
+
+/** The counts as ONE string (`+12 −2`, U+2212) — the segment's accessible
+ *  name, byte-identical with web `changesFaceText` and iOS. */
+fun changesFaceText(counts: ChangesFaceCounts): String =
+    "${Diff.additionsLabel(counts.additions)} ${Diff.deletionsLabel(counts.deletions)}"
 
 /** The faces a subject can show, in their fixed order. Changes is independent
  *  of Run: an issue with an open PR and no run of mine still has its PR files.

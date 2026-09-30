@@ -9,7 +9,10 @@ import {
 import { cn } from "@/lib/utils"
 import { renderResultText } from "@/components/agent-session"
 import { IssueMobileHeader } from "@/components/issue-mobile-header"
-import type { FaceSwipeHandlers } from "@/components/mobile-face-tabs"
+import {
+  FACE_BODY_TOUCH_CLASS,
+  type FaceSwipeHandlers,
+} from "@/components/mobile-face-tabs"
 import { useIssuePropertyHandlers } from "@/hooks/use-issue-property-handlers"
 
 // EXP-933: an ISSUE's Results face — the report (topic text + screenshots) of
@@ -56,8 +59,8 @@ export function IssueResultsFace({
   readOnly: boolean
   origin?: string
   groups: readonly SessionResultGroup[]
-  /** EXP-1150: the face strip (`MobileFaceTabs`) and the swipe handlers the
-   *  root spreads (`useFaceSwipe`). */
+  /** EXP-1150: the face strip (`MobileFaceTabs`) and the pager the root
+   *  spreads (`useFaceSwipe`; EXP-1152: it moves the `data-face-body`). */
   tabs: ReactNode
   swipe?: FaceSwipeHandlers
   dot?: { tone: SessionDotTone; connecting?: boolean } | null
@@ -80,8 +83,11 @@ export function IssueResultsFace({
       <div
         className={cn(
           `min-h-0 flex-1 overflow-y-auto overscroll-contain bg-card/40`,
-          MOBILE_WORK_BAR_CLEARANCE
+          MOBILE_WORK_BAR_CLEARANCE,
+          FACE_BODY_TOUCH_CLASS
         )}
+        /* EXP-1152: the pager's body — it follows the finger. */
+        data-face-body=""
       >
         <IssueResultsBody groups={groups} />
       </div>

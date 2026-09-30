@@ -19,13 +19,17 @@ import { linkSegments } from "@/lib/linkify"
 import { splitIssueRefs } from "@/lib/issue-refs"
 import { ArrowDown, Check, X } from "lucide-react"
 import type { PastRunRow } from "@/hooks/use-agents-data"
-import { MobileFaceTabs, useFaceSwipe } from "@/components/mobile-face-tabs"
+import {
+  FACE_BODY_TOUCH_CLASS,
+  MobileFaceTabs,
+  useFaceSwipe,
+} from "@/components/mobile-face-tabs"
 import { ChangesView } from "@/components/changes-view"
 import { TitleStateDot } from "@/components/issue-mobile-header"
 import { COMPOSER_PLACEHOLDER } from "@/components/steer-composer"
 import {
   conceptIcon,
-  DiffCounts,
+  ChangesFaceLabel,
   EditedFilesCard,
   FAB_CHROME_CLASS,
   FabButton,
@@ -63,6 +67,7 @@ import {
 } from "@exp/ui"
 import {
   availableFaces,
+  changesFaceCounts,
   OPEN_RESULTS_LABEL,
   phaseDotTone,
   START_CODING_LABEL,
@@ -909,12 +914,8 @@ export function AgentSessionView({
       ? [
           {
             face: `diff` as const,
-            label: (
-              <DiffCounts
-                additions={diffStats.additions}
-                deletions={diffStats.deletions}
-              />
-            ),
+            // EXP-1152: the counts recipe every face strip shares.
+            label: <ChangesFaceLabel counts={diffStats} />,
             onSelect: () => onFace(`diff`),
           },
         ]
@@ -1115,12 +1116,19 @@ export function AgentSessionView({
     onFace(next === `changes` ? `diff` : next === `results` ? `results` : `run`)
   }
   const swipe = useFaceSwipe(phoneFaces, shownFace, onPhoneFace)
+  /** EXP-1152: the Changes tab wears the `+N −M` of the files that face
+   *  draws (the live diff, else the PR's), the word until they are known. */
+  const phoneChangesCounts = useMemo(
+    () => changesFaceCounts(totals(changesFiles)),
+    [changesFiles]
+  )
   const mobileTabs = isMobile ? (
     <MobileFaceTabs
       faces={phoneFaces}
       face={shownFace}
       runs={issueRuns}
       viewedRunId={session.id}
+      changesCounts={phoneChangesCounts}
       onFace={onPhoneFace}
       onOpenRun={onOpenRun}
       trailing={
@@ -1336,8 +1344,11 @@ export function AgentSessionView({
         <div
           className={cn(
             `min-h-0 flex-1 overflow-y-auto overscroll-contain bg-card/40`,
-            isMobile && MOBILE_WORK_BAR_CLEARANCE
+            isMobile && MOBILE_WORK_BAR_CLEARANCE,
+            isMobile && FACE_BODY_TOUCH_CLASS
           )}
+          /* EXP-1152: the phone pager's body — it follows the finger. */
+          data-face-body={isMobile ? `` : undefined}
         >
           <div className={cn(WORK_COLUMN_CLASS)}>
             <SessionResultsView
@@ -1353,8 +1364,11 @@ export function AgentSessionView({
         <div
           className={cn(
             `min-h-0 flex-1 overflow-y-auto overscroll-contain bg-card/40`,
-            isMobile && MOBILE_WORK_BAR_CLEARANCE
+            isMobile && MOBILE_WORK_BAR_CLEARANCE,
+            isMobile && FACE_BODY_TOUCH_CLASS
           )}
+          /* EXP-1152: the phone pager's body — it follows the finger. */
+          data-face-body={isMobile ? `` : undefined}
         >
           <div className={cn(WORK_COLUMN_CLASS)}>
             {/* EXP-916: the face is the diff and nothing else — its merge,
@@ -1371,7 +1385,12 @@ export function AgentSessionView({
           </div>
         </div>
       ) : (
-      <div className="flex min-h-0 flex-1 overflow-hidden">
+      <div
+        className="flex min-h-0 flex-1 overflow-hidden"
+        /* EXP-1152: the phone pager's body — the transcript and its strips
+           follow the finger; the header band and the bar stay put. */
+        data-face-body={isMobile ? `` : undefined}
+      >
       <div
         className={cn(
           `flex min-w-0 flex-1 flex-col overflow-hidden bg-card/40`,
@@ -1420,7 +1439,12 @@ export function AgentSessionView({
               // `agent-feed`: the hook the inline-code tint keys on
               // (EXP-698, styles.css) — chat-sized markdown alone is not it,
               // comment bodies render that way too.
-              className="agent-feed h-full overflow-y-auto overscroll-contain"
+              className={cn(
+                `agent-feed h-full overflow-y-auto overscroll-contain`,
+                // EXP-1152: `touch-action` stops at a scroller, so the
+                // feed itself leaves the sideways pan to the pager.
+                isMobile && FACE_BODY_TOUCH_CLASS
+              )}
             >
               {feed.length === 0 && paused ? (
                 <CenteredState>

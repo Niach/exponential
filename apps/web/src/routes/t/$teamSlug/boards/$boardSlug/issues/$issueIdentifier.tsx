@@ -4,7 +4,7 @@ import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import { useBoardViewData } from "@/hooks/use-board-view-data"
 import {
-  DiffCounts,
+  ChangesFaceLabel,
   parseSessionResultGroups,
   useIsMobile,
   type SessionDotTone,
@@ -20,6 +20,7 @@ import { useWorkflowOwnsMerge } from "@/hooks/use-reviews-data"
 import { useIsTeamMember } from "@/components/issue-coding-rows"
 import { MergePrPill } from "@/components/run-action-pills"
 import { useReviewFiles, type ReviewFilesState } from "@/hooks/use-review-files"
+import { totals } from "@exp/domain-contract/diff"
 import { useSession } from "@/hooks/use-session"
 import {
   shouldConnectSessionDiff,
@@ -40,9 +41,11 @@ import { MobileFaceTabs, useFaceSwipe } from "@/components/mobile-face-tabs"
 import { selectIssueRuns } from "@/lib/past-runs"
 import {
   availableFaces,
+  changesFaceCounts,
   codingTarget,
   isSessionLive,
   issueResultsRun,
+  type ChangesFaceCounts,
   type WorkFaceKind,
 } from "@/lib/work-faces"
 import {
@@ -200,6 +203,24 @@ function IssueDetailPage() {
   const { state: prFilesState } = useReviewFiles(issue ?? null, {
     enabled: isMobile && hasChanges && diffStats.fileCount === 0,
   })
+  // EXP-1152: the phone's Changes tab wears the `+N −M` of the very files
+  // that face draws — the run's live diff, else the PR's — the word until
+  // either is known (the desktop `FaceToggle::diff` rule).
+  const changesCounts = useMemo(
+    () =>
+      changesFaceCounts(
+        diffStats.fileCount > 0
+          ? {
+              files: diffStats.fileCount,
+              additions: diffStats.additions,
+              deletions: diffStats.deletions,
+            }
+          : prFilesState.kind === `files`
+            ? totals(prFilesState.files)
+            : null
+      ),
+    [diffStats.fileCount, diffStats.additions, diffStats.deletions, prFilesState]
+  )
 
   // EXP-879/933: the results belong to a RUN — `issueResultsRun` picks it
   // (my target run when it has results, else the newest run on the issue by
@@ -325,6 +346,7 @@ function IssueDetailPage() {
         issueRuns={issueRuns}
         hasChanges={hasChanges}
         liveDiff={diffStats.fileCount > 0}
+        changesCounts={changesCounts}
         prFilesState={prFilesState}
         hasResults={hasResults}
         showResults={showResults}
@@ -382,12 +404,8 @@ function IssueDetailPage() {
               ? [
                   {
                     face: `diff` as const,
-                    label: (
-                      <DiffCounts
-                        additions={diffStats.additions}
-                        deletions={diffStats.deletions}
-                      />
-                    ),
+                    // EXP-1152: the counts recipe every face strip shares.
+                    label: <ChangesFaceLabel counts={diffStats} />,
                     onSelect: () => goRun(runTarget.id, `diff`),
                   },
                 ]
@@ -429,6 +447,7 @@ function MobileIssuePage({
   issueRuns,
   hasChanges,
   liveDiff,
+  changesCounts,
   prFilesState,
   hasResults,
   showResults,
@@ -452,6 +471,8 @@ function MobileIssuePage({
   hasChanges: boolean
   /** The target run has a live diff: Changes opens on the run. */
   liveDiff: boolean
+  /** EXP-1152: the Changes tab's `+N −M` (null = the word). */
+  changesCounts: ChangesFaceCounts | null
   prFilesState: ReviewFilesState
   hasResults: boolean
   showResults: boolean
@@ -510,6 +531,7 @@ function MobileIssuePage({
       face={face}
       runs={issueRuns}
       viewedRunId={runTarget?.id ?? null}
+      changesCounts={changesCounts}
       onFace={onFace}
       onOpenRun={(target) => goRun(target.id)}
       trailing={mergePill}

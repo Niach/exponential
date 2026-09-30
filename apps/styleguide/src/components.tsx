@@ -142,6 +142,10 @@ import {
   UserAvatar,
   WORK_COLUMN_CLASS,
   WorkHeader,
+  ChangesFaceLabel,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  WorkFaceStrip,
   conceptIcon,
   indexEmojiData,
   type EmojiDataset,
@@ -1243,6 +1247,49 @@ export const COMPONENTS: readonly ComponentSpec[] = [
           </GlassRow>
         </GlassGroup>
       </div>
+    ),
+  },
+  {
+    id: `work-face-tabs`,
+    title: `Work face tabs`,
+    kind: `Inputs & pickers`,
+    blurb: `EXP-1152: the ONE strip every Work screen wears (the md+ work header, the phone's header band, the desktop IDE, iOS, Android): Issue · Run/Runs · +N −M · Results in that fixed order, the segmented capsule above. The Changes segment wears the diff's counts once its files are known and the word Changes until then (the desktop FaceToggle::diff rule); the Runs segment carries a caret to the run menu with several runs; an unavailable face is HIDDEN, never disabled, and the strip is absent under two faces. On phones the body under it is a PAGER: iOS TabView(.page), Android HorizontalPager, and on the web the face's body follows the finger and the next face slides in (the header band and the bar never move).`,
+    status: {
+      web: ok(
+        `WorkFaceStrip`,
+        `packages/ui/src/work-face-strip.tsx`,
+        `WorkFaceToggle + MobileFaceTabs in apps/web plug the run menu and the phone pager`
+      ),
+      desktop: ok(`work_header::FaceToggle`, `apps/desktop/crates/ui/src/work_header.rs`),
+      ios: ok(`WorkFaceTabs`, `apps/ios/Exponential/UI/Work/WorkFaceTabs.swift`),
+      android: ok(
+        `WorkFaceTabs`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/work/FaceTabs.kt`
+      ),
+    },
+    island: () => (
+      <WorkFaceStrip
+        face="diff"
+        items={[
+          { face: `issue`, label: `Issue`, onSelect: noop },
+          { face: `run`, label: `Runs`, onSelect: noop },
+          {
+            face: `diff`,
+            label: <ChangesFaceLabel counts={{ additions: 12, deletions: 2 }} />,
+            onSelect: noop,
+          },
+          { face: `results`, label: `Results`, onSelect: noop },
+        ]}
+        runMenu={{
+          // A portal: nothing renders at rest, the caret is the specimen.
+          content: (
+            <DropdownMenuContent>
+              <DropdownMenuItem>Run on macbook · Live</DropdownMenuItem>
+              <DropdownMenuItem>Run on studio · 2h ago</DropdownMenuItem>
+            </DropdownMenuContent>
+          ),
+        }}
+      />
     ),
   },
   {
