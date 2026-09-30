@@ -33,6 +33,7 @@ import {
   GitHubAsyncMergePending,
   GitHubMergeError,
   listOpenPulls,
+  mergedByPerson,
   mergePullRequestSmart,
   type OpenPull,
 } from "@/lib/integrations/github-pr"
@@ -572,11 +573,12 @@ export async function mergeRepositoryPull(opts: {
     viaAgent: opts.viaAgent,
     endSessions: opts.endSessions,
   })
+  let smart: Awaited<ReturnType<typeof mergePullRequestSmart>>
   try {
     // FEED-43: a stack member is refused by the legacy endpoint — the smart
     // merge discovers that from GitHub's own refusal and finishes through
     // merge-async.
-    await mergePullRequestSmart({
+    smart = await mergePullRequestSmart({
       repo: repo.fullName,
       prNumber,
       token,
@@ -613,6 +615,15 @@ export async function mergeRepositoryPull(opts: {
       throw prMergeFailureError(err, diagnosis)
     }
     throw err
+  }
+
+  // FEED-64: the merge call failed but the PR reads merged — by a PERSON.
+  // Theirs to attribute: the claim goes and the webhook (or poller) writes
+  // the state off its own `merged_by`; the PR is in, so `merged: true`.
+  if (mergedByPerson(smart.mergedBy)) {
+    releasePrMergeClaim(repo.fullName, prNumber)
+    openPullsCache.delete(repo.teamId)
+    return { merged: true }
   }
 
   // Lazy like `loadRepository`'s db import: pr-sync opens the db connection

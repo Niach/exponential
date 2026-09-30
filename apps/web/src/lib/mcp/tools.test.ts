@@ -229,6 +229,13 @@ vi.mock(`@/lib/integrations/github-pr`, async (importOriginal) => ({
   ).PullAlreadyExistsError,
   createPullRequest: vi.fn(),
   findOpenPullByHead: vi.fn(),
+  branchExists: vi.fn(async () => false),
+}))
+// FEED-66: the retired-identifier read behind pr_open's head inference; the
+// resolver itself stays real (it runs on the db stub like everything else).
+vi.mock(`@/lib/issue-resolver`, async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  retiredIdentifiers: vi.fn(async () => []),
 }))
 vi.mock(`@/lib/integrations/github-app`, () => ({
   resolveRepoInstallationToken: vi.fn(),
@@ -311,7 +318,9 @@ import {
 } from "@/lib/steer"
 import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
 import { maybeMergeYoloTree } from "@/lib/yolo-tree-merge"
+import { retiredIdentifiers } from "@/lib/issue-resolver"
 import {
+  branchExists,
   createPullRequest,
   findOpenPullByHead,
   PullAlreadyExistsError,
@@ -2263,6 +2272,66 @@ describe(`exponential_pr_open batch session parking`, () => {
     })
     return updates
   }
+
+  // FEED-66: a cross-board move renumbered the issue mid-run (FEED-50 →
+  // EXP-1147); the run pushed `exp/FEED-50`, the inferred head named a branch
+  // nobody pushed and GitHub answered 422 "head invalid".
+  it(`infers the head from a RETIRED identifier when that branch is the one on GitHub`, async () => {
+    armPrOpen()
+    dbRows.current = [{ identifier: `EXP-1147`, branch: null }]
+    vi.mocked(retiredIdentifiers).mockResolvedValueOnce([`FEED-50`])
+    vi.mocked(branchExists).mockImplementation(
+      async (_repo, branch) => branch === `exp/FEED-50`
+    )
+
+    const result = await collectTools(USER, null).get(`exponential_pr_open`)!({
+      issueId: UUID,
+      title: `Team management`,
+    })
+
+    expect(parseOk(result)).toMatchObject({ number: 7 })
+    expect(vi.mocked(branchExists).mock.calls.map(([, branch]) => branch)).toEqual([
+      `exp/EXP-1147`,
+      `exp/FEED-50`,
+    ])
+    expect(vi.mocked(createPullRequest).mock.calls[0]![0]).toMatchObject({
+      head: `exp/FEED-50`,
+    })
+  })
+
+  it(`costs a never-moved issue no GitHub read and keeps the plain guess`, async () => {
+    armPrOpen()
+    dbRows.current = [{ identifier: `EXP-1147`, branch: null }]
+
+    await collectTools(USER, null).get(`exponential_pr_open`)!({
+      issueId: UUID,
+      title: `Team management`,
+    })
+
+    expect(branchExists).not.toHaveBeenCalled()
+    expect(vi.mocked(createPullRequest).mock.calls[0]![0]).toMatchObject({
+      head: `exp/EXP-1147`,
+    })
+  })
+
+  it(`says the head was inferred when GitHub rejects it with 422`, async () => {
+    armPrOpen()
+    dbRows.current = [{ identifier: `EXP-1147`, branch: null }]
+    vi.mocked(createPullRequest).mockRejectedValueOnce(
+      new Error(`GitHub PR create failed (422): {"message":"Validation Failed","errors":[{"field":"head","code":"invalid"}]}`)
+    )
+
+    const result = await collectTools(USER, null).get(`exponential_pr_open`)!({
+      issueId: UUID,
+      title: `Team management`,
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0]!.text).toContain(`(422)`)
+    expect(result.content[0]!.text).toContain(
+      `The head branch 'exp/EXP-1147' was inferred from the issue; pass 'head' with the branch you pushed.`
+    )
+  })
 
   it(`parks the EXACT header session, stamping the batch branch`, async () => {
     const updates = armPrOpen()

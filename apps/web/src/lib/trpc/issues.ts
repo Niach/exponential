@@ -38,6 +38,8 @@ import {
   GitHubAsyncMergePending,
   GitHubMergeError,
   membersAtOrBelowNumber,
+  mergedByPerson,
+  mergedByPersonNote,
   mergePullRequestSmart,
   resolvePrBaseState,
   retargetPullRequest,
@@ -623,6 +625,18 @@ async function mergeStackFromMember(opts: {
         note: `GitHub queued the stack merge of PR #${top.prNumber}. Nothing is merged yet; the issues complete when it lands.`,
       }
     }
+    // FEED-64: the merge call failed but the stack reads merged — by a
+    // person. Their merge, their attribution: the webhook does the
+    // bookkeeping off its own `merged_by`, so the claims go and the cohort
+    // is left alone.
+    if (mergedByPerson(smart.mergedBy)) {
+      releaseAll()
+      return {
+        merged: true,
+        mergedPrUrls: members.map((member) => member.prUrl),
+        note: mergedByPersonNote(top.prNumber!, smart.mergedBy),
+      }
+    }
     await completeStackCohort({
       db,
       teamId,
@@ -706,6 +720,15 @@ async function mergeStackFromMember(opts: {
         code: `PRECONDITION_FAILED`,
         message: `Merged ${mergedNumbers.map((n) => `#${n}`).join(`, `)}, then PR #${member.prNumber} (${stackEntryLabel(member)}) failed: ${err instanceof Error ? err.message : String(err)}`,
       })
+    }
+    // FEED-64: this member reads merged by a PERSON after our call failed —
+    // theirs to attribute (the webhook writes its state), so its claim goes
+    // and its issues are left to that; the walk continues upward.
+    if (mergedByPerson(smart.mergedBy)) {
+      releasePrMergeClaim(repoFullName, member.prNumber!)
+      mergedNumbers.push(member.prNumber!)
+      mergedUrls.push(member.prUrl)
+      continue
     }
     // A stack GitHub built behind our back (`pr_stack_number` still null —
     // the webhook has not caught up): this one merge landed EVERY member
@@ -2114,6 +2137,20 @@ export const issuesRouter = router({
         }
       }
 
+      // FEED-64: the merge call failed, the PR reads merged — by a PERSON on
+      // github.com. The merge is theirs: the claims go (or the webhook echo
+      // would credit this caller, EXP-617) and the state write is left to
+      // that webhook / the poller. Still `merged: true`: the PR IS in.
+      if (mergedByPerson(smart.mergedBy)) {
+        for (const prNumber of claimedNumbers) {
+          releasePrMergeClaim(repoFullName, prNumber)
+        }
+        return {
+          merged: true,
+          note: mergedByPersonNote(row.prNumber, smart.mergedBy),
+        }
+      }
+
       // EXP-897: merging a stack member merged every unmerged member BELOW it
       // in the same GitHub transaction — complete their issues too.
       if (smart.viaStack) {
@@ -2275,7 +2312,7 @@ export const issuesRouter = router({
           }
           throw new TRPCError({
             code: `INTERNAL_SERVER_ERROR`,
-            message: `GitHub close failed: ${err.message}`,
+            message: `GitHub close failed (HTTP ${err.status}): ${err.message}`,
           })
         }
         throw err

@@ -138,6 +138,9 @@ const db = {
     const rows = h.selectQueue.shift() ?? []
     const builder = {
       from: () => builder,
+      // FEED-66: the resolver's retired-identifier second chance joins
+      // issue_events onto issues.
+      innerJoin: () => builder,
       where: (clause: unknown) => {
         h.whereArgs.push(clause)
         return builder

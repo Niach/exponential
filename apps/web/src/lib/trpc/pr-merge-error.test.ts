@@ -132,12 +132,16 @@ describe(`prMergeFailureError`, () => {
     expect(error.message).toBe(`Pull request not found on GitHub`)
   })
 
-  it(`wraps anything else as INTERNAL_SERVER_ERROR`, () => {
+  // FEED-64: the status IS the diagnosis a bare "Server Error" lacks — by the
+  // time a 5xx reaches this mapping the PR was re-read and is NOT merged.
+  it(`wraps anything else as INTERNAL_SERVER_ERROR, naming the HTTP status`, () => {
     const error = prMergeFailureError(
-      new GitHubMergeError(500, `Server Error`),
+      new GitHubMergeError(500, `Server Error (request 1234:ABCD)`),
       null
     )
     expect(error.code).toBe(`INTERNAL_SERVER_ERROR`)
-    expect(error.message).toBe(`GitHub merge failed: Server Error`)
+    expect(error.message).toBe(
+      `GitHub merge failed (HTTP 500): Server Error (request 1234:ABCD)`
+    )
   })
 })

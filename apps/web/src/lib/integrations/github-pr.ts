@@ -153,15 +153,7 @@ export async function mergePullRequest(opts: {
     }
   )
   if (!res.ok) {
-    const text = await res.text()
-    let message = text.slice(0, 300)
-    try {
-      const parsed = JSON.parse(text) as { message?: string }
-      if (parsed.message) message = parsed.message
-    } catch {
-      // Non-JSON error body — surface the raw text.
-    }
-    throw new GitHubMergeError(res.status, message)
+    throw new GitHubMergeError(res.status, await githubErrorMessage(res))
   }
   const data = (await res.json()) as { merged: boolean; sha: string }
   return { merged: data.merged, sha: data.sha }
@@ -246,16 +238,22 @@ export interface PullState {
   // members (GitHub retargets them when the PR below lands) without a second
   // read. Null when GitHub omits it.
   baseRef: string | null
+  // FEED-64: the squash commit of a merged PR — what the verify-after-failure
+  // read hands back in place of the merge response's `sha`. Null on an open
+  // PR (GitHub sends a test-merge sha there, deliberately dropped).
+  mergeCommitSha: string | null
 }
 
 // Fetch a PR's open/closed/merged state (server-side merge detection).
 export async function fetchPullState(
   repo: string,
   prNumber: number,
-  token?: string | null
+  token?: string | null,
+  fetchImpl?: GitHubFetch
 ): Promise<PullState> {
+  const doFetch = fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
   const headers = githubApiHeaders(token || process.env.GITHUB_TOKEN)
-  const res = await fetch(
+  const res = await doFetch(
     `https://api.github.com/repos/${repo}/pulls/${prNumber}`,
     { headers }
   )
@@ -266,13 +264,16 @@ export async function fetchPullState(
     state: string
     merged: boolean
     merged_by?: GithubActorRef | null
+    merge_commit_sha?: string | null
     base?: { ref?: string }
   }
+  const merged = Boolean(data.merged)
   return {
     state: data.state === `closed` ? `closed` : `open`,
-    merged: Boolean(data.merged),
+    merged,
     mergedBy: data.merged_by ?? null,
     baseRef: data.base?.ref || null,
+    mergeCommitSha: merged ? (data.merge_commit_sha ?? null) : null,
   }
 }
 
@@ -929,17 +930,27 @@ function parseStack(raw: RawStack): PullStack | null {
   }
 }
 
+// FEED-64: a 5xx body says nothing ("Server Error"); GitHub's request id is
+// what their support can trace, so the message carries it when the response
+// exposes headers (the real `fetch` does; unit stubs may not).
 async function githubErrorMessage(res: {
+  status?: number
+  headers?: { get: (name: string) => string | null }
   text: () => Promise<string>
 }): Promise<string> {
   const text = await res.text()
+  let message = text.slice(0, 300)
   try {
     const parsed = JSON.parse(text) as { message?: string }
-    if (parsed.message) return parsed.message
+    if (parsed.message) message = parsed.message
   } catch {
     // Non-JSON error body — surface the raw text.
   }
-  return text.slice(0, 300)
+  const requestId =
+    res.status !== undefined && res.status >= 500
+      ? res.headers?.get(`x-github-request-id`)
+      : null
+  return requestId ? `${message} (request ${requestId})` : message
 }
 
 /** The stack a PR belongs to, or null (no stack / preview unavailable). */
@@ -1174,18 +1185,29 @@ export async function pollAsyncMerge(opts: {
     sha: null,
   }
   for (;;) {
-    const res = await doFetch(
-      `https://api.github.com/repos/${opts.repo}/pulls/${opts.prNumber}/merge-async/${encodeURIComponent(opts.uuid)}`,
-      { headers: githubStackHeaders(opts.token) }
-    )
-    if (!res.ok) {
+    // FEED-64: a 5xx or a dropped connection on ONE poll is not a merge
+    // outcome — the job keeps running on GitHub — so it counts as "still
+    // pending" and the loop goes on to its deadline. A 4xx is GitHub's answer
+    // about the job itself and still throws.
+    let res: Awaited<ReturnType<GitHubFetch>> | null
+    try {
+      res = await doFetch(
+        `https://api.github.com/repos/${opts.repo}/pulls/${opts.prNumber}/merge-async/${encodeURIComponent(opts.uuid)}`,
+        { headers: githubStackHeaders(opts.token) }
+      )
+    } catch {
+      res = null
+    }
+    if (res && !res.ok && res.status < 500) {
       throw new GitHubMergeError(res.status, await githubErrorMessage(res))
     }
-    const data = (await res.json().catch(() => null)) as Parameters<
-      typeof parseAsyncMerge
-    >[0]
-    last = { ...parseAsyncMerge(data), uuid: opts.uuid }
-    if (last.status !== `pending`) return last
+    if (res?.ok) {
+      const data = (await res.json().catch(() => null)) as Parameters<
+        typeof parseAsyncMerge
+      >[0]
+      last = { ...parseAsyncMerge(data), uuid: opts.uuid }
+      if (last.status !== `pending`) return last
+    }
     if (now() + stepMs > deadline) return last
     await sleep(stepMs)
   }
@@ -1209,11 +1231,112 @@ export class GitHubAsyncMergePending extends Error {
 /** GitHub's refusal to merge a stack member through the legacy endpoint. */
 export const STACKED_PR_REFUSAL = /stacked PRs?/i
 
+/**
+ * GitHub's 405 "unmergeable" refusal — the only 405 worth a base diagnosis.
+ *
+ * GitHub has shipped two wordings for the same state: the classic
+ * `Pull Request is not mergeable` and, since 2026, the more specific
+ * `Pull Request has merge conflicts` (EXP-737: that one slipped through as a
+ * verbatim 412 policy refusal, so no client offered "Fix conflicts" on a real
+ * conflict). Both mean the trees disagree; policy refusals ("Squash merges are
+ * not allowed…", required reviews/checks) and the transient "Base branch was
+ * modified" use neither phrase. FEED-64: it is ALSO what a merged PR answers
+ * to a second merge call, which is why the smart merge verifies before
+ * passing it on.
+ */
+export const UNMERGEABLE_405 = /not mergeable|merge conflicts?/i
+
+/**
+ * FEED-64: the merge call failed WITHOUT GitHub deciding against the merge —
+ * a 5xx (GitHub's `PUT …/merge` is known to answer 500 "Server Error" after
+ * it already wrote the squash commit) or no answer at all (a dropped
+ * connection). The PR's real state has to be read before that counts as
+ * "not merged". A 4xx is GitHub's decision and never verified here; the
+ * async-pending signal is a state of its own, never "unknown".
+ */
+export function isMergeOutcomeUnknown(err: unknown): boolean {
+  if (err instanceof GitHubAsyncMergePending) return false
+  if (!(err instanceof GitHubMergeError)) return true
+  return err.status >= 500
+}
+
+function isUnmergeable405(err: unknown): boolean {
+  return (
+    err instanceof GitHubMergeError &&
+    err.status === 405 &&
+    UNMERGEABLE_405.test(err.message)
+  )
+}
+
+/**
+ * FEED-64: the PR's own state after a merge call that did not answer
+ * "refused". Two reads a beat apart, because GitHub can still be writing the
+ * merge when the 502/504 arrives; a read that itself fails answers null, and
+ * the caller then reports the ORIGINAL error — this never masks one.
+ */
+async function confirmMergedDespiteError(opts: {
+  repo: string
+  prNumber: number
+  token: string
+  fetchImpl?: GitHubFetch
+  sleepImpl?: (ms: number) => Promise<void>
+}): Promise<{ sha: string | null; mergedBy: GithubActorRef | null } | null> {
+  const sleep = opts.sleepImpl ?? defaultSleep
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) await sleep(VERIFY_MERGE_RETRY_MS)
+    let state: PullState
+    try {
+      state = await fetchPullState(
+        opts.repo,
+        opts.prNumber,
+        opts.token,
+        opts.fetchImpl
+      )
+    } catch {
+      return null
+    }
+    if (state.merged) {
+      return { sha: state.mergeCommitSha, mergedBy: state.mergedBy }
+    }
+  }
+  return null
+}
+
+const VERIFY_MERGE_RETRY_MS = 1_000
+
+/**
+ * FEED-64: a verified merge's `merged_by` names a PERSON — the merge was
+ * theirs (pressed on github.com while our call failed for a real reason),
+ * never this call's. The caller then drops its actor claims and leaves the
+ * bookkeeping to the webhook, which attributes it to them (EXP-617). Our own
+ * App acts as `<slug>[bot]`; mirrors `isBotActor` (github-identity.ts, which
+ * this module must not import — it opens the db connection at import).
+ */
+export function mergedByPerson(actor: GithubActorRef | null): boolean {
+  if (!actor || actor.type === `Bot`) return false
+  const login = actor.login?.trim().toLowerCase()
+  return Boolean(login) && !login!.endsWith(`[bot]`)
+}
+
+/** The note a caller hands back for a merge that turned out to be a person's. */
+export function mergedByPersonNote(
+  prNumber: number,
+  actor: GithubActorRef | null
+): string {
+  const who = actor?.login ? ` by ${actor.login}` : ``
+  return `PR #${prNumber} was already merged on GitHub${who}; its issues complete when the merge webhook lands.`
+}
+
 export interface SmartMergeResult {
   merged: boolean
   /** The merge is running on GitHub's merge queue — success, not yet landed. */
   queued: boolean
   sha: string | null
+  /** FEED-64: set ONLY when the merge was confirmed from the PR's state after
+   *  the merge call failed — GitHub's `merged_by`. A person there means the
+   *  merge was theirs, not this call's (the caller leaves the bookkeeping to
+   *  the webhook, attributed to them). Null on the normal path. */
+  mergedBy: GithubActorRef | null
   viaStack: boolean
   stackNumber: number | null
   /** Every member at-or-below the merged one (bottom → top, incl. itself). */
@@ -1252,6 +1375,13 @@ export async function mergePullRequestSmart(opts: {
   stepMs?: number
 }): Promise<SmartMergeResult> {
   const { repo, prNumber, token, commitTitle } = opts
+  const verifyOpts = {
+    repo,
+    prNumber,
+    token,
+    ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+    ...(opts.sleepImpl ? { sleepImpl: opts.sleepImpl } : {}),
+  }
   if (opts.knownStackNumber == null) {
     try {
       const merged = await mergePullRequest({
@@ -1264,12 +1394,31 @@ export async function mergePullRequestSmart(opts: {
         merged: merged.merged,
         queued: false,
         sha: merged.sha,
+        mergedBy: null,
         viaStack: false,
         stackNumber: null,
         stackMemberNumbers: [prNumber],
       }
     } catch (err) {
-      if (!isStackedRefusal(err)) throw err
+      if (!isStackedRefusal(err)) {
+        // FEED-64: a 5xx/dropped answer, or the 405 an already-merged PR
+        // gives a retry — read the PR before calling either a failure.
+        if (isMergeOutcomeUnknown(err) || isUnmergeable405(err)) {
+          const confirmed = await confirmMergedDespiteError(verifyOpts)
+          if (confirmed) {
+            return {
+              merged: true,
+              queued: false,
+              sha: confirmed.sha,
+              mergedBy: confirmed.mergedBy,
+              viaStack: false,
+              stackNumber: null,
+              stackMemberNumbers: [prNumber],
+            }
+          }
+        }
+        throw err
+      }
       // Fall through: this PR is a stack member after all.
     }
   }
@@ -1293,13 +1442,36 @@ export async function mergePullRequestSmart(opts: {
     : []
   const openAbove = stack ? openMembersAbove(stack, prNumber) : []
 
-  const started = await mergePullRequestAsync({
-    repo,
-    prNumber,
-    token,
-    ...(commitTitle !== undefined ? { commitTitle } : {}),
-    ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
-  })
+  let started: AsyncMergeStatus
+  try {
+    started = await mergePullRequestAsync({
+      repo,
+      prNumber,
+      token,
+      ...(commitTitle !== undefined ? { commitTitle } : {}),
+      ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+    })
+  } catch (err) {
+    // FEED-64: same verification as the legacy call — merge-async can land
+    // the stack and still answer 5xx.
+    if (isMergeOutcomeUnknown(err)) {
+      const confirmed = await confirmMergedDespiteError(verifyOpts)
+      if (confirmed) {
+        return {
+          merged: true,
+          queued: false,
+          sha: confirmed.sha,
+          mergedBy: confirmed.mergedBy,
+          viaStack: true,
+          stackNumber,
+          stackMemberNumbers: atOrBelow,
+          alreadyMergedMemberNumbers: alreadyMerged,
+          openMemberNumbersAbove: openAbove,
+        }
+      }
+    }
+    throw err
+  }
   let state = started
   if (state.status === `pending` && state.uuid) {
     state = await pollAsyncMerge({
@@ -1328,6 +1500,7 @@ export async function mergePullRequestSmart(opts: {
     merged: true,
     queued: state.status === `enqueued`,
     sha: state.sha,
+    mergedBy: null,
     viaStack: true,
     stackNumber,
     stackMemberNumbers: atOrBelow,
