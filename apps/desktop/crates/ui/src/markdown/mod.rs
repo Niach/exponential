@@ -52,6 +52,7 @@ pub(crate) use editor::{
     RETRY_AFTER as IMAGE_RETRY_AFTER,
 };
 pub use editor::{ImageCache, IssueChipCache, MarkdownEditor, MarkdownView, RefResolver};
+pub(crate) use editor::open_link_href;
 pub use image_paste::{
     read_any_file, AttachmentFetchStatus, AttachmentTransport, HttpAttachmentTransport, StagedImage, UploadedImage,
     MAX_FILE_UPLOAD_BYTES,

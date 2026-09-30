@@ -5,7 +5,7 @@ import { IconSwatchGrid } from "./icon-swatch-grid"
 import { BOARD_ICON_COMPONENTS, getBoardIcon } from "./board-icons"
 import { DEVICE_ICON_OPTIONS, getDeviceIconName } from "./device-icons"
 
-// EXP-273 grew the curated set from 16 to 60 (EXP-924: 96) and moved the glyph lookup into
+// EXP-273 grew the curated set from 16 to 60 (EXP-924: 96, FEED-50: 97) and moved the glyph lookup into
 // the generated registry. These render for real (jsdom) rather than asserting
 // on the data, because the failure mode that matters is "the name resolved to
 // nothing and the swatch painted empty".
@@ -15,7 +15,7 @@ describe(`IconSwatchGrid`, () => {
     render(<IconSwatchGrid value="code" onChange={vi.fn()} />)
     const swatches = screen.getAllByRole(`button`)
     expect(swatches).toHaveLength(PICKABLE_ICONS.length)
-    expect(swatches).toHaveLength(96)
+    expect(swatches).toHaveLength(97)
     // Every swatch must actually paint an SVG — a missing component would
     // render an empty button and still pass a length check.
     for (const swatch of swatches) {

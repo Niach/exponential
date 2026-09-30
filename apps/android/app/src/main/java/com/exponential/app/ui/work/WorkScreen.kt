@@ -251,18 +251,24 @@ fun WorkScreen(
     // shown run's OWN issue-less one (EXP-734). It wears the header's action
     // slot now, because the bar's leading slot opens the changed-files sheet.
     val changesPrUrl = (issue?.prUrl ?: shownSession?.prUrl)?.takeIf { it.isNotBlank() }
-    // EXP-932: source B — the issue's open PR files, read only when there is
-    // no live diff to draw. It is resolved HERE, not inside the Changes face,
-    // so the screen reads ONE file list for the run (web's `changesFiles`).
-    val changesVm: ChangesViewModel? = if (hasChanges && latestDiff == null && issueId != null) {
+    // EXP-932: source B — the issue's open PR files, drawn only when there is
+    // no live diff. It is resolved HERE, not inside the Changes face, so the
+    // screen reads ONE file list for the run (web's `changesFiles`). The model
+    // exists whenever the issue's PR is open — a replayed `latestDiff` of an
+    // ENDED run must not take the header's Merge PR with it (the pill merges
+    // through this model once the run's own target is gone).
+    val changesVm: ChangesViewModel? = if (prOpen && issueId != null) {
         hiltViewModel<ChangesViewModel, ChangesViewModel.Factory>(
             key = "changes:$issueId",
         ) { factory -> factory.create(issueId) }
     } else {
         null
     }
-    val prLoad by (changesVm?.load ?: remember { MutableStateFlow<ChangesLoadState?>(null) })
+    val prLoadState by (changesVm?.load ?: remember { MutableStateFlow<ChangesLoadState?>(null) })
         .collectAsStateWithLifecycle()
+    // The Changes face's caption source stays the PR files only while no live
+    // diff draws.
+    val prLoad = if (latestDiff == null) prLoadState else null
     // The ONE list — both sources land in the shared model, exactly as the
     // Reviews page does it.
     val changesFiles: List<Diff.File> = remember(parsedDiff, prLoad) {

@@ -4,16 +4,19 @@ import android.util.Log
 import com.exponential.app.data.auth.AuthRepository
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.timeout
-import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.prepareGet
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsBytes
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.ByteArrayContent
 import io.ktor.http.isSuccess
+import io.ktor.utils.io.readAvailable
+import java.io.ByteArrayOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.SerialName
@@ -147,9 +150,11 @@ class AttachmentsApi @Inject constructor(
      * `/api/attachments/{id}` form; an absolute URL is used as-is. The bearer
      * token rides ONLY same-instance requests — like the Coil
      * InstanceUrlInterceptor and iOS's `isSameOrigin` guard, a foreign host
-     * must never see the session token.
+     * must never see the session token. A [maxBytes] STREAMS the body and
+     * stops after `maxBytes + 1` bytes — a caller with a ceiling (the markdown
+     * preview) learns "over it" from the length without pulling the file.
      */
-    suspend fun download(accountId: String, relativeUrl: String): ByteArray {
+    suspend fun download(accountId: String, relativeUrl: String, maxBytes: Long? = null): ByteArray {
         val account = auth.accounts.value.firstOrNull { it.id == accountId }
         val baseUrl = account?.instanceUrl
             ?: throw TrpcException("No instance URL for account $accountId")
@@ -157,18 +162,31 @@ class AttachmentsApi @Inject constructor(
         val base = baseUrl.trimEnd('/')
         val url = if (relativeUrl.startsWith("/")) "$base$relativeUrl" else relativeUrl
         val sameInstance = url == base || url.startsWith("$base/")
-        val response = client.get(url) {
+        val request = client.prepareGet(url) {
             timeout { requestTimeoutMillis = FILE_TRANSFER_TIMEOUT_MS }
             if (token != null && sameInstance) header("Authorization", "Bearer $token")
         }
-        if (!response.status.isSuccess()) {
-            Log.w("AttachmentsApi", "Attachment download HTTP ${response.status.value} for $url")
-            throw TrpcException(
-                "The file could not be downloaded (HTTP ${response.status.value})",
-                response.status,
-            )
+        return request.execute { response ->
+            if (!response.status.isSuccess()) {
+                Log.w("AttachmentsApi", "Attachment download HTTP ${response.status.value} for $url")
+                throw TrpcException(
+                    "The file could not be downloaded (HTTP ${response.status.value})",
+                    response.status,
+                )
+            }
+            if (maxBytes == null) return@execute response.bodyAsBytes()
+            val limit = maxBytes + 1
+            val channel = response.bodyAsChannel()
+            val out = ByteArrayOutputStream()
+            val buffer = ByteArray(16 * 1024)
+            while (out.size() < limit) {
+                val want = minOf(buffer.size.toLong(), limit - out.size()).toInt()
+                val read = channel.readAvailable(buffer, 0, want)
+                if (read < 0) break
+                out.write(buffer, 0, read)
+            }
+            out.toByteArray()
         }
-        return response.bodyAsBytes()
     }
 
     /** `attachments.delete` — member-level; rewrites markdown references server-side. */

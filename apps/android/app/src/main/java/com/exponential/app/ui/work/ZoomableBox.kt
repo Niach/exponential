@@ -96,7 +96,12 @@ fun ZoomableBox(
     Box(
         modifier = modifier
             .clipToBounds()
-            .onSizeChanged { boxSize = it }
+            // A new size (rotation while zoomed) re-clamps the pan, or the
+            // picture stays parked past its edge.
+            .onSizeChanged {
+                boxSize = it
+                offset = clamp(offset, scale)
+            }
             .pointerInput(contentAspect) {
                 detectTapGestures(
                     onTap = { if (scale <= MinScale) onTap() },

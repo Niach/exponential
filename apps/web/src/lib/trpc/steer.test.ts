@@ -1141,6 +1141,69 @@ describe(`steer.startSession — builtin tidy-up (FEED-50)`, () => {
       },
     ])
   })
+
+})
+
+// ── EXP-1138 gate split: the start-time account fallback ─────────────────────
+
+describe(`steer.startSession — account fallback (EXP-1138)`, () => {
+  const profiles = (ambientSignedIn: boolean, workSignedIn: boolean) => ({
+    claude: {
+      signedIn: ambientSignedIn,
+      profiles: [
+        { id: `system`, signedIn: ambientSignedIn, active: true },
+        { id: `work`, signedIn: workSignedIn },
+      ],
+    },
+  })
+
+  it(`names the first signed-in profile when the ambient login is signed out`, async () => {
+    queueOwnDevice({ agentAccounts: profiles(false, true) })
+    await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, agent: `claude` })
+    expect(lastStartBody()).toMatchObject({ account: `work` })
+  })
+
+  it(`leaves the frame alone when the ambient login is signed in, and honours the caller's pick`, async () => {
+    queueOwnDevice({ agentAccounts: profiles(true, true) })
+    await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, agent: `claude` })
+    expect(lastStartBody().account).toBeUndefined()
+
+    queueOwnDevice({ agentAccounts: profiles(false, true) })
+    await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      agent: `claude`,
+      account: `system`,
+    })
+    expect(lastStartBody()).toMatchObject({ account: `system` })
+  })
+
+  it(`refuses when no profile of the agent is signed in`, async () => {
+    queueOwnDevice({ agentAccounts: profiles(false, false) })
+    const error = await rejectionOf(
+      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, agent: `claude` })
+    )
+    expect(error).toMatchObject({
+      code: `PRECONDITION_FAILED`,
+      message: `claude is installed on that device but not signed in — sign in on the machine first`,
+    })
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`applies to action starts too`, async () => {
+    h.dbQueue.push([{ teamId: BUILTIN_TEAM_ID, name: `Web` }])
+    queueOwnDevice({
+      caps: [`actions`, `start-prompt`],
+      agentAccounts: profiles(false, true),
+    })
+    await caller.startSession({
+      actionId: `builtin:tidy-up`,
+      teamId: BUILTIN_TEAM_ID,
+      deviceId: `dev-1`,
+      inputs: { board: `99999999-9999-4999-8999-999999999999` },
+    })
+    expect(lastStartBody()).toMatchObject({ account: `work` })
+  })
 })
 
 // ── The hidden chat builtin (EXP-615) ────────────────────────────────────────

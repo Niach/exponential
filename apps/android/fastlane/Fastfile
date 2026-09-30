@@ -166,9 +166,10 @@ platform :android do
       demo_broadcast("command", "enter")
       demo_broadcast("command", "clock", "-e", "hhmm", STATUS_BAR_CLOCK)
       demo_broadcast("command", "notifications", "-e", "visible", "false")
-      demo_broadcast("command", "network", "-e", "wifi", "show", "-e", "level", "4")
-      demo_broadcast("command", "network", "-e", "mobile", "show", "-e", "datatype", "none",
-                     "-e", "level", "4")
+      # `fully true` = a validated connection (else Wi-Fi carries a "!"); the
+      # mobile icon is hidden since API 36 renders `datatype none` as "3G".
+      demo_broadcast("command", "network", "-e", "wifi", "show", "-e", "level", "4", "-e", "fully", "true")
+      demo_broadcast("command", "network", "-e", "mobile", "hide")
       demo_broadcast("command", "battery", "-e", "level", "100", "-e", "plugged", "false")
       entered = true
       UI.message("Status bar pinned to #{STATUS_BAR_CLOCK[0, 2]}:#{STATUS_BAR_CLOCK[2, 2]} for the run")

@@ -25,6 +25,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -178,7 +179,20 @@ fun ChangesFace(
 fun MergePrHeaderPill(merge: ChangesMergeControl, modifier: Modifier = Modifier) {
     var mergeConfirmOpen by remember { mutableStateOf(false) }
     val toaster = LocalToaster.current
-    LaunchedEffect(merge.error) { merge.error?.let { toaster.error(it) } }
+    // The refusal toasts ONCE: the error itself stays in its model (it also
+    // drives the Fix conflicts verb and the Changes screen's notice), so the
+    // pill remembers what it already showed across rotation and re-toasts
+    // only a NEW refusal (a retry clears the error first).
+    var toastedError by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(merge.error) {
+        val error = merge.error
+        if (error == null) {
+            toastedError = null
+        } else if (error != toastedError) {
+            toastedError = error
+            toaster.error(error)
+        }
+    }
     GlassPill(
         label = merge.label,
         icon = if (merge.fixConflicts) ExpIcons.uiBranch else ExpIcons.prMerged,

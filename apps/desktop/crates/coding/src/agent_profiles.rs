@@ -384,15 +384,38 @@ pub fn active_profile(data_dir: &Path, agent: CodingAgent) -> String {
 /// HIDDEN (EXP-1137's "Remove account"). A removed login is never a launch
 /// target, so `None` there can only mean "no pick". Limited to hidden on
 /// purpose: otherwise `None` may be an explicit pick of the Default login.
-pub fn launch_account(data_dir: &Path, agent: CodingAgent, account: Option<String>) -> Option<String> {
-    if !ambient_hidden(data_dir, agent) || account_dir(data_dir, Some(agent), account.as_deref()).is_some() {
+///
+/// EXP-1138: with the doctor's `check` at hand, an ambient launch whose
+/// ambient login is provably SIGNED OUT lands on the named profile the
+/// doctor found signed in ([`crate::doctor::ToolCheck::signed_in_profile`],
+/// device default first). The doctor's account gate refuses a launch ON a
+/// signed-out ambient login, and the server accepts a frame naming no
+/// account (MCP `sessions_start`, an automation with a null account): without
+/// this hop every such start died on the device with "Pick another account".
+pub fn launch_account(
+    data_dir: &Path,
+    agent: CodingAgent,
+    account: Option<String>,
+    check: Option<&crate::doctor::ToolCheck>,
+) -> Option<String> {
+    if account_dir(data_dir, Some(agent), account.as_deref()).is_some() {
         return account;
     }
-    let active = active_profile(data_dir, agent);
-    if active == SYSTEM_PROFILE {
-        return account;
+    if ambient_hidden(data_dir, agent) {
+        let active = active_profile(data_dir, agent);
+        if active == SYSTEM_PROFILE {
+            return account;
+        }
+        return Some(active);
     }
-    Some(active)
+    if let Some(check) = check {
+        if check.ambient_signed_out() {
+            if let Some(profile) = &check.signed_in_profile {
+                return Some(profile.clone());
+            }
+        }
+    }
+    account
 }
 
 /// EXP-1137: whether "Remove account" hid the ambient login of `agent`.
@@ -658,24 +681,69 @@ mod tests {
         let work = create(&dir, agent, "Work").unwrap();
         let home = create(&dir, agent, "Home").unwrap();
         // Not hidden: nothing moves.
-        assert_eq!(launch_account(&dir, agent, None), None);
-        assert_eq!(launch_account(&dir, agent, Some(home.id.clone())), Some(home.id.clone()));
+        assert_eq!(launch_account(&dir, agent, None, None), None);
+        assert_eq!(launch_account(&dir, agent, Some(home.id.clone()), None), Some(home.id.clone()));
         // Hidden, no active pointer: the first named profile is the default.
         set_ambient_hidden(&dir, agent, true).unwrap();
-        assert_eq!(launch_account(&dir, agent, None), Some(work.id.clone()));
-        assert_eq!(launch_account(&dir, agent, Some("system".into())), Some(work.id.clone()));
+        assert_eq!(launch_account(&dir, agent, None, None), Some(work.id.clone()));
+        assert_eq!(launch_account(&dir, agent, Some("system".into()), None), Some(work.id.clone()));
         // A stale id degrades to the ambient login, so it moves too.
-        assert_eq!(launch_account(&dir, agent, Some("deadbeef".into())), Some(work.id.clone()));
+        assert_eq!(launch_account(&dir, agent, Some("deadbeef".into()), None), Some(work.id.clone()));
         // An explicit named pick is the person's.
-        assert_eq!(launch_account(&dir, agent, Some(home.id.clone())), Some(home.id.clone()));
+        assert_eq!(launch_account(&dir, agent, Some(home.id.clone()), None), Some(home.id.clone()));
         // The active pointer is the default.
         set_active_profile(&dir, agent, &home.id).unwrap();
-        assert_eq!(launch_account(&dir, agent, None), Some(home.id.clone()));
+        assert_eq!(launch_account(&dir, agent, None, None), Some(home.id.clone()));
         // Hidden with no named profile at all: nowhere to go.
         let bare = temp_dir("launch-account-bare");
         set_ambient_hidden(&bare, agent, true).unwrap();
-        assert_eq!(launch_account(&bare, agent, None), None);
+        assert_eq!(launch_account(&bare, agent, None, None), None);
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&bare);
+    }
+
+    /// EXP-1138: a launch naming no account (or `system`) while the ambient
+    /// login is provably signed out lands on the profile the doctor found
+    /// signed in; a named pick, a signed-in ambient login and a doctor that
+    /// found no signed-in profile leave the launch alone.
+    #[test]
+    fn an_ambient_launch_lands_on_the_doctors_signed_in_profile_while_the_ambient_login_is_signed_out() {
+        let dir = temp_dir("launch-account-signed-out");
+        let agent = CodingAgent::Claude;
+        let work = create(&dir, agent, "Work").unwrap();
+        let home = create(&dir, agent, "Home").unwrap();
+        let check = |authed: Option<bool>, signed_in_profile: Option<String>| crate::doctor::ToolCheck {
+            tool: crate::doctor::Tool::Claude,
+            ok: true,
+            version: Some("1.0.0".into()),
+            error: None,
+            authed,
+            account: None,
+            usage_eligible: false,
+            acp: Some(true),
+            acp_note: None,
+            signed_in_profile,
+        };
+        let signed_out = check(Some(false), Some(work.id.clone()));
+        assert_eq!(launch_account(&dir, agent, None, Some(&signed_out)), Some(work.id.clone()));
+        assert_eq!(
+            launch_account(&dir, agent, Some("system".into()), Some(&signed_out)),
+            Some(work.id.clone())
+        );
+        assert_eq!(
+            launch_account(&dir, agent, Some("deadbeef".into()), Some(&signed_out)),
+            Some(work.id.clone())
+        );
+        // An explicit named pick is the person's.
+        assert_eq!(
+            launch_account(&dir, agent, Some(home.id.clone()), Some(&signed_out)),
+            Some(home.id.clone())
+        );
+        // A signed-in ambient login is a legal target; so is an unknown one.
+        assert_eq!(launch_account(&dir, agent, None, Some(&check(Some(true), None))), None);
+        assert_eq!(launch_account(&dir, agent, None, Some(&check(None, None))), None);
+        // Signed out with nowhere to go: the doctor gate says so, not this.
+        assert_eq!(launch_account(&dir, agent, None, Some(&check(Some(false), None))), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

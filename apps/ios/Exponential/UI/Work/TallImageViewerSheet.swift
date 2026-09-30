@@ -1,5 +1,6 @@
 import ExpCore
 import ExpUI
+import ImageIO
 import SwiftUI
 import UIKit
 
@@ -9,12 +10,15 @@ import UIKit
 /// sheet's width (never wider than its natural point size) in a vertical
 /// scroll, drawn as horizontal strips of `tallImageStripRanges` rows so no one
 /// layer outgrows Core Animation's texture cap (a 25k px capture would draw
-/// blank as a single image). Mirrors web/desktop/Android's tall viewer.
+/// blank as a single image). Mirrors web/desktop/Android's tall viewer. The
+/// bytes decode through ImageIO no wider than the sheet needs, off the main
+/// thread (`DownsampledImage`): a 4000×60000 capture decoded whole is ~960 MB.
 struct TallImageViewerSheet: View {
     let entry: SessionResultEntry
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
+    @Environment(\.displayScale) private var displayScale
 
     private enum Phase {
         case loading
@@ -80,8 +84,15 @@ struct TallImageViewerSheet: View {
             httpClient: deps.httpClient,
             pendingImages: [:]
         )
-        guard let image = try? await loader.load(entry.url),
-              let cgImage = image.cgImage,
+        // The geometry may not have landed yet at first load: the screen's
+        // width is never narrower than the sheet, so it only over-decodes.
+        let pointWidth = sheetWidth > 0 ? sheetWidth : UIScreen.main.bounds.width
+        let maxPixelWidth = Int((pointWidth * displayScale).rounded(.up))
+        guard let data = try? await loader.data(entry.url),
+              let decoded = await Task.detached(priority: .userInitiated, operation: {
+                  DownsampledImage.decode(data, maxPixelWidth: maxPixelWidth)
+              }).value,
+              let cgImage = decoded.image.cgImage,
               cgImage.width > 0
         else {
             if !Task.isCancelled { phase = .failed }
@@ -90,7 +101,7 @@ struct TallImageViewerSheet: View {
         let strips = tallImageStripRanges(height: cgImage.height).compactMap { range in
             cgImage
                 .cropping(to: CGRect(x: 0, y: range.y, width: cgImage.width, height: range.rows))
-                .map { UIImage(cgImage: $0, scale: image.scale, orientation: image.imageOrientation) }
+                .map { UIImage(cgImage: $0) }
         }
         guard !strips.isEmpty else {
             phase = .failed
@@ -98,9 +109,53 @@ struct TallImageViewerSheet: View {
         }
         phase = .ready(
             strips: strips,
-            naturalWidth: CGFloat(cgImage.width) / image.scale,
+            // The SOURCE's point size (1 px = 1 pt, like `UIImage(data:)`),
+            // so a picture narrower than the sheet keeps its natural width.
+            naturalWidth: CGFloat(decoded.sourcePixelWidth),
             pixelWidth: CGFloat(cgImage.width)
         )
+    }
+}
+
+/// EXP-1128: a picture decoded through ImageIO no wider than `maxPixelWidth`
+/// and never upscaled. `kCGImageSourceThumbnailMaxPixelSize` caps the LARGER
+/// side, so a tall picture's cap is derived from its aspect. Runs wherever it
+/// is called: callers keep it off the main thread.
+struct DownsampledImage: Sendable {
+    let image: UIImage
+    /// The source's pixel width, before downsampling.
+    let sourcePixelWidth: Int
+
+    static func decode(_ data: Data, maxPixelWidth: Int) -> DownsampledImage? {
+        guard maxPixelWidth > 0,
+              let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int,
+              width > 0, height > 0
+        else { return nil }
+        let factor = min(1, Double(maxPixelWidth) / Double(width))
+        let maxSide = Int((Double(max(width, height)) * factor).rounded(.up))
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxSide,
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        else { return nil }
+        return DownsampledImage(image: UIImage(cgImage: cgImage), sourcePixelWidth: width)
+    }
+
+    /// The tile's picture: the top 4:3 crop COPIED into its own bitmap, so
+    /// caching it does not pin the whole downsampled page.
+    func tallTopTile() -> UIImage? {
+        guard let crop = sessionResultTallTopCrop(image) else { return nil }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: crop.size, format: format).image { _ in
+            crop.draw(at: .zero)
+        }
     }
 }
 

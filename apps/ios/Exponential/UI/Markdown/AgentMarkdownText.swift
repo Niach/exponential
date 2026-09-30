@@ -24,6 +24,9 @@ struct AgentIssueRefContext {
     let teamId: String
     let db: DatabaseManager
     let onOpen: (String) -> Void
+    /// Off for an uploaded markdown file: only `#IDENT` chips there, as on
+    /// the web; agent narration keeps the bare form.
+    var bareRefs = true
 }
 
 /// Read-only GFM render of agent-authored prose (plan bodies, question
@@ -132,7 +135,7 @@ struct AgentMarkdownText: View {
         let accountId = context?.accountId ?? ""
         let key = cacheKey(
             text: text, baseURL: context?.baseURL, options: options, overrides: overrides,
-            refsKey: refs.map { "\(accountId)/\($0.teamId)" } ?? ""
+            refsKey: refs.map { "\(accountId)/\($0.teamId)/\($0.bareRefs)" } ?? ""
         )
         if let cached = cache.object(forKey: key) { return cached }
         let model = IssueEditorModel()
@@ -147,7 +150,7 @@ struct AgentMarkdownText: View {
             let scope = IssueRefLookup.Scope.team(id: refs.teamId)
             let db = refs.db
             model.isDisplayOnly = true
-            model.bareIssueRefs = true
+            model.bareIssueRefs = refs.bareRefs
             model.issueRefResolver = { identifier in
                 IssueRefChipCache.chip(identifier, scope: scope, db: db, accountId: accountId)?
                     .issueId

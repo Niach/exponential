@@ -1,3 +1,8 @@
-- Agents: elke agentlogin onder een machine biedt “Sign out” in het menu, en ook de eigen login van de machine kan worden verwijderd
-- Agentruns: chatruns krijgen hun naam weer van Claude
-- MCP-servers: koppel je eigen account één keer op het web aan een MCP-server van het team, en elke run die je op welke machine dan ook start, gebruikt die
+- Werkscherm: Issue, Run, Wijzigingen en Resultaten zijn veegbare tabbladen in de kop, met Merge ernaast zolang de pull request openstaat
+- Settings > Account: wijzig je e-mailadres met een code, koppel of ontkoppel Google-, Apple- en OIDC-logins en beheer je passkeys
+- Bij het mergen van een gestapelde pull request kies je of de hele stapel of alleen deze pull request wordt gemerged
+- Resultaten: het verslag van een run staat naast de screenshots, lange screenshots openen in een scrollbare weergave en een melding kan Resultaten direct openen
+- Markdown-bijlagen openen in een voorbeeld in de app
+- Toasts: overal één gestapelde meldingsstijl, tik om uit te klappen, veeg om te sluiten
+- Tidy up: een ingebouwde actie om borden op te ruimen, met bijpassende iconen voor stapels, batches en workflows
+- Sub-issues die met een bijlage worden aangemaakt, laten geen concept meer achter

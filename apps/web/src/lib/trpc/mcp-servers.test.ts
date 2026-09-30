@@ -650,6 +650,47 @@ describe(`mcpServers.test / probe`, () => {
 // EXP-1140: the one procedure that hands out decrypted secrets is bound to a
 // LIVE run the caller owns or hosts (`X-Exp-Session-Id`), to that run's
 // persisted pick, and to a person's key (the agent's own key is refused).
+// EXP-1140 follow-up: the agent's own key writes neither the registry nor a
+// credential (an owner's agent could re-point a server's url and let `test`
+// POST the decrypted token there). A person's key keeps every write.
+describe(`mcpServers — agent-key refusals`, () => {
+  const keys = [
+    { id: `key-agent`, referenceId: `actor`, metadata: JSON.stringify({ kind: `agent` }) },
+    { id: `key-person`, referenceId: `actor`, metadata: JSON.stringify({ kind: `personal` }) },
+  ]
+
+  it(`refuses update, test and every other write on the agent key`, async () => {
+    db = createFakeDb({ mcp_servers: [serverRow({ url: MCP_URL })], apikeys: keys })
+    const agent = callerFor(`actor`, { keyId: `key-agent` })
+    const writes: Array<Promise<unknown>> = [
+      agent.update({ id: SERVER, url: `https://evil.example.com/mcp` }),
+      agent.test({ serverId: SERVER }),
+      agent.create({ teamId: TEAM, name: `X`, transport: `http`, url: `https://x.example.com`, auth: `none` }),
+      agent.remove({ id: SERVER }),
+      agent.connect({ serverId: SERVER }),
+      agent.setSecret({ serverId: SERVER, value: `v` }),
+      agent.disconnect({ serverId: SERVER }),
+      agent.probe({ teamId: TEAM, url: `https://x.example.com` }),
+    ]
+    for (const write of writes) {
+      const error = await rejectionOf(write)
+      expect(error.code).toBe(`FORBIDDEN`)
+      expect(error.message).toBe(`Agent keys cannot manage MCP servers or their credentials`)
+    }
+    // Nothing changed and the registry read still works for the agent.
+    const [row] = await db.select().from((await import(`@/db/schema`)).mcpServers)
+    expect(row).toMatchObject({ url: MCP_URL })
+    expect(await agent.list({ teamId: TEAM })).toHaveLength(1)
+  })
+
+  it(`a person's key still writes`, async () => {
+    db = createFakeDb({ mcp_servers: [serverRow({ url: MCP_URL })], apikeys: keys })
+    const person = callerFor(`actor`, { keyId: `key-person` })
+    const row = await person.update({ id: SERVER, name: `Linear 2` })
+    expect(row.name).toBe(`Linear 2`)
+  })
+})
+
 describe(`mcpServers.resolveForLaunch`, () => {
   const RUN = `99999999-9999-4999-8999-999999999999`
   const cred = (userId: string, serverId: string, token: string) => ({

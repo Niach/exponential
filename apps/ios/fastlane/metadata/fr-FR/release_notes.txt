@@ -1,3 +1,8 @@
-- Agents : chaque connexion d'agent sous une machine propose « Sign out » dans son menu, et la connexion propre à la machine peut aussi être supprimée
-- Runs de l'agent : les runs de chat reçoivent de nouveau leur nom de Claude
-- Serveurs MCP : connectez votre propre compte à un serveur MCP de l'équipe une seule fois sur le web, et chaque run que vous lancez sur n'importe quelle machine l'utilise
+- Écran de travail : Issue, Exécution, Modifications et Résultats sont des onglets à balayer dans l'en-tête, avec Merge à côté tant que la pull request est ouverte
+- Settings > Account : changez votre e-mail avec un code, associez ou dissociez vos connexions Google, Apple et OIDC, et gérez vos passkeys
+- Pour fusionner une pull request empilée, l'app demande s'il faut fusionner toute la pile ou seulement cette pull request
+- Résultats : le rapport d'une exécution s'affiche à côté de ses captures d'écran, les captures longues s'ouvrent dans une vue défilante, et une notification peut ouvrir Résultats directement
+- Les pièces jointes Markdown s'ouvrent dans un aperçu intégré
+- Notifications : un seul style empilé partout, touchez pour développer, balayez pour fermer
+- Tidy up : une action intégrée pour ranger les boards, avec des icônes assorties pour les piles, les lots et les workflows
+- Les sous-issues créées avec une pièce jointe ne laissent plus de brouillon derrière elles

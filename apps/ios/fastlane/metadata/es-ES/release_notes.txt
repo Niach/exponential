@@ -1,3 +1,8 @@
-- Agentes: cada inicio de sesión de un agente dentro de una máquina ofrece «Sign out» en su menú, y también se puede quitar el inicio de sesión propio de la máquina
-- Ejecuciones del agente: las ejecuciones de chat vuelven a recibir su nombre de Claude
-- Servidores MCP: conecta tu propia cuenta a un servidor MCP del equipo una sola vez en la web y todas las ejecuciones que inicies en cualquier máquina la usarán
+- Pantalla de trabajo: Issue, Ejecución, Cambios y Resultados son pestañas deslizables en la cabecera, con Merge al lado mientras la pull request siga abierta
+- Settings > Account: cambia tu correo con un código, vincula o desvincula los inicios de sesión de Google, Apple y OIDC, y gestiona tus passkeys
+- Al fusionar una pull request apilada, la app pregunta si fusionar toda la pila o solo esa pull request
+- Resultados: el informe de una ejecución aparece junto a sus capturas, las capturas largas se abren en un visor con desplazamiento y una notificación puede abrir Resultados directamente
+- Los adjuntos Markdown se abren en una vista previa dentro de la app
+- Avisos: un único estilo apilado en toda la app, toca para ampliar y desliza para descartar
+- Tidy up: una acción integrada para ordenar tableros, con iconos a juego para pilas, lotes y flujos de trabajo
+- Las subissues creadas con un adjunto ya no dejan un borrador

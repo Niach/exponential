@@ -1195,7 +1195,11 @@ export async function pollAsyncMerge(opts: {
         `https://api.github.com/repos/${opts.repo}/pulls/${opts.prNumber}/merge-async/${encodeURIComponent(opts.uuid)}`,
         { headers: githubStackHeaders(opts.token) }
       )
-    } catch {
+    } catch (err) {
+      // Only a dropped connection is "no answer yet"; anything else is a bug
+      // (or a caller's own throw) that must surface instead of burning the
+      // deadline one silent step at a time.
+      if (!isFetchFailure(err)) throw err
       res = null
     }
     if (res && !res.ok && res.status < 500) {
@@ -1211,6 +1215,25 @@ export async function pollAsyncMerge(opts: {
     if (now() + stepMs > deadline) return last
     await sleep(stepMs)
   }
+}
+
+/**
+ * FEED-64: a request that never got GitHub's answer — undici/Bun throw a
+ * `TypeError` ("fetch failed"), a timed-out or aborted request an
+ * `AbortError`/`TimeoutError`, a socket error carries an `ECONN*`/
+ * `ETIMEDOUT`/`EAI_*`/`EPIPE`/`UND_ERR_*` code (sometimes one level down, on
+ * `cause`). Anything else is a programming error, not a network one.
+ */
+export function isFetchFailure(err: unknown): boolean {
+  if (err instanceof TypeError) return true
+  if (!(err instanceof Error)) return false
+  if (err.name === `AbortError` || err.name === `TimeoutError`) return true
+  const code = (err as { code?: unknown }).code
+  if (typeof code === `string` && /^(ECONN|ETIMEDOUT|EAI_|EPIPE|UND_ERR)/.test(code)) {
+    return true
+  }
+  const cause = (err as { cause?: unknown }).cause
+  return cause instanceof Error && cause !== err && isFetchFailure(cause)
 }
 
 /**
@@ -1273,6 +1296,9 @@ function isUnmergeable405(err: unknown): boolean {
  * "refused". Two reads a beat apart, because GitHub can still be writing the
  * merge when the 502/504 arrives; a read that itself fails answers null, and
  * the caller then reports the ORIGINAL error — this never masks one.
+ * `settled`: GitHub DID answer about the PR (the 405 an already-merged PR
+ * gives a retry, which a real conflict shares), so a first read that shows it
+ * open is final: no second read, no sleep on a genuine conflict.
  */
 async function confirmMergedDespiteError(opts: {
   repo: string
@@ -1280,6 +1306,7 @@ async function confirmMergedDespiteError(opts: {
   token: string
   fetchImpl?: GitHubFetch
   sleepImpl?: (ms: number) => Promise<void>
+  settled?: boolean
 }): Promise<{ sha: string | null; mergedBy: GithubActorRef | null } | null> {
   const sleep = opts.sleepImpl ?? defaultSleep
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -1298,6 +1325,7 @@ async function confirmMergedDespiteError(opts: {
     if (state.merged) {
       return { sha: state.mergeCommitSha, mergedBy: state.mergedBy }
     }
+    if (opts.settled && state.state === `open`) return null
   }
   return null
 }
@@ -1404,7 +1432,11 @@ export async function mergePullRequestSmart(opts: {
         // FEED-64: a 5xx/dropped answer, or the 405 an already-merged PR
         // gives a retry — read the PR before calling either a failure.
         if (isMergeOutcomeUnknown(err) || isUnmergeable405(err)) {
-          const confirmed = await confirmMergedDespiteError(verifyOpts)
+          const confirmed = await confirmMergedDespiteError({
+            ...verifyOpts,
+            // A 405 is GitHub's answer about the PR: one open read settles it.
+            settled: !isMergeOutcomeUnknown(err),
+          })
           if (confirmed) {
             return {
               merged: true,

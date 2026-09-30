@@ -116,7 +116,14 @@ struct WorkScreen: View {
         case .issue:
             _face = State(initialValue: initialFace)
             _pendingInitialFace = State(initialValue: initialFace == .issue ? nil : initialFace)
-        case .session: _face = State(initialValue: .run)
+        case .session:
+            // The run's faces only: `.issue` lands on Run through the same
+            // rule, so a workflow batch node keeps the page's face too.
+            let first = WorkFaces.fallbackFace(
+                shown: initialFace, available: [.run, .changes, .results]
+            ) ?? .run
+            _face = State(initialValue: first)
+            _pendingInitialFace = State(initialValue: first == .run ? nil : first)
         }
     }
 
@@ -1096,6 +1103,9 @@ struct WorkScreen: View {
         // the run view's chrome preference, which the Issue face dropped.
         guard !continuation.isPending, !resuming else { return }
         guard sawLiveSession else { return }
+        // Embedded in the workflow page, a node's ended run must not pop
+        // the whole page; the page keeps the node in place.
+        guard !isEmbedded else { return }
         dismiss()
     }
 
@@ -1229,7 +1239,7 @@ struct WorkScreen: View {
 
     private func deleteIssue() {
         Task {
-            if await issueVM?.deleteIssue() == true {
+            if await issueVM?.deleteIssue() == true, !isEmbedded {
                 dismiss()
             }
         }

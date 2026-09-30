@@ -364,6 +364,13 @@ export interface YoloDeps {
 const MERGEABLE_POLL_MS = [1_000, 2_000, 3_000, 4_000]
 /** After a retarget the base ref itself may lag one read. */
 const RETARGET_SETTLE_MS = 2_000
+/** EXP-1146: how long a child's base gets to leave a merged tree branch. Our
+ *  own heal is synchronous, but a REAL GitHub stack member is retargeted by
+ *  GitHub itself, seconds after the merge below it lands; one read after
+ *  RETARGET_SETTLE_MS called such a child failed, its owner got a message and
+ *  nothing retried (an unattended child never fires another edge). The same
+ *  ladder as the mergeability poll, ≈12 s in all. */
+const BASE_MOVE_POLL_MS = [RETARGET_SETTLE_MS, ...MERGEABLE_POLL_MS]
 
 function isConflictRefusal(err: unknown): boolean {
   if (err instanceof TRPCError) return err.code === `CONFLICT`
@@ -465,20 +472,30 @@ export async function executeYoloTree(
       }
       // Based on another tree PR's head: wait for that PR to land and the
       // heal to move this one — never merge INTO a tree branch.
-      if (runByHead.has(pull.baseRef) && runByHead.get(pull.baseRef) !== run) {
+      const onAnotherTreeHead = (p: YoloPull) =>
+        runByHead.has(p.baseRef) && runByHead.get(p.baseRef) !== run
+      if (onAnotherTreeHead(pull)) {
         if (!mergedHeads.has(pull.baseRef)) continue
-        await deps.sleep(RETARGET_SETTLE_MS)
-        try {
-          pull = await deps.getPull(repo, run.prNumber!)
-        } catch (err) {
+        let readError: unknown = null
+        for (const delay of BASE_MOVE_POLL_MS) {
+          await deps.sleep(delay)
+          try {
+            pull = await deps.getPull(repo, run.prNumber!)
+          } catch (err) {
+            readError = err
+            break
+          }
+          if (!onAnotherTreeHead(pull)) break
+        }
+        if (readError) {
           outcomes.set(run.sessionId, {
             kind: `failed`,
-            detail: err instanceof Error ? err.message : String(err),
+            detail: readError instanceof Error ? readError.message : String(readError),
           })
           drop()
           continue
         }
-        if (runByHead.has(pull.baseRef) && runByHead.get(pull.baseRef) !== run) {
+        if (onAnotherTreeHead(pull)) {
           if (mergedHeads.has(pull.baseRef)) {
             outcomes.set(run.sessionId, {
               kind: `failed`,

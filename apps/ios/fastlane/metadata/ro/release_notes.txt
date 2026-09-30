@@ -1,3 +1,8 @@
-- Agenți: fiecare autentificare de agent de sub o mașină oferă „Sign out” în meniul său, iar autentificarea proprie a mașinii poate fi și ea eliminată
-- Rulări ale agentului: rulările de chat primesc din nou numele de la Claude
-- Servere MCP: conectează-ți o singură dată contul pe web la un server MCP al echipei, iar fiecare rulare pe care o pornești pe orice mașină îl va folosi
+- Ecranul de lucru: Issue, Rulare, Modificări și Rezultate sunt file glisabile în antet, cu Merge alături cât timp pull request-ul este deschis
+- Settings > Account: schimbă-ți adresa de email cu un cod, conectează sau deconectează autentificările Google, Apple și OIDC și gestionează cheile de acces
+- La îmbinarea unui pull request dintr-un stack, aplicația întreabă dacă să îmbine tot stack-ul sau doar acest pull request
+- Rezultate: raportul unei rulări apare lângă capturile de ecran, capturile lungi se deschid într-un vizualizator cu derulare, iar o notificare poate deschide direct Rezultate
+- Atașamentele Markdown se deschid într-o previzualizare în aplicație
+- Notificări: un singur stil, suprapus, peste tot, atinge pentru a extinde, glisează pentru a închide
+- Tidy up: o acțiune integrată pentru ordonarea boardurilor, cu pictograme potrivite pentru stackuri, loturi și workflow-uri
+- Sub-issue-urile create cu un atașament nu mai lasă în urmă o ciornă

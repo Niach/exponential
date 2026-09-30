@@ -49,7 +49,11 @@ import {
   resolveStartPrompt,
   type StartPromptLookups,
 } from "@/lib/start-prompt"
-import { deviceRowIsOnline, deviceUsageWallAt } from "@/lib/steer-devices"
+import {
+  deviceRowIsOnline,
+  deviceUsageWallAt,
+  resolveStartAccount,
+} from "@/lib/steer-devices"
 import { SYSTEM_PROFILE_ID } from "@/lib/agent-usage"
 import { runIsStaleEnd } from "@/lib/past-runs"
 import { fireYoloTreeMerge } from "@/lib/sessions/yolo-tree-trigger"
@@ -867,6 +871,29 @@ export const steerRouter = router({
         }
       }
 
+      // EXP-1138 gate split: `device.agents` lists an agent as runnable when
+      // ANY of its logins is signed in, but a frame with no `account` lands on
+      // the machine's ambient login, which the doctor refuses when that one
+      // is signed out. Name the first signed-in profile instead; refuse when
+      // none is (lib/steer-devices.ts `resolveStartAccount`). A caller's own
+      // pick always wins. Additive: an older heartbeat without profiles
+      // leaves the frame as it was.
+      const resolveLaunchAccount = (
+        device: TargetDevice,
+        agent: string
+      ): string | undefined => {
+        if (input.account) return input.account
+        const resolved = resolveStartAccount(device, agent)
+        if (resolved.kind === `profile`) return resolved.account
+        if (resolved.kind === `none`) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `${agent} is installed on that device but not signed in — sign in on the machine first`,
+          })
+        }
+        return undefined
+      }
+
       // EXP-637: resume an ended run. Owner-ONLY (a live session is visible
       // and steerable only by its owner since EXP-312, and a resume restarts
       // one) and pinned to the machine that holds the worktree — the run
@@ -1348,7 +1375,8 @@ export const steerRouter = router({
               : `${actionAgent} is not installed on that device`,
           })
         }
-        requireUsageHeadroom(device, actionAgent, input.account, input.model)
+        const actionAccount = resolveLaunchAccount(device, actionAgent)
+        requireUsageHeadroom(device, actionAgent, actionAccount, input.model)
         requireStartPromptCap(device, prompt)
         // An older build has no Plan-workflow kind: it would fall through to
         // the Create-action prompt and author an ACTION instead.
@@ -1384,7 +1412,7 @@ export const steerRouter = router({
           ultracode: input.ultracode,
           planMode: input.planMode,
           mcpServerIds: mcpServerIdsForDevice(device, mcpServerIds),
-          account: input.account,
+          account: actionAccount,
         })
         if (!result.ok) {
           if (result.status === 404) {
@@ -1492,7 +1520,8 @@ export const steerRouter = router({
             : `${agent} is not installed on that device`,
         })
       }
-      requireUsageHeadroom(device, agent, input.account, input.model)
+      const account = resolveLaunchAccount(device, agent)
+      requireUsageHeadroom(device, agent, account, input.model)
       requireStartPromptCap(device, prompt)
       requireStackedStartCap(device, Boolean(input.stack || input.stackOn))
 
@@ -1505,7 +1534,7 @@ export const steerRouter = router({
         planMode: input.planMode,
         resume: input.resume,
         mcpServerIds: mcpServerIdsForDevice(device, mcpServerIds),
-        account: input.account,
+        account,
       }
 
       // EXP-897: the stacked start. The chain is resolved HERE — the one place

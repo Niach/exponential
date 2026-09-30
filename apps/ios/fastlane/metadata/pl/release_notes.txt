@@ -1,3 +1,8 @@
-- Agenci: każde logowanie agenta pod maszyną ma w menu „Sign out”, a usunąć można też własne logowanie maszyny
-- Przebiegi agenta: przebiegi czatu znów otrzymują nazwę od Claude
-- Serwery MCP: połącz raz w wersji webowej swoje konto z zespołowym serwerem MCP, a każdy przebieg uruchomiony na dowolnej maszynie będzie z niego korzystał
+- Ekran pracy: Issue, Uruchomienie, Zmiany i Wyniki to przesuwane karty w nagłówku, a obok nich Merge, dopóki pull request jest otwarty
+- Settings > Account: zmień e-mail za pomocą kodu, połącz lub odłącz logowanie przez Google, Apple i OIDC oraz zarządzaj kluczami dostępu
+- Przy scalaniu pull requesta ze stosu aplikacja pyta, czy scalić cały stos, czy tylko ten pull request
+- Wyniki: raport z uruchomienia jest obok jego zrzutów ekranu, długie zrzuty otwierają się w przewijanym podglądzie, a powiadomienie może od razu otworzyć Wyniki
+- Załączniki Markdown otwierają się w podglądzie w aplikacji
+- Powiadomienia: jeden spójny styl ze stosem wszędzie, stuknij, aby rozwinąć, przesuń, aby zamknąć
+- Tidy up: wbudowana akcja porządkowania tablic, z dopasowanymi ikonami dla stosów, partii i workflowów
+- Sub-issues utworzone z załącznikiem nie zostawiają już szkicu

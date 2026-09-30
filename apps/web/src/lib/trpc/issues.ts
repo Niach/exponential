@@ -16,7 +16,7 @@ import {
   notifications,
   boards,
 } from "@/db/schema"
-import { and, eq, inArray, sql } from "drizzle-orm"
+import { and, eq, inArray, like, ne, sql } from "drizzle-orm"
 import {
   resolveTeamAccess,
   assertAssigneeInTeam,
@@ -48,6 +48,7 @@ import {
   loadStackRows,
   membersAtOrBelow,
   orderStack,
+  prUrlPattern,
   stackTopOpen,
   type StackEntry,
 } from "@/lib/integrations/pr-stack"
@@ -509,6 +510,47 @@ function stackEntryLabel(entry: StackEntry): string {
  * Every refusal is a PRECONDITION_FAILED naming the offending PR: a stack is
  * merged as a unit, and "one of them is a draft" is the actionable fact.
  */
+/**
+ * EXP-1145: the single-PR refusal on a candidate stack member. Byte-locked —
+ * the merge dialog surfaces it as a toast and agents read it out of
+ * `exponential_pr_merge`.
+ */
+export function stackedOnMessage(lowerIdentifier: string): string {
+  return `This pull request is stacked on ${lowerIdentifier}; merge the stack or retarget it first`
+}
+
+/**
+ * EXP-1145: the identifier of the team issue whose OPEN pull request (same
+ * repository) this PR's base branch is the head of — i.e. the PR this one is
+ * stacked on — or null when the base is nobody's PR branch (the default
+ * branch, a merged/closed lower, a branch outside the team).
+ */
+export async function stackedOnOpenPr(
+  db: Context[`db`],
+  opts: {
+    issueId: string
+    teamId: string
+    repoFullName: string
+    prBaseBranch: string | null
+  }
+): Promise<string | null> {
+  if (!opts.prBaseBranch) return null
+  const [lower] = await db
+    .select({ identifier: issues.identifier })
+    .from(issues)
+    .where(
+      and(
+        eq(issues.teamId, opts.teamId),
+        ne(issues.id, opts.issueId),
+        eq(issues.branch, opts.prBaseBranch),
+        eq(issues.prState, `open`),
+        like(issues.prUrl, prUrlPattern(opts.repoFullName))
+      )
+    )
+    .limit(1)
+  return lower?.identifier ?? null
+}
+
 async function mergeStackFromMember(opts: {
   db: Context[`db`]
   teamId: string
@@ -2008,6 +2050,28 @@ export const issuesRouter = router({
           code: `PRECONDITION_FAILED`,
           message: `${repoFullName} resolves to a GitHub account that isn't connected to this team. Reconnect it in team settings → Repositories.`,
         })
+      }
+
+      // EXP-1145: a CANDIDATE stack member (no GitHub stack number: the
+      // preview API 404'd or the edge came from a raw `base`) would go
+      // through the legacy `PUT /merge` below, which squashes it INTO its
+      // base = the lower PR's head branch: the diff never reaches the
+      // default branch while the issue flips to Done. A real member
+      // (`prStackNumber` set) lands through merge-async, which takes the
+      // PRs below it along; so only the candidate is refused here.
+      if (!input.mergeStack && row.prStackNumber == null) {
+        const lower = await stackedOnOpenPr(ctx.db, {
+          issueId: input.issueId,
+          teamId,
+          repoFullName,
+          prBaseBranch: row.prBaseBranch,
+        })
+        if (lower) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: stackedOnMessage(lower),
+          })
+        }
       }
 
       // EXP-897: merge the whole chain in one call. Resolved from OUR edges

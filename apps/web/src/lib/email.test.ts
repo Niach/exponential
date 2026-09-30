@@ -202,6 +202,36 @@ describe(`sendEmail over the SES transport (mocked)`, () => {
   })
 })
 
+describe(`sendEmailChangedNoticeEmail (the OLD address hears of the change)`, () => {
+  it(`mails the old address a plain notice naming the new one`, async () => {
+    const email = await importEmail({ AWS_SES_REGION: `eu-central-1` })
+    const result = await email.sendEmailChangedNoticeEmail({
+      to: `old@example.com`,
+      newEmail: `new@example.com`,
+    })
+    expect(result.delivered).toBe(true)
+    const input = sesCallInput()
+    expect(input.Destination.ToAddresses).toEqual([`old@example.com`])
+    expect(input.Content.Simple.Subject.Data).toBe(`Your Exponential sign-in email changed`)
+    expect(input.Content.Simple.Body.Text.Data).toBe(
+      `Your Exponential sign-in email changed to new@example.com. If this was not you, contact support.`
+    )
+    expect(input.Content.Simple.Body.Html.Data).toContain(`new@example.com`)
+    // No link: a session leak cannot turn the notice into a phishing hook.
+    expect(input.Content.Simple.Body.Html.Data).not.toContain(`href=`)
+  })
+
+  it(`is a no-op without a transport`, async () => {
+    const email = await importEmail({})
+    const stderrSpy = vi.spyOn(process.stderr, `write`).mockImplementation(() => true)
+    await expect(
+      email.sendEmailChangedNoticeEmail({ to: `old@example.com`, newEmail: `new@example.com` })
+    ).resolves.toMatchObject({ delivered: false })
+    expect(sesSendMock).not.toHaveBeenCalled()
+    stderrSpy.mockRestore()
+  })
+})
+
 describe(`send-time suppression (bounce/complaint on record)`, () => {
   it(`refuses to send to a complained address and never reaches the transport`, async () => {
     suppressionRows.push({ kind: `complaint`, bounceType: null })

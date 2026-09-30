@@ -1,3 +1,8 @@
-- Agentes: cada sessão de agente numa máquina oferece «Sign out» no seu menu, e a sessão da própria máquina também pode ser removida
-- Execuções do agente: as execuções de chat voltam a receber o nome do Claude
-- Servidores MCP: ligue a sua conta a um servidor MCP da equipa uma única vez na web, e todas as execuções que iniciar em qualquer máquina passam a usá-la
+- Ecrã de trabalho: Issue, Execução, Alterações e Resultados são separadores deslizáveis no cabeçalho, com Merge ao lado enquanto o pull request estiver aberto
+- Settings > Account: altere o seu email com um código, associe ou desassocie inícios de sessão Google, Apple e OIDC e faça a gestão das passkeys
+- Ao fazer merge de um pull request empilhado, a app pergunta se quer juntar toda a pilha ou apenas este pull request
+- Resultados: o relatório de uma execução aparece ao lado das capturas de ecrã, as capturas longas abrem num visualizador com deslocamento e uma notificação pode abrir Resultados diretamente
+- Os anexos Markdown abrem numa pré-visualização na app
+- Avisos: um único estilo empilhado em toda a app, toque para expandir, deslize para dispensar
+- Tidy up: uma ação integrada para arrumar quadros, com ícones coerentes para pilhas, lotes e workflows
+- Sub-issues criados com um anexo já não deixam um rascunho para trás

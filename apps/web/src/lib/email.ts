@@ -371,6 +371,31 @@ export async function sendEmailChangeCodeEmail(args: {
   })
 }
 
+// The notice the OLD primary address gets once the change above went through
+// (the code alone only ever reaches the new mailbox, so without this the
+// person whose account was re-homed would never hear of it). Plain, no link:
+// a leaked session cannot turn it into a phishing hook.
+export async function sendEmailChangedNoticeEmail(args: {
+  to: string
+  newEmail: string
+}): Promise<EmailSendResult> {
+  const body = `Your Exponential sign-in email changed to ${args.newEmail}. If this was not you, contact support.`
+  return await sendEmail({
+    to: args.to,
+    subject: `Your Exponential sign-in email changed`,
+    html: `<!DOCTYPE html>
+<html>
+  <body style="margin:0;padding:0;background:#09090b;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#fafafa;">
+    <div style="max-width:480px;margin:0 auto;padding:40px 24px;">
+      <h1 style="margin:0 0 16px;font-size:20px;font-weight:600;">Your sign-in email changed</h1>
+      <p style="margin:0;font-size:14px;line-height:1.6;color:#a1a1aa;">${escapeHtml(body)}</p>
+    </div>
+  </body>
+</html>`,
+    text: body,
+  })
+}
+
 export async function sendPasswordResetEmail(args: {
   to: string
   url: string

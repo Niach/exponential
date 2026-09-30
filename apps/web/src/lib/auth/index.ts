@@ -32,6 +32,7 @@ import { androidPasskeyOrigins, parseFingerprints } from "@/lib/app-links"
 import {
   recordEmailDelivery,
   sendEmailChangeCodeEmail,
+  sendEmailChangedNoticeEmail,
   sendPasswordResetEmail,
   sendSignInCodeEmail,
   sendVerificationEmail,
@@ -49,7 +50,7 @@ import {
 import { mintAppleClientSecret } from "./apple"
 import { withAuthDbFailureSignal } from "./db-failure-signal"
 import { askNameBeforeHook, fallbackUserName } from "./ask-name"
-import { signInMethodsGuardPlugin } from "./sign-in-methods"
+import { emailChangeNotice, signInMethodsGuardPlugin } from "./sign-in-methods"
 import {
   resolveDesktopCardDismissal,
   resolveOnboardingCompletedAt,
@@ -452,8 +453,27 @@ export const auth = betterAuth({
       // INITIAL_ADMIN_EMAILS promotion (boot pass + verification hook) skips
       // this account for good: a changed address never grants admin.
       update: {
-        before: async (data) => {
+        before: async (data, ctx) => {
           if (typeof data.email !== `string`) return
+          // Tell the OLD address (the requester's session still carries it)
+          // that the account moved. Fire-and-forget: a mail failure never
+          // blocks the change, and without a transport it is a no-op like
+          // every other send.
+          const notice = emailChangeNotice(data, ctx?.context.session)
+          if (notice) {
+            void sendEmailChangedNoticeEmail(notice)
+              .then((result) =>
+                recordEmailDelivery({
+                  userId: ctx?.context.session?.user.id ?? null,
+                  toEmail: notice.to,
+                  kind: `email_changed_notice`,
+                  result,
+                })
+              )
+              .catch((err) => {
+                console.error(`[auth] email-changed notice failed:`, err)
+              })
+          }
           return { data: { ...data, emailChangedAt: new Date() } }
         },
       },

@@ -216,6 +216,11 @@ pub(crate) enum ImageSlot {
     /// (stale keep-alive socket, brief offline) must not brick every image
     /// for the rest of the session.
     Failed(std::time::Instant),
+    /// EXP-1128: a picture over the texture cap whose DECODE failed — a
+    /// permanent state, never retried: the bytes will not change, and a
+    /// [`RETRY_AFTER`] loop would re-download and re-decode a huge file
+    /// every 5 s for as long as it is on screen.
+    Unrenderable,
 }
 
 /// How long a failed fetch is displayed before the next render retries it.
@@ -313,7 +318,7 @@ impl ImageCache {
                                 Ok(tall) => ImageSlot::ReadyTall(Arc::new(tall)),
                                 Err(error) => {
                                     log::warn!("tall image decode failed for {log_url}: {error}");
-                                    ImageSlot::Failed(std::time::Instant::now())
+                                    ImageSlot::Unrenderable
                                 }
                             }
                         }
@@ -622,7 +627,7 @@ fn render_image_slot(
             wrapper.into_any_element()
         }
         ImageSlot::Loading => placeholder_box("Loading image…", cx),
-        ImageSlot::Failed(_) => placeholder_box(
+        ImageSlot::Failed(_) | ImageSlot::Unrenderable => placeholder_box(
             &if alt.is_empty() {
                 "Image unavailable".to_string()
             } else {
@@ -2283,6 +2288,35 @@ enum ClickTarget {
     Issue(String),
 }
 
+/// Whether a markdown link href may be handed to the OS opener: an absolute
+/// `http(s)://` URL ([`api::opener::is_web_url`]) or a `mailto:`. Anything
+/// else — `file:///Applications/Calculator.app`, a relative path, a custom
+/// scheme in an uploaded `.md` — is a no-op: the opener would run it.
+pub(crate) fn is_openable_link(url: &str) -> bool {
+    if api::opener::is_web_url(url) {
+        return true;
+    }
+    let trimmed = url.trim();
+    trimmed == url
+        && trimmed.len() > "mailto:".len()
+        && trimmed
+            .get(.."mailto:".len())
+            .is_some_and(|scheme| scheme.eq_ignore_ascii_case("mailto:"))
+        && !trimmed.chars().any(char::is_control)
+}
+
+/// Open a markdown link href when [`is_openable_link`] allows it; log the
+/// refusal otherwise (a blocked href is not an error the person can fix).
+pub(crate) fn open_link_href(url: &str) {
+    if !is_openable_link(url) {
+        log::info!("markdown link ignored (not http(s)/mailto): {url}");
+        return;
+    }
+    if let Err(error) = api::opener::open_in_browser(url) {
+        log::warn!("open link failed: {error}");
+    }
+}
+
 /// EXP-233: last painted content width per (window, view id), feeding
 /// [`MarkdownView`]'s fixed-width layout on the next frame.
 static VIEW_WIDTHS: std::sync::OnceLock<
@@ -2896,9 +2930,7 @@ fn render_inline_text(
                 cx.stop_propagation();
                 match target {
                     ClickTarget::Url(url) => {
-                        if let Err(error) = api::opener::open_in_browser(url) {
-                            log::warn!("open link failed: {error}");
-                        }
+                        open_link_href(url);
                         let _ = window;
                     }
                     ClickTarget::Issue(identifier) => {
@@ -3956,6 +3988,24 @@ pub(crate) fn scan_issue_refs_with(line: &str, bare: bool) -> Vec<Range<usize>> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A markdown href reaches the OS opener only as http(s) or mailto.
+    #[test]
+    fn only_web_and_mailto_hrefs_are_openable() {
+        assert!(is_openable_link("https://example.com/a?b=c"));
+        assert!(is_openable_link("http://localhost:3000/t/acme"));
+        assert!(is_openable_link("mailto:dev@acme.test"));
+        assert!(is_openable_link("MAILTO:dev@acme.test"));
+        assert!(!is_openable_link("mailto:"));
+        assert!(!is_openable_link("file:///Applications/Calculator.app"));
+        assert!(!is_openable_link("/etc/passwd"));
+        assert!(!is_openable_link("../secrets.txt"));
+        assert!(!is_openable_link("javascript:alert(1)"));
+        assert!(!is_openable_link("x-apple.systempreferences:com.apple.preference"));
+        assert!(!is_openable_link(" https://example.com"));
+        assert!(!is_openable_link("mailto:a@b.c\n"));
+        assert!(!is_openable_link(""));
+    }
 
     #[test]
     fn scans_issue_refs_with_boundaries() {

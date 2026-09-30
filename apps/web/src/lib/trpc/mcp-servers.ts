@@ -33,7 +33,11 @@ import {
   type McpServer,
 } from "@/db/schema"
 import { parseMcpSessionHeader } from "@/lib/mcp/session-header"
-import { isAgentApiKeySession } from "@/lib/auth/api-key-kind"
+import {
+  AGENT_KEY_MANAGES_MCP_MESSAGE,
+  assertNotAgentApiKeySession,
+  isAgentApiKeySession,
+} from "@/lib/auth/api-key-kind"
 import {
   assertTeamMember,
   assertTeamOwner,
@@ -205,6 +209,21 @@ async function loadMemberServer(
   return server
 }
 
+/** EXP-1140 follow-up: the agent's own key (lib/auth/api-key-kind.ts) never
+ * writes the registry or a credential. An owner's agent could otherwise
+ * `update({url})` a server it is connected to and let `test` POST the
+ * decrypted token to a host of its choosing. Reads and `resolveForLaunch`
+ * keep their own rules. */
+async function assertNotAgentKey(
+  ctx: Context & { session: NonNullable<Context[`session`]> }
+): Promise<void> {
+  await assertNotAgentApiKeySession(
+    ctx.db,
+    ctx.session,
+    AGENT_KEY_MANAGES_MCP_MESSAGE
+  )
+}
+
 /** An outbound failure (discovery, registration, the provider) as a tRPC
  * error with a sentence safe to show; anything else rethrows. */
 function outboundError(e: unknown): never {
@@ -279,6 +298,7 @@ export const mcpServersRouter = router({
   probe: authedProcedure
     .input(z.object({ teamId: z.string().uuid(), url: urlSchema }))
     .mutation(async ({ ctx, input }) => {
+      await assertNotAgentKey(ctx)
       await assertTeamOwner(ctx.session.user.id, input.teamId)
       return probeMcpServer(input.url)
     }),
@@ -286,6 +306,7 @@ export const mcpServersRouter = router({
   create: authedProcedure
     .input(fieldsSchema.extend({ teamId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      await assertNotAgentKey(ctx)
       const userId = ctx.session.user.id
       await assertTeamOwner(userId, input.teamId)
       const values = normalizeFields(input)
@@ -312,6 +333,7 @@ export const mcpServersRouter = router({
   update: authedProcedure
     .input(fieldsSchema.partial().extend({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      await assertNotAgentKey(ctx)
       const userId = ctx.session.user.id
       const current = await loadServer(ctx.db, input.id)
       await assertTeamOwner(userId, current.teamId)
@@ -378,6 +400,7 @@ export const mcpServersRouter = router({
   remove: authedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      await assertNotAgentKey(ctx)
       const current = await loadServer(ctx.db, input.id)
       await assertTeamOwner(ctx.session.user.id, current.teamId)
       await ctx.db.delete(mcpServers).where(eq(mcpServers.id, input.id))
@@ -396,6 +419,7 @@ export const mcpServersRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertNotAgentKey(ctx)
       const server = await loadMemberServer(ctx, input.serverId)
       if (server.auth !== `oauth` || server.transport !== `http` || !server.url) {
         throw new TRPCError({
@@ -438,6 +462,7 @@ export const mcpServersRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertNotAgentKey(ctx)
       const server = await loadMemberServer(ctx, input.serverId)
       if (server.auth !== `secret`) {
         throw new TRPCError({
@@ -466,6 +491,7 @@ export const mcpServersRouter = router({
   disconnect: authedProcedure
     .input(z.object({ serverId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      await assertNotAgentKey(ctx)
       const server = await loadMemberServer(ctx, input.serverId)
       await ctx.db
         .delete(mcpCredentials)
@@ -484,6 +510,7 @@ export const mcpServersRouter = router({
   test: authedProcedure
     .input(z.object({ serverId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      await assertNotAgentKey(ctx)
       const server = await loadMemberServer(ctx, input.serverId)
       if (server.transport !== `http` || !server.url) {
         throw new TRPCError({

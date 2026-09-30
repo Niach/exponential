@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.TrpcException
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.db.AttachmentEntity
+import com.exponential.app.domain.MARKDOWN_PREVIEW_MAX_BYTES
 import com.exponential.app.domain.MarkdownPreviewState
 import com.exponential.app.domain.markdownPreviewHttpError
 import com.exponential.app.domain.markdownPreviewOutcome
@@ -57,7 +58,15 @@ fun AttachmentMarkdownPreviewSheet(
     }
     LaunchedEffect(attachment.id) {
         state = markdownPreviewPrecheck(attachment.sizeBytes) ?: try {
-            markdownPreviewOutcome(load(attachment))
+            // The loader stops at the ceiling + 1 byte, so a body past it
+            // (a legacy `size_bytes = 0` row) is too large by its BYTE count,
+            // never a truncated render.
+            val bytes = load(attachment)
+            if (bytes.size > MARKDOWN_PREVIEW_MAX_BYTES) {
+                MarkdownPreviewState.TooLarge
+            } else {
+                markdownPreviewOutcome(bytes)
+            }
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (t: Throwable) {

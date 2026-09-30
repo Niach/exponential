@@ -19,6 +19,7 @@ import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.domain.MARKDOWN_PREVIEW_MAX_BYTES
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.MAX_COMMENT_ATTACHMENTS
 import com.exponential.app.domain.PendingAttachment
@@ -387,7 +388,13 @@ class CommentThreadViewModel @Inject constructor(
      * throws (keeping the HTTP status) so the sheet shows its own copy.
      */
     suspend fun loadAttachmentBytes(attachment: AttachmentEntity): ByteArray =
-        fetchAttachmentBytes(appContext, attachmentsApi, auth.activeAccountId.value, attachment)
+        fetchAttachmentBytes(
+            appContext,
+            attachmentsApi,
+            auth.activeAccountId.value,
+            attachment,
+            maxBytes = MARKDOWN_PREVIEW_MAX_BYTES,
+        )
 
     // Composer draft + in-flight flag, hoisted here (EXP-240) so the expanding
     // bottom-bar composer keeps its text across collapse/expand, rotation, and

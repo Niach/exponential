@@ -3,9 +3,12 @@ import { describe, expect, it, vi } from "vitest"
 vi.mock(`@/db/connection`, () => ({ db: {} }))
 
 import {
+  apiKeyCredentialFromHeaders,
   buildSignInMethods,
   configuredProviders,
   countWaysIn,
+  emailChangeNotice,
+  isIdentityPath,
   removalLeavesNoWayIn,
 } from "@/lib/auth/sign-in-methods"
 
@@ -165,5 +168,55 @@ describe(`buildSignInMethods`, () => {
     })
     expect(methods.providers.some((p) => p.kind === `password`)).toBe(false)
     expect(methods.waysIn).toBe(1)
+  })
+})
+
+// The guard plugin's pure pieces; the plugin itself runs against a real
+// Better Auth instance in sign-in-methods-guard.test.ts.
+describe(`isIdentityPath`, () => {
+  it(`matches every identity-changing endpoint and the passkey family`, () => {
+    for (const path of [
+      `/email-otp/request-email-change`,
+      `/email-otp/change-email`,
+      `/link-social`,
+      `/oauth2/link`,
+      `/unlink-account`,
+      `/passkey/delete-passkey`,
+      `/passkey/generate-register-options`,
+      `/passkey/verify-registration`,
+      `/passkey/update-passkey`,
+    ]) {
+      expect(isIdentityPath(path)).toBe(true)
+    }
+    for (const path of [`/get-session`, `/sign-in/email`, `/email-otp/send-verification-otp`, `/update-user`, undefined]) {
+      expect(isIdentityPath(path)).toBe(false)
+    }
+  })
+})
+
+describe(`apiKeyCredentialFromHeaders`, () => {
+  it(`reads x-api-key or a Bearer expu_ token, nothing else`, () => {
+    expect(apiKeyCredentialFromHeaders(new Headers({ "x-api-key": `expu_abc` }))).toBe(`expu_abc`)
+    expect(apiKeyCredentialFromHeaders(new Headers({ authorization: `Bearer expu_abc` }))).toBe(`expu_abc`)
+    expect(apiKeyCredentialFromHeaders(new Headers({ authorization: `bearer EXPU_abc` }))).toBe(`EXPU_abc`)
+    // A session bearer token is not a key.
+    expect(apiKeyCredentialFromHeaders(new Headers({ authorization: `Bearer sess_abc` }))).toBeNull()
+    expect(apiKeyCredentialFromHeaders(new Headers())).toBeNull()
+    expect(apiKeyCredentialFromHeaders(undefined)).toBeNull()
+  })
+})
+
+describe(`emailChangeNotice`, () => {
+  it(`names the old address only for a real change`, () => {
+    const session = { user: { email: `Old@Example.com` } }
+    expect(emailChangeNotice({ email: `new@example.com` }, session)).toEqual({
+      to: `old@example.com`,
+      newEmail: `new@example.com`,
+    })
+    expect(emailChangeNotice({ email: `old@example.com` }, session)).toBeNull()
+    expect(emailChangeNotice({}, session)).toBeNull()
+    expect(emailChangeNotice({ email: 42 }, session)).toBeNull()
+    expect(emailChangeNotice({ email: `new@example.com` }, null)).toBeNull()
+    expect(emailChangeNotice({ email: `new@example.com` }, { user: {} })).toBeNull()
   })
 })

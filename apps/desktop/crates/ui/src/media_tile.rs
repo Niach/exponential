@@ -372,7 +372,10 @@ pub(crate) fn render_media_tile(
                     ),
                     // A poster frame over the texture cap (EXP-1128) is not a
                     // real case — the neutral fill stands in, like Loading.
-                    ImageSlot::ReadyTall(_) | ImageSlot::Loading | ImageSlot::Failed(_) => el,
+                    ImageSlot::ReadyTall(_)
+                    | ImageSlot::Loading
+                    | ImageSlot::Failed(_)
+                    | ImageSlot::Unrenderable => el,
                 })
                 .child(
                     div()

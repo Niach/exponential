@@ -1,3 +1,8 @@
-- Agenti: ogni accesso di un agente sotto una macchina offre «Sign out» nel suo menu, e si può rimuovere anche l'accesso della macchina stessa
-- Esecuzioni dell'agente: le esecuzioni di chat ricevono di nuovo il nome da Claude
-- Server MCP: collega il tuo account a un server MCP del team una sola volta dal web, e ogni esecuzione che avvii su qualsiasi macchina lo userà
+- Schermata di lavoro: Issue, Esecuzione, Modifiche e Risultati sono schede scorrevoli nell'intestazione, con Merge accanto finché la pull request è aperta
+- Settings > Account: cambia la tua email con un codice, collega o scollega gli accessi Google, Apple e OIDC e gestisci le passkey
+- Quando unisci una pull request impilata, l'app chiede se unire l'intero stack o solo questa pull request
+- Risultati: il report di un'esecuzione compare accanto ai suoi screenshot, gli screenshot lunghi si aprono in un visualizzatore scorrevole e una notifica può aprire direttamente Risultati
+- Gli allegati Markdown si aprono in un'anteprima nell'app
+- Notifiche: un unico stile impilato ovunque, tocca per espandere, scorri per chiudere
+- Tidy up: un'azione integrata per riordinare le board, con icone coordinate per stack, batch e workflow
+- Le sotto-issue create con un allegato non lasciano più una bozza
