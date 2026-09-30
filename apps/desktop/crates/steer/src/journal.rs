@@ -246,6 +246,11 @@ impl ActivityJournal {
             | ActivityEvent::Narration {
                 subagent_id: Some(id),
                 ..
+            }
+            // A subagent's API failure sits inside its card too.
+            | ActivityEvent::ApiError {
+                subagent_id: Some(id),
+                ..
             } if !id.is_empty() => Some(id.clone()),
             _ => None,
         };

@@ -133,6 +133,33 @@ fn a_rate_limit_meta_maps_to_the_slot_once_and_clears_on_ok() {
         .any(|event| event["kind"] == "narration" && event["text"] == "Back to work."));
 }
 
+/// An inline API failure (`engine::mapper::API_ERROR_META_KEY`) is a ROW in
+/// its lane after the prose before it: never the rate-limit slot.
+#[test]
+fn an_api_error_meta_maps_to_an_inline_row_never_the_slot() {
+    let wire = wire("api_error.jsonl");
+    let kinds: Vec<&str> = wire.iter().filter_map(|event| event["kind"].as_str()).collect();
+    assert_eq!(kinds, ["narration", "api_error", "api_error"], "{wire:?}");
+    assert_eq!(
+        wire[1],
+        json!({
+            "kind": "api_error",
+            "message": "API Error: No response from API (waited 3m, then 10m on the retry).",
+            "errorType": "server_error"
+        })
+    );
+    assert_eq!(
+        wire[2],
+        json!({
+            "kind": "api_error",
+            "message": "API Error: 400 Could not process image",
+            "errorType": "invalid_request",
+            "subagentId": "toolu_task_1"
+        })
+    );
+    assert!(!wire.iter().any(|event| event["kind"] == "rate_limit"));
+}
+
 #[test]
 fn a_tool_call_update_is_a_local_card_and_only_its_settle_a_wire_row() {
     let local = local("turn.jsonl");

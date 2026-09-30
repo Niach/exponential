@@ -64,7 +64,7 @@ use serde_json::{json, Map, Value};
 use super::claude_wire::{self as wire, ClaudeArgs, ClaudeOut, McpConfig, SystemSubtype, TurnOutcome};
 use super::AdapterSpec;
 use crate::host::{CANCEL_QUEUED_META_KEY, NATIVE_SESSION_META_KEY};
-use crate::mapper::{PERMISSION_OPTION_DESCRIPTION_META, RATE_LIMIT_META_KEY};
+use crate::mapper::{API_ERROR_META_KEY, PERMISSION_OPTION_DESCRIPTION_META, RATE_LIMIT_META_KEY};
 use crate::session::{EngineError, ResumeHandle};
 use crate::transport::{spawn_lines, ChildLines, StderrPolicy};
 
@@ -1989,6 +1989,47 @@ impl ClaudeSession {
         self.notify_meta(cx, SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new()), meta);
     }
 
+    /// A synthetic non-prose frame: drop what streamed of it, and on the MAIN
+    /// lane count it as delivered so the turn's `result` (which repeats it)
+    /// is never forwarded as a narration. A subagent's frame is not the
+    /// main turn's result.
+    fn suppress_synthetic(&self, message_id: Option<&str>, main_lane: bool) {
+        let mut state = self.lock();
+        if let Some(id) = message_id {
+            state.streamed.remove(id);
+        }
+        if main_lane {
+            state.delivered_text = true;
+        }
+    }
+
+    /// An inline API failure ROW (`API_ERROR_META_KEY` on a no-op
+    /// `session_info_update`, read by the mapper) — never the rate-limit
+    /// slot, never a wall, never deduped. A subagent's carries its lane.
+    fn publish_api_error(
+        &self,
+        cx: &ConnectionTo<Client>,
+        text: &str,
+        error_type: Option<&str>,
+        parent: &Option<String>,
+    ) {
+        let text = text.trim();
+        if text.is_empty() {
+            return;
+        }
+        let mut slot = Map::new();
+        slot.insert("message".to_string(), json!(text));
+        if let Some(error_type) = error_type {
+            slot.insert("errorType".to_string(), json!(error_type));
+        }
+        let mut meta = Map::new();
+        meta.insert(API_ERROR_META_KEY.to_string(), Value::Object(slot));
+        if let Some(parent) = parent {
+            meta.insert(PARENT_TOOL_CALL_META_KEY.to_string(), json!(parent));
+        }
+        self.notify_meta(cx, SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new()), meta);
+    }
+
     /// A `rate_limit_event`: a limited status goes on the slot (keeping a
     /// notice's text if one is up); the ordinary `allowed` clears it while
     /// no notice is up, or once the notice's window has reopened by the
@@ -2826,10 +2867,11 @@ impl ClaudeSession {
             _ => Vec::new(),
         };
 
-        // EXP-784: claude's own limit notice is a `<synthetic>` frame (or
-        // opens with the measured prefix). It is STATE, not prose: the slot
-        // gets its text and no bubble is emitted; a real message afterwards
-        // clears the slot.
+        // EXP-784: claude writes its own notices as `<synthetic>` frames;
+        // `classify_assistant_notice` sorts them by the frame's `error`. Only
+        // the usage wall is STATE (the slot gets its text, no bubble; a real
+        // message afterwards clears it); an API failure is an inline row,
+        // filler is dropped, the login notice stays a narration.
         let model = message.message.get("model").and_then(Value::as_str);
         let text: String = blocks
             .iter()
@@ -2869,23 +2911,44 @@ impl ClaudeSession {
         // consolidated `assistant` frame carries the same `usage`. The
         // one-shot flag means the streamed path above wins when both arrive.
         self.measure_prefix(cx, parent.as_deref(), model, &message.message["usage"]);
-        if wire::is_rate_limit_notice(model, &text) {
-            if let Some(id) = &message_id {
-                self.lock().streamed.remove(id);
+        match wire::classify_assistant_notice(
+            model,
+            message.error.as_deref(),
+            message.is_api_error_message,
+            &text,
+        ) {
+            wire::AssistantNotice::RateLimit => {
+                if let Some(id) = &message_id {
+                    self.lock().streamed.remove(id);
+                }
+                // Counts as delivered: the turn's `result` repeats the notice
+                // and must not forward it as a narration either.
+                let replaying = {
+                    let mut state = self.lock();
+                    state.delivered_text = true;
+                    state.replaying_history
+                };
+                // EXP-866: a notice inside a replayed transcript is the wall the
+                // PREVIOUS run hit, not this one's — swallowed, never re-armed.
+                if !replaying {
+                    self.on_rate_limit_notice(cx, &text);
+                }
+                return;
             }
-            // Counts as delivered: the turn's `result` repeats the notice
-            // and must not forward it as a narration either.
-            let replaying = {
-                let mut state = self.lock();
-                state.delivered_text = true;
-                state.replaying_history
-            };
-            // EXP-866: a notice inside a replayed transcript is the wall the
-            // PREVIOUS run hit, not this one's — swallowed, never re-armed.
-            if !replaying {
-                self.on_rate_limit_notice(cx, &text);
+            // A transient failure (outage, timeout, 400): an inline row, never
+            // the rate-limit slot — it used to wall the run and rotate its
+            // account. Published on replay too: a transcript fact, not state.
+            wire::AssistantNotice::ApiError { error_type } => {
+                self.suppress_synthetic(message_id.as_deref(), parent.is_none());
+                self.publish_api_error(cx, &text, error_type, &parent);
+                return;
             }
-            return;
+            // Client-side filler (`No response requested.`): nothing.
+            wire::AssistantNotice::Filler => {
+                self.suppress_synthetic(message_id.as_deref(), parent.is_none());
+                return;
+            }
+            wire::AssistantNotice::Auth | wire::AssistantNotice::None => {}
         }
         // EXP-831: a tool call is as much an answer as text — a run that
         // resumed with tool calls only used to keep the wall up until it
@@ -3399,9 +3462,18 @@ impl ClaudeSession {
             (state.local_only_command, state.delivered_text)
         };
         // EXP-784: a limited turn's result REPEATS the notice; the slot has
-        // it (or gets it here, for a CLI that sent no assistant frame).
-        if wire::is_rate_limit_notice(None, &result.result) {
+        // it (or gets it here, for a CLI that sent no assistant frame). An
+        // API failure's result repeats ITS row the same way.
+        if wire::is_rate_limit_result(&result) {
             self.on_rate_limit_notice(cx, &result.result);
+        } else if result.is_error
+            && !delivered
+            && !local_only
+            && result.result.trim_start().starts_with(wire::API_ERROR_PREFIX)
+        {
+            // A CLI that sent the failure only as the result: still a row,
+            // never a narration or a wall.
+            self.publish_api_error(cx, &result.result, None, &None);
         } else if wire::should_forward_result(local_only, delivered, &result) {
             self.notify(
                 cx,

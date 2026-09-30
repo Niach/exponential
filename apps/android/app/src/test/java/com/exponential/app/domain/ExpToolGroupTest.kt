@@ -68,6 +68,7 @@ class ExpToolGroupTest {
                     is AgentFeedItem.Tool -> "tool@${item.id}"
                     is AgentFeedItem.UserMessage -> "user@${item.id}"
                     is AgentFeedItem.Subagent -> "subagent@${item.id}"
+                    is AgentFeedItem.ApiError -> "api_error@${item.id}"
                     else -> "narration@${item.id}"
                 }
             }
@@ -194,6 +195,11 @@ class ExpToolGroupTest {
                     "narration" -> AgentFeedItem.Narration(
                         id = id,
                         text = text("text").orEmpty(),
+                        subagentId = subagentId,
+                    )
+                    "api_error" -> AgentFeedItem.ApiError(
+                        id = id,
+                        message = text("message").orEmpty(),
                         subagentId = subagentId,
                     )
                     "user_message" -> AgentFeedItem.UserMessage(

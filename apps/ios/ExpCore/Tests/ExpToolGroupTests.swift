@@ -24,6 +24,7 @@ enum ExpToolGroupFixture {
         let settled: Bool?
         let failed: Bool?
         let text: String?
+        let message: String?
     }
 
     struct Case: Decodable {
@@ -76,6 +77,10 @@ enum ExpToolGroupFixture {
                 agentType: AgentFeed.subagentFallbackType,
                 status: .started,
                 detail: nil
+            )
+        case "api_error":
+            return .apiError(
+                id: entry.id, message: entry.message ?? "", subagentId: entry.subagentId
             )
         default:
             return .narration(
@@ -148,6 +153,7 @@ final class ExpToolGroupTests: XCTestCase {
             case .tool: return "tool@\(item.id)"
             case .userMessage: return "user@\(item.id)"
             case .narration: return "narration@\(item.id)"
+            case .apiError: return "api_error@\(item.id)"
             case .subagent: return "subagent@\(item.id)"
             default: return "other@\(item.id)"
             }

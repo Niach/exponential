@@ -85,6 +85,8 @@ export function feedItemBytes(item: {
   diff?: string
   /** EXP-895: and so does the command output its settle folded in. */
   output?: string
+  /** An `api_error` row's text. */
+  message?: string
   options?: { label: string; key: string }[]
 }): number {
   const OVERHEAD = contract.steerFeed.itemOverheadBytes
@@ -99,6 +101,7 @@ export function feedItemBytes(item: {
     len(item.header) +
     len(item.diff) +
     len(item.output) +
+    len(item.message) +
     (item.options?.reduce((sum, o) => sum + o.label.length + o.key.length, 0) ?? 0)
   )
 }
@@ -692,7 +695,8 @@ export function isSubagentScoped(item: {
     item.kind === `subagent` ||
     item.kind === `tool` ||
     item.kind === `narration` ||
-    item.kind === `user_message`
+    item.kind === `user_message` ||
+    item.kind === `api_error`
   )
 }
 
@@ -1029,6 +1033,9 @@ export function rowClass<T extends { id: number; kind: string }>(
   switch (row.item.kind) {
     case `user_message`:
       return `turn`
+    case `api_error`:
+      // An inline warning line reads with the prose around it. Mirrored ×4.
+      return `prose`
     case `tool`:
     case `subagent`:
     case `permission`:

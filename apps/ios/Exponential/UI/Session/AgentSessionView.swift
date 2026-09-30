@@ -1034,6 +1034,8 @@ struct AgentSessionView: View {
             switch item {
             case let .narration(_, text, _, _):
                 NarrationBubble(text: text, context: markdownContext)
+            case let .apiError(_, message, errorType, _):
+                ApiErrorRow(message: message, errorType: errorType)
             case let .tool(
                 id, name, detail, _, callId, _, settled, failed, diff, preview, output
             ):
@@ -1402,7 +1404,8 @@ struct AgentSessionView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .glassRow()
-            .padding(.horizontal, 14)
+            // The transcript's reading column (EXP-927 §2c), like the strips.
+            .transcriptColumn()
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(AgentFeed.compactingLabel)
         }
@@ -1411,7 +1414,7 @@ struct AgentSessionView: View {
     // MARK: - Rate-limit banner (EXP-784)
 
     /// The agent's rate-limit window, in the compaction strip's slot: its own
-    /// message and when the window resets, local time. It stands only while
+    /// message and how long until the window resets. It stands only while
     /// the slot holds a WALL (EXP-818: a warning over a working run is not
     /// one) whose reset has not passed (EXP-831: it re-reads the model's 30s
     /// activity clock and drops itself a minute past the stamp) — an
@@ -1420,14 +1423,26 @@ struct AgentSessionView: View {
     private func rateLimitBanner(_ model: AgentSessionModel) -> some View {
         if let limit = model.sessionRateLimit, !model.isOver,
            AgentFeed.rateLimitBannerShows(limit, now: model.activityNow) {
-            let caption = AgentFeed.rateLimitCaption(limit)
-            HStack(spacing: 8) {
-                AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)
+            let caption = AgentFeed.rateLimitCaption(limit, now: model.activityNow)
+            // Web `RateLimitBanner` is the reference: ONE row, 6pt gaps,
+            // centered — the usage glyph + the message in the semantic
+            // yellow (one truncating line), the relative countdown as a
+            // separate muted caption, then the Switch account pill.
+            HStack(alignment: .center, spacing: 6) {
+                AppIcon(AppIcons.uiUsage, size: AppIcon.Size.small)
                     .foregroundStyle(DesignTokens.Semantic.yellow)
-                Text(caption)
+                Text(verbatim: caption.message)
                     .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .fixedSize(horizontal: false, vertical: true)
+                    .foregroundStyle(DesignTokens.Semantic.yellow)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if let countdown = caption.countdown {
+                    Text(verbatim: countdown)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
                 Spacer(minLength: 0)
                 // EXP-849: the wall's PRIMARY answer — the other account. It
                 // opens the readout's account rows (bars and health included),
@@ -1440,18 +1455,23 @@ struct AgentSessionView: View {
                     GlassPill(
                         SessionAccountSwitch.wallSwitchLabel,
                         icon: AppIcons.uiSwap,
+                        size: .sm,
                         mode: .action { showUsageSheet = true },
                         primary: true
                     )
+                    .fixedSize()
                     .accessibilityIdentifier("rate-limit-switch-account")
                 }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .glassRow()
-            .padding(.horizontal, 14)
+            // The transcript's reading column (EXP-927 §2c), like the strips.
+            .transcriptColumn()
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(caption)
+            .accessibilityLabel(
+                AgentFeed.rateLimitAccessibilityLabel(limit, now: model.activityNow)
+            )
             .accessibilityIdentifier("agent-rate-limit")
         }
     }
@@ -1461,8 +1481,10 @@ struct AgentSessionView: View {
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16)
         .padding(.vertical, 8)
+        // The same reading column as the transcript above it; the column's
+        // gutter is the inset this row always had.
+        .transcriptColumn()
     }
 
     // MARK: - Bottom bar (steering input)
@@ -3689,6 +3711,8 @@ struct SubagentItemRow: View {
             )
         case let .narration(_, text, _, _):
             NarrationBubble(text: text, context: context)
+        case let .apiError(_, message, errorType, _):
+            ApiErrorRow(message: message, errorType: errorType)
         case let .userMessage(_, text, _):
             UserMessageBubble(text: text, context: context)
         default:
@@ -3732,6 +3756,34 @@ private struct SubagentRow: View {
 
 /// A permission prompt the agent hit (EXP-249) — INFORMATIONAL only: the
 /// approval lives in the desktop's own TUI, there is nothing to answer here.
+/// A transient API error the agent hit mid-turn (`api_error`): a quiet
+/// inline row — never the rate-limit banner, never a wall. The message is
+/// plain text (it is the CLI's own words, not markdown).
+private struct ApiErrorRow: View {
+    let message: String
+    let errorType: String?
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            AppIcon(AppIcons.uiWarning, size: 11)
+                .foregroundStyle(DesignTokens.Palette.destructive.opacity(0.7))
+                .padding(.top, 2)
+            Text(verbatim: message)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if let errorType, !errorType.isEmpty {
+                Text(verbatim: errorType.replacingOccurrences(of: "_", with: " "))
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .padding(.top, 1)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
 private struct PermissionRow: View {
     let tool: String
     let detail: String?

@@ -51,6 +51,7 @@ fun feedItemBytes(item: AgentFeedItem): Long {
     val overhead = DomainContract.steerFeedItemOverheadBytes
     return overhead + when (item) {
         is AgentFeedItem.Narration -> item.text.length.toLong()
+        is AgentFeedItem.ApiError -> (item.message.length + (item.errorType?.length ?: 0)).toLong()
         is AgentFeedItem.UserMessage -> item.text.length.toLong()
         // EXP-786: a folded per-call diff weighs too.
         is AgentFeedItem.Tool ->
@@ -123,6 +124,18 @@ sealed interface AgentFeedItem {
         override val id: Long,
         val text: String,
         val messageId: String? = null,
+        val subagentId: String? = null,
+        override val seq: Long? = null,
+    ) : AgentFeedItem
+
+    /** A transient API error the agent hit mid-turn (`api_error`: "No response
+     *  from API", "Connection lost mid-response", a 400) — an INLINE prose-class
+     *  row, subagent-scoped like [Narration]. Never the `rate_limit` slot and
+     *  never a wall. */
+    data class ApiError(
+        override val id: Long,
+        val message: String,
+        val errorType: String? = null,
         val subagentId: String? = null,
         override val seq: Long? = null,
     ) : AgentFeedItem
@@ -268,6 +281,7 @@ sealed interface AgentFeedItem {
  *  identity changes. */
 fun AgentFeedItem.withId(id: Long): AgentFeedItem = when (this) {
     is AgentFeedItem.Narration -> copy(id = id)
+    is AgentFeedItem.ApiError -> copy(id = id)
     is AgentFeedItem.Tool -> copy(id = id)
     is AgentFeedItem.UserMessage -> copy(id = id)
     is AgentFeedItem.Question -> copy(id = id)
@@ -284,6 +298,7 @@ fun AgentFeedItem.withId(id: Long): AgentFeedItem = when (this) {
 fun AgentFeedItem.subagentKey(): String? = when (this) {
     is AgentFeedItem.Tool -> subagentId
     is AgentFeedItem.Narration -> subagentId
+    is AgentFeedItem.ApiError -> subagentId
     is AgentFeedItem.UserMessage -> subagentId
     else -> null
 }
@@ -970,6 +985,7 @@ val AgentFeedRow.rowClass: AgentRowClass
             // slash-command pill — are the same beat.
             is AgentFeedItem.UserMessage -> AgentRowClass.Turn
             is AgentFeedItem.Narration,
+            is AgentFeedItem.ApiError,
             is AgentFeedItem.Question,
             is AgentFeedItem.Compaction,
             -> AgentRowClass.Prose
@@ -2021,6 +2037,24 @@ fun ActivityFeedState.applyActivityEvent(
                 summary = event.str("summary")?.takeIf { it.isNotBlank() },
             )
             copy(workflows = upsertWorkflow(workflows, next))
+        }
+    }
+    // A transient API error: an inline row, NEVER the rate-limit slot below —
+    // it is not a wall. A blank message is no row.
+    "api_error" -> {
+        val message = event.str("message").orEmpty()
+        if (message.isBlank()) {
+            this
+        } else {
+            append(
+                AgentFeedItem.ApiError(
+                    id = nextEventId,
+                    message = message,
+                    errorType = event.str("errorType")?.trim()?.takeIf { it.isNotEmpty() },
+                    subagentId = event.str("subagentId")?.trim()?.takeIf { it.isNotEmpty() },
+                    seq = seq,
+                ),
+            )
         }
     }
     // EXP-784: the fourth slot. Null clears — an empty/`ok` status says the

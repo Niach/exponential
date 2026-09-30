@@ -1,0 +1,3 @@
+{"sessionId":"acp-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Running the suite."},"messageId":"m1"}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"session_info_update"},"_meta":{"exponentialApiError":{"message":"API Error: No response from API (waited 3m, then 10m on the retry).","errorType":"server_error"}}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"session_info_update"},"_meta":{"exponentialApiError":{"message":"API Error: 400 Could not process image","errorType":"invalid_request"},"subagentId":"toolu_task_1"}}

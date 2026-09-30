@@ -134,6 +134,10 @@ public struct AgentTurnEdge: Equatable, Sendable {
 /// One decoded activity event.
 public enum AgentActivityEvent: Equatable, Sendable {
     case narration(text: String, messageId: String?, subagentId: String?, beforeQuestionId: String?)
+    /// A transient API error the agent hit mid-turn ("No response from API",
+    /// "Connection lost mid-response", a 400) — an INLINE transcript row,
+    /// never the latest-wins `rate_limit` slot and never a wall.
+    case apiError(message: String, errorType: String?, subagentId: String?)
     case tool(
         name: String, detail: String?, subagentId: String?, callId: String?, toolKind: String?
     )
@@ -239,6 +243,13 @@ public enum AgentActivityDecoder {
             return .usage(usage(event))
         case "context_layout":
             return .contextLayout(contextLayout(event))
+        case "api_error":
+            guard let message = event["message"] as? String, !blank(message) else { return nil }
+            return .apiError(
+                message: message,
+                errorType: string(event["errorType"]),
+                subagentId: string(event["subagentId"])
+            )
         case "rate_limit":
             return .rateLimit(rateLimit(event))
         case "turn":

@@ -79,6 +79,16 @@ impl Run {
             .collect()
     }
 
+    /// The inline API-error rows the adapter published, in order.
+    fn api_errors(&self) -> Vec<Value> {
+        self.updates
+            .iter()
+            .filter_map(|notification| {
+                notification.meta.as_ref()?.get(engine::mapper::API_ERROR_META_KEY).cloned()
+            })
+            .collect()
+    }
+
     /// EXP-784: the native session ids re-published mid-run, in order.
     fn native_ids(&self) -> Vec<String> {
         self.updates
@@ -1664,6 +1674,44 @@ async fn a_rate_limit_notice_is_a_slot_and_never_a_bubble() {
     assert_eq!(wire[2], serde_json::json!({"kind": "rate_limit", "status": ""}));
     let with_message = wire.iter().filter(|event| event.get("message").is_some()).count();
     assert_eq!(with_message, 1);
+}
+
+/// Claude's transient API failures are `<synthetic>` frames too (measured:
+/// `error:"server_error"`, `is_api_error_message:true`) and every one used to
+/// be read as a rate-limit wall: the run walled and rotated its account. Now
+/// the failure is ONE inline row, the `result` repeating it is swallowed, and
+/// the next turn's `No response requested.` filler says nothing at all.
+#[tokio::test]
+async fn an_api_error_is_an_inline_row_and_never_a_wall() {
+    let _session = one_session_at_a_time();
+    let work = workdir("api-error");
+    let run = drive_turns(
+        "api-error",
+        &work.0,
+        &["Do the thing.", "Try again."],
+        reject_all(),
+        cancel_elicitations(),
+    )
+    .await;
+
+    let errors = run.api_errors();
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert_eq!(errors[0]["errorType"], serde_json::json!("server_error"));
+    assert!(
+        errors[0]["message"].as_str().unwrap().starts_with("API Error: No response from API"),
+        "{errors:?}"
+    );
+    assert!(run.rate_limits().is_empty(), "{:?}", run.rate_limits());
+    assert!(run.blocked_edges().is_empty(), "{:?}", run.blocked_edges());
+    let narrations: Vec<String> =
+        run.shape().into_iter().filter(|shape| shape.starts_with("agent:")).collect();
+    assert!(narrations.is_empty(), "no bubble for the error or the filler: {narrations:?}");
+
+    let wire = run.wire();
+    let api_errors: Vec<&Value> = wire.iter().filter(|event| event["kind"] == "api_error").collect();
+    assert_eq!(api_errors.len(), 1, "{wire:?}");
+    assert_eq!(api_errors[0]["errorType"], serde_json::json!("server_error"));
+    assert_eq!(wire.iter().filter(|event| event["kind"] == "rate_limit").count(), 0, "{wire:?}");
 }
 
 /// EXP-831 — a tool call is as much an answer as text. The wall's reset is

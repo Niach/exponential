@@ -263,6 +263,49 @@
     ]
   },
   {
+    "name": "an api_error between two calls splits them",
+    "feed": [
+      {
+        "id": 1,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "settled": true
+      },
+      {
+        "id": 2,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "settled": true
+      },
+      {
+        "id": 3,
+        "kind": "api_error",
+        "message": "API Error: No response from API"
+      },
+      {
+        "id": 4,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "settled": true
+      },
+      {
+        "id": 5,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "settled": true
+      }
+    ],
+    "expected": [
+      "expRun@1[1,2]: Read 2 issues",
+      "api_error@3",
+      "expRun@4[4,5]: Read 2 issues"
+    ]
+  },
+  {
     "name": "every namespace resolves to the same contract row",
     "feed": [
       {

@@ -14,6 +14,7 @@ import {
   TOOL_DIFF_MAX_WIRE_BYTES,
   TOOL_OUTPUT_MAX_WIRE_BYTES,
   TOOL_PREVIEW_TEXT_MAX,
+  clientFrame,
 } from "./protocol"
 
 class FakeSocket implements RelaySocket {
@@ -1830,6 +1831,69 @@ describe(`activity event kinds`, () => {
     activity(hub, pub, { kind: `rate_limit` })
     activity(hub, pub, { kind: `rate_limit`, status: `x`, resetsAt: -1 })
     expect(slot(hub, `rate_limit`)?.status).toBe(`rejected`)
+  })
+
+  // A transient agent API failure is an INLINE transcript row like narration:
+  // appended to the log, replayed in order, never a latest-wins slot.
+  test(`api_error is an inline row, replayed in order, never latest-wins`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    activity(hub, pub, { kind: `narration`, text: `working` })
+    const first = {
+      kind: `api_error`,
+      message: `API Error: No response from API`,
+      errorType: `timeout`,
+      at: 3,
+    }
+    const second = { kind: `api_error`, message: `Connection lost mid-response` }
+    activity(hub, pub, first)
+    activity(hub, pub, second)
+
+    const member = connectMember(hub)
+    expect(member.events().map((e) => e.kind)).toEqual([
+      `narration`,
+      `api_error`,
+      `api_error`,
+    ])
+    // Both rows survive, every declared field re-serialized.
+    expect(member.events()[1]).toEqual(first as never)
+    expect(member.events()[2]).toEqual(second as never)
+    expect(room(hub).activityLog.length).toBe(3)
+    expect(slot(hub, `api_error`)).toBeUndefined()
+    expect(slot(hub, `rate_limit`)).toBeUndefined()
+  })
+
+  test(`a subagent's api_error is second class like its narration`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    activity(hub, pub, { kind: `api_error`, message: `ECONNRESET`, subagentId: `sub-1` })
+    activity(hub, pub, { kind: `api_error`, message: `ECONNRESET` })
+    const log = room(hub).activityLog
+    expect(log.length).toBe(2)
+    expect(log[0].subagentTool).toBe(`sub-1`)
+    expect(log[1].subagentTool).toBeUndefined()
+  })
+
+  test(`an api_error message over 1024 chars is rejected by the schema`, () => {
+    const frame = (message: string) => ({
+      t: `activity`,
+      seq: 1,
+      event: { kind: `api_error`, message },
+    })
+    expect(clientFrame.safeParse(frame(`x`.repeat(1024))).success).toBe(true)
+    expect(clientFrame.safeParse(frame(`x`.repeat(1025))).success).toBe(false)
+    expect(
+      clientFrame.safeParse({
+        t: `activity`,
+        seq: 1,
+        event: { kind: `api_error`, message: `x`, errorType: `y`.repeat(65) },
+      }).success
+    ).toBe(false)
+    // And the hub drops such a frame whole.
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    activity(hub, pub, { kind: `api_error`, message: `x`.repeat(1025) })
+    expect(room(hub).activityLog.length).toBe(0)
   })
 
   // EXP-848: `turn` is the fifth latest-wins slot, replayed between

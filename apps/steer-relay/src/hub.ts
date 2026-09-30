@@ -1294,9 +1294,12 @@ export class Hub {
     }
     // EXP-748: tag the entries the count cap is allowed to sacrifice.
     // EXP-773: prose a subagent wrote renders inside that subagent's card, so
-    // it is second class exactly like the calls around it.
+    // it is second class exactly like the calls around it — and so does an
+    // API failure of its own turn.
     if (
-      (event.kind === `tool` || event.kind === `narration`) &&
+      (event.kind === `tool` ||
+        event.kind === `narration` ||
+        event.kind === `api_error`) &&
       event.subagentId
     ) {
       entry.subagentTool = event.subagentId

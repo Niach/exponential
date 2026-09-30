@@ -601,6 +601,24 @@ pub enum ActivityEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         at: Option<i64>,
     },
+    /// A transient failure the agent CLI reported INLINE — claude's
+    /// `<synthetic>` `API Error: …` frames: an outage, a dropped connection,
+    /// a 400. A transcript ROW like [`ActivityEvent::Narration`]: appended,
+    /// never a slot, never a wall — it neither sets `blocked` nor touches
+    /// [`ActivityEvent::RateLimit`] (a usage wall carries the CLI's own
+    /// `error: "rate_limit"`; everything else lands here). `error_type` is
+    /// the CLI's word for it (`server_error`, `invalid_request`, …);
+    /// `subagent_id` scopes it to a lane exactly like narration's.
+    #[serde(rename_all = "camelCase")]
+    ApiError {
+        message: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error_type: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        subagent_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
     /// EXP-848: the END-OF-TURN signal — `started` while the agent is
     /// executing a turn, `ended` the moment it is over (`end_turn`, a cancel,
     /// a failed prompt request). LATEST-WINS state like
@@ -1253,6 +1271,16 @@ impl ActivityEvent {
         }
     }
 
+    /// An inline API failure row; never a slot, never a wall.
+    pub fn api_error(message: impl Into<String>, error_type: Option<String>) -> Self {
+        ActivityEvent::ApiError {
+            message: message.into(),
+            error_type,
+            subagent_id: None,
+            at: None,
+        }
+    }
+
     /// EXP-848: the turn edge — the spinner's one source of truth. EXP-850
     /// §5 added the working caption's two inputs; [`ActivityEvent::turn_at`]
     /// is the shorthand that carries them.
@@ -1362,6 +1390,7 @@ impl ActivityEvent {
                 fields
             }
             ActivityEvent::RateLimit { message, .. } => message.as_mut().into_iter().collect(),
+            ActivityEvent::ApiError { message, .. } => vec![message],
             ActivityEvent::Question {
                 text,
                 options,
@@ -1482,6 +1511,7 @@ impl ActivityEvent {
             | ActivityEvent::ContextLayout { at, .. }
             | ActivityEvent::ToolUpdate { at, .. }
             | ActivityEvent::RateLimit { at, .. }
+            | ActivityEvent::ApiError { at, .. }
             | ActivityEvent::BackgroundTasks { at, .. }
             | ActivityEvent::TaskList { at, .. }
             | ActivityEvent::Queue { at, .. }
@@ -2911,6 +2941,33 @@ mod tests {
         assert!(!rate_limit_clears("rejected"));
     }
 
+    /// An API failure is a ROW: camelCase optionals, omitted when unset,
+    /// and never the rate-limit slot's shape.
+    #[test]
+    fn api_error_serializes_inline_and_camel_case() {
+        let mut full = ActivityEvent::api_error(
+            "API Error: No response from API (waited 3m, then 10m on the retry).",
+            Some("server_error".into()),
+        );
+        if let ActivityEvent::ApiError { subagent_id, .. } = &mut full {
+            *subagent_id = Some("toolu_1".into());
+        }
+        let json = serde_json::to_string(&full).unwrap();
+        assert_eq!(
+            json,
+            r#"{"kind":"api_error","message":"API Error: No response from API (waited 3m, then 10m on the retry).","errorType":"server_error","subagentId":"toolu_1"}"#
+        );
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&json).unwrap(), full);
+        assert_eq!(
+            serde_json::to_string(&ActivityEvent::api_error("API Error: Connection dropped", None))
+                .unwrap(),
+            r#"{"kind":"api_error","message":"API Error: Connection dropped"}"#
+        );
+        // The redactor sees the message.
+        let mut event = ActivityEvent::api_error("secret", None);
+        assert_eq!(event.text_fields_mut().len(), 1);
+    }
+
     /// FEED-35: the wall rule — locked ×2 with web `rateLimitIsWall`.
     #[test]
     fn a_wall_is_a_rejection_or_a_notice_never_a_warning() {
@@ -3028,6 +3085,7 @@ mod tests {
             },
             ActivityEvent::Permission { tool: "Bash".into(), detail: None, at: None },
             ActivityEvent::compaction(CompactionPhase::Started, None),
+            ActivityEvent::api_error("API Error: Connection dropped", None),
             ActivityEvent::ConfigState {
                 options: vec![ConfigOption::new("model", "Model")],
                 current_mode: None,

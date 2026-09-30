@@ -224,6 +224,7 @@ const UiLoadingIcon = conceptIcon(`ui-loading`)
 const UiPermissionIcon = conceptIcon(`ui-permission`)
 const UiRefreshIcon = conceptIcon(`ui-refresh`)
 const UiUsageIcon = conceptIcon(`ui-usage`)
+const UiWarningIcon = conceptIcon(`ui-warning`)
 const UiRepeatIcon = conceptIcon(`ui-repeat`)
 const UiChecklistIcon = conceptIcon(`ui-checklist`)
 const UiSwapIcon = conceptIcon(`ui-swap`)
@@ -858,7 +859,9 @@ export function AgentSessionView({
       const items = feed.filter(
         (item) =>
           subagentIdOf(item) === subagentId &&
-          (item.kind === `tool` || item.kind === `narration`)
+          (item.kind === `tool` ||
+            item.kind === `narration` ||
+            item.kind === `api_error`)
       )
       if (items.length === 0) continue
       const agents = byWorkflow.get(workflowId) ?? new Map<string, ReactNode>()
@@ -1638,6 +1641,13 @@ export function AgentSessionView({
                       }
                       case `compaction`:
                         return wrap(<CompactionRow />)
+                      case `api_error`:
+                        return wrap(
+                          <ApiErrorRow
+                            message={item.message}
+                            errorType={item.errorType}
+                          />
+                        )
                       case `permission`:
                         return wrap(
                           <PermissionRow
@@ -1735,28 +1745,42 @@ export function AgentSessionView({
           {/* Status banners (feed retained above). EXP-877: no "ended" strip
               — the hidden composer and the header's Resume say it. */}
           {paused && feed.length > 0 && (
-            <div className="flex items-center gap-1.5 border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
-              <UiDeviceOfflineIcon className="size-3 shrink-0" />
-              <span>
-                {`Paused — ${pausedTitle}. ${pausedBody}`}
-              </span>
+            <div className="border-t border-border/60 py-2">
+              <div
+                className={cn(
+                  TRANSCRIPT_COLUMN,
+                  `flex items-center gap-1.5 text-xs text-muted-foreground`
+                )}
+              >
+                <UiDeviceOfflineIcon className="size-3 shrink-0" />
+                <span>
+                  {`Paused — ${pausedTitle}. ${pausedBody}`}
+                </span>
+              </div>
             </div>
           )}
           {phase.kind === `closed` && !paused && (
-            <div className="flex items-center gap-2 border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
-              <span className="min-w-0 flex-1">
-                {phase.detail ?? `Connection lost.`}
-              </span>
-              {/* EXP-877: a dropped stream redials from its own strip. */}
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-6 shrink-0"
-                onClick={() => store.reconnect()}
+            <div className="border-t border-border/60 py-2">
+              <div
+                className={cn(
+                  TRANSCRIPT_COLUMN,
+                  `flex items-center gap-2 text-xs text-muted-foreground`
+                )}
               >
-                <UiRefreshIcon />
-                Reconnect
-              </Button>
+                <span className="min-w-0 flex-1">
+                  {phase.detail ?? `Connection lost.`}
+                </span>
+                {/* EXP-877: a dropped stream redials from its own strip. */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 shrink-0"
+                  onClick={() => store.reconnect()}
+                >
+                  <UiRefreshIcon />
+                  Reconnect
+                </Button>
+              </div>
             </div>
           )}
           {/* EXP-804: the PERSISTED usage wall off the session row — a walled
@@ -1767,25 +1791,34 @@ export function AgentSessionView({
               run looks healthy. */}
           {blockedLabel && (
             <div
-              className="border-t border-border/60 px-3 py-1.5 text-[11px] font-medium text-amber-400"
+              className="border-t border-border/60 py-1.5"
               data-testid="session-blocked-strip"
             >
-              {blockedLabel}
+              <div
+                className={cn(
+                  TRANSCRIPT_COLUMN,
+                  `text-[11px] font-medium text-amber-400`
+                )}
+              >
+                {blockedLabel}
+              </div>
             </div>
           )}
           {/* EXP-724: the compaction strip. Indeterminate on purpose — the
               fold takes 10-170s with nothing measurable to report; the
               persistent marker row lands in the feed when it finishes. */}
           {compactingNow && (
-            <div className="border-t border-border/60 px-3 py-2">
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <CodingCompactIcon className="size-3 shrink-0" />
-                <span>{COMPACTING_LABEL}</span>
-                {compacting?.trigger === `manual` && (
-                  <span className="text-muted-foreground/60">requested</span>
-                )}
+            <div className="border-t border-border/60 py-2">
+              <div className={TRANSCRIPT_COLUMN}>
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <CodingCompactIcon className="size-3 shrink-0" />
+                  <span>{COMPACTING_LABEL}</span>
+                  {compacting?.trigger === `manual` && (
+                    <span className="text-muted-foreground/60">requested</span>
+                  )}
+                </div>
+                <Progress value={null} className="mt-1 h-1" />
               </div>
-              <Progress value={null} className="mt-1 h-1" />
             </div>
           )}
           {/* EXP-784: the agent's rate-limit window, while it reports one —
@@ -2323,6 +2356,13 @@ function LaneRows({ items, gaps = false }: { items: FeedItem[]; gaps?: boolean }
           return (
             <div key={item.id} className={gap ?? `py-0.5`}>
               <UserMessageBubble text={item.text} />
+            </div>
+          )
+        }
+        if (item.kind === `api_error`) {
+          return (
+            <div key={item.id} className={gap ?? `py-0.5`}>
+              <ApiErrorRow message={item.message} errorType={item.errorType} />
             </div>
           )
         }
@@ -3078,23 +3118,31 @@ function RateLimitBanner({
   if (!banner) return null
   const { text, resets } = banner
   return (
-    <div className="flex items-center gap-1.5 border-t border-border/60 px-3 py-2 text-xs text-amber-400">
-      <UiUsageIcon className="size-3 shrink-0" />
-      <span className="min-w-0 truncate">{text}</span>
-      {resets && (
-        <span className="shrink-0 text-muted-foreground">{resets}</span>
-      )}
-      {onSwitchAccount && (
-        <Pill
-          size="sm"
-          mode="action"
-          className="ml-auto shrink-0"
-          onClick={onSwitchAccount}
-        >
-          <UiSwapIcon className="size-3" />
-          {WALL_SWITCH_LABEL}
-        </Pill>
-      )}
+    <div className="border-t border-border/60 py-2">
+      <div
+        className={cn(
+          TRANSCRIPT_COLUMN,
+          `flex items-center gap-1.5 text-xs text-amber-400`
+        )}
+      >
+        <UiUsageIcon className="size-3 shrink-0" />
+        <span className="min-w-0 truncate">{text}</span>
+        {resets && (
+          <span className="shrink-0 text-muted-foreground">{resets}</span>
+        )}
+        {onSwitchAccount && (
+          <Pill
+            size="sm"
+            mode="action"
+            primary
+            className="ml-auto shrink-0"
+            onClick={onSwitchAccount}
+          >
+            <UiSwapIcon className="size-3" />
+            {WALL_SWITCH_LABEL}
+          </Pill>
+        )}
+      </div>
     </div>
   )
 }
@@ -3451,6 +3499,35 @@ function AnsweredStepRow({
  *  answerable question card instead, EXP-455/529). While it is the live
  *  trailing event, point at the working escape hatch — a composer message
  *  reaches the paused TUI — instead of dead-ending the viewer. */
+/** A transient API failure (timeout, dropped connection, rejected request)
+ *  where it happened in the transcript: a quiet warning line, never the amber
+ *  RateLimitBanner, which stays for real walls. Mirrored ×4. */
+function ApiErrorRow({
+  message,
+  errorType,
+}: {
+  message: string
+  errorType?: string
+}) {
+  return (
+    <div
+      className={cn(`flex min-w-0 items-start gap-1.5 pl-0.5`, TRANSCRIPT_TOOL_TEXT)}
+      title={errorType}
+      data-testid="api-error-row"
+    >
+      <UiWarningIcon className="mt-0.5 size-3 shrink-0 text-destructive/70" />
+      <span className="min-w-0 whitespace-pre-wrap break-words text-muted-foreground">
+        {message}
+      </span>
+      {errorType && (
+        <span className="shrink-0 text-muted-foreground/60">
+          {errorType.replaceAll(`_`, ` `)}
+        </span>
+      )}
+    </div>
+  )
+}
+
 function PermissionRow({
   tool,
   detail,
@@ -3631,7 +3708,8 @@ function AgentConversation({
         (item) =>
           item.kind === `tool` ||
           item.kind === `narration` ||
-          item.kind === `user_message`
+          item.kind === `user_message` ||
+          item.kind === `api_error`
       ),
     [items]
   )

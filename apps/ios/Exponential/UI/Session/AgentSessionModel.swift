@@ -2393,6 +2393,13 @@ final class AgentSessionModel {
                 id: splicedId ?? takeEventId(), text: text,
                 messageId: messageId, subagentId: narrationAgent
             ))
+        case let .apiError(message, errorType, subagentId):
+            // An inline row, never the rate-limit slot: a transient API error
+            // is not a wall.
+            append(.apiError(
+                id: takeEventId(), message: message,
+                errorType: errorType, subagentId: subagentId
+            ))
         case let .tool(name, detail, subagentId, callId, toolKind):
             append(.tool(
                 id: takeEventId(),

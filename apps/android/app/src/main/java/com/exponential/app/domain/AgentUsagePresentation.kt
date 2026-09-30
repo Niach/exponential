@@ -407,7 +407,13 @@ object AgentUsagePresentation {
      */
     fun resetCountdown(resetsAt: String?, nowMs: Long): String? {
         val at = resetsAt?.let(WireTimestamps::parseEpochMs) ?: return null
-        val minutes = (at - nowMs) / 60_000L
+        return resetCountdownAt(at, nowMs)
+    }
+
+    /** The same countdown off epoch milliseconds (the rate-limit banner's
+     *  `resetsAt` is one, not a wire stamp). */
+    fun resetCountdownAt(atMs: Long, nowMs: Long): String {
+        val minutes = (atMs - nowMs) / 60_000L
         if (minutes < 1L) return "resets soon"
         val days = minutes / (60L * 24L)
         val hours = (minutes / 60L) % 24L

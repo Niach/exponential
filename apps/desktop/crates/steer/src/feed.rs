@@ -216,6 +216,16 @@ pub enum FeedKind {
     /// leaves in the timeline (the strip itself is [`SteerFeed::compacting`],
     /// never an item).
     Compaction,
+    /// A transient failure the agent CLI reported inline (claude's
+    /// `API Error: …`): a prose-class row where it happened, never the
+    /// rate-limit slot. `error_type` is the CLI's own word (`server_error`).
+    ApiError {
+        message: String,
+        error_type: Option<String>,
+        /// Set when the failure came from a subagent's turn — the row nests
+        /// under that subagent's card like its prose.
+        subagent_id: Option<String>,
+    },
 }
 
 /// EXP-724: the in-flight compaction behind the pinned "Compacting context…"
@@ -296,7 +306,8 @@ impl FeedItem {
         match &self.kind {
             FeedKind::Tool { subagent_id, .. }
             | FeedKind::Narration { subagent_id, .. }
-            | FeedKind::UserMessage { subagent_id, .. } => subagent_id.as_deref(),
+            | FeedKind::UserMessage { subagent_id, .. }
+            | FeedKind::ApiError { subagent_id, .. } => subagent_id.as_deref(),
             FeedKind::Subagent { subagent_id, .. } => Some(subagent_id.as_str()),
             _ => None,
         }
@@ -1012,6 +1023,23 @@ impl SteerFeed {
 
     fn handle_activity(&mut self, event: ActivityEvent) {
         match event {
+            // An inline API failure: one prose-class row, appended where it
+            // landed; a blank message says nothing.
+            ActivityEvent::ApiError {
+                message,
+                error_type,
+                subagent_id,
+                ..
+            } => {
+                if message.trim().is_empty() {
+                    return;
+                }
+                self.push_item(FeedKind::ApiError {
+                    message,
+                    error_type,
+                    subagent_id,
+                });
+            }
             ActivityEvent::Narration {
                 text,
                 before_question_id,
@@ -1709,6 +1737,11 @@ fn item_bytes(kind: &FeedKind) -> usize {
                     .sum::<usize>()
         }
         FeedKind::Compaction => 0,
+        FeedKind::ApiError {
+            message,
+            error_type,
+            ..
+        } => message.len() + error_type.as_ref().map_or(0, String::len),
     };
     OVERHEAD + text
 }
@@ -1859,7 +1892,8 @@ impl FeedKind {
             FeedKind::UserMessage { .. } => RowClass::Turn,
             FeedKind::Narration { .. }
             | FeedKind::Question(_)
-            | FeedKind::Compaction => RowClass::Prose,
+            | FeedKind::Compaction
+            | FeedKind::ApiError { .. } => RowClass::Prose,
             FeedKind::Tool { .. }
             | FeedKind::Subagent { .. }
             | FeedKind::Permission { .. } => RowClass::Tool,
@@ -2236,7 +2270,10 @@ pub fn group_subagent_row_specs_into(
         item.subagent_id() == Some(subagent_id)
             && matches!(
                 item.kind,
-                FeedKind::Tool { .. } | FeedKind::Narration { .. } | FeedKind::UserMessage { .. }
+                FeedKind::Tool { .. }
+                    | FeedKind::Narration { .. }
+                    | FeedKind::UserMessage { .. }
+                    | FeedKind::ApiError { .. }
             )
     };
     let mut i = start.min(items.len());
@@ -2619,6 +2656,7 @@ mod tests {
                 FeedKind::Subagent { subagent_id, .. } => subagent_id.clone(),
                 FeedKind::Question(card) => card.text.clone(),
                 FeedKind::Compaction => COMPACTED_LABEL.to_string(),
+                FeedKind::ApiError { message, .. } => message.clone(),
             })
             .collect()
     }
@@ -4964,6 +5002,8 @@ mod edit_card_fixture_tests {
         failed: bool,
         #[serde(default)]
         text: Option<String>,
+        #[serde(default)]
+        message: Option<String>,
     }
 
     #[derive(Deserialize)]
@@ -5005,8 +5045,13 @@ mod edit_card_fixture_tests {
                 text: raw.text.clone().unwrap_or_default(),
                 subagent_id: raw.subagent_id.clone(),
             },
+            "api_error" => FeedKind::ApiError {
+                message: raw.message.clone().unwrap_or_default(),
+                error_type: None,
+                subagent_id: raw.subagent_id.clone(),
+            },
             other => {
-                assert_eq!(other, "narration", "the fixture uses three kinds");
+                assert_eq!(other, "narration", "the fixture uses four kinds: this is the prose one");
                 FeedKind::Narration {
                     text: raw.text.clone().unwrap_or_default(),
                     message_id: None,
@@ -5066,6 +5111,7 @@ mod edit_card_fixture_tests {
             FeedRowSpec::Single { id, item } => match &items[*item].kind {
                 FeedKind::Tool { .. } => format!("tool@{id}"),
                 FeedKind::UserMessage { .. } => format!("user@{id}"),
+                FeedKind::ApiError { .. } => format!("api_error@{id}"),
                 _ => format!("narration@{id}"),
             },
         }
@@ -5194,6 +5240,8 @@ mod exp_tool_group_fixture_tests {
         failed: bool,
         #[serde(default)]
         text: Option<String>,
+        #[serde(default)]
+        message: Option<String>,
     }
 
     #[derive(Deserialize)]
@@ -5242,8 +5290,13 @@ mod exp_tool_group_fixture_tests {
                 workflow_id: None,
                 tool_calls: None,
             },
+            "api_error" => FeedKind::ApiError {
+                message: raw.message.clone().unwrap_or_default(),
+                error_type: None,
+                subagent_id: raw.subagent_id.clone(),
+            },
             other => {
-                assert_eq!(other, "narration", "the fixture uses four kinds");
+                assert_eq!(other, "narration", "the fixture uses five kinds: this is the prose one");
                 FeedKind::Narration {
                     text: raw.text.clone().unwrap_or_default(),
                     message_id: None,
@@ -5287,6 +5340,7 @@ mod exp_tool_group_fixture_tests {
                 FeedKind::Tool { .. } => format!("tool@{id}"),
                 FeedKind::UserMessage { .. } => format!("user@{id}"),
                 FeedKind::Subagent { .. } => format!("subagent@{id}"),
+                FeedKind::ApiError { .. } => format!("api_error@{id}"),
                 _ => format!("narration@{id}"),
             },
         }
