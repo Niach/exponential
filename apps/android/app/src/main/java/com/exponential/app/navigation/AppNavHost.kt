@@ -7,13 +7,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.isImeVisible
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.union
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -30,16 +23,18 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -73,7 +68,7 @@ import com.exponential.app.ui.components.BottomBarSuppression
 import com.exponential.app.ui.components.BottomNavBar
 import com.exponential.app.ui.components.LocalBottomBarSuppression
 import com.exponential.app.ui.components.LocalToaster
-import com.exponential.app.ui.components.ToastHost
+import com.exponential.app.ui.components.ToastWindow
 import com.exponential.app.ui.components.Toaster
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.instance.InstanceScreen
@@ -229,8 +224,8 @@ fun AppNavHost() {
     val activeAccount = state.accounts.firstOrNull { it.id == state.activeAccountId }
     val needsOnboarding = activeAccount?.needsOnboarding == true
 
-    // EXP-1031: the app's ONE toaster, above both nav graphs; each graph's
-    // shell mounts the one ToastHost that draws it.
+    // EXP-1031: the app's ONE toaster, above both nav graphs, drawn by ONE
+    // ToastWindow — its own window, so toasts land above sheets and dialogs.
     val toaster = remember { Toaster() }
 
     AppBackground {
@@ -242,6 +237,7 @@ fun AppNavHost() {
             LocalContentColor provides MaterialTheme.colorScheme.onSurface,
             LocalToaster provides toaster,
         ) {
+        ToastWindow(toaster)
         val updateRequired = state.updateRequired
         if (updateRequired != null) {
             // Highest priority: the ACTIVE account's server has 426'd this
@@ -324,7 +320,6 @@ private fun UnauthenticatedNav(
     onChangeInstance: () -> Unit,
     cloudAlreadyAdded: Boolean,
 ) {
-    Box(Modifier.fillMaxSize()) {
     NavHost(navController = navController, startDestination = startDestination) {
         composable("instance") {
             InstanceScreen(
@@ -342,16 +337,8 @@ private fun UnauthenticatedNav(
             )
         }
     }
-    ToastHost(
-        toaster = LocalToaster.current,
-        modifier = Modifier
-            .align(Alignment.BottomCenter)
-            .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)),
-    )
-    }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AuthenticatedNav(
     navController: NavHostController,
@@ -941,12 +928,13 @@ private fun AuthenticatedNav(
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .onSizeChanged { bannerHeight = with(density) { it.height.toDp() } }
                 .navigationBarsPadding()
                 // Route-level, NOT barShown: while a selection suppresses
                 // the nav bar, the screen's own 52dp bar is standing in that
                 // exact slot — dropping to 0 would land the banner on it.
-                .padding(bottom = if (barVisible) BottomBarInset else 0.dp),
+                .padding(bottom = if (barVisible) BottomBarInset else 0.dp)
+                // The banners alone — the insets above join separately.
+                .onSizeChanged { bannerHeight = with(density) { it.height.toDp() } },
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             if (showsOfflineBanner) OfflineBanner(onRetry = onRetrySync)
@@ -959,19 +947,14 @@ private fun AuthenticatedNav(
         }
     }
     val bannersShown = showsGatedBanner || showsOfflineBanner
-    val imeVisible = WindowInsets.isImeVisible
-    ToastHost(
-        toaster = LocalToaster.current,
-        modifier = Modifier
-            .align(Alignment.BottomCenter)
-            .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)),
-        // The banners' rule: route-level barVisible, never the suppressed barShown.
-        bottomInset = if (imeVisible) {
-            0.dp
-        } else {
-            (if (barVisible) BottomBarInset else 0.dp) + (if (bannersShown) bannerHeight else 0.dp)
-        },
-    )
+    // The toast window's inset above the navigation bar (the keyboard, when
+    // up, replaces it there). The banners' rule: route-level barVisible,
+    // never the suppressed barShown.
+    val toaster = LocalToaster.current
+    val toastInset =
+        (if (barVisible) BottomBarInset else 0.dp) + (if (bannersShown) bannerHeight else 0.dp)
+    SideEffect { toaster.bottomInset = toastInset }
+    DisposableEffect(toaster) { onDispose { toaster.bottomInset = 0.dp } }
 
     AnimatedVisibility(
         visible = barShown,
