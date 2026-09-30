@@ -103,7 +103,7 @@ import { findRelationCycle } from "@/lib/relation-cycles"
 import { liveWorkflowBaseForIssue } from "@/lib/workflows"
 import { appendDecisionLine } from "@/lib/trpc/workflows"
 import { resolveWorkflowMembership } from "@/lib/sessions/workflow-membership"
-import { resolveIssueReference } from "@/lib/issue-resolver"
+import { resolveIssueReference, retiredIdentifiers } from "@/lib/issue-resolver"
 import {
   issueWireColumns,
   withTruncatedDescriptions,
@@ -137,6 +137,7 @@ import { assertWithinStorageLimit } from "@/lib/billing"
 import { appRouter } from "@/routes/api/trpc/$"
 import type { Context } from "@/lib/trpc"
 import {
+  branchExists,
   createPullRequest,
   findOpenPullByHead,
   type OpenPullByHead,
@@ -2637,6 +2638,9 @@ export function registerExponentialTools(
         if (!repo) throw new Error(`Issue not found`)
 
         let headBranch = head
+        // FEED-66: the identifier the head was GUESSED from, when nothing
+        // recorded the pushed branch — refined against GitHub below.
+        let guessedFromIdentifier: string | null = null
         if (!headBranch) {
           const [issue] = await db
             .select({ identifier: issues.identifier, branch: issues.branch })
@@ -2645,6 +2649,7 @@ export function registerExponentialTools(
             .limit(1)
           if (!issue) throw new Error(`Issue not found`)
           headBranch = issue.branch ?? `exp/${issue.identifier}`
+          if (!issue.branch) guessedFromIdentifier = issue.identifier
         }
         // EXP-897: the stack edge. Explicit (`stackOnIssueId`) or implicit — a
         // raw `base` that happens to be a same-team issue's PR branch IS a
@@ -2734,6 +2739,25 @@ export function registerExponentialTools(
         }
         const token = resolved.token
 
+        // FEED-66: a cross-board move renumbered the issue mid-run, so the
+        // branch the run pushed carries the RETIRED identifier (`exp/FEED-50`
+        // for what is now EXP-1147) and the guess above names a branch that
+        // does not exist (GitHub: 422 "head invalid"). A moved issue's
+        // candidates are tried on GitHub, current name first; a never-moved
+        // issue costs nothing extra.
+        if (guessedFromIdentifier) {
+          const retired = await retiredIdentifiers(ids[0]!)
+          if (retired.length > 0) {
+            for (const identifier of [guessedFromIdentifier, ...retired]) {
+              const candidate = `exp/${identifier}`
+              if (await branchExists(repo.fullName, candidate, token)) {
+                headBranch = candidate
+                break
+              }
+            }
+          }
+        }
+
         // EXP-494: record the initiator BEFORE creating the PR — GitHub's
         // `opened` webhook reliably beats this handler's own DB write, and
         // without the claim it fans out anonymously (self-notifying the very
@@ -2762,6 +2786,17 @@ export function registerExponentialTools(
           // A failed create must not leave a claim that could misattribute a
           // later out-of-band PR on the same branch.
           releasePrOpenClaim(repo.fullName, headBranch)
+          // FEED-66: GitHub's 422 on a head nobody pushed is only readable
+          // when the caller learns the head was OUR guess.
+          if (
+            guessedFromIdentifier &&
+            e instanceof Error &&
+            /\(422\)/.test(e.message)
+          ) {
+            throw new Error(
+              `${e.message} The head branch '${headBranch}' was inferred from the issue; pass 'head' with the branch you pushed.`
+            )
+          }
           throw e
         }
         // FEED-59: linking to the PR already open on `head`. Nothing new
@@ -3270,7 +3305,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_merge`,
     {
-      description: `Squash-merge open PRs via the GitHub App (no 'gh' or token). Pass EXACTLY ONE of 'issueId', 'issueIds' (one merge per distinct prUrl, so issues sharing a batch PR merge once), or 'repositoryId' + 'prNumber' for a PR with no issue. Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'); live coding sessions on them end unless the team's "end sessions on merge" setting is off; 'endSessions' overrides that setting for this call (false keeps them running), and YOUR OWN session always keeps running (it ends on its own exit or close-out). Merges run sequentially; each results[] element carries 'merged' + optional 'error' or 'queued' (in GitHub's merge queue; merged=false until it lands), plus issueId/identifier (issue path) or repositoryId/prNumber (chore path); one unmergeable PR never blocks the rest. 'mergeStack' merges the PR's whole stack, bottom-up, in one call. A merge rejected for a stale base: fix with exponential_pr_retarget first. Idempotent for already-merged PRs.`,
+      description: `Squash-merge open PRs via the GitHub App (no 'gh' or token). Pass EXACTLY ONE of 'issueId', 'issueIds' (one merge per distinct prUrl, so issues sharing a batch PR merge once), or 'repositoryId' + 'prNumber' for a PR with no issue. Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'); live coding sessions on them end unless the team's "end sessions on merge" setting is off; 'endSessions' overrides that setting for this call (false keeps them running), and YOUR OWN session always keeps running (it ends on its own exit or close-out). Each results[] element carries 'merged' + optional 'error' or 'queued' (in GitHub's merge queue; merged=false until it lands), plus issueId/identifier (issue path) or repositoryId/prNumber (chore path); one unmergeable PR never blocks the rest. 'mergeStack' merges the PR's whole stack, bottom-up, in one call. A merge rejected for a stale base: fix with exponential_pr_retarget first. Idempotent: an already-merged PR answers merged=true.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: prMergeInput,
     },

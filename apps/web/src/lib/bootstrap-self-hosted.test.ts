@@ -103,7 +103,8 @@ function row(overrides: Partial<(typeof mockRows)[number]> = {}) {
 
 // An open PR as the poller's one read reports it; `baseRef` = its live base.
 function openOnGitHub(baseRef: string | null = null) {
-  return { state: `open` as const, merged: false, mergedBy: null, baseRef }
+  return { state: `open` as const, merged: false, mergedBy: null,
+      mergeCommitSha: null, baseRef }
 }
 
 // Flatten a drizzle SQL tree down to its bound parameter values.
@@ -200,6 +201,7 @@ describe(`runPrPollPass`, () => {
       state: `closed`,
       merged: true,
       mergedBy: null,
+      mergeCommitSha: null,
     baseRef: null,
     })
     await runPrPollPass(now)
@@ -220,6 +222,7 @@ describe(`runPrPollPass`, () => {
       state: `closed`,
       merged: false,
       mergedBy: null,
+      mergeCommitSha: null,
     baseRef: null,
     })
     await runPrPollPass(now)
@@ -246,6 +249,7 @@ describe(`runPrPollPass`, () => {
       state: `open`,
       merged: false,
       mergedBy: null,
+      mergeCommitSha: null,
     baseRef: null,
     })
     await runPrPollPass()
@@ -263,6 +267,7 @@ describe(`runPrPollPass`, () => {
       state: `closed`,
       merged: true,
       mergedBy: null,
+      mergeCommitSha: null,
     baseRef: null,
     })
     await runPrPollPass()
@@ -278,6 +283,7 @@ describe(`runPrPollPass`, () => {
       state: `closed`,
       merged: false,
       mergedBy: null,
+      mergeCommitSha: null,
     baseRef: null,
     })
     await runPrPollPass()
@@ -293,6 +299,7 @@ describe(`runPrPollPass`, () => {
       state: `open`,
       merged: false,
       mergedBy: null,
+      mergeCommitSha: null,
     baseRef: null,
     })
     await runPrPollPass()
@@ -341,6 +348,7 @@ describe(`runPrPollPass`, () => {
         state: `closed`,
         merged: false,
         mergedBy: null,
+      mergeCommitSha: null,
         // A closed PR's base is never mirrored, whatever it says.
         baseRef: `master`,
       })
@@ -358,6 +366,7 @@ describe(`runPrPollPass`, () => {
       state: `closed`,
       merged: true,
       mergedBy: null,
+      mergeCommitSha: null,
     baseRef: null,
     })
     await runPrPollPass()
@@ -376,6 +385,7 @@ describe(`runPrPollPass`, () => {
         state: `closed`,
         merged: true,
         mergedBy: null,
+      mergeCommitSha: null,
         baseRef: null,
       })
     const spy = vi.spyOn(console, `error`).mockImplementation(() => {})

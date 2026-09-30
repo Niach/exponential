@@ -10,6 +10,7 @@ import {
   type GitHubFetch,
   listOpenPullsByBase,
   listPullsByHead,
+  mergePullRequest,
   resolvePrBaseState,
   retargetPullRequest,
   updatePullRequest,
@@ -179,6 +180,7 @@ describe(`fetchPullState`, () => {
       merged: true,
       mergedBy: { login: `octocat`, id: 1 },
       baseRef: `exp/EXP-314`,
+      mergeCommitSha: null,
     })
   })
 
@@ -192,6 +194,7 @@ describe(`fetchPullState`, () => {
       merged: false,
       mergedBy: null,
       baseRef: null,
+      mergeCommitSha: null,
     })
   })
 })
@@ -750,5 +753,44 @@ describe(`diagnoseUnmergeablePr`, () => {
         fetchImpl,
       })
     ).resolves.toBeNull()
+  })
+})
+
+// FEED-64: a 5xx body says nothing ("Server Error"); GitHub's request id is
+// what their support can trace, so the merge error carries it.
+describe(`mergePullRequest`, () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it(`carries GitHub's request id on a 5xx, never on a refusal`, async () => {
+    const headers = new Headers({ "x-github-request-id": `1234:ABCD` })
+    vi.stubGlobal(
+      `fetch`,
+      vi.fn(async () => ({
+        ...jsonResponse(500, { message: `Server Error` }),
+        headers,
+      }))
+    )
+    await expect(
+      mergePullRequest({ repo: `o/r`, prNumber: 241, token: `tok` })
+    ).rejects.toMatchObject({
+      status: 500,
+      message: `Server Error (request 1234:ABCD)`,
+    })
+
+    vi.stubGlobal(
+      `fetch`,
+      vi.fn(async () => ({
+        ...jsonResponse(405, { message: `Pull Request is not mergeable` }),
+        headers,
+      }))
+    )
+    await expect(
+      mergePullRequest({ repo: `o/r`, prNumber: 241, token: `tok` })
+    ).rejects.toMatchObject({
+      status: 405,
+      message: `Pull Request is not mergeable`,
+    })
   })
 })

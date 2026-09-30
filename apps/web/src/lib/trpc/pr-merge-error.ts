@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server"
 import {
   GitHubMergeError,
   STACKED_PR_REFUSAL,
+  UNMERGEABLE_405,
   type UnmergeableDiagnosis,
 } from "@/lib/integrations/github-pr"
 
@@ -17,19 +18,9 @@ import {
  * send the agent in circles.
  */
 
-/**
- * GitHub's 405 "unmergeable" refusal — the only 405 worth a base diagnosis.
- *
- * GitHub has shipped two wordings for the same state: the classic
- * `Pull Request is not mergeable` and, since 2026, the more specific
- * `Pull Request has merge conflicts` (EXP-737: that one slipped through as a
- * verbatim 412 policy refusal, so no client offered "Fix conflicts" on a real
- * conflict). Both mean the trees disagree; policy refusals ("Squash merges are
- * not allowed…", required reviews/checks) and the transient "Base branch was
- * modified" use neither phrase.
- */
-const UNMERGEABLE_405 = /not mergeable|merge conflicts?/i
-
+// GitHub's 405 "unmergeable" wordings live beside the smart merge
+// (`UNMERGEABLE_405`, github-pr.ts): FEED-64 made the merge path verify a
+// merged PR's own 405 before it reaches this mapping.
 export function isNotMergeable(err: unknown): boolean {
   return (
     err instanceof GitHubMergeError &&
@@ -84,8 +75,11 @@ export function prMergeFailureError(
       message: `Pull request not found on GitHub`,
     })
   }
+  // FEED-64: the status is the diagnosis a bare "Server Error" lacks — and
+  // by the time a 5xx reaches this mapping the PR has been re-read and is
+  // NOT merged, so the caller may retry.
   return new TRPCError({
     code: `INTERNAL_SERVER_ERROR`,
-    message: `GitHub merge failed: ${err.message}`,
+    message: `GitHub merge failed (HTTP ${err.status}): ${err.message}`,
   })
 }

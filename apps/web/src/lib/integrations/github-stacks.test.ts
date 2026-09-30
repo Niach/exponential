@@ -6,6 +6,7 @@ import {
   GitHubAsyncMergePending,
   GitHubMergeError,
   membersAtOrBelowNumber,
+  mergedByPerson,
   mergePullRequestAsync,
   mergePullRequestSmart,
   pollAsyncMerge,
@@ -551,6 +552,267 @@ describe(`mergePullRequestSmart (FEED-43)`, () => {
     }).catch((err) => err)
     expect(error).toBeInstanceOf(GitHubAsyncMergePending)
     expect(error).toMatchObject({ prNumber: 241, stackNumber: 7, uuid: `u-1` })
+  })
+
+  // FEED-64: GitHub's `PUT …/merge` answered 500 "Server Error" AFTER it had
+  // written the squash commit; every merge path reported `merged: false`, the
+  // issue state never moved, the claims were dropped and the own-PR spare
+  // reverted. The PR's own state decides now.
+  describe(`verifies the PR before calling a merge failed (FEED-64)`, () => {
+    const noSleep = async () => {}
+    const mergedPull = {
+      state: `closed`,
+      merged: true,
+      merged_by: { login: `exponential[bot]`, type: `Bot` },
+      merge_commit_sha: `d6ef0be6e5`,
+    }
+    const openPull = { state: `open`, merged: false, merged_by: null }
+
+    it(`answers merged:true with the squash sha when a 500 hid a landed merge`, async () => {
+      const { calls } = install([
+        {
+          match: `/pulls/241/merge`,
+          method: `PUT`,
+          status: 500,
+          body: { message: `Server Error` },
+        },
+        { match: `/pulls/241`, status: 200, body: mergedPull },
+      ])
+      const result = await mergePullRequestSmart({
+        repo: `o/r`,
+        prNumber: 241,
+        token: `tok`,
+        sleepImpl: noSleep,
+      })
+      expect(result).toMatchObject({
+        merged: true,
+        queued: false,
+        sha: `d6ef0be6e5`,
+        viaStack: false,
+        stackMemberNumbers: [241],
+        // Our own App pressed the button: not a person's merge.
+        mergedBy: { login: `exponential[bot]` },
+      })
+      expect(calls.map((call) => call.method)).toEqual([`PUT`, `GET`])
+    })
+
+    it(`rethrows the ORIGINAL 500 when two reads still show the PR open`, async () => {
+      const { calls } = install([
+        {
+          match: `/pulls/241/merge`,
+          method: `PUT`,
+          status: 500,
+          body: { message: `Server Error` },
+        },
+        { match: `/pulls/241`, status: 200, body: openPull },
+        { match: `/pulls/241`, status: 200, body: openPull },
+      ])
+      const error = await mergePullRequestSmart({
+        repo: `o/r`,
+        prNumber: 241,
+        token: `tok`,
+        sleepImpl: noSleep,
+      }).catch((e: unknown) => e)
+      expect(error).toBeInstanceOf(GitHubMergeError)
+      expect((error as GitHubMergeError).status).toBe(500)
+      expect((error as GitHubMergeError).message).toBe(`Server Error`)
+      expect(calls.map((call) => call.method)).toEqual([`PUT`, `GET`, `GET`])
+    })
+
+    it(`rethrows the original error when the verify read itself fails`, async () => {
+      install([
+        {
+          match: `/pulls/241/merge`,
+          method: `PUT`,
+          status: 502,
+          body: { message: `Bad Gateway` },
+        },
+        // No GET route: the read throws "unrouted", which must never replace
+        // GitHub's own answer.
+      ])
+      const error = await mergePullRequestSmart({
+        repo: `o/r`,
+        prNumber: 241,
+        token: `tok`,
+        sleepImpl: noSleep,
+      }).catch((e: unknown) => e)
+      expect(error).toBeInstanceOf(GitHubMergeError)
+      expect((error as GitHubMergeError).status).toBe(502)
+    })
+
+    it(`treats a dropped connection like a 5xx: the PR decides`, async () => {
+      const { impl } = install([
+        { match: `/pulls/241`, status: 200, body: mergedPull },
+      ])
+      impl.mockImplementationOnce(async () => {
+        throw new TypeError(`fetch failed`)
+      })
+      const result = await mergePullRequestSmart({
+        repo: `o/r`,
+        prNumber: 241,
+        token: `tok`,
+        sleepImpl: noSleep,
+      })
+      expect(result).toMatchObject({ merged: true, sha: `d6ef0be6e5` })
+    })
+
+    it(`answers merged:true to the 405 a retry gets on an already-merged PR (the idempotency promise)`, async () => {
+      install([
+        {
+          match: `/pulls/241/merge`,
+          method: `PUT`,
+          status: 405,
+          body: { message: `Pull Request is not mergeable` },
+        },
+        { match: `/pulls/241`, status: 200, body: mergedPull },
+      ])
+      const result = await mergePullRequestSmart({
+        repo: `o/r`,
+        prNumber: 241,
+        token: `tok`,
+        sleepImpl: noSleep,
+      })
+      expect(result).toMatchObject({ merged: true, viaStack: false })
+    })
+
+    it(`passes a real 405 conflict through untouched once the PR reads open`, async () => {
+      install([
+        {
+          match: `/pulls/241/merge`,
+          method: `PUT`,
+          status: 405,
+          body: { message: `Pull Request has merge conflicts` },
+        },
+        { match: `/pulls/241`, status: 200, body: openPull },
+        { match: `/pulls/241`, status: 200, body: openPull },
+      ])
+      const error = await mergePullRequestSmart({
+        repo: `o/r`,
+        prNumber: 241,
+        token: `tok`,
+        sleepImpl: noSleep,
+      }).catch((e: unknown) => e)
+      expect(error).toBeInstanceOf(GitHubMergeError)
+      expect((error as GitHubMergeError).status).toBe(405)
+      expect((error as GitHubMergeError).message).toBe(
+        `Pull Request has merge conflicts`
+      )
+    })
+
+    it(`never verifies a 4xx GitHub decided (409 head moved: one call, no read)`, async () => {
+      const { calls } = install([
+        {
+          match: `/pulls/241/merge`,
+          method: `PUT`,
+          status: 409,
+          body: { message: `Head branch was modified.` },
+        },
+      ])
+      await expect(
+        mergePullRequestSmart({ repo: `o/r`, prNumber: 241, token: `tok` })
+      ).rejects.toMatchObject({ status: 409 })
+      expect(calls).toHaveLength(1)
+    })
+
+    it(`names the PERSON who merged it when GitHub says so, for the caller to attribute`, async () => {
+      install([
+        {
+          match: `/pulls/241/merge`,
+          method: `PUT`,
+          status: 500,
+          body: { message: `Server Error` },
+        },
+        {
+          match: `/pulls/241`,
+          status: 200,
+          body: {
+            ...mergedPull,
+            merged_by: { login: `danny`, id: 7, type: `User` },
+          },
+        },
+      ])
+      const result = await mergePullRequestSmart({
+        repo: `o/r`,
+        prNumber: 241,
+        token: `tok`,
+        sleepImpl: noSleep,
+      })
+      expect(result.mergedBy).toEqual({ login: `danny`, id: 7, type: `User` })
+      expect(mergedByPerson(result.mergedBy)).toBe(true)
+      expect(mergedByPerson({ login: `exponential[bot]` })).toBe(false)
+      expect(mergedByPerson({ login: `danny`, type: `Bot` })).toBe(false)
+      expect(mergedByPerson(null)).toBe(false)
+    })
+
+    it(`verifies a 502 from merge-async too, keeping the stack cohort`, async () => {
+      install([
+        {
+          match: `/pulls/241/merge`,
+          method: `PUT`,
+          status: 405,
+          body: { message: STACKED_REFUSAL },
+        },
+        { match: `/stacks?pull_request=241`, status: 200, body: [STACK_BODY] },
+        {
+          match: `/pulls/241/merge-async`,
+          method: `PUT`,
+          status: 502,
+          body: { message: `Bad Gateway` },
+        },
+        { match: `/pulls/241`, status: 200, body: mergedPull },
+      ])
+      const result = await mergePullRequestSmart({
+        repo: `o/r`,
+        prNumber: 241,
+        token: `tok`,
+        sleepImpl: noSleep,
+      })
+      expect(result).toMatchObject({
+        merged: true,
+        queued: false,
+        viaStack: true,
+        stackNumber: 7,
+        stackMemberNumbers: [240, 241],
+        sha: `d6ef0be6e5`,
+      })
+    })
+
+    it(`keeps polling merge-async through a 5xx on one poll (the job is still running)`, async () => {
+      install([
+        {
+          match: `/pulls/241/merge`,
+          method: `PUT`,
+          status: 405,
+          body: { message: STACKED_REFUSAL },
+        },
+        { match: `/stacks?pull_request=241`, status: 200, body: [STACK_BODY] },
+        {
+          match: `/pulls/241/merge-async`,
+          method: `PUT`,
+          status: 202,
+          body: { status: `pending`, details: { uuid: `u-1` } },
+        },
+        {
+          match: `/merge-async/u-1`,
+          status: 503,
+          body: { message: `Service Unavailable` },
+        },
+        {
+          match: `/merge-async/u-1`,
+          status: 200,
+          body: { status: `merged`, sha: `abc` },
+        },
+      ])
+      const result = await mergePullRequestSmart({
+        repo: `o/r`,
+        prNumber: 241,
+        token: `tok`,
+        sleepImpl: noSleep,
+        stepMs: 1,
+        timeoutMs: 10_000,
+      })
+      expect(result).toMatchObject({ merged: true, sha: `abc`, viaStack: true })
+    })
   })
 
   it(`rethrows a NON-stacked refusal untouched (no merge-async retry)`, async () => {

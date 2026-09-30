@@ -236,3 +236,61 @@ describe(`issues.mergePr({mergeStack}) under a live workflow (EXP-1094)`, () => 
     expect(h.mergePullRequestSmart).toHaveBeenCalledTimes(2)
   })
 })
+
+// FEED-64: the merge call failed, the PR read merged — by a PERSON on
+// github.com. Their merge, their attribution: the claim goes and the state
+// write is left to the webhook (`merged_by`, EXP-617). Still `merged: true`.
+describe(`issues.mergePr after a merge confirmed from the PR's state (FEED-64)`, () => {
+  const plainRow = {
+    prNumber: 242,
+    prUrl: UPPER_PR_URL,
+    prState: `open`,
+    identifier: `EXP-12`,
+    title: `Upper`,
+    branch: `exp/EXP-12`,
+    prBaseBranch: `master`,
+    prStackNumber: null,
+  }
+
+  it(`hands a person's merge to the webhook: claim released, nothing written`, async () => {
+    h.selectQueue.push([plainRow])
+    h.mergePullRequestSmart.mockResolvedValueOnce({
+      merged: true,
+      queued: false,
+      sha: `d6ef0be6e5`,
+      mergedBy: { login: `danny`, id: 7, type: `User` },
+      viaStack: false,
+      stackNumber: null,
+      stackMemberNumbers: [242],
+    } as never)
+
+    await expect(caller.mergePr({ issueId: UPPER_ISSUE })).resolves.toEqual({
+      merged: true,
+      note: `PR #242 was already merged on GitHub by danny; its issues complete when the merge webhook lands.`,
+    })
+    expect(h.applyPrMergeState).not.toHaveBeenCalled()
+    expect(h.endMergedPrSessions).not.toHaveBeenCalled()
+    expect(takePrMergeClaim(`owner/repo`, 242)).toBeNull()
+  })
+
+  it(`treats our own App's confirmed merge exactly like a normal one`, async () => {
+    h.selectQueue.push([plainRow])
+    h.selectQueue.push([{ id: UPPER_ISSUE }])
+    h.mergePullRequestSmart.mockResolvedValueOnce({
+      merged: true,
+      queued: false,
+      sha: `d6ef0be6e5`,
+      mergedBy: { login: `exponential[bot]`, type: `Bot` },
+      viaStack: false,
+      stackNumber: null,
+      stackMemberNumbers: [242],
+    } as never)
+
+    await expect(caller.mergePr({ issueId: UPPER_ISSUE })).resolves.toEqual({
+      merged: true,
+    })
+    expect(h.applyPrMergeState).toHaveBeenCalledTimes(1)
+    // The claim stays for the webhook echo (consumed there, attributed to us).
+    expect(takePrMergeClaim(`owner/repo`, 242)).toMatchObject({ userId: `actor` })
+  })
+})
