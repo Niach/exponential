@@ -7,15 +7,12 @@ import SwiftUI
 /// other work, and the ONE overlay behind it, ×4 (web `pr-graph-badge.tsx`,
 /// desktop `pr_graph.rs`, Android `PrGraphBadge.kt`).
 ///
-/// EXP-1058: the badge is the STACKED issue chip (`IssueChipStack`) in the
-/// Work header — the subject PR's representative issue in front with `+N`
-/// for every other issue of its stack or batch (`PrGraph.badgeChip`), or, for
-/// a run family with no issue, the run itself behind the session-tree glyph.
-/// EXP-1097: the chip is FACE-INDEPENDENT (`PrGraph.badgeShape`: a stack or
-/// batch, else a run family, else open blockers) and COMPACT (glyph ·
-/// identifier · `+N`), beside the header's `…` on every face. The front chip
-/// is inert: the whole stack is ONE tap target that opens the overlay, whose
-/// sections are every relation the subject has, the face's own FIRST
+/// SLOP-16 r2: the badge is a quiet ICON BUTTON in the header's `…` style
+/// (same glyph size, weight and muted ink, the bar's own capsule), not the
+/// stacked issue chip that repeated the title. Its glyph follows the badge
+/// SHAPE (`PrGraph.badgeShape`: a stack or batch, else a run family, else
+/// open blockers), a small mono `+N` beside it; the tap opens the overlay,
+/// whose sections are every relation the subject has, the face's own FIRST
 /// (`PrGraph.overlaySections`) — the same rows and copy on every face:
 ///
 /// - Issue face → EXP-980: the blocks MINI-GRAPH (the transitive chain, waves
@@ -25,23 +22,23 @@ import SwiftUI
 /// - Changes face → the PR stack bottom-up (identifiers, PR state, a batch's
 ///   issues folded underneath, "Merge stack" on the bottom entry)
 struct PrGraphBadge: View {
-    let chip: PrGraph.BadgeChip
-    /// What the no-issue front chip names: the run's own identity.
-    let runName: String?
+    let shape: PrGraph.BadgeShape?
+    /// How many other pieces of work ride with the subject (`chip.count`).
+    let count: Int
     let accessibilityName: String
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 0) {
-                IssueChipStack { front }
-                // The `+N` rides BESIDE the stack, clear of the ghosts (web
-                // `IssueChipStack`'s count slot, EXP-1097).
+            HStack(spacing: 2) {
+                AppIcon(Self.icon(shape), size: AppIcon.Size.medium, weight: .medium)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .frame(width: GlassTokens.controlSize, height: GlassTokens.controlSize)
                 if let countSuffix {
                     Text(countSuffix)
                         .font(.caption.monospaced())
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .padding(.leading, 6)
+                        .padding(.trailing, 6)
                         .fixedSize()
                 }
             }
@@ -54,38 +51,20 @@ struct PrGraphBadge: View {
         .accessibilityIdentifier("pr-graph-badge")
     }
 
-    /// `+3` — who rides behind the front chip; nil when nobody does.
+    /// `+3` — who rides with the subject; nil when nobody does.
     private var countSuffix: String? {
-        chip.count > 0 ? "+\(chip.count)" : nil
+        count > 0 ? "+\(count)" : nil
     }
 
-    /// EXP-1097 / SLOP-16: the phone header's chip is the chip's OWN small
-    /// mode (`size: .sm` — glyph · identifier, the title in the tooltip and
-    /// the accessibility label), nothing hand-rolled. A run family with no
-    /// issue names the run behind the session-tree glyph instead.
-    @ViewBuilder
-    private var front: some View {
-        if let issue = chip.issue {
-            IssueChip(
-                identifier: issue.identifier,
-                title: issue.title,
-                status: IssueStatus.from(issue.status),
-                size: .sm
-            )
-            .fixedSize()
-        } else {
-            IssueChip(
-                identifier: nil,
-                title: runName ?? accessibilityName,
-                iconName: AppIcons.sessionTree,
-                statusColor: .white.opacity(TextOpacity.secondary)
-            )
-            .frame(maxWidth: Self.maxWidth)
+    /// The badge's glyph, by what it stands for.
+    static func icon(_ shape: PrGraph.BadgeShape?) -> String {
+        switch shape {
+        case .stack, .stackAndBatch: AppIcons.prStack
+        case .batch: AppIcons.prBatch
+        case .blocked: AppIcons.relationBlockedBy
+        case .runs, nil: AppIcons.sessionTree
         }
     }
-
-    /// The run-name chip truncates its title before it crowds the header.
-    static let maxWidth: CGFloat = 140
 
     /// The badge's spoken name, by what it stands for.
     static func accessibilityName(_ shape: PrGraph.BadgeShape?) -> String {
@@ -132,22 +111,26 @@ struct PrGraphSheet: View {
     }
 
     var body: some View {
-        GlassSheetChrome(title: title, height: .fitted) {
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(sections, id: \.self) { section in
-                    switch section {
-                    case .blocked: blockedSection
-                    case .batch: batchSection
-                    case .runs: runsSection
-                    case .stack: stackSection
+        // SLOP-16 r2: open LARGE so the whole graph shows at once; `.full`
+        // leaves the scrolling to us.
+        GlassSheetChrome(title: title, height: .full) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(sections, id: \.self) { section in
+                        switch section {
+                        case .blocked: blockedSection
+                        case .batch: batchSection
+                        case .runs: runsSection
+                        case .stack: stackSection
+                        }
+                    }
+                    if sections.isEmpty {
+                        emptyNote("Nothing else is linked to this issue.")
                     }
                 }
-                if sections.isEmpty {
-                    emptyNote("Nothing else is linked to this issue.")
-                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 16)
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 16)
         }
         .accessibilityIdentifier("pr-graph-sheet")
     }

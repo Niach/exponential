@@ -384,20 +384,17 @@ struct WorkScreen: View {
         return pool
     }
 
-    /// EXP-1058: the header's stacked issue chip, when there IS a stack, a
+    /// SLOP-16 r2: the header's graph icon button, when there IS a stack, a
     /// batch, a run tree or (EXP-1097) an open blocker to name — the same on
     /// every face.
     @ViewBuilder
     private var prGraphBadge: some View {
         if let graph = prGraph, let chip = PrGraph.badgeChip(graph) {
+            let shape = PrGraph.badgeShape(graph)
             PrGraphBadge(
-                chip: chip,
-                runName: chip.issue == nil
-                    ? shownSession.map {
-                        sessionRowTitle(issue: nil, session: $0, batchIssues: graphIssuePool)
-                    }
-                    : nil,
-                accessibilityName: PrGraphBadge.accessibilityName(PrGraph.badgeShape(graph))
+                shape: shape,
+                count: chip.count,
+                accessibilityName: PrGraphBadge.accessibilityName(shape)
             ) {
                 prGraphOpen = true
             }
@@ -616,18 +613,11 @@ struct WorkScreen: View {
                 ToolbarItem(placement: .principal) {
                     WorkTitle(text: title, tone: dotTone, pulsing: dotPulsing)
                 }
-                // EXP-1097: the ONE graph chip (compact: glyph · identifier ·
-                // `+N`) sits on the action edge, left of `…` / Stop, on EVERY
-                // face. Always mounted (EXP-942: an action-edge item that
-                // comes and goes sometimes failed to reappear) and drawn
-                // WITHOUT the bar's shared capsule — it is a chip, not a
-                // button glyph.
-                if #available(iOS 26.0, *) {
-                    ToolbarItem(placement: .topBarTrailing) { prGraphBadge }
-                        .sharedBackgroundVisibility(.hidden)
-                } else {
-                    ToolbarItem(placement: .topBarTrailing) { prGraphBadge }
-                }
+                // SLOP-16 r2: the ONE graph icon button sits on the action
+                // edge, left of `…` / Stop, on EVERY face, in the bar's own
+                // capsule like `…`. Always mounted (EXP-942: an action-edge
+                // item that comes and goes sometimes failed to reappear).
+                ToolbarItem(placement: .topBarTrailing) { prGraphBadge }
                 // EXP-942: Stop / Resume is its OWN bar item, so the system
                 // gives it its own capsule instead of merging it with the
                 // `…` menu into one shared shape. Mounted for the whole Run

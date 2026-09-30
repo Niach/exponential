@@ -35,15 +35,15 @@ import com.exponential.app.domain.SessionDotTone
 import com.exponential.app.domain.TreeGuide
 import com.exponential.app.domain.TreeGuides
 import com.exponential.app.domain.WorkFaceKind
-import com.exponential.app.domain.ResolvedIssueStatus
+import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.IssueChipSize
-import com.exponential.app.ui.components.IssueChipStack
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.ui.markdown.MdStyle
 import androidx.compose.ui.semantics.Role
 import com.exponential.app.ui.components.GlassSheet
+import com.exponential.app.ui.components.SheetHeight
 import com.exponential.app.ui.components.IssueChip
 import com.exponential.app.ui.components.IssueGraphList
 import com.exponential.app.ui.components.PillSize
@@ -66,70 +66,61 @@ import com.exponential.app.ui.theme.flatRow
 // (`components/pr-graph-badge.tsx`, `PrGraphBadge.swift`, `pr_graph.rs`).
 
 /**
- * EXP-1058: the badge is the STACKED issue chip — the front issue
- * ([PrGraph.badgeChip]) with ghost outlines saying there is more than one,
- * `+N` BESIDE the stack for everything behind it. EXP-1097: the SAME chip on
- * every face ([PrGraph.badgeShape] is face-independent: a stack/batch, a run
- * family, else open blockers) and COMPACT — SLOP-15/16: the chip's own small
- * mode ([IssueChipSize.Sm]: glyph + identifier, the title on long press). A
- * run with no issue (the run tree alone) fronts the same chip box with the
- * session-tree glyph and the run's own name ([runTitle]). The chip is inert:
- * the WHOLE thing is one tap target that opens the overlay ([onOpen]).
- * Nothing at all when [PrGraph.badgeChip] is null.
+ * SLOP-16: the badge is a quiet ICON BUTTON beside the `…` — the same ghost
+ * [CircleIconButton] the `…` wears — whose glyph names the SHAPE
+ * ([PrGraph.badgeShape]: stack, batch, run family, blockers). The stacked
+ * issue chip it replaced (EXP-1058/1097) only repeated the title. A small
+ * muted `+N` beside it counts everything behind the subject
+ * ([PrGraph.badgeChip]). One tap target that opens the overlay ([onOpen]).
+ * Nothing at all when [PrGraph.badgeShape] is null.
  */
 @Composable
 fun PrGraphBadge(
     graph: PrGraph.Graph,
-    /** The front chip's issue resolved against its team ([PrGraphViewModel.chipStatus]). */
-    chipStatus: ResolvedIssueStatus?,
-    runTitle: String?,
     onOpen: () -> Unit,
 ) {
+    val shape = PrGraph.badgeShape(graph) ?: return
     val spec = PrGraph.badgeChip(graph) ?: return
-    val front = spec.issue
     Row(
         modifier = Modifier
             .clickable(role = Role.Button, onClick = onOpen)
             .testTag("pr-graph-badge"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IssueChipStack {
-            if (front != null) {
-                IssueChip(
-                    identifier = front.identifier,
-                    title = front.title,
-                    status = chipStatus,
-                    size = IssueChipSize.Sm,
-                )
-            } else {
-                IssueChip(
-                    identifier = "",
-                    title = runTitle ?: "Run",
-                    status = null,
-                    leading = {
-                        Icon(
-                            ExpIcons.sessionTree,
-                            contentDescription = null,
-                            modifier = Modifier.size(MdStyle.chipIconSize),
-                            tint = MdStyle.ChipToken,
-                        )
-                    },
-                )
-            }
-        }
+        CircleIconButton(
+            prGraphBadgeIcon(shape),
+            prGraphBadgeName(shape),
+            onClick = onOpen,
+            borderless = true,
+        )
         if (spec.count > 0) {
-            // Beside the stack, clear of the ghost that peeks out on the right
-            // (web `IssueChipStack`'s count slot).
             Text(
                 "+${spec.count}",
                 style = MaterialTheme.typography.labelMedium,
                 fontFamily = FontFamily.Monospace,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                 maxLines = 1,
-                modifier = Modifier.padding(start = 6.dp).testTag("pr-graph-badge-count"),
+                modifier = Modifier.testTag("pr-graph-badge-count"),
             )
         }
     }
+}
+
+/** SLOP-16: the badge glyph per shape (web `PrGraphBadge`, iOS twin). */
+fun prGraphBadgeIcon(shape: PrGraph.BadgeShape) = when (shape) {
+    PrGraph.BadgeShape.STACK, PrGraph.BadgeShape.STACK_AND_BATCH -> ExpIcons.prStack
+    PrGraph.BadgeShape.BATCH -> ExpIcons.prBatch
+    PrGraph.BadgeShape.RUNS -> ExpIcons.sessionTree
+    PrGraph.BadgeShape.BLOCKED -> ExpIcons.relationBlockedBy
+}
+
+/** SLOP-16: the badge's spoken name (iOS `PrGraphBadge.accessibilityName`). */
+fun prGraphBadgeName(shape: PrGraph.BadgeShape) = when (shape) {
+    PrGraph.BadgeShape.STACK -> "Pull request stack"
+    PrGraph.BadgeShape.BATCH -> "Batch pull request"
+    PrGraph.BadgeShape.STACK_AND_BATCH -> "Stack and batch"
+    PrGraph.BadgeShape.BLOCKED -> IssueRelationsView.Copy.BLOCKED_BY
+    PrGraph.BadgeShape.RUNS -> "Related runs"
 }
 
 /**
@@ -165,6 +156,8 @@ fun PrGraphSheet(
             PrGraph.BadgeShape.RUNS, null -> "Runs"
         },
         onDismiss = onDismiss,
+        // SLOP-16 r2: open FULL so the whole graph shows at once (iOS `.full`).
+        height = SheetHeight.Full,
     ) {
         val sections = PrGraph.overlaySections(graph, face)
         var drewAny = false

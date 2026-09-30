@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react"
+import { fireEvent, render, screen, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { CodingSession, Issue } from "@/db/schema"
 
@@ -274,8 +274,7 @@ describe(`PrGraphBadge fallback (EXP-916)`, () => {
 })
 
 // EXP-1079: the desktop showed "the runs around this one" on the Run face of
-// any run with a family; the web showed nothing there. EXP-1058: the header's
-// badge is the STACKED issue chip — front chip + `+N` behind it.
+// any run with a family; the web showed nothing there.
 describe(`PrGraphBadge on the run face (EXP-1079)`, () => {
   afterEach(() => {
     liveRows.tables = {}
@@ -291,7 +290,7 @@ describe(`PrGraphBadge on the run face (EXP-1079)`, () => {
     const badge = screen.getByTestId(`pr-graph-badge`)
     expect(badge.getAttribute(`aria-label`)).toBe(`The runs around this one`)
     expect(badge.querySelector(`svg.lucide-workflow`)).toBeTruthy()
-    // One other run rides behind the front chip.
+    // One other run of the family, counted beside the glyph.
     expect(within(badge).getByText(`+1`)).toBeTruthy()
   })
 
@@ -321,32 +320,59 @@ describe(`PrGraphBadge on the run face (EXP-1079)`, () => {
   })
 })
 
-describe(`PrGraphBadge as the stacked issue chip (EXP-1058)`, () => {
+// SLOP-16: the header badge is a quiet ICON BUTTON — the glyph names the
+// shape, a muted `+N` counts the rest; no chip restates the title.
+describe(`PrGraphBadge as the header icon button (SLOP-16)`, () => {
   afterEach(() => {
     liveRows.tables = {}
   })
 
-  it(`names the representative issue and the count`, () => {
+  it(`wears the batch glyph and the count, no chip`, () => {
     liveRows.tables = { i: [batchA, batchB], b: [{ id: `b1`, slug: `web` }] }
     render(
       <PrGraphBadge teamId="t1" teamSlug="acme" face="issue" issue={batchB} />
     )
     const badge = screen.getByTestId(`pr-graph-badge`)
-    const stack = within(badge).getByTestId(`pr-graph-chip`)
-    expect(stack.getAttribute(`data-slot`)).toBe(`issue-chip-stack`)
-    expect(within(stack).getByTestId(`chip-BATA`)).toBeTruthy()
-    expect(within(stack).getByText(`+1`)).toBeTruthy()
+    expect(badge.getAttribute(`aria-label`)).toBe(`Batch pull request`)
+    expect(badge.getAttribute(`data-shape`)).toBe(`batch`)
+    expect(badge.querySelector(`svg.lucide-boxes`)).toBeTruthy()
+    expect(within(badge).getByTestId(`pr-graph-badge-count`).textContent).toBe(`+1`)
+    expect(within(badge).queryByTestId(`chip-BATA`)).toBeNull()
+    expect(within(badge).queryByTestId(`chip-BATB`)).toBeNull()
+  })
+
+  it(`wears the stack glyph for a pull request stack`, () => {
+    liveRows.tables = { i: [lower, upper], b: [{ id: `b1`, slug: `web` }] }
+    render(
+      <PrGraphBadge teamId="t1" teamSlug="acme" face="changes" issue={upper} />
+    )
+    const badge = screen.getByTestId(`pr-graph-badge`)
+    expect(badge.getAttribute(`aria-label`)).toBe(`Pull request stack`)
+    expect(badge.querySelector(`svg.lucide-layers`)).toBeTruthy()
+    expect(within(badge).getByText(`+1`)).toBeTruthy()
+  })
+
+  it(`opens the overlay as a dialog on click (≥md)`, () => {
+    liveRows.tables = { i: [batchA, batchB], b: [{ id: `b1`, slug: `web` }] }
+    render(
+      <PrGraphBadge teamId="t1" teamSlug="acme" face="issue" issue={batchB} />
+    )
+    expect(screen.queryByRole(`dialog`)).toBeNull()
+    fireEvent.click(screen.getByTestId(`pr-graph-badge`))
+    const dialog = screen.getByRole(`dialog`)
+    expect(within(dialog).getByText(`Batch pull request`)).toBeTruthy()
+    expect(within(dialog).getByText(`In batch with`)).toBeTruthy()
   })
 })
 
-// EXP-1097: open blockers alone earn the chip on the Issue face — the first
-// open blocker in front, the others counted beside the stack.
+// EXP-1097: open blockers alone earn the badge on the Issue face — the
+// blocked-by glyph, the other blockers counted.
 describe(`PrGraphBadge for a blocked issue (EXP-1097)`, () => {
   afterEach(() => {
     liveRows.tables = {}
   })
 
-  it(`fronts the first open blocker`, () => {
+  it(`wears the blocked-by glyph and counts the blockers`, () => {
     const me = issue(`me`, { prUrl: null })
     const b1 = issue(`b1`, { prUrl: null })
     const b2 = issue(`b2`, { prUrl: null })
@@ -361,9 +387,9 @@ describe(`PrGraphBadge for a blocked issue (EXP-1097)`, () => {
     render(<PrGraphBadge teamId="t1" teamSlug="acme" face="issue" issue={me} />)
     const badge = screen.getByTestId(`pr-graph-badge`)
     expect(badge.getAttribute(`aria-label`)).toBe(`Blocked by`)
-    const stack = within(badge).getByTestId(`pr-graph-chip`)
-    expect(within(stack).getByTestId(`chip-B1`)).toBeTruthy()
-    expect(within(stack).getByText(`+1`)).toBeTruthy()
+    expect(badge.getAttribute(`data-shape`)).toBe(`blocked`)
+    expect(badge.querySelector(`svg.lucide-circle-slash`)).toBeTruthy()
+    expect(within(badge).getByText(`+1`)).toBeTruthy()
   })
 })
 
@@ -382,6 +408,37 @@ describe(`PrGraphOverlay compactness (SLOP-15)`, () => {
     const node = screen.getByTestId(`issue-graph-node-BLOCKER`)
     expect(within(node).getByTestId(`chip-BLOCKER`).getAttribute(`data-size`)).toBe(`sm`)
     // The batch partner beside it is small too.
+    const partners = screen.getByTestId(`pr-graph-batch-partners`)
+    expect(within(partners).getByTestId(`chip-BATB`).getAttribute(`data-size`)).toBe(`sm`)
+  })
+})
+
+// SLOP-16: the dialog is FULL density — graph nodes carry their titles (the
+// `md` chip) and the viewport takes the dialog's width, not the fixture's.
+describe(`PrGraphOverlay in the dialog (SLOP-16)`, () => {
+  it(`draws the blocked-by graph full, with md nodes and a wide viewport`, () => {
+    const input = {
+      issue: batchA,
+      session: null,
+      issues: [batchA, batchB, blocker],
+      sessions: [],
+      relations: [{ type: `blocks` as const, issueId: `blocker`, relatedIssueId: `bata` }],
+    }
+    render(
+      <PrGraphOverlay
+        face="issue"
+        graph={prGraph(input)}
+        issues={input.issues}
+        relations={input.relations}
+        subjectIssue={batchA}
+        teamSlug="acme"
+        onClose={vi.fn()}
+        density="full"
+      />
+    )
+    expect(screen.getByTestId(`issue-graph`).getAttribute(`data-density`)).toBe(`full`)
+    const node = screen.getByTestId(`issue-graph-node-BLOCKER`)
+    expect(within(node).getByTestId(`chip-BLOCKER`).getAttribute(`data-size`)).toBe(`md`)
     const partners = screen.getByTestId(`pr-graph-batch-partners`)
     expect(within(partners).getByTestId(`chip-BATB`).getAttribute(`data-size`)).toBe(`sm`)
   })

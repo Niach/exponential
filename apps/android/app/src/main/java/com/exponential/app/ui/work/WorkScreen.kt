@@ -473,8 +473,6 @@ fun WorkScreen(
     val graphMergeError by graphVm.mergeError.collectAsStateWithLifecycle()
     // EXP-876: what names an issue-less BATCH run in the bar below.
     val batchIssues by graphVm.batchIssues.collectAsStateWithLifecycle()
-    // EXP-1058/EXP-1097: the header chip's front issue, resolved against its team.
-    val graphChipStatus by graphVm.chipStatus.collectAsStateWithLifecycle()
 
     // ── Top bar inputs ──────────────────────────────────────────────────────
     val title = when {
@@ -517,15 +515,11 @@ fun WorkScreen(
                     action = changesPrUrl?.takeIf { face == WorkFaceKind.Changes }?.let { url ->
                         { GithubHeaderAction(url) }
                     },
-                    // EXP-1058: the STACKED issue chip; a run with no issue
-                    // fronts it with the run's own name. EXP-1097: the same
-                    // compact chip on every face, beside the `…`.
+                    // SLOP-16: a quiet icon button beside the `…` whose glyph
+                    // names the shape (stack, batch, runs, blockers); the
+                    // chip it replaced only repeated the title.
                     badge = {
-                        PrGraphBadge(
-                            graph = graph,
-                            chipStatus = graphChipStatus,
-                            runTitle = shownSession?.let { sessionRowTitle(it, issue, batchIssues) },
-                        ) { graphSheetOpen = true }
+                        PrGraphBadge(graph = graph) { graphSheetOpen = true }
                     },
                     // EXP-934: the `…` belongs to the ISSUE, so it shows on the
                     // Issue face alone (`faceShowsContextMenu`) — Run, Changes

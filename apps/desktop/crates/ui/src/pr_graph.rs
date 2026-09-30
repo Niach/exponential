@@ -1,52 +1,45 @@
-//! EXP-897 §4 — the ONE stack/batch badge and its overlay.
+//! EXP-897 §4 — the ONE stack/batch badge and its graph dialog.
 //!
 //! Every face of a top tab (Issue · Run · Changes) shares one work header, so
-//! it shares ONE badge. EXP-1058: the badge IS a STACKED issue chip
-//! ([`crate::issue_chip`], the workflow graph's deck of ghosts) naming the
-//! subject pull request's representative issue, with `+N` for every other
-//! issue riding the stack or batch ([`domain::pr_graph::badge_chip`], ×4) —
-//! or, for a run family with no issue, the same chip box with the
-//! `session-tree` concept and the run's own title, `+N` = the other runs; or
-//! (EXP-1097) the subject's FIRST open blocker, `+N` = the other blockers.
-//! EXP-1097 made the chip FACE-INDEPENDENT: the same chip on Issue, Run and
-//! Changes. The chip is INERT: hovering it (desktop = a pointer platform) or
-//! clicking it opens a popover listing EVERY relation the subject has
-//! ([`domain::pr_graph::overlay_sections`]), the face that is up choosing
-//! which section LEADS, built from the same row primitives and the same copy
-//! so the three read as one thing:
+//! it shares ONE badge. SLOP-16 round 2: the badge is a muted ICON BUTTON
+//! (the header `…` button's box) whose glyph names the SHAPE
+//! ([`domain::pr_graph::badge_shape`], face-independent since EXP-1097):
+//! `pr-stack` for a stack (with or without a batch), `pr-batch`,
+//! `session-tree` for a run family, `relation-blocked-by` for open blockers
+//! alone; a mono `+N` beside it counts the others
+//! ([`domain::pr_graph::badge_chip`], ×4) and the shape's name rides the
+//! tooltip. It no longer repeats the title the header already shows.
 //!
-//! * **Issue** — "Blocked by" (EXP-980: the transitive `blocks` GRAPH around
-//!   this issue, `crate::issue_graph`, where a flat chip list used to sit)
-//!   and "In batch with" (the other issues on its pull request);
+//! A click opens a native DIALOG window titled by that name, listing EVERY
+//! relation the subject has ([`domain::pr_graph::overlay_sections`]), the
+//! face that is up choosing which section LEADS:
+//!
+//! * **Issue** — "Blocked by" (EXP-980: the WHOLE transitive `blocks` graph
+//!   in full boxes, as wide as the dialog and scrolling past it) and "In
+//!   batch with" (the other issues on its pull request, small chips);
 //! * **Run** — the run's session tree, nested, live dots, a click opens a run;
 //! * **Changes / review** — the PR stack BOTTOM-UP: identifier(s), PR state, a
-//!   batch glyph with the batch's issues folded underneath, and "Merge stack"
-//!   on the bottom entry.
+//!   batch glyph with the batch's issues folded underneath as small chips,
+//!   and "Merge stack" on the bottom entry.
 //!
-//! SLOP-15/16 (the web's stacked-chip redesign): the deck's ghosts are faint
-//! OUTLINES; inside the overlay every issue is the SMALL chip
-//! ([`crate::issue_chip::IssueChip::small`], the title in its tooltip) in a
-//! wrapped row, and the "Blocked by" graph is the COMPACT one
-//! (`geometry::Density::Compact`). The header chip itself stays full.
+//! Every click inside the dialog closes it and acts in the opener. The
+//! Reviews list keeps its batch popover ([`batch_glyph`]).
 //!
 //! The model is [`domain::pr_graph`] — this module is presentation only.
 
-use std::time::Duration;
-
 use gpui::{
-    div, prelude::FluentBuilder as _, px, AnyElement, App, ClickEvent, Hsla,
-    InteractiveElement as _, IntoElement, ParentElement, RenderOnce, SharedString,
+    div, prelude::FluentBuilder as _, px, size, AnyElement, App, AppContext as _, ClickEvent,
+    Hsla, InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Window,
 };
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
-use domain::pr_graph::{self, BadgeChip, PrGraph};
+use domain::pr_graph::{self, BadgeChip, BadgeShape, PrGraph};
 use domain::pr_stack;
 use domain::rows::{CodingSession, Issue};
-use domain::statuses::ResolvedStatus;
 
-use crate::icons::registry;
-use crate::issue_chip::{issue_chip, ISSUE_CHIP_ICON_MAX, ISSUE_CHIP_STACK_STEP};
+use crate::icons::{registry, ExpIcon};
+use crate::issue_chip::issue_chip;
 use crate::surface::{glass_pill, glass_pill_button, PillMode, PillSize};
 
 /// Which face the badge is rendered on — it orders the overlay's sections
@@ -63,14 +56,11 @@ pub(crate) struct BadgeSpec {
     /// "Blocked by" section draws THIS where a flat chip list used to sit.
     /// Empty when the subject has no open blocker (and for an issue-less run).
     pub blocks_graph: domain::issue_graph::IssueGraph,
-    /// The subject run's own title — what the front chip names when there is
-    /// no issue to name (an issue-less run's family). `None` on issue faces.
-    pub run_title: Option<SharedString>,
 }
 
 impl BadgeSpec {
-    /// What the chip draws — [`pr_graph::badge_chip`], the SAME on every face
-    /// (EXP-1097).
+    /// The badge's count source — [`pr_graph::badge_chip`], the SAME on
+    /// every face (EXP-1097).
     pub(crate) fn chip(&self) -> Option<BadgeChip> {
         pr_graph::badge_chip(&self.graph)
     }
@@ -165,7 +155,6 @@ pub(crate) fn issue_spec(
         graph,
         face,
         blocks_graph,
-        run_title: None,
     }
 }
 
@@ -186,11 +175,6 @@ pub(crate) fn session_spec(session: &CodingSession, face: BadgeFace, cx: &App) -
         graph: pr_graph::pr_graph(None, Some(session), &issues, &sessions),
         face,
         blocks_graph: domain::issue_graph::IssueGraph::default(),
-        run_title: Some(crate::run_rows::run_title(
-            session,
-            None,
-            &crate::run_rows::batch_run_issues(session, cx),
-        )),
     }
 }
 
@@ -198,269 +182,164 @@ pub(crate) fn session_spec(session: &CodingSession, face: BadgeFace, cx: &App) -
 // The badge
 // ---------------------------------------------------------------------------
 
-/// The front chip's title cap — a header cluster, not a row.
-const CHIP_TITLE_MAX_W: f32 = 160.;
-/// The deck's ghosts step up and to the right by two steps; `+N` clears them.
-const CHIP_DECK_OFFSET: f32 = 2. * ISSUE_CHIP_STACK_STEP;
-/// The pointer rests this long on the chip before the overlay opens, so a
-/// sweep across the header opens nothing (the hover-preview's habit).
-const HOVER_OPEN_DELAY: Duration = Duration::from_millis(200);
-/// The grace the pointer gets to cross from the chip into the overlay (and
-/// back) before it closes.
-const HOVER_CLOSE_DELAY: Duration = Duration::from_millis(150);
-
-/// What the header chip SHOWS — plain data, so the styleguide draws the very
-/// same element without a synced row.
-pub(crate) struct ChipFace {
-    /// `EXP-12` of the front issue; empty for a run's chip.
-    pub identifier: SharedString,
-    /// The front issue's title, or the run's own title.
-    pub title: SharedString,
-    /// The front issue's resolved status; `None` = the plain issues glyph.
-    pub status: Option<ResolvedStatus>,
-    /// A run family without an issue: the `session-tree` concept leads.
-    pub runs: bool,
-    /// How many ride behind the front chip (`+N`, a deck when > 0).
-    pub count: usize,
-}
-
-/// The stacked chip itself: the front [`issue_chip`] (INERT — the caller
-/// owns what a click means), ghosts behind it when anything rides along, and
-/// a muted `+N` after the deck.
-pub(crate) fn chip_face(id: &str, face: ChipFace, muted: Hsla) -> gpui::Div {
-    let mut front = issue_chip(
-        SharedString::from(format!("{id}-front")),
-        face.identifier,
-        face.title,
-    )
-    .max_title_width(px(CHIP_TITLE_MAX_W));
-    if let Some(status) = face.status {
-        front = front.status(status);
-    }
-    if face.runs {
-        front = front.slot(
-            Icon::new(registry::SESSION_TREE)
-                .with_size(px(ISSUE_CHIP_ICON_MAX))
-                .text_color(muted),
-        );
-    }
-    if face.count > 0 {
-        front = front.stacked();
-    }
-    h_flex()
-        .flex_shrink_0()
-        .items_center()
-        // SLOP-15: the web's `pl-1.5` beside the stack, in the mono face.
-        .gap(px(6.))
-        .child(front)
-        .when(face.count > 0, |row| {
-            row.child(
-                div()
-                    .flex_shrink_0()
-                    .text_xs()
-                    .font_family(theme::terminal::FONT_FAMILY)
-                    .text_color(muted)
-                    .child(SharedString::from(format!("+{}", face.count))),
-            )
-        })
-}
-
-/// The runs-only chip's name when no run names it (an issue's runs on the
-/// Issue face) — byte-identical with web `RUNS_BADGE_NAME`.
+/// The runs-only shape's name — byte-identical with web `RUNS_BADGE_NAME`.
 pub(crate) const RUNS_BADGE_NAME: &str = "The runs around this one";
 
-/// What the front chip's title says: the front issue's title, else the
-/// subject run's own, else [`RUNS_BADGE_NAME`] (web: `runIdentity?.subject
-/// ?? name`).
-fn front_title(issue: Option<&Issue>, run_title: Option<&SharedString>) -> SharedString {
-    match (issue, run_title) {
-        (Some(issue), _) => SharedString::from(issue.title.clone()),
-        (None, Some(title)) => title.clone(),
-        (None, None) => RUNS_BADGE_NAME.into(),
+/// The badge's NAME per shape (web `PrGraphBadge`'s `name`): the icon
+/// button's tooltip and the graph dialog's title.
+pub(crate) fn badge_name(shape: BadgeShape) -> &'static str {
+    match shape {
+        BadgeShape::Stack => "Pull request stack",
+        BadgeShape::Batch => "Batch pull request",
+        BadgeShape::StackAndBatch => "Stack and batch",
+        BadgeShape::Runs => RUNS_BADGE_NAME,
+        BadgeShape::Blocked => "Blocked by",
     }
 }
 
-/// The header chip: the stacked issue chip (the same on every face), opening
-/// the overlay on hover or click. `None` when there is nothing to show.
+/// The badge's glyph per shape — a concept, never a raw glyph.
+pub(crate) fn badge_icon(shape: BadgeShape) -> ExpIcon {
+    match shape {
+        BadgeShape::Stack | BadgeShape::StackAndBatch => registry::PR_STACK,
+        BadgeShape::Batch => registry::PR_BATCH,
+        BadgeShape::Runs => registry::SESSION_TREE,
+        BadgeShape::Blocked => registry::RELATION_BLOCKED_BY,
+    }
+}
+
+/// What the icon button shows: its shape and the `+N` beside the glyph
+/// ([`pr_graph::badge_chip`]'s count; 0 = no count).
+pub(crate) fn badge_face(spec: &BadgeSpec) -> Option<(BadgeShape, usize)> {
+    let shape = pr_graph::badge_shape(&spec.graph)?;
+    Some((shape, spec.chip().map_or(0, |chip| chip.count)))
+}
+
+/// SLOP-16 round 2 — the header badge: a muted ICON BUTTON (the header `…`
+/// button's box), the glyph naming the shape, a mono `+N` beside it; the
+/// name rides the tooltip. A click opens the graph DIALOG. `None` when there
+/// is nothing to show.
 pub(crate) fn badge(id: &'static str, spec: BadgeSpec, cx: &App) -> Option<AnyElement> {
-    let chip = spec.chip()?;
-    let face = ChipFace {
-        status: chip
-            .issue
-            .as_ref()
-            .map(|issue| crate::queries::resolve_issue_status(cx, issue)),
-        identifier: chip
-            .issue
-            .as_ref()
-            .map(|issue| SharedString::from(issue.identifier.clone()))
-            .unwrap_or_default(),
-        title: front_title(chip.issue.as_ref(), spec.run_title.as_ref()),
-        runs: chip.issue.is_none(),
-        count: chip.count,
-    };
-    let element = chip_face(id, face, cx.theme().muted_foreground).into_any_element();
+    let (shape, count) = badge_face(&spec)?;
+    let name = badge_name(shape);
+    let muted = cx.theme().muted_foreground;
+    let foreground = cx.theme().foreground;
+    let hover = cx.theme().list_hover;
+    let size = crate::controls::CTL_MD_H;
     Some(
-        HeaderChip {
-            id,
-            element: Some(element),
-            spec,
-        }
-        .into_any_element(),
+        h_flex()
+            .id(SharedString::from(format!("{id}-button")))
+            .flex_shrink_0()
+            .items_center()
+            .justify_center()
+            .gap_1()
+            .h(px(size))
+            .min_w(px(size))
+            .when(count > 0, |button| button.px_2())
+            .rounded(px(theme::tokens::radius::MD))
+            .cursor_pointer()
+            .text_color(muted)
+            .hover(move |style| style.bg(hover).text_color(foreground))
+            .child(Icon::new(badge_icon(shape)).with_size(px(BADGE_GLYPH)))
+            .when(count > 0, |button| {
+                button.child(
+                    div()
+                        .text_xs()
+                        .font_family(theme::terminal::FONT_FAMILY)
+                        .child(SharedString::from(format!("+{count}"))),
+                )
+            })
+            .tooltip(move |window, cx| {
+                gpui_component::tooltip::Tooltip::new(name).build(window, cx)
+            })
+            .on_click(move |_: &ClickEvent, window, cx| {
+                cx.stop_propagation();
+                open_graph_dialog(spec.clone(), window, cx);
+            })
+            .into_any_element(),
     )
 }
 
-/// The overlay's hover bookkeeping, one per chip (keyed window state): open
-/// on a rest over the chip, stay open while the pointer is on the chip OR
-/// the overlay, close a grace after it leaves both.
-#[derive(Default)]
-struct HoverState {
-    open: bool,
-    over_chip: bool,
-    over_card: bool,
-    timer: Option<gpui::Task<()>>,
+/// The header icon buttons' glyph (the `…` button's small-button glyph).
+const BADGE_GLYPH: f32 = 14.;
+
+// ---------------------------------------------------------------------------
+// The graph dialog
+// ---------------------------------------------------------------------------
+
+/// The dialog's content width — the whole graph, not a popover's glance.
+const DIALOG_W: f32 = 720.;
+/// The dialog's opening height.
+const DIALOG_H: f32 = 560.;
+/// The dialog shell's standard padding around a padded content view.
+const DIALOG_PAD: f32 = 16.;
+
+/// Open the badge's graph as a native dialog window titled by its name.
+fn open_graph_dialog(spec: BadgeSpec, window: &mut Window, cx: &mut App) {
+    let Some(shape) = pr_graph::badge_shape(&spec.graph) else {
+        return;
+    };
+    let viewport = window.viewport_size();
+    let dialog = crate::native_dialog::DialogSpec::new(
+        badge_name(shape),
+        size(
+            px(DIALOG_W).min(viewport.width * 0.9),
+            px(DIALOG_H).min(viewport.height * 0.85),
+        ),
+    )
+    .resizable(size(px(420.), px(280.)));
+    crate::native_dialog::open_dialog_window(window, cx, dialog, move |_window, cx| {
+        crate::native_dialog::DialogContent::new(cx.new(|_| GraphDialog { spec }))
+    });
 }
 
-impl HoverState {
-    fn hover(&mut self, chip: bool, hovered: bool, cx: &mut gpui::Context<Self>) {
-        if chip {
-            self.over_chip = hovered;
-        } else {
-            self.over_card = hovered;
-        }
-        let delay = if hovered {
-            if self.open {
-                self.timer = None;
-                return;
-            }
-            HOVER_OPEN_DELAY
-        } else {
-            HOVER_CLOSE_DELAY
-        };
-        self.timer = Some(cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(delay).await;
-            let _ = this.update(cx, |this, cx| {
-                let inside = this.over_chip || this.over_card;
-                if this.open != inside {
-                    this.open = inside;
-                    cx.notify();
-                }
-            });
-        }));
-    }
-}
-
-#[derive(IntoElement)]
-struct HeaderChip {
-    id: &'static str,
-    element: Option<AnyElement>,
+/// The dialog body: every section the subject has ([`overlay`]).
+struct GraphDialog {
     spec: BadgeSpec,
 }
 
-impl RenderOnce for HeaderChip {
-    fn render(mut self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let id = self.id;
-        let state = window.use_keyed_state(
-            SharedString::from(format!("{id}-hover")),
-            cx,
-            |_, _| HoverState::default(),
-        );
-        let open = state.read(cx).open;
-        let chip_state = state.clone();
-        let trigger = ChipTrigger {
-            base: div()
-                .id(SharedString::from(format!("{id}-chip")))
-                .flex()
-                .items_center()
-                // The header rung (EXP-926): the chip is shorter than the
-                // toggle beside it, so it centres in the toggle's height.
-                .h(px(crate::work_header::header_action_size(false).height()))
-                .pr(px(CHIP_DECK_OFFSET))
-                .cursor_pointer()
-                .on_hover(move |hovered, _window, cx| {
-                    chip_state.update(cx, |state, cx| state.hover(true, *hovered, cx));
-                }),
-            element: self.element.take(),
-            selected: false,
-        };
-        let change_state = state.clone();
-        let spec = self.spec;
-        gpui_component::popover::Popover::new(SharedString::from(format!("{id}-popover")))
-            .p_2()
-            .open(open)
-            .on_open_change(move |open, _window, cx| {
-                change_state.update(cx, |state, cx| {
-                    // A click on a chip the hover already opened keeps it up.
-                    if !*open && state.over_chip {
-                        return;
-                    }
-                    state.open = *open;
-                    state.timer = None;
-                    cx.notify();
-                });
-            })
-            .trigger(trigger)
-            .content(move |_, window, cx| {
-                let card_state = state.clone();
-                div()
-                    .id("pr-graph-overlay")
-                    .on_hover(move |hovered, _window, cx| {
-                        card_state.update(cx, |state, cx| state.hover(false, *hovered, cx));
-                    })
-                    .child(overlay(&spec, window, cx))
-            })
+impl Render for GraphDialog {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        // The content box follows the window (it resizes); the graph scrolls
+        // sideways past it, the dialog's scroller takes the height.
+        let width = (f32::from(window.viewport_size().width) - 2. * DIALOG_PAD).max(240.);
+        overlay(&self.spec, width, cx)
     }
 }
 
-/// The chip wrapped so `Popover::trigger` takes it (a `Selectable`): the
-/// wrapper paints nothing of its own (the picker's `PickerTrigger` recipe).
-#[derive(IntoElement)]
-struct ChipTrigger {
-    base: gpui::Stateful<gpui::Div>,
-    element: Option<AnyElement>,
-    selected: bool,
-}
-
-impl gpui_component::Selectable for ChipTrigger {
-    fn selected(mut self, selected: bool) -> Self {
-        self.selected = selected;
-        self
-    }
-
-    fn is_selected(&self) -> bool {
-        self.selected
-    }
-}
-
-impl RenderOnce for ChipTrigger {
-    fn render(mut self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
-        let element = self.element.take();
-        self.base.children(element)
-    }
+/// Run `f` in the window that opened this dialog, closing the dialog first
+/// (a dialog window has no navigation of its own).
+fn in_opener(window: &mut Window, cx: &mut App, f: impl FnOnce(&mut Window, &mut App) + 'static) {
+    crate::native_dialog::close_then(window, cx, f);
 }
 
 // ---------------------------------------------------------------------------
 // The overlay
 // ---------------------------------------------------------------------------
 
-/// Roughly the width of the header's right cluster — wide enough for an
-/// identifier, a title and a state, narrow enough to stay a popover.
+/// The Reviews batch popover's width — an identifier row, not a graph.
 const OVERLAY_W: f32 = 320.;
 
+/// The "Blocked by" graph never scrolls vertically inside the dialog: the
+/// dialog's own scroller takes the height.
+const DIALOG_GRAPH_MAX_H: f32 = 100_000.;
+
 /// EXP-1097: every section the subject has, the face's own first
-/// ([`pr_graph::overlay_sections`]).
-fn overlay(spec: &BadgeSpec, _window: &mut Window, cx: &App) -> AnyElement {
+/// ([`pr_graph::overlay_sections`]), `width` wide (the dialog's content box).
+fn overlay(spec: &BadgeSpec, width: f32, cx: &App) -> AnyElement {
     use pr_graph::OverlaySection;
-    let mut column = v_flex().w(px(OVERLAY_W)).min_w_0().gap_2();
+    let mut column = v_flex().w_full().min_w_0().gap_3();
     for part in pr_graph::overlay_sections(&spec.graph, spec.face) {
         column = column.child(match part {
             // EXP-980: the transitive blocks GRAPH, not a flat chip list —
             // "blocked by EXP-11" never said what blocks EXP-11.
             OverlaySection::Blocked => section(
                 "Blocked by",
-                vec![crate::issue_graph::graph_overlay(
+                // SLOP-16 round 2: the WHOLE graph, full boxes, as wide
+                // as the dialog; it scrolls sideways past it.
+                vec![crate::issue_graph::graph_in_wide_dialog(
                     &spec.blocks_graph,
-                    OVERLAY_W,
-                    domain::issue_graph::geometry::Density::Compact,
+                    width,
+                    DIALOG_GRAPH_MAX_H,
                     cx,
                 )],
                 cx,
@@ -470,7 +349,7 @@ fn overlay(spec: &BadgeSpec, _window: &mut Window, cx: &App) -> AnyElement {
                 spec.graph
                     .batch
                     .as_ref()
-                    .map(|batch| issue_rows(&batch.issues, cx))
+                    .map(|batch| issue_rows(&batch.issues, true, cx))
                     .unwrap_or_default(),
                 cx,
             ),
@@ -549,8 +428,9 @@ fn mono(text: impl Into<SharedString>, color: Hsla) -> gpui::Div {
 
 /// SLOP-15/16 — the issues as ONE wrapped row of SMALL chips (the web's
 /// `flex-wrap gap-1.5`), each opening its issue; the title rides in the
-/// chip's tooltip.
-fn small_chip_row(issues: &[Issue], cx: &App) -> gpui::Div {
+/// chip's tooltip. `in_dialog` = drawn in the graph dialog, so a click opens
+/// the issue in the opener.
+fn small_chip_row(issues: &[Issue], in_dialog: bool, cx: &App) -> gpui::Div {
     h_flex()
         .flex_wrap()
         .min_w_0()
@@ -565,21 +445,24 @@ fn small_chip_row(issues: &[Issue], cx: &App) -> gpui::Div {
             .small()
             .status(crate::queries::resolve_issue_status(cx, issue))
             .on_click(move |_: &ClickEvent, window, cx| {
-                crate::navigation::navigate(
-                    window,
-                    cx,
-                    crate::navigation::Screen::IssueDetail {
-                        issue_id: issue_id.clone(),
-                    },
-                );
+                let screen = crate::navigation::Screen::IssueDetail {
+                    issue_id: issue_id.clone(),
+                };
+                if in_dialog {
+                    in_opener(window, cx, move |window, cx| {
+                        crate::navigation::navigate(window, cx, screen);
+                    });
+                } else {
+                    crate::navigation::navigate(window, cx, screen);
+                }
             })
         }))
 }
 
 /// "In batch with" (and the Reviews batch popover): ONE wrapped row of small
 /// chips, a click opens the issue.
-fn issue_rows(issues: &[Issue], cx: &App) -> Vec<AnyElement> {
-    vec![small_chip_row(issues, cx)
+fn issue_rows(issues: &[Issue], in_dialog: bool, cx: &App) -> Vec<AnyElement> {
+    vec![small_chip_row(issues, in_dialog, cx)
         .px(px(ROW_PAD))
         .into_any_element()]
 }
@@ -634,7 +517,10 @@ fn run_rows(spec: &BadgeSpec, cx: &App) -> Vec<AnyElement> {
                     .child(title),
             )
             .on_click(move |_: &ClickEvent, window, cx| {
-                crate::session_screen::open_session_with_origin(&session_id, None, window, cx);
+                let session_id = session_id.clone();
+                in_opener(window, cx, move |window, cx| {
+                    crate::session_screen::open_session_with_origin(&session_id, None, window, cx);
+                });
             })
             .into_any_element()
         })
@@ -720,13 +606,12 @@ fn stack_rows(spec: &BadgeSpec, cx: &App) -> Vec<AnyElement> {
         let nav_id = issue_id.clone();
         rows.push(
             row.on_click(move |_: &ClickEvent, window, cx| {
-                crate::navigation::navigate(
-                    window,
-                    cx,
-                    crate::navigation::Screen::PrDiff {
-                        issue_id: nav_id.clone(),
-                    },
-                );
+                let screen = crate::navigation::Screen::PrDiff {
+                    issue_id: nav_id.clone(),
+                };
+                in_opener(window, cx, move |window, cx| {
+                    crate::navigation::navigate(window, cx, screen);
+                });
             })
             .into_any_element(),
         );
@@ -748,7 +633,7 @@ fn stack_rows(spec: &BadgeSpec, cx: &App) -> Vec<AnyElement> {
                     .pr_2()
                     .pl(px(ROW_PAD + crate::tree_guides::LEVEL_PITCH * guides.depth() as f32))
                     .children(crate::tree_guides::guide_layer(&guides, ROW_PAD, ROW_GAP))
-                    .child(small_chip_row(&entry.issues, cx).flex_1())
+                    .child(small_chip_row(&entry.issues, true, cx).flex_1())
                     .into_any_element(),
             );
         }
@@ -758,7 +643,8 @@ fn stack_rows(spec: &BadgeSpec, cx: &App) -> Vec<AnyElement> {
 
 /// "Merge stack" — the whole chain, bottom-up, behind the shared confirm
 /// dialog. The call rides the BOTTOM member's issue id; the server resolves
-/// the top itself.
+/// the top itself. Dialogs never nest, so the graph dialog closes and the
+/// confirm opens over the opener.
 fn merge_stack_control(issue_id: &str, size: usize, cx: &App) -> AnyElement {
     let issue_id = issue_id.to_string();
     glass_pill(
@@ -777,7 +663,7 @@ fn merge_stack_control(issue_id: &str, size: usize, cx: &App) -> AnyElement {
         let _ = event;
         cx.stop_propagation();
         let issue_id = issue_id.clone();
-        crate::native_dialog::open_alert(
+        in_opener(window, cx, move |window, cx| crate::native_dialog::open_alert(
             window,
             cx,
             crate::native_dialog::AlertSpec::new(
@@ -795,7 +681,7 @@ fn merge_stack_control(issue_id: &str, size: usize, cx: &App) -> AnyElement {
                 );
                 true
             }),
-        );
+        ));
     })
     .into_any_element()
 }
@@ -824,7 +710,7 @@ pub(crate) fn batch_glyph(id: SharedString, issues: Vec<Issue>, cx: &App) -> Any
                 .w(px(OVERLAY_W))
                 .min_w_0()
                 .gap_0p5()
-                .children(issue_rows(&issues, cx))
+                .children(issue_rows(&issues, false, cx))
         })
         .into_any_element()
 }
@@ -854,21 +740,28 @@ mod tests {
             graph: pr_graph::pr_graph(Some(&issues[0]), None, issues, &[]),
             face,
             blocks_graph: domain::issue_graph::IssueGraph::default(),
-            run_title: None,
         }
     }
 
     const FACES: [BadgeFace; 3] = [BadgeFace::Issue, BadgeFace::Run, BadgeFace::Changes];
 
-    /// An issue's runs on the Issue face (no run to name) read like web's
-    /// runs chip, never a bare "Run".
+    /// SLOP-16 round 2 — every shape names itself (the tooltip + the dialog
+    /// title, byte-identical with web) and wears its own concept glyph.
     #[test]
-    fn a_runs_chip_without_a_run_title_names_the_family() {
-        let issues = [issue("EXP-12", None, None)];
-        assert_eq!(front_title(Some(&issues[0]), None), SharedString::from("EXP-12"));
-        let title = SharedString::from("Chat: fix the build");
-        assert_eq!(front_title(None, Some(&title)), title);
-        assert_eq!(front_title(None, None), SharedString::from(RUNS_BADGE_NAME));
+    fn every_shape_has_a_name_and_a_glyph() {
+        assert_eq!(badge_name(BadgeShape::Runs), RUNS_BADGE_NAME);
+        assert_eq!(badge_name(BadgeShape::Blocked), "Blocked by");
+        assert_eq!(badge_name(BadgeShape::Stack), "Pull request stack");
+        use gpui_component::IconNamed as _;
+        let path = |icon: ExpIcon| icon.path().to_string();
+        assert_eq!(path(badge_icon(BadgeShape::Stack)), path(registry::PR_STACK));
+        assert_eq!(path(badge_icon(BadgeShape::StackAndBatch)), path(registry::PR_STACK));
+        assert_eq!(path(badge_icon(BadgeShape::Batch)), path(registry::PR_BATCH));
+        assert_eq!(path(badge_icon(BadgeShape::Runs)), path(registry::SESSION_TREE));
+        assert_eq!(
+            path(badge_icon(BadgeShape::Blocked)),
+            path(registry::RELATION_BLOCKED_BY)
+        );
     }
 
     /// EXP-1097: with nothing around the issue the badge stays away — on
@@ -877,37 +770,38 @@ mod tests {
     fn the_badge_is_face_independent() {
         let lone = vec![issue("EXP-30", Some("exp/EXP-30"), Some("master"))];
         for face in FACES {
-            assert!(spec(face, &lone).chip().is_none(), "{face:?}");
+            assert!(badge_face(&spec(face, &lone)).is_none(), "{face:?}");
             let mut blocked = spec(face, &lone);
             blocked.graph.blocked_by = vec![issue("EXP-29", None, None)];
-            assert!(blocked.chip().is_some(), "{face:?}");
+            assert_eq!(badge_face(&blocked), Some((BadgeShape::Blocked, 0)), "{face:?}");
         }
         let stacked = vec![
             issue("EXP-12", Some("exp/EXP-12"), Some("exp/EXP-11")),
             issue("EXP-11", Some("exp/EXP-11"), Some("master")),
         ];
         for face in FACES {
-            assert_eq!(spec(face, &stacked).chip(), spec(BadgeFace::Issue, &stacked).chip());
+            assert_eq!(
+                badge_face(&spec(face, &stacked)),
+                badge_face(&spec(BadgeFace::Issue, &stacked))
+            );
         }
     }
 
-    /// EXP-1058 — the chip names the subject PR's representative issue and
-    /// counts the rest; EXP-1097: blockers alone front the FIRST blocker and
-    /// count the others.
+    /// EXP-1058 — `+N` counts every other issue on the stack; EXP-1097:
+    /// blockers alone count all but the first.
     #[test]
-    fn the_chip_names_the_front_issue_and_the_rest() {
+    fn the_count_is_everything_but_the_front() {
         let stacked = vec![
             issue("EXP-12", Some("exp/EXP-12"), Some("exp/EXP-11")),
             issue("EXP-11", Some("exp/EXP-11"), Some("master")),
         ];
-        let chip = spec(BadgeFace::Changes, &stacked).chip().unwrap();
-        assert_eq!(chip.issue.unwrap().identifier, "EXP-12");
-        assert_eq!(chip.count, 1);
+        assert_eq!(
+            badge_face(&spec(BadgeFace::Changes, &stacked)),
+            Some((BadgeShape::Stack, 1))
+        );
         let lone = vec![issue("EXP-30", Some("exp/EXP-30"), Some("master"))];
         let mut blocked = spec(BadgeFace::Run, &lone);
         blocked.graph.blocked_by = vec![issue("EXP-28", None, None), issue("EXP-29", None, None)];
-        let chip = blocked.chip().unwrap();
-        assert_eq!(chip.issue.unwrap().identifier, "EXP-28");
-        assert_eq!(chip.count, 1);
+        assert_eq!(badge_face(&blocked), Some((BadgeShape::Blocked, 1)));
     }
 }

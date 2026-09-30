@@ -454,7 +454,13 @@ pub(crate) fn graph_in_dialog(
     view_width: f32,
     cx: &App,
 ) -> gpui::AnyElement {
-    let on_pick: OnPickIssue = Rc::new(|issue_id: &str, window, cx| {
+    graph_view(graph, view_width, geometry::Density::Full, dialog_pick(), cx)
+}
+
+/// A node tap inside a dialog window: close it, then open the issue in the
+/// opener.
+fn dialog_pick() -> OnPickIssue {
+    Rc::new(|issue_id: &str, window, cx| {
         let issue_id = issue_id.to_string();
         crate::native_dialog::close_then(window, cx, move |window, cx| {
             crate::navigation::navigate(
@@ -463,8 +469,22 @@ pub(crate) fn graph_in_dialog(
                 crate::navigation::Screen::IssueDetail { issue_id },
             );
         });
-    });
-    graph_view(graph, view_width, geometry::Density::Full, on_pick, cx)
+    })
+}
+
+/// SLOP-16 round 2 — the WHOLE graph in the work header's graph dialog: full
+/// boxes, the viewport = the dialog's own box (NOT the contract's
+/// `MAX_VIEW_*` popover cap); past it the grid scrolls.
+pub(crate) fn graph_in_wide_dialog(
+    graph: &IssueGraph,
+    view_width: f32,
+    view_height: f32,
+    cx: &App,
+) -> gpui::AnyElement {
+    let mut grid = GridGeometry::boxes(view_width, geometry::Density::Full);
+    grid.view_w = view_width;
+    grid.view_h = view_height;
+    graph_grid(graph, grid, geometry::Density::Full, dialog_pick(), cx)
 }
 
 /// The grid plus its notes, for the EXP-980 `blocks` graph. Empty (no nodes)
@@ -474,6 +494,17 @@ pub(crate) fn graph_in_dialog(
 pub(crate) fn graph_view(
     graph: &IssueGraph,
     view_width: f32,
+    density: geometry::Density,
+    on_pick: OnPickIssue,
+    cx: &App,
+) -> gpui::AnyElement {
+    graph_grid(graph, GridGeometry::boxes(view_width, density), density, on_pick, cx)
+}
+
+/// [`graph_view`] over an explicit grid geometry.
+fn graph_grid(
+    graph: &IssueGraph,
+    grid: GridGeometry,
     density: geometry::Density,
     on_pick: OnPickIssue,
     cx: &App,
@@ -528,7 +559,7 @@ pub(crate) fn graph_view(
         let compact = density == geometry::Density::Compact;
         node_chip(&node.key, outline, compact, on_pick.clone(), cx)
     };
-    grid_view(&nodes, &edges, GridGeometry::boxes(view_width, density), &notes, &render, cx)
+    grid_view(&nodes, &edges, grid, &notes, &render, cx)
 }
 
 /// One node: the shared issue chip (status glyph + identifier + as much title
