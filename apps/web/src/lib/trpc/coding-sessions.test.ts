@@ -64,6 +64,9 @@ vi.mock(`@/lib/integrations/notifications`, async (importOriginal) => ({
 // imports appRouter, which imports this router). Stubbed here so the smoke
 // test asserts the WIRING without registering 90 tools — the numbers
 // themselves are `lib/mcp/context-budget.test.ts`'s job.
+// EXP-1146: the yolo tree merge fires on the turn-end edge (a stub that
+// loads the real module lazily; here it is a spy).
+vi.mock(`@/lib/sessions/yolo-tree-trigger`, () => ({ fireYoloTreeMerge: vi.fn() }))
 vi.mock(`@/lib/mcp/context-budget`, () => ({
   mcpContextBudget: () => ({
     mcpAlwaysLoadBytes: 8_192,
@@ -78,6 +81,7 @@ import {
   notifyParentOfChildEnd,
 } from "@/lib/steer-child-messages"
 import { notifySessionBlocked } from "@/lib/integrations/notifications"
+import { fireYoloTreeMerge } from "@/lib/sessions/yolo-tree-trigger"
 
 const ISSUE_ID = `11111111-1111-4111-8111-111111111111`
 const TEAM_ID = `22222222-2222-4222-8222-222222222222`
@@ -197,6 +201,7 @@ async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
 }
 
 beforeEach(() => {
+  vi.mocked(fireYoloTreeMerge).mockClear()
   inserts.length = 0
   updates.length = 0
   updateWheres.length = 0
@@ -1446,6 +1451,25 @@ describe(`codingSessions.setAgentBusy — turn state (EXP-848)`, () => {
 
     expect(result).toEqual({ updated: false })
     expect(updates).toHaveLength(0)
+  })
+
+  // EXP-1146: the turn END is when a run's follow-up children exist and its
+  // PR is open — the edge that may complete its yolo tree.
+  it(`fires the yolo tree merge on the turn-end edge only`, async () => {
+    selectResults.push([{ userId: `actor`, status: `running` }])
+    await caller.setAgentBusy({ id: SESSION_ID, agentBusy: true })
+    expect(fireYoloTreeMerge).not.toHaveBeenCalled()
+
+    selectResults.push([{ userId: `actor`, status: `running` }])
+    await caller.setAgentBusy({ id: SESSION_ID, agentBusy: false })
+    expect(fireYoloTreeMerge).toHaveBeenCalledTimes(1)
+    expect(fireYoloTreeMerge).toHaveBeenCalledWith(SESSION_ID)
+  })
+
+  it(`does not fire it for a swept row`, async () => {
+    selectResults.push([])
+    await caller.setAgentBusy({ id: SESSION_ID, agentBusy: false })
+    expect(fireYoloTreeMerge).not.toHaveBeenCalled()
   })
 
   it(`refuses a non-owner`, async () => {

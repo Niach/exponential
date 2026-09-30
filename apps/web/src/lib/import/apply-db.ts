@@ -67,6 +67,7 @@ import type { ImportEntityKind, ImportProgress } from "@/lib/import/bundle"
 import type { PlannedIssueWrite } from "@/lib/import/issue-write"
 import type { ImportSource } from "@/lib/import/source-types"
 import { loadImportTeamState } from "@/lib/import/team-state"
+import { buildServerActorContext } from "@/lib/trpc/synthetic-context"
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
@@ -83,32 +84,7 @@ export interface ImportUser {
 // The routers only read `ctx.session.user.id` and `ctx.db`; the rest keeps
 // the Context type honest. `viaMcp` stays unset — nothing here is an agent.
 export function buildImportContext(user: ImportUser): Context {
-  const now = new Date()
-  return {
-    db,
-    request: new Request(`http://import.local/`),
-    session: {
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        image: user.image,
-        emailVerified: user.emailVerified,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt,
-      },
-      session: {
-        id: `import`,
-        userId: user.id,
-        token: `import`,
-        expiresAt: new Date(now.getTime() + 60 * 60 * 1000),
-        createdAt: now,
-        updatedAt: now,
-        ipAddress: null,
-        userAgent: `import`,
-      },
-    },
-  } as unknown as Context
+  return buildServerActorContext(user, `import`)
 }
 
 const importCaller = router({

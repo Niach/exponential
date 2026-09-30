@@ -51,6 +51,7 @@ import {
 import { deviceRowIsOnline, deviceUsageWallAt } from "@/lib/steer-devices"
 import { SYSTEM_PROFILE_ID } from "@/lib/agent-usage"
 import { runIsStaleEnd } from "@/lib/past-runs"
+import { fireYoloTreeMerge } from "@/lib/sessions/yolo-tree-trigger"
 import {
   findLiveRunForIssues,
   liveRunConflictMessage,
@@ -1639,6 +1640,10 @@ export const steerRouter = router({
       // Best-effort relay kill; swallow failure (relayPostKill never throws).
       const config = getSteerRelayConfig()
       if (config) await relayPostKill(config, sessionId)
+      // EXP-1146: a killed run (a child that will never open its PR, or a
+      // root a person stopped) may complete its yolo tree. Only the call
+      // that flipped the row fires it (`txId`), so a repeated kill is silent.
+      if (result.txId != null) fireYoloTreeMerge(sessionId)
 
       return result
     }),

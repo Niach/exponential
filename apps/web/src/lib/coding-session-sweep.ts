@@ -37,6 +37,7 @@ import { codingSessions, devices } from "@/db/schema"
 import { CODING_SESSION_STALE_MS } from "@exp/db-schema/domain"
 import { reportSchedulerRun } from "@/lib/metrics/registry"
 import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
+import { fireYoloTreeMerge } from "@/lib/sessions/yolo-tree-trigger"
 
 const INITIAL_DELAY_MS = 2 * 60 * 1000
 const SWEEP_INTERVAL_MS = 30 * 60 * 1000
@@ -132,6 +133,13 @@ export async function runCodingSessionSweep(
         })
       )
   )
+  // EXP-1146: a swept row counts as ENDED for its yolo tree — the tree may be
+  // complete now. (Its host may in fact still be alive and revive it on the
+  // next heartbeat; the spec accepts that. A DELETED orphan above is gone
+  // from every tree: the FK is SET NULL, so its children become roots of
+  // their own.) One fire-and-forget per row; a non-yolo team returns on the
+  // first read.
+  for (const row of ended) fireYoloTreeMerge(row.id)
 
   return { sessionsEnded: ended.length, sessionsDeleted: deleted.length }
 }

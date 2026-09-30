@@ -29,6 +29,7 @@ import {
   workflows,
 } from "@/db/schema"
 import { isWorkflowReviewBranch } from "@/lib/workflows"
+import { fireYoloTreeMerge } from "@/lib/sessions/yolo-tree-trigger"
 import {
   JOINABLE_WORKFLOW_STATUSES,
   resolveWorkflowMembership,
@@ -1689,6 +1690,13 @@ export const codingSessionsRouter = router({
         const { recordQuestionAnswered } = await import(`@/lib/sessions/answer-pending-question`)
         await recordQuestionAnswered(ctx.db, input.id, existing)
       }
+      // EXP-1146: the turn-END edge is when a run's follow-up children exist
+      // and its PR is open — the moment its yolo tree may be complete. Fire
+      // and forget (the device's write never waits on GitHub); the module is
+      // loaded lazily because it reaches the router this one belongs to.
+      if (!input.agentBusy && updated.length > 0) {
+        fireYoloTreeMerge(input.id)
+      }
 
       return { updated: updated.length > 0 }
     }),
@@ -1998,6 +2006,8 @@ export const codingSessionsRouter = router({
         summary: null,
         endedBy: `client`,
       })
+      // EXP-1146: an ended run may complete its yolo tree.
+      fireYoloTreeMerge(input.id)
 
       return { session }
     }),
