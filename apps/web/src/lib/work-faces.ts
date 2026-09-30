@@ -1,4 +1,5 @@
 import { isCodingSessionStale } from "@exp/db-schema/domain"
+import { additionsLabel, deletionsLabel } from "@exp/domain-contract/diff"
 import { runIsStaleEnd } from "@/lib/past-runs"
 import type { SessionConfigState } from "@/lib/agent-feed"
 import { hasSessionResults, type SessionDotTone } from "@exp/ui"
@@ -53,6 +54,28 @@ export function faceLabel(face: WorkFaceKind, multipleRuns = false): string {
     case `results`:
       return RESULTS_FACE_LABEL
   }
+}
+
+/** EXP-1152: what the Changes tab WEARS — the desktop `work_header.rs`
+ *  `FaceToggle::diff` rule on every phone: the `+N −M` counts of the files
+ *  the face draws (the run's live diff, else the issue's loaded PR files)
+ *  once they are known, the word `Changes` until then. `null` = the word. */
+export interface ChangesFaceCounts {
+  additions: number
+  deletions: number
+}
+
+export function changesFaceCounts(
+  totals: { files: number; additions: number; deletions: number } | null | undefined
+): ChangesFaceCounts | null {
+  if (!totals || totals.files <= 0) return null
+  return { additions: totals.additions, deletions: totals.deletions }
+}
+
+/** The counts as ONE string (`+12 −2`, U+2212) — the segment's accessible
+ *  name and the natives' plain label, byte-identical ×3. */
+export function changesFaceText(counts: ChangesFaceCounts): string {
+  return `${additionsLabel(counts.additions)} ${deletionsLabel(counts.deletions)}`
 }
 
 /** The faces a subject can show, in their fixed order. Changes is independent

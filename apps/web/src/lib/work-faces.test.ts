@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
   availableFaces,
+  changesFaceCounts,
+  changesFaceText,
   codingTarget,
   faceLabel,
   faceShowsContextMenu,
@@ -85,6 +87,19 @@ describe(`work faces`, () => {
     expect(faceLabel(`results`)).toBe(`Results`)
     expect(STEER_COMPOSER_PLACEHOLDER).toBe(`Type / for commands`)
     expect(PLAN_MODE_LABEL).toBe(`Plan mode`)
+  })
+
+  it(`labels Changes with its counts once the files are known`, () => {
+    expect(changesFaceCounts(null)).toBeNull()
+    expect(changesFaceCounts(undefined)).toBeNull()
+    expect(changesFaceCounts({ files: 0, additions: 0, deletions: 0 })).toBeNull()
+    expect(changesFaceCounts({ files: 3, additions: 12, deletions: 2 })).toEqual({
+      additions: 12,
+      deletions: 2,
+    })
+    // U+2212 MINUS SIGN, never a hyphen — the contract's `deletionsLabel`.
+    expect(changesFaceText({ additions: 12, deletions: 2 })).toBe(`+12 \u22122`)
+    expect(changesFaceText({ additions: 0, deletions: 0 })).toBe(`+0 \u22120`)
   })
 
   it(`targets the bound run when it is mine and live`, () => {
