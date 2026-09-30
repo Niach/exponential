@@ -168,6 +168,20 @@ final class SessionResultsTests: XCTestCase {
         }
     }
 
+    /// EXP-1128: the tall viewer's strips stay under the texture cap.
+    func testSplitsATallImageIntoStripRanges() {
+        XCTAssertTrue(tallImageStripRanges(height: 0).isEmpty)
+        let one = tallImageStripRanges(height: 4096)
+        XCTAssertEqual(one.count, 1)
+        XCTAssertEqual(one.first?.y, 0)
+        XCTAssertEqual(one.first?.rows, 4096)
+        let strips = tallImageStripRanges(height: 25094)
+        XCTAssertEqual(strips.count, 7)
+        XCTAssertEqual(strips.map(\.y), [0, 4096, 8192, 12288, 16384, 20480, 24576])
+        XCTAssertEqual(strips.last?.rows, 518)
+        XCTAssertEqual(strips.reduce(0) { $0 + $1.rows }, 25094)
+    }
+
     // MARK: EXP-933 — the report fixture (`session-results.json`), same case
     // names ×4.
 

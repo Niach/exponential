@@ -207,6 +207,14 @@ public func sessionResultIsTall(_ entry: SessionResultEntry) -> Bool {
     return CGFloat(width) / CGFloat(height) < sessionResultTallAspect
 }
 
+/// EXP-1128: a tall picture's viewer draws it as horizontal STRIPS of at most
+/// `rows` pixel rows each (Core Animation caps one layer's texture near 16384
+/// px), top to bottom; the last strip is the remainder, 0 rows gives none.
+public func tallImageStripRanges(height: Int, rows: Int = 4096) -> [(y: Int, rows: Int)] {
+    guard height > 0, rows > 0 else { return [] }
+    return stride(from: 0, to: height, by: rows).map { y in (y: y, rows: min(rows, height - y)) }
+}
+
 /// The tile's width at a fixed height — the probed aspect, else 4:3 (a desktop
 /// screenshot's shape, and the least surprising placeholder). A TALL picture
 /// (EXP-1128) takes the 4:3 frame too: the tile shows its top, never a sliver.
