@@ -19,6 +19,7 @@ COPY packages/widget/package.json packages/widget/package.json
 COPY apps/styleguide/package.json apps/styleguide/package.json
 COPY packages/view-catalog/package.json packages/view-catalog/package.json
 COPY packages/shots/package.json packages/shots/package.json
+COPY packages/chatgpt-plugin/package.json packages/chatgpt-plugin/package.json
 RUN bun install --frozen-lockfile
 COPY . .
 # Widget first: it emits loader.js/widget.js into apps/web/public, which the

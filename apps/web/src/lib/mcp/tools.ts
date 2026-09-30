@@ -225,6 +225,7 @@ import {
 import { requestSessionCompaction } from "./handlers/sessions-compact"
 import { ALWAYS_LOAD_META } from "./always-load"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "./gates"
+import { annotationsFor } from "./annotations"
 import type { McpUser } from "./server"
 import {
   assertFullAccess,
@@ -797,13 +798,6 @@ const MAX_INLINE_TEXT_BYTES = 32 * 1024
 // Serializes as additionalProperties:false (gated by api-conventions.test.ts).
 const strictInput = <S extends z.ZodRawShape>(shape: S) => z.strictObject(shape)
 
-// FEED-25: every read declares MCP's `readOnlyHint`. Without it claude's
-// plan mode (and any "ask before side effects" posture) raises a permission
-// card for a plain `*_get`/`*_list` — the batch run behind FEED-25 sat on one
-// such card for two hours. Gated by api-conventions.test.ts: reads carry it,
-// nothing else does.
-const READ_ONLY = { readOnlyHint: true } as const
-
 // EXP-847: what "closed" means for `exponential_issues_list`'s default —
 // the three terminal status CATEGORIES and the anchors they dual-write
 // (CATEGORY_ANCHOR), so the filter works on custom statuses too.
@@ -939,6 +933,18 @@ export function registerExponentialTools(
   // the context budget see the whole surface.
   gates: McpToolGates = ALL_MCP_TOOL_GATES
 ) {
+  // EXP-1153: every registration is stamped with its row from
+  // lib/mcp/annotations.ts (readOnly/destructive/openWorld, all explicit) —
+  // FEED-25's read hints and the plugin directory's review both read them
+  // off tools/list, and a tool without a row throws here rather than
+  // shipping unannotated.
+  const registerTool: McpServer[`registerTool`] = (name, config, cb) =>
+    server.registerTool(
+      name,
+      { ...config, annotations: annotationsFor(name) },
+      cb
+    )
+
   // The header session, but only when it is really THIS caller's run — owner
   // or host (EXP-432: a shared-device run is requester-owned while the
   // hosting daemon's key authenticates the agent). A foreign or vanished id
@@ -1048,10 +1054,9 @@ export function registerExponentialTools(
   // Teams
   // -----------------------------------------------------------------------
 
-  server.registerTool(
+  registerTool(
     `exponential_teams_list`,
     {
-      annotations: READ_ONLY,
       description: `List teams the MCP user is a member of.`,
       inputSchema: strictInput({ ...pageInput }),
     },
@@ -1087,10 +1092,9 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_teams_get`,
     {
-      annotations: READ_ONLY,
       description: `Get a single team by id.`,
       inputSchema: strictInput({ id: uuidString }),
     },
@@ -1116,10 +1120,9 @@ export function registerExponentialTools(
   // Boards
   // -----------------------------------------------------------------------
 
-  server.registerTool(
+  registerTool(
     `exponential_boards_list`,
     {
-      annotations: READ_ONLY,
       description: `List boards in a team, or across all teams the user belongs to.`,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
@@ -1157,10 +1160,9 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_boards_get`,
     {
-      annotations: READ_ONLY,
       description: `Get a single board by id.`,
       inputSchema: strictInput({ id: uuidString }),
     },
@@ -1181,7 +1183,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_boards_create`,
     {
       description: `Create a board in a team (member; owner/admin to connect a new repo). The repository is optional. Coding features gate on repo presence. Pass repository.repositoryId (registry repo) or repository.fullName ("owner/name") to connect one inline; defaultBranch pins the branch this board's coding sessions branch from and its PRs target (omit = the repo's default). icon is a curated icon name.`,
@@ -1231,7 +1233,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_boards_update`,
     {
       description: `Update a board's name, color, icon, or defaultBranch (the branch its coding sessions branch from and its PRs target; null = follow the repo's default).`,
@@ -1264,10 +1266,9 @@ export function registerExponentialTools(
   // Issues
   // -----------------------------------------------------------------------
 
-  server.registerTool(
+  registerTool(
     `exponential_issues_list`,
     {
-      annotations: READ_ONLY,
       // EXP-684: every filter a scheduled sweep needs server-side. The schema
       // is budget-trimmed (context-budget.test.ts): EXP-847 took the last two
       // inline value lists out too, so status/statusCategory, their exclude*
@@ -1555,10 +1556,9 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_issues_get`,
     {
-      annotations: READ_ONLY,
       description: `Get a single issue by UUID or identifier (e.g. "MET-12"), including its label ids and latest comments (newest first, capped at 50; commentsLimit overrides).`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
@@ -1620,7 +1620,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_issues_create`,
     {
       description: `Create a new issue in a board the MCP user has access to. Description must be plain text (no embedded images on creation). For a custom status pass statusId (not status); see exponential_statuses_list. parentId files it as a sub-issue of that issue.`,
@@ -1668,7 +1668,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_issues_update`,
     {
       description: `Update an issue's fields (by UUID or identifier, e.g. "MET-12"). Pass only the fields you want to change. For a custom status pass statusId (not status); see exponential_statuses_list.`,
@@ -1708,7 +1708,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_issues_delete`,
     {
       description: `Permanently delete an issue (by UUID or identifier). Cascades to its labels, attachments, comments, and relations. Attachment storage objects are also removed.`,
@@ -1738,10 +1738,9 @@ export function registerExponentialTools(
   // EXP-988/EXP-979: the issue's Files list. Access = attachments_get's rule
   // (grant on the issue's board + team membership); the query lives in the
   // handler file. Metadata only — bytes ride exponential_attachments_get.
-  server.registerTool(
+  registerTool(
     `exponential_attachments_list`,
     {
-      annotations: READ_ONLY,
       description: `List an issue's attachments (UUID or identifier), newest first: id, filename, contentType, sizeBytes, createdAt and the commentId when a file hangs on a comment. Metadata only; exponential_attachments_get fetches one file's bytes. Paged with limit/offset; total counts every row.`,
       inputSchema: strictInput({
         issueId: z.string().min(1),
@@ -1762,10 +1761,9 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_attachments_get`,
     {
-      annotations: READ_ONLY,
       description: `Fetch an attachment by id — every content type. Markdown embeds look like ![alt](/api/attachments/{id}); pass that {id}. Always returns metadata plus a short-lived signed downloadUrl: fetch it (curl/wget) into your working directory to read non-image files (xlsx, PDF, CSV, ...) with real tooling. Images additionally come back as inline image content, downscaled when large (the JSON's inline field reports what was sent; downloadUrl always has the original); small text files include their text inline.`,
       inputSchema: strictInput({ id: uuidString }),
     },
@@ -1887,10 +1885,9 @@ export function registerExponentialTools(
   // Labels
   // -----------------------------------------------------------------------
 
-  server.registerTool(
+  registerTool(
     `exponential_labels_list`,
     {
-      annotations: READ_ONLY,
       description: `List labels for a team.`,
       inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
     },
@@ -1914,10 +1911,9 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_labels_get`,
     {
-      annotations: READ_ONLY,
       description: `Get a label by id (must be in a team the user belongs to).`,
       inputSchema: strictInput({ id: uuidString }),
     },
@@ -1938,7 +1934,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_labels_create`,
     {
       description: `Create a label in a team.`,
@@ -1961,7 +1957,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_labels_update`,
     {
       description: `Update a label's name or color (by its UUID). Returns the updated label.`,
@@ -1987,7 +1983,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_labels_delete`,
     {
       description: `Delete a label (by its UUID).`,
@@ -2009,7 +2005,7 @@ export function registerExponentialTools(
   // Issue ↔ Label
   // -----------------------------------------------------------------------
 
-  server.registerTool(
+  registerTool(
     `exponential_issue_labels_add`,
     {
       description: `Attach a label to an issue (UUID or identifier; teams must match).`,
@@ -2033,7 +2029,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_issue_labels_remove`,
     {
       description: `Detach a label from an issue (UUID or identifier).`,
@@ -2061,7 +2057,7 @@ export function registerExponentialTools(
   // Issue ↔ Issue (EXP-736)
   // -----------------------------------------------------------------------
 
-  server.registerTool(
+  registerTool(
     `exponential_issue_relations_add`,
     {
       description: `Link two issues (UUIDs or identifiers, same team). Stored one way: blocks = issueId blocks relatedIssueId, parent = issueId is the parent, duplicate = issueId duplicates relatedIssueId, related is symmetric. Pass inverse:true to state it the other way round (blocked by / sub-issue of / duplicated by).`,
@@ -2101,7 +2097,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_issue_relations_remove`,
     {
       description: `Unlink two issues. Name the pair in the direction the link is stored (see exponential_issue_relations_add); exponential_issues_get lists them.`,
@@ -2162,10 +2158,9 @@ export function registerExponentialTools(
   // Comments
   // -----------------------------------------------------------------------
 
-  server.registerTool(
+  registerTool(
     `exponential_comments_list`,
     {
-      annotations: READ_ONLY,
       description: `List comments on an issue (oldest first) by UUID or human identifier (e.g. "MET-12"). Rows include their linked attachments. The MCP user must have access to the issue's team.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
@@ -2220,7 +2215,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_comments_create`,
     {
       description: `Post a regular comment on an issue (by UUID or human identifier, e.g. "MET-12") authored by the MCP user; it shows as "via MCP". Body is plain text. Pass parentId (a comment id from exponential_comments_list) to reply under that comment — threads are one level deep, so a reply to a reply lands under the same top-level comment.`,
@@ -2257,7 +2252,7 @@ export function registerExponentialTools(
   // Coding flow (status + pull requests)
   // -----------------------------------------------------------------------
 
-  server.registerTool(
+  registerTool(
     `exponential_issues_update_status`,
     {
       description: `Set an issue's status (UUID or identifier). Pass status (builtin enum) or statusId (a team status row from exponential_statuses_list). Status changes are normally AUTOMATIC — PR open/merge apply the team's configured status automation — so set one directly only when the user explicitly asks.`,
@@ -2294,7 +2289,7 @@ export function registerExponentialTools(
   // EXP-660: custom status CRUD (FEED-17). Membership and every invariant
   // (started ≤ 4, locked builtins, unique names, reassign-before-delete) live
   // in the statuses router — these only add the grant check and project.
-  server.registerTool(
+  registerTool(
     `exponential_statuses_create`,
     {
       description: `Create a custom issue status in a category (never duplicate; started allows at most 4 rows per team). Names are unique per team, color is #rrggbb. Team members only; ids via exponential_statuses_list.`,
@@ -2316,7 +2311,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_statuses_update`,
     {
       description: `Rename or recolor a custom issue status (by its UUID). Builtin statuses (builtinKey set) are locked and the category is immutable. Team members only. Returns the updated status.`,
@@ -2342,7 +2337,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_statuses_delete`,
     {
       description: `Delete a custom issue status (by its UUID). Builtins refuse. When issues still use it the call fails with their count until reassignToId names a same-team replacement (not duplicate). Team members only.`,
@@ -2372,10 +2367,9 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_statuses_list`,
     {
-      annotations: READ_ONLY,
       description: `List a team's issue statuses (id, name, category, color, position, builtinKey). Use id as statusId in exponential_issues_update.`,
       inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
     },
@@ -3072,7 +3066,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_pr_open`,
     {
       description: `Open a GitHub PR on the linked repository via the GitHub App (no 'gh' or token) and link it to the issue(s). Pass EXACTLY ONE of 'issueId', 'issueIds' (batch: ONE combined PR, same repo; 'head' then REQUIRED, e.g. 'exp/batch-<id>'), or 'repositoryId' + 'head' for an issue-less PR (nothing linked or moved). Single issue: 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>'; 'base' to the repo default branch. 'stackOnIssueId' (not with 'base') stacks your PR on that issue's open PR instead. A 'head' with an open PR links the issues to it. Linked issues record prUrl/prNumber/prState/branch and move to the team's PR-open status (default 'in_review'), on merge to its PR-merge status (default 'done'). Accepts UUIDs or identifiers ("MET-12").`,
@@ -3394,7 +3388,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_pr_merge`,
     {
       description: `Squash-merge open PRs via the GitHub App (no 'gh' or token). Pass EXACTLY ONE of 'issueId', 'issueIds' (one merge per distinct prUrl, so issues sharing a batch PR merge once), or 'repositoryId' + 'prNumber' for a PR with no issue. Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'); live coding sessions on them end unless the team's "end sessions on merge" setting is off; 'endSessions' overrides that setting for this call (false keeps them running), and YOUR OWN session always keeps running (it ends on its own exit or close-out). Each results[] element carries 'merged' + optional 'error' or 'queued' (in GitHub's merge queue; merged=false until it lands), plus issueId/identifier (issue path) or repositoryId/prNumber (chore path); one unmergeable PR never blocks the rest. 'mergeStack' merges the PR's whole stack, bottom-up, in one call. A merge rejected for a stale base: fix with exponential_pr_retarget first. Idempotent: an already-merged PR answers merged=true.`,
@@ -3404,7 +3398,7 @@ export function registerExponentialTools(
     prMerge
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_pr_retarget`,
     {
       description: `Change the base branch of an issue's open PR via the GitHub App. Use it when a merge is rejected because the base is stale (e.g. stacked on an already-merged parent PR). Omit 'base' for the repo's default branch. Then rebase onto the new base, push with --force-with-lease, and call exponential_pr_merge.`,
@@ -3450,7 +3444,7 @@ export function registerExponentialTools(
     title: z.string().trim().min(1).max(255).optional(),
     body: z.string().max(60_000).optional(),
   })
-  server.registerTool(
+  registerTool(
     `exponential_pr_update`,
     {
       description: `Rewrite the title and/or body of an open PR via the GitHub App: the fix for a description later commits made stale (pr_open never edits an existing PR). Subjects as exponential_pr_merge: EXACTLY ONE of 'issueId', 'issueIds' (one update per distinct PR) or 'repositoryId' + 'prNumber'; omit all to edit the PR of the run this call comes from. Pass 'title', 'body' (max 60000) or both; an omitted field keeps its value. results[]: issueId/identifier or repositoryId/prNumber, 'updated', optional 'error'. Accepts identifiers ("MET-12").`,
@@ -3634,7 +3628,7 @@ export function registerExponentialTools(
   // person-started run is a conversation — the call would not end it anyway,
   // and offering it just invites the agent to sign off mid-chat.
   if (gates.sessionsEnd) {
-    server.registerTool(
+    registerTool(
       `exponential_sessions_end`,
       {
         description: `Report this run's close-out, reported to whoever started this run (not stored on the run): a one-paragraph 'summary' of what you did, whether you finished, stopped for a human or changed nothing. Call it LAST, after exponential_pr_open, with the worktree clean: it ends this run. Merging your own PR never ends it; this call does.`,
@@ -3690,7 +3684,7 @@ export function registerExponentialTools(
   // them (a person's chat, a workflow's planner run), the starter targets
   // still need a starter.
   if (gates.askParent) {
-    server.registerTool(
+    registerTool(
       `exponential_sessions_ask_parent`,
       {
         description: `Ask a question only your starter or the person can answer. 'to': 'parent' (default; the run that started this one), 'root' (the top live run of your chain, when the whole plan is wrong) or 'user' (the person who owns this run, or the workflow's creator; works from any run, parks yours as needing input and notifies them). Non-blocking: on success STOP working and end your turn — the answer arrives later as a user message. If delivery fails, finish anyway and note the open question in your summary.`,
@@ -3918,7 +3912,7 @@ export function registerExponentialTools(
   // ten-minute upload URL bound to (session, topic, label, user) and hands the
   // agent a curl line, so a 3 MB PNG never lands in the context window.
   if (gates.sessionResults) {
-    server.registerTool(
+    registerTool(
       `exponential_sessions_results`,
       {
         description: `Publish your run's REPORT on the issue's Results face: per topic, a GFM text (what you did, #IDENT refs) above its screenshots, topics in first-seen order ('Summary' first). text sets the topic's text. label asks for a picture (web/ios/android): an uploadUrl, its expiry and a curl line (PNG/JPEG/WebP, 10 MB); the same topic+label REPLACES it. remove: true deletes that label, the text (text: ''), or the whole topic. Returns the run's list. Prefer viewport-sized shots: a full page crops to its top.`,
@@ -4141,7 +4135,7 @@ export function registerExponentialTools(
   // at the next turn boundary; the handler file owns ownership, the refusal
   // codes and the relay hop.
   if (gates.sessionResults) {
-    server.registerTool(
+    registerTool(
       `exponential_sessions_compact`,
       {
         description: `Ask the host to compact this run's context at the next turn boundary. reason is logged on the run; keep names what the summary must preserve (open threads, decisions, file paths). Returns accepted, or refusedBecause: too_early (under half the context used), cooldown (compacted within the last 20 turns), not_own_session, unsupported_agent. Only your own run.`,
@@ -4177,10 +4171,9 @@ export function registerExponentialTools(
   // EXP-660: the session read side. No tRPC list/get exists (clients read the
   // Electric shape), so these are direct reads over the SAME predicate the
   // shape uses: the caller's teams minus trashed/archived boards.
-  server.registerTool(
+  registerTool(
     `exponential_sessions_list`,
     {
-      annotations: READ_ONLY,
       description: `List coding sessions (newest first) across your teams or one team: status (in_review = PR open, still live), agentBusy (working now), issue, action, branch, device, blocked (usage-wall refusal, see exponential_sessions_get), run-tree depth, endedBy. mine = runs you started or host; subtreeOf = one run and all it started.`,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
@@ -4262,10 +4255,9 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_sessions_get`,
     {
-      annotations: READ_ONLY,
       description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open, still live) → ended; endedBy = who ended it; agentBusy = working now. ackedAt = the device's liveness ack, stamped seconds after launch; null for minutes = the launch died. blocked is set only when the agent itself REFUSED a call at its usage wall (never for a usage warning): blocked.window (session = 5h, weekly, model) and blocked.resetsAt describe the SAME window; the run stays running and clears it on its next successful turn.`,
       inputSchema: strictInput({ id: uuidString }),
     },
@@ -4343,7 +4335,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_sessions_kill`,
     {
       description: `Abort a live coding session you own or host: the row flips to ended (endedBy user) and the device tears the agent down. Idempotent. Never your own run — it ends on its own exit or close-out.`,
@@ -4412,7 +4404,7 @@ export function registerExponentialTools(
   // the ask/answer rail (a child asks via exponential_sessions_ask_parent),
   // and a generic owner-scoped steer. Unconditional and deferred on purpose:
   // a header-less expu_ orchestrator must be able to answer runs it started.
-  server.registerTool(
+  registerTool(
     `exponential_sessions_message`,
     {
       description: `Send text into a live coding session you own or host, as user input prefixed with its source: answer a child's exponential_sessions_ask_parent question (id = the child's UUID) or steer a run you started. Never your own session. queued = mid-turn, consumed = a turn started; consumed false = nobody reads it: kill, resumeSessionId.`,
@@ -4506,7 +4498,7 @@ export function registerExponentialTools(
   // installed agents, and resolves repos; a 404 from the relay means the
   // device is offline. The device then creates the coding_sessions row
   // itself, so the tool waits briefly for it to appear and hands back its id.
-  server.registerTool(
+  registerTool(
     `exponential_sessions_start`,
     {
       description: `Start a coding session on an ONLINE device (exponential_devices_list); offline = refused. One subject: issueId (UUID/identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs) or resumeSessionId (ended run; + account = switch a live claude run's account). account = a profile id from agentAccounts.<agent>.profiles[]. prompt = free text (REQUIRED for builtin:chat / builtin:create-action). stackOnIssueId = stack on that issue's PR. Track it with exponential_sessions_get. A child started from a run is unattended: its question, finish or usage wall (wait it out) arrives as '[Exponential child run ...]' input; answer with exponential_sessions_message. Read its report before merging.`,
@@ -4743,10 +4735,9 @@ export function registerExponentialTools(
   // Devices (EXP-660: the picker for exponential_sessions_start)
   // -----------------------------------------------------------------------
 
-  server.registerTool(
+  registerTool(
     `exponential_devices_list`,
     {
-      annotations: READ_ONLY,
       description: `List your registered machines (desktop app / CLI daemon), plus servers teammates shared with teamId. Pick an online device whose agents includes the agent you want; caps must include resume-run to resume an ended run. agentUsage.<agent> = the machine's DEFAULT login: windows[] (percent + resetsAt), fetchedAt = when those numbers were read, stale: true = the last refresh failed and they are as old as fetchedAt; agentUsageAt = when the device last reported. A session running on another account moves that account's own row under agentAccounts.<agent>.profiles[].usage instead. A live session refreshes only the account it runs on, per turn; once it ends — or a window's resetsAt passes — that login returns to the polled cadence.`,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
@@ -4813,7 +4804,7 @@ export function registerExponentialTools(
   // Comments (edit / delete)
   // -----------------------------------------------------------------------
 
-  server.registerTool(
+  registerTool(
     `exponential_comments_update`,
     {
       description: `Edit the body of an existing comment (by its UUID). Only the comment's author can edit it. Body is plain text; the edit stamps editedAt.`,
@@ -4841,7 +4832,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_comments_delete`,
     {
       description: `Permanently delete a comment (by its UUID). Only the comment's author can delete it.`,
@@ -4865,7 +4856,7 @@ export function registerExponentialTools(
   // Subscriptions (follow / unfollow an issue)
   // -----------------------------------------------------------------------
 
-  server.registerTool(
+  registerTool(
     `exponential_issues_subscribe`,
     {
       description: `Subscribe the MCP user to an issue (by UUID or human identifier, e.g. "MET-12") so they receive its notifications. Idempotent.`,
@@ -4886,7 +4877,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_issues_unsubscribe`,
     {
       description: `Unsubscribe the MCP user from an issue (UUID or identifier). Suppresses auto-resubscribe until they act on the issue again.`,
@@ -4911,10 +4902,9 @@ export function registerExponentialTools(
   // Notifications (inbox)
   // -----------------------------------------------------------------------
 
-  server.registerTool(
+  registerTool(
     `exponential_notifications_list`,
     {
-      annotations: READ_ONLY,
       description: `List the MCP user's own notifications, newest first. Set unreadOnly to show only those not yet read.`,
       inputSchema: strictInput({
         unreadOnly: z.boolean().default(false),
@@ -4972,7 +4962,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_notifications_mark_read`,
     {
       description: `Mark one notification read by id, or all unread ones with all=true. Only the MCP user's own notifications are affected.`,
@@ -5017,7 +5007,7 @@ export function registerExponentialTools(
   // who switched off "messages from teammates' agents" is reported as
   // declined, never written. Per-sender token bucket: the tool is spammable
   // by construction (a loop of sends is one bad prompt away).
-  server.registerTool(
+  registerTool(
     `exponential_notifications_send`,
     {
       description: `Notify people (inbox row + push): a long task finished, a decision is needed, or someone asked to be pinged. recipients = team members' user ids or emails, default yourself. issueId (UUID or identifier) = what the row opens: that issue's Results, which every member may see; default this run's issue. teamId defaults to the issue's team or this run's. A member who turned off messages from teammates' agents is reported as declined; your own user always receives.`,
@@ -5133,10 +5123,9 @@ export function registerExponentialTools(
   // Members (resolve assignees)
   // -----------------------------------------------------------------------
 
-  server.registerTool(
+  registerTool(
     `exponential_members_list`,
     {
-      annotations: READ_ONLY,
       description: `List the members of a team. id is the USER id (use it for assigneeId); memberId is the team_members row id (what teamMembers.updateRole/remove take).`,
       inputSchema: strictInput({
         teamId: uuidString,
@@ -5174,10 +5163,9 @@ export function registerExponentialTools(
   // Repositories
   // -----------------------------------------------------------------------
 
-  server.registerTool(
+  registerTool(
     `exponential_repositories_list`,
     {
-      annotations: READ_ONLY,
       description: `List the repositories registered in a team, each with the boards it backs. The MCP user must be a member of the team.`,
       inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
     },
@@ -5208,7 +5196,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_repositories_add`,
     {
       description: `Register a GitHub repository ("owner/name") in a team so boards can be backed by it. Any member; the repo must be one YOUR GitHub connection grants (team settings → Repositories) — connecting shares it with the team.`,
@@ -5235,10 +5223,9 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_repositories_branch_diff`,
     {
-      annotations: READ_ONLY,
       description: `Get the diff of an issue's exp/<IDENTIFIER> branch against the repo's default branch (UUID or identifier). Returns null when the branch was never pushed. Team members only.`,
       inputSchema: strictInput({ issueId: z.string().min(1) }),
     },
@@ -5263,10 +5250,9 @@ export function registerExponentialTools(
   // Actions (per-team reusable prompts, EXP-253)
   // -----------------------------------------------------------------------
 
-  server.registerTool(
+  registerTool(
     `exponential_actions_list`,
     {
-      annotations: READ_ONLY,
       description: `List a team's actions: reusable markdown prompts run as interactive agent sessions on a member's own desktop. Team members only.`,
       inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
     },
@@ -5300,7 +5286,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_actions_create`,
     {
       description: `Create a team action (owner only). body = the markdown prompt an agent runs locally; repositoryId targets that repo's trunk clone; icon = a curated icon name; inputs = pick fields (repo/board/pr/icon) injected into the prompt; promptPlaceholder = the composer's hint for the requester's free text.`,
@@ -5327,7 +5313,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_actions_update`,
     {
       description: `Update an action by UUID (owner only); pass only fields to change. icon: null clears; inputs: whole-array replace.`,
@@ -5357,7 +5343,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_actions_delete`,
     {
       description: `Delete an action by its UUID. Live runs keep their action_name label and degrade to batch-shaped rows. Team owner only.`,
@@ -5381,7 +5367,7 @@ export function registerExponentialTools(
   // Automations (EXP-583): schedule/event trigger → action on a device
   // -----------------------------------------------------------------------
 
-  server.registerTool(
+  registerTool(
     `exponential_automations_create`,
     {
       description: `Create an automation (owner only) running actionId on deviceId; pass provided values verbatim. trigger = {kind:schedule,interval:daily|weekly|monthly,minuteOfDay,weekday?,dayOfMonth?} or {kind:event,event:created|status_changed|assignee_changed|label_added|priority_changed|pr_opened|pr_merged,filters?}. account = an agent profile id on that device (needs agent). actionId may be builtin:tidy-up.`,
@@ -5422,10 +5408,9 @@ export function registerExponentialTools(
   // EXP-660: the rest of the automations surface. Owner checks, the
   // enabled⇒no-required-inputs rule, device/agent validation and the
   // trigger union all live in the router; these add the grant check only.
-  server.registerTool(
+  registerTool(
     `exponential_automations_list`,
     {
-      annotations: READ_ONLY,
       description: `List a team's automations: which action runs on which device, its trigger (schedule or issue event), launch agent/account/model/effort and whether it is enabled. Team members only.`,
       inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
     },
@@ -5442,7 +5427,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_automations_update`,
     {
       description: `Update an automation (owner only); pass only changed fields. trigger/actionId as in exponential_automations_create; null agent/account/model/effort = unpinned. Enabling needs every action input optional.`,
@@ -5482,7 +5467,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_automations_toggle`,
     {
       description: `Enable or disable an automation (owner only) without touching its trigger, device or action. Enabling needs every input of the action optional.`,
@@ -5505,7 +5490,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_automations_delete`,
     {
       description: `Delete an automation (owner only). Past runs keep their history; nothing else is touched.`,
@@ -5529,10 +5514,9 @@ export function registerExponentialTools(
   // Workflows (EXP-981): a picked set of issues planned and run as a DAG
   // -----------------------------------------------------------------------
 
-  server.registerTool(
+  registerTool(
     `exponential_workflows_list`,
     {
-      annotations: READ_ONLY,
       description: `List a team's workflows (issues of one repo run as a DAG): status, runner device, metrics {nodes,depth,width,cycles}.`,
       inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
     },
@@ -5547,10 +5531,9 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_workflows_get`,
     {
-      annotations: READ_ONLY,
       description: `A workflow's graph: nodes (issue, kind, state, risk, touches, wave/lane) and edges = blocks relations between them. A parent with sub-issues is ONE node. metrics.cycles non-empty = it cannot start; keep depth small.`,
       inputSchema: strictInput({ id: uuidString }),
     },
@@ -5566,7 +5549,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_workflows_create`,
     {
       description: `Create a DRAFT workflow from backlog issues (UUIDs or identifiers) of ONE repository. Shape it with exponential_issue_relations_add (blocks = edge, parent = one batch node), then exponential_workflows_update. Models come from the runner device, never from here.`,
@@ -5595,7 +5578,7 @@ export function registerExponentialTools(
   )
 
   for (const verb of [`start`, `pause`, `cancel`] as const) {
-    server.registerTool(
+    registerTool(
       `exponential_workflows_${verb}`,
       {
         description: {
@@ -5630,7 +5613,7 @@ export function registerExponentialTools(
   // EXP-983: the two tools a workflow NODE's own run uses. Both resolve the
   // node from the calling session (`X-Exp-Session-Id`), so they take no ids an
   // agent could get wrong.
-  server.registerTool(
+  registerTool(
     `exponential_workflows_checkpoint`,
     {
       description: `Workflow node runs only: announce that your CONTRACT is pushed (the types, interfaces, stubs and tests others build against). Push first, then call this once; runs that depend on you may start now, so do not break what you announced.`,
@@ -5674,7 +5657,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_workflows_request_upstream`,
     {
       description: `Workflow node runs only: ask the run of an issue that BLOCKS yours to change what it gave you (a missing field, a wrong signature). It lands in that run's channel; go on with what you can. Your branch is FROZEN on the upstream tip you started from: nobody pushes a newer one into it while you run, so once the change is up, pull it yourself (git fetch origin && git merge origin/<the base branch of your prompt>). You may reject upstream work, but never settle an interface dispute between two runs: if it refuses or has ended, escalate with exponential_sessions_ask_parent.`,
@@ -5735,7 +5718,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_workflows_review_submit`,
     {
       description: `Workflow REVIEW runs only: your verdict on the node named in your prompt. verdict approve|request_changes; findings = what is wrong and where (the wave's fix run gets it verbatim); oracle = {command, passed} for the checks you actually RAN (the exact commands, up to 2000 chars); head = the commit sha you reviewed. Reviews happen in waves over landed work: every request of the wave goes to ONE fix run, then whatever stays open is carried to the final pull request.`,
@@ -5773,7 +5756,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_workflows_update`,
     {
       description: `Update a workflow; pass only what changes. Draft only: deviceId (the runner machine, your own or a server shared with the team; required before workflows_start — it also seeds the models every run uses), addIssueIds/removeIssueIds, nodes = [{issueId, kind?: contract|leaf|integration, risk?: low|medium|high, touches?: globs}]. Any time: name, decision = an answer worth keeping (appended, dated, to the log every node prompt carries). Returns the fresh metrics.`,
@@ -5844,10 +5827,9 @@ export function registerExponentialTools(
   // Pull request changed files
   // -----------------------------------------------------------------------
 
-  server.registerTool(
+  registerTool(
     `exponential_issues_pr_files`,
     {
-      annotations: READ_ONLY,
       description: `List the changed files (with patches and add/delete counts) of the issue's linked pull request (UUID or identifier). Empty list when no PR is linked. Team members only.`,
       inputSchema: strictInput({ issueId: z.string().min(1) }),
     },
@@ -5870,7 +5852,7 @@ export function registerExponentialTools(
   // Boards (delete / retarget repository)
   // -----------------------------------------------------------------------
 
-  server.registerTool(
+  registerTool(
     `exponential_boards_delete`,
     {
       description: `Move a board to the trash (owner only; by its UUID). Purged with all issues after 48 hours; owners can restore from web settings before then.`,
@@ -5890,7 +5872,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_boards_set_repository`,
     {
       description: `Point a board (by its UUID) at a different registered repository (both must be in the same team), or pass repositoryId: null to detach it. Owner/admin only. Existing worktrees keep working; new coding sessions use the new repo. The board's branch pin resets unless defaultBranch is passed.`,
@@ -5927,7 +5909,7 @@ export function registerExponentialTools(
   // Teams (create / update)
   // -----------------------------------------------------------------------
 
-  server.registerTool(
+  registerTool(
     `exponential_teams_create`,
     {
       description: `Create a new team owned by the MCP user (a unique slug is derived from the name).`,
@@ -5948,7 +5930,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_teams_update`,
     {
       description: `Update a team's name, icon, estimate scale or yolo mode (by its UUID). Team owner only. Teams are always private.`,
@@ -5979,7 +5961,7 @@ export function registerExponentialTools(
   // Team invites (owner-gated)
   // -----------------------------------------------------------------------
 
-  server.registerTool(
+  registerTool(
     `exponential_invites_create`,
     {
       description: `Create an invite link for a team, returning the token to share. Owner only. Pass email to have the server mail the link (emailDelivered reports the attempt); an email invite also adds the person to the team at once as a placeholder member (memberUserId, assignable now; their content carries over when they join). name labels that member.`,
@@ -6006,10 +5988,9 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_invites_list`,
     {
-      annotations: READ_ONLY,
       description: `List the pending (unaccepted) invites for a team. The MCP user must be a member of the team.`,
       inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
     },
@@ -6026,7 +6007,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_invites_revoke`,
     {
       description: `Revoke a pending invite by its UUID. Owner only.`,
@@ -6072,10 +6053,9 @@ export function registerExponentialTools(
     return team.slug
   }
 
-  server.registerTool(
+  registerTool(
     `exponential_mcp_servers_list`,
     {
-      annotations: READ_ONLY,
       description: `List a team's MCP servers (Linear, Sentry, ...) that coding runs can connect to, with YOUR connection status (connected | not_connected | expired | error | not_needed) and connectUrl: the settings page where you (a person) connect it. Team members only.`,
       inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
     },
@@ -6106,7 +6086,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_mcp_servers_add`,
     {
       description: `Add a remote (https) MCP server to a team's registry, never a repo .mcp.json. Owner only. Probes the URL to detect OAuth; name defaults from the host. Returns the row and connectUrl, where each member connects once.`,
@@ -6145,7 +6125,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_mcp_servers_remove`,
     {
       description: `Remove an MCP server from its team's registry (by UUID); every member's stored connection to it goes too. Owner only.`,
@@ -6179,7 +6159,7 @@ export function registerExponentialTools(
   // with `attachmentId` alone finalizes the row. The signed halves live in
   // handlers/attachments-upload.ts; the access checks stay here.
 
-  server.registerTool(
+  registerTool(
     `exponential_attachments_upload`,
     {
       description: `Attach a file to an issue (UUID or identifier). With dataBase64: uploads the bytes now (base64 inflates ~33%). Without it: returns attachmentId, a 10-minute signed uploadUrl and a ready curl line for filename/contentType (+ optional commentId); then call again with attachmentId alone to finalize. Images (png/jpeg/webp/gif/avif, 10 MB) and video/audio (50 MB) return "markdown" to embed; other types (50 MB) land in Files, no markdown, never embed. Storage limits apply.`,
@@ -6365,7 +6345,7 @@ export function registerExponentialTools(
     }
   )
 
-  server.registerTool(
+  registerTool(
     `exponential_attachments_delete`,
     {
       description: `Permanently delete an issue attachment by id (the {id} in /api/attachments/{id}) and reclaim its bytes. Descriptions/comments embedding it are rewritten to *(deleted image: …)* in the same transaction.`,
@@ -6396,11 +6376,10 @@ export function registerExponentialTools(
   // router, and reads need a FULL team grant like writes — threads carry
   // reporter email/name, not board-workflow aux data.
   if (gates.helpdesk) {
-    server.registerTool(
+    registerTool(
       `exponential_helpdesk_threads_list`,
       {
-        annotations: READ_ONLY,
-        description: `List a team's support tickets (newest activity first) with their last message and an unread flag. Page with cursor = the oldest loaded row's updatedAt. Team members only; needs helpdesk enabled.`,
+          description: `List a team's support tickets (newest activity first) with their last message and an unread flag. Page with cursor = the oldest loaded row's updatedAt. Team members only; needs helpdesk enabled.`,
         inputSchema: strictInput({
           teamId: uuidString,
           filter: z.enum([`open`, `resolved`]).default(`open`),
@@ -6429,11 +6408,10 @@ export function registerExponentialTools(
       }
     )
 
-    server.registerTool(
+    registerTool(
       `exponential_helpdesk_threads_get`,
       {
-        annotations: READ_ONLY,
-        description: `Get a support ticket with its full conversation (public replies and internal notes, each with its email delivery status) and the escalated issue if any.`,
+          description: `Get a support ticket with its full conversation (public replies and internal notes, each with its email delivery status) and the escalated issue if any.`,
         inputSchema: strictInput({ id: uuidString }),
       },
       async ({ id }) => {
@@ -6451,7 +6429,7 @@ export function registerExponentialTools(
       }
     )
 
-    server.registerTool(
+    registerTool(
       `exponential_helpdesk_reply`,
       {
         description: `Post a public reply on a support ticket: the reporter sees it on their magic-link page and gets it emailed (once they have opened the link and are not viewing right now). Replying to a resolved ticket reopens it.`,
@@ -6476,7 +6454,7 @@ export function registerExponentialTools(
       }
     )
 
-    server.registerTool(
+    registerTool(
       `exponential_helpdesk_note`,
       {
         description: `Add an internal note to a support ticket: visible to team members only, never emailed, never shown to the reporter.`,
@@ -6501,7 +6479,7 @@ export function registerExponentialTools(
       }
     )
 
-    server.registerTool(
+    registerTool(
       `exponential_helpdesk_close`,
       {
         description: `Resolve a support ticket: the transcript stays readable but the reporter's magic link stops accepting replies. An escalated issue is untouched.`,
@@ -6520,7 +6498,7 @@ export function registerExponentialTools(
       }
     )
 
-    server.registerTool(
+    registerTool(
       `exponential_helpdesk_reopen`,
       {
         description: `Reopen a resolved support ticket; the reporter's existing magic link works again.`,
@@ -6539,7 +6517,7 @@ export function registerExponentialTools(
       }
     )
 
-    server.registerTool(
+    registerTool(
       `exponential_helpdesk_escalate`,
       {
         description: `File an issue from a support ticket on a board of the ticket's team and link them (one escalation per ticket). The issue opens with the reporter's message as its description; title defaults to the ticket's.`,
@@ -6573,7 +6551,7 @@ export function registerExponentialTools(
   // to any of the caller's team data.
   const feedbackWidgetKey = buildRuntimeConfig().feedbackWidget?.widgetKey
   if (feedbackWidgetKey) {
-    server.registerTool(
+    registerTool(
       `exponential_report_bug`,
       {
         description: `File a bug report about Exponential itself (the issue tracker — any client, these MCP tools, sync, relays) to the Exponential team. Use it the moment Exponential misbehaves or a tool result misleads you mid-task. Not for issues in the user's own project.`,

@@ -57,13 +57,18 @@ import { customizableStatusCategoryValues } from "@exp/db-schema/domain"
 import { registerExponentialTools } from "@/lib/mcp/tools"
 import { FULL_ACCESS } from "@/lib/mcp/scope"
 import { ALL_MCP_TOOL_GATES } from "@/lib/mcp/gates"
+import { TOOL_ANNOTATIONS } from "@/lib/mcp/annotations"
 import { issueWireColumns } from "@/lib/issue-columns"
 import type { McpUser } from "@/lib/mcp/server"
 
 type ToolDef = {
   description?: string
   inputSchema?: z.ZodType
-  annotations?: { readOnlyHint?: boolean }
+  annotations?: {
+    readOnlyHint?: boolean
+    destructiveHint?: boolean
+    openWorldHint?: boolean
+  }
 }
 
 function collectDefs(): Map<string, ToolDef> {
@@ -135,6 +140,40 @@ describe(`read-only hints (FEED-25)`, () => {
     for (const [name, def] of defs) {
       expect(def.annotations?.readOnlyHint === true, name).toBe(isRead(name))
     }
+  })
+})
+
+// EXP-1153: the ChatGPT/Codex plugin directory scans tools/list and rejects
+// hints that are absent or that contradict the tool's behaviour — so every
+// tool carries all three as explicit booleans from ONE table
+// (lib/mcp/annotations.ts), and the table names exactly the registered set.
+describe(`explicit annotations (EXP-1153)`, () => {
+  it(`every tool has readOnly, destructive and openWorld as booleans`, () => {
+    for (const [name, def] of defs) {
+      for (const hint of [
+        `readOnlyHint`,
+        `destructiveHint`,
+        `openWorldHint`,
+      ] as const) {
+        expect(typeof def.annotations?.[hint], `${name}.${hint}`).toBe(
+          `boolean`
+        )
+      }
+    }
+  })
+
+  it(`a read is never destructive nor open world`, () => {
+    for (const [name, def] of defs) {
+      if (!def.annotations?.readOnlyHint) continue
+      expect(def.annotations.destructiveHint, name).toBe(false)
+      expect(def.annotations.openWorldHint, name).toBe(false)
+    }
+  })
+
+  it(`the table names exactly the registered tools`, () => {
+    const registered = [...defs.keys()].sort()
+    const tabled = Object.keys(TOOL_ANNOTATIONS).sort()
+    expect(tabled).toEqual(registered)
   })
 })
 

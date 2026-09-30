@@ -30,6 +30,8 @@ import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiContactRouteImport } from './routes/api/contact'
 import { Route as ApiAuthConfigRouteImport } from './routes/api/auth-config'
 import { Route as AuthenticatedOnboardingRouteImport } from './routes/_authenticated/onboarding'
+import { Route as Char91DotwellKnownChar93OpenidConfigurationRouteImport } from './routes/[.well-known]/openid-configuration'
+import { Route as Char91DotwellKnownChar93OpenaiAppsChallengeRouteImport } from './routes/[.well-known]/openai-apps-challenge'
 import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
 import { Route as Char91DotwellKnownChar93OauthAuthorizationServerRouteImport } from './routes/[.well-known]/oauth-authorization-server'
 import { Route as Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRouteImport } from './routes/[.well-known]/assetlinks[.]json'
@@ -236,6 +238,18 @@ const AuthenticatedOnboardingRoute = AuthenticatedOnboardingRouteImport.update({
   path: '/onboarding',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const Char91DotwellKnownChar93OpenidConfigurationRoute =
+  Char91DotwellKnownChar93OpenidConfigurationRouteImport.update({
+    id: '/.well-known/openid-configuration',
+    path: '/.well-known/openid-configuration',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const Char91DotwellKnownChar93OpenaiAppsChallengeRoute =
+  Char91DotwellKnownChar93OpenaiAppsChallengeRouteImport.update({
+    id: '/.well-known/openai-apps-challenge',
+    path: '/.well-known/openai-apps-challenge',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const Char91DotwellKnownChar93OauthProtectedResourceRoute =
   Char91DotwellKnownChar93OauthProtectedResourceRouteImport.update({
     id: '/.well-known/oauth-protected-resource',
@@ -795,6 +809,8 @@ export interface FileRoutesByFullPath {
   '/.well-known/assetlinks.json': typeof Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute
   '/.well-known/oauth-authorization-server': typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
+  '/.well-known/openai-apps-challenge': typeof Char91DotwellKnownChar93OpenaiAppsChallengeRoute
+  '/.well-known/openid-configuration': typeof Char91DotwellKnownChar93OpenidConfigurationRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
   '/api/contact': typeof ApiContactRoute
@@ -916,6 +932,8 @@ export interface FileRoutesByTo {
   '/.well-known/assetlinks.json': typeof Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute
   '/.well-known/oauth-authorization-server': typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
+  '/.well-known/openai-apps-challenge': typeof Char91DotwellKnownChar93OpenaiAppsChallengeRoute
+  '/.well-known/openid-configuration': typeof Char91DotwellKnownChar93OpenidConfigurationRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
   '/api/contact': typeof ApiContactRoute
@@ -1040,6 +1058,8 @@ export interface FileRoutesById {
   '/.well-known/assetlinks.json': typeof Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute
   '/.well-known/oauth-authorization-server': typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
+  '/.well-known/openai-apps-challenge': typeof Char91DotwellKnownChar93OpenaiAppsChallengeRoute
+  '/.well-known/openid-configuration': typeof Char91DotwellKnownChar93OpenidConfigurationRoute
   '/_authenticated/onboarding': typeof AuthenticatedOnboardingRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
   '/api/contact': typeof ApiContactRoute
@@ -1165,6 +1185,8 @@ export interface FileRouteTypes {
     | '/.well-known/assetlinks.json'
     | '/.well-known/oauth-authorization-server'
     | '/.well-known/oauth-protected-resource'
+    | '/.well-known/openai-apps-challenge'
+    | '/.well-known/openid-configuration'
     | '/onboarding'
     | '/api/auth-config'
     | '/api/contact'
@@ -1286,6 +1308,8 @@ export interface FileRouteTypes {
     | '/.well-known/assetlinks.json'
     | '/.well-known/oauth-authorization-server'
     | '/.well-known/oauth-protected-resource'
+    | '/.well-known/openai-apps-challenge'
+    | '/.well-known/openid-configuration'
     | '/onboarding'
     | '/api/auth-config'
     | '/api/contact'
@@ -1409,6 +1433,8 @@ export interface FileRouteTypes {
     | '/.well-known/assetlinks.json'
     | '/.well-known/oauth-authorization-server'
     | '/.well-known/oauth-protected-resource'
+    | '/.well-known/openai-apps-challenge'
+    | '/.well-known/openid-configuration'
     | '/_authenticated/onboarding'
     | '/api/auth-config'
     | '/api/contact'
@@ -1533,6 +1559,8 @@ export interface RootRouteChildren {
   Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute: typeof Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute
   Char91DotwellKnownChar93OauthAuthorizationServerRoute: typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
   Char91DotwellKnownChar93OauthProtectedResourceRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
+  Char91DotwellKnownChar93OpenaiAppsChallengeRoute: typeof Char91DotwellKnownChar93OpenaiAppsChallengeRoute
+  Char91DotwellKnownChar93OpenidConfigurationRoute: typeof Char91DotwellKnownChar93OpenidConfigurationRoute
   ApiAuthConfigRoute: typeof ApiAuthConfigRoute
   ApiContactRoute: typeof ApiContactRoute
   ApiHealthRoute: typeof ApiHealthRoute
@@ -1746,6 +1774,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/onboarding'
       preLoaderRoute: typeof AuthenticatedOnboardingRouteImport
       parentRoute: typeof AuthenticatedRoute
+    }
+    '/.well-known/openid-configuration': {
+      id: '/.well-known/openid-configuration'
+      path: '/.well-known/openid-configuration'
+      fullPath: '/.well-known/openid-configuration'
+      preLoaderRoute: typeof Char91DotwellKnownChar93OpenidConfigurationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/.well-known/openai-apps-challenge': {
+      id: '/.well-known/openai-apps-challenge'
+      path: '/.well-known/openai-apps-challenge'
+      fullPath: '/.well-known/openai-apps-challenge'
+      preLoaderRoute: typeof Char91DotwellKnownChar93OpenaiAppsChallengeRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/.well-known/oauth-protected-resource': {
       id: '/.well-known/oauth-protected-resource'
@@ -2619,6 +2661,10 @@ const rootRouteChildren: RootRouteChildren = {
     Char91DotwellKnownChar93OauthAuthorizationServerRoute,
   Char91DotwellKnownChar93OauthProtectedResourceRoute:
     Char91DotwellKnownChar93OauthProtectedResourceRoute,
+  Char91DotwellKnownChar93OpenaiAppsChallengeRoute:
+    Char91DotwellKnownChar93OpenaiAppsChallengeRoute,
+  Char91DotwellKnownChar93OpenidConfigurationRoute:
+    Char91DotwellKnownChar93OpenidConfigurationRoute,
   ApiAuthConfigRoute: ApiAuthConfigRoute,
   ApiContactRoute: ApiContactRoute,
   ApiHealthRoute: ApiHealthRoute,

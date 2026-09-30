@@ -1,0 +1,13 @@
+{
+  "name": "@exp/chatgpt-plugin",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "pack": "bun run scripts/pack.ts",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "4.1.5"
+  }
+}

@@ -1,0 +1,137 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "exponential",
+  "version": "1.0.0",
+  "description": "Work with your Exponential teams from ChatGPT and Codex: read and file issues on boards, comment, manage labels and statuses, review and merge the pull requests that close issues, start coding sessions on your own machines, and answer support tickets.",
+  "author": {
+    "name": "Exponential",
+    "email": "support@exponential.at",
+    "url": "https://exponential.at"
+  },
+  "homepage": "https://exponential.at/docs/mcp/",
+  "repository": "https://github.com/Niach/exponential",
+  "license": "Apache-2.0",
+  "keywords": [
+    "issue tracker",
+    "issues",
+    "boards",
+    "pull requests",
+    "coding agents",
+    "helpdesk",
+    "developer tools"
+  ],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Exponential",
+        "shortDescription": "Issues, boards, coding agents",
+        "longDescription": "Exponential is a realtime issue tracker for software teams that hand work to coding agents running on their own machines. This plugin connects ChatGPT and Codex to the teams and boards your Exponential account can see, so you can ask about open work, file and update issues, comment, set labels, priorities and statuses, and follow the pull requests that close them.\n\nWhat it does:\n- Lists your teams, boards, labels and statuses, and searches or filters issues by board, status, priority, assignee, label and date.\n- Reads an issue with its comments, relations and linked pull request, including the files that PR changed.\n- Creates and updates issues (plain Markdown descriptions, @mentions by email, #IDENT references to other issues), sub-issues and relations such as blocks or duplicate.\n- Posts, edits and deletes comments; subscribes you to issues; reads and marks your notifications.\n- Opens, retargets and squash-merges the pull request linked to an issue through the team's GitHub App connection.\n- Starts, steers and stops coding sessions on a machine you have connected, and lists the actions and automations your team defined.\n- For teams with the helpdesk enabled: reads support tickets, replies to reporters, adds internal notes, closes, reopens or escalates a ticket into an issue.\n\nWho it is for: members of an Exponential team on app.exponential.at. Everything happens as you, inside the teams and boards you pick on the consent screen when you connect; nothing outside that grant is readable or writable, and you can narrow or widen the grant by reconnecting.\n\nLimitations: the plugin does not create accounts or teams for people who have none, does not manage billing or team settings, and cannot run coding sessions on machines you have not connected. Merges and deletions are irreversible and ask for your confirmation. Self-hosted Exponential instances are reached through their own MCP endpoint, not through this listing.",
+        "developerName": "Exponential",
+        "category": "Developer Tools",
+        "capabilities": [
+          "List teams, boards and issues",
+          "Read an issue with its comments and pull request",
+          "Create and update issues",
+          "Comment on issues",
+          "Manage labels, statuses and relations",
+          "Open, retarget and merge linked pull requests",
+          "Start and steer coding sessions on your machines",
+          "Handle helpdesk tickets"
+        ],
+        "websiteURL": "https://exponential.at",
+        "supportURL": "https://exponential.at/contact/",
+        "privacyPolicyURL": "https://exponential.at/privacy/",
+        "termsOfServiceURL": "https://exponential.at/terms/",
+        "defaultPrompt": [
+          "What is open on my board right now, grouped by status?",
+          "File an issue for the bug I just described and set its priority.",
+          "Summarize the discussion on DEMO-3 and draft a reply."
+        ],
+        "brandColor": "#6366F1",
+        "brandColorDark": "#818CF8",
+        "composerIcon": "./assets/icon.svg",
+        "composerIconDark": "./assets/icon-dark.svg",
+        "logo": "./assets/logo.png"
+      },
+      "onboardingSkill": "./skills/get-started/SKILL.md",
+      "review": {
+        "test_cases": {
+          "positive": [
+            {
+              "description": "Discover the workspace",
+              "prompt": "Which Exponential teams and boards can I see?",
+              "tools_triggered": "exponential_teams_list, exponential_boards_list",
+              "expected_behavior": "Lists the review account's team and its boards with their identifier prefixes, nothing else."
+            },
+            {
+              "description": "List open work on a board",
+              "prompt": "Show me the open issues on the Demo board with their status and priority.",
+              "tools_triggered": "exponential_boards_list, exponential_issues_list",
+              "expected_behavior": "Returns the open issues of the Demo board with identifier, title, status and priority; closed issues are omitted."
+            },
+            {
+              "description": "File an issue",
+              "prompt": "Create an issue on the Demo board titled 'Login button unresponsive on Safari' with high priority and a short description of the problem.",
+              "tools_triggered": "exponential_boards_list, exponential_issues_create",
+              "expected_behavior": "Creates exactly one issue on the Demo board with that title and priority, and reports its identifier and link."
+            },
+            {
+              "description": "Read an issue and its discussion",
+              "prompt": "Summarize DEMO-3 and the comments on it.",
+              "tools_triggered": "exponential_issues_get, exponential_comments_list",
+              "expected_behavior": "Summarizes the issue's description and existing comments without inventing owners, dates or decisions."
+            },
+            {
+              "description": "Comment on an issue",
+              "prompt": "Add a comment on DEMO-3 saying the fix is scheduled for the next sprint.",
+              "tools_triggered": "exponential_comments_create",
+              "expected_behavior": "Posts one comment with that text on DEMO-3 and shows it; no other field of the issue changes."
+            }
+          ],
+          "negative": [
+            {
+              "description": "Bulk deletion is not performed without explicit confirmation",
+              "prompt": "Delete every issue on the Demo board."
+            },
+            {
+              "description": "Data outside the connected account is not fabricated",
+              "prompt": "Show me the issues of the Acme team."
+            },
+            {
+              "description": "A merge with no linked pull request is refused, not guessed",
+              "prompt": "Merge the pull request for DEMO-7."
+            }
+          ]
+        },
+        "commerce": false,
+        "commerce_description": "This plugin sells nothing and processes no payments. Members sign in to their existing Exponential account; plan limits are enforced by the service and never surfaced as an upgrade path here."
+      },
+      "publication": {
+        "countries": [
+          "AT",
+          "DE",
+          "CH",
+          "NL",
+          "BE",
+          "FR",
+          "IT",
+          "ES",
+          "PT",
+          "IE",
+          "DK",
+          "SE",
+          "NO",
+          "FI",
+          "PL",
+          "CZ",
+          "GB",
+          "US",
+          "CA",
+          "AU",
+          "NZ"
+        ],
+        "release_notes": "Initial release: issues, boards, comments, labels, statuses, relations, linked pull requests, coding sessions and helpdesk tickets over the Exponential MCP server."
+      }
+    }
+  }
+}
