@@ -360,6 +360,7 @@ export const PICKABLE_ICONS = [
   `bookmark`,
   `newspaper`,
   `smartphone`,
+  `brush-cleaning`,
 ] as const
 export type PickableIcon = (typeof PICKABLE_ICONS)[number]
 

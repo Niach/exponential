@@ -192,7 +192,8 @@
       "tag",
       "bookmark",
       "newspaper",
-      "smartphone"
+      "smartphone",
+      "brush-cleaning"
     ]
   },
   "deviceIcon": {
@@ -488,7 +489,8 @@
     "chatId": "builtin:chat",
     "planWorkflowId": "builtin:plan-workflow",
     "reviewNodeId": "builtin:review-node",
-    "fixReviewFindingsId": "builtin:fix-review-findings"
+    "fixReviewFindingsId": "builtin:fix-review-findings",
+    "tidyUpId": "builtin:tidy-up"
   },
   "actionInputs": {
     "max": 10,

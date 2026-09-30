@@ -115,6 +115,7 @@ interface Contract {
     fixConflictsId: string
     chatId: string
     planWorkflowId: string
+    tidyUpId: string
     reviewNodeId: string
     fixReviewFindingsId: string
   }
@@ -558,6 +559,7 @@ ${swiftStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
     public static let builtinPlanWorkflowId: String = "${contract.builtinAction.planWorkflowId}"
     public static let builtinReviewNodeId: String = "${contract.builtinAction.reviewNodeId}"
     public static let builtinFixReviewFindingsId: String = "${contract.builtinAction.fixReviewFindingsId}"
+    public static let builtinTidyUpId: String = "${contract.builtinAction.tidyUpId}"
     public static let workflowMaxReviewRounds: Int = ${contract.workflow.maxReviewRounds}
     public static let workflowEventsMax: Int = ${contract.workflow.eventsMax}
     public static let workflowMaxParallelDefault: Int = ${contract.workflow.maxParallelDefault}
@@ -726,6 +728,7 @@ ${kotlinStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
     const val builtinPlanWorkflowId: String = "${contract.builtinAction.planWorkflowId}"
     const val builtinReviewNodeId: String = "${contract.builtinAction.reviewNodeId}"
     const val builtinFixReviewFindingsId: String = "${contract.builtinAction.fixReviewFindingsId}"
+    const val builtinTidyUpId: String = "${contract.builtinAction.tidyUpId}"
     const val workflowMaxReviewRounds: Int = ${contract.workflow.maxReviewRounds}
     const val workflowEventsMax: Int = ${contract.workflow.eventsMax}
     const val workflowMaxParallelDefault: Int = ${contract.workflow.maxParallelDefault}
@@ -899,6 +902,7 @@ pub const BUILTIN_CHAT_ID: &str = "${contract.builtinAction.chatId}";
 pub const BUILTIN_PLAN_WORKFLOW_ID: &str = "${contract.builtinAction.planWorkflowId}";
 pub const BUILTIN_REVIEW_NODE_ID: &str = "${contract.builtinAction.reviewNodeId}";
 pub const BUILTIN_FIX_REVIEW_FINDINGS_ID: &str = "${contract.builtinAction.fixReviewFindingsId}";
+pub const BUILTIN_TIDY_UP_ID: &str = "${contract.builtinAction.tidyUpId}";
 pub const WORKFLOW_MAX_REVIEW_ROUNDS: usize = ${contract.workflow.maxReviewRounds};
 pub const WORKFLOW_EVENTS_MAX: usize = ${contract.workflow.eventsMax};
 pub const WORKFLOW_MAX_PARALLEL_DEFAULT: usize = ${contract.workflow.maxParallelDefault};

@@ -17,7 +17,7 @@ object DomainContract {
     val issueSourceValues: List<String> = listOf("user", "widget", "agent")
     val issueEstimationValues: List<String> = listOf("none", "exponential", "fibonacci", "linear", "tshirt")
     val teamRoleValues: List<String> = listOf("owner", "member")
-    val boardIconValues: List<String> = listOf("code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle", "palette", "pen-tool", "database", "server", "cloud", "cpu", "layers", "boxes", "folder", "file-text", "calendar", "clock", "users", "user", "flag", "target", "trophy", "lock", "key", "mail", "phone", "bell", "git-branch", "bot", "sparkles", "flask-conical", "shopping-cart", "credit-card", "map-pin", "compass", "briefcase", "graduation-cap", "puzzle", "gamepad-2", "coffee", "plane", "house", "building", "leaf", "sun", "activity", "chart-line", "scale", "car", "music", "camera", "video", "image", "headphones", "mic", "gift", "shopping-bag", "store", "truck", "map", "mountain", "tree-pine", "flame", "droplet", "moon", "anchor", "crown", "gem", "award", "dumbbell", "stethoscope", "microscope", "atom", "brain", "eye", "fingerprint", "hammer", "paintbrush", "calculator", "landmark", "wallet", "tag", "bookmark", "newspaper", "smartphone")
+    val boardIconValues: List<String> = listOf("code", "square-kanban", "megaphone", "bug", "rocket", "book-open", "globe", "heart", "star", "zap", "wrench", "shield", "package", "terminal", "lightbulb", "message-circle", "palette", "pen-tool", "database", "server", "cloud", "cpu", "layers", "boxes", "folder", "file-text", "calendar", "clock", "users", "user", "flag", "target", "trophy", "lock", "key", "mail", "phone", "bell", "git-branch", "bot", "sparkles", "flask-conical", "shopping-cart", "credit-card", "map-pin", "compass", "briefcase", "graduation-cap", "puzzle", "gamepad-2", "coffee", "plane", "house", "building", "leaf", "sun", "activity", "chart-line", "scale", "car", "music", "camera", "video", "image", "headphones", "mic", "gift", "shopping-bag", "store", "truck", "map", "mountain", "tree-pine", "flame", "droplet", "moon", "anchor", "crown", "gem", "award", "dumbbell", "stethoscope", "microscope", "atom", "brain", "eye", "fingerprint", "hammer", "paintbrush", "calculator", "landmark", "wallet", "tag", "bookmark", "newspaper", "smartphone", "brush-cleaning")
     val deviceIconValues: List<String> = listOf("monitor", "server", "laptop", "os-apple", "os-windows", "os-linux")
     val commentKindValues: List<String> = listOf("regular")
     val commentSourceValues: List<String> = listOf("user", "mcp")
@@ -107,6 +107,7 @@ object DomainContract {
     const val builtinPlanWorkflowId: String = "builtin:plan-workflow"
     const val builtinReviewNodeId: String = "builtin:review-node"
     const val builtinFixReviewFindingsId: String = "builtin:fix-review-findings"
+    const val builtinTidyUpId: String = "builtin:tidy-up"
     const val workflowMaxReviewRounds: Int = 3
     const val workflowEventsMax: Int = 50
     const val workflowMaxParallelDefault: Int = 3
