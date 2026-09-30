@@ -476,32 +476,96 @@ pub fn window_from_notice(text: &str) -> Option<&'static str> {
 }
 
 /// The model id claude stamps on an assistant frame IT wrote rather than
-/// the API: the rate-limit notice (EXP-784), the logged-out notice, and a
-/// handful of other client-side messages. Measured: `model:"<synthetic>"`,
-/// `stop_reason:"stop_sequence"`, zero usage.
+/// the API: the rate-limit wall (EXP-784), the logged-out / expired-OAuth
+/// notice, a transient API failure (`API Error: …`), and client-side filler
+/// (`No response requested.`). Measured: `model:"<synthetic>"`,
+/// `stop_reason:"stop_sequence"`, zero usage. The model alone says nothing
+/// about WHICH — [`classify_assistant_notice`] reads the frame's `error`.
 pub const SYNTHETIC_MODEL: &str = "<synthetic>";
 
-/// EXP-784: the secondary detector for a rate-limit notice — the text
-/// itself (`You've hit your session limit · resets 12:10pm (Europe/Berlin)`,
-/// measured), for a frame whose `model` field is missing or a future CLI
-/// that stops stamping `<synthetic>`.
+/// EXP-784: the text of claude's usage wall (`You've hit your session limit
+/// · resets 12:10pm (Europe/Berlin)`, measured) — trusted on ANY frame, for
+/// a CLI that stops stamping `<synthetic>` or `error`.
 pub const RATE_LIMIT_PREFIX: &str = "You've hit your";
+
+/// Older CLIs without `error`: trusted on a synthetic frame only.
+pub const RATE_LIMIT_LEGACY_PREFIXES: [&str; 2] =
+    ["You've reached your", "You're out of usage credits"];
+
+/// The text a transient API failure opens with (`API Error: No response
+/// from API …`, `API Error: 400 …`), for a frame without `error`.
+pub const API_ERROR_PREFIX: &str = "API Error";
+
+/// The frame-level `error` claude stamps on EVERY real usage wall (session,
+/// model and credit limits, measured on CLI 2.1.282).
+pub const ERROR_RATE_LIMIT: &str = "rate_limit";
+
+/// The frame-level `error` of an expired / revoked login.
+pub const ERROR_AUTHENTICATION_FAILED: &str = "authentication_failed";
 
 /// EXP-784: the status published for a synthetic limit notice when no
 /// `rate_limit_event` named one.
 pub const RATE_LIMIT_FALLBACK_STATUS: &str = "limited";
 
-/// Whether an assistant frame is claude's own RATE-LIMIT notice (EXP-784):
-/// a synthetic frame, or any frame whose text opens with
-/// [`RATE_LIMIT_PREFIX`]. The one synthetic frame that is NOT a limit is the
-/// logged-out notice, which stays a narration so the auth error the result
-/// raises has its text in the transcript.
-pub fn is_rate_limit_notice(model: Option<&str>, text: &str) -> bool {
+/// What an assistant frame IS, beyond prose: claude writes its own walls,
+/// login notices, API failures and filler as `<synthetic>` assistant frames.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssistantNotice<'a> {
+    /// A real assistant message.
+    None,
+    /// The usage wall: the rate-limit SLOT (walls the run).
+    RateLimit,
+    /// The logged-out / expired-login notice: stays a narration so the
+    /// turn's auth error has its text in the transcript.
+    Auth,
+    /// A transient failure (outage, timeout, 400): an inline ROW, never a
+    /// wall. `error_type` = the frame's `error`.
+    ApiError { error_type: Option<&'a str> },
+    /// Client-side filler (`No response requested.`): dropped.
+    Filler,
+}
+
+/// Classifies an assistant frame by its top-level `error` FIRST (the CLI's
+/// own word), its `<synthetic>` model and API-error flag second, its text
+/// last. Every synthetic frame used to be a rate-limit wall, so each API
+/// outage walled the run and rotated its account.
+pub fn classify_assistant_notice<'a>(
+    model: Option<&str>,
+    error: Option<&'a str>,
+    is_api_error: bool,
+    text: &str,
+) -> AssistantNotice<'a> {
     let text = text.trim_start();
-    if text.starts_with(RATE_LIMIT_PREFIX) {
-        return true;
+    let error = error.map(str::trim).filter(|error| !error.is_empty());
+    if error == Some(ERROR_RATE_LIMIT) || text.starts_with(RATE_LIMIT_PREFIX) {
+        return AssistantNotice::RateLimit;
     }
-    model == Some(SYNTHETIC_MODEL) && !is_login_required_result(text)
+    if model != Some(SYNTHETIC_MODEL) && error.is_none() && !is_api_error {
+        return AssistantNotice::None;
+    }
+    if error == Some(ERROR_AUTHENTICATION_FAILED) || is_login_required_result(text) {
+        return AssistantNotice::Auth;
+    }
+    if error.is_none()
+        && model == Some(SYNTHETIC_MODEL)
+        && RATE_LIMIT_LEGACY_PREFIXES.iter().any(|prefix| text.starts_with(prefix))
+    {
+        return AssistantNotice::RateLimit;
+    }
+    if error.is_some() || is_api_error || text.starts_with(API_ERROR_PREFIX) {
+        return AssistantNotice::ApiError { error_type: error };
+    }
+    AssistantNotice::Filler
+}
+
+/// Whether a turn's `result` repeats a usage wall: the primary prefix
+/// always; the legacy ones only on an error result (a success result is
+/// the model's own prose).
+pub fn is_rate_limit_result(result: &ResultMsg) -> bool {
+    let text = result.result.trim_start();
+    text.starts_with(RATE_LIMIT_PREFIX)
+        || (result.is_error
+            && RATE_LIMIT_LEGACY_PREFIXES.iter().any(|prefix| text.starts_with(prefix)))
 }
 
 /// EXP-831: whether an assistant frame's content blocks are the API
@@ -538,6 +602,17 @@ pub struct AssistantMsg {
     pub subagent_type: Option<String>,
     pub session_id: String,
     pub uuid: String,
+    /// The CLI's word for a synthetic failure frame: `rate_limit` (every
+    /// usage wall), `server_error`, `invalid_request`, `model_not_found`,
+    /// `authentication_failed`, `billing_error`, `unknown`.
+    pub error: Option<String>,
+    /// snake_case on the wire, camelCase in the on-disk transcript
+    /// `replay_history` feeds through the same path.
+    #[serde(rename = "is_api_error_message", alias = "isApiErrorMessage")]
+    pub is_api_error_message: bool,
+    /// The fine-grained failure (`no_response`, …); same two spellings.
+    #[serde(rename = "api_error", alias = "apiError")]
+    pub api_error: Option<String>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
@@ -1744,24 +1819,65 @@ mod tests {
         assert!(!is_real_assistant_activity(&[]));
     }
 
-    /// EXP-784: the two detectors, and the one synthetic frame that is not
-    /// a limit.
+    /// The `error` field decides first; the model, flag and text only for a
+    /// CLI that sends none. Only a usage wall is a wall.
     #[test]
-    fn a_rate_limit_notice_is_detected_by_model_or_prefix() {
-        let measured = "You've hit your session limit · resets 12:10pm (Europe/Berlin)";
-        assert!(is_rate_limit_notice(Some(SYNTHETIC_MODEL), measured));
-        assert!(is_rate_limit_notice(None, measured), "the prefix alone is enough");
-        assert!(is_rate_limit_notice(Some("claude-opus-4-6"), measured));
-        assert!(is_rate_limit_notice(Some(SYNTHETIC_MODEL), "Rate limited. Try again later."));
-        assert!(!is_rate_limit_notice(Some("claude-opus-4-6"), "I'll hit your endpoint next."));
-        assert!(
-            !is_rate_limit_notice(Some(SYNTHETIC_MODEL), "Not logged in · Please run /login"),
-            "the logged-out notice stays a narration"
-        );
+    fn synthetic_frames_classify_by_error_first() {
+        use AssistantNotice as N;
+        let s = Some(SYNTHETIC_MODEL);
+        let real = Some("claude-opus-4-6");
+        let hit = "You've hit your session limit · resets 12:10pm (Europe/Berlin)";
+        let timeout = "API Error: No response from API (waited 3m, then 10m on the retry).";
+        let cases: Vec<(Option<&str>, Option<&str>, bool, &str, N)> = vec![
+            (s, Some("rate_limit"), true, "You've reached your Fable limit. Switch to an…", N::RateLimit),
+            (s, None, false, hit, N::RateLimit),
+            (None, None, false, hit, N::RateLimit),
+            (real, None, false, hit, N::RateLimit),
+            (s, None, false, "You're out of usage credits. Switch to another…", N::RateLimit),
+            (real, None, false, "You've reached your destination", N::None),
+            (real, None, false, "I'll hit your endpoint next.", N::None),
+            (s, Some("server_error"), true, timeout, N::ApiError { error_type: Some("server_error") }),
+            (s, Some("invalid_request"), true, "API Error: 400 bad image", N::ApiError { error_type: Some("invalid_request") }),
+            (s, None, true, "Something failed", N::ApiError { error_type: None }),
+            (s, None, false, timeout, N::ApiError { error_type: None }),
+            (s, Some("authentication_failed"), true, "Failed to authenticate: OAuth session expired", N::Auth),
+            (s, None, false, "Not logged in · Please run /login", N::Auth),
+            (s, None, false, "No response requested.", N::Filler),
+        ];
+        for (model, error, flag, text, expected) in cases {
+            assert_eq!(
+                classify_assistant_notice(model, error, flag, text),
+                expected,
+                "{model:?} {error:?} {flag} {text:?}"
+            );
+        }
         assert_eq!(resets_at_millis(Some(1788703200)), Some(1_788_703_200_000));
         assert_eq!(resets_at_millis(Some(1_788_703_200_000)), Some(1_788_703_200_000));
         assert_eq!(resets_at_millis(Some(0)), None);
         assert_eq!(resets_at_millis(None), None);
+    }
+
+    /// The wire spells the failure fields snake_case, the on-disk transcript
+    /// `replay_history` feeds through the same path camelCase.
+    #[test]
+    fn assistant_msg_reads_error_fields_in_both_spellings() {
+        let wire = r#"{"type":"assistant","message":{"model":"<synthetic>","content":[]},"error":"server_error","is_api_error_message":true,"api_error":"no_response"}"#;
+        let disk = r#"{"type":"assistant","message":{"model":"<synthetic>","content":[]},"error":"server_error","isApiErrorMessage":true,"apiError":"no_response"}"#;
+        for line in [wire, disk] {
+            let ClaudeOut::Assistant(message) = ClaudeOut::parse(line) else {
+                panic!("not an assistant frame: {line}");
+            };
+            assert_eq!(message.error.as_deref(), Some("server_error"), "{line}");
+            assert!(message.is_api_error_message, "{line}");
+            assert_eq!(message.api_error.as_deref(), Some("no_response"), "{line}");
+        }
+        let ClaudeOut::Assistant(plain) =
+            ClaudeOut::parse(r#"{"type":"assistant","message":{"content":[]}}"#)
+        else {
+            panic!("not an assistant frame");
+        };
+        assert_eq!(plain.error, None);
+        assert!(!plain.is_api_error_message);
     }
 
     #[test]

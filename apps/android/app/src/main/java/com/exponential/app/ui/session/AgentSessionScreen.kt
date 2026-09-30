@@ -1039,39 +1039,41 @@ private fun RunFaceContent(
             if (rateLimit != null && phase !is AgentPhase.Ended &&
                 rateLimitBannerShows(rateLimit, nowMs)
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .glassRow()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Icon(
-                        ExpIcons.uiWarning,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = ConnectingYellow,
-                    )
-                    Text(
-                        rateLimitCaption(rateLimit.message, rateLimit.resetsAt),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.weight(1f),
-                    )
-                    // EXP-849: the PRIMARY move on a usage wall is another
-                    // account, not waiting for the reset — the button opens the
-                    // account rows (with their own numbers) and the switch
-                    // clears this notice by continuing the run over there.
-                    // Absent unless a switch is actually possible, so the wall
-                    // never offers a dead end.
-                    if (accountSwitch.canSwitchAny(activity.turnState)) {
-                        GlassPill(
-                            SessionAccountSwitch.WALL_SWITCH_LABEL,
-                            onClick = { usageSheetOpen = true },
-                            icon = ExpIcons.uiSwap,
-                            primary = true,
+                ReadingColumn {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .glassRow()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Icon(
+                            ExpIcons.uiWarning,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = ConnectingYellow,
                         )
+                        Text(
+                            rateLimitCaption(rateLimit.message, rateLimit.resetsAt),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
+                        // EXP-849: the PRIMARY move on a usage wall is another
+                        // account, not waiting for the reset — the button opens the
+                        // account rows (with their own numbers) and the switch
+                        // clears this notice by continuing the run over there.
+                        // Absent unless a switch is actually possible, so the wall
+                        // never offers a dead end.
+                        if (accountSwitch.canSwitchAny(activity.turnState)) {
+                            GlassPill(
+                                SessionAccountSwitch.WALL_SWITCH_LABEL,
+                                onClick = { usageSheetOpen = true },
+                                icon = ExpIcons.uiSwap,
+                                primary = true,
+                            )
+                        }
                     }
                 }
                 Spacer(Modifier.height(8.dp))
@@ -1083,36 +1085,38 @@ private fun RunFaceContent(
             // marker in the feed), on the connection's 180s backstop, and with
             // the session itself.
             if (activity.compacting != null && phase !is AgentPhase.Ended) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .glassRow()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Icon(
-                        ExpIcons.codingCompact,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSurface.copy(
-                            alpha = TextEmphasis.Secondary,
-                        ),
-                    )
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                ReadingColumn {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .glassRow()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        Text(
-                            COMPACTING_LABEL,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
+                        Icon(
+                            ExpIcons.codingCompact,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.onSurface.copy(
+                                alpha = TextEmphasis.Secondary,
+                            ),
                         )
-                        LinearProgressIndicator(
-                            modifier = Modifier.fillMaxWidth().height(3.dp),
-                            color = Color.White,
-                            trackColor = Color.White.copy(alpha = 0.12f),
-                        )
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text(
+                                COMPACTING_LABEL,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            LinearProgressIndicator(
+                                modifier = Modifier.fillMaxWidth().height(3.dp),
+                                color = Color.White,
+                                trackColor = Color.White.copy(alpha = 0.12f),
+                            )
+                        }
                     }
                 }
                 Spacer(Modifier.height(8.dp))
@@ -2044,6 +2048,7 @@ private fun ActivityFeed(
                         )
                         is AgentFeedRow.Single -> when (val item = row.item) {
                             is AgentFeedItem.Narration -> NarrationBubble(item.text)
+                            is AgentFeedItem.ApiError -> ApiErrorRow(item.message, item.errorType)
                             // EXP-850 (S3): the `Workflow` call renders as its
                             // card — name, phases, agents, summary — and never
                             // as a tool row beside it.
@@ -3918,6 +3923,42 @@ private const val PrimaryChipAlpha = 0.12f
 // A permission prompt the agent hit (EXP-249) — the card itself has nothing to
 // press (the desktop TUI owns the decision), but a reply typed below reaches
 // the same prompt, so say so instead of dead-ending the viewer (EXP-529).
+/**
+ * A transient API error the agent hit mid-turn (`api_error`): a quiet inline
+ * row — never the rate-limit banner, never a wall. The message is the CLI's
+ * own words, shown as plain text (not markdown); [errorType] trails it dimmer.
+ */
+@Composable
+private fun ApiErrorRow(message: String, errorType: String?) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            ExpIcons.uiWarning,
+            contentDescription = null,
+            modifier = Modifier.padding(top = 2.dp).size(12.dp),
+            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+        )
+        Text(
+            message,
+            style = MaterialTheme.typography.bodySmall,
+            color = muted,
+            modifier = Modifier.weight(1f),
+        )
+        if (!errorType.isNullOrBlank()) {
+            Text(
+                remember(errorType) { errorType.replace('_', ' ') },
+                style = MaterialTheme.typography.labelSmall,
+                color = muted.copy(alpha = TextEmphasis.Tertiary),
+                modifier = Modifier.padding(top = 1.dp),
+            )
+        }
+    }
+}
+
 @Composable
 private fun PermissionRow(tool: String, detail: String?, showHint: Boolean) {
     Column(
@@ -4112,6 +4153,7 @@ private fun SubagentItemRow(item: AgentFeedItem, nested: Boolean = false) {
     when (item) {
         is AgentFeedItem.Tool -> ToolRow(item, nested = nested)
         is AgentFeedItem.Narration -> NarrationBubble(item.text, nested = nested)
+        is AgentFeedItem.ApiError -> ApiErrorRow(item.message, item.errorType)
         is AgentFeedItem.UserMessage -> UserMessageBubble(item.text, nested = nested)
         else -> Unit
     }
@@ -5336,14 +5378,18 @@ private fun CommandRow(command: SlashCommand, text: String) {
 
 @Composable
 private fun BannerRow(content: @Composable RowScope.() -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        content = content,
-    )
+    // Centred in the transcript's reading column, like every row above it —
+    // on a tablet the banner no longer runs edge to edge.
+    ReadingColumn {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            content = content,
+        )
+    }
 }
 
 @Composable

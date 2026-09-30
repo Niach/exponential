@@ -121,6 +121,7 @@ export const setModeFrame = z.object({
 //   usage:             context + spend meter  { kind, contextUsed, contextSize, costUsd? }              (latest replaces prior)
 //   context_layout:    where the window WENT   { kind, segments[{key,tokens,source,detail?}] }          (latest replaces prior)
 //   rate_limit:        the agent's wall       { kind, status, resetsAt?, message? }                     (latest replaces prior)
+//   api_error:         an agent API failure   { kind, message, errorType?, subagentId? }                (inline row, never a wall)
 //   turn:              the turn edge          { kind, state, startedAt?, tokens? }                      (latest replaces prior)
 //   background_tasks:  the bottom strip       { kind, tasks[] }                                         (latest replaces prior)
 //   task_list:         the agent's own tasks  { kind, entries[{content,status}] }                       (latest replaces prior)
@@ -538,6 +539,20 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
     status: z.string().max(64),
     resetsAt: z.number().int().min(0).optional(),
     message: z.string().max(1024).optional(),
+    at: z.number().optional(),
+  }),
+  // An agent CLI's own transient API failure (claude's `API Error: …`: an
+  // outage, a dropped connection, a 400): an INLINE transcript row like
+  // `narration`, never a latest-wins slot and never a wall — only a
+  // `rate_limit` walls a run. `errorType` is the CLI's classifier
+  // (`server_error`, `invalid_request`, …). A relay older than this kind
+  // rejects the frame — and a whole `history_chunk` page carrying one — so
+  // the relay deploys BEFORE the desktop/CLI builds that publish it.
+  z.object({
+    kind: z.literal(`api_error`),
+    message: z.string().max(1024),
+    errorType: z.string().max(64).optional(),
+    subagentId: z.string().max(128).optional(),
     at: z.number().optional(),
   }),
   // EXP-848: the END-OF-TURN signal — `started` while the agent is executing a

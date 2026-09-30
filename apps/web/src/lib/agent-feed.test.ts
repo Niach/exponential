@@ -29,6 +29,7 @@ import {
   sessionIsWorking,
   subagentLabel,
   feedItemBytes,
+  isSubagentScoped,
   TOOL_KINDS,
   answerKey,
   applyQuestionResolved,
@@ -594,6 +595,31 @@ describe(`groupFeedRows`, () => {
     ])
     // Past the end is an empty projection, never a crash.
     expect(groupFeedRows(feed, 99)).toEqual([])
+  })
+
+  it(`an api_error between two Bash calls splits them into singles`, () => {
+    const feed = [
+      item(1, `tool`, { name: `Bash` }),
+      item(2, `api_error`, { message: `API Error: No response from API` }),
+      item(3, `tool`, { name: `Bash` }),
+    ]
+    const rows = groupFeedRows(feed)
+    expect(rows).toEqual([
+      { kind: `single`, item: feed[0] },
+      { kind: `single`, item: feed[1] },
+      { kind: `single`, item: feed[2] },
+    ])
+    expect(rows.some((row) => row.kind === `toolRun`)).toBe(false)
+  })
+
+  it(`an api_error with a subagentId is subagent-scoped, without one it is Main`, () => {
+    expect(
+      isSubagentScoped({ kind: `api_error`, subagentId: `sub-1` })
+    ).toBe(true)
+    expect(isSubagentScoped({ kind: `api_error` })).toBe(false)
+    expect(
+      subagentIdOf({ kind: `api_error`, subagentId: `sub-1` })
+    ).toBe(`sub-1`)
   })
 
   it(`a lone tool between other kinds stays a single row`, () => {
@@ -1546,6 +1572,12 @@ describe(`tool kinds, rate limit and diff bytes (EXP-784/785/786)`, () => {
       })
     ).toBe(base + 6)
   })
+  it(`an api_error row weighs its message`, () => {
+    const base = feedItemBytes({ kind: `api_error` })
+    expect(feedItemBytes({ kind: `api_error`, message: `ECONNRESET` })).toBe(
+      base + 10
+    )
+  })
 })
 
 // EXP-895: the ONE expanded row — the last item, and only while it is an
@@ -1757,6 +1789,7 @@ describe(`transcriptGap ladder`, () => {
     expect(rowClass(single(`narration`))).toBe(`prose`)
     expect(rowClass(single(`question`))).toBe(`prose`)
     expect(rowClass(single(`compaction`))).toBe(`prose`)
+    expect(rowClass(single(`api_error`))).toBe(`prose`)
     expect(
       rowClass({ kind: `ask`, id: 1, askId: `a1`, items: [] })
     ).toBe(`prose`)

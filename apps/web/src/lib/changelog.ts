@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-30-api-errors`,
+    date: `2026-09-30`,
+    title: `API errors are not rate limits`,
+    summary: `An API outage or dropped connection inside a run shows as a warning line in the transcript instead of a rate limit and never switches the account; the banners under the transcript sit in the reading column.`,
+    body: `- **API errors**: when the agent's API times out, drops the connection or rejects a request, the run shows the error as a warning line where it happened. It no longer reads as a rate limit, no longer marks the run blocked and no longer resumes it on another account.
+- **Banners**: the rate-limit, paused, connection-lost and compaction banners under the transcript sit in the same centered column as the transcript rows on web, desktop, iPad and Android tablets.`,
+  },
+  {
     id: `2026-09-30-release-train`,
     date: `2026-09-30`,
     title: `Release train 2026-09-30`,

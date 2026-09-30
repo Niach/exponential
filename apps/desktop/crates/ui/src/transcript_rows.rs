@@ -104,6 +104,14 @@ pub(crate) fn row_fingerprint(
             FeedKind::Narration { text, .. } | FeedKind::UserMessage { text, .. } => {
                 text.len().hash(&mut hasher);
             }
+            FeedKind::ApiError {
+                message,
+                error_type,
+                ..
+            } => {
+                message.hash(&mut hasher);
+                error_type.hash(&mut hasher);
+            }
             FeedKind::Tool {
                 name,
                 detail,

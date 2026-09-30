@@ -245,6 +245,9 @@ pub(crate) fn print_activity(event: &steer::ActivityEvent, state: &Mutex<AttachS
             None => println!("  · {name}"),
         },
         steer::ActivityEvent::UserMessage { text, .. } => println!("> {}", text.trim_end()),
+        // A transient failure the agent CLI reported inline: a transcript
+        // line like narration, never a wall.
+        steer::ActivityEvent::ApiError { message, .. } => println!("  ! {}", message.trim_end()),
         steer::ActivityEvent::Permission { tool, detail, .. } => match detail {
             Some(detail) => println!("  · waiting on permission: {tool} {detail}"),
             None => println!("  · waiting on permission: {tool}"),

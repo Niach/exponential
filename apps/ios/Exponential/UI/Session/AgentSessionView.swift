@@ -1034,6 +1034,8 @@ struct AgentSessionView: View {
             switch item {
             case let .narration(_, text, _, _):
                 NarrationBubble(text: text, context: markdownContext)
+            case let .apiError(_, message, errorType, _):
+                ApiErrorRow(message: message, errorType: errorType)
             case let .tool(
                 id, name, detail, _, callId, _, settled, failed, diff, preview, output
             ):
@@ -1402,7 +1404,8 @@ struct AgentSessionView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .glassRow()
-            .padding(.horizontal, 14)
+            // The transcript's reading column (EXP-927 §2c), like the strips.
+            .transcriptColumn()
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(AgentFeed.compactingLabel)
         }
@@ -1449,7 +1452,8 @@ struct AgentSessionView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .glassRow()
-            .padding(.horizontal, 14)
+            // The transcript's reading column (EXP-927 §2c), like the strips.
+            .transcriptColumn()
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(caption)
             .accessibilityIdentifier("agent-rate-limit")
@@ -1461,8 +1465,10 @@ struct AgentSessionView: View {
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16)
         .padding(.vertical, 8)
+        // The same reading column as the transcript above it; the column's
+        // gutter is the inset this row always had.
+        .transcriptColumn()
     }
 
     // MARK: - Bottom bar (steering input)
@@ -3689,6 +3695,8 @@ struct SubagentItemRow: View {
             )
         case let .narration(_, text, _, _):
             NarrationBubble(text: text, context: context)
+        case let .apiError(_, message, errorType, _):
+            ApiErrorRow(message: message, errorType: errorType)
         case let .userMessage(_, text, _):
             UserMessageBubble(text: text, context: context)
         default:
@@ -3732,6 +3740,34 @@ private struct SubagentRow: View {
 
 /// A permission prompt the agent hit (EXP-249) — INFORMATIONAL only: the
 /// approval lives in the desktop's own TUI, there is nothing to answer here.
+/// A transient API error the agent hit mid-turn (`api_error`): a quiet
+/// inline row — never the rate-limit banner, never a wall. The message is
+/// plain text (it is the CLI's own words, not markdown).
+private struct ApiErrorRow: View {
+    let message: String
+    let errorType: String?
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            AppIcon(AppIcons.uiWarning, size: 11)
+                .foregroundStyle(DesignTokens.Palette.destructive.opacity(0.7))
+                .padding(.top, 2)
+            Text(verbatim: message)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if let errorType, !errorType.isEmpty {
+                Text(verbatim: errorType.replacingOccurrences(of: "_", with: " "))
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .padding(.top, 1)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
 private struct PermissionRow: View {
     let tool: String
     let detail: String?

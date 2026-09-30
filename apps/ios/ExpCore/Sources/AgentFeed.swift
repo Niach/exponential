@@ -434,6 +434,9 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     /// (`mergeNarration`). `subagentId` (EXP-773) tags prose a subagent wrote:
     /// it renders inside that subagent's run, never in the main feed.
     case narration(id: Int, text: String, messageId: String? = nil, subagentId: String? = nil)
+    /// A transient API error the agent hit (`api_error`): an inline prose-class
+    /// row, subagent-scoped like narration — never a wall.
+    case apiError(id: Int, message: String, errorType: String? = nil, subagentId: String? = nil)
     /// `subagentId` (protocol v2) tags the tool as a subagent's work — such
     /// runs collapse under their subagent row.
     ///
@@ -491,6 +494,7 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     public var id: Int {
         switch self {
         case let .narration(id, _, _, _): id
+        case let .apiError(id, _, _, _): id
         case let .tool(id, _, _, _, _, _, _, _, _, _, _): id
         case let .userMessage(id, _, _): id
         case let .question(value): value.id
@@ -508,6 +512,8 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
         switch self {
         case let .narration(_, text, messageId, subagentId):
             .narration(id: id, text: text, messageId: messageId, subagentId: subagentId)
+        case let .apiError(_, message, errorType, subagentId):
+            .apiError(id: id, message: message, errorType: errorType, subagentId: subagentId)
         case let .tool(
             _, name, detail, subagentId, callId, toolKind, settled, failed, diff, preview,
             output
@@ -564,6 +570,7 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
         case let .tool(_, _, _, subagentId, _, _, _, _, _, _, _): return subagentId
         case let .subagent(_, subagentId, _, _, _, _, _, _): return subagentId
         case let .narration(_, _, _, subagentId): return subagentId
+        case let .apiError(_, _, _, subagentId): return subagentId
         case let .userMessage(_, _, subagentId): return subagentId
         default: return nil
         }
@@ -714,7 +721,7 @@ extension AgentFeedRow {
         case let .single(item):
             switch item {
             case .userMessage: .turn
-            case .narration, .question, .compaction: .prose
+            case .narration, .apiError, .question, .compaction: .prose
             case .tool, .subagent, .permission: .tool
             }
         }
@@ -868,6 +875,8 @@ public enum AgentFeed {
         let overhead = DomainContract.steerFeedItemOverheadBytes
         switch item {
         case let .narration(_, text, _, _): return overhead + text.utf8.count
+        case let .apiError(_, message, errorType, _):
+            return overhead + message.utf8.count + (errorType?.utf8.count ?? 0)
         case let .userMessage(_, text, _): return overhead + text.utf8.count
         case let .tool(_, name, detail, _, _, _, _, _, diff, _, output):
             // EXP-786/895: a folded per-call diff and the command output its

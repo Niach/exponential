@@ -480,6 +480,29 @@ final class AgentActivityDecoderTests: XCTestCase {
         XCTAssertEqual(ok, .clear)
     }
 
+    /// A transient API error is its OWN inline kind — never the rate-limit
+    /// slot, so it can never raise the wall.
+    func testApiErrorDecodesAsAnInlineRowNeverARateLimit() throws {
+        guard case let .apiError(message, errorType, subagentId) = try XCTUnwrap(
+            try decode(
+                #"{"kind":"api_error","message":"API Error: No response from API","errorType":"overloaded_error","subagentId":"sa-1","at":1789204409163}"#
+            )
+        ) else { return XCTFail("not an api_error") }
+        XCTAssertEqual(message, "API Error: No response from API")
+        XCTAssertEqual(errorType, "overloaded_error")
+        XCTAssertEqual(subagentId, "sa-1")
+
+        guard case let .apiError(_, bareType, bareAgent) = try XCTUnwrap(
+            try decode(#"{"kind":"api_error","message":"Connection lost mid-response"}"#)
+        ) else { return XCTFail("not an api_error") }
+        XCTAssertNil(bareType)
+        XCTAssertNil(bareAgent)
+
+        // A blank or missing message is no row.
+        XCTAssertNil(try decode(#"{"kind":"api_error","message":"   "}"#))
+        XCTAssertNil(try decode(#"{"kind":"api_error"}"#))
+    }
+
     /// EXP-1051: mirrors web's `parseContextLayout keeps what it can label and
     /// drops the rest` case for case.
     func testContextLayoutKeepsWhatItCanLabelAndDropsTheRest() throws {

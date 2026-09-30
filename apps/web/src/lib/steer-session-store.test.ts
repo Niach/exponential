@@ -7,7 +7,11 @@ import {
   REPLAY_QUIET_MS,
   type SteerSessionStore,
 } from "@/lib/steer-session-store"
-import { COMPACTION_TIMEOUT_MS, FEED_BYTE_CAP } from "@/lib/agent-feed"
+import {
+  COMPACTION_TIMEOUT_MS,
+  FEED_BYTE_CAP,
+  isSubagentScoped,
+} from "@/lib/agent-feed"
 import { MAX_STEER_IMAGES } from "@/lib/steer-image-message"
 import { TRPCClientError } from "@trpc/client"
 
@@ -1789,6 +1793,64 @@ describe(`rate_limit slot (EXP-784)`, () => {
     socket.frame({ t: `activity_synced` })
     await vi.advanceTimersByTimeAsync(100)
     expect(store.getSnapshot().rateLimit).toBeNull()
+    store.dispose()
+  })
+})
+
+// A transient API failure is an INLINE row, never the rate-limit slot.
+describe(`api_error row`, () => {
+  it(`appends a row, drops a blank message and leaves the rateLimit slot alone`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({
+      t: `activity`,
+      event: { kind: `rate_limit`, status: `allowed_warning` },
+    })
+    socket.frame({
+      t: `activity`,
+      event: {
+        kind: `api_error`,
+        message: `API Error: No response from API`,
+        errorType: `timeout`,
+      },
+    })
+    socket.frame({ t: `activity`, event: { kind: `api_error`, message: `   ` } })
+    await vi.advanceTimersByTimeAsync(100)
+    const { feed, rateLimit } = store.getSnapshot()
+    expect(feed).toHaveLength(1)
+    expect(feed[0]).toMatchObject({
+      kind: `api_error`,
+      message: `API Error: No response from API`,
+      errorType: `timeout`,
+    })
+    expect(rateLimit).toEqual({ status: `allowed_warning` })
+    store.dispose()
+  })
+
+  it(`never opens the rateLimit slot on its own`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({
+      t: `activity`,
+      event: { kind: `api_error`, message: `Connection lost mid-response` },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().rateLimit).toBeNull()
+    expect(store.getSnapshot().feed).toHaveLength(1)
+    store.dispose()
+  })
+
+  it(`a subagentId scopes the row to that subagent`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({
+      t: `activity`,
+      event: { kind: `api_error`, message: `ECONNRESET`, subagentId: `sub-1` },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    const row = store.getSnapshot().feed[0]
+    expect(row).toMatchObject({ kind: `api_error`, subagentId: `sub-1` })
+    expect(isSubagentScoped(row)).toBe(true)
     store.dispose()
   })
 })

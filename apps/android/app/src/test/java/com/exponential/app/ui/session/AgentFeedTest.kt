@@ -110,6 +110,7 @@ import com.exponential.app.domain.lockAnswer
 import com.exponential.app.domain.locksCard
 import com.exponential.app.domain.resolveQuestions
 import com.exponential.app.domain.rowClass
+import com.exponential.app.domain.subagentKey
 import com.exponential.app.domain.transcriptGap
 import com.exponential.app.domain.upsertQuestion
 import com.exponential.app.domain.visibleSubagentTabs
@@ -1203,6 +1204,53 @@ class AgentFeedTest {
         assertFalse((next.feed[0] as AgentFeedItem.Tool).settled)
         assertFalse((next.feed[1] as AgentFeedItem.Tool).settled)
         assertTrue((next.feed[2] as AgentFeedItem.Tool).settled)
+    }
+
+    // A transient API error is an inline row — NEVER the rate-limit slot.
+    @Test
+    fun `api_error appends an inline row and never touches the rate-limit slot`() {
+        val limited = ActivityFeedState().applying(
+            event("""{"kind":"rate_limit","status":"rejected","resetsAt":1700000000000}"""),
+        )
+        val next = limited.applying(
+            event(
+                """{"kind":"api_error","message":"API Error: No response from API",""" +
+                    """"errorType":" overloaded_error ","subagentId":"sa-1","at":1}""",
+            ),
+            seq = 7L,
+        )
+        val row = next.feed.single() as AgentFeedItem.ApiError
+        assertEquals("API Error: No response from API", row.message)
+        assertEquals("overloaded_error", row.errorType)
+        assertEquals("sa-1", row.subagentId)
+        assertEquals(7L, row.seq)
+        assertEquals("sa-1", row.subagentKey())
+        assertEquals(limited.rateLimit, next.rateLimit)
+        assertEquals(limited.nextEventId + 1, next.nextEventId)
+        // Blank type/subagent read as absent.
+        val bare = ActivityFeedState().applying(
+            event("""{"kind":"api_error","message":"Connection lost","errorType":" ","subagentId":""}"""),
+        ).feed.single() as AgentFeedItem.ApiError
+        assertNull(bare.errorType)
+        assertNull(bare.subagentId)
+        assertNull(bare.subagentKey())
+        // Nor does it ever RAISE the wall on a clean run.
+        assertNull(ActivityFeedState().applying(event("""{"kind":"api_error","message":"x"}""")).rateLimit)
+    }
+
+    @Test
+    fun `a blank api_error is dropped`() {
+        val start = ActivityFeedState()
+        assertEquals(start, start.applying(event("""{"kind":"api_error","message":"   "}""")))
+        assertEquals(start, start.applying(event("""{"kind":"api_error"}""")))
+    }
+
+    @Test
+    fun `an api_error row is prose`() {
+        assertEquals(
+            AgentRowClass.Prose,
+            AgentFeedRow.Single(AgentFeedItem.ApiError(1, "API Error")).rowClass,
+        )
     }
 
     // EXP-784: the rate-limit slot.

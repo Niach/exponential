@@ -302,6 +302,16 @@ export type ActivityEvent =
       }[]
       at?: number
     }
+  // A transient API failure (timeout, dropped connection, rejected request):
+  // an INLINE transcript row like narration, never a latest-wins slot and
+  // never a rate-limit wall. Mirrored ×4.
+  | {
+      kind: `api_error`
+      message: string
+      errorType?: string
+      subagentId?: string
+      at?: number
+    }
   // EXP-784: the rate-limit window, the fourth latest-wins slot. An empty or
   // `ok` status CLEARS it.
   | {
@@ -499,6 +509,15 @@ export type FeedItem = FeedSeq &
     }
   | { id: number; kind: `user_message`; text: string; subagentId?: string }
   | { id: number; kind: `permission`; tool: string; detail?: string }
+  // A transient API failure shown where it happened (never the rate-limit
+  // banner); `errorType` = the API's error type when it sent one.
+  | {
+      id: number
+      kind: `api_error`
+      message: string
+      errorType?: string
+      subagentId?: string
+    }
   | {
       id: number
       kind: `subagent`
@@ -1039,6 +1058,17 @@ export function createSteerSessionStore(
           kind: `narration`,
           text: event.text,
           messageId: event.messageId,
+          subagentId: event.subagentId,
+        })
+        return
+      }
+      case `api_error`: {
+        // An inline row only: the `rateLimit` slot is for real walls.
+        if (!event.message.trim()) return
+        append({
+          kind: `api_error`,
+          message: event.message,
+          errorType: event.errorType?.trim() ? event.errorType : undefined,
           subagentId: event.subagentId,
         })
         return

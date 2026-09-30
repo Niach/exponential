@@ -4210,7 +4210,59 @@ impl SteerSessionView {
                 )
                 .child(div().text_color(muted).child(COMPACTED_LABEL))
                 .into_any_element(),
+            FeedKind::ApiError {
+                message,
+                error_type,
+                ..
+            } => self.render_api_error_row(message, error_type.as_deref(), cx),
         }
+    }
+
+    /// A transient failure the agent CLI reported inline (claude's
+    /// `API Error: No response from API…`, a dropped connection, a 400): a
+    /// quiet transcript ROW like narration — never a slot, never a wall, so
+    /// it never reads as a rate limit. The message is PLAIN text (never
+    /// markdown) and wraps; the error type trails as a muted caption.
+    fn render_api_error_row(
+        &self,
+        message: &str,
+        error_type: Option<&str>,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        let muted = cx.theme().muted_foreground;
+        let danger = cx.theme().danger;
+        let caption = error_type
+            .map(|kind| kind.trim().replace('_', " "))
+            .filter(|kind| !kind.is_empty());
+        h_flex()
+            .w_full()
+            .min_w_0()
+            .gap_1p5()
+            .items_start()
+            .child(
+                div().mt(px(2.)).flex_shrink_0().child(
+                    Icon::new(registry::UI_WARNING)
+                        .xsmall()
+                        .text_color(danger.opacity(0.7)),
+                ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(SharedString::from(message.trim_end().to_string()))
+                    .when_some(caption, |this, caption| {
+                        this.child(
+                            div()
+                                .text_2xs()
+                                .text_color(muted.opacity(0.7))
+                                .child(SharedString::from(caption)),
+                        )
+                    }),
+            )
+            .into_any_element()
     }
 
     /// EXP-698 — a sent message, with its `[Image #N]` markers rendered as
@@ -4996,7 +5048,9 @@ impl SteerSessionView {
                     // EXP-773: the subagent's own prose and the turns sent to
                     // it read exactly as they do on the main line, indented
                     // under the group instead of splitting it.
-                    FeedKind::Narration { .. } | FeedKind::UserMessage { .. } => {
+                    FeedKind::Narration { .. }
+                    | FeedKind::UserMessage { .. }
+                    | FeedKind::ApiError { .. } => {
                         // EXP-787: the 4px the rows themselves used to carry,
                         // kept here so the nested conversation reads exactly
                         // as it did while the main line moved to the ladder.
@@ -6435,15 +6489,12 @@ impl SteerSessionView {
                 .map(|at| crate::usage_bar::countdown_from_secs((at - now_ms) / 1000)),
         );
         Some(
-            h_flex()
+            banner_block(
+                h_flex()
                 .w_full()
-                .flex_shrink_0()
+                .min_w_0()
                 .gap_2()
                 .items_center()
-                .px_3()
-                .py_2()
-                .border_t_1()
-                .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
                 .child(
                     Icon::new(registry::UI_WARNING)
                         .xsmall()
@@ -6464,6 +6515,8 @@ impl SteerSessionView {
                 // by ending the walled run (its successor has no wall).
                 .children(self.switch_account_control(cx))
                 .into_any_element(),
+            )
+            .into_any_element(),
         )
     }
 
@@ -6513,17 +6566,14 @@ impl SteerSessionView {
         let mut banners = Vec::new();
         let paused = self.paused(cx);
         let banner = |text: String| -> AnyElement {
-            div()
-                .w_full()
-                .flex_shrink_0()
-                .px_3()
-                .py_2()
-                .border_t_1()
-                .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
-                .text_xs()
-                .text_color(muted)
-                .child(SharedString::from(text))
-                .into_any_element()
+            banner_block(
+                div()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(SharedString::from(text))
+                    .into_any_element(),
+            )
+            .into_any_element()
         };
         // EXP-746: a replay says what it is BEFORE anything else — its feed
         // is history, and every other banner would read as live state. A run
@@ -6564,17 +6614,14 @@ impl SteerSessionView {
         }
         if let Some(notice) = self.notice.clone() {
             banners.push(
-                div()
-                    .w_full()
-                    .flex_shrink_0()
-                    .px_3()
-                    .py_2()
-                    .border_t_1()
-                    .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
-                    .text_xs()
-                    .text_color(theme::tokens::YELLOW.to_hsla())
-                    .child(notice)
-                    .into_any_element(),
+                banner_block(
+                    div()
+                        .text_xs()
+                        .text_color(theme::tokens::YELLOW.to_hsla())
+                        .child(notice)
+                        .into_any_element(),
+                )
+                .into_any_element(),
             );
         }
         banners
@@ -6945,15 +6992,11 @@ impl SteerSessionView {
     fn render_compaction_strip(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         let primary = cx.theme().primary;
-        h_flex()
+        let row = h_flex()
             .w_full()
-            .flex_shrink_0()
+            .min_w_0()
             .gap_2()
             .items_center()
-            .px_3()
-            .py_2()
-            .border_t_1()
-            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
             .child(
                 Icon::new(registry::CODING_COMPACT)
                     .xsmall()
@@ -6988,8 +7031,8 @@ impl SteerSessionView {
                                 |bar, delta| bar.ml(relative(delta * 0.7)),
                             ),
                     ),
-            )
-            .into_any_element()
+            );
+        banner_block(row.into_any_element()).into_any_element()
     }
 
     /// EXP-698: pending images render as 48px THUMBNAILS with a corner ✕ —
@@ -7230,6 +7273,23 @@ fn strip_block(content: AnyElement) -> gpui::Div {
         .flex_shrink_0()
         .px_3()
         .py_1p5()
+        .border_t_1()
+        .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+        .child(work_column_row(content))
+}
+
+/// The status banners under the transcript (the rate-limit wall, replay,
+/// connection and ended lines, the notice, the compaction strip): the
+/// [`strip_block`] recipe at the banners' own `py_2` — the hairline and the
+/// pane's padding span the panel, the content sits in the reading column.
+/// They ran edge to edge and read as a different surface, like the strips
+/// before EXP-927.
+fn banner_block(content: AnyElement) -> gpui::Div {
+    div()
+        .w_full()
+        .flex_shrink_0()
+        .px_3()
+        .py_2()
         .border_t_1()
         .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
         .child(work_column_row(content))

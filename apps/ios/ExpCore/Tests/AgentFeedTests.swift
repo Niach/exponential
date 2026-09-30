@@ -1473,11 +1473,31 @@ final class AgentFeedTests: XCTestCase {
         }
     }
 
+    /// An `api_error` row is subagent-scoped like narration and weighs its text.
+    func testApiErrorItemScopesToItsSubagentAndKeepsItsFields() {
+        let scoped = AgentFeedItem.apiError(
+            id: 3, message: "Connection lost", errorType: "api_error", subagentId: "sa-1"
+        )
+        XCTAssertEqual(scoped.subagentKey, "sa-1")
+        XCTAssertNil(AgentFeedItem.apiError(id: 4, message: "x").subagentKey)
+        XCTAssertEqual(scoped.id, 3)
+        XCTAssertEqual(
+            scoped.withId(9),
+            .apiError(id: 9, message: "Connection lost", errorType: "api_error", subagentId: "sa-1")
+        )
+        XCTAssertGreaterThan(
+            AgentFeed.itemBytes(scoped), AgentFeed.itemBytes(.apiError(id: 4, message: ""))
+        )
+    }
+
     func testRowClassSortsEveryRowKind() {
         XCTAssertEqual(AgentFeedRow.single(.userMessage(id: 1, text: "go")).rowClass, .turn)
         XCTAssertEqual(AgentFeedRow.single(.narration(id: 2, text: "hi")).rowClass, .prose)
         XCTAssertEqual(AgentFeedRow.single(.question(question(3))).rowClass, .prose)
         XCTAssertEqual(AgentFeedRow.single(.compaction(id: 4)).rowClass, .prose)
+        XCTAssertEqual(
+            AgentFeedRow.single(.apiError(id: 4, message: "API Error")).rowClass, .prose
+        )
         XCTAssertEqual(
             AgentFeedRow.ask(AgentAskGroup(askId: "a", questions: [question(5)])).rowClass,
             .prose

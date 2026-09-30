@@ -700,7 +700,8 @@ impl Mapper {
             }
             // A session-row fact, not a feed row — unless its `_meta` carries
             // the EXP-784 rate-limit slot (claude's `rate_limit_event` and its
-            // synthetic "You've hit your…" notices ride a no-op one).
+            // synthetic "You've hit your…" notices ride a no-op one) or an
+            // inline API-error ROW (claude's synthetic `API Error: …`).
             SessionUpdate::SessionInfoUpdate(update) => {
                 // EXP-905: a TITLE is the agent naming its conversation
                 // (claude's transcript `ai-title`, codex's
@@ -732,6 +733,19 @@ impl Mapper {
                         slot.get("resetsAt").and_then(Value::as_i64),
                         slot.get("message").and_then(Value::as_str),
                         slot.get("window").and_then(Value::as_str),
+                        out,
+                    );
+                }
+                if let Some(slot) = notification
+                    .meta
+                    .as_ref()
+                    .and_then(|meta| meta.get(API_ERROR_META_KEY))
+                    .and_then(Value::as_object)
+                {
+                    self.emit_api_error(
+                        slot.get("message").and_then(Value::as_str).unwrap_or(""),
+                        slot.get("errorType").and_then(Value::as_str),
+                        chunk_subagent.clone(),
                         out,
                     );
                 }
@@ -2378,6 +2392,32 @@ impl Mapper {
         emit(out, event, None);
     }
 
+    /// A transient API failure the agent reported inline: a transcript ROW
+    /// in its lane, after the prose that preceded it. NEVER a wall (no
+    /// `blocked`, no `rate_limit` slot) and never deduped — two failures
+    /// are two rows.
+    fn emit_api_error(
+        &mut self,
+        message: &str,
+        error_type: Option<&str>,
+        subagent_id: Option<String>,
+        out: &mut MapOut,
+    ) {
+        let message = self.clean(message.trim(), API_ERROR_MESSAGE_MAX);
+        if message.is_empty() {
+            return;
+        }
+        let error_type = error_type
+            .map(|error_type| self.clean(error_type.trim(), API_ERROR_TYPE_MAX))
+            .filter(|error_type| !error_type.is_empty());
+        self.flush_scope(subagent_id.as_deref(), out);
+        emit(
+            out,
+            ActivityEvent::ApiError { message, error_type, subagent_id, at: None },
+            None,
+        );
+    }
+
     /// EXP-861: is a compaction open right now? The host's queue gate reads
     /// it beside the turn signal — a message sent mid-compaction is held
     /// exactly like one sent mid-turn.
@@ -3247,6 +3287,15 @@ const WORKFLOW_TEXT_MAX: usize = domain::contract::STEER_WORKING_PREVIEW_MAX;
 /// on a no-op `session_info_update`: `{"status": <agent word>, "resetsAt":
 /// <unix ms>?, "message": <text>?}`; status empty/`ok` clears.
 pub const RATE_LIMIT_META_KEY: &str = "exponentialRateLimit";
+
+/// The relay's caps for an inline `api_error` row.
+const API_ERROR_MESSAGE_MAX: usize = 1024;
+const API_ERROR_TYPE_MAX: usize = 64;
+
+/// The `_meta` key an adapter publishes an inline API failure under, on a
+/// no-op `session_info_update`: `{"message": <text>, "errorType": <word>?}`
+/// (+ the subagent key for a subagent's). A ROW, never the rate-limit slot.
+pub const API_ERROR_META_KEY: &str = "exponentialApiError";
 
 /// EXP-785: the wire's kind bucket for an ACP kind — every ACP value has a
 /// contract twin; a future ACP kind lands on `Other`.
@@ -5012,6 +5061,54 @@ mod tests {
             .filter(|event| matches!(event, LocalFeedEvent::Activity { event: ActivityEvent::RateLimit { .. }, .. }))
             .count();
         assert_eq!(local, 3);
+    }
+
+    /// An API failure is a transcript ROW after the prose before it: never
+    /// the rate-limit slot, never `blocked`, never deduped; a subagent's
+    /// carries its lane.
+    #[test]
+    fn an_api_error_is_an_inline_row_and_never_walls() {
+        use agent_client_protocol::schema::v1::SessionInfoUpdate;
+        let carrier = |subagent: Option<&str>| {
+            let mut note = notify(SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new()));
+            let mut meta = serde_json::Map::new();
+            meta.insert(
+                API_ERROR_META_KEY.to_string(),
+                json!({ "message": "  API Error: No response from API  ", "errorType": "server_error" }),
+            );
+            if let Some(id) = subagent {
+                meta.insert(SUBAGENT_ID_META_KEY.to_string(), json!(id));
+            }
+            note.meta = Some(meta);
+            note
+        };
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::AgentMessageChunk(chunk("Looking at the tests.", Some("m1")))),
+            &mut out,
+        );
+        mapper.on_update(&carrier(None), &mut out);
+        mapper.on_update(&carrier(None), &mut out);
+        mapper.on_update(&carrier(Some("task-1")), &mut out);
+
+        let kinds: Vec<String> = out
+            .wire
+            .iter()
+            .map(|event| serde_json::to_value(event).unwrap()["kind"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(kinds, ["narration", "api_error", "api_error", "api_error"], "{:?}", out.wire);
+        assert_eq!(out.blocked, None, "an API error never walls the run");
+        assert!(!out.wire.iter().any(|event| matches!(event, ActivityEvent::RateLimit { .. })));
+
+        let first = serde_json::to_value(&out.wire[1]).unwrap();
+        assert_eq!(
+            first,
+            json!({ "kind": "api_error", "message": "API Error: No response from API", "errorType": "server_error" })
+        );
+        assert_eq!(out.wire[1], out.wire[2], "two identical failures are two rows");
+        let scoped = serde_json::to_value(&out.wire[3]).unwrap();
+        assert_eq!(scoped["subagentId"], "task-1");
     }
 
     /// FEED-35/37: the row's `blocked` follows the WALL rule, not the slot.
