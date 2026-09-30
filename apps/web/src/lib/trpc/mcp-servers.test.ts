@@ -60,11 +60,21 @@ function serverRow(over: Record<string, unknown> = {}) {
 
 const ORIGINAL_SECRET = process.env.BETTER_AUTH_SECRET
 let db: FakeDb
-function callerFor(userId = `actor`) {
+// EXP-1140: `sessionId` rides as the launcher's `X-Exp-Session-Id`; `keyId`
+// models an api-key request (the plugin's mock session id IS the key row id).
+function callerFor(
+  userId = `actor`,
+  { sessionId, keyId }: { sessionId?: string; keyId?: string } = {}
+) {
   return mcpServersRouter.createCaller({
-    session: { user: { id: userId, name: `Actor`, email: `a@example.com` } },
+    session: {
+      user: { id: userId, name: `Actor`, email: `a@example.com` },
+      session: keyId ? { id: keyId } : undefined,
+    },
     db,
-    request: new Request(`http://localhost/`),
+    request: new Request(`http://localhost/`, {
+      headers: sessionId ? { "X-Exp-Session-Id": sessionId } : {},
+    }),
   } as never)
 }
 
@@ -637,28 +647,123 @@ describe(`mcpServers.test / probe`, () => {
   })
 })
 
+// EXP-1140: the one procedure that hands out decrypted secrets is bound to a
+// LIVE run the caller owns or hosts (`X-Exp-Session-Id`), to that run's
+// persisted pick, and to a person's key (the agent's own key is refused).
 describe(`mcpServers.resolveForLaunch`, () => {
-  it(`spans the caller's teams and returns their own values`, async () => {
+  const RUN = `99999999-9999-4999-8999-999999999999`
+  const cred = (userId: string, serverId: string, token: string) => ({
+    id: `c-${userId}-${serverId}`,
+    serverId,
+    userId,
+    teamId: TEAM,
+    ciphertext: encryptCredential({ accessToken: token }, credentialAad(serverId, userId)),
+    expiresAt: null,
+    error: null,
+  })
+  const run = (over: Record<string, unknown> = {}) => ({
+    id: RUN,
+    userId: `actor`,
+    hostUserId: null,
+    teamId: TEAM,
+    status: `running`,
+    mcpServerIds: [SERVER, SERVER_B],
+    ...over,
+  })
+  const seed = (over: { coding_sessions?: Record<string, unknown>[]; apikeys?: Record<string, unknown>[] } = {}) => {
     db = createFakeDb({
       mcp_servers: [
         serverRow({ url: MCP_URL }),
         serverRow({ id: SERVER_B, name: `Grafana`, auth: `secret`, headerNames: [`X-Api-Key`] }),
       ],
-      mcp_credentials: [
-        { id: `c-1`, serverId: SERVER, userId: `actor`, teamId: TEAM, ciphertext: encryptCredential({ accessToken: `tok` }, credentialAad(SERVER, `actor`)), expiresAt: null, error: null },
-      ],
+      mcp_credentials: [cred(`actor`, SERVER, `tok`), cred(`teammate`, SERVER, `their-tok`)],
+      coding_sessions: over.coding_sessions ?? [run()],
+      apikeys: over.apikeys ?? [],
     })
-    const result = await callerFor().resolveForLaunch({ serverIds: [SERVER, SERVER_B] })
+  }
+  const inRun = (userId = `actor`, keyId?: string) =>
+    callerFor(userId, { sessionId: RUN, keyId })
+
+  it(`hands the caller its own values for the run's pick, scoped to the run's team`, async () => {
+    seed()
+    const result = await inRun().resolveForLaunch({ serverIds: [SERVER, SERVER_B] })
     expect(result.servers).toEqual([
       expect.objectContaining({ id: SERVER, headers: [{ name: `Authorization`, value: `Bearer tok` }] }),
     ])
     expect(result.skipped).toEqual([{ id: SERVER_B, name: `Grafana`, reason: `not connected` }])
-    expect(h.getUserTeamIds).toHaveBeenCalledWith(`actor`)
+    // The run's team is the only scope — never "every team the caller is in".
+    expect(h.getUserTeamIds).not.toHaveBeenCalled()
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, TEAM)
+  })
+
+  it(`refuses ids the run did not pick`, async () => {
+    seed({ coding_sessions: [run({ mcpServerIds: [SERVER_B] })] })
+    // SERVER is connected for the caller, but this run never picked it.
+    const result = await inRun().resolveForLaunch({ serverIds: [SERVER, SERVER_B] })
+    expect(result.servers).toEqual([])
+    expect(result.skipped).toEqual([
+      { id: SERVER_B, name: `Grafana`, reason: `not connected` },
+      { id: SERVER, name: SERVER, reason: `not picked for this run` },
+    ])
+    expect(JSON.stringify(result)).not.toContain(`tok`)
+  })
+
+  it(`refuses without the session header`, async () => {
+    seed()
+    await expect(
+      callerFor().resolveForLaunch({ serverIds: [SERVER] })
+    ).rejects.toMatchObject({ code: `FORBIDDEN` })
+    await expect(
+      callerFor(`actor`, { sessionId: `not-a-uuid` }).resolveForLaunch({ serverIds: [SERVER] })
+    ).rejects.toMatchObject({ code: `FORBIDDEN` })
+  })
+
+  it(`refuses another member's run, an ended run and a vanished row`, async () => {
+    seed({ coding_sessions: [run({ userId: `teammate` })] })
+    await expect(inRun().resolveForLaunch({ serverIds: [SERVER] })).rejects.toMatchObject({
+      code: `FORBIDDEN`,
+    })
+    seed({ coding_sessions: [run({ status: `ended` })] })
+    await expect(inRun().resolveForLaunch({ serverIds: [SERVER] })).rejects.toMatchObject({
+      code: `FORBIDDEN`,
+    })
+    seed({ coding_sessions: [] })
+    await expect(inRun().resolveForLaunch({ serverIds: [SERVER] })).rejects.toMatchObject({
+      code: `FORBIDDEN`,
+    })
+  })
+
+  it(`resolves a shared-device host's OWN credentials for a teammate's run`, async () => {
+    // The daemon calls as the device owner; the row belongs to the requester.
+    seed({ coding_sessions: [run({ userId: `teammate`, hostUserId: `actor` })] })
+    const result = await inRun().resolveForLaunch({ serverIds: [SERVER] })
+    expect(result.servers).toEqual([
+      expect.objectContaining({ id: SERVER, headers: [{ name: `Authorization`, value: `Bearer tok` }] }),
+    ])
+    expect(JSON.stringify(result)).not.toContain(`their-tok`)
+  })
+
+  it(`refuses the agent's own key, never a person's`, async () => {
+    seed({
+      apikeys: [
+        { id: `key-agent`, referenceId: `actor`, metadata: JSON.stringify({ kind: `agent` }) },
+        { id: `key-person`, referenceId: `actor`, metadata: JSON.stringify({ kind: `personal` }) },
+        { id: `key-legacy`, referenceId: `actor`, metadata: null },
+      ],
+    })
+    await expect(
+      inRun(`actor`, `key-agent`).resolveForLaunch({ serverIds: [SERVER] })
+    ).rejects.toMatchObject({ code: `FORBIDDEN` })
+    for (const keyId of [`key-person`, `key-legacy`]) {
+      const result = await inRun(`actor`, keyId).resolveForLaunch({ serverIds: [SERVER] })
+      expect(result.servers).toHaveLength(1)
+    }
   })
 
   it(`bounds the id list at 16 uuids`, async () => {
+    seed()
     await expect(
-      callerFor().resolveForLaunch({
+      inRun().resolveForLaunch({
         serverIds: Array.from({ length: 17 }, () => SERVER),
       })
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })

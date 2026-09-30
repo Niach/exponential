@@ -38,6 +38,12 @@ use crate::http;
 use crate::login::normalize_instance_url;
 use crate::TokenProvider;
 
+/// EXP-637/EXP-1140: the header naming the `coding_sessions` row a request is
+/// made for (`lib/mcp/session-header.ts`). The launcher pins it into the
+/// agent's MCP config and sends it itself on run-scoped calls
+/// ([`TrpcClient::mutation_in_session`]).
+pub const SESSION_HEADER: &str = "X-Exp-Session-Id";
+
 /// Whole-request budget for [`TrpcClient::get_bytes`]: a blob is megabytes on
 /// a slow link, where the shared 30 s JSON budget aborts it (same reasoning as
 /// `ui::markdown::image_paste`'s attachment timeout).
@@ -112,24 +118,47 @@ impl TrpcClient {
     ) -> Result<O, ApiError> {
         let body = serde_json::to_string(input)
             .map_err(|e| ApiError::Decode(format!("{path} input: {e}")))?;
-        self.mutation_raw(path, &body)
+        self.mutation_raw(path, &body, None)
+    }
+
+    /// EXP-1140: [`Self::mutation`] made FROM INSIDE a coding session — the
+    /// request carries [`SESSION_HEADER`] naming the `coding_sessions` row,
+    /// the same header the agent's own MCP config carries. The server binds
+    /// run-scoped procedures to it (`mcpServers.resolveForLaunch` hands out
+    /// credentials only for that row's own pick); the id grants nothing by
+    /// itself, ownership is checked server-side against the bearer.
+    pub fn mutation_in_session<I: Serialize, O: DeserializeOwned>(
+        &self,
+        path: &str,
+        input: &I,
+        session_id: &str,
+    ) -> Result<O, ApiError> {
+        let body = serde_json::to_string(input)
+            .map_err(|e| ApiError::Decode(format!("{path} input: {e}")))?;
+        self.mutation_raw(path, &body, Some(session_id))
     }
 
     /// POST a `mutation` procedure that takes no input.
     pub fn mutation_no_input<O: DeserializeOwned>(&self, path: &str) -> Result<O, ApiError> {
-        self.mutation_raw(path, "")
+        self.mutation_raw(path, "", None)
     }
 
-    fn mutation_raw<O: DeserializeOwned>(&self, path: &str, body: &str) -> Result<O, ApiError> {
+    fn mutation_raw<O: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &str,
+        session_id: Option<&str>,
+    ) -> Result<O, ApiError> {
         let url = format!("{}/api/trpc/{path}", self.base_url);
-        let request = self
-            .authorize(
-                self.client
-                    .post(&url)
-                    .header("Accept", "application/json")
-                    .header("Content-Type", "application/json"),
-            )
-            .body(body.to_string());
+        let mut request = self
+            .client
+            .post(&url)
+            .header("Accept", "application/json")
+            .header("Content-Type", "application/json");
+        if let Some(session_id) = session_id {
+            request = request.header(SESSION_HEADER, session_id);
+        }
+        let request = self.authorize(request).body(body.to_string());
         self.send(request, path)
     }
 

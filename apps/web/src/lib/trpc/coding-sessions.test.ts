@@ -378,6 +378,8 @@ describe(`codingSessions.start — issue path`, () => {
       agentAccount: null,
       // EXP-637: issue rows carry no run branch (the issue owns
       // `exp/<IDENTIFIER>`) and this start resumes nothing.
+      // EXP-1140: nor an MCP server pick.
+      mcpServerIds: null,
       resumedFromId: null,
       status: `running`,
     })
@@ -424,6 +426,8 @@ describe(`codingSessions.start — batch path`, () => {
       branch: null,
       // EXP-876: nothing to name this batch by — the start sent no issues.
       batchIssueIds: null,
+      // EXP-1140: nor an MCP server pick.
+      mcpServerIds: null,
       resumedFromId: null,
       status: `running`,
     })
@@ -496,6 +500,38 @@ describe(`codingSessions.start — batch path`, () => {
 
     // NULL, not `[]`: "nothing to name this batch by" (it reads `Batch run`).
     expect(inserts[0]!.values.batchIssueIds).toBeNull()
+  })
+
+  // EXP-1140: the MCP server pick is persisted so `resolveForLaunch` can
+  // hand the run its credentials and nothing else's.
+  it(`records the MCP server pick confined to the team, in the order sent`, async () => {
+    const foreign = `66666666-6666-4666-8666-666666666666`
+    const server = `77777777-7777-4777-8777-777777777777`
+    selectResults.push([{ id: server }])
+
+    await caller.start({ teamId: TEAM_ID, mcpServerIds: [foreign, server] })
+
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0]!.values.mcpServerIds).toEqual([server])
+    // Scoped to the row's own team: a foreign id is dropped, never refused.
+    expect(whereShape(selectWheres[0])).toEqual([
+      `col:id`,
+      foreign,
+      server,
+      `col:team_id`,
+      TEAM_ID,
+    ])
+  })
+
+  it(`stores NULL for the MCP pick when nothing survives, and queries nothing when none was sent`, async () => {
+    selectResults.push([])
+    await caller.start({ teamId: TEAM_ID, mcpServerIds: [ISSUE_ID] })
+    expect(inserts[0]!.values.mcpServerIds).toBeNull()
+
+    selectWheres.length = 0
+    await caller.start({ teamId: TEAM_ID })
+    expect(inserts[1]!.values.mcpServerIds).toBeNull()
+    expect(selectWheres).toHaveLength(0)
   })
 
   it(`refuses covered issues on a non-batch subject`, async () => {
@@ -580,6 +616,8 @@ describe(`codingSessions.start — action path (EXP-253)`, () => {
       agent: null,
       agentAccount: null,
       branch: null,
+      // EXP-1140: nor an MCP server pick.
+      mcpServerIds: null,
       resumedFromId: null,
       status: `running`,
     })

@@ -8,8 +8,10 @@
 // writes, owner registry writes. OAuth runs SERVER-side: `connect` returns
 // the authorize URL, the anonymous hosted callback exchanges the code
 // (lib/mcp-oauth/callback.ts). `resolveForLaunch` hands a launcher the
-// caller's OWN values for the servers a run picked; an unconnected one is
-// skipped with a reason, never a launch blocker.
+// caller's OWN values (on a shared device: the device owner's) for the
+// servers its live run picked, named by `X-Exp-Session-Id` (EXP-1140); an
+// unconnected or unpicked one is skipped with a reason, never a launch
+// blocker.
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray } from "drizzle-orm"
@@ -23,12 +25,15 @@ import {
 } from "@exp/db-schema/domain"
 import { router, authedProcedure, type Context } from "@/lib/trpc"
 import {
+  codingSessions,
   mcpCredentials,
   mcpOauthFlows,
   mcpServers,
   teamMembers,
   type McpServer,
 } from "@/db/schema"
+import { parseMcpSessionHeader } from "@/lib/mcp/session-header"
+import { isAgentApiKeySession } from "@/lib/auth/api-key-kind"
 import {
   assertTeamMember,
   assertTeamOwner,
@@ -506,19 +511,78 @@ export const mcpServersRouter = router({
     }),
 
   // The launcher's read (desktop, CLI daemon): the caller's OWN credentials
-  // for a run's picked servers, across every team they belong to. An OAuth
-  // token expiring within 10 minutes is refreshed and persisted first; a
-  // failed refresh is stored on the row and the server SKIPPED.
+  // for the servers ONE live run picked. An OAuth token expiring within 10
+  // minutes is refreshed and persisted first; a failed refresh is stored on
+  // the row and the server SKIPPED.
+  //
+  // EXP-1140 — this is the one procedure that hands out decrypted secrets,
+  // and the agent's `expu_` key reaches tRPC, so it is bound to a run:
+  //   - `X-Exp-Session-Id` (the launcher's own request; the agent's MCP
+  //     config carries the same header) names the `coding_sessions` row;
+  //     missing → refused;
+  //   - the row must be LIVE and the caller its owner or its host (a shared
+  //     device's daemon calls as the device OWNER while the row belongs to
+  //     the requester — the run then spends the owner's credentials, like
+  //     its `expu_` key and GitHub token);
+  //   - only the row's persisted pick (`mcp_server_ids`) resolves; anything
+  //     else comes back `skipped` (never a blocker: a resume's recorded list
+  //     may name a server removed since);
+  //   - the agent's OWN key (`kind: agent`, lib/auth/api-key-kind.ts) is
+  //     refused outright, so a prompt-injected agent cannot mint itself a
+  //     row with a wider pick and read it back.
   resolveForLaunch: authedProcedure
     .input(z.object({ serverIds: z.array(z.string().uuid()).max(16) }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
-      const teamIds = await getUserTeamIds(userId)
-      return resolveForLaunch(ctx.db, {
+      if (await isAgentApiKeySession(ctx.db, ctx.session)) {
+        throw new TRPCError({
+          code: `FORBIDDEN`,
+          message: `An agent's key never resolves MCP credentials — the launcher does, before the run starts.`,
+        })
+      }
+      const sessionId = parseMcpSessionHeader(ctx.request)
+      if (!sessionId) {
+        throw new TRPCError({
+          code: `FORBIDDEN`,
+          message: `MCP credentials resolve only for a run the Exponential launcher started (missing X-Exp-Session-Id) — update Exponential on this device.`,
+        })
+      }
+      const [run] = await ctx.db
+        .select({
+          id: codingSessions.id,
+          userId: codingSessions.userId,
+          hostUserId: codingSessions.hostUserId,
+          teamId: codingSessions.teamId,
+          status: codingSessions.status,
+          mcpServerIds: codingSessions.mcpServerIds,
+        })
+        .from(codingSessions)
+        .where(eq(codingSessions.id, sessionId))
+        .limit(1)
+      if (
+        !run ||
+        (run.userId !== userId && run.hostUserId !== userId) ||
+        run.status === `ended`
+      ) {
+        throw new TRPCError({
+          code: `FORBIDDEN`,
+          message: `MCP credentials resolve only for a live run of your own.`,
+        })
+      }
+      await assertTeamMember(userId, run.teamId)
+      const picked = new Set(run.mcpServerIds ?? [])
+      const serverIds = input.serverIds.filter((id) => picked.has(id))
+      const resolved = await resolveForLaunch(ctx.db, {
         userId,
-        teamIds,
-        serverIds: input.serverIds,
+        teamIds: [run.teamId],
+        serverIds,
       })
+      for (const id of new Set(input.serverIds)) {
+        if (!picked.has(id)) {
+          resolved.skipped.push({ id, name: id, reason: `not picked for this run` })
+        }
+      }
+      return resolved
     }),
 
   // Compat shim (cleanup round 29): desktop/CLI <= 0.14.56 resolve a start's

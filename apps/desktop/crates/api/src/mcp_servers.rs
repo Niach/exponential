@@ -397,18 +397,26 @@ pub struct McpLaunchResolution {
 }
 
 /// `mcpServers.resolveForLaunch` — the caller's OWN credentials for
-/// `server_ids` (servers of teams the caller belongs to), OAuth tokens
-/// refreshed server-side when expiring. Handle the result like a password.
+/// `server_ids`, OAuth tokens refreshed server-side when expiring. Handle the
+/// result like a password.
+///
+/// EXP-1140: the call names the run it is for (`session_id` = the
+/// `coding_sessions` row `codingSessions.start` just created, sent as
+/// `X-Exp-Session-Id`); the server hands out values ONLY for that row's own
+/// persisted pick, to its owner or host, and never to the agent's own key.
+/// So the row must exist BEFORE this is called, and a resolve after a
+/// server-side pick trim comes back `skipped`, never an error.
 pub fn resolve_for_launch(
     trpc: &TrpcClient,
     server_ids: &[String],
+    session_id: &str,
 ) -> Result<McpLaunchResolution, ApiError> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
     struct Input<'a> {
         server_ids: &'a [String],
     }
-    trpc.mutation("mcpServers.resolveForLaunch", &Input { server_ids })
+    trpc.mutation_in_session("mcpServers.resolveForLaunch", &Input { server_ids }, session_id)
 }
 
 #[cfg(test)]
@@ -487,10 +495,15 @@ mod tests {
             r#"{"result":{"data":{"servers":[{"id":"s1","name":"Linear","transport":"http","url":"https://mcp.linear.app/mcp","command":null,"args":[],"headers":[{"name":"Authorization","value":"Bearer at-secret"}],"env":[]}],"skipped":[{"id":"s2","name":"Sentry","reason":"not connected"}],"warnings":["w"]}}}"#,
         );
         let ids = vec!["s1".to_string(), "s2".to_string()];
-        let resolved = resolve_for_launch(&client(&base), &ids).expect("ok");
+        let resolved = resolve_for_launch(&client(&base), &ids, "sess-1").expect("ok");
         let request = rx.recv().unwrap();
         assert!(request.contains("POST /api/trpc/mcpServers.resolveForLaunch"));
         assert!(request.contains(r#"{"serverIds":["s1","s2"]}"#));
+        // EXP-1140: the call names its run — the server refuses it otherwise.
+        assert!(
+            request.to_ascii_lowercase().contains("x-exp-session-id: sess-1"),
+            "{request}"
+        );
         assert_eq!(resolved.servers[0].headers[0].value, "Bearer at-secret");
         assert_eq!(resolved.skipped[0].reason, "not connected");
         assert_eq!(resolved.warnings, vec!["w".to_string()]);
