@@ -12,8 +12,11 @@
 
 use gpui::{
     div, img, px, size, App, AppContext as _, Entity, IntoElement, ParentElement, Pixels, Render,
-    SharedString, Size, Styled, StyledImage as _, Subscription, Window,
+    ScrollHandle, SharedString, Size, Styled, StyledImage as _, Subscription, Window,
 };
+use gpui_component::v_flex;
+
+use domain::session_results::SESSION_RESULT_TALL_ASPECT;
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     ActiveTheme as _, Disableable as _, Icon,
@@ -32,6 +35,19 @@ use crate::queries;
 /// plus the xsmall button line) — [`preview_window_size`] reserves it so the
 /// image itself gets the aspect-true remainder.
 const PREVIEW_HEADER_H: f32 = 44.;
+
+/// EXP-1128: the tall lightbox body's horizontal padding (each side) and the
+/// right gutter kept clear for the overlay scrollbar.
+const TALL_BODY_PAD: f32 = 8.;
+const TALL_SCROLLBAR_GUTTER: f32 = 12.;
+
+/// A TALL picture (width/height under the shared ×4
+/// [`SESSION_RESULT_TALL_ASPECT`]) opens as a scrolling column at a readable
+/// width instead of a sliver scaled to fit the viewport height.
+fn is_tall(natural: Option<(f32, f32)>) -> bool {
+    matches!(natural, Some((width, height)) if width > 0. && height > 0.
+        && width / height < SESSION_RESULT_TALL_ASPECT)
+}
 
 /// Open the lightbox for one image. `url` is the image's canonical (usually
 /// relative `/api/attachments/{id}`) form — the same key the [`ImageCache`]
@@ -61,15 +77,24 @@ pub(crate) fn open_image_preview(
 
     let natural = natural_size.or_else(|| attachment_natural_size(&url, cx));
     let window_size = preview_window_size(natural, window.viewport_size());
+    let tall = is_tall(natural);
     // EXP-285: chromeless — traffic lights over the image corner read as
     // dirt; the header ✕ stays the dismissal. The label still names the OS
-    // window even though the in-content header shows no title.
-    let spec = DialogSpec::new(label, window_size).chromeless();
+    // window even though the in-content header shows no title. EXP-1128: a
+    // tall picture's scroll column is resizable (wider = bigger text).
+    let mut spec = DialogSpec::new(label, window_size).chromeless();
+    if tall {
+        spec = spec.resizable(size(px(420.), px(280.)));
+    }
     native_dialog::open_dialog_window(window, cx, spec, move |_, cx| {
-        let preview = cx.new(|cx| ImagePreview::new(url, images, cx));
+        let preview = cx.new(|cx| ImagePreview::new(url, images, natural, cx));
         // The header's ✕ is the only mouse dismissal a lightbox has (there is
         // no Cancel footer) — without it the modal window is a dead end.
         let mut content = DialogContent::new(preview).chromeless_header("").padless();
+        if tall {
+            // The view owns its scroll pane (the md-preview pattern).
+            content = content.self_scrolling();
+        }
         if let Some(open_url) = open_url {
             content = content.chromeless_header_actions(move |_, cx| {
                 open_in_browser_button("image-preview-open-browser", open_url.clone(), cx)
@@ -249,10 +274,14 @@ fn preview_label(label: &str, url: &str) -> String {
 /// window matches the IMAGE's aspect ratio (plus the header strip): the image
 /// scales to fit 90% of the viewport, never upscales, and the window floors
 /// at 480×320 so the header controls always fit. Without dimensions, the old
-/// generic viewport share.
+/// generic viewport share. EXP-1128: a TALL picture gets a scroll column —
+/// its natural width within 480..=min(90% viewport, 1100), 90% of the height.
 fn preview_window_size(natural: Option<(f32, f32)>, viewport: Size<Pixels>) -> Size<Pixels> {
     let (vw, vh) = (f32::from(viewport.width), f32::from(viewport.height));
     match natural {
+        Some((width, _)) if is_tall(natural) => {
+            size(px(width.min(vw * 0.9).min(1100.).max(480.)), px(vh * 0.9))
+        }
         Some((width, height)) if width > 0. && height > 0. => {
             let scale = (vw * 0.9 / width)
                 .min((vh * 0.9 - PREVIEW_HEADER_H) / height)
@@ -269,25 +298,71 @@ fn preview_window_size(natural: Option<(f32, f32)>, viewport: Size<Pixels>) -> S
 struct ImagePreview {
     url: String,
     images: Entity<ImageCache>,
+    /// EXP-1128: a tall picture scrolls at the window's width.
+    tall: bool,
+    natural: Option<(f32, f32)>,
+    scroll: ScrollHandle,
     /// Re-render when the cache resolves the async fetch.
     _images_changed: Subscription,
 }
 
 impl ImagePreview {
-    fn new(url: String, images: Entity<ImageCache>, cx: &mut gpui::Context<Self>) -> Self {
+    fn new(
+        url: String,
+        images: Entity<ImageCache>,
+        natural: Option<(f32, f32)>,
+        cx: &mut gpui::Context<Self>,
+    ) -> Self {
         let images_changed = cx.observe(&images, |_, _, cx| cx.notify());
         Self {
             url,
             images,
+            tall: is_tall(natural),
+            natural,
+            scroll: ScrollHandle::new(),
             _images_changed: images_changed,
         }
     }
 }
 
 impl Render for ImagePreview {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let url = self.url.clone();
         let slot = self.images.update(cx, |cache, cx| cache.slot(&url, cx));
+
+        if self.tall {
+            // The column is the window's content width: padding off both
+            // sides and a gutter for the overlay scrollbar (md preview).
+            let inner_w = (f32::from(window.viewport_size().width)
+                - TALL_BODY_PAD * 2.
+                - TALL_SCROLLBAR_GUTTER)
+                .max(1.);
+            let aspect = self
+                .natural
+                .map(|(width, height)| width / height)
+                .unwrap_or(1.);
+            let body = match slot {
+                ImageSlot::Ready(image) => img(image)
+                    .flex_shrink_0()
+                    .w(px(inner_w))
+                    .h(px(inner_w / aspect))
+                    .object_fit(gpui::ObjectFit::Fill)
+                    .into_any_element(),
+                ImageSlot::ReadyTall(tall) => crate::tall_image::render_tall(&tall, inner_w),
+                ImageSlot::Loading => placeholder_box("Loading image…", cx),
+                ImageSlot::Failed(_) => placeholder_box("Image unavailable", cx),
+            };
+            return v_flex()
+                .size_full()
+                .px(px(TALL_BODY_PAD))
+                .pb(px(TALL_BODY_PAD))
+                .child(crate::scroll_pane::v_scroll_pane(
+                    "image-preview-scroll",
+                    &self.scroll,
+                    v_flex().w_full().pr(px(TALL_SCROLLBAR_GUTTER)).child(body),
+                ))
+                .into_any_element();
+        }
 
         let body = match slot {
             ImageSlot::Ready(image) => img(image)
@@ -296,6 +371,19 @@ impl Render for ImagePreview {
                 .object_fit(gpui::ObjectFit::ScaleDown)
                 .rounded(cx.theme().radius)
                 .into_any_element(),
+            // Over the texture cap but not tall (a >16k px WIDE picture):
+            // strips at the window's width, clipped to its height.
+            ImageSlot::ReadyTall(tall) => {
+                let width = (f32::from(window.viewport_size().width) - TALL_BODY_PAD * 2.)
+                    .min(tall.width as f32)
+                    .max(1.);
+                div()
+                    .max_w_full()
+                    .max_h_full()
+                    .overflow_hidden()
+                    .child(crate::tall_image::render_tall(&tall, width))
+                    .into_any_element()
+            }
             ImageSlot::Loading => placeholder_box("Loading image…", cx),
             ImageSlot::Failed(_) => placeholder_box("Image unavailable", cx),
         };
@@ -309,6 +397,7 @@ impl Render for ImagePreview {
             .justify_center()
             .p_2()
             .child(body)
+            .into_any_element()
     }
 }
 
@@ -345,6 +434,24 @@ mod tests {
         let sized = preview_window_size(Some((200., 100.)), viewport);
         assert_eq!(f32::from(sized.width), 480.);
         assert_eq!(f32::from(sized.height), 320.);
+    }
+
+    #[test]
+    fn preview_window_for_a_tall_image_is_a_scroll_column() {
+        let viewport = size(px(2000.), px(1000.));
+        // 780×25094: natural width inside the band, 90% of the height.
+        let sized = preview_window_size(Some((780., 25094.)), viewport);
+        assert_eq!(f32::from(sized.width), 780.);
+        assert_eq!(f32::from(sized.height), 900.);
+        // Wide-but-tall caps at 1100, narrow floors at 480.
+        let sized = preview_window_size(Some((3000., 12000.)), viewport);
+        assert_eq!(f32::from(sized.width), 1100.);
+        let sized = preview_window_size(Some((200., 5000.)), viewport);
+        assert_eq!(f32::from(sized.width), 480.);
+        // Exactly 1/3 is NOT tall (strict, the shared rule).
+        assert!(!is_tall(Some((300., 900.))));
+        assert!(is_tall(Some((299., 900.))));
+        assert!(!is_tall(None));
     }
 
     #[test]

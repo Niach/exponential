@@ -275,6 +275,14 @@ fn image_tile(
                     .max_h(px(LARGE_TILE_MAX_H))
                     .object_fit(gpui::ObjectFit::ScaleDown),
             ),
+            // EXP-1128: a >16k px picture as strips, top-cropped in the
+            // tile's box (the box is sized off the probed aspect).
+            ImageSlot::ReadyTall(tall) => {
+                let width = box_w.unwrap_or(LARGE_TILE_FALLBACK_W);
+                tile.w(px(width))
+                    .h(px(box_h))
+                    .child(crate::tall_image::render_tall(&tall, width))
+            }
             // A label would only clip — the neutral box IS the
             // loading/unavailable state here.
             _ => tile

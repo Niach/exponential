@@ -752,6 +752,9 @@ impl WysiwygDescription {
         let occurrences = crate::attachments_row::extract_image_occurrences(&markdown);
         let mut next: HashMap<String, ImageSourceResolution> = HashMap::new();
         let mut natural: HashMap<String, (f32, f32)> = HashMap::new();
+        // EXP-1128: keys whose `Failed` is PERMANENT (a strip-decoded
+        // picture) — the retry timer below must not loop on them.
+        let mut unrenderable: std::collections::HashSet<String> = Default::default();
         for occurrence in &occurrences {
             let src = occurrence.url.as_str();
             if !images::is_hosted_src(src) {
@@ -775,6 +778,13 @@ impl WysiwygDescription {
                 let slot = self.images.update(cx, |cache, cx| cache.slot(&key, cx));
                 match slot {
                     ImageSlot::Ready(image) => ImageSourceResolution::Decoded(image),
+                    // EXP-1128: the vendored editor takes only one
+                    // `Arc<gpui::Image>`; a >16k px strip-decoded picture
+                    // shows its unavailable placeholder rather than a blank.
+                    ImageSlot::ReadyTall(_) => {
+                        unrenderable.insert(key.clone());
+                        ImageSourceResolution::Failed
+                    }
                     ImageSlot::Loading => ImageSourceResolution::Pending,
                     ImageSlot::Failed(_) => ImageSourceResolution::Failed,
                 }
@@ -838,6 +848,11 @@ impl WysiwygDescription {
                 Some(poster_url) => {
                     match self.images.update(cx, |cache, cx| cache.slot(poster_url, cx)) {
                         ImageSlot::Ready(image) => ImageSourceResolution::Decoded(image),
+                        // Same as above: no single-image form for strips.
+                        ImageSlot::ReadyTall(_) => {
+                            unrenderable.insert(key.clone());
+                            ImageSourceResolution::Failed
+                        }
                         ImageSlot::Loading => ImageSourceResolution::Pending,
                         ImageSlot::Failed(_) => ImageSourceResolution::Failed,
                     }
@@ -883,7 +898,9 @@ impl WysiwygDescription {
         // surface has no render-driven `slot()` call, so schedule the retry
         // explicitly.
         let any_failed_fetch = next.iter().any(|(key, resolution)| {
-            matches!(resolution, ImageSourceResolution::Failed) && !key.starts_with(DRAFT_SCHEME)
+            matches!(resolution, ImageSourceResolution::Failed)
+                && !key.starts_with(DRAFT_SCHEME)
+                && !unrenderable.contains(key)
         });
         let changed = self
             .shared

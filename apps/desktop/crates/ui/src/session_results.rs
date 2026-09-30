@@ -25,15 +25,15 @@
 //! (Changes owns it) — it is a page you look at.
 
 use gpui::{
-    div, img, prelude::FluentBuilder as _, px, AnyElement, App, Entity, InteractiveElement as _,
-    IntoElement, ObjectFit, ParentElement as _, SharedString,
-    StatefulInteractiveElement as _, Styled as _, StyledImage as _,
+    div, hsla, img, linear_color_stop, linear_gradient, prelude::FluentBuilder as _, px,
+    AnyElement, App, Entity, InteractiveElement as _, IntoElement, ObjectFit, ParentElement as _,
+    SharedString, StatefulInteractiveElement as _, Styled as _, StyledImage as _,
 };
 use gpui_component::{h_flex, v_flex, ActiveTheme as _};
 
 use domain::session_results::{
-    session_result_tile_height_fitting, session_result_tile_width, SessionResultEntry,
-    SessionResultGroup, SESSION_RESULT_TILE_HEIGHT,
+    session_result_is_tall, session_result_tile_height_fitting, session_result_tile_width,
+    SessionResultEntry, SessionResultGroup, SESSION_RESULT_TILE_HEIGHT,
 };
 
 use crate::issue_detail::{centered_column, DETAIL_GUTTER};
@@ -123,6 +123,11 @@ pub(crate) fn render(
 /// One tile: the picture at the page's shared `height`, its label under it.
 /// The loading and unavailable states paint the neutral placeholder at the
 /// SAME box, so the row never reflows when the bytes land.
+///
+/// EXP-1128: a TALL picture ([`session_result_is_tall`], the shared ×4 rule)
+/// gets the 4:3 frame from [`session_result_tile_width`] and is laid out at
+/// the tile's WIDTH, so its top shows (a top crop, never a sliver), under a
+/// bottom fade and a `Tall` pill; the lightbox scrolls the whole of it.
 fn tile(
     entry: &SessionResultEntry,
     height: f32,
@@ -138,6 +143,12 @@ fn tile(
         _ => None,
     };
     let width = session_result_tile_width(entry, height);
+    let tall = session_result_is_tall(entry);
+    // Tall implies probed dims; the fallback only guards a zero height.
+    let aspect = natural
+        .filter(|(_, h)| *h > 0.)
+        .map(|(w, h)| w / h)
+        .unwrap_or(4. / 3.);
     let slot = images.update(cx, |cache, cx| cache.slot(&url, cx));
     let label = entry.label.clone();
     // The attachment may be published under two topics, so the id carries
@@ -161,16 +172,35 @@ fn tile(
                 .border_1()
                 .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
                 .cursor_pointer()
+                .relative()
                 .map(|tile| match slot {
+                    // Tall: laid out at the tile's width, aspect-true, so the
+                    // box's overflow clip shows its TOP.
+                    ImageSlot::Ready(image) if tall => tile.child(
+                        img(image)
+                            .flex_shrink_0()
+                            .w(px(width))
+                            .h(px(width / aspect))
+                            .object_fit(ObjectFit::Fill),
+                    ),
                     // Cover: every tile is the same height, so a shot whose
                     // probe was wrong crops rather than letterboxes.
                     ImageSlot::Ready(image) => {
                         tile.child(img(image).size_full().object_fit(ObjectFit::Cover))
                     }
+                    // Over the texture cap: strips at the tile's width — the
+                    // same top crop (a >16k px WIDE picture just shows its
+                    // top-left band at this width).
+                    ImageSlot::ReadyTall(strips) => {
+                        tile.child(crate::tall_image::render_tall(&strips, width))
+                    }
                     // A label would only clip — the neutral box IS the
                     // loading/unavailable state here.
-                    _ => tile.child(placeholder_box("", cx)),
+                    ImageSlot::Loading | ImageSlot::Failed(_) => {
+                        tile.child(placeholder_box("", cx))
+                    }
                 })
+                .when(tall, |tile| tile.child(tall_fade()).child(tall_pill()))
                 .on_click({
                     let images = images.clone();
                     let url = url.clone();
@@ -197,4 +227,37 @@ fn tile(
                 .child(SharedString::from(label)),
         )
         .into_any_element()
+}
+
+/// The bottom fade over a tall tile: the picture continues below the crop.
+/// Paint-only (no mouse handlers), so the click reaches the tile.
+fn tall_fade() -> impl IntoElement {
+    div()
+        .absolute()
+        .bottom_0()
+        .left_0()
+        .right_0()
+        .h(px(48.))
+        .bg(linear_gradient(
+            180.,
+            linear_color_stop(hsla(0., 0., 0., 0.), 0.),
+            linear_color_stop(hsla(0., 0., 0., 0.5), 1.),
+        ))
+}
+
+/// The `Tall` pill (same copy ×4) in the tile's bottom-right corner.
+fn tall_pill() -> impl IntoElement {
+    div()
+        .absolute()
+        .bottom_1p5()
+        .right_1p5()
+        .rounded_full()
+        .px_1p5()
+        .py_0p5()
+        .text_xs()
+        .text_color(hsla(0., 0., 1., 0.9))
+        .bg(hsla(0., 0., 0., 0.6))
+        .border_1()
+        .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+        .child("Tall")
 }
