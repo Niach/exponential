@@ -1,6 +1,7 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.ToastKind
 import com.exponential.app.domain.ToastStack
@@ -56,6 +57,7 @@ class ToastDefaultsTest {
         assertEquals(ToastStack.Constants.PLACEMENT_TOUCH, ToastDefaults.PLACEMENT)
         assertEquals(Alignment.TopCenter, ToastDefaults.HostAlignment)
         assertFalse(ToastDefaults.ANCHORED_BOTTOM)
+        assertEquals(TransformOrigin(0.5f, 1f), ToastDefaults.BackCardOrigin)
         assertEquals(ToastStack.Constants.MOBILE_VIEWPORT_OFFSET.dp, ToastDefaults.TopGap)
         assertEquals(ToastStack.Constants.TOUCH_MAX_WIDTH.dp, ToastDefaults.TabletBreakpoint)
     }

@@ -169,6 +169,9 @@ object ToastDefaults {
     /** Where [ToastHost] sits on screen — top-centre, never the bottom. */
     val HostAlignment: Alignment = Alignment.TopCenter
 
+    /** Back cards shrink about the edge that peeks out: a top stack's BOTTOM. */
+    val BackCardOrigin: TransformOrigin = TransformOrigin(0.5f, 1f)
+
     /** What [ToastStackBox] passes to [ToastStack.geometry]: a TOP stack. */
     const val ANCHORED_BOTTOM: Boolean = false
 
@@ -305,7 +308,7 @@ fun ToastHost(toaster: Toaster, modifier: Modifier = Modifier) {
 /**
  * The bare stack: exactly as wide as [modifier] makes it, exactly as tall as
  * [ToastStack.geometry] says (a TOP stack: older cards peek out BELOW the
- * front one, expanded ones grow downward).
+ * front one, shrinking about that bottom edge; expanded ones grow downward).
  */
 @Composable
 fun ToastStackBox(toaster: Toaster, modifier: Modifier = Modifier) {
@@ -415,8 +418,9 @@ fun ToastStackBox(toaster: Toaster, modifier: Modifier = Modifier) {
                                 scaleY = scale
                                 val travel = maxOf(abs(dx) / cardWidthPx, abs(dy) / size.height.coerceAtLeast(1f))
                                 this.alpha = alpha * (1f - travel.coerceIn(0f, 1f))
-                                // A top stack shrinks from its TOP edge.
-                                transformOrigin = TransformOrigin(0.5f, 0f)
+                                // Shrink about the edge that PEEKS OUT (a top
+                                // stack's bottom), so each peek is exactly `peek`.
+                                transformOrigin = ToastDefaults.BackCardOrigin
                             }
                             .pointerInput(isLive) {
                                 if (!isLive) return@pointerInput
