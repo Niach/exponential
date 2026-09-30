@@ -57,8 +57,7 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
-    h_flex, notification::Notification, v_flex, ActiveTheme as _, Icon, Sizable as _,
-    WindowExt as _,
+    h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -738,18 +737,12 @@ impl SessionBar {
                 let launch = match prepared {
                     Ok(coding::PreparedAgentShell::Ready(launch)) => launch,
                     Ok(coding::PreparedAgentShell::Disabled(reason)) => {
-                        window.push_notification(
-                            Notification::error(SharedString::from(reason.message())),
-                            cx,
-                        );
+                        crate::toast::error(reason.message(), window, cx);
                         return;
                     }
                     Err(err) => {
                         log::warn!("session bar: agent shell prepare failed: {err}");
-                        window.push_notification(
-                            Notification::error(SharedString::from(err.to_string())),
-                            cx,
-                        );
+                        crate::toast::error(err.to_string(), window, cx);
                         return;
                     }
                 };
@@ -770,10 +763,7 @@ impl SessionBar {
                     }
                     Err(error) => {
                         log::warn!("session bar: agent shell spawn failed: {error:#}");
-                        window.push_notification(
-                            Notification::error(SharedString::from(error.to_string())),
-                            cx,
-                        );
+                        crate::toast::error(error.to_string(), window, cx);
                     }
                 }
             });

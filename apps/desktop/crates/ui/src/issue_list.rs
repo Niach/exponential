@@ -1471,13 +1471,7 @@ fn spawn_create_workflow<V: BulkSelectionHost>(
                 let message = err.user_message();
                 log::warn!("[ui] workflows.create failed: {message}");
                 let _ = handle.update(cx, |_, window, cx| {
-                    use gpui_component::WindowExt as _;
-                    window.push_notification(
-                        gpui_component::notification::Notification::error(SharedString::from(
-                            message,
-                        )),
-                        cx,
-                    );
+                    crate::toast::error(message, window, cx);
                 });
             }
         });

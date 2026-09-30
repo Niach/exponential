@@ -16,6 +16,7 @@
 //! `mcp_servers` is server-only (never an Electric shape), so this is a
 //! fetch-on-open tRPC read like the widget pane's.
 
+use crate::toast::Toast;
 use std::time::{Duration, Instant};
 
 use gpui::{
@@ -28,8 +29,7 @@ use gpui_component::{
     h_flex,
     input::InputState,
     menu::{DropdownMenu as _, PopupMenuItem},
-    notification::Notification,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 
 use api::mcp_servers::{McpServerConfig, McpServerListEntry};
@@ -305,10 +305,10 @@ impl McpServersPane {
             _ => None,
         };
         let Some(page) = page else {
-            let note = Notification::error(SharedString::from(format!(
+            let note = Toast::error(format!(
                 "Could not connect to {name}: open Settings → MCP servers on the web and connect it there."
-            )));
-            window.push_notification(note, cx);
+            ));
+            crate::toast::show(note, window, cx);
             return;
         };
         let trpc = std::sync::Arc::new(trpc);
@@ -351,11 +351,11 @@ impl McpServersPane {
                             }
                             if connected {
                                 this.connecting = None;
-                                let note = Notification::success(SharedString::from(format!(
+                                let note = Toast::success(format!(
                                     "Connected to {name}"
-                                )));
+                                ));
                                 let _ = handle
-                                    .update(cx, |_, window, cx| window.push_notification(note, cx));
+                                    .update(cx, |_, window, cx| crate::toast::show(note, window, cx));
                             }
                             cx.notify();
                         });
@@ -374,10 +374,10 @@ impl McpServersPane {
                         if this.connect_generation == generation {
                             this.connecting = None;
                         }
-                        let note = Notification::error(SharedString::from(format!(
+                        let note = Toast::error(format!(
                             "{name} is still not connected. Finish the sign-in in your browser, or Connect again."
-                        )));
-                        let _ = handle.update(cx, |_, window, cx| window.push_notification(note, cx));
+                        ));
+                        let _ = handle.update(cx, |_, window, cx| crate::toast::show(note, window, cx));
                         cx.notify();
                     });
                     return;
@@ -461,16 +461,16 @@ impl McpServersPane {
                     let note = match result {
                         Ok(()) => {
                             this.refetch(cx);
-                            Notification::success(SharedString::from(format!(
+                            Toast::success(format!(
                                 "Key saved for {server}"
-                            )))
+                            ))
                         }
-                        Err(err) => Notification::error(SharedString::from(format!(
+                        Err(err) => Toast::error(format!(
                             "Could not save the key for {server}: {}",
                             err.user_message()
-                        ))),
+                        )),
                     };
-                    let _ = handle.update(cx, |_, window, cx| window.push_notification(note, cx));
+                    let _ = handle.update(cx, |_, window, cx| crate::toast::show(note, window, cx));
                     cx.notify();
                 });
             })
@@ -500,15 +500,15 @@ impl McpServersPane {
                 this.pending = None;
                 let note = match result {
                     Ok(result) if result.ok => {
-                        Notification::success(SharedString::from(test_message(&name, &result)))
+                        Toast::success(test_message(&name, &result))
                     }
-                    Ok(result) => Notification::error(SharedString::from(test_message(&name, &result))),
-                    Err(err) => Notification::error(SharedString::from(format!(
+                    Ok(result) => Toast::error(test_message(&name, &result)),
+                    Err(err) => Toast::error(format!(
                         "{name} did not answer: {}",
                         err.user_message()
-                    ))),
+                    )),
                 };
-                let _ = handle.update(cx, |_, window, cx| window.push_notification(note, cx));
+                let _ = handle.update(cx, |_, window, cx| crate::toast::show(note, window, cx));
                 cx.notify();
             });
         })
@@ -563,16 +563,16 @@ impl McpServersPane {
                     let note = match result {
                         Ok(()) => {
                             this.refetch(cx);
-                            Notification::success(SharedString::from(format!(
+                            Toast::success(format!(
                                 "Disconnected from {name}"
-                            )))
+                            ))
                         }
-                        Err(err) => Notification::error(SharedString::from(format!(
+                        Err(err) => Toast::error(format!(
                             "Could not disconnect: {}",
                             err.user_message()
-                        ))),
+                        )),
                     };
-                    let _ = handle.update(cx, |_, window, cx| window.push_notification(note, cx));
+                    let _ = handle.update(cx, |_, window, cx| crate::toast::show(note, window, cx));
                     cx.notify();
                 });
             })
@@ -632,12 +632,12 @@ impl McpServersPane {
                     match result {
                         Ok(()) => this.refetch(cx),
                         Err(err) => {
-                            let note = Notification::error(SharedString::from(format!(
+                            let note = Toast::error(format!(
                                 "Could not remove {name}: {}",
                                 err.user_message()
-                            )));
+                            ));
                             let _ = handle.update(cx, |_, window, cx| {
-                                window.push_notification(note, cx);
+                                crate::toast::show(note, window, cx);
                             });
                         }
                     }

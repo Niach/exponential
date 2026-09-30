@@ -39,8 +39,7 @@ use gpui_component::{
     h_flex,
     input::{InputEvent, InputState},
     menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenuItem},
-    notification::Notification,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use sync::Store;
 
@@ -2333,10 +2332,7 @@ fn spawn_reported(
         if let Err(err) = result {
             log::warn!("workflows: a call failed: {err}");
             let _ = handle.update(cx, |_, window, cx| {
-                window.push_notification(
-                    Notification::error(SharedString::from(err.user_message())),
-                    cx,
-                );
+                crate::toast::error(err.user_message(), window, cx);
             });
         }
     })
@@ -2376,10 +2372,7 @@ fn spawn_open_final_pr(workflow_id: String, window: &mut Window, cx: &mut App) {
             .await;
         let _ = handle.update(cx, |_, window, cx| {
             if let Err(err) = result {
-                window.push_notification(
-                    Notification::error(SharedString::from(err.user_message())),
-                    cx,
-                );
+                crate::toast::error(err.user_message(), window, cx);
             }
         });
     })
@@ -2430,10 +2423,7 @@ fn spawn_delete(workflow_id: String, window: &mut Window, cx: &mut App) {
             Err(err) => {
                 log::warn!("workflows: deleting the workflow failed: {err}");
                 let _ = handle.update(cx, |_, window, cx| {
-                    window.push_notification(
-                        Notification::error(SharedString::from(err.user_message())),
-                        cx,
-                    );
+                    crate::toast::error(err.user_message(), window, cx);
                 });
             }
         });

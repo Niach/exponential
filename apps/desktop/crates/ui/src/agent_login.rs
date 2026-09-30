@@ -35,6 +35,7 @@
 //! exit re-probe re-reads the profile index, so a fresh profile rides the
 //! next heartbeat by itself.
 
+use crate::toast::Toast;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -48,9 +49,8 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _, ButtonVariant},
     h_flex,
-    notification::Notification,
     spinner::Spinner,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use terminal::{TabId, TerminalManager, TerminalManagerEvent};
 
@@ -280,7 +280,7 @@ fn start(
             Err(message) => {
                 log::warn!("[agent-login] {agent:?} profile refused: {message}");
                 let _ = cx.update(|cx| {
-                    notify(Notification::error(SharedString::from(message.clone())), cx);
+                    notify(Toast::error(message.clone()), cx);
                     // Never started: answer the requester and drop the claim
                     // (no run exists to do it on exit).
                     if let Some(remote) = remote.as_ref() {
@@ -300,7 +300,7 @@ fn start(
             // OpenAI for every machine sharing it. Refuse rather than do it.
             if let Some(message) = agent_login::switch_logout_blocker(agent, &profile_id) {
                 let _ = cx.update(|cx| {
-                    notify(Notification::error(SharedString::from(message.clone())), cx);
+                    notify(Toast::error(message.clone()), cx);
                     if let Some(remote) = remote.as_ref() {
                         complete(&remote.command_id, false, message, cx);
                         crate::device_sync::release_login(&remote.command_id, cx);
@@ -318,7 +318,7 @@ fn start(
                 // A failed sign-out still lets the login run (the CLI may
                 // simply have been signed out already) — say so and continue.
                 log::warn!("[agent-login] {agent:?} logout failed: {message}");
-                let _ = cx.update(|cx| notify(Notification::warning(SharedString::from(message)), cx));
+                let _ = cx.update(|cx| notify(Toast::warning(message), cx));
             }
         }
         let _ = cx.update(|cx| spawn_login_tab(agent, plan, profile_id, remote, cx));
@@ -388,10 +388,10 @@ impl LoginRun {
         let hub = CodingHub::global(cx);
         CodingHub::refresh_agent_usage(&hub, cx);
         notify(
-            Notification::info(SharedString::from(format!(
+            Toast::info(format!(
                 "{} sign-in finished — rechecking.",
                 self.agent.label()
-            ))),
+            )),
             cx,
         );
     }
@@ -441,9 +441,9 @@ fn spawn_login_tab(
     });
     let Some(handle) = crate::coding_flow::any_terminal_dock(cx) else {
         notify(
-            Notification::error(SharedString::from(
+            Toast::error(
                 "Open the main window to sign in to an agent.",
-            )),
+            ),
             cx,
         );
         run.abandon("This machine has no window to run the sign-in in.", cx);
@@ -497,10 +497,10 @@ fn spawn_login_tab(
         }
         _ => {
             notify(
-                Notification::error(SharedString::from(format!(
+                Toast::error(format!(
                     "Could not start the {} sign-in.",
                     agent.label()
-                ))),
+                )),
                 cx,
             );
             run.abandon("The machine could not start the sign-in.", cx);
@@ -642,10 +642,8 @@ fn complete(command_id: &str, ok: bool, message: String, cx: &mut App) {
         .detach();
 }
 
-fn notify(note: Notification, cx: &mut App) {
-    crate::navigation::on_active_window(cx, move |window, cx| {
-        window.push_notification(note, cx);
-    });
+fn notify(toast: Toast, cx: &mut App) {
+    crate::toast::show_in_active_window(toast, cx);
 }
 
 // ---------------------------------------------------------------------------

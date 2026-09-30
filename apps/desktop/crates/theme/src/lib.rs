@@ -413,6 +413,12 @@ pub fn exponential_dark() -> ThemeColor {
 /// in dark mode — `Theme::change(Dark)` reassigns both `theme.colors` and
 /// `theme.tokens` from the stock config and would clobber this palette if it
 /// ran later. Use [`init`] for the correctly-ordered pair.
+/// EXP-1031: the toast card width (fixture `constants.width`).
+pub const TOAST_WIDTH: f32 = 356.;
+/// EXP-1031: the toast stack's distance from the window edges (fixture
+/// `constants.viewportOffset`).
+pub const TOAST_VIEWPORT_OFFSET: f32 = 24.;
+
 pub fn apply_exponential_dark(cx: &mut App) {
     let colors = exponential_dark();
     let theme = Theme::global_mut(cx);
@@ -441,6 +447,15 @@ pub fn apply_exponential_dark(cx: &mut App) {
     // (EXP-269 — beats the platform-default mono for glass-dark contrast; the
     // TTFs are embedded by the app shell alongside Inter).
     theme.mono_font_family = terminal::FONT_FAMILY.into();
+    // EXP-1031: THE toast (packages/domain-contract/fixtures/toast-stack.json)
+    // sits bottom-right, `viewportOffset` (24) from every edge, `width` (356)
+    // wide — sonner's numbers. The crate's default is top-right under the
+    // title bar at 382. `ui::toast` owns the card face; the stack motion is
+    // the crate's `ToastMotion::sonner()` (locked by the ui crate's tests).
+    theme.notification.placement = gpui::Anchor::BottomRight;
+    theme.notification.margins = gpui_component::Edges::all(px(TOAST_VIEWPORT_OFFSET));
+    theme.notification.max_items = 10;
+    theme.notification.width = px(TOAST_WIDTH);
     // window.refresh() on the next frame / first window open picks up the new
     // palette — no live window exists at bootstrap time.
 }

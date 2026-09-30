@@ -16,7 +16,6 @@
 //! the server-resolved group instead).
 
 use gpui::{App, SharedString};
-use gpui_component::{notification::Notification, WindowExt as _};
 use serde::Deserialize;
 
 use sync::Store;
@@ -486,10 +485,7 @@ Update Exponential on this machine."
 team settings → Repositories.";
                         log::warn!("actions: fix-conflicts start refused — {message}");
                         let _ = window.update(cx, |_, window, cx| {
-                            window.push_notification(
-                                Notification::error(SharedString::from(message)),
-                                cx,
-                            );
+                            crate::toast::error(message, window, cx);
                         });
                         fire_settled(&mut on_settled, false, cx);
                         return;
@@ -585,7 +581,7 @@ fn take_over_branch(branch: &str, window: gpui::AnyWindowHandle, cx: &mut App) -
             let message = "A fix-conflicts run is already working this pull request.";
             log::warn!("actions: fix-conflicts start refused — {message}");
             let _ = window.update(cx, |_, window, cx| {
-                window.push_notification(Notification::error(SharedString::from(message)), cx);
+                crate::toast::error(message, window, cx);
             });
             false
         }
@@ -728,27 +724,16 @@ history setting.",
                 if let Err(message) = coding_flow::spawn_into_window(prepared, subject, window, cx)
                 {
                     log::warn!("actions: resume spawn failed: {message}");
-                    window.push_notification(
-                        Notification::error(SharedString::from(message)),
-                        cx,
-                    );
+                    crate::toast::error(message, window, cx);
                 }
             }
             Ok(Prepared::Disabled(reason)) => {
                 log::warn!("actions: resume disabled — {}", reason.message());
-                window.push_notification(
-                    Notification::error(SharedString::from(reason.message())),
-                    cx,
-                );
+                crate::toast::error(reason.message(), window, cx);
             }
             Err(err) => {
                 log::warn!("actions: resume prepare failed: {err}");
-                window.push_notification(
-                    Notification::error(SharedString::from(format!(
-                        "Could not resume the run: {err}"
-                    ))),
-                    cx,
-                );
+                crate::toast::error(format!("Could not resume the run: {err}"), window, cx);
             }
         });
     })
@@ -768,7 +753,7 @@ pub(crate) fn notify_target_error(
     if let Some(window) = target.or_else(|| crate::steer_wiring::find_team_window(cx)) {
         let message = SharedString::from(message.to_string());
         let _ = window.update(cx, |_, window, cx| {
-            window.push_notification(Notification::error(message), cx);
+            crate::toast::error(message, window, cx);
         });
     }
 }
@@ -815,30 +800,19 @@ fn launch_action(
                     Ok(()) => fire_settled(&mut on_settled, true, cx),
                     Err(message) => {
                         log::warn!("actions: spawn failed: {message}");
-                        window.push_notification(
-                            Notification::error(SharedString::from(message)),
-                            cx,
-                        );
+                        crate::toast::error(message, window, cx);
                         fire_settled(&mut on_settled, false, cx);
                     }
                 }
             }
             Ok(Prepared::Disabled(reason)) => {
                 log::warn!("actions: run disabled — {}", reason.message());
-                window.push_notification(
-                    Notification::error(SharedString::from(reason.message())),
-                    cx,
-                );
+                crate::toast::error(reason.message(), window, cx);
                 fire_settled(&mut on_settled, false, cx);
             }
             Err(err) => {
                 log::warn!("actions: prepare failed: {err}");
-                window.push_notification(
-                    Notification::error(SharedString::from(format!(
-                        "Could not start the action: {err}"
-                    ))),
-                    cx,
-                );
+                crate::toast::error(format!("Could not start the action: {err}"), window, cx);
                 fire_settled(&mut on_settled, false, cx);
             }
         });

@@ -664,11 +664,7 @@ fn fix_button(
             ReadinessFix::SetUpServer => {
                 let snippet = crate::machines::server_install_snippet(cx);
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(snippet));
-                use gpui_component::WindowExt as _;
-                window.push_notification(
-                    gpui_component::notification::Notification::success("Copied install command"),
-                    cx,
-                );
+                crate::toast::success("Copied install command", window, cx);
             }
             // Never shown on the desktop (`desktop_fixes`).
             ReadinessFix::GetDesktopApp => {}

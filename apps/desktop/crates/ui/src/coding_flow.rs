@@ -48,8 +48,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::InputState,
-    notification::Notification,
-    ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
+    ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use sync::Store;
 use terminal::TerminalManager;
@@ -1586,10 +1585,7 @@ pub fn spawn_into_window(
     // degradation: ONE toast names every skipped server (the launcher's
     // resolver already logged each line).
     if !mcp_warnings.is_empty() {
-        window.push_notification(
-            Notification::warning(SharedString::from(mcp_warnings.join("\n"))),
-            cx,
-        );
+        crate::toast::warning(mcp_warnings.join("\n"), window, cx);
     }
     Ok(())
 }

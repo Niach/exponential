@@ -30,9 +30,9 @@ use gpui::{
 use gpui_component::{
     button::ButtonVariant,
     h_flex,
-    notification::Notification,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
+use crate::toast::Toast;
 use sync::Store;
 
 use api::attachments::{AttachmentsListForTeamOutput, TeamAttachmentRow};
@@ -211,11 +211,11 @@ impl StoragePane {
                 });
                 if let Err(error) = result {
                     log::warn!("[ui] attachments.delete({attachment_id}) failed: {error}");
-                    let note = Notification::error(SharedString::from(format!(
+                    let note = Toast::error(format!(
                         "Could not delete {filename}: {error}"
-                    )));
+                    ));
                     let _ = handle.update(cx, |_, window, cx| {
-                        window.push_notification(note, cx);
+                        crate::toast::show(note, window, cx);
                     });
                 }
             })
@@ -276,20 +276,20 @@ impl StoragePane {
                     cx.notify();
                 });
                 let note = match result {
-                    Ok(out) => Notification::info(sweep_result_message(
+                    Ok(out) => Toast::info(sweep_result_message(
                         out.deleted_count,
                         out.freed_bytes,
                         out.skipped_recent_count,
                     )),
                     Err(error) => {
                         log::warn!("[ui] attachments.sweepUnreferencedImages failed: {error}");
-                        Notification::error(SharedString::from(format!(
+                        Toast::error(format!(
                             "Could not sweep unreferenced images: {error}"
-                        )))
+                        ))
                     }
                 };
                 let _ = handle.update(cx, |_, window, cx| {
-                    window.push_notification(note, cx);
+                    crate::toast::show(note, window, cx);
                 });
             })
             .detach();

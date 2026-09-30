@@ -34,9 +34,8 @@ use gpui_component::{
     h_flex,
     input::{InputEvent, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
-    notification::Notification,
     scroll::{Scrollbar, ScrollbarAxis},
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use serde::{Deserialize, Serialize};
 use sync::Store;
@@ -517,11 +516,9 @@ impl CreateBoardDialogView {
                             // The notification lands on the OPENER — this
                             // window is about to be gone.
                             native_dialog::close_then(window, cx, |window, cx| {
-                                window.push_notification(
-                                    Notification::warning(
-                                        "Board limit reached. Upgrade on the web to \
-                                         create more.",
-                                    ),
+                                crate::toast::warning(
+                                    "Board limit reached. Upgrade on the web to create more.",
+                                    window,
                                     cx,
                                 );
                             });

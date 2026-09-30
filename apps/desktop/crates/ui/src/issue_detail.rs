@@ -28,6 +28,7 @@
 //! `status='duplicate'`; "Unmark duplicate" clears the link and the server
 //! restores the prior status.
 
+use crate::toast::Toast;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -43,9 +44,8 @@ use gpui_component::{
     button::ButtonVariant,
     h_flex,
     input::{self, InputEvent, InputState, Textarea, TextareaState},
-    notification::Notification,
     text::TextView,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use sync::Store;
 
@@ -2009,11 +2009,11 @@ impl IssueDetailView {
                     Ok(path) => cx.open_with_system(&path),
                     Err(error) => {
                         log::warn!("[ui] attachment open failed for {attachment_id}: {error}");
-                        let note = Notification::error(SharedString::from(format!(
+                        let note = Toast::error(format!(
                             "Could not open {label}: {error}"
-                        )));
+                        ));
                         let _ = handle.update(cx, |_, window, cx| {
-                            window.push_notification(note, cx);
+                            crate::toast::show(note, window, cx);
                         });
                     }
                 }
@@ -2073,11 +2073,11 @@ impl IssueDetailView {
                     // The row stays — the delete simply did not happen; the
                     // Electric echo is what removes a row that DID.
                     log::warn!("[ui] attachments.delete({attachment_id}) failed: {error}");
-                    let note = Notification::error(SharedString::from(format!(
+                    let note = Toast::error(format!(
                         "Could not delete {label}: {error}"
-                    )));
+                    ));
                     let _ = handle.update(cx, |_, window, cx| {
-                        window.push_notification(note, cx);
+                        crate::toast::show(note, window, cx);
                     });
                 }
             })

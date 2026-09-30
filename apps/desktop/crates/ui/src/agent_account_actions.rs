@@ -18,7 +18,7 @@
 //! first, before hiding the row.
 
 use gpui::{App, SharedString, Window};
-use gpui_component::{button::ButtonVariant, notification::Notification, WindowExt as _};
+use gpui_component::{button::ButtonVariant};
 
 use coding::CodingAgent;
 
@@ -51,16 +51,12 @@ pub(crate) fn use_account_here(
         // re-probe — so "Set as default" means one thing whether it was asked
         // for on this device or from another client.
         match crate::device_sync::use_agent_profile_here(agent, &profile_id, cx) {
-            Ok(()) => window.push_notification(
-                Notification::success(SharedString::from(format!(
-                    "{} now runs as this account here.",
-                    agent.label()
-                ))),
+            Ok(()) => crate::toast::success(
+                format!("{} now runs as this account here.", agent.label()),
+                window,
                 cx,
             ),
-            Err(err) => {
-                window.push_notification(Notification::error(SharedString::from(err)), cx)
-            }
+            Err(err) => crate::toast::error(err, window, cx),
         }
         return;
     }
@@ -81,17 +77,12 @@ pub(crate) fn use_account_here(
             })
             .await;
         let _ = handle.update(cx, |_, window, cx| match result {
-            Ok(_) => window.push_notification(
-                Notification::success(SharedString::from(format!(
-                    "{device_label} will run {} as this account.",
-                    agent.label()
-                ))),
+            Ok(_) => crate::toast::success(
+                format!("{device_label} will run {} as this account.", agent.label()),
+                window,
                 cx,
             ),
-            Err(err) => window.push_notification(
-                Notification::error(SharedString::from(err.user_message())),
-                cx,
-            ),
+            Err(err) => crate::toast::error(err.user_message(), window, cx),
         });
     })
     .detach();
@@ -238,15 +229,10 @@ fn confirmed_account_change(change: AccountChange, window: &mut Window, cx: &mut
                     crate::device_sync::sign_out_agent_profile_here(agent, &profile_id, cx)
                 };
                 match outcome {
-                    Ok(()) => window.push_notification(
-                        Notification::success(SharedString::from(format!(
-                            "{account_label} {local_done}"
-                        ))),
-                        cx,
-                    ),
-                    Err(err) => {
-                        window.push_notification(Notification::error(SharedString::from(err)), cx)
+                    Ok(()) => {
+                        crate::toast::success(format!("{account_label} {local_done}"), window, cx)
                     }
+                    Err(err) => crate::toast::error(err, window, cx),
                 }
                 return true;
             }
@@ -269,16 +255,10 @@ fn confirmed_account_change(change: AccountChange, window: &mut Window, cx: &mut
                     })
                     .await;
                 let _ = handle.update(cx, |_, window, cx| match result {
-                    Ok(_) => window.push_notification(
-                        Notification::success(SharedString::from(format!(
-                            "{device_label} {remote_done}"
-                        ))),
-                        cx,
-                    ),
-                    Err(err) => window.push_notification(
-                        Notification::error(SharedString::from(err.user_message())),
-                        cx,
-                    ),
+                    Ok(_) => {
+                        crate::toast::success(format!("{device_label} {remote_done}"), window, cx)
+                    }
+                    Err(err) => crate::toast::error(err.user_message(), window, cx),
                 });
             })
             .detach();

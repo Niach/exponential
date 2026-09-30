@@ -37,8 +37,7 @@ use gpui::{
 use gpui_component::{
     h_flex,
     input::{InputEvent, TextareaState},
-    notification::Notification,
-    v_flex, ActiveTheme as _, Icon, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use sync::Store;
 
@@ -733,12 +732,7 @@ impl IssueTimeline {
                     Err(error) => {
                         log::warn!("[ui] comments.create failed: {error}");
                         this.note_attachment_failure(scope, &error);
-                        window.push_notification(
-                            Notification::error(SharedString::from(format!(
-                                "Could not post {what}: {error}"
-                            ))),
-                            cx,
-                        );
+                        crate::toast::error(format!("Could not post {what}: {error}"), window, cx);
                     }
                 }
                 cx.notify();
@@ -1111,12 +1105,7 @@ impl IssueTimeline {
                         if let Some(editing) = this.editing.as_mut() {
                             editing.saving = false;
                         }
-                        window.push_notification(
-                            Notification::error(SharedString::from(format!(
-                                "Could not save comment: {error}"
-                            ))),
-                            cx,
-                        );
+                        crate::toast::error(format!("Could not save comment: {error}"), window, cx);
                     }
                 }
                 cx.notify();

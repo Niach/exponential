@@ -172,6 +172,7 @@ mod text_selection_guard;
 mod worktree_prune;
 mod trunk_sync;
 mod timeline;
+mod toast;
 mod title_bar;
 mod undock;
 mod usage_bar;

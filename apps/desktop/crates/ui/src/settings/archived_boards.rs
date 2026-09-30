@@ -21,9 +21,9 @@ use gpui::{
 };
 use gpui_component::{
     h_flex,
-    notification::Notification,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
+use crate::toast::Toast;
 use sync::Store;
 
 use api::boards::ArchivedBoard;
@@ -155,11 +155,11 @@ impl ArchivedBoardsPane {
             });
             if let Err(error) = result {
                 log::warn!("[ui] boards.unarchive({board_id}) failed: {error}");
-                let note = Notification::error(SharedString::from(format!(
+                let note = Toast::error(format!(
                     "Could not unarchive {board_name}: {error}"
-                )));
+                ));
                 let _ = handle.update(cx, |_, window, cx| {
-                    window.push_notification(note, cx);
+                    crate::toast::show(note, window, cx);
                 });
             }
         })

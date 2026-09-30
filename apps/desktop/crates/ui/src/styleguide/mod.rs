@@ -87,14 +87,11 @@ mod tests {
         }
     }
 
-    /// EXP-1030: the entries are FILLED now — every one of them draws its own
-    /// demo, and `toast` is the single placeholder left (EXP-1031 owns it and
-    /// fills it in its own node). Every entry still names a real owner, and
-    /// the placeholder still says whose it is, which is the only thing a
-    /// placeholder ever has to do.
+    /// EXP-1030/EXP-1031: every entry is FILLED — each draws its own demo
+    /// (`toast` was the last placeholder) and names a real owner.
     #[test]
-    fn every_entry_is_filled_except_the_one_placeholder() {
-        const PLACEHOLDERS: [&str; 1] = ["toast"];
+    fn every_entry_is_filled() {
+        const PLACEHOLDERS: [&str; 0] = [];
         for entry in entries::ENTRIES {
             assert!(entry.owner.starts_with("EXP-"), "{}", entry.id);
         }
@@ -103,8 +100,7 @@ mod tests {
             .filter(|entry| entries::is_placeholder(entry.id))
             .map(|entry| entry.id)
             .collect();
-        assert_eq!(placeholders, PLACEHOLDERS, "only `toast` is still a placeholder");
-        // The placeholder's one job: say whose it is.
+        assert_eq!(placeholders, PLACEHOLDERS, "no entry is a placeholder");
         assert_eq!(owner_of("toast").as_deref(), Some("EXP-1031"));
     }
 

@@ -18,8 +18,7 @@ use gpui::{
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{InputEvent, InputState};
 use gpui_component::{
-    h_flex, notification::Notification, v_flex, ActiveTheme as _, Icon, Sizable as _,
-    WindowExt as _,
+    h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use gpui_markdown_editor::{
     DismissTransientUi, FocusNext, FocusPrev, FormatCommand, ImageSourceResolution, IndentBlock,
@@ -720,10 +719,7 @@ impl WysiwygDescription {
         self.staged
             .retain(|other| other.draft_url != staged.draft_url);
         self.delete_image(&staged.draft_url, window, cx);
-        window.push_notification(
-            Notification::error(SharedString::from(format!("Image upload failed: {error}"))),
-            cx,
-        );
+        crate::toast::error(format!("Image upload failed: {error}"), window, cx);
     }
 
     /// EXP-878: append `fragment` as its own paragraph at the BOTTOM of the
