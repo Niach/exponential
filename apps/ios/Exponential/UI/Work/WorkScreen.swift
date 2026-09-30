@@ -617,7 +617,14 @@ struct WorkScreen: View {
                 // edge, left of `…` / Stop, on EVERY face, in the bar's own
                 // capsule like `…`. Always mounted (EXP-942: an action-edge
                 // item that comes and goes sometimes failed to reappear).
-                ToolbarItem(placement: .topBarTrailing) { prGraphBadge }
+                // Borderless like everywhere else: on iOS 26 the bar would
+                // otherwise fuse it with `…` into one shared capsule.
+                if #available(iOS 26.0, *) {
+                    ToolbarItem(placement: .topBarTrailing) { prGraphBadge }
+                        .sharedBackgroundVisibility(.hidden)
+                } else {
+                    ToolbarItem(placement: .topBarTrailing) { prGraphBadge }
+                }
                 // EXP-942: Stop / Resume is its OWN bar item, so the system
                 // gives it its own capsule instead of merging it with the
                 // `…` menu into one shared shape. Mounted for the whole Run
