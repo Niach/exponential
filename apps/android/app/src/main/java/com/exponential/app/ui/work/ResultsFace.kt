@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
@@ -49,6 +50,8 @@ import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.size.Size
 import com.exponential.app.domain.SessionResultEntry
 import com.exponential.app.domain.SessionResultGroup
 import com.exponential.app.domain.sessionResultIsTall
@@ -248,12 +251,15 @@ private fun TallTileImage(entry: SessionResultEntry, tileHeight: Int, modifier: 
 }
 
 /** The shot at full size, in app: dark scrim, FIT so nothing is cropped away,
- *  a tap anywhere (or Back) closes it. A TALL shot (EXP-1128) instead fits to
- *  WIDTH and scrolls; only Close and Back dismiss it, since a scrim tap would
- *  fight the scroll. */
+ *  a tap anywhere (or Back) closes it. EXP-1149: the picture pinch-zooms and
+ *  pans (`ZoomableBox`, double tap toggles), decoded at its ORIGINAL size so a
+ *  zoomed view stays sharp; zoomed, only Close, Back or a double tap leave.
+ *  A TALL shot (EXP-1128) instead fits to WIDTH and scrolls; only Close and
+ *  Back dismiss it, since a scrim tap would fight the scroll. */
 @Composable
 private fun ResultPreviewDialog(entry: SessionResultEntry, onDismiss: () -> Unit) {
     val tall = sessionResultIsTall(entry)
+    val context = LocalContext.current
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
@@ -261,19 +267,36 @@ private fun ResultPreviewDialog(entry: SessionResultEntry, onDismiss: () -> Unit
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.92f))
-                .then(if (tall) Modifier else Modifier.clickable(onClick = onDismiss).testTag("work-result-preview")),
+                .background(Color.Black.copy(alpha = 0.92f)),
             contentAlignment = Alignment.Center,
         ) {
             if (tall) {
                 TallImageScroll(entry)
             } else {
-                AsyncImage(
-                    model = sessionResultImageUrl(entry),
-                    contentDescription = entry.label,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize().padding(12.dp),
-                )
+                val width = entry.width
+                val height = entry.height
+                val aspect = if (width != null && height != null && width > 0 && height > 0) {
+                    width.toFloat() / height.toFloat()
+                } else {
+                    null
+                }
+                ZoomableBox(
+                    modifier = Modifier.fillMaxSize().testTag("work-result-preview"),
+                    contentAspect = aspect,
+                    onTap = onDismiss,
+                ) {
+                    AsyncImage(
+                        model = remember(entry.attachmentId) {
+                            ImageRequest.Builder(context)
+                                .data(sessionResultImageUrl(entry))
+                                .size(Size.ORIGINAL)
+                                .build()
+                        },
+                        contentDescription = entry.label,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
             }
             IconButton(
                 onClick = onDismiss,
