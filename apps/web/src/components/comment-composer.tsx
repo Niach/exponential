@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react"
-import { toast } from "sonner"
 import type { Attachment, User } from "@/db/schema"
 import { MAX_COMMENT_ATTACHMENTS } from "@/lib/domain"
 import {
@@ -33,6 +32,7 @@ import {
   Composer,
   ComposerSubmit,
   ComposerTool,
+  toast,
 } from "@exp/ui"
 import {
   MentionTextarea,

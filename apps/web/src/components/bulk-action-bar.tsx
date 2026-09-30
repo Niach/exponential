@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
 import { useNavigate, useParams } from "@tanstack/react-router"
-import { toast } from "sonner"
 import { Flag, Trash2, X } from "lucide-react"
 import type { Issue, Label, User } from "@/db/schema"
 import {
@@ -24,6 +23,7 @@ import {
   DropdownMenuTrigger,
   Separator,
   UserAvatar,
+  toast,
 } from "@exp/ui"
 import { useChromeHeightVar } from "@/hooks/use-chrome-height-var"
 import { useMobileChrome } from "@/hooks/use-mobile-chrome"

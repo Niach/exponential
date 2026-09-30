@@ -52,10 +52,9 @@ struct IssueListView: View {
     @State private var inlineEdit: InlineEdit?
     /// EXP-980: the issue whose blocks mini-graph is up (a row badge tap).
     @State private var blocksTarget: IssueGraphTarget?
-    // Transient feedback under/instead of the bar: no desktop online, relay
-    // off. Auto-clears (errors included — the bar is modal enough that a
-    // sticky error would just block the list).
-    @State private var startNotice: StartNotice?
+    // EXP-1031: transient start feedback (no desktop online, relay off, a
+    // refused workflow) is the shared toast now.
+    @Environment(\.toaster) private var toaster
     /// Identifier column floor — fits "EXP-999" in .caption.monospaced at
     /// default Dynamic Type and scales with the user's text size (EXP-24).
     @ScaledMetric(relativeTo: .caption) private var identifierMinWidth: CGFloat = 60
@@ -89,14 +88,11 @@ struct IssueListView: View {
                 }
             }
         }
-        // Floating selection bar + transient start feedback, above the
-        // floating tab bar's zone (EXP-405 — back to the bottom overlay so
-        // entering multi-select never reflows the list).
+        // Floating selection bar, in the floating tab bar's zone (EXP-405 —
+        // back to the bottom overlay so entering multi-select never reflows
+        // the list).
         .overlay(alignment: .bottom) {
             VStack(spacing: 8) {
-                if let notice = startNotice {
-                    noticeCapsule(notice)
-                }
                 if selectionActive, let vm = viewModel {
                     selectionBar(vm)
                 }
@@ -104,9 +100,8 @@ struct IssueListView: View {
             .padding(.horizontal, 16)
             // EXP-698 r5: with a selection live the tab bar has stood down, so
             // the bar drops into ITS slot (the tab pill's own 4pt inset)
-            // instead of floating a second bar above it. Without a selection
-            // the notices still clear the bar.
-            .padding(.bottom, showsTabBarClearance ? (selectionActive ? 4 : 92) : 16)
+            // instead of floating a second bar above it.
+            .padding(.bottom, showsTabBarClearance ? 4 : 16)
         }
         // The selection bar and the tab bar share one slot: entering
         // multi-select slides the tab bar out, leaving it brings it back.
@@ -1063,18 +1058,6 @@ struct IssueListView: View {
         Task { await vm.bulkSetAssignee(issueIds: ids, assigneeId: assigneeId) }
     }
 
-    @ViewBuilder
-    private func noticeCapsule(_ notice: StartNotice) -> some View {
-        Text(notice.message)
-            .font(.caption)
-            .foregroundStyle(notice.isError ? DesignTokens.Semantic.red : .white.opacity(TextOpacity.secondary))
-            .multilineTextAlignment(.center)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .glassCard(cornerRadius: 14, isOpaque: true)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-    }
-
     /// EXP-825: Start coding is NAVIGATION — the Agent page composer with
     /// the selection pre-checked (in list order), the selection cleared on
     /// the way. The relay-off and no-machine cases still caption the bar:
@@ -1082,11 +1065,10 @@ struct IssueListView: View {
     private func startCodingTapped() {
         guard let devices = steerDevices else { return } // presence still resolving
         guard steerEnabled == true, !devices.isEmpty else {
-            showNotice(
+            toaster.error(
                 steerEnabled == true
                     ? "No desktop online. Open the Exponential desktop app to run here."
-                    : "Remote start isn't available on this server.",
-                isError: true
+                    : "Remote start isn't available on this server."
             )
             return
         }
@@ -1095,7 +1077,6 @@ struct IssueListView: View {
         let ids = (viewModel?.displayOrderedIssues ?? [])
             .filter { selectedIds.contains($0.id) }.map(\.id)
         exitSelection()
-        startNotice = nil
         pushRoute(.agent(accountId: accountId, seed: AgentComposerSeed(issueIds: ids)))
     }
 
@@ -1117,7 +1098,6 @@ struct IssueListView: View {
             .filter { selectedIds.contains($0.id) }.map(\.id)
         guard !ids.isEmpty else { return }
         creatingWorkflow = true
-        startNotice = nil
         Task {
             defer { creatingWorkflow = false }
             do {
@@ -1127,21 +1107,7 @@ struct IssueListView: View {
                 exitSelection()
                 pushRoute(.workflow(accountId: accountId, id: workflow.id))
             } catch {
-                showNotice(error.userFacingMessage, isError: true)
-            }
-        }
-    }
-
-    private func showNotice(_ message: String, isError: Bool) {
-        withAnimation(motion.standard) {
-            startNotice = StartNotice(message: message, isError: isError)
-        }
-        Task {
-            try? await Task.sleep(for: .seconds(6))
-            withAnimation(motion.standard) {
-                if startNotice?.message == message {
-                    startNotice = nil
-                }
+                toaster.error(error.userFacingMessage)
             }
         }
     }
@@ -1179,12 +1145,6 @@ private struct TapSuppression {
     let armedAt = ContinuousClock.now
 
     var isExpired: Bool { armedAt.duration(to: ContinuousClock.now) > Self.window }
-}
-
-/// Transient outcome of a selection-bar action (EXP-239).
-private struct StartNotice: Equatable {
-    let message: String
-    let isError: Bool
 }
 
 /// Which bulk-property picker the selection bar has open (EXP-247). Every one

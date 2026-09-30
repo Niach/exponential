@@ -49,6 +49,7 @@ import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.push.PushTokenManager
 import com.exponential.app.ui.components.GroupDivider
+import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.icons.ExpIcons
@@ -547,15 +548,13 @@ fun ServerDetailScreen(
         )
     }
 
-    viewModel.deleteAccountError?.let { error ->
-        AlertDialog(
-            onDismissRequest = { viewModel.deleteAccountError = null },
-            title = { Text("Couldn't delete account") },
-            text = { Text(error) },
-            confirmButton = {
-                TextButton(onClick = { viewModel.deleteAccountError = null }) { Text("OK") }
-            },
-        )
+    // EXP-1031: a failed delete is an error toast, consumed at once.
+    val toaster = LocalToaster.current
+    LaunchedEffect(viewModel.deleteAccountError) {
+        viewModel.deleteAccountError?.let { error ->
+            toaster.error("Couldn't delete account", description = error)
+            viewModel.deleteAccountError = null
+        }
     }
 
     if (showRemoveConfirm) {

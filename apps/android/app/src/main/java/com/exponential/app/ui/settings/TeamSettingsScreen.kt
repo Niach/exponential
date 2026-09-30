@@ -25,8 +25,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -57,6 +55,7 @@ import com.exponential.app.domain.BoardRepoLabel
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.GithubCopy
 import com.exponential.app.ui.components.BoardIcon
+import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.BoardRepoField
 import com.exponential.app.ui.components.GlassDropdownMenu
@@ -215,13 +214,13 @@ fun TeamSettingsScreen(
     viewModel: TeamSettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val snackbarHostState = remember { SnackbarHostState() }
+    val toaster = LocalToaster.current
 
     // Surface transient mutation errors, and pop back once the team is
     // actually deleted (parity with the previous screen's behavior).
     LaunchedEffect(state.transient) {
         state.transient?.let {
-            snackbarHostState.showSnackbar(it)
+            toaster.error(it)
             viewModel.consumeTransient()
         }
     }
@@ -246,7 +245,6 @@ fun TeamSettingsScreen(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = Color.Transparent,
     ) { padding ->
         // One scrolling sectioned screen (iOS TeamSettingsView parity):

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Link } from "@tanstack/react-router"
-import { toast } from "sonner"
 import type { Team } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorCode, trpcErrorMessage } from "@/lib/trpc-error"
@@ -55,6 +54,7 @@ import {
   StatusGlyph,
   categoryStatusIcon,
   conceptIcon,
+  toast,
 } from "@exp/ui"
 
 type ImportJob = Awaited<ReturnType<typeof trpc.imports.get.query>>

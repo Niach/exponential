@@ -1,7 +1,7 @@
 import { createTRPCProxyClient, httpBatchLink, TRPCClientError } from "@trpc/client"
 import type { TRPCLink } from "@trpc/client"
 import { observable } from "@trpc/server/observable"
-import { toast } from "sonner"
+import { toast } from "@exp/ui"
 import {
   reportTransportFailure,
   reportTransportSuccess,

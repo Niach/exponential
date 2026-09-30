@@ -17,14 +17,11 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -44,6 +41,7 @@ import com.exponential.app.data.auth.ServerAccount
 import com.exponential.app.data.db.MultiAccountTeamRepository
 import com.exponential.app.data.db.ServerTeamGroup
 import com.exponential.app.ui.components.GroupDivider
+import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.TeamAvatar
 import com.exponential.app.ui.components.TopBarBackButton
@@ -56,7 +54,6 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
@@ -104,8 +101,7 @@ fun SettingsScreen(
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
     val serverGroups by viewModel.serverGroups.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
+    val toaster = LocalToaster.current
 
     AppBackground {
         Scaffold(
@@ -120,7 +116,6 @@ fun SettingsScreen(
                     ),
                 )
             },
-            snackbarHost = { SnackbarHost(snackbarHostState) },
             containerColor = Color.Transparent,
         ) { padding ->
             Column(
@@ -206,11 +201,7 @@ fun SettingsScreen(
                                 // Neither Play nor a browser: say so rather
                                 // than leave the row looking inert.
                                 if (!PlayStore.openListing(context)) {
-                                    scope.launch {
-                                        snackbarHostState.showSnackbar(
-                                            "Couldn't open Google Play",
-                                        )
-                                    }
+                                    toaster.error("Couldn't open Google Play")
                                 }
                             },
                         )

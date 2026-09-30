@@ -49,8 +49,7 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     menu::{DropdownMenu as _, PopupMenuItem},
-    notification::Notification,
-    ActiveTheme as _, Icon, Sizable as _, WindowExt as _,
+    ActiveTheme as _, Icon, Sizable as _,
 };
 
 use crate::agent_account_actions::DEVICE_SETTINGS;
@@ -1122,8 +1121,7 @@ pub(crate) fn server_install_snippet_box(
                     .tooltip("Copy install command")
                     .on_click(move |_, window, cx| {
                         cx.write_to_clipboard(ClipboardItem::new_string(snippet.clone()));
-                        window
-                            .push_notification(Notification::success("Copied install command"), cx);
+                        crate::toast::success("Copied install command", window, cx);
                     }),
             ),
         )

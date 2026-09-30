@@ -23,13 +23,13 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariant},
     h_flex,
-    notification::Notification,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 
+use crate::toast::Toast;
 use api::users::{SignInMethods, SignInPasskey, SignInProvider};
 
-use crate::controls::{AlertVariant, WebControl as _};
+use crate::controls::WebControl as _;
 use crate::icons::{registry, ExpIcon};
 use crate::native_dialog::{open_alert, AlertSpec};
 use crate::navigation::Navigation;
@@ -46,13 +46,6 @@ enum Load {
     Error(String),
 }
 
-/// A one-line message under the list (web: the toast / inline error).
-#[derive(Clone)]
-struct Notice {
-    error: bool,
-    message: SharedString,
-}
-
 pub struct SignInMethodsSection {
     nav: Entity<Navigation>,
     load: Load,
@@ -64,7 +57,6 @@ pub struct SignInMethodsSection {
     busy: bool,
     /// The provider whose link attempt is waiting on the browser.
     pending_link: Option<String>,
-    notice: Option<Notice>,
     /// Opener-degradation: the link start URL to copy by hand.
     copy_url: Option<SharedString>,
     /// The last [`SignInLinkOutcome::seq`] adopted.
@@ -91,7 +83,6 @@ impl SignInMethodsSection {
             account_id: None,
             busy: false,
             pending_link: None,
-            notice: None,
             copy_url: None,
             outcome_seq,
             _subscriptions: subscriptions,
@@ -103,7 +94,6 @@ impl SignInMethodsSection {
         if matches!(self.load, Load::Ready(_) | Load::Error(_)) {
             self.load = Load::Idle;
         }
-        self.notice = None;
         self.copy_url = None;
         cx.notify();
     }
@@ -116,10 +106,10 @@ impl SignInMethodsSection {
 
     /// The change-email dialog's success: say so, re-read.
     pub(crate) fn email_changed(&mut self, email: &str, cx: &mut gpui::Context<Self>) {
-        self.notice = Some(Notice {
-            error: false,
-            message: format!("Your email is now {email}.").into(),
-        });
+        crate::toast::show_in_active_window(
+            Toast::success(format!("Your email is now {email}.")),
+            cx,
+        );
         self.refetch(cx);
     }
 
@@ -132,7 +122,6 @@ impl SignInMethodsSection {
             self.account_id = account_id;
             self.load = Load::Idle;
             self.pending_link = None;
-            self.notice = None;
             self.copy_url = None;
         }
         if !matches!(self.load, Load::Idle) {
@@ -185,23 +174,18 @@ impl SignInMethodsSection {
         };
         self.pending_link = None;
         self.copy_url = None;
-        self.notice = Some(match result {
+        let toast = match result {
             Ok(provider_id) => {
                 let name = self
                     .methods()
                     .and_then(|methods| methods.providers.iter().find(|p| p.id == provider_id))
                     .map(|provider| provider.name.clone())
                     .unwrap_or(provider_id);
-                Notice {
-                    error: false,
-                    message: format!("{name} linked to your account.").into(),
-                }
+                Toast::success(format!("{name} linked to your account."))
             }
-            Err(message) => Notice {
-                error: true,
-                message,
-            },
-        });
+            Err(message) => Toast::error(message),
+        };
+        crate::toast::show_in_active_window(toast, cx);
         self.refetch(cx);
     }
 
@@ -220,7 +204,6 @@ impl SignInMethodsSection {
         };
         let provider_id = provider.id.clone();
         self.pending_link = Some(provider_id.clone());
-        self.notice = None;
         self.copy_url = None;
         cx.notify();
         cx.spawn(async move |this, cx| {
@@ -238,10 +221,10 @@ impl SignInMethodsSection {
                     Err(err) => {
                         log::warn!("[ui] users.mintSignInLinkTicket failed: {err}");
                         this.pending_link = None;
-                        this.notice = Some(Notice {
-                            error: true,
-                            message: form_error(&err, "Couldn't start linking. Try again.").into(),
-                        });
+                        crate::toast::show_in_active_window(
+                            Toast::error(form_error(&err, "Couldn't start linking. Try again.")),
+                            cx,
+                        );
                         cx.notify();
                         return;
                     }
@@ -265,10 +248,6 @@ impl SignInMethodsSection {
                     // still completes in this process.
                     this.pending_link = None;
                     this.copy_url = Some(url.into());
-                    this.notice = Some(Notice {
-                        error: true,
-                        message: "Couldn't open your browser. Open this link manually:".into(),
-                    });
                 }
                 cx.notify();
             });
@@ -361,7 +340,6 @@ impl SignInMethodsSection {
                 };
                 let _ = section.update(cx, |this, cx| {
                     this.busy = true;
-                    this.notice = None;
                     cx.notify();
                 });
                 let section = section.clone();
@@ -380,10 +358,9 @@ impl SignInMethodsSection {
                     });
                     if let Err(err) = result {
                         log::warn!("[ui] sign-in method removal failed: {err}");
-                        let note =
-                            Notification::error(SharedString::from(form_error(&err, fallback)));
+                        let note = Toast::error(form_error(&err, fallback));
                         let _ = handle.update(cx, |_, window, cx| {
-                            window.push_notification(note, cx);
+                            crate::toast::show(note, window, cx);
                         });
                     }
                 })
@@ -520,52 +497,49 @@ impl SignInMethodsSection {
         )
     }
 
-    fn render_notice(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        let notice = self.notice.clone()?;
-        let variant = if notice.error {
-            AlertVariant::Destructive
-        } else {
-            AlertVariant::Default
-        };
-        Some(
-            crate::controls::alert(variant, None, cx)
-                .child(notice.message)
-                .into_any_element(),
-        )
-    }
-
     fn render_copy_url(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         let url = self.copy_url.clone()?;
         let url_for_copy = url.clone();
+        // The caption stays with the URL it explains; the transient messages
+        // of this section are toasts (EXP-1031).
+        let row = h_flex()
+            .gap_2()
+            .items_center()
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .px_2()
+                    .py_1()
+                    .rounded(cx.theme().radius)
+                    .border_1()
+                    .border_color(super::row_stroke(cx))
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .overflow_x_hidden()
+                    .child(url),
+            )
+            .child(
+                crate::surface::glass_pill_button(
+                    "sign-in-copy-link-url",
+                    crate::surface::PillSize::Sm,
+                    cx,
+                )
+                .label("Copy")
+                .on_click(move |_, _, cx| {
+                    cx.write_to_clipboard(ClipboardItem::new_string(url_for_copy.to_string()));
+                }),
+            );
         Some(
-            h_flex()
-                .gap_2()
-                .items_center()
+            v_flex()
+                .gap_1()
                 .child(
                     div()
-                        .flex_1()
-                        .min_w_0()
-                        .px_2()
-                        .py_1()
-                        .rounded(cx.theme().radius)
-                        .border_1()
-                        .border_color(super::row_stroke(cx))
-                        .text_xs()
+                        .text_sm()
                         .text_color(cx.theme().muted_foreground)
-                        .overflow_x_hidden()
-                        .child(url),
+                        .child("Couldn't open your browser. Open this link manually:"),
                 )
-                .child(
-                    crate::surface::glass_pill_button(
-                        "sign-in-copy-link-url",
-                        crate::surface::PillSize::Sm,
-                        cx,
-                    )
-                    .label("Copy")
-                    .on_click(move |_, _, cx| {
-                        cx.write_to_clipboard(ClipboardItem::new_string(url_for_copy.to_string()));
-                    }),
-                )
+                .child(row)
                 .into_any_element(),
         )
     }
@@ -606,7 +580,6 @@ impl Render for SignInMethodsSection {
                     .map(|(ix, row)| crate::surface::list_row(row, ix));
                 methods_section = methods_section
                     .child(v_flex().w_full().min_w_0().children(list))
-                    .children(self.render_notice(cx))
                     .children(self.render_copy_url(cx));
 
                 if methods.passkeys.is_empty() {

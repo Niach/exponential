@@ -52,7 +52,10 @@ vi.mock(`@/hooks/use-team-issue-graph`, () => ({
 vi.mock(`@/lib/trpc-client`, () => ({
   trpc: { workflows: { create: { mutate: createMutate } } },
 }))
-vi.mock(`sonner`, () => ({ toast: { error: toastError } }))
+vi.mock(`sonner`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("sonner")>()),
+  toast: { error: toastError },
+}))
 
 import { BulkStartCodingControl } from "@/components/bulk-action-bar"
 

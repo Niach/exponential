@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { boardCollection } from "@/lib/collections"
-import { BoardPicker, conceptIcon, Pill, BoardGlyph } from "@exp/ui"
+import { BoardPicker, conceptIcon, Pill, BoardGlyph, toast } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import { toIssueDescription, type IssuePriority } from "@/lib/domain"
 import { useTeamLabels } from "@/hooks/use-team-data"
@@ -26,7 +26,6 @@ import {
   prepareMediaUpload,
   uploadDraftMediaFile,
 } from "@/lib/storage/media-upload"
-import { toast } from "sonner"
 import {
   isInlineImageAttachment,
   isInlineMediaAttachment,

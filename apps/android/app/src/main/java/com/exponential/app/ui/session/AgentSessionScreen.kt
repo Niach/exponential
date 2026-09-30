@@ -231,7 +231,7 @@ import com.exponential.app.ui.components.ComposerSubmitButton
 import com.exponential.app.ui.components.DEFAULT_AGENT
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GroupDivider
-import com.exponential.app.ui.components.GlassNotice
+import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.SegmentedTrack
 import com.exponential.app.ui.components.contextToneColor
 import com.exponential.app.ui.components.agentIconPainter
@@ -317,7 +317,6 @@ private const val DEVICE_OFFLINE_DETAIL =
 /** EXP-1051: how long the Usage sheet's transient notice (a refused account
  *  switch) stays up — long enough to read one sentence, short enough that it
  *  never becomes the standing caption it replaced. */
-private const val USAGE_NOTICE_MS = 2_500L
 
 /**
  * EXP-550: the phases whose caption is "we are waiting for the publisher" —
@@ -657,16 +656,10 @@ private fun RunFaceContent(
     // EXP-1051: the context-window legend is folded by default — the bar and
     // its headline are the glance, the per-layer numbers the follow-up.
     var contextLayoutExpanded by rememberSaveable { mutableStateOf(false) }
-    // EXP-1051: the sheet's transient line — a refused account switch says why
-    // when its disabled control is tapped, instead of a permanent caption under
-    // every row that cannot move right now.
-    var usageNotice by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(usageNotice) {
-        if (usageNotice != null) {
-            delay(USAGE_NOTICE_MS)
-            usageNotice = null
-        }
-    }
+    // EXP-1051/EXP-1031: a refused account switch says why when its disabled
+    // control is tapped, as an error toast — the toast window draws above the
+    // Usage sheet, so it is no longer an inline line inside it.
+    val toaster = LocalToaster.current
 
     // EXP-656: the reader's place in the feed lives at the FACE level, not
     // inside ActivityFeed. Held there, a single frame of empty feed flipped the
@@ -1606,15 +1599,9 @@ private fun RunFaceContent(
                             // EXP-1051: a refused row no longer carries its
                             // reason as a permanent caption — tapping the
                             // disabled control says it, once.
-                            onRefused = { usageNotice = it },
+                            onRefused = { toaster.error(it) },
                         )
                     }
-                }
-                // EXP-1051: the sheet's ONE transient line, where the
-                // permanent COST_NOTE footer used to sit — the refusal a
-                // disabled switch was just tapped for.
-                usageNotice?.let { notice ->
-                    GlassNotice(text = notice, modifier = Modifier.fillMaxWidth())
                 }
                 Spacer(Modifier.height(8.dp))
             }

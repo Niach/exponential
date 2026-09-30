@@ -18,6 +18,7 @@
 //! collections ([`RefResolver`]) — re-resolved on every render, so a pill
 //! that could not resolve yet lights up once its issue syncs (§4.5).
 
+use crate::toast::Toast;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
@@ -36,14 +37,13 @@ use gpui::{
 };
 use gpui_base::{TextSelectionHandle, TextSelectionRegistration, TextSelectionRun};
 use gpui_component::input::{self, InputEvent, InputState, Position, Textarea, TextareaState};
-use gpui_component::notification::Notification;
 use gpui_component::text::TextView;
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     menu::{ContextMenuExt as _, PopupMenuItem},
     scroll::{Scrollbar, ScrollbarAxis},
-    v_flex, ActiveTheme as _, Icon, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 
 use super::image_url;
@@ -442,19 +442,19 @@ pub(crate) fn download_image(
             })
             .await;
         let note = match result {
-            Ok(()) => Notification::info(SharedString::from(format!(
+            Ok(()) => Toast::info(format!(
                 "Saved to {}",
                 path.display()
-            ))),
+            )),
             Err(error) => {
                 log::warn!("attachment download failed for {url}: {error}");
-                Notification::error(SharedString::from(format!(
+                Toast::error(format!(
                     "Download failed: {error}"
-                )))
+                ))
             }
         };
         let _ = handle.update(cx, |_, window, cx| {
-            window.push_notification(note, cx);
+            crate::toast::show(note, window, cx);
         });
     })
     .detach();

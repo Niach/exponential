@@ -103,7 +103,7 @@ struct DeviceSettingsSheet: View {
     @State private var savingDefaults = false
     @State private var defaultsSaveTask: Task<Void, Never>?
     @State private var defaultsPending = false
-    @State private var errorMessage: String?
+    @Environment(\.toaster) private var toaster
     /// EXP-1029: the machine's stored WORKFLOW pair, held raw (`""` = nothing
     /// stored). What the page renders and what a save sends is the RESOLVED
     /// pair — `DeviceWorkflowSettings` clamps it to the default agent's
@@ -158,14 +158,6 @@ struct DeviceSettingsSheet: View {
                             updateSection(device)
                         }
                         removeSection(device)
-                        if let errorMessage {
-                            Section {
-                                Text(errorMessage)
-                                    .font(.caption)
-                                    .foregroundStyle(DesignTokens.Semantic.red)
-                            }
-                            .listRowBackground(glassFormRowFill)
-                        }
                     }
                     // EXP-603: the sheet's own background shows through the
                     // grouped list; rows carry the glass fill.
@@ -356,7 +348,6 @@ struct DeviceSettingsSheet: View {
 
     private func saveIcon(_ icon: String) {
         iconPick = icon
-        errorMessage = nil
         let api = deps.devicesApi
         let account = accountId
         let id = deviceId
@@ -366,10 +357,10 @@ struct DeviceSettingsSheet: View {
             do {
                 try await api.setIcon(accountId: account, deviceId: id, icon: icon)
             } catch {
-                // Revert to the row's own glyph and say so, on the sheet's ONE
-                // error line — the same surface a failed rename uses.
+                // Revert to the row's own glyph and say so, as the error toast
+                // a failed rename raises too (EXP-1031).
                 if iconPick == icon { iconPick = nil }
-                errorMessage = error.userFacingMessage
+                toaster.error(error.userFacingMessage)
             }
         }
     }
@@ -410,7 +401,6 @@ struct DeviceSettingsSheet: View {
             return
         }
         savingName = true
-        errorMessage = nil
         let api = deps.devicesApi
         let account = accountId
         let id = deviceId
@@ -424,7 +414,7 @@ struct DeviceSettingsSheet: View {
                 // debounce owns the pending flag.
                 if trimmedName == label { namePending = false }
             } catch {
-                errorMessage = error.localizedDescription
+                toaster.error(error.localizedDescription)
             }
             savingName = false
         }
@@ -453,14 +443,13 @@ struct DeviceSettingsSheet: View {
 
     private func saveDefaultDevice(isDefault: Bool) {
         savingDefaultDevice = true
-        errorMessage = nil
         Task {
             do {
                 try await deps.devicesApi.setDefault(
                     accountId: accountId, deviceId: deviceId, isDefault: isDefault
                 )
             } catch {
-                errorMessage = error.localizedDescription
+                toaster.error(error.localizedDescription)
             }
             savingDefaultDevice = false
         }
@@ -492,14 +481,13 @@ struct DeviceSettingsSheet: View {
 
     private func saveShare(teamId: String, shared: Bool) {
         savingShare = true
-        errorMessage = nil
         Task {
             do {
                 try await deps.devicesApi.setShared(
                     accountId: accountId, deviceId: deviceId, teamId: teamId, shared: shared
                 )
             } catch {
-                errorMessage = error.localizedDescription
+                toaster.error(error.localizedDescription)
             }
             savingShare = false
         }
@@ -776,7 +764,6 @@ struct DeviceSettingsSheet: View {
         )
         defaultsPending = false
         savingDefaults = true
-        errorMessage = nil
         let api = deps.devicesApi
         let account = accountId
         let id = deviceId
@@ -787,7 +774,7 @@ struct DeviceSettingsSheet: View {
                     accountId: account, deviceId: id, launchDefaults: payload
                 )
             } catch {
-                errorMessage = error.localizedDescription
+                toaster.error(error.localizedDescription)
                 defaultsPending = true
             }
             savingDefaults = false
@@ -880,7 +867,6 @@ struct DeviceSettingsSheet: View {
     /// Ask the daemon to self-update. EXP-481: the outcome lands via sync (the
     /// devices shape), so this only has to report a failure.
     private func requestUpdate() {
-        errorMessage = nil
         updateRequested = true
         Task {
             do {
@@ -888,7 +874,7 @@ struct DeviceSettingsSheet: View {
                     accountId: accountId, deviceId: deviceId
                 )
             } catch {
-                errorMessage = error.userFacingMessage
+                toaster.error(error.userFacingMessage)
             }
             updateRequested = false
         }
@@ -921,7 +907,6 @@ struct DeviceSettingsSheet: View {
 
     private func removeDevice() {
         confirmingRemove = false
-        errorMessage = nil
         let api = deps.devicesApi
         let account = accountId
         let id = deviceId
@@ -931,7 +916,7 @@ struct DeviceSettingsSheet: View {
             do {
                 try await api.remove(accountId: account, deviceId: id)
             } catch {
-                errorMessage = error.userFacingMessage
+                toaster.error(error.userFacingMessage)
             }
         }
     }

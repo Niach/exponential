@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react"
 import { LoaderCircle, Sparkles } from "lucide-react"
-import { conceptIcon, Button, Input } from "@exp/ui"
+import { conceptIcon, Button, Input, toast } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import { isPlanLimitError } from "@/lib/plan-limit-error"
-import { toast } from "sonner"
 import { ONBOARDING_COPY } from "@/components/onboarding/onboarding-copy"
 import { StepCard, stepAdvanceLabel } from "@/components/onboarding/step-card"
 

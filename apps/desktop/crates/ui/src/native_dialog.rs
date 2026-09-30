@@ -972,11 +972,11 @@ impl Render for DialogShell {
         };
 
         // Popover/menu/notification overlay layers — same composition rule as
-        // `Shell::render`; without them chip dropdowns and `push_notification`
+        // `Shell::render`; without them chip dropdowns and `toast::show`
         // would silently never paint in this window.
         let sheet_layer = Root::render_sheet_layer(window, cx);
         let dialog_layer = Root::render_dialog_layer(window, cx);
-        let notification_layer = Root::render_notification_layer(window, cx);
+        let toast_layer = crate::toast::render_layer(window, cx);
         // EXP-771: the body fill paints to the bottom window edge, so it has
         // to carry the frame's bottom radii itself — same rule (and same
         // reason) as `round_to_frame` on the gradient root below.
@@ -1048,7 +1048,7 @@ impl Render for DialogShell {
                 .child(crate::text_selection_guard::selection_guard())
                 .children(sheet_layer)
                 .children(dialog_layer)
-                .children(notification_layer),
+                .child(toast_layer),
         )
     }
 }

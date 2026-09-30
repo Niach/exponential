@@ -7,8 +7,7 @@ import {
   Minus,
   Plus,
 } from "lucide-react"
-import { toast } from "sonner"
-import { Button, GlassGroup, Pill, Input, Label, Switch } from "@exp/ui"
+import { Button, GlassGroup, Pill, Input, Label, Switch, toast } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import type { PlanTier } from "@/lib/billing"
 import {

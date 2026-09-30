@@ -18,6 +18,7 @@ struct WorkflowDetailView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.pushRoute) private var pushRoute
+    @Environment(\.toaster) private var toaster
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
 
@@ -117,9 +118,13 @@ struct WorkflowDetailView: View {
             model?.rename(nameDraft)
             model?.stop()
         }
-        .noticeToast(
-            Binding(get: { model?.error }, set: { model?.error = $0 }), isError: true
-        )
+        // EXP-1031: a refused action is the shared error toast; the model's
+        // `error` is a one-shot hand-off, cleared once shown.
+        .onChange(of: model?.error) { _, message in
+            guard let message else { return }
+            toaster.error(message)
+            model?.error = nil
+        }
         .glassMenuOverlay(isPresented: $menuOpen, anchor: menuAnchor, presentation: .inline) {
             overflowItems
         }

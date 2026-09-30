@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { trpc } from "@/lib/trpc-client"
 import { authClient } from "@/lib/auth/client"
 import { authErrorMessage } from "@/lib/auth/error-messages"
@@ -18,6 +18,7 @@ import {
   ListRow,
   SETTINGS_LIST_CLASS,
   conceptIcon,
+  toast,
 } from "@exp/ui"
 import type { SignInMethods, SignInProvider } from "@/lib/auth/sign-in-methods"
 
@@ -38,6 +39,11 @@ function formatDate(value: string | null): string {
 }
 
 type Notice = { tone: `ok` | `error`; text: string }
+
+function showNotice(notice: Notice) {
+  if (notice.tone === `error`) toast.error(notice.text)
+  else toast.success(notice.text)
+}
 
 function noticeFromReturn(
   linkReturn: LinkReturn,
@@ -79,13 +85,9 @@ export function SignInMethodsSection({
 }) {
   const [methods, setMethods] = useState<SignInMethods>(initialMethods)
   const [error, setError] = useState(``)
-  // Inline, not a toast: the settings pages carry their outcomes in place,
-  // and a toast fired during the first render is lost before the Toaster
-  // subscribes. Read once from the arrival URL, kept in state so stripping
-  // the params (below) does not take it away.
-  const [notice, setNotice] = useState<Notice | null>(() =>
-    noticeFromReturn(linkReturn, initialMethods.providers)
-  )
+  // The arrival outcome toasts ONCE (StrictMode re-runs effects, and
+  // stripping the params below re-renders with an empty return).
+  const arrivalToasted = useRef(false)
   const [pendingLink, setPendingLink] = useState<string | null>(null)
   const [unlinkTarget, setUnlinkTarget] = useState<SignInProvider | null>(null)
   const [unlinking, setUnlinking] = useState(false)
@@ -101,9 +103,16 @@ export function SignInMethodsSection({
   }
 
   // The provider round-trip lands back here: the loader already fetched the
-  // post-link state; strip the params so a reload does not repeat the notice.
+  // post-link state. Toast the outcome (the root mounts the Toaster BEFORE
+  // the route tree, so it is already subscribed), then strip the params so
+  // a reload does not repeat it.
   useEffect(() => {
     if (!linkReturn.linked && !linkReturn.linkError) return
+    if (!arrivalToasted.current) {
+      arrivalToasted.current = true
+      const notice = noticeFromReturn(linkReturn, initialMethods.providers)
+      if (notice) showNotice(notice)
+    }
     onLinkReturnConsumed()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [linkReturn.linked, linkReturn.linkError])
@@ -114,7 +123,6 @@ export function SignInMethodsSection({
     if (pendingLink) return
     setPendingLink(provider.id)
     setError(``)
-    setNotice(null)
     const callbackURL = `${accountPath}?linked=${encodeURIComponent(provider.id)}`
     const errorCallbackURL = `${accountPath}?link_error=1`
     try {
@@ -147,13 +155,11 @@ export function SignInMethodsSection({
     setUnlinkError(``)
     try {
       await trpc.users.unlinkSignInMethod.mutate({ providerId: unlinkTarget.id })
-      setNotice({
-        tone: `ok`,
-        text:
-          unlinkTarget.kind === `password`
-            ? `Password removed.`
-            : `${unlinkTarget.name} unlinked.`,
-      })
+      toast.success(
+        unlinkTarget.kind === `password`
+          ? `Password removed.`
+          : `${unlinkTarget.name} unlinked.`
+      )
       setUnlinkTarget(null)
       await refresh()
     } catch (err) {
@@ -248,18 +254,6 @@ export function SignInMethodsSection({
         })}
       </div>
       {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
-      {notice && (
-        <p
-          className={
-            notice.tone === `error`
-              ? `mt-2 text-sm text-destructive`
-              : `mt-2 text-sm text-muted-foreground`
-          }
-          role="status"
-        >
-          {notice.text}
-        </p>
-      )}
 
       <ChangeEmailDialog
         open={changeOpen}
@@ -267,7 +261,7 @@ export function SignInMethodsSection({
         onOpenChange={setChangeOpen}
         onChanged={(email) => {
           setMethods((prev) => ({ ...prev, email, emailVerified: true }))
-          setNotice({ tone: `ok`, text: `Your email is now ${email}.` })
+          toast.success(`Your email is now ${email}.`)
         }}
       />
 

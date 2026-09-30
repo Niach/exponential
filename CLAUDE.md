@@ -22,13 +22,13 @@ packages/
 ├── db-schema/ # Drizzle schema + shared zod/domain types
 ├── ui/ # @exp/ui: theme + shadcn set + shared primitives + islands
 ├── design-tokens/ # OKLCH→sRGB + motion tokens → Compose/SwiftUI/Rust
-├── domain-contract/ # contract.json — canonical enums → per-language constants
-├── icons/ # icons.json — the ONE icon registry → TS/Swift/Kotlin/Rust
+├── domain-contract/ # contract.json—canonical enums → per-language constants
+├── icons/ # icons.json—the ONE icon registry → TS/Swift/Kotlin/Rust
 ├── electric-protocol/ # Shape wire contract + fixtures
 ├── emoji/ # emoji dataset → ONE json ×4
 ├── steer-ticket/ # HS256 ticket (web mints, relay verifies)
 ├── widget/ # Feedback widget (Preact + snapDOM)
-├── view-catalog/ # views.json — every view × platform, drift-gated
+├── view-catalog/ # views.json—every view × platform, drift-gated
 ├── shots/ # capture pipeline → shots/
 └── tsconfig/
 docs/ # third-party-licences.md + licences/
@@ -97,11 +97,11 @@ After schema changes: `bun run migrate:generate && bun run migrate`. Custom trig
 
 ## Web App Structure (`apps/web/src/`)
 
-The shadcn set, theme `styles.css`, `cn`, icon registry and shared primitives (`IssueChip`, `UserAvatar`, `LiveDot`, `StatusGlyph`, `Pill`, rows) = `@exp/ui` (`packages/ui/src`; `@exp/ui/island` = shadow-root islands for styleguide + marketing); app compositions stay flat in `components/` (`agent-session.tsx` = the steer/activity view). `lib/trpc/` = one file per router (`routes/api/trpc/$.ts` lists them). `lib/auth/membership.ts` = data lookups; `access.ts` = authorization. `lib/notification-email-policy.ts`/`-digest.ts`: push fires on create, email = a DIGEST of still-unread (DAILY at a user-chosen local hour, hourly legacy opt-in, atomic `emailed_at` claim; `server-bun.ts` schedules). EXP-801: MCP `exponential_notifications_send` = issue-less team-scoped `agent_message` row + push to members/self (one inbox row each ×4); prefs `allow_agent_messages=false` BLOCKS other members' agents (own always pass). EXP-980: `setBlocked` null→set sends `session_blocked` to EVERY run's OWNER (issue-less + synced `session_id`; row + push open the run ×4). Team routes under `t/$teamSlug/`: inbox `?tab=my-issues` = a TAB, not a route (`?tab=drafts` phone-only; `drafts` route + sidebar entry only while drafts exist; board `?draft=` reopens the create dialog, EXP-878); `reviews/$issueIdentifier` = the cross-board open-PR queue (confirmed squash merge); `agent` = the composer (every play button routes here with `?issues=|action=|pr=|device=|text=|icon=`, one-shot; `?from=` = where Back returns), `sessions/$sessionId` steers inside it (EXP-818). Also `auth/consent.tsx`, `invite/$token`. Entry: `router.tsx`, `start.tsx` (`defaultSsr: false`), `server{,-bun}.ts`.
+The shadcn set, theme `styles.css`, `cn`, icon registry and shared primitives (`IssueChip`, `UserAvatar`, `LiveDot`, `StatusGlyph`, `Pill`, rows, toasts—`Toaster` + `toast-stack.json` ×4) = `@exp/ui` (`packages/ui/src`; `@exp/ui/island` = shadow-root islands for styleguide + marketing); app compositions stay flat in `components/` (`agent-session.tsx` = the steer view). `lib/trpc/` = one file per router (`routes/api/trpc/$.ts` lists them). `lib/auth/membership.ts` = data lookups; `access.ts` = authorization. `lib/notification-email-policy.ts`/`-digest.ts`: push fires on create, email = a DIGEST of still-unread (DAILY at a user-chosen local hour, hourly legacy, atomic `emailed_at` claim; `server-bun.ts` schedules). EXP-801: MCP `exponential_notifications_send` = issue-less team-scoped `agent_message` row + push to members/self (one inbox row each ×4); prefs `allow_agent_messages=false` BLOCKS other members' agents (own always pass). EXP-980: `setBlocked` null→set sends `session_blocked` to EVERY run's OWNER (issue-less + synced `session_id`; row + push open the run ×4). Team routes under `t/$teamSlug/`: inbox `?tab=my-issues` = a TAB, not a route (`?tab=drafts` phone-only; `drafts` route + sidebar entry only while drafts exist; board `?draft=` reopens the create dialog, EXP-878); `reviews/$issueIdentifier` = the cross-board open-PR queue (confirmed squash merge); `agent` = the composer (every play button routes here with `?issues=|action=|pr=|device=|text=|icon=`, one-shot; `?from=` = where Back returns), `sessions/$sessionId` steers inside it (EXP-818). Also `auth/consent.tsx`, `invite/$token`. Entry: `router.tsx`, `start.tsx` (`defaultSsr: false`), `server{,-bun}.ts`.
 
 ## Database
 
-`@exp/db-schema` = authoritative — never mirror it here.
+`@exp/db-schema` = authoritative—never mirror it here.
 
 ### Conventions
 
@@ -187,11 +187,11 @@ A **workflow** (contract `wf*`, NOT the feed's `workflowStatus`) = backlog issue
 
 Desktop IDE = master-only + autopull (no branch switch; changes land via PRs or Source Control's CONFIRMED commit-and-push; Discard-and-reset; `trunk_sync` badge + banner). Mobile first-run wizard (`lib/auth/onboarding.ts`, server-gated): create-or-join team, then a board with optional repo + GitHub App. Lists ×4 = a filled group band over FLAT hairline-divided rows (EXP-818/1076, settings too); `GlassGroup` = form fields only.
 
-## Billing (per-seat, Creem — cloud only)
+## Billing (per-seat, Creem—cloud only)
 
 Subscriptions bind to a TEAM (`creem_subscriptions.team_id` + `seats`; `billing.createSeatCheckout`, Creem `units` = seats), not the purchaser (REV2-55, `lib/billing/billing-handover.ts`): `reference_id` nullable/set-null; account deletion NEVER blocked by billing, it only cancels a SOLO team's subscription it destroys; team deletes REFUSE a live subscription (`PRECONDITION_FAILED`; a period-end cancellation passes), natives point at web. ONE subscription per team: `createSeatCheckout` refuses duplicates; `billing.updateSeats`/`changePlan` mutate the EXISTING subscription with `update_behavior: proration-charge-immediately`. Free = 3 seats, 250MB, 1 widget; **Team** = the ONE paid tier, €15/seat/mo or €12 yearly: 10GB, unlimited widgets, helpdesk (`PlanTier = free|team|unlimited`). Boards/repos/coding sessions, push + steer = never plan-gated; over-seat teams only block invites.
 
-**Limits exist only when `CLOUD_INSTANCE=true`** (a product switch; Apache-2.0, no licence gate). Enterprise Support: NO published pricing (EXP-218), marketing routes to `/contact/`. Self-host's one limit: no MOBILE push (store apps embed Firebase).
+**Limits exist only when `CLOUD_INSTANCE=true`** (a product switch, no licence gate). Enterprise Support: NO published pricing (EXP-218), marketing routes to `/contact/`. Self-host's one limit: no MOBILE push (store apps embed Firebase).
 
 ## Feedback widget & helpdesk
 
@@ -206,7 +206,7 @@ Server-only `widget_configs` (public `expw_` key + domain allowlist) + `widget_s
 ## Style Conventions
 
 - Template literals; functional components only
-- shadcn/ui from `@exp/ui` ALWAYS over raw `<input>`/`<button>`/`<textarea>`/`<label>`; icons by CONCEPT (above)
+- shadcn/ui from `@exp/ui` ALWAYS over raw `<input>`/`<button>`/`<textarea>`/`<label>`; icons by CONCEPT
 
 ## Agent context budget (EXP-353/EXP-637)
 

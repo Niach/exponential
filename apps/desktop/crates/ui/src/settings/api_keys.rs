@@ -26,10 +26,10 @@ use gpui_component::{
     button::ButtonVariant,
     h_flex,
     input::InputState,
-    notification::Notification,
-    v_flex, ActiveTheme as _, Disableable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Disableable as _,
 };
 
+use crate::toast::Toast;
 use api::token_store::{SecretKind, TokenStore};
 use api::users::{MintedPersonalKey, PersonalKeyMeta, PERSONAL_KEY_READ_TIMEOUT};
 
@@ -234,11 +234,11 @@ impl ApiKeysPane {
                         }
                         Err(err) => {
                             log::warn!("[ui] users.mintPersonalApiKey failed: {err}");
-                            let note = Notification::error(SharedString::from(format!(
+                            let note = Toast::error(format!(
                                 "Could not create the key: {err}"
-                            )));
+                            ));
                             let _ = handle.update(cx, |_, window, cx| {
-                                window.push_notification(note, cx);
+                                crate::toast::show(note, window, cx);
                             });
                         }
                     }
@@ -360,11 +360,11 @@ impl ApiKeysPane {
                     });
                     if let Err(err) = result {
                         log::warn!("[ui] users.revokePersonalApiKey({key_id}) failed: {err}");
-                        let note = Notification::error(SharedString::from(format!(
+                        let note = Toast::error(format!(
                             "Could not revoke {label}: {err}"
-                        )));
+                        ));
                         let _ = handle.update(cx, |_, window, cx| {
-                            window.push_notification(note, cx);
+                            crate::toast::show(note, window, cx);
                         });
                     }
                 })

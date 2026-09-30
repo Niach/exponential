@@ -95,7 +95,7 @@ import com.exponential.app.ui.components.toPickerLabel
 import com.exponential.app.ui.components.toPickerMember
 import com.exponential.app.ui.components.toPickerRow
 import com.exponential.app.ui.components.BoardIcon
-import com.exponential.app.ui.components.GlassNotice
+import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassPillDefaults
 import com.exponential.app.ui.components.PillMode
@@ -134,7 +134,6 @@ import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.dueDateColor
 import com.exponential.app.ui.theme.glassCard
 import com.exponential.app.ui.theme.glassRow
-import kotlinx.coroutines.delay
 
 /**
  * How the issue list is mounted:
@@ -197,7 +196,7 @@ fun IssueListScreen(
     // the floating selection bar acts on the whole selection. Mode is active
     // exactly while the selection is non-empty.
     var selectedIds by remember { mutableStateOf(emptySet<String>()) }
-    var noDesktopHint by remember { mutableStateOf(false) }
+    val toaster = LocalToaster.current
     // Which bulk-property sheet the selection bar has open (null = none).
     var bulkSheet by remember { mutableStateOf<BulkSheet?>(null) }
     // Inline single-issue status/priority edit fired from a list-row icon tap.
@@ -258,12 +257,6 @@ fun IssueListScreen(
     LaunchedEffect(state.board?.id) { selectedIds = emptySet() }
     // Back gesture leaves selection mode before it pops the screen.
     BackHandler(enabled = selectionActive) { selectedIds = emptySet() }
-    LaunchedEffect(noDesktopHint) {
-        if (noDesktopHint) {
-            delay(6_000)
-            noDesktopHint = false
-        }
-    }
 
     // Root mode resolves the board outside the nav args (last-used → first),
     // so the ViewModel is re-pointed whenever the resolution changes.
@@ -486,7 +479,6 @@ fun IssueListScreen(
                     onEnterSelection = { id ->
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         selectedIds = setOf(id)
-                        noDesktopHint = false
                         // Resolve relay + device presence while the user is
                         // still picking, so Start coding is ready when tapped.
                         if (state.board?.repositoryId != null) viewModel.ensureSteerLoaded()
@@ -499,10 +491,10 @@ fun IssueListScreen(
             }
         }
 
-        // Floating selection bar + the no-desktop notice, above the app's
-        // bottom bar zone (EXP-405 — back to the bottom overlay so entering
-        // multi-select never reflows the list; mirrors GatedServersBanner).
-        if (noDesktopHint || selectionActive) {
+        // Floating selection bar, above the app's bottom bar zone (EXP-405 —
+        // back to the bottom overlay so entering multi-select never reflows
+        // the list; mirrors GatedServersBanner). Outcomes are toasts (EXP-1031).
+        if (selectionActive) {
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -517,13 +509,6 @@ fun IssueListScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (noDesktopHint) {
-                    NoticeChip(
-                        text = "No desktop online. Open the Exponential desktop app to run here.",
-                        isError = true,
-                        onClick = { noDesktopHint = false },
-                    )
-                }
                 if (selectionActive) {
                     SelectionBar(
                         count = selectedIds.size,
@@ -552,7 +537,9 @@ fun IssueListScreen(
                             val online = steerDevices
                             when {
                                 online == null -> {} // presence still resolving
-                                online.isEmpty() -> noDesktopHint = true
+                                online.isEmpty() -> toaster.error(
+                                    "No desktop online. Open the Exponential desktop app to run here.",
+                                )
                                 // EXP-825: the composer IS the launcher; the
                                 // selection clears at once (web parity).
                                 else -> {
@@ -1541,23 +1528,6 @@ private fun BulkLabelSheet(
         emptyText = if (query.isBlank()) "No labels yet." else "No matching labels",
         open = true,
         onOpenChange = { open -> if (!open) onDismiss() },
-    )
-}
-
-/** Transient outcome chip above/instead of the selection bar (EXP-239). */
-@Composable
-private fun NoticeChip(
-    text: String,
-    isError: Boolean,
-    onClick: (() -> Unit)?,
-) {
-    // A NOTICE, not a pill: these are server-written sentences ("No desktop
-    // online to start this on…") that run to two lines on a phone, and a
-    // fixed-height capsule can only clip them (EXP-698).
-    GlassNotice(
-        text,
-        onClick = onClick,
-        contentColor = if (isError) MaterialTheme.colorScheme.error else null,
     )
 }
 

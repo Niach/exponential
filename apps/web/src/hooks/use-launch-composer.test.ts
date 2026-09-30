@@ -74,7 +74,8 @@ vi.mock(`@/hooks/use-mcp-servers`, () => ({
 vi.mock(`@/lib/storage/issue-image-upload`, () => ({
   uploadTeamSessionImageFile: mockState.upload,
 }))
-vi.mock(`sonner`, () => ({
+vi.mock(`sonner`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("sonner")>()),
   toast: { error: mockState.toastError },
 }))
 

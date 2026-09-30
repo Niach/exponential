@@ -40,9 +40,8 @@ use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
     input::{InputState},
-    notification::Notification,
     popover::Popover,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use serde::{Deserialize, Serialize};
 use sync::Store;
@@ -457,7 +456,7 @@ impl RepositoriesPane {
                     other => SharedString::from(format!("Could not set the default branch: {other}")),
                 };
                 let _ = handle.update(cx, |_, window, cx| {
-                    window.push_notification(Notification::error(message), cx);
+                    crate::toast::error(message, window, cx);
                 });
             }
         })
@@ -519,7 +518,7 @@ impl RepositoriesPane {
                         )),
                     };
                     let _ = handle.update(cx, |_, window, cx| {
-                        window.push_notification(Notification::error(message), cx);
+                        crate::toast::error(message, window, cx);
                     });
                 }
             })

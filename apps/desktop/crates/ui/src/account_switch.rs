@@ -28,9 +28,8 @@ use gpui::{
     div, AnyElement, App, IntoElement, ParentElement, SharedString, Styled as _, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::notification::Notification;
 use gpui_component::{
-    h_flex, v_flex, ActiveTheme as _, Disableable as _, WindowExt as _,
+    h_flex, v_flex, ActiveTheme as _, Disableable as _,
 };
 
 use crate::controls::{WebControl as _, WebText as _};
@@ -479,10 +478,7 @@ pub(crate) fn switch_to(
 ) {
     if !local {
         let Some(device_id) = device_id.filter(|id| !id.is_empty()) else {
-            window.push_notification(
-                Notification::error("This run's machine is unknown — it cannot be resumed."),
-                cx,
-            );
+            crate::toast::error("This run's machine is unknown — it cannot be resumed.", window, cx);
             return;
         };
         crate::session_screen::resume_remote_on_account(
@@ -503,7 +499,7 @@ pub(crate) fn switch_to(
         None,
         cx,
     ) {
-        window.push_notification(Notification::error(SharedString::from(REASON_BUSY)), cx);
+        crate::toast::error(REASON_BUSY, window, cx);
     }
 }
 

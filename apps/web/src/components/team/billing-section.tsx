@@ -1,5 +1,4 @@
 import { useState } from "react"
-import { toast } from "sonner"
 import {
   ChevronDown,
   ChevronUp,
@@ -7,7 +6,7 @@ import {
   TriangleAlert,
   Users,
 } from "lucide-react"
-import { Button, GlassSectionHeader, Pill, Progress } from "@exp/ui"
+import { Button, GlassSectionHeader, Pill, Progress, toast } from "@exp/ui"
 import { useBillingPlan, invalidateBillingCache } from "@/hooks/use-billing"
 import type { PlanTier } from "@/lib/billing"
 import { trpc } from "@/lib/trpc-client"

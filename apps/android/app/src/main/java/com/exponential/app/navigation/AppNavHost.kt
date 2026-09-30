@@ -63,6 +63,9 @@ import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.BottomBarSuppression
 import com.exponential.app.ui.components.BottomNavBar
 import com.exponential.app.ui.components.LocalBottomBarSuppression
+import com.exponential.app.ui.components.LocalToaster
+import com.exponential.app.ui.components.ToastHost
+import com.exponential.app.ui.components.Toaster
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.instance.InstanceScreen
 import com.exponential.app.ui.invite.InviteAcceptScreen
@@ -217,12 +220,20 @@ fun AppNavHost() {
     val activeAccount = state.accounts.firstOrNull { it.id == state.activeAccountId }
     val needsOnboarding = activeAccount?.needsOnboarding == true
 
+    // EXP-1031: the app's ONE toaster, above both nav graphs, drawn by ONE
+    // ToastHost at the top (below the status bar), where no bottom sheet,
+    // nav bar or keyboard ever covers it.
+    val toaster = remember { Toaster() }
+
     AppBackground {
         // Every screen floats on AppBackground (a Box, not a Material Surface), so
         // without this provider bare `Text`/`Icon` would inherit LocalContentColor's
         // black default and render near-invisible on the dark gradient. Anchor the
         // default to onSurface (light) app-wide; explicit colors still win.
-        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+        CompositionLocalProvider(
+            LocalContentColor provides MaterialTheme.colorScheme.onSurface,
+            LocalToaster provides toaster,
+        ) {
         val updateRequired = state.updateRequired
         if (updateRequired != null) {
             // Highest priority: the ACTIVE account's server has 426'd this
@@ -291,6 +302,9 @@ fun AppNavHost() {
                 onRetrySync = { viewModel.retrySync() },
             )
         }
+        // Drawn last, so it overlays every screen's header (sonner
+        // top-center does the same); only the cards take touches.
+        ToastHost(toaster, Modifier.align(Alignment.TopCenter))
         }
     }
 }

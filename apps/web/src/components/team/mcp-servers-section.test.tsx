@@ -43,7 +43,8 @@ vi.mock(`@/lib/trpc-client`, () => ({
   },
 }))
 
-vi.mock(`sonner`, () => ({
+vi.mock(`sonner`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("sonner")>()),
   toast: { success: mockState.toastSuccess, error: mockState.toastError },
 }))
 

@@ -5,7 +5,6 @@ import {
   type MouseEvent,
   type ReactNode,
 } from "react"
-import { toast } from "sonner"
 import {
   conceptIcon,
   AlertDialog,
@@ -26,6 +25,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  toast,
 } from "@exp/ui"
 import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
 import { mergeFailure, type MergeFailure } from "@/lib/merge-failure"

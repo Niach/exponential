@@ -55,11 +55,9 @@ use gpui::{
 };
 use gpui_component::input::{InputEvent, TextareaState};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
-use gpui_component::notification::Notification;
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::{
     h_flex, v_flex, ActiveTheme as _, Disableable as _, ElementExt as _, Icon, Sizable as _,
-    WindowExt as _,
 };
 use sync::Store;
 
@@ -1882,7 +1880,7 @@ impl ChatScreenView {
                             "Start sent to {device_label}."
                         ));
                         navigation::defer_in_result_window(window, cx, move |window, cx| {
-                            window.push_notification(Notification::success(notice), cx);
+                            crate::toast::success(notice, window, cx);
                         });
                         coding_flow::follow_remote_start(device_id, subject, window, cx);
                         this.after_started(window, cx);

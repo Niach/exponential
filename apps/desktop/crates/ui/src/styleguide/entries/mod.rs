@@ -26,11 +26,10 @@ pub(crate) mod device_settings;
 pub(crate) mod workflow_graph;
 
 /// EXP-1030: whether `id`'s file is still the one-line placeholder rather
-/// than a demo. The integration node filled every other entry; `toast` stays
-/// one by decision — EXP-1031 owns that control and fills it with the
-/// control, so nothing here has to guess what it will look like.
-pub(crate) fn is_placeholder(id: &str) -> bool {
-    id == toast::ID
+/// than a demo. None is any more: EXP-1031 filled the last one (`toast`).
+/// The check stays so a future entry can land as a placeholder first.
+pub(crate) fn is_placeholder(_id: &str) -> bool {
+    false
 }
 
 /// A demo: the entry's element, built with the window and the app so it

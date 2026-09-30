@@ -38,7 +38,6 @@
 // command unsupported, so the field stays hidden without it).
 import { useState, type ReactNode } from "react"
 import { LoaderCircle } from "lucide-react"
-import { toast } from "sonner"
 import type {
   DeviceAgentAccount,
   DeviceAgentHealth,
@@ -61,6 +60,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  toast,
 } from "@exp/ui"
 import {
   agentHealth,

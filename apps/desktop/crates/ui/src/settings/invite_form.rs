@@ -32,7 +32,8 @@ use crate::queries;
 
 /// EXP-771 (web copy wins): the server accepted the invite but could not mail
 /// it — the generated link renders right under this, so the wording points at
-/// it. Kept byte-identical to `invite-member-form.tsx`'s toast.
+/// it. Kept byte-identical to `invite-member-form.tsx`'s toast — a toast
+/// here too (EXP-1031).
 const EMAIL_FALLBACK_MESSAGE: &str =
     "Couldn't email the invite. Copy the link below and share it instead.";
 
@@ -81,8 +82,6 @@ pub struct InviteForm {
     error: Option<SharedString>,
     /// The seat cap rejected the invite — the web's "Out of seats" notice.
     out_of_seats: bool,
-    /// "Invite sent to X" after a delivered email invite.
-    sent_notice: Option<SharedString>,
     /// The minted link: the manual fallback when delivery failed.
     invite_url: Option<SharedString>,
     layout: InviteFormLayout,
@@ -138,7 +137,6 @@ impl InviteForm {
             sending: false,
             error: None,
             out_of_seats: false,
-            sent_notice: None,
             invite_url: None,
             layout,
             focus_email: resend.is_some(),
@@ -159,7 +157,6 @@ impl InviteForm {
         self.invite_url = None;
         self.error = None;
         self.out_of_seats = false;
-        self.sent_notice = None;
         cx.notify();
     }
 
@@ -189,7 +186,6 @@ impl InviteForm {
         self.sending = true;
         self.error = None;
         self.out_of_seats = false;
-        self.sent_notice = None;
         cx.notify();
 
         cx.spawn_in(window, async move |this, window| {
@@ -218,7 +214,12 @@ impl InviteForm {
                         if out.email_delivered == Some(true) {
                             // Delivered — confirm it; the link stays available
                             // as a manual fallback.
-                            this.sent_notice = Some(format!("Invite sent to {email}").into());
+                            // EXP-1031: a toast, landing in the window that
+                            // outlives a resend dialog closing on this.
+                            let sent = format!("Invite sent to {email}");
+                            crate::navigation::defer_in_result_window(window, cx, move |w, cx| {
+                                crate::toast::success(sent, w, cx);
+                            });
                             // A resend keeps its prefilled row (the dialog it
                             // sits in closes on the event below); the pane's
                             // form empties for the next invite.
@@ -234,7 +235,7 @@ impl InviteForm {
                         } else {
                             // Requested but not delivered (transport down or
                             // unconfigured) — fall back to the link.
-                            this.error = Some(EMAIL_FALLBACK_MESSAGE.into());
+                            crate::toast::error(EMAIL_FALLBACK_MESSAGE, window, cx);
                         }
                     }
                     Err(err) if super::is_plan_limit(&err) => {
@@ -291,11 +292,8 @@ impl Render for InviteForm {
 
         let mut form = v_flex().w_full().min_w_0().gap_2().child(controls);
 
-        // The notices sit BETWEEN the row and the link: the email fallback's
-        // copy says "copy the link below", so the link has to be below it.
-        if let Some(notice) = &self.sent_notice {
-            form = form.child(sent_notice(notice.clone(), cx));
-        }
+        // The notices sit BETWEEN the row and the link (the email fallback's
+        // toast says "copy the link below", so the link stays below the row).
         if self.out_of_seats {
             form = form.child(out_of_seats_notice(cx));
         }
@@ -364,18 +362,4 @@ pub(super) fn out_of_seats_notice(cx: &App) -> impl IntoElement {
                 .text_color(cx.theme().muted_foreground)
                 .child("Add seats on the web."),
         )
-}
-
-/// "Invite sent to X" confirmation (EXP-188 invite-by-email).
-pub(super) fn sent_notice(message: SharedString, cx: &App) -> impl IntoElement {
-    div()
-        .px_3()
-        .py_2()
-        .rounded(cx.theme().radius)
-        .border_1()
-        .border_color(theme::tokens::GREEN.to_hsla().opacity(0.5))
-        .bg(theme::tokens::GREEN.to_hsla().opacity(0.1))
-        .text_sm()
-        .text_color(theme::tokens::GREEN.to_hsla())
-        .child(message)
 }

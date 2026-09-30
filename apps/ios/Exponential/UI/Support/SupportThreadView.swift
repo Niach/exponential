@@ -10,6 +10,7 @@ import SwiftUI
 struct SupportThreadView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
+    @Environment(\.toaster) private var toaster
     let threadId: String
 
     @State private var viewModel: SupportThreadViewModel?
@@ -92,6 +93,12 @@ struct SupportThreadView: View {
             viewModel?.startPolling()
         }
         .onDisappear { viewModel?.stopPolling() }
+        // EXP-1031: a failed send/action on a LOADED ticket is an error toast;
+        // a ticket that never loaded keeps its in-place "Couldn't load".
+        .onChange(of: viewModel?.error) { _, message in
+            guard let message, viewModel?.thread != nil else { return }
+            toaster.error(message)
+        }
     }
 
     // MARK: - Content
@@ -219,13 +226,6 @@ struct SupportThreadView: View {
     private func composer(_ vm: SupportThreadViewModel) -> some View {
         GlassComposer(isOpaque: true) {
             VStack(alignment: .leading, spacing: 6) {
-                if let error = vm.error, vm.thread != nil {
-                    Text(error)
-                        .font(.caption2)
-                        .foregroundStyle(.orange)
-                        .lineLimit(2)
-                }
-
                 HStack(spacing: 4) {
                     composerModePill(label: "Reply", isInternal: false)
                     composerModePill(label: "Internal note", isInternal: true)

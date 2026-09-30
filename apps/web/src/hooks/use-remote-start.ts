@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { toast } from "sonner"
+import { toast } from "@exp/ui"
 import { trpcErrorCode, trpcErrorMessage } from "@/lib/trpc-error"
 import { useLiveQuery } from "@tanstack/react-db"
 import type { CodingSession, Device, User } from "@/db/schema"

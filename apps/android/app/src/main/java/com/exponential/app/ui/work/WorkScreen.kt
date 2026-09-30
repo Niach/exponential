@@ -5,8 +5,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -74,7 +72,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 // pops the whole screen. Opening a run from any list opens it on the Run
 // face; opening an issue lands on the Issue face with its run one switcher
 // tap away. The host owns the Scaffold, the top bar (title dot + verbs +
-// the issue menu), the snackbar, the kill / resume confirms, the ended edge
+// the issue menu), the kill / resume confirms, the ended edge
 // and the bar's trailing circle; each face renders inside the content slot.
 
 /** What a Work screen is about — the route decides, the screen resolves. */
@@ -118,7 +116,6 @@ fun WorkScreen(
     // EXP-897: the stack/batch overlay behind the top bar's badge.
     var graphSheetOpen by remember { mutableStateOf(false) }
     var resumeConfirmOpen by rememberSaveable { mutableStateOf(false) }
-    val snackbarHostState = remember { SnackbarHostState() }
 
     // ── The shown run's model, one per id ──────────────────────────────────
     val sessionVm: AgentSessionViewModel? = shownSessionId?.let { id ->
@@ -509,7 +506,6 @@ fun WorkScreen(
                     },
                 )
             },
-            snackbarHost = { SnackbarHost(snackbarHostState) },
         ) { padding ->
             when (face) {
                 WorkFaceKind.Issue -> if (issueVm != null && commentVm != null) {
@@ -518,7 +514,6 @@ fun WorkScreen(
                         commentViewModel = commentVm,
                         controller = issueController,
                         padding = padding,
-                        snackbarHostState = snackbarHostState,
                         onBack = onBack,
                         onOpenIssue = onOpenIssue,
                         onOpenChanges = {

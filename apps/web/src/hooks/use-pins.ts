@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react"
 import { eq, inArray, useLiveQuery } from "@tanstack/react-db"
-import { toast } from "sonner"
+import { toast } from "@exp/ui"
 import type { PinKind } from "@exp/db-schema/domain"
 import {
   actionCollection,

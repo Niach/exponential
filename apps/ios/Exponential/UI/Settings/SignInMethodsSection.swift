@@ -21,8 +21,7 @@ struct SignInMethodsSection: View {
     @Environment(AppDependencies.self) private var deps
     @State private var methods: SignInMethods?
     @State private var loadError: String?
-    @State private var actionError: String?
-    @State private var notice: String?
+    @Environment(\.toaster) private var toaster
     @State private var confirm: Confirm?
     @State private var busyId: String?
     @State private var pendingLink: String?
@@ -69,7 +68,6 @@ struct SignInMethodsSection: View {
                 }
             }
         }
-        .noticeToast($notice)
         .task { await load() }
         .onReceive(NotificationCenter.default.publisher(for: .signInMethodsChanged)) { _ in
             Task { await load() }
@@ -80,7 +78,7 @@ struct SignInMethodsSection: View {
                 accountId: accountId,
                 currentEmail: methods?.email ?? ""
             ) { email in
-                notice = "Your email is now \(email)."
+                toaster.success("Your email is now \(email).")
                 Task { await load() }
             }
         }
@@ -112,15 +110,6 @@ struct SignInMethodsSection: View {
             ForEach(methods.providers) { provider in
                 GlassDivider()
                 providerRow(provider, in: methods)
-            }
-
-            if let actionError {
-                Text(actionError)
-                    .font(.caption)
-                    .foregroundStyle(.red.opacity(0.8))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 4)
-                    .padding(.top, 8)
             }
         }
     }
@@ -172,7 +161,6 @@ struct SignInMethodsSection: View {
                 GlassPill(
                     busyId == provider.id ? "Removing…" : (provider.isPassword ? "Remove" : "Unlink"),
                     mode: .action {
-                        actionError = nil
                         confirm = .unlink(provider)
                     },
                     tint: blocked ? nil : .red,
@@ -197,7 +185,6 @@ struct SignInMethodsSection: View {
             GlassPill(
                 busyId == passkey.id ? "Removing…" : "Remove",
                 mode: .action {
-                    actionError = nil
                     confirm = .removePasskey(passkey)
                 },
                 tint: blocked ? nil : .red,
@@ -321,7 +308,6 @@ struct SignInMethodsSection: View {
 
     private func perform(_ target: Confirm) async {
         confirm = nil
-        actionError = nil
         do {
             switch target {
             case let .unlink(provider):
@@ -334,7 +320,7 @@ struct SignInMethodsSection: View {
         } catch {
             // A PRECONDITION_FAILED refusal carries the server's last-way-in
             // sentence — shown as is.
-            actionError = error.trpcUserMessage
+            toaster.error(error.trpcUserMessage)
         }
         busyId = nil
         await load()
@@ -346,13 +332,12 @@ struct SignInMethodsSection: View {
               let instanceUrl = deps.auth.accounts.first(where: { $0.id == accountId })?.instanceUrl
         else { return }
         pendingLink = provider.id
-        actionError = nil
         let ticket: SignInLinkTicket
         do {
             ticket = try await deps.usersApi.mintSignInLinkTicket(accountId: accountId, provider: provider.id)
         } catch {
             pendingLink = nil
-            actionError = error.trpcUserMessage
+            toaster.error(error.trpcUserMessage)
             return
         }
         let pkce = Pkce.generate()
@@ -360,7 +345,7 @@ struct SignInMethodsSection: View {
             instanceUrl: instanceUrl, ticket: ticket.ticket, provider: provider.id, codeChallenge: pkce.challenge
         ) else {
             pendingLink = nil
-            actionError = OAuthReturn.linkErrorMessage("")
+            toaster.error(OAuthReturn.linkErrorMessage(""))
             return
         }
         linkSession.start(url: url, pkce: pkce) { result in
@@ -369,10 +354,10 @@ struct SignInMethodsSection: View {
             guard let result else { return }
             switch result {
             case .linked:
-                notice = "\(provider.name) is linked."
+                toaster.success("\(provider.name) is linked.")
                 Task { await load() }
             case let .error(reason):
-                actionError = OAuthReturn.linkErrorMessage(reason)
+                toaster.error(OAuthReturn.linkErrorMessage(reason))
             case .code, .none:
                 // A link hop never returns a code; refetch in case it landed.
                 Task { await load() }

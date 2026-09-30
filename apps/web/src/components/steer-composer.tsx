@@ -6,7 +6,6 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react"
-import { toast } from "sonner"
 import {
   AttachmentThumb,
   conceptIcon,
@@ -22,6 +21,7 @@ import {
   Composer,
   ComposerSubmit,
   ComposerTool,
+  toast,
 } from "@exp/ui"
 import type { User } from "@/db/schema"
 import {

@@ -37,6 +37,7 @@
 //! tab as a read-only transcript, which is what [`SessionScreenView::mark_ended`]
 //! marks when the engine reports the exit before the row syncs.
 
+use crate::toast::Toast;
 use std::rc::Rc;
 
 use gpui::{
@@ -45,8 +46,8 @@ use gpui::{
     Subscription, Window,
 };
 use gpui_component::{
-    button::Button, h_flex, notification::Notification, v_flex, ActiveTheme as _, Icon,
-    Sizable as _, WindowExt as _,
+    button::Button, h_flex, v_flex, ActiveTheme as _, Icon,
+    Sizable as _,
 };
 
 use crate::coding_flow::{LocalSessions, StartCodingControl};
@@ -938,10 +939,7 @@ fn resume_remote_inner(
     cx: &mut App,
 ) {
     let Some(trpc) = crate::queries::trpc_client(cx) else {
-        window.push_notification(
-            Notification::error("Sign in and wait for sync before resuming."),
-            cx,
-        );
+        crate::toast::error("Sign in and wait for sync before resuming.", window, cx);
         return;
     };
     let input = api::steer::StartSessionInput {
@@ -959,13 +957,13 @@ fn resume_remote_inner(
             .await;
         let sent = result.is_ok();
         let note = match result {
-            Ok(()) => Notification::success(SharedString::from(format!(
+            Ok(()) => Toast::success(format!(
                 "Resume sent to {device_label}."
-            ))),
-            Err(err) => Notification::error(SharedString::from(err.user_message())),
+            )),
+            Err(err) => Toast::error(err.user_message()),
         };
         let _ = handle.update(cx, |_, window, cx| {
-            window.push_notification(note, cx);
+            crate::toast::show(note, window, cx);
             if sent {
                 crate::coding_flow::follow_remote_start(device_id, subject, window, cx);
             }

@@ -33,9 +33,9 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    notification::Notification,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
+use crate::toast::Toast;
 use sync::Store;
 
 use domain::rows::Attachment;
@@ -447,12 +447,7 @@ pub(crate) fn open_attachment_file(
             Ok(path) => cx.open_with_system(&path),
             Err(error) => {
                 log::warn!("[ui] comment attachment open failed for {attachment_id}: {error}");
-                window.push_notification(
-                    Notification::error(SharedString::from(format!(
-                        "Could not open {label}: {error}"
-                    ))),
-                    cx,
-                );
+                crate::toast::error(format!("Could not open {label}: {error}"), window, cx);
             }
         });
     })
@@ -492,17 +487,17 @@ pub(crate) fn save_attachment_as(
             })
             .await;
         let note = match result {
-            Ok(()) => Notification::info(SharedString::from(format!(
+            Ok(()) => Toast::info(format!(
                 "Saved to {}",
                 path.display()
-            ))),
+            )),
             Err(error) => {
                 log::warn!("[ui] attachment download failed for {attachment_id}: {error}");
-                Notification::error(SharedString::from(format!("Download failed: {error}")))
+                Toast::error(format!("Download failed: {error}"))
             }
         };
         let _ = handle.update(cx, |_, window, cx| {
-            window.push_notification(note, cx);
+            crate::toast::show(note, window, cx);
         });
     })
     .detach();

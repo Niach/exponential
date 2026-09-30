@@ -98,6 +98,9 @@ block is written `:root, :host` for the same reason, so both reach the tree.
   so a Radix **portal** — an open menu, dialog, popover, sheet, `SelectContent`
   — renders NOTHING. Pick a fixture whose resting state is the specimen (a
   closed `IconPicker` IS its trigger), or keep that entry hand-written.
+- **The live `Toaster` renders nothing** (sonner mounts its list only once a
+  toast fires): the styleguide draws the toast with `ToastSpecimen`, which wears
+  the same `TOAST_*` class constants (EXP-1031).
 - **`AvatarImage` never renders**: Radix only swaps the image in once the
   browser has decoded it, so avatar fixtures use initials.
 - **A `Select` with a value shows an empty trigger** — `SelectValue` resolves

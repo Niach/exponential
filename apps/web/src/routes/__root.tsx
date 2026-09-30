@@ -6,8 +6,7 @@ import {
   createRootRoute,
 } from "@tanstack/react-router"
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools"
-import { Toaster } from "sonner"
-import { TooltipProvider } from "@exp/ui"
+import { Toaster, TooltipProvider } from "@exp/ui"
 import { SessionProvider } from "@/hooks/use-session"
 
 import "../styles.css?url"
@@ -104,8 +103,13 @@ function RootComponent() {
   return (
     <SessionProvider>
       <TooltipProvider>
+        {/* The Toaster comes BEFORE the Outlet: effects run in tree order,
+            and sonner's Toaster only subscribes in an effect and never
+            replays earlier toasts, so it must subscribe before any route
+            effect can toast (a first-render toast is otherwise lost).
+            Gated by src/root-toaster-order.test.tsx. */}
+        <Toaster />
         <Outlet />
-        <Toaster richColors position="bottom-right" theme="dark" />
         {showRouterDevtools && <TanStackRouterDevtools />}
       </TooltipProvider>
     </SessionProvider>

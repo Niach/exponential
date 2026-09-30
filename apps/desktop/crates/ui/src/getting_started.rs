@@ -45,8 +45,7 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, notification::Notification, v_flex, ActiveTheme as _, Icon, Sizable as _,
-    WindowExt as _,
+    h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use sync::Store;
 
@@ -934,7 +933,7 @@ fn entry_cta(
             .on_click(|_, window, cx| {
                 let snippet = crate::machines::server_install_snippet(cx);
                 cx.write_to_clipboard(ClipboardItem::new_string(snippet));
-                window.push_notification(Notification::success("Copied install command"), cx);
+                crate::toast::success("Copied install command", window, cx);
             })
             .into_any_element(),
         // EXP-771: both settings live IN the app now (Settings → Features),

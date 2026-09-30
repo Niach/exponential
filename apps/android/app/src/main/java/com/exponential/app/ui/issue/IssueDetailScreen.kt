@@ -28,7 +28,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -58,6 +57,7 @@ import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueRelationType
 import com.exponential.app.domain.IssueStatusCategory
 import com.exponential.app.domain.IssueStatusResolver
+import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.picker.AssigneePicker
 import com.exponential.app.ui.components.picker.BoardPicker
 import com.exponential.app.ui.components.picker.PriorityPicker
@@ -217,8 +217,8 @@ fun IssueMenuActions(
 // editor, the PR row, files and the activity timeline, with the floating
 // three-element bottom bar (properties circle, expanding comment pill, the
 // host's trailing circle: Start coding, or the face switcher). The host
-// (`WorkScreen`) owns the Scaffold, the top bar, the snackbar host and the
-// markdown toolbar provider; this renders INSIDE its content slot. The old
+// (`WorkScreen`) owns the Scaffold, the top bar, the markdown toolbar
+// provider (errors are toasts, EXP-1031); this renders INSIDE its content slot. The old
 // Watch / "Coding now" row is gone — the run is a face of the same screen.
 @Composable
 fun IssueFace(
@@ -226,7 +226,6 @@ fun IssueFace(
     commentViewModel: CommentThreadViewModel,
     controller: IssueFaceController,
     padding: PaddingValues,
-    snackbarHostState: SnackbarHostState,
     onBack: () -> Unit,
     onOpenIssue: (String) -> Unit,
     /** The PR / branch row's tap — the host lands on its Changes face when it
@@ -340,10 +339,11 @@ fun IssueFace(
     // Surface failed description saves (retries exhausted) — the draft is
     // retained in the ViewModel, so the user knows to stay/retry instead of
     // believing the edit persisted.
+    val toaster = LocalToaster.current
     val descriptionSaveError by viewModel.descriptionSaveError.collectAsStateWithLifecycle()
     LaunchedEffect(descriptionSaveError) {
         descriptionSaveError?.let {
-            snackbarHostState.showSnackbar(it)
+            toaster.error(it)
             viewModel.consumeDescriptionSaveError()
         }
     }
@@ -352,7 +352,7 @@ fun IssueFace(
     val moveError by viewModel.moveError.collectAsStateWithLifecycle()
     LaunchedEffect(moveError) {
         moveError?.let {
-            snackbarHostState.showSnackbar(it)
+            toaster.error(it)
             viewModel.consumeMoveError()
         }
     }
@@ -362,7 +362,7 @@ fun IssueFace(
     val labelError by viewModel.labelError.collectAsStateWithLifecycle()
     LaunchedEffect(labelError) {
         labelError?.let {
-            snackbarHostState.showSnackbar(it)
+            toaster.error(it)
             viewModel.consumeLabelError()
         }
     }
@@ -373,7 +373,7 @@ fun IssueFace(
     val mutationError by viewModel.mutationError.collectAsStateWithLifecycle()
     LaunchedEffect(mutationError) {
         mutationError?.let {
-            snackbarHostState.showSnackbar(it)
+            toaster.error(it)
             viewModel.consumeMutationError()
         }
     }
@@ -382,7 +382,7 @@ fun IssueFace(
     val commentError by commentViewModel.commentError.collectAsStateWithLifecycle()
     LaunchedEffect(commentError) {
         commentError?.let {
-            snackbarHostState.showSnackbar(it)
+            toaster.error(it)
             commentViewModel.consumeCommentError()
         }
     }

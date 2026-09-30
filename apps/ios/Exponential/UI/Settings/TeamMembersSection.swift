@@ -22,7 +22,7 @@ struct TeamMembersSection: View {
     var isOwner: Bool = false
 
     @State private var confirm: MemberConfirm?
-    @State private var actionError: String?
+    @Environment(\.toaster) private var toaster
 
     // Destructive/role actions are confirmed through a single alert.
     private enum MemberConfirm {
@@ -53,12 +53,6 @@ struct TeamMembersSection: View {
                 ForEach(members, id: \.id) { member in
                     memberRow(member, placeholder: byMember[member.userId])
                 }
-            }
-
-            if let actionError {
-                Text(actionError)
-                    .font(.caption)
-                    .foregroundStyle(.red.opacity(0.8))
             }
 
             if isOwner {
@@ -226,9 +220,8 @@ struct TeamMembersSection: View {
             case let .changeRole(member, role):
                 try await membersApi.updateRole(accountId: accountId, memberId: member.id, role: role)
             }
-            actionError = nil
         } catch {
-            actionError = error.trpcUserMessage
+            toaster.error(error.trpcUserMessage)
         }
         confirm = nil
     }

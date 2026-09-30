@@ -71,6 +71,7 @@ struct AgentSessionView<Switcher: View>: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.pushRoute) private var pushRoute
     @Environment(\.openURL) private var openURL
+    @Environment(\.toaster) private var toaster
     /// A cache of the SteerSessionStore lookup (EXP-621) — the model itself is
     /// app-scoped, so this view neither creates nor tears it down.
     @State private var model: AgentSessionModel?
@@ -298,6 +299,19 @@ struct AgentSessionView<Switcher: View>: View {
     /// chain is split at all.
     private func withLifecycle(_ content: some View) -> some View {
         content
+            // EXP-1031: the transient outcomes land as toasts.
+            .onChange(of: model?.killError) { _, message in
+                guard let message else { return }
+                toaster.error("Couldn't kill the session.", description: message)
+            }
+            .onChange(of: continuation.watcher.sentCaption) { _, caption in
+                guard let caption, model?.sessionEnded != true else { return }
+                toaster.info(caption)
+            }
+            .onChange(of: continuation.watcher.failure) { _, failure in
+                guard let failure, model?.sessionEnded != true else { return }
+                toaster.error(failure)
+            }
             // EXP-897: the stack line's rows. Keyed on the issue, so a
             // continuation that lands on another one re-arms.
             .task(id: (model?.session ?? session).issueId) {
@@ -1348,40 +1362,10 @@ struct AgentSessionView<Switcher: View>: View {
                 SessionBlockedBadge(blocked: (model.session ?? session).blocked)
             }
         }
-        // Kill-switch failure (EXP-268) — inline banner; cleared on retry.
-        if let killError = model.killError {
-            bannerRow {
-                Text("Couldn't kill the session. \(killError)")
-                    .font(.caption)
-                    .foregroundStyle(DesignTokens.Semantic.red)
-            }
-        }
-        // A refused merge (conflicts, branch protection) — same shape
-        // (EXP-678); cleared on the next attempt. EXP-706: the reason only —
-        // a conflict's recovery run took the Merge pill's slot in the bar.
-        if let mergeFailure {
-            bannerRow {
-                Text(mergeFailure.message)
-                    .font(.caption)
-                    .foregroundStyle(DesignTokens.Semantic.red)
-            }
-        }
-        // The switch's own progress (EXP-536): "sent to <machine>", then the
-        // continuation swaps in once the desktop picks it up.
-        if let runCaption = continuation.watcher.sentCaption {
-            bannerRow {
-                Text(runCaption)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            }
-        }
-        if let runError = continuation.watcher.failure {
-            bannerRow {
-                Text(runError)
-                    .font(.caption)
-                    .foregroundStyle(DesignTokens.Semantic.red)
-            }
-        }
+        // EXP-1031: the transient items — a failed kill (EXP-268), a refused
+        // merge (EXP-678), the switch's "sent to <machine>" and its failure
+        // (EXP-536) — are toasts now (`withLifecycle`'s `onChange`s and the
+        // merge catch sites); only the standing states stay banners.
         // EXP-550: an offline host outranks every reconnect/starting banner —
         // the redial loops keep running underneath (untouched), they just
         // stop being what the viewer is told about.
@@ -1860,7 +1844,9 @@ struct AgentSessionView<Switcher: View>: View {
                     accountId: accountId, issueId: topIssueId, mergeStack: true
                 )
             } catch {
-                mergeFailure = MergeFailure(error: error)
+                let failure = MergeFailure(error: error)
+                mergeFailure = failure
+                toaster.error(failure.message)
             }
             merging = false
         }
@@ -1885,7 +1871,9 @@ struct AgentSessionView<Switcher: View>: View {
                     )
                 }
             } catch {
-                mergeFailure = MergeFailure(error: error)
+                let failure = MergeFailure(error: error)
+                mergeFailure = failure
+                toaster.error(failure.message)
             }
             merging = false
         }

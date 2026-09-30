@@ -31,9 +31,8 @@ use gpui::{
 use gpui_component::{
     h_flex,
     menu::{ContextMenuExt as _, PopupMenuItem},
-    notification::Notification,
     spinner::Spinner,
-    v_flex, ActiveTheme as _, Icon, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 
 use domain::rows::Attachment;
@@ -276,12 +275,7 @@ pub(crate) fn open_media_in_player(
             Err(error) => {
                 log::warn!("[ui] media open failed for {attachment_id}: {error}");
                 let _ = handle.update(cx, |_, window, cx| {
-                    window.push_notification(
-                        Notification::error(SharedString::from(format!(
-                            "Could not open {label}: {error}"
-                        ))),
-                        cx,
-                    );
+                    crate::toast::error(format!("Could not open {label}: {error}"), window, cx);
                 });
             }
         }
