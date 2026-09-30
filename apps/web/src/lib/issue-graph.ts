@@ -275,19 +275,20 @@ export function blockGraph(
 // `domain::issue_graph::geometry`, iOS `IssueGraph.Geometry`, Android
 // `IssueGraph.Geometry`). The web draws it through `@exp/ui` `WaveGraph`,
 // whose edge rule is the one below; the grid sits `inset` inside its scroll
-// box so the rings are never clipped.
+// box so the rings are never clipped. SLOP-16: the graph is VERTICAL, waves
+// are ROWS (top = the first blockers, bottom = the blocked subject), lanes
+// COLUMNS, so a chain grows downward and never scrolls sideways.
 export const ISSUE_GRAPH_GEOMETRY = {
   nodeWidth: 176,
   // SLOP-15/16: the HOVER graph (the rail popover, the work header overlay)
-  // draws the SMALL chip (`IssueChip size="sm"`) in boxes this wide, so three
-  // waves fit the viewport (424px) where the full width scrolled (616px);
+  // draws the SMALL chip (`IssueChip size="sm"`) in boxes this wide;
   // dialogs keep `nodeWidth`. Every geometry function takes the node width as
   // an override (`IssueGraphMetrics`), and the fixture's `compact` cases lock
   // the override ×4.
   compactNodeWidth: 112,
   nodeHeight: 28,
-  waveGap: 40,
-  laneGap: 8,
+  waveGap: 24,
+  laneGap: 12,
   inset: 4,
   maxViewWidth: 520,
   maxViewHeight: 320,
@@ -324,8 +325,8 @@ export function issueGraphOrigin(
 ): GraphPoint {
   const g = geometryWith(over)
   return {
-    x: g.inset + wave * (g.nodeWidth + g.waveGap),
-    y: g.inset + lane * (g.nodeHeight + g.laneGap),
+    x: g.inset + lane * (g.nodeWidth + g.laneGap),
+    y: g.inset + wave * (g.nodeHeight + g.waveGap),
   }
 }
 
@@ -340,8 +341,8 @@ export function issueGraphSize(
   if (waves <= 0 || lanes <= 0) {
     return { width: 0, height: 0, viewWidth: 0, viewHeight: 0 }
   }
-  const width = 2 * g.inset + waves * (g.nodeWidth + g.waveGap) - g.waveGap
-  const height = 2 * g.inset + lanes * (g.nodeHeight + g.laneGap) - g.laneGap
+  const width = 2 * g.inset + lanes * (g.nodeWidth + g.laneGap) - g.laneGap
+  const height = 2 * g.inset + waves * (g.nodeHeight + g.waveGap) - g.waveGap
   return {
     width,
     height,
@@ -350,7 +351,9 @@ export function issueGraphSize(
   }
 }
 
-/** One edge as a cubic: blocker's right-middle → blocked box's left-middle. */
+/** One edge as a cubic: blocker's bottom-middle → blocked box's top-middle.
+ *  Forward it bends inside the gap; a backward (cycle) edge bows by
+ *  max(waveGap / 2, |dy| / 2). */
 export function issueGraphEdge(
   from: { wave: number; lane: number },
   to: { wave: number; lane: number },
@@ -359,16 +362,14 @@ export function issueGraphEdge(
   const g = geometryWith(over)
   const a = issueGraphOrigin(from.wave, from.lane, over)
   const b = issueGraphOrigin(to.wave, to.lane, over)
-  const start = { x: a.x + g.nodeWidth, y: a.y + g.nodeHeight / 2 }
-  const end = { x: b.x, y: b.y + g.nodeHeight / 2 }
-  const bend =
-    end.x > start.x
-      ? (end.x - start.x) / 2
-      : Math.max(g.waveGap / 2, Math.abs(end.x - start.x) / 2)
+  const start = { x: a.x + g.nodeWidth / 2, y: a.y + g.nodeHeight }
+  const end = { x: b.x + g.nodeWidth / 2, y: b.y }
+  const dy = end.y - start.y
+  const bend = dy > 0 ? dy / 2 : Math.max(g.waveGap / 2, Math.abs(dy) / 2)
   return {
     start,
-    control1: { x: start.x + bend, y: start.y },
-    control2: { x: end.x - bend, y: end.y },
+    control1: { x: start.x, y: start.y + bend },
+    control2: { x: end.x, y: end.y - bend },
     end,
   }
 }

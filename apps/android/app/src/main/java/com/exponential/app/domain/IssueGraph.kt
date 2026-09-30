@@ -246,7 +246,10 @@ object IssueGraph {
      * `domain-contract/fixtures/issue-graph-geometry.json` (web
      * `lib/issue-graph.ts` `ISSUE_GRAPH_GEOMETRY`, desktop
      * `domain::issue_graph::geometry`, iOS `IssueGraph.Geometry`). Units = dp.
-     * The grid sits [INSET] inside its scroll box so the rings never clip.
+     * The graph is VERTICAL: waves are ROWS (top = the first blockers,
+     * bottom = the blocked subject), lanes are COLUMNS, so a chain never
+     * scrolls sideways. The grid sits [INSET] inside its scroll box so the
+     * rings never clip.
      *
      * SLOP-16: every function takes a `nodeWidth` (default [NODE_WIDTH]) —
      * the hover graph draws the SMALL chip in [COMPACT_NODE_WIDTH] boxes
@@ -257,8 +260,8 @@ object IssueGraph {
         const val NODE_WIDTH = 176f
         const val COMPACT_NODE_WIDTH = 112f
         const val NODE_HEIGHT = 28f
-        const val WAVE_GAP = 40f
-        const val LANE_GAP = 8f
+        const val WAVE_GAP = 24f
+        const val LANE_GAP = 12f
         const val INSET = 4f
         const val MAX_VIEW_WIDTH = 520f
         const val MAX_VIEW_HEIGHT = 320f
@@ -289,10 +292,10 @@ object IssueGraph {
             val end: Point,
         )
 
-        /** A node box's top-left inside the grid. */
+        /** A node box's top-left inside the grid: x from the lane, y from the wave. */
         fun origin(wave: Int, lane: Int, nodeWidth: Float = NODE_WIDTH): Point = Point(
-            x = INSET + wave * (nodeWidth + WAVE_GAP),
-            y = INSET + lane * (NODE_HEIGHT + LANE_GAP),
+            x = INSET + lane * (nodeWidth + LANE_GAP),
+            y = INSET + wave * (NODE_HEIGHT + WAVE_GAP),
         )
 
         /**
@@ -301,8 +304,8 @@ object IssueGraph {
          */
         fun size(waves: Int, lanes: Int, nodeWidth: Float = NODE_WIDTH): Size {
             if (waves <= 0 || lanes <= 0) return Size(0f, 0f, 0f, 0f)
-            val width = 2 * INSET + waves * (nodeWidth + WAVE_GAP) - WAVE_GAP
-            val height = 2 * INSET + lanes * (NODE_HEIGHT + LANE_GAP) - LANE_GAP
+            val width = 2 * INSET + lanes * (nodeWidth + LANE_GAP) - LANE_GAP
+            val height = 2 * INSET + waves * (NODE_HEIGHT + WAVE_GAP) - WAVE_GAP
             return Size(
                 width = width,
                 height = height,
@@ -318,7 +321,7 @@ object IssueGraph {
             nodeWidth = nodeWidth,
         )
 
-        /** One edge as a cubic: blocker's right-middle → blocked box's left-middle. */
+        /** One edge as a cubic: blocker's bottom-middle → blocked box's top-middle. */
         fun edge(from: Node, to: Node, nodeWidth: Float = NODE_WIDTH): Curve =
             edge(from.wave, from.lane, to.wave, to.lane, nodeWidth)
 
@@ -331,17 +334,14 @@ object IssueGraph {
         ): Curve {
             val a = origin(fromWave, fromLane, nodeWidth)
             val b = origin(toWave, toLane, nodeWidth)
-            val start = Point(a.x + nodeWidth, a.y + NODE_HEIGHT / 2)
-            val end = Point(b.x, b.y + NODE_HEIGHT / 2)
-            val bend = if (end.x > start.x) {
-                (end.x - start.x) / 2
-            } else {
-                maxOf(WAVE_GAP / 2, kotlin.math.abs(end.x - start.x) / 2)
-            }
+            val start = Point(a.x + nodeWidth / 2, a.y + NODE_HEIGHT)
+            val end = Point(b.x + nodeWidth / 2, b.y)
+            val dy = end.y - start.y
+            val bend = if (dy > 0) dy / 2 else maxOf(WAVE_GAP / 2, kotlin.math.abs(dy) / 2)
             return Curve(
                 start = start,
-                control1 = Point(start.x + bend, start.y),
-                control2 = Point(end.x - bend, end.y),
+                control1 = Point(start.x, start.y + bend),
+                control2 = Point(end.x, end.y - bend),
                 end = end,
             )
         }

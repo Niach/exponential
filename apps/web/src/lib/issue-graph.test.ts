@@ -140,11 +140,12 @@ describe(`compact hover graph (SLOP-15)`, () => {
     expect(g.compactNodeWidth).toBeLessThan(g.nodeWidth)
   })
 
-  it(`places the waves by the compact width`, () => {
-    expect(issueGraphOrigin(1, 0, over)).toEqual({
-      x: g.inset + g.compactNodeWidth + g.waveGap,
+  it(`places the lanes by the compact width, the waves by the node height`, () => {
+    expect(issueGraphOrigin(0, 1, over)).toEqual({
+      x: g.inset + g.compactNodeWidth + g.laneGap,
       y: g.inset,
     })
+    expect(issueGraphOrigin(1, 0, over)).toEqual(issueGraphOrigin(1, 0))
     expect(issueGraphOrigin(1, 0, {})).toEqual(issueGraphOrigin(1, 0))
   })
 
@@ -154,9 +155,9 @@ describe(`compact hover graph (SLOP-15)`, () => {
       const full = issueGraphSize(waves, lanes)
       const compact = issueGraphSize(waves, lanes, over)
       expect(compact).toEqual(expected)
-      // Three waves fit the viewport where the full width scrolled.
-      expect(full.viewWidth).toBeLessThan(full.width)
+      // The compact width never scrolls sideways; rows keep the full height.
       expect(compact.viewWidth).toBe(compact.width)
+      expect(compact.width).toBeLessThanOrEqual(full.width)
       expect(compact.height).toBe(full.height)
     })
   }
@@ -174,11 +175,21 @@ describe(`compact hover graph (SLOP-15)`, () => {
     })
   }
 
-  it(`starts an edge at the compact node's right edge, inset-shifted for a padded grid`, () => {
+  it(`a chain of three waves fits the viewport without scrolling`, () => {
+    const entry = geometry.compact.sizes.find((c) => c.name === `three waves stack compact`)!
+    const size = issueGraphSize(entry.waves, entry.lanes, over)
+    expect(size.width).toBeLessThan(g.maxViewWidth)
+    expect(size.viewWidth).toBe(size.width)
+    expect(size.viewHeight).toBe(size.height)
+  })
+
+  it(`starts an edge at the compact node's bottom-middle, inset-shifted for a padded grid`, () => {
     const entry = geometry.compact.edges[0]!
     const curve = issueGraphEdge(entry.from, entry.to, over)
-    expect(curve.start.x).toBe(g.inset + g.compactNodeWidth)
-    expect(curve.end.x).toBe(g.inset + g.compactNodeWidth + g.waveGap)
+    const a = issueGraphOrigin(entry.from.wave, entry.from.lane, over)
+    const b = issueGraphOrigin(entry.to.wave, entry.to.lane, over)
+    expect(curve.start).toEqual({ x: a.x + g.compactNodeWidth / 2, y: a.y + g.nodeHeight })
+    expect(curve.end).toEqual({ x: b.x + g.compactNodeWidth / 2, y: b.y })
     expect(
       issueGraphEdgePath(entry.from, entry.to, { ...over, insetIncluded: false })
     ).toBe(

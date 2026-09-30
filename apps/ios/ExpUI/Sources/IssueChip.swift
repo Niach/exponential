@@ -51,6 +51,7 @@ public struct IssueChip: View {
     private let statusColor: Color?
     private let bodySize: CGFloat?
     private let size: IssueChipSize
+    private let fillsFrame: Bool
     private let onTap: (() -> Void)?
     private let onRemove: (() -> Void)?
 
@@ -58,6 +59,8 @@ public struct IssueChip: View {
     ///   - bodySize: the prose measure the chip sits in (EXP-787's seam — the
     ///     transcript reads at `DesignTokens.Transcript.bodySize`). `nil` = the
     ///     interchange body font, exactly like `MarkdownStyle.bodyFont`.
+    ///   - fillsFrame: SLOP-16 — the box covers the whole frame it is given
+    ///     (the mini-graph's node boxes); off, the chip keeps its own size.
     public init(
         identifier: String?,
         title: String?,
@@ -65,6 +68,7 @@ public struct IssueChip: View {
         statusColor: Color?,
         bodySize: CGFloat? = nil,
         size: IssueChipSize = .md,
+        fillsFrame: Bool = false,
         onTap: (() -> Void)? = nil,
         onRemove: (() -> Void)? = nil
     ) {
@@ -74,6 +78,7 @@ public struct IssueChip: View {
         self.statusColor = statusColor
         self.bodySize = bodySize
         self.size = size
+        self.fillsFrame = fillsFrame
         self.onTap = onTap
         self.onRemove = onRemove
     }
@@ -86,6 +91,7 @@ public struct IssueChip: View {
         status: ResolvedIssueStatus?,
         bodySize: CGFloat? = nil,
         size: IssueChipSize = .md,
+        fillsFrame: Bool = false,
         onTap: (() -> Void)? = nil,
         onRemove: (() -> Void)? = nil
     ) {
@@ -96,6 +102,7 @@ public struct IssueChip: View {
             statusColor: status?.color,
             bodySize: bodySize,
             size: size,
+            fillsFrame: fillsFrame,
             onTap: onTap,
             onRemove: onRemove
         )
@@ -109,6 +116,7 @@ public struct IssueChip: View {
         status: IssueStatus,
         bodySize: CGFloat? = nil,
         size: IssueChipSize = .md,
+        fillsFrame: Bool = false,
         onTap: (() -> Void)? = nil,
         onRemove: (() -> Void)? = nil
     ) {
@@ -119,6 +127,7 @@ public struct IssueChip: View {
             statusColor: status.color,
             bodySize: bodySize,
             size: size,
+            fillsFrame: fillsFrame,
             onTap: onTap,
             onRemove: onRemove
         )
@@ -185,7 +194,8 @@ public struct IssueChip: View {
             identifier: identifier,
             title: size == .sm ? nil : chipTitle,
             bodySize: bodySize,
-            showsRemoveGlyph: onRemove != nil
+            showsRemoveGlyph: onRemove != nil,
+            fillsFrame: fillsFrame
         ) {
             if let iconName {
                 AppIcon(iconName, size: MarkdownStyle.chipStatusIconSize)

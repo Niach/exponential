@@ -35,13 +35,16 @@ import com.exponential.app.ui.theme.TextEmphasis
 
 /**
  * EXP-1057: THE blocks mini-graph, drawn as the SAME grid the web and the
- * desktop draw (`@exp/ui` `WaveGraph`, desktop `issue_graph`): columns =
- * waves, rows = lanes, one issue-chip box per node, cubic edges behind them —
+ * desktop draw (`@exp/ui` `WaveGraph`, desktop `issue_graph`), VERTICAL
+ * (SLOP-16): rows = waves (top = the first blockers, bottom = the blocked
+ * subject), columns = lanes, one issue-chip box per node, cubic edges from a
+ * blocker's bottom-middle to the blocked box's top-middle behind them —
  * grey, red on a blocking cycle. Subjects wear the primary ring, cycle members
  * the error one. Every number is [IssueGraph.Geometry] (locked by
  * `domain-contract/fixtures/issue-graph-geometry.json`); the grid carries its
- * own inset so no ring is ever clipped, and it scrolls both ways past
- * min(grid, available width) × min(grid, maxViewHeight). The two shared notes
+ * own inset so no ring is ever clipped; the viewport is min(grid, available
+ * width) × min(grid, maxViewHeight) and scrolls only along an axis the grid
+ * overflows (a chain scrolls down, never sideways). The two shared notes
  * sit underneath.
  *
  * SLOP-16: [density] COMPACT (web `density="compact"`) draws every node as
@@ -79,11 +82,13 @@ fun IssueGraphPopover(
             val gridHeight = size.height.dp
             val viewWidth = if (constraints.hasBoundedWidth) minOf(gridWidth, maxWidth) else gridWidth
             val viewHeight = minOf(gridHeight, size.viewHeight.dp)
+            val scrollsSideways = gridWidth > viewWidth
+            val scrollsDown = gridHeight > viewHeight
             Box(
                 modifier = Modifier
                     .size(viewWidth, viewHeight)
-                    .horizontalScroll(rememberScrollState())
-                    .verticalScroll(rememberScrollState()),
+                    .then(if (scrollsSideways) Modifier.horizontalScroll(rememberScrollState()) else Modifier)
+                    .then(if (scrollsDown) Modifier.verticalScroll(rememberScrollState()) else Modifier),
             ) {
                 Box(modifier = Modifier.size(gridWidth, gridHeight)) {
                     Canvas(modifier = Modifier.fillMaxSize()) {

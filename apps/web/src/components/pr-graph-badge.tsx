@@ -401,7 +401,7 @@ export function PrGraphOverlay({
   const sections = overlaySections(graph, face)
 
   // EXP-980: the transitive chain as THE mini-graph — the COMPACT one (the
-  // small chip: glyph · identifier), scrolling sideways past the surface.
+  // small chip: glyph · identifier), vertical (SLOP-16), scrolling down past the surface.
   const blockedBand = subjectIssue ? (
     <Band key="blocked" section="blocked" label={PR_GRAPH_OVERLAY_COPY.blocked}>
       <IssueGraphView

@@ -4,6 +4,7 @@ import type { Issue } from "@/db/schema"
 import {
   ISSUE_GRAPH_GEOMETRY,
   issueGraphEdgePath,
+  issueGraphOrigin,
   type IssueGraph,
 } from "@/lib/issue-graph"
 
@@ -70,8 +71,10 @@ describe(`IssueGraphView`, () => {
     )
     // The grid pads by the inset, so the path (inset-free) plus the padding
     // lands the curve where the contract puts it.
-    expect(getByTestId(`issue-graph-node-EXP-2`).style.left).toBe(
-      `${ISSUE_GRAPH_GEOMETRY.nodeWidth + ISSUE_GRAPH_GEOMETRY.waveGap}px`
-    )
+    // SLOP-16: vertical, lane → x, wave → y.
+    const at = issueGraphOrigin(1, 1)
+    const node = getByTestId(`issue-graph-node-EXP-2`)
+    expect(node.style.left).toBe(`${at.x - ISSUE_GRAPH_GEOMETRY.inset}px`)
+    expect(node.style.top).toBe(`${at.y - ISSUE_GRAPH_GEOMETRY.inset}px`)
   })
 })

@@ -2,16 +2,18 @@ import ExpCore
 import SwiftUI
 
 /// EXP-1057 — THE blocks MINI-GRAPH, drawn exactly like web (`@exp/ui`
-/// `WaveGraph`), desktop and Android: a GRID whose columns are waves and rows
-/// lanes, one issue-chip box per node, a cubic edge from the blocker's
-/// right-middle to the blocked box's left-middle — grey, RED on a blocking
-/// cycle. Subjects wear the primary ring, cycle members a destructive one;
+/// `WaveGraph`), desktop and Android: a VERTICAL GRID (SLOP-16) whose rows
+/// are waves (top = the first blockers, bottom = the blocked subject) and
+/// columns lanes, one issue-chip box per node, a cubic edge from the
+/// blocker's bottom-middle to the blocked box's top-middle — grey, RED on a
+/// blocking cycle. Subjects wear the primary ring, cycle members a destructive one;
 /// the two byte-locked `IssueGraph` notes sit underneath.
 ///
 /// Every number comes from `IssueGraph.Geometry` (locked ×4 by
 /// `issue-graph-geometry.json`); the inset is part of the grid, so the rings
-/// are never clipped. Past `maxViewWidth` / `maxViewHeight` (or the width the
-/// parent offers) the grid scrolls both ways.
+/// are never clipped. Past `maxViewHeight` the grid scrolls down; only a
+/// multi-lane grid wider than `maxViewWidth` (or the width the parent offers)
+/// scrolls sideways, so a chain never does.
 ///
 /// SLOP-16: `density: .compact` (the badge overlay, the phone's rail sheet)
 /// draws the SMALL chip in `compactNodeWidth` boxes — the title rides in the
@@ -74,7 +76,9 @@ public struct IssueGraphPopover: View {
         let size = G.size(of: graph, nodeWidth: density.nodeWidth)
         let byId = issuesById
         let cycleIds = onCycle
-        return ScrollView([.horizontal, .vertical], showsIndicators: false) {
+        let lanes = (graph.nodes.map(\.lane).max() ?? 0) + 1
+        let axes: Axis.Set = lanes > 1 ? [.horizontal, .vertical] : .vertical
+        return ScrollView(axes, showsIndicators: false) {
             ZStack(alignment: .topLeading) {
                 edges
                 ForEach(graph.nodes, id: \.id) { node in
@@ -121,8 +125,8 @@ public struct IssueGraphPopover: View {
         CGPoint(x: p.x, y: p.y)
     }
 
-    /// One node: the shared issue chip in a `nodeWidth` × `nodeHeight` box at
-    /// its origin, ringed when it is a subject or on a cycle.
+    /// One node: the shared issue chip FILLING a `nodeWidth` × `nodeHeight` box
+    /// at its origin (so the edges meet its border), ringed when it is a subject or on a cycle.
     @ViewBuilder
     private func nodeBox(_ node: IssueGraph.Node, issue: IssueEntity?, cycle: Bool) -> some View {
         let origin = G.origin(wave: node.wave, lane: node.lane, nodeWidth: density.nodeWidth)
@@ -139,7 +143,8 @@ public struct IssueGraphPopover: View {
                 iconName: status.iconName,
                 statusColor: status.color,
                 bodySize: Self.chipBodySize,
-                size: density == .compact ? .sm : .md
+                size: density == .compact ? .sm : .md,
+                fillsFrame: true
             )
             .frame(
                 width: CGFloat(density.nodeWidth),

@@ -13,6 +13,12 @@ import { cn } from "./cn"
 // node's left-middle port, bowed inside the GAP between the two columns so it
 // never cuts through a box.
 //
+// SLOP-16: `orientation="vertical"` turns the grid (the blocks mini-graph):
+// waves are ROWS (top = the first blockers), lanes COLUMNS, and an edge runs
+// from the blocker's bottom-middle to the blocked box's top-middle, so a
+// chain grows downward and never scrolls sideways. The workflow graph keeps
+// the horizontal default.
+//
 // EXP-983: every edge arrives with its STYLE rather than a flag per meaning —
 // grey solid, red on a cycle or a stale upstream, green out of a landed node,
 // grey DASHED while the dependent builds on work nobody landed yet. The app's
@@ -31,6 +37,10 @@ const NODE_W = 172
 const NODE_H = 28
 const WAVE_GAP = 40
 const LANE_GAP = 8
+
+/** Which way the waves run: `horizontal` = waves are columns (the workflow
+ *  graph), `vertical` = waves are rows (the blocks mini-graph, SLOP-16). */
+export type WaveGraphOrientation = `horizontal` | `vertical`
 
 /** The one thing the grid needs of a node: where it sits. */
 export interface WaveGraphNode {
@@ -87,6 +97,42 @@ export interface WaveGraphEdgeGeometry extends Required<WaveGraphMetrics> {
   fromAt: { x: number; y: number }
   /** The blocked box's top-left. */
   toAt: { x: number; y: number }
+  orientation: WaveGraphOrientation
+}
+
+/** A box's top-left in the grid's own coordinates (no inset). */
+function cellAt(
+  node: WaveGraphNode,
+  m: Required<WaveGraphMetrics>,
+  orientation: WaveGraphOrientation
+): { x: number; y: number } {
+  return orientation === `vertical`
+    ? {
+        x: node.lane * (m.nodeWidth + m.laneGap),
+        y: node.wave * (m.nodeHeight + m.waveGap),
+      }
+    : {
+        x: node.wave * (m.nodeWidth + m.waveGap),
+        y: node.lane * (m.nodeHeight + m.laneGap),
+      }
+}
+
+/** The vertical default edge: a cubic from the anchor (bottom-middle) to the
+ *  target (top-middle), bent by half the drop; a backward (cycle) edge bows
+ *  by max(waveGap / 2, |dy| / 2). */
+function defaultVerticalEdgePath(
+  geometry: WaveGraphEdgeGeometry,
+  out: { x: number; y: number },
+  into: { x: number; y: number }
+): string {
+  const { fromAt, toAt, waveGap } = geometry
+  const x1 = fromAt.x + out.x
+  const y1 = fromAt.y + out.y
+  const x2 = toAt.x + into.x
+  const y2 = toAt.y + into.y
+  const dy = y2 - y1
+  const bend = dy > 0 ? dy / 2 : Math.max(waveGap / 2, Math.abs(dy) / 2)
+  return `M ${x1} ${y1} C ${x1} ${y1 + bend}, ${x2} ${y2 - bend}, ${x2} ${y2}`
 }
 
 /** The default edge: a level stub from the anchor to its cell's edge, then a
@@ -125,7 +171,8 @@ const EDGE_STROKE_WIDTH = 1.25
  */
 export function waveGraphSize(
   nodes: readonly WaveGraphNode[],
-  metrics: WaveGraphMetrics = {}
+  metrics: WaveGraphMetrics = {},
+  orientation: WaveGraphOrientation = `horizontal`
 ): { width: number; height: number } {
   const nodeWidth = metrics.nodeWidth ?? NODE_W
   const nodeHeight = metrics.nodeHeight ?? NODE_H
@@ -137,6 +184,12 @@ export function waveGraphSize(
     waves = Math.max(waves, node.wave + 1)
     lanes = Math.max(lanes, node.lane + 1)
   }
+  if (orientation === `vertical`) {
+    return {
+      width: Math.max(0, lanes * (nodeWidth + laneGap) - laneGap),
+      height: Math.max(0, waves * (nodeHeight + waveGap) - waveGap),
+    }
+  }
   return {
     width: Math.max(0, waves * (nodeWidth + waveGap) - waveGap),
     height: Math.max(0, lanes * (nodeHeight + laneGap) - laneGap),
@@ -144,7 +197,8 @@ export function waveGraphSize(
 }
 
 /**
- * The bare wave GRID: columns are waves, rows are lanes, one SVG of bowed
+ * The bare wave GRID: columns are waves, rows are lanes (rows are waves when
+ * `orientation="vertical"`), one SVG of bowed
  * edges behind the boxes. It draws and never lays out — the layout arrives
  * with the nodes. `renderNode` returning null drops that box entirely (an
  * issue row that has not synced yet).
@@ -156,6 +210,7 @@ export function WaveGraph({
   nodeHeight = NODE_H,
   waveGap = WAVE_GAP,
   laneGap = LANE_GAP,
+  orientation = `horizontal`,
   edgeOut,
   edgeIn,
   edgeStrokeWidth = EDGE_STROKE_WIDTH,
@@ -170,8 +225,12 @@ export function WaveGraph({
   nodeHeight?: number
   waveGap?: number
   laneGap?: number
+  /** SLOP-16: `vertical` = waves are rows (the blocks mini-graph); the
+   *  default `horizontal` = waves are columns (the workflow graph). */
+  orientation?: WaveGraphOrientation
   /** Where an edge LEAVES and ENTERS a cell, as offsets from its top-left.
-   *  Boxes default to their side middles. */
+   *  Boxes default to their side middles (horizontal) or their bottom/top
+   *  middles (vertical). */
   edgeOut?: { x: number; y: number }
   edgeIn?: { x: number; y: number }
   /** The edges' stroke width. */
@@ -192,10 +251,10 @@ export function WaveGraph({
     const byId = new Map<string, WaveGraphNode>()
     for (const node of nodes) {
       byId.set(node.id, node)
-      at.set(node.id, {
-        x: node.wave * (nodeWidth + waveGap),
-        y: node.lane * (nodeHeight + laneGap),
-      })
+      at.set(
+        node.id,
+        cellAt(node, { nodeWidth, nodeHeight, waveGap, laneGap }, orientation)
+      )
     }
     const onCycle = new Set<string>()
     for (const edge of edges) {
@@ -207,15 +266,26 @@ export function WaveGraph({
       at,
       byId,
       onCycle,
-      ...waveGraphSize(nodes, { nodeWidth, nodeHeight, waveGap, laneGap }),
+      ...waveGraphSize(
+        nodes,
+        { nodeWidth, nodeHeight, waveGap, laneGap },
+        orientation
+      ),
     }
-  }, [nodes, edges, nodeWidth, nodeHeight, waveGap, laneGap])
-  const out = edgeOut ?? { x: nodeWidth, y: nodeHeight / 2 }
-  const into = edgeIn ?? { x: 0, y: nodeHeight / 2 }
+  }, [nodes, edges, nodeWidth, nodeHeight, waveGap, laneGap, orientation])
+  const vertical = orientation === `vertical`
+  const out =
+    edgeOut ??
+    (vertical
+      ? { x: nodeWidth / 2, y: nodeHeight }
+      : { x: nodeWidth, y: nodeHeight / 2 })
+  const into =
+    edgeIn ?? (vertical ? { x: nodeWidth / 2, y: 0 } : { x: 0, y: nodeHeight / 2 })
 
   return (
     <div
       className="relative"
+      data-orientation={orientation}
       style={{ width: layout.width, height: layout.height }}
     >
       <svg
@@ -240,10 +310,13 @@ export function WaveGraph({
             nodeHeight,
             waveGap,
             laneGap,
+            orientation,
           }
           const d = pathFor
             ? pathFor(edge, geometry)
-            : defaultEdgePath(geometry, out, into)
+            : vertical
+              ? defaultVerticalEdgePath(geometry, out, into)
+              : defaultEdgePath(geometry, out, into)
           return (
             <path
               key={`${edge.from}:${edge.to}`}

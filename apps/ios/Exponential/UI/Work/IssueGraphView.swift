@@ -18,7 +18,7 @@ struct NestedIssueRow: Identifiable {
 /// the flat "Blocked by" chip section) and the blocked-start sheet.
 ///
 /// EXP-1057: it draws the SAME grid web, desktop and Android draw — the shared
-/// ExpUI `IssueGraphPopover` (waves × lanes, chip boxes, cubic edges, red on a
+/// ExpUI `IssueGraphPopover` (vertical: wave rows × lane columns, chip boxes, cubic edges, red on a
 /// cycle, geometry locked by `issue-graph-geometry.json`). An empty graph
 /// says so instead of drawing nothing.
 struct IssueGraphView: View {

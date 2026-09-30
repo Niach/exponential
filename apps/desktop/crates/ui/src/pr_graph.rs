@@ -316,15 +316,12 @@ fn content_height(spec: &BadgeSpec) -> f32 {
         height += BAND_H
             + match section {
                 OverlaySection::Blocked => {
-                    let lanes = spec
-                        .blocks_graph
-                        .nodes
-                        .iter()
-                        .map(|node| node.lane + 1)
-                        .max()
-                        .unwrap_or(1) as f32;
+                    // SLOP-16 r4: vertical, so the waves set the height.
+                    let nodes = &spec.blocks_graph.nodes;
+                    let waves = nodes.iter().map(|node| node.wave + 1).max().unwrap_or(1);
+                    let lanes = nodes.iter().map(|node| node.lane + 1).max().unwrap_or(1);
                     use domain::issue_graph::geometry::*;
-                    (2. * INSET + lanes * (NODE_HEIGHT + LANE_GAP)).min(MAX_VIEW_HEIGHT) + 8.
+                    size_with(COMPACT_NODE_WIDTH, waves, lanes).view_height + 8.
                 }
                 OverlaySection::Batch => batch_issues(spec).len() as f32 * ISSUE_ROW_H,
                 OverlaySection::Runs => spec.graph.tree.len() as f32 * TALL_ROW_H,
@@ -354,8 +351,8 @@ struct GraphDialog {
 
 impl Render for GraphDialog {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        // The content box follows the window (it resizes); the graph scrolls
-        // sideways past it, the dialog's scroller takes the height.
+        // The content box follows the window (it resizes); a (rare) wide
+        // graph scrolls sideways past it, the dialog's scroller the height.
         let width = (f32::from(window.viewport_size().width) - 2. * DIALOG_PAD).max(240.);
         overlay(&self.spec, width, cx)
     }
@@ -393,8 +390,8 @@ fn overlay(spec: &BadgeSpec, width: f32, cx: &mut App) -> AnyElement {
     let mut column = v_flex().w_full().min_w_0().gap_3();
     for section in sections.iter().copied() {
         let rows: Vec<AnyElement> = match section {
-            // EXP-980: the transitive blocks GRAPH, compact: small chips, the
-            // popover's viewport; it scrolls sideways past the dialog.
+            // EXP-980: the transitive blocks GRAPH, compact: small chips,
+            // vertical (waves top to bottom), sized to the graph.
             OverlaySection::Blocked => vec![crate::issue_graph::graph_in_dialog_compact(
                 &spec.blocks_graph,
                 width,

@@ -271,9 +271,9 @@ final class IssueGraphGeometryTests: XCTestCase {
 
     func testNoNodeDrawsNothing() throws { try assertSize("no node draws nothing") }
     func testOneNode() throws { try assertSize("one node") }
-    func testTwoWavesFit() throws { try assertSize("two waves fit") }
-    func testThreeWavesScrollSideways() throws { try assertSize("three waves scroll sideways") }
-    func testTenLanesScrollDown() throws { try assertSize("ten lanes scroll down") }
+    func testTwoWavesStack() throws { try assertSize("two waves stack") }
+    func testThreeLanesScrollSideways() throws { try assertSize("three lanes scroll sideways") }
+    func testSevenWavesScrollDown() throws { try assertSize("seven waves scroll down") }
 
     func testOrigins() throws {
         let origins = try fixture().origins
@@ -371,8 +371,8 @@ final class IssueGraphGeometryTests: XCTestCase {
         XCTAssertEqual(
             fixture.sizes.map(\.name),
             [
-                "no node draws nothing", "one node", "two waves fit",
-                "three waves scroll sideways", "ten lanes scroll down",
+                "no node draws nothing", "one node", "two waves stack",
+                "three lanes scroll sideways", "seven waves scroll down",
             ]
         )
         XCTAssertEqual(
@@ -383,7 +383,7 @@ final class IssueGraphGeometryTests: XCTestCase {
                 "a backward cycle edge bows by half its run",
             ]
         )
-        XCTAssertEqual(fixture.compact.sizes.map(\.name), ["three waves fit compact"])
+        XCTAssertEqual(fixture.compact.sizes.map(\.name), ["three lanes fit compact", "three waves stack compact"])
         XCTAssertEqual(
             fixture.compact.edges.map(\.name),
             [

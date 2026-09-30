@@ -147,7 +147,7 @@ struct PrGraphSheet: View {
     // MARK: Sections
 
     /// EXP-980: the transitive blocks chain as THE compact mini-graph (it
-    /// scrolls sideways on its own), the direct blockers as issue rows when
+    /// scrolls on its own; a chain runs top-down, SLOP-16), the direct blockers as issue rows when
     /// the graph has not resolved.
     @ViewBuilder
     private var blockedRows: some View {
