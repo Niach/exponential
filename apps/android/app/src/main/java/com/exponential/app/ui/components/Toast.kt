@@ -10,6 +10,11 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.clickable
+import androidx.compose.animation.core.AnimationVector1D
+import androidx.compose.animation.core.Animatable
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
@@ -227,27 +232,46 @@ object ToastDefaults {
     }
 }
 
-/** One toast card: kind colour on the icon ONLY, opaque glass card, no shadow. */
+/**
+ * One toast card: kind colour on the icon ONLY, opaque glass card, no shadow.
+ * [height] forces the card's height (a collapsed BACK card wears the front
+ * card's, sonner's rule) while the content keeps its natural height, reported
+ * through [onNaturalHeight]; [contentAlpha] fades the content (0 on back cards).
+ */
 @Composable
 fun ToastCard(
     item: ToastItem,
     onDismiss: () -> Unit,
     onExpandToggle: () -> Unit,
     modifier: Modifier = Modifier,
+    height: Dp? = null,
+    contentAlpha: Float = 1f,
+    onNaturalHeight: (Dp) -> Unit = {},
 ) {
     val onSurface = MaterialTheme.colorScheme.onSurface
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    val density = LocalDensity.current
+    Box(
+        contentAlignment = Alignment.TopCenter,
         modifier = modifier
+            .then(if (height != null) Modifier.height(height) else Modifier)
             .glassCard(opaque = true, cornerRadius = ToastDefaults.CornerRadius)
+            .clipToBounds()
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = onExpandToggle,
             )
-            .padding(start = 14.dp, end = 4.dp, top = 8.dp, bottom = 8.dp)
             .testTag("toast-${item.kind.wire}"),
+    ) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .wrapContentHeight(Alignment.Top, unbounded = true)
+            .onSizeChanged { onNaturalHeight(with(density) { it.height.toDp() }) }
+            .graphicsLayer { alpha = contentAlpha }
+            .padding(start = 14.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
     ) {
         Icon(
             ToastDefaults.icon(item.kind),
@@ -289,6 +313,7 @@ fun ToastCard(
             )
         }
     }
+    }
 }
 
 /**
@@ -322,8 +347,14 @@ fun ToastStackBox(toaster: Toaster, modifier: Modifier = Modifier) {
     val liveIds = live.map { it.id }.toSet()
 
     val expanded = toaster.expanded
+    // Sonner's collapsed rule: every back card wears the FRONT card's height
+    // (content hidden), so a short older card is never swallowed and a tall
+    // one never bleeds; expanded, every card is its own height again.
+    val frontHeight = live.lastOrNull()?.let { heights[it.id] } ?: ToastDefaults.FALLBACK_HEIGHT
     val layout = ToastStack.geometry(
-        heights = live.map { heights[it.id] ?: ToastDefaults.FALLBACK_HEIGHT },
+        heights = live.map {
+            if (expanded) heights[it.id] ?: ToastDefaults.FALLBACK_HEIGHT else frontHeight
+        },
         expanded = expanded,
         anchoredBottom = true,
     )
@@ -365,6 +396,22 @@ fun ToastStackBox(toaster: Toaster, modifier: Modifier = Modifier) {
                     LaunchedEffect(Unit) { toaster.forget(item.id) }
                 }
                 val geo = toaster.lastGeometry[item.id] ?: ToastStack.ItemGeometry(0.0, 1.0, true)
+                val liveIndex = live.indexOfFirst { it.id == item.id }
+                val back = !expanded && liveIndex in 0 until live.size - 1
+                // The card height: the front's while back, its own otherwise
+                // (animated between the two); unforced until first measured.
+                val targetHeight = when {
+                    liveIndex < 0 -> null
+                    back -> frontHeight.toFloat()
+                    else -> heights[item.id]?.toFloat()
+                }
+                var heightAnim by remember { mutableStateOf<Animatable<Float, AnimationVector1D>?>(null) }
+                LaunchedEffect(targetHeight) {
+                    val target = targetHeight ?: return@LaunchedEffect
+                    val current = heightAnim
+                    if (current == null) heightAnim = Animatable(target) else current.animateTo(target, slow)
+                }
+                val contentAlpha by animateFloatAsState(if (back) 0f else 1f, slow, label = "toast-content-alpha")
                 val offset by animateFloatAsState(geo.offset.toFloat(), slow, label = "toast-offset")
                 val scale by animateFloatAsState(geo.scale.toFloat(), slow, label = "toast-scale")
                 val alpha by animateFloatAsState(if (geo.visible) 1f else 0f, slow, label = "toast-alpha")
@@ -385,11 +432,11 @@ fun ToastStackBox(toaster: Toaster, modifier: Modifier = Modifier) {
                         item = item,
                         onDismiss = { toaster.dismiss(item.id) },
                         onExpandToggle = { toaster.expanded = !toaster.expanded },
+                        height = heightAnim?.value?.dp,
+                        contentAlpha = contentAlpha,
+                        onNaturalHeight = { heights[item.id] = it.value.toDouble() },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .onSizeChanged { size ->
-                                heights[item.id] = with(density) { size.height.toDp().value.toDouble() }
-                            }
                             .graphicsLayer {
                                 translationX = dx
                                 scaleX = scale
