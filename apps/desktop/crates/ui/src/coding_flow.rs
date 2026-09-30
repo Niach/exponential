@@ -1411,10 +1411,17 @@ pub fn resume_blocker_for(
 
 struct DesktopEngineHost {
     exits: flume::Sender<engine::EngineExit>,
+    /// FEED-63/67: where a stopped run's uncommitted work is saved.
+    worktree: PathBuf,
 }
 
 impl engine::EngineHost for DesktopEngineHost {
     fn on_exit(&self, exit: engine::EngineExit) {
+        // FEED-63/67: a run a PERSON stopped keeps its uncommitted work as a
+        // local WIP commit on its branch (never pushed). Here, off the gpui
+        // foreground (the engine thread), and BEFORE the exit edge reaches
+        // the drain, whose run cleanup must see the saved commit.
+        engine::save_stopped_run_work(&exit, &self.worktree);
         let _ = self.exits.send(exit);
     }
 }
@@ -1541,7 +1548,11 @@ pub fn spawn_into_window(
         local_sink: Some(Arc::new(|_| {})),
     };
 
-    let session = match engine::start(start, Arc::new(DesktopEngineHost { exits: exit_tx })) {
+    let host = Arc::new(DesktopEngineHost {
+        exits: exit_tx,
+        worktree: worktree.clone(),
+    });
+    let session = match engine::start(start, host) {
         Ok(session) => session,
         Err(err) => {
             // The row is already created (prepare made it), so it must not

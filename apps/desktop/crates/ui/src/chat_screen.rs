@@ -1560,6 +1560,7 @@ impl ChatScreenView {
                             None => prompt,
                         },
                         on_settled: None,
+                        report: crate::steer_wiring::StartReport::none(),
                     },
                     cx,
                 );

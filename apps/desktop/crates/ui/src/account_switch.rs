@@ -66,7 +66,7 @@ pub(crate) const COST_NOTE: &str =
 const REASON_AGENT: &str = "Only claude can switch accounts during a run.";
 const REASON_OFFLINE: &str = "The machine is offline.";
 const REASON_NO_CAP: &str = "Update the app on that machine to switch accounts.";
-const REASON_BUSY: &str = "The agent is working — switching waits for the turn to finish.";
+pub(crate) const REASON_BUSY: &str = "The agent is working — switching waits for the turn to finish.";
 const REASON_SIGNED_OUT: &str = "Sign in to this account on that machine first.";
 const REASON_NEEDS_RELOGIN: &str = "This account needs a re-login on that machine.";
 
@@ -497,6 +497,7 @@ pub(crate) fn switch_to(
         target,
         coding::LaunchOrigin::Local,
         None,
+        crate::steer_wiring::StartReport::none(),
         cx,
     ) {
         crate::toast::error(REASON_BUSY, window, cx);
@@ -524,12 +525,17 @@ pub(crate) fn switch_to(
 /// account-rotation host (`account_rotation_host`) passes the rotation's
 /// "moved this run from … to …" line, which the launcher prefixes to the
 /// continue prompt.
+///
+/// FEED-67: `report` = a relay frame's start (`StartReport::none()` for a
+/// local switch); a resume that then fails or is refused reports its reason
+/// through it. The caller reports the mid-turn `false` itself.
 pub(crate) fn end_then_resume_on_account(
     session_id: String,
     profile_id: String,
     target: Option<gpui::AnyWindowHandle>,
     origin: coding::LaunchOrigin,
     prompt: Option<String>,
+    report: crate::steer_wiring::StartReport,
     cx: &mut App,
 ) -> bool {
     let live = crate::coding_flow::LocalSessions::global(cx)
@@ -537,13 +543,14 @@ pub(crate) fn end_then_resume_on_account(
         .session_for_id(&session_id)
         .map(|session| session.host.session.clone());
     let Some(session) = live else {
-        crate::action_run::resume_run_on_account(
+        crate::action_run::resume_run_reporting(
             session_id,
             target,
             false,
             origin,
             Some(profile_id),
             prompt,
+            report,
             cx,
         );
         return true;
@@ -576,13 +583,14 @@ pub(crate) fn end_then_resume_on_account(
             });
             if gone {
                 let _ = cx.update(|cx| {
-                    crate::action_run::resume_run_on_account(
+                    crate::action_run::resume_run_reporting(
                         session_id.clone(),
                         target,
                         false,
                         origin,
                         Some(profile_id.clone()),
                         prompt.clone(),
+                        report.clone(),
                         cx,
                     );
                 });
@@ -591,11 +599,9 @@ pub(crate) fn end_then_resume_on_account(
         }
         let _ = cx.update(|cx| {
             crate::workflow_host::release_person_resume(&session_id, cx);
-            crate::action_run::notify_target_error(
-                target,
-                "The run did not stop in time — switch accounts again once it has.",
-                cx,
-            );
+            let message = "The run did not stop in time — switch accounts again once it has.";
+            crate::action_run::notify_target_error(target, message, cx);
+            report.fail(message, cx);
         });
     })
     .detach();

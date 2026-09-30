@@ -400,50 +400,11 @@ impl engine::EngineHost for CliEngineHost {
         }
         // FEED-63: a run a PERSON stopped keeps its uncommitted work as a
         // local WIP commit on its branch (never pushed).
-        if stopped_by_person(&exit.outcome, exit.end.as_ref()) {
-            match coding::save_wip_commit(&self.worktree) {
-                coding::WipSave::Committed { branch } => log::info!(
-                    "coding session {}: saved uncommitted work as a WIP commit on {branch} in {}",
-                    exit.session_id,
-                    self.worktree.display()
-                ),
-                coding::WipSave::Failed(detail) => log::warn!(
-                    "coding session {}: could not save uncommitted work in {}: {detail}",
-                    exit.session_id,
-                    self.worktree.display()
-                ),
-                coding::WipSave::Clean | coding::WipSave::NotARepo => {}
-            }
-        }
+        engine::save_stopped_run_work(&exit, &self.worktree);
         if let Ok(mut hold) = self.refresher_hold.lock() {
             drop(hold.take());
         }
     }
-}
-
-/// FEED-63: whether a run ended because a PERSON stopped it, the one end
-/// whose uncommitted work gets saved as a WIP commit. The engine outcome is
-/// `killed` for every hard stop (a relay `kill` frame, the kill poll's
-/// `Now`), a merge end and a withdrawn share included, so the row's
-/// `ended_by` (echoed back by the end call, which keeps an existing end)
-/// decides: `user` (web/mobile Stop, MCP `exponential_sessions_kill`) or
-/// `client` (this host's own forced end). An agent close-out and an
-/// account switch end `ended`; a merge/system end is not a stop.
-fn stopped_by_person(
-    outcome: &str,
-    end: Option<&Result<api::coding_sessions::CodingSession, api::ApiError>>,
-) -> bool {
-    if outcome != "killed" {
-        return false;
-    }
-    let Some(Ok(row)) = end else {
-        return false;
-    };
-    matches!(
-        row.ended_by.as_deref(),
-        Some(domain::contract::CODING_SESSION_ENDED_BY_USER)
-            | Some(domain::contract::CODING_SESSION_ENDED_BY_CLIENT)
-    )
 }
 
 /// The own-row kill-switch poll, shared by both transports (EXP-746).
@@ -626,24 +587,6 @@ mod tests {
             "status": status,
         }))
         .expect("fixture decodes")
-    }
-
-    /// FEED-63: only a person's hard stop saves a WIP commit.
-    #[test]
-    fn only_a_person_stop_saves_the_worktree() {
-        let end = |by: &str| Some(Ok(ended_by(by)));
-        assert!(stopped_by_person("killed", end("user").as_ref()));
-        assert!(stopped_by_person("killed", end("client").as_ref()));
-        assert!(!stopped_by_person("killed", end("merge").as_ref()));
-        assert!(!stopped_by_person("killed", end("system").as_ref()));
-        assert!(!stopped_by_person("ended", end("user").as_ref()));
-        assert!(!stopped_by_person("ended", end("agent").as_ref()));
-        assert!(!stopped_by_person("exit:0", end("client").as_ref()));
-        assert!(!stopped_by_person("killed", None));
-        assert!(!stopped_by_person(
-            "killed",
-            Some(Err(api::ApiError::UpgradeRequired)).as_ref()
-        ));
     }
 
     /// EXP-637: an ended row that also says WHO ended it.

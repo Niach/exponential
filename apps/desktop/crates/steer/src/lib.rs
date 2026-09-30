@@ -88,9 +88,10 @@ use serde::Deserialize;
 
 pub use api::steer::{MintTicketResult, MintedTicket, SteerConfig};
 pub use control_channel::{
-    spawn_control_channel, stack_launch, ControlApi, ControlChannelHandle, DeviceIdentity,
-    HistoryPageAsk, HistoryPageFn, HistoryPageReply, HistoryRequestFn, RemoteStart,
-    RemoteStartSubject, TrpcControlApi,
+    disabled_launch_reason, issue_held_elsewhere_reason, issue_held_here_reason,
+    report_start_failure, spawn_control_channel, stack_launch, ControlApi, ControlChannelHandle,
+    DeviceIdentity, HistoryPageAsk, HistoryPageFn, HistoryPageReply, HistoryRequestFn, RemoteStart,
+    RemoteStartSubject, TrpcControlApi, START_DUPLICATE_REASON,
 };
 pub use activity::{
     clamp_config_state, normalize_compaction_trigger, stop_now, synthetic_question_id, truncate,

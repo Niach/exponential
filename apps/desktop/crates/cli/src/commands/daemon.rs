@@ -607,7 +607,11 @@ fn run_daemon(args: &[String]) -> CommandResult {
                     if let Some(start_id) = start.start_id.clone() {
                         let ctx = Arc::clone(&ctx);
                         std::thread::spawn(move || {
-                            report_start_failure(&ctx, Some(&start_id), START_DUPLICATE_REASON);
+                            steer::report_start_failure(
+                                &ctx.trpc,
+                                Some(&start_id),
+                                steer::START_DUPLICATE_REASON,
+                            );
                         });
                     }
                 }
@@ -1796,18 +1800,18 @@ fn handle_remote_start(
         // requester too.
         Err(err) if err.is::<StartRefused>() => {
             log::warn!("remote start refused ({:?}): {err}", start.subject);
-            report_start_failure(ctx, start.start_id.as_deref(), &err.to_string());
+            steer::report_start_failure(&ctx.trpc, start.start_id.as_deref(), &err.to_string());
         }
         Err(err) => {
             log::warn!("remote start failed: {err:#}");
-            report_start_failure(ctx, start.start_id.as_deref(), &format!("{err:#}"));
+            steer::report_start_failure(
+                &ctx.trpc,
+                start.start_id.as_deref(),
+                &format!("{err:#}"),
+            );
         }
     }
 }
-
-/// FEED-63: the reason a duplicate `start_session` frame is dropped with.
-const START_DUPLICATE_REASON: &str =
-    "duplicate start dropped: a start for the same subject is already in flight on this device";
 
 /// FEED-63: a remote start this machine did not honour, as a typed error so
 /// [`handle_remote_start`] can tell a deliberate refusal (reported with its
@@ -1823,22 +1827,6 @@ impl std::fmt::Display for StartRefused {
 }
 
 impl std::error::Error for StartRefused {}
-
-/// FEED-63: tell the server why the start `start_id` names did not happen
-/// (`steer.reportStartFailure`), so the requester reads the reason instead
-/// of a bare timeout. Best-effort: a frame without a start id (a pre-FEED-63
-/// server) reports nothing, and a transport failure is only logged.
-fn report_start_failure(ctx: &Ctx, start_id: Option<&str>, reason: &str) {
-    let Some(start_id) = start_id else {
-        return;
-    };
-    match api::steer::report_start_failure(&ctx.trpc, start_id, reason) {
-        Ok(recorded) => {
-            log::info!("remote start {start_id}: failure reported (recorded={recorded})")
-        }
-        Err(err) => log::warn!("remote start {start_id}: failure report failed: {err}"),
-    }
-}
 
 /// The one-session-per-issue guards every issue-shaped start takes — this
 /// daemon's own live sessions first, then the REV2-24 cross-device probe
@@ -1862,16 +1850,13 @@ fn issue_start_blocker_except(
     except: Option<&str>,
 ) -> Option<String> {
     if let Some(session_id) = issue_run_here(sessions, issue_id) {
-        return Some(format!(
-            "a live run already holds this issue on this device: {session_id}"
-        ));
+        return Some(steer::issue_held_here_reason(&session_id));
     }
     if let Ok(Some(live)) = api::coding_sessions::live_for_issue(&ctx.trpc, issue_id) {
         if except != Some(live.id.as_str()) {
-            return Some(format!(
-                "a live run already holds this issue on {}: {} (one session per issue)",
+            return Some(steer::issue_held_elsewhere_reason(
                 live.device_label.as_deref().unwrap_or("another device"),
-                live.id
+                Some(&live.id),
             ));
         }
     }
@@ -2403,7 +2388,7 @@ fn spawn_prepared_covering(
         Prepared::Ready(prepared) => prepared,
         // FEED-63: typed, so a remote start reports the refusal back.
         Prepared::Disabled(reason) => {
-            return Err(StartRefused(format!("refused: {}", reason.message())).into());
+            return Err(StartRefused(steer::disabled_launch_reason(&reason.message())).into());
         }
     };
     let env = LaunchEnv {

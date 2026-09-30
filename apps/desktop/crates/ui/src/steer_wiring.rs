@@ -471,25 +471,30 @@ fn register_device(
 /// subject: a single issue (`build_launch` → `PrepareRequest::Issue`) or a
 /// multi-issue batch (`PrepareRequest::Batch`, EXP-106).
 fn handle_remote_start(start: steer::RemoteStart, cx: &mut App) {
+    // FEED-63/67: success is observed purely via the synced `coding_sessions`
+    // row appearing; every refusal and failure below ALSO reaches the
+    // requester through `report`, when the frame named its `startId`.
+    let report = StartReport::new(start.start_id.clone());
     match start.subject.clone() {
         steer::RemoteStartSubject::Issue(issue_id) => remote_issue_start(
             issue_id,
             &start,
             steer::stack_launch(start.stack.as_ref()),
+            report,
             cx,
         ),
         steer::RemoteStartSubject::Batch {
             issue_ids,
             team_id,
             repo,
-        } => remote_batch_start(issue_ids, team_id, repo, &start, cx),
+        } => remote_batch_start(issue_ids, team_id, repo, &start, report, cx),
         steer::RemoteStartSubject::Action {
             action_id,
             team_id,
             repo,
             inputs,
             ..
-        } => remote_action_start(action_id, team_id, repo, inputs, &start, cx),
+        } => remote_action_start(action_id, team_id, repo, inputs, &start, report, cx),
         // EXP-637: resume an ended run out of the local run registry (EXP-662:
         // issue and batch sessions too) — no repo/inputs/options ride the
         // frame (the record has them), so this is the shortest arm of the four.
@@ -508,6 +513,7 @@ fn handle_remote_start(start: steer::RemoteStart, cx: &mut App) {
                         None,
                         origin,
                         None,
+                        report.clone(),
                         cx,
                     ) {
                         // Mid-turn: refused rather than truncating the very
@@ -515,14 +521,63 @@ fn handle_remote_start(start: steer::RemoteStart, cx: &mut App) {
                         // (`account_switch::REASON_BUSY`) is what that client's
                         // own disabled row says.
                         log::info!(
-                            "remote account switch for {session_id} ignored — \
-                             The agent is working — switching waits for the turn to finish."
+                            "remote account switch for {session_id} ignored: {}",
+                            crate::account_switch::REASON_BUSY
                         );
+                        report.fail(crate::account_switch::REASON_BUSY, cx);
                     }
                 }
-                None => crate::action_run::resume_run(session_id, None, true, origin, cx),
+                None => crate::action_run::resume_run_reporting(
+                    session_id,
+                    None,
+                    true,
+                    origin,
+                    None,
+                    None,
+                    report,
+                    cx,
+                ),
             }
         }
+    }
+}
+
+/// FEED-63/67: the requester's handle on one remote start: the frame's
+/// `startId`, when it carried one. [`StartReport::fail`] tells the server why
+/// the start did not happen (`steer.reportStartFailure`), so the requester
+/// reads the reason instead of a bare "no run within 10s". The CLI daemon
+/// reports the same way with the same reason strings (`steer`'s shared
+/// helpers). Local starts carry [`StartReport::none`], which reports nothing.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct StartReport(Option<String>);
+
+impl StartReport {
+    pub(crate) fn new(start_id: Option<String>) -> Self {
+        Self(start_id.filter(|id| !id.trim().is_empty()))
+    }
+
+    /// Nothing to report to (a local start, a pre-FEED-63 frame).
+    pub(crate) fn none() -> Self {
+        Self(None)
+    }
+
+    /// Report `reason` for this start, best-effort, off the foreground (an
+    /// HTTP round trip). A report without a start id, or while signed out,
+    /// is a no-op.
+    pub(crate) fn fail(&self, reason: impl Into<String>, cx: &App) {
+        let Some(start_id) = self.0.clone() else {
+            return;
+        };
+        let Some(trpc) = queries::trpc_client(cx) else {
+            log::warn!("remote start {start_id}: failure not reported (not signed in)");
+            return;
+        };
+        let reason = reason.into();
+        cx.background_executor()
+            .spawn(async move {
+                steer::report_start_failure(&trpc, Some(&start_id), &reason);
+            })
+            .detach();
     }
 }
 
@@ -598,6 +653,7 @@ fn remote_action_start(
     repo: Option<steer::StartRepoGroup>,
     inputs: Vec<steer::StartInput>,
     start: &steer::RemoteStart,
+    report: StartReport,
     cx: &mut App,
 ) {
     // EXP-505: claim the frame's action id before launching — the only dedup
@@ -620,6 +676,8 @@ fn remote_action_start(
             "That action is already starting on this machine.",
             cx,
         );
+        // FEED-63/67: and the requester hears it too.
+        report.fail(steer::START_DUPLICATE_REASON, cx);
         return;
     };
     let settings = coding_flow::CodingHub::global(cx).read(cx).settings.clone();
@@ -675,6 +733,7 @@ fn remote_action_start(
             automation_id: None,
             on_settled: None,
             prompt: start.prompt.clone(),
+            report,
         },
         cx,
     );
@@ -705,6 +764,11 @@ fn relay_origin(
     }
 }
 
+/// FEED-67: the reason a remote start reports when this desktop has no
+/// window open to run it in (the daemon has no such case).
+pub(crate) const NO_WINDOW_REASON: &str =
+    "remote start failed: the desktop app has no window open to run it in";
+
 /// The first shell window (one with a terminal dock). A relay start can't
 /// host a coding tab on a non-shell window (login), so `None` means no
 /// window is open to run in — the caller logs and drops the start.
@@ -724,6 +788,7 @@ fn remote_issue_start(
     issue_id: String,
     start: &steer::RemoteStart,
     stack: Option<coding::StackLaunch>,
+    report: StartReport,
     cx: &mut App,
 ) {
     // Dedup: never launch a second session for an issue this process is
@@ -735,12 +800,13 @@ fn remote_issue_start(
     // only reaches the second. The button path is already guarded by its
     // Coding…/Stop render state; this closes the relay entry (LocalSessions is
     // process-global, so this covers every window).
-    if coding_flow::LocalSessions::global(cx)
+    let held_here = coding_flow::LocalSessions::global(cx)
         .read(cx)
         .get(&issue_id)
-        .is_some()
-    {
+        .map(|session| session.session_id.clone());
+    if let Some(session_id) = held_here {
         log::warn!("steer: remote start for {issue_id} ignored — already coding this issue");
+        report.fail(steer::issue_held_here_reason(&session_id), cx);
         return;
     }
     // REV2-24: the cross-device half of the same rule, mirroring the dialog's
@@ -754,6 +820,7 @@ fn remote_issue_start(
         log::warn!(
             "steer: remote start for {issue_id} ignored — live session on {device} (one session per issue)"
         );
+        report.fail(steer::issue_held_elsewhere_reason(&device, None), cx);
         return;
     }
     // FEED-47/57: a live BATCH run covering the issue holds it too.
@@ -761,6 +828,7 @@ fn remote_issue_start(
         log::warn!(
             "steer: remote start for {issue_id} ignored — a batch run on {device} covers it (one session per issue)"
         );
+        report.fail(steer::issue_held_elsewhere_reason(&device, None), cx);
         return;
     }
 
@@ -833,11 +901,16 @@ fn remote_issue_start(
         .map(|(request, deps)| (PrepareRequest::Issue(request), deps)),
     }) else {
         log::warn!("steer: remote start for {issue_id} ignored — not signed in / not synced");
+        report.fail(
+            "remote start failed: the issue is not synced on this device (or it is signed out)",
+            cx,
+        );
         return;
     };
 
     let Some(target) = find_team_window(cx) else {
         log::warn!("steer: remote start for {issue_id} — no shell window open");
+        report.fail(NO_WINDOW_REASON, cx);
         return;
     };
     // FEED-49: a workflow node's run is held for the engine BEFORE the
@@ -863,12 +936,17 @@ fn remote_issue_start(
                     cx,
                 ) {
                     log::warn!("steer: remote start spawn failed: {message}");
+                    report.fail(message, cx);
                 }
             }
             Ok(Prepared::Disabled(reason)) => {
                 log::warn!("steer: remote start disabled — {}", reason.message());
+                report.fail(steer::disabled_launch_reason(&reason.message()), cx);
             }
-            Err(err) => log::warn!("steer: remote start prepare failed: {err}"),
+            Err(err) => {
+                log::warn!("steer: remote start prepare failed: {err}");
+                report.fail(err.to_string(), cx);
+            }
         });
     })
     .detach();
@@ -884,6 +962,7 @@ fn remote_batch_start(
     team_id: String,
     repo: steer::StartRepoGroup,
     start: &steer::RemoteStart,
+    report: StartReport,
     cx: &mut App,
 ) {
     // No worktree dedup (unlike the issue branch): each batch run mints a
@@ -923,15 +1002,33 @@ fn remote_batch_start(
                     "steer: remote batch start aborted — issue {} is not in team {team_id}",
                     issue.identifier
                 );
+                report.fail(
+                    format!(
+                        "remote batch start refused: {} is not in the requested team",
+                        issue.identifier
+                    ),
+                    cx,
+                );
                 return;
             }
-            if local
-                .as_ref()
-                .is_some_and(|sessions| sessions.read(cx).get(issue_id).is_some())
-            {
+            let held_here = local.as_ref().and_then(|sessions| {
+                sessions
+                    .read(cx)
+                    .get(issue_id)
+                    .map(|session| session.session_id.clone())
+            });
+            if let Some(session_id) = held_here {
                 log::warn!(
                     "steer: remote batch start aborted — already coding {} on this device",
                     issue.identifier
+                );
+                report.fail(
+                    format!(
+                        "{}: {}",
+                        issue.identifier,
+                        steer::issue_held_here_reason(&session_id)
+                    ),
+                    cx,
                 );
                 return;
             }
@@ -941,6 +1038,14 @@ fn remote_batch_start(
                 log::warn!(
                     "steer: remote batch start aborted — {} has a live session on {device}",
                     issue.identifier
+                );
+                report.fail(
+                    format!(
+                        "{}: {}",
+                        issue.identifier,
+                        steer::issue_held_elsewhere_reason(&device, None)
+                    ),
+                    cx,
                 );
                 return;
             }
@@ -957,6 +1062,10 @@ fn remote_batch_start(
     };
     if issues.is_empty() {
         log::warn!("steer: remote batch start aborted — no issues resolved from sync");
+        report.fail(
+            "remote batch start failed: none of its issues is synced on this device",
+            cx,
+        );
         return;
     }
 
@@ -1006,10 +1115,12 @@ fn remote_batch_start(
 
     let Some(deps) = coding_flow::build_batch_deps(cx) else {
         log::warn!("steer: remote batch start ignored — not signed in / not synced");
+        report.fail("remote batch start failed: this device is signed out", cx);
         return;
     };
     let Some(target) = find_team_window(cx) else {
         log::warn!("steer: remote batch start — no shell window open");
+        report.fail(NO_WINDOW_REASON, cx);
         return;
     };
 
@@ -1028,12 +1139,17 @@ fn remote_batch_start(
                     cx,
                 ) {
                     log::warn!("steer: remote batch start spawn failed: {message}");
+                    report.fail(message, cx);
                 }
             }
             Ok(Prepared::Disabled(reason)) => {
                 log::warn!("steer: remote batch start disabled — {}", reason.message());
+                report.fail(steer::disabled_launch_reason(&reason.message()), cx);
             }
-            Err(err) => log::warn!("steer: remote batch start prepare failed: {err}"),
+            Err(err) => {
+                log::warn!("steer: remote batch start prepare failed: {err}");
+                report.fail(err.to_string(), cx);
+            }
         });
     })
     .detach();
