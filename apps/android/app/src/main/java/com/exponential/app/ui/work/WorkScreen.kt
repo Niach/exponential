@@ -469,8 +469,6 @@ fun WorkScreen(
     val graphVm: PrGraphViewModel = hiltViewModel()
     LaunchedEffect(issueId, shownSessionId) { graphVm.bind(issueId, shownSessionId) }
     val graph by graphVm.graph.collectAsStateWithLifecycle()
-    val graphMerging by graphVm.merging.collectAsStateWithLifecycle()
-    val graphMergeError by graphVm.mergeError.collectAsStateWithLifecycle()
     // EXP-876: what names an issue-less BATCH run in the bar below.
     val batchIssues by graphVm.batchIssues.collectAsStateWithLifecycle()
 
@@ -616,37 +614,20 @@ fun WorkScreen(
         }
     }
 
-    // EXP-897: the badge's overlay — the section follows the face on screen.
+    // EXP-897: the badge's "Related work" sheet.
     if (graphSheetOpen) {
-        // EXP-980: the Issue face draws the blocks CHAIN, not a chip row.
-        val blocksGraph by graphVm.blocksGraph.collectAsStateWithLifecycle()
-        val graphIssuesById by graphVm.issuesById.collectAsStateWithLifecycle()
         val graphStatuses by graphVm.issueStatuses.collectAsStateWithLifecycle()
         val graphUsers by graphVm.users.collectAsStateWithLifecycle()
-        val graphDevices by graphVm.devices.collectAsStateWithLifecycle()
         PrGraphSheet(
             graph = graph,
-            face = face,
-            nowMs = liveClock,
-            merging = graphMerging,
-            mergeError = graphMergeError,
-            blocksGraph = blocksGraph,
-            issuesById = graphIssuesById,
             statuses = graphStatuses,
             users = graphUsers,
-            devices = graphDevices,
             onOpenIssue = onOpenIssue,
             // SLOP-16 r3: a pull request row opens its Changes — this
             // screen's own face for the subject's PR, else the review route.
             onOpenPr = { id ->
                 if (id == issueId && hasChanges) faceName = WorkFaceKind.Changes.name else onOpenChanges(id)
             },
-            onOpenRun = { id ->
-                shownSessionId = id
-                pinnedByUser = true
-                faceName = WorkFaceKind.Run.name
-            },
-            onMergeStack = graphVm::mergeStack,
             onDismiss = { graphSheetOpen = false },
         )
     }

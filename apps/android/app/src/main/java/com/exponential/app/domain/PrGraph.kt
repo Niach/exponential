@@ -74,6 +74,8 @@ object PrGraph {
          * the reader opened. Null for a run with no issue at all.
          */
         val lead: IssueEntity? = null,
+        /** SLOP-16 r5: whether the graph was built for an ISSUE (not a bare run). */
+        val subjectIsIssue: Boolean = false,
     ) {
         /** The subject's own entry — the one the badge counts from. */
         val subject: StackEntry?
@@ -120,6 +122,7 @@ object PrGraph {
                     ?.let { url -> issues.firstOrNull { it.prUrl == url } }
                     ?: first
             },
+            subjectIsIssue = issue != null,
         )
     }
 
@@ -143,25 +146,19 @@ object PrGraph {
      * Issue, Run, Changes and Results alike. First match wins:
      *
      *  1. a PR relation ([badgeKind]: stack, batch, stack+batch);
-     *  2. [BadgeShape.RUNS] — the session tree has a FAMILY. The tree carries
-     *     the subject run itself, so "a family" is more than one row;
-     *  3. [BadgeShape.BLOCKED] — the subject issue has OPEN blockers
+     *  2. [BadgeShape.BLOCKED] — the subject issue has OPEN blockers
      *     ([Graph.blockedBy]);
-     *  4. null = no chip.
+     *  3. null = no chip. SLOP-16 r5: a run family alone earns NO badge.
      *
      * Web `badgeShape`, desktop `pr_graph::badge_shape`, iOS `PrGraph.swift`.
      */
-    enum class BadgeShape { STACK, BATCH, STACK_AND_BATCH, RUNS, BLOCKED }
+    enum class BadgeShape { STACK, BATCH, STACK_AND_BATCH, BLOCKED }
 
     fun badgeShape(graph: Graph): BadgeShape? = when (badgeKind(graph)) {
         BadgeKind.STACK_AND_BATCH -> BadgeShape.STACK_AND_BATCH
         BadgeKind.STACK -> BadgeShape.STACK
         BadgeKind.BATCH -> BadgeShape.BATCH
-        null -> when {
-            graph.tree.size > 1 -> BadgeShape.RUNS
-            graph.blockedBy.isNotEmpty() -> BadgeShape.BLOCKED
-            else -> null
-        }
+        null -> if (graph.blockedBy.isNotEmpty()) BadgeShape.BLOCKED else null
     }
 
     /**
@@ -176,8 +173,6 @@ object PrGraph {
      *  · stack / batch — `issue` = the subject pull request's representative
      *    ([Graph.lead]), `count` = every OTHER issue on the stack (all its
      *    entries' issues) or batch;
-     *  · runs — `issue` = that representative (null for a run with no issue,
-     *    whose front chip names the run instead), `count` = every other run;
      *  · blocked — `issue` = the FIRST open blocker in [Graph.blockedBy]
      *    order, `count` = the other open blockers.
      * Web `badgeChip`, byte-identical in meaning ×4.
@@ -188,69 +183,57 @@ object PrGraph {
             return BadgeChip(graph.blockedBy.firstOrNull(), graph.blockedBy.size - 1)
         }
         val issue = graph.lead
-        if (shape == BadgeShape.RUNS) return BadgeChip(issue, graph.tree.size - 1)
         if (graph.stack.size >= 2) {
             return BadgeChip(issue, graph.stack.sumOf { it.entry.issues.size } - 1)
         }
         return BadgeChip(issue, (graph.batch?.issues?.size ?: 1) - 1)
     }
 
-    /** One section of the chip's overlay. */
-    enum class OverlaySection { BLOCKED, BATCH, RUNS, STACK }
+    /** One band of the "Related work" sheet. */
+    enum class OverlaySection { BLOCKED, BATCH, STACK }
 
     /**
-     * EXP-1097: the overlay's sections — every relation the subject HAS, the
-     * face's own section first (Issue: Blocked by; Run/Results: the run's
-     * issues and its tree; Changes: the pull requests). A section with
-     * nothing to list is left out, save the face's own lead on Run (its tree,
-     * even of one run) and on Changes (its pull request, even a lone one).
-     * Web `overlaySections`.
+     * SLOP-16 r5: the batch partners — every issue sharing the subject's
+     * `pr_url` but the subject itself. A bare batch run has no subject issue,
+     * so its whole covered set is listed.
      */
-    fun overlaySections(graph: Graph, face: WorkFaceKind): List<OverlaySection> {
-        val runFace = face == WorkFaceKind.Run || face == WorkFaceKind.Results
-        val order = when (face) {
-            WorkFaceKind.Issue -> listOf(
-                OverlaySection.BLOCKED, OverlaySection.BATCH, OverlaySection.STACK, OverlaySection.RUNS,
-            )
-            WorkFaceKind.Run, WorkFaceKind.Results -> listOf(
-                OverlaySection.BATCH, OverlaySection.RUNS, OverlaySection.STACK, OverlaySection.BLOCKED,
-            )
-            WorkFaceKind.Changes -> listOf(
-                OverlaySection.STACK, OverlaySection.BATCH, OverlaySection.RUNS, OverlaySection.BLOCKED,
-            )
-        }
-        return order.filter { section ->
-            when (section) {
-                OverlaySection.BLOCKED -> graph.blockedBy.isNotEmpty()
-                OverlaySection.BATCH -> graph.batch != null
-                OverlaySection.RUNS -> graph.tree.size > 1 || (runFace && graph.tree.isNotEmpty())
-                OverlaySection.STACK -> graph.stack.size >= 2 ||
-                    (face == WorkFaceKind.Changes && graph.stack.isNotEmpty())
-            }
-        }
+    fun batchPartners(graph: Graph): List<IssueEntity> =
+        graph.batch?.issues.orEmpty()
+            .filter { !graph.subjectIsIssue || it.id != graph.subjectIssueId }
+
+    /**
+     * SLOP-16 r5: the OTHER pull requests of the subject's stack, BOTTOM-UP,
+     * the subject's own pull request excluded. Empty off a real stack.
+     */
+    fun otherStackEntries(graph: Graph): List<StackEntry> {
+        if (graph.stack.size < 2) return emptyList()
+        val own = graph.subject
+        return graph.stack.filter { it != own }
     }
 
     /**
-     * SLOP-16 r3: THE "Related work" view's copy, byte-identical ×4 (web
+     * SLOP-16 r5: the sheet's bands — the relations card's bands, in ONE
+     * fixed order (Blocked by · Same pull request · Pull request stack), each
+     * only when it has rows. No runs, no graph, no merge. Web
+     * `overlaySections`.
+     */
+    fun overlaySections(graph: Graph): List<OverlaySection> = buildList {
+        if (graph.blockedBy.isNotEmpty()) add(OverlaySection.BLOCKED)
+        if (batchPartners(graph).isNotEmpty()) add(OverlaySection.BATCH)
+        if (otherStackEntries(graph).isNotEmpty()) add(OverlaySection.STACK)
+    }
+
+    /**
+     * SLOP-16 r5: THE "Related work" sheet's copy, byte-identical ×4 (web
      * `PR_GRAPH_OVERLAY_COPY`, iOS `PrGraphBadge.swift`, desktop
-     * `pr_graph.rs`). Each section = a group band over the product's existing
-     * rows; [EMPTY] is the ONLY empty note.
+     * `pr_graph.rs`). [EMPTY] is the ONLY empty note.
      */
     object OverlayCopy {
         const val RELATED_WORK_TITLE = "Related work"
         const val BLOCKED = IssueRelationsView.Copy.BLOCKED_BY
-        /** The batch band on the Issue and Changes faces. */
-        const val BATCH = "In batch with"
-        /** The batch band on the Run face — the run's own subject. */
-        const val BATCH_RUN = "Issues"
-        const val RUNS = "Runs"
-        const val STACK = "Pull requests"
-        const val MERGE_STACK = PrStack.MERGE_STACK_LABEL
+        const val BATCH = "Same pull request"
+        const val STACK = "Pull request stack"
         const val EMPTY = "Nothing else is linked to this issue."
-
-        /** The batch band's title on [face]. */
-        fun batchBandTitle(face: WorkFaceKind): String =
-            if (face == WorkFaceKind.Run || face == WorkFaceKind.Results) BATCH_RUN else BATCH
     }
 
     /**

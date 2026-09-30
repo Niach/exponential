@@ -742,21 +742,10 @@ impl SessionScreenView {
             // The header entity's rows are built through `entity.update` from
             // this render (the detail view's precedent) — they never call
             // back into this view synchronously.
-            let session_id = self.session_id.clone();
             let (right, tray, extra) = header.update(cx, |header, cx| {
                 // EXP-916: the Changes pane has no bar of its own any more,
                 // so the tray keeps the ONE merge control on every face.
                 header.set_merge_suppressed(false);
-                // EXP-897: the badge's overlay follows the face that is up —
-                // the run tree on Run, the PR stack on Changes.
-                header.set_badge_context(
-                    if diff_open {
-                        crate::pr_graph::BadgeFace::Changes
-                    } else {
-                        crate::pr_graph::BadgeFace::Run
-                    },
-                    Some(session_id.clone()),
-                );
                 let right = header.right_cluster(&issue, toggle, diff_open, cx);
                 let actions = header.issue_actions(&issue, action, cx);
                 (
@@ -789,14 +778,7 @@ impl SessionScreenView {
         // EXP-897 §4: the same badge an issue-bound header carries — a batch
         // run's PR closes several issues, and a chat run can be stacked.
         if let Some(row) = row.as_ref() {
-            // EXP-879: the Results face is a face OF the run, so the badge
-            // keeps the run tree there (`BadgeFace::Run`).
-            let face = if self.run_face(cx) == crate::screens::RunFace::Diff {
-                crate::pr_graph::BadgeFace::Changes
-            } else {
-                crate::pr_graph::BadgeFace::Run
-            };
-            let spec = crate::pr_graph::session_spec(row, face, cx);
+            let spec = crate::pr_graph::session_spec(row, cx);
             right.extend(crate::pr_graph::badge("session-pr-graph", spec, cx));
         }
         // EXP-916: the run's own PR (EXP-626/EXP-734) reaches GitHub from the

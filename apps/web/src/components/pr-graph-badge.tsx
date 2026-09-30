@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react"
-import { Link, useNavigate } from "@tanstack/react-router"
+import { Link } from "@tanstack/react-router"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import {
   Button,
@@ -10,17 +10,11 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-  GlassSectionHeader,
-  Pill,
-  TreeGuides,
-  treeGuides,
   useIsMobile,
-  type TreeGuide,
 } from "@exp/ui"
 import type { Board, CodingSession, Issue } from "@/db/schema"
 import {
   boardCollection,
-  codingSessionCollection,
   issueCollection,
   issueRelationCollection,
 } from "@/lib/collections"
@@ -28,70 +22,53 @@ import {
   badgeChip,
   badgeShape,
   type BadgeShape,
-  batchBandTitle,
+  batchPartners,
   overlaySections,
   PR_GRAPH_OVERLAY_COPY,
   prGraph,
   RELATED_WORK_TITLE,
+  stackOthers,
   type OverlaySection,
-  type PrGraphFace,
+  type PrGraphEntry,
 } from "@/lib/pr-graph"
 import {
+  RELATIONS_BAND_CAP,
   RELATIONS_VIEW_COPY,
   relationRowIsOpen,
+  relationsShowMore,
 } from "@/lib/issue-relations-view"
-import { blockGraph, type GraphRelation } from "@/lib/issue-graph"
-import { IssueGraphView } from "@/components/issue-graph"
 import { useTeamBoardIds } from "@/hooks/use-team-issue-graph"
 import { useTeamUsers } from "@/hooks/use-team-data"
-import { sessionIdentity } from "@/lib/session-identity"
-import { runHasEnded } from "@/lib/past-runs"
-import { useSessionListRows } from "@/hooks/use-agents-data"
-import { useOpenSession } from "@/hooks/use-open-session"
-import { IssueChip } from "@/components/issue-chip"
 import { PrStateBadge } from "@/components/issue-coding-rows"
-import { pastRunRowByline } from "@/components/agent-session-row"
 import {
-  PastSessionRow,
-  RunningSessionRow,
-} from "@/components/session-list-rows"
-import {
+  RelationBandFrame,
   RelationIssueRow,
-  RowList,
   type RelationIssueRowLinkProps,
 } from "@/components/issue-relations-card"
-import { PrStackRow } from "@/components/pr-stack-row"
 import { cn } from "@/lib/utils"
 
-// EXP-897 Part 4: the ONE stack/batch badge. A piece of work can be related to
-// other work three ways — a PR STACK (`pr_base_branch`), a BATCH (issues
-// sharing one `pr_url`), a session TREE (`parent_session_id`) — and until now
-// each of those was visible on a different screen, if at all.
+// EXP-897 Part 4: the ONE "Related work" badge. A piece of work can be related
+// to other work three ways — open BLOCKERS (`blocks` rows), a BATCH (issues
+// sharing one `pr_url`), a PR STACK (`pr_base_branch`).
 //
 // SLOP-16: in the work header (the Issue, Run and Changes faces share
 // `WorkHeader`, EXP-877) it is a quiet ICON BUTTON — the glyph names the shape
-// (`badgeShape`: stack, batch, run family, open blockers; face-independent,
-// EXP-1097), a muted `+N` counts the rest (`badgeChip`); in the Reviews queue,
-// the glyph on a batch row.
+// (`badgeShape`: stack, batch, open blockers; face-independent), a muted `+N`
+// counts the rest (`badgeChip`); in the Reviews queue, the glyph on a batch
+// row.
 //
-// SLOP-16 r3: click opens THE "Related work" view — the standard `Dialog`
-// (its bottom-sheet arm on phones), one GROUP BAND per section in
-// `overlaySections` order over rows the product already draws elsewhere: the
-// relations card's issue row, the Reviews queue's stack row, the session
-// tree's run row, and the compact mini-graph under "Blocked by". No new
-// layout, a batch's issues listed once. Same bands, same rows, same copy
-// (`PR_GRAPH_OVERLAY_COPY`) on all four clients (`pr_graph.rs`,
-// `PrGraphBadge.swift`, `PrGraphBadge.kt`).
+// SLOP-16 r5: click opens THE "Related work" view — the standard `Dialog`
+// (its bottom-sheet arm on phones) whose body is EXACTLY the relations card's
+// foldable bands (`RelationBandFrame`, 3 rows then "Show N more") over its
+// rows: Blocked by · Same pull request · Pull request stack. Nothing else —
+// no graph, no runs, no Merge stack (the Changes face's Merge pill asks).
+// Same bands, same copy (`PR_GRAPH_OVERLAY_COPY`) on all four clients
+// (`pr_graph.rs`, `PrGraphBadge.swift`, `PrGraphBadge.kt`).
 //
 // Everything it draws is already synced — `lib/pr-graph.ts` is the pure model.
 
-const NO_RELATIONS: readonly GraphRelation[] = []
-
 const StackIcon = conceptIcon(`pr-stack`)
 const BatchIcon = conceptIcon(`pr-batch`)
-// EXP-1079: the Run face of a run with a family but no PR relation wears the
-// session tree's own concept (the desktop's `BadgeGlyph::Runs`).
-const TreeIcon = conceptIcon(`session-tree`)
 const BlockedIcon = conceptIcon(`relation-blocked-by`)
 const PrOpenIcon = conceptIcon(`pr-open`)
 const PrMergedIcon = conceptIcon(`pr-merged`)
@@ -101,31 +78,30 @@ const BADGE_GLYPH: Record<NonNullable<BadgeShape>, typeof StackIcon> = {
   stack: StackIcon,
   [`stack+batch`]: StackIcon,
   batch: BatchIcon,
-  runs: TreeIcon,
   blocked: BlockedIcon,
 }
 
-export type { PrGraphFace } from "@/lib/pr-graph"
+/** SLOP-16 r5: each band's side icon, as the relations card's bands. */
+const BAND_ICON: Record<OverlaySection, typeof StackIcon> = {
+  blocked: BlockedIcon,
+  batch: BatchIcon,
+  stack: StackIcon,
+}
 
-/** Byte-identical with the desktop tooltip (`pr_graph::badge_tooltip`). */
-export const RUNS_BADGE_NAME = `The runs around this one`
 /** EXP-1097: the `blocked` shape's name — the relations band's own title. */
 export const BLOCKED_BADGE_NAME = RELATIONS_VIEW_COPY.blockedBy
 
 export function PrGraphBadge({
   teamId,
   teamSlug,
-  face,
   issue = null,
   session = null,
   variant = `chip`,
   fallback = null,
-  onMergeStack,
   className,
 }: {
   teamId: string
   teamSlug: string
-  face: PrGraphFace
   issue?: Issue | null
   session?: CodingSession | null
   /** `chip` = the work header's icon button (glyph + `+N`); `glyph` = a list
@@ -135,8 +111,6 @@ export function PrGraphBadge({
    *  siblings have not synced yet). A `glyph` badge sits in a fixed lead cell
    *  of a grid row, and returning nothing shifted the whole row one column. */
   fallback?: ReactNode
-  /** The Changes face's bottom entry offers it; absent = no control. */
-  onMergeStack?: (topIssueId: string) => void
   className?: string
 }) {
   const [open, setOpen] = useState(false)
@@ -155,17 +129,8 @@ export function PrGraphBadge({
         : undefined,
     [boardIds.join(`,`)]
   )
-  const { data: sessionRows } = useLiveQuery(
-    (query) =>
-      query
-        .from({ s: codingSessionCollection })
-        .where(({ s }) => eq(s.teamId, teamId)),
-    [teamId]
-  )
-  // EXP-980: the team's `blocks` rows — the blocked-by section is the
-  // transitive mini-graph now, so the direct rows alone no longer do.
-  // EXP-1097: fetched for a run subject too — its issue's open blockers earn
-  // the chip on every face now.
+  // The team's `blocks` rows — the subject's direct open blockers. EXP-1097:
+  // fetched for a run subject too — its issue's open blockers earn the badge.
   const subjectIssueId = issue?.id ?? session?.issueId ?? null
   const { data: relationRows } = useLiveQuery(
     (query) =>
@@ -191,28 +156,27 @@ export function PrGraphBadge({
   )
 
   const issues = useMemo(() => (issueRows ?? []) as Issue[], [issueRows])
-  const sessions = useMemo(
-    () => (sessionRows ?? []) as CodingSession[],
-    [sessionRows]
-  )
   const relations = useMemo(
-    () => (relationRows ?? []) as GraphRelation[],
+    () =>
+      (relationRows ?? []) as {
+        type: string
+        issueId: string
+        relatedIssueId: string
+      }[],
     [relationRows]
   )
   const graph = useMemo(
-    () => prGraph({ issue, session, issues, sessions, relations }),
-    [issue, session, issues, sessions, relations]
+    () => prGraph({ issue, session, issues, relations }),
+    [issue, session, issues, relations]
   )
 
   const kind = badgeShape(graph)
   const chipSpec = badgeChip(graph)
   if (!kind || !chipSpec) return fallback
   const name =
-    kind === `runs`
-      ? RUNS_BADGE_NAME
-      : kind === `blocked`
-        ? BLOCKED_BADGE_NAME
-        : kind === `stack+batch`
+    kind === `blocked`
+      ? BLOCKED_BADGE_NAME
+      : kind === `stack+batch`
         ? `Stack and batch`
         : kind === `stack`
           ? `Pull request stack`
@@ -283,15 +247,10 @@ export function PrGraphBadge({
         </DialogHeader>
         <DialogBody>
           <PrGraphOverlay
-            face={face}
             graph={graph}
-            issues={issues}
-            relations={relations}
             boardSlugById={boardSlugById}
-            subjectIssue={issue}
             teamId={teamId}
             teamSlug={teamSlug}
-            onMergeStack={onMergeStack}
             onClose={() => setOpen(false)}
           />
         </DialogBody>
@@ -300,64 +259,31 @@ export function PrGraphBadge({
   )
 }
 
-/** One section: the GROUP BAND over its flat rows — the relations card's and
- *  the Reviews queue's own composition. Never folds. */
-function Band({
-  section,
-  label,
-  children,
-}: {
-  section: OverlaySection
-  label: string
-  children: ReactNode
-}) {
-  return (
-    <div className="flex flex-col" data-testid={`pr-graph-band-${section}`}>
-      <GlassSectionHeader label={label} />
-      {children}
-    </div>
-  )
-}
-
-/** THE "Related work" body — group bands over the existing rows, in the
- *  face's `overlaySections` order. Exported for the component test. */
+/** THE "Related work" body — the relations card's foldable bands over its
+ *  rows, in `overlaySections` order. Exported for the component test. */
 export function PrGraphOverlay({
-  face,
   graph,
-  issues,
-  relations = NO_RELATIONS,
   boardSlugById,
-  subjectIssue,
   teamId,
   teamSlug,
-  onMergeStack,
   onClose,
 }: {
-  face: PrGraphFace
   graph: ReturnType<typeof prGraph<Issue, CodingSession>>
-  /** The team's synced issues — a tree row's own issue, for its identity. */
-  issues: readonly Issue[]
-  /** EXP-980: the team's synced `blocks` rows, for the Blocked-by graph. */
-  relations?: readonly GraphRelation[]
   /** EXP-930: board slug per board id — what turns an issue into a link.
    *  Absent (or missing the issue's board) = an inert row. */
   boardSlugById?: ReadonlyMap<string, string>
-  subjectIssue: Issue | null
-  /** The team — the run rows' devices and the issue rows' assignees. */
+  /** The team — the issue rows' assignees. */
   teamId?: string
   teamSlug: string
-  onMergeStack?: (topIssueId: string) => void
   onClose: () => void
 }) {
   const phone = useIsMobile()
-  const navigate = useNavigate()
-  const openSession = useOpenSession()
   const { userMap } = useTeamUsers(teamId)
-  const treeSessions = useMemo(
-    () => graph.tree.map((row) => row.session),
-    [graph.tree]
-  )
-  const runRows = useSessionListRows(teamId, treeSessions)
+  // Every band opens unfolded; the header folds it, as on the relations card.
+  const [folded, setFolded] = useState<OverlaySection[]>([])
+  const [showAll, setShowAll] = useState<OverlaySection[]>([])
+  const flip = (list: OverlaySection[], key: OverlaySection) =>
+    list.includes(key) ? list.filter((row) => row !== key) : [...list, key]
 
   // EXP-930: EVERY issue the view lists opens — a real `<Link>`, so ⌘-click
   // and middle-click work like anywhere else; the dialog closes behind it.
@@ -377,233 +303,102 @@ export function PrGraphOverlay({
   }
 
   /** The relations card's row, verbatim. */
-  const issueRow = (
-    row: Issue,
-    nest?: { depth: number; guide: TreeGuide | null }
-  ) => {
-    const assignee = row.assigneeId ? userMap.get(row.assigneeId) : undefined
+  const issueRow = (row: Issue) => (
+    <RelationIssueRow
+      key={row.id}
+      issue={row}
+      open={relationRowIsOpen(row.status)}
+      assignee={row.assigneeId ? userMap.get(row.assigneeId) : undefined}
+      phone={phone}
+      link={issueLink(row)}
+    />
+  )
+
+  /** A pull request as the relations card's row: PR glyph · `#n` · the
+   *  representative issue's title · its state pill; opens its review page. */
+  const prRow = (entry: PrGraphEntry<Issue>) => {
+    const row = entry.issue
+    const glyphClass = phone ? `size-4 shrink-0` : `size-3.5 shrink-0`
+    const glyph =
+      row.prState === `merged` ? (
+        <PrMergedIcon className={cn(glyphClass, `text-purple-400`)} />
+      ) : (
+        <PrOpenIcon
+          className={cn(
+            glyphClass,
+            row.prState === `open` ? `text-emerald-500` : `text-muted-foreground`
+          )}
+        />
+      )
     return (
       <RelationIssueRow
-        key={row.id}
+        key={entry.key}
         issue={row}
-        open={relationRowIsOpen(row.status)}
-        assignee={assignee}
+        open={row.prState !== `merged` && row.prState !== `closed`}
         phone={phone}
-        link={issueLink(row)}
-        depth={nest?.depth}
-        leading={nest ? <TreeGuides guide={nest.guide} /> : undefined}
+        glyph={glyph}
+        code={row.prNumber ? `#${row.prNumber}` : row.identifier}
+        noAssignee
+        link={({ className, children }) => (
+          <Link
+            to="/t/$teamSlug/reviews/$issueIdentifier"
+            params={{ teamSlug, issueIdentifier: row.identifier }}
+            onClick={onClose}
+            className={className}
+          >
+            {children}
+          </Link>
+        )}
+        trailing={
+          <span className="flex shrink-0 items-center">
+            <PrStateBadge state={row.prState} />
+          </span>
+        }
       />
     )
   }
 
-  // EXP-1097: every relation the subject HAS gets its band on every face;
-  // the face only decides which one LEADS (`overlaySections`).
-  const sections = overlaySections(graph, face)
-
-  // EXP-980: the transitive chain as THE mini-graph — the COMPACT one (the
-  // small chip: glyph · identifier), vertical (SLOP-16), scrolling down past the surface.
-  const blockedBand = subjectIssue ? (
-    <Band key="blocked" section="blocked" label={PR_GRAPH_OVERLAY_COPY.blocked}>
-      <IssueGraphView
-        graph={blockGraph([subjectIssue.id], relations, issues)}
-        issueById={new Map(issues.map((row) => [row.id, row]))}
-        density="compact"
-        renderNode={(row) => {
-          const boardSlug = boardSlugById?.get(row.boardId)
-          return (
-            <IssueChip
-              key={row.id}
-              issue={row}
-              size="sm"
-              className="w-full"
-              link={
-                boardSlug
-                  ? (props) => (
-                      <Link
-                        to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
-                        params={{
-                          teamSlug,
-                          boardSlug,
-                          issueIdentifier: row.identifier,
-                        }}
-                        onClick={onClose}
-                        {...props}
-                      />
-                    )
-                  : undefined
-              }
-            />
-          )
-        }}
-      />
-    </Band>
-  ) : null
-
-  // The Issue and Changes faces read the batch from the subject issue, so the
-  // band lists its PARTNERS; on a run the covered set IS the run's subject.
-  const inBatch = (graph.batch?.issues ?? []).filter(
-    (row) => face === `run` || row.id !== subjectIssue?.id
-  )
-  const batchBand =
-    inBatch.length > 0 ? (
-      <Band key="batch" section="batch" label={batchBandTitle(face)}>
-        <div data-testid="pr-graph-batch-partners">
-          <RowList phone={phone}>{inBatch.map((row) => issueRow(row))}</RowList>
-        </div>
-      </Band>
-    ) : null
-
-  // The session tree's own rows: a live run = the running row, an ended one
-  // the past row, nested with the EXP-965 connector.
-  const runGuides = treeGuides(graph.tree.map((row) => row.depth))
-  const runsBand = (
-    <Band key="runs" section="runs" label={PR_GRAPH_OVERLAY_COPY.runs}>
-      <div className="flex flex-col">
-        {graph.tree.map(({ session, depth }, index) => {
-          const row = runRows[index]
-          if (!row) return null
-          const open = () => {
-            onClose()
-            openSession(session)
-          }
-          const identity = sessionIdentity(row)
-          return runHasEnded(session) ? (
-            <PastSessionRow
-              key={session.id}
-              sessionId={session.id}
-              title={identity.subject}
-              identifier={identity.identifier}
-              byline={pastRunRowByline(row)}
-              depth={depth}
-              guide={runGuides[index]}
-              onOpen={open}
-            />
-          ) : (
-            <RunningSessionRow
-              key={session.id}
-              row={row}
-              depth={depth}
-              guide={runGuides[index]}
-              onOpen={open}
-            />
-          )
-        })}
-      </div>
-    </Band>
-  )
-
-  // The pull requests: the Reviews queue's stack row, BOTTOM-UP. A batch
-  // entry folds its issues underneath (depth + 1) — unless the batch band
-  // already lists them in this view. `Merge stack` = the bottom row's
-  // trailing control, as on Reviews.
-  const top = graph.stack[graph.stack.length - 1]
-  const prRows =
-    graph.stack.length > 0
-      ? graph.stack
-      : graph.entry
-        ? [{ entry: graph.entry, depth: 0 }]
-        : []
-  const foldIssues = !sections.includes(`batch`)
-  const stackLines = prRows.flatMap(({ entry, depth }, index) => [
-    { kind: `pr` as const, entry, depth, index },
-    ...(foldIssues && entry.issues.length > 1
-      ? entry.issues.map((issue) => ({
-          kind: `issue` as const,
-          issue,
-          depth: depth + 1,
-        }))
-      : []),
-  ])
-  const stackGuides = treeGuides(stackLines.map((line) => line.depth))
-  const canMergeStack = Boolean(onMergeStack && top && graph.stack.length > 1)
-  const stackBand = (
-    <Band key="stack" section="stack" label={PR_GRAPH_OVERLAY_COPY.stack}>
-      <div className="flex flex-col">
-        {stackLines.map((line, lineIndex) => {
-          if (line.kind === `issue`) {
-            return issueRow(line.issue, {
-              depth: line.depth,
-              guide: stackGuides[lineIndex],
-            })
-          }
-          const { entry, depth, index } = line
-          const isBatch = entry.issues.length > 1
-          const bottomOfStack = canMergeStack && index === 0
-          return (
-            <PrStackRow
-              key={entry.key}
-              issue={entry.issue}
-              issues={entry.issues}
-              depth={depth}
-              guide={stackGuides[lineIndex]}
-              stackedOn={
-                depth > 0 ? (prRows[index - 1]?.entry.issue.identifier ?? null) : null
-              }
-              // Its issues are listed in this view already (band or fold).
-              listBatchIdentifiers={false}
-              onOpen={() => {
-                onClose()
-                void navigate({
-                  to: `/t/$teamSlug/reviews/$issueIdentifier`,
-                  params: { teamSlug, issueIdentifier: entry.issue.identifier },
-                })
-              }}
-              lead={
-                isBatch ? (
-                  <BatchIcon className="size-4 text-muted-foreground" />
-                ) : entry.issue.prState === `merged` ? (
-                  <PrMergedIcon className="size-4 text-purple-400" />
-                ) : (
-                  <PrOpenIcon
-                    className={cn(
-                      `size-4`,
-                      entry.issue.prState === `open`
-                        ? `text-emerald-500`
-                        : `text-muted-foreground`
-                    )}
-                  />
-                )
-              }
-              trailing={
-                bottomOfStack && top && onMergeStack ? (
-                  <Pill
-                    size="md"
-                    mode="action"
-                    data-testid="pr-graph-merge-stack"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      onClose()
-                      onMergeStack(top.entry.issue.id)
-                    }}
-                  >
-                    <StackIcon className="h-3.5 w-3.5" />
-                    {PR_GRAPH_OVERLAY_COPY.mergeStack}
-                  </Pill>
-                ) : (
-                  <span className="self-center">
-                    <PrStateBadge state={entry.issue.prState} />
-                  </span>
-                )
-              }
-            />
-          )
-        })}
-      </div>
-    </Band>
-  )
-
-  const byKind: Record<OverlaySection, ReactNode> = {
-    blocked: blockedBand,
-    batch: batchBand,
-    runs: runsBand,
-    stack: stackBand,
+  const rowsOf: Record<OverlaySection, ReactNode[]> = {
+    blocked: graph.blockedBy.map(issueRow),
+    batch: batchPartners(graph).map(issueRow),
+    stack: stackOthers(graph).map(prRow),
   }
-  const drawn = sections.map((section) => byKind[section]).filter(Boolean)
+  const titleOf: Record<OverlaySection, string> = {
+    blocked: PR_GRAPH_OVERLAY_COPY.blocked,
+    batch: PR_GRAPH_OVERLAY_COPY.batch,
+    stack: PR_GRAPH_OVERLAY_COPY.stack,
+  }
+  const sections = overlaySections(graph)
 
   return (
-    <div className="flex flex-col gap-4">
-      {drawn}
-      {drawn.length === 0 && (
+    <div className="flex flex-col gap-1.5">
+      {sections.map((section) => {
+        const all = rowsOf[section]
+        const everything = showAll.includes(section)
+        const overflow = all.length > RELATIONS_BAND_CAP
+        const tail = !overflow
+          ? null
+          : everything
+            ? RELATIONS_VIEW_COPY.showLess
+            : relationsShowMore(all.length - RELATIONS_BAND_CAP)
+        return (
+          <RelationBandFrame
+            key={section}
+            testId={`pr-graph-band-${section}`}
+            icon={BAND_ICON[section]}
+            title={titleOf[section]}
+            count={all.length}
+            expanded={!folded.includes(section)}
+            onToggle={() => setFolded((list) => flip(list, section))}
+            tail={tail}
+            onTail={() => setShowAll((list) => flip(list, section))}
+            phone={phone}
+          >
+            {everything || !overflow ? all : all.slice(0, RELATIONS_BAND_CAP)}
+          </RelationBandFrame>
+        )
+      })}
+      {sections.length === 0 && (
         <div className="text-sm text-muted-foreground">
           {PR_GRAPH_OVERLAY_COPY.empty}
         </div>

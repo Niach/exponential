@@ -1327,13 +1327,7 @@ impl IssueDetailView {
         let state = issue.pr_state.clone().unwrap_or_else(|| "open".to_string());
         let theme = cx.theme();
         let muted = theme.muted_foreground;
-        let (badge_label, badge_color) = match state.as_str() {
-            "open" => ("Open", theme::tokens::GREEN.to_hsla()),
-            "merged" => ("Merged", theme.link),
-            "closed" => ("Closed", theme::tokens::RED.to_hsla()),
-            other => (other, muted),
-        };
-        let badge_label = SharedString::from(badge_label.to_string());
+        let state_chip = pr_state_chip(&state, cx);
         let is_open = state == "open";
         let issue_id = issue.id.clone();
         Some(
@@ -1370,21 +1364,7 @@ impl IssueDetailView {
                         .flex_shrink_0()
                         .text_color(muted),
                 )
-                .child(
-                    // Web `PrStateBadge`: outline chip, state-tinted.
-                    div()
-                        .flex_shrink_0()
-                        .h(px(20.))
-                        .px_1p5()
-                        .flex()
-                        .items_center()
-                        .rounded_full()
-                        .border_1()
-                        .border_color(badge_color.opacity(0.4))
-                        .text_color(badge_color)
-                        .text_xs()
-                        .child(badge_label),
-                )
+                .child(state_chip)
                 .child(
                     div()
                         .flex_shrink_0()
@@ -2466,14 +2446,6 @@ impl IssueDetailView {
             // the tray keeps the ONE merge control on every face. (The
             // badge's overlay still follows the face.)
             header.set_merge_suppressed(false);
-            header.set_badge_context(
-                if changes_open {
-                    crate::pr_graph::BadgeFace::Changes
-                } else {
-                    crate::pr_graph::BadgeFace::Issue
-                },
-                None,
-            );
             // EXP-949: the GitHub link rides the Changes face alone.
             let right = header.right_cluster(issue, toggle, changes_open, cx);
             let actions = header.issue_actions(issue, action, cx);
@@ -2926,6 +2898,32 @@ pub(crate) fn issue_web_url(issue: &Issue, cx: &App) -> Option<String> {
         account.instance_url.trim_end_matches('/'),
         issue.identifier
     ))
+}
+
+
+/// Web `PrStateBadge`: the PR state as an outline chip, state-tinted — the
+/// issue's PR row and the "Related work" dialog's stack rows (`pr_graph`).
+pub(crate) fn pr_state_chip(state: &str, cx: &App) -> gpui::AnyElement {
+    let theme = cx.theme();
+    let (label, color) = match state {
+        "open" => ("Open", theme::tokens::GREEN.to_hsla()),
+        "merged" => ("Merged", theme.link),
+        "closed" => ("Closed", theme::tokens::RED.to_hsla()),
+        other => (other, theme.muted_foreground),
+    };
+    div()
+        .flex_shrink_0()
+        .h(px(20.))
+        .px_1p5()
+        .flex()
+        .items_center()
+        .rounded_full()
+        .border_1()
+        .border_color(color.opacity(0.4))
+        .text_color(color)
+        .text_xs()
+        .child(SharedString::from(label.to_string()))
+        .into_any_element()
 }
 
 #[cfg(test)]

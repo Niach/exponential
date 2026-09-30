@@ -424,6 +424,9 @@ export function RelationIssueRow({
   trailing,
   depth,
   leading,
+  glyph,
+  code,
+  noAssignee = false,
   className,
 }: {
   issue: {
@@ -445,6 +448,12 @@ export function RelationIssueRow({
   depth?: number
   /** Drawn first inside the row — the tree connector of a nested row. */
   leading?: ReactNode
+  /** SLOP-16 r5: replaces the status glyph (a pull request row's PR glyph). */
+  glyph?: ReactNode
+  /** SLOP-16 r5: replaces the mono identifier (a pull request's `#n`). */
+  code?: string
+  /** SLOP-16 r5: a pull request row ends on its state pill, no assignee. */
+  noAssignee?: boolean
   className?: string
 }) {
   const openerClass = cn(
@@ -453,15 +462,17 @@ export function RelationIssueRow({
   )
   const openerBody = (
     <>
-      <IssueStatusIcon
-        issue={{
-          status: issue.status as IssueStatus,
-          statusId: issue.statusId ?? null,
-        }}
-        className={phone ? `size-4 shrink-0` : `size-3.5 shrink-0`}
-      />
+      {glyph ?? (
+        <IssueStatusIcon
+          issue={{
+            status: issue.status as IssueStatus,
+            statusId: issue.statusId ?? null,
+          }}
+          className={phone ? `size-4 shrink-0` : `size-3.5 shrink-0`}
+        />
+      )}
       <span className="shrink-0 font-mono text-xs text-muted-foreground">
-        {issue.identifier}
+        {code ?? issue.identifier}
       </span>
       <span
         className={cn(
@@ -506,7 +517,7 @@ export function RelationIssueRow({
         )}
       </IssuePreviewHoverCard>
       {trailing}
-      {assignee ? (
+      {noAssignee ? null : assignee ? (
         <UserAvatar user={assignee} size={phone ? 24 : 20} />
       ) : (
         <span
@@ -589,8 +600,65 @@ export function RowList({ phone, children }: { phone: boolean; children: ReactNo
   )
 }
 
-/** One foldable band of the view: chevron · icon · title · count, its rows,
- *  then "Show N more" / "Show less". */
+/** THE foldable band ×4: chevron · icon · title · count, its rows, then
+ *  "Show N more" / "Show less". SLOP-16 r5: exported, so the "Related work"
+ *  dialog draws THIS band over its own rows rather than a look-alike. */
+export function RelationBandFrame({
+  testId,
+  icon: Icon,
+  title,
+  count,
+  expanded,
+  onToggle,
+  tail,
+  onTail,
+  phone,
+  children,
+}: {
+  testId: string
+  icon: ReturnType<typeof conceptIcon>
+  title: string
+  count: number
+  expanded: boolean
+  onToggle: () => void
+  /** "Show N more" / "Show less"; null when nothing is hidden. */
+  tail: string | null
+  onTail: () => void
+  phone: boolean
+  children: ReactNode
+}) {
+  return (
+    <div className="flex flex-col" data-testid={testId}>
+      <GlassSectionHeader
+        label={title}
+        leading={<Icon className="size-3.5 shrink-0 text-muted-foreground" />}
+        count={count}
+        expanded={expanded}
+        onToggle={onToggle}
+        className={phone ? `mb-0 py-2` : `mb-0.5`}
+      />
+      {expanded && (
+        <RowList phone={phone}>
+          {children}
+          {tail && (
+            <button
+              type="button"
+              onClick={onTail}
+              className={cn(
+                `flex items-center rounded-md text-left text-muted-foreground outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50`,
+                phone ? `h-11 px-3 text-sm` : `h-7 px-3 text-xs`
+              )}
+            >
+              {tail}
+            </button>
+          )}
+        </RowList>
+      )}
+    </div>
+  )
+}
+
+/** One foldable band of the view, bound to the relations model. */
 function RelationBand({
   band,
   model,
@@ -604,46 +672,30 @@ function RelationBand({
   phone: boolean
   readOnly: boolean
 }) {
-  const Icon = BAND_ICON[band.key]
-  const tail = band.more ?? band.less
   return (
-    <div className="flex flex-col" data-testid={`relation-band-${band.key}`}>
-      <GlassSectionHeader
-        label={band.title}
-        leading={<Icon className="size-3.5 shrink-0 text-muted-foreground" />}
-        count={band.count}
-        expanded={band.expanded}
-        onToggle={() => model.toggle(band.key)}
-        className={phone ? `mb-0 py-2` : `mb-0.5`}
-      />
-      {band.expanded && (
-        <RowList phone={phone}>
-          {band.rows.map((row) => (
-            <RelationBandRow
-              key={row.id}
-              row={row}
-              slot={band.key}
-              model={model}
-              users={users}
-              phone={phone}
-              readOnly={readOnly}
-            />
-          ))}
-          {tail && (
-            <button
-              type="button"
-              onClick={() => model.toggleShowAll(band.key)}
-              className={cn(
-                `flex items-center rounded-md text-left text-muted-foreground outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50`,
-                phone ? `h-11 px-3 text-sm` : `h-7 px-3 text-xs`
-              )}
-            >
-              {tail}
-            </button>
-          )}
-        </RowList>
-      )}
-    </div>
+    <RelationBandFrame
+      testId={`relation-band-${band.key}`}
+      icon={BAND_ICON[band.key]}
+      title={band.title}
+      count={band.count}
+      expanded={band.expanded}
+      onToggle={() => model.toggle(band.key)}
+      tail={band.more ?? band.less}
+      onTail={() => model.toggleShowAll(band.key)}
+      phone={phone}
+    >
+      {band.rows.map((row) => (
+        <RelationBandRow
+          key={row.id}
+          row={row}
+          slot={band.key}
+          model={model}
+          users={users}
+          phone={phone}
+          readOnly={readOnly}
+        />
+      ))}
+    </RelationBandFrame>
   )
 }
 

@@ -2,26 +2,21 @@ package com.exponential.app.ui.work
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
-import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueStatusEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.IssueRelationEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
-import com.exponential.app.domain.IssueGraph
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.ResolvedIssueStatus
-import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.PrGraph
 import com.exponential.app.domain.batchRunIssues
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -29,7 +24,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 
 /**
  * EXP-897 part 4: what the Work screen's stack/batch badge and its overlay
@@ -43,8 +37,7 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 class PrGraphViewModel @Inject constructor(
     holder: DatabaseHolder,
-    private val auth: AuthRepository,
-    private val issuesApi: IssuesApi,
+    auth: AuthRepository,
 ) : ViewModel() {
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
@@ -79,26 +72,6 @@ class PrGraphViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PrGraph.Graph(emptyList(), null, emptyList()))
 
-    /**
-     * EXP-980: the subject's BLOCKS graph — the transitive chain the overlay's
-     * Issue face draws where it used to list a flat row of blocker chips. The
-     * same rule and the same view the list badges and the blocked-start dialog
-     * use; empty whenever the subject is an issue-less run.
-     */
-    val blocksGraph: StateFlow<IssueGraph.Graph> = combine(
-        subject,
-        allIssues,
-        dbFlow.scopedQuery(emptyList<IssueRelationEntity>()) { it.issueRelationDao().observeAll() },
-    ) { current, issues, relations ->
-        val id = current.issueId
-        if (id == null) EMPTY_GRAPH else IssueGraph.blockGraph(listOf(id), relations, issues)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EMPTY_GRAPH)
-
-    /** The pool the graph's nodes resolve against. */
-    val issuesById: StateFlow<Map<String, IssueEntity>> = allIssues
-        .map { issues -> issues.associateBy { it.id } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
-
     /** SLOP-16 r3: every synced status, resolved — the "Related work"
      *  view's relation rows resolve their glyph by `status_id` against it. */
     val issueStatuses: StateFlow<List<ResolvedIssueStatus>> =
@@ -109,11 +82,6 @@ class PrGraphViewModel @Inject constructor(
     /** SLOP-16 r3: the relation rows' assignee avatars. */
     val users: StateFlow<List<UserEntity>> =
         dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeAll() }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    /** SLOP-16 r3: the run rows' host machines (the Running band's byline). */
-    val devices: StateFlow<List<DeviceEntity>> =
-        dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
@@ -131,37 +99,4 @@ class PrGraphViewModel @Inject constructor(
         val session = current.sessionId?.let { id -> sessions.firstOrNull { it.id == id } }
         session?.let { batchRunIssues(it, issues) } ?: emptyList()
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    private val _merging = MutableStateFlow(false)
-    val merging: StateFlow<Boolean> = _merging
-
-    private val _mergeError = MutableStateFlow<MergeFailure?>(null)
-    val mergeError: StateFlow<MergeFailure?> = _mergeError
-
-    /**
-     * Merge the whole stack from its BOTTOM entry (the server resolves the
-     * top). The flips arrive through Electric, which is what closes the
-     * overlay's rows out.
-     */
-    fun mergeStack(issueId: String) {
-        if (_merging.value) return
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            _mergeError.value = null
-            _merging.value = true
-            runCatching { issuesApi.mergePr(accountId, issueId, mergeStack = true) }
-                .onFailure { t ->
-                    if (t is CancellationException) throw t
-                    _mergeError.value = MergeFailure.from(t, "The stack could not be merged")
-                }
-            _merging.value = false
-        }
-    }
 }
-
-private val EMPTY_GRAPH = IssueGraph.Graph(
-    nodes = emptyList(),
-    edges = emptyList(),
-    hasCycle = false,
-    truncated = false,
-)

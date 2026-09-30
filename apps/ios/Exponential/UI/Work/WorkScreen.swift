@@ -372,20 +372,8 @@ struct WorkScreen: View {
         )
     }
 
-    /// EXP-930: the issue rows the overlay names its runs from — the graph's
-    /// own pool (pull requests + blockers), the batch's covered set and the
-    /// subject itself, in that order of authority.
-    private var graphIssuePool: [IssueEntity] {
-        var pool = prGraphModel?.knownIssues ?? []
-        var seen = Set(pool.map(\.id))
-        for row in (subjectModel?.batchIssues ?? []) + (issue.map { [$0] } ?? []) {
-            if seen.insert(row.id).inserted { pool.append(row) }
-        }
-        return pool
-    }
-
     /// SLOP-16 r2: the header's graph icon button, when there IS a stack, a
-    /// batch, a run tree or (EXP-1097) an open blocker to name — the same on
+    /// batch or (EXP-1097) an open blocker to name — the same on
     /// every face.
     @ViewBuilder
     private var prGraphBadge: some View {
@@ -738,23 +726,13 @@ struct WorkScreen: View {
             } message: {
                 Text("This action cannot be undone.")
             }
-            // EXP-897 Part 4: the badge's overlay — its sections follow the
-            // face underneath.
+            // EXP-897 Part 4: the badge's overlay, the same on every face.
             .background {
                 Color.clear
                     .sheet(isPresented: $prGraphOpen) {
                         if let graph = prGraph {
                             PrGraphSheet(
                                 graph: graph,
-                                face: face,
-                                issues: graphIssuePool,
-                                // EXP-980: the Issue face leads with the
-                                // transitive blocks chain, not a chip list.
-                                blockGraph: prGraphModel?.blockGraph(
-                                    issue: issue, pool: graphIssuePool
-                                ) ?? IssueGraph.Graph(
-                                    nodes: [], edges: [], hasCycle: false, truncated: false
-                                ),
                                 subjectIssueId: issue?.id,
                                 users: prGraphModel?.users ?? [],
                                 teamStatuses: issueVM?.teamStatuses ?? [],
@@ -762,17 +740,9 @@ struct WorkScreen: View {
                                     prGraphOpen = false
                                     deps.deepLinkBus.navigateToIssue(id, accountId: accountId)
                                 },
-                                onOpenRun: { id in
-                                    prGraphOpen = false
-                                    swapIn(id)
-                                },
                                 onOpenPullRequest: { entry in
                                     prGraphOpen = false
                                     openPullRequest(entry, subject: graph)
-                                },
-                                onMergeStack: { id in
-                                    prGraphOpen = false
-                                    mergeStack(issueId: id)
                                 }
                             )
                         }
@@ -962,32 +932,6 @@ struct WorkScreen: View {
                     swapIn(started.sessionId)
                 }
             }
-    }
-
-    /// EXP-897: merging the whole stack from the overlay — one call on the
-    /// BOTTOM entry's issue; the server resolves the top and merges every
-    /// unmerged member below it.
-    ///
-    /// EXP-917: a refusal is reported (the Reviews list captions its row; here
-    /// the overlay has already closed, so a toast carries it). A stack
-    /// refusal offers no Fix conflicts — the recovery run takes ONE pull
-    /// request — the same rule as every other client's stack merge.
-    private func mergeStack(issueId: String) {
-        let accountId = accountId
-        let issuesApi = deps.issuesApi
-        let toaster = toaster
-        Task {
-            do {
-                try await issuesApi.mergePr(
-                    accountId: accountId, issueId: issueId, mergeStack: true
-                )
-            } catch {
-                toaster.error(
-                    "Couldn't merge the stack",
-                    description: MergeFailure(error: error).message
-                )
-            }
-        }
     }
 
     private func appear() {

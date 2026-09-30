@@ -379,7 +379,6 @@ function OwnSessionPage({
               <PrGraphBadge
                 teamId={team.id}
                 teamSlug={teamSlug}
-                face={shownFace === `run` ? `run` : `changes`}
                 issue={issue}
                 session={session}
               />
@@ -450,7 +449,6 @@ function OwnSessionPage({
           <PrGraphBadge
             teamId={team.id}
             teamSlug={teamSlug}
-            face={face === `diff` ? `changes` : `run`}
             issue={issue}
             session={session}
           />

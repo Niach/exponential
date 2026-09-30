@@ -589,7 +589,6 @@ export function IssueDetailView({
         <PrGraphBadge
           teamId={teamId}
           teamSlug={teamSlug}
-          face="issue"
           issue={issue}
         />
       }
@@ -778,7 +777,6 @@ export function IssueDetailView({
             <PrGraphBadge
               teamId={teamId}
               teamSlug={teamSlug}
-              face="issue"
               issue={issue}
             />
             {faceToggle}

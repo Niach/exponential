@@ -4,25 +4,26 @@
 //!
 //! The badge (`crate::pr_graph::badge`) is a muted ICON BUTTON (SLOP-16
 //! round 2): the glyph names the shape — `pr-stack`, `pr-batch`,
-//! `session-tree`, `relation-blocked-by` — with a mono `+N` beside it when
-//! others ride along; the shape's name is its tooltip. A click opens the
-//! "Related work" dialog (round 3): per section a group band over the
-//! product's own flat rows (issue, pull request, run) or the compact blocks
-//! graph, the same layout and copy ×4.
+//! `relation-blocked-by` — with a mono `+N` beside it when others ride
+//! along; the shape's name is its tooltip. A click opens the "Related work"
+//! dialog (round 5): EXACTLY the relations card's foldable bands — "Blocked
+//! by", "Same pull request", "Pull request stack" — over its issue rows (a
+//! pull request in the same row shape), capped at three with "Show N more",
+//! the same layout and copy ×4. A run family earns no badge.
 //!
 //! EXP-1092: the demo draws the REAL badge — `crate::pr_graph::badge` over a
 //! `BadgeSpec` whose graph comes from `domain::pr_graph::pr_graph`, the header's
-//! own call — in each state it has (stack, batch, a run family, blocked-by
-//! alone), over static synced-shape rows, never live ones. A lone pull
-//! request with no relation draws NO badge (`badge` answers `None`), which is
-//! a state too.
+//! own call — in each state it has (stack, batch, blocked-by alone), over
+//! static synced-shape rows, never live ones. A lone pull
+//! request with no relation — or a run family alone — draws NO badge
+//! (`badge` answers `None`), which is a state too.
 
 use gpui::{div, App, Div, ParentElement as _, Styled as _, Window};
 
 use domain::pr_graph::pr_graph;
 use domain::rows::{CodingSession, Issue};
 
-use crate::pr_graph::{badge, BadgeFace, BadgeSpec};
+use crate::pr_graph::{badge, BadgeSpec};
 
 pub(crate) const ID: &str = "pr-graph-badge";
 pub(crate) const OWNER: &str = "EXP-1058";
@@ -80,21 +81,15 @@ fn specs() -> Vec<(&'static str, BadgeSpec)> {
         run("sg-run-child-1", Some("sg-run")),
         run("sg-run-child-2", Some("sg-run")),
     ];
-    let plain = |graph, face| BadgeSpec {
-        graph,
-        face,
-        blocks_graph: domain::issue_graph::IssueGraph::default(),
-        subject_issue_id: None,
-        subject_session_id: None,
-    };
+    let plain = |graph| BadgeSpec { graph };
     vec![
         (
             "styleguide-pr-graph-badge-stack",
-            plain(pr_graph(Some(&stack[1]), None, &stack, &[]), BadgeFace::Changes),
+            plain(pr_graph(Some(&stack[1]), None, &stack, &[])),
         ),
         (
             "styleguide-pr-graph-badge-batch",
-            plain(pr_graph(Some(&batch[0]), None, &batch, &[]), BadgeFace::Issue),
+            plain(pr_graph(Some(&batch[0]), None, &batch, &[])),
         ),
         (
             "styleguide-pr-graph-badge-blocked",
@@ -102,20 +97,18 @@ fn specs() -> Vec<(&'static str, BadgeSpec)> {
                 // EXP-1097: the open blockers ride the graph.
                 let mut graph = pr_graph(Some(&waiting), None, std::slice::from_ref(&waiting), &[]);
                 graph.blocked_by = vec![blocker];
-                plain(graph, BadgeFace::Issue)
+                plain(graph)
             },
         ),
         (
+            // A run family alone: no badge (round 5).
             "styleguide-pr-graph-badge-run",
-            plain(pr_graph(None, Some(&runs[0]), &[], &runs), BadgeFace::Run),
+            plain(pr_graph(None, Some(&runs[0]), &[], &runs)),
         ),
         (
             // A lone pull request: no relation, so no badge at all.
             "styleguide-pr-graph-badge-plain",
-            plain(
-                pr_graph(Some(&stack[2]), None, std::slice::from_ref(&stack[2]), &[]),
-                BadgeFace::Issue,
-            ),
+            plain(pr_graph(Some(&stack[2]), None, std::slice::from_ref(&stack[2]), &[])),
         ),
     ]
 }
@@ -134,10 +127,11 @@ mod tests {
     use super::*;
     use domain::pr_graph::BadgeShape;
 
-    /// Every state but the lone pull request earns an icon button, with the
-    /// glyph's shape and the `+N` the header would draw.
+    /// Every state but the run family and the lone pull request earns an
+    /// icon button, with the glyph's shape and the `+N` the header would
+    /// draw.
     #[test]
-    fn every_state_but_the_plain_one_draws_an_icon_button() {
+    fn every_related_state_draws_an_icon_button() {
         let faces: Vec<_> = specs()
             .iter()
             .map(|(_, spec)| crate::pr_graph::badge_face(spec))
@@ -148,7 +142,7 @@ mod tests {
                 Some((BadgeShape::Stack, 2)),
                 Some((BadgeShape::Batch, 1)),
                 Some((BadgeShape::Blocked, 0)),
-                Some((BadgeShape::Runs, 2)),
+                None,
                 None,
             ]
         );

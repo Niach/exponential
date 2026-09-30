@@ -87,7 +87,6 @@ function renderHeader(subject: Issue, face?: `issue` | `run` | `changes`) {
         <PrGraphBadge
           teamId="t1"
           teamSlug="acme"
-          face="issue"
           issue={subject}
         />
       }

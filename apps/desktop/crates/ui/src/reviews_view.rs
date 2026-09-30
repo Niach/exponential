@@ -1394,8 +1394,7 @@ pub(crate) struct PrRowSpec {
 /// The base left padding of a [`pr_row`] (`px_3`).
 const PR_ROW_PAD: f32 = 12.;
 
-/// THE pull request row — the Reviews queue's, and the "Related work"
-/// dialog's "Pull requests" band (`pr_graph`): PR glyph · mono identifier ·
+/// THE pull request row — the Reviews queue's: PR glyph · mono identifier ·
 /// title · batch glyph, the sub-lines under it, the trailing slot centred.
 pub(crate) fn pr_row(spec: PrRowSpec, cx: &gpui::App) -> gpui::AnyElement {
     let theme = cx.theme();

@@ -480,7 +480,6 @@ function ReviewsPage() {
                             <PrGraphBadge
                               teamId={team.id}
                               teamSlug={teamSlug}
-                              face="changes"
                               issue={issue}
                               variant="glyph"
                               fallback={

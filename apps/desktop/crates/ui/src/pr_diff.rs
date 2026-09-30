@@ -549,10 +549,8 @@ impl Render for PrDiffView {
             }
 
             // EXP-897 §4: the review page IS a Changes face, so it carries the
-            // same stack/batch badge — its overlay lists the PR stack
-            // bottom-up, "Merge stack" on the bottom entry.
-            let spec =
-                crate::pr_graph::issue_spec(issue, None, crate::pr_graph::BadgeFace::Changes, cx);
+            // same badge and "Related work" dialog.
+            let spec = crate::pr_graph::issue_spec(issue, cx);
             trailing.extend(crate::pr_graph::badge("review-pr-graph", spec, cx));
 
             // The reject path — a quiet CIRCLED `×` that only grows into a

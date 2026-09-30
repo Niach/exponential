@@ -425,7 +425,7 @@ fn render_sub_issues(
 }
 
 /// The glyph of one band — the relation pick's concept for that side.
-fn band_icon(key: RelationBandKey) -> ExpIcon {
+pub(crate) fn band_icon(key: RelationBandKey) -> ExpIcon {
     let (kind, inverse) = match key {
         RelationBandKey::BlockedBy => ("blocks", true),
         RelationBandKey::Blocking => ("blocks", false),
@@ -448,16 +448,100 @@ fn band_slug(key: RelationBandKey) -> &'static str {
 }
 
 fn render_band(issue: &Issue, read: &Read, band: &RelationsViewBand, cx: &mut App) -> AnyElement {
-    let foreground = cx.theme().foreground;
-    let muted = cx.theme().muted_foreground;
     let key = band.key;
     let slug = band_slug(key);
+    let side = Side::Band(key);
+    let rows: Vec<AnyElement> = band
+        .rows
+        .iter()
+        .filter_map(|row| {
+            let relation_id = read.relation_id(side, &row.id);
+            render_row(slug, row, relation_id, cx)
+        })
+        .collect();
+    let fold_issue = issue.id.clone();
+    let more_issue = issue.id.clone();
+    fold_band(
+        FoldBand {
+            id: SharedString::from(format!("relations-band-{slug}")),
+            icon: band_icon(key),
+            title: SharedString::from(band.title.clone()),
+            count: band.count,
+            expanded: band.expanded,
+            rows,
+            footer: band.more.clone().or_else(|| band.less.clone()),
+            on_toggle: Box::new(move |_, window, cx| flip_fold(&fold_issue, key, false, window, cx)),
+            on_footer: Box::new(move |_, window, cx| flip_fold(&more_issue, key, true, window, cx)),
+        },
+        cx,
+    )
+}
+
+/// A click handler of a [`FoldBand`].
+pub(crate) type BandClick = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+
+/// SLOP-16 round 5 — everything one FOLDABLE relations band draws. The
+/// relations card draws it, and so does the work header's "Related work"
+/// dialog (`pr_graph`).
+pub(crate) struct FoldBand {
+    pub(crate) id: SharedString,
+    /// The band's glyph after the chevron.
+    pub(crate) icon: ExpIcon,
+    pub(crate) title: SharedString,
+    /// Every row the band holds (shown or not).
+    pub(crate) count: usize,
+    pub(crate) expanded: bool,
+    /// The rows to draw (already capped — [`band_window`]).
+    pub(crate) rows: Vec<AnyElement>,
+    /// "Show N more" / "Show less" under the rows.
+    pub(crate) footer: Option<String>,
+    /// A click on the band folds/unfolds it.
+    pub(crate) on_toggle: BandClick,
+    /// A click on the footer shows all / shows less.
+    pub(crate) on_footer: BandClick,
+}
+
+/// SLOP-16 round 5 — the relations card's band cap, for a band built outside
+/// [`issue_relations_view`]: how many of `total` rows show, and the footer
+/// ("Show N more" / "Show less") — byte-for-byte the model's rule.
+pub(crate) fn band_window(total: usize, expanded: bool, show_all: bool) -> (usize, Option<String>) {
+    use domain::relations_view::{relations_show_more, RELATIONS_BAND_CAP};
+    let overflow = total > RELATIONS_BAND_CAP;
+    if !expanded {
+        return (0, None);
+    }
+    match (overflow, show_all) {
+        (false, _) => (total, None),
+        (true, false) => (
+            RELATIONS_BAND_CAP,
+            Some(relations_show_more(total - RELATIONS_BAND_CAP)),
+        ),
+        (true, true) => (total, Some(copy::SHOW_LESS.to_string())),
+    }
+}
+
+/// SLOP-16 round 5 — THE foldable relations band: chevron · glyph · title ·
+/// count over its flat rows, "Show N more" / "Show less" under them.
+pub(crate) fn fold_band(band: FoldBand, cx: &App) -> AnyElement {
+    let foreground = cx.theme().foreground;
+    let muted = cx.theme().muted_foreground;
+    let FoldBand {
+        id,
+        icon,
+        title,
+        count,
+        expanded,
+        rows,
+        footer,
+        on_toggle,
+        on_footer,
+    } = band;
     let leading = h_flex()
         .flex_shrink_0()
         .items_center()
         .gap_1p5()
         .child(
-            Icon::new(if band.expanded {
+            Icon::new(if expanded {
                 registry::UI_CHEVRON_DOWN
             } else {
                 registry::UI_CHEVRON_RIGHT
@@ -465,30 +549,23 @@ fn render_band(issue: &Issue, read: &Read, band: &RelationsViewBand, cx: &mut Ap
             .xsmall()
             .text_color(foreground.opacity(0.7)),
         )
-        .child(Icon::new(band_icon(key)).xsmall().text_color(muted))
+        .child(Icon::new(icon).xsmall().text_color(muted))
         .into_any_element();
     let count = div()
         .flex_shrink_0()
         .text_xs()
         .text_color(foreground.opacity(0.5))
-        .child(SharedString::from(band.count.to_string()))
+        .child(SharedString::from(count.to_string()))
         .into_any_element();
-    let fold_issue = issue.id.clone();
-    let header = crate::surface::glass_section_band(Some(leading), band.title.clone(), Some(count), cx)
-        .id(SharedString::from(format!("relations-band-{slug}")))
+    let header = crate::surface::glass_section_band(Some(leading), title, Some(count), cx)
+        .id(id.clone())
         .cursor_pointer()
-        .on_click(move |_, window, cx| flip_fold(&fold_issue, key, false, window, cx));
-    let mut column = v_flex().w_full().min_w_0().child(header);
-    let side = Side::Band(key);
-    for row in &band.rows {
-        let relation_id = read.relation_id(side, &row.id);
-        column = column.children(render_row(slug, row, relation_id, cx));
-    }
-    if let Some(label) = band.more.clone().or_else(|| band.less.clone()) {
-        let more_issue = issue.id.clone();
+        .on_click(move |event, window, cx| on_toggle(event, window, cx));
+    let mut column = v_flex().w_full().min_w_0().child(header).children(rows);
+    if let Some(label) = footer {
         column = column.child(
             crate::surface::flat_row()
-                .id(SharedString::from(format!("relations-band-{slug}-more")))
+                .id(SharedString::from(format!("{id}-more")))
                 .flex()
                 .w_full()
                 .items_center()
@@ -499,7 +576,7 @@ fn render_band(issue: &Issue, read: &Read, band: &RelationsViewBand, cx: &mut Ap
                 .text_xs()
                 .text_color(muted)
                 .child(SharedString::from(label))
-                .on_click(move |_, window, cx| flip_fold(&more_issue, key, true, window, cx)),
+                .on_click(move |event, window, cx| on_footer(event, window, cx)),
         );
     }
     column.into_any_element()
@@ -914,5 +991,14 @@ mod tests {
         assert_eq!(ring_percent(0, 0), 0.);
         assert_eq!(ring_percent(2, 4), 50.);
         assert_eq!(ring_percent(5, 4), 100.);
+    }
+
+    /// SLOP-16 round 5 — the dialog's bands cap exactly like the model's.
+    #[test]
+    fn band_window_mirrors_the_models_cap() {
+        assert_eq!(band_window(2, true, false), (2, None));
+        assert_eq!(band_window(5, true, false), (3, Some("Show 2 more".to_string())));
+        assert_eq!(band_window(5, true, true), (5, Some("Show less".to_string())));
+        assert_eq!(band_window(5, false, false), (0, None));
     }
 }

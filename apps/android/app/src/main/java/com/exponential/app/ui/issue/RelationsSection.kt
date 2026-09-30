@@ -299,40 +299,16 @@ private fun RelationBand(
     onOpenIssue: (String) -> Unit,
     onRemove: (String) -> Unit,
 ) {
-    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-    Column(modifier = Modifier.fillMaxWidth().testTag("relation-band-${band.key.wire}")) {
-        SectionHeader(
-            band.title,
-            modifier = Modifier
-                .clickable(onClick = onToggle)
-                .semantics {
-                    contentDescription =
-                        "${band.title}, ${band.count}, ${if (band.expanded) "expanded" else "collapsed"}"
-                },
-            leading = {
-                Icon(
-                    if (band.expanded) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
-                    contentDescription = null,
-                    modifier = Modifier.size(14.dp),
-                    tint = muted,
-                )
-                Icon(
-                    bandIcon(band.key),
-                    contentDescription = null,
-                    modifier = Modifier.size(14.dp),
-                    tint = muted,
-                )
-            },
-            trailing = {
-                Text(
-                    band.count.toString(),
-                    style = MaterialTheme.typography.labelMedium,
-                    fontFamily = FontFamily.Monospace,
-                    color = muted,
-                    maxLines = 1,
-                )
-            },
-        )
+    RelationBandFrame(
+        title = band.title,
+        icon = bandIcon(band.key),
+        count = band.count,
+        expanded = band.expanded,
+        footer = band.more ?: band.less,
+        onToggle = onToggle,
+        onFooter = { onShowAll(band.more != null) },
+        modifier = Modifier.testTag("relation-band-${band.key.wire}"),
+    ) {
         if (band.rows.isNotEmpty()) {
             RelationRows(
                 rows = band.rows,
@@ -343,7 +319,62 @@ private fun RelationBand(
                 onRemove = onRemove,
             )
         }
-        val footer = band.more ?: band.less
+    }
+}
+
+/**
+ * SLOP-16 r5: THE relation band — the foldable [SectionHeader] (chevron ·
+ * icon · title · count) over its [rows] (drawn only while [expanded]), then
+ * the "Show N more" / "Show less" [footer]. The properties sheet's relations
+ * and the "Related work" sheet draw the very same band.
+ */
+@Composable
+internal fun RelationBandFrame(
+    title: String,
+    icon: ImageVector,
+    count: Int,
+    expanded: Boolean,
+    footer: String?,
+    onToggle: () -> Unit,
+    onFooter: () -> Unit,
+    modifier: Modifier = Modifier,
+    rows: @Composable () -> Unit,
+) {
+    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+    Column(modifier = modifier.fillMaxWidth()) {
+        SectionHeader(
+            title,
+            modifier = Modifier
+                .clickable(onClick = onToggle)
+                .semantics {
+                    contentDescription =
+                        "$title, $count, ${if (expanded) "expanded" else "collapsed"}"
+                },
+            leading = {
+                Icon(
+                    if (expanded) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = muted,
+                )
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = muted,
+                )
+            },
+            trailing = {
+                Text(
+                    count.toString(),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontFamily = FontFamily.Monospace,
+                    color = muted,
+                    maxLines = 1,
+                )
+            },
+        )
+        if (expanded) rows()
         if (footer != null) {
             Text(
                 footer,
@@ -352,7 +383,7 @@ private fun RelationBand(
                 modifier = Modifier
                     .fillMaxWidth()
                     .flatRow()
-                    .clickable { onShowAll(band.more != null) }
+                    .clickable(onClick = onFooter)
                     .heightIn(min = 44.dp)
                     .padding(horizontal = 12.dp, vertical = 12.dp),
             )

@@ -478,20 +478,6 @@ fn dialog_pick() -> OnPickIssue {
     })
 }
 
-/// SLOP-16 round 3 — the "Related work" dialog's "Blocked by" band: the
-/// COMPACT graph (small chips, the popover's viewport; past it the grid
-/// scrolls), a node tap opening the issue in the opener.
-pub(crate) fn graph_in_dialog_compact(
-    graph: &IssueGraph,
-    view_width: f32,
-    cx: &App,
-) -> gpui::AnyElement {
-    h_flex()
-        .min_w_0()
-        .child(graph_view(graph, view_width, geometry::Density::Compact, dialog_pick(), cx))
-        .into_any_element()
-}
-
 /// The grid plus its notes, for the EXP-980 `blocks` graph. Empty (no nodes)
 /// renders nothing at all — the callers gate on that themselves. The pixels
 /// are [`grid_view`]'s; this only translates the rule's output into its

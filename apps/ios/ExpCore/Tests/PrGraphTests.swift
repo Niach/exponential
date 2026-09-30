@@ -243,30 +243,27 @@ final class PrGraphTests: XCTestCase {
         )
         let batch = graph(oneAlone, [oneAlone, plainTwo])
         XCTAssertEqual(PrGraph.badgeChip(batch)?.count, 1)
-        // A run family with no issue: no front issue, the other runs behind.
+        // A run family with no issue earns no chip (SLOP-16 r5).
         let root = treeRun("root", parent: nil)
         let child = treeRun("child", parent: "root")
         let family = PrGraph.build(
             issue: nil, session: child, issues: [], sessions: [child, root], relations: []
         )
-        let chip = PrGraph.badgeChip(family)
-        XCTAssertNil(chip?.issue)
-        XCTAssertEqual(chip?.count, 1)
+        XCTAssertNil(PrGraph.badgeChip(family))
         // No badge = no chip.
         let lone = issue("lone", identifier: "EXP-9")
         XCTAssertNil(PrGraph.badgeChip(graph(lone, [lone])))
     }
 
-    // EXP-1079 / EXP-1097: a run with a family earns the chip — on EVERY face
-    // now, the shape no longer reads the face — and a PR relation always wins
-    // over it.
-    func testShapesARunsBadgeForARunWithAFamilyOnEveryFace() {
+    // SLOP-16 r5: a run family alone earns NO badge on any face; a PR
+    // relation still does, whatever runs ride with it.
+    func testShapesNoBadgeForARunFamilyAlone() {
         let root = treeRun("root", parent: nil)
         let child = treeRun("child", parent: "root")
         let family = PrGraph.build(
             issue: nil, session: child, issues: [], sessions: [child, root], relations: []
         )
-        XCTAssertEqual(PrGraph.badgeShape(family), .runs)
+        XCTAssertNil(PrGraph.badgeShape(family))
         let alone = treeRun("alone", parent: nil)
         let lonely = PrGraph.build(
             issue: nil, session: alone, issues: [], sessions: [alone], relations: []
@@ -305,7 +302,7 @@ final class PrGraphTests: XCTestCase {
             issue: me, session: nil, issues: [me, closed], sessions: [], relations: relations
         )
         XCTAssertNil(PrGraph.badgeShape(done))
-        // A run family wins over the blockers.
+        // A run family does not change it: still blocked.
         let r1 = treeRun("r1", parent: nil, issueId: "me")
         let r2 = treeRun("r2", parent: "r1")
         XCTAssertEqual(
@@ -313,7 +310,7 @@ final class PrGraphTests: XCTestCase {
                 issue: me, session: nil, issues: [me, b1], sessions: [r1, r2],
                 relations: relations
             )),
-            .runs
+            .blocked
         )
         // A batch wins over both.
         let batchA = issue("me", identifier: "EXP-10", prUrl: "pr/9")
@@ -327,8 +324,10 @@ final class PrGraphTests: XCTestCase {
         )
     }
 
-    // EXP-1097: the face only decides which overlay section LEADS.
-    func testOrdersTheOverlaysSectionsByFace() {
+    // SLOP-16 r5: ONE band order on every face — Blocked by, Same pull
+    // request, Pull request stack — each only when the subject has it; runs
+    // are never a band.
+    func testOrdersTheOverlaysSectionsTheSameEverywhere() {
         let me = issue("me", identifier: "EXP-10", prUrl: "pr/9")
         let partner = issue("partner", identifier: "EXP-11", prUrl: "pr/9")
         let blocker = issue("blocker", identifier: "EXP-1")
@@ -338,33 +337,33 @@ final class PrGraphTests: XCTestCase {
             issue: me, session: nil, issues: [me, partner, blocker], sessions: [r1, r2],
             relations: [relation("rel", from: "blocker", to: "me")]
         )
-        XCTAssertEqual(PrGraph.overlaySections(result, face: .issue), [.blocked, .batch, .runs])
-        XCTAssertEqual(PrGraph.overlaySections(result, face: .run), [.batch, .runs, .blocked])
-        XCTAssertEqual(PrGraph.overlaySections(result, face: .results), [.batch, .runs, .blocked])
-        XCTAssertEqual(
-            PrGraph.overlaySections(result, face: .changes), [.stack, .batch, .runs, .blocked]
+        XCTAssertEqual(PrGraph.overlaySections(result), [.blocked, .batch])
+
+        let lower = issue(
+            "lower", identifier: "EXP-1", prUrl: "pr/1", branch: "exp/LOWER", base: "main"
         )
+        let upper = issue(
+            "upper", identifier: "EXP-2", prUrl: "pr/2", branch: "exp/UPPER", base: "exp/LOWER"
+        )
+        XCTAssertEqual(PrGraph.overlaySections(graph(upper, [lower, upper])), [.stack])
+
         let lone = issue("lone", identifier: "EXP-9")
-        XCTAssertEqual(PrGraph.overlaySections(graph(lone, [lone]), face: .issue), [])
+        XCTAssertEqual(PrGraph.overlaySections(graph(lone, [lone])), [])
+        // A lone PR is no band either.
+        let lonePr = issue("pr", identifier: "EXP-8", prUrl: "pr/8", branch: "exp/EXP-8")
+        XCTAssertEqual(PrGraph.overlaySections(graph(lonePr, [lonePr])), [])
     }
 
-    /// SLOP-16 r3: the "Related work" copy, byte-identical ×4.
+    /// SLOP-16 r5: the "Related work" copy, byte-identical ×4.
     func testPinsTheRelatedWorkCopy() {
         XCTAssertEqual(PrGraph.OverlayCopy.relatedWorkTitle, "Related work")
         XCTAssertEqual(PrGraph.OverlayCopy.blocked, "Blocked by")
-        XCTAssertEqual(PrGraph.OverlayCopy.batchPartners, "In batch with")
-        XCTAssertEqual(PrGraph.OverlayCopy.batchIssues, "Issues")
-        XCTAssertEqual(PrGraph.OverlayCopy.runs, "Runs")
-        XCTAssertEqual(PrGraph.OverlayCopy.stack, "Pull requests")
-        XCTAssertEqual(PrGraph.OverlayCopy.mergeStack, "Merge stack")
+        XCTAssertEqual(PrGraph.OverlayCopy.batch, "Same pull request")
+        XCTAssertEqual(PrGraph.OverlayCopy.stack, "Pull request stack")
         XCTAssertEqual(PrGraph.OverlayCopy.empty, "Nothing else is linked to this issue.")
-        XCTAssertEqual(PrGraph.overlayBandTitle(.batch, face: .issue), "In batch with")
-        XCTAssertEqual(PrGraph.overlayBandTitle(.batch, face: .changes), "In batch with")
-        XCTAssertEqual(PrGraph.overlayBandTitle(.batch, face: .run), "Issues")
-        XCTAssertEqual(PrGraph.overlayBandTitle(.batch, face: .results), "Issues")
-        XCTAssertEqual(PrGraph.overlayBandTitle(.blocked, face: .issue), "Blocked by")
-        XCTAssertEqual(PrGraph.overlayBandTitle(.runs, face: .run), "Runs")
-        XCTAssertEqual(PrGraph.overlayBandTitle(.stack, face: .changes), "Pull requests")
+        XCTAssertEqual(PrGraph.overlayBandTitle(.blocked), "Blocked by")
+        XCTAssertEqual(PrGraph.overlayBandTitle(.batch), "Same pull request")
+        XCTAssertEqual(PrGraph.overlayBandTitle(.stack), "Pull request stack")
     }
 
     private func relation(_ id: String, from: String, to: String) -> IssueRelationEntity {
