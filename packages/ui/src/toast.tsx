@@ -109,7 +109,10 @@ export const TOASTER_PROPS = {
   toastOptions: {
     unstyled: true,
     classNames: {
-      toast: TOAST_CLASS,
+      // A collapsed back card shrinks about the edge that PEEKS OUT, so the
+      // visible peek is exactly `peek` per rank: the TOP edge on this
+      // bottom stack (sonner's centre origin eats ~1.5 px per rank).
+      toast: cn(TOAST_CLASS, `origin-top`),
       content: TOAST_CONTENT_CLASS,
       title: TOAST_TITLE_CLASS,
       description: TOAST_DESCRIPTION_CLASS,
@@ -127,6 +130,11 @@ export const TOASTER_TOUCH_PROPS = {
   ...TOASTER_PROPS,
   position: TOAST_PLACEMENT.touch,
   swipeDirections: [`top`, `left`, `right`],
+  toastOptions: {
+    ...TOASTER_PROPS.toastOptions,
+    // A top stack peeks out below: shrink about the BOTTOM edge.
+    classNames: { ...TOASTER_PROPS.toastOptions.classNames, toast: cn(TOAST_CLASS, `origin-bottom`) },
+  },
 } satisfies ToasterProps
 
 export function Toaster(): ReactNode {
@@ -140,10 +148,10 @@ export function Toaster(): ReactNode {
 // draws the toast AT REST on plain elements wearing the same constants:
 // three equal cards, oldest first, from the fixture's numbers (`peek`,
 // `scaleStep`, `gap`). `collapsed`/`expanded` = the pointer placement,
-// BOTTOM-anchored: an older card shrinks from its bottom edge and peeks out
-// ABOVE the front one. `collapsed-touch` = the touch placement, TOP-anchored:
-// the front card on top, an older one shrinks from its top edge and peeks
-// out BELOW it. The app never renders it.
+// BOTTOM-anchored: an older card peeks out ABOVE the front one and shrinks
+// about that top edge. `collapsed-touch` = the touch placement, TOP-anchored:
+// the front card on top, an older one peeks out BELOW it and shrinks about
+// its bottom edge. Either way the visible peek is exactly `peek` per rank. The app never renders it.
 
 /** The specimen's card height (the fixture's equal-height cases use 60). */
 export const TOAST_SPECIMEN_HEIGHT = 60
@@ -249,7 +257,9 @@ export function ToastSpecimen(props: ToastSpecimenProps): ReactNode {
                 height: TOAST_SPECIMEN_HEIGHT,
                 zIndex: index + 1,
                 transform: `scale(${item.scale})`,
-                transformOrigin: fromTop ? `top center` : `bottom center`,
+                // Shrink about the edge that peeks out: top on a bottom
+                // stack, bottom on a top stack.
+                transformOrigin: fromTop ? `bottom center` : `top center`,
               }}
             />
           )

@@ -43,7 +43,8 @@ describe(`Toaster (EXP-1031 toast-stack contract)`, () => {
     expect(TOASTER_PROPS.theme).toBe(`dark`)
     expect(TOASTER_PROPS.closeButton).toBe(true)
     expect(TOASTER_PROPS.toastOptions.unstyled).toBe(true)
-    expect(TOASTER_PROPS.toastOptions.classNames.toast).toBe(TOAST_CLASS)
+    expect(TOASTER_PROPS.toastOptions.classNames.toast).toBe(`${TOAST_CLASS} origin-top`)
+    expect(TOASTER_TOUCH_PROPS.toastOptions.classNames.toast).toBe(`${TOAST_CLASS} origin-bottom`)
     expect(TOAST_KINDS).toEqual(constants.kinds)
   })
 
@@ -56,9 +57,10 @@ describe(`Toaster (EXP-1031 toast-stack contract)`, () => {
     expect(TOASTER_TOUCH_PROPS.position).toBe(constants.placement.touch)
     // A top stack dismisses up or sideways.
     expect(TOASTER_TOUCH_PROPS.swipeDirections).toEqual([`top`, `left`, `right`])
-    const { position: _p, swipeDirections: _s, ...touchRest } = TOASTER_TOUCH_PROPS
-    const { position: _q, ...pointerRest } = TOASTER_PROPS
+    const { position: _p, swipeDirections: _s, toastOptions: to, ...touchRest } = TOASTER_TOUCH_PROPS
+    const { position: _q, toastOptions: po, ...pointerRest } = TOASTER_PROPS
     expect(touchRest).toEqual(pointerRest)
+    expect({ ...to.classNames, toast: `` }).toEqual({ ...po.classNames, toast: `` })
   })
 
   it(`the card is the glass card at radius lg, fixture-wide, with no shadow`, () => {
@@ -168,6 +170,9 @@ describe(`Toaster placement (matchMedia)`, () => {
       })
       expect(list.dataset.yPosition).toBe(y)
       expect(list.dataset.xPosition).toBe(x)
+      // Back cards shrink about the edge that peeks out.
+      const card = list.querySelector(`[data-sonner-toast]`) as HTMLElement
+      expect(card.className.split(` `)).toContain(touch ? `origin-bottom` : `origin-top`)
       expect(window.matchMedia).toHaveBeenCalledWith(TOAST_TOUCH_QUERY)
       unmount()
     })
@@ -198,13 +203,13 @@ describe(`ToastSpecimen`, () => {
   const h = 60
   const fromTop = fixture.geometry.find((g) => g.name.startsWith(`three equal toasts collapsed from the top`))!
   const expected = {
-    collapsed: { height: h + 28, offsets: [0, 14, 28], scales: [0.9, 0.95, 1], origin: `bottom center` },
-    expanded: { height: 3 * h + 28, offsets: [0, h + 14, 2 * h + 28], scales: [1, 1, 1], origin: `bottom center` },
+    collapsed: { height: h + 28, offsets: [0, 14, 28], scales: [0.9, 0.95, 1], origin: `top center` },
+    expanded: { height: 3 * h + 28, offsets: [0, h + 14, 2 * h + 28], scales: [1, 1, 1], origin: `top center` },
     "collapsed-touch": {
       height: fromTop.height,
       offsets: fromTop.items.map((i) => i.offset),
       scales: fromTop.items.map((i) => i.scale),
-      origin: `top center`,
+      origin: `bottom center`,
     },
   }
   it(`the touch stack reads the fixture's top-anchored case`, () => {
