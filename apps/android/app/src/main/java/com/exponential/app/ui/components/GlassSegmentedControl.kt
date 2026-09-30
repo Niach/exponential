@@ -23,6 +23,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -64,6 +66,13 @@ fun <T> GlassSegmentedControl(
     // (the group's row padding provides it). Segments are unchanged, so the
     // active pill still reads the same inside the card.
     embedded: Boolean = false,
+    // EXP-1152: an optional per-segment CUSTOM label, drawn INSTEAD of
+    // `Text(label(option))` when it returns a composable for that option (the
+    // Work tabs' Changes segment wears the diff's tinted `+N −M`, the desktop
+    // `FaceToggle::diff` rule). [label] stays the segment's accessible name,
+    // and the slot receives the segment's content color so it can keep the
+    // EXP-698 alpha rule; geometry and the constant weight are unchanged.
+    labelContent: ((T) -> (@Composable (contentColor: Color) -> Unit)?)? = null,
 ) {
     val capsule = GlassSegmentedControlDefaults.Shape
     Row(
@@ -133,7 +142,14 @@ fun <T> GlassSegmentedControl(
                     }
                     Spacer(Modifier.width(6.dp))
                 }
-                Text(
+                val custom = labelContent?.invoke(option)
+                if (custom != null) {
+                    val name = label(option)
+                    Row(
+                        modifier = Modifier.clearAndSetSemantics { contentDescription = name },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) { custom(contentColor) }
+                } else Text(
                     label(option),
                     style = textStyle ?: MaterialTheme.typography.labelLarge,
                     // EXP-698: CONSTANT weight — only the alpha moves. A weight

@@ -78,6 +78,24 @@ final class WorkFacesTests: XCTestCase {
         XCTAssertEqual(AgentFeed.planModeFooterLabel, WorkFaces.planModeLabel)
     }
 
+    func testLabelsChangesWithItsCountsOnceTheFilesAreKnown() {
+        XCTAssertNil(WorkFaces.changesFaceCounts(nil))
+        XCTAssertNil(WorkFaces.changesFaceCounts(Diff.Totals(files: 0, additions: 0, deletions: 0)))
+        XCTAssertEqual(
+            WorkFaces.changesFaceCounts(Diff.Totals(files: 3, additions: 12, deletions: 2)),
+            WorkFaces.ChangesFaceCounts(additions: 12, deletions: 2)
+        )
+        // U+2212 MINUS SIGN, never a hyphen — the contract's `deletionsLabel`.
+        XCTAssertEqual(
+            WorkFaces.changesFaceText(WorkFaces.ChangesFaceCounts(additions: 12, deletions: 2)),
+            "+12 \u{2212}2"
+        )
+        XCTAssertEqual(
+            WorkFaces.changesFaceText(WorkFaces.ChangesFaceCounts(additions: 0, deletions: 0)),
+            "+0 \u{2212}0"
+        )
+    }
+
     func testTargetsTheBoundRunWhenItIsMineAndLive() {
         let rows = [
             run("a", startedAt: "2026-09-15T10:00:00Z"),

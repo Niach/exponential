@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.domain.changesFaceCounts
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.ActivityFeedState
 import com.exponential.app.domain.AgentPhase
@@ -279,6 +280,8 @@ fun WorkScreen(
             else -> emptyList()
         }
     }
+    // EXP-1152: the Changes tab wears these files' `+N −M` (desktop parity).
+    val changesCounts = remember(changesFiles) { changesFaceCounts(Diff.totals(changesFiles)) }
     // EXP-879: the run's published screenshots, parsed off the synced blob.
     // Results is a SUB-FACE of Run — no shown run, no results — which the
     // `shownSession` read gives for free.
@@ -547,6 +550,7 @@ fun WorkScreen(
                                 pinnedByUser = true
                                 faceName = WorkFaceKind.Run.name
                             },
+                            changesCounts = changesCounts,
                             trailing = headerMerge?.let { merge ->
                                 {
                                     MergePrHeaderPill(
@@ -561,14 +565,14 @@ fun WorkScreen(
             },
         ) { scaffoldPadding ->
             // EXP-1150: the body swipe to the neighbour (the tabs ride the
-            // header).
+            // header). EXP-1152: a pager — each face is a PAGE.
             WorkFaceFrame(
                 faces = faces,
                 face = face,
                 padding = scaffoldPadding,
                 onFace = { faceName = it.name },
-            ) { padding ->
-                when (face) {
+            ) { page, padding ->
+                when (page) {
                     WorkFaceKind.Issue -> if (issueVm != null && commentVm != null) {
                         IssueFace(
                             viewModel = issueVm,

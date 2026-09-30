@@ -64,6 +64,32 @@ public enum WorkFaces {
         }
     }
 
+    /// EXP-1152: what the Changes tab WEARS — the desktop `work_header.rs`
+    /// `FaceToggle::diff` rule on every phone: the `+N −M` counts of the files
+    /// the face draws (the run's live diff, else the issue's loaded PR files)
+    /// once they are known, the word `Changes` until then. `nil` = the word.
+    public struct ChangesFaceCounts: Equatable, Sendable {
+        public let additions: Int
+        public let deletions: Int
+
+        public init(additions: Int, deletions: Int) {
+            self.additions = additions
+            self.deletions = deletions
+        }
+    }
+
+    /// No totals, or totals over zero files (an empty diff), keep the word.
+    public static func changesFaceCounts(_ totals: Diff.Totals?) -> ChangesFaceCounts? {
+        guard let totals, totals.files > 0 else { return nil }
+        return ChangesFaceCounts(additions: totals.additions, deletions: totals.deletions)
+    }
+
+    /// The counts as ONE string (`+12 −2`, U+2212) — the segment's accessible
+    /// name and the natives' plain label, byte-identical ×3.
+    public static func changesFaceText(_ counts: ChangesFaceCounts) -> String {
+        "\(Diff.additionsLabel(counts.additions)) \(Diff.deletionsLabel(counts.deletions))"
+    }
+
     /// The faces a subject can show, in their fixed order. Changes is
     /// independent of Run: an issue with an open PR and no run of mine still
     /// has its PR files. Results (EXP-879) goes LAST and is not: it belongs to

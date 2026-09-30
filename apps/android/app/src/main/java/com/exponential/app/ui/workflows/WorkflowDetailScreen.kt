@@ -139,6 +139,8 @@ import com.exponential.app.ui.work.ChangesMergeControl
 import com.exponential.app.ui.work.GithubHeaderAction
 import com.exponential.app.ui.work.ResultsFace
 import com.exponential.app.ui.work.WorkFaceFrame
+import com.exponential.app.domain.ChangesFaceCounts
+import com.exponential.app.domain.changesFaceCounts
 import com.exponential.app.ui.work.WorkFaceTabs
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -230,6 +232,10 @@ fun WorkflowDetailScreen(
         hasNodes = graph.nodes.isNotEmpty(),
     )
     val pageFace = fallbackFace(allFace ?: WorkFaceKind.Issue, pageFaces) ?: WorkFaceKind.Issue
+    // EXP-1152: the picked node's diff counts for the header's Changes tab,
+    // reported up by [NodeFaces] (the files resolve there). All's Changes is a
+    // list of PRs, not one diff, so it keeps the word.
+    var nodeChangesCounts by remember(selectedNode?.id) { mutableStateOf<ChangesFaceCounts?>(null) }
 
     ProvideMarkdownToolbar {
         Scaffold(
@@ -453,7 +459,12 @@ fun WorkflowDetailScreen(
                     // EXP-1150: the face TABS close the header band, right
                     // above the face body (hidden until the workflow synced).
                     if (row != null) {
-                        WorkFaceTabs(faces = pageFaces, face = pageFace, onFace = { faceName = it.name })
+                        WorkFaceTabs(
+                            faces = pageFaces,
+                            face = pageFace,
+                            onFace = { faceName = it.name },
+                            changesCounts = if (selectedNode != null) nodeChangesCounts else null,
+                        )
                     }
                 }
             },
@@ -482,6 +493,7 @@ fun WorkflowDetailScreen(
                         onClose = { selectNode(null) },
                         onOpenIssue = onOpenIssue,
                         onOpenChanges = onOpenChanges,
+                        onChangesCounts = { nodeChangesCounts = it },
                     )
                 }
             } else {
@@ -895,9 +907,11 @@ private fun NodeSheet(
 /**
  * ONE node: its issue's Work screen faces, in place. The run's live
  * connection ([AgentSessionViewModel] = `SteerConnectionStore.acquire`) is
- * held ONLY while this node is picked, its run is the caller's own (EXP-312)
- * and the Run or Changes face (the live diff) wants it — scoped to this
- * composition, so a pick elsewhere or another face releases it.
+ * held ONLY while this node is picked and its run is the caller's own
+ * (EXP-312) — scoped to this composition, so a pick elsewhere releases it.
+ * EXP-1152: no longer gated on the Run/Changes face — the face pager composes
+ * the neighbour BEFORE a drag reaches it, and every node face neighbours Run
+ * or Changes, so a face-gated connection left the incoming page blank.
  */
 @Composable
 private fun NodeFaces(
@@ -913,6 +927,8 @@ private fun NodeFaces(
     onClose: () -> Unit,
     onOpenIssue: (String) -> Unit,
     onOpenChanges: (String) -> Unit,
+    /** EXP-1152: the node's Changes counts, for the header's tab. */
+    onChangesCounts: (ChangesFaceCounts?) -> Unit,
 ) {
     // The node's own view models live exactly as long as the node is picked:
     // a step elsewhere clears them (their collectors, and no issue left marked
@@ -928,8 +944,7 @@ private fun NodeFaces(
     val issue = issueState?.issue
 
     val wanted = WorkFaceKind.entries.firstOrNull { it.name == faceName } ?: WorkFaceKind.Issue
-    val wantsLive = wanted == WorkFaceKind.Run || wanted == WorkFaceKind.Changes
-    val sessionVm: AgentSessionViewModel? = if (sessionId != null && ownRun && wantsLive) {
+    val sessionVm: AgentSessionViewModel? = if (sessionId != null && ownRun) {
         hiltViewModel<AgentSessionViewModel, AgentSessionViewModel.Factory>(
             viewModelStoreOwner = rememberScopedViewModelStoreOwner("node-run:$sessionId"),
             key = "session:$sessionId",
@@ -969,10 +984,14 @@ private fun NodeFaces(
     val runResults = session?.results ?: sessionRow.firstOrNull { it.id == sessionId }?.results
     val results = remember(runResults) { parseSessionResultGroups(runResults) }
     val face = fallbackFace(wanted, faces) ?: WorkFaceKind.Issue
+    // EXP-1152: the header's Changes tab wears these files' `+N −M`.
+    val counts = remember(files) { changesFaceCounts(Diff.totals(files)) }
+    LaunchedEffect(counts) { onChangesCounts(counts) }
 
     // EXP-1150: the Work screen's face tabs + body swipe, the same host.
-    WorkFaceFrame(faces = faces, face = face, padding = scaffoldPadding, onFace = onFace) { padding ->
-        when (face) {
+    // EXP-1152: a pager — each face is a PAGE.
+    WorkFaceFrame(faces = faces, face = face, padding = scaffoldPadding, onFace = onFace) { page, padding ->
+        when (page) {
             WorkFaceKind.Issue -> IssueFace(
                 viewModel = issueVm,
                 commentViewModel = commentVm,
@@ -1062,8 +1081,9 @@ private fun AllFaces(
     val face = fallbackFace(wanted, faces) ?: WorkFaceKind.Issue
 
     // EXP-1150: the Work screen's face tabs + body swipe, the same host.
-    WorkFaceFrame(faces = faces, face = face, padding = scaffoldPadding, onFace = onFace) { padding ->
-        when (face) {
+    // EXP-1152: a pager — each face is a PAGE.
+    WorkFaceFrame(faces = faces, face = face, padding = scaffoldPadding, onFace = onFace) { page, padding ->
+        when (page) {
             WorkFaceKind.Issue -> {
                 // The covered issues in strip order, sub-issues nested under their
                 // parent (the ×4 nesting rule).

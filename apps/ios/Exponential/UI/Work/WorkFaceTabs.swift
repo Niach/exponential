@@ -14,12 +14,18 @@ import SwiftUI
 /// control sits at the row's end; without one the strip spans the row as
 /// before. The strip is drawn only with two or more faces, the row only with
 /// a strip or a trailing control.
+///
+/// EXP-1152: the Changes tab wears the diff's `+N −M` once its counts are
+/// known (`WorkFaces.changesFaceCounts`, the desktop's `FaceToggle::diff`),
+/// the word until then; the body under the strip is `WorkFacePager`.
 struct WorkFaceTabs<Trailing: View>: View {
     let faces: [WorkFaceKind]
     let shown: WorkFaceKind
     /// Two or more own runs: the Run tab reads `Runs` and reselecting it opens
     /// the run menu.
     let multipleRuns: Bool
+    /// EXP-1152: the Changes tab's counts — nil keeps the word `Changes`.
+    var changesCounts: WorkFaces.ChangesFaceCounts? = nil
     /// The Run segment's global frame — where the run menu hangs.
     @Binding var runsAnchor: CGRect
     let onSelect: (WorkFaceKind) -> Void
@@ -51,8 +57,9 @@ struct WorkFaceTabs<Trailing: View>: View {
         GlassSegmentedControl(
             options: faces,
             selection: shown,
-            label: { WorkFaces.faceLabel($0, multipleRuns: multipleRuns) },
+            label: segmentLabel,
             identifier: { "work-face-\($0.rawValue)" },
+            content: segmentContent,
             style: .capsule,
             onSelect: tapped
         )
@@ -61,6 +68,28 @@ struct WorkFaceTabs<Trailing: View>: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("work-face-tabs")
+    }
+
+    /// The segment's words — and its accessibility label: the counts read as
+    /// `+12 −2`, the same string web names the segment by.
+    private func segmentLabel(_ face: WorkFaceKind) -> String {
+        if face == .changes, let changesCounts {
+            return WorkFaces.changesFaceText(changesCounts)
+        }
+        return WorkFaces.faceLabel(face, multipleRuns: multipleRuns)
+    }
+
+    /// EXP-1152: the counts in the diff's own green and red, mono at the
+    /// strip's `.subheadline` rung — the same `+a −b` every diff card wears.
+    private func segmentContent(_ face: WorkFaceKind) -> AnyView? {
+        guard face == .changes, let changesCounts else { return nil }
+        return AnyView(
+            DiffCountsLabel(
+                additions: changesCounts.additions,
+                deletions: changesCounts.deletions,
+                font: .subheadline.monospaced().weight(.medium)
+            )
+        )
     }
 
     private func tapped(_ face: WorkFaceKind) {
@@ -92,6 +121,7 @@ extension WorkFaceTabs where Trailing == EmptyView {
         faces: [WorkFaceKind],
         shown: WorkFaceKind,
         multipleRuns: Bool,
+        changesCounts: WorkFaces.ChangesFaceCounts? = nil,
         runsAnchor: Binding<CGRect>,
         onSelect: @escaping (WorkFaceKind) -> Void,
         onReselectRuns: @escaping () -> Void = {}
@@ -100,6 +130,7 @@ extension WorkFaceTabs where Trailing == EmptyView {
             faces: faces,
             shown: shown,
             multipleRuns: multipleRuns,
+            changesCounts: changesCounts,
             runsAnchor: runsAnchor,
             onSelect: onSelect,
             onReselectRuns: onReselectRuns,
@@ -131,29 +162,38 @@ extension View {
             }
         }
     }
+}
 
-    /// EXP-1150: a horizontal swipe on the face BODY moves to the neighbouring
-    /// face (`WorkFaces.swipeTarget`). A plain `.gesture`, NOT simultaneous:
-    /// child gestures keep priority, so a sideways scroller under the finger
-    /// (the diff's code) wins, while a vertical-only ScrollView ignores a
-    /// clearly horizontal drag and lets it reach here. Decided on the lift,
-    /// only for a clearly horizontal fling (≥56pt, more than twice the
-    /// vertical travel).
-    func workFaceSwipe(
-        faces: [WorkFaceKind],
-        shown: WorkFaceKind,
-        onSwitch: @escaping (WorkFaceKind) -> Void
-    ) -> some View {
-        gesture(
-            DragGesture(minimumDistance: 24).onEnded { value in
-                let dx = value.translation.width
-                let dy = value.translation.height
-                guard abs(dx) >= 56, abs(dx) > 2 * abs(dy) else { return }
-                let direction: WorkFaces.SwipeDirection = dx < 0 ? .left : .right
-                if let target = WorkFaces.swipeTarget(faces: faces, shown: shown, direction: direction) {
-                    onSwitch(target)
-                }
+/// EXP-1152: the faces as PAGES that follow the finger — the native paged
+/// scroll view (`TabView` in its `.page` style), one page per face in the
+/// strip's order. It replaced EXP-1150's `workFaceSwipe`, a `DragGesture`
+/// decided on the lift that swapped the face INSTANTLY and fought the faces'
+/// own ScrollViews for the touch ("buggy and hard to drag"): the paged
+/// scroll view arbitrates a nested vertical feed and a sideways code
+/// scroller itself, like any native tab pager.
+///
+/// `selection` is the screen's face: a tab tap moves it (animated, so the
+/// pages slide), and a drag that settles on a page writes it back through the
+/// host's own switch path. A `selection` missing from `faces` (a requested
+/// face that has not synced yet) still gets its page, in its fixed place —
+/// the pager must never snap it onto a neighbour and lose the request.
+struct WorkFacePager<Page: View>: View {
+    let faces: [WorkFaceKind]
+    @Binding var selection: WorkFaceKind
+    @ViewBuilder let page: (WorkFaceKind) -> Page
+
+    private var pages: [WorkFaceKind] {
+        WorkFaceKind.allCases.filter { faces.contains($0) || $0 == selection }
+    }
+
+    var body: some View {
+        TabView(selection: $selection) {
+            ForEach(pages, id: \.self) { face in
+                page(face)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .tag(face)
             }
-        )
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
     }
 }

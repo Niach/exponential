@@ -21,6 +21,7 @@ struct WorkflowDetailView: View {
     @Environment(\.toaster) private var toaster
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    @Environment(\.motion) private var motion
 
     @State private var model: WorkflowDetailModel?
     /// The page's face — `All`'s, and the one a picked node's Work screen
@@ -211,20 +212,33 @@ struct WorkflowDetailView: View {
                 .id("\(node.id)|\(work.subject)")
             } else {
                 // EXP-1150: the Work screen's own tab strip, at the same place
-                // a picked node's screen draws it, and the same body swipe.
+                // a picked node's screen draws it; EXP-1152: the same pager
+                // under it. `All` spans every node, so it has no one diff to
+                // count — its Changes tab keeps the word.
                 WorkFaceTabs(
                     faces: availableFaces(model),
                     shown: allShownFace(model),
                     // `All` has no run menu: the tab stays `Run`.
                     multipleRuns: false,
                     runsAnchor: $runsAnchor,
-                    onSelect: { face = $0 }
-                )
-                allFace(model)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .workFaceSwipe(faces: availableFaces(model), shown: allShownFace(model)) {
-                        face = $0
+                    onSelect: { next in
+                        withAnimation(motion.standard) { face = next }
                     }
+                )
+                WorkFacePager(
+                    faces: availableFaces(model),
+                    selection: Binding(
+                        get: { allShownFace(model) },
+                        set: { next in
+                            guard next != face else { return }
+                            UIApplication.endEditing()
+                            face = next
+                        }
+                    )
+                ) { page in
+                    allFace(page, model: model)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .onChange(of: availableFaces(model)) { _, faces in
@@ -666,8 +680,8 @@ struct WorkflowDetailView: View {
     }
 
     @ViewBuilder
-    private func allFace(_ model: WorkflowDetailModel) -> some View {
-        switch allShownFace(model) {
+    private func allFace(_ page: WorkFaceKind, model: WorkflowDetailModel) -> some View {
+        switch page {
         case .results:
             if model.resultGroups.isEmpty {
                 topAligned { emptyNote(WorkflowView.noResultsLabel, id: "workflow-results-empty") }

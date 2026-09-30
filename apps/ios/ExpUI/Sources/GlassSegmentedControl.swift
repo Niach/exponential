@@ -61,6 +61,13 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
     /// leaves the segment identifier-less, exactly as before.
     let identifier: (Option) -> String?
     let badge: (Option) -> Int
+    /// EXP-1152: optional per-segment LABEL VIEW, drawn instead of
+    /// `Text(label(option))` when non-nil — the Work screen's Changes tab
+    /// wears its tinted `+N −M` counts (the desktop's `FaceToggle::diff`),
+    /// which one white string cannot carry. `label` stays the segment's
+    /// accessibility label; geometry, the constant weight and the
+    /// active/inactive opacity (applied to the whole view) are unchanged.
+    let content: (Option) -> AnyView?
     let style: Style
     let onSelect: (Option) -> Void
 
@@ -70,6 +77,7 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
         label: @escaping (Option) -> String,
         identifier: @escaping (Option) -> String? = { _ in nil },
         badge: @escaping (Option) -> Int = { _ in 0 },
+        content: @escaping (Option) -> AnyView? = { _ in nil },
         style: Style = .capsule,
         onSelect: @escaping (Option) -> Void
     ) {
@@ -80,6 +88,7 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
             icon: { _ in nil },
             identifier: identifier,
             badge: badge,
+            content: content,
             style: style,
             onSelect: onSelect
         )
@@ -94,6 +103,7 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
         icon: @escaping (Option) -> Image?,
         identifier: @escaping (Option) -> String? = { _ in nil },
         badge: @escaping (Option) -> Int = { _ in 0 },
+        content: @escaping (Option) -> AnyView? = { _ in nil },
         style: Style = .capsule,
         onSelect: @escaping (Option) -> Void
     ) {
@@ -103,6 +113,7 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
         self.icon = icon
         self.identifier = identifier
         self.badge = badge
+        self.content = content
         self.style = style
         self.onSelect = onSelect
     }
@@ -146,14 +157,22 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
                         .scaledToFit()
                         .frame(width: 14, height: 14)
                 }
-                Text(label(option))
-                    // EXP-698: the weight is CONSTANT — only the opacity moves.
-                    // A semibold/regular swap re-flowed the strip on every tap
-                    // and made two adjacent segments look like two type scales.
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white.opacity(active ? 1 : TextOpacity.secondary))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                if let custom = content(option) {
+                    custom
+                        .opacity(active ? 1 : TextOpacity.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                } else {
+                    Text(label(option))
+                        // EXP-698: the weight is CONSTANT — only the opacity
+                        // moves. A semibold/regular swap re-flowed the strip on
+                        // every tap and made two adjacent segments look like
+                        // two type scales.
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white.opacity(active ? 1 : TextOpacity.secondary))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
                 let count = badge(option)
                 if count > 0 {
                     Text("\(count)")

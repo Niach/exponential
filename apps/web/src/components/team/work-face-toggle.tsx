@@ -1,18 +1,8 @@
 import type { ReactNode } from "react"
-import {
-  Button,
-  conceptIcon,
-  DropdownMenu,
-  DropdownMenuTrigger,
-  SEGMENTED_TAB,
-  Tabs,
-  TabsList,
-  TabsTrigger,
-} from "@exp/ui"
+import { WorkFaceStrip } from "@exp/ui"
 import { IssueRunMenuContent } from "@/components/issue-run-switcher"
 import type { CodingSession } from "@/db/schema"
 import type { PastRunRow } from "@/hooks/use-agents-data"
-import { cn } from "@/lib/utils"
 import type { WorkTabFace } from "@/lib/work-tabs"
 
 // EXP-870: an issue and its run are ONE work tab with faces. This is the
@@ -67,8 +57,6 @@ export interface WorkFaceRunMenu {
   onOpen: (session: CodingSession) => void
 }
 
-const UiChevronDownIcon = conceptIcon(`ui-chevron-down`)
-
 export function WorkFaceToggle({
   face,
   items,
@@ -79,77 +67,26 @@ export function WorkFaceToggle({
   items: readonly WorkFaceItem[]
   runMenu?: WorkFaceRunMenu
 }) {
-  // The caret hangs off the `Runs` segment, so it needs BOTH several runs
-  // and that segment to hang from.
-  const hasRunMenu =
-    (runMenu?.runs.length ?? 0) > 1 && items.some((item) => item.face === `run`)
-  if (items.length < 2 && !hasRunMenu) return null
+  // EXP-1152: the strip itself is `@exp/ui` `WorkFaceStrip` (the phone's
+  // `MobileFaceTabs` and the styleguide wear the same one); this plugs in the
+  // app's run menu. The caret needs SEVERAL runs to pick between.
   return (
-    <Tabs
-      // Radix wants a string: a value no segment carries leaves them all
-      // inactive, which is exactly what a null face means.
-      value={face ?? ``}
-      onValueChange={(next) => {
-        if (next === face) return
-        items.find((item) => item.face === next)?.onSelect()
-      }}
-      className="w-fit shrink-0"
-      data-testid="work-face-toggle"
-    >
-      <TabsList>
-        {items.map((item) =>
-          item.face === `run` && runMenu && hasRunMenu ? (
-            // The segment's capsule moves onto a wrapper so the label (the
-            // tab) and the caret (the menu) are SIBLINGS inside one segment
-            // — a button never nests in a button.
-            <span
-              key={item.face}
-              data-state={face === `run` ? `active` : `inactive`}
-              className="inline-flex h-[calc(100%-1px)] flex-1 items-center rounded-full border border-transparent text-foreground dark:text-muted-foreground dark:data-[state=active]:border-glass-stroke-active dark:data-[state=active]:bg-glass-active dark:data-[state=active]:text-foreground"
-            >
-              <TabsTrigger
-                value={item.face}
-                className={cn(
-                  SEGMENTED_TAB,
-                  `h-full border-0 pr-1 text-inherit dark:text-inherit dark:data-[state=active]:bg-transparent dark:data-[state=active]:text-inherit`
-                )}
-                data-face={item.face}
-              >
-                {item.label}
-              </TabsTrigger>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-full w-auto rounded-full pr-2.5 pl-0.5 opacity-70 hover:bg-transparent hover:opacity-100 dark:hover:bg-transparent"
-                    title="Switch run"
-                    aria-label="Switch run"
-                    data-testid="issue-run-switcher"
-                  >
-                    <UiChevronDownIcon className="size-3" />
-                  </Button>
-                </DropdownMenuTrigger>
+    <WorkFaceStrip
+      face={face}
+      items={items}
+      runMenu={
+        runMenu && runMenu.runs.length > 1
+          ? {
+              content: (
                 <IssueRunMenuContent
                   runs={runMenu.runs}
                   checkedRunId={runMenu.checkedRunId}
                   onOpen={runMenu.onOpen}
                 />
-              </DropdownMenu>
-            </span>
-          ) : (
-            <TabsTrigger
-              key={item.face}
-              value={item.face}
-              className={SEGMENTED_TAB}
-              data-face={item.face}
-            >
-              {item.label}
-            </TabsTrigger>
-          )
-        )}
-      </TabsList>
-    </Tabs>
+              ),
+            }
+          : undefined
+      }
+    />
   )
 }
