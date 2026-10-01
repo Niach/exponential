@@ -3813,6 +3813,21 @@ pub(crate) fn rate_limit_caption(
     (message.to_string(), countdown)
 }
 
+/// FEED-61: what a wall is scoped to. A usage window belongs to the ACCOUNT,
+/// so a model switch never lifts it — another account does (the pill beside
+/// it). Byte-identical ×4 (web `RATE_LIMIT_ACCOUNT_NOTE`).
+pub(crate) const RATE_LIMIT_ACCOUNT_NOTE: &str = "per account";
+
+/// The banner's muted span: the countdown when a reset is known, then the
+/// scope — `resets in 2h 10m · per account`, or the bare note (web
+/// `rateLimitDetail`).
+pub(crate) fn rate_limit_detail(countdown: Option<String>) -> String {
+    match countdown {
+        Some(countdown) => format!("{countdown} · {RATE_LIMIT_ACCOUNT_NOTE}"),
+        None => RATE_LIMIT_ACCOUNT_NOTE.to_string(),
+    }
+}
+
 /// EXP-788 — the numbered chip on an option row: the digit that picks it
 /// (1-9, by position). `live` = the keyboard is on this card, so the chip
 /// reads as a key; otherwise it is a quiet ordinal. Options past the ninth
@@ -6519,15 +6534,13 @@ impl SteerSessionView {
                         .text_color(amber)
                         .child(SharedString::from(message)),
                 )
-                .when_some(countdown, |this, countdown| {
-                    this.child(
-                        div()
-                            .flex_shrink_0()
-                            .whitespace_nowrap()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(SharedString::from(countdown)),
-                    )
-                })
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .whitespace_nowrap()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(SharedString::from(rate_limit_detail(countdown))),
+                )
                 // EXP-849: the wall's PRIMARY action. Waiting out a reset is
                 // the fallback, not the plan — if another account can take the
                 // work, offer it right here, and the switch clears this notice
@@ -7853,6 +7866,12 @@ mod tests {
             ("Rate limit reached".to_string(), None),
         );
         assert_eq!(rate_limit_caption(None, None).0, "Rate limit reached");
+        // FEED-61: the muted span names the wall's scope, ×4.
+        assert_eq!(
+            rate_limit_detail(Some("resets in 2h 57m".into())),
+            "resets in 2h 57m · per account"
+        );
+        assert_eq!(rate_limit_detail(None), "per account");
     }
 
     use super::*;

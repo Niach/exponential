@@ -1907,6 +1907,19 @@ export function rateLimitBanner(
   return { text, resets }
 }
 
+/** FEED-61: what a wall is scoped to, said in the banner's muted caption. A
+ *  usage window belongs to the ACCOUNT, so a model switch never lifts it —
+ *  another account does (the pill beside it). Byte-identical ×4. */
+export const RATE_LIMIT_ACCOUNT_NOTE = `per account`
+
+/** The banner's muted caption: the countdown when a reset is known, then the
+ *  scope — `resets in 2h 10m · per account`, or the bare note. ×4. */
+export function rateLimitDetail(resets: string | null): string {
+  return resets
+    ? `${resets} · ${RATE_LIMIT_ACCOUNT_NOTE}`
+    : RATE_LIMIT_ACCOUNT_NOTE
+}
+
 
 /** EXP-848: the agent's TURN state — the fifth latest-wins slot (`journal.rs`,
  *  `hub.ts` LATEST_WINS_KINDS, iOS/Android `AgentFeed`, desktop `feed.rs`).

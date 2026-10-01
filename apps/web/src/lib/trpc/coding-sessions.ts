@@ -13,6 +13,7 @@ import {
 import { router, authedProcedure, type Context } from "@/lib/trpc"
 import { notifySessionBlocked } from "@/lib/integrations/notifications"
 import {
+  findLiveResumeId,
   notifyParentOfChildBlocked,
   notifyParentOfChildEnd,
   notifyParentOfChildResumed,
@@ -214,6 +215,18 @@ async function resolveResumedFrom(
     throw new TRPCError({
       code: `FORBIDDEN`,
       message: `You can only resume your own run`,
+    })
+  }
+  // FEED-68: the run is already live again under another id (the account
+  // rotation resumed it, or the parent did). Its worktree and branch are
+  // that run's; a second resume would put two agents on the same files.
+  // steer.startSession refuses the remote path before the frame leaves;
+  // this is the same rule for a Resume made on the machine itself.
+  const liveResumeId = await findLiveResumeId(db, row.id)
+  if (liveResumeId) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: `That run was already resumed and is live as ${liveResumeId} — open that run instead of resuming it again`,
     })
   }
   return {

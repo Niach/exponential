@@ -53,6 +53,7 @@ vi.mock(`@/lib/steer-child-messages`, () => ({
   notifyParentOfChildEnd: vi.fn(async () => ({ delivered: false })),
   notifyParentOfChildBlocked: vi.fn(async () => ({ delivered: false })),
   notifyParentOfChildResumed: vi.fn(async () => ({ delivered: false })),
+  findLiveResumeId: vi.fn(async (): Promise<string | null> => null),
 }))
 
 // EXP-980/1005: a wall tells the run's owner unless the device handles it.
@@ -78,6 +79,7 @@ vi.mock(`@/lib/mcp/context-budget`, () => ({
 import { codingSessionsRouter } from "@/lib/trpc/coding-sessions"
 import { codingSessions, sessionAttachments, workflowNodes } from "@/db/schema"
 import {
+  findLiveResumeId,
   notifyParentOfChildBlocked,
   notifyParentOfChildEnd,
   notifyParentOfChildResumed,
@@ -2329,6 +2331,22 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
     expect(inserts[0]!.values).toMatchObject({ resumedFromId: null })
     // Only the action lookup ran.
     expect(selectWheres).toHaveLength(1)
+  })
+
+  // FEED-68: a run that is live again under another id is never resumed a
+  // second time — two agents would share its worktree and branch.
+  it(`refuses to resume a run that is already live under another id`, async () => {
+    const LIVE = `77777777-7777-4777-8777-777777777777`
+    selectResults.push([{ id: RESUMED_FROM, userId: `actor` }])
+    vi.mocked(findLiveResumeId).mockResolvedValueOnce(LIVE)
+
+    await expect(
+      caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
+    ).rejects.toMatchObject({
+      code: `PRECONDITION_FAILED`,
+      message: expect.stringContaining(`live as ${LIVE}`),
+    })
+    expect(inserts).toHaveLength(0)
   })
 
   // EXP-906: a resume is the SAME run under a new id — the 2026-09-15 stack

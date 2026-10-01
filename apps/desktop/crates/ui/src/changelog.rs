@@ -51,6 +51,7 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
     title: "Runs recover from API errors and dead connections",
     summary: "A run whose turn died on an API error retries by itself, a child run that switches accounts is never resumed twice, and the desktop app drops a dead server connection instead of showing cached data for minutes.",
     body: r#"- **API errors**: when a turn stops on an API outage, a timeout or a dropped connection, the run sends its own "continue" after 30 seconds, then 2 and 10 minutes, and says in the transcript that the retry was automatic. Three failures in a row stop the retries, and Stop cancels a pending one.
+- **Accounts**: a new run counts the runs already live on each account, so two runs started close together go to different accounts instead of sharing one usage window. A run you start on a named account stays on it. The rate-limit banner says the limit is per account on web, desktop, iOS and Android.
 - **Child runs**: a child run that its machine moves to another account tells its parent that it resumes itself and under which new id, instead of "ended without a report". Resuming a run that is already live again under another id is refused and names that run.
 - **Desktop connection**: the desktop app and the CLI detect a dead server connection within seconds, rebuild their connection after repeated failures, on wake and on Retry, and log the cause of a failed request."#,
 };

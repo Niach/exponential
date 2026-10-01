@@ -68,6 +68,7 @@ import {
   askComplete,
   opensInlineField,
   rateLimitBanner,
+  rateLimitDetail,
   rateLimitExpired,
   rateLimitIsWall,
   rateLimitResetsAtMs,
@@ -2094,6 +2095,9 @@ describe(`rate-limit banner (EXP-784)`, () => {
   // EXP-818: a warning is not a wall — the agent keeps working and the Usage
   // sheet carries the percentage; only the agent's own notice makes it one.
   it(`is no banner at all for a warning without a notice`, () => {
+    // FEED-61: the muted caption names the wall's scope, ×4.
+    expect(rateLimitDetail(`resets in 2h 10m`)).toBe(`resets in 2h 10m · per account`)
+    expect(rateLimitDetail(null)).toBe(`per account`)
     expect(rateLimitBanner({ status: `allowed_warning` }, now)).toBeNull()
     expect(rateLimitIsWall({ status: `allowed_warning` })).toBe(false)
     expect(rateLimitIsWall({ status: `allowed_warning`, message: `You've hit your limit` })).toBe(true)

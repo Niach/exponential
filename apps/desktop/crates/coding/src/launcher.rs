@@ -193,7 +193,14 @@ fn apply_start_pick(
         options.account.take(),
         Some(check),
     );
-    let profiles = crate::agent_usage::profile_usage_snapshot(options.agent, &deps.data_dir);
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    // FEED-61: the runs already live on each login count against it, so
+    // concurrent starts spread instead of sharing one 5h window.
+    let profiles = crate::account_rotation::weigh_live_runs(
+        crate::agent_usage::profile_usage_snapshot(options.agent, &deps.data_dir),
+        &crate::run_registry::live_runs_per_account(&deps.data_dir, options.agent),
+        now_ms,
+    );
     let model = Some(options.model.as_str()).filter(|model| !model.is_empty());
     crate::account_rotation::apply_start_pick(
         &mut options.account,
@@ -201,7 +208,7 @@ fn apply_start_pick(
         deps.settings.auto_rotate_accounts,
         options.agent,
         model,
-        chrono::Utc::now().timestamp_millis(),
+        now_ms,
     )
 }
 

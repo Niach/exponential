@@ -40,4 +40,14 @@ class RateLimitCaptionTest {
         )
         assertEquals("Rate limit reached", rateLimitCaption(null, null, reset).accessibilityLabel)
     }
+
+    /** FEED-61: the muted caption names the wall's scope, ×4. */
+    @Test
+    fun detailNamesTheAccountScope() {
+        assertEquals(
+            "resets in 45m · per account",
+            rateLimitCaption("x", reset, reset - 45 * minute).detail,
+        )
+        assertEquals("per account", rateLimitCaption(null, null, reset).detail)
+    }
 }

@@ -351,6 +351,43 @@ fn pick_rotation_target_spread(
 // The start pick, as `coding::prepare` applies it
 // ---------------------------------------------------------------------------
 
+/// FEED-61: the 5h-window percent one LIVE run on a login is assumed to
+/// still spend. The usage cache holds what a login has already burned, so
+/// two runs started minutes apart both read the same "most headroom" and
+/// pile onto one account — the release run and a chat shared one window with
+/// eight subagents while a second login sat idle.
+pub const LIVE_RUN_BURN: u8 = 10;
+
+/// The start pick's view of `profiles` with the runs already live on each
+/// (`live`: profile id → count, [`crate::run_registry::live_runs_per_account`])
+/// priced in: every live run adds [`LIVE_RUN_BURN`] to the session percent.
+/// Capped below 100: a busy login is less attractive, never "walled", so a
+/// PINNED launch keeps it (EXP-1107) and a lone login still takes the run.
+pub fn weigh_live_runs(
+    mut profiles: Vec<ProfileUsage>,
+    live: &BTreeMap<String, u32>,
+    now_ms: i64,
+) -> Vec<ProfileUsage> {
+    for profile in &mut profiles {
+        let Some(runs) = live.get(&profile.profile_id).copied().filter(|runs| *runs > 0) else {
+            continue;
+        };
+        let session = profile.windows.session.take().unwrap_or_default();
+        if session.spent(now_ms) {
+            profile.windows.session = Some(session);
+            continue;
+        }
+        let burn = u32::from(LIVE_RUN_BURN).saturating_mul(runs);
+        let percent = (u32::from(session.effective_percent(now_ms)) + burn).min(99) as u8;
+        profile.windows.session = Some(Window {
+            percent,
+            // A reset already behind us would zero the estimate again.
+            resets_at: session.resets_at.filter(|reset| *reset > now_ms),
+        });
+    }
+    profiles
+}
+
 /// What the start pick changed, for the log line and the workflow event.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StartPick {
@@ -1108,6 +1145,40 @@ mod tests {
             pick_start_account(&[spent], CodingAgent::Claude, None, NOW).as_deref(),
             Some("a")
         );
+    }
+
+    #[test]
+    fn live_runs_send_the_next_unpinned_start_to_the_idle_login() {
+        let live = |pairs: &[(&str, u32)]| -> BTreeMap<String, u32> {
+            pairs.iter().map(|(id, runs)| (id.to_string(), *runs)).collect()
+        };
+        let pick = |profiles: Vec<ProfileUsage>, live: &BTreeMap<String, u32>, account: Option<&str>| {
+            let weighed = weigh_live_runs(profiles, live, NOW);
+            start_pick(&weighed, true, CodingAgent::Claude, None, account, NOW).map(|pick| pick.to)
+        };
+        // Equal cached usage, one run live on the ambient login: the next
+        // unpinned start goes to the other one.
+        let both = || vec![profile("system", 40, 10), profile("work", 45, 10)];
+        assert_eq!(pick(both(), &live(&[]), None), None);
+        assert_eq!(pick(both(), &live(&[("system", 1)]), None).as_deref(), Some("work"));
+        // ...and stays put once both carry one.
+        assert_eq!(pick(both(), &live(&[("system", 1), ("work", 1)]), None), None);
+        // A pinned launch keeps its busy login: busy is never walled.
+        assert_eq!(pick(both(), &live(&[("work", 9)]), Some("work")), None);
+        // A lone login takes every run, however many it carries.
+        let alone = weigh_live_runs(vec![profile("system", 40, 10)], &live(&[("system", 20)]), NOW);
+        assert_eq!(alone[0].windows.session.as_ref().unwrap().percent, 99);
+        assert_eq!(
+            pick_start_account(&alone, CodingAgent::Claude, None, NOW).as_deref(),
+            Some("system")
+        );
+        // A walled login stays walled, and a passed reset counts from zero.
+        let mut spent = profile("system", 100, 10);
+        let kept = weigh_live_runs(vec![spent.clone()], &live(&[("system", 1)]), NOW);
+        assert_eq!(kept[0].windows.session.as_ref().unwrap().percent, 100);
+        spent.windows.session.as_mut().unwrap().resets_at = Some(NOW - 1);
+        let reopened = weigh_live_runs(vec![spent], &live(&[("system", 2)]), NOW);
+        assert_eq!(reopened[0].windows.session.as_ref().unwrap().effective_percent(NOW), 20);
     }
 
     #[test]
