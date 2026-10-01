@@ -1,14 +1,13 @@
 import Foundation
 
-// EXP-583 automations: an automation is its OWN row (`automations`, the 19th
-// Electric shape) binding ONE action to ONE device with a schedule ("daily at
-// 07:00") or an issue event ("when status changes") the bound device watches
-// for and fires locally (there is no server scheduler). The trigger jsonb is
-// the WHEN-PART ONLY — deviceId/enabled/agent/model/effort are columns on the
-// row, not fields of the trigger (they were, until EXP-530 split apart here).
-// Parsing is deliberately tolerant — an unknown kind/event or malformed JSON
-// reads as "no trigger", never a crash — so a future trigger shape can't brick
-// this client. Mirrors the web's `lib/action-triggers.ts` byte-for-byte.
+// The WHEN-part of a trigger (EXP-530; SLOP-2: an action carries its
+// triggers — `ActionTrigger` is the stored element, this is the schedule
+// ("daily at 07:00") or issue event ("when status changes") inside it). The
+// bound device watches for it and fires locally; there is no server scheduler.
+// Parsing is deliberately tolerant — an unknown kind/event/source or
+// malformed JSON reads as "no trigger", never a crash — so a future trigger
+// shape can't brick this client. Mirrors the web's `lib/action-triggers.ts`
+// byte-for-byte.
 
 /// The event-trigger filter lists. Empty/absent lists mean "no filter on that
 /// axis"; `priorities` carries wire priority values, the id lists uuids.
@@ -121,6 +120,12 @@ public enum AutomationTrigger: Sendable, Equatable {
                 dayOfMonth: interval == "monthly" ? dayOfMonth : nil
             ))
         case "event":
+            // A FUTURE event source reads as "never fires" on this build. An
+            // ABSENT source is Exponential's (rows from before sources
+            // existed); a present one must say so.
+            if let source = object["source"] {
+                guard (source as? String) == "exponential" else { return nil }
+            }
             guard let event = object["event"] as? String,
                   DomainContract.actionTriggerEventValues.contains(event)
             else { return nil }
@@ -160,7 +165,7 @@ public enum AutomationTrigger: Sendable, Equatable {
 
     // MARK: - Wire encoding
 
-    /// The wire JSON object with the server's field names (kind, then
+    /// The when-part as a JSON object with the server's field names (kind, then
     /// interval/minuteOfDay/weekday/dayOfMonth or event/filters). Empty filter
     /// lists are OMITTED, matching what the pickers produce.
     public var wireObject: [String: Any] {
@@ -191,11 +196,17 @@ public enum AutomationTrigger: Sendable, Equatable {
 
     /// Compact JSON string in the CANONICAL key order every client emits
     /// (web `JSON.stringify` insertion order, Android `toWireJsonString`,
-    /// desktop's preserve_order serde_json) — the machine-readable automation
-    /// note must be byte-identical across the four clients, so this is
+    /// desktop's preserve_order serde_json) — the machine-readable trigger
+    /// block must be byte-identical across the four clients, so this is
     /// hand-composed rather than serialized (JSONSerialization only offers
     /// alphabetical order).
     public var wireJSONString: String {
+        "{" + wireJSONParts.joined(separator: ",") + "}"
+    }
+
+    /// `wireJSONString`'s `"key":value` members, in order — the trigger block
+    /// appends the runner's keys after them, inside the same object.
+    var wireJSONParts: [String] {
         func list(_ values: [String]) -> String {
             "[" + values.map(Self.jsonQuoted).joined(separator: ",") + "]"
         }
@@ -208,7 +219,7 @@ public enum AutomationTrigger: Sendable, Equatable {
             ]
             if let weekday = s.weekday { parts.append("\"weekday\":\(weekday)") }
             if let dayOfMonth = s.dayOfMonth { parts.append("\"dayOfMonth\":\(dayOfMonth)") }
-            return "{" + parts.joined(separator: ",") + "}"
+            return parts
         case let .event(e):
             var parts = [
                 "\"kind\":\"event\"",
@@ -230,13 +241,13 @@ public enum AutomationTrigger: Sendable, Equatable {
             if !filters.isEmpty {
                 parts.append("\"filters\":{" + filters.joined(separator: ",") + "}")
             }
-            return "{" + parts.joined(separator: ",") + "}"
+            return parts
         }
     }
 
     /// One JSON-escaped, quoted string (delegates the escaping rules to
     /// JSONSerialization via a single-element array).
-    private static func jsonQuoted(_ value: String) -> String {
+    static func jsonQuoted(_ value: String) -> String {
         guard let data = try? JSONSerialization.data(withJSONObject: [value]),
               let text = String(data: data, encoding: .utf8),
               text.count >= 2
@@ -245,8 +256,8 @@ public enum AutomationTrigger: Sendable, Equatable {
     }
 }
 
-// Encodable so an `automations.create/update { trigger }` input embeds it as
-// the full JSON OBJECT (the server replaces the whole value, never merges).
+// Encodable so an `actions.update { triggers }` element (`ActionTriggerInput`)
+// embeds the when-part's keys beside its runner's.
 extension AutomationTrigger: Encodable {
     private enum WireKeys: String, CodingKey {
         case kind, interval, minuteOfDay, weekday, dayOfMonth
@@ -281,66 +292,6 @@ extension AutomationTrigger: Encodable {
                 }
             }
         }
-    }
-}
-
-// MARK: - The creator-run automation note
-
-/// What an "Action + automation" suggestion asks the creator agent to set up
-/// alongside the new action — the iOS twin of the web's `AutomationSpec`.
-public struct AutomationSpec: Sendable, Equatable {
-    public let trigger: AutomationTrigger
-    public let deviceId: String
-    public let agent: String?
-    public let model: String?
-    public let effort: String?
-
-    public init(
-        trigger: AutomationTrigger,
-        deviceId: String,
-        agent: String? = nil,
-        model: String? = nil,
-        effort: String? = nil
-    ) {
-        self.trigger = trigger
-        self.deviceId = deviceId
-        self.agent = agent
-        self.model = model
-        self.effort = effort
-    }
-}
-
-public enum AutomationNote {
-    /// The machine-readable block the create sheet appends to the builtin
-    /// "Create action" description: the creator agent creates the action,
-    /// then copies this JSON verbatim into `exponential_automations_create`
-    /// (adding the new action's id). BYTE-IDENTICAL to the web's
-    /// `formatAutomationBlock` — key order deviceId, trigger, then agent,
-    /// model, effort only when set; compact JSON, no spaces.
-    public static func format(_ spec: AutomationSpec) -> String {
-        var parts = [
-            "\"deviceId\":\(jsonQuoted(spec.deviceId))",
-            "\"trigger\":\(spec.trigger.wireJSONString)",
-        ]
-        if let agent = spec.agent, !agent.isEmpty {
-            parts.append("\"agent\":\(jsonQuoted(agent))")
-        }
-        if let model = spec.model, !model.isEmpty {
-            parts.append("\"model\":\(jsonQuoted(model))")
-        }
-        if let effort = spec.effort, !effort.isEmpty {
-            parts.append("\"effort\":\(jsonQuoted(effort))")
-        }
-        let payload = "{" + parts.joined(separator: ",") + "}"
-        return "\n\nAutomation — after creating the action, call exponential_automations_create with its id and exactly these fields: `\(payload)`. An automated run fills no inputs, so declare none as required."
-    }
-
-    private static func jsonQuoted(_ value: String) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: [value]),
-              let text = String(data: data, encoding: .utf8),
-              text.count >= 2
-        else { return "\"\"" }
-        return String(text.dropFirst().dropLast())
     }
 }
 
@@ -390,6 +341,13 @@ public enum AutomationTriggerDisplay {
         }
     }
 
+    /// The sentence as a Triggers row prints it. A schedule fires on the
+    /// BOUND MACHINE's wall clock, so the recurrence carries the caveat the
+    /// row used to hang off an absolute next-run date (EXP-812).
+    public static func rowSentence(_ trigger: AutomationTrigger) -> String {
+        trigger.isSchedule ? "\(summary(trigger)) (device time)" : summary(trigger)
+    }
+
     /// The event PICKER label (web `TRIGGER_EVENT_LABELS`) — `summary` above
     /// derives its "When …" sentence from the same vocabulary, so the two
     /// surfaces can never disagree.
@@ -410,7 +368,7 @@ public enum AutomationTriggerDisplay {
     /// calendar's timezone. This is the DEVICE-VIEWER's local wall clock —
     /// the bound device fires on ITS OWN local time, which is why no surface
     /// prints this as an absolute date any more (EXP-812: the calendar moved
-    /// it under every screenshot). The Automations row labels the RECURRENCE
+    /// it under every screenshot). A Triggers row labels the RECURRENCE
     /// "(device time)" instead. Nil for event triggers has no meaning here;
     /// pass a schedule.
     public static func nextScheduleRun(

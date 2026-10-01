@@ -1,8 +1,8 @@
-//! Trigger parsing (EXP-530; EXP-583 split it out of `actions.trigger` into
-//! the `automations` row): the synced `trigger` JSON → a typed
-//! [`ParsedTrigger`]. It is the WHEN-part ONLY — the runner binding
-//! (`device_id`) and the on/off flag are COLUMNS of the automations row now,
-//! never fields of this JSON.
+//! Trigger parsing (EXP-530; SLOP-2: an action carries its triggers in the
+//! synced `actions.triggers` array). [`parse_trigger`] reads an element's
+//! WHEN-part into a typed [`ParsedTrigger`]; [`parse_action_triggers`] reads
+//! the whole element — the when-part plus its RUNNER (`id`, `enabled`,
+//! `deviceId` and the optional launch pins beside it).
 //!
 //! Manual Value-walking, never derive — a malformed or FUTURE trigger (a
 //! kind/event this build predates) must degrade to
@@ -141,6 +141,11 @@ fn parse_schedule(value: &Value) -> Option<TriggerKind> {
 }
 
 fn parse_event(value: &Value) -> Option<TriggerKind> {
+    // A FUTURE event source reads as "never fires" on this build; an absent
+    // one is Exponential's (triggers from before sources existed).
+    if value.get("source").is_some_and(|source| source.as_str() != Some("exponential")) {
+        return None;
+    }
     let event = EventKind::parse(value.get("event").and_then(Value::as_str)?)?;
     let filters = value.get("filters");
     Some(TriggerKind::Event(EventSpec {
@@ -168,6 +173,115 @@ fn read_id_list(filters: Option<&Value>, key: &str) -> Option<Vec<String>> {
         .iter()
         .map(|entry| entry.as_str().map(str::to_string))
         .collect()
+}
+
+/// A trigger's optional agent/account/model/effort pins — every `None` falls
+/// back to the bound device's own launch defaults.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LaunchPins {
+    pub agent: Option<String>,
+    /// EXP-995: the agent profile the run spends (belongs to `agent`).
+    pub account: Option<String>,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+}
+
+/// One READABLE element of an action's `triggers` (SLOP-2): the when-part
+/// plus its runner.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ActionTrigger {
+    /// Stable uuid — the device state's key AND the `automationId` a start
+    /// stamps on the run it fires.
+    pub id: String,
+    /// Only an explicit `false` pauses: a missing flag is an enabled trigger.
+    pub enabled: bool,
+    /// The steer TEXT device id whose host evaluates and fires it.
+    pub device_id: String,
+    pub pins: LaunchPins,
+    /// Never [`TriggerKind::Unsupported`] — an unreadable when-part drops
+    /// the whole element.
+    pub when: ParsedTrigger,
+    /// The element exactly as synced — what a whole-array write sends back
+    /// for the triggers it does not touch.
+    pub raw: Value,
+}
+
+impl ActionTrigger {
+    /// The engine's fingerprint — the when-part ONLY, so toggling, rebinding
+    /// or re-pinning a trigger never reseeds its firing state.
+    pub fn fingerprint(&self) -> String {
+        trigger_fingerprint(&when_part(&self.raw))
+    }
+
+    pub fn is_schedule(&self) -> bool {
+        matches!(self.when.kind, TriggerKind::Schedule(_))
+    }
+}
+
+/// Tolerant read of ONE stored trigger. An element without a string `id` or
+/// `deviceId`, or with an unreadable when-part, is `None`. Never panics.
+pub fn parse_action_trigger(value: &Value) -> Option<ActionTrigger> {
+    let when = parse_trigger(value)?;
+    if when.kind == TriggerKind::Unsupported {
+        return None;
+    }
+    let text = |key: &str| {
+        value
+            .get(key)
+            .and_then(Value::as_str)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string)
+    };
+    Some(ActionTrigger {
+        id: text("id")?,
+        enabled: value.get("enabled").and_then(Value::as_bool) != Some(false),
+        device_id: text("deviceId")?,
+        pins: LaunchPins {
+            agent: text("agent"),
+            account: text("account"),
+            model: text("model"),
+            effort: text("effort"),
+        },
+        when,
+        raw: value.clone(),
+    })
+}
+
+/// Tolerant read of an action's `triggers`: the readable ones, in order.
+pub fn parse_action_triggers(value: Option<&Value>) -> Vec<ActionTrigger> {
+    value
+        .and_then(Value::as_array)
+        .map(|entries| entries.iter().filter_map(parse_action_trigger).collect())
+        .unwrap_or_default()
+}
+
+/// The keys a trigger's WHEN-part may carry — exactly what the pre-SLOP-2
+/// `automations.trigger` jsonb held.
+const WHEN_KEYS: [&str; 7] = [
+    "kind",
+    "interval",
+    "minuteOfDay",
+    "weekday",
+    "dayOfMonth",
+    "event",
+    "filters",
+];
+
+/// The when-part of a stored trigger element, as the old `automations.trigger`
+/// jsonb spelled it: the runner fields (`id`, `enabled`, `deviceId`, the pins)
+/// and the event `source` are dropped. [`trigger_fingerprint`] of this equals
+/// the fingerprint the migrated automation row produced, so the persisted
+/// device state (keyed by the same id) carries over without a reseed.
+pub fn when_part(element: &Value) -> Value {
+    let mut when = serde_json::Map::new();
+    if let Some(object) = element.as_object() {
+        for key in WHEN_KEYS {
+            if let Some(value) = object.get(key) {
+                when.insert(key.to_string(), value.clone());
+            }
+        }
+    }
+    Value::Object(when)
 }
 
 /// Canonical fingerprint of the raw trigger JSON — 16 lowercase hex chars.
@@ -252,8 +366,7 @@ mod tests {
     /// The parse truth table (the reconcile_truth_table idiom).
     #[test]
     fn parse_truth_table() {
-        // Full valid weekly schedule. EXP-583: no deviceId/enabled in the
-        // JSON — those are columns of the automations row now.
+        // Full valid weekly schedule (the when-part alone).
         let weekly = parse_trigger(&json!({
             "kind": "schedule", "interval": "weekly", "minuteOfDay": 540, "weekday": 1
         }))
@@ -306,8 +419,8 @@ mod tests {
             assert_eq!(parse_trigger(&bad).unwrap().kind, TriggerKind::Unsupported, "{bad}");
         }
 
-        // A legacy EXP-530 payload (deviceId/enabled still inside the JSON)
-        // reads as its when-part — the extra keys are simply ignored.
+        // A stored trigger element (the runner beside the when-part) reads
+        // as its when-part — the extra keys are simply ignored.
         let legacy = parse_trigger(&json!({
             "kind": "schedule", "deviceId": "dev-1", "enabled": false,
             "interval": "daily", "minuteOfDay": 420
@@ -322,6 +435,20 @@ mod tests {
                 day_of_month: None,
             })
         );
+
+        // An event names its source: Exponential's (or none) parses, a
+        // FUTURE provider's is inert here.
+        for source in [json!("exponential"), Value::Null] {
+            let mut event = json!({"kind": "event", "event": "created"});
+            if !source.is_null() {
+                event["source"] = source;
+            }
+            assert!(matches!(parse_trigger(&event).unwrap().kind, TriggerKind::Event(_)));
+        }
+        for source in [json!("github"), json!(7), json!(null)] {
+            let foreign = json!({"kind": "event", "event": "created", "source": source});
+            assert_eq!(parse_trigger(&foreign).unwrap().kind, TriggerKind::Unsupported);
+        }
 
         // Nothing there at all → None.
         assert_eq!(parse_trigger(&json!(null)), None);
@@ -367,6 +494,118 @@ mod tests {
         let base = trigger_fingerprint(&minute);
         minute["minuteOfDay"] = json!(421);
         assert_ne!(base, trigger_fingerprint(&minute));
+    }
+
+    /// The tolerant element read (web `parseActionTriggers`): readable ones
+    /// in order, everything else skipped.
+    #[test]
+    fn action_triggers_keep_the_readable_elements_in_order() {
+        let triggers = json!([
+            {"id": "t-1", "enabled": true, "deviceId": "d-1", "agent": "claude",
+             "account": "prof-1", "model": "opus", "effort": "high",
+             "kind": "schedule", "interval": "daily", "minuteOfDay": 540},
+            // No `enabled` = enabled; an empty pin = unset.
+            {"id": "t-2", "deviceId": "d-2", "agent": "",
+             "kind": "event", "source": "exponential", "event": "created"},
+            {"id": "t-3", "enabled": false, "deviceId": "d-1",
+             "kind": "event", "event": "pr_merged"},
+            // Skipped: no id, no device, an unreadable when-part, a foreign
+            // source, a non-object.
+            {"deviceId": "d-1", "kind": "schedule", "interval": "daily", "minuteOfDay": 1},
+            {"id": "t-5", "kind": "schedule", "interval": "daily", "minuteOfDay": 1},
+            {"id": "t-6", "deviceId": "d-1", "kind": "cron"},
+            {"id": "t-7", "deviceId": "d-1", "kind": "event", "source": "github",
+             "event": "created"},
+            "schedule",
+        ]);
+        let parsed = parse_action_triggers(Some(&triggers));
+        assert_eq!(
+            parsed.iter().map(|trigger| trigger.id.as_str()).collect::<Vec<_>>(),
+            vec!["t-1", "t-2", "t-3"]
+        );
+        assert!(parsed[0].enabled && parsed[1].enabled && !parsed[2].enabled);
+        assert_eq!(parsed[0].device_id, "d-1");
+        assert_eq!(
+            parsed[0].pins,
+            LaunchPins {
+                agent: Some("claude".to_string()),
+                account: Some("prof-1".to_string()),
+                model: Some("opus".to_string()),
+                effort: Some("high".to_string()),
+            }
+        );
+        assert_eq!(parsed[1].pins, LaunchPins::default());
+        assert!(parsed[0].is_schedule() && !parsed[1].is_schedule());
+        assert_eq!(parsed[0].raw, triggers[0], "the raw element rides along for writes");
+
+        // Not an array / absent → nothing.
+        assert!(parse_action_triggers(None).is_empty());
+        assert!(parse_action_triggers(Some(&json!({"kind": "schedule"}))).is_empty());
+        assert!(parse_action_triggers(Some(&json!(null))).is_empty());
+    }
+
+    /// SLOP-2 carry-over lock: a migrated trigger element fingerprints
+    /// EXACTLY like the old `automations.trigger` jsonb it was folded from
+    /// (migration 0156: runner fields + the jsonb + an event `source`), so
+    /// the device state keyed by the same id never reseeds on upgrade.
+    #[test]
+    fn migrated_element_fingerprint_equals_the_old_row_fingerprint() {
+        let old_rows = [
+            json!({"kind": "schedule", "interval": "daily", "minuteOfDay": 540}),
+            json!({"kind": "schedule", "interval": "weekly", "minuteOfDay": 0, "weekday": 7}),
+            json!({"kind": "schedule", "interval": "monthly", "minuteOfDay": 1439,
+                   "dayOfMonth": 28}),
+            json!({"kind": "event", "event": "created"}),
+            json!({"kind": "event", "event": "status_changed",
+                   "filters": {"boardIds": ["b-1", "b-2"], "toStatusIds": ["s-1"]}}),
+            json!({"kind": "event", "event": "created",
+                   "filters": {"priorities": ["urgent"]}}),
+        ];
+        for old in old_rows {
+            let mut element = json!({
+                "id": "8d8f2f0e-58a5-4ed1-9a4e-0f5b7f5a7c11",
+                "enabled": false,
+                "deviceId": "dev-1",
+                "agent": "claude",
+                "account": "prof-1",
+                "model": "opus",
+                "effort": "high",
+            });
+            for (key, value) in old.as_object().unwrap() {
+                element[key.as_str()] = value.clone();
+            }
+            if old["kind"] == "event" {
+                element["source"] = json!("exponential");
+            }
+            let trigger = parse_action_trigger(&element).expect("a migrated element reads");
+            assert_eq!(trigger.fingerprint(), trigger_fingerprint(&old), "{old}");
+            assert_eq!(when_part(&element), old, "the when-part IS the old jsonb");
+
+            // The runner half never moves it: toggled, rebound, unpinned.
+            let mut rebound = element.clone();
+            rebound["enabled"] = json!(true);
+            rebound["deviceId"] = json!("dev-2");
+            rebound.as_object_mut().unwrap().remove("agent");
+            assert_eq!(
+                parse_action_trigger(&rebound).unwrap().fingerprint(),
+                trigger.fingerprint()
+            );
+        }
+        // Pinned against the EXP-562 literal below: same when-part, same hash.
+        let pinned = json!({
+            "id": "t-1", "deviceId": "dev-9", "source": "exponential",
+            "kind": "event", "event": "created",
+            "filters": {"boardIds": ["board-1"], "labelIds": [],
+                        "priorities": ["urgent"], "toStatusIds": []}
+        });
+        assert_eq!(
+            trigger_fingerprint(&when_part(&pinned)),
+            trigger_fingerprint(&json!({
+                "kind": "event", "event": "created",
+                "filters": {"boardIds": ["board-1"], "labelIds": [],
+                            "priorities": ["urgent"], "toStatusIds": []}
+            }))
+        );
     }
 
     /// EXP-562 pin: the fingerprint is a pure function of the trigger JSON,

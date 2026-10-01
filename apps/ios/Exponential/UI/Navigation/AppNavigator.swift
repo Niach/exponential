@@ -9,9 +9,12 @@ enum AppRoute: Hashable {
     /// button — no longer a tab of its own.
     case search
     case agents
-    /// Team actions (EXP-253, view + run only) — its own tab since EXP-686;
+    /// Team actions (EXP-253) — its own tab since EXP-686;
     /// NOT helpdesk-gated.
     case actions
+    /// SLOP-2: one action's page (Prompt · Triggers · Runs) — pushed from an
+    /// Actions row or an `action` entity ref, opened on `tab`.
+    case action(accountId: String, id: String, tab: ActionPageTab = .prompt)
     /// My Work (EXP-58): Inbox + My Issues merged behind one destination.
     /// Nothing external ever landed on the old inbox route — notification
     /// taps deep-link straight to the issue.
@@ -741,6 +744,9 @@ struct MainNavigator: View {
         case .actions:
             ActionsListView()
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
+        case let .action(accountId, id, tab):
+            ActionDetailView(actionId: id, initialTab: tab)
+                .environment(\.accountId, accountId)
         case .myWork:
             MyWorkView()
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")

@@ -3,7 +3,7 @@
 // NAMES, scopes, the auth kind); each MEMBER's credential (an OAuth token
 // set or a typed secret) is held by the server, encrypted, in
 // `mcp_credentials` (lib/mcp-oauth/credentials.ts), so one connect works on
-// every device, remote start and automation. Server-only (tRPC, never a
+// every device, remote start and trigger. Server-only (tRPC, never a
 // shape — the natives have no decode). Member reads + own-credential
 // writes, owner registry writes. OAuth runs SERVER-side: `connect` returns
 // the authorize URL, the anonymous hosted callback exchanges the code

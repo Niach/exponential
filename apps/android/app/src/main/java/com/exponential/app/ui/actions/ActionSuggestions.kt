@@ -5,14 +5,14 @@ import com.exponential.app.domain.AutomationTrigger
 // EXP-530 Suggestions tab: 9 seed action ideas, mirrored per client from
 // apps/web/src/lib/action-suggestions.ts — id/title/description/icon must
 // stay in lockstep with the web list (icons come from the shared pickable
-// registry). "Use" opens the create sheet prefilled with the
+// registry). A tap opens the composer prefilled with the
 // description + icon; the creator agent authors the real action from there.
 //
-// EXP-583: a seed may carry an [automation] — the suggested trigger (when-part
-// only). Such "Action + automation" seeds render the "Action + automation"
-// chip and open the create sheet with its Automation block prefilled (the
-// machine and agent pins stay the user's pick), so the creator run sets up
-// both. Seeds without one are plain "Action" suggestions.
+// EXP-583 / SLOP-2: a seed may carry a [trigger] — the suggested when-part.
+// Such a seed wears that trigger's glyph beside its title and appends the
+// machine-readable trigger block to the creator run's request (bound to the
+// caller's default trigger-capable machine), so the creator run sets up both
+// the action and its trigger. Seeds without one are plain suggestions.
 
 data class ActionSuggestion(
     val id: String,
@@ -21,7 +21,7 @@ data class ActionSuggestion(
     /** Curated registry icon name (the `boardIconValues` set). */
     val icon: String,
     /** The suggested when-part trigger; null = a plain action suggestion. */
-    val automation: AutomationTrigger? = null,
+    val trigger: AutomationTrigger? = null,
 )
 
 val ACTION_SUGGESTIONS: List<ActionSuggestion> = listOf(
@@ -33,7 +33,7 @@ val ACTION_SUGGESTIONS: List<ActionSuggestion> = listOf(
             "as a comment on a dedicated standup issue, grouped by board with issue " +
             "identifiers linked.",
         icon = "calendar",
-        automation = AutomationTrigger.Schedule(interval = "daily", minuteOfDay = 540),
+        trigger = AutomationTrigger.Schedule(interval = "daily", minuteOfDay = 540),
     ),
     ActionSuggestion(
         id = "label-new-issues",
@@ -42,7 +42,7 @@ val ACTION_SUGGESTIONS: List<ActionSuggestion> = listOf(
             "best-fitting existing labels. Never create new labels, never change other " +
             "fields, and leave no comment unless no label fits at all.",
         icon = "target",
-        automation = AutomationTrigger.Event(event = "created"),
+        trigger = AutomationTrigger.Event(event = "created"),
     ),
     ActionSuggestion(
         id = "backlog-grooming-sweep",
@@ -59,7 +59,7 @@ val ACTION_SUGGESTIONS: List<ActionSuggestion> = listOf(
             "each one asking the assignee for a status update, mentioning them by email, and " +
             "include how long the issue has been quiet.",
         icon = "clock",
-        automation = AutomationTrigger.Schedule(
+        trigger = AutomationTrigger.Schedule(
             interval = "weekly",
             minuteOfDay = 540,
             weekday = 1,
@@ -88,7 +88,7 @@ val ACTION_SUGGESTIONS: List<ActionSuggestion> = listOf(
             "specific, set a priority based on severity, add reproduction steps when they " +
             "can be inferred from the report, and label likely duplicates.",
         icon = "bug",
-        automation = AutomationTrigger.Event(event = "created"),
+        trigger = AutomationTrigger.Event(event = "created"),
     ),
     ActionSuggestion(
         id = "weekly-metrics-comment",
@@ -97,7 +97,7 @@ val ACTION_SUGGESTIONS: List<ActionSuggestion> = listOf(
             "time to done, and open pull request count. Post the numbers with a " +
             "week-over-week comparison as a comment on a dedicated metrics issue.",
         icon = "chart-line",
-        automation = AutomationTrigger.Schedule(
+        trigger = AutomationTrigger.Schedule(
             interval = "weekly",
             minuteOfDay = 480,
             weekday = 5,

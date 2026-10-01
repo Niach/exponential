@@ -2,10 +2,12 @@ import Foundation
 import XCTest
 @testable import ExpCore
 
-// EXP-583 automations: the tolerant trigger parser (any malformation reads as
-// "no trigger", never a crash), the summary sentences (byte-matching the web's
-// `triggerSummary`), the when-part-only wire encoding, the machine-readable
-// automation note the create sheet appends, and the next-run schedule math.
+// Triggers (EXP-530; SLOP-2: an action carries them): the tolerant when-part
+// parser (any malformation reads as "no trigger", never a crash), the stored
+// `ActionTrigger` element (runner + when), the row glyphs, the summary
+// sentences (byte-matching the web's `triggerSummary`), the wire encoding of
+// the `actions.update` array, the machine-readable trigger block a suggestion
+// appends, and the next-run schedule math.
 final class AutomationTriggerTests: XCTestCase {
 
     // MARK: - Tolerant parse
@@ -35,16 +37,28 @@ final class AutomationTriggerTests: XCTestCase {
         XCTAssertEqual(m.dayOfMonth, 5)
     }
 
-    // EXP-583: device/enabled moved onto the automations ROW — a legacy
-    // EXP-530 payload still parses, its extra keys simply ignored.
-    func testLegacyDeviceAndEnabledKeysAreIgnored() {
-        let raw = #"{"kind":"schedule","deviceId":"dev-1","enabled":false,"interval":"daily","minuteOfDay":420}"#
+    // The when-part reader ignores the runner keys that sit beside it in a
+    // stored trigger.
+    func testRunnerKeysAreIgnoredByTheWhenPart() {
+        let raw = #"{"id":"tr-1","kind":"schedule","deviceId":"dev-1","enabled":false,"interval":"daily","minuteOfDay":420}"#
         guard case let .schedule(s)? = AutomationTrigger.parse(raw) else {
             return XCTFail("expected a schedule trigger")
         }
         XCTAssertEqual(s.minuteOfDay, 420)
-        // …and a trigger with no device at all is perfectly valid now.
+    }
+
+    // SLOP-2: an absent source is Exponential's; any OTHER source is a future
+    // one this build cannot fire on, so the trigger is unreadable.
+    func testEventSourceGate() {
         XCTAssertNotNil(AutomationTrigger.parse(#"{"kind":"event","event":"created"}"#))
+        XCTAssertNotNil(AutomationTrigger.parse(
+            #"{"kind":"event","source":"exponential","event":"created"}"#
+        ))
+        XCTAssertNil(AutomationTrigger.parse(
+            #"{"kind":"event","source":"github","event":"created"}"#
+        ))
+        XCTAssertNil(AutomationTrigger.parse(#"{"kind":"event","source":7,"event":"created"}"#))
+        XCTAssertNil(AutomationTrigger.parse(#"{"kind":"event","source":null,"event":"created"}"#))
     }
 
     func testParsesAnEventTriggerWithFilters() {
@@ -109,7 +123,7 @@ final class AutomationTriggerTests: XCTestCase {
         )
         // The compact string re-parses into the identical trigger.
         XCTAssertEqual(AutomationTrigger.parse(trigger.wireJSONString), trigger)
-        // …and so does the Encodable form the automations input embeds.
+        // …and so does the Encodable form an `actions.update` element embeds.
         let encoded = String(data: try JSONEncoder().encode(trigger), encoding: .utf8)
         XCTAssertEqual(AutomationTrigger.parse(encoded), trigger)
     }
@@ -135,24 +149,248 @@ final class AutomationTriggerTests: XCTestCase {
         )
     }
 
-    // MARK: - The creator-run automation note
+    // MARK: - Stored triggers (runner + when)
 
-    // Byte-locked against the web's `formatAutomationBlock`
-    // (apps/web/src/lib/action-triggers.ts): key order deviceId, trigger,
-    // then agent/model/effort only when set; compact JSON.
-    func testAutomationNoteMatchesTheWebBlock() {
-        let spec = AutomationSpec(
-            trigger: .schedule(AutomationScheduleTrigger(interval: "daily", minuteOfDay: 540)),
-            deviceId: "dev-1"
-        )
+    func testParsesTheStoredTriggersInOrder() {
+        let raw = #"""
+        [{"id":"tr-1","enabled":true,"deviceId":"dev-1","agent":"claude","account":"p-1",
+          "model":"opus","effort":"high","kind":"schedule","interval":"daily","minuteOfDay":540},
+         {"id":"tr-2","enabled":false,"deviceId":"dev-2","kind":"event","source":"exponential",
+          "event":"created","filters":{"boardIds":["b1"]}}]
+        """#
+        let triggers = ActionTrigger.parseList(raw)
+        XCTAssertEqual(triggers, [
+            ActionTrigger(
+                id: "tr-1",
+                enabled: true,
+                deviceId: "dev-1",
+                agent: "claude",
+                account: "p-1",
+                model: "opus",
+                effort: "high",
+                when: .schedule(AutomationScheduleTrigger(interval: "daily", minuteOfDay: 540))
+            ),
+            ActionTrigger(
+                id: "tr-2",
+                enabled: false,
+                deviceId: "dev-2",
+                when: .event(AutomationEventTrigger(
+                    event: "created",
+                    filters: AutomationTriggerFilters(boardIds: ["b1"])
+                ))
+            ),
+        ])
+    }
+
+    // Tolerant read: an element without a string id or device, or with an
+    // unreadable when-part, is SKIPPED — its readable neighbours stay.
+    func testUnreadableStoredTriggersAreSkipped() {
+        let raw = #"""
+        [{"deviceId":"dev-1","kind":"schedule","interval":"daily","minuteOfDay":540},
+         {"id":7,"deviceId":"dev-1","kind":"schedule","interval":"daily","minuteOfDay":540},
+         {"id":"no-device","kind":"schedule","interval":"daily","minuteOfDay":540},
+         {"id":"empty-device","deviceId":"","kind":"schedule","interval":"daily","minuteOfDay":540},
+         {"id":"bad-when","deviceId":"dev-1","kind":"webhook"},
+         {"id":"future-source","deviceId":"dev-1","kind":"event","source":"github","event":"created"},
+         "nope", 3, null,
+         {"id":"ok","deviceId":"dev-1","kind":"event","event":"created"}]
+        """#
+        XCTAssertEqual(ActionTrigger.parseList(raw).map(\.id), ["ok"])
+    }
+
+    func testAnythingButAnArrayIsNoTriggers() {
+        XCTAssertEqual(ActionTrigger.parseList(nil), [])
+        XCTAssertEqual(ActionTrigger.parseList(""), [])
+        XCTAssertEqual(ActionTrigger.parseList("not json"), [])
+        XCTAssertEqual(ActionTrigger.parseList("[]"), [])
         XCTAssertEqual(
-            AutomationNote.format(spec),
-            "\n\nAutomation — after creating the action, call exponential_automations_create with its id and exactly these fields: `{\"deviceId\":\"dev-1\",\"trigger\":{\"kind\":\"schedule\",\"interval\":\"daily\",\"minuteOfDay\":540}}`. An automated run fills no inputs, so declare none as required."
+            ActionTrigger.parseList(
+                #"{"id":"tr-1","deviceId":"dev-1","kind":"event","event":"created"}"#
+            ),
+            []
         )
     }
 
-    func testAutomationNoteCarriesTheLaunchFieldsInOrder() {
-        let spec = AutomationSpec(
+    // Only an explicit `false` pauses; a missing flag — or anything that is
+    // not a JSON boolean — is an enabled trigger. Blank pins read as unset.
+    func testEnabledDefaultsAndBlankPins() {
+        func parse(_ extra: String) -> ActionTrigger? {
+            ActionTrigger.parseList(
+                #"[{"id":"tr-1","deviceId":"dev-1","kind":"event","event":"created"\#(extra)}]"#
+            ).first
+        }
+        XCTAssertEqual(parse("")?.enabled, true)
+        XCTAssertEqual(parse(#","enabled":true"#)?.enabled, true)
+        XCTAssertEqual(parse(#","enabled":false"#)?.enabled, false)
+        XCTAssertEqual(parse(#","enabled":0"#)?.enabled, true)
+        XCTAssertEqual(parse(#","enabled":"false""#)?.enabled, true)
+        XCTAssertEqual(parse(#","enabled":null"#)?.enabled, true)
+        let blank = parse(#","agent":"","account":null,"model":3"#)
+        XCTAssertNil(blank?.agent)
+        XCTAssertNil(blank?.account)
+        XCTAssertNil(blank?.model)
+        XCTAssertNil(blank?.effort)
+    }
+
+    // MARK: - Row glyphs
+
+    private func stored(
+        _ id: String, enabled: Bool = true, _ when: AutomationTrigger
+    ) -> ActionTrigger {
+        ActionTrigger(id: id, enabled: enabled, deviceId: "dev-1", when: when)
+    }
+
+    private let daily = AutomationTrigger.schedule(
+        AutomationScheduleTrigger(interval: "daily", minuteOfDay: 540)
+    )
+    private let created = AutomationTrigger.event(AutomationEventTrigger(event: "created"))
+
+    func testTriggerBadges() {
+        XCTAssertEqual(TriggerBadges.of([]), TriggerBadges())
+        XCTAssertTrue(TriggerBadges.of([]).isEmpty)
+        // One kind only: the other glyph is not drawn at all.
+        XCTAssertEqual(
+            TriggerBadges.of([stored("a", daily)]),
+            TriggerBadges(schedule: TriggerBadge(active: true))
+        )
+        // A kind is muted only when NONE of its triggers is enabled.
+        XCTAssertEqual(
+            TriggerBadges.of([
+                stored("a", enabled: false, daily),
+                stored("b", daily),
+                stored("c", enabled: false, created),
+            ]),
+            TriggerBadges(
+                schedule: TriggerBadge(active: true),
+                event: TriggerBadge(active: false)
+            )
+        )
+        // A suggestion's seed trigger draws its one glyph, active.
+        XCTAssertEqual(
+            TriggerBadges.of(suggested: created),
+            TriggerBadges(event: TriggerBadge(active: true))
+        )
+        XCTAssertTrue(TriggerBadges.of(suggested: nil).isEmpty)
+    }
+
+    func testRowSentenceMarksSchedulesAsDeviceTime() {
+        XCTAssertEqual(AutomationTriggerDisplay.rowSentence(daily), "Daily at 09:00 (device time)")
+        XCTAssertEqual(AutomationTriggerDisplay.rowSentence(created), "When an issue is created")
+    }
+
+    // MARK: - Run titles
+
+    // Byte-locked against the web's `actionRunTitle`: a run in its own
+    // action's Runs is titled by what started it.
+    func testActionRunTitleNamesWhatStartedTheRun() {
+        XCTAssertEqual(ActionRunTitle.of(startedReason: "schedule"), "Scheduled run")
+        XCTAssertEqual(ActionRunTitle.of(startedReason: "event"), "Event run")
+        XCTAssertEqual(ActionRunTitle.of(startedReason: "agent"), "Agent run")
+        XCTAssertEqual(ActionRunTitle.of(startedReason: "workflow"), "Agent run")
+        XCTAssertEqual(ActionRunTitle.of(startedReason: "something-new"), "Agent run")
+        XCTAssertEqual(ActionRunTitle.of(startedReason: nil), "Manual run")
+        XCTAssertEqual(ActionRunTitle.of(startedReason: ""), "Manual run")
+    }
+
+    // MARK: - The `actions.update` triggers array
+
+    private func json(_ value: some Encodable) throws -> Any {
+        try JSONSerialization.jsonObject(with: JSONEncoder().encode(value))
+    }
+
+    // A NEW element carries no id (the server mints it), unset pins are
+    // absent, and an event names its source.
+    func testNewTriggerElementEncoding() throws {
+        let schedule = try XCTUnwrap(try json(
+            ActionTriggerInput(deviceId: "dev-1", when: daily)
+        ) as? [String: Any])
+        XCTAssertEqual(
+            schedule.keys.sorted(),
+            ["deviceId", "enabled", "interval", "kind", "minuteOfDay"]
+        )
+        XCTAssertEqual(schedule["enabled"] as? Bool, true)
+        XCTAssertEqual(schedule["deviceId"] as? String, "dev-1")
+        XCTAssertEqual(schedule["kind"] as? String, "schedule")
+        XCTAssertEqual(schedule["minuteOfDay"] as? Int, 540)
+
+        let event = try XCTUnwrap(try json(ActionTriggerInput(
+            id: "tr-2",
+            enabled: false,
+            deviceId: "dev-2",
+            agent: "claude",
+            account: "p-1",
+            model: "opus",
+            effort: "high",
+            when: .event(AutomationEventTrigger(
+                event: "status_changed",
+                filters: AutomationTriggerFilters(toStatusIds: ["s1"])
+            ))
+        )) as? [String: Any])
+        XCTAssertEqual(
+            event.keys.sorted(),
+            ["account", "agent", "deviceId", "effort", "enabled", "event", "filters",
+             "id", "kind", "model", "source"]
+        )
+        XCTAssertEqual(event["id"] as? String, "tr-2")
+        XCTAssertEqual(event["enabled"] as? Bool, false)
+        XCTAssertEqual(event["source"] as? String, "exponential")
+        XCTAssertEqual((event["filters"] as? [String: Any])?["toStatusIds"] as? [String], ["s1"])
+    }
+
+    // What is written reads back as the same trigger.
+    func testEncodedElementRoundTripsThroughTheParser() throws {
+        let trigger = ActionTrigger(
+            id: "tr-1",
+            enabled: false,
+            deviceId: "dev-1",
+            agent: "codex",
+            model: "gpt-5.6-sol",
+            when: created
+        )
+        let data = try JSONEncoder().encode([ActionTriggerInput(trigger)])
+        XCTAssertEqual(ActionTrigger.parseList(String(data: data, encoding: .utf8)), [trigger])
+    }
+
+    // The write is a WHOLE-ARRAY replace: every helper sends all the other
+    // triggers back untouched, ids kept.
+    func testWholeArrayWrites() {
+        let existing = [stored("a", daily), stored("b", created)]
+        let draft = ActionTriggerInput(id: "ignored", deviceId: "dev-9", when: created)
+
+        let added = existing.adding(draft)
+        XCTAssertEqual(added.map(\.id), ["a", "b", nil])
+        XCTAssertEqual(added.last?.deviceId, "dev-9")
+
+        let replaced = existing.replacing(id: "b", with: draft)
+        XCTAssertEqual(replaced.map(\.id), ["a", "b"])
+        XCTAssertEqual(replaced.map(\.deviceId), ["dev-1", "dev-9"])
+
+        let toggled = existing.settingEnabled(id: "a", false)
+        XCTAssertEqual(toggled.map(\.id), ["a", "b"])
+        XCTAssertEqual(toggled.map(\.enabled), [false, true])
+
+        XCTAssertEqual(existing.removing(id: "a").map(\.id), ["b"])
+    }
+
+    // MARK: - The creator-run trigger block
+
+    // Byte-locked against the web's `formatTriggerBlock`
+    // (apps/web/src/lib/action-triggers.ts): the when-part's keys in their
+    // stored order, then deviceId, then agent/model/effort only when set;
+    // compact JSON inside a one-element array.
+    func testTriggerNoteMatchesTheWebBlock() {
+        let spec = TriggerSpec(
+            trigger: .schedule(AutomationScheduleTrigger(interval: "daily", minuteOfDay: 540)),
+            deviceId: "d-1"
+        )
+        XCTAssertEqual(
+            TriggerNote.format(spec),
+            "\n\nTrigger — after creating the action, call exponential_actions_update with its id and `triggers` set to exactly this array: `[{\"kind\":\"schedule\",\"interval\":\"daily\",\"minuteOfDay\":540,\"deviceId\":\"d-1\"}]`. A triggered run fills no inputs, so declare none as required."
+        )
+    }
+
+    func testTriggerNoteCarriesTheLaunchFieldsInOrder() {
+        let spec = TriggerSpec(
             trigger: .event(AutomationEventTrigger(event: "created")),
             deviceId: "dev-2",
             agent: "codex",
@@ -160,19 +398,19 @@ final class AutomationTriggerTests: XCTestCase {
             effort: "high"
         )
         XCTAssertEqual(
-            AutomationNote.format(spec),
-            "\n\nAutomation — after creating the action, call exponential_automations_create with its id and exactly these fields: `{\"deviceId\":\"dev-2\",\"trigger\":{\"kind\":\"event\",\"event\":\"created\"},\"agent\":\"codex\",\"model\":\"gpt-5.6-sol\",\"effort\":\"high\"}`. An automated run fills no inputs, so declare none as required."
+            TriggerNote.format(spec),
+            "\n\nTrigger — after creating the action, call exponential_actions_update with its id and `triggers` set to exactly this array: `[{\"kind\":\"event\",\"event\":\"created\",\"deviceId\":\"dev-2\",\"agent\":\"codex\",\"model\":\"gpt-5.6-sol\",\"effort\":\"high\"}]`. A triggered run fills no inputs, so declare none as required."
         )
         // Blank launch fields are omitted (the web's falsy check).
-        let blank = AutomationSpec(
+        let blank = TriggerSpec(
             trigger: .event(AutomationEventTrigger(event: "created")),
             deviceId: "dev-2",
             agent: "",
             model: nil,
             effort: ""
         )
-        XCTAssertFalse(AutomationNote.format(blank).contains("agent"))
-        XCTAssertFalse(AutomationNote.format(blank).contains("effort"))
+        XCTAssertFalse(TriggerNote.format(blank).contains("agent"))
+        XCTAssertFalse(TriggerNote.format(blank).contains("effort"))
     }
 
     // MARK: - Summary sentences (byte-matched to the web)
@@ -292,29 +530,48 @@ final class AutomationTriggerTests: XCTestCase {
 
     // MARK: - Entity plumbing
 
-    func testAutomationDtoParsesTheEntityTrigger() {
-        let entity = AutomationEntity(
-            id: "au1",
+    func testActionDtoParsesTheEntityTriggers() {
+        let entity = ActionEntity(
+            id: "a1",
             teamId: "t1",
-            actionId: "a1",
-            deviceId: "dev-1",
-            enabled: false,
-            trigger: #"{"kind":"schedule","interval":"daily","minuteOfDay":420}"#,
-            agent: "claude",
-            model: "opus",
-            effort: "high",
+            repositoryId: nil,
+            name: "Digest",
+            description: nil,
+            icon: nil,
+            inputs: nil,
+            triggers: #"[{"id":"tr-1","enabled":false,"deviceId":"dev-1","agent":"claude","kind":"schedule","interval":"daily","minuteOfDay":420},{"id":"broken"}]"#,
             sortOrder: 3,
             createdAt: "2026-01-01T00:00:00Z",
             updatedAt: "2026-01-01T00:00:00Z"
         )
-        let dto = AutomationDto(entity: entity)
-        XCTAssertEqual(dto.actionId, "a1")
-        XCTAssertEqual(dto.deviceId, "dev-1")
-        XCTAssertFalse(dto.enabled)
-        XCTAssertEqual(dto.agent, "claude")
-        XCTAssertEqual(dto.sortOrder, 3)
-        guard case .schedule? = dto.parsedTrigger else {
-            return XCTFail("entity trigger must reach the DTO")
+        let dto = ActionDto(entity: entity)
+        XCTAssertEqual(dto.triggers.map(\.id), ["tr-1"])
+        XCTAssertEqual(dto.triggers.first?.deviceId, "dev-1")
+        XCTAssertEqual(dto.triggers.first?.enabled, false)
+        XCTAssertEqual(dto.triggers.first?.agent, "claude")
+        guard case .schedule? = dto.triggers.first?.when else {
+            return XCTFail("entity triggers must reach the DTO")
         }
+    }
+
+    // tRPC hands `triggers` back as a JSON array; an older server omits it.
+    func testActionDtoDecodesTriggersOffTheWire() throws {
+        func decode(_ triggers: String) throws -> ActionDto {
+            let raw = #"""
+            {"id":"a1","teamId":"t1","repositoryId":null,"name":"Digest","description":null,
+             "body":"Do it","sortOrder":0,"createdAt":"2026-01-01T00:00:00Z",
+             "updatedAt":"2026-01-01T00:00:00Z"\#(triggers)}
+            """#
+            return try JSONDecoder().decode(ActionDto.self, from: Data(raw.utf8))
+        }
+        XCTAssertEqual(try decode("").triggers, [])
+        XCTAssertEqual(try decode(#","triggers":null"#).triggers, [])
+        let decoded = try decode(
+            #","triggers":[{"id":"tr-1","deviceId":"dev-1","kind":"event","source":"exponential","event":"created"},{"kind":"event"}]"#
+        )
+        XCTAssertEqual(decoded.triggers, [
+            ActionTrigger(id: "tr-1", deviceId: "dev-1", when: created),
+        ])
+        XCTAssertEqual(decoded.body, "Do it")
     }
 }

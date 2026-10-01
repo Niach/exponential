@@ -22,7 +22,6 @@ import { and, asc, eq, inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   actions,
-  automations,
   boards,
   codingSessions,
   devices,
@@ -37,6 +36,7 @@ import {
   EMPTY_BOARD_SLUG,
   SUPPORT_REPORTER_THREAD_TITLE,
   TEAM_SLUG,
+  DEMO_ACTION_ID,
 } from "../screenshot-demo"
 
 /**
@@ -82,7 +82,6 @@ export interface DemoIds {
   supportToken?: string
   actionId?: string
   deviceId?: string
-  automationId?: string
   /**
    * The `coding_sessions` row the `steering` view is photographed on — the
    * demo user's running showcase run, which the seed stamps with the pinned
@@ -165,11 +164,11 @@ export async function resolveDemoIds(): Promise<DemoIds> {
 
   // The first saved action by sort order — the seed's "Update dependencies",
   // which is also the row the web action-editor recipe opens.
+  // The action the `action-*` views open; the seed pins its id.
   const [action] = await db
     .select({ id: actions.id })
     .from(actions)
-    .where(eq(actions.teamId, team.id))
-    .orderBy(asc(actions.sortOrder))
+    .where(and(eq(actions.teamId, team.id), eq(actions.id, DEMO_ACTION_ID)))
     .limit(1)
   if (!action) {
     throw new Error(`team "${TEAM_SLUG}" has no saved actions. ${RESEED}`)
@@ -202,13 +201,6 @@ export async function resolveDemoIds(): Promise<DemoIds> {
     )
     .limit(1)
 
-  const [automation] = await db
-    .select({ id: automations.id })
-    .from(automations)
-    .where(eq(automations.teamId, team.id))
-    .orderBy(asc(automations.sortOrder))
-    .limit(1)
-
   return {
     teamId: team.id,
     boardId: board.id,
@@ -227,7 +219,6 @@ export async function resolveDemoIds(): Promise<DemoIds> {
         : undefined,
     actionId: action.id,
     deviceId: device?.id,
-    automationId: automation?.id,
     steeredSessionId: steeredSession?.id,
   }
 }

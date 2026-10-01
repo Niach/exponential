@@ -9,7 +9,7 @@ import SwiftUI
 /// and no row buttons.
 ///
 /// A PUSHED detail off the Agent page's Workflows glyph: a phone gets no tab of
-/// its own (web and the IDE put the entry in their sidebars, after Automations).
+/// its own (web and the IDE put the entry in their sidebars, after Actions).
 struct WorkflowsListView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId

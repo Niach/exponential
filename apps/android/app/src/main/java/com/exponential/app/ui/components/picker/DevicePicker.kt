@@ -6,7 +6,7 @@ import com.exponential.app.ui.components.deviceIcon
 /**
  * EXP-1029 contract, EXP-1021 implementation — the device picker: the machines a run may start on,
  * each by its device glyph (`DeviceIconUi`) + name, offline ones disabled
- * with the reason as the description. The composer, the automation editor
+ * with the reason as the description. The composer, the trigger form
  * and the workflow runner row pick one.
  */
 data class DevicePickerDevice(

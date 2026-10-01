@@ -60,7 +60,7 @@ vi.mock(`@/db/connection`, () => ({
 }))
 vi.mock(`@/lib/auth`, () => ({ auth: {} }))
 vi.mock(`@/lib/team-membership`, () => ({ assertTeamMember: h.assertTeamMember }))
-vi.mock(`@/lib/trpc/automations`, () => ({ assertDeviceUsable: h.assertDeviceUsable }))
+vi.mock(`@/lib/action-trigger-rules`, () => ({ assertDeviceUsable: h.assertDeviceUsable }))
 vi.mock(`@/lib/workflows`, async () => ({
   nodeEdges: () => [],
   loadWorkflowEdges: h.loadWorkflowEdges,

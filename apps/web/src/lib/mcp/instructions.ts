@@ -32,7 +32,7 @@ export function mcpServerInstructions(gates: {
     // the team's configured status automation, and a team configured to "do
     // nothing" means exactly that (the agent never compensates). Direct
     // status writes remain for one case only: the user explicitly asks.
-    `Exponential is this team's issue tracker: issues on boards with comments, labels and the PRs that close them. In a coding session the flow is exponential_issues_get, exponential_comments_list, implement, commit and push, then exponential_pr_open. Status changes are automatic (PR tools apply the team's automation); set one only if asked. Search for exponential_* tools for boards, members, attachments, notifications, actions, automations, sessions, devices, helpdesk, repos and teams.`,
+    `Exponential is this team's issue tracker: issues on boards with comments, labels and the PRs that close them. In a coding session the flow is exponential_issues_get, exponential_comments_list, implement, commit and push, then exponential_pr_open. Status changes are automatic (PR tools apply the team's automation); set one only if asked. Search for exponential_* tools for boards, members, attachments, notifications, actions, sessions, devices, helpdesk, repos and teams.`,
     `exponential_pr_open takes 'issueId', 'issueIds' plus 'head' for one combined PR, or 'repositoryId' plus 'head' for a chore PR; exponential_pr_merge mirrors it ('repositoryId' plus 'prNumber'). Merging your own PR never ends your session. A merge refused for a stale base: exponential_pr_retarget, rebase, force-push with --force-with-lease, merge again. Stale description after later commits: exponential_pr_update.`,
     // EXP-792: the one registry. An agent asked to "add the Linear MCP"
     // would otherwise write a repo .mcp.json the launcher never reads.
@@ -47,7 +47,7 @@ export function mcpServerInstructions(gates: {
     // EXP-700: only a run another run started can ask its starter — the
     // exception rides the same paragraph, and askParent implies sessionsEnd.
     paragraphs.push(
-      `This run is unattended (an automation or another agent started it). Finish with exponential_sessions_end LAST: a one-paragraph summary (finished, stopped for a human, or changed nothing), worktree clean. It ends the run; nobody is watching, so never wait for replies.` +
+      `This run is unattended (a trigger or another agent started it). Finish with exponential_sessions_end LAST: a one-paragraph summary (finished, stopped for a human, or changed nothing), worktree clean. It ends the run; nobody is watching, so never wait for replies.` +
         (gates.askParent
           ? ` Blocked on something only your starter knows: call exponential_sessions_ask_parent, then stop and wait for the answer (a user message).`
           : ``)

@@ -83,7 +83,7 @@ class AgentComposerSeedRouteTest {
 
     @Test
     fun `a full seed round-trips through percent-encoding`() {
-        val text = "Triage the nightly failures\n\nAutomation — call `x` with {\"a\":1}&b=2 +100%"
+        val text = "Triage the nightly failures\n\nTrigger — call `x` with {\"a\":1}&b=2 +100%"
         val seed = AgentComposerSeed(
             issueIds = listOf(issueA),
             actionId = "builtin:create-action",

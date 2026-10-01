@@ -117,7 +117,6 @@
     "nav-reviews": "git-pull-request",
     "nav-devices": "monitor",
     "nav-actions": "bot",
-    "nav-automations": "zap",
     "nav-workflows": "workflow",
     "nav-support": "life-buoy",
     "nav-settings": "settings",
@@ -233,7 +232,8 @@
     "relation-duplicate": "copy",
     "relation-related": "link",
 
-    "action-automation": "zap",
+    "trigger-schedule": "clock",
+    "trigger-event": "zap",
     "action-suggestion": "lightbulb",
 
     "editor-bold": "bold",

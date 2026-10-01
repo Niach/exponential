@@ -128,7 +128,6 @@ pub mod result {
     pub const SESSION: &str = "session";
     pub const BOARD: &str = "board";
     pub const ACTION: &str = "action";
-    pub const AUTOMATION: &str = "automation";
     pub const LIST: &str = "list";
     /// EXP-933: `sessions_results` — the run's Results face (the report the
     /// agent is filing); a settled row offers `Open Results`.
@@ -244,7 +243,6 @@ mod tests {
             result::SESSION,
             result::BOARD,
             result::ACTION,
-            result::AUTOMATION,
             result::LIST,
             result::RESULTS,
         ] {

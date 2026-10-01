@@ -56,7 +56,7 @@ public enum StartedRunMatch {
         else { return false }
         switch key {
         case let .action(name):
-            // EXP-530: an automation-started run (started_reason non-null)
+            // EXP-530: a trigger-started run (started_reason non-null)
             // carries the same action-name snapshot — it must never satisfy a
             // USER's pending start watch, or a schedule firing in the window
             // hijacks the navigation.
@@ -70,7 +70,7 @@ public enum StartedRunMatch {
             // resumed more than once, and the cutoff above already excludes
             // every earlier attempt. `startedReason` must be nil for the same
             // reason the action key checks it: only a person resumes a run, so
-            // an automation-started row can never be this send.
+            // a trigger-started row can never be this send.
             return session.resumedFromId == fromId && session.startedReason == nil
         }
     }

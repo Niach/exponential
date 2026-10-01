@@ -4,8 +4,9 @@
 //! from sync — the synced row is the list projection); this client stays
 //! load-bearing for `actions.get` — the ONLY body path, fetched fresh right
 //! before a run or on editor open — and the owner-only CRUD. `actions.list`
-//! survives for pre-shape builds and tests. EXP-583 moved the automation
-//! trigger OUT of this router entirely — see [`crate::automations`].
+//! survives for pre-shape builds and tests. SLOP-2: an action carries its
+//! `triggers`; [`ActionUpdate::triggers`] (a whole-array replace) is their
+//! ONLY write path.
 
 use serde::{Deserialize, Serialize};
 
@@ -53,15 +54,17 @@ pub const PLAN_WORKFLOW_CAP: &str = "plan-workflow";
 
 /// FEED-50: the "Tidy up" builtin — a non-destructive cleanup of a board's
 /// issues (duplicates, existing labels, relations; nothing is deleted).
-/// LISTED like Create action / Fix conflicts, and the ONLY builtin an
-/// automation may target ([`is_automatable_builtin_id`]).
+/// LISTED like Create action / Fix conflicts — unless the team owns a REAL
+/// row of that name ([`has_own_tidy_up_action`]). Builtins never carry
+/// triggers.
 pub const BUILTIN_TIDY_UP_ID: &str = domain::contract::BUILTIN_TIDY_UP_ID;
 
-/// FEED-50: whether an automation may target this builtin (every input
-/// optional, no free text required). Create action needs its prompt, Fix
-/// conflicts a `pr`; Tidy up is the only one. Web `isAutomatableBuiltinId`.
-pub fn is_automatable_builtin_id(id: &str) -> bool {
-    id == BUILTIN_TIDY_UP_ID
+/// SLOP-2: whether the team owns a REAL action named exactly `Tidy up` (the
+/// migration made one wherever the builtin was automated, so it could carry
+/// the triggers). Where it exists the virtual builtin steps aside, so no
+/// list shows Tidy up twice. Web `hasOwnTidyUpAction`.
+pub fn has_own_tidy_up_action<'a>(mut names: impl Iterator<Item = &'a str>) -> bool {
+    names.any(|name| name == BUILTIN_TIDY_UP_NAME)
 }
 
 /// Whether `id` is a server-defined virtual builtin action id.
@@ -200,12 +203,30 @@ pub struct Action {
     /// pre-EXP-825 server.
     #[serde(default)]
     pub prompt_placeholder: Option<String>,
+    /// SLOP-2: the action's triggers, each a when-part (schedule or event)
+    /// plus its runner. Kept as loose JSON so a newer server's trigger kind
+    /// never fails decoding — `coding::automations::parse_action_triggers`
+    /// owns the tolerant read. Always empty on a builtin.
+    #[serde(default, deserialize_with = "tolerant_triggers")]
+    pub triggers: Vec<serde_json::Value>,
     #[serde(default)]
     pub sort_order: f64,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
     pub updated_at: Option<String>,
+}
+
+/// Anything but an array (a `null`, a pre-SLOP-2 server's absent field)
+/// reads as "no triggers" — never a failed decode of the whole action.
+fn tolerant_triggers<'de, D>(deserializer: D) -> Result<Vec<serde_json::Value>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(match serde_json::Value::deserialize(deserializer)? {
+        serde_json::Value::Array(entries) => entries,
+        _ => Vec::new(),
+    })
 }
 
 #[derive(Deserialize)]
@@ -320,6 +341,12 @@ pub struct ActionUpdate {
     /// convention).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_placeholder: Option<String>,
+    /// SLOP-2: the action's triggers as a WHOLE-ARRAY replace — the only
+    /// trigger write there is. Send the readable existing elements (each
+    /// keeping its `id`), a new one WITHOUT an `id` (the server mints it), or
+    /// leave one out to delete it. `None` omits the field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub triggers: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sort_order: Option<f64>,
 }
@@ -375,6 +402,12 @@ pub fn from_row(row: &domain::rows::ActionRow) -> Action {
         builtin: false,
         inputs,
         prompt_placeholder: row.prompt_placeholder.clone(),
+        triggers: row
+            .triggers
+            .as_ref()
+            .and_then(serde_json::Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
         sort_order: row.sort_order.unwrap_or_default(),
         created_at: row.created_at.clone(),
         updated_at: row.updated_at.clone(),
@@ -420,6 +453,7 @@ pub fn builtin_create_action(team_id: &str) -> Action {
         // EXP-825: the composer's hint while the creator is picked (the web
         // page's old Create-action special case, now the builtin's field).
         prompt_placeholder: Some(BUILTIN_CREATE_ACTION_PROMPT_PLACEHOLDER.to_string()),
+        triggers: Vec::new(),
         sort_order: 1e9,
         created_at: None,
         updated_at: None,
@@ -453,6 +487,7 @@ pub fn builtin_fix_conflicts_action(team_id: &str) -> Action {
             placeholder: None,
         }],
         prompt_placeholder: None,
+        triggers: Vec::new(),
         sort_order: 1e9 + 1.0,
         created_at: None,
         updated_at: None,
@@ -486,6 +521,7 @@ pub fn builtin_chat_action(team_id: &str) -> Action {
             placeholder: None,
         }],
         prompt_placeholder: None,
+        triggers: Vec::new(),
         sort_order: 1e9 + 2.0,
         created_at: None,
         updated_at: None,
@@ -516,6 +552,7 @@ pub fn builtin_plan_workflow_action(team_id: &str) -> Action {
         // `Workflow: <uuid>` first line), so there is nothing left to pick.
         inputs: Vec::new(),
         prompt_placeholder: Some(BUILTIN_PLAN_WORKFLOW_PROMPT_PLACEHOLDER.to_string()),
+        triggers: Vec::new(),
         sort_order: 1e9 + 3.0,
         created_at: None,
         updated_at: None,
@@ -559,6 +596,7 @@ pub fn builtin_tidy_up_action(team_id: &str) -> Action {
             },
         ],
         prompt_placeholder: Some(TIDY_UP_PROMPT_PLACEHOLDER.to_string()),
+        triggers: Vec::new(),
         sort_order: 1e9 + 4.0,
         created_at: None,
         updated_at: None,
@@ -982,19 +1020,53 @@ mod tests {
         assert_eq!(builtin.sort_order, 1e9 + 4.0);
         assert_eq!(builtin_action_name(BUILTIN_TIDY_UP_ID), Some("Tidy up"));
         assert!(is_builtin_action_id(BUILTIN_TIDY_UP_ID));
-        // The ONLY automatable builtin.
-        assert!(is_automatable_builtin_id(BUILTIN_TIDY_UP_ID));
-        for id in [
-            BUILTIN_CREATE_ACTION_ID,
-            BUILTIN_FIX_CONFLICTS_ID,
-            BUILTIN_CHAT_ID,
-            BUILTIN_PLAN_WORKFLOW_ID,
-            BUILTIN_REVIEW_NODE_ID,
-            BUILTIN_FIX_REVIEW_FINDINGS_ID,
-            "act-1",
+        // Builtins never carry triggers.
+        assert!(builtin.triggers.is_empty());
+    }
+
+    /// SLOP-2: a team's REAL `Tidy up` row (exact name) hides the builtin.
+    #[test]
+    fn own_tidy_up_action_is_matched_by_exact_name() {
+        assert!(has_own_tidy_up_action(["Groom", "Tidy up"].into_iter()));
+        assert!(!has_own_tidy_up_action(["Groom", "tidy up", "Tidy up "].into_iter()));
+        assert!(!has_own_tidy_up_action(std::iter::empty()));
+    }
+
+    /// SLOP-2: `triggers` rides `actions.list`/`get` as loose JSON, and the
+    /// update sends the whole array (omitted when untouched).
+    #[test]
+    fn triggers_decode_tolerantly_and_update_as_a_whole_array() {
+        let action: Action = serde_json::from_value(serde_json::json!({
+            "id": "act-1", "teamId": "team-1", "name": "Groom",
+            "triggers": [{"id": "t-1", "deviceId": "d-1", "kind": "moon_phase"}],
+        }))
+        .unwrap();
+        assert_eq!(action.triggers.len(), 1, "an unknown kind still decodes");
+        for absent in [
+            serde_json::json!({"id": "a", "teamId": "t", "name": "n"}),
+            serde_json::json!({"id": "a", "teamId": "t", "name": "n", "triggers": null}),
         ] {
-            assert!(!is_automatable_builtin_id(id), "{id}");
+            assert!(serde_json::from_value::<Action>(absent).unwrap().triggers.is_empty());
         }
+
+        let mut update = ActionUpdate::new("act-1");
+        assert_eq!(
+            serde_json::to_value(&update).unwrap(),
+            serde_json::json!({"id": "act-1"})
+        );
+        update.triggers = Some(Vec::new());
+        assert_eq!(
+            serde_json::to_value(&update).unwrap(),
+            serde_json::json!({"id": "act-1", "triggers": []}),
+            "an empty array deliberately clears them"
+        );
+
+        let row: domain::rows::ActionRow = serde_json::from_value(serde_json::json!({
+            "id": "act-1", "team_id": "team-1", "name": "Groom",
+            "triggers": "[{\"id\":\"t-1\"}]",
+        }))
+        .unwrap();
+        assert_eq!(from_row(&row).triggers, vec![serde_json::json!({"id": "t-1"})]);
     }
 
     #[test]

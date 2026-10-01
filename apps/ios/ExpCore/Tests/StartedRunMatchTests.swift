@@ -70,10 +70,10 @@ final class StartedRunMatchTests: XCTestCase {
         )
     }
 
-    // EXP-530: an automation-started run carries the same action-name
+    // EXP-530: a trigger-started run carries the same action-name
     // snapshot — a user's pending start watch must never grab it, or a
     // schedule firing in the window hijacks the navigation.
-    func testActionRunIgnoresAutomationStartedRows() {
+    func testActionRunIgnoresTriggerStartedRows() {
         XCTAssertFalse(
             matches(
                 session(actionName: "Fix merge conflicts", startedReason: "schedule"),
@@ -112,9 +112,9 @@ final class StartedRunMatchTests: XCTestCase {
         XCTAssertFalse(matches(session(), .resumed(fromId: "sess-old")))
     }
 
-    // Only a person resumes a run, so an automation-started row can never be
+    // Only a person resumes a run, so a trigger-started row can never be
     // this send (the same rule the action key already applies).
-    func testResumedRunIgnoresAutomationStartedRows() {
+    func testResumedRunIgnoresTriggerStartedRows() {
         XCTAssertFalse(
             matches(
                 session(startedReason: "schedule", resumedFromId: "sess-old"),

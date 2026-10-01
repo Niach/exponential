@@ -6,11 +6,12 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-// EXP-583: the tolerant when-part trigger parse (anything malformed reads as
-// "no trigger", never a throw), the shared summary strings (byte-matching web
-// `triggerSummary` / iOS `AutomationTriggerDisplay.summary`), the automation
-// note the create sheet appends (byte-matching web `formatAutomationBlock`)
-// and the next-run schedule math in a fixed viewer timezone.
+// EXP-583 / SLOP-2: the tolerant when-part parse (anything malformed reads as
+// "no trigger", never a throw), the stored trigger read off `actions.triggers`
+// (`parseActionTriggers`), the row glyph rule (`triggerBadges`), the shared
+// summary strings (byte-matching web `triggerSummary`), the trigger block a
+// suggestion appends (byte-matching web `formatTriggerBlock`) and the next-run
+// schedule math in a fixed viewer timezone.
 class AutomationTriggerTest {
 
     // ── Tolerant parse ───────────────────────────────────────────────────────
@@ -45,10 +46,9 @@ class AutomationTriggerTest {
     }
 
     @Test
-    fun theDeadDeviceAndEnabledFieldsAreIgnored() {
-        // EXP-530 rows carried deviceId/enabled INSIDE the trigger; they are
-        // columns on the automations row now and must simply be ignored here
-        // (a legacy payload still parses).
+    fun theRunnerFieldsBesideTheWhenPartAreIgnored() {
+        // A stored trigger carries its runner (id, deviceId, enabled, pins)
+        // BESIDE the when-part keys; the when-part parse simply ignores them.
         assertEquals(
             AutomationTrigger.Event(event = "created"),
             AutomationTrigger.parse(
@@ -58,7 +58,7 @@ class AutomationTriggerTest {
     }
 
     @Test
-    fun malformedTriggersReadAsNoAutomation() {
+    fun malformedTriggersReadAsNoTrigger() {
         assertNull(AutomationTrigger.parse(null))
         assertNull(AutomationTrigger.parse(""))
         assertNull(AutomationTrigger.parse("not json"))
@@ -192,32 +192,183 @@ class AutomationTriggerTest {
         assertEquals(trigger, AutomationTrigger.parse(trigger.toWireJsonString()))
     }
 
-    // ── The automation note (byte-locked, web formatAutomationBlock) ─────────
+    // ── Event source (SLOP-2) ────────────────────────────────────────────────
 
     @Test
-    fun descriptionBlockMatchesTheWebFormat() {
+    fun anAbsentOrExponentialSourceReadsAndAForeignOneDoesNot() {
+        val created = AutomationTrigger.Event(event = "created")
+        assertEquals(created, AutomationTrigger.parse("""{"kind":"event","event":"created"}"""))
         assertEquals(
-            "\n\nAutomation — after creating the action, call " +
-                "exponential_automations_create with its id and exactly these fields: " +
-                "`{\"deviceId\":\"d\",\"trigger\":" +
-                "{\"kind\":\"schedule\",\"interval\":\"daily\",\"minuteOfDay\":420}}`. " +
-                "An automated run fills no inputs, so declare none as required.",
-            formatAutomationBlock(
-                AutomationTrigger.Schedule(interval = "daily", minuteOfDay = 420),
-                deviceId = "d",
+            created,
+            AutomationTrigger.parse("""{"kind":"event","source":"exponential","event":"created"}"""),
+        )
+        // A FUTURE source reads as "never fires" on this build.
+        assertNull(
+            AutomationTrigger.parse("""{"kind":"event","source":"github","event":"created"}"""),
+        )
+        assertNull(AutomationTrigger.parse("""{"kind":"event","source":null,"event":"created"}"""))
+    }
+
+    // ── Stored triggers (actions.triggers) ───────────────────────────────────
+
+    @Test
+    fun parsesAStoredTriggerWithItsRunner() {
+        assertEquals(
+            listOf(
+                ActionTrigger(
+                    id = "t-1",
+                    enabled = false,
+                    deviceId = "d-1",
+                    agent = "claude",
+                    account = "work",
+                    model = "opus",
+                    effort = "high",
+                    whenPart = AutomationTrigger.Schedule(interval = "daily", minuteOfDay = 540),
+                ),
+                ActionTrigger(
+                    id = "t-2",
+                    deviceId = "d-2",
+                    whenPart = AutomationTrigger.Event(
+                        event = "label_added",
+                        filters = AutomationTriggerFilters(labelIds = listOf("l1")),
+                    ),
+                ),
+            ),
+            parseActionTriggers(
+                """[{"id":"t-1","enabled":false,"deviceId":"d-1","agent":"claude",""" +
+                    """"account":"work","model":"opus","effort":"high",""" +
+                    """"kind":"schedule","interval":"daily","minuteOfDay":540},""" +
+                    """{"id":"t-2","deviceId":"d-2","kind":"event","source":"exponential",""" +
+                    """"event":"label_added","filters":{"labelIds":["l1"]}}]""",
             ),
         )
     }
 
     @Test
-    fun theNoteCarriesTheLaunchPinsOnlyWhenSet() {
+    fun onlyAnExplicitFalsePauses() {
+        fun enabled(flag: String) = parseActionTriggers(
+            """[{"id":"t","deviceId":"d",$flag"kind":"schedule","interval":"daily","minuteOfDay":0}]""",
+        ).single().enabled
+        assertEquals(true, enabled(""))
+        assertEquals(true, enabled(""""enabled":true,"""))
+        assertEquals(true, enabled(""""enabled":null,"""))
+        assertEquals(true, enabled(""""enabled":"false","""))
+        assertEquals(false, enabled(""""enabled":false,"""))
+    }
+
+    @Test
+    fun unreadableStoredTriggersAreSkippedInOrder() {
+        val triggers = parseActionTriggers(
+            "[" +
+                // No id.
+                """{"deviceId":"d","kind":"schedule","interval":"daily","minuteOfDay":0},""" +
+                // A non-string id.
+                """{"id":7,"deviceId":"d","kind":"schedule","interval":"daily","minuteOfDay":0},""" +
+                """{"id":"keep-1","deviceId":"d","kind":"schedule","interval":"daily","minuteOfDay":0},""" +
+                // No device.
+                """{"id":"x","kind":"event","event":"created"},""" +
+                // An unreadable when-part (future kind, foreign source).
+                """{"id":"y","deviceId":"d","kind":"webhook"},""" +
+                """{"id":"z","deviceId":"d","kind":"event","source":"github","event":"created"},""" +
+                // Not an object at all.
+                """"nope",null,""" +
+                """{"id":"keep-2","deviceId":"d","kind":"event","event":"created","agent":""}""" +
+                "]",
+        )
+        assertEquals(listOf("keep-1", "keep-2"), triggers.map { it.id })
+        // An empty pin is an unset one.
+        assertNull(triggers[1].agent)
+    }
+
+    @Test
+    fun aNonArrayTriggersColumnReadsAsNoTriggers() {
+        assertEquals(emptyList<ActionTrigger>(), parseActionTriggers(null as String?))
+        assertEquals(emptyList<ActionTrigger>(), parseActionTriggers(""))
+        assertEquals(emptyList<ActionTrigger>(), parseActionTriggers("not json"))
+        assertEquals(emptyList<ActionTrigger>(), parseActionTriggers("""{"id":"t"}"""))
+        assertEquals(emptyList<ActionTrigger>(), parseActionTriggers("[]"))
+    }
+
+    // ── Row glyphs ───────────────────────────────────────────────────────────
+
+    private fun stored(id: String, enabled: Boolean, whenPart: AutomationTrigger) =
+        ActionTrigger(id = id, enabled = enabled, deviceId = "d", whenPart = whenPart)
+
+    private val daily = AutomationTrigger.Schedule(interval = "daily", minuteOfDay = 540)
+    private val onCreated = AutomationTrigger.Event(event = "created")
+
+    @Test
+    fun badgesDrawAKindOnceAndMuteItWhileNoneOfItIsEnabled() {
+        assertEquals(TriggerBadges(), triggerBadges(emptyList()))
         assertEquals(
-            "\n\nAutomation — after creating the action, call " +
-                "exponential_automations_create with its id and exactly these fields: " +
-                "`{\"deviceId\":\"d\",\"trigger\":{\"kind\":\"event\",\"event\":\"created\"}," +
-                "\"agent\":\"codex\",\"effort\":\"high\"}`. " +
-                "An automated run fills no inputs, so declare none as required.",
-            formatAutomationBlock(
+            TriggerBadges(schedule = TriggerBadge(active = true)),
+            triggerBadges(listOf(stored("a", false, daily), stored("b", true, daily))),
+        )
+        assertEquals(
+            TriggerBadges(
+                schedule = TriggerBadge(active = false),
+                event = TriggerBadge(active = true),
+            ),
+            triggerBadges(listOf(stored("a", false, daily), stored("b", true, onCreated))),
+        )
+        assertEquals(
+            TriggerBadges(event = TriggerBadge(active = false)),
+            triggerBadges(listOf(stored("a", false, onCreated))),
+        )
+    }
+
+    @Test
+    fun aSuggestionSeedWearsItsOwnKindActive() {
+        assertEquals(TriggerBadges(), triggerBadges(null as AutomationTrigger?))
+        assertEquals(TriggerBadges(schedule = TriggerBadge(active = true)), triggerBadges(daily))
+        assertEquals(TriggerBadges(event = TriggerBadge(active = true)), triggerBadges(onCreated))
+    }
+
+    @Test
+    fun aScheduleCaptionCarriesTheDeviceTimeCaveat() {
+        assertEquals("Daily at 09:00 (device time)", triggerCaption(daily))
+        assertEquals("When an issue is created", triggerCaption(onCreated))
+    }
+
+    // ── Run titles (×4, web actionRunTitle) ──────────────────────────────────
+
+    @Test
+    fun aRunInItsActionsRunsListIsTitledByWhatStartedIt() {
+        assertEquals("Scheduled run", actionRunTitle("schedule"))
+        assertEquals("Event run", actionRunTitle("event"))
+        // Another run started it — today's reasons and any added later.
+        assertEquals("Agent run", actionRunTitle("agent"))
+        assertEquals("Agent run", actionRunTitle("workflow"))
+        assertEquals("Manual run", actionRunTitle(null))
+        assertEquals("Manual run", actionRunTitle(""))
+    }
+
+    // ── The trigger block (byte-locked ×4, web formatTriggerBlock) ───────────
+
+    @Test
+    fun theTriggerBlockMatchesTheSharedExample() {
+        assertEquals(
+            "\n\nTrigger — after creating the action, call exponential_actions_update " +
+                "with its id and `triggers` set to exactly this array: " +
+                "`[{\"kind\":\"schedule\",\"interval\":\"daily\",\"minuteOfDay\":540," +
+                "\"deviceId\":\"d-1\"}]`. " +
+                "A triggered run fills no inputs, so declare none as required.",
+            formatTriggerBlock(
+                AutomationTrigger.Schedule(interval = "daily", minuteOfDay = 540),
+                deviceId = "d-1",
+            ),
+        )
+    }
+
+    @Test
+    fun theTriggerBlockCarriesTheLaunchPinsOnlyWhenSet() {
+        assertEquals(
+            "\n\nTrigger — after creating the action, call exponential_actions_update " +
+                "with its id and `triggers` set to exactly this array: " +
+                "`[{\"kind\":\"event\",\"event\":\"created\",\"deviceId\":\"d\"," +
+                "\"agent\":\"codex\",\"effort\":\"high\"}]`. " +
+                "A triggered run fills no inputs, so declare none as required.",
+            formatTriggerBlock(
                 AutomationTrigger.Event(event = "created"),
                 deviceId = "d",
                 agent = "codex",

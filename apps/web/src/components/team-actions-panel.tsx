@@ -1,12 +1,10 @@
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import type { Automation, SyncedAction, Team } from "@/db/schema"
-import { actionCollection, automationCollection } from "@/lib/collections"
-import {
-  BUILTIN_CREATE_ACTION_ID,
-  builtinFixConflictsAction,
-  builtinTidyUpAction,
-} from "@/lib/builtin-actions"
+import { useNavigate, useParams } from "@tanstack/react-router"
+import type { SyncedAction, Team } from "@/db/schema"
+import { actionCollection } from "@/lib/collections"
+import { BUILTIN_CREATE_ACTION_ID } from "@/lib/builtin-actions"
+import { parseActionTriggers, triggerBadges } from "@/lib/action-triggers"
 import { LoaderCircle, Ellipsis, Pencil, Trash2 } from "lucide-react"
 import {
   conceptIcon,
@@ -34,19 +32,13 @@ import {
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import { useSteerConfig } from "@/components/agent-session"
-import {
-  ActionEditorDialog,
-  type ActionRepoOption,
-  type TeamAction,
-} from "@/components/action-editor-dialog"
+import type { TeamAction } from "@/components/action-prompt-form"
+import { TriggerGlyph } from "@/components/action-triggers-section"
 import { useOpenComposer } from "@/hooks/use-open-composer"
 import { SuggestionsButton } from "@/components/getting-started/getting-started-sheet"
-import { AutomationsTab } from "@/components/automations-tab"
 import {
   ActionSuggestionsPanel,
 } from "@/components/action-suggestions-list"
-import { useRemoteStart } from "@/hooks/use-remote-start"
-import { useSession } from "@/hooks/use-session"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import {
   PinToggleMenuItem,
@@ -54,27 +46,24 @@ import {
 } from "@/components/pin-toggle-button"
 
 // The team Actions surface (EXP-257/EXP-530), extracted from the Agents route
-// in EXP-574. EXP-686 split it across three routes: on a desktop viewport
-// `/actions` renders the actions LIST and `/automations` the automations one,
-// each a single view with no tab strip; on mobile `/actions` keeps the
-// native-parity Actions · Automations · Suggestions tabs, driven by `?tab=`.
-// Suggestions moved to Getting started on desktop — the lightbulb in the
-// section header goes there.
+// in EXP-574: ONE list of actions (SLOP-2 — an action carries its triggers,
+// so there is no separate automations list). On a desktop viewport `/actions`
+// renders the list alone; on mobile it keeps the native-parity Actions ·
+// Suggestions tabs, driven by `?tab=`. Suggestions live in Getting started on
+// desktop — the lightbulb in the section header goes there. A row opens the
+// action's page (`actions/$actionId`: prompt, triggers, runs).
 
 // EXP-431: the create entry points share the cross-client `action-create`
 // concept (desktop's `registry::ACTION_CREATE`), never a raw glyph.
 const ActionCreateIcon = conceptIcon(`action-create`)
-// EXP-530: the automation glyph is a cross-client concept too.
-const ActionAutomationIcon = conceptIcon(`action-automation`)
 // EXP-615: running is a play icon button on every client — no text label.
 const ActionRunIcon = conceptIcon(`action-run`)
 
-/** Which of the three surfaces this panel renders. `tabs` is the mobile
- * Actions page (all three behind a tab strip); the other two are the desktop
- * routes, each a single view. */
-export type ActionsPanelView = `tabs` | `actions` | `automations`
+/** Which surface this panel renders. `tabs` is the mobile Actions page (the
+ * list and the suggestions behind a tab strip); `actions` the desktop one. */
+export type ActionsPanelView = `tabs` | `actions`
 /** The mobile tab strip's value — also the `?tab=` search param. */
-export type ActionsPanelTab = `actions` | `automations` | `suggestions`
+export type ActionsPanelTab = `actions` | `suggestions`
 
 // The row's ⋯ menu — hidden entirely on the builtin (server-shipped, not
 // editable, deletable or pinnable). EXP-778: every member gets Pin/Unpin (a
@@ -134,51 +123,63 @@ export function ActionMenu({
 // EXP-257 desktop card grid unified onto this shape).
 function ActionRow({
   action,
-  automationCount,
   isOwner,
   canRun,
   onRun,
-  onEdit,
+  onOpen,
   onDelete,
 }: {
   action: TeamAction
-  /** How many automations target this action (EXP-583) — the schedules and
-   * event watchers themselves live on the Automations tab. */
-  automationCount: number
   isOwner: boolean
   canRun: boolean
   onRun: () => void
-  onEdit: () => void
+  onOpen: () => void
   onDelete: () => void
 }) {
   const RowIcon = getActionIcon(action)
+  // SLOP-2: which trigger kinds the action carries — a glyph each beside the
+  // name, muted while none of that kind is enabled. The triggers themselves
+  // are on the action's page.
+  const badges = triggerBadges(
+    action.builtin ? [] : parseActionTriggers(action.triggers)
+  )
   return (
-    // EXP-862: every flat row takes the hover wash; an owner's row opens the
-    // editor (the ▶ and the menu stop the click underneath them).
+    // EXP-862: every flat row takes the hover wash; a row opens the action's
+    // page (the ▶ and the menu stop the click underneath them).
     <ListRow
       interactive
-      onClick={isOwner && !action.builtin ? onEdit : undefined}
+      onClick={action.builtin ? undefined : onOpen}
       // A clickable row is a button to assistive tech; without its own name
       // it would be called after everything inside it, including the "..."
       // menu's label, and mask that control.
-      aria-label={isOwner && !action.builtin ? action.name : undefined}
+      aria-label={action.builtin ? undefined : action.name}
     >
       <RowIcon className="size-4 shrink-0 text-foreground/70" />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5 text-sm">
           <span className="truncate font-medium">{action.name}</span>
+          {([`schedule`, `event`] as const).map((kind) => {
+            const badge = badges[kind]
+            if (!badge) return null
+            const label =
+              kind === `schedule` ? `Runs on a schedule` : `Runs on an event`
+            return (
+              <span
+                key={kind}
+                title={badge.active ? label : `${label} (paused)`}
+                className="flex shrink-0 items-center"
+              >
+                <TriggerGlyph
+                  kind={kind}
+                  className={`size-3 ${badge.active ? `text-muted-foreground` : `text-muted-foreground/40`}`}
+                />
+              </span>
+            )
+          })}
         </div>
         {action.description && (
           <div className="line-clamp-2 text-xs text-muted-foreground">
             {action.description}
-          </div>
-        )}
-        {automationCount > 0 && (
-          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-            <ActionAutomationIcon className="size-3 shrink-0" />
-            <span className="truncate">
-              {`${automationCount} ${automationCount === 1 ? `automation` : `automations`}`}
-            </span>
           </div>
         )}
       </div>
@@ -201,12 +202,69 @@ function ActionRow({
           <ActionMenu
             action={action}
             isOwner={isOwner}
-            onEdit={onEdit}
+            onEdit={onOpen}
             onDelete={onDelete}
           />
         </span>
       )}
     </ListRow>
+  )
+}
+
+/** The delete confirm — the list's row menu and the action page's menu. */
+export function DeleteActionDialog({
+  action,
+  onClose,
+  onDeleted,
+}: {
+  /** The action to delete; null = closed. */
+  action: TeamAction | null
+  onClose: () => void
+  onDeleted?: () => void
+}) {
+  const [deleting, setDeleting] = useState(false)
+  const confirmDelete = async () => {
+    if (!action) return
+    setDeleting(true)
+    try {
+      // Failures surface via the global mutation-error toast; the synced
+      // collection drops the row.
+      await trpc.actions.delete.mutate({ id: action.id })
+      onClose()
+      onDeleted?.()
+    } catch {
+      // Toast already shown; keep the confirm open for a retry.
+    } finally {
+      setDeleting(false)
+    }
+  }
+  return (
+    <Dialog
+      open={action !== null}
+      onOpenChange={(next) => {
+        if (!next && !deleting) onClose()
+      }}
+    >
+      <DialogContent mobile="alert" className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Delete action</DialogTitle>
+          <DialogDescription>
+            {`Delete "${action?.name ?? ``}"? Its triggers go with it. Live runs keep going and keep their label; this cannot be undone.`}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <DialogCancel onClick={onClose} disabled={deleting} />
+          <Button
+            variant="destructive"
+            onClick={() => void confirmDelete()}
+            disabled={deleting}
+          >
+            {deleting ? <LoaderCircle className="animate-spin" /> : <Trash2 />}
+            Delete
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -230,48 +288,27 @@ export function TeamActionsPanel({
   view,
   tab = `actions`,
   onTabChange,
-  editActionId = null,
-  onEditActionConsumed,
-  editAutomationId = null,
-  onEditAutomationConsumed,
 }: {
   team: Team
   view: ActionsPanelView
   /** `tabs` view only — the controlled tab, i.e. the route's `?tab=`. */
   tab?: ActionsPanelTab
   onTabChange?: (tab: ActionsPanelTab) => void
-  /** EXP-694: the route's one-shot `?editAction=` — a session row's trailing
-   * button opening the action it ran. Cleared through the callback as soon as
-   * the synced row is there to edit. */
-  editActionId?: string | null
-  onEditActionConsumed?: () => void
-  /** EXP-694: the same for `?editAutomation=`, handed to the Automations tab
-   * (the only view that hosts the automation editor). */
-  editAutomationId?: string | null
-  onEditAutomationConsumed?: () => void
 }) {
-  const { data: session } = useSession()
   const { isMember, isOwner } = useTeamPermissions(team)
   const steerConfig = useSteerConfig()
+  const navigate = useNavigate()
+  const { teamSlug } = useParams({ strict: false })
 
-  const currentUserId = session?.user?.id
   const teamId = team.id
   // Steer tickets require team membership and a configured relay; the
   // server enforces both at mint time, this only decides whether the
   // interactive affordances render.
   const steerEnabled = Boolean(isMember && steerConfig?.enabled)
-
-  // EXP-825: the devices ride only the Automations tab's runner picker now —
-  // Run / New action are navigations to the Agent page composer.
-  const remote = useRemoteStart({
-    enabled: steerEnabled,
-    currentUserId,
-    teamId,
-  })
   const openComposer = useOpenComposer()
 
   // Actions ride the Electric `actions` shape since EXP-268 (body excluded —
-  // editors fetch it via tRPC on open), so a builtin "Create action" run's
+  // the action page fetches it via tRPC), so a builtin "Create action" run's
   // MCP-authored action just appears; no refetch machinery.
   const { data: actionRows } = useLiveQuery(
     (query) =>
@@ -279,29 +316,9 @@ export function TeamActionsPanel({
     [teamId]
   )
 
-  // EXP-583: automations are their own synced rows — the Actions tab only
-  // shows how many target each action; the rows themselves live one tab over.
-  const { data: automationRows } = useLiveQuery(
-    (query) =>
-      query
-        .from({ au: automationCollection })
-        .where(({ au }) => eq(au.teamId, teamId)),
-    [teamId]
-  )
-  const automationCountByAction = useMemo(() => {
-    const counts = new Map<string, number>()
-    for (const automation of (automationRows ?? []) as Automation[]) {
-      counts.set(
-        automation.actionId,
-        (counts.get(automation.actionId) ?? 0) + 1
-      )
-    }
-    return counts
-  }, [automationRows])
-
   // The synced rows re-apply the server's ordering (sortOrder asc, then name
-  // — collections hydrate unordered). Neither builtin is LISTED: "Create
-  // action" lives behind the section's own "New action" button (EXP-431), and
+  // — collections hydrate unordered). No builtin is LISTED: "Create action"
+  // lives behind the section's own "New action" button (EXP-431), and
   // EXP-686 hid "Fix merge conflicts" too — it is launched from Reviews and
   // over MCP, never picked out of this list.
   const sortedActions = useMemo<TeamAction[] | null>(() => {
@@ -311,83 +328,22 @@ export function TeamActionsPanel({
       .map((row) => ({ ...row, builtin: false as const }))
   }, [isMember, actionRows])
 
-  // …but the Automations tab still has to NAME a fix-conflicts run and a
-  // tidy-up automation (FEED-50), so its lookup pool keeps both builtins.
-  const automationActions = useMemo<TeamAction[] | null>(
-    () =>
-      sortedActions === null
-        ? null
-        : [
-            builtinTidyUpAction(teamId),
-            builtinFixConflictsAction(teamId),
-            ...sortedActions,
-          ],
-    [teamId, sortedActions]
-  )
-
-  // Repo names for the badges + the editor's repository select.
-  const [repos, setRepos] = useState<ActionRepoOption[]>([])
-  useEffect(() => {
-    if (!isMember) return
-    let active = true
-    trpc.repositories.list
-      .query({ teamId })
-      .then(
-        (rows) =>
-          active &&
-          setRepos(rows.map((r) => ({ id: r.id, fullName: r.fullName })))
-      )
-      .catch(() => {})
-    return () => {
-      active = false
-    }
-  }, [teamId, isMember])
-  const [editorOpen, setEditorOpen] = useState(false)
-  const [editing, setEditing] = useState<TeamAction | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<TeamAction | null>(null)
-  const [deleting, setDeleting] = useState(false)
-
-  // EXP-694: the route's one-shot edit request, honoured as soon as the
-  // synced rows carry the action (a deleted or not-yet-synced id just
-  // clears — the button that sent it is a shortcut, not a guarantee). A
-  // non-owner gets the SAME dialog read-only (`readOnly` below): every member
-  // may run an action, so every member may read the prompt they ran.
-  useEffect(() => {
-    if (!editActionId || sortedActions === null) return
-    const target = sortedActions.find((action) => action.id === editActionId)
-    onEditActionConsumed?.()
-    if (!target) return
-    setEditing(target)
-    setEditorOpen(true)
-  }, [editActionId, sortedActions, onEditActionConsumed])
-
-  const confirmDelete = async () => {
-    if (!deleteTarget) return
-    setDeleting(true)
-    try {
-      // Failures surface via the global mutation-error toast; the synced
-      // collection drops the row.
-      await trpc.actions.delete.mutate({ id: deleteTarget.id })
-      setDeleteTarget(null)
-    } catch {
-      // Toast already shown; keep the confirm open for a retry.
-    } finally {
-      setDeleting(false)
-    }
-  }
 
   if (!isMember) return null
 
   const actionItemProps = (action: TeamAction) => ({
     action,
-    automationCount: automationCountByAction.get(action.id) ?? 0,
     isOwner,
     canRun: steerEnabled,
     // EXP-825: the composer with this action as the subject chip.
     onRun: () => openComposer({ actionId: action.id }),
-    onEdit: () => {
-      setEditing(action)
-      setEditorOpen(true)
+    onOpen: () => {
+      if (!teamSlug) return
+      void navigate({
+        to: `/t/$teamSlug/actions/$actionId`,
+        params: { teamSlug, actionId: action.id },
+      })
     },
     onDelete: () => setDeleteTarget(action),
   })
@@ -433,19 +389,6 @@ export function TeamActionsPanel({
     </>
   )
 
-  const automationsSection = (
-    <AutomationsTab
-      actions={automationActions}
-      devices={remote.devices ?? []}
-      isOwner={isOwner}
-      steerEnabled={steerEnabled}
-      teamId={teamId}
-      showSuggestions={showSuggestions}
-      editAutomationId={editAutomationId}
-      onEditAutomationConsumed={onEditAutomationConsumed}
-    />
-  )
-
   return (
     <>
       {view === `tabs` ? (
@@ -458,65 +401,24 @@ export function TeamActionsPanel({
             <TabsTrigger value="actions" className="flex-1">
               Actions
             </TabsTrigger>
-            <TabsTrigger value="automations" className="flex-1">
-              Automations
-            </TabsTrigger>
             <TabsTrigger value="suggestions" className="flex-1">
               Suggestions
             </TabsTrigger>
           </TabsList>
 
           <TabsContent value="actions">{actionsSection}</TabsContent>
-          <TabsContent value="automations">{automationsSection}</TabsContent>
           <TabsContent value="suggestions">
             <ActionSuggestionsPanel team={team} />
           </TabsContent>
         </Tabs>
-      ) : view === `actions` ? (
-        actionsSection
       ) : (
-        automationsSection
+        actionsSection
       )}
 
-      {editing && (
-        <ActionEditorDialog
-          open={editorOpen}
-          onOpenChange={setEditorOpen}
-          repos={repos}
-          action={editing}
-          readOnly={!isOwner}
-        />
-      )}
-
-      <Dialog
-        open={deleteTarget !== null}
-        onOpenChange={(next) => {
-          if (!next && !deleting) setDeleteTarget(null)
-        }}
-      >
-        <DialogContent mobile="alert" className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Delete action</DialogTitle>
-            <DialogDescription>
-              {`Delete "${deleteTarget?.name ?? ``}"? Live runs keep going and keep their label; this cannot be undone.`}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogCancel
-              onClick={() => setDeleteTarget(null)}
-              disabled={deleting}
-            />
-            <Button
-              variant="destructive"
-              onClick={() => void confirmDelete()}
-              disabled={deleting}
-            >
-              {deleting ? <LoaderCircle className="animate-spin" /> : <Trash2 />}
-              Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DeleteActionDialog
+        action={deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+      />
     </>
   )
 }

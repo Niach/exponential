@@ -77,7 +77,6 @@ fun entityConceptIcon(concept: String): ImageVector? = when (concept) {
     "ui-issue" -> ExpIcons.uiIssue
     "nav-boards" -> ExpIcons.navBoards
     "nav-actions" -> ExpIcons.navActions
-    "nav-automations" -> ExpIcons.navAutomations
     "notification-issue-comment" -> ExpIcons.notificationIssueComment
     "coding-running" -> ExpIcons.codingRunning
     "settings-labels" -> ExpIcons.settingsLabels

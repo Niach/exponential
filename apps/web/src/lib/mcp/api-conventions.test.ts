@@ -206,12 +206,8 @@ describe(`no hand-copied enums (EXP-707 theme H)`, () => {
     expect(category.safeParse(`bogus`).success).toBe(false)
   })
 
-  it(`automation agent params share the contract enum`, () => {
-    for (const tool of [
-      `exponential_automations_create`,
-      `exponential_automations_update`,
-      `exponential_sessions_start`,
-    ]) {
+  it(`agent params share the contract enum`, () => {
+    for (const tool of [`exponential_sessions_start`]) {
       const agent = paramSchema(tool, `agent`)
       for (const value of contract.codingAgent.values) {
         expect(agent.safeParse(value).success, `${tool}:${value}`).toBe(true)
@@ -227,8 +223,7 @@ describe(`envelope + projection drift (EXP-707 themes E/I)`, () => {
   it(`no tRPC router returns lowercase txid`, () => {
     // The SQL alias inside lib/trpc.ts generateTxId is the one legit use.
     const dir = join(webSrc, `lib`, `trpc`)
-    const files = readFileSync(join(dir, `automations.ts`), `utf8`)
-      .concat(readFileSync(join(dir, `steer.ts`), `utf8`))
+    const files = readFileSync(join(dir, `steer.ts`), `utf8`)
       .concat(readFileSync(join(dir, `issues.ts`), `utf8`))
       .concat(readFileSync(join(dir, `boards.ts`), `utf8`))
       .concat(readFileSync(join(dir, `actions.ts`), `utf8`))

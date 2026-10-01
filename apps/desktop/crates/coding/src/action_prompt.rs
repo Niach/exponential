@@ -301,10 +301,11 @@ reaches the run as an Additional instructions section. `exponential_actions_crea
 also accepts an optional `promptPlaceholder` (≤200 chars): a short hint for what the \
 requester should type there (e.g. \"Scope: which platforms, which version\"), shown as \
 the composer's field placeholder while the action is picked — set one when the action \
-expects that text; otherwise omit it. `exponential_actions_create` also accepts an \
-optional `trigger` field: when the request contains an \"Automation —\" block, pass \
-that block's JSON as `trigger` verbatim; otherwise omit `trigger`. Do not commit, \
-push, or change any files — only call the MCP tools. {report_rule}"
+expects that text; otherwise omit it. When the request contains a \"Trigger —\" \
+block, follow it once the action exists: call `exponential_actions_update` with the \
+new action's id and `triggers` set to exactly that block's array; otherwise set no \
+triggers. Do not commit, push, or change any files — only call the MCP tools. \
+{report_rule}"
     )
 }
 
@@ -1195,11 +1196,14 @@ changed:\n\n"));
         // EXP-825: the composer hint the authored action may carry.
         assert!(prompt.contains("optional `promptPlaceholder` (≤200 chars)"));
         assert!(prompt.contains("otherwise omit it."));
-        // EXP-530: an "Automation —" block in the description becomes the
-        // `trigger` field, verbatim — otherwise the field stays absent.
-        assert!(prompt.contains("optional `trigger` field"));
-        assert!(prompt.contains("\"Automation —\" block"));
-        assert!(prompt.contains("otherwise omit `trigger`"));
+        // EXP-530/SLOP-2: a "Trigger —" block in the request becomes the new
+        // action's `triggers`, verbatim, through `actions_update` (create
+        // takes none) — otherwise the action gets no trigger.
+        assert!(prompt.contains("contains a \"Trigger —\" block"));
+        assert!(prompt.contains("`exponential_actions_update`"));
+        assert!(prompt.contains("`triggers` set to exactly that block's array"));
+        assert!(prompt.contains("otherwise set no triggers"));
+        assert!(!prompt.contains("Automation"));
         // Read-only w.r.t. the tree — this run must not commit or push.
         assert!(prompt.contains("Do not commit, push"));
         // No repo input → Claude decides (default: leave repositoryId unset).
@@ -1257,27 +1261,27 @@ Additional instructions section. `exponential_actions_create` also accepts an \
 optional `promptPlaceholder` (≤200 chars): a short hint for what the requester \
 should type there (e.g. \"Scope: which platforms, which version\"), shown as the \
 composer's field placeholder while the action is picked — set one when the action \
-expects that text; otherwise omit it. `exponential_actions_create` also accepts an \
-optional `trigger` field: when the request contains an \"Automation —\" block, pass \
-that block's JSON as `trigger` verbatim; otherwise omit `trigger`. Do not commit, \
-push, or change any files — only call the MCP tools. After the action is created, \
-report what you created here; the session stays open afterwards, so keep answering \
-follow-ups."
+expects that text; otherwise omit it. When the request contains a \"Trigger —\" \
+block, follow it once the action exists: call `exponential_actions_update` with the \
+new action's id and `triggers` set to exactly that block's array; otherwise set no \
+triggers. Do not commit, push, or change any files — only call the MCP tools. After \
+the action is created, report what you created here; the session stays open \
+afterwards, so keep answering follow-ups."
         );
         // The retired input types never come back into the declared set.
         assert!(!prompt.contains("text|"));
         assert!(!prompt.contains("textarea"));
         assert!(!prompt.contains("Name the action exactly"));
-        // A multi-line request rides verbatim (an "Automation —" block is
+        // A multi-line request rides verbatim (a "Trigger —" block is
         // multi-line JSON the agent must copy).
         let block = create_action_prompt(
             "team-123",
-            "triage\n\nAutomation —\n{\"kind\":\"schedule\"}",
+            "triage\n\nTrigger —\n[{\"kind\":\"schedule\"}]",
             None,
             None,
             false,
         );
-        assert!(block.contains("\"triage\n\nAutomation —\n{\"kind\":\"schedule\"}\""));
+        assert!(block.contains("\"triage\n\nTrigger —\n[{\"kind\":\"schedule\"}]\""));
         // EXP-679: only the unattended creator run names the close-out tool.
         let unattended =
             create_action_prompt("team-123", "review the backlog weekly", None, None, true);

@@ -3,8 +3,8 @@ import ExpUI
 import SwiftUI
 
 /// EXP-874: the ONE live-run row, Android's `AgentSessionsList` row as the
-/// reference — the Agent page's "Running" list and Automations' "Recent
-/// automated runs" (live runs; ended ones stay `EndedRunRow`).
+/// reference — the Agent page's "Running" list and an action's "Runs" (live
+/// runs; ended ones stay `EndedRunRow`).
 ///
 /// Line 1 is `SessionRowTitle` (dot, identifier for issue runs only, title);
 /// then the device-written caption on a live run, the status line

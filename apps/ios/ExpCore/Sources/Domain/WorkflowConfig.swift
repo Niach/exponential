@@ -3,7 +3,7 @@ import Foundation
 // EXP-981: the jsonb payloads a workflow and its nodes carry — `launch` (how
 // the run starts), `metrics` (the plan's shape, written by the server layout)
 // and a node's review. Electric delivers them as JSON values which the
-// entities store as stringified JSON (the `automations.trigger` pattern), so
+// entities store as stringified JSON (the `actions.triggers` pattern), so
 // every one of these parses TOLERANTLY: unknown keys are ignored and a missing
 // one falls back to its default rather than dropping the row.
 // Mirrors packages/db-schema domain.ts (`WorkflowLaunch`,

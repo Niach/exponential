@@ -44,7 +44,7 @@ import com.exponential.app.ui.theme.flatRow
 /**
  * EXP-981: the team's workflows. A phone has no sidebar, so this is a PUSHED
  * screen off the Agent page's `nav-workflows` button (web and the desktop put
- * the same list in the sidebar right after Automations).
+ * the same list in the sidebar).
  *
  * Three bands in order — Running, Draft, Done — as the app's standard filled
  * group band over FLAT rows (EXP-818): no row buttons, empty bands hidden,

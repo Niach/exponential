@@ -178,7 +178,7 @@ fun BottomNavBar(
                 active = devicesActive,
                 onClick = onDevices,
             )
-            // Actions (EXP-686): actions / automations / suggestions, no longer
+            // Actions (EXP-686): actions / suggestions, no longer
             // a push off the Devices header.
             TabItem(
                 icon = ExpIcons.navActions,

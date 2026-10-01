@@ -157,8 +157,8 @@ final class PastRunsTests: XCTestCase {
         XCTAssertTrue(PastRuns.select([session(id: "mine")], userId: "user-1", teamId: nil).isEmpty)
     }
 
-    /// EXP-676: automation runs live under Automations' "Recent automated
-    /// runs" and nowhere else.
+    /// EXP-676: triggered runs live under their action's Runs and nowhere
+    /// else.
     func testAScheduledRunNeverListsUnderPast() {
         let rows = PastRuns.select(
             [

@@ -14,8 +14,8 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // drop unknown columns safely (verified: iOS filters to its SQLite schema,
 // Android ignoreUnknownKeys + partial-plan filter, desktop serde non-strict),
 // so this needs no CLIENT_MIN_VERSION bump — same shape as the coding-sessions
-// `action_id`/`action_name` addition. EXP-530's `trigger` column was dropped
-// again in EXP-583 — automations are their own shape now.
+// `action_id`/`action_name` addition. SLOP-2: `triggers` (the action's
+// schedule/event triggers, each with its runner) rides the same way.
 const ACTION_COLUMNS = [
   `id`,
   `team_id`,
@@ -26,6 +26,7 @@ const ACTION_COLUMNS = [
   `inputs`,
   // EXP-825: the composer hint; unknown to older natives, dropped safely.
   `prompt_placeholder`,
+  `triggers`,
   `sort_order`,
   `created_at`,
   `updated_at`,

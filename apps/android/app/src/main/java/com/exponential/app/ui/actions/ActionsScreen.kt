@@ -1,6 +1,5 @@
 package com.exponential.app.ui.actions
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,17 +15,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,8 +28,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -43,121 +37,63 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.ActionDto
-import com.exponential.app.data.api.SteerDevice
-import com.exponential.app.data.api.builtinTidyUpAction
 import com.exponential.app.domain.AgentComposerSeed
-import com.exponential.app.data.db.AutomationEntity
-import com.exponential.app.data.db.CodingSessionEntity
-import com.exponential.app.domain.AutomationTrigger
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.SessionDevicePresentation
-import com.exponential.app.domain.pastRunByline
-import com.exponential.app.domain.formatAutomationBlock
-import com.exponential.app.domain.runHasEnded
-import com.exponential.app.domain.triggerSummary
+import com.exponential.app.domain.TriggerBadge
+import com.exponential.app.domain.TriggerBadges
+import com.exponential.app.domain.formatTriggerBlock
+import com.exponential.app.domain.triggerBadges
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.CircleIconButton
-import com.exponential.app.ui.components.EndedRunRow
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
-import com.exponential.app.ui.components.PillMode
-import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.GlassSegmentedControl
 import com.exponential.app.ui.components.SectionHeader
-import com.exponential.app.ui.components.SwitchThumb
 import com.exponential.app.ui.components.actionGlyph
-import com.exponential.app.ui.components.agentLabel
-import com.exponential.app.ui.components.effortLabel
-import com.exponential.app.ui.components.glassSwitchColors
-import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.issue.relativeTime
-import com.exponential.app.ui.session.RunningSessionRow
-import com.exponential.app.ui.steer.ActionRunState
-import com.exponential.app.ui.steer.SteerRunCaptionRow
-import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
 import com.exponential.app.ui.theme.glassRow
 
-// The Actions screen (EXP-253, view + run only — no manual edit on mobile):
-// the selected team's action prompts, each with a Run affordance. EXP-825:
-// Run NAVIGATES to the Agent page composer with the action preselected (the
-// ONE launcher — typed inputs, free text and the agent/model/device options
-// live there), the "Actions" header's "New action" (web-parity placement per
-// EXP-574) lands there on the "Create action" builtin, and a used suggestion
-// seeds that builtin with its description (+ automation note) and icon.
-// Neither client builtin is listed here: "Create action" left in EXP-431 and
-// "Fix merge conflicts" in EXP-686 (both pick from the composer's ▶ menu).
-// The Automations segment's Resume still reports back on this screen and
-// jumps into the desktop's row once it syncs.
+// The Actions screen (EXP-253): the selected team's action prompts, each with
+// a Run affordance. EXP-825: Run NAVIGATES to the Agent page composer with the
+// action preselected (the ONE launcher — typed inputs, free text and the
+// agent/model/device options live there), the "Actions" header's "New action"
+// (web-parity placement per EXP-574) lands there on the "Create action"
+// builtin, and a used suggestion seeds that builtin with its description
+// (+ trigger block) and icon. Neither client builtin is listed here: "Create
+// action" left in EXP-431 and "Fix merge conflicts" in EXP-686 (both pick from
+// the composer's ▶ menu).
 //
 // EXP-686 gave it its own bottom-bar tab (it used to be a push off the Agents
 // header, now Devices), so the screen is a ROOT surface: a plain header row,
 // no back button, and its lists clear the floating bar.
 //
-// EXP-530 splits the surface into three segments (the PersonalScreen
-// GlassSegmentedControl pattern): Actions (the plain list), Automations and
-// Suggestions (seed cards whose "Use" opens the create sheet prefilled).
-// EXP-583 made automations their OWN entity: an action carries no trigger
-// anymore, the Automations segment lists `automations` rows (action + trigger
-// + bound machine + agent pins) with an owner-only enable Switch, Edit +
-// Delete in the row overflow (EXP-615) and a "New automation" form sheet;
-// an action row only says HOW MANY automations point at it.
+// Two segments (the PersonalScreen GlassSegmentedControl pattern): Actions
+// (the list) and Suggestions (EXP-530: seed cards whose tap opens the composer
+// prefilled). SLOP-2: an action CARRIES its triggers — the Automations segment
+// is gone, a row wears a glyph per trigger kind beside its name, and tapping
+// it opens the action page ([ActionDetailScreen]: Prompt | Triggers | Runs).
 
 // rememberSaveable-friendly segment keys (plain strings, no custom Saver).
 private const val SEGMENT_ACTIONS = "actions"
-private const val SEGMENT_AUTOMATIONS = "automations"
 private const val SEGMENT_SUGGESTIONS = "suggestions"
 
 @Composable
 fun ActionsScreen(
-    onOpenSteer: (codingSessionId: String) -> Unit,
     // EXP-825: Run / New action / a suggestion navigate to the composer.
     onOpenAgent: (AgentComposerSeed) -> Unit,
-    /** EXP-920: a segment a caller asks for ("automations") — an entity
-     *  preview's Open lands on the Automations list, not the tab's default. */
-    requestedSegment: String? = null,
+    // SLOP-2: a row opens its action's page.
+    onOpenAction: (actionId: String) -> Unit,
     viewModel: ActionsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val runState by viewModel.runState.collectAsStateWithLifecycle()
-    val startedSessionId by viewModel.startedSessionId.collectAsStateWithLifecycle()
     val selectedTeamId by viewModel.selectedTeamId.collectAsStateWithLifecycle()
-    val syncedDevices by viewModel.syncedDevices.collectAsStateWithLifecycle()
-    val automationRuns by viewModel.automationRuns.collectAsStateWithLifecycle()
-    val isTeamOwner by viewModel.isTeamOwner.collectAsStateWithLifecycle()
-    val automations by viewModel.automations.collectAsStateWithLifecycle()
-    val automationDevices by viewModel.automationDevices.collectAsStateWithLifecycle()
-    val lastRunByAutomation by viewModel.lastRunByAutomation.collectAsStateWithLifecycle()
-    // FEED-50: the automation surfaces also know the automatable Tidy up
-    // builtin — a target in the form, a name + icon on its automations' rows.
-    val automationActions = remember(state.actions, selectedTeamId) {
-        selectedTeamId?.let { state.actions + builtinTidyUpAction(it) } ?: state.actions
-    }
-    val automationBusy by viewModel.automationBusy.collectAsStateWithLifecycle()
-    val automationError by viewModel.automationError.collectAsStateWithLifecycle()
+    val triggerDevices by viewModel.triggerDevices.collectAsStateWithLifecycle()
 
     var segment by rememberSaveable { mutableStateOf(SEGMENT_ACTIONS) }
-    LaunchedEffect(requestedSegment) {
-        if (requestedSegment == SEGMENT_AUTOMATIONS) segment = SEGMENT_AUTOMATIONS
-    }
-
-    // The owner-only automation form: true = creating, non-null row = editing.
-    var automationForm by remember { mutableStateOf(false) }
-    var automationEditTarget by remember { mutableStateOf<AutomationEntity?>(null) }
-    // EXP-694: the action whose editor is open (non-null = sheet open).
-    var editActionId by remember { mutableStateOf<String?>(null) }
-
-    // The desktop picked a Resume up — jump into the live viewer ONCE.
-    LaunchedEffect(startedSessionId) {
-        startedSessionId?.let {
-            viewModel.consumeStartedSession()
-            onOpenSteer(it)
-        }
-    }
 
     Scaffold(containerColor = Color.Transparent) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
@@ -170,19 +106,9 @@ fun ActionsScreen(
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
             )
             GlassSegmentedControl(
-                options = listOf(SEGMENT_ACTIONS, SEGMENT_AUTOMATIONS, SEGMENT_SUGGESTIONS),
-                selected = when (segment) {
-                    SEGMENT_AUTOMATIONS -> SEGMENT_AUTOMATIONS
-                    SEGMENT_SUGGESTIONS -> SEGMENT_SUGGESTIONS
-                    else -> SEGMENT_ACTIONS
-                },
-                label = {
-                    when (it) {
-                        SEGMENT_AUTOMATIONS -> "Automations"
-                        SEGMENT_SUGGESTIONS -> "Suggestions"
-                        else -> "Actions"
-                    }
-                },
+                options = listOf(SEGMENT_ACTIONS, SEGMENT_SUGGESTIONS),
+                selected = if (segment == SEGMENT_SUGGESTIONS) SEGMENT_SUGGESTIONS else SEGMENT_ACTIONS,
+                label = { if (it == SEGMENT_SUGGESTIONS) "Suggestions" else "Actions" },
                 onSelect = { segment = it },
                 modifier = Modifier.padding(horizontal = 16.dp),
                 testTag = { "actions-segment-$it" },
@@ -190,48 +116,22 @@ fun ActionsScreen(
             Spacer(Modifier.height(4.dp))
             Box(modifier = Modifier.fillMaxSize()) {
                 when (segment) {
-                    SEGMENT_AUTOMATIONS -> AutomationsContent(
-                        automations = automations,
-                        onOpenSteer = onOpenSteer,
-                        actions = automationActions,
-                        devices = syncedDevices,
-                        lastRuns = lastRunByAutomation,
-                        runs = automationRuns,
-                        isOwner = isTeamOwner,
-                        busy = automationBusy,
-                        error = automationError,
-                        // EXP-773: a run's close-out and its Resume live in
-                        // the session view a row opens; the send caption for
-                        // a manual run still rides this column.
-                        runState = runState,
-                        onSetEnabled = viewModel::setAutomationEnabled,
-                        onDelete = viewModel::deleteAutomation,
-                        onEdit = { automation ->
-                            viewModel.clearAutomationError()
-                            automationEditTarget = automation
-                        },
-                        onEditAction = { editActionId = it },
-                        onNew = {
-                            viewModel.clearAutomationError()
-                            automationForm = true
-                        },
-                    )
                     SEGMENT_SUGGESTIONS -> SuggestionsContent(
                         onUse = { suggestion ->
                             // EXP-825: the creator run reads the request off
                             // the composer text — the suggestion's
-                            // description, plus (EXP-583) the machine-readable
-                            // automation note the agent copies verbatim into
-                            // exponential_automations_create, bound to the
-                            // caller's default automation-capable machine
+                            // description, plus (SLOP-2) the machine-readable
+                            // trigger block the agent passes verbatim to
+                            // exponential_actions_update, bound to the
+                            // caller's default trigger-capable machine
                             // (EXP-622) when one exists. The icon seeds the
                             // builtin's `icon` pick.
-                            val trigger = suggestion.automation
-                            val runner = automationDevices.firstOrNull { it.isDefault }
-                                ?: automationDevices.firstOrNull()
+                            val trigger = suggestion.trigger
+                            val runner = triggerDevices.firstOrNull { it.isDefault }
+                                ?: triggerDevices.firstOrNull()
                             val text = if (trigger != null && runner != null) {
                                 suggestion.description +
-                                    formatAutomationBlock(trigger, deviceId = runner.deviceId)
+                                    formatTriggerBlock(trigger, deviceId = runner.deviceId)
                             } else {
                                 suggestion.description
                             }
@@ -275,26 +175,17 @@ fun ActionsScreen(
                                     )
                                 }
                             }
-                            if (runState !is ActionRunState.Idle) {
-                                item(key = "__run_state__") { SteerRunCaptionRow(runState) }
-                            }
                             // Server order (sort_order, then name) — since
                             // EXP-686 the list carries no client builtins to
                             // pin above it.
                             items(state.actions, key = { it.id }) { action ->
                                 ActionRow(
                                     action = action,
-                                    // EXP-583: an action only says HOW MANY
-                                    // automations point at it — they are their
-                                    // own rows on their own tab.
-                                    automationCount = automations.count {
-                                        it.actionId == action.id
-                                    },
                                     onRun = { onOpenAgent(AgentComposerSeed(actionId = action.id)) },
-                                    // EXP-694: editing an action is a mobile
-                                    // affordance now; the sheet itself is
+                                    // SLOP-2: the row (and its menu's Edit)
+                                    // opens the action page, which is
                                     // read-only for non-owners.
-                                    onEdit = { editActionId = action.id },
+                                    onOpen = { onOpenAction(action.id) },
                                 )
                             }
                         }
@@ -303,76 +194,25 @@ fun ActionsScreen(
             }
         }
     }
-
-    // EXP-694: the full action editor (icon, name, description, repository and
-    // the tRPC-fetched prompt body).
-    editActionId?.let { id ->
-        ActionEditSheet(actionId = id, onDismiss = { editActionId = null })
-    }
-
-    if (automationForm || automationEditTarget != null) {
-        val editing = automationEditTarget
-        AutomationFormSheet(
-            actions = automationActions,
-            devices = automationDevices,
-            busy = automationBusy,
-            error = automationError,
-            editing = editing,
-            onSubmit = { actionId, deviceId, trigger, agent, account, model, effort ->
-                val close = {
-                    automationForm = false
-                    automationEditTarget = null
-                }
-                if (editing == null) {
-                    viewModel.createAutomation(
-                        actionId = actionId,
-                        deviceId = deviceId,
-                        trigger = trigger,
-                        agent = agent,
-                        account = account,
-                        model = model,
-                        effort = effort,
-                        onDone = close,
-                    )
-                } else {
-                    viewModel.updateAutomation(
-                        automationId = editing.id,
-                        actionId = actionId,
-                        deviceId = deviceId,
-                        trigger = trigger,
-                        agent = agent,
-                        account = account,
-                        model = model,
-                        effort = effort,
-                        onDone = close,
-                    )
-                }
-            },
-            onDismiss = {
-                automationForm = false
-                automationEditTarget = null
-            },
-        )
-    }
 }
 
-// One action: its curated glyph, name, optional description, how many
-// automations point at it (EXP-583), a trailing play button and (EXP-694) the
-// row overflow with Edit.
+// One action: its curated glyph, name with a glyph per trigger kind it carries
+// (SLOP-2), optional description, a trailing play button and (EXP-694) the row
+// overflow with Edit. Tapping the row opens the action page.
 @Composable
 private fun ActionRow(
     action: ActionDto,
-    automationCount: Int,
     onRun: () -> Unit,
-    onEdit: () -> Unit,
+    onOpen: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    val badges = remember(action.triggers) { triggerBadges(action.parsedTriggers) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("action-row")
             .flatRow()
-            .clickable(onClick = onRun)
+            .clickable(onClick = onOpen)
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -386,13 +226,21 @@ private fun ActionRow(
         Column(modifier = Modifier.weight(1f)) {
             // EXP-697: no repo glyph beside the name — the row says what the
             // action is, not where it runs.
-            Text(
-                action.name,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    action.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    // Yield to the glyphs instead of pushing them off the row.
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                TriggerBadgeGlyphs(badges)
+            }
             val description = action.description
             if (!description.isNullOrBlank()) {
                 Text(
@@ -402,26 +250,6 @@ private fun ActionRow(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-            }
-            if (automationCount > 0) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Icon(
-                        ExpIcons.actionAutomation,
-                        contentDescription = null,
-                        modifier = Modifier.size(10.dp),
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    )
-                    Text(
-                        "$automationCount " +
-                            if (automationCount == 1) "automation" else "automations",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        maxLines = 1,
-                    )
-                }
             }
         }
         // EXP-615: an icon-only play button, like every other Run affordance.
@@ -453,7 +281,7 @@ private fun ActionRow(
                         leadingIcon = { Icon(ExpIcons.uiEdit, contentDescription = null) },
                         onClick = {
                             menuOpen = false
-                            onEdit()
+                            onOpen()
                         },
                     )
                 }
@@ -462,386 +290,27 @@ private fun ActionRow(
     }
 }
 
-// ── Automations segment (EXP-583) ───────────────────────────────────────────
-
-@Composable
-private fun AutomationsContent(
-    automations: List<AutomationEntity>,
-    // EXP-686: a run that is still going opens its live session from the row.
-    onOpenSteer: (codingSessionId: String) -> Unit,
-    actions: List<ActionDto>,
-    devices: List<SteerDevice>,
-    lastRuns: Map<String, CodingSessionEntity>,
-    runs: List<CodingSessionEntity>,
-    isOwner: Boolean,
-    busy: Boolean,
-    error: String?,
-    runState: ActionRunState,
-    onSetEnabled: (String, Boolean) -> Unit,
-    onDelete: (String) -> Unit,
-    onEdit: (AutomationEntity) -> Unit,
-    // EXP-874: a live run's trailing action circle opens the action editor
-    // when the automation doesn't resolve (or the caller isn't the owner).
-    onEditAction: (String) -> Unit,
-    onNew: () -> Unit,
-) {
-    val actionsById = remember(actions) { actions.associateBy { it.id } }
-    if (automations.isEmpty() && runs.isEmpty()) {
-        AutomationsEmptyState(isOwner = isOwner, onNew = onNew)
-        return
-    }
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        // EXP-574 (web parity): section header, with the owner-only create
-        // entry as its trailing control.
-        item(key = "__automations_header__") {
-            SectionHeader(title = "Automations") {
-                if (isOwner) {
-                    GlassPill(
-                        "New automation",
-                        icon = ExpIcons.uiAdd,
-                        enabled = !busy,
-                        onClick = onNew,
-                        modifier = Modifier.testTag("new-automation"),
-                    )
-                }
-            }
-        }
-        // EXP-637: a Resume sent from a run row reports back on this tab.
-        if (runState !is ActionRunState.Idle) {
-            item(key = "__run_state__") { SteerRunCaptionRow(runState) }
-        }
-        if (error != null) {
-            item(key = "__automation_error__") {
-                Text(
-                    error,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(horizontal = 4.dp),
-                )
-            }
-        }
-        if (automations.isEmpty()) {
-            item(key = "__no_automations__") {
-                Text(
-                    "No automations yet.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
-                )
-            }
-        } else {
-            items(automations, key = { it.id }) { automation ->
-                AutomationRow(
-                    automation = automation,
-                    action = actionsById[automation.actionId],
-                    devices = devices,
-                    lastRun = lastRuns[automation.id],
-                    // The owner toggles and deletes; while ANY mutation is in
-                    // flight every control parks (one at a time, iOS parity).
-                    isOwner = isOwner,
-                    busy = busy,
-                    onSetEnabled = { enabled -> onSetEnabled(automation.id, enabled) },
-                    onDelete = { onDelete(automation.id) },
-                    onEdit = { onEdit(automation) },
-                )
-            }
-        }
-        if (runs.isNotEmpty()) {
-            item(key = "__recent_runs_header__") {
-                SectionHeader(
-                    title = "Recent automated runs",
-                    modifier = Modifier.padding(top = 12.dp),
-                )
-            }
-            items(runs, key = { it.id }) { session ->
-                // EXP-874: the Agent page's row shapes — a live run is the
-                // shared RunningSessionRow (state dot, byline, the action's
-                // glyph circle), a finished one the plain EndedRunRow link.
-                // Both open the session view (close-out + Resume live there).
-                val ended = runHasEnded(session)
-                val device = sessionDevice(session, devices)
-                if (ended) {
-                    val timeLabel = relativeTime(session.endedAt ?: session.updatedAt)
-                    EndedRunRow(
-                        title = session.actionName?.takeIf { it.isNotBlank() } ?: "Action run",
-                        timeLabel = timeLabel,
-                        byline = pastRunByline(
-                            deviceLabel = device.displayLabel,
-                            timeLabel = timeLabel,
-                        ),
-                        onOpen = { onOpenSteer(session.id) },
-                    )
-                } else {
-                    // EXP-893: a row only opens the run; the automation and
-                    // its action are edited from the rows above.
-                    RunningSessionRow(
-                        session = session,
-                        issue = null,
-                        device = device,
-                        onClick = { onOpenSteer(session.id) },
-                    )
-                }
-            }
-        }
-    }
-}
-
-// One automation: the target action's glyph + name, the trigger sentence, the
-// bound machine (label + online dot off the synced devices rows; the raw id
-// when the row isn't visible to us), the agent pins, the last run it produced,
-// the owner-only enabled toggle and a Delete in the overflow. A schedule's
-// sentence carries "(device time)" because the machine fires on its own clock;
-// the row prints no absolute next-run date (EXP-812 — the calendar moved it
-// under every screenshot, and the recurrence says the same thing).
-@Composable
-private fun AutomationRow(
-    automation: AutomationEntity,
-    action: ActionDto?,
-    devices: List<SteerDevice>,
-    lastRun: CodingSessionEntity?,
-    isOwner: Boolean,
-    busy: Boolean,
-    onSetEnabled: (Boolean) -> Unit,
-    onDelete: () -> Unit,
-    onEdit: () -> Unit,
-) {
-    val trigger = remember(automation.trigger) { AutomationTrigger.parse(automation.trigger) }
-    val boundDevice = devices.firstOrNull { it.deviceId == automation.deviceId }
-    var menuOpen by remember { mutableStateOf(false) }
-    var confirmDelete by remember { mutableStateOf(false) }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("automation-row")
-            .flatRow()
-            .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
-        verticalAlignment = Alignment.Top,
-    ) {
-        Icon(
-            actionGlyph(action),
-            contentDescription = null,
-            modifier = Modifier.size(18.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-        )
-        Spacer(Modifier.width(12.dp))
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            Text(
-                // A deleted action cascades its automations away, so a missing
-                // row here only means the actions shape hasn't caught up.
-                action?.name ?: "Action",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                trigger?.let(::triggerCaption) ?: "Unsupported trigger",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-            )
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (boundDevice?.online == true) {
-                                DesignTokens.Semantic.Green
-                            } else {
-                                Color.White.copy(alpha = 0.25f)
-                            },
-                        ),
-                )
-                Text(
-                    deviceDisplayLabel(boundDevice, automation.deviceId),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                val launchLabel = automationLaunchLabel(automation)
-                if (launchLabel.isNotEmpty()) {
-                    Text(
-                        launchLabel,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-            if (lastRun != null) {
-                // EXP-686: no status word — the run's own row below carries
-                // "Running", and a finished one says nothing (iOS parity).
-                val when_ = relativeTime(lastRun.startedAt)
-                if (when_.isNotEmpty()) {
-                    Text(
-                        "Last run $when_",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    )
-                }
-            }
-        }
-        Spacer(Modifier.width(8.dp))
-        // EXP-698: the trailing controls are their OWN cluster, CENTRED against
-        // the row — the body wraps to four lines on a scheduled automation, and
-        // a top-aligned toggle then floated beside the title while every other
-        // list row in the app lines its actions up on the row's middle.
-        Row(
-            modifier = Modifier.align(Alignment.CenterVertically),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // Owner-only (every `automations` write is owner-gated server-side).
-            Switch(
-                checked = automation.enabled,
-                onCheckedChange = onSetEnabled,
-                enabled = isOwner && !busy,
-                colors = glassSwitchColors(),
-                thumbContent = SwitchThumb,
-            )
-            if (isOwner) {
-                Box {
-                    CircleIconButton(
-                        ExpIcons.uiMore,
-                        contentDescription = "Automation options",
-                        onClick = { menuOpen = true },
-                        enabled = !busy,
-                        modifier = Modifier.padding(start = 8.dp),
-                        borderless = true,
-                    )
-                    GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        GlassMenuItem(
-                            text = { Text("Edit") },
-                            leadingIcon = { Icon(ExpIcons.uiEdit, contentDescription = null) },
-                            onClick = {
-                                menuOpen = false
-                                onEdit()
-                            },
-                        )
-                        GlassMenuItem(
-                            text = { Text("Delete") },
-                            leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
-                            destructive = true,
-                            onClick = {
-                                menuOpen = false
-                                confirmDelete = true
-                            },
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text("Delete automation?") },
-            text = {
-                Text(
-                    "Stop automating \"${action?.name ?: "this action"}\"? The action itself " +
-                        "stays, and runs already going keep going.",
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmDelete = false
-                    onDelete()
-                }) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
-        )
-    }
-}
-
-/** The row's agent pins: the pinned agent plus whatever model/effort rides
- * with it; blank for a legacy NULL-agent row (web parity — no pin text). */
-private fun automationLaunchLabel(automation: AutomationEntity): String {
-    val agent = automation.agent
-    if (agent.isNullOrEmpty()) return ""
-    val extras = listOfNotNull(
-        automation.model?.takeIf { it.isNotEmpty() }?.let(::modelLabel),
-        automation.effort?.takeIf { it.isNotEmpty() }?.let(::effortLabel),
-    )
-    return (listOf(agentLabel(agent)) + extras).joinToString(" · ")
-}
-
-/** EXP-874: a run's host machine off the synced devices (steer `device_id`,
- *  the owner's own row first) — the stamped label and UNKNOWN presence when
- *  the row isn't visible, mirroring `resolveSessionDevice`. */
-private fun sessionDevice(session: CodingSessionEntity, devices: List<SteerDevice>): SessionDevicePresentation {
-    val matches = session.deviceId?.let { id -> devices.filter { it.deviceId == id } }.orEmpty()
-    val row = matches.firstOrNull { it.owner?.id == session.userId }
-        ?: matches.firstOrNull { it.isMine } ?: matches.firstOrNull()
-        ?: return SessionDevicePresentation(label = session.deviceLabel, online = null)
-    return SessionDevicePresentation(
-        label = row.deviceLabel.takeIf { it.isNotBlank() } ?: session.deviceLabel,
-        online = row.online,
-    )
-}
-
-private fun deviceDisplayLabel(device: SteerDevice?, deviceId: String): String {
-    if (device == null) return deviceId
-    val name = device.deviceLabel.ifBlank { device.deviceId }
-    val owner = device.owner ?: return name
-    return if (owner.name.isBlank()) name else "$name — ${owner.name}"
-}
-
 /**
- * The trigger sentence as the row prints it. A schedule fires on the BOUND
- * MACHINE's wall clock, so the recurrence carries the caveat the row used to
- * hang off an absolute next-run date (EXP-812).
+ * The trigger glyphs beside a name (SLOP-2): the schedule clock and/or the
+ * event bolt, each drawn when the subject has a trigger of that kind and
+ * MUTED while none of that kind is enabled. No text, no count.
  */
-private fun triggerCaption(trigger: AutomationTrigger): String =
-    if (trigger is AutomationTrigger.Schedule) {
-        "${triggerSummary(trigger)} (device time)"
-    } else {
-        triggerSummary(trigger)
-    }
+@Composable
+private fun TriggerBadgeGlyphs(badges: TriggerBadges) {
+    badges.schedule?.let { TriggerBadgeGlyph(ExpIcons.triggerSchedule, it, "trigger-badge-schedule") }
+    badges.event?.let { TriggerBadgeGlyph(ExpIcons.triggerEvent, it, "trigger-badge-event") }
+}
 
 @Composable
-private fun AutomationsEmptyState(isOwner: Boolean, onNew: () -> Unit) {
-    Box(Modifier.fillMaxSize().padding(horizontal = 40.dp), contentAlignment = Alignment.Center) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Icon(
-                ExpIcons.actionAutomation,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                modifier = Modifier.size(28.dp),
-            )
-            Text(
-                "No automations yet.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                textAlign = TextAlign.Center,
-            )
-            if (isOwner) {
-                GlassPill(
-                    "New automation",
-                    icon = ExpIcons.uiAdd,
-                    onClick = onNew,
-                    modifier = Modifier.testTag("new-automation"),
-                )
-            }
-        }
-    }
+private fun TriggerBadgeGlyph(icon: ImageVector, badge: TriggerBadge, tag: String) {
+    Icon(
+        icon,
+        contentDescription = null,
+        modifier = Modifier.size(12.dp).testTag(tag),
+        tint = MaterialTheme.colorScheme.onSurface.copy(
+            alpha = if (badge.active) TextEmphasis.Secondary else TextEmphasis.Quaternary,
+        ),
+    )
 }
 
 // ── Suggestions segment (EXP-530) ────────────────────────────────────────────
@@ -888,15 +357,12 @@ private fun SuggestionRow(suggestion: ActionSuggestion, onUse: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    // EXP-677: yield to the chip instead of pushing it off the row.
+                    // EXP-677: yield to the glyph instead of pushing it off the row.
                     modifier = Modifier.weight(1f, fill = false),
                 )
-                // EXP-583: what "Use" will set up — an action, or
-                // the automation that runs one (EXP-677: short labels, the
-                // chip was cut off).
-                SuggestionKindChip(
-                    if (suggestion.automation != null) "Automation" else "Action",
-                )
+                // SLOP-2: a seed that carries a trigger wears that trigger's
+                // glyph (the action row's rule); a plain one wears nothing.
+                TriggerBadgeGlyphs(triggerBadges(suggestion.trigger))
             }
             Text(
                 suggestion.description,
@@ -909,12 +375,6 @@ private fun SuggestionRow(suggestion: ActionSuggestion, onUse: () -> Unit) {
         // EXP-694: no trailing "Use" text — the whole row IS the affordance
         // (it always was; the label only looked like a second button).
     }
-}
-
-// The small "Action" / "Automation" pill on a suggestion row.
-@Composable
-private fun SuggestionKindChip(label: String) {
-    GlassPill(label, size = PillSize.Sm, mode = PillMode.Readonly, maxLines = 1)
 }
 
 @Composable

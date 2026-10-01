@@ -1,7 +1,7 @@
 //! EXP-1029 contract — the device picker: the machines a run may start on,
 //! each by its device glyph (contract `deviceIcon`) + name, offline ones
 //! disabled with the reason as the description. The composer, the
-//! automation editor and the workflow runner row pick one.
+//! trigger form and the workflow runner row pick one.
 
 use gpui::AnyElement;
 

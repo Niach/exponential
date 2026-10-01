@@ -1,7 +1,7 @@
 //! The Workflows center screen (EXP-981): this team's workflows in three
 //! bands — Running, Draft, Done — newest first inside each.
 //!
-//! A LIST page like Automations: it lends its rows to the workflow a click
+//! A LIST page like Reviews: it lends its rows to the workflow a click
 //! opens, so a workflow's graph sits beside this list and its Back comes
 //! here. What each band is called, what a row's second line says and which
 //! band a status lands in all come from `domain::workflow_view`, the rule

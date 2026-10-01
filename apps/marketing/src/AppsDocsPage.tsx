@@ -79,7 +79,7 @@ export function AppsDocsPage() {
             <p>
               The sidebar mirrors the web app: the team switcher,{` `}
               <strong>Search</strong> and <strong>New issue</strong> at the
-              top, then Inbox, Support, Devices, Actions, Automations, Reviews
+              top, then Inbox, Support, Devices, Actions, Reviews
               and <strong>Agent</strong>, your <strong>Pinned</strong> issues
               and actions, the boards, and under{` `}
               <strong>This device</strong> the machine&apos;s own{` `}
@@ -149,8 +149,8 @@ export function AppsDocsPage() {
               </li>
               <li>
                 <strong>Actions</strong>: the team&apos;s{` `}
-                <a href="/docs/actions/">actions</a>, its automations, and the
-                suggestions to start from.
+                <a href="/docs/actions/">actions</a> and the suggestions to start
+                from.
               </li>
               <li>
                 <strong>Reviews</strong>: every issue with an open PR, with a

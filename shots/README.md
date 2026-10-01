@@ -184,7 +184,7 @@ family, one `drive` per view:
 | drive | env | opens |
 | ----- | --- | ----- |
 | `tool`     | `EXP_DEV_TOOL`                      | a rail tool window (board, inbox, reviews, support, files, source-control) |
-| `screen`   | `EXP_DEV_SCREEN`                    | a centre screen (`settings`, `devices`, `actions`, `automations`, `getting-started`, `issue:<id>`, `pr:<id>`, `support:<thread-id>`, `session:<coding-session-id>`) |
+| `screen`   | `EXP_DEV_SCREEN`                    | a centre screen (`settings`, `devices`, `actions`, `action:<id>`, `getting-started`, `issue:<id>`, `pr:<id>`, `support:<thread-id>`, `session:<coding-session-id>`) |
 | `settings` | `EXP_DEV_SCREEN` + `EXP_DEV_SETTINGS` | one settings section |
 | `dialog`   | `EXP_DEV_DIALOG`                    | one dialog, fired once from the render path after the state it needs resolves |
 | `login`    | — (no session injected)             | the pre-login card, on its own throwaway data dir |
@@ -212,7 +212,7 @@ hundred milliseconds rather than seconds.
 Values may carry `$placeholders` — in the drive value AND in `desktop.env` —
 resolved against the seeded database by `bun run screenshots:ids` (which is a
 thin printer over `apps/web/scripts/lib/demo-ids.ts`): `$APP-5` and friends are
-issue identifiers, and `$thread`, `$action`, `$device`, `$automation`, `$board`,
+issue identifiers, and `$thread`, `$action`, `$device`, `$board`,
 `$emptyBoard`, `$team` and `$steeredSession` (the seeded showcase coding
 session, the `steering` shot's subject) name one well-known seeded row each.
 `web.route` adds `$supportToken`, the reporter magic link for the seeded

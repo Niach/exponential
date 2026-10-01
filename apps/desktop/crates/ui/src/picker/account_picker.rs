@@ -1,5 +1,5 @@
 //! EXP-1029 contract — the account picker, and (EXP-1021) THE one the IDE
-//! draws: the automation editor's "Account" row goes through it.
+//! draws: the trigger form's "Account" row goes through it.
 //!
 //! The rows are EXP-991's — the agent's brand MARK plus the login's email,
 //! never the profile name — and a dead credential rides as the row's muted

@@ -386,8 +386,6 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
     })
 }
 
-/// Registry concept `action-automation` -> Lucide `zap`.
-pub const ACTION_AUTOMATION: ExpIcon = ExpIcon::Zap;
 /// Registry concept `action-chat` -> Lucide `message-circle`.
 pub const ACTION_CHAT: ExpIcon = ExpIcon::MessageCircle;
 /// Registry concept `action-create` -> Lucide `sparkles`.
@@ -490,8 +488,6 @@ pub const NAV_ACCOUNT: ExpIcon = ExpIcon::CircleUser;
 pub const NAV_ACTIONS: ExpIcon = ExpIcon::Bot;
 /// Registry concept `nav-admin` -> Lucide `shield`.
 pub const NAV_ADMIN: ExpIcon = ExpIcon::Shield;
-/// Registry concept `nav-automations` -> Lucide `zap`.
-pub const NAV_AUTOMATIONS: ExpIcon = ExpIcon::Zap;
 /// Registry concept `nav-boards` -> Lucide `folder-kanban`.
 pub const NAV_BOARDS: ExpIcon = ExpIcon::FolderKanban;
 /// Registry concept `nav-changelog` -> Lucide `megaphone`.
@@ -676,6 +672,10 @@ pub const STATUS_TODO: ExpIcon = ExpIcon::Circle;
 pub const SUPPORT_OPEN: ExpIcon = ExpIcon::CircleDot;
 /// Registry concept `support-resolved` -> Lucide `circle-check`.
 pub const SUPPORT_RESOLVED: ExpIcon = ExpIcon::CircleCheck;
+/// Registry concept `trigger-event` -> Lucide `zap`.
+pub const TRIGGER_EVENT: ExpIcon = ExpIcon::Zap;
+/// Registry concept `trigger-schedule` -> Lucide `clock`.
+pub const TRIGGER_SCHEDULE: ExpIcon = ExpIcon::Clock;
 /// Registry concept `ui-add` -> Lucide `plus`.
 pub const UI_ADD: ExpIcon = ExpIcon::Plus;
 /// Registry concept `ui-agent-source` -> Lucide `bot`.

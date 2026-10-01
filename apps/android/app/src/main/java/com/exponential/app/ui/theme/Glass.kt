@@ -136,7 +136,7 @@ fun Modifier.glassRow(active: Boolean = false, opaque: Boolean = false): Modifie
  * a [glassSectionBand] and read as a TABLE instead of a stack of cards; the
  * only paint a flat row ever takes is the [active] wash of a selected row.
  * This is the row every LIST wears since EXP-818 (machines, actions,
- * automations, sessions, inbox, support, the settings lists); [glassRow] stays
+ * triggers, sessions, inbox, support, the settings lists); [glassRow] stays
  * for the few real cards, and a settings SECTION keeps its card chrome.
  * Web `ListRow` / desktop `surface::flat_row` twin — layout (padding, click,
  * test tag) stays the caller's job, exactly like [glassRow].

@@ -313,6 +313,19 @@ export const DEMO_FEED_QUESTION = `Cold start is at 740ms (target <800ms). Lazy-
 export const DEMO_STEERED_SESSION_ID = `7c1f0a52-6f3c-4e19-9a2b-2d5d0f7c8e41`
 
 /**
+ * The action the `action-*` views are photographed on ("Nightly test triage")
+ * and the triggers the seed hangs on the actions. Pinned for the same reason
+ * as the session above: the action page is a route (`actions/$actionId`), and
+ * a trigger's id is also its legacy mirror row's key.
+ */
+export const DEMO_ACTION_ID = `2b6e4f1c-8a3d-4c7e-9f52-6d1a0b3c7e85`
+export const DEMO_TRIGGER_IDS = {
+  nightlyTriage: `4c9a7e2b-1d56-4f38-a0c4-8e2b5d7f1a63`,
+  updateDeps: `6e1b3d5f-9c74-4a2e-b8d6-0f4a7c2e9b51`,
+  releaseNotes: `8a5c2e7d-3f19-4b6c-9d04-1c7e5a3f8b29`,
+} as const
+
+/**
  * The other seeded `coding_sessions` ids (EXP-913), pinned like the showcase
  * run's so a reseed is byte-stable and `lib/demo-live-sessions.ts` can
  * re-assert the LIVE ones by id before a lane photographs them.

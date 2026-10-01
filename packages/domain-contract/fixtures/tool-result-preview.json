@@ -672,26 +672,6 @@
       ]
     },
     {
-      "name": "automations_create: an automation has no name, the chip resolves it",
-      "tool": "exponential_automations_create",
-      "result": {
-        "id": "au-1",
-        "teamId": "t-1",
-        "actionId": "a-1",
-        "deviceId": "d-1",
-        "enabled": true,
-        "trigger": {
-          "kind": "schedule"
-        }
-      },
-      "refs": [
-        {
-          "kind": "automation",
-          "id": "au-1"
-        }
-      ]
-    },
-    {
       "name": "devices_list: rows keyed by deviceId, labelled",
       "tool": "exponential_devices_list",
       "result": [

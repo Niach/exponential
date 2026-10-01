@@ -50,7 +50,6 @@ pub(crate) fn concept_icon(concept: &str) -> Option<ExpIcon> {
         "ui-issue" => registry::UI_ISSUE,
         "nav-boards" => registry::NAV_BOARDS,
         "nav-actions" => registry::NAV_ACTIONS,
-        "nav-automations" => registry::NAV_AUTOMATIONS,
         "notification-issue-comment" => registry::NOTIFICATION_ISSUE_COMMENT,
         "coding-running" => registry::CODING_RUNNING,
         "settings-labels" => registry::SETTINGS_LABELS,
@@ -124,7 +123,6 @@ pub(crate) fn row_facts(kind: &str, id: &str, cx: &App) -> EntityRowFacts {
         "issue" => synced(find_issue(id, cx).is_some()),
         "board" => synced(collections.boards.read(cx).get(id).is_some()),
         "action" => synced(collections.actions.read(cx).get(id).is_some()),
-        "automation" => synced(collections.automations.read(cx).get(id).is_some()),
         "comment" => match collections.comments.read(cx).get(id) {
             Some(comment) => EntityRowFacts { synced: true, issue_id: Some(comment.issue_id.clone()) },
             None => EntityRowFacts::default(),
@@ -152,19 +150,18 @@ pub(crate) fn row_facts(kind: &str, id: &str, cx: &App) -> EntityRowFacts {
 
 /// Where a chip click goes. Screens navigate; a run opens through
 /// [`crate::session_screen::open_session`] (EXP-773: every entry point
-/// funnels there); actions and automations open their edit dialogs.
+/// funnels there); an action opens its page (SLOP-2).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum EntityTarget {
     Screen(Screen),
     Session(String),
     Action(String),
-    Automation(String),
 }
 
 /// The click-target rule, pure over [`EntityRowFacts`]:
 ///
-/// * a synced row opens its detail (issue, board, run, workflow), its edit
-///   dialog (action, automation), the Devices page, Settings (label, status,
+/// * a synced row opens its detail (issue, board, run, workflow), its page
+///   (action), the Devices page, Settings (label, status,
 ///   member, invite, team) or the Inbox (notification);
 /// * a comment / an attachment opens the ISSUE it belongs to;
 /// * `repository` and `thread` never sync: a repository opens Settings
@@ -188,7 +185,6 @@ pub(crate) fn target_for(kind: &str, id: &str, facts: &EntityRowFacts) -> Option
         "board" => EntityTarget::Screen(Screen::BoardIssues { board_id: id.to_string() }),
         "session" => EntityTarget::Session(id.to_string()),
         "action" => EntityTarget::Action(id.to_string()),
-        "automation" => EntityTarget::Automation(id.to_string()),
         "workflow" => EntityTarget::Screen(Screen::Workflow { workflow_id: id.to_string() }),
         "device" => EntityTarget::Screen(Screen::Devices),
         "label" | "status" | "member" | "invite" | "team" => EntityTarget::Screen(Screen::Settings),
@@ -218,9 +214,8 @@ pub(crate) fn open_target(target: EntityTarget, window: &mut Window, cx: &mut Ap
         EntityTarget::Session(session_id) => {
             crate::session_screen::open_session(&session_id, window, cx)
         }
-        EntityTarget::Action(action_id) => crate::action_editor_dialog::open(window, cx, action_id),
-        EntityTarget::Automation(automation_id) => {
-            crate::automation_dialog::open_edit(window, cx, automation_id)
+        EntityTarget::Action(action_id) => {
+            crate::actions_view::open_action_page(window, cx, action_id)
         }
     }
 }
@@ -301,7 +296,6 @@ pub(crate) fn card(r#ref: &EntityRef, members: &[EntityRef], cx: &mut App) -> Op
         }
         "board" => board_card(&r#ref.id, cx),
         "action" => action_card(&r#ref.id, cx),
-        "automation" => automation_card(&r#ref.id, cx),
         "comment" => comment_card(&r#ref.id, cx),
         "session" => session_card(&r#ref.id, cx),
         "label" => label_card(&r#ref.id, cx),
@@ -425,45 +419,6 @@ fn action_card(action_id: &str, cx: &mut App) -> Option<AnyElement> {
         1 => "1 input".to_string(),
         n => format!("{n} inputs"),
     });
-    card = card.child(muted_line(facts.join(" · "), cx));
-    Some(card.into_any_element())
-}
-
-fn automation_card(automation_id: &str, cx: &mut App) -> Option<AnyElement> {
-    let collections = sync::Store::try_global(cx)?.collections().clone();
-    let automation = collections.automations.read(cx).get(automation_id).cloned()?;
-    let action_name = automation
-        .action_id
-        .as_deref()
-        .and_then(|action_id| collections.actions.read(cx).get(action_id).cloned())
-        .and_then(|action| action.name)
-        .map(|name| name.trim().to_string())
-        .filter(|name| !name.is_empty());
-    let title = action_name
-        .clone()
-        .unwrap_or_else(|| "Automation".to_string());
-    let trigger = crate::automation_editor::parsed_trigger(automation.trigger.as_ref())
-        .as_ref()
-        .map(coding::automations::trigger_summary)
-        .unwrap_or_else(|| "Unsupported trigger".to_string());
-    let device = automation.device_id.as_deref().and_then(|device_id| {
-        find_device(device_id, cx).and_then(|device| device.label)
-    });
-    let mut card = card_frame(cx).child(header(
-        Icon::new(registry::NAV_AUTOMATIONS)
-            .small()
-            .text_color(cx.theme().muted_foreground),
-        title,
-    ));
-    if let Some(action_name) = action_name {
-        card = card.child(muted_line(format!("Runs {action_name}"), cx));
-    }
-    card = card.child(muted_line(trigger, cx));
-    let mut facts: Vec<String> = Vec::new();
-    if let Some(device) = device {
-        facts.push(device);
-    }
-    facts.push(if automation.is_enabled() { "Enabled" } else { "Disabled" }.to_string());
     card = card.child(muted_line(facts.join(" · "), cx));
     Some(card.into_any_element())
 }
@@ -979,10 +934,9 @@ mod tests {
         );
         assert_eq!(target_for("session", "s-1", &synced()), Some(EntityTarget::Session("s-1".into())));
         assert_eq!(target_for("action", "a-1", &synced()), Some(EntityTarget::Action("a-1".into())));
-        assert_eq!(
-            target_for("automation", "au-1", &synced()),
-            Some(EntityTarget::Automation("au-1".into()))
-        );
+        // SLOP-2: the `automation` kind is gone from the contract — a ref
+        // an OLD publisher still sends is an unknown kind, inert.
+        assert_eq!(target_for("automation", "au-1", &synced()), None);
         assert_eq!(
             target_for("workflow", "w-1", &synced()),
             Some(EntityTarget::Screen(Screen::Workflow { workflow_id: "w-1".into() }))

@@ -13,7 +13,7 @@
 //! `domain::session_tree::session_tree` + `visible_session_tree_rows`, the
 //! connector through `domain::tree_guides::guides_for`, and every row is drawn
 //! by `run_rows` itself (`render_group_row`, `render_run_list_row` over
-//! `RunListFacts::derive`) — the Recent panel's and the Automations log's
+//! `RunListFacts::derive`) — the Recent panel's and an action's Runs'
 //! exact calls. The runs are action runs so their titles need no synced issue.
 
 use std::collections::HashSet;

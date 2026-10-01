@@ -17,13 +17,13 @@ import com.exponential.app.ui.theme.TextEmphasis
 
 // The ONE device/agent/model/effort block every launch surface renders
 // (EXP-615): the Start-coding sheet's Issues / Actions / Chat tabs, the
-// create-action sheet, the automation editor and (EXP-694) the device-settings
+// create-action sheet, the trigger form and (EXP-694) the device-settings
 // sheet all used to grow their own copy, which is how the dialogs drifted apart
 // across the clients. Three variants:
 //
 //  * [LaunchOptionsVariant.Launch] — a run starting NOW: the machine picker,
 //    the agent tabs, model/effort and the launch toggles.
-//  * [LaunchOptionsVariant.Automation] — a binding that runs LATER: the same
+//  * [LaunchOptionsVariant.Trigger] — a binding that runs LATER: the same
 //    rows minus the toggles. EXP-615 dropped its old "Device default" agent
 //    option: the strip seeds to the bound machine's own default launch agent,
 //    so every variant renders the SAME three-segment strip and model/effort
@@ -37,7 +37,7 @@ import com.exponential.app.ui.theme.TextEmphasis
 // (Resume) / Ultracode / Plan mode, hairline-divided. The device picker keeps
 // its own group above, and groups sit 8dp apart everywhere.
 
-enum class LaunchOptionsVariant { Launch, Automation, Device }
+enum class LaunchOptionsVariant { Launch, Trigger, Device }
 
 /**
  * The agent strip (brand icon + label per agent) — web/iOS/desktop parity.
@@ -118,7 +118,7 @@ internal fun LaunchOptionsSection(
     resumeSlot: (@Composable () -> Unit)? = null,
     /**
      * EXP-995: when set, the card's FIRST row is this account picker row
-     * instead of the agent tabs — the automation editor's pin, where a pick
+     * instead of the agent tabs — the trigger form's pin, where a pick
      * names the agent too (the composer and the device sheet draw theirs
      * elsewhere).
      */
@@ -132,7 +132,7 @@ internal fun LaunchOptionsSection(
      */
     trailing: (@Composable () -> Unit)? = null,
 ) {
-    val automation = variant == LaunchOptionsVariant.Automation
+    val binding = variant == LaunchOptionsVariant.Trigger
     val deviceVariant = variant == LaunchOptionsVariant.Device
 
     // ── Device ───────────────────────────────────────────────────────────────
@@ -152,19 +152,19 @@ internal fun LaunchOptionsSection(
                 }
                 Spacer(Modifier.height(8.dp))
             }
-        } else if (automation || devices.size > 1) {
+        } else if (binding || devices.size > 1) {
             // A single launch candidate needs no picker; a binding always names
             // the machine it will fire on, and says where it FIRES rather than
             // what it picks — same wording as web/iOS/desktop on both.
-            val deviceLabel = if (automation) "Runs on" else "Device"
+            val deviceLabel = if (binding) "Runs on" else "Device"
             OptionGroup {
                 // EXP-1021: the shared DevicePicker owns the sheet (each
                 // machine by its own glyph, one selection language); this
                 // surface keeps the form row as its trigger. A binding takes
-                // any automation-capable machine, offline or signed out (the
+                // any trigger-capable machine, offline or signed out (the
                 // schedule catches up); only a launch gates on startability.
                 DevicePicker(
-                    devices = devices.map { it.toPickerDevice(startGate = !automation) },
+                    devices = devices.map { it.toPickerDevice(startGate = !binding) },
                     value = device?.deviceId,
                     onChange = onDeviceChange,
                     title = deviceLabel,
@@ -184,7 +184,7 @@ internal fun LaunchOptionsSection(
     // ── The agent card ───────────────────────────────────────────────────────
     // EXP-694: tabs + model/effort + toggles + account are ONE inset-grouped
     // card on all four clients.
-    val showsPlanMode = !automation && supportsPlanMode(agent) && !planModeHidden
+    val showsPlanMode = !binding && supportsPlanMode(agent) && !planModeHidden
     OptionGroup {
         if (accountRow != null) {
             // EXP-995: THE account picker leads the card; a pick implies the
@@ -210,7 +210,7 @@ internal fun LaunchOptionsSection(
         PickerRow(
             label = "Model",
             value = modelLabel(model),
-            options = if (automation) {
+            options = if (binding) {
                 listOf(CLI_DEFAULT_MODEL) + modelValuesFor(agent)
             } else {
                 modelOptionsFor(agent)
@@ -230,7 +230,7 @@ internal fun LaunchOptionsSection(
             selected = effort,
             optionLabel = ::effortLabel,
             // Ultracode IS `--effort ultracode` — it owns the row.
-            enabled = automation || !ultracode,
+            enabled = binding || !ultracode,
             onSelect = onEffortChange,
         )
         // EXP-981: the model a claude run's SUBAGENTS spend, stored per agent
@@ -253,7 +253,7 @@ internal fun LaunchOptionsSection(
         // pi, the other plan-mode agent); a binding gets none. Plan mode
         // is hidden entirely while resuming — a resume never re-enters it
         // (EXP-202, desktop parity).
-        if (!automation) {
+        if (!binding) {
             if (resumeSlot != null) {
                 GroupDivider()
                 resumeSlot()

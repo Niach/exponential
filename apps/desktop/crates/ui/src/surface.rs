@@ -38,7 +38,7 @@ pub(crate) fn glass_section_header(
 /// filled `FILL_SECTION` with the group's name in it (an optional leading
 /// glyph, an optional trailing control), sitting directly over its flat rows
 /// ([`flat_row`]) with a 4px gap. It replaced the plain-text header + gapped
-/// card rows on every list page (Devices, Agent, Actions, Automations,
+/// card rows on every list page (Devices, Agent, Actions, an action's page,
 /// Reviews, the settings lists): rows read as a table under a highlighted
 /// header, not as a stack of cards. Web `GlassSectionHeader` twin.
 pub(crate) fn glass_section_band(

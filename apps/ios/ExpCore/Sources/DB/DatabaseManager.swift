@@ -2098,6 +2098,45 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v59 (SLOP-2 action triggers): an action carries its own triggers
+        // now — `actions.triggers` (a jsonb array, stored as stringified
+        // JSON) joined the actions shape, and the `automations` shape is no
+        // longer synced, so its local table goes (the server keeps one only
+        // as a legacy mirror for old clients). The `actions.trigger` column,
+        // dead since v20, goes with it. Guarded so fresh installs and re-runs
+        // converge; the actions offset resets so already-synced rows re-arrive
+        // with the column, and the retired shape's cursor is dropped.
+        // `coding_sessions.automation_id` stays: it names the TRIGGER that
+        // fired the run.
+        migrator.registerMigration("v59_action_triggers") { db in
+            if try db.tableExists("actions") {
+                let existing = Set(try db.columns(in: "actions").map(\.name))
+                if !existing.contains("triggers") {
+                    try db.alter(table: "actions") { t in
+                        t.add(column: "triggers", .text).notNull().defaults(to: "[]")
+                    }
+                }
+                if existing.contains("trigger") {
+                    try db.alter(table: "actions") { t in
+                        t.drop(column: "trigger")
+                    }
+                }
+            }
+            if try db.tableExists("automations") {
+                try db.drop(table: "automations")
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    DELETE FROM "electric_offsets" WHERE "shape" = 'automations'
+                    """)
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'actions'
+                    """)
+            }
+        }
+
         return migrator
     }
 
@@ -2132,8 +2171,6 @@ public final class DatabaseManager: @unchecked Sendable {
             // EXP-481: child before parent, like the issue tables below.
             try db.execute(sql: "DELETE FROM device_worktrees")
             try db.execute(sql: "DELETE FROM devices")
-            // EXP-583: automations reference actions — child first.
-            try db.execute(sql: "DELETE FROM automations")
             try db.execute(sql: "DELETE FROM actions")
             try db.execute(sql: "DELETE FROM coding_sessions")
             try db.execute(sql: "DELETE FROM notifications")

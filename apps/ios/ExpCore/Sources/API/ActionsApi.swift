@@ -6,7 +6,10 @@ import Foundation
 // path, and only the desktop ever executes a body behind its per-device trust
 // prompt). Mobile lists actions from the local synced store and remote-starts
 // them on a desktop via `steer.startSession({actionId})`; since EXP-694 it also
-// EDITS them (EditActionSheet), which is what `get` (body) and `update` are for.
+// EDITS them (the action page's Prompt tab), which is what `get` (body) and
+// `update` are for. SLOP-2: an action carries its TRIGGERS (`triggers`, synced
+// with the row); `update({ triggers })` — a whole-array replace — is their
+// only write path.
 
 /// One typed action input (EXP-257): filled in the Agent page composer and
 /// injected into the prompt by the desktop. `type` is a contract value
@@ -45,8 +48,9 @@ public struct ActionInputDto: Decodable, Sendable, Equatable {
 /// builtin row (EXP-257/EXP-539 — constructed locally by every client, pinned
 /// FIRST by this flag and never by sort order; non-editable, `body` empty).
 /// `inputs` is the typed inputs schema — nil when a synced row carries no
-/// parseable inputs JSON.
-public struct ActionDto: Decodable, Identifiable, Sendable {
+/// parseable inputs JSON. `triggers` holds the READABLE triggers in stored
+/// order (SLOP-2; tolerant — see `ActionTrigger`), always empty on a builtin.
+public struct ActionDto: Identifiable, Sendable {
     public let id: String
     public let teamId: String
     public let repositoryId: String?
@@ -63,10 +67,12 @@ public struct ActionDto: Decodable, Identifiable, Sendable {
     /// EXP-825: the composer's field hint while this action is picked (≤200
     /// chars); nil = the generic "Additional instructions (optional)…".
     public let promptPlaceholder: String?
+    public let triggers: [ActionTrigger]
 
     enum CodingKeys: String, CodingKey {
         case id, teamId, repositoryId, name, description, icon, body
         case sortOrder, createdAt, updatedAt, inputs, builtin, promptPlaceholder
+        case triggers
     }
 
     public init(
@@ -82,7 +88,8 @@ public struct ActionDto: Decodable, Identifiable, Sendable {
         updatedAt: String,
         inputs: [ActionInputDto]? = nil,
         builtin: Bool? = nil,
-        promptPlaceholder: String? = nil
+        promptPlaceholder: String? = nil,
+        triggers: [ActionTrigger] = []
     ) {
         self.id = id
         self.teamId = teamId
@@ -97,6 +104,7 @@ public struct ActionDto: Decodable, Identifiable, Sendable {
         self.inputs = inputs
         self.builtin = builtin
         self.promptPlaceholder = promptPlaceholder
+        self.triggers = triggers
     }
 
     /// The server's cap on `promptPlaceholder` (`MAX_ACTION_PROMPT_PLACEHOLDER`
@@ -121,12 +129,33 @@ public struct ActionDto: Decodable, Identifiable, Sendable {
     /// The virtual builtin row (EXP-257).
     public var isBuiltin: Bool { builtin == true }
 
-    /// FEED-50: may an `automations` row target this action? Every real
-    /// action with no required input, and of the builtins ONLY "Tidy up"
-    /// (Create action needs free text, Fix conflicts a required `pr`).
-    public var isAutomatable: Bool {
-        (!isBuiltin || id == DomainContract.builtinTidyUpId)
-            && !(inputs ?? []).contains(where: \.isRequired)
+    /// A triggered run has nobody to fill an input in, so the server refuses
+    /// to ENABLE a trigger on an action that declares a required one.
+    public var hasRequiredInput: Bool {
+        (inputs ?? []).contains(where: \.isRequired)
+    }
+}
+
+// Hand-written (not synthesized) for `triggers` alone: a jsonb array over
+// tRPC, read TOLERANTLY — an unreadable element is skipped, an absent key (an
+// older server) is no triggers, and neither ever fails the row.
+extension ActionDto: Decodable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        teamId = try c.decode(String.self, forKey: .teamId)
+        repositoryId = try c.decodeIfPresent(String.self, forKey: .repositoryId)
+        name = try c.decode(String.self, forKey: .name)
+        description = try c.decodeIfPresent(String.self, forKey: .description)
+        icon = try c.decodeIfPresent(String.self, forKey: .icon)
+        body = try c.decode(String.self, forKey: .body)
+        sortOrder = try c.decode(Double.self, forKey: .sortOrder)
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+        updatedAt = try c.decode(String.self, forKey: .updatedAt)
+        inputs = try c.decodeIfPresent([ActionInputDto].self, forKey: .inputs)
+        builtin = try c.decodeIfPresent(Bool.self, forKey: .builtin)
+        promptPlaceholder = try c.decodeIfPresent(String.self, forKey: .promptPlaceholder)
+        triggers = ActionTrigger.parseList(c.decodeWireJsonString(forKey: .triggers))
     }
 }
 
@@ -194,14 +223,14 @@ public extension ActionDto {
 
     /// The virtual "Tidy up" builtin (FEED-50): the agent dedupes, labels
     /// and links a board's issues and deletes nothing. Both inputs are
-    /// OPTIONAL picks, which makes it the ONLY automatable builtin. Mirrors
+    /// OPTIONAL picks. Like every builtin it carries no triggers. Mirrors
     /// apps/web/src/lib/builtin-actions.ts field-for-field.
     static func builtinTidyUpAction(teamId: String) -> ActionDto {
         ActionDto(
             id: DomainContract.builtinTidyUpId,
             teamId: teamId,
             repositoryId: nil,
-            name: "Tidy up",
+            name: builtinTidyUpName,
             description: "Let your agent dedupe, label and link a board's issues. Nothing is deleted",
             icon: "brush-cleaning",
             body: "",
@@ -287,6 +316,26 @@ public extension ActionDto {
         ]
     }
 
+    /// The Tidy up builtin's name — reserved: a real row may wear it only as
+    /// the one `hasOwnTidyUpAction` looks for.
+    static let builtinTidyUpName = "Tidy up"
+
+    /// SLOP-2: a team that triggered Tidy up before triggers moved onto
+    /// actions owns a REAL row of that name (a server migration made it, so
+    /// it could carry them). Where it exists the virtual builtin steps aside,
+    /// so no list shows Tidy up twice (web `hasOwnTidyUpAction`, ×4).
+    static func hasOwnTidyUpAction(_ teamActions: [ActionDto]) -> Bool {
+        teamActions.contains { !$0.isBuiltin && $0.name == builtinTidyUpName }
+    }
+
+    /// `builtinActions` as a list beside `teamActions` shows them: Tidy up
+    /// hidden while the team owns its real row.
+    static func listedBuiltinActions(teamId: String, teamActions: [ActionDto]) -> [ActionDto] {
+        let builtins = builtinActions(teamId: teamId)
+        guard hasOwnTidyUpAction(teamActions) else { return builtins }
+        return builtins.filter { $0.id != DomainContract.builtinTidyUpId }
+    }
+
     /// Build a list-surface DTO from the synced local row (EXP-268). `body`
     /// is deliberately empty — the actions shape excludes it (tRPC
     /// `actions.get` stays the only body path) and nothing on the mobile
@@ -309,7 +358,8 @@ public extension ActionDto {
             updatedAt: entity.updatedAt,
             inputs: parsedInputs,
             builtin: false,
-            promptPlaceholder: entity.promptPlaceholder
+            promptPlaceholder: entity.promptPlaceholder,
+            triggers: ActionTrigger.parseList(entity.triggers)
         )
     }
 }
@@ -333,10 +383,11 @@ public struct ActionResult: Decodable, Sendable {
 }
 
 /// A partial `actions.update` payload (EXP-694 — mobile edits actions now).
-/// Mirrors the router's optional inputs with the AutomationsApi omit-vs-null
-/// rule, per field: an OMITTED field (nil) keeps what the row has, while the
-/// CLEARABLE ones are nested optionals, so `.some(nil)` sends an explicit
-/// null — "no icon" / "no repository" / "no composer hint" (EXP-825).
+/// Mirrors the router's optional inputs, omit-vs-null per field: an OMITTED
+/// field (nil) keeps what the row has, while the CLEARABLE ones are nested
+/// optionals, so `.some(nil)` sends an explicit null — "no icon" / "no
+/// repository" / "no composer hint" (EXP-825). `triggers` (SLOP-2) is the
+/// WHOLE array or nothing: the server replaces it, never merges.
 public struct ActionPatch: Sendable, Equatable {
     public var name: String?
     public var description: String??
@@ -344,6 +395,7 @@ public struct ActionPatch: Sendable, Equatable {
     public var repositoryId: String??
     public var body: String?
     public var promptPlaceholder: String??
+    public var triggers: [ActionTriggerInput]?
 
     public init(
         name: String? = nil,
@@ -351,7 +403,8 @@ public struct ActionPatch: Sendable, Equatable {
         icon: String?? = nil,
         repositoryId: String?? = nil,
         body: String? = nil,
-        promptPlaceholder: String?? = nil
+        promptPlaceholder: String?? = nil,
+        triggers: [ActionTriggerInput]? = nil
     ) {
         self.name = name
         self.description = description
@@ -359,6 +412,7 @@ public struct ActionPatch: Sendable, Equatable {
         self.repositoryId = repositoryId
         self.body = body
         self.promptPlaceholder = promptPlaceholder
+        self.triggers = triggers
     }
 
     /// Nothing changed — the editor keeps its Save disabled rather than
@@ -366,6 +420,7 @@ public struct ActionPatch: Sendable, Equatable {
     public var isEmpty: Bool {
         name == nil && description == nil && icon == nil
             && repositoryId == nil && body == nil && promptPlaceholder == nil
+            && triggers == nil
     }
 }
 
@@ -385,6 +440,7 @@ struct ActionUpdateInput: Encodable {
 
     enum CodingKeys: String, CodingKey {
         case id, name, description, icon, repositoryId, body, promptPlaceholder
+        case triggers
     }
 
     func encode(to encoder: Encoder) throws {
@@ -392,6 +448,8 @@ struct ActionUpdateInput: Encodable {
         try c.encode(id, forKey: .id)
         try c.encodeIfPresent(patch.name, forKey: .name)
         try c.encodeIfPresent(patch.body, forKey: .body)
+        // The whole array, an EMPTY one included ("no triggers left").
+        try c.encodeIfPresent(patch.triggers, forKey: .triggers)
         // The unwrapped inner optional is encoded even when nil — an explicit
         // null is what clears the field server-side.
         if let description = patch.description {
@@ -440,7 +498,11 @@ public final class ActionsApi: Sendable {
     }
 
     /// Owner-gated `actions.update` — a partial patch (EXP-694). The synced
-    /// row echoes the metadata back, so success needs no local write.
+    /// row echoes the metadata back, so success needs no local write. With
+    /// `triggers` the server refuses, by message, an enabled trigger on an
+    /// action with required inputs, a device that is not yours/team-shared
+    /// or lacks the `automations` cap, an agent the device doesn't advertise,
+    /// and an account pinned without one.
     @discardableResult
     public func update(
         accountId: String,

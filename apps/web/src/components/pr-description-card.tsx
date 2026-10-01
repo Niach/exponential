@@ -19,7 +19,7 @@ import {
   Textarea,
 } from "@exp/ui"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
-import { GROUPED_FIELD_ROW } from "@/components/action-editor-dialog"
+import { GROUPED_FIELD_ROW } from "@/components/action-prompt-form"
 
 // EXP-1139: the pull request's DESCRIPTION on the review page — the title and
 // body as GitHub holds them (`issues.prDescription`, never a synced column),

@@ -6,47 +6,29 @@ import SwiftUI
 /// a Run affordance. EXP-825: Run, "New action" (EXP-431, in the web-parity
 /// "Actions" section header since EXP-574) and a suggestion's tap are all
 /// NAVIGATION into the Agent page composer, seeded with the action (or the
-/// Create action builtin plus the suggestion's text and icon) — the
-/// dedicated run and create sheets are gone. EXP-694 added the row menu's
-/// "Edit" (the `EditActionSheet`, read-only for non-owners) — editing is no
-/// longer web/desktop-only.
+/// Create action builtin plus the suggestion's text and icon). SLOP-2: a row
+/// tap (and the row menu's "Edit") pushes the ACTION PAGE (`ActionDetailView`:
+/// Prompt · Triggers · Runs) — it replaced the edit sheet, and the Automations
+/// segment with it: an action carries its triggers, shown here as the glyphs
+/// beside its name.
 struct ActionsListView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.pushRoute) private var pushRoute
     @Environment(TeamState.self) private var teamState
     @State private var viewModel: ActionsViewModel?
-    @State private var steerEnabled = false
-    /// EXP-694: the action being edited (nil = closed). Owners edit, everyone
-    /// else reads.
-    @State private var editTarget: ActionDto?
-    /// The automated-run rows' tap target (the SettingsView pendingTeam idiom).
-    @State private var sessionTarget: StartedRunWatcher.StartedSession?
-    /// EXP-583: the automation form sheet's target (nil = closed; a nil
-    /// `automation` inside = create).
-    @State private var formTarget: AutomationFormTarget?
-    /// Owner-only delete, confirmed first (destructive native actions do).
-    @State private var pendingDelete: AutomationDto?
-    /// EXP-530: Actions · Automations · Suggestions (the MyWorkView segment
-    /// pattern — the choice survives relaunch via AppStorage).
+    /// Actions · Suggestions (the MyWorkView segment pattern — the choice
+    /// survives relaunch via AppStorage; a stored `automations` from before
+    /// SLOP-2 reads as Actions).
     @AppStorage("actionsSegment") private var segmentRaw = Segment.actions.rawValue
-
-    /// Sheet item for the automation form: `id` is the automation's id, or
-    /// "new" for a creation.
-    private struct AutomationFormTarget: Identifiable {
-        let id: String
-        let automation: AutomationDto?
-    }
 
     private enum Segment: String, CaseIterable {
         case actions
-        case automations
         case suggestions
 
         var label: String {
             switch self {
             case .actions: return "Actions"
-            case .automations: return "Automations"
             case .suggestions: return "Suggestions"
             }
         }
@@ -60,32 +42,12 @@ struct ActionsListView: View {
         ZStack {
             AppBackground()
 
-            // The action editor hangs off its own zero-size node: this ZStack
-            // owns the automation sheet, and stacking presentations on one
-            // node is where SwiftUI starts dropping them.
-            Color.clear
-                .frame(width: 0, height: 0)
-                .allowsHitTesting(false)
-                // EXP-694: the action editor. Non-owners open it read-only —
-                // the server refuses their write anyway.
-                .sheet(item: $editTarget) { action in
-                    EditActionSheet(
-                        action: action,
-                        canEdit: viewModel?.permissions.isOwner == true
-                    )
-                    .environment(\.accountId, accountId)
-                }
-
             if let vm = viewModel {
                 content(vm)
             }
         }
         .navigationTitle("Actions")
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-        .task(id: accountId) {
-            let config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
-            steerEnabled = config.enabled
-        }
         // Reload when the active team changes (and on first mount).
         .task(id: teamState.activeTeam?.id) {
             ensureViewModel()
@@ -96,60 +58,6 @@ struct ActionsListView: View {
         .onAppear {
             ensureViewModel()
         }
-        // EXP-583: the owner-only automation form, in create or edit mode.
-        .sheet(item: $formTarget) { target in
-            if let teamId = teamState.activeTeam?.id, let vm = viewModel {
-                AutomationFormSheet(
-                    teamId: teamId,
-                    actions: automationTargets(vm, teamId: teamId),
-                    devices: vm.allDevices.filter(\.canRunAutomations),
-                    editing: target.automation,
-                    onSubmit: { actionId, deviceId, trigger, launch in
-                        vm.saveAutomation(
-                            editing: target.automation,
-                            teamId: teamId,
-                            actionId: actionId,
-                            deviceId: deviceId,
-                            trigger: trigger,
-                            launch: launch
-                        )
-                    }
-                )
-                .environment(\.accountId, accountId)
-            }
-        }
-        .alert(
-            "Delete automation?",
-            isPresented: Binding(
-                get: { pendingDelete != nil },
-                set: { if !$0 { pendingDelete = nil } }
-            ),
-            presenting: pendingDelete
-        ) { automation in
-            Button("Delete", role: .destructive) {
-                viewModel?.deleteAutomation(automation)
-                pendingDelete = nil
-            }
-            Button("Cancel", role: .cancel) { pendingDelete = nil }
-        } message: { automation in
-            Text(AutomationCopy.deleteBody(
-                actionName: viewModel.flatMap { vm in
-                    automationTargets(vm, teamId: automation.teamId)
-                        .first { $0.id == automation.actionId }?.name
-                }
-            ))
-        }
-        .navigationDestination(item: $sessionTarget) { target in
-            WorkScreen(subject: .session(id: target.sessionId))
-                .environment(\.accountId, accountId)
-        }
-    }
-
-    /// FEED-50: every action an automation may target or name — the team's
-    /// rows plus the ONE automatable builtin, "Tidy up" (client-constructed,
-    /// never a synced row), so its automations show its name + glyph.
-    private func automationTargets(_ vm: ActionsViewModel, teamId: String) -> [ActionDto] {
-        vm.actions + [ActionDto.builtinTidyUpAction(teamId: teamId)]
     }
 
     private func ensureViewModel() {
@@ -157,7 +65,6 @@ struct ActionsListView: View {
             viewModel = ActionsViewModel(
                 accountId: accountId,
                 db: deps.db,
-                automationsApi: deps.automationsApi,
                 auth: deps.auth
             )
         }
@@ -169,10 +76,15 @@ struct ActionsListView: View {
         pushRoute(.agent(accountId: accountId, seed: seed))
     }
 
+    /// The action page, on its Prompt tab.
+    private func openAction(_ action: ActionDto) {
+        pushRoute(.action(accountId: accountId, id: action.id))
+    }
+
     // MARK: - Content
 
-    /// EXP-530: the segmented triptych — Actions (run list), Automations
-    /// (triggered actions + recent automated runs), Suggestions (seed ideas).
+    /// The segmented pair — Actions (the run list) and Suggestions (seed
+    /// ideas).
     @ViewBuilder
     private func content(_ vm: ActionsViewModel) -> some View {
         VStack(spacing: 0) {
@@ -189,8 +101,6 @@ struct ActionsListView: View {
             switch segment {
             case .actions:
                 actionsContent(vm)
-            case .automations:
-                automationsContent(vm)
             case .suggestions:
                 suggestionsContent
             }
@@ -245,275 +155,6 @@ struct ActionsListView: View {
         .accessibilityLabel("New action")
     }
 
-    // MARK: - Automations (EXP-583)
-
-    @ViewBuilder
-    private func automationsContent(_ vm: ActionsViewModel) -> some View {
-        if vm.automations.isEmpty, vm.automationRuns.isEmpty {
-            Spacer()
-            emptyAutomationsState(vm)
-            Spacer()
-        } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    // EXP-574 (web parity): section bands (EXP-818).
-                    GlassSectionBand("Automations") {
-                        if vm.permissions.isOwner {
-                            newAutomationButton(vm)
-                        }
-                    }
-                    if let error = vm.automationError {
-                        Text(error)
-                            .font(.caption2)
-                            .foregroundStyle(DesignTokens.Semantic.red)
-                            .padding(.horizontal, 4)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    if vm.automations.isEmpty {
-                        emptyAutomationsState(vm)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
-                    } else {
-                        ForEach(vm.automations) { automationRow($0, vm: vm) }
-                    }
-                    if !vm.automationRuns.isEmpty {
-                        recentAutomatedRuns(vm)
-                    }
-                }
-                .padding()
-            }
-            .tabBarBottomInset()
-        }
-    }
-
-    /// EXP-637: the automated runs list, its own node so the Resume confirm
-    /// doesn't stack onto a node that already presents something.
-    @ViewBuilder
-    private func recentAutomatedRuns(_ vm: ActionsViewModel) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            GlassSectionBand("Recent automated runs")
-                .padding(.top, 12)
-            ForEach(vm.automationRuns) { automatedRunRow($0, vm: vm) }
-        }
-    }
-
-    private func emptyAutomationsState(_ vm: ActionsViewModel) -> some View {
-        VStack(spacing: 12) {
-            AppIcon(AppIcons.actionAutomation, size: 22)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            Text("No automations yet.")
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                .multilineTextAlignment(.center)
-            if vm.permissions.isOwner {
-                newAutomationButton(vm)
-            }
-        }
-        .padding(.horizontal, 40)
-    }
-
-    /// Owner-only entry to the automation form (EXP-583). Steering off means
-    /// no machine can ever run one, so the button stays hidden then.
-    @ViewBuilder
-    private func newAutomationButton(_ vm: ActionsViewModel) -> some View {
-        if steerEnabled {
-            GlassPill(
-                "New automation",
-                icon: AppIcons.uiAdd,
-                mode: .action { formTarget = AutomationFormTarget(id: "new", automation: nil) },
-                enabled: teamState.activeTeam != nil
-            )
-            .accessibilityLabel("New automation")
-        }
-    }
-
-    /// The trigger sentence as the row prints it. A schedule fires on the
-    /// BOUND MACHINE's wall clock, so the recurrence carries the caveat the
-    /// row used to hang off an absolute next-run date (EXP-812).
-    private func triggerCaption(_ trigger: AutomationTrigger) -> String {
-        if case .schedule = trigger {
-            return "\(AutomationTriggerDisplay.summary(trigger)) (device time)"
-        }
-        return AutomationTriggerDisplay.summary(trigger)
-    }
-
-    /// One automation: the target action's glyph + name, the trigger
-    /// sentence, the bound machine (label + online dot off the synced devices
-    /// rows; raw id when the row isn't visible to us), the pinned agent/model
-    /// when it overrides the machine's defaults, the last run, and the
-    /// owner-only enabled toggle. A schedule's sentence carries "(device
-    /// time)" because the machine fires on its own clock; the row prints no
-    /// absolute next-run date (EXP-812 — the calendar moved it under every
-    /// screenshot, and the recurrence says the same thing).
-    private func automationRow(_ automation: AutomationDto, vm: ActionsViewModel) -> some View {
-        let action = automationTargets(vm, teamId: automation.teamId)
-            .first { $0.id == automation.actionId }
-        let trigger = automation.parsedTrigger
-        let boundDevice = vm.allDevices.first { $0.deviceId == automation.deviceId }
-        let busy = vm.automationBusyId == automation.id
-        // EXP-698: the row's trailing cluster (toggle + menu) is CENTRED —
-        // an automation body runs to five lines, and a top-pinned toggle left
-        // it floating beside the first one instead of lining up with the play
-        // and "…" controls every other row in this list wears. The glyph and
-        // the body keep their own top alignment inside the leading group.
-        return HStack(spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                AppIcon(ActionIconDisplay.iconName(for: action?.icon), size: AppIcon.Size.medium)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(action?.name ?? "Deleted action")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                    if let trigger {
-                        Text(triggerCaption(trigger))
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    }
-                    HStack(spacing: 5) {
-                        Circle()
-                            .fill(boundDevice?.isOnline == true
-                                ? DesignTokens.Semantic.green
-                                : Color.white.opacity(0.25))
-                            .frame(width: 6, height: 6)
-                        Text(deviceLabel(boundDevice, deviceId: automation.deviceId))
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                            .lineLimit(1)
-                    }
-                    if let launch = launchCaption(automation) {
-                        Text(launch)
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                            .lineLimit(1)
-                    }
-                    if let last = vm.lastRunByAutomation[automation.id] {
-                        let time = relativeDate(last.startedAt)
-                        if !time.isEmpty {
-                            Text("Last run \(time)")
-                                .font(.caption2)
-                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        }
-                    }
-                }
-
-                Spacer(minLength: 0)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            // Owner-only (the automations router is owner-gated server-side).
-            Toggle("", isOn: Binding(
-                get: { automation.enabled },
-                set: { vm.setAutomationEnabled(automation, enabled: $0) }
-            ))
-            .labelsHidden()
-            .fixedSize()
-            .disabled(!vm.permissions.isOwner || busy)
-            .accessibilityLabel("Automation enabled")
-
-            // EXP-603: edit/delete used to hide behind a long press. Same
-            // owner gate, now a visible affordance.
-            if vm.permissions.isOwner {
-                GlassMenu {
-                    GlassMenuItem("Edit", icon: AppIcons.uiEdit) {
-                        formTarget = AutomationFormTarget(id: automation.id, automation: automation)
-                    }
-                    GlassMenuItem("Delete", icon: AppIcons.uiDelete, destructive: true) {
-                        pendingDelete = automation
-                    }
-                } label: {
-                    GhostIconLabel(AppIcons.uiMore)
-                }
-                .accessibilityLabel("Automation actions")
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 12)
-        .flatRow()
-        .accessibilityIdentifier("automation-row")
-    }
-
-    /// "Claude Code · Opus · High" — only what the automation PINS; an unset
-    /// field means the machine's own launch default, which is not ours to
-    /// name here.
-    private func launchCaption(_ automation: AutomationDto) -> String? {
-        var parts: [String] = []
-        if let agent = automation.agent, !agent.isEmpty {
-            parts.append(LaunchVocabulary.agentLabel(agent))
-        }
-        if let model = automation.model, !model.isEmpty {
-            parts.append(LaunchVocabulary.modelLabel(model))
-        }
-        if let effort = automation.effort, !effort.isEmpty {
-            parts.append(LaunchVocabulary.effortLabel(effort))
-        }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
-    }
-
-    private func deviceLabel(_ device: SteerDevice?, deviceId: String) -> String {
-        guard let device else { return deviceId }
-        let name = device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel
-        guard let owner = device.owner else { return name }
-        return "\(name) — \(owner.name)"
-    }
-
-    /// One automation-started coding_sessions row (started_reason non-null).
-    /// No "Automated" badge (EXP-643) — the section header already says so.
-    ///
-    /// EXP-874: a LIVE run wears the Agent page's running row
-    /// (`RunningSessionRow`: dot, state line, blocked wall); a finished one
-    /// stays `EndedRunRow`. Either way a tap opens that run's session view
-    /// (EXP-773), where its summary and Resume live.
-    @ViewBuilder
-    private func automatedRunRow(_ session: CodingSessionEntity, vm: ActionsViewModel) -> some View {
-        let ended = PastRuns.hasEnded(session)
-        if ended {
-            EndedRunRow(
-                title: session.actionName ?? "Action run",
-                byline: endedByline(session),
-                onOpen: { sessionTarget = .init(sessionId: session.id) }
-            )
-            .accessibilityIdentifier("automated-run-row")
-        } else {
-            RunningSessionRow(
-                session: session,
-                identifier: nil,
-                title: session.actionName ?? "Action run",
-                state: CodingSessionDisplayState.of(session: session, prState: session.prState),
-                device: runDevice(session, vm: vm),
-                open: .action { sessionTarget = .init(sessionId: session.id) }
-            )
-            .accessibilityIdentifier("automated-run-row")
-        }
-    }
-
-    /// The run's host as it presents:the registry row's CURRENT label when
-    /// one matches (a rename never rewrites the session snapshot), else the
-    /// snapshot. Presence stays UNKNOWN — the registry here is a one-shot
-    /// read, and a stale snapshot must never claim a live run is paused.
-    private func runDevice(_ session: CodingSessionEntity, vm: ActionsViewModel) -> SessionDevicePresentation {
-        let live = session.deviceId.flatMap { id in
-            vm.allDevices.first { $0.deviceId == id }?.deviceLabel
-        }
-        let label = (live?.isEmpty == false) ? live : session.deviceLabel
-        return SessionDevicePresentation(label: label, online: nil)
-    }
-
-    /// "ended 5m ago" — a finished automated run (the list has no machine
-    /// column to add; live runs print their own status line).
-    private func endedByline(_ session: CodingSessionEntity) -> String {
-        let time = relativeDate(session.endedAt ?? session.startedAt)
-        return time.isEmpty ? "" : "ended \(time)"
-    }
-
-    private func relativeDate(_ s: String) -> String {
-        guard let date = WireTimestamps.parse(s) else { return "" }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
-        return formatter.localizedString(for: date, relativeTo: Date())
-    }
-
     // MARK: - Suggestions (EXP-530)
 
     private var suggestionsContent: some View {
@@ -538,12 +179,16 @@ struct ActionsListView: View {
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(suggestion.title)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                    // EXP-583: what the tap will set up.
-                    GlassPill(suggestion.automation == nil ? "Action" : "Automation")
+                    // SLOP-2: a seed that carries a trigger wears that
+                    // trigger's glyph beside its title — what the tap will
+                    // set up besides the action.
+                    HStack(spacing: 6) {
+                        Text(suggestion.title)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        TriggerGlyphs(badges: TriggerBadges.of(suggested: suggestion.trigger))
+                    }
                     Text(suggestion.description)
                         .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
@@ -569,16 +214,15 @@ struct ActionsListView: View {
 
     /// Tapping a suggestion opens the composer on the Create action builtin
     /// with the suggestion's description as the request and its icon picked.
-    /// EXP-583: an "Action + automation" seed appends the machine-readable
-    /// trigger block the creator agent copies into
-    /// `exponential_automations_create` (byte-identical across the four
-    /// clients — `AutomationNote.format`), bound to the caller's default
-    /// automation-capable machine, else the first one (offline included: a
-    /// sleeping box still owns the binding). No such machine = no block.
+    /// A seed with a trigger appends the machine-readable block the creator
+    /// agent passes to `exponential_actions_update` (byte-identical across
+    /// the four clients — `TriggerNote.format`), bound to the caller's default
+    /// trigger-capable machine, else the first one (offline included: a
+    /// sleeping box still owns the trigger). No such machine = no block.
     private func useSuggestion(_ suggestion: ActionSuggestion) {
         var text = suggestion.description
-        if let trigger = suggestion.automation, let device = automationDevice {
-            text += AutomationNote.format(AutomationSpec(trigger: trigger, deviceId: device.deviceId))
+        if let trigger = suggestion.trigger, let device = triggerDevice {
+            text += TriggerNote.format(TriggerSpec(trigger: trigger, deviceId: device.deviceId))
         }
         openComposer(AgentComposerSeed(
             actionId: DomainContract.builtinCreateActionId,
@@ -587,9 +231,9 @@ struct ActionsListView: View {
         ))
     }
 
-    /// The automation's runner (web `automationDevices` + `defaultDeviceId`).
-    private var automationDevice: SteerDevice? {
-        let candidates = (viewModel?.allDevices ?? []).filter(\.canRunAutomations)
+    /// The suggested trigger's runner (web `triggerDevices` + `defaultDeviceId`).
+    private var triggerDevice: SteerDevice? {
+        let candidates = (viewModel?.allDevices ?? []).filter(\.canRunTriggers)
         return candidates.first(where: \.isDefaultDevice) ?? candidates.first
     }
 
@@ -620,48 +264,47 @@ struct ActionsListView: View {
         .padding(.horizontal, 40)
     }
 
-    private func automationCount(_ action: ActionDto) -> Int {
-        viewModel?.automations.filter { $0.actionId == action.id }.count ?? 0
-    }
-
     private func actionRow(_ action: ActionDto) -> some View {
         HStack(spacing: 12) {
-            // The builtin "Create action" row (EXP-257) wears the create
-            // affordance; real actions keep the bolt.
-            // EXP-273: the action's own curated glyph (the builtins set one too),
-            // falling back to the generic action mark — also for a name only a
-            // newer build ships, which would otherwise draw nothing.
-            AppIcon(ActionIconDisplay.iconName(for: action.icon), size: AppIcon.Size.medium)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            // SLOP-2: the row's body opens the action page. Its own Button,
+            // BESIDE the play and menu controls — a control nested in a
+            // button's label has its tap swallowed (the ×4 rule).
+            Button {
+                openAction(action)
+            } label: {
+                HStack(spacing: 12) {
+                    // EXP-273: the action's own curated glyph, falling back to
+                    // the generic action mark — also for a name only a newer
+                    // build ships, which would otherwise draw nothing.
+                    AppIcon(ActionIconDisplay.iconName(for: action.icon), size: AppIcon.Size.medium)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
 
-            VStack(alignment: .leading, spacing: 3) {
-                // EXP-697: no repo glyph beside the name — the row says what
-                // the action is, not where it runs.
-                Text(action.name)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                if let description = action.description, !description.isEmpty {
-                    Text(description)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .lineLimit(2)
-                }
-                // EXP-583: automations are their own rows on their own tab —
-                // an action only says HOW MANY point at it.
-                let count = automationCount(action)
-                if count > 0 {
-                    HStack(spacing: 4) {
-                        AppIcon(AppIcons.actionAutomation, size: 10)
-                        Text("\(count) \(count == 1 ? "automation" : "automations")")
-                            .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 3) {
+                        // EXP-697: no repo glyph beside the name — the row says
+                        // what the action is, not where it runs. SLOP-2: its
+                        // trigger glyphs sit there instead.
+                        HStack(spacing: 6) {
+                            Text(action.name)
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                            TriggerGlyphs(badges: TriggerBadges.of(action.triggers))
+                        }
+                        if let description = action.description, !description.isEmpty {
+                            Text(description)
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                                .lineLimit(2)
+                                .multilineTextAlignment(.leading)
+                        }
                     }
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                }
-            }
 
-            Spacer(minLength: 0)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("action-open")
 
             // EXP-615: the play glyph, not a "Run" pill — the same affordance
             // web and desktop wear on their action cards. EXP-825: it pushes
@@ -670,21 +313,17 @@ struct ActionsListView: View {
                 openComposer(AgentComposerSeed(actionId: action.id))
             }
 
-            // EXP-694: editing reached mobile. The builtins have no row to
-            // edit (the server refuses their id), so they wear no menu;
-            // non-owners get the sheet read-only rather than no entry at all.
-            if !action.isBuiltin {
-                GlassMenu {
-                    // EXP-858: no Pin row — the phone has no sidebar.
-                    GlassMenuItem("Edit", icon: AppIcons.uiEdit) {
-                        editTarget = action
-                    }
-                } label: {
-                    GhostIconLabel(AppIcons.uiMore)
+            // EXP-694: non-owners reach the page too — read-only there.
+            GlassMenu {
+                // EXP-858: no Pin row — the phone has no sidebar.
+                GlassMenuItem("Edit", icon: AppIcons.uiEdit) {
+                    openAction(action)
                 }
-                .accessibilityLabel("Action actions")
-                .accessibilityIdentifier("action-menu")
+            } label: {
+                GhostIconLabel(AppIcons.uiMore)
             }
+            .accessibilityLabel("Action actions")
+            .accessibilityIdentifier("action-menu")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)

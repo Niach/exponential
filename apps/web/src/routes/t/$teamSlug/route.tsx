@@ -174,7 +174,7 @@ function TeamLayout() {
             and chip that opts in with `issueMenuProps`. */}
         <IssueContextMenuProvider team={team}>
           {/* EXP-686: the board header's Search button (mobile) and the
-              Actions/Automations lightbulb reach the layout's sheets through
+              Actions lightbulb reach the layout's sheets through
               context instead of a prop drilled through every list. The
               Getting started sheet lives here so the lightbulb can open it
               once the checklist is complete and its sidebar entry is gone. */}

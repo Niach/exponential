@@ -17,7 +17,6 @@ vi.mock(`@/hooks/use-pins`, () => ({
 }))
 vi.mock(`@/lib/collections`, () => ({
   actionCollection: {},
-  automationCollection: {},
 }))
 vi.mock(`@/lib/trpc-client`, () => ({ trpc: {} }))
 vi.mock(`@tanstack/react-db`, async (importOriginal) => {

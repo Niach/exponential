@@ -28,11 +28,13 @@ describe(`screenFromPath`, () => {
   it(`names every list and detail screen, and calls the rest context-free`, () => {
     expect(screenFromPath(`/t/acme/inbox`)).toEqual({ kind: `inbox` })
     expect(screenFromPath(`/t/acme/agent`)).toEqual({ kind: `agent` })
-    // EXP-862: the Automations page lists the finished AUTOMATED runs, so it
-    // is a list screen of its own.
-    expect(screenFromPath(`/t/acme/automations`)).toEqual({
-      kind: `automations`,
+    // EXP-862/SLOP-2: an action's page lists its runs, the TRIGGERED ones
+    // included, so it is a list screen of its own.
+    expect(screenFromPath(`/t/acme/actions/a1`)).toEqual({
+      kind: `action`,
+      actionId: `a1`,
     })
+    expect(screenFromPath(`/t/acme/actions`)).toEqual({ kind: `other` })
     expect(screenFromPath(`/t/acme/support`)).toEqual({ kind: `support` })
     expect(screenFromPath(`/t/acme/reviews`)).toEqual({ kind: `reviews` })
     expect(screenFromPath(`/t/acme/sessions/s1`)).toEqual({ kind: `session` })
@@ -60,7 +62,7 @@ describe(`screenFromPath`, () => {
     for (const path of [
       `/t/acme/inbox`,
       `/t/acme/agent`,
-      `/t/acme/automations`,
+      `/t/acme/actions/a1`,
       `/t/acme/support`,
       `/t/acme/reviews`,
       `/t/acme/sessions/s1`,
@@ -100,15 +102,15 @@ describe(`deriveOrigin`, () => {
         kind: `session`,
       })
     ).toEqual({ kind: `agent` })
-    // EXP-862: so is the Automations page — a finished automated run opened
-    // from it keeps that list, and Back returns to it.
+    // EXP-862: so is an action's page — a triggered run opened from it
+    // keeps that list, and Back returns to it.
     expect(
       deriveOrigin(
-        screenFromPath(`/t/acme/automations`),
-        { kind: `automations` },
+        screenFromPath(`/t/acme/actions/a1`),
+        { kind: `action`, actionId: `a1` },
         { kind: `session` }
       )
-    ).toEqual({ kind: `automations` })
+    ).toEqual({ kind: `action`, actionId: `a1` })
     // Devices (context-free) → a session: no origin at all, so the sidebar's
     // main menu stays put.
     expect(
@@ -148,14 +150,15 @@ describe(`capturedOrigin`, () => {
     expect(capturedOrigin(screenFromPath(`/t/acme/agent`))).toEqual({
       kind: `agent`,
     })
-    // EXP-862: an automated run opened from Automations returns THERE, so
-    // the page is its own origin and never hands on what it was opened with.
-    expect(capturedOrigin(screenFromPath(`/t/acme/automations`))).toEqual({
-      kind: `automations`,
+    // EXP-862: a run opened from an action's page returns THERE, so the
+    // page is its own origin and never hands on what it was opened with.
+    expect(capturedOrigin(screenFromPath(`/t/acme/actions/a1`))).toEqual({
+      kind: `action`,
+      actionId: `a1`,
     })
     expect(
-      capturedOrigin(screenFromPath(`/t/acme/automations`), board)
-    ).toEqual({ kind: `automations` })
+      capturedOrigin(screenFromPath(`/t/acme/actions/a1`), board)
+    ).toEqual({ kind: `action`, actionId: `a1` })
     // The Agent page hands on the origin the composer was opened with — that
     // is how "start coding from an issue" survives the launcher hop.
     expect(capturedOrigin(screenFromPath(`/t/acme/agent`), board)).toEqual(
@@ -192,7 +195,7 @@ describe(`formatOrigin / parseOrigin`, () => {
       { kind: `support` },
       { kind: `reviews` },
       { kind: `agent` },
-      { kind: `automations` },
+      { kind: `action`, actionId: `a1` },
     ]
     for (const origin of origins) {
       expect(parseOrigin(formatOrigin(origin)), formatOrigin(origin)).toEqual(
@@ -219,7 +222,7 @@ describe(`originLabel / originBoardSlug`, () => {
     expect(originLabel({ kind: `support` })).toBe(`Support`)
     expect(originLabel({ kind: `reviews` })).toBe(`Reviews`)
     expect(originLabel({ kind: `agent` })).toBe(`Agent`)
-    expect(originLabel({ kind: `automations` })).toBe(`Automations`)
+    expect(originLabel({ kind: `action`, actionId: `a1` }, `Triage`)).toBe(`Triage`)
     expect(originLabel(board, `Web`)).toBe(`Web`)
     // The board's name has to sync in first — never an empty row.
     expect(originLabel(board)).toBe(`Board`)
@@ -229,7 +232,7 @@ describe(`originLabel / originBoardSlug`, () => {
     expect(originBoardSlug(board)).toBe(`web`)
     expect(originBoardSlug(inbox)).toBeNull()
     expect(originBoardSlug({ kind: `agent` })).toBeNull()
-    expect(originBoardSlug({ kind: `automations` })).toBeNull()
+    expect(originBoardSlug({ kind: `action`, actionId: `a1` })).toBeNull()
   })
 })
 
@@ -292,9 +295,9 @@ describe(`sidebarOccupant`, () => {
     expect(sidebarOccupant(`/t/acme/sessions/s1`, `agent`, `results`)).toEqual({
       kind: `main`,
     })
-    expect(sidebarOccupant(`/t/acme/sessions/s1`, `automations`, `results`)).toEqual({
+    expect(sidebarOccupant(`/t/acme/sessions/s1`, `action:a1`, `results`)).toEqual({
       kind: `list`,
-      origin: { kind: `automations` },
+      origin: { kind: `action`, actionId: `a1` },
     })
     // An ISSUE's `?view=diff` is the phone's own face — there is no sidebar
     // beside it, and the panel stays the list.
@@ -336,7 +339,7 @@ describe(`sidebarOccupant`, () => {
       `/t/acme`,
       `/t/acme/inbox`,
       `/t/acme/agent`,
-      `/t/acme/automations`,
+      `/t/acme/actions/a1`,
       `/t/acme/support`,
       `/t/acme/reviews`,
       `/t/acme/devices`,
@@ -376,13 +379,20 @@ describe(`originListNavigation`, () => {
       params: { teamSlug: `acme` },
       search: { tab: `my-issues` },
     })
-    for (const kind of [`support`, `reviews`, `agent`, `automations`] as const) {
+    for (const kind of [`support`, `reviews`, `agent`] as const) {
       expect(originListNavigation(`acme`, { kind })).toEqual({
         to: `/t/$teamSlug/${kind}`,
         params: { teamSlug: `acme` },
         search: {},
       })
     }
+    expect(
+      originListNavigation(`acme`, { kind: `action`, actionId: `a1` })
+    ).toEqual({
+      to: `/t/$teamSlug/actions/$actionId`,
+      params: { teamSlug: `acme`, actionId: `a1` },
+      search: { tab: `runs` },
+    })
   })
 
   it(`leaves the no-origin fallback to the caller`, () => {

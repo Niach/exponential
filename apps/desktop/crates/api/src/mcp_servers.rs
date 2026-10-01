@@ -1,7 +1,7 @@
 //! EXP-792: typed `mcpServers.*` tRPC helpers — the device side of team MCP
 //! servers. The SERVER holds each member's credentials (OAuth token sets and
 //! typed secrets, encrypted at rest, one set per member per server): a member
-//! connects once and it works on every device, remote start and automation.
+//! connects once and it works on every device, remote start and trigger.
 //! This machine holds none and runs no OAuth; it only asks for a launch's
 //! values at spawn ([`resolve_for_launch`]).
 //!

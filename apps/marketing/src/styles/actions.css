@@ -50,8 +50,8 @@
   color: var(--fg-muted);
 }
 
-/* ── Automations sub-block (EXP-583 marketing, EXP-602) ── */
-.ac-autos {
+/* ── Triggers sub-block (EXP-583 marketing, EXP-602) ── */
+.ac-triggers {
   margin-top: 14px;
   display: flex;
   flex-direction: column;
@@ -59,13 +59,13 @@
   padding: 20px;
 }
 
-.ac-autos-head {
+.ac-triggers-head {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.ac-autos-badge {
+.ac-triggers-badge {
   font-family: var(--font-mono);
   font-size: 10px;
   text-transform: uppercase;
@@ -77,7 +77,7 @@
   padding: 2px 8px;
 }
 
-.ac-autos-title {
+.ac-triggers-title {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
@@ -85,7 +85,7 @@
   letter-spacing: -0.01em;
 }
 
-.ac-autos-text {
+.ac-triggers-text {
   margin: 0;
   font-size: 13px;
   line-height: 1.55;
@@ -93,14 +93,14 @@
   max-width: 640px;
 }
 
-.ac-autos-chips {
+.ac-triggers-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 2px;
 }
 
-.ac-autos-chip {
+.ac-triggers-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;

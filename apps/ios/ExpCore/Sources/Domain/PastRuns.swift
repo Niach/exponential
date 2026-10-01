@@ -6,10 +6,10 @@ import Foundation
 /// This deliberately re-adds what EXP-676 removed (`ExpUI/EndedRunRow.swift`
 /// documents that removal). The reason it comes back is a different one:
 /// sessions are now first-class screens, so a finished run is where its
-/// transcript and its Resume live — not a passive recap list. Automation runs
-/// are still NOT here: `started_reason` is non-null on those and the
-/// Automations tab's "Recent automated runs" stays their one home (EXP-676),
-/// which is why the predicate names it explicitly.
+/// transcript and its Resume live — not a passive recap list. Triggered runs
+/// are still NOT here: `started_reason` is non-null on those and their
+/// action's Runs stays their one home (EXP-676; SLOP-2 moved it off the
+/// retired Automations tab), which is why the predicate names it explicitly.
 ///
 /// Pure and mirrored ×4 (web `lib/past-runs.ts`, Android
 /// `AgentsViewModel.pastRunRows` + its DAO query, desktop
@@ -68,7 +68,7 @@ public enum PastRuns {
             .filter { CodingSessionOwnership.isOwn($0, userId: userId, teamId: teamId) }
             // EXP-888: a sweep end is not an end — that row belongs to Running.
             .filter { hasEnded($0) }
-            // EXP-676: an automation run belongs under Automations, never here.
+            // EXP-676: a triggered run belongs under its action's Runs, never here.
             .filter { ($0.startedReason ?? "").isEmpty }
             .sorted { endedAt($0) > endedAt($1) }
             .prefix(limit)

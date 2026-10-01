@@ -7,7 +7,7 @@ import com.exponential.app.ui.icons.ExpIcons
 /**
  * EXP-1029 contract, EXP-1021 implementation — the action picker: the team's actions (and the two
  * listed builtins) by curated icon (`ActionGlyph`) + name. The composer's
- * action chip and the automation editor pick one.
+ * action chip and the trigger form pick one.
  */
 data class ActionPickerAction(
     val id: String,

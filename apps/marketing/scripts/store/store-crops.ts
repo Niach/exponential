@@ -90,8 +90,8 @@ export const HAND_RECTS: Record<string, Rect> = {
   "review:android-phone": { x: 0.178, y: 0.9025, w: 0.643, h: 0.0675 },
   "review:ios-tablet": { x: 0.2725, y: 0.906, w: 0.46, h: 0.088 },
 
-  // The "Update dependencies" action row: title, description, its
-  // "1 automation" sub-line and the run button. Tablet takes two such rows.
+  // The "Update dependencies" action row: title with its trigger glyph,
+  // description and the run button. Tablet takes two such rows.
   "actions:ios-phone": { x: 0.0206, y: 0.314, w: 0.958, h: 0.107 },
   "actions:android-phone": { x: 0.0267, y: 0.258, w: 0.9455, h: 0.095 },
   "actions:ios-tablet": { x: 0.008, y: 0.1875, w: 0.985, h: 0.1235 },

@@ -58,10 +58,9 @@ final class AppDependencies: @unchecked Sendable {
     // EXP-734: merging a run's OWN pull request (the issue-less chore PR an
     // action or chat run opened) — the session rows themselves stay synced.
     let codingSessionsApi: CodingSessionsApi
-    // Team action prompts (EXP-253) — tRPC-only, view + run on mobile.
+    // Team actions (EXP-253) — synced for reads; tRPC for the prompt body and
+    // the owner-gated writes (the editor fields and, SLOP-2, the triggers).
     let actionsApi: ActionsApi
-    // Automations (EXP-583) — synced for reads, owner-gated tRPC for writes.
-    let automationsApi: AutomationsApi
     // Workflows (EXP-981) — synced for reads (shapes 23/24), member-gated tRPC
     // for every write.
     let workflowsApi: WorkflowsApi
@@ -172,7 +171,6 @@ final class AppDependencies: @unchecked Sendable {
         self.devicesApi = DevicesApi(trpc: trpc)
         self.codingSessionsApi = CodingSessionsApi(trpc: trpc)
         self.actionsApi = ActionsApi(trpc: trpc)
-        self.automationsApi = AutomationsApi(trpc: trpc)
         self.workflowsApi = WorkflowsApi(trpc: trpc)
         self.widgetsApi = WidgetsApi(trpc: trpc)
 

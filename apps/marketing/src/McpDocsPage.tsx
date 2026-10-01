@@ -124,20 +124,10 @@ const TOOL_GROUPS: {
   {
     heading: `Actions`,
     tools: [
-      { name: `exponential_actions_list`, desc: `List a team's actions, the reusable AI prompts members run on their own desktop.` },
+      { name: `exponential_actions_list`, desc: `List a team's actions, the reusable AI prompts members run on their own desktop, each with its triggers.` },
       { name: `exponential_actions_create`, desc: `Create an action with markdown instructions and an optional repository (owner only).` },
-      { name: `exponential_actions_update`, desc: `Update an action (owner only).` },
+      { name: `exponential_actions_update`, desc: `Update an action (owner only). The triggers field replaces the whole array: send every trigger you keep with its id, a new one without an id.` },
       { name: `exponential_actions_delete`, desc: `Delete an action (owner only).` },
-    ],
-  },
-  {
-    heading: `Automations`,
-    tools: [
-      { name: `exponential_automations_list`, desc: `List a team's automations: which action runs on which device, its trigger, its launch agent, and whether it is enabled.` },
-      { name: `exponential_automations_create`, desc: `Bind an action to a device and a trigger — schedule (daily/weekly/monthly + minuteOfDay) or issue event with optional filters (owner only).` },
-      { name: `exponential_automations_update`, desc: `Change an automation's trigger, device or launch options (owner only).` },
-      { name: `exponential_automations_toggle`, desc: `Enable or disable one without touching the rest. Enabling needs every action input optional.` },
-      { name: `exponential_automations_delete`, desc: `Delete an automation. Past runs keep their history.` },
     ],
   },
   {
@@ -150,7 +140,7 @@ const TOOL_GROUPS: {
       { name: `exponential_sessions_message`, desc: `Send text into a live session you own or host — it arrives as user input to that agent.` },
       { name: `exponential_sessions_results`, desc: `Publish a screenshot of this run's work: it hands back a short-lived upload link and a curl line, filed under a topic with one label per picture, and shows up on the run's Results face everywhere.` },
       { name: `exponential_sessions_kill`, desc: `Abort a live session you own or host. Never your own run.` },
-      { name: `exponential_sessions_end`, desc: `End this run with a close-out summary for whoever started it (not stored on the run). Registered only inside an unattended (automation- or agent-started) run.` },
+      { name: `exponential_sessions_end`, desc: `End this run with a close-out summary for whoever started it (not stored on the run). Registered only inside an unattended (trigger- or agent-started) run.` },
       { name: `exponential_sessions_ask_parent`, desc: `Registered only in a run another run started: ask the starting run a question and end your turn; its answer arrives as a user message.` },
     ],
   },

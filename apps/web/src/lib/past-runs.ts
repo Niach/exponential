@@ -8,7 +8,7 @@
 //
 // An AUTOMATED run (`started_reason` set — schedule, event or a
 // sessions_start child) is NOT past work of the person: it belongs to the
-// Automations tab's "Recent automated runs" (EXP-676), which is the only
+// action page's Runs (EXP-676, SLOP-2), which is the only
 // finished-runs list keyed on that column. Recent is person-started runs only.
 
 import type { CodingSession, Issue } from "@/db/schema"
@@ -83,8 +83,8 @@ export function runIsLive(session: RunEndFacts): boolean {
 }
 
 /** The caller's OWN, PERSON-started, ENDED runs in one team, newest first,
- *  capped. `startedReason !== null` is an automation/agent run and belongs to
- *  the Automations tab, never here. A sweep end (EXP-888) is not an end, so
+ *  capped. `startedReason !== null` is a triggered/agent run and belongs to
+ *  its action's Runs, never here. A sweep end (EXP-888) is not an end, so
  *  those rows stay OUT of Recent and keep their place in Running. */
 export function selectPastRuns<T extends PastRunSession>(
   sessions: readonly T[],

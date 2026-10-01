@@ -67,7 +67,7 @@ pub(crate) fn open_session(session_id: &str, window: &mut Window, cx: &mut App) 
 
 /// EXP-862: [`open_session`] from a LIST, which pins that list explicitly —
 /// the run's Back and its left column then name the rows it was picked from
-/// (the Agent page's sessions list, the Automations page's run log) instead
+/// (a board, the Inbox, the Workflows page) instead
 /// of whatever the breadcrumb rule can derive from the screen that was up.
 /// `None` falls back to [`open_session`].
 pub(crate) fn open_session_with_origin(

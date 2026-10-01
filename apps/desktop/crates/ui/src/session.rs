@@ -112,7 +112,7 @@ pub fn connect_account(account: &api::Account, cx: &mut App) -> bool {
             // EXP-481: the device-state sync loop (heartbeat/work pull/
             // inventory reports) rides beside the control socket.
             crate::device_sync::start_device_sync(account, cx);
-            // EXP-530: the action-automation host (schedules + event
+            // EXP-530: the action-trigger host (schedules + event
             // triggers bound to THIS device) rides the same lifecycle.
             crate::automation_host::start_automation_host(account, cx);
         // EXP-982: and the workflow engine beside it — a started workflow

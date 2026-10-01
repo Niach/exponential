@@ -44,8 +44,7 @@ import com.exponential.app.ui.theme.TextEmphasis
  * child nests under its parent, a workflow's or a stack's runs sit under one
  * group row, every parent folds, top level newest ACTIVITY first (rule 5).
  *
- * An automated run belongs to the Automations tab's "Recent automated runs"
- * and never lists here.
+ * A triggered run belongs to its action page's Runs and never lists here.
  */
 @Composable
 fun RecentRunsSheet(

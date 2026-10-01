@@ -5,11 +5,11 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.RepositoriesApi
-import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.data.api.builtinCreateAction
 import com.exponential.app.data.api.builtinFixConflictsAction
 import com.exponential.app.data.api.builtinTidyUpAction
+import com.exponential.app.data.api.hasOwnTidyUpAction
 import com.exponential.app.data.api.toActionDto
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
@@ -19,11 +19,8 @@ import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.WorkflowEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
-import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.WorkflowFinalPr
-import com.exponential.app.domain.stableDeviceOrder
-import com.exponential.app.domain.toSteerDevice
 import com.exponential.app.ui.components.toPickerBoard
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -47,7 +44,7 @@ import kotlinx.serialization.json.Json
 // repo registry for `repo` inputs, the synced boards for `board` inputs, the
 // open pull requests for `pr` inputs — and the worktree inventory behind the
 // Resume offer. Owned by a dedicated ViewModel so the composer, the action
-// editor and the automation form share one fetch; starting stays with
+// editor and the trigger form share one fetch; starting stays with
 // AgentComposerViewModel.
 
 /** Actions-list progress: null [actions] with null [error] = still loading. */
@@ -129,8 +126,9 @@ class AgentLaunchDataViewModel @Inject constructor(
     /**
      * The selected team's actions: the three LISTED builtins pinned first —
      * "Fix merge conflicts" ahead of "Create action" (the web order, EXP-825),
-     * then "Tidy up" (FEED-50) — then the synced rows in server order. Chat is in NO list: it is what
-     * "no subject" means on the composer.
+     * then "Tidy up" (FEED-50) — then the synced rows in server order. SLOP-2:
+     * a team's OWN "Tidy up" row hides the virtual one ([hasOwnTidyUpAction]).
+     * Chat is in NO list: it is what "no subject" means on the composer.
      */
     val actionsState: StateFlow<SheetActionsState> = combine(dbFlow, selection.selectedId) { db, teamId ->
         db to teamId
@@ -139,12 +137,13 @@ class AgentLaunchDataViewModel @Inject constructor(
             flowOf(SheetActionsState(actions = emptyList()))
         } else {
             db.actionDao().observeByTeam(teamId).map { rows ->
+                val teamActions = rows.map { it.toActionDto(json) }
                 SheetActionsState(
-                    actions = listOf(
+                    actions = listOfNotNull(
                         builtinFixConflictsAction(teamId),
                         builtinCreateAction(teamId),
-                        builtinTidyUpAction(teamId),
-                    ) + rows.map { it.toActionDto(json) },
+                        builtinTidyUpAction(teamId).takeUnless { hasOwnTidyUpAction(teamActions) },
+                    ) + teamActions,
                 )
             }
         }
@@ -167,22 +166,6 @@ class AgentLaunchDataViewModel @Inject constructor(
     val deviceRows: StateFlow<List<DeviceEntity>> =
         dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    /**
-     * The machines an automation can be bound to (EXP-583): every synced
-     * device advertising the `automations` cap, ONLINE OR NOT — an automation
-     * outlives a machine's uptime. Feeds the automation form, whose device
-     * pick is INDEPENDENT of the machine running a creator run.
-     */
-    val automationDevices: StateFlow<List<SteerDevice>> = combine(
-        dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() },
-        DeviceLiveness.ticker(),
-        auth.userId,
-    ) { rows, nowMs, userId ->
-        rows.sortedWith(stableDeviceOrder(nowMs))
-            .map { it.toSteerDevice(nowMs, userId) }
-            .filter { it.canRunAutomations }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The team repo registry — options for `repo`-typed inputs (failure = empty). */
     val repos: StateFlow<List<TeamRepo>> = scope.flatMapLatest { (accountId, teamId) ->

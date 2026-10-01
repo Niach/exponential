@@ -7,7 +7,7 @@ import { pageTitle } from "@/lib/page-title"
 import { WORKFLOWS_TITLE } from "@/lib/workflow-view"
 
 // EXP-981: the team's Workflows — the sidebar entry directly after
-// Automations (and, on a phone, the Agent page's Workflows button). A
+// Actions (and, on a phone, the Agent page's Workflows button). A
 // workflow is a picked set of backlog issues of ONE repository planned as a
 // DAG; this page only lists them, the detail does the rest.
 

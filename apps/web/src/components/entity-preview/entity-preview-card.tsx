@@ -24,7 +24,6 @@ import {
 import type {
   Action,
   Attachment,
-  Automation,
   Board,
   CodingSession,
   Comment,
@@ -39,8 +38,6 @@ import type {
   User,
 } from "@/db/schema"
 import {
-  actionCollection,
-  deviceCollection,
   issueCollection,
   teamMemberCollection,
   userCollection,
@@ -58,7 +55,6 @@ import type { StatusRowOption } from "@/lib/team-statuses"
 import { relativeTime } from "@/components/comment-rows/format"
 import { displayUserName } from "@/lib/user-display"
 import { formatAttachmentSize } from "@/lib/attachment-files"
-import { parseAutomationTrigger, triggerSummary } from "@/lib/action-triggers"
 import { sessionIdentity } from "@/lib/session-identity"
 import { sessionDisplayState, sessionStatusLine } from "@/lib/coding-session-display"
 import { sessionIsPaused } from "@/lib/session-device"
@@ -114,8 +110,6 @@ export function EntityRefPreviewCard({
       return <BoardCard board={row as Board} />
     case `action`:
       return <ActionCard action={row as Action} />
-    case `automation`:
-      return <AutomationCard automation={row as Automation} />
     case `comment`:
       return <CommentCard comment={row as Comment} />
     case `session`:
@@ -245,53 +239,6 @@ function ActionCard({ action }: { action: Action }) {
         </>
       }
       testId="entity-preview-action"
-    />
-  )
-}
-
-// ── Automation ──────────────────────────────────────────────────────────────
-
-function AutomationCard({ automation }: { automation: Automation }) {
-  const { data: actionRows } = useLiveQuery(
-    (query) =>
-      query
-        .from({ actions: actionCollection })
-        .where(({ actions }) => eq(actions.id, automation.actionId)),
-    [automation.actionId]
-  )
-  // The `actions` shape drops `body`; the card only needs the name.
-  const action = (actionRows?.[0] ?? null) as unknown as Pick<Action, `name`> | null
-  const { data: deviceRows } = useLiveQuery(
-    (query) =>
-      query
-        .from({ devices: deviceCollection })
-        .where(({ devices }) => eq(devices.deviceId, automation.deviceId)),
-    [automation.deviceId]
-  )
-  const device = (deviceRows?.[0] ?? null) as Device | null
-  const trigger = parseAutomationTrigger(automation.trigger)
-  return (
-    <EntityPreviewCard
-      icon={kindGlyph({ kind: `automation`, id: `` })}
-      eyebrow={nounEyebrow(`automation`)}
-      title={action ? `Runs ${action.name}` : `Runs an action`}
-      subtitle={trigger ? triggerSummary(trigger) : null}
-      facts={
-        <>
-          <Pill
-            size="sm"
-            leading={<LiveDot tone={automation.enabled ? `live` : `idle`} className="size-1.5" />}
-          >
-            {automation.enabled ? `Enabled` : `Disabled`}
-          </Pill>
-          {device?.label && (
-            <Pill size="sm" leading={kindGlyph({ kind: `device`, id: `` }, `size-3`)}>
-              {device.label}
-            </Pill>
-          )}
-        </>
-      }
-      testId="entity-preview-automation"
     />
   )
 }

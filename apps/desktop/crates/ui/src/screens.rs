@@ -290,8 +290,8 @@ pub(crate) fn build_screen_content(
         Screen::Actions => cx
             .new(|cx| crate::actions_view::ActionsView::new(window, cx))
             .into(),
-        Screen::Automations => cx
-            .new(|cx| crate::automations_view::AutomationsView::new(window, cx))
+        Screen::Action { .. } => cx
+            .new(|cx| crate::action_view::ActionView::new(window, cx))
             .into(),
         Screen::Workflows => cx
             .new(|cx| crate::workflows_view::WorkflowsView::new(window, cx))
@@ -1076,9 +1076,9 @@ pub struct ScreensPanel {
     /// The Actions page (EXP-467 — the team's action rows; EXP-480: a
     /// tab-less full-page mode like Settings).
     actions: Entity<crate::actions_view::ActionsView>,
-    /// The Automations page (EXP-686 — the automation rows plus the
-    /// "Recent automated runs" log).
-    automations: Entity<crate::automations_view::AutomationsView>,
+    /// One action's page (SLOP-2 — Prompt · Triggers · Runs). ONE shared
+    /// view that re-points itself off the window's [`Screen::Action`].
+    action: Entity<crate::action_view::ActionView>,
     /// EXP-981: the Workflows list page and one workflow's detail.
     workflows: Entity<crate::workflows_view::WorkflowsView>,
     workflow: Entity<crate::workflow_view::WorkflowView>,
@@ -1198,8 +1198,7 @@ impl ScreensPanel {
         let devices = cx.new(|cx| crate::devices_view::DevicesView::new(window, cx));
         let drafts = cx.new(|cx| crate::drafts_view::DraftsView::new(window, cx));
         let actions = cx.new(|cx| crate::actions_view::ActionsView::new(window, cx));
-        let automations =
-            cx.new(|cx| crate::automations_view::AutomationsView::new(window, cx));
+        let action = cx.new(|cx| crate::action_view::ActionView::new(window, cx));
         let workflows = cx.new(|cx| crate::workflows_view::WorkflowsView::new(window, cx));
         let workflow = cx.new(|cx| crate::workflow_view::WorkflowView::new(window, cx));
         let chat = cx.new(|cx| crate::chat_screen::ChatScreenView::new(window, cx));
@@ -1300,7 +1299,7 @@ impl ScreensPanel {
             devices,
             drafts,
             actions,
-            automations,
+            action,
             workflows,
             workflow,
             chat,
@@ -1610,7 +1609,7 @@ impl ScreensPanel {
             | Screen::Devices
             | Screen::Drafts
             | Screen::Actions
-            | Screen::Automations
+            | Screen::Action { .. }
             | Screen::Workflows
             | Screen::Chat
             | Screen::Reviews
@@ -3283,8 +3282,10 @@ impl Focusable for ScreensPanel {
 // ---------------------------------------------------------------------------
 
 /// DEV-ONLY `EXP_DEV_DIALOG` values: `create-issue` | `search` |
-/// `action-editor:<uuid>` |
-/// `automation-new` | `automation-edit:<uuid>` | `create-board` |
+/// `trigger-new:<action-uuid>` | `trigger-edit:<action-uuid>:<trigger-id>`
+/// (SLOP-2: the trigger form over that action's page) |
+/// `action-editor:<uuid>` (a legacy ALIAS — the edit dialog became the action
+/// page, so it navigates to `EXP_DEV_SCREEN=action:<uuid>`) | `create-board` |
 /// `create-team` | `join-team[:<invite-token>]` (a token prefills the paste
 /// field and previews the invite) | `add-server` | `device-settings:<uuid>` |
 /// `duplicate-picker:<issue-uuid>` (anything else = no dialog, logged once).
@@ -3296,8 +3297,10 @@ enum DevDialog {
     CreateIssue,
     Search,
     ActionEditor(String),
-    AutomationNew,
-    AutomationEdit(String),
+    /// The action whose page gets a "New trigger" form.
+    TriggerNew(String),
+    /// The action and the trigger its "Edit trigger" form opens on.
+    TriggerEdit(String, String),
     CreateBoard,
     CreateTeam,
     /// EXP-642: an optional invite token — `join-team:<token>` opens the
@@ -3315,7 +3318,8 @@ enum DevDialog {
 /// The accepted [`DevDialog`] spellings, for the parse-failure log — a typo
 /// in a capture recipe must name its alternatives, not fail silently.
 const DEV_DIALOG_SPECS: &str = "create-issue | search | \
-    action-editor:<uuid> | automation-new | automation-edit:<uuid> | \
+    action-editor:<uuid> | trigger-new:<action-uuid> | \
+    trigger-edit:<action-uuid>:<trigger-id> | \
     create-board | create-team | join-team[:<invite-token>] | add-server | \
     device-settings:<uuid> | duplicate-picker:<issue-uuid> | tidy-up | \
     run:<issue-uuid>[,<issue-uuid>…]";
@@ -3324,7 +3328,6 @@ fn parse_dev_dialog(spec: &str) -> Option<DevDialog> {
     match spec {
         "create-issue" => Some(DevDialog::CreateIssue),
         "search" => Some(DevDialog::Search),
-        "automation-new" => Some(DevDialog::AutomationNew),
         "create-board" => Some(DevDialog::CreateBoard),
         "create-team" => Some(DevDialog::CreateTeam),
         "join-team" => Some(DevDialog::JoinTeam(None)),
@@ -3349,8 +3352,15 @@ fn parse_dev_dialog(spec: &str) -> Option<DevDialog> {
             if let Some(id) = spec.strip_prefix("action-editor:") {
                 return Some(DevDialog::ActionEditor(id.to_string()));
             }
-            if let Some(id) = spec.strip_prefix("automation-edit:") {
-                return Some(DevDialog::AutomationEdit(id.to_string()));
+            if let Some(id) = spec.strip_prefix("trigger-new:") {
+                return Some(DevDialog::TriggerNew(id.to_string()));
+            }
+            if let Some(ids) = spec.strip_prefix("trigger-edit:") {
+                let (action_id, trigger_id) = ids.split_once(':')?;
+                return Some(DevDialog::TriggerEdit(
+                    action_id.to_string(),
+                    trigger_id.to_string(),
+                ));
             }
             if let Some(id) = spec.strip_prefix("device-settings:") {
                 return Some(DevDialog::DeviceSettings(id.to_string()));
@@ -3367,8 +3377,8 @@ enum DevDialogTarget {
     CreateIssue { board_id: String },
     Search,
     ActionEditor { action_id: String },
-    AutomationNew { team_id: String },
-    AutomationEdit { automation_id: String },
+    TriggerNew { action_id: String },
+    TriggerEdit { action_id: String, trigger_id: String },
     CreateBoard { team_id: String },
     CreateTeam,
     JoinTeam { token: Option<String> },
@@ -3385,13 +3395,16 @@ fn open_dev_dialog(target: DevDialogTarget, window: &mut Window, cx: &mut App) {
         }
         DevDialogTarget::Search => crate::search_sheet::open_search(window, cx),
         DevDialogTarget::ActionEditor { action_id } => {
-            crate::action_editor_dialog::open(window, cx, action_id)
+            crate::actions_view::open_action_page(window, cx, action_id)
         }
-        DevDialogTarget::AutomationNew { team_id } => {
-            crate::automation_dialog::open_new(window, cx, team_id)
+        // The form sits over ITS action's page, like a click on the row.
+        DevDialogTarget::TriggerNew { action_id } => {
+            crate::actions_view::open_action_page(window, cx, action_id.clone());
+            crate::trigger_dialog::open_new(window, cx, action_id)
         }
-        DevDialogTarget::AutomationEdit { automation_id } => {
-            crate::automation_dialog::open_edit(window, cx, automation_id)
+        DevDialogTarget::TriggerEdit { action_id, trigger_id } => {
+            crate::actions_view::open_action_page(window, cx, action_id.clone());
+            crate::trigger_dialog::open_edit(window, cx, action_id, trigger_id)
         }
         DevDialogTarget::CreateBoard { team_id } => {
             crate::create_board_dialog::open(window, cx, team_id)
@@ -3460,13 +3473,20 @@ impl ScreensPanel {
                     action_id: action_id.clone(),
                 }
             }
-            DevDialog::AutomationNew => DevDialogTarget::AutomationNew {
-                team_id: active_team_id(&self.nav, cx)?,
-            },
-            DevDialog::AutomationEdit(automation_id) => {
-                store.collections().automations.read(cx).get(automation_id)?;
-                DevDialogTarget::AutomationEdit {
-                    automation_id: automation_id.clone(),
+            DevDialog::TriggerNew(action_id) => {
+                store.collections().actions.read(cx).get(action_id)?;
+                DevDialogTarget::TriggerNew {
+                    action_id: action_id.clone(),
+                }
+            }
+            DevDialog::TriggerEdit(action_id, trigger_id) => {
+                // Wait for the trigger itself, not just its action's row.
+                crate::trigger_editor::action_triggers(action_id, cx)
+                    .iter()
+                    .find(|trigger| &trigger.id == trigger_id)?;
+                DevDialogTarget::TriggerEdit {
+                    action_id: action_id.clone(),
+                    trigger_id: trigger_id.clone(),
                 }
             }
             DevDialog::CreateBoard => DevDialogTarget::CreateBoard {
@@ -3614,7 +3634,7 @@ impl Render for ScreensPanel {
             Some(Screen::Devices) => self.devices.clone().into_any_element(),
             Some(Screen::Drafts) => self.drafts.clone().into_any_element(),
             Some(Screen::Actions) => self.actions.clone().into_any_element(),
-            Some(Screen::Automations) => self.automations.clone().into_any_element(),
+            Some(Screen::Action { .. }) => self.action.clone().into_any_element(),
             Some(Screen::Workflows) => self.workflows.clone().into_any_element(),
             Some(Screen::Workflow { .. }) => self.workflow.clone().into_any_element(),
             Some(Screen::Chat) => self.chat.clone().into_any_element(),

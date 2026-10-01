@@ -145,7 +145,9 @@ interface Contract {
   actionTrigger: {
     eventValues: string[]
     scheduleIntervalValues: string[]
+    eventSourceValues: string[]
     maxFilterIds: number
+    maxPerAction: number
   }
   automation: { cooldownSeconds: number; eventCatchupHours: number }
   steerCommands: {
@@ -578,6 +580,7 @@ ${swiftStringArray("workflowLaunchAgents", contract.workflowLaunch.agents)}
     public static let startPromptMaxLength: Int = ${contract.startPrompt.maxLength}
     public static let startPromptMaxImages: Int = ${contract.startPrompt.maxImages}
     public static let actionTriggerMaxFilterIds: Int = ${contract.actionTrigger.maxFilterIds}
+    public static let actionTriggerMaxPerAction: Int = ${contract.actionTrigger.maxPerAction}
     public static let automationCooldownMs: Int = ${automationCooldownMs}
     public static let automationEventCatchupMs: Int = ${automationEventCatchupMs}
     public static let steerFeedByteCap: Int = ${steerFeed.byteCap}
@@ -747,6 +750,7 @@ ${kotlinStringArray("workflowLaunchAgents", contract.workflowLaunch.agents)}
     const val startPromptMaxLength: Int = ${contract.startPrompt.maxLength}
     const val startPromptMaxImages: Int = ${contract.startPrompt.maxImages}
     const val actionTriggerMaxFilterIds: Int = ${contract.actionTrigger.maxFilterIds}
+    const val actionTriggerMaxPerAction: Int = ${contract.actionTrigger.maxPerAction}
     const val automationCooldownMs: Long = ${automationCooldownMs}L
     const val automationEventCatchupMs: Long = ${automationEventCatchupMs}L
     const val steerFeedByteCap: Long = ${steerFeed.byteCap}L
@@ -921,6 +925,7 @@ pub const ACTION_INPUT_TEXT_MAX: usize = ${contract.actionInputs.maxTextLength};
 pub const START_PROMPT_MAX_LENGTH: usize = ${contract.startPrompt.maxLength};
 pub const START_PROMPT_MAX_IMAGES: usize = ${contract.startPrompt.maxImages};
 pub const ACTION_TRIGGER_MAX_FILTER_IDS: usize = ${contract.actionTrigger.maxFilterIds};
+pub const ACTION_TRIGGER_MAX_PER_ACTION: usize = ${contract.actionTrigger.maxPerAction};
 pub const AUTOMATION_COOLDOWN_MS: i64 = ${automationCooldownMs};
 pub const AUTOMATION_EVENT_CATCHUP_MS: i64 = ${automationEventCatchupMs};
 pub const STEER_FEED_BYTE_CAP: usize = ${steerFeed.byteCap};

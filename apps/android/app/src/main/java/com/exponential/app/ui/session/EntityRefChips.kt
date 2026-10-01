@@ -21,7 +21,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.db.ActionEntity
-import com.exponential.app.data.db.AutomationEntity
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.CommentEntity
@@ -30,7 +29,6 @@ import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueStatusEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.scopedQuery
-import com.exponential.app.domain.AutomationTrigger
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.EntityPreview
@@ -41,7 +39,6 @@ import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.SessionDotTone
 import com.exponential.app.domain.pastRunTitle
-import com.exponential.app.domain.triggerSummary
 import com.exponential.app.navigation.EntityTarget
 import com.exponential.app.navigation.LocalEntityNavigator
 import com.exponential.app.ui.components.BoardIcon
@@ -167,7 +164,6 @@ fun EntityRefPreviewSheet(
             "issue" -> IssueCard(ref, open)
             "board" -> BoardCard(ref, open)
             "action" -> ActionCard(ref, open)
-            "automation" -> AutomationCard(ref, open)
             "comment" -> CommentCard(ref, open)
             "session" -> SessionCard(ref, open)
             "label" -> LabelCard(ref, open)
@@ -353,37 +349,7 @@ private fun ActionCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
                 GlassPill("Repository-bound", size = PillSize.Sm, mode = PillMode.Readonly, icon = ExpIcons.uiRepository)
             }
         },
-        onOpen = { open(EntityTarget.Actions) },
-    )
-}
-
-@Composable
-private fun AutomationCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
-    val teamId = LocalEntityRefResolver.current?.teamId
-    val automations by observeScoped(teamId, emptyList<AutomationEntity>()) { db ->
-        if (teamId == null) flowOf(emptyList()) else db.automationDao().observeByTeam(teamId)
-    }
-    val automation = automations.firstOrNull { it.id == ref.id } ?: run {
-        SlimCard(ref, onOpen = { open(EntityTarget.Automations) })
-        return
-    }
-    val action = teamActions().firstOrNull { it.id == automation.actionId }
-    val devices by observeScoped(Unit, emptyList()) { it.deviceDao().observeAll() }
-    val device = devices.firstOrNull { it.deviceId == automation.deviceId || it.id == automation.deviceId }
-    val trigger = remember(automation.trigger) { AutomationTrigger.parse(automation.trigger)?.let(::triggerSummary) }
-    EntityPreviewCard(
-        icon = { HeaderGlyph(ExpIcons.navAutomations) },
-        eyebrow = "Automation",
-        title = ref.title?.takeIf { it.isNotBlank() } ?: action?.name ?: "Automation",
-        subtitle = action?.let { "Runs ${it.name}" },
-        facts = {
-            if (trigger != null) GlassPill(trigger, size = PillSize.Sm, mode = PillMode.Readonly, icon = ExpIcons.navAutomations)
-            if (device != null) {
-                GlassPill(device.label.ifBlank { "Device" }, size = PillSize.Sm, mode = PillMode.Readonly, icon = deviceIcon(device.icon, device.kind == SteerDevice.KIND_SERVER))
-            }
-            GlassPill(if (automation.enabled) "Enabled" else "Disabled", size = PillSize.Sm, mode = PillMode.Readonly)
-        },
-        onOpen = { open(EntityTarget.Automations) },
+        onOpen = { open(EntityTarget.Action(action.id)) },
     )
 }
 
@@ -676,8 +642,7 @@ private fun memberTarget(ref: EntityRef): EntityTarget? = when (ref.kind) {
     "session" -> EntityTarget.Session(ref.id)
     "workflow" -> EntityTarget.Workflow(ref.id)
     "thread" -> EntityTarget.SupportThread(ref.id)
-    "action" -> EntityTarget.Actions
-    "automation" -> EntityTarget.Automations
+    "action" -> EntityTarget.Action(ref.id)
     "device" -> EntityTarget.Devices
     "label", "status", "member", "invite", "team", "repository" -> EntityTarget.TeamSettings
     "notification" -> EntityTarget.Inbox

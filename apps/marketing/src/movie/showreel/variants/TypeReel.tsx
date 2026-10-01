@@ -1,7 +1,7 @@
 // variants/TypeReel.tsx — variation "Type" (EXP-1100 r2): kinetic
 // typography cut on a beat. Five statements land huge, each punched out by
 // a five-frame inverted flash; behind each word a low-opacity world of the
-// thing it names (the board, the automations that run it, a scrolling tool
+// thing it names (the board, the triggers that run it, a scrolling tool
 // stream, a PR chain that collapses into a check, the pipeline rolling
 // feedback → release). A brand card ends it. No captions, no chrome: the
 // type IS the picture. r3: aimed at the autopilot story.
@@ -142,7 +142,7 @@ const StreamWorld: React.FC<{ l: number }> = ({ l }) => (
   </div>
 )
 
-const AUTOMATIONS: [string, string, string][] = [
+const TRIGGERS: [string, string, string][] = [
   [`⏱`, `nightly · 02:00`, `Triage the feedback inbox`],
   [`⚡`, `on feedback`, `File the issue · start a run`],
   [`⚡`, `on PR opened`, `Review wave · auto-merge`],
@@ -153,9 +153,9 @@ const AutoWorld: React.FC<{ l: number }> = ({ l }) => (
   <div style={{ position: `absolute`, left: 260, top: 150, width: 1400, opacity: 0.34 * seg(l, 0, 14), filter: `blur(${mix(l, 0, 20, 8, 1.5)}px)`, scale: String(mix(l, 0, 57, 1.0, 1.06)) }}>
     <Glass x={0} y={0} w={1400} h={780} r={20}>
       <div style={{ display: `flex`, alignItems: `center`, height: 64, padding: `0 28px`, borderBottom: `1px solid ${C.strokeSection}`, fontFamily: UI, fontSize: 24, fontWeight: 600, color: C.text }}>
-        Automations <span style={{ color: C.dim, fontWeight: 500, marginLeft: 12 }}>/ macbook-pro</span>
+        Triggers <span style={{ color: C.dim, fontWeight: 500, marginLeft: 12 }}>/ macbook-pro</span>
       </div>
-      {AUTOMATIONS.map(([glyph, when, what], i) => (
+      {TRIGGERS.map(([glyph, when, what], i) => (
         <div key={when} style={{ display: `flex`, alignItems: `center`, gap: 22, height: 120, padding: `0 28px`, borderBottom: `1px solid ${C.strokeRow}`, fontFamily: UI, fontSize: 30, color: C.text, ...enter(l, stagger(6, i, 5), 12, { rise: 0, x: -40, blur: 0 }) }}>
           <span style={{ width: 44, textAlign: `center`, color: C.green, fontSize: 28 }}>{glyph}</span>
           <span style={{ fontFamily: MONO, fontSize: 22, color: C.muted, width: 260 }}>{when}</span>

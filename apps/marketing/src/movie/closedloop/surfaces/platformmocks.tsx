@@ -269,7 +269,7 @@ const Avatar: React.FC<{ size: number; text: string }> = ({ size, text }) => (
 // ── The web app inside a browser window ──────────────────────────────────────
 // EXP-471: matched to shots/board/web.webp — the sidebar opens with the team
 // switcher plus the round search + compose buttons, the nav is the EXP-699
-// order Inbox / Support / Devices / Actions / Automations / Reviews with DOT
+// order Inbox / Support / Devices / Actions / Reviews with DOT
 // badges (unread white, live green — never counts), a "Boards" group carries
 // the colored board glyphs, and Getting started + the user row are pinned at
 // the bottom. EXP-723: the sidebar sits bare on the ground (no right
@@ -335,14 +335,6 @@ const WEB_NAV: {
         <path d="M20 14h2" />
         <path d="M15 13v2" />
         <path d="M9 13v2" />
-      </Glyph>
-    ),
-  },
-  {
-    label: "Automations",
-    icon: (
-      <Glyph size={13} sw={1.7}>
-        <path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" />
       </Glyph>
     ),
   },

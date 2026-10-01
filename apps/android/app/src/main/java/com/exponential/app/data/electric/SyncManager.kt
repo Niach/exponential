@@ -12,7 +12,6 @@ import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.SessionInvalidator
 import com.exponential.app.data.db.ActionEntity
 import com.exponential.app.data.db.AttachmentEntity
-import com.exponential.app.data.db.AutomationEntity
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.DatabaseHolder
@@ -437,7 +436,6 @@ class SyncManager @Inject constructor(
         val issueEventDao = db.issueEventDao()
         val codingSessionDao = db.codingSessionDao()
         val actionDao = db.actionDao()
-        val automationDao = db.automationDao()
         val deviceDao = db.deviceDao()
         val deviceWorktreeDao = db.deviceWorktreeDao()
         val pinDao = db.pinDao()
@@ -601,15 +599,6 @@ class SyncManager @Inject constructor(
                 onRefetch = { actionDao.clear() },
             ),
             launchShape(
-                shape = "automations", path = "/api/shapes/automations", tableName = "automations",
-                serializer = AutomationEntity.serializer(),
-                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
-                reporter = reporter("automations"),
-                onInsert = { automationDao.upsert(it) },
-                onDelete = { automationDao.deleteById(it.id) },
-                onRefetch = { automationDao.clear() },
-            ),
-            launchShape(
                 shape = "devices", path = "/api/shapes/devices", tableName = "devices",
                 serializer = DeviceEntity.serializer(),
                 offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
@@ -650,8 +639,8 @@ class SyncManager @Inject constructor(
                 onRefetch = { issueDraftDao.clear() },
             ),
             // EXP-981: workflows + their nodes — team-scoped like `actions`
-            // and `automations` (a workflow spans boards, so the board trash
-            // rules do not apply). The nodes carry the server-computed layout.
+            // (a workflow spans boards, so the board trash rules do not
+            // apply). The nodes carry the server-computed layout.
             launchShape(
                 shape = "workflows", path = "/api/shapes/workflows", tableName = "workflows",
                 serializer = WorkflowEntity.serializer(),

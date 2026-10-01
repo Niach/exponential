@@ -456,12 +456,13 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
     // Both NULL on ordinary issue/batch sessions.
     public let actionId: String?
     public let actionName: String?
-    // EXP-530: non-nil (`schedule`/`event`) when the run was started by an
-    // automation trigger rather than a person; NULL on user starts.
+    // EXP-530: non-nil (`schedule`/`event`) when the run was started by one
+    // of its action's triggers rather than a person; NULL on user starts.
     public let startedReason: String?
-    // EXP-583: the `automations` row that fired this run (FK SET NULL, so a
-    // deleted automation leaves the history intact). NULL on user starts and
-    // on pre-EXP-583 automated rows, which carry only `startedReason`.
+    // EXP-583: the id of the TRIGGER that fired this run (SLOP-2: an element
+    // of its action's `triggers`; the column keeps its old name). A deleted
+    // trigger leaves the history intact. NULL on user starts and on
+    // pre-EXP-583 triggered rows, which carry only `startedReason`.
     public let automationId: String?
     // EXP-637: WHO ended the run (`agent`/`user`/`client`/`merge`/`system`).
     // (EXP-864 dropped the `summary` beside it: the agent's close-out is
@@ -709,11 +710,11 @@ public struct ActionEntity: FetchableRecord, PersistableRecord, Identifiable, Se
     /// stringified JSON, decoded lazily by the UI. Null when the action
     /// declares no inputs.
     public let inputs: String?
-    /// DEAD since EXP-583: automations became their own entity, the server
-    /// dropped `actions.trigger`, and the actions shape stopped carrying it —
-    /// so this always decodes nil now. The local column stays (dropping it
-    /// would mean a table rebuild for nothing) and nothing reads it.
-    public let trigger: String?
+    /// SLOP-2: the action's triggers (jsonb array — each element a runner
+    /// plus a schedule/event when-part), stored as the stringified JSON and
+    /// tolerant-parsed lazily via `ActionTrigger.parseList`. "[]" when the
+    /// action has none (or the row predates the column).
+    public let triggers: String
     /// EXP-825: the composer's field hint while this action is picked
     /// (≤200 chars, server-trimmed); nil = the generic "Additional
     /// instructions (optional)…" prompt.
@@ -730,7 +731,7 @@ public struct ActionEntity: FetchableRecord, PersistableRecord, Identifiable, Se
         description: String?,
         icon: String?,
         inputs: String?,
-        trigger: String? = nil,
+        triggers: String = "[]",
         promptPlaceholder: String? = nil,
         sortOrder: Double?,
         createdAt: String,
@@ -743,7 +744,7 @@ public struct ActionEntity: FetchableRecord, PersistableRecord, Identifiable, Se
         self.description = description
         self.icon = icon
         self.inputs = inputs
-        self.trigger = trigger
+        self.triggers = triggers
         self.promptPlaceholder = promptPlaceholder
         self.sortOrder = sortOrder
         self.createdAt = createdAt
@@ -751,7 +752,7 @@ public struct ActionEntity: FetchableRecord, PersistableRecord, Identifiable, Se
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, description, icon, inputs, trigger
+        case id, name, description, icon, inputs, triggers
         case teamId = "team_id"
         case repositoryId = "repository_id"
         case promptPlaceholder = "prompt_placeholder"
@@ -798,118 +799,9 @@ extension ActionEntity: Codable {
             inputs = nil
         }
 
-        // Handle JSONB trigger: string, null, or object/array.
-        if c.contains(.trigger) {
-            if let stringValue = try? c.decode(String.self, forKey: .trigger) {
-                trigger = stringValue
-            } else if (try? c.decodeNil(forKey: .trigger)) == true {
-                trigger = nil
-            } else {
-                let rawJSON = try c.decode(JSONWireValue.self, forKey: .trigger)
-                let data = try JSONEncoder().encode(rawJSON)
-                trigger = String(data: data, encoding: .utf8)
-            }
-        } else {
-            trigger = nil
-        }
-    }
-}
-
-// MARK: - Automation
-
-// EXP-583: automations are their own entity (the 19th Electric shape), split
-// out of the old `actions.trigger`. One row binds ONE action to ONE device
-// with a schedule/event trigger and its own agent/model/effort (NULL = the
-// device's launch defaults). Team-scoped like `actions`; the bound device
-// selects its own enabled rows off sync and self-starts the run — there is no
-// server scheduler. Mirrors packages/db-schema automations.
-public struct AutomationEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
-    public static let databaseTableName = "automations"
-
-    public let id: String
-    public let teamId: String
-    /// FK actions (cascade server-side) — the action this run executes.
-    public let actionId: String
-    /// The steer device id (`devices.device_id`) that fires it locally.
-    public let deviceId: String
-    /// Paused automations keep their config.
-    public let enabled: Bool
-    /// The WHEN-part jsonb (`{kind: schedule|event, …}`) — Electric delivers
-    /// it as a JSON value; stored as stringified JSON, tolerant-parsed lazily
-    /// via `AutomationTrigger.parse`.
-    public let trigger: String?
-    /// nil = the device's launch defaults (all four travel together).
-    public let agent: String?
-    /// EXP-995: the agent profile id the run spends on the bound device — it
-    /// belongs to `agent`; nil = that machine's default login for it.
-    public let account: String?
-    public let model: String?
-    public let effort: String?
-    public let sortOrder: Double?
-    public let createdAt: String
-    public let updatedAt: String
-
-    public init(
-        id: String,
-        teamId: String,
-        actionId: String,
-        deviceId: String,
-        enabled: Bool = true,
-        trigger: String?,
-        agent: String? = nil,
-        account: String? = nil,
-        model: String? = nil,
-        effort: String? = nil,
-        sortOrder: Double?,
-        createdAt: String,
-        updatedAt: String
-    ) {
-        self.id = id
-        self.teamId = teamId
-        self.actionId = actionId
-        self.deviceId = deviceId
-        self.enabled = enabled
-        self.trigger = trigger
-        self.agent = agent
-        self.account = account
-        self.model = model
-        self.effort = effort
-        self.sortOrder = sortOrder
-        self.createdAt = createdAt
-        self.updatedAt = updatedAt
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case id, enabled, trigger, agent, account, model, effort
-        case teamId = "team_id"
-        case actionId = "action_id"
-        case deviceId = "device_id"
-        case sortOrder = "sort_order"
-        case createdAt = "created_at"
-        case updatedAt = "updated_at"
-    }
-}
-
-// Custom decode: `enabled` arrives as Postgres text off the Electric wire
-// ("t"/"f") but as a native bool from fixtures, `sort_order` goes through the
-// type-aware wire helper, and `trigger` follows the permissive jsonb pattern
-// (string, object, or null) re-encoded to a stored string.
-extension AutomationEntity: Codable {
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(String.self, forKey: .id)
-        teamId = try c.decode(String.self, forKey: .teamId)
-        actionId = try c.decode(String.self, forKey: .actionId)
-        deviceId = try c.decode(String.self, forKey: .deviceId)
-        enabled = c.decodeWireBool(forKey: .enabled, default: true)
-        trigger = c.decodeWireJsonString(forKey: .trigger)
-        agent = try c.decodeIfPresent(String.self, forKey: .agent)
-        account = try c.decodeIfPresent(String.self, forKey: .account)
-        model = try c.decodeIfPresent(String.self, forKey: .model)
-        effort = try c.decodeIfPresent(String.self, forKey: .effort)
-        sortOrder = try c.decodeWireDouble(forKey: .sortOrder)
-        createdAt = try c.decode(String.self, forKey: .createdAt)
-        updatedAt = try c.decode(String.self, forKey: .updatedAt)
+        // SLOP-2: jsonb array → stored string; absent/null (an older
+        // server) reads as no triggers.
+        triggers = c.decodeWireJsonString(forKey: .triggers) ?? "[]"
     }
 }
 
@@ -2182,7 +2074,7 @@ public struct WorkflowEntity: FetchableRecord, PersistableRecord, Identifiable, 
     /// `devices.device_id` of the runner; nil on a draft nobody bound yet.
     public let deviceId: String?
     /// The launch jsonb, stored as stringified JSON and tolerant-parsed lazily
-    /// via `WorkflowLaunch.parse` (the `automations.trigger` pattern).
+    /// via `WorkflowLaunch.parse` (the `actions.triggers` pattern).
     public let launch: String?
     /// `exp/wf-<id8>`, stamped at create.
     public let integrationBranch: String

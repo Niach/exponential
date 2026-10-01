@@ -21,7 +21,8 @@
 //! stays reachable behind `EXP_DEV_BOARD=1`.
 
 mod account_switch;
-mod action_editor_dialog;
+mod action_prompt_form;
+mod action_view;
 mod action_inputs;
 mod agent_login;
 mod agent_login_outcome;
@@ -30,12 +31,11 @@ mod action_suggestions;
 mod actions;
 mod actions_view;
 mod automation_host;
-mod automations_view;
 mod app_title_bar;
 mod attachment_markdown_preview;
 mod attachments_row;
-mod automation_dialog;
-mod automation_editor;
+mod trigger_dialog;
+mod trigger_editor;
 mod board;
 mod board_form;
 mod changelog;
@@ -128,7 +128,7 @@ mod repo_scope;
 mod resize_edge;
 mod review_files_nav;
 mod reviews_view;
-// EXP-746: the ONE agent-run row (Automations' run log, Devices' Running and
+// EXP-746: the ONE agent-run row (an action's Runs, Devices' Running and
 // Past) and the two Devices sections that render it.
 mod run_rows;
 mod sessions_section;

@@ -43,7 +43,6 @@ export interface DemoIds {
   supportToken?: string
   actionId?: string
   deviceId?: string
-  automationId?: string
   /**
    * The seeded showcase coding session — `$steeredSession`, the row the
    * `steering` view is photographed on (EXP-732). Absent when the seed planted
@@ -61,7 +60,6 @@ const NAMED: Record<string, (ids: DemoIds) => string | undefined> = {
   thread: (ids) => ids.supportThreadId,
   action: (ids) => ids.actionId,
   device: (ids) => ids.deviceId,
-  automation: (ids) => ids.automationId,
   steeredSession: (ids) => ids.steeredSessionId,
   issueA: (ids) => ids.issueAId,
   issueB: (ids) => ids.issueBId,
@@ -98,7 +96,6 @@ export function parseDemoIds(stdout: string): DemoIds {
     supportToken: parsed.supportToken,
     actionId: parsed.actionId,
     deviceId: parsed.deviceId,
-    automationId: parsed.automationId,
     steeredSessionId: parsed.steeredSessionId,
   }
 }
@@ -121,7 +118,7 @@ export async function fetchDemoIds(): Promise<DemoIds> {
 /**
  * Substitute `$NAME` placeholders in a `DesktopDrive.value`.
  *
- * A handful of names (`$thread`, `$action`, `$device`, `$automation`, `$board`,
+ * A handful of names (`$thread`, `$action`, `$device`, `$board`,
  * `$emptyBoard`, `$team`, `$steeredSession`, `$issueA`, `$issueB`, `$prIssue`)
  * point at one well-known seeded row;
  * anything else is looked up as an issue IDENTIFIER (`$APP-5`). The same

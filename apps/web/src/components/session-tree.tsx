@@ -402,8 +402,7 @@ export function SessionTree({
   onOpen: (session: CodingSession) => void
   /** Shown instead of the rows when there are none. Absent = render nothing. */
   emptyNote?: string
-  /** A row's title when the caller knows better than the identity (the
-   *  Automations tab resolves a deleted action's live name). */
+  /** A row's title when the caller knows better than the identity. */
   titleOf?: (row: TreeListRow) => string
 }) {
   const [collapsed, toggle] = useCollapsedNodes()
@@ -463,7 +462,12 @@ export function SessionTree({
           <RunningSessionRow
             key={key}
             row={{ ...row, paused: row.paused ?? false } as SessionListRow}
-            decor={decor}
+            // A caller's title names a LIVE row too (an action's Runs).
+            decor={
+              titleOf && !decor?.title
+                ? { ...decor, title: titleOf(row) }
+                : decor
+            }
             depth={depth}
             guide={guide}
             active={active}

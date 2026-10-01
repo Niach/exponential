@@ -138,16 +138,14 @@ describe(`entityRefRoute`, () => {
     expect(route({ kind: `board`, id: `b-9` })).toBeNull()
   })
 
-  it(`opens an action and an automation in their editors`, () => {
+  it(`opens an action on its page, a builtin in the list`, () => {
     expect(route({ kind: `action`, id: `a-1` })).toEqual({
+      to: `/t/$teamSlug/actions/$actionId`,
+      params: { teamSlug: `acme`, actionId: `a-1` },
+    })
+    expect(route({ kind: `action`, id: `builtin:create-action` })).toEqual({
       to: `/t/$teamSlug/actions`,
       params: { teamSlug: `acme` },
-      search: { editAction: `a-1` },
-    })
-    expect(route({ kind: `automation`, id: `au-1` })).toEqual({
-      to: `/t/$teamSlug/automations`,
-      params: { teamSlug: `acme` },
-      search: { editAutomation: `au-1` },
     })
   })
 

@@ -1,32 +1,32 @@
 //! The Actions center screen (EXP-467): the web `t/$teamSlug/actions` page
 //! 1:1 — the team's reusable action prompts as a ROW list (EXP-618: the old
 //! wrapping card grid unified onto the mobile row shape every other client
-//! draws). The old master/detail split (Actions tool window → full-page
-//! action detail) is gone: editing happens in
-//! [`crate::action_editor_dialog`] behind each row's owner ⋯ menu, exactly
-//! like the web's edit dialog, and the rail's Actions entry navigates here.
+//! draws). A row opens the action's PAGE ([`crate::action_view`], SLOP-2 —
+//! Prompt · Triggers · Runs; it replaced the edit dialog), and the rail's
+//! Actions entry navigates here.
 //! EXP-480: the page is a tab-less FULL-PAGE mode (no tool column, no tab
 //! chip — `CenterPanel` unmounts the sidebar split while it is up), leading
 //! with the web's plain-text [`crate::surface::glass_section_header`] over
 //! a GAPPED list of [`crate::surface::glass_row_card`] rows (EXP-642).
 //!
 //! EXP-686 split the old three-tab page apart: machines moved to
-//! [`crate::devices_view`], automations + their run log to
-//! [`crate::automations_view`], and the suggestion seeds to the
-//! Getting-started page's second tab (the header's lightbulb goes there).
+//! [`crate::devices_view`] and the suggestion seeds to the Getting-started
+//! page's second tab (the header's lightbulb goes there). SLOP-2 folded the
+//! automations into their action: a row wears its triggers' glyphs, and the
+//! triggers and the runs they fire live on the action's page.
 //!
 //! EXP-431 carries over: the create builtin is not a row — creation lives
 //! behind the header's "New action" button, which opens the Agent page
 //! composer with the creator builtin picked (EXP-825). The list is LIVE off
-//! the synced `actions` shape (body-less rows; the edit dialog fetches the
+//! the synced `actions` shape (body-less rows; the action page fetches the
 //! body via `actions.get` on open). ▶ Run opens the same composer with the
 //! action picked; it owns agent/model/effort and the typed input fields.
 //!
 //! EXP-832: `render` builds elements and NOTHING else. gpui re-renders the
 //! whole window on any `notify` (a tooltip's show-delay task, a hover on a
 //! managed control), so the list's derived data — the team's rows off the
-//! synced collections, converted and sorted, plus the per-action automation
-//! count — is computed ONCE per data change in the `observe` callbacks
+//! synced collections, converted and sorted, plus each action's trigger
+//! glyphs — is computed ONCE per data change in the `observe` callbacks
 //! ([`ActionsView::refresh`]) and read from `self` by `render`. The row's
 //! ▶ button carries a tooltip only while it is DISABLED (the EXP-367 reason):
 //! an enabled button's "Run on this device" cost ~70 full-window renders per
@@ -34,6 +34,8 @@
 //! each `notify`); without it the same sweep measures ~13.
 
 use std::collections::HashMap;
+
+use crate::trigger_editor::TriggerBadges;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -59,7 +61,7 @@ use crate::queries;
 const PAGE_COLUMN_W: f32 = 1024.;
 
 /// The shared full-page scaffold every rail-navigated page uses (EXP-686 —
-/// Devices, Actions, Automations): ONE scroll pane holding one centered
+/// Devices, Actions, an action's page): ONE scroll pane holding one centered
 /// column capped at [`PAGE_COLUMN_W`] (block wrapper + `mx_auto`, the
 /// EXP-179-safe centering recipe).
 ///
@@ -152,8 +154,8 @@ struct ActionsDerived {
     /// The `actions` shape's readiness (an empty list before it is "still
     /// syncing", never "no actions").
     ready: bool,
-    /// EXP-583: how many automations target each action, by action id.
-    automation_counts: HashMap<String, usize>,
+    /// SLOP-2: which trigger glyphs each action wears, by action id.
+    trigger_badges: HashMap<String, TriggerBadges>,
 }
 
 impl ActionsDerived {
@@ -173,18 +175,23 @@ impl ActionsDerived {
             action.id != api::actions::BUILTIN_CREATE_ACTION_ID
                 && action.id != api::actions::BUILTIN_FIX_CONFLICTS_ID
         });
-        // EXP-583: automations are their own synced rows — each action row
-        // says how many target it (the list itself lives on its own screen).
-        let (automations, _) = queries::team_automations(cx, team);
-        let mut automation_counts: HashMap<String, usize> = HashMap::new();
-        for automation in &automations {
-            *automation_counts.entry(automation.action_id.clone()).or_default() += 1;
-        }
+        // SLOP-2: an action carries its triggers — the row wears a glyph
+        // per KIND it has (the triggers themselves live on its page).
+        let trigger_badges = actions
+            .iter()
+            .filter(|action| !action.triggers.is_empty())
+            .map(|action| {
+                let triggers = coding::automations::parse_action_triggers(Some(
+                    &serde_json::Value::Array(action.triggers.clone()),
+                ));
+                (action.id.clone(), TriggerBadges::of(&triggers))
+            })
+            .collect();
         Self {
             team_id,
             actions,
             ready,
-            automation_counts,
+            trigger_badges,
         }
     }
 }
@@ -195,19 +202,12 @@ impl ActionsView {
         // Live list: re-derive on any synced actions change (EXP-268) and on
         // navigation (team switch re-scopes the read).
         let mut subscriptions = vec![cx.observe(&nav, |this, _, cx| this.refresh(cx))];
-        // EXP-583: each row says how many automations target it, so the
-        // `automations` rows drive this screen too.
         let watched = sync::Store::try_global(cx).map(|store| {
             let collections = store.collections();
-            (
-                collections.actions.clone(),
-                collections.automations.clone(),
-                collections.pins.clone(),
-            )
+            (collections.actions.clone(), collections.pins.clone())
         });
-        if let Some((actions, automations, pins)) = watched {
+        if let Some((actions, pins)) = watched {
             subscriptions.push(cx.observe(&actions, |this, _, cx| this.refresh(cx)));
-            subscriptions.push(cx.observe(&automations, |this, _, cx| this.refresh(cx)));
             // EXP-778: each row's Pin/Unpin menu entry reads the per-user
             // pins rows.
             subscriptions.push(cx.observe(&pins, |this, _, cx| this.refresh(cx)));
@@ -279,12 +279,12 @@ impl ActionsView {
     // -- render -------------------------------------------------------------
 
     /// One action row — the mobile/web `ActionRow` shape (EXP-618): glyph ·
-    /// [name, 2-line description, automation count] · ▶ Run · owner ⋯ menu.
+    /// [name + its trigger glyphs, 2-line description] · ▶ Run · ⋯ menu.
     fn render_action_row(
         &self,
         index: usize,
         action: &api::actions::Action,
-        automations: usize,
+        badges: TriggerBadges,
         is_owner: bool,
         no_agent: Option<&SharedString>,
         cx: &mut gpui::Context<Self>,
@@ -295,8 +295,10 @@ impl ActionsView {
         let row_hover = theme.list_hover;
         let run_id = action.id.clone();
 
-        // EXP-697 retired the FEED-15 "runs in a repository" glyph: the name
-        // stands alone.
+        // EXP-697 retired the FEED-15 "runs in a repository" glyph. SLOP-2:
+        // beside the name sit the trigger glyphs — a clock for a schedule, a
+        // bolt for an event, muted while none of that kind is enabled. No
+        // text, no count.
         let title_row = gpui_component::h_flex()
             .w_full()
             .min_w_0()
@@ -310,7 +312,8 @@ impl ActionsView {
                     .truncate()
                     .text_color(theme.foreground)
                     .child(SharedString::from(action.name.clone())),
-            );
+            )
+            .children(badges.render(cx));
 
         let mut middle = gpui_component::v_flex()
             .flex_1()
@@ -328,37 +331,6 @@ impl ActionsView {
                     .child(SharedString::from(description)),
             );
         }
-        // EXP-583: the row no longer shows ONE trigger — automations are
-        // their own rows, and several can target the same action. It says
-        // how many, and the Automations tab shows which.
-        if automations > 0 {
-            middle = middle.child(
-                gpui_component::h_flex()
-                    .w_full()
-                    .min_w_0()
-                    .items_center()
-                    .gap_1p5()
-                    .child(
-                        Icon::from(registry::ACTION_AUTOMATION)
-                            .xsmall()
-                            .text_color(muted),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_xs()
-                            .truncate()
-                            .text_color(muted)
-                            .child(SharedString::from(if automations == 1 {
-                                "1 automation".to_string()
-                            } else {
-                                format!("{automations} automations")
-                            })),
-                    ),
-            );
-        }
-
         // EXP-367: no agent CLI → Run disabled with the reason, never hidden.
         // EXP-832: the reason is the ONLY tooltip the button wears — an
         // enabled ▶ with a managed tooltip re-rendered the whole window on
@@ -376,12 +348,13 @@ impl ActionsView {
         if let Some(reason) = no_agent {
             run_button = run_button.tooltip(reason.clone());
         }
-        // EXP-862 (web `ActionRow`): an owner's row opens the editor, so the
-        // pointer is only worn where a click does something; the hover wash
-        // is every flat row's.
-        let editable = is_owner && !action.builtin;
+        // SLOP-2: a row opens the action's PAGE — for every member (a reader
+        // gets the prompt read-only, its triggers and its runs). A builtin
+        // has no page, so the pointer is only worn where a click does
+        // something; the hover wash is every flat row's.
+        let opens_page = !action.builtin;
         let row_edit_id = action.id.clone();
-        let mut row = crate::surface::flat_row()
+        let row = crate::surface::flat_row()
             .id(("action-row", index))
             .flex()
             .w_full()
@@ -391,10 +364,10 @@ impl ActionsView {
             .px_3()
             .py_2p5()
             .hover(move |this| this.bg(row_hover))
-            .when(editable, |this| {
+            .when(opens_page, |this| {
                 this.cursor_pointer()
                     .on_click(move |_: &ClickEvent, window, cx| {
-                        crate::action_editor_dialog::open(window, cx, row_edit_id.clone());
+                        open_action_page(window, cx, row_edit_id.clone());
                     })
             })
             .child(
@@ -469,11 +442,7 @@ impl ActionsView {
                                 PopupMenuItem::new("Edit")
                                     .icon(Icon::from(registry::UI_EDIT))
                                     .on_click(move |_, window, cx| {
-                                        crate::action_editor_dialog::open(
-                                            window,
-                                            cx,
-                                            edit_id.clone(),
-                                        );
+                                        open_action_page(window, cx, edit_id.clone());
                                     }),
                             )
                             .item(
@@ -610,13 +579,13 @@ impl Render for ActionsView {
             .iter()
             .enumerate()
             .map(|(index, action)| {
-                let count = self
+                let badges = self
                     .derived
-                    .automation_counts
+                    .trigger_badges
                     .get(&action.id)
                     .copied()
-                    .unwrap_or(0);
-                self.render_action_row(index, action, count, is_owner, no_agent.as_ref(), cx)
+                    .unwrap_or_default();
+                self.render_action_row(index, action, badges, is_owner, no_agent.as_ref(), cx)
             })
             .collect();
         // The nudge is a full-width strip (web parity) — appended after the
@@ -657,6 +626,16 @@ impl Render for ActionsView {
             gpui_component::v_flex().gap_6().child(actions_section),
         )
     }
+}
+
+/// Open one action's page (SLOP-2) — the row's click, its menu's "Edit",
+/// an entity chip and the legacy `action-editor:<uuid>` dev id all land
+/// here. A builtin has no page (it is not a DB row).
+pub(crate) fn open_action_page(window: &mut Window, cx: &mut App, action_id: String) {
+    if api::actions::is_builtin_action_id(&action_id) {
+        return;
+    }
+    navigate(window, cx, Screen::Action { action_id });
 }
 
 /// `actions.delete` over tRPC — the synced collection drops the row; a live

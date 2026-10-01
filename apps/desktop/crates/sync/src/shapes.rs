@@ -1,4 +1,4 @@
-//! The 25 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
+//! The 24 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
 //! iterates and the store builds its schema from. gpui-free.
 //!
 //! Each [`ShapeSpec`] carries the SQLite table name, the kebab-case proxy URL
@@ -80,11 +80,11 @@ impl ShapeSpec {
     }
 }
 
-/// The 25 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
+/// The 24 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
 /// (minus the §5.4 exclusions: no `email` on `issue_subscribers`, web-only
 /// billing fields dropped from `users`, no `body` on `actions`, no scoping
 /// mirrors on `device_worktrees`, and no `creator_id` on `workflows`).
-pub const SHAPES: [ShapeSpec; 25] = [
+pub const SHAPES: [ShapeSpec; 24] = [
     ShapeSpec {
         name: "teams",
         path: "/api/shapes/teams",
@@ -455,7 +455,7 @@ pub const SHAPES: [ShapeSpec; 25] = [
             // real values, not NULLs.
             "action_id",
             "action_name",
-            // EXP-583: the `automations` row that fired the run (NULL on
+            // EXP-583/SLOP-2: the TRIGGER that fired the run (NULL on
             // manual starts) — heals onto existing store tables like the rest.
             "automation_id",
             "started_reason",
@@ -502,10 +502,12 @@ pub const SHAPES: [ShapeSpec; 25] = [
             // local table, so no hand-written migration.
             "icon",
             "inputs",
-            // NO `trigger` (EXP-583): automations are their own row/shape now
-            // and the server dropped the column. A pre-drop install keeps an
-            // orphaned local TEXT column (heal_missing_columns is
-            // additive-only); the allowlist drops the key on upsert.
+            // SLOP-2: the action's triggers (jsonb array, TEXT-stored like
+            // `inputs`) — the old `automations` shape folded in, and what
+            // the bound device fires off. `heal_missing_columns` ALTERs it
+            // onto an existing local table. The pre-SLOP-2 `automations`
+            // table stays behind as an orphan nothing reads.
+            "triggers",
             "sort_order",
             "created_at",
             "updated_at",
@@ -601,31 +603,6 @@ pub const SHAPES: [ShapeSpec; 25] = [
             "dirty",
             "busy",
             "reported_at",
-            "created_at",
-            "updated_at",
-        ],
-        pk: PkKind::Id,
-    },
-    ShapeSpec {
-        name: "automations",
-        path: "/api/shapes/automations",
-        // EXP-583: one action + one device + one trigger, team-scoped like
-        // `actions`. Byte-matches the proxy's allowlist (apps/web
-        // routes/api/shapes/automations.ts) — every column is client-relevant,
-        // so this is the full row; a future server-only column goes BEHIND it.
-        columns: &[
-            "id",
-            "team_id",
-            "action_id",
-            "device_id",
-            "enabled",
-            "trigger",
-            "agent",
-            // EXP-995: the agent profile the run spends on the bound device.
-            "account",
-            "model",
-            "effort",
-            "sort_order",
             "created_at",
             "updated_at",
         ],
@@ -802,8 +779,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_25_shapes_with_kebab_paths() {
-        assert_eq!(SHAPES.len(), 25);
+    fn registry_has_24_shapes_with_kebab_paths() {
+        assert_eq!(SHAPES.len(), 24);
         for spec in &SHAPES {
             assert!(spec.path.starts_with("/api/shapes/"), "{}", spec.name);
             assert!(!spec.path.contains('_'), "paths are kebab-case: {}", spec.path);
@@ -1033,8 +1010,8 @@ mod tests {
 
     #[test]
     fn coding_sessions_syncs_action_attribution() {
-        // EXP-530: the Automations tab's last-run/recent-runs read these —
-        // dropping any silently shows every automated run as a manual one.
+        // EXP-530: an action's Runs reads these — dropping any silently
+        // shows every triggered run as a manual one.
         let spec = shape_by_name("coding_sessions").unwrap();
         assert!(spec.columns.contains(&"action_id"));
         assert!(spec.columns.contains(&"action_name"));
@@ -1090,22 +1067,15 @@ mod tests {
     }
 
     #[test]
-    fn automations_sync_the_whole_binding() {
-        // EXP-583: the bound device fires off THIS shape now — dropping any
-        // of the four binding columns silently disables every automation.
-        let spec = shape_by_name("automations").unwrap();
-        for column in ["action_id", "device_id", "enabled", "trigger"] {
-            assert!(spec.columns.contains(&column), "automations needs {column}");
-        }
-        // The per-run overrides (NULL = the device's launch defaults).
-        for column in ["agent", "model", "effort"] {
-            assert!(spec.columns.contains(&column), "automations needs {column}");
-        }
-        // The trigger LEFT `actions` with EXP-583 — a client that still asks
-        // for the dropped column wedges the whole shape.
+    fn actions_sync_their_triggers() {
+        // SLOP-2: the bound device fires off `actions.triggers` — dropping
+        // the column silently disables every trigger. The legacy
+        // `automations` mirror shape is for OLD clients only.
         let actions = shape_by_name("actions").unwrap();
-        assert!(!actions.columns.contains(&"trigger"));
-        // And the run rows point back at the automation that fired them.
+        assert!(actions.columns.contains(&"triggers"));
+        assert!(!actions.columns.contains(&"body"), "the prompt never syncs");
+        assert!(shape_by_name("automations").is_none());
+        // And the run rows point back at the trigger that fired them.
         let sessions = shape_by_name("coding_sessions").unwrap();
         assert!(sessions.columns.contains(&"automation_id"));
     }

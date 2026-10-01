@@ -27,10 +27,10 @@ final class AgentsViewModel {
     }
 
     /// EXP-746: one finished run under "Recent" — an ended, PERSON-started run
-    /// of the caller's in the active team. Automation runs are not here: they
-    /// live under Automations' "Recent automated runs" (EXP-676) and the two
-    /// sets are disjoint by `started_reason`, so the two Resume paths can
-    /// never double-fire on the same row.
+    /// of the caller's in the active team. Triggered runs are not here: they
+    /// live under their action's Runs (EXP-676, SLOP-2) and the two sets are
+    /// disjoint by `started_reason`, so the two Resume paths can never
+    /// double-fire on the same row.
     struct PastRow: Identifiable {
         let session: CodingSessionEntity
         let issue: IssueEntity?
@@ -103,11 +103,10 @@ final class AgentsViewModel {
     /// resume probe. EXP-1042: nothing else reads it on a phone; the
     /// device-settings list left for the IDE.
     var worktrees: [DeviceWorktreeEntity] = []
-    /// EXP-694: the synced actions/automations, account-wide (a session names
-    /// its own team). The session rows' trailing control resolves its glyph and
-    /// its editor target through these — no network read.
+    /// EXP-694: the synced actions, account-wide (a session names its own
+    /// team). The session rows' trailing control resolves its glyph and its
+    /// editor target through these — no network read.
     var actions: [ActionDto] = []
-    var automations: [AutomationDto] = []
 
     /// The team the surrounding view currently shows — kept current by
     /// `AgentsView` (the LIVE sessions observation is account-wide and the
@@ -145,10 +144,8 @@ final class AgentsViewModel {
     private var deviceTask: Task<Void, Never>?
     private var worktreeTask: Task<Void, Never>?
     private var userTask: Task<Void, Never>?
-    // EXP-694: the action/automation stores behind the session rows' editor
-    // buttons.
+    // EXP-694: the action store behind the session rows' editor buttons.
     private var actionTask: Task<Void, Never>?
-    private var automationTask: Task<Void, Never>?
     // EXP-996: the workflow shapes behind the tree's group rows.
     private var workflowTask: Task<Void, Never>?
     private var workflowNodeTask: Task<Void, Never>?
@@ -289,8 +286,8 @@ final class AgentsViewModel {
             } catch {}
         }
         // EXP-694: the session rows' trailing control names the ACTION a run
-        // came from (its glyph, and the editor the button opens), so the two
-        // action-side shapes ride along here.
+        // came from (its glyph, and the editor the button opens), so the
+        // actions shape rides along here.
         let actionObservation = ValueObservation.tracking { db in
             try ActionEntity.fetchAll(db)
         }
@@ -298,16 +295,6 @@ final class AgentsViewModel {
             do {
                 for try await rows in actionObservation.values(in: pool) {
                     self?.actions = rows.map { ActionDto(entity: $0) }
-                }
-            } catch {}
-        }
-        let automationObservation = ValueObservation.tracking { db in
-            try AutomationEntity.fetchAll(db)
-        }
-        automationTask = Task { [weak self] in
-            do {
-                for try await rows in automationObservation.values(in: pool) {
-                    self?.automations = rows.map { AutomationDto(entity: $0) }
                 }
             } catch {}
         }
@@ -444,8 +431,6 @@ final class AgentsViewModel {
         userTask = nil
         actionTask?.cancel()
         actionTask = nil
-        automationTask?.cancel()
-        automationTask = nil
         workflowTask?.cancel()
         workflowTask = nil
         workflowNodeTask?.cancel()

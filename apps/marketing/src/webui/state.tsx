@@ -8,8 +8,8 @@ import type { DemoAgent } from "./data"
 /* Embedding views the docs can request. */
 export type WebView = `board` | `issue` | `run` | `inbox` | `support` | `agent`
 
-/* Sidebar nav targets that actually switch the main pane. Devices, Actions,
-   Automations and Reviews render for fidelity but stay inert — the demo keeps
+/* Sidebar nav targets that actually switch the main pane. Devices, Actions
+   and Reviews render for fidelity but stay inert — the demo keeps
    only the panes that carry a full recreation. */
 export type WebNav = `board` | `inbox` | `support` | `agent`
 

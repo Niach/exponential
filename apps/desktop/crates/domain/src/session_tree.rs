@@ -22,8 +22,8 @@
 //! `workflow_node_id` / `workflow_role`, EXP-1082), nests reviews under their
 //! node's author and flags duplicate live runs; the strings drawn off it
 //! ([`workflow_group_caption`], [`review_row_caption`]) are byte-identical ×4.
-//! `nest_sessions` stays exactly as it was — the Automations log and
-//! [`crate::pr_graph`] still nest plain parent/child lists through it.
+//! `nest_sessions` stays exactly as it was — [`crate::pr_graph`] still
+//! nests plain parent/child lists through it.
 
 use std::collections::{HashMap, HashSet};
 

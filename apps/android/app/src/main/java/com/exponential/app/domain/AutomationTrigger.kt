@@ -4,6 +4,7 @@ import java.util.Calendar
 import java.util.TimeZone
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -11,16 +12,17 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 
-// EXP-583 automations: an `automations` row (the 19th Electric shape) pairs an
-// action with a bound device, and its `trigger` jsonb is the WHEN-part only —
-// a schedule ("daily at 07:00") or an event ("when status changes"). The
-// device/enabled/agent fields that used to live INSIDE the trigger (EXP-530's
-// actions.trigger) are columns on the row now. The bound device watches for
-// the trigger and fires locally; there is no server scheduler.
-// Parsing is deliberately TOLERANT — an unknown kind/event or malformed JSON
-// reads as null ("no trigger"), never a crash — so a future trigger shape
+// Action triggers (EXP-530; SLOP-2: an action CARRIES its triggers). One
+// stored trigger ([ActionTrigger]) = its runner (id, enabled flag, bound
+// device, optional agent pins) plus the WHEN-part ([AutomationTrigger]: a
+// schedule — "daily at 07:00" — or an event — "when status changes"). They
+// ride the synced `actions.triggers` jsonb array; the bound device watches
+// for the when-part and fires locally — there is no server scheduler, and a
+// phone never runs one.
+// Parsing is deliberately TOLERANT — an unknown kind/event/source or malformed
+// JSON reads as null ("no trigger"), never a crash — so a future trigger shape
 // can't brick this client. Summary strings mirror the web's
-// `lib/action-triggers.ts` / iOS `AutomationTriggerDisplay` byte-for-byte.
+// `lib/action-triggers.ts` / iOS byte-for-byte.
 
 /**
  * The event-trigger filter lists. Empty lists mean "no filter on that axis";
@@ -65,7 +67,7 @@ sealed interface AutomationTrigger {
      * canonical order (kind, interval/minuteOfDay/weekday/dayOfMonth or
      * event/filters{boardIds,labelIds,priorities,toStatusIds}) — the SAME
      * order the web's `draftToTrigger` builds, so `JSON.stringify` and this
-     * render byte-identically inside [formatAutomationBlock]. Empty filter
+     * render byte-identically inside [formatTriggerBlock]. Empty filter
      * lists are OMITTED, matching what the pickers produce.
      */
     fun toWireJson(): JsonObject = when (this) {
@@ -98,17 +100,16 @@ sealed interface AutomationTrigger {
         }
     }
 
-    /** Compact wire JSON string — rides `automations.create` and the create
-     * sheet's machine-readable note (kotlinx renders JsonObject compactly). */
+    /** Compact wire JSON string (kotlinx renders JsonObject compactly). */
     fun toWireJsonString(): String = toWireJson().toString()
 
     companion object {
         private val json = Json { ignoreUnknownKeys = true }
 
         /**
-         * Tolerant parse of the stored/synced JSON string. ANY malformation —
-         * unknown kind, unknown event/interval, missing schedule fields,
-         * out-of-range values, non-object JSON — reads as null ("no
+         * Tolerant parse of a when-part JSON string. ANY malformation —
+         * unknown kind, unknown event/interval/source, missing schedule
+         * fields, out-of-range values, non-object JSON — reads as null ("no
          * trigger"): a future server shape must never crash or half-render on
          * this build.
          */
@@ -116,7 +117,13 @@ sealed interface AutomationTrigger {
             if (raw.isNullOrBlank()) return null
             val obj = runCatching { json.parseToJsonElement(raw) }.getOrNull() as? JsonObject
                 ?: return null
+            return parse(obj)
+        }
 
+        /** The same tolerant read off an already-decoded object — the runner
+         * fields beside the when-part (a stored trigger's id, device, pins)
+         * are simply ignored. */
+        fun parse(obj: JsonObject): AutomationTrigger? {
             return when (obj.stringValue("kind")) {
                 "schedule" -> {
                     val interval = obj.stringValue("interval")
@@ -137,8 +144,14 @@ sealed interface AutomationTrigger {
                     )
                 }
                 "event" -> {
-                    // An old client reading a FUTURE event kind treats it as
-                    // "no trigger".
+                    // An old client reading a FUTURE event source or kind
+                    // treats it as "no trigger". An absent source is
+                    // Exponential's (rows from before sources existed).
+                    if (obj.containsKey("source") &&
+                        obj.stringValue("source") != TRIGGER_SOURCE_EXPONENTIAL
+                    ) {
+                        return null
+                    }
                     val event = obj.stringValue("event")
                         ?.takeIf { it in DomainContract.actionTriggerEventValues }
                         ?: return null
@@ -234,7 +247,7 @@ fun triggerSummary(trigger: AutomationTrigger): String = when (trigger) {
  * The next occurrence STRICTLY after [nowMs], as epoch millis in [zone].
  * This is the VIEWER's wall clock — the bound device fires on ITS OWN local
  * time, which is why no surface prints this as an absolute date any more
- * (EXP-812: the calendar moved it under every screenshot). The Automations row
+ * (EXP-812: the calendar moved it under every screenshot). A Triggers row
  * labels the RECURRENCE "(device time)" instead. Null only for a malformed
  * schedule (weekly without a valid weekday, monthly without a valid day),
  * which the tolerant parse already rejects.
@@ -294,15 +307,184 @@ fun nextScheduleRun(
 private fun Calendar.cloneShiftedDays(days: Int): Calendar =
     (clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, days) }
 
+/** The one event source this build reads and writes. */
+const val TRIGGER_SOURCE_EXPONENTIAL = "exponential"
+
 /**
- * The machine-readable note the create sheet appends to the builtin "Create
- * action" description — the creator agent authors the action, then copies this
- * JSON verbatim into `exponential_automations_create` (adding the new action's
- * id). The sheet never talks to the server itself. BYTE-IDENTICAL to web
- * `formatAutomationBlock`: key order deviceId, trigger, then agent/model/effort
- * only when set, compact JSON.
+ * ONE stored trigger of an action: the runner plus its [whenPart]. [id] is
+ * stable — it is also what a triggered start passes as `automationId`, so a
+ * run's `coding_sessions.automation_id` names the trigger that fired it. Null
+ * [agent]/[account]/[model]/[effort] mean the bound device's own launch
+ * defaults.
  */
-fun formatAutomationBlock(
+data class ActionTrigger(
+    val id: String,
+    val enabled: Boolean = true,
+    /** Steer deviceId (= devices.device_id) of the machine that runs it. */
+    val deviceId: String,
+    val agent: String? = null,
+    /** The agent profile id on the bound device (belongs to [agent]). */
+    val account: String? = null,
+    val model: String? = null,
+    val effort: String? = null,
+    val whenPart: AutomationTrigger,
+) {
+    /** This trigger as an `actions.update` array element (its id kept). */
+    fun toWireJson(): JsonObject = actionTriggerWireJson(
+        id = id,
+        enabled = enabled,
+        deviceId = deviceId,
+        agent = agent,
+        account = account,
+        model = model,
+        effort = effort,
+        whenPart = whenPart,
+    )
+}
+
+/**
+ * One element of the `triggers` array `actions.update` REPLACES WHOLE: the
+ * runner, then the when-part's keys ([AutomationTrigger.toWireJson]) with an
+ * event's `source` beside its kind. A null [id] is a NEW trigger (the server
+ * mints the id); an unset (null/blank) pin is ABSENT, and [account] rides only
+ * beside its agent. The server's schema is strict — no other key travels.
+ */
+fun actionTriggerWireJson(
+    id: String?,
+    enabled: Boolean,
+    deviceId: String,
+    agent: String?,
+    account: String?,
+    model: String?,
+    effort: String?,
+    whenPart: AutomationTrigger,
+): JsonObject = buildJsonObject {
+    id?.let { put("id", it) }
+    put("enabled", enabled)
+    put("deviceId", deviceId)
+    val pinnedAgent = agent?.takeIf { it.isNotEmpty() }
+    pinnedAgent?.let { put("agent", it) }
+    account?.takeIf { it.isNotEmpty() && pinnedAgent != null }?.let { put("account", it) }
+    model?.takeIf { it.isNotEmpty() }?.let { put("model", it) }
+    effort?.takeIf { it.isNotEmpty() }?.let { put("effort", it) }
+    whenPart.toWireJson().forEach { (key, value) ->
+        put(key, value)
+        if (key == "kind" && whenPart is AutomationTrigger.Event) {
+            put("source", TRIGGER_SOURCE_EXPONENTIAL)
+        }
+    }
+}
+
+private val triggersJson = Json { ignoreUnknownKeys = true }
+
+/**
+ * Tolerant read of ONE stored trigger: a trigger without a string id or
+ * device, or with an unreadable when-part, is null. Only an explicit `false`
+ * pauses — a missing `enabled` is an enabled trigger. Never throws.
+ */
+fun parseActionTrigger(value: JsonElement?): ActionTrigger? {
+    val obj = value as? JsonObject ?: return null
+    val whenPart = AutomationTrigger.parse(obj) ?: return null
+    fun string(key: String): String? =
+        (obj[key] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.isNotEmpty() }
+    val id = string("id") ?: return null
+    val deviceId = string("deviceId") ?: return null
+    val enabled = (obj["enabled"] as? JsonPrimitive)
+        ?.takeIf { !it.isString }?.content != "false"
+    return ActionTrigger(
+        id = id,
+        enabled = enabled,
+        deviceId = deviceId,
+        agent = string("agent"),
+        account = string("account"),
+        model = string("model"),
+        effort = string("effort"),
+        whenPart = whenPart,
+    )
+}
+
+/**
+ * Tolerant read of an action's `triggers` (the synced column's raw JSON text):
+ * the readable ones, in array order. Anything else — null, malformed JSON, a
+ * non-array — reads as no triggers.
+ */
+fun parseActionTriggers(raw: String?): List<ActionTrigger> {
+    if (raw.isNullOrBlank()) return emptyList()
+    val array = runCatching { triggersJson.parseToJsonElement(raw) }.getOrNull() as? JsonArray
+        ?: return emptyList()
+    return parseActionTriggers(array)
+}
+
+/** The same read off an already-decoded array (the tRPC answers). */
+fun parseActionTriggers(array: JsonArray?): List<ActionTrigger> =
+    array.orEmpty().mapNotNull(::parseActionTrigger)
+
+/** One trigger glyph of an action row: drawn, and [active] while at least one
+ * trigger of its kind is enabled (a paused kind is muted). */
+data class TriggerBadge(val active: Boolean)
+
+/**
+ * What an action row's trigger glyphs draw: [schedule] (clock) and [event]
+ * (bolt), each present when the action has a trigger of that kind (web
+ * `triggerBadges`).
+ */
+data class TriggerBadges(
+    val schedule: TriggerBadge? = null,
+    val event: TriggerBadge? = null,
+) {
+    val isEmpty: Boolean get() = schedule == null && event == null
+}
+
+fun triggerBadges(triggers: List<ActionTrigger>): TriggerBadges {
+    fun badge(ofKind: List<ActionTrigger>): TriggerBadge? =
+        if (ofKind.isEmpty()) null else TriggerBadge(active = ofKind.any { it.enabled })
+    return TriggerBadges(
+        schedule = badge(triggers.filter { it.whenPart is AutomationTrigger.Schedule }),
+        event = badge(triggers.filter { it.whenPart is AutomationTrigger.Event }),
+    )
+}
+
+/** A suggestion's glyph: the seed's own when-part, always drawn active. */
+fun triggerBadges(whenPart: AutomationTrigger?): TriggerBadges = when (whenPart) {
+    is AutomationTrigger.Schedule -> TriggerBadges(schedule = TriggerBadge(active = true))
+    is AutomationTrigger.Event -> TriggerBadges(event = TriggerBadge(active = true))
+    null -> TriggerBadges()
+}
+
+/**
+ * The trigger sentence as a Triggers row prints it. A schedule fires on the
+ * BOUND MACHINE's wall clock, so the recurrence carries the caveat the row
+ * used to hang off an absolute next-run date (EXP-812).
+ */
+fun triggerCaption(whenPart: AutomationTrigger): String =
+    if (whenPart is AutomationTrigger.Schedule) {
+        "${triggerSummary(whenPart)} (device time)"
+    } else {
+        triggerSummary(whenPart)
+    }
+
+/**
+ * A run's title in its OWN action's Runs list (×4, web `actionRunTitle`):
+ * every row there ran the same action, so the row says what started it
+ * instead of repeating the action's name. Any other non-empty reason is
+ * another run starting it (`agent`, `workflow`, or one added later).
+ */
+fun actionRunTitle(startedReason: String?): String = when {
+    startedReason == "schedule" -> "Scheduled run"
+    startedReason == "event" -> "Event run"
+    !startedReason.isNullOrEmpty() -> "Agent run"
+    else -> "Manual run"
+}
+
+/**
+ * The machine-readable block a suggestion appends to the builtin "Create
+ * action" request — the creator agent creates the action, then passes this
+ * JSON verbatim as `triggers` to `exponential_actions_update`. The client
+ * never talks to the server itself. BYTE-IDENTICAL ×4 (web
+ * `formatTriggerBlock`): the when-part's keys first, in their stored order,
+ * then `deviceId`, then the set pins, compact JSON.
+ */
+fun formatTriggerBlock(
     trigger: AutomationTrigger,
     deviceId: String,
     agent: String? = null,
@@ -310,13 +492,13 @@ fun formatAutomationBlock(
     effort: String? = null,
 ): String {
     val payload = buildJsonObject {
+        trigger.toWireJson().forEach { (key, value) -> put(key, value) }
         put("deviceId", deviceId)
-        put("trigger", trigger.toWireJson())
         if (!agent.isNullOrEmpty()) put("agent", agent)
         if (!model.isNullOrEmpty()) put("model", model)
         if (!effort.isNullOrEmpty()) put("effort", effort)
     }
-    return "\n\nAutomation — after creating the action, call " +
-        "exponential_automations_create with its id and exactly these fields: " +
-        "`$payload`. An automated run fills no inputs, so declare none as required."
+    return "\n\nTrigger — after creating the action, call " +
+        "exponential_actions_update with its id and `triggers` set to exactly this array: " +
+        "`[$payload]`. A triggered run fills no inputs, so declare none as required."
 }

@@ -1,6 +1,6 @@
 //! EXP-1029 contract — the action picker: the team's actions (and the two
-//! listed builtins) by curated icon + name. The composer's action chip and
-//! the automation editor pick one.
+//! listed builtins) by curated icon + name. The composer's action chip
+//! picks one.
 
 use gpui::AnyElement;
 

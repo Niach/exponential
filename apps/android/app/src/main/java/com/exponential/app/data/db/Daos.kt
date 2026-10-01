@@ -285,9 +285,14 @@ interface CodingSessionDao {
     )
     fun observeByStatuses(statuses: List<String>): Flow<List<CodingSessionEntity>>
 
+    // SLOP-2: an action page's Runs — every run of that action, newest first,
+    // person-started and triggered alike.
+    @Query("SELECT * FROM coding_sessions WHERE action_id = :actionId ORDER BY started_at DESC")
+    fun observeByAction(actionId: String): Flow<List<CodingSessionEntity>>
+
     // EXP-746: the Agent page's "Recent" feed — one user's finished
     // PERSON-STARTED sessions in one team, newest first. `started_reason IS
-    // NULL` is in the SQL on purpose: an automation-heavy team's last 50 ended
+    // NULL` is in the SQL on purpose: a trigger-heavy team's last 50 ended
     // rows are mostly scheduled runs, so filtering in Kotlin after a LIMIT
     // would silently truncate the list the other three clients show in full.
     // A row swept before it ever stamped `ended_at` still orders sensibly off
@@ -329,6 +334,10 @@ interface ActionDao {
     @Query("SELECT * FROM actions WHERE team_id = :teamId ORDER BY sort_order, name")
     fun observeByTeam(teamId: String): Flow<List<ActionEntity>>
 
+    // SLOP-2: the action page's own row (its triggers ride it).
+    @Query("SELECT * FROM actions WHERE id = :id LIMIT 1")
+    fun observeById(id: String): Flow<ActionEntity?>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: ActionEntity)
 
@@ -336,21 +345,6 @@ interface ActionDao {
     suspend fun deleteById(id: String)
 
     @Query("DELETE FROM actions")
-    suspend fun clear()
-}
-
-@Dao
-interface AutomationDao {
-    @Query("SELECT * FROM automations WHERE team_id = :teamId ORDER BY sort_order, created_at")
-    fun observeByTeam(teamId: String): Flow<List<AutomationEntity>>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(item: AutomationEntity)
-
-    @Query("DELETE FROM automations WHERE id = :id")
-    suspend fun deleteById(id: String)
-
-    @Query("DELETE FROM automations")
     suspend fun clear()
 }
 

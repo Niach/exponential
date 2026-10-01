@@ -84,8 +84,8 @@ final class BuiltinActionsTests: XCTestCase {
         XCTAssertFalse(listed.contains { $0.id == DomainContract.builtinPlanWorkflowId })
     }
 
-    // FEED-50: "Tidy up" — the third LISTED builtin and the ONLY automatable
-    // one. Pinned literals, byte-identical to the web.
+    // FEED-50: "Tidy up" — the third LISTED builtin. Pinned literals,
+    // byte-identical to the web.
     func testTheTidyUpBuiltinMatchesTheWebDefinition() {
         let tidy = ActionDto.builtinTidyUpAction(teamId: "t-1")
         XCTAssertEqual(tidy.id, DomainContract.builtinTidyUpId)
@@ -113,14 +113,48 @@ final class BuiltinActionsTests: XCTestCase {
         XCTAssertFalse(inputs.contains { $0.isRequired })
     }
 
-    func testOnlyTidyUpIsAnAutomatableBuiltin() {
+    // SLOP-2: builtins never carry triggers.
+    func testNoBuiltinCarriesTriggers() {
         let builtins = ActionDto.builtinActions(teamId: "t-1") + [
             ActionDto.builtinChatAction(teamId: "t-1"),
             ActionDto.builtinPlanWorkflowAction(teamId: "t-1"),
         ]
+        XCTAssertTrue(builtins.allSatisfy(\.triggers.isEmpty))
+    }
+
+    // SLOP-2: a team's REAL row named exactly "Tidy up" hides the virtual
+    // builtin from every list (web `hasOwnTidyUpAction`).
+    func testARealTidyUpRowHidesTheBuiltin() {
+        func row(_ name: String) -> ActionDto {
+            ActionDto(
+                id: "a-\(name)",
+                teamId: "t-1",
+                repositoryId: nil,
+                name: name,
+                description: nil,
+                body: "",
+                sortOrder: 0,
+                createdAt: "2026-01-01T00:00:00Z",
+                updatedAt: "2026-01-01T00:00:00Z"
+            )
+        }
+        let allThree = [
+            DomainContract.builtinCreateActionId,
+            DomainContract.builtinFixConflictsId,
+            DomainContract.builtinTidyUpId,
+        ]
+        XCTAssertFalse(ActionDto.hasOwnTidyUpAction([]))
+        XCTAssertFalse(ActionDto.hasOwnTidyUpAction([row("Tidy up boards"), row("tidy up")]))
+        // The builtin itself is not the team's own row.
+        XCTAssertFalse(ActionDto.hasOwnTidyUpAction([ActionDto.builtinTidyUpAction(teamId: "t-1")]))
+        XCTAssertTrue(ActionDto.hasOwnTidyUpAction([row("Digest"), row("Tidy up")]))
         XCTAssertEqual(
-            builtins.filter(\.isAutomatable).map(\.id),
-            [DomainContract.builtinTidyUpId]
+            ActionDto.listedBuiltinActions(teamId: "t-1", teamActions: [row("Digest")]).map(\.id),
+            allThree
+        )
+        XCTAssertEqual(
+            ActionDto.listedBuiltinActions(teamId: "t-1", teamActions: [row("Tidy up")]).map(\.id),
+            [DomainContract.builtinCreateActionId, DomainContract.builtinFixConflictsId]
         )
     }
 

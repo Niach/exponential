@@ -100,7 +100,6 @@ import { resolveBoardTarget } from "@/components/team/mobile-tab-bar"
 // (packages/icons/icons.json) so web, desktop, iOS and Android agree.
 const NavActionsIcon = conceptIcon(`nav-actions`)
 const NavAgentIcon = conceptIcon(`action-chat`)
-const NavAutomationsIcon = conceptIcon(`nav-automations`)
 const NavWorkflowsIcon = conceptIcon(`nav-workflows`)
 const NavBoardsIcon = conceptIcon(`nav-boards`)
 const NavCreateIssueIcon = conceptIcon(`nav-create-issue`)
@@ -381,8 +380,7 @@ export function TeamSidebar({
                     <SidebarGroup>
                       <SidebarGroupContent>
                         {/* EXP-699: mobile order — Inbox, Support, Devices,
-                            Actions, Automations (an Actions segment on mobile),
-                            Reviews. */}
+                            Actions, Reviews. */}
                         <SidebarMenu>
                           <SidebarMenuItem>
                             <SidebarMenuButton asChild density="compact">
@@ -419,8 +417,9 @@ export function TeamSidebar({
                               <SupportUnreadBadge teamId={team?.id} placement="row" />
                             </SidebarMenuItem>
                           )}
-                          {/* EXP-686: Devices · Actions · Automations, the three
-                              surfaces the old Agents entry bundled. */}
+                          {/* EXP-686: Devices · Actions, the surfaces the old
+                              Agents entry bundled (SLOP-2: an action carries
+                              its triggers, so Automations is no entry). */}
                           <SidebarMenuItem>
                             <SidebarMenuButton asChild density="compact">
                               <Link to="/t/$teamSlug/devices" params={{ teamSlug }}>
@@ -437,18 +436,7 @@ export function TeamSidebar({
                               </Link>
                             </SidebarMenuButton>
                           </SidebarMenuItem>
-                          <SidebarMenuItem>
-                            <SidebarMenuButton asChild density="compact">
-                              <Link
-                                to="/t/$teamSlug/automations"
-                                params={{ teamSlug }}
-                              >
-                                <NavAutomationsIcon className="h-4 w-4" />
-                                <span>Automations</span>
-                              </Link>
-                            </SidebarMenuButton>
-                          </SidebarMenuItem>
-                          {/* EXP-981: Workflows sits directly after Automations
+                          {/* EXP-981: Workflows sits directly after Actions
                               — a picked set of issues planned as one parallel
                               run. */}
                           <SidebarMenuItem>

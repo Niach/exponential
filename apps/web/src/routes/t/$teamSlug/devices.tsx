@@ -9,7 +9,7 @@ import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { pageTitle } from "@/lib/page-title"
 
 // Team Devices view (EXP-686 — the old Agents route, minus the actions
-// surface: Actions and Automations are their own routes now): the caller's
+// surface: Actions is its own route now): the caller's
 // online desktops and servers. EXP-909 follow-up: a device row starts
 // nothing — its one control is the settings gear, and the Agent page
 // composer's device picker is the way to aim a run at a machine.

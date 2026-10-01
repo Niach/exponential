@@ -192,8 +192,8 @@ export function GettingStartedDocsPage() {
               Roles are <strong>owner</strong> and <strong>member</strong>.
               Owners manage the team: general settings, members and invites,
               storage, widgets, billing, boards (including archiving and
-              deleting them), actions and{` `}
-              <a href="/docs/actions/#automations">automations</a>. Every
+              deleting them), actions and their{` `}
+              <a href="/docs/actions/#triggers">triggers</a>. Every
               member can edit issues, triage feedback, manage comments,
               connect repositories, run actions, and edit statuses and labels.
               There is no read-only seat.

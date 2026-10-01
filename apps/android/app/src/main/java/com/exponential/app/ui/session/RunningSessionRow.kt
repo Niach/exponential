@@ -36,8 +36,8 @@ import com.exponential.app.ui.theme.flatRow
 /**
  * EXP-874: ONE live coding-session row — state dot + identity line, the
  * device-written caption, the state/device byline and the usage wall. Shared
- * by the Agent page's Running band and the Automations tab's live automated
- * runs, so the two can't drift (the reference layout web/desktop/iOS copy).
+ * by the Agent page's Running band and an action page's live runs, so the
+ * two can't drift (the reference layout web/desktop/iOS copy).
  * EXP-893: the trailing merge / fix-conflicts and open-issue / open-action
  * circles are gone — a row only OPENS the run (the Work screen), where the
  * Changes face merges and the Issue face is a switcher tap away.

@@ -89,7 +89,6 @@ public enum ExpToolResultKind: String, Sendable, CaseIterable {
     case session
     case board
     case action
-    case automation
     case list
     /// EXP-933: `sessions_results` — the run's report; the row offers
     /// `Open Results` (the Work screen's Results face).

@@ -3,17 +3,17 @@ import ExpUI
 import SwiftUI
 
 // EXP-615: the ONE device/agent/model/effort block. Start coding, Chat,
-// Create action and the automation editor used to hand-roll four slightly
+// Create action and the trigger form used to hand-roll four slightly
 // different versions of the same rows (different labels, a pill strip here, a
 // picker row there); they now render this, so the four dialogs read the same
 // on every platform.
 //
 // `Variant.launch` is a RUN's options: the Device picker (only when there is a
 // choice), the agent capsule, Model + Effort and the launch toggles.
-// `Variant.automation` configures a BINDING instead — its device row says
-// "Runs on" and lists every automation-capable machine plainly (offline
+// `Variant.trigger` configures a BINDING instead — its device row says
+// "Runs on" and lists every trigger-capable machine plainly (offline
 // included: a sleeping box still owns the binding and fires the missed
-// schedule when it comes back), and there are no toggles (an automated run
+// schedule when it comes back), and there are no toggles (a triggered run
 // takes the machine's own). EXP-995: its first row is THE account picker
 // (EXP-1021's shared `AccountPicker`: brand mark + email + limit bars over the
 // bound machine's logins, the agent riding the pick) where the launch variant
@@ -33,7 +33,7 @@ import SwiftUI
 struct LaunchOptionsSection: View {
     enum Variant {
         case launch
-        case automation
+        case trigger
         case device
     }
 
@@ -60,14 +60,14 @@ struct LaunchOptionsSection: View {
     let agent: String
     let onAgentChange: (String) -> Void
     /// EXP-995: when set, the card's first row is the account picker over
-    /// these logins instead of the agent capsule — the automation editor's
+    /// these logins instead of the agent capsule — the trigger form's
     /// pin, where a pick names the agent too.
     var accountOptions: [AccountOption]? = nil
     var selectedAccount: AccountOption? = nil
     var onAccountSelect: ((AccountOption) -> Void)? = nil
     @Binding var model: String
     /// EXP-981: claude's SUBAGENT model, bound only where it is editable (a
-    /// machine's launch defaults); an automation row has no such field.
+    /// machine's launch defaults); a trigger has no such field.
     var subagentModel: Binding<String>? = nil
     @Binding var effort: String
     var ultracode: Binding<Bool>? = nil
@@ -97,14 +97,14 @@ struct LaunchOptionsSection: View {
     // MARK: - Device
 
     /// The launch variant hides a one-machine picker (there is nothing to
-    /// choose); the automation variant always shows it — the binding names the
+    /// choose); the trigger variant always shows it — the binding names the
     /// machine that owns it, so it must be visible even when there is one.
     private var showsDevicePicker: Bool {
-        variant == .automation ? !devices.isEmpty : devices.count > 1
+        variant == .trigger ? !devices.isEmpty : devices.count > 1
     }
 
     private var deviceTitle: String {
-        variant == .automation ? "Runs on" : "Device"
+        variant == .trigger ? "Runs on" : "Device"
     }
 
     /// No section header on either variant (EXP-615 dedupe) — the picker row
@@ -129,7 +129,7 @@ struct LaunchOptionsSection: View {
                     devices: devices.map(DevicePickerDevice.init),
                     value: deviceId,
                     onChange: { deviceId = $0 },
-                    // The sheet says what the ROW says — an automation's
+                    // The sheet says what the ROW says — a trigger's
                     // "Runs on" must not open a sheet headed "Device".
                     title: deviceTitle,
                     trigger: {
@@ -157,9 +157,9 @@ struct LaunchOptionsSection: View {
     /// NULL on the row — where a run only offers it where the CLI has one
     /// (claude's model is explicit-always).
     private var modelOptions: [String] {
-        variant == .automation
+        variant == .trigger
             ? [LaunchVocabulary.cliDefault]
-                + LaunchVocabulary.automationModelValues(for: agent)
+                + LaunchVocabulary.triggerModelValues(for: agent)
             : LaunchVocabulary.modelValues(for: agent)
     }
 
@@ -180,7 +180,7 @@ struct LaunchOptionsSection: View {
     /// Ultracode IS `--effort ultracode`, so it disables the Effort picker; a
     /// binding has no toggles, so its row is always live.
     private var effortEnabled: Bool {
-        variant == .automation || ultracode?.wrappedValue != true
+        variant == .trigger || ultracode?.wrappedValue != true
     }
 
     /// ONE grouped card (EXP-694): the agent strip is its first row, then
@@ -221,7 +221,7 @@ struct LaunchOptionsSection: View {
                     }
                 )
                 .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("automation-account-row")
+                .accessibilityIdentifier("trigger-account-row")
             } else if availableAgents.count > 1 {
                 // A lone option is not a choice, on any variant. No container
                 // accessibility label: it would merge the segment buttons into
@@ -268,7 +268,7 @@ struct LaunchOptionsSection: View {
             )
             // EXP-208: no helper notices, like the IDE. Ultracode and plan
             // mode are both claude-only (EXP-441/EXP-849); a binding (the
-            // automation variant) has neither.
+            // trigger variant) has neither.
             if let resumeRow {
                 Toggle("Resume previous session", isOn: resumeRow.isOn)
             }

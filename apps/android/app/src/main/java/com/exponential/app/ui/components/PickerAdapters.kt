@@ -98,10 +98,10 @@ fun IssueEntity.toPickerIssue(disabled: Boolean = false): IssuePickerIssue {
  * rule, and unreachable until the adapter fills those two in.
  * [LaunchDeviceRules] owns both the verdict and the sentence (web parity), so
  * a sheet row can never invent a third wording for "offline" or "nothing
- * signed in". An automation's "Runs on" picker passes `startGate = false`:
- * every automation-capable machine is equally bindable, offline or signed out,
+ * signed in". A trigger's "Runs on" picker passes `startGate = false`:
+ * every trigger-capable machine is equally bindable, offline or signed out,
  * because a schedule catches up when the machine comes back (EXP-615, the web
- * `AutomationDevicePicker` rule) — its live state belongs on the Automations
+ * trigger device picker rule) — its live state belongs on the Triggers
  * tab's rows, not in the picker.
  */
 fun SteerDevice.toPickerDevice(startGate: Boolean = true): DevicePickerDevice = DevicePickerDevice(

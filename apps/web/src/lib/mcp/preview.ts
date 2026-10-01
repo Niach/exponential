@@ -31,7 +31,6 @@ export const entityRefKinds = contract.entityRefKind.values as readonly [
   `issue`,
   `board`,
   `action`,
-  `automation`,
   `comment`,
   `session`,
   `label`,

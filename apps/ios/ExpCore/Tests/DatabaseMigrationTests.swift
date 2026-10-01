@@ -121,7 +121,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v52_issue_estimate",
              "v53_invite_placeholder", "v54_invite_sent_at",
              "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped",
-             "v57_team_yolo_mode", "v58_workflows_gate_dropped"]
+             "v57_team_yolo_mode", "v58_workflows_gate_dropped",
+             "v59_action_triggers"]
         )
     }
 
@@ -169,7 +170,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v52_issue_estimate",
              "v53_invite_placeholder", "v54_invite_sent_at",
              "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped",
-             "v57_team_yolo_mode", "v58_workflows_gate_dropped"]
+             "v57_team_yolo_mode", "v58_workflows_gate_dropped",
+             "v59_action_triggers"]
         )
     }
 
@@ -245,6 +247,7 @@ final class DatabaseMigrationTests: XCTestCase {
     // v51 (EXP-995): a store migrated through v50 carries an `automations`
     // table without `account`; the guarded ALTER adds it and the automations
     // shape offset resets so already-synced rows re-arrive carrying the pin.
+    // Migrated only UP TO v51: v59 (SLOP-2) drops the table again.
     func testAutomationAccountAddedToExistingStore() throws {
         let pool = try makePool("automation-account")
         let migrator = DatabaseManager.makeMigrator()
@@ -258,7 +261,7 @@ final class DatabaseMigrationTests: XCTestCase {
                 """)
         }
 
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v51_automation_account"))
         XCTAssertTrue(try columnNames(pool, "automations").contains("account"))
         let offset = try pool.read { db in
             try Row.fetchOne(
@@ -272,6 +275,65 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(offset?["handle"] as String?, "")
         XCTAssertEqual(offset?["offset"] as String?, "-1")
         XCTAssertEqual(offset?["needs_refetch"] as Int?, 1)
+        // The rest of the chain runs clean on top (v59 drops the table).
+        XCTAssertNoThrow(try migrator.migrate(pool))
+    }
+
+    // v59 (SLOP-2): a store migrated through v58 carries `actions` without
+    // `triggers`, the dead `actions.trigger` column and the `automations`
+    // table with a live cursor. The migration adds `triggers` (NOT NULL,
+    // default '[]'), drops the dead column and the table, forgets the retired
+    // shape's cursor and resets the actions offset so already-synced rows
+    // re-arrive carrying their triggers.
+    func testActionTriggersReplaceAutomationsOnExistingStore() throws {
+        let pool = try makePool("action-triggers")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v58_workflows_gate_dropped")
+        try pool.write { db in
+            XCTAssertFalse(try db.columns(in: "actions").contains { $0.name == "triggers" })
+            XCTAssertTrue(try db.tableExists("automations"))
+            try db.execute(sql: """
+                INSERT INTO "actions" ("id", "team_id", "name", "created_at", "updated_at")
+                VALUES ('a-1', 't-1', 'Digest', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')
+                """)
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('actions', 'h', '0_0', 0, 1),
+                       ('automations', 'h', '0_0', 0, 1)
+                """)
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let actionCols = try columnNames(pool, "actions")
+        XCTAssertTrue(actionCols.contains("triggers"))
+        XCTAssertFalse(actionCols.contains("trigger"))
+        XCTAssertFalse(try pool.read { db in try db.tableExists("automations") })
+        // The row that predates the column reads as "no triggers".
+        let stored = try pool.read { db in
+            try String.fetchOne(db, sql: "SELECT \"triggers\" FROM \"actions\" WHERE \"id\" = 'a-1'")
+        }
+        XCTAssertEqual(stored, "[]")
+        let offset = try pool.read { db in
+            try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT "handle", "offset", "needs_refetch", "is_live"
+                    FROM "electric_offsets" WHERE "shape" = 'actions'
+                    """
+            )
+        }
+        XCTAssertEqual(offset?["handle"] as String?, "")
+        XCTAssertEqual(offset?["offset"] as String?, "-1")
+        XCTAssertEqual(offset?["needs_refetch"] as Int?, 1)
+        XCTAssertEqual(offset?["is_live"] as Int?, 0)
+        let retired = try pool.read { db in
+            try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM \"electric_offsets\" WHERE \"shape\" = 'automations'"
+            )
+        }
+        XCTAssertEqual(retired, 0)
         // Idempotent: a second pass is a no-op, never a duplicate column.
         XCTAssertNoThrow(try migrator.migrate(pool))
     }
@@ -563,7 +625,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v52_issue_estimate",
              "v53_invite_placeholder", "v54_invite_sent_at",
              "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped",
-             "v57_team_yolo_mode", "v58_workflows_gate_dropped"]
+             "v57_team_yolo_mode", "v58_workflows_gate_dropped",
+             "v59_action_triggers"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -659,7 +722,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v52_issue_estimate",
              "v53_invite_placeholder", "v54_invite_sent_at",
              "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped",
-             "v57_team_yolo_mode", "v58_workflows_gate_dropped"]
+             "v57_team_yolo_mode", "v58_workflows_gate_dropped",
+             "v59_action_triggers"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -930,7 +994,8 @@ final class DatabaseMigrationTests: XCTestCase {
                 """)
         }
 
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        // Only UP TO v18: v59 (SLOP-2) drops the dead `actions.trigger` again.
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v18_action_automations"))
         XCTAssertTrue(try columnNames(pool, "actions").contains("trigger"))
         XCTAssertTrue(try columnNames(pool, "coding_sessions").contains("started_reason"))
         // The ALTERs must force a refetch of BOTH shapes.
@@ -981,14 +1046,13 @@ final class DatabaseMigrationTests: XCTestCase {
                 """)
         }
 
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        // Only UP TO v20: v59 (SLOP-2) drops the table again.
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v20_automations"))
         XCTAssertTrue(try pool.read { db in try db.tableExists("automations") })
         XCTAssertEqual(
             try columnNames(pool, "automations"),
             ["id", "team_id", "action_id", "device_id", "enabled", "trigger",
-             "agent", "model", "effort", "sort_order", "created_at", "updated_at",
-             // v51 (EXP-995) adds the account pin on top.
-             "account"]
+             "agent", "model", "effort", "sort_order", "created_at", "updated_at"]
         )
         XCTAssertTrue(try columnNames(pool, "coding_sessions").contains("automation_id"))
         let automationIdColumn = try pool.read { db in
@@ -1259,14 +1323,16 @@ final class DatabaseMigrationTests: XCTestCase {
                       "users", "team_members", "team_invites", "comments",
                       "attachments", "notifications", "issue_subscribers",
                       "issue_events", "coding_sessions", "actions",
-                      "automations", "issue_statuses", "pins", "issue_drafts",
+                      "issue_statuses", "pins", "issue_drafts",
                       "workflows", "workflow_nodes", "workflow_events",
                       "electric_offsets"] {
             let exists = try pool.read { db in try db.tableExists(table) }
             XCTAssertTrue(exists, "missing table \(table)")
         }
         // The renamed-away tables must be gone on a fresh install.
-        for table in ["workspaces", "projects", "workspace_members", "workspace_invites", "releases"] {
+        // SLOP-2: `automations` too — triggers live on their action now.
+        for table in ["workspaces", "projects", "workspace_members", "workspace_invites", "releases",
+                      "automations"] {
             let exists = try pool.read { db in try db.tableExists(table) }
             XCTAssertFalse(exists, "legacy table \(table) must not exist")
         }
@@ -1340,14 +1406,14 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertTrue(actionCols.contains("inputs"))
         XCTAssertFalse(actionCols.contains("body"))
 
-        // EXP-583: automations are their own table (19th shape) — the trigger
-        // is the when-part only, device/enabled/agent are columns here.
-        let automationCols = try columnNames(pool, "automations")
-        XCTAssertTrue(automationCols.contains("team_id"))
-        XCTAssertTrue(automationCols.contains("action_id"))
-        XCTAssertTrue(automationCols.contains("device_id"))
-        XCTAssertTrue(automationCols.contains("enabled"))
-        XCTAssertTrue(automationCols.contains("trigger"))
+        // SLOP-2: an action carries its triggers (a jsonb array stored as
+        // text, never NULL); the dead singular `trigger` column is gone.
+        XCTAssertTrue(actionCols.contains("triggers"))
+        XCTAssertFalse(actionCols.contains("trigger"))
+        let triggersColumn = try pool.read { db in
+            try db.columns(in: "actions").first { $0.name == "triggers" }
+        }
+        XCTAssertTrue(triggersColumn?.isNotNull ?? false)
 
         // EXP-778: pins are per-user (21st shape) — team_id + kind + the
         // three nullable target columns, exactly one of which is set.

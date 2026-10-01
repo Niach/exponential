@@ -25,7 +25,7 @@ import { ActionSuggestionsPanel } from "@/components/action-suggestions-list"
 import type { Team } from "@/db/schema"
 
 // EXP-686: the Getting started sheet moved out of the sidebar button so the
-// Actions/Automations lightbulb can open it too — including once the checklist
+// Actions lightbulb can open it too — including once the checklist
 // is complete and the sidebar entry has hidden itself. Two tabs: the EXP-88
 // checklist, and the action suggestion seeds that left the Actions surface.
 export type GettingStartedTab = `first-steps` | `suggestions`

@@ -47,8 +47,8 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
  *   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
  *   sg_chat · sg_chat-issues · sg_chat-action ·
- *   sg_machine-settings · sg_action-create · sg_automations-list ·
- *   sg_automations · sg_action-suggestions · sg_reviews ·
+ *   sg_machine-settings · sg_action-create · sg_action-triggers ·
+ *   sg_trigger-editor · sg_action-runs · sg_action-suggestions · sg_reviews ·
  *   sg_support-thread · sg_settings-root · sg_settings-team ·
  *   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
  *   sg_onboarding-devices
@@ -73,8 +73,8 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *
  * Every shot gates on genuinely seeded content rather than on a screen merely
  * existing, so a stale/missing seed fails the run instead of quietly shipping
- * an empty state. The exception is called out where it happens (the automations
- * pair, whose rows are newer than this suite). The sign-in / polling / settle /
+ * an empty state. The exception is called out where it happens (the action
+ * page's Triggers and Runs tabs, whose seed is newer than this suite). The sign-in / polling / settle /
  * capture machinery lives in [ScreenshotFlow]; its KDoc carries the
  * synchronization notes, and [ScreenshotFlow.screenshot] honours the lane's
  * optional `shots` allowlist.
@@ -421,7 +421,7 @@ class StyleguideScreenshotsTest {
         flow.waitForGone(hasTestTag("device-settings-sheet"), NAV_TIMEOUT)
         flow.settle(longer = true)
 
-        // --- The Actions surface: four shots off one tab. EXP-686 gave it its
+        // --- The Actions surface: five shots off one tab. EXP-686 gave it its
         // own bottom-bar entry (it used to ride the Agents header). The segment
         // is rememberSaveable, so re-select the Actions one explicitly by tag
         // rather than trusting where a previous visit left it.
@@ -445,33 +445,54 @@ class StyleguideScreenshotsTest {
         flow.waitForGone(hasTestTag("agent-page"), NAV_TIMEOUT)
         flow.settle(longer = true)
 
-        // --- Automations list: gated on the segment's OWN content rather than
-        // on a seeded automation name — the `automations` rows are newer than
-        // this suite, so an older seed shows the empty state, which is still a
-        // legitimate capture of this surface (unlike a half-synced list).
-        composeRule.onAllNodes(hasText("Automations")).onFirst().performClick()
-        if (!flow.waitForOptional(hasTestTag("automation-row"), SYNC_TIMEOUT)) {
+        // --- The action page (SLOP-2): a row opens ONE action — Prompt |
+        // Triggers | Runs on a pager. The seeded action is the one the list
+        // was gated on above.
+        composeRule.onAllNodes(hasText(SEEDED_ACTION_NAME, substring = true)).onFirst().performClick()
+        flow.waitFor(hasTestTag("action-tabs"), NAV_TIMEOUT)
+
+        // --- Triggers tab: gated on the tab's OWN content rather than on a
+        // seeded trigger — `actions.triggers` is newer than this suite, so an
+        // older seed shows the empty line, which is still a legitimate capture
+        // of this surface (unlike a half-synced list).
+        composeRule.onNode(hasTestTag("action-tab-triggers")).performClick()
+        if (!flow.waitForOptional(hasTestTag("trigger-row"), SYNC_TIMEOUT)) {
             android.util.Log.w(
-                "EXP-566",
-                "sg_automations-list: no automation rows — reseed with `bun run seed:screenshots`",
+                "SLOP-2",
+                "sg_action-triggers: no trigger rows — reseed with `bun run seed:screenshots`",
             )
-            flow.waitFor(hasText("No automations yet.", substring = true), NAV_TIMEOUT)
+            flow.waitFor(hasText("No triggers.", substring = true), NAV_TIMEOUT)
         }
         flow.settle()
-        flow.screenshot("sg_automations-list")
+        flow.screenshot("sg_action-triggers")
 
-        // --- Automation editor: the owner-only "New automation" entry, present
-        // in both the populated header and the empty state. (iOS additionally
-        // hides it when the backend has no STEER_RELAY_URL and falls back to
-        // editing a seeded row; here it is owner-gated only.)
-        composeRule.onAllNodes(hasTestTag("new-automation")).onFirst().performClick()
-        flow.waitFor(hasTestTag("automation-form-sheet"), NAV_TIMEOUT)
+        // --- Trigger editor: the owner-only "Add trigger" entry, present over
+        // the populated list and the empty line alike.
+        composeRule.onNode(hasTestTag("add-trigger")).performClick()
+        flow.waitFor(hasTestTag("trigger-form-sheet"), NAV_TIMEOUT)
         flow.settle()
-        flow.screenshot("sg_automations")
+        flow.screenshot("sg_trigger-editor")
         // EXP-687: sheets carry no Cancel pill — back (like a swipe down)
         // dismisses.
         Espresso.pressBack()
-        flow.waitForGone(hasTestTag("automation-form-sheet"), NAV_TIMEOUT)
+        flow.waitForGone(hasTestTag("trigger-form-sheet"), NAV_TIMEOUT)
+        flow.settle(longer = true)
+
+        // --- Runs tab: every run of this action; the seed's triggered run
+        // reads "Scheduled run". Same optional gate as Triggers.
+        composeRule.onNode(hasTestTag("action-tab-runs")).performClick()
+        if (!flow.waitForOptional(hasTestTag("ended-run-row"), SYNC_TIMEOUT)) {
+            android.util.Log.w(
+                "SLOP-2",
+                "sg_action-runs: no run rows — reseed with `bun run seed:screenshots`",
+            )
+            flow.waitFor(hasText("No runs yet.", substring = true), NAV_TIMEOUT)
+        }
+        flow.settle()
+        flow.screenshot("sg_action-runs")
+        // A pushed detail: back pops to the Actions tab.
+        Espresso.pressBack()
+        flow.waitForGone(hasTestTag("action-tabs"), NAV_TIMEOUT)
         flow.settle(longer = true)
 
         // --- Suggestions: shipped constants (ACTION_SUGGESTIONS), not seeded

@@ -46,6 +46,7 @@ import {
   DEMO_EMAIL,
   DEMO_INVITE_TOKEN,
   DEMO_PASSWORD,
+  DEMO_ACTION_ID,
   DEMO_STEERED_SESSION_ID,
   NEWCOMER_EMAIL,
   NEWCOMER_PASSWORD,
@@ -135,6 +136,8 @@ function resolveRoute(route: string, ctx: RecipeCtx, db: DbPlaceholders): string
     .replaceAll(`$boardSlug`, ctx.demo.boardSlug)
     // EXP-740: a session is its own route, and the seed pins the id.
     .replaceAll(`$sessionId`, DEMO_STEERED_SESSION_ID)
+    // SLOP-2: an action is a page too, and the seed pins its id the same way.
+    .replaceAll(`$actionId`, DEMO_ACTION_ID)
     .replaceAll(`$inviteToken`, DEMO_INVITE_TOKEN)
   for (const name of DB_PLACEHOLDERS) {
     resolved = resolved.replaceAll(name, db[name] ?? ``)
