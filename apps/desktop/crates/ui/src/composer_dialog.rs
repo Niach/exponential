@@ -25,12 +25,18 @@ use crate::navigation::{self, ChatSeed};
 /// card is the same width in both presentations.
 const DIALOG_W: f32 = 640.;
 /// Its opening height: the title bar, the headline, the card, the options row
-/// and one line of room for a note — measured against what the launcher
-/// actually draws, because a window that opens at twice its content reads as
-/// a half-loaded dialog. Anything taller (an action's typed input rows, a
-/// blocked-start question, an image strip) scrolls or is dragged bigger: the
-/// window is resizable and its body self-scrolls.
+/// and one line of room for a note — the compact first frame. EXP-1155: from
+/// there the window FOLLOWS its content (`ChatScreenView::fit_dialog`): an
+/// action's typed input rows, a blocked-start question or an image strip grow
+/// it downward instead of hiding behind a scrollbar, up to
+/// [`DIALOG_MAX_FRACTION`] of the opener; past that only the parameter bands
+/// (issue chips, action inputs) scroll.
 const DIALOG_H: f32 = 258.;
+/// EXP-1155: the content-height cap, as a share of the opener's height.
+const DIALOG_MAX_FRACTION: f32 = 0.85;
+/// EXP-1155: the window's top edge, as a share of the opener's height — a
+/// window that grows downward cannot open centered.
+const DIALOG_TOP: f32 = 0.08;
 /// The resize floor (the card alone still fits).
 const DIALOG_MIN_H: f32 = 240.;
 
@@ -42,24 +48,27 @@ pub(crate) fn open(window: &mut Window, cx: &mut App, seed: ChatSeed) {
     // its team from the opener's, or the composer would resolve the last
     // PERSISTED team instead of the one the ▶ was pressed in.
     let opener_id = window.window_handle().window_id();
-    let max_height = (window.viewport_size().height * 0.85).min(px(DIALOG_H));
+    let grow_cap = window.viewport_size().height * DIALOG_MAX_FRACTION;
+    let max_height = grow_cap.min(px(DIALOG_H));
     let min_height = px(DIALOG_MIN_H).min(max_height);
     let spec = DialogSpec::new(
         domain::contract::COMPOSER_UI_DIALOG_TITLE,
         size(px(DIALOG_W), max_height),
     )
-    .resizable(size(px(520.), min_height));
+    .resizable(size(px(520.), min_height))
+    .anchor_top(DIALOG_TOP);
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         navigation::seed_window_team(window, cx, opener_id);
-        let view = cx.new(|cx| ChatScreenView::dialog(seed, window, cx));
+        let view = cx.new(|cx| ChatScreenView::dialog(seed, grow_cap, window, cx));
         // EXP-862: a pinned action row lights up while its run is composed —
         // the seed no longer passes through the nav, so the open dialog is
         // the answer (`chat_screen::dialog_action_id`).
         chat_screen::register_open_dialog(&view, cx);
         let busy = view.clone();
         DialogContent::new(view)
-            // The composer owns its own scrolling: the options row and the
-            // blocker note must stay reachable while the card grows.
+            // The composer owns its own scrolling: the window follows the
+            // launcher (EXP-1155), and past the cap the options row and the
+            // blocker note must stay reachable.
             .self_scrolling()
             // A start is in flight (images uploading, `coding::prepare`
             // running): closing the window would drop the view the launch

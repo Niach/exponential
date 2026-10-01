@@ -3254,6 +3254,10 @@ enum DevDialog {
     AddServer,
     DeviceSettings(String),
     DuplicatePicker(String),
+    /// EXP-1155: the composer dialog on the Tidy up builtin (active board).
+    TidyUp,
+    /// EXP-1155: the composer dialog on these issues (2+ = a batch).
+    Run(Vec<String>),
 }
 
 /// The accepted [`DevDialog`] spellings, for the parse-failure log — a typo
@@ -3261,7 +3265,8 @@ enum DevDialog {
 const DEV_DIALOG_SPECS: &str = "create-issue | search | \
     action-editor:<uuid> | automation-new | automation-edit:<uuid> | \
     create-board | create-team | join-team[:<invite-token>] | add-server | \
-    device-settings:<uuid> | duplicate-picker:<issue-uuid>";
+    device-settings:<uuid> | duplicate-picker:<issue-uuid> | tidy-up | \
+    run:<issue-uuid>[,<issue-uuid>…]";
 
 fn parse_dev_dialog(spec: &str) -> Option<DevDialog> {
     match spec {
@@ -3272,7 +3277,17 @@ fn parse_dev_dialog(spec: &str) -> Option<DevDialog> {
         "create-team" => Some(DevDialog::CreateTeam),
         "join-team" => Some(DevDialog::JoinTeam(None)),
         "add-server" => Some(DevDialog::AddServer),
+        "tidy-up" => Some(DevDialog::TidyUp),
         _ => {
+            if let Some(ids) = spec.strip_prefix("run:") {
+                let ids: Vec<String> = ids
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty())
+                    .map(str::to_string)
+                    .collect();
+                return (!ids.is_empty()).then_some(DevDialog::Run(ids));
+            }
             if let Some(token) = spec.strip_prefix("join-team:") {
                 let token = token.trim();
                 return Some(DevDialog::JoinTeam(
@@ -3308,6 +3323,7 @@ enum DevDialogTarget {
     AddServer,
     DeviceSettings { device_id: String },
     DuplicatePicker { issue_id: String },
+    Composer { seed: crate::navigation::ChatSeed },
 }
 
 fn open_dev_dialog(target: DevDialogTarget, window: &mut Window, cx: &mut App) {
@@ -3337,6 +3353,7 @@ fn open_dev_dialog(target: DevDialogTarget, window: &mut Window, cx: &mut App) {
         DevDialogTarget::DuplicatePicker { issue_id } => {
             crate::issue_detail::open_duplicate_picker(issue_id, window, cx)
         }
+        DevDialogTarget::Composer { seed } => crate::composer_dialog::open(window, cx, seed),
     }
 }
 
@@ -3433,6 +3450,18 @@ impl ScreensPanel {
                 store.collections().issues.read(cx).get(issue_id)?;
                 DevDialogTarget::DuplicatePicker {
                     issue_id: issue_id.clone(),
+                }
+            }
+            DevDialog::TidyUp => DevDialogTarget::Composer {
+                seed: crate::navigation::ChatSeed::tidy_up(active_board_id(&self.nav, cx)?),
+            },
+            DevDialog::Run(issue_ids) => {
+                let issues = store.collections().issues.read(cx);
+                if !issue_ids.iter().all(|id| issues.get(id).is_some()) {
+                    return None;
+                }
+                DevDialogTarget::Composer {
+                    seed: crate::navigation::ChatSeed::issues(issue_ids.clone()),
                 }
             }
         })
