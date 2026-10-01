@@ -287,7 +287,6 @@ fn spec() -> engine::adapters::AdapterSpec {
         agent: coding::CodingAgent::Codex,
         spawn: terminal::pty::SpawnSpec::new("codex"),
         options: coding::LaunchOptions {
-            workflow: None,
             agent: coding::CodingAgent::Codex,
             model: String::new(),
             effort: String::new(),

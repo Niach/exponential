@@ -24,6 +24,30 @@ pub const ISSUE_GRAPH_TRUNCATED_NOTE: &str = "Showing the nearest 60 issues.";
 /// Under a graph that holds a cycle. Byte-identical ×4.
 pub const ISSUE_GRAPH_CYCLE_NOTE: &str = "Red issues block each other in a cycle.";
 
+/// How a mini-graph edge is drawn (formerly `workflow_view::WorkflowEdgeStyle`).
+/// Grey solid is the default; the others say something.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkflowEdgeStyle {
+    Plain,
+    Cycle,
+    Stale,
+    Landed,
+    Speculative,
+}
+
+impl WorkflowEdgeStyle {
+    /// The wire word for this style.
+    pub fn as_wire(self) -> &'static str {
+        match self {
+            WorkflowEdgeStyle::Plain => "plain",
+            WorkflowEdgeStyle::Cycle => "cycle",
+            WorkflowEdgeStyle::Stale => "stale",
+            WorkflowEdgeStyle::Landed => "landed",
+            WorkflowEdgeStyle::Speculative => "speculative",
+        }
+    }
+}
+
 /// The synced `issue_relations` columns this rule reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GraphRelation<'a> {

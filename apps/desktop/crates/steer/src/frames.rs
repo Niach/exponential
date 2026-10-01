@@ -1695,36 +1695,6 @@ pub struct StartInput {
     pub display: Option<String>,
 }
 
-/// protocol.ts `StartStackIssue` (EXP-897) — ONE issue of the stack a
-/// stacked single-issue start builds on, as the server resolved it
-/// (`lib/stack-plan.ts`). Every field but the ids is optional on the wire: a
-/// foundation that was never started has no branch and no PR state.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct StartStackIssue {
-    #[serde(default)]
-    pub issue_id: String,
-    #[serde(default)]
-    pub identifier: String,
-    #[serde(default)]
-    pub branch: Option<String>,
-    #[serde(default)]
-    pub pr_state: Option<String>,
-}
-
-/// protocol.ts `StartStack` (EXP-897) — the stack a `start_session` frame
-/// asks for: the whole chain below the target (bottom first) and the `lower`
-/// its branch is cut from. Single-issue starts only; absent on every other
-/// frame, so an unstacked start stays byte-identical to the locked fixtures.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct StartStack {
-    #[serde(default)]
-    pub lower: Option<StartStackIssue>,
-    #[serde(default)]
-    pub chain: Vec<StartStackIssue>,
-}
-
 /// Every frame the relay may send. Deserialize-only.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "t", rename_all = "snake_case")]
@@ -1810,29 +1780,12 @@ pub enum ServerFrame {
         /// on a resume frame; absent on every pre-EXP-825 sender.
         #[serde(default)]
         prompt: Option<String>,
-        /// EXP-897: START STACKED — the server-resolved chain this run's
-        /// branch is cut into (`steer.startSession({stack: true})`).
-        /// Single-issue frames only; absent everywhere else and on every
-        /// pre-EXP-897 sender.
-        #[serde(default)]
-        stack: Option<StartStack>,
         /// EXP-981: the model claude's SUBAGENTS run on. Absent = this
         /// machine's own launch default; a BLANK string is the deliberate
         /// "the CLI's own default" pick. No capability gate — a build that
         /// predates the field simply never reads it.
         #[serde(default)]
         subagent_model: Option<String>,
-        /// EXP-1082: a WORKFLOW run's membership — the workflow, the node
-        /// and contract `wfSessionRole`. The workflow and a known role come
-        /// together or not at all; the node is optional (a `plan` /
-        /// `replan` planner run names none, `WorkflowMembership::from_wire`).
-        /// Absent on every other start and on every pre-EXP-1082 sender.
-        #[serde(default)]
-        workflow_id: Option<String>,
-        #[serde(default)]
-        workflow_node_id: Option<String>,
-        #[serde(default)]
-        workflow_role: Option<String>,
         /// FEED-63: the server's id for THIS start attempt. A machine that
         /// cannot honour the frame reports the reason back with
         /// `steer.reportStartFailure({startId, reason})` so the requester
@@ -3278,11 +3231,7 @@ mod tests {
                 resume: false,
                 resume_session_id: None,
                 prompt: None,
-                stack: None,
                 subagent_model: None,
-                workflow_id: None,
-                workflow_node_id: None,
-                workflow_role: None,
                 start_id: None,
             }
         );
@@ -3421,28 +3370,6 @@ mod tests {
     }
 
     #[test]
-    fn start_session_deserializes_the_workflow_membership() {
-        // EXP-1082: the three optional camelCase keys a workflow run carries.
-        match ServerFrame::parse(
-            r#"{"t":"start_session","issueId":"issue-9","workflowId":"wf-1","workflowNodeId":"node-1","workflowRole":"author"}"#,
-        )
-        .unwrap()
-        {
-            ServerFrame::StartSession {
-                workflow_id,
-                workflow_node_id,
-                workflow_role,
-                ..
-            } => {
-                assert_eq!(workflow_id.as_deref(), Some("wf-1"));
-                assert_eq!(workflow_node_id.as_deref(), Some("node-1"));
-                assert_eq!(workflow_role.as_deref(), Some("author"));
-            }
-            other => panic!("expected StartSession, got {other:?}"),
-        }
-    }
-
-    #[test]
     fn start_session_deserializes_started_by() {
         // EXP-432: a shared-device start carries the requesting teammate's
         // userId — pure attribution, alongside the normal subject/options.
@@ -3471,11 +3398,7 @@ mod tests {
                 resume: false,
                 resume_session_id: None,
                 prompt: None,
-                stack: None,
                 subagent_model: None,
-                workflow_id: None,
-                workflow_node_id: None,
-                workflow_role: None,
                 start_id: None,
             }
         );
@@ -3511,11 +3434,7 @@ mod tests {
                 resume: false,
                 resume_session_id: None,
                 prompt: None,
-                stack: None,
                 subagent_model: None,
-                workflow_id: None,
-                workflow_node_id: None,
-                workflow_role: None,
                 start_id: None,
             }
         );
@@ -3590,11 +3509,7 @@ mod tests {
                 resume: false,
                 resume_session_id: None,
                 prompt: None,
-                stack: None,
                 subagent_model: None,
-                workflow_id: None,
-                workflow_node_id: None,
-                workflow_role: None,
                 start_id: None,
             }
         );
@@ -3632,11 +3547,7 @@ mod tests {
                 resume: false,
                 resume_session_id: None,
                 prompt: None,
-                stack: None,
                 subagent_model: None,
-                workflow_id: None,
-                workflow_node_id: None,
-                workflow_role: None,
                 start_id: None,
             }
         );
@@ -3675,11 +3586,7 @@ mod tests {
                 resume: false,
                 resume_session_id: None,
                 prompt: None,
-                stack: None,
                 subagent_model: None,
-                workflow_id: None,
-                workflow_node_id: None,
-                workflow_role: None,
                 start_id: None,
             }
         );
@@ -3732,11 +3639,7 @@ mod tests {
                 resume: false,
                 resume_session_id: None,
                 prompt: None,
-                stack: None,
                 subagent_model: None,
-                workflow_id: None,
-                workflow_node_id: None,
-                workflow_role: None,
                 start_id: None,
             }
         );
@@ -3775,11 +3678,7 @@ mod tests {
                 resume: false,
                 resume_session_id: None,
                 prompt: None,
-                stack: None,
                 subagent_model: None,
-                workflow_id: None,
-                workflow_node_id: None,
-                workflow_role: None,
                 start_id: None,
             }
         );

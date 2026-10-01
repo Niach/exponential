@@ -312,28 +312,18 @@ triggers. Do not commit, push, or change any files — only call the MCP tools. 
 /// Prompt for the builtin "Fix merge conflicts" run (EXP-259): the run is
 /// spawned in a worktree checked out to the selected pull request's branch.
 /// It rebases onto `origin/<base_branch>` — the PR's LIVE base resolved by
-/// the launcher via `issues.prepareConflictFix` (EXP-324: a stacked PR's
-/// base is its parent's branch, and a stale base was already retargeted to
+/// the launcher via `issues.prepareConflictFix` (EXP-324: a PR based on
+/// another branch keeps that base, and a stale base was already retargeted to
 /// the repo default before this prompt renders) — resolves the conflicts,
 /// verifies the build, force-pushes, and then MERGES the PR via the
 /// `exponential_pr_merge` MCP tool — merging completes every linked issue.
 /// If the base goes stale MID-RUN (the parent merges while the agent works),
 /// the prompt points at `exponential_pr_retarget` as the self-heal.
 /// EXP-825: `extra` is the composer's free text, appended last.
-/// EXP-1072: how a fix-conflicts run merges a pull request that links NO
-/// issue — a workflow's final PR: `exponential_pr_merge({ repositoryId,
-/// prNumber })`, which completes the workflow and every issue it shipped.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ChorePrMerge {
-    pub repository_id: String,
-    pub pr_number: i64,
-}
-
 pub fn fix_pr_conflicts_prompt(
     identifier: &str,
     branch: &str,
     base_branch: &str,
-    chore_merge: Option<ChorePrMerge>,
     unattended: bool,
     extra: Option<&str>,
 ) -> String {
@@ -345,29 +335,14 @@ stopped)."
     } else {
         "Finally report the merge result here (merged, or why you stopped)."
     };
-    // EXP-1072: an issue's PR merges by its identifier (and may retarget a
-    // stale base); a workflow's final PR merges as a chore PR by repository
-    // and number, and its base — the default branch — is never retargeted.
-    let merge_rule = match chore_merge {
-        None => format!(
-            "merge the pull request by calling the `exponential_pr_merge` MCP tool with issueId \
+    let merge_rule = format!(
+        "merge the pull request by calling the `exponential_pr_merge` MCP tool with issueId \
 `{identifier}` — merging completes every issue linked to the PR. If the merge is \
 rejected because the base branch is stale, merged, or closed, call the \
 `exponential_pr_retarget` MCP tool with the same issueId (omit `base` to retarget \
 onto the repository's default branch), rebase onto the new base, push again with \
 `--force-with-lease`, and retry the merge."
-        ),
-        Some(ChorePrMerge {
-            repository_id,
-            pr_number,
-        }) => format!(
-            "merge the pull request by calling the `exponential_pr_merge` MCP tool with \
-repositoryId `{repository_id}` and prNumber `{pr_number}` — it is a workflow's final pull \
-request, and merging it completes the workflow and every issue it shipped. Its base is \
-the repository's default branch; never retarget it. If the merge is rejected for any \
-other reason, stop and summarize the refusal."
-        ),
-    };
+    );
     let prompt = format!(
         "The pull request for `{identifier}` (branch `{branch}`) has merge conflicts and \
 cannot be merged. You are in a worktree checked out to `{branch}`. First run \
@@ -463,200 +438,6 @@ pub fn tidy_up_prompt(
     )
 }
 
-/// EXP-981 — the FIRST LINE of a planner run's prompt: the server writes
-/// `Workflow: <uuid>` ahead of whatever the user typed, and the shipped
-/// program tells the agent to read the workflow it names. Byte-identical ×4
-/// (web `PLAN_WORKFLOW_PROMPT_PREFIX`); a local desktop start builds the
-/// same line itself.
-pub const PLAN_WORKFLOW_PROMPT_PREFIX: &str = "Workflow: ";
-
-/// EXP-981 — the shipped program of the hidden "Plan workflow" builtin, a
-/// CONSTANT shipped by the launcher alone: the planner reads one draft
-/// workflow over the Exponential MCP tools, clears every open question with
-/// the person FIRST (EXP-1089: one batched `exponential_sessions_ask_parent`
-/// to the user before any graph write; a workflow is never shaped with a
-/// question open, and the contract lists decided answers, never leeway),
-/// then shapes its graph (contracts-first fan-out, `blocks` edges, sub-issues
-/// as compound nodes) and writes no code at all.
-pub const PLAN_WORKFLOW_PROGRAM: &str = "You are planning an Exponential WORKFLOW: a set of issues of one repository that will be implemented in parallel by separate coding runs, scheduled as a dependency graph. You write NO code in this run. You only shape the plan through the Exponential MCP tools, and you clear every open question with the person BEFORE the graph exists: a workflow is reviewed by a person once, at its final pull request, so an answer you guess here propagates into every run.
-
-The request below starts with `Workflow: <id>`. Begin with exponential_workflows_get for that id, then read every issue it covers (exponential_issues_get), including comments.
-
-1. The clarification pass, mandatory. BEFORE any exponential_workflows_update, exponential_issues_create or exponential_issue_relations_add: ask the person ONE batched question set with exponential_sessions_ask_parent (to: 'user'; number the questions, name the issue each one comes from, and put your recommended answer next to each so a yes settles it). Cover at least: the runner device; the review policy; account and rate-limit handling; what a state or a notification should mean to a person; platform coverage and mobile constraints; deployment prerequisites; compat shims for phones (column drops, enum removals); mockup fidelity and copy; anything two issues contradict; anything an issue leaves to decide. Then STOP and end your turn: the answers arrive as a user message. Record every answer with exponential_workflows_update (decision) and in the contract issue's text, and ask again if an answer opens a new question. No workflow is shaped while a question is open.
-
-How the graph works:
-- A `blocks` relation between two issues of the workflow is an EDGE: the blocker's work is merged into the blocked issue's branch before it starts. Add one with exponential_issue_relations_add (type blocks).
-- A parent issue with sub-issues is ONE node: a single run on one branch with one pull request, one subagent per sub-issue. Use it for work that is too small or too entangled to review separately. File sub-issues with exponential_issues_create and parentId.
-- Everything else runs in parallel. Depth is wall-clock time: every extra wave makes the whole workflow wait.
-
-Default shape, about three waves whatever the number of issues (contracts-first fan-out):
-1. ONE root contract issue that blocks every leaf: the shared types, interfaces, stubs, contract tests and acceptance tests the leaves build against. File it with exponential_issues_create, add it with exponential_workflows_update addIssueIds, mark it kind contract. Every leaf builds on it; reviews come in WAVES over what landed (one wave at the end; a graph deeper than three layers also reviews after the contract layer), so keep it small and precise. NO LEEWAY: it lists the decided answers, never a proposal to overrule; a leaf must never be able to pick between two readings the person could have settled.
-2. The user's original issues as parallel leaf nodes, each blocked only by the contract.
-3. ONE integration issue blocked by every leaf: wiring and end-to-end checks. Mark it kind integration.
-Add a chain between two leaves ONLY where a dependency truly cannot be turned into an interface in the contract.
-
-For every node declare with exponential_workflows_update nodes[]:
-- touches: the path globs the node expects to change. Two parallel nodes whose globs overlap will collide: either move the shared part into the contract or add a blocks edge between them.
-- risk: high for anything that changes a shared contract, data, auth or money; low for isolated leaf work; medium otherwise.
-
-Split an issue into sub-issues when it would take one run more than a few hours. Never change an issue's meaning; put what you decided into the contract issue's description.
-
-Finish by calling exponential_workflows_get again: metrics.cycles must be empty, depth should be 3 unless you can justify more, and width should be close to the number of original issues. Then reply with a short summary of the plan: the waves, the contract's scope, every edge you added beyond the default shape and why, what you asked the person and what they answered, and what you decided alone (which should be nothing of substance).";
-
-/// The planner run's seed prompt (EXP-981): the shipped program, then the
-/// request under a `## Request` heading, then the scratch-dir note the
-/// creator run carries — a planner has no repository checked out and must
-/// never go looking for one.
-///
-/// `request` is the start's `prompt`, whose FIRST LINE is `Workflow: <id>`
-/// (the server writes it; [`crate::launcher::prepare`] refuses a start
-/// without it). Everything the user typed follows it.
-pub fn plan_workflow_prompt(request: &str) -> String {
-    format!("{PLAN_WORKFLOW_PROGRAM}\n\n## Request\n\n{request}\n\n{SCRATCH_CWD_NOTE}")
-}
-
-/// EXP-984 — the extra paragraph a `risk: high` node's review carries. A
-/// high-risk node is also reviewed on a model that is never its author's
-/// ([`crate::workflows`] picks it), so this is a second opinion in every
-/// sense.
-pub const REVIEW_NODE_ADVERSARIAL_LINE: &str = "This node is HIGH RISK. Be adversarial: assume there is a defect and try to find the input, the ordering or the failure that breaks it before you consider approving.";
-
-/// EXP-984 — the shipped program of the hidden "Review node" builtin: the
-/// AGENT REVIEW of one workflow node, started by the engine on the runner
-/// device and by nothing else.
-///
-/// The author's reasoning NEVER enters it, by construction: the only inputs
-/// are the node's id, its issue identifier, the branch it was based on and
-/// whether the node is high risk. No run summary, no transcript, no pull
-/// request description — the reviewer reads the issue and the diff itself,
-/// and its verdict is worth something precisely because it saw nothing else.
-///
-/// The verdict is tied to a COMMIT: the reviewer reads `git rev-parse HEAD`
-/// in its own worktree (cut from `origin/<branch>` at launch, so that IS the
-/// head it judges) and passes it as `head`; the engine then treats an
-/// approval of any other head than the pull request's current one as stale.
-pub fn review_node_prompt(
-    node_id: &str,
-    identifier: &str,
-    base_branch: &str,
-    adversarial: bool,
-) -> String {
-    review_prompt(node_id, identifier, base_branch, adversarial, None)
-}
-
-/// EXP-1103 — the review of a LANDED node, as one reviewer of a review WAVE:
-/// the node's work is already in the integration branch (checked out here)
-/// as the squash commit of its pull request `#pr_number`; the reviewer finds
-/// that commit and judges ITS diff, in the context of the branch as it is
-/// now. The wave's ONE fix run gets the findings, never the author.
-pub fn review_landed_node_prompt(
-    node_id: &str,
-    identifier: &str,
-    base_branch: &str,
-    adversarial: bool,
-    pr_number: Option<i64>,
-) -> String {
-    review_prompt(node_id, identifier, base_branch, adversarial, Some(pr_number))
-}
-
-/// `landed` = `None` for a node branch cut from `base_branch` (pre-EXP-1103
-/// per-node review), `Some(pr)` for a landed node's squash commit on the
-/// integration branch checked out here.
-fn review_prompt(
-    node_id: &str,
-    identifier: &str,
-    base_branch: &str,
-    adversarial: bool,
-    landed: Option<Option<i64>>,
-) -> String {
-    // Omitted whole (the line AND its newline) for an ordinary node.
-    let adversarial_line = if adversarial {
-        format!("{REVIEW_NODE_ADVERSARIAL_LINE}\n")
-    } else {
-        String::new()
-    };
-    let (where_it_is, findings_go) = match landed {
-        None => (
-            format!("The work is checked out in this directory on a throwaway branch. It was based on `{base_branch}`: read the change with `git diff origin/{base_branch}...HEAD`."),
-            "the author gets them verbatim",
-        ),
-        Some(pr) => {
-            let locate = match pr {
-                Some(pr) => format!("It landed on this branch as the SQUASH COMMIT of pull request #{pr}: find it with `git log --oneline --grep='(#{pr})' HEAD` and read its diff with `git show <sha>`."),
-                None => format!("It landed on this branch as a squash commit titled with `{identifier}`: find it with `git log --oneline --grep='{identifier}' HEAD` and read its diff with `git show <sha>`."),
-            };
-            (
-                format!("The workflow's INTEGRATION branch is checked out in this directory, cut from `{base_branch}`, with every node that landed so far. This is one review of a REVIEW WAVE over the landed result; you review only THIS node's change. {locate} Judge it as it sits in the branch now — a later node may have moved things."),
-                "the wave's one fix run gets them verbatim",
-            )
-        }
-    };
-    format!(
-        "You are REVIEWING one node of an Exponential workflow. You did not write this code and you have not seen its author's reasoning: judge only what is in front of you. You change NO files and you push nothing.
-
-Node: {node_id}
-Issue: {identifier}
-{where_it_is}
-
-1. Run `git rev-parse HEAD` and keep the full sha it prints: that is the commit you are reviewing, and your verdict is tied to it.
-2. Read the issue with exponential_issues_get (description and comments): that is the requirement.
-3. Read the whole diff. Look for: requirements not met, behaviour that contradicts the issue, broken or missing tests, contract changes that would break the nodes that build on this one, security problems, dead or duplicated code.
-4. RUN the checks: the tests this change touches and, if the repository has them, the contract tests. An opinion is advisory; a command you ran is evidence. Remember the exact command and whether it passed.
-5. Submit ONE verdict with exponential_workflows_review_submit: nodeId above, head = exactly the sha from step 1 (never a branch name, never a shortened or edited sha), verdict approve or request_changes, findings (concrete, with file and line, in the order they should be fixed — {findings_go}; empty when you approve without remarks), oracle = {{command, passed}} for what you ran (omit it only if nothing could be run), model = the model you are.
-{adversarial_line}Then finish with exponential_sessions_end."
-    )
-}
-
-/// EXP-1103 — one finding set of a review wave: what one reviewer asked of
-/// one landed node, as the fix run reads it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct WaveFinding {
-    pub identifier: String,
-    /// The findings text the reviewer wrote, verbatim.
-    pub findings: String,
-    /// The reviewer's failed check, if its oracle failed.
-    pub failed_check: Option<String>,
-}
-
-/// EXP-1103 — the wave's ONE fix run: the integration branch is checked out
-/// on `branch` (cut from it); the run addresses every finding of every
-/// requesting node in one go, pushes `branch`, and ends. The host
-/// fast-forwards the integration branch to it; nothing here opens a pull
-/// request. Whatever it cannot settle it says so in its summary — that goes
-/// to the final pull request, never to another round.
-pub fn fix_review_findings_prompt(
-    workflow_name: &str,
-    wave: i64,
-    branch: &str,
-    integration_branch: &str,
-    findings: &[WaveFinding],
-) -> String {
-    let mut list = String::new();
-    for finding in findings {
-        let text = match finding.findings.trim() {
-            "" => "(the reviewer wrote no findings)".to_string(),
-            text => text.to_string(),
-        };
-        list.push_str(&format!("\n### {}\n\n{text}\n", finding.identifier));
-        if let Some(check) = finding.failed_check.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
-            list.push_str(&format!("\nThe reviewer's check failed: `{check}`\n"));
-        }
-    }
-    format!(
-        "You are the FIX RUN of review wave {wave} of the Exponential workflow \"{workflow_name}\". The reviewers of this wave read every node that landed on the integration branch `{integration_branch}` and asked for the changes below. You address ALL of them, once, in this one run; there is no second round — whatever you cannot settle, say exactly what and why in your summary, and it is carried to the final pull request for a person.
-
-You are in a worktree on branch `{branch}`, cut from `{integration_branch}` as it is now. Never rebase and never force-push. Do not open a pull request: push `{branch}` and end; the scheduler fast-forwards the integration branch to it.
-
-1. Read each finding and the code it names. Read the issue behind a node with exponential_issues_get when a finding needs the requirement.
-2. Fix what is asked, in the order given. A finding that is wrong about the code: leave the code, say so in your summary.
-3. Run the tests you touch and the failed checks named below until they pass.
-4. Commit, push `{branch}`, then finish with exponential_sessions_end: one paragraph — what you fixed, what you left open and why.
-
-## Findings by node
-{list}"
-    )
-}
-
 /// EXP-637 — the RESUME fallback prompt: a run is being resumed but its
 /// agent's native transcript is gone (pruned, another agent, a machine that
 /// never recorded one), so a FRESH session is spawned in the same workspace
@@ -719,31 +500,6 @@ pub fn builtin_prompt_preview(action_id: &str) -> Option<String> {
         // EXP-615: the chat builtin has no shipped program to preview — its
         // prompt IS whatever the user types, so there is nothing to show.
         domain::contract::BUILTIN_CHAT_ID => None,
-        // EXP-981: the planner's program is shipped, so it previews like the
-        // creator's — with the workflow line the server writes standing in.
-        domain::contract::BUILTIN_PLAN_WORKFLOW_ID => Some(plan_workflow_prompt(
-            "Workflow: <the workflow you press Plan on>",
-        )),
-        // EXP-984: the reviewer's program is shipped too; only the engine
-        // ever starts it, so the preview stands in for every value.
-        domain::contract::BUILTIN_REVIEW_NODE_ID => Some(review_node_prompt(
-            "<the node under review>",
-            "<its issue>",
-            "<the branch it was cut from>",
-            false,
-        )),
-        // EXP-1103: the wave's fix run previews with one placeholder finding.
-        domain::contract::BUILTIN_FIX_REVIEW_FINDINGS_ID => Some(fix_review_findings_prompt(
-            "<the workflow>",
-            1,
-            "<the fix branch>",
-            "<the integration branch>",
-            &[WaveFinding {
-                identifier: "<a landed node's issue>".to_string(),
-                findings: "<what its reviewer asked for>".to_string(),
-                failed_check: None,
-            }],
-        )),
         // FEED-50: the tidy-up program previews as a hand-started, input-less
         // scratch run (every board, no repository).
         domain::contract::BUILTIN_TIDY_UP_ID => Some(tidy_up_prompt(
@@ -758,7 +514,6 @@ pub fn builtin_prompt_preview(action_id: &str) -> Option<String> {
             "<the issue you pick>",
             "<its PR branch>",
             "<the PR's base branch>",
-            None,
             false,
             None,
         )),
@@ -1311,7 +1066,7 @@ afterwards, so keep answering follow-ups."
     /// mid-run.
     #[test]
     fn fix_pr_conflicts_prompt_rebases_pushes_and_merges_via_mcp() {
-        let prompt = fix_pr_conflicts_prompt("EXP-42", "exp/EXP-42", "main", None, false, None);
+        let prompt = fix_pr_conflicts_prompt("EXP-42", "exp/EXP-42", "main", false, None);
         assert_eq!(
             prompt,
             "The pull request for `EXP-42` (branch `exp/EXP-42`) has merge conflicts and \
@@ -1333,7 +1088,7 @@ cannot be resolved safely, do NOT push or merge: stop and summarize what blocks 
 rebase instead. Finally report the merge result here (merged, or why you stopped)."
         );
         // EXP-679: the unattended variant swaps ONLY the report sentence.
-        let unattended = fix_pr_conflicts_prompt("EXP-42", "exp/EXP-42", "main", None, true, None);
+        let unattended = fix_pr_conflicts_prompt("EXP-42", "exp/EXP-42", "main", true, None);
         assert_eq!(
             unattended,
             prompt.replace(
@@ -1354,46 +1109,22 @@ why you stopped)."
         // the agent re-verifies the checkout matches origin before pushing.
         assert!(prompt.contains("git rev-parse origin/exp/EXP-42"));
         // EXP-825: the composer's free text rides last.
-        let extra = fix_pr_conflicts_prompt("EXP-42", "exp/EXP-42", "main", None, false, Some("Keep the lockfile from main."));
+        let extra = fix_pr_conflicts_prompt("EXP-42", "exp/EXP-42", "main", false, Some("Keep the lockfile from main."));
         assert_eq!(
             extra,
             format!("{prompt}\n\n## Additional instructions from the requester\n\nKeep the lockfile from main.\n")
         );
     }
 
-    /// EXP-324: a stacked PR's rebase slot carries the PARENT branch the
-    /// launcher resolved, not the repo default.
+    /// EXP-324: the rebase slot carries the PR's LIVE base the launcher
+    /// resolved (a PR based on another branch), not the repo default.
     #[test]
-    fn fix_pr_conflicts_prompt_substitutes_a_stacked_base() {
-        let prompt = fix_pr_conflicts_prompt("EXP-320", "exp/EXP-320", "exp/EXP-314", None, false, None);
+    fn fix_pr_conflicts_prompt_substitutes_a_non_default_base() {
+        let prompt = fix_pr_conflicts_prompt("EXP-320", "exp/EXP-320", "exp/EXP-314", false, None);
         assert!(
             prompt.contains("rebase onto `origin/exp/EXP-314` (the pull request's base branch)")
         );
         assert!(!prompt.contains("origin/main"));
-    }
-
-    /// EXP-1072: a workflow's FINAL pull request merges as a chore PR (by
-    /// repository and number, completing the workflow) and is never
-    /// retargeted — its base is the default branch.
-    #[test]
-    fn fix_pr_conflicts_prompt_merges_a_workflow_final_pr_as_a_chore_pr() {
-        let prompt = fix_pr_conflicts_prompt(
-            "Workflow: EXP-996 +5",
-            "exp/wf-3b828f50",
-            "master",
-            Some(ChorePrMerge {
-                repository_id: "repo-1".to_string(),
-                pr_number: 829,
-            }),
-            false,
-            None,
-        );
-        assert!(prompt.contains("The pull request for `Workflow: EXP-996 +5` (branch `exp/wf-3b828f50`)"));
-        assert!(prompt.contains("repositoryId `repo-1` and prNumber `829`"));
-        assert!(prompt.contains("completes the workflow"));
-        assert!(!prompt.contains("issueId"));
-        assert!(!prompt.contains("exponential_pr_retarget"));
-        assert!(prompt.contains("rebase onto `origin/master`"));
     }
 
     /// EXP-298: the builtin detail screens render these — they must resolve
@@ -1412,114 +1143,7 @@ why you stopped)."
         assert!(fix.contains("exponential_pr_merge"));
         assert!(fix.contains("<its PR branch>"));
 
-        // EXP-981: the planner's program is shipped too.
-        let plan = builtin_prompt_preview(domain::contract::BUILTIN_PLAN_WORKFLOW_ID)
-            .expect("plan-workflow preview");
-        assert!(plan.contains("exponential_workflows_get"));
-        assert!(plan.contains("Workflow: <the workflow you press Plan on>"));
-
         assert_eq!(builtin_prompt_preview("not-a-builtin"), None);
-    }
-
-    /// EXP-981: the planner prompt is the shipped program verbatim, then the
-    /// request (whose first line names the workflow), then the scratch note —
-    /// a planner has no repository and must never go hunting for one.
-    #[test]
-    fn plan_workflow_prompt_carries_the_program_request_and_scratch_note() {
-        let prompt = plan_workflow_prompt("Workflow: wf-1\n\nKeep iOS out of scope.");
-        assert!(prompt.starts_with(PLAN_WORKFLOW_PROGRAM));
-        assert!(prompt.contains("\n\n## Request\n\nWorkflow: wf-1\n\nKeep iOS out of scope.\n\n"));
-        assert!(prompt.ends_with(SCRATCH_CWD_NOTE));
-        // The program names the tools the run actually plans with.
-        assert!(PLAN_WORKFLOW_PROGRAM.contains("exponential_workflows_update"));
-        assert!(PLAN_WORKFLOW_PROGRAM.contains("exponential_issue_relations_add"));
-        // It writes no code — never a branch, a commit or a pull request.
-        assert!(!PLAN_WORKFLOW_PROGRAM.contains("exponential_pr_open"));
-    }
-
-    /// EXP-1089: the planner clears every open question with the person
-    /// BEFORE the graph exists, records the answers as decisions, leaves the
-    /// contract no leeway, and says what it asked and what it decided alone.
-    /// EXP-1065: nobody reviews a node by hand any more, the contract included.
-    #[test]
-    fn plan_workflow_program_asks_first_and_leaves_no_leeway() {
-        assert!(PLAN_WORKFLOW_PROGRAM.contains("exponential_sessions_ask_parent"));
-        assert!(PLAN_WORKFLOW_PROGRAM.contains("BEFORE any exponential_workflows_update"));
-        for topic in [
-            "runner device",
-            "review policy",
-            "rate-limit",
-            "platform coverage",
-            "deployment prerequisites",
-            "compat shims",
-            "mockup fidelity",
-            "two issues contradict",
-        ] {
-            assert!(PLAN_WORKFLOW_PROGRAM.contains(topic), "the pass never asks about {topic}");
-        }
-        assert!(PLAN_WORKFLOW_PROGRAM.contains("No workflow is shaped while a question is open"));
-        assert!(PLAN_WORKFLOW_PROGRAM.contains("NO LEEWAY"));
-        assert!(PLAN_WORKFLOW_PROGRAM.contains("what you decided alone"));
-        assert!(!PLAN_WORKFLOW_PROGRAM.contains("always reviewed by a person"));
-        // A planner's batched set needs no Proposal line (that is a node's rule).
-        assert!(!PLAN_WORKFLOW_PROGRAM.contains("Proposal:"));
-        assert!(!PLAN_WORKFLOW_PROGRAM.contains('\u{2014}'), "no em dashes");
-    }
-
-    /// EXP-984 — the reviewer's program, byte for byte. An ordinary node's
-    /// prompt carries no adversarial line at all (not an empty one).
-    #[test]
-    fn the_review_prompt_is_the_shipped_program() {
-        assert_eq!(
-            review_node_prompt("n-1", "EXP-42", "exp/wf-abcdef12", false),
-            "You are REVIEWING one node of an Exponential workflow. You did not write this code and you have not seen its author's reasoning: judge only what is in front of you. You change NO files and you push nothing.
-
-Node: n-1
-Issue: EXP-42
-The work is checked out in this directory on a throwaway branch. It was based on `exp/wf-abcdef12`: read the change with `git diff origin/exp/wf-abcdef12...HEAD`.
-
-1. Run `git rev-parse HEAD` and keep the full sha it prints: that is the commit you are reviewing, and your verdict is tied to it.
-2. Read the issue with exponential_issues_get (description and comments): that is the requirement.
-3. Read the whole diff. Look for: requirements not met, behaviour that contradicts the issue, broken or missing tests, contract changes that would break the nodes that build on this one, security problems, dead or duplicated code.
-4. RUN the checks: the tests this change touches and, if the repository has them, the contract tests. An opinion is advisory; a command you ran is evidence. Remember the exact command and whether it passed.
-5. Submit ONE verdict with exponential_workflows_review_submit: nodeId above, head = exactly the sha from step 1 (never a branch name, never a shortened or edited sha), verdict approve or request_changes, findings (concrete, with file and line, in the order they should be fixed — the author gets them verbatim; empty when you approve without remarks), oracle = {command, passed} for what you ran (omit it only if nothing could be run), model = the model you are.
-Then finish with exponential_sessions_end."
-        );
-
-        // A high-risk node gets exactly one extra paragraph.
-        let adversarial = review_node_prompt("n-1", "EXP-42", "exp/wf-abcdef12", true);
-        assert_eq!(
-            adversarial,
-            review_node_prompt("n-1", "EXP-42", "exp/wf-abcdef12", false).replace(
-                "\nThen finish",
-                &format!("\n{REVIEW_NODE_ADVERSARIAL_LINE}\nThen finish")
-            )
-        );
-    }
-
-    /// EXP-984 — the author's reasoning can never reach the reviewer: the
-    /// prompt has no input but the node id, the issue identifier, the base
-    /// branch and the risk flag, so ANY other text is absent by
-    /// construction. Rendered with every substitution marked, nothing of a
-    /// run summary, a transcript or a pull request body can appear.
-    #[test]
-    fn the_review_prompt_can_carry_no_author_summary() {
-        let prompt = review_node_prompt("NODE", "IDENT", "BASE", true);
-        let mut left = prompt.clone();
-        for value in ["NODE", "IDENT", "BASE"] {
-            left = left.replace(value, "");
-        }
-        // What remains is the shipped program alone — the same string for
-        // every node of every workflow on every machine.
-        assert_eq!(
-            left,
-            review_node_prompt("", "", "", true),
-            "the only variables are the four arguments"
-        );
-        // And the words a summary would come under are simply not in it.
-        for absent in ["summary", "transcript", "pull request description"] {
-            assert!(!prompt.to_lowercase().contains(absent), "{absent}");
-        }
     }
 
     fn tidy_input(key: &str, label: &str, input_type: &str, value: &str, display: &str) -> ActionInputValue {

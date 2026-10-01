@@ -75,7 +75,6 @@ fn fake_claude() -> PathBuf {
 
 fn options() -> coding::LaunchOptions {
     coding::LaunchOptions {
-        workflow: None,
         agent: coding::CodingAgent::Claude,
         model: "opus".to_string(),
         effort: String::new(),
@@ -131,7 +130,6 @@ fn prepared(session_id: &str, worktree: &Path, seed: Option<String>) -> coding::
         clone: worktree.to_path_buf(),
         repository_id: None,
         account_pick: None,
-        workflow: None,
         branch: "exp/EXP-12".to_string(),
         base_branch: None,
         base_ref: None,
@@ -165,9 +163,6 @@ fn prepared(session_id: &str, worktree: &Path, seed: Option<String>) -> coding::
             batch_issue_ids: Vec::new(),
             agent: None,
             agent_account: None,
-            workflow_id: None,
-            workflow_node_id: None,
-            workflow_role: None,
         },
         action_id: None,
         bypass_permissions: true,

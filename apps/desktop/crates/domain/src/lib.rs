@@ -22,12 +22,6 @@
 //! * [`relations_view`] — EXP-1097's issue-detail relations view (the
 //!   "Sub-issue of" line, the Sub-issues section, one foldable band per side),
 //!   byte-locked ×4 by `fixtures/issue-relations-view.json`;
-//! * [`pr_stack`] — EXP-897 PR STACKS: the `pr_base_branch` edge, the
-//!   bottom-up chain, the nesting rule and the stack copy (web
-//!   `lib/pr-stack.ts`'s twin);
-//! * [`pr_graph`] — EXP-897 §4: stack + batch + session tree (+ EXP-1097's
-//!   open blockers) for ONE subject, the model behind the work header's
-//!   face-independent badge and its overlay;
 //! * [`batch_run`] — EXP-876 `coding_sessions.batch_issue_ids`: which issues
 //!   a batch run covers and the `EXP-874 +2` name every list shows for it
 //!   (web `lib/batch-run.ts`'s twin);
@@ -72,10 +66,7 @@
 //!   `fixtures/activity-fold.json`;
 //! * [`entity_preview`] — EXP-920's entity-chip rule over a settled
 //!   Exponential tool row's `preview.refs` (icon concept, noun, clamped
-//!   label, `list` grouping), byte-locked ×4 by `fixtures/entity-chip.json`;
-//! * [`workflow_view`] — EXP-981's workflow bands, shape line, node captions
-//!   and node edges (the server owns the `wave`/`lane` geometry), byte-locked
-//!   ×4 by `fixtures/workflow-view.json`.
+//!   label, `list` grouping), byte-locked ×4 by `fixtures/entity-chip.json`.
 //!
 //! gpui-free — headless-testable.
 
@@ -103,22 +94,14 @@ pub mod issue_rail;
 pub mod issue_search;
 pub mod options;
 pub mod placeholder_status;
-pub mod pr_graph;
-pub mod pr_stack;
 pub mod relations;
 // EXP-1097: the issue detail's relations view (parent line, sub-issues, bands).
 pub mod relations_view;
-pub mod reviews_merge;
 pub mod rows;
 pub mod session_results;
 pub mod session_tree;
 pub mod statuses;
 pub mod tree_guides;
-// EXP-1072: a workflow's final PR — identifier, picker label, review key.
-pub mod workflow_final_pr;
-pub mod workflow_view;
-// EXP-1082: the open questions of a workflow's live runs (EXP-1065).
-pub mod workflow_questions;
 
 pub use enums::{IssuePriority, IssueStatus};
 pub use rows::member_fallback_label;

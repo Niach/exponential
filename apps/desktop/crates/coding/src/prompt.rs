@@ -17,8 +17,6 @@
 //! plan/approval gate is NOT prompt text anymore: native plan mode
 //! (`--permission-mode plan`, [`crate::argv::permission_args`]) owns it.
 
-use crate::launcher::StackIssue;
-
 /// EXP-637 — the clean-worktree half of the close-out EVERY launcher prompt
 /// ends with (issue, batch, action, chat and the two builtins): a run always
 /// leaves the tree the way it found it.
@@ -98,321 +96,18 @@ pub fn append_additional_instructions(mut prompt: String, extra: Option<&str>) -
     prompt
 }
 
-/// EXP-897 — everything the `## Stacked work` section needs. Borrowed: the
-/// launcher owns the plan ([`crate::launcher::StackLaunch`]) and the branch
-/// names it just resolved.
-pub struct StackPromptArgs<'a> {
-    /// The chain BELOW this run, bottom first (this issue excluded).
-    pub chain: &'a [StackIssue],
-    /// The issue directly below this run — the foundation. `None` = nothing
-    /// to stack on, and the section renders as nothing at all.
-    pub lower: Option<&'a StackIssue>,
-    /// What this run's branch was actually cut from (the foundation's branch
-    /// when it resolved on origin, else the board base).
-    pub base_branch: &'a str,
-    /// The board's own base branch — what the stack ultimately lands on.
-    pub default_branch: &'a str,
-    /// This machine's device id, for the `exponential_sessions_start` that
-    /// builds a missing foundation. Empty = unknown, and the `deviceId`
-    /// argument is left out of the call.
-    pub device_id: &'a str,
-    /// This run's branch (`exp/<IDENT>`).
-    pub branch: &'a str,
-}
-
-/// The branch to NAME for a stack member: its recorded PR branch when there
-/// is one, else the branch the launcher's default prefix would cut for it
-/// (a foundation that has not been started yet has no row to read).
-fn stack_branch(issue: &StackIssue) -> String {
-    issue
-        .branch
-        .as_deref()
-        .map(str::trim)
-        .filter(|branch| !branch.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| format!("exp/{}", issue.identifier))
-}
-
-/// EXP-897 — the `## Stacked work` section: the whole stack bottom first,
-/// then the procedure. Three renderer rules:
-///
-/// - step 1 ("build the foundation") is OMITTED when the foundation already
-///   has an open pull request — there is nothing to build;
-/// - `stackOnIssueId` is omitted from that start when the chain has ONE
-///   member: the foundation is the bottom, so it stacks on nothing;
-/// - "cut from" names the REAL base, which is the board's branch whenever
-///   the foundation's branch could not be resolved on origin.
-///
-/// Empty string when there is no foundation (a degenerate plan) — the caller
-/// then renders the ordinary prompt.
-pub fn stack_section(identifier: &str, args: &StackPromptArgs<'_>) -> String {
-    let Some(lower) = args.lower else {
-        return String::new();
-    };
-    let lower_branch = stack_branch(lower);
-    let mut listing = String::new();
-    for (index, issue) in args.chain.iter().enumerate() {
-        let state = match issue.open_branch() {
-            Some(branch) => format!("pull request open (`{branch}`)"),
-            None => "no pull request yet".to_string(),
-        };
-        listing.push_str(&format!("{}. `{}` - {state}\n", index + 1, issue.identifier));
-    }
-    listing.push_str(&format!(
-        "{}. `{identifier}` - this run (`{}`, cut from `origin/{}`)\n",
-        args.chain.len() + 1,
-        args.branch,
-        args.base_branch
-    ));
-
-    let mut steps: Vec<String> = Vec::new();
-    if lower.open_branch().is_none() {
-        // The issue BELOW the foundation, if any — what the child start
-        // stacks on in turn.
-        let below = args
-            .chain
-            .len()
-            .checked_sub(2)
-            .and_then(|index| args.chain.get(index));
-        let device = if args.device_id.is_empty() {
-            String::new()
-        } else {
-            format!("`deviceId: \"{}\"`, ", args.device_id)
-        };
-        let stack_on = match below {
-            Some(below) => format!(" and `stackOnIssueId: \"{}\"`", below.issue_id),
-            None => String::new(),
-        };
-        steps.push(format!(
-            "**Build the foundation first if it does not exist.** `{}` has no open pull request \
-yet: call `exponential_sessions_start` with {device}`issueId: \"{}\"`{stack_on}, then STOP and \
-wait - do not implement `{}` yourself. Its questions and its finish arrive here as \
-`[Exponential child run ...]` user messages; answer them with `exponential_sessions_message`. A \
-start refused because a run already holds that issue means the foundation is already being \
-built: wait for its pull request the same way.",
-            lower.identifier, lower.issue_id, lower.identifier
-        ));
-    }
-    steps.push(format!(
-        "**Verify the foundation before you build on it.** Run `git fetch origin {lower_branch}`, \
-read `git diff origin/{}...origin/{lower_branch}`, and run whatever it touches. If it needs \
-refinement, send that back to its run with `exponential_sessions_message` and wait for the next \
-finish message - do not fix its code on your branch.",
-        args.default_branch
-    ));
-    steps.push(format!(
-        "**Put your work on top of it.** `git fetch origin {lower_branch} && git rebase \
-origin/{lower_branch}` - or `git reset --hard origin/{lower_branch}` when you have committed \
-nothing yet. Then implement `{identifier}` as usual."
-    ));
-    steps.push(format!(
-        "**Open your pull request on top of it.** Call `exponential_pr_open` with \
-`stackOnIssueId: \"{}\"`: it bases your PR on `{lower_branch}` instead of `{}`. When the \
-foundation merges, your PR is retargeted for you; if a merge is ever refused for a stale base, \
-call `exponential_pr_retarget`, rebase, push with `--force-with-lease`, and merge again.",
-        lower.issue_id, args.default_branch
-    ));
-    steps.push(
-        "**Real decisions go UP, never down.** If the foundation turns out to be wrong, ask with \
-`exponential_sessions_ask_parent` and `to: \"root\"` (or `\"user\"` when a person has to choose) \
-instead of re-planning the stack yourself."
-            .to_string(),
-    );
-    let mut program = String::new();
-    for (index, step) in steps.iter().enumerate() {
-        program.push_str(&format!("{}. {step}\n", index + 1));
-    }
-
-    format!(
-        "## Stacked work
-
-**{identifier}** is stacked on work that is not finished yet. The stack, bottom first:
-
-{listing}
-`{}` (issueId `{}`) is the foundation directly below you. Work the stack in this order:
-
-{program}",
-        lower.identifier, lower.issue_id
-    )
-}
-
-/// EXP-982 — what the `## Workflow` section needs. Borrowed: the launcher
-/// owns the node's launch, the engine host owns the workflow row it came
-/// from.
-#[derive(Clone, Copy, Debug)]
-pub struct WorkflowPromptArgs<'a> {
-    /// `workflows.id` — the id the agent records its decisions against.
-    pub workflow_id: &'a str,
-    pub name: &'a str,
-    /// The branch this node's branch was cut from: the integration branch,
-    /// or (EXP-983) a blocker's branch / a synthetic base of several.
-    pub base_branch: &'a str,
-    /// `workflows.decisions` as synced; blank renders "None yet.".
-    pub decisions: &'a str,
-    /// EXP-983: the identifiers of the issues this node builds on, in the
-    /// order the engine lists them. Empty for a root node.
-    pub blockers: &'a [String],
-}
-
-/// EXP-982 — the `## Workflow` section every node run of a workflow carries,
-/// appended AFTER the normal issue/batch template: what the node is part of,
-/// how it bases and updates its branch, and the two tools that keep the
-/// siblings from re-asking one question. Ends WITHOUT a trailing blank line,
-/// like [`stack_section`].
-pub fn workflow_section(args: &WorkflowPromptArgs<'_>) -> String {
-    let WorkflowPromptArgs {
-        workflow_id,
-        name,
-        base_branch,
-        decisions,
-        blockers,
-    } = *args;
-    let decisions = match decisions.trim() {
-        "" => "None yet.",
-        text => text,
-    };
-    // EXP-983 / EXP-1066 — the two speculative bullets: every workflow starts
-    // dependents on the contract, so every node is asked to announce one; only
-    // a node with blockers builds on anyone.
-    let contract = "\n- Dependents start as soon as your CONTRACT is pushed. Do this FIRST: commit and push \
-the types, interfaces, stubs, contract tests and acceptance tests others build against, then call \
-exponential_workflows_checkpoint. After that, do not break what you announced; if you must, say so \
-in your summary.";
-    let upstream = if blockers.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "\n- You build on the work of {}. If what they gave you is wrong or missing something, \
-ask with exponential_workflows_request_upstream (their issue, your message). You may reject their \
-output, but an interface dispute is never settled between two runs: escalate it with \
-exponential_sessions_ask_parent.",
-            blockers.join(", ")
-        )
-    };
-    format!(
-        "## Workflow node
-
-This run is ONE node of the workflow \"{name}\". A scheduler started it; other nodes run in \
-parallel on sibling branches and land into the same integration branch.
-
-- Your branch was cut from `{base_branch}`. Open your pull request with exponential_pr_open as \
-usual and pass NO base: it is derived from the workflow.
-- Never rebase and never force-push. Your branch is FROZEN on the `{base_branch}` tip you were \
-cut from: nobody merges a newer one into it while you run. If you need a newer upstream, run \
-`git fetch origin` and `git merge origin/{base_branch}` yourself, resolve any conflict in favour of \
-what already landed unless that breaks your issue, and push. Once your run has ended the scheduler \
-merges upstream into your branch for you and wakes you only for a conflict.
-- Stay inside your issue. Work you discover that is not yours: file it with \
-exponential_issues_create and mention it in your summary.
-- A question only a person can answer: exponential_sessions_ask_parent. It goes to the person \
-who started the workflow and MUST contain a line starting with `Proposal:` that they can answer \
-with yes or no. After the answer arrives, record what was decided with exponential_workflows_update \
-(id `{workflow_id}`, decision) so no sibling asks again.
-- Finish with exponential_sessions_end once your pull request is open.{contract}{upstream}
-
-Decisions so far:
-{decisions}
-"
-    )
-}
-
-/// EXP-983/EXP-1106 — what a run is told when the branch under it moved AND
-/// the host's own merge of it CONFLICTS (a clean move is merged by the host,
-/// and nobody is told). The NOTE is the host's own `git log`/`git diff
-/// --stat` summary of what the base brought; FEED-55: absent when the host
-/// cannot say for sure. Nodes propagate by MERGE only.
-pub fn upstream_moved_prompt(base_branch: &str, sha: &str, note: Option<&str>) -> String {
-    let short: String = sha.chars().take(12).collect();
-    let note = match note.map(str::trim).filter(|note| !note.is_empty()) {
-        Some(note) => format!(" It brings: {note}."),
-        None => String::new(),
-    };
-    format!(
-        "Upstream `{base_branch}` moved to {short} and does not merge cleanly into your branch.{note} \
-Merge it into your branch: run git fetch origin and git merge origin/{base_branch}, resolve the \
-conflict in favour of what already landed unless that breaks your issue, run the tests you touched, \
-and push. Keep your history: merge and push normally."
-    )
-}
-
-/// EXP-1106 rule 3 — the BRIEF a FRESH run of a node opens with when its
-/// earlier run ended too long ago to resume warm. Written by the engine
-/// host, never by an agent: the node's branch and what it holds against its
-/// base (`git diff --stat`), the reason it is woken (`instruction`, one of
-/// the prompts above), and the node's own notes. Everything the agent needs
-/// to act in one turn, without its old transcript.
-pub fn wake_brief(
-    identifier: &str,
-    branch: &str,
-    base_branch: &str,
-    diff_stat: &str,
-    note: Option<&str>,
-    instruction: &str,
-) -> String {
-    let diff_stat = match diff_stat.trim() {
-        "" => "(no diff against the base yet)".to_string(),
-        text => text.to_string(),
-    };
-    let note = match note.map(str::trim).filter(|note| !note.is_empty()) {
-        Some(note) => format!("\nNote on the node: {note}\n"),
-        None => String::new(),
-    };
-    format!(
-        "You are picking up {identifier}, a node of a workflow, in its worktree on branch `{branch}` \
-(cut from `{base_branch}`). An earlier run of yours did the work below and ended; its conversation is \
-not here, so read the branch, not a memory. What the branch holds against `{base_branch}`:\n\n\
-{diff_stat}\n{note}\nWhat is asked of you now: {instruction}\n\nDo only that, run the tests you touch, \
-push, then end the run again."
-    )
-}
-
-/// EXP-984 — what a node's AUTHOR is told when its agent review asked for
-/// changes. The findings ride VERBATIM (the reviewer wrote them with file and
-/// line), under their own heading, so nothing of the reviewer's text is
-/// paraphrased on the way.
-pub fn review_findings_prompt(round: i64, findings: &str) -> String {
-    let max = domain::contract::WORKFLOW_MAX_REVIEW_ROUNDS;
-    if round >= max as i64 {
-        // EXP-1065: the LAST round. Nobody waits for a person after it: the
-        // node lands once this run is done, and whatever stays open is
-        // carried to the final pull request's review.
-        return format!(
-            "The agent review requested changes (round {round} of {max}, the last one). Address \
-every point you can, push, then end the run: after this round the node lands and any unresolved \
-finding is carried to the final pull request's review.\n\nFindings:\n{findings}"
-        );
-    }
-    format!(
-        "The agent review requested changes (round {round} of {max}). Address every point, push, \
-then end the run again.\n\nFindings:\n{findings}"
-    )
-}
-
-/// Append [`workflow_section`] to a finished prompt (one blank line before
-/// the heading), BEFORE the requester's additional instructions. `None`
-/// leaves every non-workflow prompt byte-identical.
-pub fn append_workflow_section(prompt: String, workflow: Option<&WorkflowPromptArgs<'_>>) -> String {
-    match workflow {
-        Some(args) => format!("{prompt}\n{}", workflow_section(args)),
-        None => prompt,
-    }
-}
-
 /// Render the seed prompt: the §7.1 step-5 instruction paragraph, then the
 /// issue context block it tells Claude to read. No plan-gate sentence —
 /// native plan mode owns the approval gate. `unattended` (EXP-679) picks the
 /// close-out: only an unattended run is told to call
 /// `exponential_sessions_end`. `extra` (EXP-825) is the composer's free text,
-/// appended last as the additional-instructions section. `stack` (EXP-897)
-/// renders [`stack_section`] between the issue context and that free text;
-/// `None` leaves the byte-locked template untouched.
+/// appended last as the additional-instructions section.
 pub fn render_prompt(
     identifier: &str,
     title: &str,
     description: Option<&str>,
     unattended: bool,
     extra: Option<&str>,
-    stack: Option<&StackPromptArgs<'_>>,
 ) -> String {
     let body = issue_body(description);
     let close_out = close_out(unattended);
@@ -433,11 +128,6 @@ moves the issue to `in_review` automatically, and merging it later completes it 
 {body}
 "
     );
-    // EXP-897: between the issue context and the requester's own additions.
-    let prompt = match stack.map(|stack| stack_section(identifier, stack)) {
-        Some(section) if !section.is_empty() => format!("{prompt}\n{section}"),
-        _ => prompt,
-    };
     append_additional_instructions(prompt, extra)
 }
 
@@ -531,137 +221,6 @@ fn issue_body(description: Option<&str>) -> &str {
 mod tests {
     use super::*;
 
-    fn workflow_args<'a>(decisions: &'a str) -> WorkflowPromptArgs<'a> {
-        WorkflowPromptArgs {
-            workflow_id: "wf-1",
-            name: "Login rework",
-            base_branch: "exp/wf-abcdef12",
-            decisions,
-            blockers: &[],
-        }
-    }
-
-    /// EXP-982 — the `## Workflow` section, byte for byte: what a node run
-    /// is told about its siblings, its base, and the two tools that keep
-    /// one question from being asked twice.
-    #[test]
-    fn the_workflow_section_reads_exactly() {
-        let rendered = workflow_section(&workflow_args("2026-09-19: ship the API first"));
-        assert_eq!(
-            rendered,
-            "## Workflow node
-
-This run is ONE node of the workflow \"Login rework\". A scheduler started it; other nodes run in \
-parallel on sibling branches and land into the same integration branch.
-
-- Your branch was cut from `exp/wf-abcdef12`. Open your pull request with exponential_pr_open as \
-usual and pass NO base: it is derived from the workflow.
-- Never rebase and never force-push. Your branch is FROZEN on the `exp/wf-abcdef12` tip you were \
-cut from: nobody merges a newer one into it while you run. If you need a newer upstream, run \
-`git fetch origin` and `git merge origin/exp/wf-abcdef12` yourself, resolve any conflict in favour \
-of what already landed unless that breaks your issue, and push. Once your run has ended the \
-scheduler merges upstream into your branch for you and wakes you only for a conflict.
-- Stay inside your issue. Work you discover that is not yours: file it with \
-exponential_issues_create and mention it in your summary.
-- A question only a person can answer: exponential_sessions_ask_parent. It goes to the person \
-who started the workflow and MUST contain a line starting with `Proposal:` that they can answer \
-with yes or no. After the answer arrives, record what was decided with exponential_workflows_update \
-(id `wf-1`, decision) so no sibling asks again.
-- Finish with exponential_sessions_end once your pull request is open.
-- Dependents start as soon as your CONTRACT is pushed. Do this FIRST: commit and push the types, \
-interfaces, stubs, contract tests and acceptance tests others build against, then call \
-exponential_workflows_checkpoint. After that, do not break what you announced; if you must, say so \
-in your summary.
-
-Decisions so far:
-2026-09-19: ship the API first
-"
-        );
-        // A fresh workflow says so rather than trailing an empty heading.
-        assert!(workflow_section(&workflow_args("   "))
-            .ends_with("Decisions so far:\nNone yet.\n"));
-    }
-
-    /// EXP-983 — the two speculative bullets, byte for byte: the contract
-    /// announcement (every node, EXP-1066) and who this node builds on. A
-    /// root node builds on nobody.
-    #[test]
-    fn the_speculative_bullets_read_exactly() {
-        let blockers = ["EXP-1".to_string(), "EXP-2".to_string()];
-        let rendered = workflow_section(&WorkflowPromptArgs {
-            workflow_id: "wf-1",
-            name: "Login rework",
-            base_branch: "exp/wf-abcdef12-base-EXP-3",
-            decisions: "",
-            blockers: &blockers,
-        });
-        assert!(rendered.contains(
-            "- Dependents start as soon as your CONTRACT is pushed. Do this FIRST: commit and \
-push the types, interfaces, stubs, contract tests and acceptance tests others build against, \
-then call exponential_workflows_checkpoint. After that, do not break what you announced; if you \
-must, say so in your summary.\n"
-        ));
-        assert!(rendered.contains(
-            "- You build on the work of EXP-1, EXP-2. If what they gave you is wrong or missing \
-something, ask with exponential_workflows_request_upstream (their issue, your message). You may \
-reject their output, but an interface dispute is never settled between two runs: escalate it with \
-exponential_sessions_ask_parent.\n"
-        ));
-        // The bullets stay bullets: the decisions log still ends the section.
-        assert!(rendered.ends_with("Decisions so far:\nNone yet.\n"));
-
-        // The upstream line exists only with a reason for it; the contract
-        // announcement is asked of every node.
-        let plain = workflow_section(&workflow_args(""));
-        assert!(plain.contains("exponential_workflows_checkpoint"));
-        assert!(!plain.contains("exponential_workflows_request_upstream"));
-    }
-
-    /// EXP-983 — what a run is told when its base moved: the host's own
-    /// summary of the range, then the exact git it should run.
-    #[test]
-    fn the_upstream_prompt_names_the_branch_and_the_change() {
-        assert_eq!(
-            upstream_moved_prompt("exp/EXP-1", "a1b2c3d4e5f6a7b8", Some("a1b2c3 add the token parser")),
-            "Upstream `exp/EXP-1` moved to a1b2c3d4e5f6 and does not merge cleanly into your branch. \
-It brings: a1b2c3 add the token parser. Merge it into your branch: run git fetch origin and git merge \
-origin/exp/EXP-1, resolve the conflict in favour of what already landed unless that breaks your \
-issue, run the tests you touched, and push. Keep your history: merge and push normally."
-        );
-        // FEED-55: no note when the host cannot say, and never a rebase.
-        let bare = upstream_moved_prompt("exp/EXP-1", "a1b2c3", None);
-        assert!(!bare.contains("It brings"), "{bare}");
-        assert!(!bare.to_lowercase().contains("rebase"), "{bare}");
-        assert!(!bare.contains("force"), "{bare}");
-    }
-
-    /// EXP-984 — the findings reach the author whole, under their heading,
-    /// with the round and the cap spelled out.
-    #[test]
-    fn the_findings_prompt_carries_the_round_and_the_text_verbatim() {
-        assert_eq!(
-            review_findings_prompt(2, "src/a.rs:4 off by one\nsrc/b.rs:9 no test"),
-            "The agent review requested changes (round 2 of 3). Address every point, push, then \
-end the run again.\n\nFindings:\nsrc/a.rs:4 off by one\nsrc/b.rs:9 no test"
-        );
-        // EXP-1065: the last round says the node lands after it.
-        let last = review_findings_prompt(3, "src/a.rs:4 off by one");
-        assert!(last.starts_with("The agent review requested changes (round 3 of 3, the last one)."));
-        assert!(last.contains("the node lands"));
-        assert!(last.ends_with("Findings:\nsrc/a.rs:4 off by one"));
-    }
-
-    /// The section is appended, never woven in: without a workflow every
-    /// existing prompt is byte-identical.
-    #[test]
-    fn appending_a_workflow_section_leaves_other_prompts_untouched() {
-        let base = render_prompt("EXP-42", "Fix login flicker", None, true, None, None);
-        assert_eq!(append_workflow_section(base.clone(), None), base);
-        let with = append_workflow_section(base.clone(), Some(&workflow_args("")));
-        assert!(with.starts_with(&base));
-        assert!(with[base.len()..].starts_with("\n## Workflow node\n"));
-    }
-
     /// The §7.1 step-5 template — exact bytes for a described issue a PERSON
     /// started (EXP-679: no `exponential_sessions_end`, the tool that run
     /// doesn't get).
@@ -695,7 +254,7 @@ The login page flickers on slow connections.
         let description =
             "The login page flickers on slow connections.\n\n- Reproduce with network throttling\n- Fix the flash of unstyled content";
         assert_eq!(
-            render_prompt("EXP-42", "Fix login flicker", Some(description), false, None, None),
+            render_prompt("EXP-42", "Fix login flicker", Some(description), false, None),
             EXPECTED
         );
     }
@@ -706,11 +265,11 @@ The login page flickers on slow connections.
     /// tool only for unattended runs).
     #[test]
     fn only_the_unattended_prompt_names_the_close_out_tool() {
-        let attended = render_prompt("EXP-42", "Fix login flicker", None, false, None, None);
+        let attended = render_prompt("EXP-42", "Fix login flicker", None, false, None);
         assert!(!attended.contains("exponential_sessions_end"));
         assert!(attended.contains("This session stays open after you finish"));
 
-        let unattended = render_prompt("EXP-42", "Fix login flicker", None, true, None, None);
+        let unattended = render_prompt("EXP-42", "Fix login flicker", None, true, None);
         assert!(unattended.contains("`exponential_sessions_end`"));
         assert!(unattended.contains("That call ends this run; nobody is watching it"));
         assert!(!unattended.contains("This session stays open after you finish"));
@@ -729,7 +288,7 @@ The login page flickers on slow connections.
 
     #[test]
     fn template_names_the_real_mcp_tools_and_carries_no_plan_gate() {
-        let prompt = render_prompt("EXP-1", "T", None, true, None, None);
+        let prompt = render_prompt("EXP-1", "T", None, true, None);
         assert!(prompt.contains("`exponential_pr_open`"));
         assert!(prompt.contains("`exponential_comments_list` MCP tool with issueId `EXP-1`"));
         assert!(prompt.contains("Do not use `gh`."));
@@ -795,14 +354,14 @@ The login page flickers on slow connections.
     #[test]
     fn missing_or_blank_description_gets_a_placeholder() {
         for description in [None, Some(""), Some("   \n  ")] {
-            let prompt = render_prompt("EXP-2", "Title", description, false, None, None);
+            let prompt = render_prompt("EXP-2", "Title", description, false, None);
             assert!(prompt.contains("(no description)"), "for {description:?}");
         }
     }
 
     #[test]
     fn trailing_whitespace_in_description_is_trimmed() {
-        let prompt = render_prompt("EXP-3", "T", Some("body text\n\n\n"), false, None, None);
+        let prompt = render_prompt("EXP-3", "T", Some("body text\n\n\n"), false, None);
         assert!(prompt.ends_with("body text\n"));
     }
 
@@ -811,10 +370,10 @@ The login page flickers on slow connections.
     /// string leave the byte-locked template untouched.
     #[test]
     fn additional_instructions_ride_last_and_blank_is_byte_identical() {
-        let base = render_prompt("EXP-42", "Fix login flicker", Some("body"), false, None, None);
+        let base = render_prompt("EXP-42", "Fix login flicker", Some("body"), false, None);
         assert_eq!(
             base,
-            render_prompt("EXP-42", "Fix login flicker", Some("body"), false, Some("  \n"), None)
+            render_prompt("EXP-42", "Fix login flicker", Some("body"), false, Some("  \n"))
         );
         let with = render_prompt(
             "EXP-42",
@@ -822,7 +381,6 @@ The login page flickers on slow connections.
             Some("body"),
             false,
             Some("  Focus on the retry path.\n"),
-            None,
         );
         assert_eq!(
             with,
@@ -842,223 +400,4 @@ The login page flickers on slow connections.
             format!("{ADDITIONAL_INSTRUCTIONS_HEADING}\n\nx\n")
         );
     }
-
-
-    // ---- EXP-897: the stacked-work section ----
-
-    fn stack_issue(identifier: &str, branch: Option<&str>, pr_state: Option<&str>) -> StackIssue {
-        StackIssue {
-            issue_id: format!("id-{}", identifier.to_lowercase()),
-            identifier: identifier.to_string(),
-            branch: branch.map(str::to_string),
-            pr_state: pr_state.map(str::to_string),
-        }
-    }
-
-    /// The chain is listed bottom first, each member with its real PR state,
-    /// and this run closes it with the base it was actually cut from.
-    #[test]
-    fn stack_section_lists_the_chain_bottom_first() {
-        let chain = vec![
-            stack_issue("EXP-10", None, None),
-            stack_issue("EXP-11", Some("exp/EXP-11"), Some("open")),
-        ];
-        let section = stack_section(
-            "EXP-12",
-            &StackPromptArgs {
-                chain: &chain,
-                lower: chain.last(),
-                base_branch: "exp/EXP-11",
-                default_branch: "main",
-                device_id: "dev-1",
-                branch: "exp/EXP-12",
-            },
-        );
-        assert!(section.starts_with("## Stacked work\n"), "{section}");
-        assert!(section.contains("1. `EXP-10` - no pull request yet\n"), "{section}");
-        assert!(
-            section.contains("2. `EXP-11` - pull request open (`exp/EXP-11`)\n"),
-            "{section}"
-        );
-        assert!(
-            section.contains("3. `EXP-12` - this run (`exp/EXP-12`, cut from `origin/exp/EXP-11`)"),
-            "{section}"
-        );
-        assert!(
-            section.contains("`EXP-11` (issueId `id-exp-11`) is the foundation directly below you."),
-            "{section}"
-        );
-        // ASCII only: the playbook's no-em-dash rule holds for the prompt's
-        // stack section too.
-        assert!(!section.contains('\u{2014}'), "{section}");
-    }
-
-    /// A foundation WITH an open PR is already built: the section opens on
-    /// "verify", never on "start it".
-    #[test]
-    fn stack_section_skips_the_build_step_when_the_foundation_has_a_pr() {
-        let chain = vec![stack_issue("EXP-11", Some("exp/EXP-11"), Some("open"))];
-        let section = stack_section(
-            "EXP-12",
-            &StackPromptArgs {
-                chain: &chain,
-                lower: chain.last(),
-                base_branch: "exp/EXP-11",
-                default_branch: "main",
-                device_id: "dev-1",
-                branch: "exp/EXP-12",
-            },
-        );
-        assert!(!section.contains("Build the foundation first"), "{section}");
-        assert!(!section.contains("exponential_sessions_start"), "{section}");
-        assert!(
-            section.contains("1. **Verify the foundation before you build on it.**"),
-            "{section}"
-        );
-        assert!(section.contains("4. **Real decisions go UP, never down.**"), "{section}");
-    }
-
-    /// An UNBUILT foundation gets step 1: start it, with this device and —
-    /// when something sits below it — its own `stackOnIssueId`, then stop.
-    #[test]
-    fn stack_section_tells_an_unbuilt_foundation_to_be_started_first() {
-        let chain = vec![
-            stack_issue("EXP-10", None, None),
-            stack_issue("EXP-11", None, None),
-        ];
-        let section = stack_section(
-            "EXP-12",
-            &StackPromptArgs {
-                chain: &chain,
-                lower: chain.last(),
-                base_branch: "main",
-                default_branch: "main",
-                device_id: "dev-1",
-                branch: "exp/EXP-12",
-            },
-        );
-        assert!(
-            section.contains("1. **Build the foundation first if it does not exist.**"),
-            "{section}"
-        );
-        assert!(
-            section.contains(
-                "call `exponential_sessions_start` with `deviceId: \"dev-1\"`, \
-`issueId: \"id-exp-11\"` and `stackOnIssueId: \"id-exp-10\"`"
-            ),
-            "{section}"
-        );
-        assert!(section.contains("then STOP and wait"), "{section}");
-        assert!(section.contains("[Exponential child run ...]"), "{section}");
-        assert!(section.contains("5. **Real decisions go UP, never down.**"), "{section}");
-        // The bottom of the stack stacks on nothing, and a device-less host
-        // simply leaves the argument out.
-        let bottom = vec![stack_issue("EXP-11", None, None)];
-        let alone = stack_section(
-            "EXP-12",
-            &StackPromptArgs {
-                chain: &bottom,
-                lower: bottom.last(),
-                base_branch: "main",
-                default_branch: "main",
-                device_id: "",
-                branch: "exp/EXP-12",
-            },
-        );
-        assert!(
-            alone.contains("call `exponential_sessions_start` with `issueId: \"id-exp-11\"`, then STOP"),
-            "{alone}"
-        );
-        // The bottom of the stack has nothing below it, so its start carries
-        // no `stackOnIssueId` (step 4's `pr_open` still does).
-        assert!(
-            !alone.contains("`issueId: \"id-exp-11\"` and `stackOnIssueId"),
-            "{alone}"
-        );
-        assert!(!alone.contains("deviceId"), "{alone}");
-    }
-
-    /// The four tools the procedure names, and the one it must NOT: the
-    /// close-out lives in `close_out(unattended)` alone.
-    #[test]
-    fn stack_section_names_stack_on_issue_id_and_never_the_close_out() {
-        let chain = vec![stack_issue("EXP-11", Some("exp/EXP-11"), Some("open"))];
-        let section = stack_section(
-            "EXP-12",
-            &StackPromptArgs {
-                chain: &chain,
-                lower: chain.last(),
-                base_branch: "exp/EXP-11",
-                default_branch: "main",
-                device_id: "dev-1",
-                branch: "exp/EXP-12",
-            },
-        );
-        assert!(
-            section.contains("Call `exponential_pr_open` with `stackOnIssueId: \"id-exp-11\"`"),
-            "{section}"
-        );
-        assert!(section.contains("`exponential_sessions_message`"), "{section}");
-        assert!(section.contains("`exponential_pr_retarget`"), "{section}");
-        assert!(
-            section.contains("`exponential_sessions_ask_parent` and `to: \"root\"`"),
-            "{section}"
-        );
-        assert!(!section.contains("exponential_sessions_end"), "{section}");
-        assert!(!section.contains("leave the worktree clean"), "{section}");
-        // Nothing to stack on renders nothing at all.
-        assert_eq!(
-            stack_section(
-                "EXP-12",
-                &StackPromptArgs {
-                    chain: &[],
-                    lower: None,
-                    base_branch: "main",
-                    default_branch: "main",
-                    device_id: "dev-1",
-                    branch: "exp/EXP-12",
-                },
-            ),
-            ""
-        );
-    }
-
-    /// In the prompt the section sits between the issue context and the
-    /// requester's own additions — and `None` leaves the byte-locked template
-    /// untouched.
-    #[test]
-    fn stacked_prompt_rides_between_the_issue_context_and_the_extra() {
-        let chain = vec![stack_issue("EXP-11", Some("exp/EXP-11"), Some("open"))];
-        let args = StackPromptArgs {
-            chain: &chain,
-            lower: chain.last(),
-            base_branch: "exp/EXP-11",
-            default_branch: "main",
-            device_id: "dev-1",
-            branch: "exp/EXP-12",
-        };
-        let plain = render_prompt("EXP-12", "T", Some("body"), false, None, None);
-        assert_eq!(plain, render_prompt("EXP-12", "T", Some("body"), false, None, None));
-        assert!(!plain.contains("## Stacked work"));
-
-        let stacked = render_prompt("EXP-12", "T", Some("body"), false, None, Some(&args));
-        assert_eq!(stacked, format!("{plain}\n{}", stack_section("EXP-12", &args)));
-        let context = stacked.find("## Issue context").expect("issue context");
-        let stack = stacked.find("## Stacked work").expect("stack section");
-        assert!(context < stack, "{stacked}");
-
-        let with_extra = render_prompt(
-            "EXP-12",
-            "T",
-            Some("body"),
-            false,
-            Some("Mind the retry path."),
-            Some(&args),
-        );
-        let extra = with_extra
-            .find(ADDITIONAL_INSTRUCTIONS_HEADING)
-            .expect("extra section");
-        assert!(with_extra.find("## Stacked work").expect("stack") < extra, "{with_extra}");
-    }
-
 }

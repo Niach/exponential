@@ -89,7 +89,6 @@ pub mod token_refresh;
 pub mod token_refresh_host;
 pub mod trunk_state;
 pub mod usage_cache;
-pub mod workflows;
 pub mod worktree_agents;
 
 pub use agent::{claude_model_alias, CodingAgent};
@@ -104,8 +103,8 @@ pub use batch_launcher::{
 pub use action_prompt::{
     chat_prompt, create_action_prompt, fix_pr_conflicts_prompt, render_action_prompt,
     render_action_prompt_full, render_action_prompt_with_trigger, render_run_resume_prompt,
-    plan_workflow_prompt, tidy_up_prompt, ActionInputValue, TriggerNote, TriggerNoteKind,
-    WorkspaceNote, PLAN_WORKFLOW_PROMPT_PREFIX, TIDY_UP_PROGRAM,
+    tidy_up_prompt, ActionInputValue, TriggerNote, TriggerNoteKind, WorkspaceNote,
+    TIDY_UP_PROGRAM,
 };
 pub use batch_prompt::{render_batch_prompt, BatchPromptArgs};
 pub use clone_manager::{AutoSyncOutcome, CloneEvent};
@@ -151,9 +150,9 @@ pub use launcher::{
     AcpLaunch, ActionLaunchRequest, ActionRunKind, ACP_TRANSPORT,
     AgentShellLaunch, AgentShellRequest, CodingDeps, CodingError, DisabledReason,
     GitWorktrees, IssueSeed, IssueSeedFn, LaunchOrigin, LaunchOutcome, LaunchRequest,
-    ResumeRunRequest, ResumeSeed, SessionEndObserver, StackIssue, StackLaunch,
-    Prepared, PreparedAgentShell, PrepareRequest, PreparedLaunch, WorkflowRun,
-    WorktreeProvider, WORKFLOW_STARTED_REASON,
+    ResumeRunRequest, ResumeSeed, SessionEndObserver,
+    Prepared, PreparedAgentShell, PrepareRequest, PreparedLaunch,
+    WorktreeProvider,
 };
 pub use run_cleanup::{remove_if_clean, CleanupOutcome, RunCleanup};
 pub use wip_save::{save_wip_commit, WipSave};
@@ -170,10 +169,10 @@ pub use launch_defaults_sync::{
 };
 pub use remote_admin::{
     apply_defaults_patch, defaults_wire, overlay_launch_defaults, AgentDefaultsPatch,
-    DefaultsPatch, WorkflowDefaultsPatch,
+    DefaultsPatch,
 };
-pub use prompt::{render_prompt, render_resume_prompt, stack_section, StackPromptArgs};
-pub use settings::Settings;
+pub use prompt::{render_prompt, render_resume_prompt};
+pub use settings::{remove_legacy_workflow_state, Settings};
 pub use token_refresh::{
     next_refresh_delay, refresh_clone_token, REFRESH_LEAD, TOKEN_REFRESH_RETRY,
 };

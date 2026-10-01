@@ -46,11 +46,7 @@ use crate::action_prompt::{
     chat_prompt, render_action_prompt_full, render_run_resume_prompt, ActionInputValue,
     TriggerNote, WorkspaceNote,
 };
-use crate::action_prompt::{
-    create_action_prompt, fix_pr_conflicts_prompt, fix_review_findings_prompt,
-    plan_workflow_prompt, review_landed_node_prompt, review_node_prompt, tidy_up_prompt,
-    PLAN_WORKFLOW_PROMPT_PREFIX,
-};
+use crate::action_prompt::{create_action_prompt, fix_pr_conflicts_prompt, tidy_up_prompt};
 use crate::batch_launcher::{
     action_run_branch, batch_branch_name, chat_run_branch, BatchLaunchRequest, RepoGroup,
 };
@@ -148,8 +144,7 @@ fn attribution<'a>(
     }
 }
 
-/// EXP-679 — the run's `coding_sessions.started_reason`: the workflow engine
-/// (EXP-982, `workflow`) when a node run, else an automation's trigger reason
+/// EXP-679 — the run's `coding_sessions.started_reason`: an automation's trigger reason
 /// (`schedule`/`event`) when one fired it, else the reason the relay frame
 /// carried (`agent` — another coding session started this run). `None` = a
 /// person started it, and the run is ATTENDED: it stays open after the agent
@@ -158,11 +153,7 @@ fn attribution<'a>(
 fn started_reason<'a>(
     origin: &'a LaunchOrigin,
     trigger: Option<&'a TriggerNote>,
-    workflow: Option<&'a WorkflowRun>,
 ) -> Option<&'a str> {
-    if workflow.is_some() {
-        return Some(WORKFLOW_STARTED_REASON);
-    }
     if let Some(note) = trigger {
         return Some(note.started_reason());
     }
@@ -298,80 +289,6 @@ pub fn prompt_attachment_ids(prompt: Option<&str>) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// EXP-897 — ONE issue of the stack a stacked start builds on, as the server
-/// resolved it (`codingSessions.stackPlan` / the relay's `start_session`
-/// frame). `branch` and `pr_state` are the issue's recorded PR facts, so the
-/// launcher can tell a foundation that EXISTS on origin from one that still
-/// has to be built.
-#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StackIssue {
-    pub issue_id: String,
-    pub identifier: String,
-    /// The issue's PR head branch (`exp/<IDENT>`), when one is recorded.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub branch: Option<String>,
-    /// `issues.pr_state` — only `open` means "this branch is on origin and
-    /// is the base to cut from".
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pr_state: Option<String>,
-}
-
-impl StackIssue {
-    /// The branch of this issue's OPEN pull request — the only state that
-    /// makes it a usable base. A merged/closed PR's branch may be deleted on
-    /// origin, and a PR-less issue has nothing to cut from.
-    pub fn open_branch(&self) -> Option<&str> {
-        if self.pr_state.as_deref() != Some("open") {
-            return None;
-        }
-        self.branch
-            .as_deref()
-            .map(str::trim)
-            .filter(|branch| !branch.is_empty())
-    }
-}
-
-/// EXP-897 — the stack a single-issue start is cut into: the chain BELOW this
-/// run (bottom first, this issue excluded) and the `lower` it sits directly
-/// on top of. Absent = an ordinary start (every prompt and every base ref
-/// stays byte-identical).
-#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StackLaunch {
-    /// The issue directly below this run — the foundation. `None` only on a
-    /// degenerate plan (nothing left to stack on), which the launcher treats
-    /// exactly like no stack at all.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub lower: Option<StackIssue>,
-    /// The whole chain below this run, bottom first (the `lower` is its LAST
-    /// member).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub chain: Vec<StackIssue>,
-}
-
-impl From<coding_sessions::StackPlanLink> for StackIssue {
-    fn from(link: coding_sessions::StackPlanLink) -> Self {
-        StackIssue {
-            issue_id: link.issue_id,
-            identifier: link.identifier,
-            branch: link.branch,
-            pr_state: link.pr_state,
-        }
-    }
-}
-
-/// EXP-897: the `codingSessions.stackPlan` answer as a launch plan — the ONE
-/// place the server's shape crosses into the launcher's.
-impl From<coding_sessions::StackPlan> for StackLaunch {
-    fn from(plan: coding_sessions::StackPlan) -> Self {
-        StackLaunch {
-            lower: plan.lower.map(StackIssue::from),
-            chain: plan.chain.into_iter().map(StackIssue::from).collect(),
-        }
-    }
-}
-
 /// §7.1's single-issue launch input.
 #[derive(Clone, Debug)]
 pub struct LaunchRequest {
@@ -413,65 +330,7 @@ pub struct LaunchRequest {
     /// name the pre-session uploads the session row binds via
     /// `attachmentIds`. `None`/blank leaves every prompt byte-identical.
     pub prompt: Option<String>,
-    /// EXP-897: START STACKED — cut this issue's branch from the issue below
-    /// it instead of the board base, and tell the agent how the stack works
-    /// (`prompt::stack_section`). Resolved server-side
-    /// (`codingSessions.stackPlan` locally, the `start_session` frame
-    /// remotely), never here: the server is the only place a blocking CYCLE
-    /// is refused. LAST field — `None` is an ordinary start and leaves every
-    /// byte of it unchanged.
-    pub stack: Option<StackLaunch>,
-    /// EXP-982: an EXPLICIT base branch, short-circuiting both the stack
-    /// base and the board default. Only the workflow engine sets it (the
-    /// workflow's integration branch); `None` leaves every other launch
-    /// byte-identical.
-    pub base_branch: Option<String>,
-    /// EXP-982: the workflow this run is ONE node of — the `## Workflow`
-    /// prompt section and the `workflow` started reason.
-    pub workflow: Option<WorkflowRun>,
 }
-
-/// EXP-982 — the workflow a node run belongs to, as the engine host knows
-/// it. Present ONLY on an engine-started run: it makes the run unattended
-/// (`started_reason = workflow`) and renders [`crate::prompt::workflow_section`].
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct WorkflowRun {
-    pub workflow_id: String,
-    pub name: String,
-    /// `workflows.decisions` as synced — the answers every sibling shares.
-    pub decisions: String,
-    /// EXP-983: the identifiers of the issues this node builds on.
-    pub blockers: Vec<String>,
-}
-
-/// EXP-1082 — the `codingSessions.start` membership keys of a launch; the
-/// default (every key omitted) when it is not a workflow run.
-fn workflow_start(
-    membership: Option<&crate::workflows::WorkflowMembership>,
-) -> coding_sessions::WorkflowStart<'_> {
-    membership.map(|m| m.wire()).unwrap_or_default()
-}
-
-/// EXP-1068 — the same membership as OWNED strings for the heartbeat scope
-/// (`workflow_id`, `workflow_node_id`, `workflow_role`), all `None` outside
-/// a workflow so the ping's wire stays byte-identical.
-fn workflow_echo(
-    membership: Option<&crate::workflows::WorkflowMembership>,
-) -> (Option<String>, Option<String>, Option<String>) {
-    match membership {
-        Some(m) => (
-            Some(m.workflow_id.clone()),
-            m.node_id.clone(),
-            Some(m.role.as_str().to_string()),
-        ),
-        None => (None, None, None),
-    }
-}
-
-/// EXP-982: a run the workflow engine started for one node. Unattended like
-/// `agent` (it reports through `exponential_sessions_end`), but it has NO
-/// parent run — its questions go to the person who started the workflow.
-pub const WORKFLOW_STARTED_REASON: &str = "workflow";
 
 /// Which program an action run executes (EXP-257/EXP-259). `Team` is a
 /// user-authored action (fresh body fetched via `actions.get` right before
@@ -488,8 +347,8 @@ pub enum ActionRunKind {
     /// The "Fix merge conflicts" run (EXP-259): spawned in the WORKTREE of
     /// the selected PR's branch (the caller resolved the `pr` input to the
     /// representative issue), rebases onto the PR's LIVE base (resolved via
-    /// `issues.prepareConflictFix` at launch — EXP-324; a stacked PR rebases
-    /// onto its parent's branch, a stale base is server-retargeted to the
+    /// `issues.prepareConflictFix` at launch — EXP-324; a PR based on another
+    /// branch rebases onto it, a stale base is server-retargeted to the
     /// default first), resolves, force-pushes, and merges via
     /// `exponential_pr_merge`.
     FixConflicts {
@@ -508,67 +367,8 @@ pub enum ActionRunKind {
         /// `exponential_pr_merge` argument).
         identifier: String,
         /// The representative issue's UUID — the `issues.prepareConflictFix`
-        /// argument (EXP-324). EXP-1072: the WORKFLOW's id when the pull
-        /// request is a workflow's final PR (the procedure accepts both).
+        /// argument (EXP-324).
         issue_id: String,
-        /// EXP-1072: the pull request is a WORKFLOW's final PR — the prompt
-        /// merges it as a chore PR (`exponential_pr_merge({ repositoryId,
-        /// prNumber })`, completing the workflow) and never retargets it: its
-        /// base is the repository's default branch. `identifier` then reads
-        /// like the PR's title (`Workflow: <name>`).
-        workflow_final_pr: bool,
-    },
-    /// The hidden "Plan workflow" builtin (EXP-981): the planner run of ONE
-    /// draft workflow. Like [`Self::CreateAction`] it is REPO-LESS by
-    /// construction — it shapes the plan through the Exponential MCP tools
-    /// and writes no code — so it runs in the same scratch dir, with no git,
-    /// no token and no worktree. Its prompt is the shipped program plus the
-    /// start's request, whose first line names the workflow.
-    PlanWorkflow,
-    /// The hidden "Review node" builtin (EXP-984): the AGENT REVIEW of one
-    /// workflow node, started by the workflow engine on the runner device and
-    /// by nothing else. It runs in a THROWAWAY worktree of its own, cut from
-    /// `origin/<branch>` onto `review_branch` — never pushed, removed when the
-    /// run ends — and it changes nothing: it reads the issue and the diff,
-    /// runs the checks it can, and submits ONE verdict over MCP.
-    ReviewNode {
-        /// The `workflow_nodes` row under review (the verdict's argument).
-        node_id: String,
-        /// The node's representative issue identifier.
-        identifier: String,
-        /// The node's OWN pushed branch — what is checked out.
-        branch: String,
-        /// What the node was cut from: the diff the reviewer reads is
-        /// `origin/<base_branch>...HEAD`.
-        base_branch: String,
-        /// The local, never-pushed branch this review works on
-        /// (`exp/wf-<id8>-review-<IDENT>-r<round>`) — named by the engine,
-        /// which is the only place that knows the workflow and the round.
-        review_branch: String,
-        /// A `risk: high` node: the prompt tells the reviewer to hunt for
-        /// the defect, and the engine already picked a model that is not the
-        /// author's.
-        adversarial: bool,
-        /// EXP-1103: `Some(pr)` = a review WAVE's review of a LANDED node —
-        /// `branch` is then the workflow's INTEGRATION branch, `base_branch`
-        /// the repository's default, and the reviewer judges the node's squash
-        /// commit (pull request `pr`, if known) as it sits in that branch.
-        /// `None` = the pre-wave review of a node's own branch.
-        landed: Option<Option<i64>>,
-    },
-    /// EXP-1103: the hidden "Fix review findings" builtin — a review WAVE's
-    /// ONE fix run, started by the workflow engine on the runner device and
-    /// by nothing else. It runs in a worktree of its own on `branch`, cut
-    /// from the integration branch, addresses every finding the wave's
-    /// reviewers raised, pushes `branch` and ends; the HOST then
-    /// fast-forwards the integration branch to it.
-    FixReviewFindings {
-        workflow_name: String,
-        wave: i64,
-        /// `exp/wf-<id8>-fix-w<wave>`, named by the engine.
-        branch: String,
-        integration_branch: String,
-        findings: Vec<crate::action_prompt::WaveFinding>,
     },
     /// The hidden "Chat" builtin (EXP-615): a conversation with the agent over
     /// the tracker's MCP tools, no PR contract. The repository is an OPTIONAL
@@ -745,25 +545,6 @@ pub trait WorktreeProvider: Send + Sync {
         url: &TokenUrl,
         expires_at: Option<&str>,
     ) -> Result<PathBuf, GitError>;
-
-    /// EXP-897 — make `origin/<branch>` exist locally, WITHOUT creating a
-    /// worktree: the stacked-start probe ("is the foundation's branch really
-    /// on origin?") and the stacked resume's base heal. `Err` means the ref
-    /// could not be fetched, which is exactly the signal to fall back to the
-    /// board's own base branch.
-    ///
-    /// DEFAULTED to `Ok(())` so a provider that only ever hands back a fixed
-    /// path (the test fakes) needs no implementation at all.
-    fn fetch_branch(
-        &self,
-        _repos_root: &Path,
-        _full_name: &str,
-        _branch: &str,
-        _url: &TokenUrl,
-        _expires_at: Option<&str>,
-    ) -> Result<(), GitError> {
-        Ok(())
-    }
 }
 
 /// The real git path: `ensure_clone` → [`git_credentials::ensure`] (bare
@@ -802,96 +583,6 @@ impl WorktreeProvider for GitWorktrees {
         Ok(worktree)
     }
 
-    /// EXP-897: the same clone + ambient-auth preamble as [`Self::prepare`],
-    /// then the ONE fetch. No worktree is created — the caller is only asking
-    /// whether `origin/<branch>` can be resolved here.
-    fn fetch_branch(
-        &self,
-        repos_root: &Path,
-        full_name: &str,
-        branch: &str,
-        url: &TokenUrl,
-        expires_at: Option<&str>,
-    ) -> Result<(), GitError> {
-        let clone = ensure_clone(repos_root, full_name, url)?;
-        git_credentials::ensure(&clone, url, expires_at)?;
-        fetch_base(&clone, branch, url)
-    }
-}
-
-/// EXP-982 — the base an engine-started node run cuts from: the workflow's
-/// integration branch, which the engine pushed before any node started.
-///
-/// Like [`stack_base_branch`] it NEVER fails — a branch name that cannot
-/// reach git argv, or an origin that cannot be reached, degrades to the
-/// board's base. The node reports `base_branch` to the server either way, so
-/// a degraded cut is visible rather than silent.
-fn explicit_base_branch(
-    requested: &str,
-    deps: &CodingDeps,
-    repos_root: &Path,
-    url: &TokenUrl,
-    expires_at: Option<&str>,
-    default_branch: &str,
-) -> String {
-    if crate::git_worktree::validate_branch_arg(requested, "explicit base").is_err() {
-        log::warn!("workflow node: refusing base branch {requested:?} — using {default_branch}");
-        return default_branch.to_string();
-    }
-    match deps
-        .worktrees
-        .fetch_branch(repos_root, url.full_name(), requested, url, expires_at)
-    {
-        Ok(()) => requested.to_string(),
-        Err(err) => {
-            log::info!(
-                "workflow node: origin/{requested} did not fetch ({err}) — cutting from {default_branch}"
-            );
-            default_branch.to_string()
-        }
-    }
-}
-
-/// EXP-897 — what a stacked start cuts its branch from: the foundation's OWN
-/// branch when it has an open pull request AND that branch really resolves on
-/// origin, else the board's base branch.
-///
-/// It NEVER fails. A stack is a convenience, not a contract: a foundation
-/// whose branch was deleted, a hostile branch name, or an origin that cannot
-/// be reached all degrade to the ordinary base, and the prompt still tells
-/// the agent to rebase onto the foundation once it exists.
-fn stack_base_branch(
-    stack: Option<&StackLaunch>,
-    deps: &CodingDeps,
-    repos_root: &Path,
-    url: &TokenUrl,
-    expires_at: Option<&str>,
-    default_branch: &str,
-) -> String {
-    let Some(lower_branch) = stack
-        .and_then(|stack| stack.lower.as_ref())
-        .and_then(StackIssue::open_branch)
-    else {
-        return default_branch.to_string();
-    };
-    // A branch name off the wire reaches git argv here: the same gate every
-    // other branch argument takes (`-…` is an option, not a ref).
-    if crate::git_worktree::validate_branch_arg(lower_branch, "stack base").is_err() {
-        log::warn!("stacked start: refusing base branch {lower_branch:?} — using {default_branch}");
-        return default_branch.to_string();
-    }
-    match deps
-        .worktrees
-        .fetch_branch(repos_root, url.full_name(), lower_branch, url, expires_at)
-    {
-        Ok(()) => lower_branch.to_string(),
-        Err(err) => {
-            log::info!(
-                "stacked start: origin/{lower_branch} did not fetch ({err}) — cutting from {default_branch}"
-            );
-            default_branch.to_string()
-        }
-    }
 }
 
 /// Issue title/description lookup for the seed prompt (sync-store backed; the
@@ -1228,13 +919,8 @@ pub struct PreparedLaunch {
     pub launch_hold: Option<crate::launch_gate::LaunchHold>,
     /// EXP-1005: the start-time account pick that moved this launch off the
     /// account its options named (`None` = it runs on that account). The
-    /// hosts say so in a workflow's event trail; the seed prompt already
-    /// carries the note.
+    /// seed prompt carries the note; hosts log it.
     pub account_pick: Option<crate::account_rotation::StartPick>,
-    /// EXP-1082: the workflow membership the launch was stamped with, for
-    /// the host's audit lines. `None` for every run outside a workflow (a
-    /// resume inherits its membership server-side).
-    pub workflow: Option<crate::workflows::WorkflowMembership>,
 }
 
 /// [`prepare`]'s outcome: ready to spawn, or disabled-with-reason.
@@ -1679,7 +1365,7 @@ fn map_token_error(err: ApiError, full_name: &str) -> Result<Prepared, CodingErr
 /// before `launch_account`/the start-time rotation rewrite its account.
 /// Last used = per agent, the login a PERSON last started or switched a run
 /// on, on that device (`agent_accounts[agent].profiles[].active`); the last
-/// used agent = `launch_defaults.defaultAgent`. Automations, workflow nodes,
+/// used agent = `launch_defaults.defaultAgent`. Automations,
 /// agent-started runs and auto-rotation never move it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct LastUsedStamp {
@@ -1700,20 +1386,15 @@ fn last_used_stamp(req: &PrepareRequest) -> Option<LastUsedStamp> {
             .map(str::to_string),
     };
     match req {
-        PrepareRequest::Issue(issue_req) => started_reason(&issue_req.origin, None, issue_req.workflow.as_ref())
+        PrepareRequest::Issue(issue_req) => started_reason(&issue_req.origin, None)
             .is_none()
             .then(|| fresh(&issue_req.options)),
-        PrepareRequest::Batch(batch_req) => started_reason(&batch_req.origin, None, batch_req.workflow.as_ref())
+        PrepareRequest::Batch(batch_req) => started_reason(&batch_req.origin, None)
             .is_none()
             .then(|| fresh(&batch_req.options)),
         PrepareRequest::Action(action_req) => {
-            let engine = matches!(
-                action_req.kind,
-                ActionRunKind::ReviewNode { .. } | ActionRunKind::FixReviewFindings { .. }
-            );
-            let person = !engine
-                && action_req.automation_id.is_none()
-                && started_reason(&action_req.origin, action_req.trigger.as_ref(), None).is_none();
+            let person = action_req.automation_id.is_none()
+                && started_reason(&action_req.origin, action_req.trigger.as_ref()).is_none();
             person.then(|| fresh(&action_req.options))
         }
         // A resume keeps its recorded account; only a PERSON's remote
@@ -1918,44 +1599,8 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
     // EXP-478: gate BEFORE the worktree exists — from here until the UI
     // registers the session, the auto-prune must not run on this clone.
     let launch_hold = crate::launch_gate::hold(&clone);
-    // EXP-897 — the STACK base. A stacked single-issue start cuts its branch
-    // from the foundation's open PR branch instead of the board base, so the
-    // run's diff (and its PR, once `stackOnIssueId` bases it there) carries
-    // only its own work. Everything else resolves to the board base, which
-    // keeps every unstacked launch byte-identical.
-    let stack = match req {
-        PrepareRequest::Issue(issue_req) => issue_req.stack.as_ref(),
-        _ => None,
-    };
-    // EXP-982 — an EXPLICIT base wins over both: the workflow engine cuts
-    // every node's branch from the workflow's integration branch, never from
-    // the board default. Validated and fetched exactly like the stack base,
-    // and it degrades to the board default the same way.
-    let explicit_base = match req {
-        PrepareRequest::Issue(issue_req) => issue_req.base_branch.as_deref(),
-        PrepareRequest::Batch(batch_req) => batch_req.base_branch.as_deref(),
-        PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
-            unreachable!("dispatched above")
-        }
-    };
-    let base_branch = match explicit_base {
-        Some(requested) => explicit_base_branch(
-            requested,
-            deps,
-            &repos_root,
-            &url,
-            minted.expires_at.as_deref(),
-            &minted.default_branch,
-        ),
-        None => stack_base_branch(
-            stack,
-            deps,
-            &repos_root,
-            &url,
-            minted.expires_at.as_deref(),
-            &minted.default_branch,
-        ),
-    };
+    // The worktree base: the board's own base branch (the mint resolved it).
+    let base_branch = minted.default_branch.clone();
     let worktree = deps.worktrees.prepare(
         &repos_root,
         url.full_name(),
@@ -1983,32 +1628,12 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
     // report through `exponential_sessions_end` — a person's run keeps its
     // session open instead.
     let run_reason = match req {
-        PrepareRequest::Issue(issue_req) => {
-            started_reason(&issue_req.origin, None, issue_req.workflow.as_ref())
-        }
-        PrepareRequest::Batch(batch_req) => {
-            started_reason(&batch_req.origin, None, batch_req.workflow.as_ref())
-        }
+        PrepareRequest::Issue(issue_req) => started_reason(&issue_req.origin, None),
+        PrepareRequest::Batch(batch_req) => started_reason(&batch_req.origin, None),
         PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
             unreachable!("dispatched above")
         }
     };
-    // EXP-982: the `## Workflow` section, appended after the normal issue or
-    // batch template. Absent on every non-engine start.
-    let workflow_run = match req {
-        PrepareRequest::Issue(issue_req) => issue_req.workflow.as_ref(),
-        PrepareRequest::Batch(batch_req) => batch_req.workflow.as_ref(),
-        PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
-            unreachable!("dispatched above")
-        }
-    };
-    let workflow_args = workflow_run.map(|workflow| crate::prompt::WorkflowPromptArgs {
-        workflow_id: &workflow.workflow_id,
-        name: &workflow.name,
-        base_branch: &base_branch,
-        decisions: &workflow.decisions,
-        blockers: &workflow.blockers,
-    });
     let rendered = match req {
         PrepareRequest::Issue(issue_req) if issue_req.resume_prompt => {
             let seed = (deps.issue_seed)(&issue_req.issue_id);
@@ -2031,24 +1656,12 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
                 Some(seed) => (seed.title.as_str(), seed.description.as_deref()),
                 None => (issue_req.issue_identifier.as_str(), None),
             };
-            // EXP-897: the `## Stacked work` section — the whole procedure
-            // (build the foundation, verify it, rebase, `stackOnIssueId`,
-            // escalate up). Absent on every unstacked start.
-            let stack_args = stack.map(|stack| crate::prompt::StackPromptArgs {
-                chain: &stack.chain,
-                lower: stack.lower.as_ref(),
-                base_branch: &base_branch,
-                default_branch: &minted.default_branch,
-                device_id: deps.device_id.as_deref().unwrap_or_default(),
-                branch: &branch,
-            });
             render_prompt(
                 &issue_req.issue_identifier,
                 title,
                 description,
                 run_reason.is_some(),
                 issue_req.prompt.as_deref(),
-                stack_args.as_ref(),
             )
         }
         PrepareRequest::Batch(batch_req) => render_batch_prompt(&BatchPromptArgs {
@@ -2062,9 +1675,6 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
             unreachable!("dispatched above")
         }
     };
-    // LAST, after the requester's own additions — an engine start carries
-    // none of those, and the node must read its workflow's rules last.
-    let rendered = crate::prompt::append_workflow_section(rendered, workflow_args.as_ref());
     // EXP-1005: the account hop, said in the run.
     let rendered = with_start_note(rendered, account_pick.as_ref());
 
@@ -2094,8 +1704,6 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
             // EXP-1140: the pick, persisted so the resolve below is bound
             // to exactly these servers.
             &options.mcp_server_ids,
-            // EXP-1082: a workflow run's membership, stamped on the row.
-            workflow_start(issue_req.options.workflow.as_ref()),
         ),
         PrepareRequest::Batch(batch_req) => coding_sessions::start_batch(
             &deps.trpc,
@@ -2115,7 +1723,6 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
                 .map(|issue| issue.issue_id.clone())
                 .collect::<Vec<_>>(),
             &options.mcp_server_ids,
-            workflow_start(batch_req.options.workflow.as_ref()),
         ),
         PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
             unreachable!("dispatched above")
@@ -2305,9 +1912,6 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
             repository_id: Some(repository_id.clone()),
             board_id: board_id.clone(),
             branch: Some(branch.clone()),
-            // EXP-897: the STACK base when this run was stacked — a resume
-            // must re-enter the worktree cut from the foundation, not from
-            // the board's own branch.
             base_branch: Some(base_branch.clone()),
             claude_session_id: None,
             codex_originator: codex_originator.clone(),
@@ -2330,16 +1934,7 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
             host_pid: None,
             recorded_at: crate::run_registry::now_secs(),
             // EXP-792: the server pick, for a resume to re-resolve.
-            // EXP-897: plus the stack, so the resume knows its base is a
-            // foundation branch rather than the board's own.
-            // EXP-1083: plus the workflow membership, so a resume echoes it.
-            extra: {
-                let mut extra =
-                    launch_extra(&options.mcp_server_ids, options.account.as_deref());
-                extra.extend(crate::run_registry::stack_extra(stack));
-                extra.extend(crate::run_registry::workflow_extra(options.workflow.as_ref()));
-                extra
-            },
+            extra: launch_extra(&options.mcp_server_ids, options.account.as_deref()),
         },
     );
 
@@ -2390,10 +1985,6 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
                 batch_issue_ids: Vec::new(),
                 agent: agent.wire_id().map(str::to_string),
                 agent_account: Some(agent_account.clone()),
-                // EXP-1068: the membership, echoed so a swept row resurrects in its group.
-                workflow_id: workflow_echo(issue_req.options.workflow.as_ref()).0,
-                workflow_node_id: workflow_echo(issue_req.options.workflow.as_ref()).1,
-                workflow_role: workflow_echo(issue_req.options.workflow.as_ref()).2,
             }
         }
         PrepareRequest::Batch(batch_req) => {
@@ -2420,10 +2011,6 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
                     .collect(),
                 agent: agent.wire_id().map(str::to_string),
                 agent_account: Some(agent_account.clone()),
-                // EXP-1068: the membership, echoed so a swept row resurrects in its group.
-                workflow_id: workflow_echo(batch_req.options.workflow.as_ref()).0,
-                workflow_node_id: workflow_echo(batch_req.options.workflow.as_ref()).1,
-                workflow_role: workflow_echo(batch_req.options.workflow.as_ref()).2,
             }
         }
         PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
@@ -2449,7 +2036,6 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
     Ok(Prepared::Ready(PreparedLaunch {
         session_id: session.id,
         account_pick: account_pick.clone(),
-        workflow: options.workflow.clone(),
         issue_identifier,
         worktree,
         clone,
@@ -2458,8 +2044,6 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
         // Issue/batch worktrees are the prune's business, not the run
         // cleanup's — they survive their session by design.
         base_branch: None,
-        // EXP-897: on a stacked run this is the FOUNDATION's branch, so the
-        // Changes view shows this issue's own work and not the whole stack.
         base_ref: Some(format!("origin/{base_branch}")),
         run_cleanup: None,
         mcp_warnings: team_mcp.warnings.clone(),
@@ -2541,13 +2125,7 @@ fn prepare_action(
     // The creator builtin always runs in its scratch dir — a repo INPUT only
     // pins the authored action's repositoryId, never this run's cwd. The
     // fix-conflicts builtin REQUIRES its repo (checked below).
-    // EXP-981: the planner is repo-less for the same reason — it plans over
-    // MCP and writes no code, so a repo would only give it a checkout to
-    // wander into.
-    let repo = if matches!(
-        req.kind,
-        ActionRunKind::CreateAction | ActionRunKind::PlanWorkflow
-    ) {
+    let repo = if matches!(req.kind, ActionRunKind::CreateAction) {
         &None
     } else {
         &req.repo
@@ -2555,17 +2133,6 @@ fn prepare_action(
     if matches!(req.kind, ActionRunKind::FixConflicts { .. }) && repo.is_none() {
         return Err(CodingError::Io(
             "the fix-conflicts run needs the pull request's repository".to_string(),
-        ));
-    }
-    // EXP-984: a review with no checkout is an opinion about nothing.
-    if matches!(req.kind, ActionRunKind::ReviewNode { .. }) && repo.is_none() {
-        return Err(CodingError::Io(
-            "the review run needs the node's repository".to_string(),
-        ));
-    }
-    if matches!(req.kind, ActionRunKind::FixReviewFindings { .. }) && repo.is_none() {
-        return Err(CodingError::Io(
-            "the fix run needs the workflow's repository".to_string(),
         ));
     }
     // EXP-712: the fix-conflicts run is the only action shape that belongs to
@@ -2578,15 +2145,7 @@ fn prepare_action(
     // run unattended — the only shape whose prompt names
     // `exponential_sessions_end` (the only shape the server registers it
     // for). Computed up front because the chat validation below depends on it.
-    // EXP-984: a reviewer run is the workflow ENGINE's, exactly like a node
-    // run — unattended, and the only shape of action run that reports through
-    // `exponential_sessions_end`.
-    let run_reason = match &req.kind {
-        ActionRunKind::ReviewNode { .. } | ActionRunKind::FixReviewFindings { .. } => {
-            Some(WORKFLOW_STARTED_REASON)
-        }
-        _ => started_reason(&req.origin, req.trigger.as_ref(), None),
-    };
+    let run_reason = started_reason(&req.origin, req.trigger.as_ref());
     let unattended = run_reason.is_some();
     // EXP-739: a chat run is NOT repo-bound. The chat is a conversation with
     // the tracker over MCP and code is an optional ANCHOR, so a repo-less one
@@ -2644,9 +2203,6 @@ fn prepare_action(
     // repo-backed arm below (None for every other kind); consumed by the
     // prompt render in step 3.
     let mut fix_rebase_onto: Option<String> = None;
-    // EXP-1072: the pull request's number as `issues.prepareConflictFix`
-    // read it — what a workflow's final PR is merged by.
-    let mut fix_pr_number: Option<i64> = None;
     // EXP-478/EXP-637: every repo-backed run now works in its OWN worktree
     // (fix-conflicts on the PR branch, Team/Chat on a fresh run branch), so
     // it gates the clone for the launch's whole flight like an issue/batch
@@ -2674,7 +2230,7 @@ fn prepare_action(
             };
             let url = minted.url.clone();
             // EXP-324: resolve the PR's LIVE rebase target before any git
-            // work. A stacked PR's base is its parent's branch, not the repo
+            // work. A PR based on another branch keeps that base, not the repo
             // default, and a stale base (parent squash-merged, branch left
             // behind) is healed — retargeted onto the default — by this call
             // server-side. Guessing the base instead is exactly the EXP-320
@@ -2687,10 +2243,7 @@ fn prepare_action(
                     default_branch,
                     ..
                 } => match issues::prepare_conflict_fix(&deps.trpc, issue_id) {
-                    Ok(resolved) => {
-                        fix_pr_number = Some(resolved.pr_number);
-                        Some(resolved.rebase_onto)
-                    }
+                    Ok(resolved) => Some(resolved.rebase_onto),
                     Err(ApiError::Http { status: 404, .. }) => Some(default_branch.clone()),
                     Err(err) => {
                         return Err(CodingError::Io(format!(
@@ -2751,57 +2304,6 @@ fn prepare_action(
                     base_branch = fix_rebase_onto.clone();
                     worktree
                 }
-                // EXP-984: the reviewer works on a THROWAWAY branch cut from
-                // the node's own pushed branch — it reads that work, runs
-                // checks against it, and pushes nothing. Its base for the
-                // cleanup below is the node's branch, so a review that (by
-                // construction) committed nothing is removed at the end.
-                ActionRunKind::ReviewNode {
-                    branch: node_branch,
-                    review_branch,
-                    ..
-                } => {
-                    crate::git_worktree::validate_branch_arg(node_branch, "review node")?;
-                    crate::git_worktree::validate_branch_arg(review_branch, "review run")?;
-                    launch_hold = Some(crate::launch_gate::hold(&clone));
-                    crate::git_worktree::fetch_base(&clone, node_branch, &url)?;
-                    // The round is part of the branch name, so this is a
-                    // fresh branch per review; a crashed earlier attempt at
-                    // the SAME round reuses its worktree, which holds the
-                    // same commits (nothing here ever writes).
-                    let worktree = crate::git_worktree::create_worktree(
-                        &clone,
-                        review_branch,
-                        &format!("origin/{node_branch}"),
-                        &url,
-                    )?;
-                    run_branch = Some(review_branch.clone());
-                    base_branch = Some(node_branch.clone());
-                    worktree
-                }
-                // EXP-1103: the wave's fix run works on its OWN branch cut
-                // from the integration branch; it pushes that branch and the
-                // host lands it. Its base for the cleanup below is the
-                // integration branch.
-                ActionRunKind::FixReviewFindings {
-                    branch: fix_branch,
-                    integration_branch,
-                    ..
-                } => {
-                    crate::git_worktree::validate_branch_arg(fix_branch, "fix run")?;
-                    crate::git_worktree::validate_branch_arg(integration_branch, "fix run base")?;
-                    launch_hold = Some(crate::launch_gate::hold(&clone));
-                    crate::git_worktree::fetch_base(&clone, integration_branch, &url)?;
-                    let worktree = crate::git_worktree::create_worktree(
-                        &clone,
-                        fix_branch,
-                        &format!("origin/{integration_branch}"),
-                        &url,
-                    )?;
-                    run_branch = Some(fix_branch.clone());
-                    base_branch = Some(integration_branch.clone());
-                    worktree
-                }
                 // EXP-637 (decision 1): a Team action or a Chat run gets its
                 // OWN worktree + branch cut from the repo's default, instead
                 // of writing into the trunk clone. Whatever the agent
@@ -2832,8 +2334,8 @@ fn prepare_action(
                     base_branch = Some(minted.default_branch.clone());
                     worktree
                 }
-                // The creator and planner builtins never reach this arm
-                // (both are forced repo-less above).
+                // The creator builtin never reaches this arm (it is forced
+                // repo-less above).
                 _ => clone.clone(),
             };
             trunk_clone = Some(clone);
@@ -2931,24 +2433,6 @@ fn prepare_action(
                 unattended,
             ))
         }
-        // EXP-981: the planner's request IS the start's prompt, and its
-        // first line names the workflow (`Workflow: <uuid>` — the server
-        // writes it). Without that line the run has nothing to plan, so it
-        // is refused here rather than spawned against a blank program.
-        ActionRunKind::PlanWorkflow => {
-            let request = req
-                .prompt
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .filter(|value| value.starts_with(PLAN_WORKFLOW_PROMPT_PREFIX));
-            let Some(request) = request else {
-                return Err(CodingError::Io(
-                    "the builtin Plan-workflow run is missing its workflow".to_string(),
-                ));
-            };
-            Some(plan_workflow_prompt(request))
-        }
         // EXP-615: the user's own words, verbatim — no preamble, no inputs
         // section. Everything else (worktree cwd, MCP wiring, session row,
         // steering) is the ordinary action-run path. EXP-703: no words at
@@ -2957,53 +2441,10 @@ fn prepare_action(
         ActionRunKind::Chat => chat_user_prompt
             .as_deref()
             .map(|prompt| chat_prompt(prompt, workspace.as_ref(), unattended)),
-        // EXP-984: the shipped reviewer program. Its ONLY inputs are the
-        // node, its issue and the base of the diff — the author's reasoning
-        // never reaches it.
-        ActionRunKind::ReviewNode {
-            node_id,
-            identifier,
-            base_branch,
-            adversarial,
-            landed,
-            ..
-        } => Some(match landed {
-            // EXP-1103: a review WAVE's look at a landed node's squash commit.
-            Some(pr_number) => review_landed_node_prompt(
-                node_id,
-                identifier,
-                base_branch,
-                *adversarial,
-                *pr_number,
-            ),
-            None => review_node_prompt(
-                node_id,
-                identifier,
-                base_branch,
-                // A high-risk node's review is adversarial: the prompt says
-                // it in words.
-                *adversarial,
-            ),
-        }),
-        // EXP-1103: the wave's one fix run — every requested finding, once.
-        ActionRunKind::FixReviewFindings {
-            workflow_name,
-            wave,
-            branch,
-            integration_branch,
-            findings,
-        } => Some(fix_review_findings_prompt(
-            workflow_name,
-            *wave,
-            branch,
-            integration_branch,
-            findings,
-        )),
         ActionRunKind::FixConflicts {
             branch,
             default_branch,
             identifier,
-            workflow_final_pr,
             ..
         } => Some(fix_pr_conflicts_prompt(
             identifier,
@@ -3011,17 +2452,6 @@ fn prepare_action(
             // The live base resolved above; the repo default only when the
             // server predates issues.prepareConflictFix (EXP-324).
             fix_rebase_onto.as_deref().unwrap_or(default_branch),
-            // EXP-1072: a workflow's final PR merges as a chore PR — by the
-            // repository and the number the server just read.
-            match (workflow_final_pr, req.repo.as_ref(), fix_pr_number) {
-                (true, Some(repo), Some(number)) => {
-                    Some(crate::action_prompt::ChorePrMerge {
-                        repository_id: repo.repository_id.clone(),
-                        pr_number: number,
-                    })
-                }
-                _ => None,
-            },
             unattended,
             req.prompt.as_deref(),
         )),
@@ -3070,8 +2500,6 @@ fn prepare_action(
             attribution: attribution(&req.origin, deps),
             attachment_ids: &attachment_ids,
             mcp_server_ids: &options.mcp_server_ids,
-            // EXP-1082: a reviewer run names its workflow node.
-            workflow: workflow_start(req.options.workflow.as_ref()),
         },
     ) {
         Ok(session) => session,
@@ -3167,15 +2595,9 @@ fn prepare_action(
     // EXP-637: a Team/Chat run owns its worktree, so it also owns cleaning
     // it up — but NEVER the fix-conflicts worktree (that is the PR's branch,
     // shared with the issue session that opened it).
-    // EXP-984: the reviewer's throwaway worktree goes the same way — it
-    // committed nothing, so the cleanup's "left nothing behind" test passes.
     let run_cleanup = match (&req.kind, &trunk_clone, &run_branch, &base_branch) {
         (
-            ActionRunKind::Team
-            | ActionRunKind::Chat
-            | ActionRunKind::TidyUp
-            | ActionRunKind::ReviewNode { .. }
-            | ActionRunKind::FixReviewFindings { .. },
+            ActionRunKind::Team | ActionRunKind::Chat | ActionRunKind::TidyUp,
             Some(clone),
             Some(branch),
             Some(base_branch),
@@ -3202,9 +2624,6 @@ fn prepare_action(
                 ActionRunKind::Chat => RunKind::Chat,
                 ActionRunKind::TidyUp => RunKind::TidyUp,
                 ActionRunKind::CreateAction => RunKind::CreateAction,
-                ActionRunKind::PlanWorkflow => RunKind::PlanWorkflow,
-                ActionRunKind::ReviewNode { .. } => RunKind::ReviewNode,
-                ActionRunKind::FixReviewFindings { .. } => RunKind::FixReviewFindings,
                 ActionRunKind::FixConflicts { .. } => RunKind::FixConflicts,
             },
             action_id: req.action_id.clone(),
@@ -3261,13 +2680,7 @@ fn prepare_action(
             host_pid: None,
             recorded_at: crate::run_registry::now_secs(),
             // EXP-792: the server pick, for a resume to re-resolve.
-            // EXP-1083: plus the workflow membership (a reviewer, a base
-            // merge, a planner), so a resume echoes it.
-            extra: {
-                let mut extra = launch_extra(&options.mcp_server_ids, options.account.as_deref());
-                extra.extend(crate::run_registry::workflow_extra(options.workflow.as_ref()));
-                extra
-            },
+            extra: launch_extra(&options.mcp_server_ids, options.account.as_deref()),
         },
     );
 
@@ -3287,7 +2700,6 @@ fn prepare_action(
     Ok(Prepared::Ready(PreparedLaunch {
         session_id: session.id,
         account_pick: account_pick.clone(),
-        workflow: options.workflow.clone(),
         issue_identifier: req.action_name.clone(),
         worktree: cwd.clone(),
         clone: trunk_clone.unwrap_or(cwd),
@@ -3325,10 +2737,6 @@ fn prepare_action(
             batch_issue_ids: Vec::new(),
             agent: agent.wire_id().map(str::to_string),
             agent_account: Some(agent_account.clone()),
-            // EXP-1068: the membership, echoed so a swept row resurrects in its group.
-            workflow_id: workflow_echo(req.options.workflow.as_ref()).0,
-            workflow_node_id: workflow_echo(req.options.workflow.as_ref()).1,
-            workflow_role: workflow_echo(req.options.workflow.as_ref()).2,
         },
         acp: AcpLaunch {
             prompt: rendered.clone(),
@@ -3500,10 +2908,6 @@ fn prepare_resume_run(
     // however the caller spelled it.
     let switching = requested_account.is_some() && resume_account != recorded_account;
     let options = LaunchOptions {
-        // EXP-1083: the recorded membership, so the re-created row's
-        // heartbeat echoes it (the server-side inheritance stamps the row
-        // either way; the echo is what a swept row resurrects with).
-        workflow: record.workflow_membership(),
         agent,
         model: req.model.clone().unwrap_or_else(|| record.model.clone()),
         effort: req.effort.clone().unwrap_or_else(|| record.effort.clone()),
@@ -3630,31 +3034,21 @@ fn prepare_resume_run(
             default_branch = minted.default_branch.clone();
         }
         launch_hold = Some(crate::launch_gate::hold(clone));
-        // EXP-897: a STACKED run's recorded base is the foundation's branch,
-        // not the board's. A reclaimed worktree has to be cut from it again —
-        // so make sure it still resolves on origin, and degrade to the board
-        // base when the foundation merged and its branch went with it (the
-        // work is in the base by then, which is exactly what the reclaimed
-        // note tells the agent).
-        if workspace_reclaimed && record.stack().is_some() && !default_branch.is_empty() {
-            let fetched = crate::git_worktree::validate_branch_arg(&default_branch, "stack base")
-                .and_then(|()| {
-                    deps.worktrees.fetch_branch(
-                        &deps.settings.repos_root_path(),
-                        url.full_name(),
-                        &default_branch,
-                        &url,
-                        minted.expires_at.as_deref(),
-                    )
-                });
-            if let Err(err) = fetched {
-                log::info!(
-                    "resume {}: stacked base origin/{default_branch} is gone ({err}) — cutting from {}",
-                    record.session_id,
-                    minted.default_branch
-                );
-                default_branch = minted.default_branch.clone();
-            }
+        // SLOP-3: a reclaimed ISSUE or BATCH worktree is cut from the board's
+        // CURRENT base. Its recorded base is that same branch for every run
+        // this build starts, but an older build's stacked run or workflow
+        // node recorded a foundation / integration branch that may be gone —
+        // such a record resumes as the plain run it was.
+        if workspace_reclaimed
+            && matches!(record.kind, RunKind::Issue | RunKind::Batch)
+            && default_branch != minted.default_branch
+        {
+            log::info!(
+                "resume {}: re-cutting the reclaimed worktree from {} (recorded base {default_branch})",
+                record.session_id,
+                minted.default_branch
+            );
+            default_branch = minted.default_branch.clone();
         }
         match &record.branch {
             Some(branch) => {
@@ -3767,7 +3161,7 @@ fn prepare_resume_run(
     // EXP-679: a resume is unattended only when the relay frame said so
     // (`agent` — another coding session resumed this run); a person's resume
     // stays open like any other person-started run.
-    let run_reason = started_reason(&req.origin, None, None);
+    let run_reason = started_reason(&req.origin, None);
     // EXP-825: composer text on a resume — verbatim first turn when the
     // native conversation survived, otherwise the additional-instructions
     // section of the degraded resume prompt.
@@ -3874,8 +3268,6 @@ fn prepare_resume_run(
             &attachment_ids,
             // EXP-1140: the RECORDED pick rides onto the continuation row.
             &options.mcp_server_ids,
-            // A resume inherits its membership server-side (EXP-906).
-            coding_sessions::WorkflowStart::default(),
         ),
         RunKind::Batch => coding_sessions::start_batch(
             &deps.trpc,
@@ -3895,7 +3287,6 @@ fn prepare_resume_run(
                 .map(|issue| issue.issue_id.clone())
                 .collect::<Vec<_>>(),
             &options.mcp_server_ids,
-            coding_sessions::WorkflowStart::default(),
         ),
         _ => coding_sessions::start_action(
             &deps.trpc,
@@ -3914,7 +3305,6 @@ fn prepare_resume_run(
                 attribution: attribution(&req.origin, deps),
                 attachment_ids: &attachment_ids,
                 mcp_server_ids: &options.mcp_server_ids,
-                workflow: coding_sessions::WorkflowStart::default(),
             },
         ),
     };
@@ -4058,10 +3448,6 @@ fn prepare_resume_run(
             batch_issue_ids: Vec::new(),
             agent: agent.wire_id().map(str::to_string),
             agent_account: Some(agent_account.clone()),
-            // EXP-1068: the membership, echoed so a swept row resurrects in its group.
-            workflow_id: workflow_echo(options.workflow.as_ref()).0,
-            workflow_node_id: workflow_echo(options.workflow.as_ref()).1,
-            workflow_role: workflow_echo(options.workflow.as_ref()).2,
         },
         RunKind::Batch => coding_sessions::HeartbeatScope {
             issue_id: None,
@@ -4081,10 +3467,6 @@ fn prepare_resume_run(
                 .collect(),
             agent: agent.wire_id().map(str::to_string),
             agent_account: Some(agent_account.clone()),
-            // EXP-1068: the membership, echoed so a swept row resurrects in its group.
-            workflow_id: workflow_echo(options.workflow.as_ref()).0,
-            workflow_node_id: workflow_echo(options.workflow.as_ref()).1,
-            workflow_role: workflow_echo(options.workflow.as_ref()).2,
         },
         _ => coding_sessions::HeartbeatScope {
             issue_id: None,
@@ -4099,10 +3481,6 @@ fn prepare_resume_run(
             batch_issue_ids: Vec::new(),
             agent: agent.wire_id().map(str::to_string),
             agent_account: Some(agent_account.clone()),
-            // EXP-1068: the membership, echoed so a swept row resurrects in its group.
-            workflow_id: workflow_echo(options.workflow.as_ref()).0,
-            workflow_node_id: workflow_echo(options.workflow.as_ref()).1,
-            workflow_role: workflow_echo(options.workflow.as_ref()).2,
         },
     };
     let issue_identifier = match record.kind {
@@ -4148,7 +3526,6 @@ fn prepare_resume_run(
     Ok(Prepared::Ready(PreparedLaunch {
         session_id: session.id,
         account_pick: None,
-        workflow: options.workflow.clone(),
         issue_identifier,
         worktree: cwd.clone(),
         clone: record.clone.clone().unwrap_or(cwd),
@@ -4643,7 +4020,6 @@ mod tests {
             // The dialog defaults: claude, fable, no effort, no ultracode,
             // plan mode ON.
             options: LaunchOptions {
-                workflow: None,
                 agent: CodingAgent::Claude,
                 model: "fable".to_string(),
                 effort: "".to_string(),
@@ -4655,9 +4031,6 @@ mod tests {
             },
             resume_prompt: false,
             prompt: None,
-            stack: None,
-            base_branch: None,
-            workflow: None,
         }
     }
 
@@ -5231,7 +4604,6 @@ mod tests {
 
     fn batch_options() -> LaunchOptions {
         LaunchOptions {
-            workflow: None,
             agent: CodingAgent::Claude,
             model: "opus".to_string(),
             effort: "high".to_string(),
@@ -5273,8 +4645,6 @@ mod tests {
             origin: LaunchOrigin::Local,
             options: batch_options(),
             prompt: None,
-            base_branch: None,
-            workflow: None,
         }
     }
 
@@ -5407,7 +4777,6 @@ mod tests {
             device_label: "box".to_string(),
             origin: LaunchOrigin::Local,
             options: LaunchOptions {
-                workflow: None,
                 agent: CodingAgent::Claude,
                 model: "fable".to_string(),
                 effort: String::new(),
@@ -5624,7 +4993,6 @@ mod tests {
         let deps = make_deps(&base, &dir.0, worktrees);
         let mut req = action_request();
         req.options = LaunchOptions {
-            workflow: None,
             agent: CodingAgent::Codex,
             model: "gpt-5.6-sol".to_string(),
             effort: "high".to_string(),
@@ -5868,7 +5236,6 @@ mod tests {
             board_id: None,
             identifier: "EXP-42".to_string(),
             issue_id: "issue-1".to_string(),
-            workflow_final_pr: false,
         };
         req.repo = None;
 
@@ -6388,22 +5755,6 @@ mod tests {
         let mut child = request("EXP-2");
         child.origin = relay(Some("agent"));
         assert_eq!(last_used_stamp(&PrepareRequest::Issue(child)), None);
-        // A workflow node never stamps.
-        let mut node = request("EXP-3");
-        node.workflow = Some(WorkflowRun {
-            workflow_id: "wf-1".to_string(),
-            name: "Flow".to_string(),
-            decisions: String::new(),
-            blockers: Vec::new(),
-        });
-        assert_eq!(last_used_stamp(&PrepareRequest::Issue(node)), None);
-        batch.workflow = Some(WorkflowRun {
-            workflow_id: "wf-1".to_string(),
-            name: "Flow".to_string(),
-            decisions: String::new(),
-            blockers: Vec::new(),
-        });
-        assert_eq!(last_used_stamp(&PrepareRequest::Batch(batch)), None);
 
         // An action a person started stamps; an automation's never does.
         assert!(last_used_stamp(&PrepareRequest::Action(action_request())).is_some());
@@ -6413,18 +5764,6 @@ mod tests {
             kind: crate::action_prompt::TriggerNoteKind::Schedule { phrase: "daily".to_string() },
         });
         assert_eq!(last_used_stamp(&PrepareRequest::Action(automated)), None);
-        // Nor does the workflow engine's reviewer.
-        let mut review = action_request();
-        review.kind = ActionRunKind::ReviewNode {
-            node_id: "n-1".to_string(),
-            identifier: "EXP-4".to_string(),
-            branch: "exp/EXP-4".to_string(),
-            base_branch: "main".to_string(),
-            review_branch: "exp/wf-1-review".to_string(),
-            adversarial: false,
-            landed: None,
-        };
-        assert_eq!(last_used_stamp(&PrepareRequest::Action(review)), None);
     }
 
     /// A resume keeps its recorded account and moves nothing — except a
@@ -7066,7 +6405,6 @@ mod tests {
             board_id: None,
             identifier: "EXP-42".to_string(),
             issue_id: "issue-fix-1".to_string(),
-            workflow_final_pr: false,
         };
         req.repo = Some(RepoGroup {
             repository_id: repository_id.to_string(),
@@ -7213,7 +6551,7 @@ mod tests {
         assert_eq!(prepared.spawn.cwd.as_deref(), Some(worktree.as_path()));
         assert_eq!(
             seed_prompt(&prepared),
-            render_prompt("EXP-42", "Fix login flicker", Some("Steps in the issue."), false, None, None)
+            render_prompt("EXP-42", "Fix login flicker", Some("Steps in the issue."), false, None)
         );
         assert_eq!(prepared.acp.options.model, "fable");
         assert!(prepared.acp.options.plan_mode, "the issue default");
@@ -7247,286 +6585,6 @@ mod tests {
             .spawn
             .env
             .contains(&(MCP_TOKEN_ENV.to_string(), "expu_seeded".to_string())));
-    }
-
-    // ---- EXP-897: stacked starts ----
-
-    fn stack_of(lower_branch: Option<&str>) -> StackLaunch {
-        let lower = StackIssue {
-            issue_id: "issue-11".to_string(),
-            identifier: "EXP-11".to_string(),
-            branch: lower_branch.map(str::to_string),
-            pr_state: lower_branch.map(|_| "open".to_string()),
-        };
-        StackLaunch {
-            lower: Some(lower.clone()),
-            chain: vec![lower],
-        }
-    }
-
-    fn stack_server(dir: &Path) -> (String, Arc<crate::test_support::FakeStackWorktrees>) {
-        let worktree = dir.join("wt");
-        fs::create_dir_all(&worktree).unwrap();
-        let base = canned_server(vec![
-            (200, FOR_ISSUE_OK.to_string()),
-            (200, TOKEN_OK.to_string()),
-            (200, START_OK.to_string()),
-        ]);
-        (
-            base,
-            Arc::new(crate::test_support::FakeStackWorktrees::new(worktree, &[])),
-        )
-    }
-
-    /// The whole point: a foundation with an OPEN pull request is fetched,
-    /// the worktree is cut from ITS branch, the diff base follows, and the
-    /// prompt carries the procedure.
-    #[test]
-    fn prepare_issue_stacked_cuts_from_the_foundation_branch() {
-        let dir = temp_dir("stack-cut");
-        let (base, worktrees) = stack_server(&dir.0);
-        let deps = make_deps(&base, &dir.0, worktrees.clone());
-        let mut req = request("EXP-12");
-        req.stack = Some(stack_of(Some("exp/EXP-11")));
-
-        let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        // The probe ran on the foundation's branch …
-        assert_eq!(
-            worktrees.fetched.lock().unwrap().as_slice(),
-            &["exp/EXP-11".to_string()]
-        );
-        // … the worktree was cut from it, on this issue's own branch …
-        assert_eq!(worktrees.base_of(0).as_deref(), Some("exp/EXP-11"));
-        assert_eq!(prepared.branch, "exp/EXP-12");
-        // … and the Changes view measures from there, not from `main`.
-        assert_eq!(prepared.base_ref.as_deref(), Some("origin/exp/EXP-11"));
-        let prompt = seed_prompt(&prepared);
-        assert!(prompt.contains("## Stacked work"), "{prompt}");
-        assert!(
-            prompt.contains("cut from `origin/exp/EXP-11`"),
-            "{prompt}"
-        );
-    }
-
-    /// A foundation with NO open pull request has no branch to cut from: the
-    /// run starts off the board base, and the prompt tells it to build the
-    /// foundation first.
-    #[test]
-    fn prepare_issue_stacked_falls_back_when_the_foundation_has_no_pr() {
-        let dir = temp_dir("stack-no-pr");
-        let (base, worktrees) = stack_server(&dir.0);
-        let deps = make_deps(&base, &dir.0, worktrees.clone());
-        let mut req = request("EXP-12");
-        req.stack = Some(stack_of(None));
-
-        let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        // Nothing to fetch: there is no branch yet.
-        assert!(worktrees.fetched.lock().unwrap().is_empty());
-        assert_eq!(worktrees.base_of(0).as_deref(), Some("main"));
-        assert_eq!(prepared.base_ref.as_deref(), Some("origin/main"));
-        let prompt = seed_prompt(&prepared);
-        assert!(
-            prompt.contains("Build the foundation first if it does not exist."),
-            "{prompt}"
-        );
-    }
-
-    /// A foundation whose branch is NOT on origin (deleted after a merge, or
-    /// never pushed) must not wedge the launch: the base degrades.
-    #[test]
-    fn prepare_issue_stacked_falls_back_when_the_branch_is_not_on_origin() {
-        let dir = temp_dir("stack-gone");
-        let worktree = dir.0.join("wt");
-        fs::create_dir_all(&worktree).unwrap();
-        let base = canned_server(vec![
-            (200, FOR_ISSUE_OK.to_string()),
-            (200, TOKEN_OK.to_string()),
-            (200, START_OK.to_string()),
-        ]);
-        let worktrees = Arc::new(crate::test_support::FakeStackWorktrees::new(
-            worktree,
-            &["exp/EXP-11"],
-        ));
-        let deps = make_deps(&base, &dir.0, worktrees.clone());
-        let mut req = request("EXP-12");
-        req.stack = Some(stack_of(Some("exp/EXP-11")));
-
-        let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        assert_eq!(
-            worktrees.fetched.lock().unwrap().as_slice(),
-            &["exp/EXP-11".to_string()]
-        );
-        assert_eq!(worktrees.base_of(0).as_deref(), Some("main"));
-        assert_eq!(prepared.base_ref.as_deref(), Some("origin/main"));
-    }
-
-    /// A branch name off the wire reaches `git` argv: one that looks like an
-    /// option is refused before it gets there, and the launch still runs.
-    #[test]
-    fn prepare_issue_stacked_refuses_a_hostile_branch_name() {
-        let dir = temp_dir("stack-hostile");
-        let (base, worktrees) = stack_server(&dir.0);
-        let deps = make_deps(&base, &dir.0, worktrees.clone());
-        let mut req = request("EXP-12");
-        req.stack = Some(stack_of(Some("--upload-pack=touch /tmp/pwned")));
-
-        let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        // Never even offered to git.
-        assert!(worktrees.fetched.lock().unwrap().is_empty());
-        assert_eq!(worktrees.base_of(0).as_deref(), Some("main"));
-        assert_eq!(prepared.base_ref.as_deref(), Some("origin/main"));
-    }
-
-    /// The stack rides the run record (`extra["stack"]`), so a later resume
-    /// knows its base is a foundation branch — and the record's `base_branch`
-    /// is that branch, not the board's.
-    #[test]
-    fn prepare_issue_stacked_records_the_stack_on_the_run() {
-        let dir = temp_dir("stack-record");
-        let (base, worktrees) = stack_server(&dir.0);
-        let deps = make_deps(&base, &dir.0, worktrees);
-        let mut req = request("EXP-12");
-        req.stack = Some(stack_of(Some("exp/EXP-11")));
-        match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
-            Prepared::Ready(_) => {}
-            other => panic!("expected Ready, got {other:?}"),
-        }
-
-        let record = crate::run_registry::get(&dir.0, "sess-1").expect("run record");
-        assert_eq!(record.base_branch.as_deref(), Some("exp/EXP-11"));
-        let stack = record.stack().expect("the recorded stack");
-        assert_eq!(stack.lower.as_ref().map(|l| l.identifier.as_str()), Some("EXP-11"));
-        assert_eq!(stack.lower.as_ref().and_then(StackIssue::open_branch), Some("exp/EXP-11"));
-        assert_eq!(stack.chain.len(), 1);
-    }
-
-    /// An UNSTACKED start is byte-identical to what it always was: no fetch,
-    /// the board base, the plain prompt, and no `stack` key on the record.
-    #[test]
-    fn prepare_issue_without_a_stack_is_unchanged() {
-        let dir = temp_dir("stack-absent");
-        let (base, worktrees) = stack_server(&dir.0);
-        let deps = make_deps(&base, &dir.0, worktrees.clone());
-
-        let prepared = match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        assert!(worktrees.fetched.lock().unwrap().is_empty());
-        assert_eq!(worktrees.base_of(0).as_deref(), Some("main"));
-        assert_eq!(prepared.base_ref.as_deref(), Some("origin/main"));
-        assert_eq!(
-            seed_prompt(&prepared),
-            render_prompt(
-                "EXP-42",
-                "Fix login flicker",
-                Some("Steps in the issue."),
-                false,
-                None,
-                None
-            )
-        );
-        let record = crate::run_registry::get(&dir.0, "sess-1").expect("run record");
-        assert!(record.stack().is_none());
-        assert!(!record.extra.contains_key(crate::run_registry::STACK_KEY));
-    }
-
-    /// A RESUME of a stacked run whose worktree was reclaimed re-cuts it from
-    /// the FOUNDATION's branch — the recorded base — after proving it is
-    /// still on origin.
-    #[test]
-    fn prepare_resume_run_stacked_reuses_the_foundation_base() {
-        let dir = temp_dir("stack-resume");
-        let (base, _captured) = canned_server_recording(vec![
-            (200, TOKEN_OK.to_string()),
-            (
-                200,
-                r#"{"result":{"data":{"session":{"id":"sess-new","issueId":"issue-12","teamId":"ws-1","status":"running"}}}}"#
-                    .to_string(),
-            ),
-        ]);
-        let layout = dir.0.join("repos").join("acme").join("web.worktrees").join("exp-EXP-12");
-        let worktrees = Arc::new(crate::test_support::FakeStackWorktrees::new(
-            layout.clone(),
-            &[],
-        ));
-        let deps = make_deps(&base, &dir.0, worktrees.clone());
-        let mut record = resume_record(&dir.0, "sess-old-stack");
-        record.kind = RunKind::Issue;
-        record.issue_id = Some("issue-12".to_string());
-        record.issue_identifier = Some("EXP-12".to_string());
-        record.cwd = layout.clone();
-        record.clone = Some(dir.0.join("repos").join("acme").join("web"));
-        record.repo = Some("acme/web".to_string());
-        record.repository_id = Some("repo-1".to_string());
-        record.branch = Some("exp/EXP-12".to_string());
-        record.base_branch = Some("exp/EXP-11".to_string());
-        record.claude_session_id = None;
-        record.set_stack(Some(&stack_of(Some("exp/EXP-11"))));
-        assert!(record.workspace_reclaimed());
-
-        match prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps).unwrap() {
-            Prepared::Ready(_) => {}
-            other => panic!("expected Ready, got {other:?}"),
-        }
-        assert_eq!(
-            worktrees.fetched.lock().unwrap().as_slice(),
-            &["exp/EXP-11".to_string()]
-        );
-        assert_eq!(worktrees.base_of(0).as_deref(), Some("exp/EXP-11"));
-        let _ = fs::remove_dir_all(&dir.0);
-    }
-
-    /// … and when the foundation MERGED and its branch went with it, the
-    /// same resume degrades to the board base instead of failing.
-    #[test]
-    fn prepare_resume_run_stacked_degrades_when_the_foundation_is_gone() {
-        let dir = temp_dir("stack-resume-gone");
-        let (base, _captured) = canned_server_recording(vec![
-            (200, TOKEN_OK.to_string()),
-            (
-                200,
-                r#"{"result":{"data":{"session":{"id":"sess-new","issueId":"issue-12","teamId":"ws-1","status":"running"}}}}"#
-                    .to_string(),
-            ),
-        ]);
-        let layout = dir.0.join("repos").join("acme").join("web.worktrees").join("exp-EXP-12");
-        let worktrees = Arc::new(crate::test_support::FakeStackWorktrees::new(
-            layout.clone(),
-            &["exp/EXP-11"],
-        ));
-        let deps = make_deps(&base, &dir.0, worktrees.clone());
-        let mut record = resume_record(&dir.0, "sess-old-stack-gone");
-        record.kind = RunKind::Issue;
-        record.issue_id = Some("issue-12".to_string());
-        record.issue_identifier = Some("EXP-12".to_string());
-        record.cwd = layout.clone();
-        record.clone = Some(dir.0.join("repos").join("acme").join("web"));
-        record.repo = Some("acme/web".to_string());
-        record.repository_id = Some("repo-1".to_string());
-        record.branch = Some("exp/EXP-12".to_string());
-        record.base_branch = Some("exp/EXP-11".to_string());
-        record.claude_session_id = None;
-        record.set_stack(Some(&stack_of(Some("exp/EXP-11"))));
-
-        match prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps).unwrap() {
-            Prepared::Ready(_) => {}
-            other => panic!("expected Ready, got {other:?}"),
-        }
-        assert_eq!(worktrees.base_of(0).as_deref(), Some("main"));
-        let _ = fs::remove_dir_all(&dir.0);
     }
 
     /// EXP-679: an ISSUE start another coding session asked for (the relay
@@ -7565,7 +6623,7 @@ mod tests {
 
         assert_eq!(
             seed_prompt(&prepared),
-            render_prompt("EXP-42", "Fix login flicker", Some("Steps in the issue."), true, None, None)
+            render_prompt("EXP-42", "Fix login flicker", Some("Steps in the issue."), true, None)
         );
         let prompt = seed_prompt(&prepared);
         assert!(prompt.contains("`exponential_sessions_end`"), "{prompt}");
@@ -7912,74 +6970,6 @@ mod tests {
         assert_eq!(fresh.claude_session_id.as_deref(), Some("claude-1"));
     }
 
-    /// EXP-1083 (EXP-1068's finding): a resume of a WORKFLOW run re-enters
-    /// with the recorded membership — `LaunchOptions::workflow` is rebuilt
-    /// from the record's `extra` keys, the heartbeat scope echoes it and the
-    /// resumed record carries it on for the next resume.
-    #[test]
-    fn prepare_resume_run_carries_the_recorded_workflow_membership() {
-        let dir = temp_dir("resume-issue-workflow");
-        let (base, captured) = canned_server_recording(vec![
-            (200, TOKEN_OK.to_string()),
-            (
-                200,
-                r#"{"result":{"data":{"session":{"id":"sess-new","issueId":"issue-1","teamId":"ws-1","status":"running"}}}}"#
-                    .to_string(),
-            ),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        let mut record = issue_resume_record(&dir.0, "sess-old", "repo-resume-workflow");
-        let membership = crate::workflows::WorkflowMembership {
-            workflow_id: "wf-1".to_string(),
-            node_id: Some("node-1".to_string()),
-            role: crate::workflows::WfSessionRole::Review,
-        };
-        record
-            .extra
-            .extend(crate::run_registry::workflow_extra(Some(&membership)));
-        assert_eq!(record.workflow_membership(), Some(membership.clone()));
-
-        let prepared = match prepare(
-            &PrepareRequest::ResumeRun(resume_request(record)),
-            &deps,
-        )
-        .unwrap()
-        {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        assert_eq!(prepared.workflow, Some(membership.clone()));
-        assert_eq!(prepared.heartbeat_scope.workflow_id.as_deref(), Some("wf-1"));
-        assert_eq!(
-            prepared.heartbeat_scope.workflow_node_id.as_deref(),
-            Some("node-1")
-        );
-        assert_eq!(prepared.heartbeat_scope.workflow_role.as_deref(), Some("review"));
-
-        // The start call still relies on the server-side inheritance
-        // (`resolveWorkflowMembership` reads the predecessor); the echo is
-        // the heartbeat's.
-        let requests = captured.lock().unwrap();
-        assert!(
-            requests.iter().any(|r| r.contains(r#""resumedFromId":"sess-old""#)),
-            "{requests:?}"
-        );
-        drop(requests);
-
-        // A resume of the resume finds the same membership.
-        let fresh = crate::run_registry::get(&dir.0, "sess-new").expect("record");
-        assert_eq!(fresh.workflow_membership(), Some(membership));
-
-        // A record without the keys (recorded before them) resumes plain.
-        let plain = issue_resume_record(&dir.0, "sess-plain", "repo-resume-workflow");
-        assert_eq!(plain.workflow_membership(), None);
-        assert!(crate::run_registry::workflow_extra(None).is_empty());
-    }
-
     /// The issue fallback: the recorded transcript is gone, so the resume
     /// seeds the ISSUE-shaped resume prompt (PR contract + comment thread),
     /// not the run-shaped one.
@@ -8222,7 +7212,6 @@ mod tests {
         let deps = make_deps(&base, &dir.0, worktrees);
         let mut req = request("EXP-42");
         req.options = LaunchOptions {
-            workflow: None,
             agent: CodingAgent::Codex,
             model: "gpt-5.6-sol".to_string(),
             effort: "high".to_string(),
@@ -8548,7 +7537,6 @@ mod tests {
     fn agent_shell_request(cwd_override: Option<PathBuf>) -> AgentShellRequest {
         AgentShellRequest {
             options: LaunchOptions {
-                workflow: None,
                 agent: CodingAgent::Claude,
                 model: "fable".to_string(),
                 effort: String::new(),
@@ -8859,7 +7847,6 @@ mod tests {
     fn codex_action(account: Option<String>) -> ActionLaunchRequest {
         let mut req = action_request();
         req.options = LaunchOptions {
-            workflow: None,
             agent: CodingAgent::Codex,
             model: "gpt-5.6-sol".to_string(),
             effort: "high".to_string(),
