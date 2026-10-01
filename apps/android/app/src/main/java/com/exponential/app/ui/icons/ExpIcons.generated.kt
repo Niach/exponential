@@ -8170,8 +8170,6 @@ public object ExpIcons {
     public val navTeamSwitcher: ImageVector get() = `chevrons-up-down`
     /** Concept `nav-terminal`. */
     public val navTerminal: ImageVector get() = `square-terminal`
-    /** Concept `nav-workflows`. */
-    public val navWorkflows: ImageVector get() = `workflow`
     /** Concept `notification-agent-message`. */
     public val notificationAgentMessage: ImageVector get() = `bot`
     /** Concept `notification-issue-assigned`. */
@@ -8206,8 +8204,6 @@ public object ExpIcons {
     public val prMerged: ImageVector get() = `git-merge`
     /** Concept `pr-open`. */
     public val prOpen: ImageVector get() = `git-pull-request`
-    /** Concept `pr-stack`. */
-    public val prStack: ImageVector get() = `layers`
     /** Concept `priority-high`. */
     public val priorityHigh: ImageVector get() = `signal-high`
     /** Concept `priority-low`. */

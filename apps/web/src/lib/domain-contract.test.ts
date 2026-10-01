@@ -18,18 +18,6 @@ import {
   commentSourceValues,
   notificationTypeValues,
   prStateValues,
-  wfEventKindValues,
-  wfNodeDisplayStateValues,
-  wfNodeKindValues,
-  wfNodeStateValues,
-  wfRiskValues,
-  wfSessionRoleValues,
-  WORKFLOW_EVENTS_MAX,
-  wfStatusValues,
-  WORKFLOW_MAX_ISSUES,
-  WORKFLOW_MAX_PARALLEL_DEFAULT,
-  workflowLaunchAgentValues,
-  WORKFLOW_LAUNCH_DEFAULTS,
   DEVICE_AGENT_DEFAULTS,
   codingSessionStatusValues,
   codingSessionEndedByValues,
@@ -186,40 +174,12 @@ describe(`domain-contract parity`, () => {
 
   it(`pr state values match the contract`, () => {
     expect([...prStateValues]).toEqual([...contract.prState.values])
-    // EXP-981: the workflow vocabulary.
-    expect([...wfStatusValues]).toEqual([...contract.wfStatus.values])
-    expect([...wfNodeStateValues]).toEqual([...contract.wfNodeState.values])
-    expect([...wfNodeKindValues]).toEqual([...contract.wfNodeKind.values])
-    expect([...wfRiskValues]).toEqual([...contract.wfRisk.values])
-    // EXP-1082: session membership roles, the event log and the display states.
-    expect([...wfSessionRoleValues]).toEqual([...contract.wfSessionRole.values])
-    expect([...wfEventKindValues]).toEqual([...contract.wfEventKind.values])
-    expect([...wfNodeDisplayStateValues]).toEqual([
-      ...contract.wfNodeDisplayState.values,
-    ])
-    expect(WORKFLOW_EVENTS_MAX).toBe(contract.workflow.eventsMax)
-    expect(WORKFLOW_MAX_ISSUES).toBe(contract.workflow.maxIssues)
-    expect(WORKFLOW_MAX_PARALLEL_DEFAULT).toBe(contract.workflow.maxParallelDefault)
   })
 
-  // EXP-1029: the two-model workflow launch and a device's agent defaults.
-  it(`workflow launch and device agent defaults match the contract`, () => {
-    expect([...workflowLaunchAgentValues]).toEqual([...contract.workflowLaunch.agents])
-    expect(WORKFLOW_LAUNCH_DEFAULTS.claude).toEqual({
-      model: contract.workflowLaunch.claudeModel,
-      strongModel: contract.workflowLaunch.claudeStrongModel,
-    })
-    expect(WORKFLOW_LAUNCH_DEFAULTS.codex).toEqual({
-      model: contract.workflowLaunch.codexModel,
-      strongModel: contract.workflowLaunch.codexStrongModel,
-    })
+  it(`device agent defaults match the contract`, () => {
     expect(DEVICE_AGENT_DEFAULTS).toEqual({
       model: contract.deviceAgentDefaults.model,
       subagentModel: contract.deviceAgentDefaults.subagentModel,
-      workflow: {
-        model: contract.deviceAgentDefaults.workflowModel,
-        strongModel: contract.deviceAgentDefaults.workflowStrongModel,
-      },
     })
   })
 

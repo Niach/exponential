@@ -229,75 +229,6 @@
   "prState": {
     "values": ["open", "closed", "merged", "draft"]
   },
-  "wfStatus": {
-    "values": ["draft", "running", "paused", "done", "cancelled"]
-  },
-  "wfNodeState": {
-    "values": [
-      "proposed",
-      "blocked",
-      "ready",
-      "running",
-      "in_review",
-      "updating",
-      "landed",
-      "failed",
-      "skipped"
-    ]
-  },
-  "wfNodeKind": {
-    "values": ["contract", "leaf", "integration"]
-  },
-  "wfRisk": {
-    "values": ["low", "medium", "high"]
-  },
-  "wfReviewVerdict": {
-    "values": ["approve", "request_changes"]
-  },
-  "wfSessionRole": {
-    "values": ["author", "review", "base_merge", "plan", "replan"]
-  },
-  "wfEventKind": {
-    "values": [
-      "node_started",
-      "review_started",
-      "review_verdict",
-      "review_no_verdict",
-      "retrying",
-      "gave_up",
-      "following_resume",
-      "adopting_run",
-      "account_picked",
-      "account_switched",
-      "waiting_reset",
-      "cleared_at_cap",
-      "question_asked",
-      "question_answered",
-      "landed",
-      "skipped",
-      "failed",
-      "final_pr_opened",
-      "final_pr_reopened",
-      "completed",
-      "cancelled"
-    ]
-  },
-  "wfNodeDisplayState": {
-    "values": ["queued", "running", "done", "failed", "skipped"]
-  },
-  "workflow": {
-    "maxParallelDefault": 3,
-    "maxIssues": 50,
-    "maxReviewRounds": 3,
-    "eventsMax": 50
-  },
-  "workflowLaunch": {
-    "agents": ["claude", "codex"],
-    "claudeModel": "opus",
-    "claudeStrongModel": "fable",
-    "codexModel": "gpt-5.6-sol",
-    "codexStrongModel": "gpt-5.6-luna"
-  },
   "codingSessionStatus": {
     "values": ["running", "in_review", "ended"]
   },
@@ -316,9 +247,7 @@
   },
   "deviceAgentDefaults": {
     "model": "fable",
-    "subagentModel": "",
-    "workflowModel": "opus",
-    "workflowStrongModel": "fable"
+    "subagentModel": ""
   },
   "team": {
     "agentPromptMaxBytes": 12288
@@ -489,9 +418,6 @@
     "createActionId": "builtin:create-action",
     "fixConflictsId": "builtin:fix-conflicts",
     "chatId": "builtin:chat",
-    "planWorkflowId": "builtin:plan-workflow",
-    "reviewNodeId": "builtin:review-node",
-    "fixReviewFindingsId": "builtin:fix-review-findings",
     "tidyUpId": "builtin:tidy-up"
   },
   "actionInputs": {
@@ -1402,116 +1328,6 @@
         "doneMany": "Updated {n} teams",
         "subjectKey": "id",
         "result": "none"
-      },
-      {
-        "name": "workflows_cancel",
-        "title": "Cancel workflow",
-        "blurb": "Cancels a started workflow: its runs end and its branch is deleted.",
-        "progressive": "Cancelling workflow",
-        "done": "Cancelled workflow",
-        "progressiveMany": "Cancelling {n} workflows",
-        "doneMany": "Cancelled {n} workflows",
-        "subjectKey": "id",
-        "result": "none"
-      },
-      {
-        "name": "workflows_checkpoint",
-        "title": "Announce contract",
-        "blurb": "Tells the workflow that this node's contract is pushed, so dependents may start.",
-        "progressive": "Announcing contract",
-        "done": "Announced contract",
-        "progressiveMany": "Announcing {n} contracts",
-        "doneMany": "Announced {n} contracts",
-        "subjectKey": "",
-        "result": "none"
-      },
-      {
-        "name": "workflows_create",
-        "title": "Create workflow",
-        "blurb": "Creates a draft workflow from backlog issues of one repository.",
-        "progressive": "Creating workflow",
-        "done": "Created workflow",
-        "progressiveMany": "Creating {n} workflows",
-        "doneMany": "Created {n} workflows",
-        "subjectKey": "name",
-        "result": "none"
-      },
-      {
-        "name": "workflows_get",
-        "title": "Read workflow",
-        "blurb": "Reads a workflow's graph: its nodes, the edges between them and its metrics.",
-        "progressive": "Reading workflow",
-        "done": "Read workflow",
-        "progressiveMany": "Reading {n} workflows",
-        "doneMany": "Read {n} workflows",
-        "subjectKey": "id",
-        "result": "none"
-      },
-      {
-        "name": "workflows_list",
-        "title": "List workflows",
-        "blurb": "Lists the team's workflows with their status and their shape.",
-        "progressive": "Listing workflows",
-        "done": "Listed workflows",
-        "progressiveMany": "Listing workflows {n} times",
-        "doneMany": "Listed workflows {n} times",
-        "subjectKey": "",
-        "result": "list"
-      },
-      {
-        "name": "workflows_pause",
-        "title": "Pause workflow",
-        "blurb": "Pauses a running workflow, or resumes a paused one.",
-        "progressive": "Pausing workflow",
-        "done": "Paused workflow",
-        "progressiveMany": "Pausing {n} workflows",
-        "doneMany": "Paused {n} workflows",
-        "subjectKey": "id",
-        "result": "none"
-      },
-      {
-        "name": "workflows_request_upstream",
-        "title": "Ask upstream run",
-        "blurb": "Asks the run of a blocking issue to change what it handed over.",
-        "progressive": "Asking upstream run",
-        "done": "Asked upstream run",
-        "progressiveMany": "Asking upstream runs {n} times",
-        "doneMany": "Asked upstream runs {n} times",
-        "subjectKey": "issueId",
-        "result": "none"
-      },
-      {
-        "name": "workflows_review_submit",
-        "title": "Submit node review",
-        "blurb": "Submits a review run's verdict on one workflow node.",
-        "progressive": "Submitting review",
-        "done": "Submitted review",
-        "progressiveMany": "Submitting {n} reviews",
-        "doneMany": "Submitted {n} reviews",
-        "subjectKey": "nodeId",
-        "result": "none"
-      },
-      {
-        "name": "workflows_start",
-        "title": "Start workflow",
-        "blurb": "Starts a draft workflow on its runner device.",
-        "progressive": "Starting workflow",
-        "done": "Started workflow",
-        "progressiveMany": "Starting {n} workflows",
-        "doneMany": "Started {n} workflows",
-        "subjectKey": "id",
-        "result": "none"
-      },
-      {
-        "name": "workflows_update",
-        "title": "Update workflow",
-        "blurb": "Changes a draft workflow's issues, its node plan or how it runs.",
-        "progressive": "Updating workflow",
-        "done": "Updated workflow",
-        "progressiveMany": "Updating {n} workflows",
-        "doneMany": "Updated {n} workflows",
-        "subjectKey": "id",
-        "result": "none"
       }
     ]
   },
@@ -1565,7 +1381,7 @@
   "entityRefKind": {
     "values": [
       "issue", "board", "action", "comment", "session", "label",
-      "status", "workflow", "device", "member", "repository", "team", "invite",
+      "status", "device", "member", "repository", "team", "invite",
       "notification", "thread", "attachment", "list"
     ]
   },
@@ -1651,17 +1467,7 @@
       { "name": "teams_create", "refs": "team@" },
       { "name": "teams_get", "refs": "team@" },
       { "name": "teams_list", "refs": "list:team@" },
-      { "name": "teams_update", "refs": "team@" },
-      { "name": "workflows_cancel", "refs": "workflow@" },
-      { "name": "workflows_checkpoint", "refs": "" },
-      { "name": "workflows_create", "refs": "workflow@ issue@$issueIds[]" },
-      { "name": "workflows_get", "refs": "workflow@workflow list:issue@nodes" },
-      { "name": "workflows_list", "refs": "list:workflow@" },
-      { "name": "workflows_pause", "refs": "workflow@" },
-      { "name": "workflows_request_upstream", "refs": "issue@$issueId" },
-      { "name": "workflows_review_submit", "refs": "" },
-      { "name": "workflows_start", "refs": "workflow@" },
-      { "name": "workflows_update", "refs": "workflow@" }
+      { "name": "teams_update", "refs": "team@" }
     ]
   }
 }

@@ -530,8 +530,6 @@ public enum AppIcons {
     public static let navTeamSwitcher: String = "chevrons-up-down"
     /// Concept `nav-terminal`.
     public static let navTerminal: String = "square-terminal"
-    /// Concept `nav-workflows`.
-    public static let navWorkflows: String = "workflow"
     /// Concept `notification-agent-message`.
     public static let notificationAgentMessage: String = "bot"
     /// Concept `notification-issue-assigned`.
@@ -566,8 +564,6 @@ public enum AppIcons {
     public static let prMerged: String = "git-merge"
     /// Concept `pr-open`.
     public static let prOpen: String = "git-pull-request"
-    /// Concept `pr-stack`.
-    public static let prStack: String = "layers"
     /// Concept `priority-high`.
     public static let priorityHigh: String = "signal-high"
     /// Concept `priority-low`.

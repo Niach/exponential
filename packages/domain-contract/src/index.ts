@@ -48,44 +48,10 @@ export interface DomainContract {
   commentSource: { values: readonly string[] }
   notificationType: { values: readonly string[] }
   prState: { values: readonly string[] }
-  /**
-   * EXP-978: Workflows (DAG-orchestrated coding runs). The `wf` prefix keeps
-   * them apart from `workflowStatus` below, the agent feed's word for a
-   * Claude Code workflow TOOL run. Documented varchars on the rows.
-   */
-  wfStatus: { values: readonly string[] }
-  wfNodeState: { values: readonly string[] }
-  wfNodeKind: { values: readonly string[] }
-  wfRisk: { values: readonly string[] }
-  wfReviewVerdict: { values: readonly string[] }
-  /** EXP-1082: which workflow node a session belongs to and as what. */
-  wfSessionRole: { values: readonly string[] }
-  /** EXP-1082: the engine's event log (`workflow_events.kind`). */
-  wfEventKind: { values: readonly string[] }
-  /** EXP-1082: the FIVE node states a person sees (the stored
-   *  `wfNodeState` is the engine's internal vocabulary). */
-  wfNodeDisplayState: { values: readonly string[] }
-  workflow: {
-    maxParallelDefault: number
-    maxIssues: number
-    maxReviewRounds: number
-    /** EXP-1082: `workflow_events` kept per workflow. */
-    eventsMax: number
-  }
-  /** EXP-1029: the two-model workflow launch per agent (cheap `model`,
-   *  capable `strongModel`) and a device's agent defaults. */
-  workflowLaunch: {
-    agents: readonly string[]
-    claudeModel: string
-    claudeStrongModel: string
-    codexModel: string
-    codexStrongModel: string
-  }
+  /** A device's agent defaults. */
   deviceAgentDefaults: {
     model: string
     subagentModel: string
-    workflowModel: string
-    workflowStrongModel: string
   }
   codingSessionStatus: { values: readonly string[] }
   /**
@@ -260,11 +226,6 @@ export interface DomainContract {
     createActionId: string
     fixConflictsId: string
     chatId: string
-    /** EXP-981: the planner run of a draft workflow. */
-    planWorkflowId: string
-    /** EXP-984: the agent-review run of one workflow node (device-started). */
-    reviewNodeId: string
-    fixReviewFindingsId: string
     /** FEED-50: the listed, automatable board cleanup. */
     tidyUpId: string
   }

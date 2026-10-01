@@ -117,7 +117,6 @@
     "nav-reviews": "git-pull-request",
     "nav-devices": "monitor",
     "nav-actions": "bot",
-    "nav-workflows": "workflow",
     "nav-support": "life-buoy",
     "nav-settings": "settings",
     "nav-notifications": "bell",
@@ -182,7 +181,6 @@
     "pr-closed": "circle-x",
     "pr-merged": "git-merge",
     "pr-draft": "circle-dot",
-    "pr-stack": "layers",
     "pr-batch": "boxes",
     "session-tree": "workflow",
 

@@ -142,13 +142,6 @@
       "icon": "settings-statuses"
     },
     {
-      "name": "a workflow",
-      "ref": { "kind": "workflow", "id": "w-1", "title": "EXP-468 +16" },
-      "label": "EXP-468 +16",
-      "detail": null,
-      "icon": "nav-workflows"
-    },
-    {
       "name": "a device",
       "ref": { "kind": "device", "id": "d-1", "title": "MacBook Pro" },
       "label": "MacBook Pro",
