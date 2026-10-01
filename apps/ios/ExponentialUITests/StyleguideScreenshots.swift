@@ -278,18 +278,15 @@ final class StyleguideScreenshots: XCTestCase {
             let propertiesButton = app.buttons["issue-properties-button"]
             XCTAssertTrue(propertiesButton.waitForExistence(timeout: 20), "Properties button missing on the issue detail")
             let propertiesHeadline = app.staticTexts["Properties"]
-            // EXP-1152 made the faces pages of a paged scroll view, and the
-            // FIRST touch after the two flings above is swallowed by it (it
-            // only arrests the feed — measured: tap one does nothing even
-            // after a 2 s settle, tap two opens the sheet). Tap until the
-            // sheet is there; a tap on the open sheet is never sent, because
-            // the loop stops as soon as the headline exists.
-            var propertiesOpen = false
-            for _ in 0..<3 where !propertiesOpen {
-                propertiesButton.tap()
-                propertiesOpen = propertiesHeadline.waitForExistence(timeout: 6)
-            }
-            XCTAssertTrue(propertiesOpen, "Properties sheet did not open")
+            // ONE tap, on purpose (EXP-1160): this is the first sheet the
+            // page presents since the screen opened, the case the paged
+            // `TabView` broke (it presented the sheet twice and tore both
+            // down). A retry here would hide that regression.
+            propertiesButton.tap()
+            XCTAssertTrue(
+                propertiesHeadline.waitForExistence(timeout: 15),
+                "Properties sheet did not open on its first tap"
+            )
             XCTAssertTrue(
                 anyElement(app, containing: "Priority").waitForExistence(timeout: 15),
                 "Properties sheet never showed its property rows"
