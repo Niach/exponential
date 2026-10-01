@@ -74,7 +74,8 @@ pub const DEFAULT_CLAUDE_EFFORT: &str = "";
 /// list (EXP-862 dropped external ACP agents whole — a settings file carrying
 /// one still loads, and the next save drops the key), and the EXP-872
 /// `defaultAccount` (EXP-1158: a launch naming no account runs on the login
-/// last used on this device, so there is no default to store).
+/// last used on this device, so there is no default to store;
+/// [`migrate_default_account`] seeds that pointer from it once).
 /// Foreign top-level keys other subsystems own (`launchDefaultsSync`,
 /// `actionAutomations`) ride the merge-save untouched and must never enter
 /// this list.
@@ -225,6 +226,44 @@ fn lenient_agent<'de, D: serde::Deserializer<'de>>(
         .unwrap_or_default())
 }
 
+/// The retired EXP-872 key [`migrate_default_account`] reads before it goes.
+const DEFAULT_ACCOUNT_KEY: &str = "defaultAccount";
+
+/// EXP-1158 — the ONE-TIME upgrade of a stored `defaultAccount`: it becomes
+/// `agent`'s (the file's `defaultAgent`) LAST USED login, so a machine whose
+/// default was a named profile keeps running unnamed launches on it instead
+/// of silently moving to the ambient login. Then the key leaves the file —
+/// before any save would drop it unseen, and so a later pick is never
+/// overwritten by a second pass. A profile that no longer exists (and the
+/// ambient `system`) seeds nothing.
+fn migrate_default_account(path: &Path, agent: CodingAgent) {
+    let Some(data_dir) = path.parent() else {
+        return;
+    };
+    let _guard = api::settings_lock::locked(data_dir);
+    let Some(mut root) = fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+    else {
+        return;
+    };
+    let Some(account) = root.as_object_mut().and_then(|object| object.remove(DEFAULT_ACCOUNT_KEY))
+    else {
+        return;
+    };
+    let account = account.as_str().map(str::trim).unwrap_or_default();
+    if !account.is_empty() && !crate::agent_profiles::is_system(Some(account)) {
+        if let Err(err) = crate::agent_profiles::note_last_used(data_dir, agent, account) {
+            log::warn!("coding: stored default account not carried over ({account}): {err}");
+        }
+    }
+    let mut rendered = serde_json::to_string_pretty(&root).expect("render settings json");
+    rendered.push('\n');
+    if let Err(err) = api::atomic_file::write_atomic(path, &rendered) {
+        log::warn!("coding: retired defaultAccount not dropped: {err}");
+    }
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -265,10 +304,14 @@ impl Settings {
     /// values normalize to the known alias sets, so a hand-edited file can
     /// never produce an unusable launcher or an argv the CLI rejects.
     pub fn load(path: &Path) -> Settings {
-        let mut settings = fs::read_to_string(path)
-            .ok()
-            .and_then(|raw| serde_json::from_str::<Settings>(&raw).ok())
+        let raw = fs::read_to_string(path).ok();
+        let mut settings = raw
+            .as_deref()
+            .and_then(|raw| serde_json::from_str::<Settings>(raw).ok())
             .unwrap_or_default();
+        if raw.as_deref().is_some_and(|raw| raw.contains(DEFAULT_ACCOUNT_KEY)) {
+            migrate_default_account(path, settings.default_agent);
+        }
         let defaults = Settings::default();
         if settings.claude_path.trim().is_empty() {
             settings.claude_path = defaults.claude_path;
@@ -959,6 +1002,40 @@ mod tests {
             serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         assert!(root.get("defaultAccount").is_none());
         assert_eq!(root["defaultAgent"], "codex");
+    }
+
+    /// EXP-1158: the stored default account seeds the LAST USED login once,
+    /// before the key goes — a machine whose default was "Work" keeps its
+    /// unnamed launches there. A profile that no longer exists seeds nothing.
+    #[test]
+    fn a_stored_default_account_becomes_the_last_used_login_once() {
+        let dir = TempDir::new("exp-1158-default-account-migrates");
+        let path = dir.0.join("settings.json");
+        let agent = CodingAgent::Codex;
+        let work = crate::agent_profiles::create(&dir.0, agent, "Work").unwrap();
+        let home = crate::agent_profiles::create(&dir.0, agent, "Home").unwrap();
+        let stored = |account: &str| {
+            fs::write(&path, format!(r#"{{"defaultAgent":"codex","defaultAccount":"{account}","other":1}}"#))
+                .unwrap();
+        };
+        stored(&work.id);
+        Settings::load(&path);
+        assert_eq!(crate::agent_profiles::active_profile(&dir.0, agent), work.id);
+        // The key left with the load (foreign keys stay), so a later pick is
+        // never overwritten by a second pass.
+        let root: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(root.get("defaultAccount").is_none());
+        assert_eq!(root["defaultAgent"], "codex");
+        assert_eq!(root["other"], 1);
+        crate::agent_profiles::note_last_used(&dir.0, agent, &home.id).unwrap();
+        Settings::load(&path);
+        assert_eq!(crate::agent_profiles::active_profile(&dir.0, agent), home.id);
+        // A profile that is gone seeds nothing; the key still goes.
+        stored("deadbeef");
+        Settings::load(&path);
+        assert_eq!(crate::agent_profiles::active_profile(&dir.0, agent), home.id);
+        assert!(!fs::read_to_string(&path).unwrap().contains("defaultAccount"));
     }
 
     /// EXP-773: `startInTerminal` is a DEAD key — the PTY coding path is

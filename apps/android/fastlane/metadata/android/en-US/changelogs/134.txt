@@ -1,0 +1,5 @@
+- Actions: automations are now triggers on the action they run. Each action is a page with its prompt, its triggers and its runs
+- Work screen: swipe between Issue, Run, Changes and Results. Changes shows its line counts
+- Runs: an API error shows as its own row instead of a false usage-limit wall
+- Accounts: no more per-device default account, a run starts on the login you used last
+- Stacks and batches: a quieter badge, smaller issue chips and a compact graph

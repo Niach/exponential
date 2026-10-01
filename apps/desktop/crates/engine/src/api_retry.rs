@@ -18,7 +18,9 @@
 //! 2. Once the run has stayed idle for the attempt's backoff ([`BACKOFF`]),
 //!    is not waiting on a person and is not behind a usage wall, the engine
 //!    sends [`retry_message`] as an ordinary steer.
-//! 3. Any real output (narration, a tool call) resets the attempt count; a
+//! 3. A turn that ENDS without an API error resets the attempt count — real
+//!    output alone does not: in a flapping outage each retry's turn says one
+//!    sentence and dies again, and that must still run out of attempts. A
 //!    turn someone else started disarms the pending retry. After
 //!    [`BACKOFF`]`.len()` failed attempts in a row the engine stops and says
 //!    so ([`give_up_notice`]) — an outage that long needs a person.
@@ -67,7 +69,7 @@ pub struct ApiRetry {
     errored: bool,
     /// When the errored turn ended: the backoff clock.
     armed_at: Option<Instant>,
-    /// Retries sent since the agent last produced real output.
+    /// Retries sent since a turn last ended without an API error.
     attempts: u32,
 }
 
@@ -115,6 +117,9 @@ impl ApiRetry {
             E::Turn { state: steer::frames::TurnState::Ended, .. } => {
                 if self.in_turn && self.errored {
                     self.armed_at = Some(now);
+                } else if self.in_turn {
+                    // The turn got through to its end: the outage is over.
+                    self.attempts = 0;
                 }
                 self.in_turn = false;
                 self.errored = false;
@@ -122,12 +127,13 @@ impl ApiRetry {
             E::ApiError { message, error_type, subagent_id: None, .. } if self.in_turn => {
                 self.errored = retryable(error_type.as_deref(), message);
             }
-            // The agent got through: whatever failed before is behind it.
+            // The agent got through: whatever failed before is behind it. The
+            // attempt count stays until the turn ENDS clean — a retry that says
+            // one sentence and dies again is still a failed attempt.
             E::Narration { subagent_id: None, .. } | E::Tool { subagent_id: None, .. }
                 if self.in_turn =>
             {
                 self.errored = false;
-                self.attempts = 0;
             }
             _ => {}
         }
@@ -239,8 +245,37 @@ mod tests {
         assert_eq!(retry.tick(idle(at + Duration::from_secs(3600))), RetryAction::None);
     }
 
+    fn narration() -> E {
+        E::Narration {
+            text: "Picking up.".into(),
+            before_question_id: None,
+            message_id: None,
+            subagent_id: None,
+            at: None,
+        }
+    }
+
+    /// A flapping outage: every retry's turn narrates, then dies on the same
+    /// error. The output must not buy another round of attempts.
     #[test]
-    fn real_output_resets_the_count_and_clears_the_error() {
+    fn a_retry_that_speaks_then_fails_again_still_runs_out() {
+        let mut at = Instant::now();
+        let mut retry = ApiRetry::new();
+        failed_turn(&mut retry, at);
+        for (index, backoff) in BACKOFF.iter().enumerate() {
+            at += *backoff;
+            assert_eq!(retry.tick(idle(at)), RetryAction::Retry { attempt: index as u32 + 1 });
+            retry.observe(&turn(TurnState::Started), at);
+            retry.observe(&narration(), at);
+            retry.observe(&api_error(Some("server_error"), None), at);
+            retry.observe(&turn(TurnState::Ended), at);
+        }
+        assert_eq!(retry.tick(idle(at)), RetryAction::GiveUp);
+        assert_eq!(retry.tick(idle(at + Duration::from_secs(3600))), RetryAction::None);
+    }
+
+    #[test]
+    fn a_clean_turn_resets_the_count_and_clears_the_error() {
         let t0 = Instant::now();
         let mut retry = ApiRetry::new();
         failed_turn(&mut retry, t0);

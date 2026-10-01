@@ -288,6 +288,25 @@ public extension Array where Element == ActionTrigger {
     }
 }
 
+/// Which triggers the NEXT whole-array write is built from. `actions.update`
+/// answers before Electric echoes the row, so in that gap the synced row still
+/// holds the array from BEFORE the last write — building on it would send the
+/// stale array back and silently revert that write.
+public enum TriggerWriteBase {
+    /// `written` = what the last `actions.update` returned (nil = no write
+    /// yet). It stays the base until the synced row's `updatedAt` is at least
+    /// as new as the response's; an unreadable stamp on either side falls back
+    /// to the synced row.
+    public static func triggers(synced: ActionDto, written: ActionDto?) -> [ActionTrigger] {
+        guard let written, written.id == synced.id,
+              let writtenAt = WireTimestamps.parse(written.updatedAt),
+              let syncedAt = WireTimestamps.parse(synced.updatedAt),
+              syncedAt < writtenAt
+        else { return synced.triggers }
+        return written.triggers
+    }
+}
+
 // MARK: - The creator-run trigger block
 
 /// What a suggestion with a trigger asks the creator agent to set up on the

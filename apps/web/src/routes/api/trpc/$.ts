@@ -24,6 +24,7 @@ import { commentsRouter } from "@/lib/trpc/comments"
 import { attachmentsRouter } from "@/lib/trpc/attachments"
 import { repositoriesRouter } from "@/lib/trpc/repositories"
 import { actionsRouter } from "@/lib/trpc/actions"
+import { automationsRouter } from "@/lib/trpc/automations"
 import { workflowsRouter } from "@/lib/trpc/workflows"
 import { codingSessionsRouter } from "@/lib/trpc/coding-sessions"
 import { steerRouter } from "@/lib/trpc/steer"
@@ -52,6 +53,10 @@ export const appRouter = router({
   attachments: attachmentsRouter,
   repositories: repositoriesRouter,
   actions: actionsRouter,
+  // SLOP-2 compat shim (lib/trpc/automations.ts): delete once
+  // CLIENT_MIN_VERSION_IOS > 0.14.49 and _ANDROID > 0.14.50 and
+  // _DESKTOP/_CLI > 0.14.58.
+  automations: automationsRouter,
   workflows: workflowsRouter,
   codingSessions: codingSessionsRouter,
   steer: steerRouter,

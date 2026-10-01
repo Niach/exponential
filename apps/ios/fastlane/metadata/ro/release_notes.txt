@@ -1,8 +1,5 @@
-- Ecranul de lucru: Issue, Rulare, Modificări și Rezultate sunt file glisabile în antet, cu Merge alături cât timp pull request-ul este deschis
-- Settings > Account: schimbă-ți adresa de email cu un cod, conectează sau deconectează autentificările Google, Apple și OIDC și gestionează cheile de acces
-- La îmbinarea unui pull request dintr-un stack, aplicația întreabă dacă să îmbine tot stack-ul sau doar acest pull request
-- Rezultate: raportul unei rulări apare lângă capturile de ecran, capturile lungi se deschid într-un vizualizator cu derulare, iar o notificare poate deschide direct Rezultate
-- Atașamentele Markdown se deschid într-o previzualizare în aplicație
-- Notificări: un singur stil, suprapus, peste tot, atinge pentru a extinde, glisează pentru a închide
-- Tidy up: o acțiune integrată pentru ordonarea boardurilor, cu pictograme potrivite pentru stackuri, loturi și workflow-uri
-- Sub-issue-urile create cu un atașament nu mai lasă în urmă o ciornă
+- Acțiuni: automatizările sunt acum declanșatoare pe acțiunea pe care o rulează, iar fiecare acțiune este o pagină cu promptul, declanșatoarele și rulările ei
+- Ecranul de lucru: glisează între Issue, Run, Changes și Results, iar Changes arată numărul de linii imediat ce fișierele sunt cunoscute
+- Runs: o eroare API apare ca rând separat în transcriere în loc de o falsă limită de utilizare
+- Conturi: contul implicit per dispozitiv a dispărut, o rulare pornește cu ultima autentificare folosită, dacă nu alegi alta
+- Stack-uri și loturi: o insignă mai discretă în antet, chip-uri de issue mai mici și un graf compact al lucrului asociat

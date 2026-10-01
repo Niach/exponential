@@ -1,8 +1,5 @@
-- Arbeitsansicht: Issue, Lauf, Änderungen und Ergebnisse sind wischbare Tabs im Header, daneben Merge, solange der Pull Request offen ist
-- Settings > Account: E-Mail-Adresse per Code ändern, Google-, Apple- und OIDC-Logins verknüpfen oder trennen und Passkeys verwalten
-- Beim Mergen eines gestapelten Pull Requests wählst du, ob der ganze Stack oder nur dieser Pull Request gemergt wird
-- Ergebnisse: Der Bericht eines Laufs steht neben seinen Screenshots, hohe Screenshots öffnen in einer scrollbaren Ansicht, und eine Benachrichtigung kann Ergebnisse direkt öffnen
-- Markdown-Anhänge öffnen sich in einer Vorschau in der App
-- Toasts: überall ein einheitlicher, gestapelter Hinweisstil, antippen zum Aufklappen, wischen zum Schließen
-- Tidy up: eine integrierte Aktion zum Aufräumen von Boards, mit passenden Icons für Stacks, Batches und Workflows
-- Sub-Issues, die mit einem Anhang erstellt werden, hinterlassen keinen Entwurf mehr
+- Aktionen: Automationen sind jetzt Trigger an der Aktion, die sie ausführen, und jede Aktion ist eine Seite mit ihrem Prompt, ihren Triggern und ihren Läufen
+- Arbeitsansicht: zwischen Issue, Run, Changes und Results wischen, und Changes zeigt die Zeilenzahlen, sobald die Dateien bekannt sind
+- Runs: ein API-Fehler erscheint als eigene Zeile im Verlauf statt als falsche Nutzungslimit-Sperre
+- Konten: das Standardkonto pro Gerät entfällt, ein Lauf startet mit dem zuletzt verwendeten Login, sofern du kein anderes wählst
+- Stacks und Batches: ein dezenteres Badge im Header, kleinere Issue-Chips und ein kompakter Graph verwandter Arbeit

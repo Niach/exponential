@@ -511,9 +511,20 @@ export function RelationIssueRow({
         {link ? (
           link({ className: openerClass, children: openerBody })
         ) : (
-          <button type="button" onClick={onOpen} className={openerClass}>
+          <Button
+            type="button"
+            variant="text"
+            size="inline"
+            onClick={onOpen}
+            // The row's own look, not a button's: the opener is the same
+            // bare cluster a `link` row renders.
+            className={cn(
+              `justify-start rounded-none font-normal text-inherit hover:text-inherit focus-visible:ring-0`,
+              openerClass
+            )}
+          >
             {openerBody}
-          </button>
+          </Button>
         )}
       </IssuePreviewHoverCard>
       {trailing}

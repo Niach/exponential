@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
 import { Ellipsis, LoaderCircle, Pencil, Trash2 } from "lucide-react"
 import type { ActionTrigger } from "@exp/db-schema/domain"
 import {
@@ -21,14 +21,17 @@ import {
   ListRow,
   LiveDot,
   Switch,
+  toast,
 } from "@exp/ui"
-import { triggerSummary } from "@/lib/action-triggers"
-import { writeActionTriggers } from "@/lib/action-trigger-writes"
+import { parseActionTriggers, triggerSummary } from "@/lib/action-triggers"
+import { actionCollection } from "@/lib/collections"
+import { trpc } from "@/lib/trpc-client"
 import { deviceIsOnline, type SteerDevice } from "@/lib/steer-devices"
 import type { TeamAction } from "@/components/action-prompt-form"
 import {
   REQUIRED_INPUTS_HINT,
   TriggerDialog,
+  type WriteTriggers,
 } from "@/components/trigger-dialog"
 
 // An action's triggers (SLOP-2; the Automations tab of EXP-530/583 folded
@@ -49,6 +52,103 @@ export function TriggerGlyph({
 }) {
   const Icon = kind === `schedule` ? TriggerScheduleIcon : TriggerEventIcon
   return <Icon className={className} />
+}
+
+export const UNREADABLE_TRIGGER_MESSAGE = `This action has a trigger this version cannot edit`
+
+/** An action's `triggers` as one read of it: the synced row, or what the
+ * last `actions.update` returned. */
+export interface TriggersSnapshot {
+  actionId: string
+  triggers: unknown
+  updatedAt: Date | string
+}
+
+/** The stored array the NEXT write builds on. A write replaces the WHOLE
+ * array, so building on a synced row that has not echoed the previous write
+ * yet would silently revert it: the last mutation's result stays the base
+ * until the synced row is at least as new. */
+export function triggerWriteBase(
+  synced: TriggersSnapshot,
+  last: TriggersSnapshot | null
+): unknown {
+  if (!last || last.actionId !== synced.actionId) return synced.triggers
+  const newer =
+    new Date(last.updatedAt).getTime() > new Date(synced.updatedAt).getTime()
+  return newer ? last.triggers : synced.triggers
+}
+
+/** The readable triggers of a stored array, and whether it holds entries
+ * this build cannot read (a kind it does not know) — writing the readable
+ * ones back would delete those. */
+export function readTriggerBase(stored: unknown): {
+  triggers: ActionTrigger[]
+  unreadable: boolean
+} {
+  const triggers = parseActionTriggers(stored)
+  return {
+    triggers,
+    unreadable: Array.isArray(stored) && stored.length > triggers.length,
+  }
+}
+
+function syncedSnapshot(action: TeamAction): TriggersSnapshot {
+  return {
+    actionId: action.id,
+    triggers: action.builtin ? [] : action.triggers,
+    updatedAt: action.updatedAt,
+  }
+}
+
+/** The section's ONE writer: writes run one after another, each built on
+ * `triggerWriteBase` as it stands when its turn comes. */
+function useTriggerWrites(action: TeamAction): {
+  /** What the rows show: the base the next write builds on. */
+  triggers: ActionTrigger[]
+  pending: boolean
+  write: WriteTriggers
+} {
+  const [last, setLast] = useState<TriggersSnapshot | null>(null)
+  const [pending, setPending] = useState(0)
+  const latest = useRef({ action, last })
+  latest.current.action = action
+  const queue = useRef<Promise<void>>(Promise.resolve())
+
+  const write = useCallback<WriteTriggers>((build, options) => {
+    const run = async () => {
+      const current = latest.current
+      const base = readTriggerBase(
+        triggerWriteBase(syncedSnapshot(current.action), current.last)
+      )
+      if (base.unreadable) {
+        if (!options?.quiet) toast.error(UNREADABLE_TRIGGER_MESSAGE)
+        throw new Error(UNREADABLE_TRIGGER_MESSAGE)
+      }
+      const actionId = current.action.id
+      const result = await trpc.actions.update.mutate(
+        { id: actionId, triggers: build(base.triggers) },
+        options?.quiet ? { context: { skipErrorToast: true } } : undefined
+      )
+      const written: TriggersSnapshot = {
+        actionId,
+        triggers: result.action.triggers,
+        updatedAt: result.action.updatedAt,
+      }
+      latest.current.last = written
+      setLast(written)
+      if (`txId` in result && result.txId !== undefined) {
+        await actionCollection.utils.awaitTxId(result.txId)
+      }
+    }
+    setPending((count) => count + 1)
+    const done = queue.current.then(run)
+    queue.current = done.catch(() => {})
+    return done.finally(() => setPending((count) => count - 1))
+  }, [])
+
+  const stored = triggerWriteBase(syncedSnapshot(action), last)
+  const triggers = useMemo(() => parseActionTriggers(stored), [stored])
+  return { triggers, pending: pending > 0, write }
 }
 
 // Owner-only ⋯ menu on a row. `onEdit` is absent when this build has no
@@ -89,6 +189,7 @@ function TriggerRow({
   isOwner,
   canEdit,
   blockedByInputs,
+  writing,
   onToggle,
   onEdit,
   onDelete,
@@ -99,6 +200,8 @@ function TriggerRow({
   /** Whether the editor this row opens is rendered at all. */
   canEdit: boolean
   blockedByInputs: boolean
+  /** A trigger write is in flight: the next one waits for it. */
+  writing: boolean
   onToggle: (enabled: boolean) => Promise<void>
   onEdit: () => void
   onDelete: () => void
@@ -179,7 +282,7 @@ function TriggerRow({
       >
         <Switch
           checked={trigger.enabled}
-          disabled={!isOwner || flipping || locked}
+          disabled={!isOwner || flipping || writing || locked}
           onCheckedChange={(enabled) => void flip(enabled)}
           aria-label={`Enabled: ${sentence}`}
           title={locked ? REQUIRED_INPUTS_HINT : undefined}
@@ -196,15 +299,12 @@ function TriggerRow({
 
 export function ActionTriggersSection({
   action,
-  triggers,
   devices,
   isOwner,
   steerEnabled,
   showHeader = true,
 }: {
   action: TeamAction
-  /** The action's readable triggers, in stored order. */
-  triggers: ActionTrigger[]
   devices: SteerDevice[]
   isOwner: boolean
   /** Same gate as the Actions list's "New action" button. */
@@ -221,14 +321,16 @@ export function ActionTriggersSection({
   const [editing, setEditing] = useState<ActionTrigger | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ActionTrigger | null>(null)
   const [deleting, setDeleting] = useState(false)
+  // The readable triggers, in stored order.
+  const { triggers, pending: writing, write } = useTriggerWrites(action)
 
   const confirmDelete = async () => {
     if (!deleteTarget) return
     setDeleting(true)
     try {
-      await writeActionTriggers(
-        action.id,
-        triggers.filter((trigger) => trigger.id !== deleteTarget.id)
+      const targetId = deleteTarget.id
+      await write((current) =>
+        current.filter((trigger) => trigger.id !== targetId)
       )
       setDeleteTarget(null)
     } catch {
@@ -272,10 +374,10 @@ export function ActionTriggersSection({
                 isOwner={isOwner}
                 canEdit={canEdit}
                 blockedByInputs={blockedByInputs}
+                writing={writing}
                 onToggle={(enabled) =>
-                  writeActionTriggers(
-                    action.id,
-                    triggers.map((existing) =>
+                  write((current) =>
+                    current.map((existing) =>
                       existing.id === trigger.id
                         ? { ...existing, enabled }
                         : existing
@@ -301,8 +403,7 @@ export function ActionTriggersSection({
             if (!next) setEditing(null)
           }}
           teamId={action.teamId}
-          actionId={action.id}
-          triggers={triggers}
+          write={write}
           devices={devices}
           trigger={editing}
         />

@@ -188,7 +188,12 @@ function afterTransition(body: HTMLElement, ms: number, done: () => void) {
   const timer = setTimeout(finish, ms + 50)
 }
 
+/** Bumped by every transform write, so a deferred clear can tell whether
+ *  the body moved on (a NEW drag) since it was scheduled. */
+const transformWrites = new WeakMap<HTMLElement, number>()
+
 function setTransform(body: HTMLElement, transform: string, ms: number) {
+  transformWrites.set(body, (transformWrites.get(body) ?? 0) + 1)
   body.style.transition = ms > 0 ? `transform ${ms}ms ease-out` : `none`
   body.style.transform = transform
 }
@@ -196,6 +201,16 @@ function setTransform(body: HTMLElement, transform: string, ms: number) {
 function clearTransform(body: HTMLElement) {
   body.style.transition = ``
   body.style.transform = ``
+}
+
+/** Settle the body once its transition to rest ends — unless something wrote
+ *  its transform in between: a drag that began meanwhile owns the body, and
+ *  clearing under it would snap the finger's offset back to 0. */
+function clearAfterTransition(body: HTMLElement, ms: number) {
+  const write = transformWrites.get(body)
+  afterTransition(body, ms, () => {
+    if (transformWrites.get(body) === write) clearTransform(body)
+  })
 }
 
 /** EXP-1152: what a face's ROOT spreads to page its body — the touch
@@ -267,13 +282,13 @@ export function useFaceSwipe(
     // Flush the start position before the transition takes over.
     void body.getBoundingClientRect()
     setTransform(body, `translateX(0px)`, FACE_ENTER_MS)
-    afterTransition(body, FACE_ENTER_MS, () => clearTransform(body))
+    clearAfterTransition(body, FACE_ENTER_MS)
   }, [face])
 
   const springBack = (body: HTMLElement | null) => {
     if (!body || !body.style.transform) return
     setTransform(body, `translateX(0px)`, FACE_ENTER_MS)
-    afterTransition(body, FACE_ENTER_MS, () => clearTransform(body))
+    clearAfterTransition(body, FACE_ENTER_MS)
   }
 
   const neighbour = (direction: SwipeDirection) =>

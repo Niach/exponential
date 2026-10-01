@@ -187,12 +187,7 @@ fn apply_start_pick(
     // the profile the doctor found signed in, so the rotation below judges a
     // login that exists (a hidden `system` has no usage row, and an unlisted
     // launch account is never moved).
-    options.account = crate::agent_profiles::launch_account(
-        &deps.data_dir,
-        options.agent,
-        options.account.take(),
-        Some(check),
-    );
+    resolve_launch_account(options, deps, check);
     let now_ms = chrono::Utc::now().timestamp_millis();
     // FEED-61: the runs already live on each login count against it, so
     // concurrent starts spread instead of sharing one 5h window.
@@ -202,14 +197,53 @@ fn apply_start_pick(
         now_ms,
     );
     let model = Some(options.model.as_str()).filter(|model| !model.is_empty());
+    // EXP-1107 (owner decision): the last used login is a pin too, so every
+    // resolved account rides as named.
     crate::account_rotation::apply_start_pick(
         &mut options.account,
+        true,
         &profiles,
         deps.settings.auto_rotate_accounts,
         options.agent,
         model,
         now_ms,
     )
+}
+
+/// EXP-1138 / EXP-1158 — settle `options.account` on the login the launch
+/// runs on ([`crate::agent_profiles::resolve_launch_account`]) and say
+/// whether the caller NAMED it. An unnamed launch's last used profile is
+/// judged by the doctor's account gate here, so a signed-out one is skipped
+/// rather than refused.
+fn resolve_launch_account(options: &mut LaunchOptions, deps: &CodingDeps, check: &ToolCheck) -> bool {
+    let agent = options.agent;
+    let resolved = crate::agent_profiles::resolve_launch_account(
+        &deps.data_dir,
+        agent,
+        options.account.take(),
+        Some(check),
+        |profile| profile_signed_out(deps, agent, check, profile),
+    );
+    options.account = resolved.account;
+    resolved.named
+}
+
+/// Whether the named `profile` of `agent` is PROVABLY signed out — the
+/// probe [`crate::doctor::DoctorReport::account_failure`] refuses on (an
+/// unreadable answer fails open, like the gate).
+fn profile_signed_out(deps: &CodingDeps, agent: CodingAgent, check: &ToolCheck, profile: &str) -> bool {
+    if check.signed_in_profile.as_deref() == Some(profile) {
+        return false;
+    }
+    let Some(dir) = crate::agent_profiles::profile_dir(&deps.data_dir, agent, profile) else {
+        return false;
+    };
+    crate::doctor::probe_profile_signed_in(
+        agent,
+        &deps.settings.resolved_path_for(agent),
+        &terminal::pty::login_path(),
+        &dir,
+    ) == Some(false)
 }
 
 fn note_start_pick(pick: Option<&crate::account_rotation::StartPick>) {
@@ -4314,12 +4348,7 @@ pub fn prepare_agent_shell(
     // EXP-1138: a shell on a removed ambient login opens on the device
     // default instead (the same rule a session launch takes).
     let report = run_doctor(&deps.settings, &deps.data_dir);
-    options.account = crate::agent_profiles::launch_account(
-        &deps.data_dir,
-        agent,
-        options.account.take(),
-        Some(report.check_for(agent)),
-    );
+    resolve_launch_account(&mut options, deps, report.check_for(agent));
     let options = &options;
 
     // Doctor — the picked agent AND git (a trunk clone is always involved),
@@ -8875,6 +8904,34 @@ mod tests {
         assert_eq!(
             prepared.heartbeat_scope.agent_account.as_deref(),
             Some(work.id.as_str())
+        );
+    }
+
+    /// EXP-1158: an UNNAMED launch whose LAST USED profile is signed out is
+    /// not refused on it — it lands on a login that is signed in. Naming that
+    /// profile is still refused by name.
+    #[cfg(unix)]
+    #[test]
+    fn an_unnamed_launch_skips_a_signed_out_last_used_profile() {
+        let dir = temp_dir("gate-last-used-signed-out");
+        let (base, _captured) = canned_server_recording(vec![(200, START_ACTION_OK.to_string())]);
+        let deps = auth_deps(&base, &dir.0);
+        let work = crate::agent_profiles::create(&dir.0, CodingAgent::Codex, "Work").unwrap();
+        let home = crate::agent_profiles::create(&dir.0, CodingAgent::Codex, "Home").unwrap();
+        crate::agent_profiles::note_last_used(&dir.0, CodingAgent::Codex, &work.id).unwrap();
+        crate::test_support::sign_in_profile(&dir.0, CodingAgent::Codex, &home.id);
+
+        match prepare(&PrepareRequest::Action(codex_action(Some(work.id.clone()))), &deps).unwrap() {
+            Prepared::Disabled(DisabledReason::DoctorFailed(_)) => {}
+            other => panic!("expected DoctorFailed, got {other:?}"),
+        }
+        let prepared = match prepare(&PrepareRequest::Action(codex_action(None)), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        assert_eq!(
+            prepared.heartbeat_scope.agent_account.as_deref(),
+            Some(home.id.as_str())
         );
     }
 

@@ -1,8 +1,5 @@
-- Munkaképernyő: az Issue, Futás, Változások és Eredmények lapozható fülek a fejlécben, mellettük a Merge, amíg a pull request nyitva van
-- Settings > Account: módosítsd az e-mail-címed egy kóddal, kapcsold össze vagy válaszd le a Google, Apple és OIDC bejelentkezéseket, és kezeld a jelkulcsokat
-- Egy halmozott pull request egyesítésekor az app megkérdezi, hogy a teljes stacket vagy csak ezt a pull requestet egyesítse
-- Eredmények: a futás jelentése a képernyőképei mellett jelenik meg, a hosszú képernyőképek görgethető nézetben nyílnak meg, és egy értesítés közvetlenül megnyithatja az Eredményeket
-- A Markdown mellékletek alkalmazáson belüli előnézetben nyílnak meg
-- Értesítések: mindenhol egységes, egymásra rakódó stílus, koppints a kibontáshoz, húzd el a bezáráshoz
-- Tidy up: beépített művelet a táblák rendbetételéhez, egységes ikonokkal a stackekhez, kötegekhez és workflow-khoz
-- A melléklettel létrehozott al-issue-k már nem hagynak maguk után piszkozatot
+- Műveletek: az automatizálások mostantól az általuk futtatott művelet triggerei, és minden művelet egy oldal a promptjával, triggereivel és futásaival
+- Munkanézet: lapozz az Issue, Run, Changes és Results között, a Changes pedig megmutatja a sorok számát, amint a fájlok ismertek
+- Runs: az API-hiba saját sorként jelenik meg az átiratban hamis használati korlát helyett
+- Fiókok: megszűnt az eszközönkénti alapértelmezett fiók, a futás a legutóbb használt bejelentkezéssel indul, hacsak nem választasz másikat
+- Stackek és kötegek: visszafogottabb jelvény a fejlécben, kisebb issue-chipek és a kapcsolódó munka kompakt gráfja

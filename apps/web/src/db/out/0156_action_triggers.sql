@@ -75,8 +75,11 @@ WHERE au.action_id = 'builtin:tidy-up'
   AND ac.name = 'Tidy up';--> statement-breakpoint
 -- 2. `automations` becomes a mirror of `actions.triggers`: drop what cannot
 --    be mirrored (an unreadable trigger, a target that no longer exists).
+--    A trigger object with NO `kind` key is unreadable too: `NULL NOT IN (…)`
+--    is NULL, never true, so it needs its own arm.
 DELETE FROM "automations" au
 WHERE jsonb_typeof(au.trigger) <> 'object'
+   OR au.trigger->>'kind' IS NULL
    OR au.trigger->>'kind' NOT IN ('schedule', 'event')
    OR NOT EXISTS (SELECT 1 FROM "actions" ac WHERE ac.id::text = au.action_id);--> statement-breakpoint
 -- 3. Each automation becomes one trigger, KEEPING its id (run attribution and

@@ -1,8 +1,5 @@
-- Arbeidsskjerm: Issue, Kjøring, Endringer og Resultater er faner i toppen du kan sveipe mellom, med Merge ved siden av mens pull requesten er åpen
-- Settings > Account: bytt e-postadresse med en kode, koble Google-, Apple- og OIDC-pålogginger til eller fra, og administrer passnøkler
-- Når du merger en stablet pull request, blir du spurt om hele stabelen eller bare denne pull requesten skal merges
-- Resultater: rapporten fra en kjøring vises ved siden av skjermbildene, lange skjermbilder åpnes i en rullbar visning, og et varsel kan åpne Resultater direkte
-- Markdown-vedlegg åpnes i en forhåndsvisning i appen
-- Varsler: én felles, stablet stil overalt, trykk for å utvide, sveip for å lukke
-- Tidy up: en innebygd handling for å rydde opp i tavler, med matchende ikoner for stabler, batcher og arbeidsflyter
-- Sub-issues opprettet med et vedlegg etterlater ikke lenger et utkast
+- Handlinger: automatiseringer er nå utløsere på handlingen de kjører, og hver handling er en side med sin prompt, sine utløsere og sine kjøringer
+- Arbeidsskjerm: sveip mellom Issue, Run, Changes og Results, og Changes viser antall linjer så snart filene er kjent
+- Runs: en API-feil vises som en egen rad i transkripsjonen i stedet for en falsk bruksgrense
+- Kontoer: standardkontoen per enhet er borte, en kjøring starter med påloggingen du brukte sist, med mindre du velger en annen
+- Stacks og batcher: et mer diskret merke i toppfeltet, mindre issue-brikker og en kompakt graf over relatert arbeid

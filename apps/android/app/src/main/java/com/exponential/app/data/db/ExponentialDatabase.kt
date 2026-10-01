@@ -364,6 +364,8 @@ import androidx.room.TypeConverters
     //      .automation_id stays (it names the TRIGGER that fired the run).
     //      Destructive fallback wipes + resyncs so every action row arrives
     //      carrying its triggers.
+    //      Same bump: the dead workflows.gate column (EXP-1010 relic, the
+    //      server dropped it in migration 0149) leaves the entity.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
     version = 78,

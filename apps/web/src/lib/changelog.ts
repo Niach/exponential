@@ -25,6 +25,20 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-01-release-train`,
+    date: `2026-10-01`,
+    title: `Triggers, accounts and connections, tightened`,
+    summary: `Fixes on top of today's changes: trigger switches that no longer undo each other, older apps that keep editing their automations, and steadier account picks, retries and desktop connections.`,
+    body: `- **Triggers**: two quick changes to an action's triggers no longer undo each other on web, desktop, iOS and Android, and an action that came out of the move with more than ten triggers stays editable.
+- **Older apps**: an app from before the triggers release still pauses, edits, creates and deletes automations, and its Set as default on an account answers instead of failing.
+- **Accounts**: a run started without an account skips a last used login that is signed out. A desktop app or CLI that had a default account keeps it as its last used login when it updates.
+- **API errors**: the automatic retry stops after three failed attempts, even when each attempt got a few words out first.
+- **Desktop connection**: slow requests no longer make the app rebuild its connection, apps do not all reconnect in the same second, and after wake the new connection is in place before sync restarts.
+- **Phone tabs**: on Android the keyboard closes when you change the tab, and on iOS Stop and Resume stay correct after swiping between Run and Changes.
+- **Desktop**: the list beside an open issue or run is wider and its edge can be dragged, the run dialog of an action fits its content, and the compaction bar is smaller.
+- **Stacks and batches**: one quiet badge in the header opens Related work with what blocks the issue, what shares its pull request and its stack. Closed rows are dimmed on desktop too.`,
+  },
+  {
     id: `2026-10-01-action-triggers`,
     date: `2026-10-01`,
     title: `Actions have triggers`,
@@ -35,7 +49,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Runs**: an action lists every run of it, the triggered ones marked. It replaces Recent automated runs.
 - **Tidy up**: a team that had scheduled Tidy up now owns it as an action with the same prompt, free to edit.
 - **MCP**: \`exponential_actions_update\` takes \`triggers\`. The \`exponential_automations_*\` tools are gone.
-- **Older apps**: desktop apps and CLI daemons from before this release keep firing their triggers, but only an updated app can edit them.`,
+- **Older apps**: apps from before this release keep firing their triggers and still pause, edit and delete them as automations.`,
   },
   {
     id: `2026-10-01-last-used-account`,

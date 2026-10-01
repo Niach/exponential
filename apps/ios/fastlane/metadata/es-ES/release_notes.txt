@@ -1,8 +1,5 @@
-- Pantalla de trabajo: Issue, Ejecución, Cambios y Resultados son pestañas deslizables en la cabecera, con Merge al lado mientras la pull request siga abierta
-- Settings > Account: cambia tu correo con un código, vincula o desvincula los inicios de sesión de Google, Apple y OIDC, y gestiona tus passkeys
-- Al fusionar una pull request apilada, la app pregunta si fusionar toda la pila o solo esa pull request
-- Resultados: el informe de una ejecución aparece junto a sus capturas, las capturas largas se abren en un visor con desplazamiento y una notificación puede abrir Resultados directamente
-- Los adjuntos Markdown se abren en una vista previa dentro de la app
-- Avisos: un único estilo apilado en toda la app, toca para ampliar y desliza para descartar
-- Tidy up: una acción integrada para ordenar tableros, con iconos a juego para pilas, lotes y flujos de trabajo
-- Las subissues creadas con un adjunto ya no dejan un borrador
+- Acciones: las automatizaciones ahora son disparadores de la acción que ejecutan, y cada acción es una página con su prompt, sus disparadores y sus ejecuciones
+- Pantalla de trabajo: desliza entre Issue, Run, Changes y Results, y Changes muestra el recuento de líneas en cuanto se conocen los archivos
+- Runs: un error de la API aparece como su propia fila en la transcripción en lugar de un falso límite de uso
+- Cuentas: desaparece la cuenta predeterminada por dispositivo, una ejecución empieza con el último inicio de sesión que usaste salvo que elijas otro
+- Stacks y lotes: una insignia más discreta en la cabecera, chips de issues más pequeños y un grafo compacto del trabajo relacionado

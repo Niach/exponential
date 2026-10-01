@@ -80,6 +80,8 @@ struct AgentSessionView: View {
     /// A cache of the SteerSessionStore lookup (EXP-621) — the model itself is
     /// app-scoped, so this view neither creates nor tears it down.
     @State private var model: AgentSessionModel?
+    /// This view's ONE claim on that model (`attach` / `detach` are counted).
+    @State private var claimed = false
     @State private var showKillConfirm = false
     /// EXP-688: the Usage sheet — the per-window cards that used to be a
     /// hairline strip under the nav bar. EXP-893: opened by the usage RING.
@@ -277,17 +279,23 @@ struct AgentSessionView: View {
                 // screen re-attaches to the SAME model, so the feed is already
                 // there, the composer still holds its draft, and there is no
                 // connect phase to sit through.
+                // EXP-1152: ONE claim per view — the pager can fire these
+                // unpaired, and the store's count must not drift with it.
+                guard !claimed else { return }
+                claimed = true
                 model = deps.attachSteerModel(accountId: accountId, session: session)
             }
             .onDisappear {
-                // NOT a teardown: the store keeps the socket up while the session
-                // runs and retires it once it is over (or falls off the cap).
-                deps.steerSessions.detach(accountId: accountId, sessionId: session.id)
                 // EXP-802: the DRAFT outlives this screen, its focus must not —
                 // the editor model would otherwise hand first responder straight
                 // back on return and pop the keyboard over a screen nobody typed
                 // into. (The text is untouched; only the caret's claim goes.)
                 model?.draftEditor.setFocused(nil)
+                guard claimed else { return }
+                claimed = false
+                // NOT a teardown: the store keeps the socket up while the session
+                // runs and retires it once it is over (or falls off the cap).
+                deps.steerSessions.detach(accountId: accountId, sessionId: session.id)
             }
     }
 

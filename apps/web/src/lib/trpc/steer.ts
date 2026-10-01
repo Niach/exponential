@@ -55,6 +55,7 @@ import {
   resolveStartAccount,
 } from "@/lib/steer-devices"
 import { SYSTEM_PROFILE_ID } from "@/lib/agent-usage"
+import { omitsSystemAccount } from "@/lib/trpc/legacy-clients"
 import { runIsStaleEnd } from "@/lib/past-runs"
 import { findLiveResumeId } from "@/lib/steer-child-messages"
 import { fireYoloTreeMerge } from "@/lib/sessions/yolo-tree-trigger"
@@ -894,6 +895,14 @@ export const steerRouter = router({
             message: `${agent} is installed on that device but not signed in — sign in on the machine first`,
           })
         }
+        // EXP-1158 compat shim: a native build from before this release
+        // OMITS `account` for the ambient "Default" login, which a current
+        // device would read as "last used" and spend another account on.
+        // Name it for them (new starts only: a resume never comes through
+        // here). Delete with lib/trpc/legacy-clients.ts, once
+        // CLIENT_MIN_VERSION_IOS > 0.14.49 and _ANDROID > 0.14.50 and
+        // _DESKTOP/_CLI > 0.14.58.
+        if (omitsSystemAccount(ctx.request)) return SYSTEM_PROFILE_ID
         return undefined
       }
 

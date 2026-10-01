@@ -419,7 +419,8 @@ impl StartPick {
 /// the composer's pick, the last used login, an automation's or a workflow
 /// decision's account — keeps it unless that login is WALLED (spent on a
 /// window the run would draw on); "less headroom" never overrides a person's
-/// choice. Only an unpinned launch (`None`) goes to the most headroom. The
+/// choice. Only an unpinned launch (`None`, or [`start_pick_from`] told so)
+/// goes to the most headroom. The
 /// ambient login rides as `None` on every path (`LaunchOptions::defaults`,
 /// `AccountOption::wire_account`), so an explicit pick of it is not told
 /// apart from no pick and reads as unpinned.
@@ -433,10 +434,24 @@ pub fn start_pick(
     account: Option<&str>,
     now_ms: i64,
 ) -> Option<StartPick> {
+    let pinned = !crate::agent_profiles::is_system(account);
+    start_pick_from(profiles, auto_rotate, agent, model, account, pinned, now_ms)
+}
+
+/// [`start_pick`] with the pin said outright: `pinned = false` starts from
+/// `account` but still goes to the most headroom.
+pub fn start_pick_from(
+    profiles: &[ProfileUsage],
+    auto_rotate: bool,
+    agent: CodingAgent,
+    model: Option<&str>,
+    account: Option<&str>,
+    pinned: bool,
+    now_ms: i64,
+) -> Option<StartPick> {
     if !auto_rotate || !rotates(agent) {
         return None;
     }
-    let pinned = !crate::agent_profiles::is_system(account);
     let from = crate::agent_profiles::profile_id(account);
     let mut ordered: Vec<&ProfileUsage> = profiles.iter().collect();
     ordered.sort_by_key(|profile| profile.profile_id != from);
@@ -477,16 +492,20 @@ pub fn start_pick(
 /// back what changed. The ONE call `coding::prepare` makes for every fresh
 /// issue, batch and action launch on the device. An account the launch
 /// named explicitly (a composer, device-default, automation or workflow
-/// pick) is kept unless it is walled (EXP-1107, see [`start_pick`]).
+/// pick) is kept unless it is walled (EXP-1107, see [`start_pick`]);
+/// `named = false` leaves it unpinned.
 pub fn apply_start_pick(
     account: &mut Option<String>,
+    named: bool,
     profiles: &[ProfileUsage],
     auto_rotate: bool,
     agent: CodingAgent,
     model: Option<&str>,
     now_ms: i64,
 ) -> Option<StartPick> {
-    let pick = start_pick(profiles, auto_rotate, agent, model, account.as_deref(), now_ms)?;
+    let pinned = named && !crate::agent_profiles::is_system(account.as_deref());
+    let pick =
+        start_pick_from(profiles, auto_rotate, agent, model, account.as_deref(), pinned, now_ms)?;
     *account = (!crate::agent_profiles::is_system(Some(&pick.to))).then(|| pick.to.clone());
     Some(pick)
 }
@@ -1314,7 +1333,7 @@ mod tests {
         // Applied: the ambient login becomes `None`, a profile its id.
         let mut account = Some("b".to_string());
         let back = vec![profile("b", 100, 10), profile("system", 5, 5)];
-        let pick = apply_start_pick(&mut account, &back, true, CodingAgent::Claude, None, NOW).unwrap();
+        let pick = apply_start_pick(&mut account, true, &back, true, CodingAgent::Claude, None, NOW).unwrap();
         assert_eq!(pick.to, "system");
         assert_eq!(account, None);
     }
@@ -1328,8 +1347,12 @@ mod tests {
         // Pinned, open, far less headroom: kept, nothing rewritten.
         assert_eq!(start_pick(&profiles, true, CodingAgent::Claude, None, Some("work"), NOW), None);
         let mut account = Some("work".to_string());
-        assert_eq!(apply_start_pick(&mut account, &profiles, true, CodingAgent::Claude, None, NOW), None);
+        assert_eq!(apply_start_pick(&mut account, true, &profiles, true, CodingAgent::Claude, None, NOW), None);
         assert_eq!(account.as_deref(), Some("work"));
+        // The SAME profile unpinned goes to the most headroom.
+        let pick = apply_start_pick(&mut account, false, &profiles, true, CodingAgent::Claude, None, NOW).unwrap();
+        assert_eq!(pick.to, "system");
+        assert_eq!(account, None);
         // Pinned and walled on the 5h window: moved, and said why.
         let walled = vec![profile("system", 5, 5), profile("work", 100, 10)];
         let pick = start_pick(&walled, true, CodingAgent::Claude, None, Some("work"), NOW).unwrap();

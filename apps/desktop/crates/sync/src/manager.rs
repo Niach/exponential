@@ -302,7 +302,9 @@ impl SyncManager {
         );
         // FEED-69: the pooled connection died with the lid; without this the
         // restarted polls (and tRPC) would be handed the same dead socket.
-        api::http::reset("wake from suspend");
+        // Blocking, so the swap is DONE before the first restarted poll takes
+        // its client (this runs on the watchdog thread, never the UI's).
+        api::http::reset_blocking("wake from suspend");
         for account_id in accounts {
             self.restart_account(&account_id);
         }

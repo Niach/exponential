@@ -14,7 +14,8 @@
 //!
 //! Every trigger write is ONE `actions.update({id, triggers})`, a whole-array
 //! replace ([`crate::trigger_editor`]'s write shapes) built off the action's
-//! CURRENT synced triggers.
+//! CURRENT triggers — the synced row's, or the last write's while its echo is
+//! still on the way. One write at a time: the rows' controls wait for it.
 //!
 //! EXP-832: `render` builds elements and NOTHING else — the joins (devices,
 //! pins, the run tree) happen once per data change in [`ActionView::refresh`].
@@ -65,6 +66,9 @@ pub struct ActionView {
     /// A refused trigger write (the server's own sentence), shown under the
     /// Triggers rows until the next write.
     trigger_error: Option<SharedString>,
+    /// A trigger write is in flight — the switches and the ⋯ menus wait, so
+    /// two whole-array writes never overlap.
+    trigger_writing: bool,
     _subscriptions: Vec<Subscription>,
     /// The Runs rows carry relative times and a liveness that expires, and a
     /// trigger's device dot follows the clock — the sessions lists' 5s tick.
@@ -244,6 +248,7 @@ impl ActionView {
             collapsed: HashSet::new(),
             derived: ActionDerived::default(),
             trigger_error: None,
+            trigger_writing: false,
             _subscriptions: subscriptions,
             _tick: crate::sessions_section::tick(cx, |this: &mut Self, cx| this.tick_refresh(cx)),
         };
@@ -333,6 +338,10 @@ impl ActionView {
         else {
             return;
         };
+        if self.trigger_writing {
+            return;
+        }
+        self.trigger_writing = true;
         self.trigger_error = None;
         cx.notify();
         let mut input = api::actions::ActionUpdate::new(action_id);
@@ -340,14 +349,20 @@ impl ActionView {
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { api::actions::update(&trpc, &input).map(|_| ()) })
+                .spawn(async move { api::actions::update(&trpc, &input) })
                 .await;
+            // The returned array is the next write's base until the synced
+            // row shows it — recorded even if the page is gone by now.
+            if let Ok(action) = &result {
+                trigger_editor::note_triggers_written(action);
+            }
             let _ = this.update(cx, |this, cx| {
+                this.trigger_writing = false;
                 if let Err(err) = result {
                     log::warn!("actions: writing the triggers failed: {err}");
                     this.trigger_error = Some(err.user_message().into());
-                    cx.notify();
                 }
+                cx.notify();
             });
         })
         .detach();
@@ -620,7 +635,8 @@ impl ActionView {
             .checked(trigger.enabled)
             // Owner-only per the permissions model: members SEE the state (a
             // disabled switch), owners flip it.
-            .disabled(!is_owner || locked)
+            // … and one write at a time: the next starts from this one's result.
+            .disabled(!is_owner || locked || self.trigger_writing)
             .on_click(cx.listener(move |this, on: &bool, _, cx| {
                 this.set_trigger_enabled(&toggle_id, *on, cx);
             }));
@@ -700,6 +716,7 @@ impl ActionView {
                     Icon::from(registry::UI_MORE),
                     cx,
                 )
+                .disabled(self.trigger_writing)
                 .dropdown_menu(move |menu, _window, cx| {
                     let (edit_action, edit_trigger) = (action_id.clone(), trigger_id.clone());
                     let delete_view = view.clone();

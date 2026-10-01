@@ -161,10 +161,11 @@ pub(crate) fn http_error(status: u16, body: &str) -> ApiError {
 /// / [`status_error_unauthed`], which the response path calls explicitly.
 ///
 /// FEED-69: the message carries the whole `source()` chain (the cause is what
-/// a log needs), and every failure feeds the shared client's dead-connection
-/// streak ([`crate::http::record_failure`]).
+/// a log needs), and every CONNECTION-level failure feeds the shared client's
+/// dead-connection streak ([`crate::http::record_request_error`]) — a plain
+/// request timeout does not.
 pub(crate) fn transport_error(err: reqwest::Error) -> ApiError {
-    crate::http::record_failure();
+    crate::http::record_request_error(&err);
     ApiError::Transport {
         message: crate::http::error_chain(&err),
         offline: is_offline_failure(err.is_connect(), err.is_timeout(), err.is_request()),

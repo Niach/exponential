@@ -274,10 +274,10 @@ struct ActionDetailView: View {
                         .padding(.bottom, 8)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                if action.triggers.isEmpty {
+                if vm.triggers.isEmpty {
                     emptyNote(TriggerCopy.empty)
                 } else {
-                    ForEach(action.triggers) { triggerRow($0, action: action, vm: vm) }
+                    ForEach(vm.triggers) { triggerRow($0, action: action, vm: vm) }
                 }
             }
             .padding()
@@ -295,7 +295,7 @@ struct ActionDetailView: View {
                 )
             },
             // The server caps an action's triggers; one write at a time.
-            enabled: action.triggers.count < DomainContract.actionTriggerMaxPerAction
+            enabled: vm.triggers.count < DomainContract.actionTriggerMaxPerAction
                 && vm.busyTriggerId == nil
         )
         .accessibilityLabel("Add trigger")

@@ -170,7 +170,8 @@ impl TriggerDialogView {
         };
         // The array a save replaces is the action's CURRENT one, read at
         // submit time — a teammate's edit synced while this dialog was open
-        // must ride along, not be overwritten by a stale snapshot.
+        // must ride along, not be overwritten by a stale snapshot (nor a
+        // write of our own whose echo is still on the way).
         let current = trigger_editor::action_triggers(&self.action_id, cx);
         let triggers = match &self.existing {
             Some(existing) => {
@@ -197,11 +198,15 @@ impl TriggerDialogView {
         cx.spawn_in(window, async move |this, window| {
             let result = window
                 .background_executor()
-                .spawn(async move { api::actions::update(&trpc, &input).map(|_| ()) })
+                .spawn(async move { api::actions::update(&trpc, &input) })
                 .await;
             let _ = this.update_in(window, |view, window, cx| match result {
-                // The synced echo repaints the Triggers rows — nothing to gate on.
-                Ok(()) => native_dialog::close_dialog_window(window, cx),
+                // The synced echo repaints the Triggers rows; until it lands
+                // the returned array is the next write's base.
+                Ok(action) => {
+                    trigger_editor::note_triggers_written(&action);
+                    native_dialog::close_dialog_window(window, cx)
+                }
                 Err(err) => {
                     view.submitting = false;
                     view.error = Some(err.user_message().into());

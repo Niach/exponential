@@ -16,6 +16,7 @@ import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.ActionTrigger
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.WireTimestamps
 import com.exponential.app.domain.actionTriggerWireJson
 import com.exponential.app.domain.stableDeviceOrder
 import com.exponential.app.domain.toSteerDevice
@@ -43,8 +44,9 @@ import kotlinx.serialization.json.JsonObject
 //
 // Triggers have ONE write: `actions.update({id, triggers})`, a WHOLE-ARRAY
 // replace built from the row's readable triggers. Electric echoes the row
-// back, so a success needs no local write. Nothing here RUNS a trigger — the
-// bound machine does, on its own clock.
+// back, so a success needs no local write — but until that echo lands the
+// mutation's own response is the newer truth ([triggerWriteBase]). Nothing
+// here RUNS a trigger — the bound machine does, on its own clock.
 
 data class ActionDetailState(
     /** The synced row; null while loading, or once the action is gone. */
@@ -77,9 +79,16 @@ class ActionDetailViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ActionDetailState())
 
+    // The last trigger write's response. The busy flag clears when tRPC
+    // returns, NOT when Electric echoes the row, so the synced row can still
+    // be the pre-write one: this stays the base of the next whole-array write
+    // (and of the rows shown) until the synced `updatedAt` catches up.
+    private val lastWritten = MutableStateFlow<ActionDto?>(null)
+
     /** The action's readable triggers, in stored order (the Triggers rows). */
-    val triggers: StateFlow<List<ActionTrigger>> = state
-        .map { it.action?.parsedTriggers.orEmpty() }
+    val triggers: StateFlow<List<ActionTrigger>> = combine(state, lastWritten) { current, written ->
+        current.action?.let { triggerWriteBase(it, written).parsedTriggers }.orEmpty()
+    }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
@@ -194,8 +203,9 @@ class ActionDetailViewModel @Inject constructor(
 
     // One write at a time, with the server's own refusal message surfaced
     // (its copy is the actionable one — required inputs, an incapable device,
-    // a rejected model). [build] turns the row's CURRENT readable triggers
-    // into the array that replaces them.
+    // a rejected model). [build] turns the CURRENT readable triggers (the
+    // synced row's, or the last write's while its echo is pending) into the
+    // array that replaces them.
     private fun writeTriggers(
         fallback: String,
         onDone: () -> Unit = {},
@@ -212,7 +222,9 @@ class ActionDetailViewModel @Inject constructor(
                 return@launch
             }
             try {
-                actionsApi.setTriggers(accountId, id = action.id, triggers = build(action.parsedTriggers))
+                val base = triggerWriteBase(action, lastWritten.value)
+                lastWritten.value =
+                    actionsApi.setTriggers(accountId, id = action.id, triggers = build(base.parsedTriggers))
                 onDone()
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
@@ -221,4 +233,19 @@ class ActionDetailViewModel @Inject constructor(
             _triggerBusy.value = false
         }
     }
+}
+
+/**
+ * The row a trigger write builds on: the [synced] one, unless [written] (the
+ * last write's response) is the same action and strictly newer — the Electric
+ * echo has not landed yet, so the synced array is the PRE-write one and a
+ * whole-array replace built from it would silently revert that write. An
+ * unreadable stamp on the response falls back to the synced row; one on the
+ * synced row keeps the response.
+ */
+internal fun triggerWriteBase(synced: ActionDto, written: ActionDto?): ActionDto {
+    if (written == null || written.id != synced.id) return synced
+    val writtenMs = WireTimestamps.parseEpochMs(written.updatedAt) ?: return synced
+    val syncedMs = WireTimestamps.parseEpochMs(synced.updatedAt) ?: return written
+    return if (syncedMs >= writtenMs) synced else written
 }

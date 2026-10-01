@@ -18,6 +18,11 @@ struct RunChangesFace: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.openURL) private var openURL
     @State private var model: AgentSessionModel?
+    /// This view holds ONE claim on the model. The pager can fire `onAppear` /
+    /// `onDisappear` unpaired, and the store's count must not drift with it
+    /// (a leaked claim keeps a finished run's socket, a lost one reaps a
+    /// model still shown).
+    @State private var claimed = false
     /// The phone's file list, off the Changes bar's leading slot, and the path
     /// it last picked.
     @State private var diffFileSheet = false
@@ -41,9 +46,13 @@ struct RunChangesFace: View {
             if diff == nil { selectedDiffPath = nil }
         }
         .onAppear {
+            guard !claimed else { return }
+            claimed = true
             model = deps.attachSteerModel(accountId: accountId, session: session)
         }
         .onDisappear {
+            guard claimed else { return }
+            claimed = false
             deps.steerSessions.detach(accountId: accountId, sessionId: session.id)
         }
     }
