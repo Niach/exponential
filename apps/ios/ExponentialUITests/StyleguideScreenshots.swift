@@ -268,22 +268,40 @@ final class StyleguideScreenshots: XCTestCase {
         // only — the demo user owns the team). The sheet rows carry the
         // property name inside the row BUTTON's merged label, so match on a
         // contained fragment rather than an exact staticText.
-        let propertiesButton = app.buttons["issue-properties-button"]
-        XCTAssertTrue(propertiesButton.waitForExistence(timeout: 20), "Properties button missing on the issue detail")
-        propertiesButton.tap()
-        let propertiesHeadline = app.staticTexts["Properties"]
-        XCTAssertTrue(propertiesHeadline.waitForExistence(timeout: 15), "Properties sheet did not open")
-        XCTAssertTrue(
-            anyElement(app, containing: "Priority").waitForExistence(timeout: 15),
-            "Properties sheet never showed its property rows"
-        )
-        snapshot("sg_issue-properties", settle: 2)
-        // EXP-687: no sheet has a close button any more. Let the sheet finish
-        // animating out before the nav-bar back tap, or that tap lands on the
-        // dismissing sheet.
-        dismissSheet(app, whileVisible: propertiesHeadline)
-        _ = propertiesHeadline.waitForNonExistence(timeout: 10)
-        settle(1)
+        //
+        // A self-contained DETOUR: it opens a sheet and closes it again, and
+        // no later shot depends on it. So unlike the rest of the walk it is
+        // skipped whole when a `shots:` run did not ask for it — a broken
+        // properties sheet must not cost a scoped run its unrelated shots.
+        // `isWanted` still records the id as reached for the typo check.
+        if ScreenshotShots.isWanted("sg_issue-properties") {
+            let propertiesButton = app.buttons["issue-properties-button"]
+            XCTAssertTrue(propertiesButton.waitForExistence(timeout: 20), "Properties button missing on the issue detail")
+            let propertiesHeadline = app.staticTexts["Properties"]
+            // EXP-1152 made the faces pages of a paged scroll view, and the
+            // FIRST touch after the two flings above is swallowed by it (it
+            // only arrests the feed — measured: tap one does nothing even
+            // after a 2 s settle, tap two opens the sheet). Tap until the
+            // sheet is there; a tap on the open sheet is never sent, because
+            // the loop stops as soon as the headline exists.
+            var propertiesOpen = false
+            for _ in 0..<3 where !propertiesOpen {
+                propertiesButton.tap()
+                propertiesOpen = propertiesHeadline.waitForExistence(timeout: 6)
+            }
+            XCTAssertTrue(propertiesOpen, "Properties sheet did not open")
+            XCTAssertTrue(
+                anyElement(app, containing: "Priority").waitForExistence(timeout: 15),
+                "Properties sheet never showed its property rows"
+            )
+            snapshot("sg_issue-properties", settle: 2)
+            // EXP-687: no sheet has a close button any more. Let the sheet
+            // finish animating out before the nav-bar back tap, or that tap
+            // lands on the dismissing sheet.
+            dismissSheet(app, whileVisible: propertiesHeadline)
+            _ = propertiesHeadline.waitForNonExistence(timeout: 10)
+            settle(1)
+        }
         goBack(app)
 
         // ── sg_issue-create: the new-issue page ─────────────────────────────

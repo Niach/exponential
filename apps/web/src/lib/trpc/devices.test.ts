@@ -2081,6 +2081,52 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
     expect(h.state.inserted).toHaveLength(0)
   })
 
+  // EXP-849 / EXP-1158 compat shim: "Set as default" left the product, but
+  // iOS <= 0.14.49, Android <= 0.14.50 and desktop <= 0.14.58 still send
+  // `agent_profile_use` and must not get a raw zod enum error. Same payload
+  // as a refresh, gated on BOTH `agent-login` and `account-switch`. Delete
+  // with the shim (CLIENT_MIN_VERSION_IOS > 0.14.49, _ANDROID > 0.14.50,
+  // _DESKTOP/_CLI > 0.14.58).
+  it(`still queues an old client's agent_profile_use with the agent and the profile id`, async () => {
+    h.state.selectQueue = [...capableProbe(), []]
+    h.state.insertReturning = [[{ id: `cmd-9` }]]
+    const result = await caller.createCommand({
+      deviceId: `dev-1`,
+      kind: `agent_profile_use`,
+      agent: `claude`,
+      profileId: `work`,
+    })
+    expect(result).toEqual({ id: `cmd-9` })
+    expect(h.state.inserted[0]).toMatchObject({
+      deviceRowId: `row-1`,
+      kind: `agent_profile_use`,
+      payload: { agent: `claude`, profileId: `work` },
+    })
+  })
+
+  it(`refuses agent_profile_use without an agent, a profile or the cap`, async () => {
+    h.state.selectQueue = capableProbe()
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_profile_use`,
+        agent: `claude`,
+      })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    for (const caps of [[], [`agent-login`], [`account-switch`]]) {
+      h.state.selectQueue = [[{ id: `row-1`, caps }]]
+      await expect(
+        caller.createCommand({
+          deviceId: `dev-1`,
+          kind: `agent_profile_use`,
+          agent: `claude`,
+          profileId: `work`,
+        })
+      ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
+    }
+    expect(h.state.inserted).toHaveLength(0)
+  })
+
   // EXP-862: "Remove account" — the machine deletes its own copy of a login.
   // Same payload again, gated on `agent-login` + `account-remove`, refused for
   // the ambient login and for a profile the machine never reported.
@@ -2298,6 +2344,7 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
   it(`reuses the pending row for an idempotent kind`, async () => {
     for (const kind of [
       `agent_usage_refresh`,
+      `agent_profile_use`,
       `agent_profile_remove`,
       `agent_profile_sign_out`,
     ] as const) {

@@ -38,8 +38,8 @@
 //!   [`MIN_LIVE_REPOLL`] guards the loop against a *misbehaving* server that
 //!   answers live polls instantly: an idle live response never re-polls in
 //!   under 1s.
-//! * **Backoff** (§5.3): 500ms base, exponential, cap 30s, reset on the first
-//!   success. Back off only on transport/5xx errors — never on `up-to-date`
+//! * **Backoff** (§5.3): 500ms base, exponential, cap 30s, ±30% jitter per
+//!   sleep, reset on the first success. Back off only on transport/5xx errors — never on `up-to-date`
 //!   (that's the normal steady state).
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -208,8 +208,9 @@ impl ShapeTransport for HttpTransport {
             Ok(response) => response,
             Err(e) => {
                 // FEED-69: the cause chain, not just "error sending request",
-                // and one more strike against the pooled connection.
-                api::http::record_failure();
+                // and one more strike against the pooled connection when the
+                // failure is the connection's (a plain timeout is not).
+                api::http::record_request_error(&e);
                 return Err(TransportError(api::http::error_chain(&e)));
             }
         };
@@ -444,7 +445,7 @@ impl ShapeClient {
                         self.cfg.spec.name,
                         since.elapsed()
                     );
-                    sleep_with_stop(stop, backoff);
+                    sleep_with_stop(stop, api::http::jittered(backoff));
                     backoff = (backoff * 2).min(BACKOFF_CAP);
                 }
                 Err(ShapeError::UpgradeRequired) => {
@@ -462,7 +463,9 @@ impl ShapeClient {
                     );
                     self.emit_poll_failed(&err);
                     unauthorized_since = None; // a non-401 outcome breaks the streak
-                    sleep_with_stop(stop, backoff);
+                    // Jittered: every shape thread of every client fails in
+                    // the same instant on a deploy, and must not come back so.
+                    sleep_with_stop(stop, api::http::jittered(backoff));
                     backoff = (backoff * 2).min(BACKOFF_CAP); // cap 30s (§5.3)
                 }
             }

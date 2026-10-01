@@ -496,6 +496,11 @@ pub const RATE_LIMIT_LEGACY_PREFIXES: [&str; 2] =
 /// from API …`, `API Error: 400 …`), for a frame without `error`.
 pub const API_ERROR_PREFIX: &str = "API Error";
 
+/// The client-side filler claude writes for a turn with nothing to answer
+/// (measured). The ONLY synthetic text that is dropped: an unknown notice
+/// stays a narration, so a future CLI message is never silently swallowed.
+pub const FILLER_TEXT: &str = "No response requested.";
+
 /// The frame-level `error` claude stamps on EVERY real usage wall (session,
 /// model and credit limits, measured on CLI 2.1.282).
 pub const ERROR_RATE_LIMIT: &str = "rate_limit";
@@ -555,7 +560,12 @@ pub fn classify_assistant_notice<'a>(
     if error.is_some() || is_api_error || text.starts_with(API_ERROR_PREFIX) {
         return AssistantNotice::ApiError { error_type: error };
     }
-    AssistantNotice::Filler
+    // Only the KNOWN filler (or a frame with no text at all) is dropped; any
+    // other synthetic text is a notice this side has not met: ordinary prose.
+    if text.is_empty() || text.trim_end() == FILLER_TEXT {
+        return AssistantNotice::Filler;
+    }
+    AssistantNotice::None
 }
 
 /// Whether a turn's `result` repeats a usage wall: the primary prefix
@@ -1843,6 +1853,9 @@ mod tests {
             (s, Some("authentication_failed"), true, "Failed to authenticate: OAuth session expired", N::Auth),
             (s, None, false, "Not logged in · Please run /login", N::Auth),
             (s, None, false, "No response requested.", N::Filler),
+            (s, None, false, "", N::Filler),
+            // A synthetic notice nobody taught this side: shown, not dropped.
+            (s, None, false, "Claude Code was updated. Restart to apply.", N::None),
         ];
         for (model, error, flag, text, expected) in cases {
             assert_eq!(

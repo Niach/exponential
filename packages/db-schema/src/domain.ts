@@ -886,23 +886,23 @@ const scheduleTriggerShape = {
   dayOfMonth: z.number().int().min(1).max(28).optional(),
 }
 
+const eventFilterShape = {
+  boardIds: triggerIdArraySchema.optional(),
+  labelIds: triggerIdArraySchema.optional(),
+  priorities: z
+    .array(z.enum(issuePriorityValues))
+    .min(1)
+    .max(MAX_TRIGGER_FILTER_IDS)
+    .optional(),
+  toStatusIds: triggerIdArraySchema.optional(),
+}
+
 const eventTriggerShape = {
   kind: z.literal(`event`),
   // Optional on the wire (an agent may omit it), always stored.
   source: z.enum(actionTriggerSourceValues).default(`exponential`),
   event: z.enum(actionTriggerEventValues),
-  filters: z
-    .strictObject({
-      boardIds: triggerIdArraySchema.optional(),
-      labelIds: triggerIdArraySchema.optional(),
-      priorities: z
-        .array(z.enum(issuePriorityValues))
-        .min(1)
-        .max(MAX_TRIGGER_FILTER_IDS)
-        .optional(),
-      toStatusIds: triggerIdArraySchema.optional(),
-    })
-    .optional(),
+  filters: z.strictObject(eventFilterShape).optional(),
 }
 
 function refineSchedule(
@@ -950,10 +950,13 @@ export const actionTriggerSchema = z.discriminatedUnion(`kind`, [
 ])
 export type ActionTriggerInput = z.infer<typeof actionTriggerSchema>
 
-/** The whole array an action update replaces its triggers with. */
+/** The whole array an action update replaces its triggers with. The
+ * `MAX_ACTION_TRIGGERS` cap is NOT applied here: it bounds GROWTH only
+ * (`assertTriggerGrowth`, lib/action-trigger-rules.ts), because the SLOP-2
+ * migration folded an unbounded number of automations into one action and an
+ * over-cap action must still take a pause or a removal. */
 export const actionTriggersSchema = z
   .array(actionTriggerSchema)
-  .max(MAX_ACTION_TRIGGERS)
   .superRefine((triggers, ctx) => {
     const seen = new Set<string>()
     for (const trigger of triggers) {
@@ -967,6 +970,27 @@ export const actionTriggersSchema = z
       seen.add(trigger.id)
     }
   })
+
+/**
+ * SLOP-2 compat shim: the WHEN-part alone, as clients from before the merge
+ * still write it through the `automations.*` adapter router
+ * (apps/web/src/lib/trpc/automations.ts). Strip mode on purpose (an unknown
+ * key from an old build is dropped, never refused). Delete with that router,
+ * once CLIENT_MIN_VERSION_IOS > 0.14.49 and _ANDROID > 0.14.50 and
+ * _DESKTOP/_CLI > 0.14.58.
+ */
+export const legacyAutomationTriggerSchema = z.discriminatedUnion(`kind`, [
+  z.object(scheduleTriggerShape).superRefine(refineSchedule),
+  z
+    .object({
+      ...eventTriggerShape,
+      filters: z.object(eventFilterShape).optional(),
+    })
+    .superRefine(refineEvent),
+])
+export type LegacyAutomationTriggerInput = z.infer<
+  typeof legacyAutomationTriggerSchema
+>
 
 /** The when-part of a stored trigger: what the legacy mirror row keeps. */
 export function triggerWhenPart(trigger: ActionTrigger): AutomationTrigger {

@@ -1,8 +1,5 @@
-- Arbetsvy: Issue, Körning, Ändringar och Resultat är svepbara flikar i sidhuvudet, med Merge bredvid så länge pull requesten är öppen
-- Settings > Account: byt e-postadress med en kod, koppla eller koppla bort inloggningar med Google, Apple och OIDC, och hantera passkeys
-- När du slår ihop en staplad pull request får du välja om hela stapeln eller bara den här pull requesten ska slås ihop
-- Resultat: en körnings rapport visas bredvid dess skärmbilder, långa skärmbilder öppnas i en rullbar vy och en avisering kan öppna Resultat direkt
-- Markdown-bilagor öppnas i en förhandsvisning i appen
-- Aviseringar: en enhetlig staplad stil överallt, tryck för att fälla ut, svep för att stänga
-- Tidy up: en inbyggd åtgärd för att städa tavlor, med matchande ikoner för staplar, batcher och arbetsflöden
-- Sub-issues som skapas med en bilaga lämnar inte längre kvar ett utkast
+- Åtgärder: automatiseringar är nu utlösare på åtgärden de kör, och varje åtgärd är en sida med sin prompt, sina utlösare och sina körningar
+- Arbetsvy: svep mellan Issue, Run, Changes och Results, och Changes visar antal rader så snart filerna är kända
+- Runs: ett API-fel visas som en egen rad i transkriptet i stället för en falsk användningsgräns
+- Konton: standardkontot per enhet är borta, en körning startar med inloggningen du använde senast om du inte väljer en annan
+- Stackar och batcher: en diskretare bricka i sidhuvudet, mindre issue-chips och en kompakt graf över relaterat arbete

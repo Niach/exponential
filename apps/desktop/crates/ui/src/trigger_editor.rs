@@ -333,19 +333,88 @@ pub(crate) fn triggers_without(existing: &[ActionTrigger], id: &str) -> Vec<Valu
         .collect()
 }
 
-/// A synced action's readable triggers, in stored order — what every write
-/// above starts from. Empty when the row is not synced.
+/// The triggers the last `actions.update` RETURNED, per action, kept until
+/// the synced row has caught up. Every write replaces the WHOLE array, so a
+/// second write built off a row the Electric echo has not reached yet would
+/// carry the first one's change undone (switch A off, then B off → A back on).
+static WRITTEN_TRIGGERS: std::sync::Mutex<Option<std::collections::HashMap<String, WrittenTriggers>>> =
+    std::sync::Mutex::new(None);
+
+#[derive(Clone)]
+struct WrittenTriggers {
+    triggers: Vec<Value>,
+    /// The written row's `updated_at` — the synced row replaces this base
+    /// once its own is at least as new.
+    updated_at: Option<String>,
+}
+
+/// Record what a successful `actions.update({triggers})` returned — the base
+/// of the next write until the synced row shows it ([`action_triggers`]).
+pub(crate) fn note_triggers_written(action: &api::actions::Action) {
+    let mut written = WRITTEN_TRIGGERS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    written.get_or_insert_with(Default::default).insert(
+        action.id.clone(),
+        WrittenTriggers {
+            triggers: action.triggers.clone(),
+            updated_at: action.updated_at.clone(),
+        },
+    );
+}
+
+/// Whether the synced row (`synced`) already shows the write stamped
+/// `written`. Electric forwards microseconds, tRPC echoes milliseconds, so
+/// the row of the SAME write compares at-least-as-new. An unreadable stamp
+/// on either side reads as caught up — the synced row stays the authority.
+fn synced_caught_up(synced: Option<&str>, written: Option<&str>) -> bool {
+    match (
+        synced.and_then(crate::inbox::parse_timestamp),
+        written.and_then(crate::inbox::parse_timestamp),
+    ) {
+        (Some(synced), Some(written)) => synced >= written,
+        _ => true,
+    }
+}
+
+/// The array the next write starts from: the last write's returned triggers
+/// while the synced row lags behind it, else the synced row's own.
+fn write_base(
+    synced_updated_at: Option<&str>,
+    written: Option<&WrittenTriggers>,
+) -> Option<Vec<ActionTrigger>> {
+    let written = written
+        .filter(|written| !synced_caught_up(synced_updated_at, written.updated_at.as_deref()))?;
+    Some(
+        written
+            .triggers
+            .iter()
+            .filter_map(coding::automations::parse_action_trigger)
+            .collect(),
+    )
+}
+
+/// An action's readable triggers, in stored order — what every write above
+/// starts from: the synced row's, or the last write's while its echo is
+/// still on the way. Empty when the row is not synced.
 pub(crate) fn action_triggers(action_id: &str, cx: &App) -> Vec<ActionTrigger> {
-    sync::Store::try_global(cx)
-        .and_then(|store| {
-            store
-                .collections()
-                .actions
-                .read(cx)
-                .get(action_id)
-                .map(|row| parse_action_triggers(row.triggers.as_ref()))
-        })
-        .unwrap_or_default()
+    let Some(store) = sync::Store::try_global(cx) else {
+        return Vec::new();
+    };
+    let actions = store.collections().actions.read(cx);
+    let Some(row) = actions.get(action_id) else {
+        return Vec::new();
+    };
+    let mut written = WRITTEN_TRIGGERS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let pending = written.as_ref().and_then(|written| written.get(action_id));
+    match write_base(row.updated_at.as_deref(), pending) {
+        Some(base) => base,
+        None => {
+            // Caught up (or never written): the base has served its purpose.
+            if let Some(written) = written.as_mut() {
+                written.remove(action_id);
+            }
+            parse_action_triggers(row.triggers.as_ref())
+        }
+    }
 }
 
 /// What an action row's trigger glyphs draw (web `triggerBadges`): each kind
@@ -1471,6 +1540,34 @@ pub(crate) fn trigger_devices(cx: &App) -> Vec<DeviceOption> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// SLOP-2: a second whole-array write before the Electric echo must
+    /// start from what the FIRST write returned — else switching A off and
+    /// then B off sends A enabled again.
+    #[test]
+    fn the_next_write_starts_from_the_last_write_until_the_synced_row_catches_up() {
+        let element = |id: &str, enabled: bool| {
+            json!({"id": id, "deviceId": "d-1", "enabled": enabled,
+                   "kind": "schedule", "interval": "daily", "minuteOfDay": 540})
+        };
+        // The synced row still reads [a on, b on].
+        let written = WrittenTriggers {
+            triggers: vec![element("a", false), element("b", true)],
+            updated_at: Some("2026-10-01T10:00:00.123Z".to_string()),
+        };
+        // The echo has not landed: the written array is the base, so B's
+        // toggle keeps A off.
+        let base = write_base(Some("2026-10-01 09:00:00.5+00"), Some(&written))
+            .expect("the synced row lags");
+        let next = triggers_with_enabled(&base, "b", false);
+        assert_eq!(next, vec![element("a", false), element("b", false)]);
+        // The same write's row (microseconds) — or a later one — is caught up.
+        assert!(write_base(Some("2026-10-01 10:00:00.123456+00"), Some(&written)).is_none());
+        assert!(write_base(Some("2026-10-01 11:00:00+00"), Some(&written)).is_none());
+        // Nothing written, or a stamp nobody can read: the synced row rules.
+        assert!(write_base(Some("2026-10-01 09:00:00+00"), None).is_none());
+        assert!(write_base(None, Some(&written)).is_none());
+    }
 
     /// EXP-721: the agent strip is a radio — the ladder must always name a
     /// segment. The "no device bound yet" state (the `devices`

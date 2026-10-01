@@ -1211,6 +1211,72 @@ describe(`steer.startSession — account fallback (EXP-1138)`, () => {
   })
 })
 
+// ── EXP-1158 compat shim: old natives omit `account` for the ambient login ───
+// Delete with lib/trpc/legacy-clients.ts (CLIENT_MIN_VERSION_IOS > 0.14.49,
+// _ANDROID > 0.14.50, _DESKTOP/_CLI > 0.14.58).
+
+describe(`steer.startSession — old native clients name no ambient login (EXP-1158 shim)`, () => {
+  const callerFor = (clientVersion?: string) =>
+    steerRouter.createCaller({
+      session: { user: { id: `actor`, name: `Actor`, email: `a@example.com` } },
+      db: ctxDb,
+      request: new Request(`http://localhost/`, {
+        headers: clientVersion ? { "x-client-version": clientVersion } : {},
+      }),
+    } as never)
+  const start = { issueId: ISSUE_A, deviceId: `dev-1`, agent: `claude` } as const
+
+  it(`sends system for an absent account from a build before this release`, async () => {
+    for (const version of [
+      `ios/0.14.45`,
+      `ios/0.14.49`,
+      `android/0.14.50`,
+      `desktop/0.14.58`,
+      `cli/0.14.58-staging`,
+    ]) {
+      queueOwnDevice()
+      await callerFor(version).startSession(start)
+      expect(lastStartBody(), version).toMatchObject({ account: `system` })
+    }
+  })
+
+  it(`leaves the account absent for this release's builds, the web app and unreadable headers`, async () => {
+    for (const version of [
+      `ios/0.14.50`,
+      `android/0.14.51`,
+      `desktop/0.14.59`,
+      `cli/0.15.0`,
+      undefined,
+      `ios/next`,
+      `watch/0.1.0`,
+    ]) {
+      queueOwnDevice()
+      await callerFor(version).startSession(start)
+      expect(lastStartBody().account, String(version)).toBeUndefined()
+    }
+  })
+
+  it(`keeps an old client's own pick and the signed-out fallback`, async () => {
+    queueOwnDevice()
+    await callerFor(`ios/0.14.45`).startSession({ ...start, account: `work` })
+    expect(lastStartBody()).toMatchObject({ account: `work` })
+
+    queueOwnDevice({
+      agentAccounts: {
+        claude: {
+          signedIn: false,
+          profiles: [
+            { id: `system`, signedIn: false, active: true },
+            { id: `work`, signedIn: true },
+          ],
+        },
+      },
+    })
+    await callerFor(`ios/0.14.45`).startSession(start)
+    expect(lastStartBody()).toMatchObject({ account: `work` })
+  })
+})
+
 // ── The hidden chat builtin (EXP-615) ────────────────────────────────────────
 
 const CHAT_ID = `builtin:chat`

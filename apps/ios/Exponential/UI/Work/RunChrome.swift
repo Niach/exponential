@@ -33,8 +33,12 @@ struct RunChrome: Equatable {
 
     struct Key: PreferenceKey {
         static let defaultValue = RunChrome()
+        /// EXP-1152: ONE view reports, but the pager keeps sibling pages
+        /// alive beside it, and a sibling's DEFAULT must not land last and
+        /// wipe the report — a real value wins in either order.
         static func reduce(value: inout RunChrome, nextValue: () -> RunChrome) {
-            value = nextValue()
+            let next = nextValue()
+            if next != defaultValue { value = next }
         }
     }
 }

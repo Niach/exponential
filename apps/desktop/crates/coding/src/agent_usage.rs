@@ -1385,6 +1385,11 @@ pub fn sign_out_profile(
             agent.label()
         ));
     }
+    // EXP-1158: a signed-out login is no longer the last used one — an
+    // unnamed launch must not be bound for it. Best effort.
+    if let Err(err) = crate::agent_profiles::forget_last_used(data_dir, agent, &profile) {
+        log::warn!("coding: last used login not cleared after the sign-out ({profile}): {err}");
+    }
     Ok((collect_if_due(data_dir, settings, &report, now), report))
 }
 

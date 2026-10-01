@@ -1,8 +1,5 @@
-- Pracovná obrazovka: Issue, Beh, Zmeny a Výsledky sú karty v hlavičke, medzi ktorými sa dá prechádzať potiahnutím, a vedľa nich je Merge, kým je pull request otvorený
-- Settings > Account: zmeňte e-mail pomocou kódu, prepojte alebo odpojte prihlásenie cez Google, Apple a OIDC a spravujte prístupové kľúče
-- Pri zlučovaní pull requestu zo stacku sa aplikácia opýta, či zlúčiť celý stack, alebo len tento pull request
-- Výsledky: správa z behu je vedľa jeho snímok obrazovky, dlhé snímky sa otvárajú v posúvateľnom prehliadači a upozornenie môže Výsledky otvoriť priamo
-- Prílohy Markdown sa otvárajú v náhľade priamo v aplikácii
-- Upozornenia: jeden jednotný, skladaný štýl všade, ťuknutím rozbalíte, potiahnutím zavriete
-- Tidy up: vstavaná akcia na upratanie nástenok, s ladiacimi ikonami pre stacky, dávky a workflow
-- Sub-issues vytvorené s prílohou už nezanechávajú koncept
+- Akcie: automatizácie sú teraz spúšťače na akcii, ktorú spúšťajú, a každá akcia má vlastnú stránku s promptom, spúšťačmi a behmi
+- Pracovná obrazovka: potiahnutím prechádzajte medzi Issue, Run, Changes a Results, Changes zobrazí počty riadkov, hneď ako sú súbory známe
+- Runs: chyba API sa v prepise zobrazí ako samostatný riadok namiesto falošného limitu využitia
+- Účty: predvolený účet pre zariadenie je preč, beh sa spustí s naposledy použitým prihlásením, ak nevyberiete iné
+- Stacky a dávky: nenápadnejší odznak v hlavičke, menšie čipy issues a kompaktný graf súvisiacej práce

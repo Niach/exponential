@@ -46,6 +46,23 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-01-release-train",
+    date: "2026-10-01",
+    title: "Triggers, accounts and connections, tightened",
+    summary: "Fixes on top of today's changes: trigger switches that no longer undo each other, older apps that keep editing their automations, and steadier account picks, retries and desktop connections.",
+    body: r#"- **Triggers**: two quick changes to an action's triggers no longer undo each other on web, desktop, iOS and Android, and an action that came out of the move with more than ten triggers stays editable.
+- **Older apps**: an app from before the triggers release still pauses, edits, creates and deletes automations, and its Set as default on an account answers instead of failing.
+- **Accounts**: a run started without an account skips a last used login that is signed out. A desktop app or CLI that had a default account keeps it as its last used login when it updates.
+- **API errors**: the automatic retry stops after three failed attempts, even when each attempt got a few words out first.
+- **Desktop connection**: slow requests no longer make the app rebuild its connection, apps do not all reconnect in the same second, and after wake the new connection is in place before sync restarts.
+- **Phone tabs**: on Android the keyboard closes when you change the tab, and on iOS Stop and Resume stay correct after swiping between Run and Changes, the issue page runs to the screen edge again and Properties opens on the first tap.
+- **Desktop**: the list beside an open issue or run is wider and its edge can be dragged, the run dialog of an action fits its content, and the compaction bar is smaller.
+- **Stacks and batches**: one quiet badge in the header opens Related work with what blocks the issue, what shares its pull request and its stack. Closed rows are dimmed on desktop too."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-10-01-action-triggers",
     date: "2026-10-01",
     title: "Actions have triggers",
@@ -56,12 +73,12 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Runs**: an action lists every run of it, the triggered ones marked. It replaces Recent automated runs.
 - **Tidy up**: a team that had scheduled Tidy up now owns it as an action with the same prompt, free to edit.
 - **MCP**: `exponential_actions_update` takes `triggers`. The `exponential_automations_*` tools are gone.
-- **Older apps**: desktop apps and CLI daemons from before this release keep firing their triggers, but only an updated app can edit them."#,
+- **Older apps**: apps from before this release keep firing their triggers and still pause, edit and delete them as automations."#,
 };
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_1: ChangelogEntry = ChangelogEntry {
     id: "2026-10-01-last-used-account",
     date: "2026-10-01",
     title: "Last used account",
@@ -73,7 +90,7 @@ const PREVIOUS: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_1: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
     id: "2026-10-01-runs-recover",
     date: "2026-10-01",
     title: "Runs recover from API errors and dead connections",
@@ -86,7 +103,7 @@ const PREVIOUS_1: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_3: ChangelogEntry = ChangelogEntry {
     id: "2026-09-30-phone-face-pager",
     date: "2026-09-30",
     title: "Phone tabs follow your finger",
@@ -98,7 +115,7 @@ const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_3: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_4: ChangelogEntry = ChangelogEntry {
     id: "2026-09-30-api-errors",
     date: "2026-09-30",
     title: "API errors are not rate limits",
@@ -109,7 +126,7 @@ const PREVIOUS_3: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_4: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_5: ChangelogEntry = ChangelogEntry {
     id: "2026-09-30-release-train",
     date: "2026-09-30",
     title: "Release train 2026-09-30",
@@ -126,7 +143,7 @@ const PREVIOUS_4: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_5: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_6: ChangelogEntry = ChangelogEntry {
     id: "2026-09-30-phone-work-tabs",
     date: "2026-09-30",
     title: "Issue, Run, Changes and Results are tabs on the phone",
@@ -139,7 +156,7 @@ const PREVIOUS_5: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_6: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_7: ChangelogEntry = ChangelogEntry {
     id: "2026-09-30-sign-in-methods",
     date: "2026-09-30",
     title: "Sign-in methods and a changeable email",
@@ -152,7 +169,7 @@ const PREVIOUS_6: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_7: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_8: ChangelogEntry = ChangelogEntry {
     id: "2026-09-29-stack-merge-asks",
     date: "2026-09-29",
     title: "Merging a stacked pull request asks first",
@@ -163,7 +180,7 @@ const PREVIOUS_7: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_8: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_9: ChangelogEntry = ChangelogEntry {
     id: "2026-09-29-account-sign-out",
     date: "2026-09-29",
     title: "Sign agent accounts out",
@@ -173,7 +190,7 @@ const PREVIOUS_8: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_9: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_10: ChangelogEntry = ChangelogEntry {
     id: "2026-09-29-release-train",
     date: "2026-09-29",
     title: "Release train 2026-09-29",
@@ -188,7 +205,7 @@ const PREVIOUS_9: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_10: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_11: ChangelogEntry = ChangelogEntry {
     id: "2026-09-28-release-train",
     date: "2026-09-28",
     title: "Release train 2026-09-28",
@@ -200,7 +217,7 @@ const PREVIOUS_10: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_11: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_12: ChangelogEntry = ChangelogEntry {
     id: "2026-09-25-work-header-badge",
     date: "2026-09-25",
     title: "The work header badge",
@@ -212,7 +229,7 @@ const PREVIOUS_11: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_12: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_13: ChangelogEntry = ChangelogEntry {
     id: "2026-09-25-issue-context-menu",
     date: "2026-09-25",
     title: "One issue context menu",
@@ -225,7 +242,7 @@ const PREVIOUS_12: ChangelogEntry = ChangelogEntry {
 
 /// The head before that, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_13: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_14: ChangelogEntry = ChangelogEntry {
     id: "2026-09-24-release-train",
     date: "2026-09-24",
     title: "Release train 2026-09-24",
@@ -241,7 +258,7 @@ const PREVIOUS_13: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_14: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_15: ChangelogEntry = ChangelogEntry {
     id: "2026-09-23-linear-import",
     date: "2026-09-23",
     title: "Import from Linear",
@@ -258,7 +275,7 @@ const PREVIOUS_14: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_15: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_16: ChangelogEntry = ChangelogEntry {
     id: "2026-09-23-release-train",
     date: "2026-09-23",
     title: "Release train 2026-09-23",
@@ -271,7 +288,7 @@ const PREVIOUS_15: ChangelogEntry = ChangelogEntry {
 };
 
 #[allow(dead_code)]
-const PREVIOUS_16: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_17: ChangelogEntry = ChangelogEntry {
     id: "2026-09-22-release-train",
     date: "2026-09-22",
     title: "Release train 2026-09-22",
@@ -288,7 +305,7 @@ const PREVIOUS_16: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_17: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_18: ChangelogEntry = ChangelogEntry {
     id: "2026-09-19-release-train",
     date: "2026-09-19",
     title: "Release train 2026-09-19",
@@ -302,7 +319,7 @@ const PREVIOUS_17: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_18: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_19: ChangelogEntry = ChangelogEntry {
     id: "2026-09-18-release-train",
     date: "2026-09-18",
     title: "Release train 2026-09-18",
@@ -318,7 +335,7 @@ const PREVIOUS_18: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_19: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_20: ChangelogEntry = ChangelogEntry {
     id: "2026-09-18-device-icons",
     date: "2026-09-18",
     title: "Device icons and 36 more board icons",
@@ -330,7 +347,7 @@ const PREVIOUS_19: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_20: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_21: ChangelogEntry = ChangelogEntry {
     id: "2026-09-18-component-foundation",
     date: "2026-09-18",
     title: "One picker, one search field, one date picker",
@@ -345,7 +362,7 @@ const PREVIOUS_20: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_21: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_22: ChangelogEntry = ChangelogEntry {
     id: "2026-09-17-release-train",
     date: "2026-09-17",
     title: "Release train 2026-09-17",
@@ -362,7 +379,7 @@ const PREVIOUS_21: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_22: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_23: ChangelogEntry = ChangelogEntry {
     id: "2026-09-tab-shell-polish",
     date: "2026-09-17",
     title: "Tabs keep their state, chats get their names",
@@ -374,7 +391,7 @@ const PREVIOUS_22: ChangelogEntry = ChangelogEntry {
 
 /// The entry before that.
 #[allow(dead_code)]
-const PREVIOUS_23: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_24: ChangelogEntry = ChangelogEntry {
     id: "2026-09-diff-ui-one-design",
     date: "2026-09-17",
     title: "One diff design, everywhere",

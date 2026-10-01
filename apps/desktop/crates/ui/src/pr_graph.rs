@@ -373,7 +373,7 @@ fn section_rows(graph: &PrGraph, section: OverlaySection, shown: usize, cx: &mut
                     issue,
                     IssueRowOpts {
                         title: None,
-                        open: true,
+                        open: !status_is_closed(issue),
                         remove: None,
                         guides: None,
                         in_dialog: true,

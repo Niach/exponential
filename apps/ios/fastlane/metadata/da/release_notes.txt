@@ -1,8 +1,5 @@
-- Arbejdsskærm: Issue, Kørsel, Ændringer og Resultater er faner i toppen, du kan swipe mellem, med Merge ved siden af, mens pull requesten er åben
-- Settings > Account: skift din e-mail med en kode, tilknyt eller fjern Google-, Apple- og OIDC-logins, og administrer passkeys
-- Når du merger en stablet pull request, bliver du spurgt, om hele stakken eller kun denne pull request skal merges
-- Resultater: en kørsels rapport vises ved siden af dens skærmbilleder, lange skærmbilleder åbnes i en rullbar visning, og en notifikation kan åbne Resultater direkte
-- Markdown-vedhæftninger åbnes i en forhåndsvisning i appen
-- Toasts: én ensartet, stablet beskedstil overalt, tryk for at udvide, swipe for at lukke
-- Tidy up: en indbygget handling til oprydning af boards, med matchende ikoner for stakke, batches og workflows
-- Sub-issues oprettet med en vedhæftning efterlader ikke længere en kladde
+- Handlinger: automatiseringer er nu triggere på den handling, de kører, og hver handling er en side med sin prompt, sine triggere og sine kørsler
+- Arbejdsskærm: stryg mellem Issue, Run, Changes og Results, og Changes viser antal linjer, så snart filerne kendes
+- Runs: en API-fejl vises som sin egen række i transskriptionen i stedet for en falsk forbrugsgrænse
+- Konti: standardkontoen pr. enhed er væk, en kørsel starter med det login, du brugte sidst, medmindre du vælger et andet
+- Stacks og batches: et mere diskret badge i headeren, mindre issue-chips og en kompakt graf over relateret arbejde

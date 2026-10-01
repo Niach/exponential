@@ -574,4 +574,47 @@ final class AutomationTriggerTests: XCTestCase {
         ])
         XCTAssertEqual(decoded.body, "Do it")
     }
+
+    // The busy flag clears when tRPC answers, the synced row echoes later: a
+    // write in that gap builds on the mutation's answer, never on the stale row.
+    func testWriteBaseHoldsTheMutationAnswerUntilTheRowEchoes() {
+        func action(id: String = "a1", updatedAt: String, enabled: Bool) -> ActionDto {
+            ActionDto(
+                id: id, teamId: "t1", repositoryId: nil, name: "Digest", description: nil,
+                body: "", sortOrder: 0, createdAt: "2026-01-01T00:00:00Z", updatedAt: updatedAt,
+                triggers: [
+                    ActionTrigger(id: "tr-1", enabled: enabled, deviceId: "dev-1", when: created),
+                    ActionTrigger(id: "tr-2", enabled: true, deviceId: "dev-1", when: created),
+                ]
+            )
+        }
+        let stale = action(updatedAt: "2026-10-01 10:00:00.000000+00", enabled: true)
+        let written = action(updatedAt: "2026-10-01T10:00:05.120Z", enabled: false)
+
+        // No write yet: the synced row.
+        XCTAssertEqual(TriggerWriteBase.triggers(synced: stale, written: nil), stale.triggers)
+        // In the gap the answer wins, so a second toggle keeps the first.
+        let base = TriggerWriteBase.triggers(synced: stale, written: written)
+        XCTAssertEqual(base, written.triggers)
+        XCTAssertEqual(
+            base.settingEnabled(id: "tr-2", false).map(\.enabled), [false, false]
+        )
+        // The echo (Postgres text, microseconds) hands the row back the lead…
+        let echoed = action(updatedAt: "2026-10-01 10:00:05.120456+00", enabled: false)
+        XCTAssertEqual(TriggerWriteBase.triggers(synced: echoed, written: written), echoed.triggers)
+        // …and so does a newer write from elsewhere.
+        let newer = action(updatedAt: "2026-10-01 10:00:09+00", enabled: true)
+        XCTAssertEqual(TriggerWriteBase.triggers(synced: newer, written: written), newer.triggers)
+        // Another action's answer or an unreadable stamp never overrides the row.
+        XCTAssertEqual(
+            TriggerWriteBase.triggers(
+                synced: stale, written: action(id: "a2", updatedAt: "2026-10-01T10:00:05Z", enabled: false)
+            ),
+            stale.triggers
+        )
+        XCTAssertEqual(
+            TriggerWriteBase.triggers(synced: stale, written: action(updatedAt: "soon", enabled: false)),
+            stale.triggers
+        )
+    }
 }

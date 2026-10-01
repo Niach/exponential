@@ -10,7 +10,8 @@ import GRDB
 /// The only trigger write is `actions.update({ id, triggers })`, a WHOLE-ARRAY
 /// replace (owner-only server-side): add, edit, toggle and delete all send the
 /// action's readable triggers with one element changed. Success needs no
-/// local write — Electric echoes the row.
+/// local write — Electric echoes the row; until it does, the mutation's own
+/// answer is the base of the next write (`TriggerWriteBase`).
 @MainActor @Observable
 final class ActionDetailViewModel {
 
@@ -35,6 +36,18 @@ final class ActionDetailViewModel {
     var busyTriggerId: String?
     /// The server's refusal of the last trigger write, in its own words.
     var triggerError: String?
+
+    /// What the last trigger write returned — the busy flag clears when tRPC
+    /// answers, BEFORE the row echoes, so a write in that gap must build on
+    /// this, not on the synced row's pre-write array.
+    private var writtenAction: ActionDto?
+
+    /// The action's triggers as of the last write this page made — what the
+    /// tab lists and what every write is built from.
+    var triggers: [ActionTrigger] {
+        guard let action else { return [] }
+        return TriggerWriteBase.triggers(synced: action, written: writtenAction)
+    }
 
     static let newTriggerKey = "new"
 
@@ -63,6 +76,7 @@ final class ActionDetailViewModel {
     func load(actionId: String) {
         guard loadedActionId != actionId else { return }
         loadedActionId = actionId
+        writtenAction = nil
         actionObservationTask?.cancel()
         runsObservationTask?.cancel()
         guard let pool = try? db.pool(forAccountId: accountId) else {
@@ -131,24 +145,21 @@ final class ActionDetailViewModel {
 
     /// Flip one trigger's paused flag.
     func setEnabled(_ trigger: ActionTrigger, enabled: Bool) {
-        guard let action else { return }
-        write(action.triggers.settingEnabled(id: trigger.id, enabled), busy: trigger.id)
+        write(triggers.settingEnabled(id: trigger.id, enabled), busy: trigger.id)
     }
 
     /// Owner-only delete. The element leaves via Electric.
     func delete(_ trigger: ActionTrigger) {
-        guard let action else { return }
-        write(action.triggers.removing(id: trigger.id), busy: trigger.id)
+        write(triggers.removing(id: trigger.id), busy: trigger.id)
     }
 
     /// Add (`editing` nil) or change a trigger from the form sheet. The sheet
     /// dismisses on submit; a refusal surfaces as `triggerError` on the tab.
     func save(_ input: ActionTriggerInput, editing: ActionTrigger?) {
-        guard let action else { return }
         if let editing {
-            write(action.triggers.replacing(id: editing.id, with: input), busy: editing.id)
+            write(triggers.replacing(id: editing.id, with: input), busy: editing.id)
         } else {
-            write(action.triggers.adding(input), busy: Self.newTriggerKey)
+            write(triggers.adding(input), busy: Self.newTriggerKey)
         }
     }
 
@@ -158,7 +169,7 @@ final class ActionDetailViewModel {
         triggerError = nil
         Task {
             do {
-                try await actionsApi.update(
+                writtenAction = try await actionsApi.update(
                     accountId: accountId,
                     id: action.id,
                     patch: ActionPatch(triggers: triggers)

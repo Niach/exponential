@@ -1,8 +1,5 @@
-- Werkscherm: Issue, Run, Wijzigingen en Resultaten zijn veegbare tabbladen in de kop, met Merge ernaast zolang de pull request openstaat
-- Settings > Account: wijzig je e-mailadres met een code, koppel of ontkoppel Google-, Apple- en OIDC-logins en beheer je passkeys
-- Bij het mergen van een gestapelde pull request kies je of de hele stapel of alleen deze pull request wordt gemerged
-- Resultaten: het verslag van een run staat naast de screenshots, lange screenshots openen in een scrollbare weergave en een melding kan Resultaten direct openen
-- Markdown-bijlagen openen in een voorbeeld in de app
-- Toasts: overal één gestapelde meldingsstijl, tik om uit te klappen, veeg om te sluiten
-- Tidy up: een ingebouwde actie om borden op te ruimen, met bijpassende iconen voor stapels, batches en workflows
-- Sub-issues die met een bijlage worden aangemaakt, laten geen concept meer achter
+- Acties: automatiseringen zijn nu triggers op de actie die ze uitvoeren, en elke actie is een pagina met haar prompt, triggers en runs
+- Werkscherm: veeg tussen Issue, Run, Changes en Results, en Changes toont het aantal regels zodra de bestanden bekend zijn
+- Runs: een API-fout verschijnt als eigen regel in het transcript in plaats van een onterechte gebruikslimiet
+- Accounts: het standaardaccount per apparaat is verdwenen, een run start met de login die je het laatst gebruikte, tenzij je er een kiest
+- Stacks en batches: een rustiger badge in de header, kleinere issue-chips en een compacte grafiek van gerelateerd werk

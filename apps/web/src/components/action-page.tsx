@@ -19,7 +19,6 @@ import {
 } from "@exp/ui"
 import type { Team } from "@/db/schema"
 import { actionCollection } from "@/lib/collections"
-import { parseActionTriggers } from "@/lib/action-triggers"
 import { trpc } from "@/lib/trpc-client"
 import { useSteerConfig } from "@/components/agent-session"
 import {
@@ -83,11 +82,6 @@ export function ActionPage({
     const row = actionRows?.[0]
     return row ? { ...row, builtin: false as const } : null
   }, [actionRows])
-  const storedTriggers = actionRows?.[0]?.triggers
-  const triggers = useMemo(
-    () => parseActionTriggers(storedTriggers),
-    [storedTriggers]
-  )
 
   // The trigger rows name their device and the trigger form picks one.
   const remote = useRemoteStart({
@@ -141,7 +135,6 @@ export function ActionPage({
   const triggersSection = (header: boolean) => (
     <ActionTriggersSection
       action={action}
-      triggers={triggers}
       devices={remote.devices ?? []}
       isOwner={isOwner}
       steerEnabled={steerEnabled}

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray } from "drizzle-orm"
 import {
+  MAX_ACTION_TRIGGERS,
   triggerWhenPart,
   type ActionTrigger,
   type ActionTriggerInput,
@@ -77,24 +78,65 @@ function normalizeAccount(account: string | null | undefined): string | null {
 // Which profiles a machine holds is device-local (the heartbeat's
 // `agent_accounts` may lag), so the id itself is not checked here — the
 // runner falls back to the ambient login for a profile it no longer has.
-function assertLaunchFields(fields: {
+// A pin is validated only when it CHANGED against the stored trigger with
+// the same id (or, for model/effort/account, when the agent they hang off
+// changed): a trigger migrated with a model since retired from the contract
+// must not make every later triggers write on its action fail — pausing it,
+// or editing a sibling, included.
+interface LaunchPins {
   agent: string | null
   account: string | null
   model: string | null
   effort: string | null
-}): void {
-  if (fields.agent && !codingAgentValues.includes(fields.agent)) {
+}
+
+function assertLaunchFields(fields: LaunchPins, stored?: LaunchPins): void {
+  const changed = (key: keyof LaunchPins) =>
+    !stored || fields[key] !== stored[key]
+  const agentChanged = changed(`agent`)
+  if (agentChanged && fields.agent && !codingAgentValues.includes(fields.agent)) {
     throw bad(`Unknown agent`)
   }
   const agent = fields.agent ?? `claude`
-  if (fields.account && !fields.agent) {
+  if ((agentChanged || changed(`account`)) && fields.account && !fields.agent) {
     throw bad(`An account pin needs its agent pinned`)
   }
-  if (fields.model && !agentModelValues[agent]!.includes(fields.model)) {
+  if (
+    (agentChanged || changed(`model`)) &&
+    fields.model &&
+    !(agentModelValues[agent] ?? []).includes(fields.model)
+  ) {
     throw bad(`Unknown ${agent} model`)
   }
-  if (fields.effort && !agentEffortValues[agent]!.includes(fields.effort)) {
+  if (
+    (agentChanged || changed(`effort`)) &&
+    fields.effort &&
+    !(agentEffortValues[agent] ?? []).includes(fields.effort)
+  ) {
     throw bad(`Unknown ${agent} effort`)
+  }
+}
+
+/** The pins a stored trigger carries, in the written (null = unset) form. */
+function storedPins(trigger: ActionTrigger): LaunchPins {
+  return {
+    agent: trigger.agent ?? null,
+    account: trigger.account ?? null,
+    model: trigger.model ?? null,
+    effort: trigger.effort ?? null,
+  }
+}
+
+/**
+ * `MAX_ACTION_TRIGGERS` bounds GROWTH only: a write is refused when it holds
+ * more triggers than the cap AND more than the action already stores. The
+ * SLOP-2 migration folded every automation of an action into its array with
+ * no bound, and such an action must still accept a pause, an edit or a
+ * removal. Shared by `actions.update` and the legacy `automations.*` adapter.
+ */
+export function assertTriggerGrowth(nextCount: number, storedCount: number): void {
+  if (nextCount > MAX_ACTION_TRIGGERS && nextCount > storedCount) {
+    throw bad(`An action can have at most ${MAX_ACTION_TRIGGERS} triggers`)
   }
 }
 
@@ -211,6 +253,8 @@ export function storedTriggers(value: unknown): ActionTrigger[] {
  * omitted. A binding that did not change is accepted as-is: co-owners can
  * toggle a trigger bound to a teammate's private device they could never
  * re-bind, and a filter whose label was since deleted does not block a pause.
+ * The same holds for pins (`assertLaunchFields`) and for the trigger count
+ * (`assertTriggerGrowth`).
  */
 export async function resolveTriggersWrite(args: {
   written: ActionTriggerInput[]
@@ -218,6 +262,7 @@ export async function resolveTriggersWrite(args: {
   teamId: string
   callerUserId: string
 }): Promise<ActionTrigger[]> {
+  assertTriggerGrowth(args.written.length, args.existing.length)
   const previousById = new Map(args.existing.map((t) => [t.id, t]))
   const resolved: ActionTrigger[] = []
   for (const written of args.written) {
@@ -228,7 +273,7 @@ export async function resolveTriggersWrite(args: {
       model: written.model || null,
       effort: written.effort || null,
     }
-    assertLaunchFields(pins)
+    assertLaunchFields(pins, previous ? storedPins(previous) : undefined)
     const runner = {
       id: previous?.id ?? randomUUID(),
       enabled: written.enabled,

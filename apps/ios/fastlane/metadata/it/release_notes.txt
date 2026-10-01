@@ -1,8 +1,5 @@
-- Schermata di lavoro: Issue, Esecuzione, Modifiche e Risultati sono schede scorrevoli nell'intestazione, con Merge accanto finché la pull request è aperta
-- Settings > Account: cambia la tua email con un codice, collega o scollega gli accessi Google, Apple e OIDC e gestisci le passkey
-- Quando unisci una pull request impilata, l'app chiede se unire l'intero stack o solo questa pull request
-- Risultati: il report di un'esecuzione compare accanto ai suoi screenshot, gli screenshot lunghi si aprono in un visualizzatore scorrevole e una notifica può aprire direttamente Risultati
-- Gli allegati Markdown si aprono in un'anteprima nell'app
-- Notifiche: un unico stile impilato ovunque, tocca per espandere, scorri per chiudere
-- Tidy up: un'azione integrata per riordinare le board, con icone coordinate per stack, batch e workflow
-- Le sotto-issue create con un allegato non lasciano più una bozza
+- Azioni: le automazioni ora sono trigger sull'azione che eseguono, e ogni azione è una pagina con il suo prompt, i suoi trigger e le sue esecuzioni
+- Schermata di lavoro: scorri tra Issue, Run, Changes e Results, e Changes mostra il conteggio delle righe appena i file sono noti
+- Runs: un errore API appare come riga a sé nella trascrizione invece di un falso blocco per limite di utilizzo
+- Account: l'account predefinito per dispositivo non c'è più, un'esecuzione parte con l'ultimo accesso usato a meno che tu non ne scelga un altro
+- Stack e batch: un badge più discreto nell'intestazione, chip delle issue più piccoli e un grafo compatto del lavoro correlato

@@ -1,8 +1,5 @@
-- Work screen: Issue, Run, Changes and Results are swipeable tabs in the header, with Merge beside them while the pull request is open
-- Settings > Account: change your email with a code, link or unlink Google, Apple and OIDC logins, and manage passkeys
-- Merging a stacked pull request asks whether to merge the whole stack or this pull request only
-- Results: a run's report sits beside its screenshots, tall screenshots open in a scrolling viewer, and a notification can open Results directly
-- Markdown attachments open in an in-app preview
-- Toasts: one stacking notice style everywhere, tap to expand, swipe to dismiss
-- Tidy up: a built-in action for board cleanup, with matching icons for stacks, batches and workflows
-- Sub-issues composed with an attachment no longer leave a draft behind
+- Actions: automations are now triggers on the action they run, and each action is a page with its prompt, its triggers and its runs
+- Work screen: swipe between Issue, Run, Changes and Results, and Changes shows its line counts once the files are known
+- Runs: an API error shows as its own row in the transcript instead of a false usage-limit wall
+- Accounts: the per-device default account is gone, a run starts on the login you used last unless you pick one
+- Stacks and batches: a quieter badge in the header, smaller issue chips and a compact graph of related work

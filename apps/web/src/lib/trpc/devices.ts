@@ -358,6 +358,10 @@ export function nudgeDevice(ownerId: string, deviceId: string): void {
  * instead of failing the mutation with "That command is already queued". */
 const IDEMPOTENT_COMMAND_KINDS: ReadonlySet<string> = new Set([
   `agent_usage_refresh`,
+  // EXP-1158 compat shim (see `createCommand`): delete once
+  // CLIENT_MIN_VERSION_IOS > 0.14.49 and _ANDROID > 0.14.50 and
+  // _DESKTOP/_CLI > 0.14.58.
+  `agent_profile_use`,
   `agent_profile_remove`,
   // EXP-1137: signing a login out twice is one wish.
   `agent_profile_sign_out`,
@@ -1014,6 +1018,16 @@ export const devicesRouter = router({
           `agent_login`,
           `agent_login_code`,
           `agent_usage_refresh`,
+          // EXP-849: make an already-signed-in profile the agent's ACTIVE
+          // login on that machine. NON-DESTRUCTIVE: no logout, no login, no
+          // credential is touched.
+          // EXP-1158 compat shim: "Set as default" is gone (a launch
+          // lands on the LAST USED login), but iOS <= 0.14.49, Android <= 0.14.50 and
+          // desktop <= 0.14.58 still send this kind, and devices <= 0.14.58 still
+          // execute it; a device from this release completes the queued row as
+          // unsupported. Delete once CLIENT_MIN_VERSION_IOS > 0.14.49 and
+          // _ANDROID > 0.14.50 and _DESKTOP/_CLI > 0.14.58.
+          `agent_profile_use`,
           // EXP-862: delete THIS machine's copy of an agent login (its
           // profile dir and its index row). The ACCOUNT is untouched: the
           // device never runs `codex logout` (that revokes the account
@@ -1119,6 +1133,34 @@ export const devicesRouter = router({
           })
         }
         payload = { agent: input.agent, code: input.code }
+      }
+
+      // EXP-849: "Use this account here" — same payload shape as
+      // `agent_usage_refresh` (agent + profile). Two caps, because the
+      // command needs both halves: `agent-login` to drive the agent's own
+      // login state at all, and `account-switch` for the profile machinery
+      // itself. A build missing either would leave the row pending forever.
+      // EXP-1158 compat shim: "Set as default" is gone (a launch
+      // lands on the LAST USED login), but iOS <= 0.14.49, Android <= 0.14.50 and
+      // desktop <= 0.14.58 still send this kind, and devices <= 0.14.58 still
+      // execute it; a device from this release completes the queued row as
+      // unsupported. Delete once CLIENT_MIN_VERSION_IOS > 0.14.49 and
+      // _ANDROID > 0.14.50 and _DESKTOP/_CLI > 0.14.58.
+      if (input.kind === `agent_profile_use`) {
+        if (!input.agent || !input.profileId) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `agent_profile_use needs an agent and a profileId`,
+          })
+        }
+        const caps = row.caps ?? []
+        if (!caps.includes(`agent-login`) || !caps.includes(`account-switch`)) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `That machine runs an older Exponential app that cannot switch agent accounts. Update it first.`,
+          })
+        }
+        payload = { agent: input.agent, profileId: input.profileId }
       }
 
       // EXP-862: "Remove account" — the machine deletes its own copy of that

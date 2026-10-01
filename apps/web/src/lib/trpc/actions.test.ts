@@ -84,6 +84,7 @@ vi.mock(`@/lib/trpc`, async (importOriginal) => {
 
 import { actionsRouter } from "@/lib/trpc/actions"
 import { actions, automations } from "@/db/schema"
+import { MAX_ACTION_TRIGGERS } from "@exp/db-schema/domain"
 
 const { selectResults, inserts, updates, deletes, fakeDb } = h
 
@@ -469,6 +470,92 @@ describe(`actions.update — triggers (SLOP-2)`, () => {
       expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
     }
     expect(updates).toHaveLength(0)
+  })
+
+  // The SLOP-2 migration folded every automation of an action into its
+  // array, unbounded: the cap refuses GROWTH only, so an over-cap action
+  // still takes a pause or a removal.
+  it(`caps the trigger count on growth only`, async () => {
+    const many = Array.from({ length: MAX_ACTION_TRIGGERS + 2 }, (_, i) => ({
+      ...existing,
+      id: `33333333-3333-4333-8333-3333333333${String(i).padStart(2, `0`)}`,
+    }))
+    // A pause of one, same count.
+    selectResults.push([action(many)])
+    await caller.update({
+      id: ACTION_ID,
+      triggers: many.map((t, i) => (i === 0 ? { ...t, enabled: false } : t)),
+    })
+    expect(updates[0]!.triggers).toHaveLength(MAX_ACTION_TRIGGERS + 2)
+    // A removal, still above the cap.
+    selectResults.push([action(many)])
+    await caller.update({ id: ACTION_ID, triggers: many.slice(1) })
+    expect(updates[1]!.triggers).toHaveLength(MAX_ACTION_TRIGGERS + 1)
+    // One more than stored: refused, before any device lookup.
+    selectResults.push([action(many)])
+    const grown = await rejectionOf(
+      caller.update({
+        id: ACTION_ID,
+        triggers: [...many, { ...existing, id: undefined }],
+      })
+    )
+    expect((grown as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect((grown as TRPCError).message).toContain(`at most ${MAX_ACTION_TRIGGERS}`)
+    // …and an ordinary action cannot grow past the cap either.
+    selectResults.length = 0
+    selectResults.push([action([existing])])
+    const fresh = await rejectionOf(
+      caller.update({
+        id: ACTION_ID,
+        triggers: Array.from({ length: MAX_ACTION_TRIGGERS + 1 }, () => ({
+          ...existing,
+          id: undefined,
+        })),
+      })
+    )
+    expect((fresh as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(updates).toHaveLength(2)
+  })
+
+  // A migrated trigger may pin a model (or agent) the contract has since
+  // dropped: pins are validated only where they CHANGED against the stored
+  // trigger of the same id, so such an action still takes every other write.
+  it(`accepts an unchanged pin the contract no longer knows, refuses a changed one`, async () => {
+    const stale = { ...existing, model: `retired-model`, effort: `retired-effort` }
+    const sibling = { ...existing, id: `33333333-3333-4333-8333-333333333399` }
+    selectResults.push([action([stale, sibling])])
+    await caller.update({
+      id: ACTION_ID,
+      triggers: [
+        { ...stale, enabled: false },
+        { ...sibling, minuteOfDay: 600 },
+      ],
+    })
+    const written = updates[0]!.triggers as Record<string, unknown>[]
+    expect(written[0]).toEqual({ ...stale, enabled: false })
+    expect(written[1]).toEqual({ ...sibling, minuteOfDay: 600 })
+
+    // Changing the stale pin to another unknown value is still refused…
+    selectResults.push([action([stale])])
+    const changed = await rejectionOf(
+      caller.update({ id: ACTION_ID, triggers: [{ ...stale, model: `also-gone` }] })
+    )
+    expect((changed as TRPCError).message).toBe(`Unknown claude model`)
+    // …and so is carrying it under ANOTHER agent (model lists are per agent).
+    selectResults.push([action([stale])])
+    selectResults.push([{ ...ownDevice, agents: [`claude`, `codex`] }])
+    const switched = await rejectionOf(
+      caller.update({ id: ACTION_ID, triggers: [{ ...stale, agent: `codex` }] })
+    )
+    expect((switched as TRPCError).message).toBe(`Unknown codex model`)
+    // A NEW trigger (no stored twin) is validated in full.
+    selectResults.length = 0
+    selectResults.push([action([])])
+    const fresh = await rejectionOf(
+      caller.update({ id: ACTION_ID, triggers: [{ ...stale, id: undefined }] })
+    )
+    expect((fresh as TRPCError).message).toBe(`Unknown claude model`)
+    expect(updates).toHaveLength(1)
   })
 
   it(`lets the migrated Tidy up row keep its reserved name`, async () => {

@@ -387,9 +387,15 @@ pub fn active_profile(data_dir: &Path, agent: CodingAgent) -> String {
 /// come through here.
 ///
 /// * A launch naming NO account (`None`/blank) runs on the LAST USED login
-///   ([`active_profile`]). A last used named profile comes back as
-///   `Some(id)`, so it counts as named (pinned) for the start-time rotation,
-///   exactly like a composer pick.
+///   ([`active_profile`]). A last used named profile counts as pinned for
+///   the start-time rotation, exactly like a composer pick (EXP-1107);
+///   [`LaunchAccount::named`] only says whether the CALLER named it.
+/// * An unnamed launch whose last used profile is provably SIGNED OUT
+///   (`signed_out`, the doctor's account gate) falls through to the ambient
+///   rules below instead of being refused: nobody picked that login, so
+///   every unpinned trigger and workflow node would die on it until a person
+///   started a run. A launch that NAMES a signed-out profile keeps it — the
+///   gate refuses it by name.
 /// * `Some("system")` names the ambient login; a named custom profile is
 ///   kept as given.
 /// * A launch whose effective login is the ambient one (`system`, a stale id
@@ -406,33 +412,77 @@ pub fn active_profile(data_dir: &Path, agent: CodingAgent) -> String {
 /// Every ambient result is `None`: the ambient login rides as `None` past
 /// this point (the run record, the rotation's "unpinned", the resume switch
 /// detection all read it so).
+pub fn resolve_launch_account(
+    data_dir: &Path,
+    agent: CodingAgent,
+    account: Option<String>,
+    check: Option<&crate::doctor::ToolCheck>,
+    signed_out: impl Fn(&str) -> bool,
+) -> LaunchAccount {
+    let named = account
+        .map(|account| account.trim().to_string())
+        .filter(|account| !account.is_empty());
+    let resolved = |account: Option<String>| LaunchAccount {
+        account,
+        named: named.is_some(),
+    };
+    let account = named.clone().or_else(|| Some(active_profile(data_dir, agent)));
+    let is_profile = account_dir(data_dir, Some(agent), account.as_deref()).is_some();
+    // The last used login nobody named, signed out: on to any signed-in one.
+    let last_used_signed_out =
+        is_profile && named.is_none() && account.as_deref().is_some_and(&signed_out);
+    if is_profile && !last_used_signed_out {
+        return resolved(account);
+    }
+    let doctor_profile = check
+        .filter(|check| check.ambient_signed_out())
+        .and_then(|check| check.signed_in_profile.clone());
+    if ambient_hidden(data_dir, agent) {
+        if last_used_signed_out {
+            // No ambient login to fall back to: the doctor's signed-in
+            // profile, else the signed-out one (the gate names it).
+            return resolved(doctor_profile.or(account));
+        }
+        let active = active_profile(data_dir, agent);
+        if active != SYSTEM_PROFILE {
+            return resolved(Some(active));
+        }
+    }
+    resolved(doctor_profile)
+}
+
+/// What [`resolve_launch_account`] settled on.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LaunchAccount {
+    /// The login the launch runs on; `None` = the ambient one.
+    pub account: Option<String>,
+    /// Whether the CALLER named an account (`system` included). `false` =
+    /// resolved from last used — never a pin for the start-time rotation.
+    pub named: bool,
+}
+
+/// [`resolve_launch_account`]'s account alone, with no sign-in probe of the
+/// last used profile.
 pub fn launch_account(
     data_dir: &Path,
     agent: CodingAgent,
     account: Option<String>,
     check: Option<&crate::doctor::ToolCheck>,
 ) -> Option<String> {
-    let named = account
-        .map(|account| account.trim().to_string())
-        .filter(|account| !account.is_empty());
-    let account = named.or_else(|| Some(active_profile(data_dir, agent)));
-    if account_dir(data_dir, Some(agent), account.as_deref()).is_some() {
-        return account;
+    resolve_launch_account(data_dir, agent, account, check, |_| false).account
+}
+
+/// EXP-1158 — `profile` stops being `agent`'s last used login, if it was:
+/// what a SIGN-OUT does to the pointer ([`remove`] clears it the same way),
+/// so the next unnamed launch is not bound for a login that is gone. Writes
+/// only on a change.
+pub fn forget_last_used(data_dir: &Path, agent: CodingAgent, profile: &str) -> io::Result<()> {
+    let mut index = read_index(data_dir, agent);
+    if index.active.as_deref() != Some(profile.trim()) {
+        return Ok(());
     }
-    if ambient_hidden(data_dir, agent) {
-        let active = active_profile(data_dir, agent);
-        if active != SYSTEM_PROFILE {
-            return Some(active);
-        }
-    }
-    if let Some(check) = check {
-        if check.ambient_signed_out() {
-            if let Some(profile) = &check.signed_in_profile {
-                return Some(profile.clone());
-            }
-        }
-    }
-    None
+    index.active = None;
+    write_index(data_dir, agent, &index)
 }
 
 /// EXP-1137: whether "Remove account" hid the ambient login of `agent`.
@@ -720,6 +770,12 @@ mod tests {
         note_last_used(&dir, agent, SYSTEM_PROFILE).unwrap();
         assert_eq!(launch_account(&dir, agent, None, None), None);
         assert!(note_last_used(&dir, agent, "deadbeef").is_err());
+        // A sign-out forgets the pointer only when it named that profile.
+        note_last_used(&dir, agent, &work.id).unwrap();
+        forget_last_used(&dir, agent, &home.id).unwrap();
+        assert_eq!(launch_account(&dir, agent, None, None), Some(work.id.clone()));
+        forget_last_used(&dir, agent, &work.id).unwrap();
+        assert_eq!(launch_account(&dir, agent, None, None), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -797,6 +853,63 @@ mod tests {
         assert_eq!(launch_account(&dir, agent, None, Some(&check(None, None))), None);
         // Signed out with nowhere to go: the doctor gate says so, not this.
         assert_eq!(launch_account(&dir, agent, None, Some(&check(Some(false), None))), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-1158: an UNNAMED launch whose last used profile is signed out
+    /// falls through to a signed-in login (ambient first, else the doctor's
+    /// profile) and stays unnamed for the rotation; a launch NAMING that
+    /// profile keeps it, so the gate refuses it by name.
+    #[test]
+    fn an_unnamed_launch_skips_a_signed_out_last_used_profile() {
+        let dir = temp_dir("launch-account-last-used-signed-out");
+        let agent = CodingAgent::Claude;
+        let work = create(&dir, agent, "Work").unwrap();
+        let home = create(&dir, agent, "Home").unwrap();
+        note_last_used(&dir, agent, &work.id).unwrap();
+        let check = |authed: Option<bool>, signed_in_profile: Option<String>| crate::doctor::ToolCheck {
+            tool: crate::doctor::Tool::Claude,
+            ok: true,
+            version: Some("1.0.0".into()),
+            error: None,
+            authed,
+            account: None,
+            usage_eligible: false,
+            acp: Some(true),
+            acp_note: None,
+            signed_in_profile,
+        };
+        let work_out = |id: &str| id == work.id;
+        let resolve = |account: Option<String>, check: &crate::doctor::ToolCheck| {
+            resolve_launch_account(&dir, agent, account, Some(check), work_out)
+        };
+        // Signed in: the last used login, unnamed.
+        assert_eq!(
+            resolve_launch_account(&dir, agent, None, None, |_| false),
+            LaunchAccount { account: Some(work.id.clone()), named: false }
+        );
+        // Signed out, the ambient login signed in: the ambient login.
+        assert_eq!(
+            resolve(None, &check(Some(true), None)),
+            LaunchAccount { account: None, named: false }
+        );
+        // The ambient login signed out too: the doctor's signed-in profile.
+        assert_eq!(
+            resolve(None, &check(Some(false), Some(home.id.clone()))),
+            LaunchAccount { account: Some(home.id.clone()), named: false }
+        );
+        // NAMED: kept (and pinned), whatever its sign-in state.
+        assert_eq!(
+            resolve(Some(work.id.clone()), &check(Some(true), None)),
+            LaunchAccount { account: Some(work.id.clone()), named: true }
+        );
+        // A removed ambient login is never the fallback.
+        set_ambient_hidden(&dir, agent, true).unwrap();
+        assert_eq!(resolve(None, &check(Some(true), None)).account, Some(work.id.clone()));
+        assert_eq!(
+            resolve(None, &check(Some(false), Some(home.id.clone()))).account,
+            Some(home.id.clone())
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

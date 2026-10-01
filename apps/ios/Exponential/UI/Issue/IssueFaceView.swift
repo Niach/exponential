@@ -371,7 +371,8 @@ struct IssueFaceView: View {
             toaster.error(message)
             vm.error = nil
         }
-        .sheet(item: $activeSheet, onDismiss: { promoteMoveTarget(to: .screen) }) { sheet in
+        // Presented by the pager, not from inside its page (`PagerSheet`).
+        .pagerSheet(item: $activeSheet, onDismiss: { promoteMoveTarget(to: .screen) }) { sheet in
             sheetContent(sheet)
         }
         // Presenting a sheet over a focused editor kept the editor

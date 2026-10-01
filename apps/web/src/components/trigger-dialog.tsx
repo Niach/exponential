@@ -12,10 +12,7 @@ import {
   DialogCancel,
 } from "@exp/ui"
 import { defaultDeviceId, type SteerDevice } from "@/lib/steer-devices"
-import {
-  writeActionTriggers,
-  type TriggerWrite,
-} from "@/lib/action-trigger-writes"
+import type { TriggerWrite } from "@/lib/action-trigger-writes"
 import {
   TriggerLaunchFields,
   TriggerDevicePicker,
@@ -37,6 +34,15 @@ import {
 // whole `triggers` array; no run is started — the bound device watches its
 // own synced rows and fires by itself.
 
+/** Replace the action's triggers: `build` gets the CURRENT array — the last
+ * write's result until the synced row catches up, never a stale render's —
+ * and returns the whole array to store. `quiet` = the caller shows the error
+ * itself. */
+export type WriteTriggers = (
+  build: (current: ActionTrigger[]) => TriggerWrite[],
+  options?: { quiet?: boolean }
+) => Promise<void>
+
 // One reason, one wording, wherever a required input blocks a trigger.
 export const REQUIRED_INPUTS_HINT = `This action has required inputs, and a triggered run has none to fill them with. Make the inputs optional to enable it.`
 
@@ -44,17 +50,15 @@ export function TriggerDialog({
   open,
   onOpenChange,
   teamId,
-  actionId,
-  triggers,
+  write,
   devices,
   trigger,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   teamId: string
-  actionId: string
-  /** The action's current triggers — the array a save replaces. */
-  triggers: ActionTrigger[]
+  /** Saves the action's whole `triggers` array (the section owns the base). */
+  write: WriteTriggers
   /** The caller's machines; trigger-capable ones are pickable. */
   devices: SteerDevice[]
   /** The trigger being edited; absent/null = add a new one. */
@@ -138,13 +142,13 @@ export function TriggerDialog({
       ...(when.kind === `event` ? { ...when, source: `exponential` } : when),
     }
     try {
-      await writeActionTriggers(
-        actionId,
-        editing
-          ? triggers.map((existing) =>
-              existing.id === trigger.id ? written : existing
-            )
-          : [...triggers, written],
+      await write(
+        (current) =>
+          editing
+            ? current.map((existing) =>
+                existing.id === trigger.id ? written : existing
+              )
+            : [...current, written],
         { quiet: true }
       )
       onOpenChange(false)

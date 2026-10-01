@@ -62,7 +62,10 @@ private func captureSnapshot(_ name: String) {
 /// scripted walk through the app, and skipping a tap would strand every later
 /// shot on the wrong screen. A subset run is therefore not faster, only
 /// narrower — which is exactly what the automation needs when a diff touched
-/// two views.
+/// two views. The one exception is a self-contained DETOUR (open a sheet,
+/// capture, close it — e.g. `sg_issue-properties`): a suite may gate the whole
+/// detour on `isWanted`, so a step no later shot needs cannot fail a scoped
+/// run.
 ///
 /// `offered` is `nonisolated(unsafe)` mutable static state on purpose: the
 /// capture suites are single-threaded scripts, and isolating it to the main

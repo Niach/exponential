@@ -117,8 +117,9 @@ export function IssueChangesFace({
           issue.prUrl ? <PrGithubButton prUrl={issue.prUrl} /> : undefined
         }
         graphBadge={
-          /* EXP-897: the Changes face's own overlay — the PR stack bottom-up,
-             with `Merge stack` on its bottom entry. */
+          /* SLOP-16: the same "Related work" overlay every face opens —
+             Blocked by · Same pull request · Pull request stack. No
+             `Merge stack` in it: the Merge pill asks. */
           <PrGraphBadge
             teamId={teamId}
             teamSlug={teamSlug}

@@ -1,8 +1,5 @@
-- Ekran pracy: Issue, Uruchomienie, Zmiany i Wyniki to przesuwane karty w nagłówku, a obok nich Merge, dopóki pull request jest otwarty
-- Settings > Account: zmień e-mail za pomocą kodu, połącz lub odłącz logowanie przez Google, Apple i OIDC oraz zarządzaj kluczami dostępu
-- Przy scalaniu pull requesta ze stosu aplikacja pyta, czy scalić cały stos, czy tylko ten pull request
-- Wyniki: raport z uruchomienia jest obok jego zrzutów ekranu, długie zrzuty otwierają się w przewijanym podglądzie, a powiadomienie może od razu otworzyć Wyniki
-- Załączniki Markdown otwierają się w podglądzie w aplikacji
-- Powiadomienia: jeden spójny styl ze stosem wszędzie, stuknij, aby rozwinąć, przesuń, aby zamknąć
-- Tidy up: wbudowana akcja porządkowania tablic, z dopasowanymi ikonami dla stosów, partii i workflowów
-- Sub-issues utworzone z załącznikiem nie zostawiają już szkicu
+- Akcje: automatyzacje są teraz wyzwalaczami akcji, którą uruchamiają, a każda akcja ma własną stronę z promptem, wyzwalaczami i uruchomieniami
+- Ekran pracy: przesuwaj między Issue, Run, Changes i Results, a Changes pokazuje liczbę linii, gdy tylko pliki są znane
+- Runs: błąd API wyświetla się jako osobny wiersz w zapisie zamiast fałszywej blokady limitu użycia
+- Konta: domyślne konto dla urządzenia zniknęło, uruchomienie startuje z ostatnio użytym logowaniem, chyba że wybierzesz inne
+- Stacki i partie: dyskretniejsza plakietka w nagłówku, mniejsze chipy issues i kompaktowy graf powiązanej pracy

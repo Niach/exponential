@@ -69,7 +69,9 @@ const POOL_IDLE_TIMEOUT: Duration = Duration::from_secs(45);
 /// peer does not answer within [`H2_KEEPALIVE_TIMEOUT`] is closed, failing
 /// its streams into the callers' retries — which then dial a fresh one.
 const H2_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(20);
-const H2_KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(10);
+/// The timeout leaves room for a saturated uplink: a big upload delays the
+/// PING ack, and 10s killed the shared connection with every long-poll on it.
+const H2_KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// TCP keepalive: first probe after 30s idle, then every 10s, dead after 3
 /// unanswered. Without the explicit interval/retries the OS defaults apply
@@ -78,14 +80,34 @@ const TCP_KEEPALIVE_IDLE: Duration = Duration::from_secs(30);
 const TCP_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(10);
 const TCP_KEEPALIVE_RETRIES: u32 = 3;
 
-/// Consecutive transport failures (across every caller) that swap the client
-/// for a fresh one, and the floor between two such swaps.
+/// Consecutive connection-level failures (across every caller) that swap the
+/// client for a fresh one, and the floor between two such swaps. The floor is
+/// jittered per rebuild ([`jittered`]) so a fleet of desktops behind one
+/// deploy does not drop its pools in lockstep.
 const FAILURES_BEFORE_REBUILD: u32 = 3;
 const REBUILD_COOLDOWN: Duration = Duration::from_secs(15);
 
+/// Spread of [`jittered`]: ±30%.
+const JITTER_PERCENT: u64 = 30;
+
 static CLIENT: OnceLock<RwLock<Client>> = OnceLock::new();
 static FAILURE_STREAK: AtomicU32 = AtomicU32::new(0);
-static LAST_REBUILD: Mutex<Option<Instant>> = Mutex::new(None);
+/// When the client was last rebuilt, and that rebuild's jittered cooldown.
+static LAST_REBUILD: Mutex<Option<(Instant, Duration)>> = Mutex::new(None);
+
+/// `base` ±30%, uniformly: retry timers that every client would otherwise
+/// fire in the same instant (the rebuild cooldown, sync's error backoff).
+pub fn jittered(base: Duration) -> Duration {
+    // A v4 uuid is the randomness this crate already links.
+    let roll = (uuid::Uuid::new_v4().as_u128() % 1_000) as u64;
+    jitter_at(base, roll)
+}
+
+/// [`jittered`] for one `roll` in `0..1000` (0 = −30%, 999 ≈ +30%).
+fn jitter_at(base: Duration, roll: u64) -> Duration {
+    let percent = 100 - JITTER_PERCENT + roll.min(999) * 2 * JITTER_PERCENT / 999;
+    base * percent as u32 / 100
+}
 
 fn build() -> Client {
     // The keepalive pings live on the async builder only; the blocking
@@ -135,9 +157,27 @@ pub fn shared() -> Client {
 /// flight requests finish on the old one, which drops with its last handle.
 /// Built on its own thread because the blocking client must never be
 /// constructed on a tokio worker (see the module docs). The offline banner's
-/// Retry and the wake watchdog call this; so does a failure streak.
+/// Retry calls this; so does a failure streak. The swap lands a moment AFTER
+/// this returns — a caller about to issue requests wants [`reset_blocking`].
 pub fn reset(reason: &str) {
-    *LAST_REBUILD.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
+    let _ = spawn_rebuild(reason);
+}
+
+/// [`reset`], returning only once the fresh client is in place, so the very
+/// next [`shared`] cannot hand out the old one. The wake watchdog restarts
+/// every pipeline right behind this. Blocks for one client build: never call
+/// it on the UI thread.
+pub fn reset_blocking(reason: &str) {
+    if let Some(rebuild) = spawn_rebuild(reason) {
+        if rebuild.join().is_err() {
+            log::warn!("[http] the client rebuild panicked");
+        }
+    }
+}
+
+fn spawn_rebuild(reason: &str) -> Option<std::thread::JoinHandle<()>> {
+    *LAST_REBUILD.lock().unwrap_or_else(|e| e.into_inner()) =
+        Some((Instant::now(), jittered(REBUILD_COOLDOWN)));
     FAILURE_STREAK.store(0, Ordering::Relaxed);
     log::info!("[http] rebuilding the shared client ({reason})");
     let spawned = std::thread::Builder::new()
@@ -146,8 +186,12 @@ pub fn reset(reason: &str) {
             let fresh = build();
             *slot().write().unwrap_or_else(|e| e.into_inner()) = fresh;
         });
-    if let Err(err) = spawned {
-        log::warn!("[http] could not spawn the client rebuild: {err}");
+    match spawned {
+        Ok(handle) => Some(handle),
+        Err(err) => {
+            log::warn!("[http] could not spawn the client rebuild: {err}");
+            None
+        }
     }
 }
 
@@ -156,20 +200,39 @@ pub fn record_success() {
     FAILURE_STREAK.store(0, Ordering::Relaxed);
 }
 
-/// A request failed in transport. After [`FAILURES_BEFORE_REBUILD`] in a row
-/// with no success between them the pooled connection is presumed dead and
-/// the client is rebuilt, at most once per [`REBUILD_COOLDOWN`].
+/// A request failed at the CONNECTION level. After
+/// [`FAILURES_BEFORE_REBUILD`] in a row with no success between them the
+/// pooled connection is presumed dead and the client is rebuilt, at most once
+/// per (jittered) [`REBUILD_COOLDOWN`].
 pub fn record_failure() {
     let streak = FAILURE_STREAK.fetch_add(1, Ordering::Relaxed).saturating_add(1);
     let last = *LAST_REBUILD.lock().unwrap_or_else(|e| e.into_inner());
-    if should_rebuild(streak, last.map(|at| at.elapsed())) {
+    if should_rebuild(streak, last.map(|(at, cooldown)| (at.elapsed(), cooldown))) {
         reset(&format!("{streak} transport failures in a row"));
     }
 }
 
-fn should_rebuild(streak: u32, since_last_rebuild: Option<Duration>) -> bool {
+/// [`record_failure`] for a reqwest error, counting only the failures a new
+/// connection could cure (see [`is_connection_failure`]).
+pub fn record_request_error(err: &reqwest::Error) {
+    if is_connection_failure(err.is_connect(), err.is_timeout(), err.is_request() || err.is_body()) {
+        record_failure();
+    }
+}
+
+/// Which transport failures say the CONNECTION is bad: it never came up
+/// (DNS/TCP/TLS, a connect timeout included) or it broke mid-request (reset,
+/// closed by a keepalive ping). A request that merely ran out its own budget
+/// on a working connection does not: a slow server after a deploy or under DB
+/// load would otherwise have every desktop drop its pool at once.
+pub(crate) fn is_connection_failure(is_connect: bool, is_timeout: bool, is_io: bool) -> bool {
+    is_connect || (is_io && !is_timeout)
+}
+
+/// `last` = how long ago the client was rebuilt, and that rebuild's cooldown.
+fn should_rebuild(streak: u32, last: Option<(Duration, Duration)>) -> bool {
     streak >= FAILURES_BEFORE_REBUILD
-        && since_last_rebuild.is_none_or(|elapsed| elapsed >= REBUILD_COOLDOWN)
+        && last.is_none_or(|(elapsed, cooldown)| elapsed >= cooldown)
 }
 
 /// An error with its whole `source()` chain, outermost first. reqwest's own
@@ -234,8 +297,32 @@ mod tests {
     fn a_failure_streak_rebuilds_once_per_cooldown() {
         assert!(!should_rebuild(FAILURES_BEFORE_REBUILD - 1, None));
         assert!(should_rebuild(FAILURES_BEFORE_REBUILD, None));
-        assert!(!should_rebuild(40, Some(REBUILD_COOLDOWN - Duration::from_secs(1))));
-        assert!(should_rebuild(40, Some(REBUILD_COOLDOWN)));
+        let cooldown = REBUILD_COOLDOWN;
+        assert!(!should_rebuild(40, Some((cooldown - Duration::from_secs(1), cooldown))));
+        assert!(should_rebuild(40, Some((cooldown, cooldown))));
+    }
+
+    #[test]
+    fn only_connection_failures_feed_the_streak() {
+        // (is_connect, is_timeout, is_io)
+        assert!(is_connection_failure(true, false, true), "connect refused / DNS");
+        assert!(is_connection_failure(true, true, true), "connect timeout");
+        assert!(is_connection_failure(false, false, true), "reset mid-request");
+        // The server was slow on a connection that works.
+        assert!(!is_connection_failure(false, true, true), "request timeout");
+        // Builder / redirect / decode faults say nothing about the socket.
+        assert!(!is_connection_failure(false, false, false));
+    }
+
+    #[test]
+    fn jitter_stays_within_thirty_percent() {
+        let base = Duration::from_secs(10);
+        assert_eq!(jitter_at(base, 0), Duration::from_secs(7));
+        assert_eq!(jitter_at(base, 999), Duration::from_secs(13));
+        for _ in 0..200 {
+            let rolled = jittered(base);
+            assert!(rolled >= Duration::from_secs(7) && rolled <= Duration::from_secs(13), "{rolled:?}");
+        }
     }
 
     #[test]
