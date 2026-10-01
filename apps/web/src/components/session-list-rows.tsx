@@ -34,19 +34,14 @@ import { RunningIndicator } from "@/components/agent-session-row"
 
 const ChevronDownIcon = conceptIcon(`ui-chevron-down`)
 const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
-const WarningIcon = conceptIcon(`ui-warning`)
 
-/** EXP-1068: what a workflow-member row adds to the two rows below — a title
- *  that beats the identity (a review's `Review r2 · approved`), the duplicate
- *  warning, the red "needs you" dot of an open question, and an extra caption
- *  line (`account Work`). Every field optional: a plain run passes none. */
+/** What a row adds to the two rows below — a title that beats the identity
+ *  (a caller's own, an action's Runs) and the red "needs you" dot of an open
+ *  question. Every field optional: a plain run passes none. */
 export interface SessionRowDecor {
   title?: string
-  /** The warning glyph's tooltip; absent = no glyph. */
-  warning?: string | null
   /** EXP-1082 §4: the run parked on a question for a person. */
   needsYou?: boolean
-  caption?: string | null
 }
 
 /** EXP-1068: the red dot beside the state dot while a question is open. */
@@ -57,15 +52,6 @@ export function NeedsYouDot({ className }: { className?: string }) {
       title="Needs you"
       className={cn(`inline-block size-1.5 shrink-0 rounded-full bg-red-500`, className)}
     />
-  )
-}
-
-/** EXP-1068 3d: the duplicate-run warning (two live runs on one node). */
-export function DuplicateRunGlyph({ warning }: { warning: string }) {
-  return (
-    <span title={warning} className="flex shrink-0 items-center">
-      <WarningIcon aria-label={warning} className="size-3.5 text-amber-400" />
-    </span>
   )
 }
 
@@ -88,7 +74,7 @@ export function RunningSessionRow({
   decor,
 }: {
   row: SessionListRow
-  /** EXP-1068: the workflow-member additions; absent on a plain run. */
+  /** EXP-1068: the row's additions; absent on a plain run. */
   decor?: SessionRowDecor
   /** Nesting depth under a parent run — 14px of indent per level. */
   depth?: number
@@ -161,11 +147,7 @@ export function RunningSessionRow({
           )}
           <span className="truncate font-medium">{decor?.title ?? identity.subject}</span>
           {decor?.needsYou && <NeedsYouDot />}
-          {decor?.warning && <DuplicateRunGlyph warning={decor.warning} />}
         </div>
-        {decor?.caption && (
-          <div className="truncate pl-3.5 text-xs text-muted-foreground">{decor.caption}</div>
-        )}
         {caption && (
           <div
             className="truncate pl-3.5 text-xs text-muted-foreground"
@@ -202,13 +184,9 @@ export function PastSessionRow({
   expanded = true,
   onToggle,
   onOpen,
-  decor,
 }: {
   sessionId: string
   title: string
-  /** EXP-1068: the workflow-member additions (its `title` is already the
-   *  caller's `title`); absent on a plain run. */
-  decor?: SessionRowDecor
   /** An issue run's identifier, or a batch's `EXP-874 +2` (EXP-876) — the
    *  mono lead-in; null for an action or chat run. */
   identifier: string | null
@@ -261,11 +239,7 @@ export function PastSessionRow({
             </span>
           )}
           <span className="truncate">{title}</span>
-          {decor?.warning && <DuplicateRunGlyph warning={decor.warning} />}
         </div>
-        {decor?.caption && (
-          <div className="truncate text-xs text-muted-foreground">{decor.caption}</div>
-        )}
         {byline && (
           <div className="truncate text-xs text-muted-foreground">{byline}</div>
         )}

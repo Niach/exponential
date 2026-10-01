@@ -289,7 +289,6 @@ describe(`team-delete placeholder purge (EXP-1132)`, () => {
       `comments c WHERE c.author_id = u.id`,
       `issue_events e WHERE e.actor_user_id = u.id`,
       `attachments a WHERE a.uploader_id = u.id`,
-      `workflows w WHERE w.creator_id = u.id`,
     ]) {
       expect(predicate).toContain(`NOT EXISTS (SELECT 1 FROM ${guard})`)
     }

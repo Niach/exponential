@@ -8,9 +8,6 @@ import {
 } from "@/lib/connectivity"
 import {
   selectSyncedActionSchema,
-  selectSyncedWorkflowSchema,
-  selectWorkflowNodeSchema,
-  selectWorkflowEventSchema,
   selectAttachmentSchema,
   selectCodingSessionSchema,
   selectCommentSchema,
@@ -147,37 +144,6 @@ export const actionCollection = createCollection(
     id: `actions`,
     shapeOptions: shapeOptions(`/api/shapes/actions`),
     schema: selectSyncedActionSchema,
-    getKey: (item) => item.id,
-  })
-)
-
-// EXP-981: workflows + their nodes, team-scoped like actions. `wave`/`lane` on
-// a node are the SERVER's layout; no client lays a graph out.
-export const workflowCollection = createCollection(
-  electricCollectionOptions({
-    id: `workflows`,
-    shapeOptions: shapeOptions(`/api/shapes/workflows`),
-    schema: selectSyncedWorkflowSchema,
-    getKey: (item) => item.id,
-  })
-)
-
-export const workflowNodeCollection = createCollection(
-  electricCollectionOptions({
-    id: `workflow_nodes`,
-    shapeOptions: shapeOptions(`/api/shapes/workflow-nodes`),
-    schema: selectWorkflowNodeSchema,
-    getKey: (item) => item.id,
-  })
-)
-
-// EXP-1082 §3: the engine's event log per workflow (newest 50 kept
-// server-side), rendered by `WorkflowEventList`.
-export const workflowEventCollection = createCollection(
-  electricCollectionOptions({
-    id: `workflow_events`,
-    shapeOptions: shapeOptions(`/api/shapes/workflow-events`),
-    schema: selectWorkflowEventSchema,
     getKey: (item) => item.id,
   })
 )

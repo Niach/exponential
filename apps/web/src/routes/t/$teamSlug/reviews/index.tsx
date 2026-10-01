@@ -16,7 +16,6 @@ import {
   ListRow,
   GlassSectionHeader,
   BoardGlyph,
-  treeGuides,
 } from "@exp/ui"
 import { useSteerConfig } from "@/components/agent-session"
 import { useOpenComposer } from "@/hooks/use-open-composer"
@@ -24,22 +23,9 @@ import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import {
   useReviewsData,
   type ReviewEntry,
-  type ReviewRow,
   type SessionReviewEntry,
-  type WorkflowReviewEntry,
 } from "@/hooks/use-reviews-data"
-import { PrGraphBadge } from "@/components/pr-graph-badge"
-import { PrStackRow } from "@/components/pr-stack-row"
-import {
-  mergeStackBody,
-  MERGE_STACK_LABEL,
-  MERGE_STACK_TITLE,
-} from "@/lib/pr-stack"
-import {
-  MERGE_LABEL,
-  reviewRowMergeAction,
-  reviewsMergeDisabledReason,
-} from "@/lib/reviews-merge"
+import { ReviewPrRow } from "@/components/review-pr-row"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
@@ -71,9 +57,7 @@ const PrOpenIcon = conceptIcon(`pr-open`)
 const PrMergedIcon = conceptIcon(`pr-merged`)
 const BranchIcon = conceptIcon(`ui-branch`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)
-const StackIcon = conceptIcon(`pr-stack`)
 const BatchIcon = conceptIcon(`pr-batch`)
-const WorkflowIcon = conceptIcon(`nav-workflows`)
 
 interface ExternalMergeTarget {
   repositoryId: string
@@ -87,7 +71,6 @@ function ReviewsPage() {
   const team = useTeamBySlug(teamSlug)
   const {
     groups,
-    workflowEntries,
     sessionEntries,
     externalGroups,
     count,
@@ -103,13 +86,6 @@ function ReviewsPage() {
   // Closing without merging lives on the review-detail page (EXP-248) — list
   // rows offer merge only, matching the iOS/Android review rows.
   const [mergeTarget, setMergeTarget] = useState<ReviewEntry | null>(null)
-  // EXP-897: the stack whose "Merge the whole stack?" confirm is open. The
-  // mutation takes the TOP of the chain; the server merges every unmerged
-  // member below it, bottom-up.
-  const [stackMergeTarget, setStackMergeTarget] = useState<{
-    row: ReviewRow
-    topIssueId: string
-  } | null>(null)
   const [mergingIds, setMergingIds] = useState<Set<string>>(new Set())
   const [externalMergeTarget, setExternalMergeTarget] =
     useState<ExternalMergeTarget | null>(null)
@@ -118,11 +94,6 @@ function ReviewsPage() {
   // Electric echo (the session row's prState leaves `open`).
   const [sessionMergeTarget, setSessionMergeTarget] =
     useState<SessionReviewEntry | null>(null)
-  // EXP-1072: the workflow whose FINAL PR's confirm dialog is open. Its
-  // spinner rides `mergingIds` too, released by the Electric echo of the
-  // workflow row's `final_pr_state` leaving `open`.
-  const [workflowMergeTarget, setWorkflowMergeTarget] =
-    useState<WorkflowReviewEntry | null>(null)
   // A refused merge (conflicts, branch protection, GitHub App errors) captions
   // ITS row, keyed by entry.key (EXP-323) — the global toast is transient and
   // gave the conflict-recovery run nowhere to live.
@@ -147,12 +118,8 @@ function ReviewsPage() {
     for (const entry of sessionEntries) {
       map[entry.key] = String(entry.session.updatedAt ?? ``)
     }
-    // A workflow's final PR stamps the workflow row (EXP-1072).
-    for (const entry of workflowEntries) {
-      map[entry.key] = String(entry.workflow.updatedAt ?? ``)
-    }
     return map
-  }, [groups, sessionEntries, workflowEntries])
+  }, [groups, sessionEntries])
   const stampSignature = Object.entries(stamps)
     .map(([key, value]) => `${key}=${value}`)
     .join(`|`)
@@ -191,23 +158,6 @@ function ReviewsPage() {
       actionId: BUILTIN_FIX_CONFLICTS_ID,
       prIssueId: entry.issue.id,
     })
-  // EXP-1072: the final PR's recovery run — the `pr` input takes the
-  // WORKFLOW id (the server resolves it to the final PR's branch and base).
-  const openWorkflowFixConflicts = (entry: WorkflowReviewEntry) =>
-    openComposer({
-      actionId: BUILTIN_FIX_CONFLICTS_ID,
-      prIssueId: entry.workflow.id,
-    })
-
-  // A workflow's row opens the workflow itself — its page carries the graph,
-  // the decisions and the final PR chip.
-  const openWorkflow = (workflowId: string) => {
-    void navigate({
-      to: `/t/$teamSlug/workflows/$workflowId`,
-      params: { teamSlug, workflowId },
-    })
-  }
-
   // The row opens the review-detail page (PR/branch diff + Merge/Close), not the
   // issue itself — a batch entry's representative identifier stands for the PR.
   const openReview = (issueIdentifier: string) => {
@@ -253,43 +203,6 @@ function ReviewsPage() {
       })
   }
 
-  // EXP-897: merging a whole stack. One call, on the TOP of the chain: a real
-  // GitHub stack merges atomically, a candidate one bottom-up. The spinner
-  // and any refusal caption the BOTTOM row, which is where the control sits.
-  const confirmStackMerge = () => {
-    const target = stackMergeTarget
-    if (!target) return
-    setStackMergeTarget(null)
-    const key = target.row.entry.key
-    setMergingIds((prev) => new Set(prev).add(key))
-    setMergeErrors((prev) => {
-      const next = { ...prev }
-      delete next[key]
-      return next
-    })
-    trpc.issues.mergePr
-      .mutate(
-        { issueId: target.topIssueId, mergeStack: true },
-        { context: { skipErrorToast: true } }
-      )
-      .catch((error: unknown) => {
-        setMergeErrors((prev) => ({
-          ...prev,
-          // A stack refusal is never a rebase-and-resolve job: the recovery
-          // run takes ONE pull request.
-          [key]: {
-            ...mergeFailure(error, `The stack could not be merged`),
-            conflict: false,
-          },
-        }))
-        setMergingIds((prev) => {
-          const next = new Set(prev)
-          next.delete(key)
-          return next
-        })
-      })
-  }
-
   // EXP-734: merging a run's OWN pull request. No issue completes; the run's
   // session closes unless the team keeps sessions on merge.
   const confirmSessionMerge = () => {
@@ -307,37 +220,6 @@ function ReviewsPage() {
         { sessionId: entry.session.id },
         { context: { skipErrorToast: true } }
       )
-      .catch((error: unknown) => {
-        setMergeErrors((prev) => ({
-          ...prev,
-          [entry.key]: mergeFailure(
-            error,
-            `The pull request could not be merged`
-          ),
-        }))
-        setMergingIds((prev) => {
-          const next = new Set(prev)
-          next.delete(entry.key)
-          return next
-        })
-      })
-  }
-
-  // EXP-1072: merging a workflow's FINAL pull request. GitHub's acceptance
-  // completes the workflow and moves every landed node's issue to the
-  // team's PR-merge status (the linked-PR merge path's own status writer).
-  const confirmWorkflowMerge = () => {
-    const entry = workflowMergeTarget
-    if (!entry) return
-    setWorkflowMergeTarget(null)
-    setMergingIds((prev) => new Set(prev).add(entry.key))
-    setMergeErrors((prev) => {
-      const next = { ...prev }
-      delete next[entry.key]
-      return next
-    })
-    trpc.workflows.mergeFinalPr
-      .mutate({ id: entry.workflow.id }, { context: { skipErrorToast: true } })
       .catch((error: unknown) => {
         setMergeErrors((prev) => ({
           ...prev,
@@ -422,11 +304,7 @@ function ReviewsPage() {
                 />
 
                 <div className="flex flex-col gap-0">
-                  {(() => {
-                  // EXP-965: the stack's connector, off the group's depths.
-                  const guides = treeGuides(group.rows.map((row) => row.depth))
-                  return group.rows.map((row, rowIndex) => {
-                    const entry = row.entry
+                  {group.entries.map((entry) => {
                     const issue = entry.issue
                     const isBatch = entry.issues.length > 1
                     const merging = mergingIds.has(entry.key)
@@ -440,52 +318,17 @@ function ReviewsPage() {
                     const canFixConflicts = Boolean(
                       mergeError?.conflict && issue.branch && steerEnabled
                     )
-                    // EXP-1094: ONE merge control per row (`lib/reviews-merge.ts`).
-                    const mergeInput = {
-                      stack: row.stackTopIssueId
-                        ? (`bottom` as const)
-                        : row.depth > 0
-                          ? (`upper` as const)
-                          : (`none` as const),
-                      workflowStatus: row.workflowStatus,
-                      finalPr: false,
-                      finalPrState: null,
-                    }
-                    const mergeAction = reviewRowMergeAction(mergeInput)
-                    const mergeReason = reviewsMergeDisabledReason(mergeInput)
-                    const startMerge = () => {
-                      if (mergeAction === `merge_stack` && row.stackTopIssueId) {
-                        setStackMergeTarget({ row, topIssueId: row.stackTopIssueId })
-                      } else {
-                        setMergeTarget(entry)
-                      }
-                    }
                     return (
-                      <PrStackRow
+                      <ReviewPrRow
                         key={entry.key}
                         issue={issue}
                         issues={entry.issues}
-                        depth={row.depth}
-                        guide={guides[rowIndex]}
-                        stackedOn={row.stackedOn}
                         onOpen={() => openReview(issue.identifier)}
-                        /* A batch PR wears the batch glyph; the overlay on it
-                            lists the issues it closes (EXP-897 Part 4).
-                            EXP-916: the lead cell is ALWAYS drawn — a badge
-                            that renders nothing (its siblings have not synced)
-                            used to drop the grid's first column and shift the
-                            whole row. */
+                        /* A PR linking several issues wears the batch glyph.
+                            EXP-916: the lead cell is ALWAYS drawn. */
                         lead={
                           isBatch ? (
-                            <PrGraphBadge
-                              teamId={team.id}
-                              teamSlug={teamSlug}
-                              issue={issue}
-                              variant="glyph"
-                              fallback={
-                                <BatchIcon className="size-4 text-muted-foreground" />
-                              }
-                            />
+                            <BatchIcon className="size-4 text-muted-foreground" />
                           ) : (
                             <PrOpenIcon className="h-4 w-4 text-emerald-500" />
                           )
@@ -495,69 +338,43 @@ function ReviewsPage() {
                             per row, never two.
                             EXP-698: the row's Merge and the review detail's
                             header Merge are ONE control at ONE weight —
-                            `Pill size="md" mode="action"`.
-                            EXP-1094: the slot holds what `reviewRowMergeAction`
-                            says: Merge, Merge stack (the bottom row), or
-                            nothing (an upper member, a workflow node PR). Any
-                            reason the rule returns is the row's muted caption,
-                            the same on every client. */
+                            `Pill size="md" mode="action"`. */
                         trailing={
                           canFixConflicts ? (
-                          <Pill
-                            size="md"
-                            mode="action"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              openFixConflicts(entry)
-                            }}
-                          >
-                            <BranchIcon className="h-3.5 w-3.5" />
-                            Fix conflicts
-                          </Pill>
-                        ) : mergeAction === `none` ? (
-                          mergeReason ? (
-                            <span
-                              className="self-center text-xs text-muted-foreground"
-                              data-testid={`merge-reason-${issue.identifier}`}
+                            <Pill
+                              size="md"
+                              mode="action"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                openFixConflicts(entry)
+                              }}
                             >
-                              {mergeReason}
-                            </span>
+                              <BranchIcon className="h-3.5 w-3.5" />
+                              Fix conflicts
+                            </Pill>
                           ) : (
-                            <span />
+                            <Pill
+                              size="md"
+                              mode="action"
+                              disabled={merging}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setMergeTarget(entry)
+                              }}
+                            >
+                              {merging ? (
+                                <>
+                                  <UiLoadingIcon className="h-3.5 w-3.5 animate-spin" />
+                                  Merging…
+                                </>
+                              ) : (
+                                <>
+                                  <PrMergedIcon className="h-3.5 w-3.5" />
+                                  Merge
+                                </>
+                              )}
+                            </Pill>
                           )
-                        ) : (
-                          <Pill
-                            size="md"
-                            mode="action"
-                            disabled={merging}
-                            data-testid={
-                              mergeAction === `merge_stack`
-                                ? `merge-stack-${issue.identifier}`
-                                : undefined
-                            }
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              startMerge()
-                            }}
-                          >
-                            {merging ? (
-                              <>
-                                <UiLoadingIcon className="h-3.5 w-3.5 animate-spin" />
-                                Merging…
-                              </>
-                            ) : mergeAction === `merge_stack` ? (
-                              <>
-                                <StackIcon className="h-3.5 w-3.5" />
-                                {MERGE_STACK_LABEL}
-                              </>
-                            ) : (
-                              <>
-                                <PrMergedIcon className="h-3.5 w-3.5" />
-                                {MERGE_LABEL}
-                              </>
-                            )}
-                          </Pill>
-                        )
                         }
                         /* The refusal captions its own row (EXP-323) —
                             spanning the grid so the full GitHub message stays
@@ -568,153 +385,32 @@ function ReviewsPage() {
                             been resolved outside the recovery run). */
                         footer={
                           mergeError && (
-                          <div className="col-span-4 flex flex-wrap items-center gap-2 pt-2">
-                            <span className="text-destructive text-xs">
-                              {mergeError.message}
-                            </span>
-                            {canFixConflicts && mergeAction !== `none` && (
-                              <Pill
-                                mode="action"
-                                disabled={merging}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  startMerge()
-                                }}
-                              >
-                                <PrMergedIcon className="size-3" />
-                                Retry merge
-                              </Pill>
-                            )}
-                          </div>
-                        )
+                            <div className="col-span-4 flex flex-wrap items-center gap-2 pt-2">
+                              <span className="text-destructive text-xs">
+                                {mergeError.message}
+                              </span>
+                              {canFixConflicts && (
+                                <Pill
+                                  mode="action"
+                                  disabled={merging}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setMergeTarget(entry)
+                                  }}
+                                >
+                                  <PrMergedIcon className="size-3" />
+                                  Retry merge
+                                </Pill>
+                              )}
+                            </div>
+                          )
                         }
                       />
-                    )
-                  })
-                  })()}
-                </div>
-              </div>
-            ))}
-
-            {/* EXP-1072: the workflows' FINAL pull requests — the one
-                human sign-off of a whole run. Each is the workflow's own PR:
-                it merges through the workflow (completing it and its
-                issues), and a real conflict swaps in the recovery run like
-                any linked PR. */}
-            {workflowEntries.length > 0 && (
-              <div className="mb-6">
-                <GlassSectionHeader
-                  leading={
-                    <WorkflowIcon className="size-3.5 shrink-0 text-foreground/50" />
-                  }
-                  label="Workflows"
-                  trailing={
-                    <span className="text-xs text-foreground/50">
-                      final pull requests
-                    </span>
-                  }
-                />
-
-                <div className="flex flex-col gap-0">
-                  {workflowEntries.map((entry) => {
-                    const workflow = entry.workflow
-                    const merging = mergingIds.has(entry.key)
-                    const mergeError = mergeErrors[entry.key]
-                    const canFixConflicts = Boolean(
-                      mergeError?.conflict && steerEnabled
-                    )
-                    // EXP-1094: a final PR merges only while it is open.
-                    const canMerge =
-                      reviewRowMergeAction({
-                        stack: `none`,
-                        workflowStatus: workflow.status,
-                        finalPr: true,
-                        finalPrState:
-                          typeof workflow.finalPrState === `string`
-                            ? workflow.finalPrState
-                            : null,
-                      }) === `merge`
-                    return (
-                      <ListRow
-                        key={entry.key}
-                        interactive
-                        className="group/row grid grid-cols-[1.5rem_4.5rem_1fr_auto] gap-0"
-                        onClick={() => openWorkflow(workflow.id)}
-                        data-testid={`review-workflow-${workflow.id}`}
-                      >
-                        <PrOpenIcon className="h-4 w-4 text-emerald-500" />
-                        <span className="truncate font-mono text-xs text-muted-foreground">
-                          #{workflow.finalPrNumber}
-                        </span>
-                        <div className="min-w-0 pr-3">
-                          <div className="truncate text-sm">{workflow.name}</div>
-                          <div className="truncate font-mono text-xs text-muted-foreground">
-                            {workflow.integrationBranch}
-                          </div>
-                        </div>
-                        {canFixConflicts ? (
-                          <Pill
-                            size="md"
-                            mode="action"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              openWorkflowFixConflicts(entry)
-                            }}
-                          >
-                            <BranchIcon className="h-3.5 w-3.5" />
-                            Fix conflicts
-                          </Pill>
-                        ) : !canMerge ? (
-                          <span />
-                        ) : (
-                          <Pill
-                            size="md"
-                            mode="action"
-                            disabled={merging}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setWorkflowMergeTarget(entry)
-                            }}
-                          >
-                            {merging ? (
-                              <>
-                                <UiLoadingIcon className="h-3.5 w-3.5 animate-spin" />
-                                Merging…
-                              </>
-                            ) : (
-                              <>
-                                <PrMergedIcon className="h-3.5 w-3.5" />
-                                Merge
-                              </>
-                            )}
-                          </Pill>
-                        )}
-                        {mergeError && (
-                          <div className="col-span-4 flex flex-wrap items-center gap-2 pt-2">
-                            <span className="text-destructive text-xs">
-                              {mergeError.message}
-                            </span>
-                            {canFixConflicts && canMerge && (
-                              <Pill
-                                mode="action"
-                                disabled={merging}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setWorkflowMergeTarget(entry)
-                                }}
-                              >
-                                <PrMergedIcon className="size-3" />
-                                Retry merge
-                              </Pill>
-                            )}
-                          </div>
-                        )}
-                      </ListRow>
                     )
                   })}
                 </div>
               </div>
-            )}
+            ))}
 
             {/* EXP-734: pull requests a coding run opened for itself — an
                 action or chat run with no linked issue. They merge through
@@ -912,28 +608,6 @@ function ReviewsPage() {
       </Dialog>
 
       <Dialog
-        open={stackMergeTarget !== null}
-        onOpenChange={(open) => {
-          if (!open) setStackMergeTarget(null)
-        }}
-      >
-        <DialogContent mobile="alert" data-testid="merge-stack-dialog">
-          <DialogHeader>
-            <DialogTitle>{MERGE_STACK_TITLE}</DialogTitle>
-            <DialogDescription>
-              {stackMergeTarget
-                ? mergeStackBody(stackMergeTarget.row.stackSize)
-                : ``}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogCancel onClick={() => setStackMergeTarget(null)} />
-            <Button onClick={confirmStackMerge}>{MERGE_STACK_LABEL}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
         open={sessionMergeTarget !== null}
         onOpenChange={(open) => {
           if (!open) setSessionMergeTarget(null)
@@ -949,26 +623,6 @@ function ReviewsPage() {
           <DialogFooter>
             <DialogCancel onClick={() => setSessionMergeTarget(null)} />
             <Button onClick={confirmSessionMerge}>Merge pull request</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={workflowMergeTarget !== null}
-        onOpenChange={(open) => {
-          if (!open) setWorkflowMergeTarget(null)
-        }}
-      >
-        <DialogContent mobile="alert" data-testid="merge-workflow-dialog">
-          <DialogHeader>
-            <DialogTitle>{`Merge PR #${workflowMergeTarget?.workflow.finalPrNumber}?`}</DialogTitle>
-            <DialogDescription>
-              {`Squash-merges the final pull request of the workflow "${workflowMergeTarget?.workflow.name}" (${workflowMergeTarget?.workflow.integrationBranch}) into the repository's default branch via the GitHub App. This completes the workflow and moves every landed issue to the team's PR-merge status.`}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogCancel onClick={() => setWorkflowMergeTarget(null)} />
-            <Button onClick={confirmWorkflowMerge}>Merge pull request</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

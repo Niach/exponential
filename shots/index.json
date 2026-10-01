@@ -1698,52 +1698,6 @@
         "bytes": 19046,
         "sha256": "30d3353ee0b720215156e4e73dbfb80894404eacde5216adc7eedef0625bc5a5"
       }
-    },
-    "workflow-detail": {
-      "desktop": {
-        "file": "shots/workflow-detail/desktop.webp",
-        "width": 1800,
-        "height": 1126,
-        "bytes": 39316,
-        "sha256": "477dd0947c3be3cce0c25ff7775f54fcc020915426714ef88f89bcc35152adcd"
-      },
-      "web": {
-        "file": "shots/workflow-detail/web.webp",
-        "width": 1800,
-        "height": 1200,
-        "bytes": 48878,
-        "sha256": "d1375fe32caea04ba4e2ba5507b857a2fb966d0bb7eec712ca7cd59bc6f00c5f"
-      },
-      "web-mobile": {
-        "file": "shots/workflow-detail/web-mobile.webp",
-        "width": 832,
-        "height": 1800,
-        "bytes": 32826,
-        "sha256": "c922b3864d25d0f3ad530f7244f0fb1dfb967f04d1949788e406d15cf232372d"
-      }
-    },
-    "workflows-list": {
-      "desktop": {
-        "file": "shots/workflows-list/desktop.webp",
-        "width": 1800,
-        "height": 1126,
-        "bytes": 25302,
-        "sha256": "e1396d9523cd61d7a8c23e759fb35489168b19c3208d79c92a98ec5b261b5194"
-      },
-      "web": {
-        "file": "shots/workflows-list/web.webp",
-        "width": 1800,
-        "height": 1200,
-        "bytes": 27140,
-        "sha256": "0497f58256723f5d52dfba2788d9c625693ae4e7236342875dc3a44695846a53"
-      },
-      "web-mobile": {
-        "file": "shots/workflows-list/web-mobile.webp",
-        "width": 832,
-        "height": 1800,
-        "bytes": 12396,
-        "sha256": "3e52357b3cc7928d00ef443928f3d7a796533973d512734f142f3ca1354ff90d"
-      }
     }
   }
 }

@@ -10,11 +10,8 @@ import {
   BLOCKED_BATCH_BODY,
   BLOCKED_BATCH_TITLE,
   BLOCKED_START_TITLE,
-  STACK_NEEDS_UPDATE_NOTE,
-  STACK_SINGLE_ISSUE_NOTE,
   START_ANYWAY_LABEL,
-  STACKED_PR_LABEL,
-} from "@/lib/stack-start"
+} from "@/lib/issue-graph"
 
 // EXP-825: the composer card over a FAKE model — chips, the per-subject
 // submit label and placeholder, Enter-sends, the suggestion pills. The hook
@@ -127,7 +124,6 @@ function fakeModel(overrides: Partial<LaunchComposerModel> = {}): LaunchComposer
     clearAction: vi.fn(),
     setInput: vi.fn(),
     seedPrIssueId: undefined,
-    workflowId: undefined,
     text: ``,
     setText: vi.fn(),
     images: [],
@@ -145,8 +141,6 @@ function fakeModel(overrides: Partial<LaunchComposerModel> = {}): LaunchComposer
     blockedOpen: false,
     closeBlockedStart: vi.fn(),
     startAnyway: vi.fn().mockResolvedValue(undefined),
-    startStacked: vi.fn().mockResolvedValue(undefined),
-    canStack: true,
     launch: fakeLaunch(),
     candidateDevices: [device],
     deviceRequestNote: null,
@@ -428,11 +422,10 @@ describe(`LaunchComposer`, () => {
   })
 })
 
-// EXP-897: the blocked-start dialog the composer opens on a blocked issue.
+// EXP-980: the blocked-start dialog the composer opens on a blocked issue.
 describe(`LaunchComposer blocked start`, () => {
-  it(`offers Cancel, Start anyway and Stacked PR over the blocker chips`, () => {
+  it(`offers Cancel and Start anyway over the blocker chips`, () => {
     const startAnyway = vi.fn().mockResolvedValue(undefined)
-    const startStacked = vi.fn().mockResolvedValue(undefined)
     render(
       <LaunchComposer
         model={fakeModel({
@@ -441,7 +434,6 @@ describe(`LaunchComposer blocked start`, () => {
           blockedStart: [issue(`i2`, `APP-2`)],
           blockedOpen: true,
           startAnyway,
-          startStacked,
           blocked: false,
         })}
         users={[]}
@@ -451,43 +443,12 @@ describe(`LaunchComposer blocked start`, () => {
     // The blocker rides an ordinary issue chip.
     expect(screen.getByTestId(`blocked-start-chip-APP-2`)).toBeTruthy()
     expect(screen.getByText(`Cancel`)).toBeTruthy()
-    fireEvent.click(screen.getByText(START_ANYWAY_LABEL))
-    expect(startAnyway).toHaveBeenCalledTimes(1)
-    fireEvent.click(screen.getByText(STACKED_PR_LABEL))
-    expect(startStacked).toHaveBeenCalledTimes(1)
-  })
-
-  // The picked machine is below the `stacked-start` build: the stack stays
-  // VISIBLE but disabled, with the reason (EXP-980: it used to vanish).
-  it(`disables Stacked PR with a reason when the device lacks the stacked-start cap`, () => {
-    const startAnyway = vi.fn().mockResolvedValue(undefined)
-    const startStacked = vi.fn().mockResolvedValue(undefined)
-    render(
-      <LaunchComposer
-        model={fakeModel({
-          subject: { kind: `issues`, ids: [`i1`] },
-          checkedIssues: [issue(`i1`, `APP-1`)],
-          blockedStart: [issue(`i2`, `APP-2`)],
-          blockedOpen: true,
-          canStack: false,
-          startAnyway,
-          startStacked,
-          blocked: false,
-        })}
-        users={[]}
-      />
-    )
-    expect(screen.getByText(BLOCKED_START_TITLE)).toBeTruthy()
-    expect(screen.getByTestId(`blocked-start-stack-note`).textContent).toBe(
-      STACK_NEEDS_UPDATE_NOTE
-    )
-    fireEvent.click(screen.getByText(STACKED_PR_LABEL))
-    expect(startStacked).not.toHaveBeenCalled()
+    expect(screen.queryByText(`Stacked PR`)).toBeNull()
     fireEvent.click(screen.getByText(START_ANYWAY_LABEL))
     expect(startAnyway).toHaveBeenCalledTimes(1)
   })
 
-  it(`asks about a batch with the batch copy and no stack`, () => {
+  it(`asks about a batch with the batch copy`, () => {
     render(
       <LaunchComposer
         model={fakeModel({
@@ -502,9 +463,6 @@ describe(`LaunchComposer blocked start`, () => {
     )
     expect(screen.getByText(BLOCKED_BATCH_TITLE)).toBeTruthy()
     expect(screen.getByText(BLOCKED_BATCH_BODY)).toBeTruthy()
-    expect(screen.getByTestId(`blocked-start-stack-note`).textContent).toBe(
-      STACK_SINGLE_ISSUE_NOTE
-    )
   })
 
   it(`draws the transitive chain as the mini-graph`, () => {

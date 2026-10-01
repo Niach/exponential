@@ -36,15 +36,8 @@ import {
 } from "@exp/ui"
 import { cn } from "@/lib/utils"
 import { ChangesTopBar } from "@/components/changes-top-bar"
-import { PrGraphBadge } from "@/components/pr-graph-badge"
 import { ChangesView } from "@/components/changes-view"
 import { MergeCapsule } from "@/components/issue-changes-face"
-import { useTeamWorkflowNodes, useTeamWorkflows } from "@/hooks/use-workflows"
-import {
-  reviewRowMergeAction,
-  reviewWorkflowStatus,
-  workflowStatusByIssue,
-} from "@/lib/reviews-merge"
 import { useSteerConfig } from "@/components/agent-session"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
 import { publishReviewFiles } from "@/lib/review-files-slot"
@@ -161,14 +154,6 @@ function ReviewDetailPage() {
   )
   const [selected, setSelected] = useState<string | null>(null)
 
-  // EXP-1094: a workflow NODE PR merges through its workflow, never here.
-  const teamWorkflows = useTeamWorkflows(team?.id)
-  const teamWorkflowNodes = useTeamWorkflowNodes(team?.id)
-  const statusByIssue = useMemo(
-    () => workflowStatusByIssue(teamWorkflows, teamWorkflowNodes),
-    [teamWorkflows, teamWorkflowNodes]
-  )
-
   // EXP-916: hand the sidebar's tree what it draws — the files, the selection
   // and the pick that scrolls the diff — and take it back on the way out.
   const issueId = issue?.id ?? null
@@ -256,17 +241,7 @@ function ReviewDetailPage() {
   }
 
   const isOpen = issue.prState === `open`
-  const workflowOwnsMerge =
-    reviewRowMergeAction({
-      stack: `none`,
-      workflowStatus: reviewWorkflowStatus(
-        (linked.length > 0 ? linked : [issue]).map((row) => row.id),
-        statusByIssue
-      ),
-      finalPr: false,
-      finalPrState: null,
-    }) === `none`
-  const canMerge = isOpen && !workflowOwnsMerge
+  const canMerge = isOpen
   const isBatch = linked.length > 1
   // The phone card's counts — the very words the md+ bar and the file tree
   // use, so the page says its size once and says it the same way ×4.
@@ -330,15 +305,6 @@ function ReviewDetailPage() {
         merge={canMerge ? mergeTarget : null}
         onClosePr={() => setConfirmCloseOpen(true)}
         closing={closing}
-        trailing={
-          /* EXP-897: the review page IS the Changes face — the same
-             "Related work" button the run's header wears. */
-          <PrGraphBadge
-            teamId={team.id}
-            teamSlug={teamSlug}
-            issue={issue}
-          />
-        }
       />
 
       {/* A refused CLOSE captions the bar that produced it (EXP-333). A refused

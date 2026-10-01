@@ -6,8 +6,6 @@ import {
   BUILTIN_CREATE_ACTION_ID,
   BUILTIN_FIX_CONFLICTS_ID,
   BUILTIN_TIDY_UP_ID,
-  BUILTIN_PLAN_WORKFLOW_ID,
-  BUILTIN_PLAN_WORKFLOW_NAME,
 } from "@/lib/builtin-actions"
 
 // EXP-825: the composer's model — swap rules, submit labels, the blocked
@@ -88,8 +86,7 @@ const device: SteerDevice = {
   deviceId: `dev-1`,
   deviceLabel: `buildbox`,
   agents: [`claude`],
-  // EXP-897: reads the start frame's `stack` payload.
-  caps: [`stacked-start`],
+  caps: [],
   online: true,
   launchDefaults: {
     defaultAgent: `claude`,
@@ -369,9 +366,7 @@ describe(`useLaunchComposer submit`, () => {
       device,
       expect.objectContaining({ agent: `claude`, planMode: true }),
       [`i1`, `i2`],
-      `Keep the API stable`,
-      // EXP-897: a batch never stacks.
-      undefined
+      `Keep the API stable`
     )
     expect(result.current.subject).toBeNull()
   })
@@ -631,8 +626,7 @@ describe(`useLaunchComposer seed`, () => {
   })
 })
 
-// EXP-897: starting a BLOCKED issue asks first — plain run, or a stacked PR
-// cut from the blocker's branch.
+// EXP-980: starting a BLOCKED issue asks first — Cancel or Start anyway.
 describe(`useLaunchComposer blocked start`, () => {
   const blocks = (blocker: string, blocked: string) => ({
     type: `blocks`,
@@ -654,7 +648,7 @@ describe(`useLaunchComposer blocked start`, () => {
     expect(remote.startIssues).not.toHaveBeenCalled()
   })
 
-  it(`Start anyway starts without a stack`, async () => {
+  it(`Start anyway starts the run`, async () => {
     const { result, remote } = mount()
     act(() => result.current.toggleIssue(`i1`))
     await act(() => result.current.submit())
@@ -664,70 +658,24 @@ describe(`useLaunchComposer blocked start`, () => {
       device,
       expect.anything(),
       [`i1`],
-      undefined,
       undefined
     )
-  })
-
-  it(`Stacked PR starts with stack: true`, async () => {
-    const { result, remote } = mount()
-    act(() => result.current.toggleIssue(`i1`))
-    await act(() => result.current.submit())
-    await act(() => result.current.startStacked())
-    expect(remote.startIssues).toHaveBeenCalledWith(
-      device,
-      expect.anything(),
-      [`i1`],
-      undefined,
-      { stack: true }
-    )
-  })
-
-  // A machine below the `stacked-start` build has no `stack` field in its
-  // decoder: the dialog still asks, shows the stack DISABLED with the reason
-  // (EXP-980), and the model refuses to send one rather than downgrade it.
-  it(`refuses the stack for a device without the stacked-start cap`, async () => {
-    const oldDevice: SteerDevice = { ...device, caps: [`resume-run`] }
-    const { result, remote } = mount(null, makeRemote({ devices: [oldDevice] }))
-    act(() => result.current.toggleIssue(`i1`))
-    expect(result.current.canStack).toBe(false)
-    await act(() => result.current.submit())
-    expect(result.current.blockedOpen).toBe(true)
-    await act(() => result.current.startStacked())
-    expect(remote.startIssues).not.toHaveBeenCalled()
-    await act(() => result.current.startAnyway())
-    expect(remote.startIssues).toHaveBeenCalledWith(
-      oldDevice,
-      expect.anything(),
-      [`i1`],
-      undefined,
-      undefined
-    )
-  })
-
-  it(`offers the stack on a device that advertises the cap`, () => {
-    const { result } = mount()
-    act(() => result.current.toggleIssue(`i1`))
-    expect(result.current.canStack).toBe(true)
   })
 
   // EXP-980: a batch asks too — about what blocks it from OUTSIDE.
-  it(`asks for a batch that an outside issue blocks, and never stacks it`, async () => {
+  it(`asks for a batch that an outside issue blocks`, async () => {
     const { result, remote } = mount()
     act(() => result.current.toggleIssue(`i1`))
     act(() => result.current.toggleIssue(`i3`))
     expect(result.current.blockedStart.map((row) => row.id)).toEqual([`i2`])
     await act(() => result.current.submit())
     expect(result.current.blockedOpen).toBe(true)
-    // Stacking is a single-issue mode: refused, never downgraded.
-    await act(() => result.current.startStacked())
     expect(remote.startIssues).not.toHaveBeenCalled()
     await act(() => result.current.startAnyway())
     expect(remote.startIssues).toHaveBeenCalledWith(
       device,
       expect.anything(),
       [`i1`, `i3`],
-      undefined,
       undefined
     )
   })
@@ -766,57 +714,6 @@ describe(`useLaunchComposer blocked start`, () => {
     await act(() => result.current.submit())
     expect(result.current.blockedOpen).toBe(false)
     expect(remote.startIssues).toHaveBeenCalledTimes(1)
-  })
-})
-
-// EXP-981: the hidden plan-workflow builtin — the Plan button seeds it with
-// the workflow it plans, and that id rides the start beside the action.
-describe(`useLaunchComposer plan workflow`, () => {
-  const workflowId = `9f1d6b2a-0000-4000-8000-000000000001`
-
-  it(`resolves the hidden builtin without listing it in the picker`, () => {
-    const { result } = mount({ issueIds: [], actionId: BUILTIN_PLAN_WORKFLOW_ID })
-    expect(result.current.selectedAction?.name).toBe(BUILTIN_PLAN_WORKFLOW_NAME)
-    // Hidden like Chat: never appended to the picker's list.
-    expect(result.current.actions?.map((row) => row.id)).not.toContain(
-      BUILTIN_PLAN_WORKFLOW_ID
-    )
-  })
-
-  it(`sends the seeded workflow id with the run`, async () => {
-    const { result, remote } = mount({
-      issueIds: [],
-      actionId: BUILTIN_PLAN_WORKFLOW_ID,
-      workflowId,
-    })
-    expect(result.current.workflowId).toBe(workflowId)
-    // The free text is optional — the builtin has no required inputs.
-    expect(result.current.blocked).toBe(false)
-    await act(() => result.current.submit())
-    expect(remote.runAction).toHaveBeenCalledWith(
-      device,
-      {
-        id: BUILTIN_PLAN_WORKFLOW_ID,
-        name: BUILTIN_PLAN_WORKFLOW_NAME,
-        teamId: `t1`,
-        workflowId,
-      },
-      expect.objectContaining({ agent: `claude` }),
-      // No inputs: the workflow is named by the start, not by a pick.
-      undefined,
-      undefined
-    )
-    expect(result.current.workflowId).toBeUndefined()
-  })
-
-  it(`drops the workflow id the moment another subject is picked`, () => {
-    const { result } = mount({
-      issueIds: [],
-      actionId: BUILTIN_PLAN_WORKFLOW_ID,
-      workflowId,
-    })
-    act(() => result.current.toggleIssue(`i1`))
-    expect(result.current.workflowId).toBeUndefined()
   })
 })
 

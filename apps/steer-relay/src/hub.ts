@@ -309,16 +309,6 @@ function frame(msg: ServerFrame): string {
   return JSON.stringify(msg)
 }
 
-/** EXP-897: the launch options minus `stack`, for the subjects that never
- * carry one. Returns the SAME object when there is nothing to strip, so the
- * single-issue path and every pre-EXP-897 caller stay untouched. */
-function withoutStack(options: StartSessionOptions): StartSessionOptions {
-  if (!(`stack` in options)) return options
-  const plain = { ...options }
-  delete plain.stack
-  return plain
-}
-
 /** Serialized once: every tick fans the same bytes to every joined viewer. */
 const KEEPALIVE_FRAME = frame({ t: `keepalive` })
 
@@ -915,14 +905,9 @@ export class Hub {
   ): { ok: true } | { ok: false; reason: `device_offline` } {
     const control = this.devices.get(userId)?.get(deviceId)
     if (!control) return { ok: false, reason: `device_offline` }
-    // EXP-897: `stack` belongs to a SINGLE-ISSUE start alone (the /start
-    // parser already refuses it elsewhere); strip it off every other subject
-    // so a batch/action frame can never grow the key.
-    const plain = withoutStack(options)
     // Build each variant explicitly — a raw union spread won't narrow for the
     // ServerFrame `frame()` call. Single-issue key order (t, issueId, options)
-    // stays byte-for-byte with the pre-batch frame; `stack` (when present) is
-    // the last key, absent = byte-identical to the pre-EXP-897 frame.
+    // stays byte-for-byte with the pre-batch frame.
     const payload: ServerFrame =
       `resumeSessionId` in subject
         ? {
@@ -943,12 +928,6 @@ export class Hub {
               ? { startedReason: options.startedReason }
               : {}),
             ...(options.account ? { account: options.account } : {}),
-            // EXP-1082 §1: a resume keeps its workflow membership keys.
-            ...(options.workflowId ? { workflowId: options.workflowId } : {}),
-            ...(options.workflowNodeId
-              ? { workflowNodeId: options.workflowNodeId }
-              : {}),
-            ...(options.workflowRole ? { workflowRole: options.workflowRole } : {}),
             // FEED-63: the start id rides a resume too (a failed resume is
             // reported under it like any other start).
             ...(options.startId ? { startId: options.startId } : {}),
@@ -963,14 +942,14 @@ export class Hub {
                 teamId: subject.teamId,
                 ...(subject.repo ? { repo: subject.repo } : {}),
                 ...(subject.inputs ? { inputs: subject.inputs } : {}),
-                ...plain,
+                ...options,
               }
             : {
                 t: `start_session`,
                 issueIds: subject.issueIds,
                 teamId: subject.teamId,
                 repo: subject.repo,
-                ...plain,
+                ...options,
               }
     control.sock.send(frame(payload))
     this.startsRouted += 1

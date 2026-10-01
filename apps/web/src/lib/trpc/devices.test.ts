@@ -1060,41 +1060,6 @@ describe(`devices.setLaunchDefaults`, () => {
     expect(result.launchDefaults).toEqual({})
   })
 
-  // EXP-1020: the "Workflow settings" sub-shell's pair.
-  it(`stores a whole workflow pair and drops a half or unknown one`, async () => {
-    h.state.selectQueue = deviceRow({})
-    let result = await caller.setLaunchDefaults({
-      deviceId: `dev-1`,
-      launchDefaults: { workflow: { model: `opus`, strongModel: `fable` } },
-    })
-    expect(result.launchDefaults).toEqual({ workflow: { model: `opus`, strongModel: `fable` } })
-
-    // Half a pair never seeds a workflow.
-    h.state.selectQueue = deviceRow({})
-    result = await caller.setLaunchDefaults({
-      deviceId: `dev-1`,
-      launchDefaults: { workflow: { model: `opus` } },
-    })
-    expect(result.launchDefaults).toEqual({})
-
-    // Either vocabulary is accepted; the last used agent decides.
-    h.state.selectQueue = deviceRow({})
-    result = await caller.setLaunchDefaults({
-      deviceId: `dev-1`,
-      launchDefaults: { workflow: { model: `gpt-5.6-sol`, strongModel: `gpt-5.6-luna` } },
-    })
-    expect(result.launchDefaults).toEqual({
-      workflow: { model: `gpt-5.6-sol`, strongModel: `gpt-5.6-luna` },
-    })
-
-    h.state.selectQueue = deviceRow({})
-    result = await caller.setLaunchDefaults({
-      deviceId: `dev-1`,
-      launchDefaults: { workflow: { model: `nonsense`, strongModel: `fable` } },
-    })
-    expect(result.launchDefaults).toEqual({})
-  })
-
   it(`nudges regardless of registered caps (pre-EXP-481 frame parsers retired)`, async () => {
     h.state.selectQueue = deviceRow({ caps: [`actions`] })
     const result = await caller.setLaunchDefaults({

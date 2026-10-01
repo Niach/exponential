@@ -1,26 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
-import {
-  codingSessionCollection,
-  issueCollection,
-  workflowCollection,
-} from "@/lib/collections"
-import { workflowReviewKey } from "@/lib/workflow-final-pr-identity"
+import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import {
   useTeamBoards,
   useTeamUsers,
 } from "@/hooks/use-team-data"
 import { trpc } from "@/lib/trpc-client"
 import { byCreatedAtDesc } from "@/lib/ordering"
-import { nestPrStacks } from "@/lib/pr-stack"
-import { useTeamWorkflowNodes, useTeamWorkflows } from "@/hooks/use-workflows"
-import {
-  reviewRowMergeAction,
-  reviewWorkflowStatus,
-  workflowStatusByIssue,
-} from "@/lib/reviews-merge"
 import type { OpenPull } from "@/lib/integrations/github-pr"
-import type { CodingSession, Issue, Board, Team, SyncedWorkflow } from "@/db/schema"
+import type { CodingSession, Issue, Board, Team } from "@/db/schema"
 
 // One open PR. A batch coding run links several issues to the same prUrl —
 // they all ride ONE entry (EXP-131, never one row per issue); merging/closing
@@ -34,50 +22,20 @@ export interface ReviewEntry {
   issues: Issue[]
 }
 
-// EXP-897: one row of the queue — an entry plus where it sits in its PR
-// STACK (`issues.pr_base_branch`, `lib/pr-stack.ts`). An upper entry follows
-// the one it is based on, indented, and the BOTTOM row of a stack is the one
-// that can merge the whole thing.
-export interface ReviewRow {
-  entry: ReviewEntry
-  depth: number
-  hasChildren: boolean
-  /** The identifier this entry is stacked on — the `on top of #IDENT`
-   *  caption. Null on a root. */
-  stackedOn: string | null
-  /** Bottom row of a real stack only: the TOP entry's representative issue id
-   *  (what `issues.mergePr({ mergeStack: true })` takes) and the stack's size. */
-  stackTopIssueId: string | null
-  stackSize: number
-  /** EXP-1094: the status of the workflow whose node covers any of this PR's
-   *  issues (a node's `issueId` or `memberIssueIds`), else null. A running or
-   *  paused one owns the merge (`lib/reviews-merge.ts`). */
-  workflowStatus: string | null
-}
-
 export interface ReviewGroup {
   board: Board
-  /** Nested rows, roots newest-first. */
-  rows: ReviewRow[]
-  /** The same entries, flat — the sidebar nav and the counts. */
+  /** One entry per open PR, newest first — a FLAT list. */
   entries: ReviewEntry[]
 }
 
 // EXP-734: one open PR a coding run opened for ITSELF (an action or chat run
 // with no linked issue, `exponential_pr_open({ repositoryId, head })`). The
 // session row carries prUrl/prNumber/prState, so it needs no GitHub fetch.
+// Every run stamps its own PR on its row — a batch run's combined PR too — so
+// a run PR that also links issues stays with those issues' entry instead.
 export interface SessionReviewEntry {
   key: string
   session: CodingSession
-}
-
-// EXP-1072: a workflow's ONE final pull request (integration branch → the
-// default branch). The workflow row carries its url/number/state, so it is
-// the workflow's OWN PR here — never an "external" one — and merges through
-// `workflows.mergeFinalPr`, which completes the workflow and its issues.
-export interface WorkflowReviewEntry {
-  key: string
-  workflow: SyncedWorkflow
 }
 
 export interface ExternalPullGroup {
@@ -116,14 +74,6 @@ export function useReviewsData(team: Team | null | undefined) {
 
   const { userMap } = useTeamUsers(team?.id)
 
-  // EXP-1094: which issues a workflow node covers, and that workflow's status.
-  const teamWorkflows = useTeamWorkflows(teamId)
-  const teamWorkflowNodes = useTeamWorkflowNodes(teamId)
-  const statusByIssue = useMemo(
-    () => workflowStatusByIssue(teamWorkflows, teamWorkflowNodes),
-    [teamWorkflows, teamWorkflowNodes]
-  )
-
   // EXP-734: run PRs that link no issue. Team-scoped over the synced
   // coding_sessions shape — the issue-less filter and the prUrl dedupe run in
   // JS below (a live query cannot express either).
@@ -136,23 +86,6 @@ export function useReviewsData(team: Team | null | undefined) {
               and(
                 eq(sessions.teamId, teamId),
                 eq(sessions.prState, `open`)
-              )
-            )
-        : undefined,
-    [teamId]
-  )
-
-  // EXP-1072: workflows whose final PR is open. Team-scoped over the synced
-  // `workflows` shape.
-  const { data: workflowRows } = useLiveQuery(
-    (query) =>
-      teamId
-        ? query
-            .from({ workflows: workflowCollection })
-            .where(({ workflows }) =>
-              and(
-                eq(workflows.teamId, teamId),
-                eq(workflows.finalPrState, `open`)
               )
             )
         : undefined,
@@ -229,63 +162,13 @@ export function useReviewsData(team: Team | null | undefined) {
     }
     allEntries.sort((a, b) => byCreatedAtDesc(a.issue, b.issue))
 
-    // EXP-897: nest the WHOLE queue before bucketing — a stack can cross
-    // boards (its members share a repository, not a board), and it must read
-    // as one stack wherever its bottom lives.
-    const nested = nestPrStacks(allEntries)
-    const rows: ReviewRow[] = nested.map((row, index) => {
-      // The parent is the nearest earlier row one level up.
-      let stackedOn: string | null = null
-      if (row.depth > 0) {
-        for (let back = index - 1; back >= 0; back -= 1) {
-          if (nested[back].depth === row.depth - 1) {
-            stackedOn = nested[back].entry.issue.identifier
-            break
-          }
-        }
-      }
-      // A root with children owns the stack: its size is its whole subtree,
-      // and the TOP is the deepest row of it (the one GitHub merges).
-      let stackTopIssueId: string | null = null
-      let stackSize = 1
-      if (row.depth === 0 && row.hasChildren) {
-        let top = row.entry
-        let deepest = 0
-        for (let ahead = index + 1; ahead < nested.length; ahead += 1) {
-          if (nested[ahead].depth === 0) break
-          stackSize += 1
-          if (nested[ahead].depth > deepest) {
-            deepest = nested[ahead].depth
-            top = nested[ahead].entry
-          }
-        }
-        stackTopIssueId = top.issue.id
-      }
-      const workflowStatus = reviewWorkflowStatus(
-        row.entry.issues.map((linked) => linked.id),
-        statusByIssue
-      )
-      return {
-        entry: row.entry,
-        depth: row.depth,
-        hasChildren: row.hasChildren,
-        stackedOn,
-        stackTopIssueId,
-        stackSize,
-        workflowStatus,
-      }
-    })
-
-    // A stack lives under its ROOT entry's board, so the nesting survives the
-    // grouping. A batch PR's issues may span boards sharing one repo — the
-    // entry lives under the representative (newest) issue's board.
-    const byBoard = new Map<string, ReviewRow[]>()
-    let rootBoardId = ``
-    for (const row of rows) {
-      if (row.depth === 0) rootBoardId = row.entry.issue.boardId
-      const bucket = byBoard.get(rootBoardId)
-      if (bucket) bucket.push(row)
-      else byBoard.set(rootBoardId, [row])
+    // A batch PR's issues may span boards sharing one repo — the entry lives
+    // under the representative (newest) issue's board.
+    const byBoard = new Map<string, ReviewEntry[]>()
+    for (const entry of allEntries) {
+      const bucket = byBoard.get(entry.issue.boardId)
+      if (bucket) bucket.push(entry)
+      else byBoard.set(entry.issue.boardId, [entry])
     }
 
     const groups: ReviewGroup[] = []
@@ -293,17 +176,18 @@ export function useReviewsData(team: Team | null | undefined) {
     for (const board of boards) {
       const bucket = byBoard.get(board.id)
       if (!bucket) continue
-      groups.push({
-        board,
-        rows: bucket,
-        entries: bucket.map((row) => row.entry),
-      })
+      groups.push({ board, entries: bucket })
     }
 
-    // EXP-734: the run's OWN PR (no linked issue), newest per prUrl.
+    // EXP-734: the run's OWN PR (no linked issue), newest per prUrl. A batch
+    // run's combined PR links issues, so it already rides their entry.
+    const issuePrUrls = new Set(
+      list.map((issue) => issue.prUrl).filter((url): url is string => !!url)
+    )
     const sessionByUrl = new Map<string, CodingSession>()
     for (const session of (sessionRows ?? []) as CodingSession[]) {
       if (session.issueId != null || !session.prUrl) continue
+      if (issuePrUrls.has(session.prUrl)) continue
       const current = sessionByUrl.get(session.prUrl)
       if (
         !current ||
@@ -317,21 +201,10 @@ export function useReviewsData(team: Team | null | undefined) {
       .sort(byCreatedAtDesc)
       .map((session) => ({ key: `session:${session.id}`, session }))
 
-    // EXP-1072: the workflows' final PRs, newest workflow first.
-    const workflowEntries: WorkflowReviewEntry[] = [
-      ...((workflowRows ?? []) as SyncedWorkflow[]),
-    ]
-      .filter((workflow) => workflow.finalPrUrl)
-      .sort(byCreatedAtDesc)
-      .map((workflow) => ({ key: workflowReviewKey(workflow.id), workflow }))
-
-    // The server already excludes run PRs and workflow final PRs from
-    // `openPulls`, but its 60 s cache can still hand back one that a run just
-    // claimed — drop it here so the same PR never renders twice.
-    const runUrls = new Set([
-      ...sessionByUrl.keys(),
-      ...workflowEntries.map((entry) => entry.workflow.finalPrUrl as string),
-    ])
+    // The server already excludes run PRs from `openPulls`, but its 60 s
+    // cache can still hand back one that a run just claimed — drop it here so
+    // the same PR never renders twice.
+    const runUrls = new Set(sessionByUrl.keys())
     const externalPullGroups = externalGroups
       .map((group) => ({
         ...group,
@@ -346,12 +219,10 @@ export function useReviewsData(team: Team | null | undefined) {
 
     return {
       groups,
-      workflowEntries,
       sessionEntries,
       externalGroups: externalPullGroups,
       count:
         entriesByKey.size +
-        workflowEntries.length +
         sessionEntries.length +
         externalCount,
       // A team with no boards skips the query and can never deliver a
@@ -366,8 +237,6 @@ export function useReviewsData(team: Team | null | undefined) {
   }, [
     issues,
     sessionRows,
-    workflowRows,
-    statusByIssue,
     isReady,
     boards,
     userMap,
@@ -375,28 +244,4 @@ export function useReviewsData(team: Team | null | undefined) {
     externalLoading,
     removeExternalPull,
   ])
-}
-
-/** EXP-1094: whether a workflow (running or paused) owns this issue's PR
- *  merge: the node PR merges through the workflow, never from an issue
- *  surface, and the server refuses it (`PRECONDITION_FAILED`, PR #864) and the
- *  Reviews row says so. The tray and the phone's Changes face hide their
- *  Merge control on it; `undefined` teamId skips the queries. */
-export function useWorkflowOwnsMerge(
-  teamId: string | undefined,
-  issueId: string
-): boolean {
-  const teamWorkflows = useTeamWorkflows(teamId)
-  const teamWorkflowNodes = useTeamWorkflowNodes(teamId)
-  return useMemo(() => {
-    const statusByIssue = workflowStatusByIssue(teamWorkflows, teamWorkflowNodes)
-    return (
-      reviewRowMergeAction({
-        stack: `none`,
-        workflowStatus: reviewWorkflowStatus([issueId], statusByIssue),
-        finalPr: false,
-        finalPrState: null,
-      }) === `none`
-    )
-  }, [teamWorkflows, teamWorkflowNodes, issueId])
 }

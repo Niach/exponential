@@ -9,10 +9,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 // A PR with no session stays anonymous with nobody excluded (locked here so
 // a fallback regression can't silently drop notifications).
 //
-// EXP-479: batch runs are issue-less, so an issue linked to a batch PR (its
-// branch is the launcher's `exp/batch-<id8>` convention) resolves through the
-// team's most recent batch-shaped session instead; non-batch branches never
-// take that lookup, keeping out-of-band PRs anonymous.
+// EXP-479: batch runs are issue-less, so an issue linked to a batch PR
+// resolves through the run row carrying its EXACT pr_url (every run owns the
+// PR it opened); a PR no run carries stays anonymous.
 //
 // EXP-617 splits naming from excluding: the title still takes ONE actor, but
 // recipients are filtered by a SET that also carries the agent-activity
@@ -78,9 +77,8 @@ const issueMeta = {
   // Null keeps the assignee opt-out lookup out of the select order — the
   // assignee-add path is exercised by the recipients themselves here.
   assigneeId: null,
-  // Non-batch by default: the batch-session lookup must consume a select ONLY
-  // for `exp/batch-` branches (the queues below depend on it).
-  branch: null,
+  // The pr_url arm rides the same one candidates query either way.
+  prUrl: null,
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -193,10 +191,9 @@ describe(`fireAndForgetPrNotify actor attribution (EXP-463)`, () => {
   it(`resolves a batch PR to the team's batch-session owner (EXP-479)`, async () => {
     h.selectQueue.push(
       // loadIssueMeta: the issue is linked to a batch run's combined PR
-      [{ ...issueMeta, branch: `exp/batch-1b81d4c7` }],
+      [{ ...issueMeta, prUrl: `https://github.com/acme/app/pull/7` }],
       // loadPrSessionCandidates: no issue-scoped row (batch rows are
-      // issue-less), so the team-scoped batch arm of the same query is what
-      // resolves the owner
+      // issue-less), so the run row carrying the PR resolves the owner
       [{ userId: `u-owner`, hostUserId: null }],
       // subscriberRecipients: the owner is the auto-subscribed creator
       [{ userId: `u-owner` }, { userId: `u2` }],
@@ -367,9 +364,9 @@ describe(`fireAndForgetPrNotify actor attribution (EXP-463)`, () => {
 
   it(`swaps a viaAgent actor through the batch-session fallback (EXP-479 shape)`, async () => {
     h.selectQueue.push(
-      // loadIssueMeta: batch PR branch
-      [{ ...issueMeta, branch: `exp/batch-1b81d4c7` }],
-      // loadPrSessionCandidates: the team-scoped batch row is requester-owned,
+      // loadIssueMeta: linked to a batch PR
+      [{ ...issueMeta, prUrl: `https://github.com/acme/app/pull/7` }],
+      // loadPrSessionCandidates: the run row carrying the PR is requester-owned,
       // hosted by the actor
       [{ userId: `u-req`, hostUserId: `u-host` }],
       // subscriberRecipients
@@ -400,7 +397,7 @@ describe(`fireAndForgetPrNotify actor attribution (EXP-463)`, () => {
   it(`keeps a sessionless batch PR anonymous`, async () => {
     h.selectQueue.push(
       // loadIssueMeta
-      [{ ...issueMeta, branch: `exp/batch-1b81d4c7` }],
+      [{ ...issueMeta, prUrl: `https://github.com/acme/app/pull/7` }],
       // loadPrSessionCandidates: neither arm matches
       [],
       // subscriberRecipients
@@ -438,7 +435,7 @@ describe(`fireAndForgetPrNotify actor attribution (EXP-463)`, () => {
   it(`keeps the github.com PR author out of their own fan-out (EXP-616)`, async () => {
     h.selectQueue.push(
       // loadIssueMeta: creator and assignee are the same human who opened it
-      [{ ...issueMeta, assigneeId: `u-author`, branch: `exp/EXP-9` }],
+      [{ ...issueMeta, assigneeId: `u-author` }],
       // deliverableRecipients: the membership gate on the GitHub actor
       [{ id: `u-author` }],
       // subscriberRecipients: auto-subscribed as creator

@@ -16,7 +16,6 @@ import {
   useIssueRuns,
   type PastRunRow,
 } from "@/hooks/use-agents-data"
-import { useWorkflowOwnsMerge } from "@/hooks/use-reviews-data"
 import { useIsTeamMember } from "@/components/issue-coding-rows"
 import { MergePrPill } from "@/components/run-action-pills"
 import { useReviewFiles, type ReviewFilesState } from "@/hooks/use-review-files"
@@ -512,13 +511,12 @@ function MobileIssuePage({
   }
   const swipe = useFaceSwipe(faces, face, onFace)
   // EXP-1150: the ONE merge of the phone Work screen rides the header band
-  // beside the tabs — the tray's own gating (membership, the relay, a
-  // workflow-owned node PR), the md+ header's own pill.
+  // beside the tabs — the tray's own gating (membership, the relay), the
+  // md+ header's own pill.
   const isMember = useIsTeamMember(team.id, currentUserId ?? ``)
   const steerConfig = useSteerConfig()
-  const workflowOwnsMerge = useWorkflowOwnsMerge(team.id, issue.id)
   const mergePill =
-    currentUserId && isMember && issue.prState === `open` && !workflowOwnsMerge ? (
+    currentUserId && isMember && issue.prState === `open` ? (
       <MergePrPill
         {...mergeTargetProps({ kind: `issue`, issue })}
         steerEnabled={steerConfig?.enabled === true}

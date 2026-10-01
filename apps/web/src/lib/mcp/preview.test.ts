@@ -169,16 +169,6 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   exponential_teams_get: [`team`],
   exponential_teams_list: [`list`, `team`],
   exponential_teams_update: [`team`],
-  exponential_workflows_cancel: [`workflow`],
-  exponential_workflows_checkpoint: [],
-  exponential_workflows_create: [`workflow`, `issue`],
-  exponential_workflows_get: [`workflow`, `list`, `issue`],
-  exponential_workflows_list: [`list`, `workflow`],
-  exponential_workflows_pause: [`workflow`],
-  exponential_workflows_request_upstream: [`issue`],
-  exponential_workflows_review_submit: [],
-  exponential_workflows_start: [`workflow`],
-  exponential_workflows_update: [`workflow`],
 }
 
 /** The kinds a contract spec (`kind@path …`) names, in order. */

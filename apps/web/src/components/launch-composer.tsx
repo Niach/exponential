@@ -353,19 +353,17 @@ export function LaunchComposer({
         />
       </Composer>
       <LaunchOptionsLine model={model} />
-      {/* EXP-897/980: the submit on BLOCKED issues asks first. */}
+      {/* EXP-980: the submit on BLOCKED issues asks first. */}
       <BlockedStartDialog
         open={model.blockedOpen}
         teamId={model.teamId}
         pickedIds={model.checkedIssues.map((issue) => issue.id)}
         blockers={model.blockedStart}
         busy={busy}
-        canStack={model.canStack}
         onOpenChange={(next) => {
           if (!next) model.closeBlockedStart()
         }}
         onStartAnyway={() => void model.startAnyway()}
-        onStartStacked={() => void model.startStacked()}
       />
     </div>
   )

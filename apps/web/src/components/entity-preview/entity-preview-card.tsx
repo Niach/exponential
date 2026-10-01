@@ -31,7 +31,6 @@ import type {
   Issue,
   Label,
   Notification,
-  SyncedWorkflow,
   Team,
   TeamInvite,
   TeamMember,
@@ -59,7 +58,6 @@ import { sessionIdentity } from "@/lib/session-identity"
 import { sessionDisplayState, sessionStatusLine } from "@/lib/coding-session-display"
 import { sessionIsPaused } from "@/lib/session-device"
 import { deviceRowIsOnline } from "@/lib/steer-devices"
-import { workflowRowSubtitle } from "@/lib/workflow-view"
 import { isIssueSearchOpen } from "@/lib/issue-search"
 import { useEntityRefRow } from "./use-entity-ref-row"
 import { useEntityRefTargets } from "./use-entity-ref-target"
@@ -118,8 +116,6 @@ export function EntityRefPreviewCard({
       return <LabelCard label={row as Label} />
     case `status`:
       return <StatusCard status={row as StatusRowOption} />
-    case `workflow`:
-      return <WorkflowCard workflow={row as SyncedWorkflow} />
     case `device`:
       return <DeviceCard device={row as Device} />
     case `member`:
@@ -375,24 +371,6 @@ function StatusCard({ status }: { status: StatusRowOption }) {
       title={status.name}
       subtitle={CATEGORY_LABEL[status.category] ?? status.category}
       testId="entity-preview-status"
-    />
-  )
-}
-
-// ── Workflow ────────────────────────────────────────────────────────────────
-
-function WorkflowCard({ workflow }: { workflow: SyncedWorkflow }) {
-  const status = workflow.status
-  return (
-    <EntityPreviewCard
-      icon={kindGlyph({ kind: `workflow`, id: `` })}
-      eyebrow={nounEyebrow(`workflow`)}
-      title={workflow.name}
-      subtitle={workflowRowSubtitle(status, workflow.metrics)}
-      facts={
-        <Pill size="sm">{status.charAt(0).toUpperCase() + status.slice(1)}</Pill>
-      }
-      testId="entity-preview-workflow"
     />
   )
 }

@@ -20,10 +20,8 @@ import {
   BUILTIN_CHAT_ID,
   BUILTIN_CHAT_NAME,
   BUILTIN_CREATE_ACTION_ID,
-  BUILTIN_PLAN_WORKFLOW_ID,
   builtinCreateAction,
   builtinFixConflictsAction,
-  builtinPlanWorkflowAction,
   builtinTidyUpAction,
 } from "@/lib/builtin-actions"
 import { buildInputsPayload, missingRequiredInputs } from "@/lib/action-inputs"
@@ -44,7 +42,6 @@ import {
 import { buildSteerImageMessage, MAX_STEER_IMAGES } from "@/lib/steer-image-message"
 import {
   deviceAgentLaunchDefaults,
-  deviceCanStackStart,
   deviceHasRunnableAgent,
   deviceIsOnline,
   resumeWorktree,
@@ -140,9 +137,6 @@ export interface LaunchComposerModel {
   setInput: (key: string, value: string) => void
   /** Any issue linked to the PR the `pr` input opens pre-picked on. */
   seedPrIssueId: string | undefined
-  /** EXP-981: the draft workflow the picked plan-workflow builtin plans —
-   * seeded by a workflow's Plan button, sent with the start. */
-  workflowId: string | undefined
 
   text: string
   setText: (text: string) => void
@@ -168,25 +162,15 @@ export interface LaunchComposerModel {
   /** True when the run will resume — plan mode hides behind it. */
   resumeActive: boolean
 
-  /** EXP-897/980: the open blockers of the checked issues from OUTSIDE the
+  /** EXP-980: the open blockers of the checked issues from OUTSIDE the
    * picked set (`openBlockersOfSet`). Empty for a chat, an action, or
    * unblocked issues. */
   blockedStart: Issue[]
   /** The blocked-start dialog is up — the submit asked, nothing started. */
   blockedOpen: boolean
   closeBlockedStart: () => void
-  /** Start a PLAIN run, blockers and all. */
+  /** Start the run, blockers and all. */
   startAnyway: () => Promise<void>
-  /** Start ON TOP of the lowest blocker's pull request (`stack: true`). A
-   * no-op while `canStack` is false or a batch is picked: the choice is
-   * disabled with a reason, never downgraded to a plain start. */
-  startStacked: () => Promise<void>
-  /** The picked machine advertises `stacked-start`; an older build would
-   * run the issue UNSTACKED, so the dialog disables "Stacked PR" for it and
-   * says why (EXP-980). A
-   * local desktop start never reads this (its own launcher resolves the
-   * chain via `codingSessions.stackPlan`). */
-  canStack: boolean
 
   launch: LaunchOptions
   /** Online machines with a runnable agent. */
@@ -234,9 +218,6 @@ export function useLaunchComposer({
   // eligible (reset when the sole issue changes); a manual toggle sticks.
   const [resume, setResume] = useState(true)
   const [seedPrIssueId, setSeedPrIssueId] = useState<string | undefined>()
-  // EXP-981: the plan-workflow builtin is meaningless without its workflow,
-  // so the id is held beside the subject and cleared with it.
-  const [workflowId, setWorkflowId] = useState<string | undefined>()
   const [sending, setSending] = useState(false)
   // Last action id whose repo inputs were seeded (EXP-349) — the latch keeps
   // a manual re-pick (including clearing to "None") from being re-seeded when
@@ -277,14 +258,10 @@ export function useLaunchComposer({
       ...rows,
     ]
   }, [teamId, actionRows])
-  // EXP-981: the plan-workflow builtin is HIDDEN like Chat — appended to no
-  // list and no picker — so it is constructed here rather than looked up.
   const selectedAction =
     subject?.kind !== `action`
       ? null
-      : subject.id === BUILTIN_PLAN_WORKFLOW_ID
-        ? builtinPlanWorkflowAction(teamId)
-        : ((actions ?? []).find((action) => action.id === subject.id) ?? null)
+      : ((actions ?? []).find((action) => action.id === subject.id) ?? null)
 
   // Codeable issues live in boards that HAVE a repo — coding gates on repo
   // presence. Sorted ids keep the dep string stable.
@@ -454,11 +431,9 @@ export function useLaunchComposer({
         inputs: seed.icon ? { icon: seed.icon } : {},
       })
       setSeedPrIssueId(seed.prIssueId)
-      setWorkflowId(seed.workflowId)
     } else if (seed.issueIds.length > 0) {
       setSubject({ kind: `issues`, ids: [...new Set(seed.issueIds)] })
       setSeedPrIssueId(undefined)
-      setWorkflowId(undefined)
     }
     // EXP-836: an explicit machine is a REQUEST — it outranks the default
     // machine whether or not the devices shape has hydrated yet, and it is
@@ -507,7 +482,6 @@ export function useLaunchComposer({
       return ids.length === 0 ? null : { kind: `issues`, ids }
     })
     setSeedPrIssueId(undefined)
-    setWorkflowId(undefined)
   }, [])
 
   const pickAction = useCallback((actionId: string) => {
@@ -523,13 +497,11 @@ export function useLaunchComposer({
           { kind: `action`, id: actionId, inputs: {} }
     )
     setSeedPrIssueId(undefined)
-    setWorkflowId(undefined)
   }, [])
 
   const clearAction = useCallback(() => {
     setSubject((current) => (current?.kind === `action` ? null : current))
     setSeedPrIssueId(undefined)
-    setWorkflowId(undefined)
   }, [])
 
   const setInput = useCallback((key: string, value: string) => {
@@ -602,7 +574,7 @@ export function useLaunchComposer({
       : null
   const resumeActive = resume && resumeCandidate !== null
 
-  // ── Blocked start (EXP-897) ───────────────────────────────────────────────
+  // ── Blocked start (EXP-980) ───────────────────────────────────────────────
 
   // Only the BLOCKED side is queried: a canonical `blocks` row is
   // `issue_id` blocks `related_issue_id` (EXP-736), so the picked issues'
@@ -660,11 +632,6 @@ export function useLaunchComposer({
   useEffect(() => {
     setBlockedOpen(false)
   }, [checkedKey])
-  // The remote machine must READ the `stack` payload: a build below the
-  // `stacked-start` cap would run unstacked while the server had already
-  // written the `blocks` relation. The server refuses it too; the dialog
-  // just never offers it.
-  const canStack = device ? deviceCanStackStart(device) : false
 
   // ── Gate ──────────────────────────────────────────────────────────────────
 
@@ -698,11 +665,9 @@ export function useLaunchComposer({
 
   // ── Submit ────────────────────────────────────────────────────────────────
 
-  /** The actual start. `stack` only ever reaches a single-issue subject on
-   * a machine that reads it (`canStack`). */
-  const start = async (opts: { stack?: boolean } = {}) => {
+  /** The actual start. */
+  const start = async () => {
     if (blocked || !device) return
-    if (opts.stack && (!canStack || checkedIds.length !== 1)) return
     setBlockedOpen(false)
     setSending(true)
     try {
@@ -746,8 +711,7 @@ export function useLaunchComposer({
           device,
           options,
           subject.ids,
-          prompt || undefined,
-          opts.stack ? { stack: true } : undefined
+          prompt || undefined
         )
       } else if (selectedAction) {
         await remote.runAction(
@@ -756,7 +720,6 @@ export function useLaunchComposer({
             id: selectedAction.id,
             name: selectedAction.name,
             teamId: selectedAction.teamId,
-            ...(workflowId ? { workflowId } : {}),
           },
           options,
           buildInputsPayload(inputDefs, subject.inputs),
@@ -768,7 +731,6 @@ export function useLaunchComposer({
       setText(``)
       setSubject(null)
       setSeedPrIssueId(undefined)
-      setWorkflowId(undefined)
     } catch {
       // Already toasted by the remote hook.
     } finally {
@@ -776,11 +738,10 @@ export function useLaunchComposer({
     }
   }
 
-  // EXP-897: a BLOCKED start asks first — plain run, or a stacked PR cut from
-  // the blocker's branch. EXP-980: a batch asks too (about blockers outside
-  // it; stacking stays a single-issue mode, the dialog says so). An action or
-  // a chat never asks, and neither does a RESUME: it re-enters a worktree
-  // whose base was decided when the run first started.
+  // EXP-980: a BLOCKED start asks first (Cancel or Start anyway); a batch
+  // asks about blockers outside it. An action or a chat never asks, and
+  // neither does a RESUME: it re-enters a worktree whose base was decided
+  // when the run first started.
   const submit = async () => {
     if (blocked || !device) return
     if (blockedStart.length > 0 && subject?.kind === `issues` && !resumeActive) {
@@ -802,7 +763,6 @@ export function useLaunchComposer({
     clearAction,
     setInput,
     seedPrIssueId,
-    workflowId,
     text,
     setText,
     images,
@@ -822,8 +782,6 @@ export function useLaunchComposer({
     blockedOpen,
     closeBlockedStart: () => setBlockedOpen(false),
     startAnyway: () => start(),
-    startStacked: () => start({ stack: true }),
-    canStack,
     launch,
     candidateDevices,
     deviceRequestNote,

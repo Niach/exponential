@@ -12,21 +12,6 @@ const filesState = {
 }
 
 vi.mock(`@/lib/trpc-client`, () => ({ trpc: {} }))
-// EXP-1094: the two workflow shapes the face reads to hide Merge on a node PR.
-const workflowState = {
-  workflows: [] as { id: string; status: string; teamId: string }[],
-  nodes: [] as {
-    workflowId: string
-    issueId: string
-    memberIssueIds: string[]
-    teamId: string
-  }[],
-}
-vi.mock(`@/hooks/use-workflows`, async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/hooks/use-workflows")>()),
-  useTeamWorkflows: () => workflowState.workflows,
-  useTeamWorkflowNodes: () => workflowState.nodes,
-}))
 // The face reads the steer config off the session view; importing that module
 // would drag the whole steering surface into this test.
 vi.mock(`@/components/agent-session`, () => ({
@@ -82,8 +67,6 @@ const issue = {
 const board = { id: `b1`, slug: `met` } as unknown as Board
 
 function renderFace() {
-  workflowState.workflows = []
-  workflowState.nodes = []
   return render(
     <IssueChangesFace
       issue={issue}

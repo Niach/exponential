@@ -11,7 +11,6 @@ import {
   boards,
   repositories,
   users,
-  workflows,
 } from "@/db/schema"
 import { assertTeamMember, getIssueTeamContext } from "@/lib/team-membership"
 import {
@@ -491,37 +490,17 @@ export async function loadRepositoryByFullName(
   return repo
 }
 
-export const WORKFLOW_MERGE_REFUSAL = `merges through the workflow: its merge train lands it once its run ended and its review wave cleared. Cancel the workflow to merge it by hand.`
-
-/** EXP-1094: refuse a hand merge of a PR whose issue (or any issue linked to
- *  the same PR) a running or paused workflow covers. Lives here rather than
- *  in issues.ts because both that router and the chore path below need it,
- *  and issues.ts already imports this module. */
-export async function assertMergeOutsideWorkflow(
-  executor: Parameters<typeof import("@/lib/workflows").liveWorkflowCoveringPr>[0],
-  issueId: string,
-  prUrl: string,
-  identifier: string
-): Promise<void> {
-  const { liveWorkflowCoveringPr } = await import(`@/lib/workflows`)
-  if (await liveWorkflowCoveringPr(executor, issueId, prUrl)) {
-    throw new TRPCError({
-      code: `PRECONDITION_FAILED`,
-      message: `${identifier}'s pull request ${WORKFLOW_MERGE_REFUSAL}`,
-    })
-  }
-}
-
-// Squash-merge a pull request that links NO issue, shared by
-// `repositories.mergePull` (repositoryId + prNumber: Reviews' external
-// group, the MCP chore `pr_merge`) and `codingSessions.mergePr` (EXP-734:
-// a run's own chore PR). Same trust model as installationToken: the team's
+// Squash-merge a pull request by number, shared by `repositories.mergePull`
+// (repositoryId + prNumber: Reviews' external group, the MCP chore
+// `pr_merge`) and `codingSessions.mergePr` (EXP-734: a run's own PR, a
+// multi-issue run's combined PR included). Same trust model as installationToken: the team's
 // ownership of the repo row plus the installation link-gate authorizes the
 // merge; the CALLER has already checked membership. After GitHub accepts the
 // merge the session-PR state is written right here (`applySessionPrState`:
-// pr_state → merged + the merge-driven end of the run), so a self-hosted
-// instance with no inbound webhook still echoes the merge to every client;
-// the webhook's later delivery degrades to a no-op.
+// pr_state → merged + the merge-driven end of the run) and fanned out to
+// every issue linked by the exact `pr_url` (`applyPrMergeState`), so a
+// self-hosted instance with no inbound webhook still echoes the merge to
+// every client; the webhook's later delivery degrades to a no-op.
 export async function mergeRepositoryPull(opts: {
   repo: Awaited<ReturnType<typeof loadRepository>>
   prNumber: number
@@ -534,22 +513,7 @@ export async function mergeRepositoryPull(opts: {
 }): Promise<{ merged: true }> {
   const { repo, prNumber } = opts
   const prUrl = opts.prUrl ?? `https://github.com/${repo.fullName}/pull/${prNumber}`
-  // EXP-1094: "no issue" is the CALLER's claim, not a fact. A `prNumber`
-  // handed to the chore path may well be an issue's PR, and a node PR of a
-  // running/paused workflow lands only through the workflow's merge train
-  // (`landNode`, which goes through issues.mergePr, never here). Resolve the
-  // number to the team's issue rows first and apply the same refusal the
-  // issue path applies; a batch PR's other issues ride the pr_url match
-  // inside the guard.
   const { db } = await import(`@/db/connection`)
-  const [linked] = await db
-    .select({ id: issues.id, identifier: issues.identifier })
-    .from(issues)
-    .where(and(eq(issues.prUrl, prUrl), eq(issues.teamId, repo.teamId)))
-    .limit(1)
-  if (linked) {
-    await assertMergeOutsideWorkflow(db, linked.id, prUrl, linked.identifier)
-  }
   if (!githubAppConfigured()) {
     throw new TRPCError({
       code: `PRECONDITION_FAILED`,
@@ -575,9 +539,8 @@ export async function mergeRepositoryPull(opts: {
   })
   let smart: Awaited<ReturnType<typeof mergePullRequestSmart>>
   try {
-    // FEED-43: a stack member is refused by the legacy endpoint — the smart
-    // merge discovers that from GitHub's own refusal and finishes through
-    // merge-async.
+    // FEED-43: a PR GitHub holds in a stack is refused by the legacy
+    // endpoint — the smart merge finishes it through merge-async.
     smart = await mergePullRequestSmart({
       repo: repo.fullName,
       prNumber,
@@ -589,7 +552,7 @@ export async function mergeRepositoryPull(opts: {
       // echo of the landing merge stays attributed.
       throw new TRPCError({
         code: `PRECONDITION_FAILED`,
-        message: `GitHub is still merging PR #${err.prNumber}${err.stackNumber != null ? ` (stack #${err.stackNumber})` : ``}. It did not finish within 60s — check the PR on GitHub; the issue completes when the merge lands.`,
+        message: `GitHub is still merging PR #${err.prNumber}. It did not finish within 60s — check the PR on GitHub; the issue completes when the merge lands.`,
       })
     }
     releasePrMergeClaim(repo.fullName, prNumber)
@@ -628,19 +591,28 @@ export async function mergeRepositoryPull(opts: {
 
   // Lazy like `loadRepository`'s db import: pr-sync opens the db connection
   // at module scope, which the router tests never want.
-  const { applySessionPrState } = await import(`@/lib/integrations/pr-sync`)
+  const { applyPrMergeState, applySessionPrState } = await import(
+    `@/lib/integrations/pr-sync`
+  )
   await applySessionPrState({
     prUrl,
     state: `merged`,
     endSessions: opts.endSessions,
   })
-  // EXP-1032: an IN-APP merge of a workflow's ONE final pull request completes
-  // the workflow right here, so completion never waits on an inbound webhook
-  // (a self-hosted instance behind NAT has none). A no-op for every other PR,
-  // and idempotent: the webhook's later echo and `workflows.mergeFinalPr` both
-  // return early on a row that already reads merged.
-  const { applyWorkflowFinalPrState } = await import(`@/lib/workflow-final-pr`)
-  await applyWorkflowFinalPrState(db, prUrl, `merged`)
+  const linked = await db
+    .select({ id: issues.id })
+    .from(issues)
+    .where(and(eq(issues.prUrl, prUrl), eq(issues.teamId, repo.teamId)))
+  for (const issue of linked) {
+    await applyPrMergeState({
+      issueId: issue.id,
+      prUrl,
+      prNumber,
+      actorUserId: opts.userId,
+      actorViaAgent: opts.viaAgent,
+      ...(opts.endSessions !== undefined ? { endSessions: opts.endSessions } : {}),
+    })
+  }
   openPullsCache.delete(repo.teamId)
   return { merged: true }
 }
@@ -781,16 +753,8 @@ export const repositoriesRouter = router({
             isNotNull(codingSessions.prUrl)
           )
         )
-      // EXP-1072: and a workflow's FINAL pull request — it is the
-      // workflow's own PR (Reviews' "Workflows" group), never an external one.
-      const workflowRows = await ctx.db
-        .select({ prUrl: workflows.finalPrUrl })
-        .from(workflows)
-        .where(
-          and(eq(workflows.teamId, input.teamId), isNotNull(workflows.finalPrUrl))
-        )
       const linkedUrls = new Set(
-        [...linkedRows, ...sessionRows, ...workflowRows]
+        [...linkedRows, ...sessionRows]
           .map((row) => row.prUrl)
           .filter(Boolean)
       )

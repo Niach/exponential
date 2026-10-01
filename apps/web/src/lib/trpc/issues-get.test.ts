@@ -118,8 +118,6 @@ const SHAPE_COLUMNS = [
   `prState`,
   `branch`,
   `prMergedAt`,
-  // EXP-897: the stack edge is synced; `prStackNumber` beside it is NOT.
-  `prBaseBranch`,
   `estimate`,
   `createdAt`,
   `updatedAt`,

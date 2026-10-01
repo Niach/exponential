@@ -34,47 +34,6 @@ export const BUILTIN_CHAT_ID = contract.builtinAction.chatId
 
 export const BUILTIN_CHAT_NAME = `Chat`
 
-/** Reserved non-UUID id of the hidden "Plan workflow" builtin (EXP-981): the
- * planner run of ONE draft workflow. Like Chat it is appended to NO list —
- * a workflow's own Plan button constructs it, because it is meaningless
- * without that workflow's id. */
-export const BUILTIN_PLAN_WORKFLOW_ID = contract.builtinAction.planWorkflowId
-
-export const BUILTIN_PLAN_WORKFLOW_NAME = `Plan workflow`
-
-/** The device capability a planner start needs: an older build would fall
- * through to the Create-action prompt and author an action instead. */
-export const PLAN_WORKFLOW_CAP = `plan-workflow`
-
-/** The first line of a planner run's prompt; the shipped prompt tells the
- * agent to read the workflow it names. Byte-identical ×4. */
-export const PLAN_WORKFLOW_PROMPT_PREFIX = `Workflow: `
-
-export function planWorkflowPrompt(
-  workflowId: string,
-  instructions: string | undefined
-): string {
-  const extra = (instructions ?? ``).trim()
-  const head = `${PLAN_WORKFLOW_PROMPT_PREFIX}${workflowId}`
-  return extra ? `${head}\n\n${extra}` : head
-}
-
-/** Reserved id of the hidden "Review node" builtin (EXP-984): the agent
- * review of ONE workflow node. Only the workflow ENGINE starts it, locally on
- * the runner device; no client constructs it, so it has no factory here —
- * the server only has to accept the id and name the run. */
-export const BUILTIN_REVIEW_NODE_ID = contract.builtinAction.reviewNodeId
-
-export const BUILTIN_REVIEW_NODE_NAME = `Review node`
-
-/** EXP-1103: the hidden "Fix review findings" builtin — a review WAVE's one
- * fix run on the integration branch, started by the workflow engine on the
- * runner device and by nothing else. Like the reviewer it has no factory
- * here; the server only accepts the id and names the run. */
-export const BUILTIN_FIX_REVIEW_FINDINGS_ID = contract.builtinAction.fixReviewFindingsId
-
-export const BUILTIN_FIX_REVIEW_FINDINGS_NAME = `Fix review findings`
-
 /** FEED-50: the "Tidy up" builtin — a non-destructive board cleanup
  * (duplicates, existing labels, relations; nothing is deleted). LISTED like
  * Create action / Fix conflicts. Builtins never carry triggers. */
@@ -97,10 +56,7 @@ export function isBuiltinActionId(id: string): boolean {
     id === BUILTIN_CREATE_ACTION_ID ||
     id === BUILTIN_TIDY_UP_ID ||
     id === BUILTIN_FIX_CONFLICTS_ID ||
-    id === BUILTIN_CHAT_ID ||
-    id === BUILTIN_PLAN_WORKFLOW_ID ||
-    id === BUILTIN_REVIEW_NODE_ID ||
-    id === BUILTIN_FIX_REVIEW_FINDINGS_ID
+    id === BUILTIN_CHAT_ID
   )
 }
 
@@ -111,15 +67,9 @@ export function builtinActionName(id: string): string {
     ? BUILTIN_FIX_CONFLICTS_NAME
     : id === BUILTIN_CHAT_ID
       ? BUILTIN_CHAT_NAME
-      : id === BUILTIN_PLAN_WORKFLOW_ID
-        ? BUILTIN_PLAN_WORKFLOW_NAME
-        : id === BUILTIN_REVIEW_NODE_ID
-          ? BUILTIN_REVIEW_NODE_NAME
-          : id === BUILTIN_FIX_REVIEW_FINDINGS_ID
-            ? BUILTIN_FIX_REVIEW_FINDINGS_NAME
-            : id === BUILTIN_TIDY_UP_ID
-              ? BUILTIN_TIDY_UP_NAME
-              : BUILTIN_CREATE_ACTION_NAME
+      : id === BUILTIN_TIDY_UP_ID
+        ? BUILTIN_TIDY_UP_NAME
+        : BUILTIN_CREATE_ACTION_NAME
 }
 
 // EXP-825: the request itself (what the action should do, and its name if
@@ -234,28 +184,6 @@ export function builtinChatAction(teamId: string): BuiltinAction {
     inputs: CHAT_INPUTS,
     promptPlaceholder: null,
     sortOrder: 1e9 + 2,
-    createdAt: new Date(0),
-    updatedAt: new Date(0),
-    builtin: true,
-  }
-}
-
-/** The hidden "Plan workflow" builtin (EXP-981): reads one draft workflow's
- * issues, sets the relations (contracts-first fan-out by default), splits big
- * issues, declares `touches` and `risk`, keeps the graph shallow. Runs in the
- * agent's scratch dir: it plans over MCP and writes no code. */
-export function builtinPlanWorkflowAction(teamId: string): BuiltinAction {
-  return {
-    id: BUILTIN_PLAN_WORKFLOW_ID,
-    teamId,
-    repositoryId: null,
-    name: BUILTIN_PLAN_WORKFLOW_NAME,
-    description: `Let your agent turn a workflow's issues into a shallow, parallel plan`,
-    icon: `layers`,
-    body: ``,
-    inputs: [],
-    promptPlaceholder: `Anything the plan should respect (optional)…`,
-    sortOrder: 1e9 + 3,
     createdAt: new Date(0),
     updatedAt: new Date(0),
     builtin: true,

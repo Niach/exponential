@@ -21,14 +21,6 @@ const mockState = vi.hoisted(() => ({
   mergeMutate: vi.fn(),
   sessionMergeMutate: vi.fn(),
   navigate: vi.fn(),
-  // EXP-1145: what the synced rows say about the PR's stack; the hook itself
-  // is plumbing over live queries, tested in `use-stack-merge-choice.test.tsx`.
-  stackChoice: vi.fn(),
-}))
-
-vi.mock(`@/hooks/use-stack-merge-choice`, () => ({
-  useStackMergeChoice: (issueId: string | undefined, enabled: boolean) =>
-    mockState.stackChoice(issueId, enabled),
 }))
 
 vi.mock(`@/lib/trpc-client`, () => ({
@@ -82,8 +74,6 @@ describe(`SessionMergeButton`, () => {
     mockState.sessionMergeMutate.mockReset()
     mockState.sessionMergeMutate.mockResolvedValue({ merged: true })
     mockState.navigate.mockReset()
-    mockState.stackChoice.mockReset()
-    mockState.stackChoice.mockReturnValue({ ready: true, choice: null })
   })
 
   it(`renders nothing unless the PR is open`, () => {
@@ -434,106 +424,5 @@ describe(`SessionMergeButton`, () => {
     expect(
       screen.queryByRole(`button`, { name: `Fix merge conflicts` })
     ).toBeNull()
-  })
-})
-
-// EXP-1145: a stack member never merges off the plain confirm.
-describe(`SessionMergeButton on a stack member`, () => {
-  const choice = {
-    members: [`EXP-1105`, `EXP-1144`, `EXP-1150`],
-    position: 2,
-    bottomIssueId: `b`,
-    topIssueId: `t`,
-    listing: `EXP-1105 → EXP-1144 (this one) → EXP-1150`,
-    stackSentence: `Merge stack lands all 3 pull requests, bottom-up.`,
-    thisSentence: `Merge this pull request lands EXP-1144 and the one below it (EXP-1105); EXP-1150 is retargeted onto the base branch and stays open.`,
-    body: `EXP-1105 → EXP-1144 (this one) → EXP-1150\n\nMerge stack lands all 3 pull requests, bottom-up.\nMerge this pull request lands EXP-1144 and the one below it (EXP-1105); EXP-1150 is retargeted onto the base branch and stays open.`,
-  }
-
-  beforeEach(() => {
-    mockState.mergeMutate.mockReset()
-    mockState.mergeMutate.mockResolvedValue({ merged: true })
-    mockState.stackChoice.mockReset()
-    // The read is armed by the click, never before it.
-    mockState.stackChoice.mockImplementation((_issueId, enabled: boolean) =>
-      enabled ? { ready: true, choice } : { ready: true, choice: null }
-    )
-  })
-
-  it(`arms the stack read on the click, not on render`, () => {
-    render(
-      <SessionMergeButton prState="open" prNumber={7} issueId="i1" label="Merge" />
-    )
-    expect(mockState.stackChoice).toHaveBeenCalledWith(`i1`, false)
-    expect(mockState.stackChoice).not.toHaveBeenCalledWith(`i1`, true)
-    fireEvent.click(screen.getByRole(`button`, { name: `Merge pull request` }))
-    expect(mockState.stackChoice).toHaveBeenCalledWith(`i1`, true)
-  })
-
-  it(`opens the stack dialog and lands the whole stack from its top member`, async () => {
-    render(
-      <SessionMergeButton prState="open" prNumber={7} issueId="i1" label="Merge" />
-    )
-    fireEvent.click(screen.getByRole(`button`, { name: `Merge pull request` }))
-    await screen.findByText(`This pull request is part of a stack`)
-    expect(screen.queryByText(/Merge PR #7 into the default branch/)).toBeNull()
-    expect(
-      screen.getByText(/EXP-1105 → EXP-1144 \(this one\) → EXP-1150/)
-    ).toBeTruthy()
-    expect(
-      screen.getByText(/EXP-1150 is retargeted onto the base branch and stays open/)
-    ).toBeTruthy()
-
-    fireEvent.click(screen.getByRole(`button`, { name: `Merge stack` }))
-    await waitFor(() =>
-      expect(mockState.mergeMutate).toHaveBeenCalledWith(
-        { issueId: `t`, mergeStack: true },
-        { context: { skipErrorToast: true } }
-      )
-    )
-    // The spinner holds until the row echoes, like a plain merge.
-    await waitFor(() =>
-      expect(
-        screen.getByRole<HTMLButtonElement>(`button`, { name: `Merging…` })
-          .disabled
-      ).toBe(true)
-    )
-  })
-
-  it(`Merge this pull request takes the single-PR path`, async () => {
-    render(
-      <SessionMergeButton prState="open" prNumber={7} issueId="i1" label="Merge" />
-    )
-    fireEvent.click(screen.getByRole(`button`, { name: `Merge pull request` }))
-    fireEvent.click(
-      await screen.findByRole(`button`, { name: `Merge this pull request` })
-    )
-    await waitFor(() =>
-      expect(mockState.mergeMutate).toHaveBeenCalledWith(
-        { issueId: `i1` },
-        { context: { skipErrorToast: true } }
-      )
-    )
-  })
-
-  it(`Cancel merges nothing`, async () => {
-    render(
-      <SessionMergeButton prState="open" prNumber={7} issueId="i1" label="Merge" />
-    )
-    fireEvent.click(screen.getByRole(`button`, { name: `Merge pull request` }))
-    fireEvent.click(await screen.findByRole(`button`, { name: `Cancel` }))
-    await waitFor(() =>
-      expect(screen.queryByText(`This pull request is part of a stack`)).toBeNull()
-    )
-    expect(mockState.mergeMutate).not.toHaveBeenCalled()
-  })
-
-  it(`a session target never asks about a stack`, () => {
-    render(
-      <SessionMergeButton prState="open" prNumber={7} sessionId="s1" label="Merge" />
-    )
-    fireEvent.click(screen.getByRole(`button`, { name: `Merge pull request` }))
-    expect(mockState.stackChoice).not.toHaveBeenCalledWith(expect.anything(), true)
-    expect(screen.getByText(/Merge PR #7 into the default branch/)).toBeTruthy()
   })
 })

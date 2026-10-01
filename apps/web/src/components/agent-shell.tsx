@@ -9,8 +9,7 @@ import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 // EXP-818: the caller's sessions list — Running, nested by
 // `parent_session_id` (the ×4 rule) with the EXP-965 connector.
 //
-// EXP-996: and the nesting is the whole `sessionTree` now — a workflow's runs
-// and a stack's sit under one group row each, resumes collapsed.
+// EXP-996: and the nesting is the whole `sessionTree` now, resumes collapsed.
 //
 // EXP-923: RUNNING ONLY. The Recent band is gone from here: on md+ the whole
 // list left the Agent page for the sidebar (the Running section in the main
@@ -59,7 +58,6 @@ export function SessionsList({
       ) : (
         <SessionTree
           rows={running}
-          teamId={teamId}
           activeSessionId={activeSessionId}
           onOpen={(session) => openSession(session, { origin })}
           emptyNote="No agents running right now."

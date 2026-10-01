@@ -401,8 +401,8 @@ export const componentStyles = `
 .cmp-app-shell > .header .title { font-size: 13px; font-weight: 500; }
 
 /* ----------------------------------------------------------- session tree */
-/* EXP-996: the sessions list as a TREE — a group row over the runs of one
-   workflow or one PR stack, children indented under their parent. The row
+/* EXP-996: the sessions list as a TREE — children indented under their
+   parent. The row
    rhythm is the app's compact list row (32px, 14px of indent per level, the
    x4 TREE_INDENT), so the specimen and the product read alike. */
 .cmp-session-tree { display: flex; flex-direction: column; width: 420px; max-width: 100%; }
@@ -418,27 +418,6 @@ export const componentStyles = `
 /* One nesting level: the row's own 8px plus TREE_INDENT. */
 .cmp-session-tree-row[data-depth="1"] { padding-left: 22px; }
 .cmp-session-tree-row[data-depth="2"] { padding-left: 36px; }
-/* A group is structure, not work: it wears the row fill, never a state dot. */
-.cmp-session-tree-group { background: var(--row); }
-.cmp-session-tree-icon { display: flex; flex: none; color: var(--muted-fg); }
-.cmp-session-tree-icon .glyph { width: 14px; height: 14px; }
-.cmp-session-tree-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 500;
-}
-/* Only a WORKFLOW group's name leads anywhere; a stack has no page. */
-.cmp-session-tree-link { text-decoration: underline; text-underline-offset: 2px; }
-.cmp-session-tree-count {
-  flex: none;
-  margin-left: auto;
-  font-family: ui-monospace, monospace;
-  font-size: 11px;
-  color: var(--muted-fg);
-}
 .cmp-session-tree-dot {
   width: 6px;
   height: 6px;

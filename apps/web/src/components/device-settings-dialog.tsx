@@ -14,11 +14,9 @@
 //
 // EXP-1020: ONE layout on the four clients. No worktrees — a machine's
 // worktrees are a LOCAL surface, the IDE's Settings → Worktrees, and the
-// remote command queue that drove them from here is gone with them. The
-// agent-defaults card ends in a "Workflow settings" SUB-SHELL row (the model
-// pair a new workflow is seeded from, `launch_defaults.workflow`), and
-// "Remove device" is a plain row of the same shell rather than a section of
-// its own.
+// remote command queue that drove them from here is gone with them.
+// "Remove device" is a plain row of the shell rather than a section of its
+// own.
 import { useEffect, useMemo, useRef, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { LoaderCircle } from "lucide-react"
@@ -34,7 +32,6 @@ import {
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
-  Combobox,
   AlertDialogHeader,
   AlertDialogTitle,
   Dialog,
@@ -50,7 +47,6 @@ import {
   GlassSectionHeader,
   GlassToggleRow,
   Pill,
-  SubShell,
   SubShellHost,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
@@ -58,7 +54,6 @@ import { trpcErrorMessage } from "@/lib/trpc-error"
 import { useNow } from "@/hooks/use-now"
 import { deviceCollection, teamCollection } from "@/lib/collections"
 import {
-  agentModelValues,
   agentSeed,
   agentSupportsAccountRotation,
   agentSupportsPlanMode,
@@ -66,10 +61,6 @@ import {
   agentSupportsSubagentModel,
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
-import {
-  workflowDefaultsFor,
-  workflowDefaultsSummary,
-} from "@/lib/devices/workflow-defaults"
 import {
   deviceCanUpdateNow,
   deviceRowIsOnline,
@@ -80,12 +71,10 @@ import {
 import {
   AgentOptionsFields,
   CLI_DEFAULT_EFFORT,
-  modelLabel,
 } from "@/components/launch-dialog/launch-options-pane"
 import { agentLabel } from "@exp/ui"
 
 const RemoveIcon = conceptIcon(`ui-delete`)
-const WorkflowIcon = conceptIcon(`nav-workflows`)
 const OfflineIcon = conceptIcon(`ui-device-offline`)
 const UpdateIcon = conceptIcon(`ui-update`)
 
@@ -193,20 +182,7 @@ export function DeviceSettingsDialog({
   const [agentTab, setAgentTab] = useState<string>(
     contract.codingAgent.values[0]
   )
-  // EXP-1158: the machine's LAST USED agent (`launch_defaults.defaultAgent`)
-  // — READ-ONLY here: only the device writes it, and a save omits it so the
-  // server carries it forward.
-  const [lastUsedAgent, setLastUsedAgent] = useState<string>(
-    contract.codingAgent.values[0]
-  )
   const [drafts, setDrafts] = useState<Record<string, AgentDraft>>({})
-  // EXP-1020: the "Workflow settings" pair (`launch_defaults.workflow`) —
-  // what a new workflow created on this machine is seeded from. It belongs
-  // to the last used agent, not to the agent tab, so it reseeds whenever
-  // that changes.
-  const [workflowDraft, setWorkflowDraft] = useState(() =>
-    workflowDefaultsFor(contract.codingAgent.values[0], null)
-  )
 
   // ── Autosave state (EXP-490 — no Save buttons) ───────────────────────────
   // `*Pending` = edited but not yet written; `saving*` = a write is in flight.
@@ -238,17 +214,6 @@ export function DeviceSettingsDialog({
     row?.agentUsage,
   ])
 
-  // EXP-1020: the workflow pair is picked from the last used agent's
-  // models — the two vocabularies do not overlap, so the tab's agent would
-  // offer names a workflow on this machine could never run.
-  const workflowModelOptions = useMemo(
-    () =>
-      agentModelValues(lastUsedAgent).map((value) => ({
-        value,
-        label: modelLabel(value),
-      })),
-    [lastUsedAgent]
-  )
 
   // The value we last wrote, so our OWN write doesn't reseed the drafts back
   // to the pre-write row in the window before it syncs home.
@@ -271,10 +236,6 @@ export function DeviceSettingsDialog({
       stored && agents.includes(stored)
         ? stored
         : (agents[0] ?? contract.codingAgent.values[0])
-    setLastUsedAgent(agent)
-    setWorkflowDraft(
-      workflowDefaultsFor(agent, source.launchDefaults?.workflow ?? null)
-    )
     return agent
   }
 
@@ -409,7 +370,6 @@ export function DeviceSettingsDialog({
     label,
     nameDraft,
     drafts,
-    workflowDraft,
     namePending,
     defaultsPending,
   })
@@ -418,7 +378,6 @@ export function DeviceSettingsDialog({
     label,
     nameDraft,
     drafts,
-    workflowDraft,
     namePending,
     defaultsPending,
   }
@@ -499,12 +458,7 @@ export function DeviceSettingsDialog({
         deviceId: snapshot.deviceId,
         // EXP-1158: no `defaultAgent` — the device writes the last used
         // agent and the server carries it forward past this save.
-        launchDefaults: {
-          agents,
-          // EXP-1020: the pair rides EVERY save — setLaunchDefaults REPLACES
-          // the stored object.
-          workflow: snapshot.workflowDraft,
-        },
+        launchDefaults: { agents },
       })
       .then((result) => {
         const stamp = result.launchDefaultsUpdatedAt
@@ -540,11 +494,6 @@ export function DeviceSettingsDialog({
       () => flushDefaults(),
       DEFAULTS_DEBOUNCE_MS
     )
-  }
-
-  const patchWorkflow = (patch: Partial<typeof workflowDraft>) => {
-    setWorkflowDraft((current) => ({ ...current, ...patch }))
-    scheduleDefaults()
   }
 
   const patchDraft = (patch: Partial<AgentDraft>) => {
@@ -738,10 +687,7 @@ export function DeviceSettingsDialog({
             column on every width since EXP-1020 took the worktrees away: the
             landscape split (EXP-798) existed to park them beside the
             settings, and a single column is what the phone sheet and the
-            three native clients show.
-            EXP-1029/1020: the stack is a SUB-SHELL host — "Workflow settings"
-            slides its page in place of the whole stack, with a back button on
-            top, rather than opening a dialog on top of a dialog. */}
+            three native clients show. */}
         <SubShellHost className="min-h-0 flex-1 gap-2 overflow-y-auto">
           <div className="flex flex-col gap-2 *:shrink-0">
             {/* ── Name ─────────────────────────────────────────────────── */}
@@ -889,47 +835,6 @@ export function DeviceSettingsDialog({
               autoRotateAccounts={draft.autoRotateAccounts}
               onAutoRotateAccountsChange={(value) =>
                 patchDraft({ autoRotateAccounts: value })
-              }
-              /* EXP-1020: the LAST ROW of the agent card, not a card of its
-                 own — the model pair a workflow started on this machine is
-                 seeded from. Shown whichever agent is selected (it hangs off
-                 the machine's last used agent, not the tab), and it opens as a
-                 page of this same shell rather than a second dialog. */
-              trailing={
-                <SubShell
-                  label="Workflow settings"
-                  icon={WorkflowIcon}
-                  value={workflowDefaultsSummary(workflowDraft, modelLabel)}
-                  data-testid="device-settings-workflow"
-                >
-                  <GlassGroup>
-                    <Combobox
-                      triggerVariant="row"
-                      searchable={false}
-                      mobileTitle="Model"
-                      value={workflowDraft.model}
-                      onChange={(value) => {
-                        if (value !== null) patchWorkflow({ model: value })
-                      }}
-                      options={workflowModelOptions}
-                    />
-                    <Combobox
-                      triggerVariant="row"
-                      searchable={false}
-                      mobileTitle="Strong model"
-                      value={workflowDraft.strongModel}
-                      onChange={(value) => {
-                        if (value !== null) patchWorkflow({ strongModel: value })
-                      }}
-                      options={workflowModelOptions}
-                    />
-                  </GlassGroup>
-                  <p className="px-1 text-xs text-muted-foreground">
-                    Leaf nodes and the subagents inside them run on the model.
-                    Contract, integration and risky nodes, and every review,
-                    run on the strong model.
-                  </p>
-                </SubShell>
               }
             />
             {sectionErrors.defaults && (

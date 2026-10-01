@@ -243,9 +243,11 @@ describe(`render`, () => {
 
   test(`the summary counts each of the four sections`, () => {
     const page = buildPage(COMPONENTS, ENTRIES)
-    const parts = page.map((section) => `${section.entries.length} ${LABELS[section.section.id]}`)
+    const parts = page
+      .filter((section) => section.entries.length > 0)
+      .map((section) => `${section.entries.length} ${LABELS[section.section.id]}`)
     // An EMPTY gallery has no photographed views, so the Views part is just
-    // whatever registered entries live there.
+    // whatever registered entries live there — and none leaves it out.
     expect(html).toContain(parts.join(` · `))
     expect(page.reduce((sum, section) => sum + section.entries.length, 0)).toBe(
       COMPONENTS.length + ENTRIES.length
@@ -854,8 +856,13 @@ describe(`the four sections (EXP-941/EXP-1019)`, () => {
       const links = occurrences(section, `<a class="nav-link" href="#`)
       // The SIZE of each section is the summary's, not a number on the
       // segment: four labels and four counts cannot share a sidebar without
-      // ellipsising the words. It still has to be the link count.
-      expect(html.includes(`${links} ${LABELS[id]}`) ? id : `${id}: the summary is not ${links}`).toBe(id)
+      // ellipsising the words. It still has to be the link count — and an
+      // EMPTY section (Views with no catalog captured) is left out of it.
+      const counted =
+        links === 0
+          ? !html.includes(`0 ${LABELS[id]}`)
+          : html.includes(`${links} ${LABELS[id]}`)
+      expect(counted ? id : `${id}: the summary is not ${links}`).toBe(id)
       expect(occurrences(html, `<button class="mode-btn" type="button" data-mode="${id}"`)).toBe(1)
     }
     // The empty gallery still renders all four: a section bar that appears and

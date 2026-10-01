@@ -357,7 +357,7 @@ export function AgentSessionView({
   onStart,
   prFiles,
   prUrl,
-  graphBadge,
+  batchIssues,
   renderMobileHeader,
   onBack,
 }: {
@@ -409,10 +409,10 @@ export function AgentSessionView({
   /** EXP-893: the PR page — the GitHub button, which EXP-949 confines to
    *  the Changes face on every width. */
   prUrl?: string | null
-  /** EXP-897: the stack/batch pill (`PrGraphBadge`) — the route builds it so
-   *  this file stays free of routing. It rides the ONE work header, and its
-   *  overlay's sections follow the face showing. */
-  graphBadge?: ReactNode
+  /** A multi-issue run's covered issues (`BatchIssuesPopover`) — the route
+   *  builds it so this file stays free of routing. It rides the ONE work
+   *  header; absent on every other run. */
+  batchIssues?: ReactNode
   /** EXP-893: an issue subject's phone header (`IssueMobileHeader`) — the
    *  route wraps it so the same bar shows on every face; `shownFace` is the
    *  face actually SHOWING (a `?view=` that fell back reads as `run`), which
@@ -1271,9 +1271,8 @@ export function AgentSessionView({
               /* The cluster keeps the back button's width whether or not it
                  holds anything, so the title stays optically centred. */
               <div className="flex min-w-9 shrink-0 items-center justify-end gap-1">
-                {/* EXP-897: an issue-less run — a BATCH run above all — says
-                    what it is part of here, the same pill, the same sheet. */}
-                {graphBadge}
+                {/* A multi-issue run lists the issues it covers here. */}
+                {batchIssues}
                 {/* EXP-949: GitHub on the Changes face, in the slot Stop /
                     Resume hold on the Run face. */}
                 {githubButton}
@@ -1306,10 +1305,9 @@ export function AgentSessionView({
               {/* The toggle names the face actually SHOWING: a `?view=diff`
                   deep link before the diff replays falls back to the
                   transcript, and must not leave no segment selected. */}
-              {/* EXP-897: the stack / batch pill leads the cluster — it
-                  names what this work is PART of, before the controls that
-                  act on it. */}
-              {graphBadge}
+              {/* A multi-issue run's covered issues lead the cluster, before
+                  the controls that act on them. */}
+              {batchIssues}
               {/* EXP-950: with several runs the "Runs" segment carries the
                   caret to the issue's other runs — and shows alone when the
                   issue face is out of reach. */}

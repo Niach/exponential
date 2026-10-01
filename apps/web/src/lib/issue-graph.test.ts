@@ -11,6 +11,7 @@ import {
   issueGraphEdgePath,
   issueGraphOrigin,
   issueGraphSize,
+  openBlockers,
   openBlockersOfSet,
   type BlockCounts,
   type GraphIssue,
@@ -195,5 +196,70 @@ describe(`compact hover graph (SLOP-15)`, () => {
     ).toBe(
       `M ${curve.start.x - g.inset} ${curve.start.y - g.inset} C ${curve.control1.x - g.inset} ${curve.control1.y - g.inset}, ${curve.control2.x - g.inset} ${curve.control2.y - g.inset}, ${curve.end.x - g.inset} ${curve.end.y - g.inset}`
     )
+  })
+})
+
+// EXP-897/980: one issue's open blockers — the same three test names ×4.
+const blockerIssue = (id: string, status = `backlog`) => ({
+  id,
+  identifier: id.toUpperCase(),
+  status,
+})
+
+/** `blocker` blocks `blocked` — the canonical direction (EXP-736). */
+const blocksRow = (blocker: string, blocked: string) => ({
+  type: `blocks`,
+  issueId: blocker,
+  relatedIssueId: blocked,
+})
+
+describe(`openBlockers`, () => {
+  it(`counts only blocked-by relations`, () => {
+    const issues = [blockerIssue(`me`), blockerIssue(`lower`), blockerIssue(`upper`)]
+    const relations = [
+      blocksRow(`lower`, `me`),
+      // The other side: `me` blocks `upper`, which is not in `me`'s way.
+      blocksRow(`me`, `upper`),
+      // A related row is never a blocker.
+      { type: `related`, issueId: `upper`, relatedIssueId: `me` },
+    ]
+    expect(openBlockers(`me`, relations, issues).map((row) => row.id)).toEqual([
+      `lower`,
+    ])
+  })
+
+  it(`drops a blocker that is done, cancelled or a duplicate`, () => {
+    const issues = [
+      blockerIssue(`me`),
+      blockerIssue(`done`, `done`),
+      blockerIssue(`cancelled`, `cancelled`),
+      blockerIssue(`dupe`, `duplicate`),
+      blockerIssue(`open`, `in_progress`),
+    ]
+    const relations = [
+      blocksRow(`done`, `me`),
+      blocksRow(`cancelled`, `me`),
+      blocksRow(`dupe`, `me`),
+      blocksRow(`open`, `me`),
+    ]
+    expect(openBlockers(`me`, relations, issues).map((row) => row.id)).toEqual([
+      `open`,
+    ])
+  })
+
+  it(`drops a blocker whose issue row is not synced`, () => {
+    const issues = [blockerIssue(`me`), blockerIssue(`b`), blockerIssue(`a`)]
+    const relations = [
+      blocksRow(`gone`, `me`),
+      blocksRow(`b`, `me`),
+      blocksRow(`a`, `me`),
+      // A duplicate row for the same blocker counts once.
+      blocksRow(`a`, `me`),
+    ]
+    // …and the rest are ordered by identifier.
+    expect(openBlockers(`me`, relations, issues).map((row) => row.id)).toEqual([
+      `a`,
+      `b`,
+    ])
   })
 })

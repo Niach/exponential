@@ -33,7 +33,7 @@ export function mcpServerInstructions(gates: {
     // nothing" means exactly that (the agent never compensates). Direct
     // status writes remain for one case only: the user explicitly asks.
     `Exponential is this team's issue tracker: issues on boards with comments, labels and the PRs that close them. In a coding session the flow is exponential_issues_get, exponential_comments_list, implement, commit and push, then exponential_pr_open. Status changes are automatic (PR tools apply the team's automation); set one only if asked. Search for exponential_* tools for boards, members, attachments, notifications, actions, sessions, devices, helpdesk, repos and teams.`,
-    `exponential_pr_open takes 'issueId', 'issueIds' plus 'head' for one combined PR, or 'repositoryId' plus 'head' for a chore PR; exponential_pr_merge mirrors it ('repositoryId' plus 'prNumber'). Merging your own PR never ends your session. A merge refused for a stale base: exponential_pr_retarget, rebase, force-push with --force-with-lease, merge again. Stale description after later commits: exponential_pr_update.`,
+    `exponential_pr_open takes 'issueId', 'issueIds' plus 'head' for one combined PR, or 'repositoryId' plus 'head' for a chore PR; exponential_pr_merge mirrors it ('repositoryId' plus 'prNumber'). Merging your own PR never ends your session. Merge a tree root first; the root's merge retargets its children. Stale description after later commits: exponential_pr_update.`,
     // EXP-792: the one registry. An agent asked to "add the Linear MCP"
     // would otherwise write a repo .mcp.json the launcher never reads.
     `Team MCP servers (Linear, Sentry...) live in exponential_mcp_servers_*, not a repo .mcp.json.`,
@@ -53,8 +53,7 @@ export function mcpServerInstructions(gates: {
           : ``)
     )
   }
-  // EXP-1089: an attended run (a person's chat, a planner run pressed from
-  // the workflow page) may ask its owner too — the tool is registered for
+  // EXP-1089: an attended run (a person's chat) may ask its owner too — the tool is registered for
   // every run now, and the paragraph above only rides the close-out.
   if (gates.askParent && !gates.sessionsEnd) {
     paragraphs.push(

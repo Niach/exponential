@@ -35,7 +35,6 @@ export const entityRefKinds = contract.entityRefKind.values as readonly [
   `session`,
   `label`,
   `status`,
-  `workflow`,
   `device`,
   `member`,
   `repository`,
@@ -168,7 +167,7 @@ function stringAt(row: Record<string, unknown>, key: string): string | null {
  *  a session's `issueId`; a member's `userId`), then its own `id` — so
  *  `issue@` over a comment row is the comment's issue and over an issue row
  *  the issue itself. A node that names ANOTHER row while carrying an `id` of
- *  its own (a comment, a session, a workflow node) lends that row nothing but
+ *  its own (a comment, a session) lends that row nothing but
  *  the issue's `issueIdentifier`/`issueTitle` twins; a node with no own `id`
  *  (a `{issueId, identifier}` merge result, a `{deviceId, label}` device) is
  *  described BY its descriptors, which then belong to the named row. */
@@ -222,7 +221,7 @@ function refFromNode(kind: EntityRefKind, node: unknown): EntityRef | null {
     titleKeys.push(...TITLE_KEYS)
   }
   let identifier = firstString(node, identifierKeys)
-  // A workflow node (`{id, issueId, identifier, title}`) carries its issue's
+  // A node shaped `{id, issueId, identifier, title}` carries its issue's
   // identifier under the plain key; a foreign read takes it only when it
   // LOOKS like one, so a row's own identifier never lands on another kind.
   if (!identifier && kind === `issue` && foreign) {

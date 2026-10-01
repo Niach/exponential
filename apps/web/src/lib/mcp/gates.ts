@@ -25,11 +25,10 @@
 // EXP-700 / EXP-1089: the third gate is askParent. It used to open only for
 // a run another run started; since EXP-1089 EVERY run of the caller's gets
 // the tool (tools are lazy-loaded, an unused one costs nothing): `to: 'user'`
-// asks the person who owns the run (a workflow's creator inside a workflow)
-// from any run, and the planner run of a workflow clears its questions with
-// the person before the graph exists. `parent`/`root` still need a starter,
-// which the handler checks (the parent stamps `parent_session_id` only after
-// its sessions_start poll returns, so linkage is never part of the gate).
+// asks the person who owns the run from any run. `parent` still needs a
+// starter, which the handler checks (the parent stamps `parent_session_id`
+// only after its sessions_start poll returns, so linkage is never part of the
+// gate).
 import { and, eq, inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { codingSessions, teams } from "@/db/schema"

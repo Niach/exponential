@@ -10,7 +10,6 @@ import {
   teamInvites,
   teamMembers,
   users,
-  workflows,
 } from "@/db/schema"
 import type { db as Database } from "@/db/connection"
 import { replaceMentionTokens } from "@/lib/mention-refs"
@@ -281,12 +280,6 @@ export async function mergePlaceholderIntoUser(
         eq(attachments.uploaderId, placeholderId)
       )
     )
-  await tx
-    .update(workflows)
-    .set({ creatorId: userId })
-    .where(
-      and(eq(workflows.teamId, teamId), eq(workflows.creatorId, placeholderId))
-    )
 
   // Subscriptions: (issue, user) is unique — drop the placeholder's row
   // wherever the accepter already subscribed, move the rest.
@@ -385,7 +378,6 @@ export async function deletePlaceholderIfOrphaned(
       AND NOT EXISTS (SELECT 1 FROM comments c WHERE c.author_id = u.id)
       AND NOT EXISTS (SELECT 1 FROM issue_events e WHERE e.actor_user_id = u.id)
       AND NOT EXISTS (SELECT 1 FROM attachments a WHERE a.uploader_id = u.id)
-      AND NOT EXISTS (SELECT 1 FROM workflows w WHERE w.creator_id = u.id)
       AS orphaned
     FROM users u WHERE u.id = ${userId}
   `)

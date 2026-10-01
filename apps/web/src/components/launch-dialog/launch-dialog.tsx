@@ -104,7 +104,6 @@ function seedKey(seed: LaunchSeed): string {
     seed.actionId ?? ``,
     seed.issueIds.join(`,`),
     seed.prIssueId ?? ``,
-    seed.workflowId ?? ``,
     seed.deviceId ?? ``,
     seed.icon ?? ``,
   ].join(`|`)

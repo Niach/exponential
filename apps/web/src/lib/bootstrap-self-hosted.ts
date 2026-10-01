@@ -1,7 +1,6 @@
 import { and, eq, gte, isNotNull, isNull, or } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { applyWorkflowFinalPrState } from "@/lib/workflow-final-pr"
-import { issues, boards, codingSessions, workflows } from "@/db/schema"
+import { issues, boards, codingSessions } from "@/db/schema"
 import type { PullState } from "@/lib/integrations/github-pr"
 import {
   fetchPullState,
@@ -69,11 +68,6 @@ export async function runPrPollPass(now: Date = new Date()): Promise<void> {
         prNumber: issues.prNumber,
         prState: issues.prState,
         teamId: boards.teamId,
-        // EXP-897 (FEED-43 R1): a stack member's base moves on GitHub when
-        // the PR below it lands; a polling instance never gets the `edited`
-        // webhook, so the pass re-reads the base of every open member.
-        prBaseBranch: issues.prBaseBranch,
-        prStackNumber: issues.prStackNumber,
       })
       .from(issues)
       .innerJoin(boards, eq(boards.id, issues.boardId))
@@ -112,24 +106,6 @@ export async function runPrPollPass(now: Date = new Date()): Promise<void> {
           state = await fetchPullState(repo, row.prNumber, token)
           pullStates.set(row.prUrl, state)
         }
-        // EXP-897 (FEED-43 R1): a still-open STACK MEMBER (a recorded edge or
-        // stack number) has its base mirrored from the SAME read: GitHub
-        // retargets it when the PR below lands, and the `edited` webhook that
-        // mirrors that never reaches a polling instance. Written raw, like
-        // the webhook leg. An unstacked PR is never touched.
-        if (
-          state.state === `open` &&
-          !state.merged &&
-          (row.prBaseBranch !== null || row.prStackNumber !== null)
-        ) {
-          const baseRef = state.baseRef
-          if (baseRef && baseRef !== row.prBaseBranch) {
-            await db
-              .update(issues)
-              .set({ prBaseBranch: baseRef })
-              .where(eq(issues.prUrl, row.prUrl))
-          }
-        }
         switch (decidePrPollAction(row.prState, state)) {
           case `merge`:
             await applyPrMergeState({
@@ -167,9 +143,10 @@ export async function runPrPollPass(now: Date = new Date()): Promise<void> {
       }
     }
 
-    // EXP-734: the chore PRs of action/chat runs live on their session rows,
-    // not on any issue — poll them the same way (same transitions, same
-    // recheck window) so a self-hosted run's own PR merges and ends it.
+    // EXP-734: every run's PR also lives on its session row (`pr_open`
+    // stamps the caller's row on every form) — poll them the same way (same
+    // transitions, same recheck window, the issue lane's reads reused) so a
+    // self-hosted run's own PR merges and ends it.
     const sessionRows = await db
       .select({
         sessionId: codingSessions.id,
@@ -181,7 +158,6 @@ export async function runPrPollPass(now: Date = new Date()): Promise<void> {
       .from(codingSessions)
       .where(
         and(
-          isNull(codingSessions.issueId),
           isNotNull(codingSessions.prNumber),
           isNotNull(codingSessions.prUrl),
           or(
@@ -219,48 +195,6 @@ export async function runPrPollPass(now: Date = new Date()): Promise<void> {
         }
       } catch (err) {
         console.error(`[pr-merge-poll] session ${row.sessionId}:`, err)
-      }
-    }
-
-    // EXP-982: a workflow's FINAL PR lives on the workflow row. Its merge
-    // completes the workflow and only then moves the covered issues.
-    const workflowRows = await db
-      .select({
-        id: workflows.id,
-        teamId: workflows.teamId,
-        prUrl: workflows.finalPrUrl,
-        prNumber: workflows.finalPrNumber,
-        prState: workflows.finalPrState,
-      })
-      .from(workflows)
-      // EXP-1059: a CLOSED final PR is polled too — the engine's reopen and
-      // a member's `openFinalPr` write `open` themselves, but a reopen done
-      // on github.com has only this mirror on a self-host without webhooks.
-      // Bounded like the issue lane (REV2-74): a final PR closed longer ago
-      // than the window is not asked about again.
-      .where(
-        and(
-          isNotNull(workflows.finalPrUrl),
-          isNotNull(workflows.finalPrNumber),
-          or(
-            eq(workflows.finalPrState, `open`),
-            and(eq(workflows.finalPrState, `closed`), gte(workflows.updatedAt, closedCutoff))
-          )
-        )
-      )
-    for (const row of workflowRows) {
-      if (!row.prUrl || row.prNumber == null) continue
-      try {
-        const repo = parseRepoFromPrUrl(row.prUrl)
-        if (!repo) continue
-        const token = await resolveRepoToken({ teamId: row.teamId, repo })
-        const state = await fetchPullState(repo, row.prNumber, token)
-        const action = decidePrPollAction(row.prState, state)
-        if (action === `merge`) await applyWorkflowFinalPrState(db, row.prUrl, `merged`)
-        if (action === `close`) await applyWorkflowFinalPrState(db, row.prUrl, `closed`)
-        if (action === `reopen`) await applyWorkflowFinalPrState(db, row.prUrl, `open`)
-      } catch (err) {
-        console.error(`[pr-merge-poll] workflow ${row.id}:`, err)
       }
     }
   } catch (err) {

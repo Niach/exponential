@@ -49,12 +49,6 @@ const h = vi.hoisted(() => {
     attachments: { delete: vi.fn() },
     // EXP-660: the deferred families.
     statuses: { create: vi.fn(), update: vi.fn(), delete: vi.fn() },
-    workflows: {
-      update: vi.fn(),
-      setIssues: vi.fn(),
-      updateNode: vi.fn(),
-      replan: vi.fn(),
-    },
     steer: { killSession: vi.fn(), startSession: vi.fn() },
     helpdesk: {
       listThreads: vi.fn(),
@@ -246,14 +240,6 @@ vi.mock(`@/lib/trpc/integrations`, () => ({
 vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applyPrLifecycleStatusInTx: vi.fn(),
 }))
-// EXP-897: the GitHub stack calls and the lower-PR resolution; the pure
-// helpers (prUrlPattern, orderStack) stay real.
-vi.mock(`@/lib/integrations/pr-stack`, async (importOriginal) => ({
-  ...(await importOriginal<object>()),
-  attachToStack: vi.fn(),
-  resolveStackLower: vi.fn(),
-  loadSessionStackContext: vi.fn(async () => null),
-}))
 vi.mock(`@/lib/issue-relations`, async (importOriginal) => ({
   ...(await importOriginal<object>()),
   insertRelationInTx: vi.fn(),
@@ -324,10 +310,6 @@ import {
   findOpenPullByHead,
   PullAlreadyExistsError,
 } from "@/lib/integrations/github-pr"
-import {
-  attachToStack,
-  resolveStackLower,
-} from "@/lib/integrations/pr-stack"
 import { insertRelationInTx } from "@/lib/issue-relations"
 import { resolveRepoInstallationTokenInfo } from "@/lib/integrations/github-app"
 import { isInstallationLinkedToTeam } from "@/lib/trpc/integrations"
@@ -2300,7 +2282,7 @@ describe(`exponential_pr_open batch session parking`, () => {
     )
   })
 
-  it(`parks the EXACT header session, stamping the batch branch`, async () => {
+  it(`parks the EXACT header session, stamping the combined PR and its branch`, async () => {
     const updates = armPrOpen()
     dbRows.current = [
       {
@@ -2327,14 +2309,23 @@ describe(`exponential_pr_open batch session parking`, () => {
     expect(parseOk(result)).toMatchObject({ number: 7 })
     const flip = updates.find((u) => u.set.status === `in_review`)
     expect(flip).toBeDefined()
-    // The branch stamp is the batch↔PR linkage clients hang Merge on.
-    expect(flip!.set.branch).toBe(`exp/batch-abcd1234`)
-    const { sql, params } = new PgDialect().sqlToQuery(flip!.where as never)
-    expect(sql).toContain(`"id" =`)
-    expect(params).toContain(SESSION)
-    // Never the removed heuristic sweep — it could reach an action or chat run.
-    expect(sql).not.toContain(`"issue_id" is null`)
-    expect(sql).not.toContain(`"action_id" is null`)
+    // The run owns its PR: the row↔PR linkage clients hang Merge on.
+    const stamp = updates.find(
+      (u) => u.set.prUrl && u.set.branch === `exp/batch-abcd1234` && !(`status` in u.set) && u.set.updatedAt
+    )
+    expect(stamp!.set).toMatchObject({
+      prUrl: `https://github.com/acme/app/pull/7`,
+      prNumber: 7,
+      prState: `open`,
+    })
+    for (const update of [flip!, stamp!]) {
+      const { sql, params } = new PgDialect().sqlToQuery(update.where as never)
+      expect(sql).toContain(`"id" =`)
+      expect(params).toContain(SESSION)
+      // Never the removed heuristic sweep — it could reach an action or chat run.
+      expect(sql).not.toContain(`"issue_id" is null`)
+      expect(sql).not.toContain(`"action_id" is null`)
+    }
   })
 
   it(`parks NOTHING without a session header (EXP-710)`, async () => {
@@ -2383,8 +2374,6 @@ describe(`exponential_pr_open batch session parking`, () => {
         prNumber: 5,
         prState: `open`,
         branch: `exp/batch-abcd1234`,
-        // The real base of the existing PR, not the one this call computed.
-        prBaseBranch: `develop`,
       })
     }
     expect(applyPrLifecycleStatusInTx).toHaveBeenCalledTimes(2)
@@ -2749,9 +2738,6 @@ describe(`exponential_sessions_ask_parent`, () => {
 // ── EXP-1089 / EXP-1065: `to: 'user'` from any run, the question on the row ──
 describe(`exponential_sessions_ask_parent — to: 'user' (EXP-1089)`, () => {
   const OWN_RUN = { helpdesk: true, sessionsEnd: false, askParent: true, sessionResults: true }
-  const WORKFLOW_RUN = { helpdesk: true, sessionsEnd: true, askParent: true, sessionResults: true }
-  const WF = `88888888-8888-4888-8888-888888888888`
-  const NODE = `99999999-9999-4999-8999-999999999999`
 
   const childRow = (over: Record<string, unknown> = {}) => ({
     id: SESSION,
@@ -2766,7 +2752,7 @@ describe(`exponential_sessions_ask_parent — to: 'user' (EXP-1089)`, () => {
   })
 
   // One select result per call, in order (the shared builder serves every
-  // select the same rows, and this path reads five different tables).
+  // select the same rows, and this path reads two different tables).
   const selectsInOrder = (...results: unknown[][]) => {
     for (const rows of results) {
       h.db.select.mockImplementationOnce(() => {
@@ -2796,12 +2782,7 @@ describe(`exponential_sessions_ask_parent — to: 'user' (EXP-1089)`, () => {
   it(`is registered for a person-started run and asks its owner`, async () => {
     const tools = collectTools(USER, SESSION, OWN_RUN)
     expect(tools.has(`exponential_sessions_ask_parent`)).toBe(true)
-    selectsInOrder(
-      [childRow()],
-      // no workflow membership
-      [{ workflowId: null, workflowNodeId: null, workflowRole: null }],
-      [{ teamId: WS, userId: `user-1` }]
-    )
+    selectsInOrder([childRow()], [{ teamId: WS, userId: `user-1` }])
     const result = await tools.get(`exponential_sessions_ask_parent`)!({
       question: `Which env?`,
       to: `user`,
@@ -2821,7 +2802,7 @@ describe(`exponential_sessions_ask_parent — to: 'user' (EXP-1089)`, () => {
   })
 
   it(`still refuses a starter target from a run nobody started`, async () => {
-    selectsInOrder([childRow()], [{ workflowId: null, workflowNodeId: null, workflowRole: null }])
+    selectsInOrder([childRow()])
     const result = await collectTools(USER, SESSION, OWN_RUN).get(
       `exponential_sessions_ask_parent`
     )!({ question: `q` })
@@ -2829,119 +2810,6 @@ describe(`exponential_sessions_ask_parent — to: 'user' (EXP-1089)`, () => {
     expect(result.content[0].text).toContain(`no live starter`)
   })
 
-  it(`a workflow node's question parks the run, notifies the workflow's creator and is logged`, async () => {
-    selectsInOrder(
-      [childRow({ startedReason: `workflow` })],
-      [{ workflowId: WF, workflowNodeId: NODE, workflowRole: `author` }],
-      [{ teamId: WS, userId: `runner-1` }],
-      // no sibling asked this
-      [],
-      [{ creatorId: `creator-9`, name: `Login rework` }],
-      // recordWorkflowEvent knows the team already: no lookup
-    )
-    const result = await collectTools(USER, SESSION, WORKFLOW_RUN).get(
-      `exponential_sessions_ask_parent`
-    )!({ question: `Keep the enum?\nProposal: yes, drop nothing.` })
-    expect(parseOk(result)).toMatchObject({ delivered: true, to: `user` })
-    expect(updateSet).toHaveBeenCalledWith(
-      expect.objectContaining({
-        needsInput: true,
-        pendingQuestion: {
-          question: `Keep the enum?\nProposal: yes, drop nothing.`,
-          askedAt: expect.any(String),
-        },
-      })
-    )
-    // The node's STATE is never touched: the question is a badge.
-    expect(updateSet).toHaveBeenCalledTimes(1)
-    expect(sendAgentMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        teamId: WS,
-        senderUserId: `runner-1`,
-        recipientIds: [`creator-9`],
-        title: `EXP-12 asks`,
-      })
-    )
-    expect(insertValues).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workflowId: WF,
-        teamId: WS,
-        nodeId: NODE,
-        sessionId: SESSION,
-        kind: `question_asked`,
-        message: `EXP-12 asks: Keep the enum? Proposal: yes, drop nothing.`,
-      })
-    )
-  })
-
-  // A child a node run started on a chat or action subject inherits the
-  // node id (rule c) with no role: it asks its parent like any child.
-  it(`a node run's chat child asks its parent, no Proposal needed`, async () => {
-    const PARENT = `77777777-7777-4777-8777-777777777777`
-    const RELAY = { url: `https://relay.test`, secret: `s` }
-    vi.mocked(getSteerRelayConfig).mockReturnValue(RELAY)
-    vi.mocked(relayPostInput).mockResolvedValue({ delivered: true })
-    selectsInOrder(
-      [childRow({ startedReason: `agent`, parentSessionId: PARENT, parentStatus: `running`, issueIdentifier: null })],
-      [{ workflowId: WF, workflowNodeId: NODE, workflowRole: null }]
-    )
-    const result = await collectTools(USER, SESSION, WORKFLOW_RUN).get(
-      `exponential_sessions_ask_parent`
-    )!({ question: `Which env?` })
-    expect(parseOk(result)).toMatchObject({ delivered: true })
-    expect(relayPostInput).toHaveBeenCalledWith(RELAY, PARENT, expect.stringContaining(`Which env?`))
-    expect(updateSet).not.toHaveBeenCalled()
-  })
-
-  it(`a node's author run resumed under a parent is still the node's`, async () => {
-    const PARENT = `77777777-7777-4777-8777-777777777777`
-    selectsInOrder(
-      [childRow({ startedReason: `agent`, parentSessionId: PARENT, parentStatus: `running` })],
-      [{ workflowId: WF, workflowNodeId: NODE, workflowRole: `author` }]
-    )
-    const result = await collectTools(USER, SESSION, WORKFLOW_RUN).get(
-      `exponential_sessions_ask_parent`
-    )!({ question: `Keep the enum?` })
-    expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain(`Proposal:`)
-  })
-
-  it(`a workflow node's question still needs a Proposal line`, async () => {
-    selectsInOrder(
-      [childRow({ startedReason: `workflow` })],
-      [{ workflowId: WF, workflowNodeId: NODE, workflowRole: `author` }]
-    )
-    const result = await collectTools(USER, SESSION, WORKFLOW_RUN).get(
-      `exponential_sessions_ask_parent`
-    )!({ question: `Keep the enum?` })
-    expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain(`Proposal:`)
-    expect(updateSet).not.toHaveBeenCalled()
-  })
-
-  it(`a planner run asks the workflow's creator without a Proposal line`, async () => {
-    selectsInOrder(
-      [childRow({ issueIdentifier: null })],
-      [{ workflowId: WF, workflowNodeId: null, workflowRole: `plan` }],
-      [{ teamId: WS, userId: `user-1` }],
-      [{ creatorId: `creator-9`, name: `Login rework` }]
-    )
-    const result = await collectTools(USER, SESSION, OWN_RUN).get(
-      `exponential_sessions_ask_parent`
-    )!({ question: `1. Runner device?\n2. Review policy?` })
-    expect(parseOk(result)).toMatchObject({ delivered: true, to: `user` })
-    expect(sendAgentMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ recipientIds: [`creator-9`], title: `Login rework planner asks` })
-    )
-    expect(insertValues).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workflowId: WF,
-        nodeId: null,
-        kind: `question_asked`,
-        message: `The planner asks: 1. Runner device? 2. Review policy?`,
-      })
-    )
-  })
 })
 
 // ── EXP-879: the run publishes pictures of its own work ──────────────────────
@@ -3563,7 +3431,7 @@ describe(`exponential_pr_open — repositoryId path`, () => {
     ).toContain(`root first`)
   })
 
-  // EXP-1146: no tree to merge (a workflow chore PR, a run outside yolo mode)
+  // EXP-1146: no tree to merge (a run outside yolo mode)
   // means nothing will ever auto-merge this PR — no `deferred` promise.
   it(`returns the plain opened result when the run has no yolo tree`, async () => {
     armRepoPr()
@@ -3629,32 +3497,30 @@ describe(`exponential_pr_open — repositoryId path`, () => {
       title: `Chore`,
     })
 
-    expect(updates).toHaveLength(1)
+    expect(updates).toHaveLength(2)
     expect(updates[0]!.set).toMatchObject({
       status: `in_review`,
-      branch: `exp/chat-1a2b3c4d`,
       needsInput: false,
+    })
+    expect(updates[1]!.set).toMatchObject({
+      branch: `exp/chat-1a2b3c4d`,
       // EXP-734: the run IS the link — the PR lands on the session row.
       prUrl: `https://github.com/acme/app/pull/9`,
       prNumber: 9,
       prState: `open`,
     })
-    const { sql, params } = new PgDialect().sqlToQuery(
-      updates[0]!.where as never
-    )
-    expect(sql).toContain(`"id" =`)
-    expect(params).toContain(SESSION)
-    // The row is pinned by id (never the pre-EXP-637 heuristic sweep) and the
-    // PR stamp additionally requires the row to be issue-less, matching what
-    // `applySessionPrState` advances later.
-    expect(sql).toContain(`"issue_id" is null`)
+    for (const update of updates) {
+      const { sql, params } = new PgDialect().sqlToQuery(update.where as never)
+      // The row is pinned by id (never the pre-EXP-637 heuristic sweep).
+      expect(sql).toContain(`"id" =`)
+      expect(params).toContain(SESSION)
+      expect(sql).not.toContain(`"issue_id" is null`)
+    }
   })
 
-  // EXP-734 follow-up: an ISSUE-scoped run may open a side chore PR. Its row
-  // must keep its issue branch and stay out of the issue-less PR lifecycle —
-  // pr-sync/the poller/`codingSessions.mergePr` all filter `issue_id IS NULL`,
-  // so a stamp here would strand `pr_state` at `open` forever.
-  it(`leaves an issue-scoped caller's row alone on the chore path`, async () => {
+  // SLOP-3: every run owns the PR it opens, an issue-scoped run's side chore
+  // PR included — the url-keyed writers advance it from there.
+  it(`stamps an issue-scoped caller's row on the chore path too`, async () => {
     const updates = armRepoPr()
     dbRows.current = [
       {
@@ -3668,21 +3534,16 @@ describe(`exponential_pr_open — repositoryId path`, () => {
       },
     ]
 
-    const result = await collectTools(USER, SESSION).get(
-      `exponential_pr_open`
-    )!({
+    await collectTools(USER, SESSION).get(`exponential_pr_open`)!({
       repositoryId: REPO,
       head: `exp/chat-1a2b3c4d`,
       title: `Chore`,
     })
 
-    // The PR is still opened and returned — only the stamp is withheld.
-    expect(parseOk(result)).toEqual({
-      url: `https://github.com/acme/app/pull/9`,
-      number: 9,
+    expect(updates[1]!.set).toMatchObject({
+      prUrl: `https://github.com/acme/app/pull/9`,
+      branch: `exp/chat-1a2b3c4d`,
     })
-    expect(updates).toHaveLength(0)
-    expect(db.transaction).not.toHaveBeenCalled()
   })
 
   it(`ignores a header naming somebody else's run`, async () => {
@@ -3743,7 +3604,7 @@ describe(`exponential_pr_open — repositoryId path`, () => {
       undefined,
       undefined
     )
-    expect(updates[0]!.set).toMatchObject({ prUrl: `https://github.com/acme/app/pull/5`, prNumber: 5 })
+    expect(updates[1]!.set).toMatchObject({ prUrl: `https://github.com/acme/app/pull/5`, prNumber: 5 })
   })
 
   it(`requires head, and refuses more than one subject`, async () => {
@@ -4024,7 +3885,6 @@ describe(`exponential_pr_merge — repository path and the self-merge spare`, ()
           identifier: `MET-1`,
           prUrl: `https://github.com/acme/app/pull/9`,
           branch: `exp/MET-1`,
-          prBaseBranch: `exp/MET-0`,
         },
       ],
     ])
@@ -4260,8 +4120,7 @@ describe(`exponential_sessions_list`, () => {
       limit: 50,
       offset: 0,
     })
-    // EXP-897: every row additionally carries its depth in the run tree.
-    expect(parseOk(result)).toEqual([{ id: RUN, status: `running`, depth: 0 }])
+    expect(parseOk(result)).toEqual([{ id: RUN, status: `running` }])
     expect(membership.resolveTeamAccess).toHaveBeenCalledWith(`user-1`, WS)
 
     // The stub's select is typed without params; the tool passes the
@@ -4274,7 +4133,7 @@ describe(`exponential_sessions_list`, () => {
       expect(projection).not.toContain(column)
     }
     // FEED-63: agentBusy/agentCaption = the working signal beside status.
-    for (const column of [`id`, `issueId`, `issueIdentifier`, `endedBy`, `branch`, `deviceId`, `prUrl`, `prNumber`, `prState`, `agentBusy`, `agentCaption`]) {
+    for (const column of [`id`, `issueId`, `issueIdentifier`, `endedBy`, `branch`, `deviceId`, `prUrl`, `prNumber`, `prState`, `agentBusy`, `agentCaption`, `parentSessionId`]) {
       expect(projection).toContain(column)
     }
 
@@ -4887,189 +4746,6 @@ describe(`exponential_sessions_start`, () => {
     )
   })
 
-  // EXP-1082 §1 rule (c): a child started from inside a workflow run joins
-  // the parent's workflow + node; its role is its own.
-  it(`stamps the calling workflow run's membership on its child`, async () => {
-    caller.steer.startSession.mockResolvedValue({ ok: true })
-    const WF = `77777777-7777-4777-8777-777777777777`
-    const NODE = `88888888-8888-4888-8888-888888888888`
-    const builder = db.select()
-    db.select.mockClear()
-    let call = 0
-    const sets: Array<Record<string, unknown>> = []
-    db.update.mockImplementation(() => ({
-      set: (values: Record<string, unknown>) => {
-        sets.push(values)
-        return { where: async () => undefined }
-      },
-    }))
-    // 1 = the poll, 2 = the parent's membership + owner, 3 = the child's
-    // row, 4 = the workflow's team.
-    const stage = (rows: {
-      parent?: Record<string, unknown>
-      child?: Record<string, unknown>
-      workflow?: Record<string, unknown>
-    }) => {
-      call = 0
-      sets.length = 0
-      db.select.mockImplementation(() => {
-        call += 1
-        dbRows.current =
-          call === 1
-            ? [{ ...startedRow }]
-            : call === 2
-              ? [{ workflowId: WF, workflowNodeId: NODE, userId: `user-1`, hostUserId: null, ...rows.parent }]
-              : call === 3
-                ? [
-                    {
-                      workflowId: null,
-                      issueId: UUID,
-                      batchIssueIds: null,
-                      startedReason: `agent`,
-                      teamId: WS,
-                      ...rows.child,
-                    },
-                  ]
-                : [{ teamId: WS, ...rows.workflow }]
-        return builder
-      })
-    }
-    try {
-      stage({})
-      await collectTools(USER, RUN).get(`exponential_sessions_start`)!({
-        deviceId: `mac-1`,
-        issueId: UUID,
-      })
-      expect(sets).toEqual([
-        { parentSessionId: RUN, workflowId: WF, workflowNodeId: NODE, workflowRole: `author` },
-      ])
-
-      // The header names a run that is not the caller's: the parent link
-      // stays (history), the membership is not stamped.
-      stage({ parent: { userId: `user-9`, hostUserId: `user-8` } })
-      await collectTools(USER, RUN).get(`exponential_sessions_start`)!({
-        deviceId: `mac-1`,
-        issueId: UUID,
-      })
-      expect(sets).toEqual([{ parentSessionId: RUN }])
-
-      // The host of the calling run is the caller: that counts as its own.
-      stage({ parent: { userId: `user-9`, hostUserId: `user-1` } })
-      await collectTools(USER, RUN).get(`exponential_sessions_start`)!({
-        deviceId: `mac-1`,
-        issueId: UUID,
-      })
-      expect(sets).toEqual([
-        { parentSessionId: RUN, workflowId: WF, workflowNodeId: NODE, workflowRole: `author` },
-      ])
-
-      // The child runs in another team than the workflow's.
-      stage({ workflow: { teamId: `other-team` } })
-      await collectTools(USER, RUN).get(`exponential_sessions_start`)!({
-        deviceId: `mac-1`,
-        issueId: UUID,
-      })
-      expect(sets).toEqual([{ parentSessionId: RUN }])
-    } finally {
-      db.select.mockImplementation(() => builder)
-    }
-  })
-
-  // EXP-1082 §1: only a run that belongs to the workflow (the host) may name
-  // a membership; anyone else's keys are dropped, never refused.
-  it(`forwards explicit workflow membership when the calling run is in that workflow`, async () => {
-    caller.steer.startSession.mockResolvedValue({ ok: true })
-    const WF = `77777777-7777-4777-8777-777777777777`
-    const builder = db.select()
-    let call = 0
-    // 1 = the calling run's own membership + owner, 2+ = the poll.
-    db.select.mockImplementation(() => {
-      call += 1
-      dbRows.current =
-        call === 1 ? [{ workflowId: WF, userId: `user-1`, hostUserId: null }] : [{ ...startedRow }]
-      return builder
-    })
-    try {
-      await collectTools(USER, RUN).get(`exponential_sessions_start`)!({
-        deviceId: `mac-1`,
-        issueId: UUID,
-        workflowId: WF,
-        workflowRole: `review`,
-      })
-    } finally {
-      db.select.mockImplementation(() => builder)
-    }
-    expect(caller.steer.startSession).toHaveBeenCalledWith(
-      expect.objectContaining({ workflowId: WF, workflowRole: `review` })
-    )
-  })
-
-  it(`drops the membership keys when the named run is somebody else's`, async () => {
-    caller.steer.startSession.mockResolvedValue({ ok: true })
-    const WF = `77777777-7777-4777-8777-777777777777`
-    const builder = db.select()
-    let call = 0
-    db.select.mockImplementation(() => {
-      call += 1
-      dbRows.current =
-        call === 1 ? [{ workflowId: WF, userId: `user-9`, hostUserId: `user-8` }] : [{ ...startedRow }]
-      return builder
-    })
-    try {
-      await collectTools(USER, RUN).get(`exponential_sessions_start`)!({
-        deviceId: `mac-1`,
-        issueId: UUID,
-        workflowId: WF,
-        workflowRole: `review`,
-      })
-    } finally {
-      db.select.mockImplementation(() => builder)
-    }
-    const sent = caller.steer.startSession.mock.calls.at(-1)![0] as Record<string, unknown>
-    expect(`workflowId` in sent).toBe(false)
-    expect(`workflowRole` in sent).toBe(false)
-  })
-
-  it(`drops the membership keys when the calling run is not in that workflow`, async () => {
-    caller.steer.startSession.mockResolvedValue({ ok: true })
-    const WF = `77777777-7777-4777-8777-777777777777`
-    const builder = db.select()
-    let call = 0
-    db.select.mockImplementation(() => {
-      call += 1
-      dbRows.current = call === 1 ? [{ workflowId: null }] : [{ ...startedRow }]
-      return builder
-    })
-    try {
-      await collectTools(USER, RUN).get(`exponential_sessions_start`)!({
-        deviceId: `mac-1`,
-        issueId: UUID,
-        workflowId: WF,
-        workflowNodeId: `88888888-8888-4888-8888-888888888888`,
-        workflowRole: `review`,
-      })
-    } finally {
-      db.select.mockImplementation(() => builder)
-    }
-    const sent = caller.steer.startSession.mock.calls.at(-1)![0] as Record<string, unknown>
-    expect(`workflowId` in sent).toBe(false)
-    expect(`workflowNodeId` in sent).toBe(false)
-    expect(`workflowRole` in sent).toBe(false)
-  })
-
-  it(`drops the membership keys from a caller with no run at all`, async () => {
-    caller.steer.startSession.mockResolvedValue({ ok: true })
-    dbRows.current = [{ ...startedRow }]
-    await collectTools(USER, null).get(`exponential_sessions_start`)!({
-      deviceId: `mac-1`,
-      issueId: UUID,
-      workflowId: `77777777-7777-4777-8777-777777777777`,
-      workflowRole: `review`,
-    })
-    const sent = caller.steer.startSession.mock.calls.at(-1)![0] as Record<string, unknown>
-    expect(`workflowId` in sent).toBe(false)
-  })
-
   // EXP-906: the profile rides the start like every other option — an
   // orchestrator whose default profile is walled no longer has to route
   // around this tool (and lose the parent link) to launch elsewhere.
@@ -5452,7 +5128,7 @@ describe(`expToolDisplay covers the whole tool surface (EXP-846)`, () => {
 // `pr_open` records the stack edge (and the `blocks` relation behind it),
 // `pr_merge` lands a whole chain in one call, `ask_parent` escalates past a
 // parent that cannot decide, and the session list nests.
-describe(`exponential_pr_open — stacking (EXP-897)`, () => {
+describe(`exponential_pr_open — a follow-up run based on its parent's branch`, () => {
   const LOWER_ISSUE = `aaaaaaaa-1111-4111-8111-111111111111`
   const LOWER_PR_URL = `https://github.com/acme/app/pull/241`
 
@@ -5495,109 +5171,21 @@ describe(`exponential_pr_open — stacking (EXP-897)`, () => {
     return updates
   }
 
-  const lower = {
-    issueId: LOWER_ISSUE,
-    identifier: `EXP-11`,
-    prUrl: LOWER_PR_URL,
-    prNumber: 241,
-    branch: `exp/EXP-11`,
-    prStackNumber: null as number | null,
-  }
-
   beforeEach(() => {
     dbRows.current = []
-    vi.mocked(resolveStackLower).mockResolvedValue(lower)
-    vi.mocked(attachToStack).mockResolvedValue({
-      stackNumber: 7,
-      created: true,
-    })
     vi.mocked(insertRelationInTx).mockResolvedValue(null)
   })
 
-  it(`bases the PR on the lower's branch and records the edge + the blocks relation`, async () => {
-    const updates = armPrOpen()
-
-    const result = await tool(`exponential_pr_open`)({
-      issueId: UUID,
-      title: `Upper`,
-      head: `exp/EXP-12`,
-      stackOnIssueId: LOWER_ISSUE,
-    })
-    expect(result.isError, result.content[0].text).toBeFalsy()
-
-    expect(vi.mocked(createPullRequest).mock.calls.at(-1)![0]).toMatchObject({
-      base: `exp/EXP-11`,
-    })
-    expect(parseOk(result)).toMatchObject({
-      number: 242,
-      base: `exp/EXP-11`,
-      stack: { number: 7, onTopOf: `EXP-11` },
-    })
-    const linkWrite = updates.find((u) => u.set.prUrl)
-    expect(linkWrite!.set).toMatchObject({
-      prBaseBranch: `exp/EXP-11`,
-      prStackNumber: 7,
-    })
-    // The stack IS a blocking relation — written once, canonically.
-    expect(insertRelationInTx).toHaveBeenCalledTimes(1)
-    expect(insertRelationInTx).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        issueId: LOWER_ISSUE,
-        relatedIssueId: UUID,
-        type: `blocks`,
-        source: `user`,
-      })
-    )
+  it(`refuses the retired stackOnIssueId`, () => {
+    const schema = collectToolDefs().get(`exponential_pr_open`)!.inputSchema!
+    expect(
+      schema.safeParse({ issueId: UUID, title: `t`, stackOnIssueId: LOWER_ISSUE })
+        .success
+    ).toBe(false)
   })
 
-  it(`degrades to a plain base-branch PR when GitHub stacks are unavailable`, async () => {
-    const updates = armPrOpen()
-    vi.mocked(attachToStack).mockResolvedValue({
-      stackNumber: null,
-      created: false,
-    })
-
-    const result = await tool(`exponential_pr_open`)({
-      issueId: UUID,
-      title: `Upper`,
-      head: `exp/EXP-12`,
-      stackOnIssueId: LOWER_ISSUE,
-    })
-
-    const ok = parseOk(result) as { stack: { number: null }; note: string }
-    expect(ok.stack.number).toBeNull()
-    expect(ok.note).toContain(`exponential_pr_retarget`)
-    // Our own edge is recorded either way — that is what nesting reads.
-    const linkWrite = updates.find((u) => u.set.prUrl)
-    expect(linkWrite!.set).toMatchObject({
-      prBaseBranch: `exp/EXP-11`,
-      prStackNumber: null,
-    })
-  })
-
-  it(`refuses stackOnIssueId together with base or repositoryId`, async () => {
+  it(`a base that IS a teammate's open PR branch makes that issue block this one`, async () => {
     armPrOpen()
-    const withBase = await tool(`exponential_pr_open`)({
-      issueId: UUID,
-      title: `t`,
-      base: `main`,
-      stackOnIssueId: LOWER_ISSUE,
-    })
-    expect(withBase.isError).toBe(true)
-    expect(withBase.content[0].text).toContain(`stackOnIssueId replaces 'base'`)
-
-    const withRepo = await tool(`exponential_pr_open`)({
-      repositoryId: REPO,
-      title: `t`,
-      head: `chore/x`,
-      stackOnIssueId: LOWER_ISSUE,
-    })
-    expect(withRepo.isError).toBe(true)
-  })
-
-  it(`treats a raw base that IS a teammate's open PR branch as a stack`, async () => {
-    const updates = armPrOpen()
     dbRows.current = [
       {
         id: LOWER_ISSUE,
@@ -5605,7 +5193,6 @@ describe(`exponential_pr_open — stacking (EXP-897)`, () => {
         teamId: `ws-1`,
         prNumber: 241,
         prState: `open`,
-        prStackNumber: null,
         prUrl: LOWER_PR_URL,
       },
     ]
@@ -5617,12 +5204,20 @@ describe(`exponential_pr_open — stacking (EXP-897)`, () => {
       base: `exp/EXP-11`,
     })
 
-    expect(parseOk(result)).toMatchObject({
-      stack: { number: 7, onTopOf: `EXP-11` },
+    expect(parseOk(result)).toMatchObject({ number: 242, base: `exp/EXP-11` })
+    expect(vi.mocked(createPullRequest).mock.calls.at(-1)![0]).toMatchObject({
+      base: `exp/EXP-11`,
     })
-    expect(updates.find((u) => u.set.prUrl)!.set).toMatchObject({
-      prBaseBranch: `exp/EXP-11`,
-    })
+    expect(insertRelationInTx).toHaveBeenCalledTimes(1)
+    expect(insertRelationInTx).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        issueId: LOWER_ISSUE,
+        relatedIssueId: UUID,
+        type: `blocks`,
+        source: `reference`,
+      })
+    )
   })
 
   it(`refuses a base that is the branch of an already-merged PR`, async () => {
@@ -5634,7 +5229,6 @@ describe(`exponential_pr_open — stacking (EXP-897)`, () => {
         teamId: `ws-1`,
         prNumber: 241,
         prState: `merged`,
-        prStackNumber: null,
         prUrl: LOWER_PR_URL,
       },
     ]
@@ -5654,245 +5248,10 @@ describe(`exponential_pr_open — stacking (EXP-897)`, () => {
   })
 })
 
-describe(`exponential_pr_merge — mergeStack (EXP-897)`, () => {
-  beforeEach(() => {
-    dbRows.current = []
-    caller.issues.mergePr.mockReset()
-    caller.issues.mergePr.mockResolvedValue({ merged: true })
-  })
-
-  it(`lands the whole chain in ONE call and reports it for every issue`, async () => {
-    dbRows.current = [
-      {
-        id: UUID,
-        identifier: `EXP-11`,
-        prUrl: `https://github.com/acme/app/pull/241`,
-        branch: `exp/EXP-11`,
-        prBaseBranch: `master`,
-      },
-      {
-        id: PROJ,
-        identifier: `EXP-12`,
-        prUrl: `https://github.com/acme/app/pull/242`,
-        branch: `exp/EXP-12`,
-        prBaseBranch: `exp/EXP-11`,
-      },
-    ]
-    caller.issues.mergePr.mockResolvedValue({
-      merged: true,
-      mergedPrUrls: [
-        `https://github.com/acme/app/pull/241`,
-        `https://github.com/acme/app/pull/242`,
-      ],
-      note: `Merged GitHub stack #7: 2 pull request(s), bottom-up.`,
-    })
-
-    const result = await tool(`exponential_pr_merge`)({
-      issueIds: [UUID, PROJ],
-      mergeStack: true,
-    })
-
-    expect(caller.issues.mergePr).toHaveBeenCalledTimes(1)
-    expect(caller.issues.mergePr).toHaveBeenCalledWith({
-      issueId: UUID,
-      mergeStack: true,
-    })
-    const ok = parseOk(result) as {
-      results: Array<{ merged: boolean; mergedVia: string; note: string }>
-    }
-    expect(ok.results).toHaveLength(2)
-    expect(ok.results.every((row) => row.merged && row.mergedVia === `EXP-11`)).toBe(
-      true
-    )
-  })
-
-  // FEED-43 R1: an ENQUEUED stack merge has not landed and the queue may
-  // still reject it; reporting `merged: true` made agents end their run or
-  // skip a retry. Every issue the queued stack covers says `queued` instead.
-  it(`reports an enqueued stack as queued, never merged, for every issue it covers`, async () => {
-    dbRows.current = [
-      {
-        id: UUID,
-        identifier: `EXP-11`,
-        prUrl: `https://github.com/acme/app/pull/241`,
-        branch: `exp/EXP-11`,
-        prBaseBranch: `master`,
-      },
-      {
-        id: PROJ,
-        identifier: `EXP-12`,
-        prUrl: `https://github.com/acme/app/pull/242`,
-        branch: `exp/EXP-12`,
-        prBaseBranch: `exp/EXP-11`,
-      },
-    ]
-    caller.issues.mergePr.mockResolvedValue({
-      merged: false,
-      queued: true,
-      mergedPrUrls: [],
-      queuedPrUrls: [
-        `https://github.com/acme/app/pull/241`,
-        `https://github.com/acme/app/pull/242`,
-      ],
-      note: `GitHub queued the stack merge of PR #242. Nothing is merged yet; the issues complete when it lands.`,
-    })
-
-    const result = await tool(`exponential_pr_merge`)({
-      issueIds: [UUID, PROJ],
-      mergeStack: true,
-    })
-
-    expect(caller.issues.mergePr).toHaveBeenCalledTimes(1)
-    const ok = parseOk(result) as {
-      results: Array<{
-        merged: boolean
-        queued?: boolean
-        mergedVia: string
-        error?: string
-      }>
-    }
-    expect(ok.results).toHaveLength(2)
-    expect(
-      ok.results.every(
-        (row) =>
-          row.merged === false &&
-          row.queued === true &&
-          row.mergedVia === `EXP-11` &&
-          row.error === undefined
-      )
-    ).toBe(true)
-  })
-
-  it(`merges a target on an unrelated PR on its own and reports only what landed`, async () => {
-    dbRows.current = [
-      {
-        id: UUID,
-        identifier: `EXP-11`,
-        prUrl: `https://github.com/acme/app/pull/241`,
-        branch: `exp/EXP-11`,
-        prBaseBranch: `master`,
-      },
-      {
-        id: PROJ,
-        identifier: `EXP-30`,
-        prUrl: `https://github.com/acme/app/pull/300`,
-        branch: `exp/EXP-30`,
-        prBaseBranch: `master`,
-      },
-    ]
-    caller.issues.mergePr
-      .mockResolvedValueOnce({
-        merged: true,
-        mergedPrUrls: [`https://github.com/acme/app/pull/241`],
-      })
-      .mockRejectedValueOnce(
-        new TRPCError({
-          code: `PRECONDITION_FAILED`,
-          message: `PR #300 is dirty on GitHub`,
-        })
-      )
-
-    const result = await tool(`exponential_pr_merge`)({
-      issueIds: [UUID, PROJ],
-      mergeStack: true,
-    })
-
-    expect(caller.issues.mergePr).toHaveBeenCalledTimes(2)
-    const ok = parseOk(result) as {
-      results: Array<{ issueId: string; merged: boolean; error?: string }>
-    }
-    expect(ok.results.find((row) => row.issueId === UUID)!.merged).toBe(true)
-    const other = ok.results.find((row) => row.issueId === PROJ)!
-    expect(other.merged).toBe(false)
-    expect(other.error).toContain(`dirty`)
-  })
-
-  it(`reports the stack failure once, for every requested issue`, async () => {
-    dbRows.current = [
-      {
-        id: UUID,
-        identifier: `EXP-11`,
-        prUrl: `https://github.com/acme/app/pull/241`,
-        branch: null,
-        prBaseBranch: null,
-      },
-    ]
-    caller.issues.mergePr.mockRejectedValue(
-      new TRPCError({
-        code: `PRECONDITION_FAILED`,
-        message: `Cannot merge the stack: PR #242 (EXP-12) is a draft`,
-      })
-    )
-
-    const result = await tool(`exponential_pr_merge`)({
-      issueId: UUID,
-      mergeStack: true,
-    })
-    const ok = parseOk(result) as {
-      results: Array<{ merged: boolean; error: string }>
-    }
-    expect(ok.results[0]!.merged).toBe(false)
-    expect(ok.results[0]!.error).toContain(`is a draft`)
-  })
-
-  it(`refuses mergeStack on a chore PR`, async () => {
-    const result = await tool(`exponential_pr_merge`)({
-      repositoryId: REPO,
-      prNumber: 9,
-      mergeStack: true,
-    })
-    expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain(`issue PRs only`)
-  })
-
-  it(`forwards the mutation's note when a plain merge walked a stack`, async () => {
-    dbRows.current = [
-      {
-        id: UUID,
-        identifier: `EXP-12`,
-        prUrl: `https://github.com/acme/app/pull/242`,
-        branch: `exp/EXP-12`,
-        prBaseBranch: `exp/EXP-11`,
-      },
-    ]
-    caller.issues.mergePr.mockResolvedValue({
-      merged: true,
-      note: `Merging stacked PR #242 also merged every unmerged PR below it: #241.`,
-    })
-    const result = await tool(`exponential_pr_merge`)({ issueId: UUID })
-    const ok = parseOk(result) as { results: Array<{ note?: string }> }
-    expect(ok.results[0]!.note).toBe(
-      `Merging stacked PR #242 also merged every unmerged PR below it: #241.`
-    )
-  })
-
-  // FEED-48: pr_open stamps `prBaseBranch` for EVERY PR, the default branch
-  // included — a plain PR on master is not a stack and gets no stack note.
-  it(`says nothing about a stack for a plain PR based on the default branch`, async () => {
-    dbRows.current = [
-      {
-        id: UUID,
-        identifier: `EXP-1007`,
-        prUrl: `https://github.com/acme/app/pull/791`,
-        branch: `exp/chat-0f819649`,
-        prBaseBranch: `master`,
-      },
-    ]
-    caller.issues.mergePr.mockResolvedValue({ merged: true })
-    const result = await tool(`exponential_pr_merge`)({ issueId: UUID })
-    const ok = parseOk(result) as {
-      results: Array<{ merged: boolean; note?: string }>
-    }
-    expect(ok.results[0]!.merged).toBe(true)
-    expect(ok.results[0]!.note).toBeUndefined()
-  })
-})
-
-describe(`exponential_sessions_ask_parent — escalation (EXP-897)`, () => {
+describe(`exponential_sessions_ask_parent — targets`, () => {
   const AGENT_CHILD = { helpdesk: true, sessionsEnd: true, askParent: true, sessionResults: true }
   const RELAY = { url: `https://relay.test`, secret: `s` }
   const PARENT = `77777777-7777-4777-8777-777777777777`
-  const ROOT = `55555555-5555-4555-8555-555555555555`
 
   const childRow = (over: Record<string, unknown> = {}) => ({
     id: SESSION,
@@ -5918,47 +5277,13 @@ describe(`exponential_sessions_ask_parent — escalation (EXP-897)`, () => {
     } as never)
   })
 
-  it(`to: 'root' delivers to the highest LIVE ancestor, naming the depth`, async () => {
-    dbRows.current = [childRow({ parentStatus: `ended` })]
-    executeRows.current = [
-      { id: SESSION, depth: 0, parent_session_id: PARENT, status: `running` },
-      { id: PARENT, depth: 1, parent_session_id: ROOT, status: `ended` },
-      { id: ROOT, depth: 2, parent_session_id: null, status: `running` },
-    ]
-    vi.mocked(getSteerRelayConfig).mockReturnValue(RELAY)
-    vi.mocked(relayPostInput).mockResolvedValue({ delivered: true })
-
-    const result = await collectTools(USER, SESSION, AGENT_CHILD).get(
-      `exponential_sessions_ask_parent`
-    )!({ question: `Is the whole plan wrong?`, to: `root` })
-
-    expect(relayPostInput).toHaveBeenCalledWith(
-      RELAY,
-      ROOT,
-      `[Exponential child run EXP-12 ${SESSION.slice(0, 8)} (2 levels down) asks — reply with exponential_sessions_message sessionId=${SESSION}] Is the whole plan wrong?`
-    )
-    expect(parseOk(result)).toMatchObject({ delivered: true })
+  it(`refuses the retired to: 'root'`, () => {
+    const schema = collectToolDefs().get(`exponential_sessions_ask_parent`)!
+      .inputSchema!
+    expect(schema.safeParse({ question: `q`, to: `root` }).success).toBe(false)
+    expect(schema.safeParse({ question: `q`, to: `user` }).success).toBe(true)
   })
 
-  it(`to: 'root' refuses when nothing above is alive`, async () => {
-    dbRows.current = [childRow()]
-    executeRows.current = [
-      { id: SESSION, depth: 0, parent_session_id: PARENT, status: `running` },
-      { id: PARENT, depth: 1, parent_session_id: null, status: `ended` },
-    ]
-    vi.mocked(getSteerRelayConfig).mockReturnValue(RELAY)
-
-    const result = await collectTools(USER, SESSION, AGENT_CHILD).get(
-      `exponential_sessions_ask_parent`
-    )!({ question: `q`, to: `root` })
-
-    expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain(`No run above you is still live`)
-  })
-
-  // The person is reached through the EXISTING agent_message inbox row — no
-  // new notification type, no new column. The run parks as needing input and
-  // the caption IS the question.
   it(`to: 'user' parks the run and notifies its owner`, async () => {
     dbRows.current = [childRow()]
 
@@ -5994,61 +5319,5 @@ describe(`exponential_sessions_ask_parent — escalation (EXP-897)`, () => {
       PARENT,
       `[Exponential child run EXP-12 ${SESSION.slice(0, 8)} asks — reply with exponential_sessions_message sessionId=${SESSION}] Which env?`
     )
-  })
-})
-
-describe(`exponential_sessions_list — subtreeOf (EXP-897)`, () => {
-  it(`narrows to the run and its descendants, and carries their depth`, async () => {
-    executeRows.current = [{ id: RUN }, { id: `child` }]
-    dbRows.current = [{ id: RUN, status: `running` }]
-
-    const result = await tool(`exponential_sessions_list`)({
-      teamId: WS,
-      subtreeOf: RUN,
-      mine: false,
-      limit: 50,
-      offset: 0,
-    })
-
-    expect(db.execute).toHaveBeenCalled()
-    expect(parseOk(result)).toEqual([{ id: RUN, status: `running`, depth: 0 }])
-  })
-
-  it(`answers an unknown subtree with nothing`, async () => {
-    executeRows.current = []
-    dbRows.current = [{ id: RUN, status: `running` }]
-    const result = await tool(`exponential_sessions_list`)({
-      teamId: WS,
-      subtreeOf: RUN,
-      mine: false,
-      limit: 50,
-      offset: 0,
-    })
-    expect(parseOk(result)).toEqual([])
-  })
-})
-
-describe(`exponential_workflows_update`, () => {
-  const WF = `55555555-5555-4555-8555-555555555555`
-
-  // The router refuses an empty patch; refusing it AFTER update/setIssues
-  // landed would be a partial write, so the loop skips it instead.
-  it(`skips a nodes[] entry that carries only its issueId`, async () => {
-    caller.workflows.replan.mockResolvedValue({ metrics: { nodes: 2 } })
-
-    const result = await tool(`exponential_workflows_update`)({
-      id: WF,
-      name: `Renamed`,
-      nodes: [{ issueId: UUID }, { issueId: PROJ, risk: `high` }],
-    })
-
-    expect(parseOk(result)).toMatchObject({ ok: true, metrics: { nodes: 2 } })
-    expect(caller.workflows.update).toHaveBeenCalledTimes(1)
-    expect(caller.workflows.updateNode).toHaveBeenCalledTimes(1)
-    expect(caller.workflows.updateNode).toHaveBeenCalledWith({
-      workflowId: WF,
-      issueId: PROJ,
-      risk: `high`,
-    })
   })
 })

@@ -260,7 +260,7 @@ describe(`endMergedPrSessions`, () => {
   })
 })
 
-// EXP-734: a run's own chore PR lives on its session row. The writer flips
+// EXP-734: a run's own PR lives on its session row. The writer flips
 // `pr_state` along the PR lifecycle and, on a merge, ends the live rows on
 // that PR the way every other merge path does.
 describe(`applySessionPrState`, () => {
@@ -274,13 +274,12 @@ describe(`applySessionPrState`, () => {
 
     expect(result).toEqual({ endedSessionIds: [`sess-1`] })
     expect(h.updates).toHaveLength(2)
-    // The state flip addresses only issue-less rows on the url and never
-    // re-applies a terminal merge.
+    // The state flip addresses every run row on the url (every run owns the
+    // PR it opened) and never re-applies a terminal merge.
     expect(h.updates[0]!.set).toMatchObject({ prState: `merged` })
     expect(whereShape(h.updates[0]!.where)).toEqual([
       `col:pr_url`,
       PR_URL,
-      `col:issue_id`,
       `col:pr_state`,
       `col:pr_state`,
       `merged`,
@@ -290,7 +289,6 @@ describe(`applySessionPrState`, () => {
     expect(whereShape(h.selectWheres[0])).toEqual([
       `col:pr_url`,
       PR_URL,
-      `col:issue_id`,
       `col:status`,
       `running`,
       `in_review`,
@@ -345,7 +343,6 @@ describe(`applySessionPrState`, () => {
     expect(whereShape(h.selectWheres[0])).toEqual([
       `col:pr_url`,
       PR_URL,
-      `col:issue_id`,
       `col:status`,
       `running`,
       `in_review`,
@@ -364,7 +361,6 @@ describe(`applySessionPrState`, () => {
     expect(whereShape(h.updates[0]!.where)).toEqual([
       `col:pr_url`,
       PR_URL,
-      `col:issue_id`,
       `col:pr_state`,
       `open`,
     ])
@@ -374,7 +370,6 @@ describe(`applySessionPrState`, () => {
     expect(whereShape(h.updates[1]!.where)).toEqual([
       `col:pr_url`,
       PR_URL,
-      `col:issue_id`,
       `col:pr_state`,
       `closed`,
     ])

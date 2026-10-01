@@ -11,34 +11,18 @@ import {
 import { IssueChip } from "@/components/issue-chip"
 import { TeamIssueGraph } from "@/components/issue-graph"
 import type { Issue } from "@/db/schema"
-import { useTeamIssueGraph } from "@/hooks/use-team-issue-graph"
-import { blockGraph } from "@/lib/issue-graph"
 import {
   BLOCKED_BATCH_BODY,
   BLOCKED_BATCH_TITLE,
   BLOCKED_START_BODY_PREFIX,
   BLOCKED_START_BODY_SUFFIX,
   BLOCKED_START_TITLE,
-  stackDisabledNote,
-  stackDisabledReason,
   START_ANYWAY_LABEL,
-  STACKED_PR_LABEL,
-} from "@/lib/stack-start"
+} from "@/lib/issue-graph"
 
-// EXP-897: the third start mode. Starting a BLOCKED issue used to silently cut
-// its branch from the board's base, so the run either waited on work that was
-// not there or re-did it. The composer asks instead: start anyway, or start a
-// STACKED pull request — cut from the blocker's branch, based on its PR, so
-// the diff shows only this issue's own work and the run builds the foundation
-// first if nobody has.
-//
-// EXP-980: the dialog shows the TRANSITIVE chain as the mini-graph (the direct
-// blockers alone hid how deep a stack would go), asks for a BATCH too, and
-// never hides "Stacked PR": it is disabled with the one reason that applies
-// (`stackDisabledReason`: a cycle, a batch, a machine below `stacked-start`).
-//
-// The copy is byte-locked ×4 (`lib/stack-start.ts`, iOS `StackStart.swift`,
-// Android `StackStart.kt`, desktop `chat_launch`).
+// EXP-980: starting a BLOCKED issue asks first — Cancel or Start anyway —
+// over the transitive chain drawn as the mini-graph. A batch asks too, about
+// the blockers outside it. The copy is byte-locked ×4 (`lib/issue-graph.ts`).
 
 export function BlockedStartDialog(props: {
   open: boolean
@@ -48,11 +32,8 @@ export function BlockedStartDialog(props: {
   /** `openBlockersOfSet(...)` — never empty while the dialog is up. */
   blockers: readonly Issue[]
   busy?: boolean
-  /** The target machine advertises `stacked-start`. */
-  canStack?: boolean
   onOpenChange: (open: boolean) => void
   onStartAnyway: () => void
-  onStartStacked: () => void
 }) {
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
@@ -69,28 +50,17 @@ function BlockedStartBody({
   pickedIds,
   blockers,
   busy = false,
-  canStack = true,
   onOpenChange,
   onStartAnyway,
-  onStartStacked,
 }: {
   teamId: string
   pickedIds: readonly string[]
   blockers: readonly Issue[]
   busy?: boolean
-  canStack?: boolean
   onOpenChange: (open: boolean) => void
   onStartAnyway: () => void
-  onStartStacked: () => void
 }) {
   const batch = pickedIds.length > 1
-  const { relations, issues } = useTeamIssueGraph(teamId)
-  const hasCycle = blockGraph(pickedIds, relations, issues).hasCycle
-  const reason = stackDisabledReason({
-    pickedCount: pickedIds.length,
-    canStack,
-    hasCycle,
-  })
   return (
     <DialogContent mobile="alert" data-testid="blocked-start-dialog">
       <DialogHeader>
@@ -120,21 +90,10 @@ function BlockedStartBody({
         subjectIds={pickedIds}
         onNavigate={() => onOpenChange(false)}
       />
-      {reason && (
-        <div
-          className="text-xs text-muted-foreground"
-          data-testid="blocked-start-stack-note"
-        >
-          {stackDisabledNote(reason)}
-        </div>
-      )}
       <DialogFooter>
         <DialogCancel onClick={() => onOpenChange(false)} />
-        <Button variant="outline" disabled={busy} onClick={onStartAnyway}>
+        <Button disabled={busy} onClick={onStartAnyway}>
           {START_ANYWAY_LABEL}
-        </Button>
-        <Button disabled={busy || reason !== null} onClick={onStartStacked}>
-          {STACKED_PR_LABEL}
         </Button>
       </DialogFooter>
     </DialogContent>

@@ -89,11 +89,6 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applyPrReopenedState: vi.fn(async () => {}),
   findIssueIdByBranch: vi.fn(async () => null),
   applySessionPrState: vi.fn(async () => ({ endedSessionIds: [] })),
-  // EXP-897: the stack legs.
-  refreshPrStackState: vi.fn(async () => {}),
-  notifyStackedChildrenOfFoundationChange: vi.fn(async () => ({
-    notified: [],
-  })),
 }))
 // EXP-617: the resolver itself (bot filter, id-over-login rule) is covered in
 // github-identity.test.ts — here we only assert WHICH actor the webhook hands
@@ -175,8 +170,6 @@ function pullRequestPayload(overrides: {
   action: string
   merged?: boolean
   merged_at?: string | null
-  // EXP-897: the PR's base ref; omitted = a payload without one.
-  base?: string
 }): unknown {
   return {
     action: overrides.action,
@@ -186,7 +179,6 @@ function pullRequestPayload(overrides: {
       merged: overrides.merged ?? false,
       merged_at: overrides.merged_at ?? null,
       head: { ref: `exp/batch-a1b2c3d4` },
-      ...(overrides.base ? { base: { ref: overrides.base } } : {}),
     },
     repository: { full_name: `org/repo` },
   }
@@ -374,48 +366,8 @@ describe(`github webhook — batch PR fan-out (multi-issue pr_url resolution)`, 
       prUrl: HTML_URL,
       prNumber: 7,
       branch: `exp/batch-a1b2c3d4`,
-      baseBranch: null,
       actorUserId: null,
       githubActorUserId: null,
-    })
-  })
-
-  // EXP-897 (FEED-43 R1): the base ref is the synced stack edge. `opened`
-  // and `reopened` both carry it, so a PR opened on github.com (or a fresh
-  // PR on an issue whose earlier, stacked PR was closed) records the truth
-  // instead of inheriting a stale edge.
-  it(`opened forwards the PR base ref as the stack edge`, async () => {
-    h.selectQueue.push([{ id: ISSUE_A }])
-
-    const res = await postHandler({
-      request: webhookRequest(
-        `pull_request`,
-        pullRequestPayload({ action: `opened`, base: `exp/EXP-4` })
-      ),
-    })
-
-    expect(res.status).toBe(200)
-    expect(prSyncMock.applyPrOpenedState).toHaveBeenCalledWith(
-      expect.objectContaining({ issueId: ISSUE_A, baseBranch: `exp/EXP-4` })
-    )
-  })
-
-  it(`reopened forwards the PR base ref (the close cleared it)`, async () => {
-    h.selectQueue.push([{ id: ISSUE_A }, { id: ISSUE_B }])
-
-    const res = await postHandler({
-      request: webhookRequest(
-        `pull_request`,
-        pullRequestPayload({ action: `reopened`, base: `master` })
-      ),
-    })
-
-    expect(res.status).toBe(200)
-    expect(prSyncMock.applyPrReopenedState).toHaveBeenCalledTimes(2)
-    expect(prSyncMock.applyPrReopenedState).toHaveBeenCalledWith({
-      issueId: ISSUE_B,
-      prUrl: HTML_URL,
-      baseBranch: `master`,
     })
   })
 
@@ -497,7 +449,6 @@ describe(`github webhook — batch PR fan-out (multi-issue pr_url resolution)`, 
       prUrl: HTML_URL,
       prNumber: 7,
       branch: `exp/batch-a1b2c3d4`,
-      baseBranch: null,
       actorUserId: `u-opener`,
       actorViaAgent: true,
       githubActorUserId: null,
@@ -520,7 +471,6 @@ describe(`github webhook — batch PR fan-out (multi-issue pr_url resolution)`, 
       prUrl: HTML_URL,
       prNumber: 7,
       branch: `exp/batch-a1b2c3d4`,
-      baseBranch: null,
       actorUserId: null,
       githubActorUserId: null,
     })
@@ -976,79 +926,5 @@ describe(`github webhook — GitHub actor identity (EXP-617)`, () => {
     expect(prSyncMock.applyPrOpenedState).toHaveBeenCalledWith(
       expect.objectContaining({ githubActorUserId: null, actorUserId: null })
     )
-  })
-})
-
-// ── EXP-897: the stack legs ──────────────────────────────────────────────────
-// The stack edge can move without us doing anything (a stack built on
-// github.com, a base changed there) and a foundation can gain commits under a
-// run that is stacked on it. Both are webhook-only facts.
-describe(`github webhook — PR stacks (EXP-897)`, () => {
-  function stackPayload(action: string, extra: Record<string, unknown> = {}) {
-    return {
-      action,
-      pull_request: {
-        html_url: HTML_URL,
-        number: 7,
-        merged: false,
-        head: { ref: `exp/EXP-11` },
-        base: { ref: `exp/EXP-10` },
-      },
-      repository: { full_name: `org/repo` },
-      ...extra,
-    }
-  }
-
-  it(`refreshes the stack state when GitHub reports a stack action`, async () => {
-    for (const action of [`stacked`, `unstacked`]) {
-      vi.clearAllMocks()
-      const res = await postHandler({
-        request: webhookRequest(`pull_request`, stackPayload(action)),
-      })
-      expect(res.status).toBe(200)
-      expect(prSyncMock.refreshPrStackState).toHaveBeenCalledWith({
-        prUrl: HTML_URL,
-        repoFullName: `org/repo`,
-        prNumber: 7,
-        baseRef: `exp/EXP-10`,
-      })
-    }
-  })
-
-  it(`refreshes on an 'edited' that changed the BASE, and ignores other edits`, async () => {
-    await postHandler({
-      request: webhookRequest(
-        `pull_request`,
-        stackPayload(`edited`, { changes: { base: { from: { ref: `master` } } } })
-      ),
-    })
-    expect(prSyncMock.refreshPrStackState).toHaveBeenCalledTimes(1)
-
-    vi.clearAllMocks()
-    await postHandler({
-      request: webhookRequest(
-        `pull_request`,
-        stackPayload(`edited`, { changes: { title: { from: `old` } } })
-      ),
-    })
-    expect(prSyncMock.refreshPrStackState).not.toHaveBeenCalled()
-  })
-
-  it(`tells the runs stacked on a branch that their foundation moved`, async () => {
-    const res = await postHandler({
-      request: webhookRequest(`pull_request`, stackPayload(`synchronize`)),
-    })
-    expect(res.status).toBe(200)
-    expect(
-      prSyncMock.notifyStackedChildrenOfFoundationChange
-    ).toHaveBeenCalledWith({
-      repoFullName: `org/repo`,
-      headRef: `exp/EXP-11`,
-      prNumber: 7,
-      prUrl: HTML_URL,
-    })
-    // A synchronize never touches issue PR state.
-    expect(prSyncMock.applyPrMergeState).not.toHaveBeenCalled()
-    expect(prSyncMock.applyPrOpenedState).not.toHaveBeenCalled()
   })
 })

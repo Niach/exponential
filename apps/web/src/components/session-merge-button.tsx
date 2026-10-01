@@ -7,14 +7,6 @@ import {
 } from "react"
 import {
   conceptIcon,
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
   Button,
   Pill,
   type buttonVariants,
@@ -29,16 +21,8 @@ import {
 } from "@exp/ui"
 import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
 import { mergeFailure, type MergeFailure } from "@/lib/merge-failure"
-import {
-  MERGE_STACK_LABEL,
-  MERGE_THIS_PR_LABEL,
-  STACK_MERGE_CANCEL_LABEL,
-  STACK_MERGE_CHOICE_TITLE,
-  type StackMergeChoice,
-} from "@/lib/pr-stack"
 import { trpc } from "@/lib/trpc-client"
 import { useOpenComposer } from "@/hooks/use-open-composer"
-import { useStackMergeChoice } from "@/hooks/use-stack-merge-choice"
 import type { VariantProps } from "class-variance-authority"
 
 /** EXP-917: the ONE gate on the "Fix conflicts" swap — a REAL conflict
@@ -70,12 +54,11 @@ const UiBranchIcon = conceptIcon(`ui-branch`)
 // (EXP-498): merges the PR, completes every linked issue, and ends the
 // session server-side. Spinner held until the Electric echo flips the
 // row's prState away from `open` (mirrors IssueMergeButton). Renders
-// nothing unless there IS an open PR to merge; a batch session passes its
-// resolved representative issue (EXP-535).
+// nothing unless there IS an open PR to merge.
 //
-// EXP-734: the target is an issue XOR a session. An issue-LESS run (action or
-// chat) that opened its own chore PR (EXP-626) carries prUrl/prNumber/prState
-// on the SESSION row, so it merges through `codingSessions.mergePr` and
+// EXP-734: the target is an issue XOR a session. An issue-LESS run (batch,
+// action or chat) that opened its own PR carries prUrl/prNumber/prState on
+// the SESSION row, so it merges through `codingSessions.mergePr` and
 // settles on the session row's own echo. Recovery ("Fix conflicts") stays
 // issue-only: the builtin action takes a representative ISSUE id, so a run
 // PR's conflict just reports its refusal.
@@ -99,15 +82,7 @@ const UiBranchIcon = conceptIcon(`ui-branch`)
 // button keeps the plain merge one click away. Without both, a conflict
 // resolved OUTSIDE the recovery run (a teammate rebases and pushes, GitHub
 // recomputes mergeability) would hide Merge for the life of the open PR.
-//
-// EXP-1145: a PR that is a member of a STACK of 2+ open pull requests never
-// merges off the plain confirm. Merging a member lands every open member
-// below it and leaves the ones above retargeted, so the click first reads the
-// stack off the synced rows (`useStackMergeChoice`, armed by the click so a
-// list of these buttons costs no live queries) and opens the stack dialog:
-// Merge stack (the Reviews path, `mergeStack: true` on the top member), Merge
-// this pull request (the single-PR path as before), Cancel. A run's own chore
-// PR (`sessionId`) is in no stack.
+
 
 /** EXP-895: the two SHAPES the one merge control comes in. `pill` is the
  *  `Pill mode="action" primary` every Changes surface uses (the review's top
@@ -219,11 +194,6 @@ export function SessionMergeButton({
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [merging, setMerging] = useState(false)
   const [failure, setFailure] = useState<MergeFailure | null>(null)
-  // EXP-1145: the click ARMS the stack read; the answer decides which dialog
-  // opens. `stackChoice` holds the dialog's content while it is open.
-  const [armed, setArmed] = useState(false)
-  const [stackChoice, setStackChoice] = useState<StackMergeChoice | null>(null)
-  const stack = useStackMergeChoice(issueId, armed)
   const stamp =
     updatedAt instanceof Date ? updatedAt.toISOString() : (updatedAt ?? null)
 
@@ -231,20 +201,9 @@ export function SessionMergeButton({
     if (prState !== `open`) {
       setMerging(false)
       setConfirmOpen(false)
-      setArmed(false)
-      setStackChoice(null)
       setFailure(null)
     }
   }, [prState])
-
-  // The armed click resolves as soon as the rows are in: a stack member opens
-  // the stack dialog, anything else the plain confirm.
-  useEffect(() => {
-    if (!armed || !stack.ready) return
-    setArmed(false)
-    if (stack.choice) setStackChoice(stack.choice)
-    else setConfirmOpen(true)
-  }, [armed, stack.ready, stack.choice])
 
   // A re-synced row supersedes the refusal captioned on the old one.
   // (A refused merge writes nothing server-side, so this never races its own
@@ -267,12 +226,7 @@ export function SessionMergeButton({
     steerEnabled,
   })
 
-  // The click itself: a session PR goes straight to the plain confirm, an
-  // issue PR first asks the synced rows about its stack.
-  const arm = () => {
-    if (issueId) setArmed(true)
-    else setConfirmOpen(true)
-  }
+  const arm = () => setConfirmOpen(true)
 
   const merge = async () => {
     setMerging(true)
@@ -290,7 +244,6 @@ export function SessionMergeButton({
         )
       }
       setConfirmOpen(false) // keep `merging` until the echo flips prState
-      setStackChoice(null)
     } catch (error) {
       const next = mergeFailure(
         error,
@@ -298,7 +251,6 @@ export function SessionMergeButton({
       )
       setMerging(false)
       setConfirmOpen(false)
-      setStackChoice(null)
       setFailure(next)
       // The swap is this button's own caption for a conflict; every other
       // refusal has nowhere to live in a row this small, so it keeps the
@@ -310,27 +262,6 @@ export function SessionMergeButton({
           description: next.message,
         })
       }
-    }
-  }
-
-  // EXP-1145: the whole stack, bottom-up, from its TOP member (the server
-  // walks the chain; a real GitHub stack lands atomically). A stack refusal is
-  // never a rebase-and-resolve job for ONE pull request, so it is toasted, not
-  // swapped for Fix conflicts.
-  const mergeStack = async (topIssueId: string) => {
-    setMerging(true)
-    setFailure(null)
-    try {
-      await trpc.issues.mergePr.mutate(
-        { issueId: topIssueId, mergeStack: true },
-        { context: { skipErrorToast: true } }
-      )
-      setStackChoice(null) // keep `merging` until the echo flips prState
-    } catch (error) {
-      const next = mergeFailure(error, `The stack could not be merged`)
-      setMerging(false)
-      setStackChoice(null)
-      toast.error(`Couldn't merge the stack`, { description: next.message })
     }
   }
 
@@ -394,56 +325,6 @@ export function SessionMergeButton({
           {label}
         </MergeControl>
       )}
-      <AlertDialog
-        open={stackChoice !== null}
-        onOpenChange={(next) => {
-          if (!next && !merging) setStackChoice(null)
-        }}
-      >
-        <AlertDialogContent
-          className="sm:max-w-md"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <AlertDialogHeader>
-            <AlertDialogTitle>{STACK_MERGE_CHOICE_TITLE}</AlertDialogTitle>
-            {stackChoice ? (
-              <AlertDialogDescription className="whitespace-pre-line">
-                {stackChoice.body}
-              </AlertDialogDescription>
-            ) : null}
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={merging}>
-              {STACK_MERGE_CANCEL_LABEL}
-            </AlertDialogCancel>
-            <Button
-              variant="outline"
-              disabled={merging}
-              onClick={(e) => {
-                e.stopPropagation()
-                void merge()
-              }}
-            >
-              {MERGE_THIS_PR_LABEL}
-            </Button>
-            <AlertDialogAction
-              disabled={merging}
-              onClick={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                if (stackChoice) void mergeStack(stackChoice.topIssueId)
-              }}
-            >
-              {merging ? (
-                <UiLoadingIcon className="animate-spin" />
-              ) : (
-                <PrMergedIcon />
-              )}
-              {MERGE_STACK_LABEL}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
       <Dialog
         open={confirmOpen}
         onOpenChange={(next) => {

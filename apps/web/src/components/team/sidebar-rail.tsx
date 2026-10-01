@@ -1,5 +1,4 @@
 import type * as React from "react"
-import { and, eq, isNull, not, useLiveQuery } from "@tanstack/react-db"
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router"
 import {
   conceptIcon,
@@ -19,7 +18,7 @@ import {
 } from "@exp/ui"
 import { isAdminUser } from "@/lib/auth/app-user"
 import { cn } from "@/lib/utils"
-import type { Board, CodingSession, Team } from "@/db/schema"
+import type { Board, Team } from "@/db/schema"
 import { useSession } from "@/hooks/use-session"
 import { useSignOut } from "@/hooks/use-sign-out"
 import {
@@ -28,9 +27,6 @@ import {
 } from "@/hooks/use-unread-notifications"
 import { useReviewsOpenPrCount, useShowsReviews } from "@/hooks/use-nav-counts"
 import { useDraftEntries } from "@/hooks/use-issue-drafts"
-import { WORKFLOWS_TITLE } from "@/lib/workflow-view"
-import { workflowOpenQuestions } from "@/lib/workflows/open-questions"
-import { codingSessionCollection } from "@/lib/collections"
 import { SidebarPinnedIcons } from "@/components/team/sidebar-pinned"
 import { SidebarRunningIcons } from "@/components/team/sidebar-running"
 
@@ -48,7 +44,6 @@ const NavAboutIcon = conceptIcon(`settings-about`)
 const NavAdminIcon = conceptIcon(`nav-admin`)
 const NavActionsIcon = conceptIcon(`nav-actions`)
 const NavAgentIcon = conceptIcon(`action-chat`)
-const NavWorkflowsIcon = conceptIcon(`nav-workflows`)
 const NavChangelogIcon = conceptIcon(`nav-changelog`)
 const NavDevicesIcon = conceptIcon(`nav-devices`)
 const NavDraftsIcon = conceptIcon(`nav-drafts`)
@@ -181,55 +176,6 @@ export function ReviewsOpenBadge({
   return <NavDot className="bg-green-500" placement={placement} />
 }
 
-/** EXP-1084: does one of the person's OWN workflow runs ask them something
- *  (`workflowOpenQuestions`)? Computed ONCE per sidebar (`TeamSidebar`) and
- *  handed to both the rail icon and the expanded row. The live query only
- *  carries workflow runs with a pending question, so the per-workflow fold
- *  stays small. */
-export function useWorkflowsAsking(teamId: string | undefined): boolean {
-  // Only the run's OWNER can answer its question: a teammate's never reds
-  // this person's dot.
-  const { data: authSession } = useSession()
-  const userId = authSession?.user?.id
-  const { data: rows } = useLiveQuery(
-    (query) =>
-      teamId && userId
-        ? query
-            .from({ s: codingSessionCollection })
-            .where(({ s }) =>
-              and(
-                eq(s.teamId, teamId),
-                eq(s.userId, userId),
-                not(isNull(s.workflowId)),
-                not(isNull(s.pendingQuestion))
-              )
-            )
-        : undefined,
-    [teamId, userId]
-  )
-  const sessions = (rows ?? []) as CodingSession[]
-  const workflowIds = new Set(
-    sessions
-      .map((session) => session.workflowId)
-      .filter((id): id is string => id != null)
-  )
-  return [...workflowIds].some(
-    (workflowId) => workflowOpenQuestions(sessions, workflowId).length > 0
-  )
-}
-
-/** The Workflows entry's red dot while `useWorkflowsAsking`. */
-export function WorkflowsQuestionBadge({
-  asking,
-  placement,
-}: {
-  asking: boolean
-  placement: BadgePlacement
-}) {
-  if (!asking) return null
-  return <NavDot className="bg-red-500" placement={placement} />
-}
-
 /** The account menu's items — one list for the expanded footer and the
  *  compact rail's avatar. */
 export function UserMenuItems({ onWhatsNew }: { onWhatsNew: () => void }) {
@@ -353,14 +299,11 @@ export function TeamSidebarRail({
   team,
   boards,
   onWhatsNew,
-  workflowsAsking,
 }: {
   teamSlug: string
   team: Team | null | undefined
   boards: Board[] | undefined
   onWhatsNew: () => void
-  /** `useWorkflowsAsking`, computed once by the sidebar. */
-  workflowsAsking: boolean
 }) {
   const params = { teamSlug }
   const { data: session } = useSession()
@@ -397,14 +340,6 @@ export function TeamSidebarRail({
         </RailItem>
         <RailItem label="Actions" link={{ to: `/t/$teamSlug/actions`, params }}>
           <NavActionsIcon className="size-4" />
-        </RailItem>
-        {/* EXP-981: directly after Actions, like the expanded sidebar. */}
-        <RailItem
-          label={WORKFLOWS_TITLE}
-          link={{ to: `/t/$teamSlug/workflows`, params }}
-        >
-          <NavWorkflowsIcon className="size-4" />
-          <WorkflowsQuestionBadge asking={workflowsAsking} placement="icon" />
         </RailItem>
         {showsReviews && (
           <RailItem label="Reviews" link={{ to: `/t/$teamSlug/reviews`, params }}>
