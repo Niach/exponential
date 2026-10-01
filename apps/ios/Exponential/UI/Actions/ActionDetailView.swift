@@ -26,8 +26,8 @@ enum ActionPageTab: String, CaseIterable, Hashable {
 ///
 /// The header is the Work screen's: the nav bar (back · the action's icon +
 /// name · Run) with the tab strip in the same band directly under it, and the
-/// three tabs as PAGES that follow the finger (`WorkFaceTabs` /
-/// `WorkFacePager`'s build, EXP-1150/1152).
+/// three tabs as PAGES that follow the finger (`WorkFaceTabs` / `FacePager`,
+/// EXP-1150/1152).
 ///
 ///   Prompt    today's action editor (`ActionPromptTab`), read-only for
 ///             non-owners
@@ -205,7 +205,7 @@ struct ActionDetailView: View {
         .accessibilityIdentifier("action-tabs")
     }
 
-    /// A tab tap slides the pages; a settled drag writes `tab` back itself.
+    /// A tab tap slides the pages; a drag onto a page writes `tab` back itself.
     private func selectTab(_ next: ActionPageTab) {
         guard next != tab else { return }
         dismissKeyboard()
@@ -219,21 +219,19 @@ struct ActionDetailView: View {
     }
 
     private func pager(_ action: ActionDto, vm: ActionDetailViewModel) -> some View {
-        TabView(selection: $tab) {
-            ActionPromptTab(action: action, canEdit: isOwner)
-                .environment(\.accountId, accountId)
-                // One editor per action: a different row starts clean.
-                .id(action.id)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .tag(ActionPageTab.prompt)
-            triggersPage(action, vm: vm)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .tag(ActionPageTab.triggers)
-            runsPage(vm)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .tag(ActionPageTab.runs)
+        FacePager(pages: ActionPageTab.allCases, selection: $tab) { page in
+            switch page {
+            case .prompt:
+                ActionPromptTab(action: action, canEdit: isOwner)
+                    .environment(\.accountId, accountId)
+                    // One editor per action: a different row starts clean.
+                    .id(action.id)
+            case .triggers:
+                triggersPage(action, vm: vm)
+            case .runs:
+                runsPage(vm)
+            }
         }
-        .tabViewStyle(.page(indexDisplayMode: .never))
         .onChange(of: tab) { dismissKeyboard() }
     }
 

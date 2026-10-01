@@ -164,19 +164,17 @@ extension View {
     }
 }
 
-/// EXP-1152: the faces as PAGES that follow the finger — the native paged
-/// scroll view (`TabView` in its `.page` style), one page per face in the
-/// strip's order. It replaced EXP-1150's `workFaceSwipe`, a `DragGesture`
-/// decided on the lift that swapped the face INSTANTLY and fought the faces'
-/// own ScrollViews for the touch ("buggy and hard to drag"): the paged
-/// scroll view arbitrates a nested vertical feed and a sideways code
-/// scroller itself, like any native tab pager.
+/// EXP-1152: the faces as PAGES that follow the finger (`FacePager`), one
+/// page per face in the strip's order. It replaced EXP-1150's
+/// `workFaceSwipe`, a `DragGesture` decided on the lift that swapped the face
+/// INSTANTLY and fought the faces' own ScrollViews for the touch ("buggy and
+/// hard to drag").
 ///
 /// `selection` is the screen's face: a tab tap moves it (animated, so the
-/// pages slide), and a drag that settles on a page writes it back through the
-/// host's own switch path. A `selection` missing from `faces` (a requested
-/// face that has not synced yet) still gets its page, in its fixed place —
-/// the pager must never snap it onto a neighbour and lose the request.
+/// pages slide), and a drag onto a page writes it back through the host's own
+/// switch path. A `selection` missing from `faces` (a requested face that has
+/// not synced yet) still gets its page, in its fixed place — the pager must
+/// never snap it onto a neighbour and lose the request.
 struct WorkFacePager<Page: View>: View {
     let faces: [WorkFaceKind]
     @Binding var selection: WorkFaceKind
@@ -187,95 +185,73 @@ struct WorkFacePager<Page: View>: View {
     }
 
     var body: some View {
-        TabView(selection: $selection) {
-            ForEach(pages, id: \.self) { face in
-                page(face)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .tag(face)
-            }
-        }
-        .tabViewStyle(.page(indexDisplayMode: .never))
-        // The paged scroll view stops its pages AT the bottom safe area (a
-        // black band over the home indicator, the feed cut off under the
-        // floating bar). Every face draws to the screen edge, as it did before
-        // the pager; the pages keep their own `safeAreaInset` bars.
-        .ignoresSafeArea(.container, edges: .bottom)
-        // The ONE presenter of the pages' hoisted sheets (`pagerSheet`).
-        .backgroundPreferenceValue(PagerSheet.Key.self) { sheet in
-            PagerSheetHost(sheet: sheet)
-        }
+        FacePager(pages: pages, selection: $selection, page: page)
     }
 }
 
-/// A sheet a pager PAGE asks for, presented by the pager around it. A `.sheet`
-/// attached INSIDE a page of the paged `TabView` is presented TWICE on its
-/// first presentation (UIKit: "already presenting"), and both are then torn
-/// down — the first tap on Properties did nothing. Hoisted out, exactly one
-/// presenter exists however the pager hosts its pages; the content is still
-/// built by the page, over the page's own state.
-struct PagerSheet {
-    let id: String
-    let content: () -> AnyView
-    let dismiss: () -> Void
-    let onDismiss: (() -> Void)?
-
-    struct Key: PreferenceKey {
-        static var defaultValue: PagerSheet? { nil }
-        static func reduce(value: inout PagerSheet?, nextValue: () -> PagerSheet?) {
-            value = value ?? nextValue()
-        }
-    }
-}
-
-private struct PagerSheetHost: View {
-    let sheet: PagerSheet?
-
-    private struct Presented: Identifiable {
-        let id: String
-    }
-
-    /// The last sheet asked for: its content keeps drawing while the sheet
-    /// animates out (the page's item is already nil then), and its
-    /// `onDismiss` fires once it is gone.
-    private final class Last {
-        var sheet: PagerSheet?
-    }
-
-    @State private var last = Last()
+/// The pager under a tab strip: a horizontal PAGING scroll view, one
+/// full-size page per tag, mounted as it comes into reach. The scroll view
+/// arbitrates a nested vertical feed and a sideways code scroller itself.
+///
+/// EXP-1160: deliberately NOT `TabView` in its `.page` style, which this was
+/// until then. On the page a screen opened on, the first `.sheet` presented
+/// from inside the page was presented TWICE (UIKit: "already presenting") and
+/// both were torn down again — the first tap on a property chip did nothing —
+/// and its pages lost the safe area (title jammed under the header band, the
+/// bottom bar over the home indicator). A scroll view's pages are plain
+/// children: sheets, alerts and `safeAreaInset` bars behave as on any screen,
+/// so a page presents its own sheets like every other view does.
+struct FacePager<Tag: Hashable, Page: View>: View {
+    let pages: [Tag]
+    @Binding var selection: Tag
+    @ViewBuilder let page: (Tag) -> Page
 
     var body: some View {
-        let _ = { if let sheet { last.sheet = sheet } }()
-        Color.clear
-            .sheet(
-                item: Binding(
-                    get: { sheet.map { Presented(id: $0.id) } },
-                    set: { if $0 == nil { sheet?.dismiss() } }
-                ),
-                onDismiss: { last.sheet?.onDismiss?() }
-            ) { _ in
-                (sheet ?? last.sheet)?.content()
+        // The scroll view spans the WHOLE screen and every page gets the safe
+        // area back as its own (the header band above, the home indicator or
+        // the keyboard below, the side insets in landscape). Left to the
+        // scroll view, the cross-axis safe area is OS-dependent (iOS 18 sizes
+        // a page to the full container and pushes its bottom bar off screen)
+        // and the neighbour page shows through the side insets.
+        GeometryReader { geometry in
+            let insets = geometry.safeAreaInsets
+            ScrollViewReader { scroller in
+                ScrollView(.horizontal) {
+                    LazyHStack(spacing: 0) {
+                        ForEach(pages, id: \.self) { tag in
+                            page(tag)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .safeAreaPadding(insets)
+                                .frame(
+                                    width: geometry.size.width + insets.leading + insets.trailing,
+                                    height: geometry.size.height + insets.top + insets.bottom
+                                )
+                        }
+                    }
+                    .scrollTargetLayout()
+                }
+                .scrollTargetBehavior(.paging)
+                .scrollPosition(id: Binding(
+                    get: { selection },
+                    set: { if let next = $0, next != selection { selection = next } }
+                ))
+                .scrollIndicators(.hidden)
+                .ignoresSafeArea()
+                // A page that arrives BEFORE the shown one (a run's issue
+                // syncing in) shifts the row under the viewport: land on the
+                // selection again, unanimated.
+                .onChange(of: pages) {
+                    scroller.scrollTo(selection, anchor: .leading)
+                }
+                // And a new width (rotation, an iPad split) moves every page's
+                // origin while the offset stays put — once the pages took
+                // their new size, not before.
+                .onChange(of: geometry.size.width) {
+                    DispatchQueue.main.async {
+                        scroller.scrollTo(selection, anchor: .leading)
+                    }
+                }
             }
-    }
-}
-
-extension View {
-    /// `.sheet(item:)` for a view that lives in a `WorkFacePager` page: same
-    /// contract, presented by the pager (`PagerSheet`).
-    func pagerSheet<Item: Identifiable, Content: View>(
-        item: Binding<Item?>,
-        onDismiss: (() -> Void)? = nil,
-        @ViewBuilder content: @escaping (Item) -> Content
-    ) -> some View {
-        preference(
-            key: PagerSheet.Key.self,
-            value: item.wrappedValue.map { shown in
-                PagerSheet(
-                    id: "\(shown.id)",
-                    content: { AnyView(content(shown)) },
-                    dismiss: { item.wrappedValue = nil },
-                    onDismiss: onDismiss
-                )
-            }
-        )
+        }
     }
 }
