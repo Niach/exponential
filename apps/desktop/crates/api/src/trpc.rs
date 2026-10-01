@@ -62,7 +62,6 @@ struct EnvelopeResult<T> {
 /// Blocking tRPC client bound to one instance URL + one account's token
 /// provider. Cheap to clone-per-account; share one per (account, app).
 pub struct TrpcClient {
-    client: reqwest::blocking::Client,
     base_url: String,
     token_provider: Arc<dyn TokenProvider>,
 }
@@ -72,12 +71,16 @@ impl TrpcClient {
     /// provider is evaluated per request (never captured once).
     pub fn new(instance_url: &str, token_provider: Arc<dyn TokenProvider>) -> Self {
         Self {
-            // A clone of the process-wide client: same connection pool, so
-            // tRPC rides the HTTP/2 connection sync already has open.
-            client: http::shared().clone(),
             base_url: normalize_instance_url(instance_url),
             token_provider,
         }
+    }
+
+    /// The process-wide client, read per request: same connection pool as
+    /// sync (tRPC rides the HTTP/2 connection it already has open), and a
+    /// rebuilt client (FEED-69) is picked up by the very next call.
+    fn client(&self) -> reqwest::blocking::Client {
+        http::shared()
     }
 
     /// The normalized instance base URL this client talks to.
@@ -88,7 +91,7 @@ impl TrpcClient {
     /// GET an input-less `query` procedure (e.g. `users.listPersonalApiKeys`).
     pub fn query<O: DeserializeOwned>(&self, path: &str) -> Result<O, ApiError> {
         let url = format!("{}/api/trpc/{path}", self.base_url);
-        let request = self.authorize(self.client.get(&url).header("Accept", "application/json"));
+        let request = self.authorize(self.client().get(&url).header("Accept", "application/json"));
         self.send(request, path)
     }
 
@@ -106,7 +109,7 @@ impl TrpcClient {
             self.base_url,
             percent_encode(&json)
         );
-        let request = self.authorize(self.client.get(&url).header("Accept", "application/json"));
+        let request = self.authorize(self.client().get(&url).header("Accept", "application/json"));
         self.send(request, path)
     }
 
@@ -151,7 +154,7 @@ impl TrpcClient {
     ) -> Result<O, ApiError> {
         let url = format!("{}/api/trpc/{path}", self.base_url);
         let mut request = self
-            .client
+            .client()
             .post(&url)
             .header("Accept", "application/json")
             .header("Content-Type", "application/json");
@@ -170,10 +173,11 @@ impl TrpcClient {
     pub fn get_bytes(&self, path: &str) -> Result<(Vec<u8>, Option<String>), ApiError> {
         let url = format!("{}{path}", self.base_url);
         let response = self
-            .authorize(self.client.get(&url))
+            .authorize(self.client().get(&url))
             .timeout(BLOB_TIMEOUT)
             .send()
             .map_err(transport_error)?;
+        http::record_success();
         let status = response.status().as_u16();
         let content_type = response
             .headers()
@@ -207,7 +211,7 @@ impl TrpcClient {
         let url = format!("{}{path}", self.base_url);
         let response = self
             .authorize(
-                self.client
+                self.client()
                     .post(&url)
                     .header("Accept", accept)
                     .header("Content-Type", "application/json"),
@@ -216,6 +220,7 @@ impl TrpcClient {
             .timeout(timeout)
             .send()
             .map_err(transport_error)?;
+        http::record_success();
         let status = response.status().as_u16();
         let body = read_body(response)?;
         if !(200..300).contains(&status) {
@@ -253,6 +258,7 @@ impl TrpcClient {
             .timeout(http::DEFAULT_TIMEOUT)
             .send()
             .map_err(transport_error)?;
+        http::record_success();
         let status = response.status().as_u16();
         let body = read_body(response)?;
         if !(200..300).contains(&status) {

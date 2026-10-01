@@ -201,7 +201,6 @@ pub trait AttachmentTransport: Send + Sync {
 pub struct HttpAttachmentTransport {
     base_url: String,
     token: Arc<dyn api::TokenProvider>,
-    client: reqwest::blocking::Client,
 }
 
 /// Attachments can be megabytes on a slow link, so they get a longer budget
@@ -213,7 +212,6 @@ impl HttpAttachmentTransport {
         Self {
             base_url: instance_url.trim_end_matches('/').to_string(),
             token,
-            client: api::http::shared().clone(),
         }
     }
 
@@ -269,7 +267,7 @@ impl HttpAttachmentTransport {
         let boundary = format!("----ExpMarkdownEditor{}", new_draft_url().len() as u64 + rand_ish());
         let body = build_multipart(&boundary, filename, content_type, bytes);
         let response = self
-            .authorize(self.client.post(url))
+            .authorize(api::http::shared().post(url))
             // EXP-297: the total-request budget has to cover a 50 MB file
             // upload (the shared 60 s attachment cap aborted those on any
             // ordinary uplink — 50 MB in 60 s needs ~7 Mbit/s sustained), so
@@ -364,7 +362,7 @@ impl AttachmentTransport for HttpAttachmentTransport {
 
     fn fetch(&self, url: &str) -> anyhow::Result<Vec<u8>> {
         let absolute = self.absolute(url);
-        let request = self.client.get(&absolute);
+        let request = api::http::shared().get(&absolute);
         // Only our own origin is authorized; a foreign image URL rides a
         // bare GET (the web renderer's `<img src>` sends nothing either).
         let request = if self.is_instance_url(&absolute) {

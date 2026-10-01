@@ -300,6 +300,9 @@ impl SyncManager {
             "[sync] wake detected — restarting {} pipeline(s)",
             accounts.len()
         );
+        // FEED-69: the pooled connection died with the lid; without this the
+        // restarted polls (and tRPC) would be handed the same dead socket.
+        api::http::reset("wake from suspend");
         for account_id in accounts {
             self.restart_account(&account_id);
         }

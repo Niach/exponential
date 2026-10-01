@@ -157,15 +157,14 @@ pub trait ShapeTransport: Send + Sync {
 /// ureq's default of ONE idle connection per host — had the 16 shape threads
 /// re-dialling constantly. reqwest negotiates HTTP/2 via ALPN and multiplexes
 /// all 15 long-polls (plus tRPC, which shares this client) onto one connection.
-pub struct HttpTransport {
-    client: reqwest::blocking::Client,
-}
+///
+/// FEED-69: the client is read per poll, never stored, so a rebuilt one (dead
+/// connection pool) reaches every shape thread at its next request.
+pub struct HttpTransport {}
 
 impl HttpTransport {
     pub fn new() -> Self {
-        Self {
-            client: api::http::shared().clone(),
-        }
+        Self {}
     }
 }
 
@@ -182,8 +181,7 @@ impl ShapeTransport for HttpTransport {
         bearer: &str,
         timeout: Duration,
     ) -> Result<TransportResponse, TransportError> {
-        let result = self
-            .client
+        let result = api::http::shared()
             .get(url)
             // The shared client's 30s default is for ordinary calls; a live
             // long-poll MUST outlast the server's ~60s hold or every idle poll
@@ -208,8 +206,14 @@ impl ShapeTransport for HttpTransport {
         // way, so there is nothing to unwrap here.
         let response = match result {
             Ok(response) => response,
-            Err(e) => return Err(TransportError(e.to_string())),
+            Err(e) => {
+                // FEED-69: the cause chain, not just "error sending request",
+                // and one more strike against the pooled connection.
+                api::http::record_failure();
+                return Err(TransportError(api::http::error_chain(&e)));
+            }
         };
+        api::http::record_success();
         let status = response.status().as_u16();
         let headers = response
             .headers()
@@ -223,7 +227,7 @@ impl ShapeTransport for HttpTransport {
             .collect();
         let body = response
             .bytes()
-            .map_err(|e| TransportError(format!("body read: {e}")))?
+            .map_err(|e| TransportError(format!("body read: {}", api::http::error_chain(&e))))?
             .to_vec();
         Ok(TransportResponse {
             status,

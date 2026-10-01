@@ -205,9 +205,7 @@ struct SessionResponse {
 }
 
 /// Blocking Better Auth client. Cheap to construct; share one per app.
-pub struct AuthClient {
-    client: reqwest::blocking::Client,
-}
+pub struct AuthClient {}
 
 impl Default for AuthClient {
     fn default() -> Self {
@@ -217,20 +215,22 @@ impl Default for AuthClient {
 
 impl AuthClient {
     pub fn new() -> Self {
-        // A clone of the process-wide client (EXP-304): 30s overall — parity
-        // with the iOS URLSession config — and the same connection pool as
-        // everything else. Never used for long-polls (sync overrides the
-        // per-request budget to 90s, §5.3).
-        Self {
-            client: http::shared().clone(),
-        }
+        Self {}
+    }
+
+    /// The process-wide client (EXP-304), read per request so a rebuilt one
+    /// (FEED-69) is picked up: 30s overall — parity with the iOS URLSession
+    /// config — and the same connection pool as everything else. Never used
+    /// for long-polls (sync overrides the per-request budget to 90s, §5.3).
+    fn client(&self) -> reqwest::blocking::Client {
+        http::shared()
     }
 
     /// `GET /api/auth-config` — unauthenticated; call before any account exists.
     pub fn fetch_auth_config(&self, instance_url: &str) -> Result<AuthConfig, ApiError> {
         let base = normalize_instance_url(instance_url);
         let response = send(
-            versioned(self.client.get(format!("{base}/api/auth-config")))
+            versioned(self.client().get(format!("{base}/api/auth-config")))
                 .header("Accept", "application/json")
                 // EXP-418: the login card shows a spinner until this settles
                 // — an offline first start must fall back to the password
@@ -256,7 +256,7 @@ impl AuthClient {
         let base = normalize_instance_url(instance_url);
         let payload = serde_json::json!({ "email": email, "password": password });
         let response = send(
-            versioned(self.client.post(format!("{base}/api/auth/sign-in/email")))
+            versioned(self.client().post(format!("{base}/api/auth/sign-in/email")))
                 .header("Accept", "application/json")
                 .header("Content-Type", "application/json")
                 // Better Auth's CSRF check 403s POSTs without an Origin header
@@ -279,7 +279,7 @@ impl AuthClient {
         let payload = serde_json::json!({ "email": email, "type": "sign-in" });
         let response = send(
             versioned(
-                self.client
+                self.client()
                     .post(format!("{base}/api/auth/email-otp/send-verification-otp")),
             )
             .header("Accept", "application/json")
@@ -317,7 +317,7 @@ impl AuthClient {
             payload["name"] = serde_json::Value::String(name.to_string());
         }
         let response = send(
-            versioned(self.client.post(format!("{base}/api/auth/sign-in/email-otp")))
+            versioned(self.client().post(format!("{base}/api/auth/sign-in/email-otp")))
                 .header("Accept", "application/json")
                 .header("Content-Type", "application/json")
                 .header("Origin", &base)
@@ -380,7 +380,7 @@ impl AuthClient {
     ) -> Result<(), ApiError> {
         let base = normalize_instance_url(instance_url);
         let response = send(
-            versioned(self.client.post(format!("{base}{path}")))
+            versioned(self.client().post(format!("{base}{path}")))
                 .header("Accept", "application/json")
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Bearer {token}"))
@@ -402,7 +402,7 @@ impl AuthClient {
         let base = normalize_instance_url(instance_url);
         let payload = serde_json::json!({ "client_id": DEVICE_CLIENT_ID });
         let response = send(
-            versioned(self.client.post(format!("{base}/api/auth/device/code")))
+            versioned(self.client().post(format!("{base}/api/auth/device/code")))
                 .header("Accept", "application/json")
                 .header("Content-Type", "application/json")
                 .header("Origin", &base)
@@ -431,7 +431,7 @@ impl AuthClient {
             "client_id": DEVICE_CLIENT_ID,
         });
         let response = send(
-            versioned(self.client.post(format!("{base}/api/auth/device/token")))
+            versioned(self.client().post(format!("{base}/api/auth/device/token")))
                 .header("Accept", "application/json")
                 .header("Content-Type", "application/json")
                 .header("Origin", &base)
@@ -481,7 +481,7 @@ impl AuthClient {
         let base = normalize_instance_url(instance_url);
         let payload = serde_json::json!({ "token": token.trim() });
         let response = send(
-            versioned(self.client.post(format!("{base}/api/cli/install-token/redeem")))
+            versioned(self.client().post(format!("{base}/api/cli/install-token/redeem")))
                 .header("Accept", "application/json")
                 .header("Content-Type", "application/json")
                 .header("Origin", &base)
@@ -522,7 +522,7 @@ impl AuthClient {
     ) -> Result<Option<AuthUser>, ApiError> {
         let base = normalize_instance_url(instance_url);
         let response = send(
-            versioned(self.client.get(format!("{base}/api/auth/get-session")))
+            versioned(self.client().get(format!("{base}/api/auth/get-session")))
                 .header("Accept", "application/json")
                 .header("Authorization", format!("Bearer {token}")),
         )?;
@@ -556,7 +556,7 @@ impl AuthClient {
         let base = normalize_instance_url(instance_url);
         let payload = serde_json::json!({ "code": code, "code_verifier": code_verifier });
         let response = send(
-            versioned(self.client.post(format!("{base}/api/mobile-oauth-exchange")))
+            versioned(self.client().post(format!("{base}/api/mobile-oauth-exchange")))
                 .header("Accept", "application/json")
                 .header("Content-Type", "application/json")
                 .body(payload.to_string()),
@@ -582,7 +582,7 @@ impl AuthClient {
     pub fn sign_out(&self, instance_url: &str, token: &str) -> Result<(), ApiError> {
         let base = normalize_instance_url(instance_url);
         let response = send(
-            versioned(self.client.post(format!("{base}/api/auth/sign-out")))
+            versioned(self.client().post(format!("{base}/api/auth/sign-out")))
                 .header("Accept", "application/json")
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Bearer {token}"))
