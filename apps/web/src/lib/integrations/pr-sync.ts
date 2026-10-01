@@ -839,6 +839,7 @@ export async function applySessionPrState(opts: {
   endSessions?: boolean
 }): Promise<{ endedSessionIds: string[] }> {
   if (!opts.prUrl) return { endedSessionIds: [] }
+  let retargetHead: string | null = null
   const endedSessionIds = await db.transaction(async (tx) => {
     const txId = await generateTxId(tx)
     void txId
@@ -847,7 +848,7 @@ export async function applySessionPrState(opts: {
       opts.state === `merged`
         ? or(isNull(codingSessions.prState), ne(codingSessions.prState, `merged`))
         : eq(codingSessions.prState, opts.state === `closed` ? `open` : `closed`)
-    await tx
+    const flipped = await tx
       .update(codingSessions)
       .set({ prState: opts.state, updatedAt: new Date() })
       .where(
@@ -856,7 +857,22 @@ export async function applySessionPrState(opts: {
           fromState
         )
       )
-      .returning({ id: codingSessions.id })
+      .returning({ id: codingSessions.id, branch: codingSessions.branch })
+
+    // SLOP-3: an issue-less PR has no `applyPrMergeState` to retarget the
+    // PRs based on its head (EXP-324), so the run's row does it. Only the
+    // writer whose update flipped the row to merged (a racing duplicate
+    // flips none), and only when no issue carries the PR — an issue-linked
+    // merge already retargets from `applyPrMergeState`.
+    const head = flipped.find((row) => row.branch)?.branch ?? null
+    if (opts.state === `merged` && head) {
+      const [linked] = await tx
+        .select({ id: issues.id })
+        .from(issues)
+        .where(eq(issues.prUrl, opts.prUrl))
+        .limit(1)
+      if (!linked) retargetHead = head
+    }
 
     if (opts.state !== `merged` || opts.endSessions === false) return []
     const live = await tx
@@ -914,6 +930,14 @@ export async function applySessionPrState(opts: {
   })
 
   await tearDownEndedSessions(endedSessionIds)
+  if (retargetHead) {
+    void retargetChildrenOfMergedPr({
+      prUrl: opts.prUrl,
+      headBranch: retargetHead,
+    }).catch((err) => {
+      console.error(`retargetChildrenOfMergedPr failed:`, err)
+    })
+  }
   return { endedSessionIds }
 }
 

@@ -168,6 +168,10 @@ interface ResumedFrom {
   id: string
   parentSessionId: string | null
   startedReason: string | null
+  branch: string | null
+  prUrl: string | null
+  prNumber: number | null
+  prState: (typeof codingSessions.$inferSelect)[`prState`]
 }
 
 async function resolveResumedFrom(
@@ -183,6 +187,10 @@ async function resolveResumedFrom(
       hostUserId: codingSessions.hostUserId,
       parentSessionId: codingSessions.parentSessionId,
       startedReason: codingSessions.startedReason,
+      branch: codingSessions.branch,
+      prUrl: codingSessions.prUrl,
+      prNumber: codingSessions.prNumber,
+      prState: codingSessions.prState,
     })
     .from(codingSessions)
     .where(eq(codingSessions.id, resumedFromId))
@@ -210,6 +218,10 @@ async function resolveResumedFrom(
     id: row.id,
     parentSessionId: row.parentSessionId ?? null,
     startedReason: row.startedReason ?? null,
+    branch: row.branch ?? null,
+    prUrl: row.prUrl ?? null,
+    prNumber: row.prNumber ?? null,
+    prState: row.prState ?? null,
   }
 }
 
@@ -228,6 +240,26 @@ function startTree(
         parentSessionId: predecessor.parentSessionId ?? null,
       }
     : { startedReason: frameReason, parentSessionId: null }
+}
+
+/** SLOP-3: a run owns its PR on its own row, so a resume (Resume, account
+ * rotation) carries the predecessor's PR forward — else the merge sweep,
+ * which reaches runs by `pr_url` alone, never ends the successor and
+ * `mergePr` finds no PR on it. The status stays `running` like every start;
+ * the sweep matches running and in_review alike. The frame's branch wins. */
+function inheritedPr(
+  predecessor: ResumedFrom | null,
+  frameBranch: string | undefined
+): Pick<
+  typeof codingSessions.$inferInsert,
+  `branch` | `prUrl` | `prNumber` | `prState`
+> {
+  return {
+    branch: frameBranch ?? predecessor?.branch ?? null,
+    prUrl: predecessor?.prUrl ?? null,
+    prNumber: predecessor?.prNumber ?? null,
+    prState: predecessor?.prState ?? null,
+  }
 }
 
 /** EXP-906: the predecessor's children now belong to the successor — the
@@ -797,7 +829,7 @@ export const codingSessionsRouter = router({
             ...device,
             agent: input.agent ?? null,
             agentAccount: input.agentAccount ?? null,
-            branch: input.branch ?? null,
+            ...inheritedPr(predecessor, input.branch),
             mcpServerIds,
             resumedFromId,
             status: `running`,
@@ -869,7 +901,7 @@ export const codingSessionsRouter = router({
             ...device,
             agent: input.agent ?? null,
             agentAccount: input.agentAccount ?? null,
-            branch: input.branch ?? null,
+            ...inheritedPr(predecessor, input.branch),
             mcpServerIds,
             resumedFromId,
             status: `running`,
@@ -919,6 +951,8 @@ export const codingSessionsRouter = router({
             ...device,
             agent: input.agent ?? null,
             agentAccount: input.agentAccount ?? null,
+            // Issue rows never took the frame's branch; only a resume's.
+            ...inheritedPr(predecessor, undefined),
             mcpServerIds,
             resumedFromId,
             status: `running`,
@@ -974,7 +1008,7 @@ export const codingSessionsRouter = router({
           ...device,
           agent: input.agent ?? null,
           agentAccount: input.agentAccount ?? null,
-          branch: input.branch ?? null,
+          ...inheritedPr(predecessor, input.branch),
           batchIssueIds,
           mcpServerIds,
           resumedFromId,

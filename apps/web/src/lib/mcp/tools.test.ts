@@ -2322,6 +2322,9 @@ describe(`exponential_pr_open batch session parking`, () => {
       const { sql, params } = new PgDialect().sqlToQuery(update.where as never)
       expect(sql).toContain(`"id" =`)
       expect(params).toContain(SESSION)
+      // SLOP-3: only a run of the PR's own team (the issues' team) is stamped.
+      expect(sql).toContain(`"team_id" =`)
+      expect(params).toContain(`ws-1`)
       // Never the removed heuristic sweep — it could reach an action or chat run.
       expect(sql).not.toContain(`"issue_id" is null`)
       expect(sql).not.toContain(`"action_id" is null`)
@@ -3544,6 +3547,36 @@ describe(`exponential_pr_open — repositoryId path`, () => {
       prUrl: `https://github.com/acme/app/pull/9`,
       branch: `exp/chat-1a2b3c4d`,
     })
+  })
+
+  // SLOP-3: a team-A run opening team B's chore PR must not carry it — B's
+  // merge would end the A run. The predicate is the repo's team, so the
+  // update matches no row of another team; the PR itself still opens.
+  it(`stamps only a caller row of the repository's own team`, async () => {
+    const updates = armRepoPr()
+    dbRows.current = [
+      {
+        id: SESSION,
+        teamId: `other-team`,
+        status: `running`,
+        userId: `user-1`,
+        hostUserId: null,
+      },
+    ]
+
+    const result = await collectTools(USER, SESSION).get(`exponential_pr_open`)!({
+      repositoryId: REPO,
+      head: `exp/chat-1a2b3c4d`,
+      title: `Chore`,
+    })
+
+    expect(parseOk(result)).toMatchObject({ number: 9 })
+    for (const update of updates) {
+      const { sql, params } = new PgDialect().sqlToQuery(update.where as never)
+      expect(sql).toContain(`"team_id" =`)
+      expect(params).toContain(WS)
+      expect(params).not.toContain(`other-team`)
+    }
   })
 
   it(`ignores a header naming somebody else's run`, async () => {
@@ -5157,7 +5190,7 @@ describe(`exponential_pr_open — a follow-up run based on its parent's branch`,
         resolve: (v: unknown) => unknown,
         reject: (e: unknown) => unknown
       ) => Promise.resolve([{ status: `backlog` }]).then(resolve, reject)
-      return fn({
+      const tx: Record<string, unknown> = {
         select: () => txSelect,
         update: () => ({
           set: (values: Record<string, unknown>) => ({
@@ -5166,14 +5199,56 @@ describe(`exponential_pr_open — a follow-up run based on its parent's branch`,
             },
           }),
         }),
-      })
+      }
+      // SLOP-3: the implicit `blocks` write runs in a savepoint.
+      tx.transaction = async (inner: (sp: unknown) => unknown) => {
+        savepoints.push(tx)
+        return inner(tx)
+      }
+      return fn(tx)
     })
     return updates
   }
+  const savepoints: unknown[] = []
 
   beforeEach(() => {
     dbRows.current = []
+    savepoints.length = 0
     vi.mocked(insertRelationInTx).mockResolvedValue(null)
+  })
+
+  // SLOP-3: a SQL error aborts the transaction it runs in; the savepoint
+  // keeps it off the one carrying the issue link for a PR already open.
+  it(`a failed blocks write never aborts the issue link`, async () => {
+    const updates = armPrOpen()
+    dbRows.current = [
+      {
+        id: LOWER_ISSUE,
+        identifier: `EXP-11`,
+        teamId: `ws-1`,
+        prNumber: 241,
+        prState: `open`,
+        prUrl: LOWER_PR_URL,
+      },
+    ]
+    vi.mocked(insertRelationInTx).mockRejectedValueOnce(
+      new Error(`duplicate key value violates unique constraint`)
+    )
+    const warn = vi.spyOn(console, `warn`).mockImplementation(() => {})
+
+    const result = await tool(`exponential_pr_open`)({
+      issueId: UUID,
+      title: `Upper`,
+      head: `exp/EXP-12`,
+      base: `exp/EXP-11`,
+    })
+
+    expect(parseOk(result)).toMatchObject({ number: 242 })
+    expect(savepoints).toHaveLength(1)
+    expect(insertRelationInTx).toHaveBeenCalledTimes(1)
+    expect(updates.some((u) => u.set.prUrl === `https://github.com/acme/app/pull/242`)).toBe(true)
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
   })
 
   it(`refuses the retired stackOnIssueId`, () => {

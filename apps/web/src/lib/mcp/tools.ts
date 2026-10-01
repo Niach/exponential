@@ -805,10 +805,13 @@ export function registerExponentialTools(
   // run owns its PR: `applySessionPrState` (pr-sync.ts), the poller and
   // `codingSessions.mergePr` advance it off the exact url. Only a `running`
   // row flips to `in_review`; `needsInput` resets with the flip (EXP-531).
+  // SLOP-3: only a run of the PR's own team — another team's PR on the row
+  // would let its merge end this run; a mismatch skips, the PR stays open.
   async function parkSessionInReview(
     tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
     opts: {
       callerSessionId: string | null
+      prTeamId: string
       headBranch: string
       pr: { url: string; number: number }
     }
@@ -821,6 +824,7 @@ export function registerExponentialTools(
       .where(
         and(
           eq(codingSessions.id, opts.callerSessionId),
+          eq(codingSessions.teamId, opts.prTeamId),
           eq(codingSessions.status, `running`)
         )
       )
@@ -836,6 +840,7 @@ export function registerExponentialTools(
       .where(
         and(
           eq(codingSessions.id, opts.callerSessionId),
+          eq(codingSessions.teamId, opts.prTeamId),
           inArray(codingSessions.status, [`running`, `in_review`])
         )
       )
@@ -2450,6 +2455,7 @@ export function registerExponentialTools(
             await db.transaction(async (tx) => {
               await parkSessionInReview(tx, {
                 callerSessionId: callerSession.id,
+                prTeamId: repo.teamId,
                 headBranch: head!,
                 pr: { url: createdPr.url, number: createdPr.number },
               })
@@ -2705,8 +2711,10 @@ export function registerExponentialTools(
 
           // The run owns its PR (EXP-734): the CALLER's row is parked and
           // stamped on every form, a multi-issue run's combined PR included.
+          // One repo, one team: every linked issue's team is the PR's.
           await parkSessionInReview(tx, {
             callerSessionId: callerSession?.id ?? null,
+            prTeamId: teamIdByIssue.get(ids[0]!)!,
             headBranch,
             pr: { url: created.url, number: created.number },
           })
@@ -2716,29 +2724,35 @@ export function registerExponentialTools(
             // nothing new).
             for (const id of ids) {
               if (teamIdByIssue.get(id) !== lower.teamId) continue
-              // EXP-980: the PR is already open on GitHub, so a cycle is
-              // skipped rather than refused — never written.
-              const cycle = await findRelationCycle(tx, {
-                issueId: lower.issueId,
-                relatedIssueId: id,
-                type: `blocks`,
-              }).catch((err: unknown) => {
-                // A failed probe skips the edge like a cycle would (the PR is
-                // open either way), but says so: a silent skip hides a DB
-                // fault behind "there was a cycle".
-                console.warn(
-                  `[mcp] pr_open: blocks cycle check failed for ${lower!.issueId} -> ${id}; skipping the relation`,
-                  err
-                )
-                return [id]
-              })
-              if (cycle) continue
-              await insertRelationInTx(tx, {
-                ...canonicalizeRelation(lower.issueId, id, `blocks`),
-                source: `reference`,
-                teamId: lower.teamId,
-                actorUserId: user.id,
-              })
+              const edge = lower
+              // SLOP-3: in a SAVEPOINT — a SQL error aborts the transaction
+              // it runs in, and the outer one carries the issue link and the
+              // run's stamp for a PR already open on GitHub. A failure skips
+              // the edge (the PR is open either way), but says so: a silent
+              // skip hides a DB fault behind "there was a cycle".
+              await tx
+                .transaction(async (sp) => {
+                  // EXP-980: the PR is already open on GitHub, so a cycle is
+                  // skipped rather than refused — never written.
+                  const cycle = await findRelationCycle(sp, {
+                    issueId: edge.issueId,
+                    relatedIssueId: id,
+                    type: `blocks`,
+                  })
+                  if (cycle) return
+                  await insertRelationInTx(sp, {
+                    ...canonicalizeRelation(edge.issueId, id, `blocks`),
+                    source: `reference`,
+                    teamId: edge.teamId,
+                    actorUserId: user.id,
+                  })
+                })
+                .catch((err: unknown) => {
+                  console.warn(
+                    `[mcp] pr_open: blocks relation failed for ${edge.issueId} -> ${id}; skipping it`,
+                    err
+                  )
+                })
             }
           }
         })

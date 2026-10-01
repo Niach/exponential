@@ -382,7 +382,12 @@ describe(`codingSessions.start — issue path`, () => {
       // EXP-792: nor an account profile.
       agentAccount: null,
       // EXP-637: issue rows carry no run branch (the issue owns
-      // `exp/<IDENTIFIER>`) and this start resumes nothing.
+      // `exp/<IDENTIFIER>`) and this start resumes nothing, so no PR either
+      // (SLOP-3: only a resume inherits one).
+      branch: null,
+      prUrl: null,
+      prNumber: null,
+      prState: null,
       // EXP-1140: nor an MCP server pick.
       mcpServerIds: null,
       resumedFromId: null,
@@ -425,6 +430,9 @@ describe(`codingSessions.start — batch path`, () => {
       agent: null,
       agentAccount: null,
       branch: null,
+      prUrl: null,
+      prNumber: null,
+      prState: null,
       // EXP-876: nothing to name this batch by — the start sent no issues.
       batchIssueIds: null,
       // EXP-1140: nor an MCP server pick.
@@ -613,6 +621,9 @@ describe(`codingSessions.start — action path (EXP-253)`, () => {
       agent: null,
       agentAccount: null,
       branch: null,
+      prUrl: null,
+      prNumber: null,
+      prState: null,
       // EXP-1140: nor an MCP server pick.
       mcpServerIds: null,
       resumedFromId: null,
@@ -2395,6 +2406,46 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
       `col:team_id`,
       TEAM_ID,
     ])
+  })
+
+  // SLOP-3: the run owns its PR, so the merge sweep (by `pr_url`) and
+  // `mergePr` must find it on the successor after a resume or rotation.
+  it(`carries the predecessor's PR onto the resumed row, on every subject`, async () => {
+    const PR = {
+      branch: `exp/APP-1`,
+      prUrl: `https://github.com/acme/app/pull/7`,
+      prNumber: 7,
+      prState: `open`,
+    }
+    selectResults.push([{ id: RESUMED_FROM, userId: `actor`, ...PR }])
+    await caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
+    expect(inserts[0]!.values).toMatchObject({ ...PR, status: `running` })
+
+    selectResults.push([{ id: RESUMED_FROM, userId: `actor`, ...PR }])
+    await caller.start({ teamId: TEAM_ID, resumedFromId: RESUMED_FROM })
+    expect(inserts[1]!.values).toMatchObject({ ...PR, status: `running` })
+
+    // The frame's own branch still wins on a branch-carrying subject.
+    selectResults.push([{ id: RESUMED_FROM, userId: `actor`, ...PR }])
+    selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Refresh` }])
+    await caller.start({
+      actionId: ACTION_ID,
+      branch: `exp/refresh-1a2b3c4d`,
+      resumedFromId: RESUMED_FROM,
+    })
+    expect(inserts[2]!.values).toMatchObject({
+      ...PR,
+      branch: `exp/refresh-1a2b3c4d`,
+    })
+  })
+
+  it(`starts a fresh run with no PR`, async () => {
+    await caller.start({ teamId: TEAM_ID })
+    expect(inserts[0]!.values).toMatchObject({
+      prUrl: null,
+      prNumber: null,
+      prState: null,
+    })
   })
 
   it(`lets the frame's own started reason win over the inherited one`, async () => {
