@@ -52,6 +52,11 @@ pub(crate) enum SidebarPanel {
 }
 
 impl SidebarPanel {
+    /// Every column drags but the main menu, which stays as it is.
+    pub(crate) fn resizable(self) -> bool {
+        self != Self::Main
+    }
+
     #[cfg(test)]
     pub(crate) const ALL: [Self; 7] = [
         Self::Main,
@@ -126,6 +131,11 @@ pub(crate) fn clamp_width(width: f32, extent: f32, beside_rail: bool) -> f32 {
 /// its default, clamped into `extent` (see [`clamp_width`] for what `extent`
 /// is per panel). Read every frame; never written back.
 pub(crate) fn panel_width(panel: SidebarPanel, extent: f32) -> f32 {
+    // The main menu is FIXED at its default: it has no handle, and a stored
+    // `main` (an older build's) is never read.
+    if !panel.resizable() {
+        return panel.default_width();
+    }
     let width = crate::ui_prefs::sidebar_width(panel.key()).unwrap_or(panel.default_width());
     clamp_width(width, extent, panel.beside_rail())
 }

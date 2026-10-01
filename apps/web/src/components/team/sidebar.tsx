@@ -76,6 +76,7 @@ import {
   setSidebarResizing,
   setSidebarWidth,
   sidebarColumnWidth,
+  sidebarResizable,
   sidebarUnitScale,
   sidebarWidthCss,
   useSidebarResizing,
@@ -740,8 +741,8 @@ export function TeamSidebar({
           </div>
         </div>
         {/* EXP-1156: the column's ONE drag edge, over the gutter between the
-            sidebar and the content card. It resizes whatever occupies the
-            column: the main menu, else the panel beside the rail. */}
+            sidebar and the content card. It resizes the panel beside the
+            rail; the main menu has none. */}
         <SidebarResizeEdge panel={occupant.kind} />
       </Sidebar>
 
@@ -854,7 +855,8 @@ function SidebarResizeEdge({ panel }: { panel: SidebarPanelKey }) {
   const { isMobile } = useSidebar()
   const width = useSidebarWidth(panel)
   const { min, max } = useSidebarWidthBounds(panel)
-  if (isMobile) return null
+  // The main menu stays as it is: only a panel beside the rail drags.
+  if (isMobile || !sidebarResizable(panel)) return null
   return (
     <ResizeHandle
       aria-label="Resize sidebar"

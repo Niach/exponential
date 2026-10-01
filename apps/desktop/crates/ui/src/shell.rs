@@ -994,6 +994,9 @@ impl Shell {
             return None;
         }
         let occupant = self.left_anim.occupant;
+        if !occupant.panel().resizable() {
+            return None;
+        }
         let extent = window_extent(window);
         let edge = left_column_width_for(occupant, extent);
         let active = self

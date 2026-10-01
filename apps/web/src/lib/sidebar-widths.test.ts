@@ -65,10 +65,14 @@ describe(`clampSidebarWidth`, () => {
 
 describe(`parseSidebarWidths`, () => {
   it(`reads known finite numbers`, () => {
-    expect(parseSidebarWidths(`{"main":300,"list":400}`)).toEqual({
-      main: 300,
+    expect(parseSidebarWidths(`{"settings":300,"list":400}`)).toEqual({
+      settings: 300,
       list: 400,
     })
+  })
+
+  it(`never reads a width for the fixed main menu`, () => {
+    expect(parseSidebarWidths(`{"main":300}`)).toEqual({})
   })
 
   it(`drops garbage, non-finite values and unknown keys`, () => {
@@ -120,10 +124,12 @@ describe(`the width store`, () => {
   it(`returns the stored width, clamped, and the default otherwise`, () => {
     window.localStorage.setItem(
       SIDEBAR_WIDTHS_STORAGE_KEY,
-      JSON.stringify({ main: 100 })
+      JSON.stringify({ settings: 100, main: 400 })
     )
+    const settings = renderHook(() => useSidebarWidth(`settings`))
+    expect(settings.result.current).toBe(SIDEBAR_MIN_WIDTH)
     const main = renderHook(() => useSidebarWidth(`main`))
-    expect(main.result.current).toBe(SIDEBAR_MIN_WIDTH)
+    expect(main.result.current).toBe(272)
     const list = renderHook(() => useSidebarWidth(`list`))
     expect(list.result.current).toBe(352)
   })

@@ -51,6 +51,12 @@ export function sidebarDefaultWidth(key: SidebarPanelKey): number {
   return DEFAULTS[key]
 }
 
+/** The main menu is FIXED at its default: only the panels beside the rail
+ * drag, and a stored `main` (an older build's) is never read. */
+export function sidebarResizable(key: SidebarPanelKey): boolean {
+  return key !== `main`
+}
+
 /** The rail is beside every panel but the main menu. */
 export function sidebarHasRail(key: SidebarPanelKey): boolean {
   return key !== `main`
@@ -96,6 +102,7 @@ export function parseSidebarWidths(
   }
   const out: Partial<Record<SidebarPanelKey, number>> = {}
   for (const key of SIDEBAR_PANEL_KEYS) {
+    if (!sidebarResizable(key)) continue
     const value = (parsed as Record<string, unknown>)[key]
     if (typeof value === `number` && Number.isFinite(value)) out[key] = value
   }
@@ -206,7 +213,7 @@ export function setSidebarWidth(
   width: number,
   { persist: write = true }: { persist?: boolean } = {}
 ): void {
-  if (!Number.isFinite(width)) return
+  if (!Number.isFinite(width) || !sidebarResizable(key)) return
   load()[key] = Math.round(width)
   if (write) persist()
   refresh()
