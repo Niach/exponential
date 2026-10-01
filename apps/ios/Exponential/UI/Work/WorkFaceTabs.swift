@@ -195,5 +195,87 @@ struct WorkFacePager<Page: View>: View {
             }
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
+        // The paged scroll view stops its pages AT the bottom safe area (a
+        // black band over the home indicator, the feed cut off under the
+        // floating bar). Every face draws to the screen edge, as it did before
+        // the pager; the pages keep their own `safeAreaInset` bars.
+        .ignoresSafeArea(.container, edges: .bottom)
+        // The ONE presenter of the pages' hoisted sheets (`pagerSheet`).
+        .backgroundPreferenceValue(PagerSheet.Key.self) { sheet in
+            PagerSheetHost(sheet: sheet)
+        }
+    }
+}
+
+/// A sheet a pager PAGE asks for, presented by the pager around it. A `.sheet`
+/// attached INSIDE a page of the paged `TabView` is presented TWICE on its
+/// first presentation (UIKit: "already presenting"), and both are then torn
+/// down — the first tap on Properties did nothing. Hoisted out, exactly one
+/// presenter exists however the pager hosts its pages; the content is still
+/// built by the page, over the page's own state.
+struct PagerSheet {
+    let id: String
+    let content: () -> AnyView
+    let dismiss: () -> Void
+    let onDismiss: (() -> Void)?
+
+    struct Key: PreferenceKey {
+        static var defaultValue: PagerSheet? { nil }
+        static func reduce(value: inout PagerSheet?, nextValue: () -> PagerSheet?) {
+            value = value ?? nextValue()
+        }
+    }
+}
+
+private struct PagerSheetHost: View {
+    let sheet: PagerSheet?
+
+    private struct Presented: Identifiable {
+        let id: String
+    }
+
+    /// The last sheet asked for: its content keeps drawing while the sheet
+    /// animates out (the page's item is already nil then), and its
+    /// `onDismiss` fires once it is gone.
+    private final class Last {
+        var sheet: PagerSheet?
+    }
+
+    @State private var last = Last()
+
+    var body: some View {
+        let _ = { if let sheet { last.sheet = sheet } }()
+        Color.clear
+            .sheet(
+                item: Binding(
+                    get: { sheet.map { Presented(id: $0.id) } },
+                    set: { if $0 == nil { sheet?.dismiss() } }
+                ),
+                onDismiss: { last.sheet?.onDismiss?() }
+            ) { _ in
+                (sheet ?? last.sheet)?.content()
+            }
+    }
+}
+
+extension View {
+    /// `.sheet(item:)` for a view that lives in a `WorkFacePager` page: same
+    /// contract, presented by the pager (`PagerSheet`).
+    func pagerSheet<Item: Identifiable, Content: View>(
+        item: Binding<Item?>,
+        onDismiss: (() -> Void)? = nil,
+        @ViewBuilder content: @escaping (Item) -> Content
+    ) -> some View {
+        preference(
+            key: PagerSheet.Key.self,
+            value: item.wrappedValue.map { shown in
+                PagerSheet(
+                    id: "\(shown.id)",
+                    content: { AnyView(content(shown)) },
+                    dismiss: { item.wrappedValue = nil },
+                    onDismiss: onDismiss
+                )
+            }
+        )
     }
 }

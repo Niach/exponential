@@ -55,7 +55,7 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Accounts**: a run started without an account skips a last used login that is signed out. A desktop app or CLI that had a default account keeps it as its last used login when it updates.
 - **API errors**: the automatic retry stops after three failed attempts, even when each attempt got a few words out first.
 - **Desktop connection**: slow requests no longer make the app rebuild its connection, apps do not all reconnect in the same second, and after wake the new connection is in place before sync restarts.
-- **Phone tabs**: on Android the keyboard closes when you change the tab, and on iOS Stop and Resume stay correct after swiping between Run and Changes.
+- **Phone tabs**: on Android the keyboard closes when you change the tab, and on iOS Stop and Resume stay correct after swiping between Run and Changes, the issue page runs to the screen edge again and Properties opens on the first tap.
 - **Desktop**: the list beside an open issue or run is wider and its edge can be dragged, the run dialog of an action fits its content, and the compaction bar is smaller.
 - **Stacks and batches**: one quiet badge in the header opens Related work with what blocks the issue, what shares its pull request and its stack. Closed rows are dimmed on desktop too."#,
 };
