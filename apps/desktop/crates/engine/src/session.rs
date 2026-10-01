@@ -642,6 +642,7 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
         drain_wanted: AtomicBool::new(false),
         compaction: Arc::new(Mutex::new(crate::compaction::CompactionPolicy::default())),
         last_activity: Mutex::new(std::time::Instant::now()),
+        api_retry: Mutex::new(crate::api_retry::ApiRetry::new()),
         failure: Mutex::new(None),
         exit: ExitState::default(),
         outcome: Mutex::new(None),

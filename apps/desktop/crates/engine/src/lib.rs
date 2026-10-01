@@ -48,6 +48,9 @@ pub mod local;
 pub mod mapper;
 pub mod session;
 pub mod sink;
+// FEED-61: a turn that died on a transient API error is re-prompted by the
+// engine after a backoff. Pure; the lifecycle ticker drives it.
+pub mod api_retry;
 // FEED-25: the stall watchdog — a live turn silent for `STALL_AFTER` is
 // interrupted, one that ignores the interrupt for `STALL_KILL_GRACE` ends the
 // run with a reason. Pure; the lifecycle ticker drives it.

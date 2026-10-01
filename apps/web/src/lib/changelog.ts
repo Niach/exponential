@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-01-runs-recover`,
+    date: `2026-10-01`,
+    title: `Runs recover from API errors and dead connections`,
+    summary: `A run whose turn died on an API error retries by itself, a child run that switches accounts is never resumed twice, and the desktop app drops a dead server connection instead of showing cached data for minutes.`,
+    body: `- **API errors**: when a turn stops on an API outage, a timeout or a dropped connection, the run sends its own "continue" after 30 seconds, then 2 and 10 minutes, and says in the transcript that the retry was automatic. Three failures in a row stop the retries, and Stop cancels a pending one.
+- **Child runs**: a child run that its machine moves to another account tells its parent that it resumes itself and under which new id, instead of "ended without a report". Resuming a run that is already live again under another id is refused and names that run.
+- **Desktop connection**: the desktop app and the CLI detect a dead server connection within seconds, rebuild their connection after repeated failures, on wake and on Retry, and log the cause of a failed request.`,
+  },
+  {
     id: `2026-09-30-phone-face-pager`,
     date: `2026-09-30`,
     title: `Phone tabs follow your finger`,
