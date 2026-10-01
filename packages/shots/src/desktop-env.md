@@ -37,12 +37,14 @@ Parsed by `screens::parse_dev_dialog`; an unrecognised spec logs once and opens
 nothing (and releases the ready probe, so the run fails fast instead of hanging).
 
 Bare: `create-issue`, `search`, `create-action`, `automation-new`,
-`create-board`, `create-team`, `join-team`, `add-server`. (The three
+`create-board`, `create-team`, `join-team`, `add-server`, `tidy-up` (the
+composer dialog on the Tidy up builtin, active board; EXP-1155). (The three
 `start-coding*` dialogs went with EXP-825 — the composer is a screen now.)
 
 With an argument: `join-team:<invite-token>`, `action-editor:<action-uuid>`,
 `automation-edit:<automation-uuid>`, `device-settings:<device-uuid>`,
-`duplicate-picker:<issue-uuid>`.
+`duplicate-picker:<issue-uuid>`, `run:<issue-uuid>[,<issue-uuid>…]` (the
+composer dialog on those issues, 2+ = a batch).
 
 Pair the spec with whatever should be BEHIND it via a second var — the catalog
 does this with `EXP_DEV_TOOL=board` under the search palette (EXP-851: that now

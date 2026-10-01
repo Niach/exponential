@@ -83,6 +83,11 @@ use crate::surface::{glass_pill, PillMode, PillSize};
 /// line — the steer composer's rhythm, on a page with nothing else on it.
 const PROMPT_MAX_W: f32 = 640.;
 
+/// EXP-1155: the parameter bands' caps — about three rows of issue chips and
+/// four typed action inputs; past them each band scrolls on its own.
+const CHIPS_MAX_H: f32 = 88.;
+const FIELDS_MAX_H: f32 = 280.;
+
 /// EXP-923: the history button's tooltip — the only word on the Agent page's
 /// own chrome, and the panel's own heading is the ×4 "Recent".
 const RECENT_RUNS_LABEL: &str = "Recent runs";
@@ -395,7 +400,32 @@ pub(crate) struct ChatScreenView {
     /// else — the live runs moved to the rail and the finished ones behind
     /// the history button's panel, so the Agent page is a composer again.
     page_scroll: gpui::ScrollHandle,
+    /// EXP-1155: the two PARAMETER bands that scroll on their own once they
+    /// pass their cap (the subject chips, the action's typed inputs), so the
+    /// rest of the launcher never has to.
+    chips_scroll: gpui::ScrollHandle,
+    fields_scroll: gpui::ScrollHandle,
+    /// EXP-1155: the dialog window follows its content (`None` on the page).
+    dialog_fit: Option<DialogFit>,
     _subscriptions: Vec<Subscription>,
+}
+
+/// EXP-1155: the composer dialog sizes its WINDOW to the launcher instead of
+/// opening at a fixed height and scrolling the rest away (the
+/// `search_sheet::fit_to_content` precedent). Both heights are measured at
+/// prepaint; the window is refit only when the content height moves, so a
+/// manual drag holds until something in the dialog changes.
+struct DialogFit {
+    /// The content-height cap (the opener viewport share the dialog opened
+    /// against); past it the dialog's own scroll is the fallback.
+    max_height: gpui::Pixels,
+    /// The launcher's natural height, last frame.
+    content_h: Rc<std::cell::Cell<gpui::Pixels>>,
+    /// The scroll body's box, last frame: the window viewport minus it is the
+    /// chrome around the body (titlebar strip + shell padding).
+    body_h: Rc<std::cell::Cell<gpui::Pixels>>,
+    /// The content height the window was last fitted to.
+    fitted: Option<gpui::Pixels>,
 }
 
 impl ChatScreenView {
@@ -503,6 +533,9 @@ impl ChatScreenView {
             spare_picks: ActionInputPicks::default(),
             focus_handle: cx.focus_handle(),
             page_scroll: gpui::ScrollHandle::new(),
+            chips_scroll: gpui::ScrollHandle::new(),
+            fields_scroll: gpui::ScrollHandle::new(),
+            dialog_fit: None,
             _subscriptions: subscriptions,
         };
         this.ensure_launch(window, cx);
@@ -512,14 +545,23 @@ impl ChatScreenView {
     /// EXP-1037 — the SAME composer, built for a dialog window and prefilled
     /// with `seed`. The seed is applied on the first render that has both a
     /// team and synced shapes, exactly like the page's pending seed.
+    ///
+    /// EXP-1155: `max_height` caps the content height the window grows to.
     pub(crate) fn dialog(
         seed: ChatSeed,
+        max_height: gpui::Pixels,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
         let mut this = Self::new(window, cx);
         this.presentation = Presentation::Dialog;
         this.dialog_seed = Some(seed);
+        this.dialog_fit = Some(DialogFit {
+            max_height,
+            content_h: Rc::new(std::cell::Cell::new(px(0.))),
+            body_h: Rc::new(std::cell::Cell::new(px(0.))),
+            fitted: None,
+        });
         // The dialog is opened to be typed into (or sent straight away): the
         // field takes focus the moment the window is up.
         let field = this.input.read(cx).focus_handle(cx);
@@ -2109,14 +2151,23 @@ impl ChatScreenView {
                 );
             }
         }
+        // EXP-1155: a 30-issue batch wraps into many chip rows; past the cap
+        // they scroll in their own band beside the verb, never the dialog.
         Some(
-            h_flex()
-                .min_w_0()
-                .flex_wrap()
-                .items_center()
-                .gap_1()
-                .children(chips)
-                .into_any_element(),
+            crate::scroll_pane::capped_v_scroll(
+                "chat-chips-scroll",
+                &self.chips_scroll,
+                px(CHIPS_MAX_H),
+                h_flex()
+                    .w_full()
+                    .min_w_0()
+                    .flex_wrap()
+                    .items_center()
+                    .gap_1()
+                    .children(chips),
+            )
+            .flex_1()
+            .into_any_element(),
         )
     }
 
@@ -2142,7 +2193,18 @@ impl ChatScreenView {
                 cx,
             ));
         }
-        Some(fields.into_any_element())
+        // EXP-1155: the inputs grow the dialog up to a cap, then scroll in
+        // their own band so the text field and the send stay in view.
+        Some(
+            crate::scroll_pane::capped_v_scroll(
+                "chat-fields-scroll",
+                &self.fields_scroll,
+                px(FIELDS_MAX_H),
+                fields,
+            )
+            .w_full()
+            .into_any_element(),
+        )
     }
 
     /// EXP-868: the open team pool behind the `#` tool, rebuilt only when
@@ -2883,20 +2945,74 @@ impl ChatScreenView {
         } else {
             self.render_launcher(window, cx)
         };
+        self.fit_dialog(window, cx);
+        // EXP-1155: both boxes report at prepaint; a change repaints once so
+        // the fit above reads this frame's heights (steady state: no notify).
+        let view_id = cx.entity_id();
+        let (content_slot, body_slot) = match &self.dialog_fit {
+            Some(fit) => (fit.content_h.clone(), fit.body_h.clone()),
+            None => Default::default(),
+        };
         v_flex()
             .size_full()
             .min_h_0()
             .track_focus(&self.focus_handle)
-            .child(crate::scroll_pane::v_scroll_pane(
-                "chat-dialog-scroll",
-                &self.page_scroll,
-                v_flex()
-                    .w_full()
-                    .min_w_0()
-                    .flex_shrink_0()
-                    .child(body),
-            ))
+            .child(
+                crate::scroll_pane::v_scroll_pane(
+                    "chat-dialog-scroll",
+                    &self.page_scroll,
+                    v_flex()
+                        .w_full()
+                        .min_w_0()
+                        .flex_shrink_0()
+                        .on_prepaint(move |bounds, _, cx| {
+                            if content_slot.get() != bounds.size.height {
+                                content_slot.set(bounds.size.height);
+                                cx.notify(view_id);
+                            }
+                        })
+                        .child(body),
+                )
+                .on_prepaint(move |bounds, _, cx| {
+                    if body_slot.get() != bounds.size.height {
+                        body_slot.set(bounds.size.height);
+                        cx.notify(view_id);
+                    }
+                }),
+            )
             .into_any_element()
+    }
+
+    /// EXP-1155: size the dialog WINDOW to the launcher — its measured
+    /// content plus the chrome around the body (window viewport minus the
+    /// body box), capped at [`DialogFit::max_height`] plus that chrome.
+    /// Refits only when the content height moved, so a manual drag holds;
+    /// never touches a maximized or fullscreen window. The resize is deferred
+    /// and top-anchored, so the dialog grows downward.
+    fn fit_dialog(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some(fit) = self.dialog_fit.as_mut() else {
+            return;
+        };
+        let content = fit.content_h.get();
+        let body = fit.body_h.get();
+        if content <= px(0.) || body <= px(0.) || fit.fitted == Some(content) {
+            return;
+        }
+        if window.is_maximized() || window.is_fullscreen() {
+            return;
+        }
+        fit.fitted = Some(content);
+        let current = window.viewport_size();
+        let chrome = (current.height - body).max(px(0.));
+        let target = content.min(fit.max_height) + chrome;
+        if (target - current.height).abs() <= px(1.) {
+            return;
+        }
+        crate::native_dialog::resize_dialog_keeping_top(
+            window,
+            cx,
+            gpui::size(current.width, target),
+        );
     }
 
     /// EXP-1037/EXP-897 — the blocked-start question drawn INSIDE the

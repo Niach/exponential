@@ -46,6 +46,41 @@ pub(crate) fn v_scroll_pane(
         )
 }
 
+/// EXP-1155: a CONTENT-HEIGHT band that scrolls only past `max_height` — the
+/// same scroll area + overlay scrollbar as [`v_scroll_pane`], but sized by
+/// its content instead of by a flex parent. For a growing region INSIDE a
+/// layout that must stay whole (the composer dialog's issue chips and action
+/// inputs). The caller sizes its WIDTH (`w_full`, or `flex_1` in a row).
+pub(crate) fn capped_v_scroll(
+    id: impl Into<ElementId>,
+    handle: &ScrollHandle,
+    max_height: Pixels,
+    content: impl IntoElement,
+) -> Div {
+    div()
+        .relative()
+        .min_w_0()
+        .flex_shrink_0()
+        .child(
+            div()
+                .id(id.into())
+                .w_full()
+                .max_h(max_height)
+                .overflow_y_scroll()
+                .track_scroll(handle)
+                .child(content),
+        )
+        .child(
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .right_0()
+                .bottom_0()
+                .child(Scrollbar::new(handle).axis(ScrollbarAxis::Vertical)),
+        )
+}
+
 /// EXP-776: the same `flex_1`/`min_h_0` shell around a VIRTUALISED
 /// [`gpui::list`] — the list scrolls itself (its state owns the offset and
 /// the wheel handling), so all this adds is the flex sizing and the overlay
