@@ -2554,11 +2554,23 @@ const STEER_CONFIG_RETRY: std::time::Duration = std::time::Duration::from_secs(3
 /// EXP-696: the process-wide `steer.config` answer. Remote start exists only
 /// when the instance runs a relay, and that is INSTANCE config (it moves on a
 /// deploy, not on a heartbeat) — so it is fetched once and cached here.
+///
+/// EXP-1164: and REMEMBERED across launches ([`STEER_CONFIG_FILE`], per
+/// instance URL). Every remote machine in the launch device picker sits
+/// behind this answer, so a cold cache showed only "This device" until the
+/// fetch landed — the default machine (another one) appeared seconds later,
+/// or 30s later after a failed first fetch. The last known answer seeds the
+/// cache at once and the fetch still runs to correct it.
 #[derive(Default)]
 pub(crate) struct SteerConfigCache {
-    /// `None` until the first answer lands; `Some(false)` = relay off, which
-    /// is a normal state and never an error (§8.2).
+    /// `None` until the first answer lands (or a remembered one seeds it);
+    /// `Some(false)` = relay off, which is a normal state and never an error
+    /// (§8.2).
     pub(crate) enabled: Option<bool>,
+    /// EXP-1164: the instance the cache speaks for. Another account's
+    /// instance starts the cache over (and an answer for the old one that
+    /// lands late is dropped).
+    instance: Option<String>,
     requested: bool,
     /// When the last fetch failed — the [`STEER_CONFIG_RETRY`] cooldown's
     /// anchor. Cleared by a successful answer.
@@ -2582,9 +2594,45 @@ impl SteerConfigCache {
 struct SteerConfigGlobal(gpui::Entity<SteerConfigCache>);
 impl gpui::Global for SteerConfigGlobal {}
 
+/// EXP-1164: the last known `steer.config.enabled` per instance URL, in the
+/// auth data dir — a server fact remembered, never a preference.
+const STEER_CONFIG_FILE: &str = "steer-config.json";
+
+fn steer_config_file(cx: &App) -> Option<std::path::PathBuf> {
+    Some(cx.try_global::<AuthContext>()?.data_dir.join(STEER_CONFIG_FILE))
+}
+
+/// The remembered answer for `instance`; a missing or unreadable file is
+/// simply "not known yet".
+fn load_known_steer_enabled(path: &std::path::Path, instance: &str) -> Option<bool> {
+    let json = std::fs::read_to_string(path).ok()?;
+    let known: BTreeMap<String, bool> = serde_json::from_str(&json).ok()?;
+    known.get(instance).copied()
+}
+
+/// Remember `enabled` for `instance`, keeping every other instance's answer.
+/// Best effort: a failed write only costs the next launch's first paint.
+fn store_known_steer_enabled(path: &std::path::Path, instance: &str, enabled: bool) {
+    let mut known: BTreeMap<String, bool> = std::fs::read_to_string(path)
+        .ok()
+        .and_then(|json| serde_json::from_str(&json).ok())
+        .unwrap_or_default();
+    if known.insert(instance.to_string(), enabled) == Some(enabled) {
+        return;
+    }
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(json) = serde_json::to_string(&known) {
+        let _ = std::fs::write(path, json);
+    }
+}
+
 /// The cache entity — surfaces observe it so the answer landing re-renders
 /// them. Reading it also kicks the ONE fetch (a failed one re-arms, so a
 /// transport blip cannot pin the app to "local only" for the session).
+/// EXP-1164: a cache meeting an instance for the first time seeds itself
+/// from the remembered answer before that fetch.
 pub(crate) fn steer_config(cx: &mut App) -> gpui::Entity<SteerConfigCache> {
     let entity = match cx.try_global::<SteerConfigGlobal>() {
         Some(global) => global.0.clone(),
@@ -2594,20 +2642,43 @@ pub(crate) fn steer_config(cx: &mut App) -> gpui::Entity<SteerConfigCache> {
             entity
         }
     };
+    let instance = active_account(cx).map(|account| account.instance_url);
+    if let Some(instance) = instance.as_ref() {
+        if entity.read(cx).instance.as_ref() != Some(instance) {
+            let known = steer_config_file(cx)
+                .and_then(|path| load_known_steer_enabled(&path, instance));
+            entity.update(cx, |this, _| {
+                *this = SteerConfigCache {
+                    enabled: known,
+                    instance: Some(instance.clone()),
+                    ..Default::default()
+                };
+            });
+        }
+    }
     if entity.read(cx).may_request(std::time::Instant::now()) {
         if let Some(trpc) = trpc_client(cx) {
             entity.update(cx, |this, _| this.requested = true);
             let entity = entity.clone();
+            let path = steer_config_file(cx);
             cx.spawn(async move |cx| {
                 let result = cx
                     .background_executor()
                     .spawn(async move { api::steer::config(&trpc) })
                     .await;
                 let _ = entity.update(cx, |this, cx| {
+                    // EXP-1164: the account moved to another instance while
+                    // this was in flight — not its answer.
+                    if this.instance != instance {
+                        return;
+                    }
                     match result {
                         Ok(config) => {
                             this.enabled = Some(config.enabled);
                             this.failed_at = None;
+                            if let (Some(path), Some(instance)) = (path.as_ref(), instance.as_ref()) {
+                                store_known_steer_enabled(path, instance, config.enabled);
+                            }
                         }
                         Err(err) => {
                             log::warn!("[ui] steer.config failed: {err}");
@@ -4018,6 +4089,35 @@ mod tests {
         assert!(!failed.may_request(start));
         assert!(!failed.may_request(start + STEER_CONFIG_RETRY - std::time::Duration::from_secs(1)));
         assert!(failed.may_request(start + STEER_CONFIG_RETRY));
+    }
+
+    /// EXP-1164: the remembered `steer.config` answer is PER INSTANCE, an
+    /// answer for one never clobbers another's, and a missing or garbage
+    /// file reads as "not known yet" (the fetch decides), never a panic.
+    #[test]
+    fn the_remembered_steer_config_is_per_instance() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|since| since.as_nanos())
+            .unwrap_or_default();
+        let dir = std::env::temp_dir()
+            .join(format!("exp-steer-config-{}-{stamp}", std::process::id()));
+        let path = dir.join(STEER_CONFIG_FILE);
+        assert_eq!(load_known_steer_enabled(&path, "https://a.example"), None);
+
+        store_known_steer_enabled(&path, "https://a.example", true);
+        store_known_steer_enabled(&path, "https://b.example", false);
+        assert_eq!(load_known_steer_enabled(&path, "https://a.example"), Some(true));
+        assert_eq!(load_known_steer_enabled(&path, "https://b.example"), Some(false));
+        assert_eq!(load_known_steer_enabled(&path, "https://c.example"), None);
+
+        // A relay switched off on a deploy: the next answer overwrites.
+        store_known_steer_enabled(&path, "https://a.example", false);
+        assert_eq!(load_known_steer_enabled(&path, "https://a.example"), Some(false));
+
+        std::fs::write(&path, "not json").expect("write");
+        assert_eq!(load_known_steer_enabled(&path, "https://a.example"), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // ── EXP-696 / EXP-746: live and past run projections ───────────────────
