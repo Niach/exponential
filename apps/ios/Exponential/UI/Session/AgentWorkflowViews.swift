@@ -115,7 +115,7 @@ struct AgentBottomStrip: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .glassRow()
+            .glassRow(isOpaque: true)
             // EXP-927 §2c "Alignment": the strip reads in the transcript's
             // column, not the panel's full width.
             .transcriptColumn()
@@ -296,7 +296,7 @@ struct AgentQueueStrip: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .glassRow()
+        .glassRow(isOpaque: true)
         // EXP-927 §2c "Alignment": the same reading column as the strip above
         // it and the transcript above that.
         .transcriptColumn()
