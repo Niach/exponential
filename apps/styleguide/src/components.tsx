@@ -4186,7 +4186,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `resize-handle`,
     title: `Column resize edge`,
     kind: `Surfaces`,
-    blurb: `EXP-1156: the grab strip on a resizable column's right edge — the sidebar on web at md+ and every IDE sidebar column. Dragging follows the pointer between the shared \`sidebar\` token bounds (${designTokens.sidebar.minWidth}–${designTokens.sidebar.maxWidth}, the whole column never past half the window), ←/→ step it by ${designTokens.sidebar.keyboardStep}, a double-click resets the panel to its default. The width is remembered PER PANEL on the machine, never synced. At rest it draws nothing; a 1px hairline centred in the ${designTokens.sidebar.handleWidth}px strip shows on hover, focus and while dragging (the right column below). Phones have no sidebar, so no edge.`,
+    blurb: `EXP-1156: the grab strip on a resizable column's right edge — the sidebar on web at md+ and every IDE sidebar column. EXP-1163: beside the content card the strip IS the card's left edge: centred on its border, only as tall as the card, its hairline kept clear of the rounded corners. Dragging follows the pointer between the shared \`sidebar\` token bounds (${designTokens.sidebar.minWidth}–${designTokens.sidebar.maxWidth}, the whole column never past half the window), ←/→ step it by ${designTokens.sidebar.keyboardStep}, a double-click resets the panel to its default. The width is remembered PER PANEL on the machine, never synced. At rest it draws nothing; a 1px hairline centred in the ${designTokens.sidebar.handleWidth}px strip, over the card's border, shows on hover, focus and while dragging (the right specimen below). Phones have no sidebar, so no edge.`,
     status: {
       web: ok(`ResizeHandle`, `packages/ui/src/resize-handle.tsx`, `the team sidebar mounts one (components/team/sidebar.tsx); widths in lib/sidebar-widths.ts`),
       desktop: ok(`resize_edge::handle`, `apps/desktop/crates/ui/src/resize_edge.rs`, `drag_capture tracks the drag; widths in ui_prefs::sidebar_width`),
@@ -4196,20 +4196,33 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     island: () => (
       <div className="flex gap-6">
         {[false, true].map((active) => (
-          <div
-            key={String(active)}
-            className="relative h-40 rounded-lg border border-glass-stroke-card bg-glass-card"
-            style={{ width: designTokens.sidebar.defaultMain / 2 }}
-          >
-            <ResizeHandle
-              aria-label="Resize column"
-              className="-right-[9px] w-2"
-              value={designTokens.sidebar.defaultMain}
-              min={designTokens.sidebar.minWidth}
-              max={designTokens.sidebar.maxWidth}
-              step={designTokens.sidebar.keyboardStep}
-              active={active}
-              onChange={noop}
+          // A sidebar column, the 10px gutter, then the card whose left
+          // edge the strip hugs (the team layout's geometry, px literals).
+          <div key={String(active)} className="flex h-40">
+            <div
+              className="relative h-full"
+              style={{ width: designTokens.sidebar.defaultMain / 3 }}
+            >
+              <ResizeHandle
+                aria-label="Resize column"
+                style={{
+                  right: -(10 + 0.5 + designTokens.sidebar.handleWidth / 2),
+                  width: designTokens.sidebar.handleWidth,
+                  top: 10,
+                  bottom: 10,
+                }}
+                inset={16}
+                value={designTokens.sidebar.defaultMain}
+                min={designTokens.sidebar.minWidth}
+                max={designTokens.sidebar.maxWidth}
+                step={designTokens.sidebar.keyboardStep}
+                active={active}
+                onChange={noop}
+              />
+            </div>
+            <div
+              className="mx-[10px] my-[10px] rounded-xl border border-glass-stroke-card bg-glass-panel"
+              style={{ width: designTokens.sidebar.defaultMain / 3 }}
             />
           </div>
         ))}

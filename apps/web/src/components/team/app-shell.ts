@@ -48,6 +48,23 @@ export function mainPanelClass({ tabs }: { tabs: boolean }): string {
 export const MAIN_PANEL_CLASS = mainPanelClass({ tabs: false })
 
 /**
+ * EXP-1163: the card's LEFT EDGE in px, measured from the sidebar column it
+ * sits beside — what the column's resize handle hugs. The numbers mirror the
+ * literals above (`app-shell.test.ts` pins them): `gutter` the `mx-[10px]`,
+ * `top` the `mt-[10px]` or the 44px tabs band, `bottom` the `mb-[10px]`,
+ * `radius` the `rounded-xl` corner (`--radius` 12px + 4) the edge's hairline
+ * keeps clear of.
+ */
+export function mainPanelEdge({ tabs }: { tabs: boolean }): {
+  gutter: number
+  top: number
+  bottom: number
+  radius: number
+} {
+  return { gutter: 10, top: tabs ? 44 : 10, bottom: 10, radius: 16 }
+}
+
+/**
  * EXP-870: the WORK TABS band — browser-like tabs on the bare ground above the
  * card, md+ only (phones never show it), IDE parity with the desktop's title
  * band. A PX height for the same reason the card's insets are px (the md+

@@ -191,6 +191,7 @@ function TeamLayout() {
               team={team}
               boards={boards}
               onOpenSearch={() => setSearchOpen(true)}
+              workTabs={showWorkTabs}
             />
 
             {/* EXP-723 + EXP-771: the content column is the CUTOUT panel —

@@ -2925,9 +2925,11 @@ impl ScreensPanel {
 
     /// EXP-1156: a screen list's edge handle (Files, Source Control), over
     /// the list's right edge, full height. The list draws its own
-    /// `border_r_1` in its last pixel, so the strip sits one pixel further in
-    /// than the left column's and its hover hairline lands ON that border
-    /// instead of doubling it.
+    /// `border_r_1` in its last pixel, so the hover hairline lands ON that
+    /// border instead of doubling it. EXP-1163: the neighbour here is the
+    /// plain viewer inside the card, not a card, so the strip stays a
+    /// [`crate::resize_edge::EdgeAnchor::Column`] one (the list's scrollbar
+    /// keeps its hit strip), full height like the border it rides.
     fn screen_list_handle(
         &self,
         panel: crate::resize_edge::SidebarPanel,
@@ -2936,8 +2938,9 @@ impl ScreensPanel {
         cx: &gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let active = self.resize_drag.is_some_and(|drag| drag.panel == panel);
-        crate::resize_edge::handle(panel, extent, active, cx)
-            .left(px(width - 1. - crate::resize_edge::EDGE_INSET))
+        let anchor = crate::resize_edge::EdgeAnchor::Column;
+        crate::resize_edge::handle(panel, anchor, extent, active, cx)
+            .left(px(anchor.strip_left(width - 1.)))
             .top_0()
             .bottom_0()
             .into_any_element()

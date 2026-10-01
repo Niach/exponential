@@ -79,4 +79,15 @@ describe(`ResizeHandle`, () => {
     fireEvent.doubleClick(handle)
     expect(onReset).toHaveBeenCalledTimes(1)
   })
+
+  // EXP-1163: on a card's edge the hairline stays off the rounded corners,
+  // while the grab area keeps the strip's whole height.
+  it(`insets only the hairline`, () => {
+    const { handle } = setup({ inset: 16, style: { top: 10, bottom: 10 } })
+    const line = handle.firstElementChild as HTMLElement
+    expect(line.style.top).toBe(`16px`)
+    expect(line.style.bottom).toBe(`16px`)
+    expect(handle.style.top).toBe(`10px`)
+    expect(handle.style.bottom).toBe(`10px`)
+  })
 })

@@ -40,7 +40,7 @@ use gpui_component::{
 use sync::{SessionPhase, Store};
 
 use crate::{
-    resize_edge::{ResizeDrag, ResizeHost, SidebarPanel},
+    resize_edge::{EdgeAnchor, ResizeDrag, ResizeHost, SidebarPanel},
     debug_board::DebugBoardPanel, icons::ExpIcon, login::LoginView, navigation,
     navigation::Screen,
     screens::ScreensPanel,
@@ -118,6 +118,25 @@ const PANEL_MARGIN_TOP: f32 = 0.;
 /// plain [`PANEL_MARGIN`] exactly like the web twin does (`app-shell.ts`
 /// `mainPanelClass(docked)`).
 const PANEL_MARGIN_BOTTOM_BAR: f32 = 6.;
+
+/// EXP-1163: the content card's gaps to the body row's top and bottom — the
+/// card's own `mt`/`mb` plus, above, the decoration band (`client_chrome`)
+/// and, below, the session bar band (`bar_visible`, which clears the CSD
+/// resize band by `bottom_resize_inset`). The left column's edge handle is
+/// pinned to exactly this span.
+fn card_vertical_gaps(client_chrome: bool, bar_visible: bool, bottom_resize_inset: f32) -> (f32, f32) {
+    let top = if client_chrome {
+        crate::app_title_bar::WORK_TABS_BAND_H + PANEL_MARGIN_TOP
+    } else {
+        PANEL_MARGIN
+    };
+    let bottom = if bar_visible {
+        PANEL_MARGIN_BOTTOM_BAR + crate::session_bar::SESSION_BAR_H + bottom_resize_inset
+    } else {
+        PANEL_MARGIN
+    };
+    (top, bottom)
+}
 
 /// EXP-851: who owns the window's leftmost column. FOUR occupants — the
 /// rail (the default), the settings nav (Settings replaces the rail
@@ -412,11 +431,6 @@ pub struct Shell {
     /// hosts it because the column, its handle and the capture are all
     /// rendered here ([`crate::resize_edge`]).
     resize_drag: Option<ResizeDrag>,
-    /// EXP-1156: how far below the column's top its swapping PANE starts —
-    /// the titlebar strip plus the fixed header, measured at prepaint. The
-    /// edge handle starts there, so it never covers the traffic-light drag
-    /// strip or the header's buttons.
-    left_header_h: std::rc::Rc<std::cell::Cell<f32>>,
     /// EXP-863: the left column's titlebar strip is the SHELL's now (the
     /// fixed header rides it), so its window-drag latch (the vendored
     /// `TitleBar` `should_move` pattern) lives here, not on the occupants.
@@ -690,7 +704,6 @@ impl Shell {
             left_anim,
             _left_anim_task: None,
             resize_drag: None,
-            left_header_h: Default::default(),
             left_strip_should_move: false,
             login,
             onboarding,
@@ -919,12 +932,6 @@ impl Shell {
             .child(rail_slot)
             .children(panel_slot);
 
-        // The 8px `pt_2` the column takes where no titlebar strip renders.
-        let top_inset = if top_strip.is_none() {
-            0.5 * f32::from(window.rem_size())
-        } else {
-            0.
-        };
         let column = v_flex()
             .h_full()
             .flex_shrink_0()
@@ -944,24 +951,7 @@ impl Shell {
                     .child(header)
                     .child(crate::sidebar::left_column_divider(cx)),
             )
-            .child(pane)
-            // EXP-1156: where the pane starts, measured relative to the
-            // column's own top (the first child sits there unless the 8px
-            // inset above applies — it is added back). The edge handle
-            // starts there; a changed measure repaints once.
-            .on_children_prepainted({
-                let measured = self.left_header_h.clone();
-                move |bounds, window, _| {
-                    let (Some(first), Some(last)) = (bounds.first(), bounds.last()) else {
-                        return;
-                    };
-                    let header_h = f32::from(last.origin.y - first.origin.y) + top_inset;
-                    if (measured.get() - header_h).abs() > 0.5 {
-                        measured.set(header_h);
-                        window.request_animation_frame();
-                    }
-                }
-            });
+            .child(pane);
         let (from_w, to_w) = (
             left_column_width_for(anim.from_occupant, extent),
             left_column_width_for(anim.occupant, extent),
@@ -977,19 +967,24 @@ impl Shell {
     }
 
     /// EXP-1156: the left column's edge handle, an overlay the Shell's body
-    /// row positions over the column's RIGHT edge (the column clips, so it
-    /// cannot carry the strip itself), from under the fixed header to the
-    /// window bottom. It drives the occupant's panel: the expanded rail's
-    /// `main` width, or the panel beside the folded rail. Not mounted
-    /// mid-swap — the widths are animating then, and a press would start
-    /// from a width that is about to change.
+    /// row positions (the card clips, so it cannot carry the strip itself).
+    /// It drives the occupant's panel: the expanded rail's `main` width, or
+    /// the panel beside the folded rail. Not mounted mid-swap — the widths
+    /// are animating then, and a press would start from a width that is
+    /// about to change.
     ///
-    /// The strip sits OUTSIDE the edge (1px in, 7px out over the
-    /// `PANEL_MARGIN` gap) rather than centred on it: the sidebar's slim
-    /// scrollbar owns an 8px hit strip flush inside that edge (EXP-1095),
-    /// and a centred strip would eat half of it — the thumb could no longer
-    /// be grabbed. The hairline still lands on the edge itself.
-    fn render_left_edge_handle(&self, window: &Window, cx: &gpui::Context<Self>) -> Option<AnyElement> {
+    /// EXP-1163: the edge you grab IS the content card's left border — the
+    /// strip centred on it ([`EdgeAnchor::Card`]: 4px over the
+    /// `PANEL_MARGIN` gap, 4px over the card) and exactly as tall as the
+    /// card, its hover hairline on the border clear of the rounded corners.
+    /// The 10px gap keeps it off the sidebar's slim scrollbar (EXP-1095).
+    fn render_left_edge_handle(
+        &self,
+        client_chrome: bool,
+        bar_visible: bool,
+        window: &Window,
+        cx: &gpui::Context<Self>,
+    ) -> Option<AnyElement> {
         if self.left_anim.swapping {
             return None;
         }
@@ -998,15 +993,21 @@ impl Shell {
             return None;
         }
         let extent = window_extent(window);
-        let edge = left_column_width_for(occupant, extent);
+        let card_left = left_column_width_for(occupant, extent) + PANEL_MARGIN;
+        let (top, bottom) = card_vertical_gaps(
+            client_chrome,
+            bar_visible,
+            f32::from(crate::window_frame::frame_bottom_resize_inset(window)),
+        );
         let active = self
             .resize_drag
             .is_some_and(|drag| drag.panel == occupant.panel());
+        let anchor = EdgeAnchor::Card;
         Some(
-            crate::resize_edge::handle(occupant.panel(), extent, active, cx)
-                .left(px(edge - crate::resize_edge::EDGE_INSET))
-                .top(px(self.left_header_h.get()))
-                .bottom_0()
+            crate::resize_edge::handle(occupant.panel(), anchor, extent, active, cx)
+                .left(px(anchor.strip_left(card_left)))
+                .top(px(top))
+                .bottom(px(bottom))
                 .into_any_element(),
         )
     }
@@ -1387,7 +1388,7 @@ impl Render for Shell {
                 })
                 // EXP-1156: the edge handle LAST, so it hit-tests above the
                 // content column it overhangs; then the live drag's capture.
-                .children(self.render_left_edge_handle(window, cx))
+                .children(self.render_left_edge_handle(client_chrome, bar_visible, window, cx))
                 .children(crate::resize_edge::drag_capture(self.resize_drag, cx))
                 .into_any_element(),
             // No rail here, so the whole window is content on the root's
@@ -1919,6 +1920,18 @@ mod tests {
         assert_eq!(crate::app_title_bar::WORK_TABS_BAND_H, 44.);
         assert_eq!(PANEL_MARGIN_BOTTOM_BAR, 6.);
         assert_eq!(crate::session_bar::SESSION_BAR_H, 36.);
+    }
+
+    /// EXP-1163: the left column's edge handle spans the CARD — under the
+    /// 44px band (10px without client chrome), down to the card's bottom:
+    /// 10px above the window edge, or above the 6px gap + 36px session bar
+    /// (+ the CSD resize band it clears) while the bar is up.
+    #[test]
+    fn the_edge_handle_spans_the_card() {
+        assert_eq!(card_vertical_gaps(true, false, 0.), (44., 10.));
+        assert_eq!(card_vertical_gaps(false, false, 0.), (10., 10.));
+        assert_eq!(card_vertical_gaps(true, true, 0.), (44., 42.));
+        assert_eq!(card_vertical_gaps(true, true, 5.), (44., 47.));
     }
 
     /// EXP-851: the occupant rule. Settings wins over everything (it replaces
