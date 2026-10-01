@@ -13,8 +13,9 @@
 //! and the harness in `screens.rs` guard that). A column edge is one width a
 //! host owns, so it is a strip, a pure clamp and three listeners:
 //!
-//! - [`handle`] renders the strip (the host positions it, centred on the
-//!   column's right edge); its mouse-down starts a [`ResizeDrag`] on the host,
+//! - [`handle`] renders the strip (the host positions it on the edge per
+//!   its [`EdgeAnchor`] — EXP-1163: the left column's edge is the content
+//!   CARD's left border, a strip as tall as the card); its mouse-down starts a [`ResizeDrag`] on the host,
 //!   a double-click resets the width instead;
 //! - [`drag_capture`] is the host's per-frame window-level capture while a
 //!   drag is live (the pointer leaves an 8px strip at once) — the
@@ -189,14 +190,53 @@ pub(crate) trait ResizeHost: Sized + 'static {
     fn resize_drag(&mut self) -> &mut Option<ResizeDrag>;
 }
 
-/// EXP-1156: how far the strip reaches INSIDE the column it resizes; the
-/// rest of its `HANDLE_WIDTH` lies outside the edge. Not centred, on purpose:
-/// a sidebar's slim scrollbar owns an 8px hit strip flush inside the
-/// column's right edge (EXP-1095), and a centred strip would take half of it
-/// — the thumb could no longer be grabbed. The hairline is drawn at this
-/// offset, so a host placing the strip at `edge - EDGE_INSET` gets the line
-/// exactly on the edge.
+/// EXP-1156: how far a [`EdgeAnchor::Column`] strip reaches INSIDE the
+/// column it resizes; the rest of its `HANDLE_WIDTH` lies outside the edge.
+/// Not centred, on purpose: a list's slim scrollbar owns an 8px hit strip
+/// flush inside its right edge (EXP-1095), and a centred strip would take
+/// half of it — the thumb could no longer be grabbed.
 pub(crate) const EDGE_INSET: f32 = 1.;
+
+/// EXP-1163: what a strip is pinned to. The host positions the strip at
+/// [`EdgeAnchor::strip_left`] of the edge's line pixel and gives it the
+/// height of what it drags; the hairline lands ON that pixel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EdgeAnchor {
+    /// The left column's edge IS the main content card's left border: the
+    /// strip is centred on that border, as tall as the card (never the
+    /// window), and its hairline stops clear of the card's rounded corners.
+    /// The `PANEL_MARGIN` gap keeps the strip off the sidebar's scrollbar.
+    Card,
+    /// A screen's own list (Files, Source Control): the list's right border
+    /// beside a plain viewer, no card. [`EDGE_INSET`] in, the rest out, full
+    /// height.
+    Column,
+}
+
+impl EdgeAnchor {
+    /// The hairline's x inside the strip.
+    pub(crate) fn line_x(self) -> f32 {
+        match self {
+            Self::Card => tokens::HANDLE_WIDTH / 2.,
+            Self::Column => EDGE_INSET,
+        }
+    }
+
+    /// The strip's left for an edge whose line pixel starts at `edge_x`
+    /// (host coordinates).
+    pub(crate) fn strip_left(self, edge_x: f32) -> f32 {
+        edge_x - self.line_x()
+    }
+
+    /// How far the hairline stops short of the strip's top and bottom: the
+    /// card's corner radius, so the line runs on the straight border only.
+    pub(crate) fn line_inset_y(self) -> f32 {
+        match self {
+            Self::Card => theme::tokens::radius::LG,
+            Self::Column => 0.,
+        }
+    }
+}
 
 /// The hairline's colour: the strongest glass stroke, the same one an active
 /// row's outline wears — a quiet line, not an accent.
@@ -205,14 +245,15 @@ fn hairline_color() -> gpui::Hsla {
 }
 
 /// EXP-1156: the edge strip — `HANDLE_WIDTH` wide, NOT positioned (the host
-/// places it at `left(edge - EDGE_INSET)`, see [`EDGE_INSET`] for why not
-/// centred), with a 1px hairline at the edge that shows on hover and, `active`,
-/// for the whole drag. A left press starts the drag on the host; a
+/// places it at `anchor.strip_left(edge)` and sizes its height, see
+/// [`EdgeAnchor`]), with a 1px hairline ON the edge that shows on hover and,
+/// `active`, for the whole drag. A left press starts the drag on the host; a
 /// double-click (`click_count == 2`) forgets the width instead, back to the
 /// panel default. `extent` = the clamp extent the host rendered the column
 /// with ([`panel_width`]).
 pub(crate) fn handle<V: ResizeHost>(
     panel: SidebarPanel,
+    anchor: EdgeAnchor,
     extent: f32,
     active: bool,
     cx: &Context<V>,
@@ -223,12 +264,14 @@ pub(crate) fn handle<V: ResizeHost>(
         .group(group.clone())
         .absolute()
         .w(px(tokens::HANDLE_WIDTH))
-        .pl(px(EDGE_INSET))
         .cursor_col_resize()
         .child(
             div()
+                .absolute()
+                .left(px(anchor.line_x()))
+                .top(px(anchor.line_inset_y()))
+                .bottom(px(anchor.line_inset_y()))
                 .w(px(1.))
-                .h_full()
                 .bg(hairline_color())
                 .when(!active, |line| {
                     line.invisible()
@@ -389,5 +432,24 @@ mod tests {
         // On a 1000px window the same drag stops at half minus the rail.
         let mut narrow = ResizeDrag { extent: 1000., ..drag };
         assert_eq!(narrow.track(2000.), Some(452.));
+    }
+
+    /// EXP-1163: the left column's strip is CENTRED on the card's left
+    /// border (4px out over the gap, 4px in over the card) with its hairline
+    /// on the border pixel, clear of the 12px corners; a screen list's strip
+    /// keeps 1px in so the list's scrollbar keeps its hit strip.
+    #[test]
+    fn the_strip_sits_on_its_edge() {
+        assert_eq!(EdgeAnchor::Card.line_x(), 4.);
+        assert_eq!(EdgeAnchor::Card.strip_left(282.), 278.);
+        assert_eq!(
+            EdgeAnchor::Card.strip_left(282.) + EdgeAnchor::Card.line_x(),
+            282.,
+            "the hairline lands on the border"
+        );
+        assert_eq!(EdgeAnchor::Card.line_inset_y(), 12.);
+        assert_eq!(EdgeAnchor::Column.line_x(), 1.);
+        assert_eq!(EdgeAnchor::Column.strip_left(319.), 318.);
+        assert_eq!(EdgeAnchor::Column.line_inset_y(), 0.);
     }
 }

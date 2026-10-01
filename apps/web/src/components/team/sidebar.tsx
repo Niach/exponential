@@ -52,6 +52,7 @@ import { ReviewFilesNav } from "@/components/team/review-files-nav"
 import { SidebarPinned } from "@/components/team/sidebar-pinned"
 import { SidebarRunningSection } from "@/components/team/sidebar-running"
 import { RecentRunsSidebar } from "@/components/team/recent-runs-nav"
+import { mainPanelEdge } from "@/components/team/app-shell"
 import {
   DraftsCountBadge,
   InboxUnreadBadge,
@@ -136,6 +137,8 @@ interface TeamSidebarProps {
   team: Team | null | undefined
   boards: Board[] | undefined
   onOpenSearch: () => void
+  /** The work-tabs band shows above the card (its top moves down to 44px). */
+  workTabs: boolean
 }
 
 export function TeamSidebar({
@@ -143,6 +146,7 @@ export function TeamSidebar({
   team,
   boards,
   onOpenSearch,
+  workTabs,
 }: TeamSidebarProps) {
   const { data: session } = useSession()
   const navigate = useNavigate()
@@ -728,10 +732,10 @@ export function TeamSidebar({
             </PanelSlot>
           </div>
         </div>
-        {/* EXP-1156: the column's ONE drag edge, over the gutter between the
-            sidebar and the content card. It resizes the panel beside the
-            rail; the main menu has none. */}
-        <SidebarResizeEdge panel={occupant.kind} />
+        {/* EXP-1156: the column's ONE drag edge — EXP-1163: the content
+            card's left edge. It resizes the panel beside the rail; the main
+            menu has none. */}
+        <SidebarResizeEdge panel={occupant.kind} workTabs={workTabs} />
       </Sidebar>
 
       <ChangelogSheet open={whatsNewOpen} onOpenChange={setWhatsNewOpen} />
@@ -832,28 +836,41 @@ function PanelLayer({
 }
 
 /**
- * The column's drag edge. The `Sidebar` container is `position: fixed`, so
- * this absolutely placed strip measures from the column's right edge: it
- * starts 1px past it and spans `handleWidth` of the card's 10px gutter
- * (`app-shell.ts`), touching neither the sidebar's scrollbars nor the card.
- * Never on a phone: there `Sidebar` is the (retired) Sheet, and phones keep
- * no sidebar widths at all.
+ * The column's drag edge — EXP-1163: the content card's LEFT EDGE, not a
+ * line in the gutter. The `Sidebar` container is `position: fixed` and
+ * full-height, so this absolutely placed strip measures from the column's
+ * right edge: it is centred on the card's 1px border (`gutter` + ½px out)
+ * and spans only the card's height (`mainPanelEdge`, under the work-tabs band
+ * when it shows), its hairline clear of the card's rounded corners. Never on
+ * a phone: there `Sidebar` is the (retired) Sheet, and phones keep no sidebar
+ * widths at all.
  */
-function SidebarResizeEdge({ panel }: { panel: SidebarPanelKey }) {
+function SidebarResizeEdge({
+  panel,
+  workTabs,
+}: {
+  panel: SidebarPanelKey
+  workTabs: boolean
+}) {
   const { isMobile } = useSidebar()
   const width = useSidebarWidth(panel)
   const { min, max } = useSidebarWidthBounds(panel)
   // The main menu stays as it is: only a panel beside the rail drags.
   if (isMobile || !sidebarResizable(panel)) return null
+  const card = mainPanelEdge({ tabs: workTabs })
   return (
     <ResizeHandle
       aria-label="Resize sidebar"
       className="z-20"
-      // PX, like the gutter it sits in (the card's insets are px literals).
+      // PX, like the card's insets: the strip's centre is the centre of the
+      // card's border pixel, `gutter + ½` past the column.
       style={{
-        right: -(SIDEBAR_HANDLE_WIDTH + 1),
+        right: -(card.gutter + 0.5 + SIDEBAR_HANDLE_WIDTH / 2),
         width: SIDEBAR_HANDLE_WIDTH,
+        top: card.top,
+        bottom: card.bottom,
       }}
+      inset={card.radius}
       value={width}
       min={min}
       max={max}

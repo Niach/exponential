@@ -5,6 +5,7 @@ import {
   MAIN_OUTLET_CLASS,
   MAIN_PANEL_CLASS,
   mainPanelClass,
+  mainPanelEdge,
   WORK_TABS_BAND_CLASS,
 } from "@/components/team/app-shell"
 
@@ -118,6 +119,28 @@ describe(`mainPanelClass`, () => {
     expect(tokens(WORK_TABS_BAND_CLASS)).toContain(`hidden`)
     expect(tokens(WORK_TABS_BAND_CLASS)).toContain(`md:flex`)
     expect(WORK_TABS_BAND_CLASS).toContain(`md:px-[10px]`)
+  })
+})
+
+// EXP-1163: the sidebar's resize handle hugs the card's left edge from these
+// numbers, so they must say what the card's own px literals say.
+describe(`mainPanelEdge`, () => {
+  it(`matches the card's insets, the tabs band and its corner`, () => {
+    for (const tabs of [true, false]) {
+      const edge = mainPanelEdge({ tabs })
+      const value = mainPanelClass({ tabs })
+      expect(value).toContain(`md:mx-[${edge.gutter}px]`)
+      expect(value).toContain(`md:mb-[${edge.bottom}px]`)
+      expect(value).toContain(`md:rounded-xl`)
+      if (tabs) {
+        expect(value).toContain(`md:mt-0`)
+        expect(WORK_TABS_BAND_CLASS).toContain(`md:h-[${edge.top}px]`)
+      } else {
+        expect(value).toContain(`md:mt-[${edge.top}px]`)
+      }
+    }
+    // `rounded-xl` = `--radius` (12px) + 4px in @exp/ui's styles.css.
+    expect(mainPanelEdge({ tabs: false }).radius).toBe(16)
   })
 })
 

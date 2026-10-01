@@ -162,23 +162,40 @@ struct AgentSessionView: View {
         stackPositionNote(model)
         // EXP-773: an ended run's close-out sits ABOVE its transcript.
         endedHeader(model)
+        // EXP-1161: the band FLOATS over the feed instead of stacking under
+        // it — the transcript scrolls beneath the composer (no hard cut at
+        // the band's top edge), the feed's scroll view takes the band's
+        // height as its bottom inset so the follow pin and "Jump to bottom"
+        // land on the true end, and the inset still rides the keyboard. The
+        // Issue face's floating bar is the same recipe.
         feedArea(model)
-        banners(model)
-        rateLimitBanner(model)
-        compactionStrip(model)
-        // EXP-850 §1/§2: the monitors and background shell commands,
-        // directly above the composer. Absent when there is nothing running.
-        // EXP-927 §2c: the agent's own task list is the strip's first block.
-        AgentBottomStrip(lines: model.visibleStripLines, taskList: model.visibleTaskList)
-        // EXP-861: the messages the device holds until the turn ends, each
-        // with an X that revokes it. Absent when nothing is queued or the run
-        // is over.
-        if !model.queued.isEmpty, !model.isOver {
-            AgentQueueStrip(messages: model.queued) { id in
-                model.unqueue(id)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                bottomBand(model)
             }
+    }
+
+    /// Everything that sits on the feed's bottom edge: the standing banners,
+    /// the strips and the composer bar. Each row floats over the scrolling
+    /// transcript, so each carries an opaque surface of its own.
+    private func bottomBand(_ model: AgentSessionModel) -> some View {
+        VStack(spacing: 0) {
+            banners(model)
+            rateLimitBanner(model)
+            compactionStrip(model)
+            // EXP-850 §1/§2: the monitors and background shell commands,
+            // directly above the composer. Absent when there is nothing running.
+            // EXP-927 §2c: the agent's own task list is the strip's first block.
+            AgentBottomStrip(lines: model.visibleStripLines, taskList: model.visibleTaskList)
+            // EXP-861: the messages the device holds until the turn ends, each
+            // with an X that revokes it. Absent when nothing is queued or the run
+            // is over.
+            if !model.queued.isEmpty, !model.isOver {
+                AgentQueueStrip(messages: model.queued) { id in
+                    model.unqueue(id)
+                }
+            }
+            bottomBar(model)
         }
-        bottomBar(model)
     }
 
     /// The confirms: Kill, Merge, and a `/`-command's own.
@@ -1346,7 +1363,7 @@ struct AgentSessionView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .glassRow()
+            .glassRow(isOpaque: true)
             // The transcript's reading column (EXP-927 §2c), like the strips.
             .transcriptColumn()
             .accessibilityElement(children: .ignore)
@@ -1406,7 +1423,7 @@ struct AgentSessionView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .glassRow()
+            .glassRow(isOpaque: true)
             // The transcript's reading column (EXP-927 §2c), like the strips.
             .transcriptColumn()
             .accessibilityElement(children: .ignore)
@@ -1422,9 +1439,12 @@ struct AgentSessionView: View {
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        // The same reading column as the transcript above it; the column's
-        // gutter is the inset this row always had.
+        // EXP-1161: the band floats over the feed, so the banner wears the
+        // strips' opaque row instead of sitting bare on the transcript.
+        .glassRow(isOpaque: true)
+        // The same reading column as the transcript above it.
         .transcriptColumn()
     }
 
