@@ -742,36 +742,36 @@
         "file": "shots/machine-settings/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 29416,
-        "sha256": "bb147d22945ec141c189c34e586db09f4a9d5ca287c816177d1cf50758b69417"
+        "bytes": 25594,
+        "sha256": "9e4407ac2c06107128801dc670bf3d9495752bf5af7fec2c0848981142e8a00d"
       },
       "desktop": {
         "file": "shots/machine-settings/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 41866,
-        "sha256": "29125974cfb57fdcb8e99ba7d0cf4d59c0e3f362f1f1333d3fd22927699a4ac3"
+        "bytes": 40708,
+        "sha256": "636ce060cf1f1a625ab0a98316171e88337898237db4550e5f292599883c7224"
       },
       "ios": {
         "file": "shots/machine-settings/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 30960,
-        "sha256": "1a68082ae39d7a4ace7131c9b0de2b38a2d4b428d62b3e7ad2a56508822d6210"
+        "bytes": 27588,
+        "sha256": "3973ff89a14e54ed1ce6c474e9de7faddc91e30ed3d942a917d2d9f9c4d85287"
       },
       "web": {
         "file": "shots/machine-settings/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 25630,
-        "sha256": "bb40ff8f5fafe07fe38c02a85e4c9c647d87ac73411d11cbcbdc48204892d5e6"
+        "bytes": 23846,
+        "sha256": "130046ace860c369e903928fc19b924110762b416afa59095526b7f0215fb569"
       },
       "web-mobile": {
         "file": "shots/machine-settings/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 33614,
-        "sha256": "4968014a212ca6add2312685784b8a5d2d70e18ed4bbee0f28c4c537f99663be"
+        "bytes": 32668,
+        "sha256": "64771964a33e40109e2161cfedd17db9b709a6ea5f895448ca33e3eaa0015281"
       }
     },
     "my-issues": {
@@ -1135,8 +1135,8 @@
         "file": "shots/settings-agents/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 36624,
-        "sha256": "b15c4d17ab464323c8f765c77144ecf26605ca789404d693c84695958dac51ff"
+        "bytes": 35260,
+        "sha256": "08f614564a372e0294b2d6a4376729abc400b79123e7686c6a0eeaa6ebaa0194"
       }
     },
     "settings-api-keys": {
