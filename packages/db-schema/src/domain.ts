@@ -1115,8 +1115,8 @@ export interface WorkflowLaunchStored {
  *  on the synced devices row, `workflowModel` / `workflowStrongModel` in the
  *  desktop's settings.json. What a new workflow's launch is seeded from
  *  (EXP-1014 reads it at creation; EXP-1020 owns the "Workflow settings"
- *  sub-shell that edits it). Model names belong to the default account's
- *  agent vocabulary. */
+ *  sub-shell that edits it). Model names belong to the last used
+ *  agent's vocabulary. */
 export interface DeviceWorkflowDefaults {
   model: string
   strongModel: string
@@ -1124,12 +1124,10 @@ export interface DeviceWorkflowDefaults {
 
 /** EXP-1029: a device's agent defaults as ONE flattened view — the shape the
  *  settings UI edits (EXP-1020) and the workflow creator reads (EXP-1014).
- *  `account` is a profile id (null = the default agent's active login) and
- *  IMPLIES the agent; `model` / `subagentModel` are that agent's launch
- *  defaults; `workflow` seeds new workflows. Stored across
- *  `DeviceLaunchDefaults.defaultAccount`, `.agents[agent]` and `.workflow`. */
+ *  `model` / `subagentModel` are the last used agent's launch defaults;
+ *  `workflow` seeds new workflows. Stored across
+ *  `DeviceLaunchDefaults.agents[agent]` and `.workflow`. */
 export interface DeviceAgentDefaults {
-  account: string | null
   model: string
   subagentModel: string
   workflow: DeviceWorkflowDefaults
@@ -1143,7 +1141,6 @@ export interface DeviceAgentDefaults {
  *  two; that would change what every fresh device runs, so the contract
  *  names reality and the human review may overrule it here. */
 export const DEVICE_AGENT_DEFAULTS: DeviceAgentDefaults = {
-  account: null,
   model: `fable`,
   subagentModel: ``,
   workflow: { model: `opus`, strongModel: `fable` },

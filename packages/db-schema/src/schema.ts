@@ -1224,13 +1224,11 @@ export interface DeviceAgentLaunchDefaults {
   autoRotateAccounts?: boolean
 }
 export interface DeviceLaunchDefaults {
+  /** EXP-1158: the LAST USED agent, written by the DEVICE when a person
+   * starts a run on it (clients never send it; a save without it keeps the
+   * stored one). The last used ACCOUNT is that agent's `active` profile in
+   * `agent_accounts`. */
   defaultAgent?: string
-  /** EXP-872: the DEFAULT ACCOUNT — a profile id of `defaultAgent`'s logins
-   * (`agent_profiles`). "Default agent" became "default account" on every
-   * client: the setting stores the profile and the agent is derived from it;
-   * `defaultAgent` stays written beside it for older devices. Absent = the
-   * agent's active login. */
-  defaultAccount?: string
   agents?: Record<string, DeviceAgentLaunchDefaults>
   /** EXP-1029: the workflow model defaults new workflows are seeded from
    * (`DeviceWorkflowDefaults`). Absent on a device that predates them:
@@ -1247,7 +1245,6 @@ export interface DeviceLaunchDefaults {
 // register.
 export const deviceLaunchDefaultsSchema = z.object({
   defaultAgent: z.string().min(1).max(32).nullish(),
-  defaultAccount: z.string().min(1).max(64).nullish(),
   agents: z
     .record(
       z.string().min(1).max(32),
@@ -1619,11 +1616,6 @@ export const deviceWorktrees = pgTable(
 // pending login) |
 // `agent_usage_refresh` (EXP-747 C4, payload {agent, profileId} — force a
 // usage collection past the shared TTL, never past the rate-limit floor) |
-// `agent_profile_use` (EXP-849, payload {agent, profileId} — make an
-// already-signed-in profile the agent's ACTIVE login on that machine:
-// NON-DESTRUCTIVE, no logout, no login, no credential touched, the device
-// just re-heartbeats `agent_accounts`; gated on the `agent-login` cap like a
-// remote sign-in) |
 // `agent_profile_remove` (EXP-862, payload {agent, profileId} — delete THIS
 // machine's copy of a login: the profile dir and its index row, never the
 // account; EXP-1137: `system` = sign the ambient login out there and hide
@@ -2408,7 +2400,7 @@ export const actions = pgTable(
 // automations targeting it in the same transaction. Agent/model/effort NULL = the device's launch defaults.
 // EXP-995: `account` = the agent PROFILE id on the bound device the run
 // spends (`agent_profiles`, like `coding_sessions.agent_account`); it belongs
-// to the pinned `agent` and NULL = that machine's default login. Every editor
+// to the pinned `agent` and NULL = that machine's LAST USED login (EXP-1158). Every editor
 // picks an ACCOUNT (brand mark + email) and the agent rides the pick.
 export const automations = pgTable(
   `automations`,
