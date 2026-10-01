@@ -491,9 +491,14 @@ pub(crate) fn switch_to(
         return;
     }
     let target = Some(window.window_handle());
+    // EXP-1158: a person's local switch moves this machine's last used login
+    // (a remote one is stamped by the launcher; a rotation hop never comes
+    // through here).
+    let data_dir = crate::coding_flow::coding_data_dir(cx);
+    let agent = coding::run_registry::get(&data_dir, &session_id).map(|record| record.agent);
     if !end_then_resume_on_account(
         session_id,
-        profile_id,
+        profile_id.clone(),
         target,
         coding::LaunchOrigin::Local,
         None,
@@ -501,6 +506,11 @@ pub(crate) fn switch_to(
         cx,
     ) {
         crate::toast::error(REASON_BUSY, window, cx);
+        return;
+    }
+    if let Some(agent) = agent {
+        coding::record_last_used(&data_dir, agent, Some(&profile_id));
+        crate::device_sync::beat_soon(cx);
     }
 }
 

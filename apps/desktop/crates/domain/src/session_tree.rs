@@ -1100,14 +1100,6 @@ pub struct MarkSession {
     pub workflow_id: Option<String>,
 }
 
-/// `devices.launch_defaults`, the two keys the caption reads.
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize)]
-#[serde(rename_all = "camelCase", default)]
-pub struct MarkLaunchDefaults {
-    pub default_agent: Option<String>,
-    pub default_account: Option<String>,
-}
-
 /// One `devices.agent_accounts[agent].profiles[]` row.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -1130,22 +1122,13 @@ pub struct MarkAgentAccount {
 pub struct MarkDevice {
     pub device_id: Option<String>,
     pub user_id: Option<String>,
-    pub launch_defaults: Option<MarkLaunchDefaults>,
     pub agent_accounts: Option<HashMap<String, MarkAgentAccount>>,
 }
 
-/// The account a device runs `agent` on by default: the stored
-/// `defaultAccount` when `agent` is the `defaultAgent`, else that agent's
-/// ACTIVE profile, else `system`. `None` without a device or an agent.
-pub fn device_default_account(device: Option<&MarkDevice>, agent: Option<&str>) -> Option<String> {
+/// EXP-1158: the login a device last used for `agent` — that agent's ACTIVE
+/// profile, else `system`. `None` without a device or an agent.
+pub fn device_last_used_account(device: Option<&MarkDevice>, agent: Option<&str>) -> Option<String> {
     let (device, agent) = (device?, agent?);
-    if let Some(defaults) = device.launch_defaults.as_ref() {
-        if defaults.default_agent.as_deref() == Some(agent) {
-            if let Some(account) = defaults.default_account.as_deref().filter(|a| !a.is_empty()) {
-                return Some(account.to_string());
-            }
-        }
-    }
     let active = device
         .agent_accounts
         .as_ref()
@@ -1155,9 +1138,9 @@ pub fn device_default_account(device: Option<&MarkDevice>, agent: Option<&str>) 
     Some(active.unwrap_or_else(|| "system".to_string()))
 }
 
-/// `account <label>` when a WORKFLOW run does not run on its device's default
-/// account for its agent. `None` outside a workflow, without an
-/// `agentAccount`, for an unsynced device or a run on the default. Label =
+/// `account <label>` when a WORKFLOW run does not run on its device's last
+/// used login for its agent. `None` outside a workflow, without an
+/// `agentAccount`, for an unsynced device or a run on the last used login. Label =
 /// the profile's `label`, else `Default` for `system`, else the raw id.
 pub fn workflow_run_account_caption(session: &MarkSession, devices: &[MarkDevice]) -> Option<String> {
     session.workflow_id.as_deref().filter(|id| !id.is_empty())?;
@@ -1171,7 +1154,7 @@ pub fn workflow_run_account_caption(session: &MarkSession, devices: &[MarkDevice
         .find(|device| device.user_id == session.user_id)
         .or_else(|| matches.first())
         .copied();
-    let fallback = device_default_account(device, session.agent.as_deref())?;
+    let fallback = device_last_used_account(device, session.agent.as_deref())?;
     if fallback == account {
         return None;
     }

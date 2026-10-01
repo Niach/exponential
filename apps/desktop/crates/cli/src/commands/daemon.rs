@@ -440,6 +440,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // downloads in flight on their own threads. Shared with the loop so a
     // daemon self-update never re-execs while `claude update` is mid-download.
     let logins_inflight: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
+    let check_in = Arc::new(AtomicBool::new(false));
     let device_worker = spawn_device_worker(
         Arc::clone(&ctx),
         Arc::clone(&sessions),
@@ -448,8 +449,8 @@ fn run_daemon(args: &[String]) -> CommandResult {
         Arc::clone(&doctor_soon),
         Arc::clone(&update_now),
         Arc::clone(&logins_inflight),
+        Arc::clone(&check_in),
     );
-    let check_in = Arc::new(AtomicBool::new(false));
     // EXP-530: the automation host — this daemon's own Electric pipeline (a
     // 6-shape subset in `sync-cli.sqlite`, never the GUI's store), ONE delta
     // drain nudging the serialized worker, plus the 30s self-tick below.
@@ -728,10 +729,23 @@ fn run_daemon(args: &[String]) -> CommandResult {
         rotation.tick(&doctor);
         let live_now = lock_sessions(&sessions).len();
         let session_change = reported_sessions != Some(live_now);
+        if session_change {
+            // EXP-1158: a person's start just moved this machine's last used
+            // login (the launcher's stamp) — the beat for the change waits
+            // for a FRESH collection, which nudges it (`then_beat`), so the
+            // row carries the moved `active` flag instead of the old one.
+            reported_sessions = Some(live_now);
+            device_worker
+                .send(DeviceWork::CollectAgentStatus {
+                    report: Box::new(doctor.clone()),
+                    then_beat: true,
+                })
+                .ok();
+        }
         // EXP-481: a relay check_in nudge means "the server persisted new
         // work" — beat NOW instead of on the cadence (the beat is the pull).
         let nudged = check_in.swap(false, Ordering::SeqCst);
-        if last_heartbeat.elapsed() >= HEARTBEAT_INTERVAL || session_change || nudged {
+        if last_heartbeat.elapsed() >= HEARTBEAT_INTERVAL || nudged {
             last_heartbeat = Instant::now();
             // Optimistic: a failed beat just waits for the next scheduled
             // tick instead of retrying at 1Hz while the network is down.
@@ -846,6 +860,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
             device_worker
                 .send(DeviceWork::CollectAgentStatus {
                     report: Box::new(doctor.clone()),
+                    then_beat: false,
                 })
                 .ok();
         }
@@ -1651,12 +1666,10 @@ fn act_on_rotation(
             );
             // The server inherits started_reason, the parent and the
             // workflow membership from the predecessor (EXP-1082 §1).
-            let origin = coding::LaunchOrigin::Relay {
-                device_id: device_id.to_string(),
-                claimant: ctx.account.id.clone(),
-                started_by: None,
-                started_reason: None,
-            };
+            // EXP-1158: a LOCAL origin, like the desktop host's — a person's
+            // relay switch moves the device's last used login, a rotation hop
+            // never does (`coding::prepare`).
+            let origin = coding::LaunchOrigin::Local;
             // REV-9: the resume claim a relay resume frame takes. Held by a
             // frame in flight = that resume is already moving the run.
             let _reservation = match reservations.claim(vec![format!("resume:{}", run.session_id)]) {
@@ -2472,10 +2485,15 @@ enum DeviceWork {
     /// an HTTP fetch, a codex app-server spawn — up to ~10s) and the daemon
     /// loop must stay at 1Hz. `report` is the loop's last doctor pass: the
     /// collector reads it for which binaries exist and who is signed in
-    /// (boxed — it dwarfs every other variant).
-    CollectAgentStatus { report: Box<coding::DoctorReport> },
+    /// (boxed — it dwarfs every other variant). EXP-1158: `then_beat` raises
+    /// the loop's check-in once the collection landed (a session change).
+    CollectAgentStatus {
+        report: Box<coding::DoctorReport>,
+        then_beat: bool,
+    },
 }
 
+#[allow(clippy::too_many_arguments)]
 fn spawn_device_worker(
     ctx: Arc<Ctx>,
     sessions: Sessions,
@@ -2489,6 +2507,9 @@ fn spawn_device_worker(
     // `agent_update` (minutes of download) claims the same set, and the
     // loop's self-update restart holds while it is non-empty.
     logins_inflight: Arc<Mutex<HashSet<String>>>,
+    // EXP-1158: the loop's beat-now flag, raised after a `then_beat`
+    // collection.
+    check_in: Arc<AtomicBool>,
 ) -> flume::Sender<DeviceWork> {
     let (tx, rx) = flume::unbounded::<DeviceWork>();
     std::thread::spawn(move || {
@@ -2537,7 +2558,7 @@ fn spawn_device_worker(
                 DeviceWork::ReportWorktrees => {
                     report_worktrees(&ctx, &sessions, &device_id, &mut last_inventory_fp);
                 }
-                DeviceWork::CollectAgentStatus { report } => {
+                DeviceWork::CollectAgentStatus { report, then_beat } => {
                     let settings =
                         coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir));
                     let payload = coding::collect_if_due(
@@ -2548,6 +2569,9 @@ fn spawn_device_worker(
                     );
                     if let Ok(mut slot) = agent_status.lock() {
                         *slot = Some(payload);
+                    }
+                    if then_beat {
+                        check_in.store(true, Ordering::SeqCst);
                     }
                 }
             }
@@ -2754,39 +2778,6 @@ fn run_device_command(
                                     .unwrap_or_else(|| until.to_string())
                             ),
                         ),
-                    }
-                }
-            }
-        }
-        // EXP-849 — "use this account here": point this machine's default
-        // login for `agent` at `profileId`, over the ONE shared body the
-        // desktop's handler and its local control also run
-        // ([`coding::use_profile`]). Non-destructive (a device-local pointer;
-        // no credential is read, written or revoked) and NOT a sign-in —
-        // `agent_login` stays that command. It answers by re-reporting, so
-        // every client's check moves on this beat.
-        "agent_profile_use" => {
-            let agent = command.payload["agent"].as_str().unwrap_or_default();
-            let profile = command.payload["profileId"].as_str().unwrap_or("system");
-            match coding::CodingAgent::parse(agent) {
-                None => (false, "Malformed command payload.".to_string()),
-                Some(agent) => {
-                    let report = coding::run_doctor(&settings, &ctx.data_dir);
-                    match coding::use_profile(
-                        &ctx.data_dir,
-                        &settings,
-                        &report,
-                        agent,
-                        profile,
-                        coding::run_registry::now_secs(),
-                    ) {
-                        Ok(payload) => {
-                            if let Ok(mut slot) = slots.agent_status.lock() {
-                                *slot = Some(payload);
-                            }
-                            (true, format!("{} now runs as this account here.", agent.id()))
-                        }
-                        Err(error) => (false, error),
                     }
                 }
             }

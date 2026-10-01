@@ -197,7 +197,7 @@ pub struct AgentProfileEntry {
     pub email: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plan: Option<String>,
-    /// The device's default account for this agent (exactly one is).
+    /// The device's last used login for this agent (exactly one is).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub active: bool,
     pub checked_at: String,

@@ -169,12 +169,7 @@ pub(crate) fn machine_account_options(
     settings: &coding::Settings,
     available: &[CodingAgent],
 ) -> Vec<coding::AccountOption> {
-    let mut options = coding::flatten_accounts(
-        accounts,
-        usage,
-        Some(settings.default_agent.id()),
-        settings.default_account.as_deref(),
-    );
+    let mut options = coding::flatten_accounts(accounts, usage, Some(settings.default_agent.id()));
     options.retain(|option| available.contains(&option.agent));
     if !options.is_empty() {
         return options;
@@ -185,56 +180,15 @@ pub(crate) fn machine_account_options(
             id: coding::SYSTEM_PROFILE.to_string(),
             agent: *agent,
             email: agent.label().to_string(),
-            is_device_default: *agent == settings.default_agent,
+            is_last_used: *agent == settings.default_agent,
             health: coding::Health::Unknown,
             limits: None,
         })
         .collect()
 }
 
-/// EXP-1020: the account options the DEVICE SETTINGS offer — the machine's
-/// reported logins PLUS one ambient `system` row per editable agent that
-/// reports none.
-///
-/// Not the same question [`machine_account_options`] answers. Starting a run
-/// needs an agent that can actually run on that machine, so the composer and
-/// the automation editor keep the strict list. This row asks "which agent is
-/// this machine's DEFAULT", and a machine signed into claude alone must
-/// still be pointable at codex — with the all-or-nothing fallback it offered
-/// exactly one row, which [`crate::coding_selects::account_picker`] renders
-/// as a plain label (one option is not a choice), so the default could not
-/// be changed at all. That is the complaint EXP-1020 opens with.
-///
-/// Siblings: web `lib/devices/account-options.ts`, iOS
-/// `DeviceSettingsSheet.accountOptions`, Android `deviceAccountOptions`.
-pub(crate) fn device_account_options(
-    accounts: &coding::agent_accounts::AgentAccounts,
-    usage: &coding::agent_usage::AgentUsageMap,
-    settings: &coding::Settings,
-    editable: &[CodingAgent],
-) -> Vec<coding::AccountOption> {
-    let mut options = machine_account_options(accounts, usage, settings, editable);
-    let covered: Vec<CodingAgent> = options.iter().map(|option| option.agent).collect();
-    for agent in editable {
-        if covered.contains(agent) {
-            continue;
-        }
-        options.push(coding::AccountOption {
-            id: coding::SYSTEM_PROFILE.to_string(),
-            agent: *agent,
-            email: agent.label().to_string(),
-            // The reported logins carry the device default among them; an
-            // agent that reports nothing never is one.
-            is_device_default: false,
-            health: coding::Health::Unknown,
-            limits: None,
-        });
-    }
-    options
-}
-
-/// The picker key for an (agent, account) pair — the ambient login carries
-/// `None` on the wire, so it reads back as the `system` profile.
+/// The picker key for an (agent, account) pair — an unnamed account (`None`)
+/// reads back as the `system` profile.
 pub(crate) fn account_key(agent: CodingAgent, account: Option<&str>) -> String {
     format!("{}:{}", agent.id(), account.unwrap_or(coding::SYSTEM_PROFILE))
 }
@@ -938,12 +892,13 @@ pub(crate) struct LaunchOptionsSection {
     /// undo the person's ticks under their cursor.
     mcp_seeded: bool,
     /// EXP-747 B7: the agent account PROFILE the run signs in as on the
-    /// target machine; `None` = its ambient login.
+    /// target machine (`system` = its ambient login); `None` = unnamed, the
+    /// machine's last used login (EXP-1158).
     account: Option<String>,
 }
 
 impl LaunchOptionsSection {
-    /// Seed from this install's DEFAULT ACCOUNT (EXP-872) — which names the
+    /// Seed from this install's LAST USED login (EXP-1158) — which names the
     /// agent too — and that agent's settings defaults.
     pub(crate) fn new(window: &mut Window, cx: &mut App) -> Self {
         let settings = crate::coding_flow::CodingHub::global(cx).read(cx).settings.clone();
@@ -970,13 +925,8 @@ impl LaunchOptionsSection {
             mcp_servers: Vec::new(),
             mcp_selected: Vec::new(),
             mcp_seeded: false,
-            // EXP-872: this install's stored default ACCOUNT (the ambient
-            // login rides as `None`); a device settle re-resolves it against
-            // whatever the target machine actually reports.
-            account: settings
-                .default_account
-                .clone()
-                .filter(|id| id != coding::SYSTEM_PROFILE),
+            // Settled just below against what the machine reports.
+            account: None,
         };
         // …then settle it against what this machine actually reports, so the
         // pin can never SHOW one login while the launch spends another.
@@ -1016,7 +966,7 @@ impl LaunchOptionsSection {
 
     /// EXP-872: every signed-in login the TARGET machine reports, ACROSS
     /// agents — its own for a remote run, this install's for a local one.
-    /// The device default leads ([`machine_account_options`]).
+    /// The last used login leads ([`machine_account_options`]).
     pub(crate) fn account_options(&self, cx: &mut App) -> Vec<coding::AccountOption> {
         let available = self.pickable(cx);
         let settings = self.seed_settings(cx);
@@ -1056,12 +1006,13 @@ impl LaunchOptionsSection {
         self.account = option.wire_account();
     }
 
-    /// EXP-872: seed the pick from the machine's DEFAULT account (which also
+    /// EXP-1158: seed the pick from the machine's LAST USED login (which also
     /// decides the agent). Falls back to the settle rule when the machine
-    /// offers nothing at all.
+    /// offers nothing at all. Only a fresh composer and a device switch
+    /// settle — an in-progress pick is never yanked.
     fn settle_account(&mut self, window: &mut Window, cx: &mut App) {
         let options = self.account_options(cx);
-        match coding::default_account_option(&options).cloned() {
+        match coding::last_used_account_option(&options).cloned() {
             Some(option) => {
                 self.agent = option.agent;
                 self.account = option.wire_account();
@@ -1115,7 +1066,7 @@ impl LaunchOptionsSection {
     ) {
         self.remote = remote;
         // EXP-872: profiles are per MACHINE, so the pick cannot carry over —
-        // the new machine's DEFAULT ACCOUNT settles both the agent and the
+        // the new machine's LAST USED login settles both the agent and the
         // login, and the model/effort seeds follow it.
         self.settle_account(window, cx);
     }
@@ -1676,7 +1627,7 @@ mod tests {
     }
 
     /// EXP-872: the machine's logins flatten into ONE list across agents,
-    /// the device default first, clamped to the agents it can RUN. A machine
+    /// the last used login first, clamped to the agents it can RUN. A machine
     /// that reports no login still offers one row per runnable agent, named
     /// by the agent — the picker never goes empty while there is something to
     /// launch.
@@ -1732,12 +1683,11 @@ mod tests {
                 "claude:home".to_string(),
             ]
         );
-        assert!(options[0].is_device_default);
-        // The stored default ACCOUNT wins over the agent's active login.
+        assert!(options[0].is_last_used);
+        // The last used agent's ACTIVE login leads.
         settings.default_agent = CodingAgent::Claude;
-        settings.default_account = Some("home".into());
-        let pinned = machine_account_options(&accounts, &usage, &settings, &all);
-        assert_eq!(pinned[0].account_option_key(), "claude:home");
+        let claude_last = machine_account_options(&accounts, &usage, &settings, &all);
+        assert_eq!(claude_last[0].account_option_key(), "claude:work");
 
         // An agent the machine cannot RUN offers no login.
         let claude_only =
@@ -1755,62 +1705,14 @@ mod tests {
             bare.iter().map(|option| option.email.as_str()).collect::<Vec<_>>(),
             vec!["Claude Code", "Codex"]
         );
-        assert!(bare[0].is_device_default, "the machine's default agent leads");
+        assert!(bare[0].is_last_used, "the machine's last used agent leads");
         // Nothing runnable at all is the one empty case (the launch blocker
         // names the reason instead of a dead row).
         assert!(machine_account_options(&AgentAccounts::new(), &usage, &settings, &[]).is_empty());
 
-        // The picker key folds the ambient login back into `system`.
+        // The picker key folds an unnamed account back into `system`.
         assert_eq!(account_key(CodingAgent::Claude, None), "claude:system");
         assert_eq!(account_key(CodingAgent::Codex, Some("work")), "codex:work");
-    }
-
-    /// EXP-1020: the DEVICE SETTINGS' list adds an ambient row per agent the
-    /// machine reports no login for — the launch list does not. A machine
-    /// signed into claude alone offered ONE option there, and one option is
-    /// rendered as a plain label, so its default agent could not be changed
-    /// at all (the complaint EXP-1020 opens with).
-    #[test]
-    fn the_device_settings_offer_an_ambient_row_per_login_less_agent() {
-        use coding::agent_accounts::{AgentAccount, AgentAccounts};
-        let settings = coding::Settings::default();
-        let usage = coding::agent_usage::AgentUsageMap::new();
-        let mut accounts = AgentAccounts::new();
-        accounts.insert(
-            "claude".into(),
-            AgentAccount {
-                signed_in: true,
-                email: Some("dev@acme.test".into()),
-                ..Default::default()
-            },
-        );
-        let both = [CodingAgent::Claude, CodingAgent::Codex];
-
-        // The launch list keeps the strict rule: one login, one option.
-        let launch = machine_account_options(&accounts, &usage, &settings, &both);
-        assert_eq!(launch.len(), 1);
-        assert_eq!(launch[0].agent, CodingAgent::Claude);
-
-        // The device settings make it a CHOICE.
-        let device = device_account_options(&accounts, &usage, &settings, &both);
-        assert_eq!(device.len(), 2, "one login still offers the other agent");
-        assert_eq!(
-            device
-                .iter()
-                .map(|option| option.account_option_key())
-                .collect::<Vec<_>>(),
-            vec!["claude:system".to_string(), "codex:system".to_string()],
-        );
-        // The ambient row is never the device default — the reported logins
-        // carry that among them.
-        assert!(!device[1].is_device_default);
-
-        // An agent that DOES report a login is never duplicated.
-        let covered = device_account_options(&accounts, &usage, &settings, &[CodingAgent::Claude]);
-        assert_eq!(covered.len(), 1);
-
-        // Nothing editable at all stays the one empty case.
-        assert!(device_account_options(&AgentAccounts::new(), &usage, &settings, &[]).is_empty());
     }
 
     /// EXP-749: an agent a remote machine has installed but cannot speak ACP

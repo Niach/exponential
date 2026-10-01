@@ -18,10 +18,15 @@
 //! in again ([`crate::doctor::DoctorReport::agent_accounts_detailed`] clears
 //! it the moment the probe sees a login).
 //!
-//! The index also carries the device's per-agent DEFAULT account
-//! ([`active_profile`]) — the profile the local Start-coding dialog and the
-//! heartbeat's `active` flag key on. It lives here, device-locally, rather
-//! than on the launch-defaults wire (see the module note in `remote_admin`).
+//! The index also carries the device's per-agent LAST USED login
+//! ([`active_profile`], EXP-1158) — the login an unnamed launch runs on and
+//! the one the heartbeat flags `active`. Last used = per agent, the login a
+//! PERSON last started or switched a run on, on that device
+//! (`agent_accounts[agent].profiles[].active`); the last used agent =
+//! `launch_defaults.defaultAgent`. Automations, workflow nodes, agent-started
+//! runs and auto-rotation never move it. A launch naming no account runs on
+//! it; `account: "system"` names the ambient login. Only the launcher writes
+//! it ([`note_last_used`]), device-locally.
 
 use std::collections::BTreeMap;
 use std::io;
@@ -77,7 +82,7 @@ struct Index {
     profiles: Vec<AgentProfile>,
     /// EXP-1137: "Remove account" was asked for the ambient login. While set
     /// (and the ambient login is signed out) the heartbeat omits its row,
-    /// and the default falls to the first named profile instead of it.
+    /// and the last used login falls to the first named profile instead of it.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     ambient_hidden: bool,
 }
@@ -236,7 +241,7 @@ pub fn rename(data_dir: &Path, agent: CodingAgent, id: &str, label: &str) -> io:
 
 /// Delete a custom profile: its dir (credentials included — the CLI's own
 /// files, gone with the login) and its index row. Never `system`. Removing
-/// the active profile falls the default back to `system`.
+/// the active profile falls the last used login back to `system`.
 pub fn remove(data_dir: &Path, agent: CodingAgent, id: &str) -> io::Result<()> {
     if id == SYSTEM_PROFILE {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "the default profile cannot be removed"));
@@ -357,12 +362,12 @@ pub fn remember_emails(data_dir: &Path, accounts: &mut crate::agent_accounts::Ag
     }
 }
 
-/// The device's per-agent DEFAULT account: the profile a local start picks
-/// when nothing else is said, and the one the heartbeat flags `active`.
+/// The device's per-agent LAST USED login (EXP-1158): the profile a launch
+/// naming no account runs on, and the one the heartbeat flags `active`.
 /// `system` unless set to an existing custom profile — or, EXP-1137, the
 /// FIRST custom profile while the ambient login is hidden (a removed login
-/// must not stay the machine's default: the heartbeat would mirror a dead
-/// login into the top-level fields and no row would carry `active`).
+/// must not stay the machine's last used one: the heartbeat would mirror a
+/// dead login into the top-level fields and no row would carry `active`).
 pub fn active_profile(data_dir: &Path, agent: CodingAgent) -> String {
     let index = read_index(data_dir, agent);
     index
@@ -377,36 +382,48 @@ pub fn active_profile(data_dir: &Path, agent: CodingAgent) -> String {
         .unwrap_or_else(|| SYSTEM_PROFILE.to_string())
 }
 
-/// EXP-1138 — the account a LAUNCH of `agent` actually runs on: `account`
-/// as given, except that a launch whose effective login is the ambient one
-/// (`None`, blank, `system` or a stale id — [`account_dir`] is `None`) lands
-/// on the device default ([`active_profile`]) while the ambient login is
-/// HIDDEN (EXP-1137's "Remove account"). A removed login is never a launch
-/// target, so `None` there can only mean "no pick". Limited to hidden on
-/// purpose: otherwise `None` may be an explicit pick of the Default login.
+/// EXP-1138 / EXP-1158 — the account a FRESH LAUNCH (or an agent shell) of
+/// `agent` actually runs on. Resumes keep their recorded account and never
+/// come through here.
 ///
-/// EXP-1138: with the doctor's `check` at hand, an ambient launch whose
-/// ambient login is provably SIGNED OUT lands on the named profile the
-/// doctor found signed in ([`crate::doctor::ToolCheck::signed_in_profile`],
-/// device default first). The doctor's account gate refuses a launch ON a
-/// signed-out ambient login, and the server accepts a frame naming no
-/// account (MCP `sessions_start`, an automation with a null account): without
-/// this hop every such start died on the device with "Pick another account".
+/// * A launch naming NO account (`None`/blank) runs on the LAST USED login
+///   ([`active_profile`]). A last used named profile comes back as
+///   `Some(id)`, so it counts as named (pinned) for the start-time rotation,
+///   exactly like a composer pick.
+/// * `Some("system")` names the ambient login; a named custom profile is
+///   kept as given.
+/// * A launch whose effective login is the ambient one (`system`, a stale id
+///   — [`account_dir`] is `None` — or an unnamed launch whose last used
+///   login is the ambient one) lands on the last used named profile while
+///   the ambient login is HIDDEN (EXP-1137's "Remove account": a removed
+///   login is never a launch target), and, with the doctor's `check` at
+///   hand, on the named profile the doctor found signed in
+///   ([`crate::doctor::ToolCheck::signed_in_profile`], last used first)
+///   while the ambient login is provably SIGNED OUT — the doctor's account
+///   gate refuses a launch ON a signed-out ambient login, and without this
+///   hop every such start died on the device with "Pick another account".
+///
+/// Every ambient result is `None`: the ambient login rides as `None` past
+/// this point (the run record, the rotation's "unpinned", the resume switch
+/// detection all read it so).
 pub fn launch_account(
     data_dir: &Path,
     agent: CodingAgent,
     account: Option<String>,
     check: Option<&crate::doctor::ToolCheck>,
 ) -> Option<String> {
+    let named = account
+        .map(|account| account.trim().to_string())
+        .filter(|account| !account.is_empty());
+    let account = named.or_else(|| Some(active_profile(data_dir, agent)));
     if account_dir(data_dir, Some(agent), account.as_deref()).is_some() {
         return account;
     }
     if ambient_hidden(data_dir, agent) {
         let active = active_profile(data_dir, agent);
-        if active == SYSTEM_PROFILE {
-            return account;
+        if active != SYSTEM_PROFILE {
+            return Some(active);
         }
-        return Some(active);
     }
     if let Some(check) = check {
         if check.ambient_signed_out() {
@@ -415,7 +432,7 @@ pub fn launch_account(
             }
         }
     }
-    account
+    None
 }
 
 /// EXP-1137: whether "Remove account" hid the ambient login of `agent`.
@@ -440,16 +457,26 @@ pub fn set_ambient_hidden(data_dir: &Path, agent: CodingAgent, hidden: bool) -> 
     write_index(data_dir, agent, &index)
 }
 
-/// Set the per-agent default account (`system` clears it).
-pub fn set_active_profile(data_dir: &Path, agent: CodingAgent, id: &str) -> io::Result<()> {
+/// EXP-1158 — record `profile` as `agent`'s LAST USED login (`system`
+/// clears the pointer back to the ambient login). Called ONLY where a PERSON
+/// started or switched a run (`launcher::prepare`'s stamp, the desktop's
+/// mid-run switch): automations, workflow nodes, agent-started runs and
+/// auto-rotation never move it. Writes only on a change; an unknown profile
+/// is refused.
+pub fn note_last_used(data_dir: &Path, agent: CodingAgent, profile: &str) -> io::Result<()> {
+    let profile = profile.trim();
     let mut index = read_index(data_dir, agent);
-    if id == SYSTEM_PROFILE {
-        index.active = None;
-    } else if index.profiles.iter().any(|profile| profile.id == id) {
-        index.active = Some(id.to_string());
+    let next = if profile.is_empty() || profile == SYSTEM_PROFILE {
+        None
+    } else if index.profiles.iter().any(|row| row.id == profile) {
+        Some(profile.to_string())
     } else {
         return Err(io::Error::new(io::ErrorKind::NotFound, "no such profile"));
+    };
+    if index.active == next {
+        return Ok(());
     }
+    index.active = next;
     write_index(data_dir, agent, &index)
 }
 
@@ -549,9 +576,9 @@ mod tests {
     fn active_profile_defaults_to_system_and_follows_removal() {
         let dir = temp_dir("active");
         assert_eq!(active_profile(&dir, CodingAgent::Codex), SYSTEM_PROFILE);
-        assert!(set_active_profile(&dir, CodingAgent::Codex, "deadbeef").is_err());
+        assert!(note_last_used(&dir, CodingAgent::Codex, "deadbeef").is_err());
         let work = create(&dir, CodingAgent::Codex, "Work").unwrap();
-        set_active_profile(&dir, CodingAgent::Codex, &work.id).unwrap();
+        note_last_used(&dir, CodingAgent::Codex, &work.id).unwrap();
         assert_eq!(active_profile(&dir, CodingAgent::Codex), work.id);
         assert_eq!(
             config_env(&dir, CodingAgent::Codex, Some(&work.id)).unwrap().0,
@@ -563,31 +590,31 @@ mod tests {
         assert_eq!(get(&dir, CodingAgent::Codex, &work.id).unwrap().label, "Client");
         remove(&dir, CodingAgent::Codex, &work.id).unwrap();
         assert_eq!(active_profile(&dir, CodingAgent::Codex), SYSTEM_PROFILE);
-        set_active_profile(&dir, CodingAgent::Codex, SYSTEM_PROFILE).unwrap();
+        note_last_used(&dir, CodingAgent::Codex, SYSTEM_PROFILE).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // EXP-1137: a hidden ambient login is never the machine's default while
+    // EXP-1137: a hidden ambient login is never the machine's last used login while
     // a named profile exists — and the flag survives the index round trip
     // without changing the file of a machine that never set it.
     #[test]
-    fn a_hidden_ambient_never_becomes_the_default() {
+    fn a_hidden_ambient_never_becomes_the_last_used_login() {
         let dir = temp_dir("hidden");
         assert!(!ambient_hidden(&dir, CodingAgent::Codex));
         // Hiding on a machine with only the ambient login: the flag holds,
-        // the default stays `system` (there is nothing else to fall to).
+        // the last used login stays `system` (there is nothing else to fall to).
         set_ambient_hidden(&dir, CodingAgent::Codex, true).unwrap();
         assert!(ambient_hidden(&dir, CodingAgent::Codex));
         assert_eq!(active_profile(&dir, CodingAgent::Codex), SYSTEM_PROFILE);
         let raw = std::fs::read_to_string(index_path(&dir, CodingAgent::Codex)).unwrap();
         assert!(raw.contains("\"ambientHidden\": true"), "{raw}");
 
-        // With named profiles the FIRST one is the default while hidden —
+        // With named profiles the FIRST one is the last used while hidden —
         // whether nothing was ever set or the set one was removed.
         let work = create(&dir, CodingAgent::Codex, "Work").unwrap();
         let home = create(&dir, CodingAgent::Codex, "Home").unwrap();
         assert_eq!(active_profile(&dir, CodingAgent::Codex), work.id);
-        set_active_profile(&dir, CodingAgent::Codex, &home.id).unwrap();
+        note_last_used(&dir, CodingAgent::Codex, &home.id).unwrap();
         assert_eq!(active_profile(&dir, CodingAgent::Codex), home.id);
         remove(&dir, CodingAgent::Codex, &home.id).unwrap();
         assert_eq!(active_profile(&dir, CodingAgent::Codex), work.id);
@@ -670,12 +697,38 @@ mod tests {
         assert_eq!(after["claude"].profiles[0].email.as_deref(), Some("dev@acme.test"));
     }
 
-    /// EXP-1138: a launch bound for the ambient login lands on the device
-    /// default while that login is HIDDEN — and only then: an explicit named
-    /// pick is kept, and a visible ambient login may be an explicit pick of
-    /// the Default.
+    /// EXP-1158: a launch naming no account runs on the last used login; a
+    /// launch naming `system` runs on the ambient login even while a named
+    /// profile is the last used one; a named pick is kept. Every ambient
+    /// result rides as `None`.
     #[test]
-    fn an_ambient_launch_lands_on_the_default_while_the_ambient_login_is_hidden() {
+    fn an_unnamed_launch_runs_on_the_last_used_login_and_system_names_the_ambient_one() {
+        let dir = temp_dir("last-used");
+        let agent = CodingAgent::Claude;
+        let work = create(&dir, agent, "Work").unwrap();
+        let home = create(&dir, agent, "Home").unwrap();
+        // Nothing used yet: the ambient login.
+        assert_eq!(launch_account(&dir, agent, None, None), None);
+        assert_eq!(launch_account(&dir, agent, Some("  ".into()), None), None);
+        note_last_used(&dir, agent, &work.id).unwrap();
+        assert_eq!(launch_account(&dir, agent, None, None), Some(work.id.clone()));
+        assert_eq!(launch_account(&dir, agent, Some("system".into()), None), None);
+        assert_eq!(launch_account(&dir, agent, Some(home.id.clone()), None), Some(home.id.clone()));
+        // A stale id is the ambient login, never the last used one.
+        assert_eq!(launch_account(&dir, agent, Some("deadbeef".into()), None), None);
+        // `system` clears the pointer; an unknown profile is refused.
+        note_last_used(&dir, agent, SYSTEM_PROFILE).unwrap();
+        assert_eq!(launch_account(&dir, agent, None, None), None);
+        assert!(note_last_used(&dir, agent, "deadbeef").is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-1138: a launch bound for the ambient login lands on the last used
+    /// named login while that login is HIDDEN — and only then: an explicit
+    /// named pick is kept, and a visible ambient login may be an explicit
+    /// pick of the Default.
+    #[test]
+    fn an_ambient_launch_lands_on_the_last_used_login_while_the_ambient_login_is_hidden() {
         let dir = temp_dir("launch-account");
         let agent = CodingAgent::Codex;
         let work = create(&dir, agent, "Work").unwrap();
@@ -683,7 +736,7 @@ mod tests {
         // Not hidden: nothing moves.
         assert_eq!(launch_account(&dir, agent, None, None), None);
         assert_eq!(launch_account(&dir, agent, Some(home.id.clone()), None), Some(home.id.clone()));
-        // Hidden, no active pointer: the first named profile is the default.
+        // Hidden, no active pointer: the first named profile is the last used.
         set_ambient_hidden(&dir, agent, true).unwrap();
         assert_eq!(launch_account(&dir, agent, None, None), Some(work.id.clone()));
         assert_eq!(launch_account(&dir, agent, Some("system".into()), None), Some(work.id.clone()));
@@ -691,8 +744,8 @@ mod tests {
         assert_eq!(launch_account(&dir, agent, Some("deadbeef".into()), None), Some(work.id.clone()));
         // An explicit named pick is the person's.
         assert_eq!(launch_account(&dir, agent, Some(home.id.clone()), None), Some(home.id.clone()));
-        // The active pointer is the default.
-        set_active_profile(&dir, agent, &home.id).unwrap();
+        // The active pointer is the last used login.
+        note_last_used(&dir, agent, &home.id).unwrap();
         assert_eq!(launch_account(&dir, agent, None, None), Some(home.id.clone()));
         // Hidden with no named profile at all: nowhere to go.
         let bare = temp_dir("launch-account-bare");

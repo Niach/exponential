@@ -119,14 +119,14 @@ pub use doctor::{
 };
 pub use agent_update::{update_agent, AgentUpdateOutcome, AGENT_UPDATE_COMMAND};
 pub use account_option::{
-    default_account_option, flatten_accounts, parse_account_option_key, AccountLimits,
+    flatten_accounts, last_used_account_option, parse_account_option_key, AccountLimits,
     AccountModelLimit, AccountOption,
 };
 pub use agent_accounts::{now_iso, AgentAccount, AgentAccounts, AgentProfileEntry, Health};
 pub use agent_profiles::{profile_id, AgentProfile, SYSTEM_PROFILE};
 pub use agent_login::{login_plan, LoginPhase, LoginPlan, LoginProgress};
 pub use agent_usage::{
-    collect_if_due, force_collect, refresh_on_demand, use_profile, AgentStatusPayload,
+    collect_if_due, force_collect, refresh_on_demand, AgentStatusPayload,
     AgentUsage, AgentUsageMap, UsageWindow,
 };
 pub use mcp_servers::ResolvedMcp;
@@ -147,6 +147,7 @@ pub use launcher::SESSION_HEARTBEAT_INTERVAL;
 pub use launcher::{
     claude_projects_root, claude_transcript_exists, context_layers_for, default_device_label,
     end_session, end_session_best_effort, mark_resuming, unmark_resuming, locate_claude_transcript, prepare, prepare_agent_shell,
+    record_last_used,
     AcpLaunch, ActionLaunchRequest, ActionRunKind, ACP_TRANSPORT,
     AgentShellLaunch, AgentShellRequest, CodingDeps, CodingError, DisabledReason,
     GitWorktrees, IssueSeed, IssueSeedFn, LaunchOrigin, LaunchOutcome, LaunchRequest,

@@ -1016,7 +1016,7 @@ mod tests {
     }
 
     /// EXP-909: which login a run spends. Dropping it makes the usage readout
-    /// silently answer for the machine's default account instead of the run's.
+    /// silently answer for the machine's last used login instead of the run's.
     #[test]
     fn coding_sessions_syncs_the_agent_account() {
         let spec = shape_by_name("coding_sessions").unwrap();

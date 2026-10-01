@@ -310,6 +310,8 @@ pub fn start_device_sync(account: &api::Account, cx: &mut App) {
                 // so the Agents pane, the doctor and the relay advertisement
                 // all follow (refresh_doctor → restart_control_channel).
                 let _ = cx.update(|cx| reload_hub_settings(cx));
+            } else if outcome.settings_moved {
+                let _ = cx.update(|cx| adopt_disk_settings(cx));
             }
         }
     })
@@ -496,6 +498,11 @@ fn snapshot_for(account_id: &str, cx: &mut App) -> Result<BeatSnapshot, Snapshot
 struct BeatOutcome {
     inventory_fp: Option<u64>,
     defaults_changed: bool,
+    /// EXP-1158: settings.json differs from the hub's copy without a server
+    /// apply — another writer moved it (the launcher's last used stamp, which
+    /// this beat just pushed). The hub reloads LIGHTLY so a later UI save
+    /// cannot write the stale value back.
+    settings_moved: bool,
     /// EXP-484: this pass's agent status (accounts + usage), for the hub
     /// snapshot the toolbar and the device dialog read.
     agent_status: Option<coding::agent_usage::AgentStatusPayload>,
@@ -514,6 +521,7 @@ impl BeatOutcome {
         Self {
             inventory_fp,
             defaults_changed: false,
+            settings_moved: false,
             agent_status: None,
             deferred: Vec::new(),
             beat_again: false,
@@ -664,9 +672,12 @@ fn beat(
     } else {
         last_fp
     };
+    let settings_moved =
+        !defaults_changed && coding::Settings::load(&snapshot.settings_path) != snapshot.settings;
     BeatOutcome {
         inventory_fp,
         defaults_changed,
+        settings_moved,
         agent_status,
         deferred,
         beat_again,
@@ -1014,33 +1025,6 @@ fn run_device_command(
                 }
             }
         }
-        // EXP-849 — "use this account here": make `profileId` this machine's
-        // ACTIVE login for `agent`. Non-destructive by construction — it only
-        // moves a device-local pointer; no credential is read, written,
-        // copied or revoked, and `agent_login` stays the sign-in command.
-        //
-        // It answers by re-reporting: a forced collect re-probes the agent and
-        // the beat ships the new `active` flag, so every client's check moves
-        // without waiting for the next cadence.
-        "agent_profile_use" => {
-            let agent = command.payload["agent"].as_str().unwrap_or_default();
-            let profile = command.payload["profileId"].as_str().unwrap_or("system");
-            match coding::CodingAgent::parse(agent) {
-                None => (false, "Malformed command payload.".to_string()),
-                Some(agent) => match use_agent_profile(snapshot, agent, profile) {
-                    Ok(payload) => {
-                        complete(
-                            snapshot,
-                            &command.id,
-                            true,
-                            &format!("{} now runs as this account here.", agent.id()),
-                        );
-                        return CommandDisposition::Refreshed(payload);
-                    }
-                    Err(error) => (false, error),
-                },
-            }
-        }
         // EXP-862 — "remove account": delete THIS machine's copy of a login
         // (its profile dir, credentials included, and its index row). The
         // account itself is untouched: no `codex logout` (it would revoke the
@@ -1087,31 +1071,6 @@ fn run_device_command(
     };
     complete(snapshot, &command.id, ok, &message);
     CommandDisposition::Completed
-}
-
-/// EXP-849 — the device side of `agent_profile_use`, over the ONE shared body
-/// ([`coding::use_profile`]): point this machine's default login for `agent` at
-/// `profile` and re-read that login's numbers, so the heartbeat ships the moved
-/// `active` flag right away. The CLI daemon's handler and the LOCAL "use this
-/// account here" control run the same body, so the refusals are one sentence
-/// each wherever the switch was asked for.
-fn use_agent_profile(
-    snapshot: &BeatSnapshot,
-    agent: coding::CodingAgent,
-    profile: &str,
-) -> Result<coding::agent_usage::AgentStatusPayload, String> {
-    let report = match &snapshot.doctor {
-        Some(report) => report.clone(),
-        None => coding::run_doctor(&snapshot.settings, &snapshot.data_dir),
-    };
-    coding::use_profile(
-        &snapshot.data_dir,
-        &snapshot.settings,
-        &report,
-        agent,
-        profile,
-        now_unix_secs(),
-    )
 }
 
 /// EXP-862 — the device side of `agent_profile_remove` (`remove`) and, EXP-1137,
@@ -1166,37 +1125,6 @@ fn live_run_accounts(
         // login, not no login — an ambient sign-out must refuse for it.
         .map(|record| (record.agent, coding::profile_id(record.account().as_deref())))
         .collect()
-}
-
-/// EXP-849 — the LOCAL "use this account here" (the Devices row's own chip on
-/// THIS machine): the same body the command runs, plus the hub mirror so every
-/// surface in this process sees the moved login before the next beat.
-pub(crate) fn use_agent_profile_here(
-    agent: coding::CodingAgent,
-    profile: &str,
-    cx: &mut App,
-) -> Result<(), String> {
-    let data_dir = crate::coding_flow::coding_data_dir(cx);
-    let hub = crate::coding_flow::CodingHub::global(cx);
-    let (settings, report) =
-        hub.read_with(cx, |hub, _| (hub.settings.clone(), hub.doctor.report.clone()));
-    let report = match report {
-        Some(report) => report,
-        None => coding::run_doctor(&settings, &data_dir),
-    };
-    let status = coding::use_profile(
-        &data_dir,
-        &settings,
-        &report,
-        agent,
-        profile,
-        now_unix_secs(),
-    )?;
-    hub.update(cx, |hub, cx| {
-        hub.agent_status = Some(status);
-        cx.notify();
-    });
-    Ok(())
 }
 
 /// EXP-909 — the usage overlay OPENED on a run this machine hosts: read that
@@ -1365,6 +1293,22 @@ fn report_worktrees(snapshot: &BeatSnapshot, last_fp: Option<u64>) -> Option<u64
             last_fp
         }
     }
+}
+
+/// EXP-1158 — the LIGHT reload: adopt settings.json into the hub when another
+/// writer moved it (the launcher stamps the last used agent there), re-read
+/// on the foreground so a UI save racing the beat is never undone. No doctor
+/// refresh: the beat already pushed the moved value to the devices row.
+fn adopt_disk_settings(cx: &mut App) {
+    let auth = crate::session::AuthContext::global(cx);
+    let settings = coding::Settings::load(&coding::Settings::default_path(&auth.data_dir));
+    let hub = CodingHub::global(cx);
+    hub.update(cx, |hub, cx| {
+        if hub.settings != settings {
+            hub.settings = settings;
+            cx.notify();
+        }
+    });
 }
 
 fn reload_hub_settings(cx: &mut App) {

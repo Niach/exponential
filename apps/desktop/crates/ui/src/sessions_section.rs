@@ -91,7 +91,7 @@ pub(crate) struct RailRunRow {
     /// lid opens), so its row offers no Stop.
     pub(crate) paused: bool,
     /// EXP-1068: the tree's review title, duplicate warning, needs-you dot and
-    /// non-default account.
+    /// off-last-used account.
     pub(crate) marks: run_rows::RunTreeMarks,
 }
 

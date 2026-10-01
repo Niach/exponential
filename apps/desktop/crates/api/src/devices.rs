@@ -133,7 +133,7 @@ pub struct HeartbeatInput<'a> {
 pub struct PendingCommand {
     pub id: String,
     /// `agent_login` | `agent_login_code` | `agent_usage_refresh` |
-    /// `agent_profile_use` | `agent_profile_remove` | `agent_profile_sign_out` |
+    /// `agent_profile_remove` | `agent_profile_sign_out` |
     /// `update_now` | `agent_update`; unknown kinds are completed `ok: false`
     /// ("unsupported") by the executor, never dropped silently.
     #[serde(default)]
@@ -143,10 +143,9 @@ pub struct PendingCommand {
     /// (EXP-765). `agent_usage_refresh`: `{agent, profileId}` — force
     /// the usage collector past its shared TTL (never past the rate-limit
     /// floor; the reply names the next allowed time when hot).
-    /// `agent_profile_use` (EXP-849), `agent_profile_remove` (EXP-862) and
-    /// `agent_profile_sign_out` (EXP-1137) carry the same `{agent,
-    /// profileId}`: make that login the machine's default, delete the
-    /// machine's copy of it (the ambient `system` login: sign it out and hide
+    /// `agent_profile_remove` (EXP-862) and `agent_profile_sign_out`
+    /// (EXP-1137) carry the same `{agent, profileId}`: delete the machine's
+    /// copy of that login (the ambient `system` login: sign it out and hide
     /// it), or sign it out and keep it (never the account).
     /// `update_now` (FEED-36): `{}` — end every live session and apply the
     /// queued daemon self-update. `agent_update`: `{agent}` — run that agent
@@ -432,19 +431,18 @@ pub enum ExpectedStamp<'a> {
     Expect(Option<&'a str>),
 }
 
-/// The REQUEST form of a launch-defaults object: an unset default account
-/// rides as an explicit `"defaultAccount": null`. The server reads an ABSENT
-/// key as "an older client that never sends it, keep the stored pin", so a
-/// clear (back to the agent's ambient login) has to be spelled out. Request
-/// only: the local settings file and the sync fingerprint keep the key
-/// omitted.
-fn launch_defaults_request(launch_defaults: &serde_json::Value) -> serde_json::Value {
+/// The REQUEST form of a launch-defaults object. EXP-1158: `defaultAgent` is
+/// the device's LAST USED agent and only the DEVICE writes it — a device
+/// push ([`ExpectedStamp::Expect`]) sends it, a UI edit
+/// ([`ExpectedStamp::Unconditional`]) omits it and the server carries the
+/// stored value forward.
+fn launch_defaults_request(
+    launch_defaults: &serde_json::Value,
+    expected: ExpectedStamp,
+) -> serde_json::Value {
     let mut request = launch_defaults.clone();
-    if let Some(object) = request.as_object_mut() {
-        let has_agent = object.get("defaultAgent").is_some_and(|v| v.is_string());
-        if has_agent && !object.contains_key("defaultAccount") {
-            object.insert("defaultAccount".to_string(), serde_json::Value::Null);
-        }
+    if let (ExpectedStamp::Unconditional, Some(object)) = (expected, request.as_object_mut()) {
+        object.remove("defaultAgent");
     }
     request
 }
@@ -460,7 +458,7 @@ pub fn set_launch_defaults(
 ) -> Result<SetLaunchDefaultsResult, ApiError> {
     let mut input = serde_json::json!({
         "deviceId": device_id,
-        "launchDefaults": launch_defaults_request(launch_defaults),
+        "launchDefaults": launch_defaults_request(launch_defaults, expected),
     });
     if let ExpectedStamp::Expect(stamp) = expected {
         input["expectedUpdatedAt"] = match stamp {
@@ -674,42 +672,6 @@ pub fn create_agent_update_command(
             device_id,
             kind: "agent_update",
             agent,
-        },
-    )
-}
-
-/// `devices.createCommand` for an `agent_profile_use` (EXP-849) — ask one of
-/// the CALLER's own machines to make `profile_id` its DEFAULT login for
-/// `agent` ("use this account here").
-///
-/// Deliberately its OWN command kind, not `agent_login`: it signs nobody in and
-/// touches no credential, it only moves a device-local pointer — so a client can
-/// offer it where a sign-in makes no sense. It rides the `agent-login` CAP all
-/// the same (what the server gates it on: a build that can drive a machine's
-/// logins can point it at one of them). The device refuses a profile that is not
-/// signed in there, and answers by re-reporting its accounts, so every client's
-/// ACTIVE check moves on that beat.
-pub fn create_agent_profile_use_command(
-    trpc: &TrpcClient,
-    device_id: &str,
-    agent: &str,
-    profile_id: &str,
-) -> Result<CreatedCommand, ApiError> {
-    #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Input<'a> {
-        device_id: &'a str,
-        kind: &'a str,
-        agent: &'a str,
-        profile_id: &'a str,
-    }
-    trpc.mutation(
-        "devices.createCommand",
-        &Input {
-            device_id,
-            kind: "agent_profile_use",
-            agent,
-            profile_id,
         },
     )
 }
@@ -1201,34 +1163,13 @@ mod tests {
     }
 
     #[test]
-    fn launch_defaults_request_spells_out_an_unset_default_account() {
-        // Unset beside a default agent: an explicit null, the server's clear.
-        assert_eq!(
-            launch_defaults_request(&serde_json::json!({
-                "defaultAgent": "claude",
-                "agents": {"claude": {"model": "opus"}},
-            })),
-            serde_json::json!({
-                "defaultAgent": "claude",
-                "defaultAccount": null,
-                "agents": {"claude": {"model": "opus"}},
-            })
-        );
-        // A pinned account rides untouched.
-        let pinned = serde_json::json!({"defaultAgent": "claude", "defaultAccount": "0a1b2c3d"});
-        assert_eq!(launch_defaults_request(&pinned), pinned);
-        // No default agent, nothing for the account to belong to: left alone.
-        let agentless = serde_json::json!({"agents": {}});
-        assert_eq!(launch_defaults_request(&agentless), agentless);
-    }
-
-    #[test]
-    fn set_launch_defaults_sends_the_explicit_null() {
+    fn a_ui_edit_never_sends_the_last_used_agent() {
+        // EXP-1158: only the device writes `defaultAgent`.
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
         set_launch_defaults(
             &client(&base),
             "dev-1",
-            &serde_json::json!({"defaultAgent": "codex"}),
+            &serde_json::json!({"defaultAgent": "codex", "agents": {}}),
             ExpectedStamp::Unconditional,
         )
         .unwrap();
@@ -1237,11 +1178,22 @@ mod tests {
         let sent: serde_json::Value = serde_json::from_str(body).unwrap();
         assert_eq!(
             sent,
-            serde_json::json!({
-                "deviceId": "dev-1",
-                "launchDefaults": {"defaultAgent": "codex", "defaultAccount": null},
-            })
+            serde_json::json!({ "deviceId": "dev-1", "launchDefaults": {"agents": {}} })
         );
+
+        // The device push carries it, and nothing else is added.
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        set_launch_defaults(
+            &client(&base),
+            "dev-1",
+            &serde_json::json!({"defaultAgent": "codex"}),
+            ExpectedStamp::Expect(Some("2026-10-01T00:00:00.000Z")),
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        let body = &request[request.find("\r\n\r\n").unwrap() + 4..];
+        let sent: serde_json::Value = serde_json::from_str(body).unwrap();
+        assert_eq!(sent["launchDefaults"], serde_json::json!({"defaultAgent": "codex"}));
     }
 
     #[test]

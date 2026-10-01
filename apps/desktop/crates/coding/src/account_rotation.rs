@@ -10,7 +10,7 @@
 //!   signed-in, healthy profile with the MOST headroom, read off the usage
 //!   cache ([`crate::agent_usage::profile_usage_snapshot`], no probe: the
 //!   cache is fresh enough to avoid an obviously walled login). EXP-1107: a
-//!   launch that NAMES its account (the composer's pick, the device default,
+//!   launch that NAMES its account (the composer's pick, the last used login,
 //!   an automation's or a workflow decision's account) keeps it unless that
 //!   login is WALLED; only an unpinned launch goes to the most headroom.
 //! * **At a wall** ([`pick_rotation_target`], driven by a host's
@@ -416,7 +416,7 @@ impl StartPick {
 /// eligible profile has more headroom, or the launch's account IS the pick.
 ///
 /// EXP-1107 (owner decision): a PINNED launch — `account` names a profile:
-/// the composer's pick, the device default, an automation's or a workflow
+/// the composer's pick, the last used login, an automation's or a workflow
 /// decision's account — keeps it unless that login is WALLED (spent on a
 /// window the run would draw on); "less headroom" never overrides a person's
 /// choice. Only an unpinned launch (`None`) goes to the most headroom. The

@@ -49,17 +49,11 @@ pub struct AgentDefaultsPatch {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct DefaultsPatch {
+    /// EXP-1158: the LAST USED agent. Only the device writes it (the
+    /// launcher's stamp, pushed by [`defaults_wire`]); clients' saves omit it
+    /// and the server carries the stored value forward.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_agent: Option<String>,
-    /// EXP-872: the profile id of `default_agent`'s logins the machine
-    /// launches as by default — "default agent" became "default account", so
-    /// the PAIR travels together. Beside a `default_agent`, absent = the
-    /// ambient login, so applying such a patch CLEARS a stored pick (the
-    /// server carries the pin forward for clients that never send the key,
-    /// so its copy is authoritative for the pair); a blank value clears too.
-    /// Absent with no `default_agent` either says nothing and leaves it alone.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub default_account: Option<String>,
     pub agents: BTreeMap<String, AgentDefaultsPatch>,
     /// EXP-1029/EXP-1020: the WORKFLOW model pair new workflows started on
     /// this machine are seeded from (`DeviceWorkflowDefaults`). Absent from
@@ -106,23 +100,6 @@ pub fn apply_defaults_patch(settings: &mut Settings, patch: &DefaultsPatch) -> b
     if let Some(agent) = patch_agent {
         if settings.default_agent != agent {
             settings.default_agent = agent;
-            changed = true;
-        }
-    }
-    // EXP-872: the account is one of the default agent's logins, so the PAIR
-    // is what a patch names. A present value sets it (blank = clear). An
-    // ABSENT one beside a valid default agent is the cleared state too: the
-    // server can never deliver a blank (zod `min(1)`, null-free jsonb) and
-    // carries the stored pin forward for key-less older clients, so "agent,
-    // no account" in its copy means the ambient login, whether the agent
-    // stayed or switched. Only a patch naming NEITHER leaves the pin alone.
-    let next_account = match patch.default_account.as_deref() {
-        Some(account) => Some((!account.trim().is_empty()).then(|| account.trim().to_string())),
-        None => patch_agent.map(|_| None),
-    };
-    if let Some(next) = next_account {
-        if settings.default_account != next {
-            settings.default_account = next;
             changed = true;
         }
     }
@@ -222,10 +199,10 @@ pub fn apply_defaults_patch(settings: &mut Settings, patch: &DefaultsPatch) -> b
 ///
 /// NOT copied: the CLI paths, `repos_root`, `branch_prefix`, the terminal
 /// shell and the UI-state fields — those belong to other panes, and a
-/// launch-defaults save must never roll one of them back.
+/// launch-defaults save must never roll one of them back. Nor (EXP-1158)
+/// `default_agent`: it is the LAST USED agent, which only the launcher's
+/// stamp writes, so a settings save can never put a stale one back.
 pub fn overlay_launch_defaults(onto: &mut Settings, from: &Settings) {
-    onto.default_agent = from.default_agent;
-    onto.default_account = from.default_account.clone();
     onto.claude_model = from.claude_model.clone();
     onto.claude_effort = from.claude_effort.clone();
     onto.claude_subagent_model = from.claude_subagent_model.clone();
@@ -266,7 +243,6 @@ pub fn defaults_wire(settings: &Settings) -> DefaultsPatch {
     }
     DefaultsPatch {
         default_agent: Some(settings.default_agent.id().to_string()),
-        default_account: settings.default_account.clone(),
         agents,
         workflow: Some(WorkflowDefaultsPatch {
             model: Some(settings.workflow_model.clone()),
@@ -352,87 +328,21 @@ mod tests {
         assert_eq!(settings.claude_model, "fable", "claude is explicit-always");
     }
 
-    fn pinned(agent: CodingAgent, account: &str) -> Settings {
+    /// EXP-1158: `defaultAccount` is gone — an old server copy still
+    /// carrying it deserializes and is ignored, never fails the patch.
+    #[test]
+    fn the_retired_exp_872_account_key_is_ignored() {
         let mut settings = Settings::default();
-        settings.default_agent = agent;
-        settings.default_account = Some(account.to_string());
-        settings
-    }
-
-    fn patch(value: serde_json::Value) -> DefaultsPatch {
-        serde_json::from_value(value).unwrap()
-    }
-
-    #[test]
-    fn an_agent_without_an_account_clears_the_local_pin() {
-        // The server's cleared state: same agent, no `defaultAccount` key.
-        let mut settings = pinned(CodingAgent::Claude, "0a1b2c3d");
-        assert!(apply_defaults_patch(
-            &mut settings,
-            &patch(serde_json::json!({ "defaultAgent": "claude" }))
-        ));
-        assert_eq!(settings.default_account, None);
-        // Already clear: nothing changed.
-        assert!(!apply_defaults_patch(
-            &mut settings,
-            &patch(serde_json::json!({ "defaultAgent": "claude" }))
-        ));
-    }
-
-    #[test]
-    fn switching_the_agent_without_an_account_clears_the_local_pin() {
-        // The old agent's profile names nothing under the new one.
-        let mut settings = pinned(CodingAgent::Claude, "0a1b2c3d");
-        assert!(apply_defaults_patch(
-            &mut settings,
-            &patch(serde_json::json!({ "defaultAgent": "codex" }))
-        ));
+        let patch: DefaultsPatch = serde_json::from_value(serde_json::json!({
+            "defaultAgent": "codex",
+            "defaultAccount": "0a1b2c3d"
+        }))
+        .unwrap();
+        assert!(apply_defaults_patch(&mut settings, &patch));
         assert_eq!(settings.default_agent, CodingAgent::Codex);
-        assert_eq!(settings.default_account, None);
-    }
-
-    #[test]
-    fn a_named_account_sets_and_a_blank_one_clears() {
-        let mut settings = pinned(CodingAgent::Claude, "0a1b2c3d");
-        assert!(apply_defaults_patch(
-            &mut settings,
-            &patch(serde_json::json!({ "defaultAgent": "codex", "defaultAccount": " 9f8e7d6c " }))
-        ));
-        assert_eq!(settings.default_agent, CodingAgent::Codex);
-        assert_eq!(settings.default_account.as_deref(), Some("9f8e7d6c"));
-        assert!(apply_defaults_patch(
-            &mut settings,
-            &patch(serde_json::json!({ "defaultAgent": "codex", "defaultAccount": "" }))
-        ));
-        assert_eq!(settings.default_account, None);
-    }
-
-    #[test]
-    fn a_patch_naming_no_valid_agent_leaves_the_pin_alone() {
-        // Neither half of the pair: a per-agent edit says nothing about it.
-        let mut settings = pinned(CodingAgent::Claude, "0a1b2c3d");
-        apply_defaults_patch(
-            &mut settings,
-            &patch(serde_json::json!({ "agents": { "claude": { "model": "sonnet" } } })),
-        );
-        assert_eq!(settings.default_account.as_deref(), Some("0a1b2c3d"));
-        // An agent this build cannot parse is ignored, and so is its pair.
-        assert!(!apply_defaults_patch(
-            &mut settings,
-            &patch(serde_json::json!({ "defaultAgent": "cursor" }))
-        ));
-        assert_eq!(settings.default_agent, CodingAgent::Claude);
-        assert_eq!(settings.default_account.as_deref(), Some("0a1b2c3d"));
-    }
-
-    #[test]
-    fn a_pinned_account_round_trips_through_the_wire() {
-        let source = pinned(CodingAgent::Codex, "0a1b2c3d");
-        let mut target = Settings::default();
-        assert!(apply_defaults_patch(&mut target, &defaults_wire(&source)));
-        assert_eq!(target.default_agent, CodingAgent::Codex);
-        assert_eq!(target.default_account.as_deref(), Some("0a1b2c3d"));
-        assert!(!apply_defaults_patch(&mut target, &defaults_wire(&source)));
+        let wire = serde_json::to_value(defaults_wire(&settings)).unwrap();
+        assert_eq!(wire["defaultAgent"], "codex");
+        assert!(wire.get("defaultAccount").is_none());
     }
 
     #[test]
@@ -558,7 +468,6 @@ mod tests {
     fn overlay_carries_every_launch_default() {
         let from = Settings {
             default_agent: CodingAgent::Codex,
-            default_account: Some("0a1b2c3d".into()),
             claude_path: "/usr/local/bin/claude".into(),
             codex_path: "/usr/local/bin/codex".into(),
             repos_root: "/tmp/repos".into(),
@@ -587,6 +496,7 @@ mod tests {
         // What a launch-defaults save is allowed to change: everything in
         // `from` EXCEPT the fields other panes own.
         let expected = Settings {
+            default_agent: Settings::default().default_agent,
             claude_path: Settings::default().claude_path,
             codex_path: Settings::default().codex_path,
             repos_root: Settings::default().repos_root,

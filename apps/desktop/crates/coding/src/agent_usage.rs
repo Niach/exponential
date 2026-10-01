@@ -1007,7 +1007,7 @@ fn collect_inner(
         // anyway asks codex to refresh the login's own token while it answers,
         // once per [`usage_cache::CODEX_REFRESH_INTERVAL_SECS`] per login.
         //
-        // Only for a login this machine RUNS: the device default, or one some
+        // Only for a login this machine RUNS: the last used login, or one some
         // recorded run used. A parked account (added, signed in, never run
         // here) is deliberately left to expire — keeping a credential warm is
         // the machine asserting it needs it, and this machine does not.
@@ -1294,53 +1294,6 @@ pub fn refresh_on_demand(
     due.then(|| collect_inner(data_dir, settings, report, now, Forced::Profile(agent, &profile)))
 }
 
-/// EXP-849 — "use this account here": make `profile` this machine's DEFAULT
-/// login for `agent`, then re-read that login's numbers so the next heartbeat
-/// ships the moved `active` flag (and its usage) right away.
-///
-/// The ONE body behind all three entry points — the desktop's own control, the
-/// desktop's `agent_profile_use` command handler and the CLI daemon's — so the
-/// refusals are the same sentence wherever the switch was asked for. It is
-/// non-destructive by construction: a device-local pointer moves, and no
-/// credential is read, written, copied or revoked (`agent_login` stays the
-/// sign-in, and `codex logout` is never in this path).
-///
-/// `Err` is the sentence to show: an id this machine does not have, a login
-/// that is not signed in here (making it the default would break every later
-/// start, and the fix is a sign-in), or an unwritable index.
-pub fn use_profile(
-    data_dir: &Path,
-    settings: &Settings,
-    report: &DoctorReport,
-    agent: CodingAgent,
-    profile: &str,
-    now: u64,
-) -> Result<AgentStatusPayload, String> {
-    let profile = profile.trim();
-    if crate::agent_profiles::get(data_dir, agent, profile).is_none() {
-        return Err(format!("No such {} account on this machine.", agent.id()));
-    }
-    // Identity as this machine sees it right now — the profile's own `auth
-    // status`, never a synced row that may be minutes old.
-    let signed_in = profile_signed_in(data_dir, settings, report, agent, profile);
-    if !signed_in {
-        return Err(format!(
-            "That {} account is not signed in on this machine — sign in there first.",
-            agent.id()
-        ));
-    }
-    crate::agent_profiles::set_active_profile(data_dir, agent, profile)
-        .map_err(|err| format!("Could not switch the {} account here: {err}", agent.id()))?;
-    // Past the shared TTL on purpose: the numbers the clients show for this
-    // machine are the ACTIVE login's, and it just changed. A rate-limited
-    // refusal reports what the cache holds instead — the pointer moved either
-    // way, so a switch that already happened must not read as a failure.
-    Ok(
-        force_collect(data_dir, settings, report, agent, profile, now)
-            .unwrap_or_else(|_| collect_if_due(data_dir, settings, report, now)),
-    )
-}
-
 /// Whether `profile`'s login of `agent` is signed in as this machine sees it
 /// RIGHT NOW: a named profile's own `auth status` inside its config dir, the
 /// ambient login as `report` last probed it (a single-login machine has no
@@ -1444,14 +1397,14 @@ pub fn sign_out_profile(
 /// What it removes is the machine's copy of a login: the profile's config dir
 /// (its credentials, the agent CLI's own files) and its index row. The ACCOUNT
 /// itself is untouched — no `codex logout`, which would revoke it server-wide,
-/// and no request of any kind leaves this machine. The device default falls
+/// and no request of any kind leaves this machine. The last used login falls
 /// back to the ambient login when the removed profile held it.
 ///
 /// EXP-1137: the AMBIENT login is taken too. It has no dir of ours to delete,
 /// so removing it means signing it out ([`sign_out_profile`], when it is
 /// signed in) and hiding its row
 /// ([`crate::agent_profiles::set_ambient_hidden`]) until it signs in again;
-/// the device default moves to the first named profile meanwhile.
+/// the last used login moves to the first named profile meanwhile.
 ///
 /// `Err` is the sentence to show: an id this machine does not have, a login a
 /// LIVE run here is using, a sign-out that failed, or an unwritable index. The
@@ -1510,7 +1463,7 @@ struct UsageTarget {
     /// The profile's config dir (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`) —
     /// `None` for the ambient login.
     dir: Option<PathBuf>,
-    /// The device's default login for this agent: it owns the top-level
+    /// The device's last used login for this agent: it owns the top-level
     /// account fields and the top-level `agentUsage` entry.
     active: bool,
     /// Whether this pass may spend a probe on it. Always true for the
@@ -3153,7 +3106,7 @@ mod tests {
             ..Settings::default()
         };
         let work = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Work").unwrap();
-        crate::agent_profiles::set_active_profile(&dir, CodingAgent::Codex, &work.id).unwrap();
+        crate::agent_profiles::note_last_used(&dir, CodingAgent::Codex, &work.id).unwrap();
 
         let now = crate::run_registry::now_secs();
         let mut cache = usage_cache::load(&dir);
@@ -3923,7 +3876,7 @@ mod tests {
         // The device's default is the LAST profile created: past the cap in
         // list order, so only the ordering keeps it in the plan.
         let active = ids.last().unwrap().clone();
-        crate::agent_profiles::set_active_profile(&dir, CodingAgent::Codex, &active).unwrap();
+        crate::agent_profiles::note_last_used(&dir, CodingAgent::Codex, &active).unwrap();
 
         // A machine that has read NOTHING yet: every login it plans to look
         // at is read on this very pass. A fresh account waiting minutes for
@@ -4078,7 +4031,7 @@ mod tests {
         };
         let work = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Work").unwrap();
         let home = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Home").unwrap();
-        crate::agent_profiles::set_active_profile(&dir, CodingAgent::Codex, &work.id).unwrap();
+        crate::agent_profiles::note_last_used(&dir, CodingAgent::Codex, &work.id).unwrap();
 
         // Every login already has numbers and none is due, so this pass
         // spends no probe at all — it only has to REPORT. EXP-881: the wall
@@ -4176,7 +4129,7 @@ mod tests {
         let report = codex_named_report();
         let work = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Work").unwrap();
         let home = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Home").unwrap();
-        crate::agent_profiles::set_active_profile(&dir, CodingAgent::Codex, &work.id).unwrap();
+        crate::agent_profiles::note_last_used(&dir, CodingAgent::Codex, &work.id).unwrap();
 
         // Nothing cached: all three logins are read on this pass.
         let now = 1_800_000_000;
@@ -4230,7 +4183,7 @@ mod tests {
         };
         let report = codex_named_report();
         let work = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Work").unwrap();
-        crate::agent_profiles::set_active_profile(&dir, CodingAgent::Codex, &work.id).unwrap();
+        crate::agent_profiles::note_last_used(&dir, CodingAgent::Codex, &work.id).unwrap();
 
         // Everything is fresh and far from due, so only a FORCED login moves.
         let now = 1_800_000_000;
@@ -4292,7 +4245,7 @@ mod tests {
         let report = codex_named_report();
         let now = 1_800_000_000;
         let work = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Work").unwrap();
-        crate::agent_profiles::set_active_profile(&dir, CodingAgent::Codex, &work.id).unwrap();
+        crate::agent_profiles::note_last_used(&dir, CodingAgent::Codex, &work.id).unwrap();
         let dir_on_disk = crate::agent_profiles::profile_dir(&dir, CodingAgent::Codex, &work.id)
             .expect("the profile has a config dir");
         let mut cache = usage_cache::load(&dir);
@@ -4598,7 +4551,7 @@ mod tests {
         live::reset();
         let now = 1_800_000_000;
         let (dir, settings, work) = claude_keep_alive_fixture("refresh-margin", now);
-        crate::agent_profiles::set_active_profile(&dir, CodingAgent::Claude, &work.id).unwrap();
+        crate::agent_profiles::note_last_used(&dir, CodingAgent::Claude, &work.id).unwrap();
         assert!(
             usage_cache::claude_refresh_due(
                 usage_cache::load(&dir)
@@ -4626,7 +4579,7 @@ mod tests {
         live::reset();
         let now = 1_800_000_000;
         let (dir, settings, work) = claude_keep_alive_fixture("keep-alive-claim", now);
-        crate::agent_profiles::set_active_profile(&dir, CodingAgent::Claude, &work.id).unwrap();
+        crate::agent_profiles::note_last_used(&dir, CodingAgent::Claude, &work.id).unwrap();
         // The sibling process's claim, taken a moment ago (pid + when).
         std::fs::write(
             dir.join(format!("claude-{}.refresh.claim", work.id)),
@@ -4652,7 +4605,7 @@ mod tests {
         live::reset();
         let now = 1_800_000_000;
         let (dir, settings, work) = claude_keep_alive_fixture("refresh-parked", now);
-        // The ambient login stays the device default, so `work` is a login
+        // The ambient login stays the last used login, so `work` is a login
         // this machine merely HOLDS…
         assert_eq!(
             crate::agent_profiles::active_profile(&dir, CodingAgent::Claude),
@@ -4679,7 +4632,7 @@ mod tests {
         live::reset();
         let now = 1_800_000_000;
         let (dir, settings, work) = claude_keep_alive_fixture("expired-login", now);
-        crate::agent_profiles::set_active_profile(&dir, CodingAgent::Claude, &work.id).unwrap();
+        crate::agent_profiles::note_last_used(&dir, CodingAgent::Claude, &work.id).unwrap();
         expire_claude_login(&dir, &work.id, now);
         // An expired token is trivially inside the margin, so the ONE gate
         // says due (EXP-909 folded the separate "already expired" predicate

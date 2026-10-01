@@ -437,9 +437,12 @@ pub struct LaunchOptions {
     /// own credentials); an unconnected or unpicked one is skipped with a
     /// warning, never a launch blocker.
     pub mcp_server_ids: Vec<String>,
-    /// EXP-792 (EXP-747 B7): the agent ACCOUNT PROFILE to run on — `None` or
-    /// `system` = the ambient login; else a device-local profile id under
+    /// EXP-792 (EXP-747 B7): the agent ACCOUNT PROFILE to run on — `system`
+    /// = the ambient login; else a device-local profile id under
     /// `{data_dir}/agents/<agent>/<id>/` (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`).
+    /// EXP-1158: `None` on a fresh launch = UNNAMED = the login last used on
+    /// this device; `crate::agent_profiles::launch_account` resolves it (and
+    /// rides every ambient result back as `None`).
     pub account: Option<String>,
     /// EXP-1082: the workflow run this launch IS (workflow, node, role) —
     /// stamped onto the session row at start. Only the workflow engine's
@@ -471,15 +474,9 @@ impl LaunchOptions {
             plan_mode: settings.plan_mode_for(agent) && agent.supports_plan_mode(),
             subagent_model: settings.subagent_model_for(agent).to_string(),
             mcp_server_ids: Vec::new(),
-            // EXP-872: a LOCAL launch spends this machine's stored DEFAULT
-            // ACCOUNT — but only on the agent it belongs to: a profile id
-            // names a directory under ONE agent's config root, so carrying it
-            // onto another agent would name a directory that does not exist
-            // there. The ambient login rides as `None`.
-            account: (agent == settings.default_agent)
-                .then(|| settings.default_account.clone())
-                .flatten()
-                .filter(|id| id != crate::agent_profiles::SYSTEM_PROFILE),
+            // EXP-1158: unnamed — the launcher runs it on the agent's last
+            // used login.
+            account: None,
         }
     }
 
@@ -501,8 +498,8 @@ impl LaunchOptions {
     /// - Capabilities mask everything: a non-claude agent can never carry
     ///   ultracode, codex never carries plan.
     /// - EXP-849: `account` is the composer's account pick (a device-local
-    ///   profile id), normalized by [`Self::with_account`]. Absent/`system` =
-    ///   the ambient login, which is every pre-EXP-849 sender.
+    ///   profile id), normalized by [`Self::with_account`]. EXP-1158:
+    ///   `system` names the ambient login; absent/blank = the last used one.
     pub fn remote(
         settings: &Settings,
         agent: Option<&str>,
@@ -583,8 +580,6 @@ impl LaunchOptions {
         self
     }
 
-    /// EXP-792 (EXP-747 B7): the remote frame's account profile pick. Blank
-    /// and `system` both mean the ambient login (`None`).
     /// EXP-981: layer a remote start's explicit `subagentModel` on.
     /// `None` = the frame carried none (keep the machine's default);
     /// `Some("")` = the CLI's own default, deliberately; anything outside
@@ -601,10 +596,13 @@ impl LaunchOptions {
         self
     }
 
+    /// EXP-792 (EXP-747 B7): the remote frame's account profile pick,
+    /// trimmed. EXP-1158: `system` is KEPT — it names the ambient login —
+    /// while blank is unnamed (`None` = the last used login).
     pub fn with_account(mut self, account: Option<&str>) -> Self {
         self.account = account
             .map(str::trim)
-            .filter(|a| !a.is_empty() && *a != "system")
+            .filter(|a| !a.is_empty())
             .map(str::to_string);
         self
     }
@@ -966,23 +964,10 @@ mod tests {
 
         assert!(LaunchOptions::defaults_for(&settings, CodingAgent::Claude).plan_mode);
 
-        // EXP-872: a local launch spends the stored DEFAULT ACCOUNT, and
-        // only on the agent whose config dir holds that profile.
-        settings.default_account = Some("0a1b2c3d".to_string());
-        assert_eq!(
-            LaunchOptions::defaults_for(&settings, CodingAgent::Claude).account.as_deref(),
-            Some("0a1b2c3d")
-        );
-        assert_eq!(
-            LaunchOptions::defaults_for(&settings, CodingAgent::Codex).account,
-            None
-        );
-        // The ambient login is `None` on the wire, never the literal id.
-        settings.default_account = Some(crate::agent_profiles::SYSTEM_PROFILE.to_string());
-        assert_eq!(
-            LaunchOptions::defaults_for(&settings, CodingAgent::Claude).account,
-            None
-        );
+        // EXP-1158: a local launch names no account — the launcher runs it
+        // on the agent's last used login.
+        assert_eq!(LaunchOptions::defaults_for(&settings, CodingAgent::Claude).account, None);
+        assert_eq!(LaunchOptions::defaults_for(&settings, CodingAgent::Codex).account, None);
     }
 
     #[test]
@@ -1102,8 +1087,9 @@ mod tests {
         assert_eq!(opts.effort, "minimal");
         assert!(!opts.ultracode);
         assert!(!opts.plan_mode);
-        // `system` and blank are both the ambient login, never a literal id.
-        assert_eq!(opts.account, None);
+        // EXP-1158: `system` NAMES the ambient login; blank is unnamed.
+        assert_eq!(opts.account.as_deref(), Some("system"));
+        assert_eq!(LaunchOptions::remote(&settings, None, None, None, None, None, Some(" ")).account, None);
 
         // A claude model on a codex start is bogus → blank (codex default).
         let opts = LaunchOptions::remote(

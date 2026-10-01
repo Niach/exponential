@@ -591,7 +591,7 @@ mod tests {
         assert_eq!(
             agent_profiles::active_profile(&dir, CodingAgent::Claude),
             SYSTEM_PROFILE,
-            "a new profile does not become the device default"
+            "a new profile does not become the last used login"
         );
         // Now it exists, so it resolves as an existing profile too.
         assert_eq!(

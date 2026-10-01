@@ -65,7 +65,9 @@ pub use trigger::{
 /// ([`crate::agent_profiles`]); it belongs to the pinned agent, so it only
 /// applies when that agent is one this build knows — a profile id names a
 /// directory under ONE agent's config root. The launcher itself falls back to
-/// the ambient login for a profile this machine no longer holds.
+/// the ambient login for a profile this machine no longer holds. EXP-1158:
+/// `system` is kept (it names the ambient login); NULL = unpinned = the
+/// login last used on this device, resolved by the launcher.
 pub fn launch_options(
     settings: &crate::Settings,
     agent: Option<&str>,
@@ -86,9 +88,7 @@ pub fn launch_options(
     }
     if pinned.is_some() {
         if let Some(account) = account.map(str::trim).filter(|value| !value.is_empty()) {
-            // The ambient `system` login rides as `None`, like every launch.
-            options.account = (!crate::agent_profiles::is_system(Some(account)))
-                .then(|| account.to_string());
+            options.account = Some(account.to_string());
         }
     }
     options.plan_mode = false;
@@ -495,27 +495,26 @@ mod tests {
     }
 
     /// EXP-995: the account pin is a PROFILE of the pinned agent — it rides
-    /// only beside an agent this build knows, and the ambient login stays
-    /// `None` on the launch like every other start.
+    /// only beside an agent this build knows. EXP-1158: `system` NAMES the
+    /// ambient login; NULL/blank is unpinned (the last used login).
     #[test]
     fn launch_options_take_the_account_pin_beside_its_agent() {
         let mut settings = crate::Settings::default();
         settings.default_agent = crate::CodingAgent::Claude;
-        settings.default_account = Some("deflt123".to_string());
 
         let pinned = launch_options(&settings, Some("codex"), None, None, Some("0a1b2c3d"));
         assert_eq!(pinned.agent, crate::CodingAgent::Codex);
         assert_eq!(pinned.account.as_deref(), Some("0a1b2c3d"));
 
-        // No agent pinned = the device default agent AND its default account,
-        // whatever the row says (a profile belongs to one agent).
+        // No agent pinned = the last used agent, unnamed (its last used
+        // login), whatever the row says (a profile belongs to one agent).
         let bare = launch_options(&settings, None, None, None, Some("0a1b2c3d"));
         assert_eq!(bare.agent, crate::CodingAgent::Claude);
-        assert_eq!(bare.account.as_deref(), Some("deflt123"));
+        assert_eq!(bare.account, None);
 
-        // `system` / blank = the ambient login, never a named profile.
+        // `system` names the ambient login; blank is unpinned.
         let ambient = launch_options(&settings, Some("claude"), None, None, Some("system"));
-        assert_eq!(ambient.account, None);
+        assert_eq!(ambient.account.as_deref(), Some("system"));
         let blank = launch_options(&settings, Some("codex"), None, None, Some(" "));
         assert_eq!(blank.account, None);
     }
