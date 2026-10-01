@@ -217,8 +217,9 @@ impl Render for AppTitleBar {
             // EXP-285/EXP-456: the full-height LEFT COLUMN (the rail, the
             // settings nav, or the `ListNav`) sits left of this bar — its
             // width is the budget's first term. macOS lights float over that
-            // column, which is [`crate::shell::LEFT_COLUMN_WIDTH`] wide and
-            // clears the cluster on its own (EXP-723 removed the collapsed
+            // column, which is at least `theme::tokens::sidebar::MIN_WIDTH`
+            // wide (EXP-1156: dragged, never narrower) and clears the
+            // cluster on its own (EXP-723 removed the collapsed
             // rail and with it the Shell's traffic-light tongue). Fullscreen
             // hides the lights, so nothing is reserved for them either way.
             let rail_w = crate::shell::window_left_column_width(window, cx);
@@ -258,7 +259,7 @@ impl Render for AppTitleBar {
             .h(px(WORK_TABS_BAND_H))
             // EXP-303: with the rail present the vendored 80px macOS
             // traffic-light reserve is wrong — the left column is
-            // [`crate::shell::LEFT_COLUMN_WIDTH`] wide and clears the
+            // at least `theme::tokens::sidebar::MIN_WIDTH` wide and clears the
             // cluster, so the bar itself only needs its normal inset.
             .pl(px(BAR_INSET));
 

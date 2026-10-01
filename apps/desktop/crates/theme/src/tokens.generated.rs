@@ -143,6 +143,23 @@ pub mod transcript {
     pub const TOOL_LINE_HEIGHT: f32 = 18.0;
 }
 
+// The draggable sidebar columns (EXP-1156), in px: one min/max, a default
+// per panel. Read through `ui::resize_edge`, which owns the clamp.
+pub mod sidebar {
+    pub const RAIL_WIDTH: f32 = 48.0;
+    pub const MIN_WIDTH: f32 = 272.0;
+    pub const MAX_WIDTH: f32 = 560.0;
+    pub const DEFAULT_MAIN: f32 = 272.0;
+    pub const DEFAULT_LIST: f32 = 352.0;
+    pub const DEFAULT_REVIEW: f32 = 272.0;
+    pub const DEFAULT_SETTINGS: f32 = 272.0;
+    pub const DEFAULT_RECENT: f32 = 272.0;
+    pub const DEFAULT_FILES: f32 = 320.0;
+    pub const DEFAULT_SOURCE_CONTROL: f32 = 320.0;
+    pub const HANDLE_WIDTH: f32 = 8.0;
+    pub const KEYBOARD_STEP: f32 = 16.0;
+}
+
 // Motion (EXP-523) — durations in milliseconds (u64, so `Duration::from_millis`
 // takes them verbatim), easings as CSS cubic-bezier control points. Read these
 // through `theme::motion`, which wraps the millis in `Duration` and SOLVES the

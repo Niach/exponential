@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import type { ReactNode } from "react"
 import {
   Link,
   useNavigate,
@@ -19,6 +20,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  ResizeHandle,
   Separator,
   Sidebar,
   SidebarContent,
@@ -32,6 +34,7 @@ import {
   SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from "@exp/ui"
 import { useShowsReviews } from "@/hooks/use-nav-counts"
 import { useSession } from "@/hooks/use-session"
@@ -65,7 +68,23 @@ import { useDraftEntries } from "@/hooks/use-issue-drafts"
 import { useTeamLiveRuns } from "@/hooks/use-team-live-runs"
 import { otherTeamsLive } from "@/lib/sessions/team-live-runs"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
-import { panelOffset } from "@/lib/detail-origin"
+import { panelOffset, type SidebarOccupant } from "@/lib/detail-origin"
+import {
+  SIDEBAR_HANDLE_WIDTH,
+  SIDEBAR_KEYBOARD_STEP,
+  resetSidebarWidth,
+  setSidebarResizing,
+  setSidebarWidth,
+  sidebarColumnWidth,
+  sidebarResizable,
+  sidebarUnitScale,
+  sidebarWidthCss,
+  useSidebarResizing,
+  useSidebarWidth,
+  useSidebarWidthBounds,
+  useSidebarWidths,
+  type SidebarPanelKey,
+} from "@/lib/sidebar-widths"
 import { WORKFLOWS_TITLE } from "@/lib/workflow-view"
 import { FeedbackButton } from "@/components/feedback-button"
 import { GettingStartedButton } from "@/components/getting-started/getting-started-button"
@@ -97,13 +116,15 @@ const UiAddIcon = conceptIcon(`ui-add`)
 const UiCheckIcon = conceptIcon(`ui-check`)
 const UiInviteIcon = conceptIcon(`ui-invite`)
 
-// EXP-862: every arm of the 17rem slot runs at the sidebar's COMPACT density
+// EXP-862: every arm of the panel slot runs at the sidebar's COMPACT density
 // — `SidebarMenuButton density="compact"` (EXP-962), whose rationale lives
 // with the prop in `packages/ui/src/sidebar.tsx`.
 
 // EXP-870: one motion for every width and slide in the column — the shared
 // motion tokens (styles.css, packages/design-tokens).
-const SLOT_MOTION = `duration-standard ease-standard motion-reduce:transition-none`
+// EXP-1156: a drag (`data-resizing` on the sidebar wrapper) switches it off,
+// or every slot would trail the pointer by the whole duration.
+const SLOT_MOTION = `duration-standard ease-standard motion-reduce:transition-none group-data-[resizing=true]/sidebar-wrapper:transition-none`
 
 const OFFSET_CLASS = {
   [-1]: `-translate-x-full`,
@@ -334,22 +355,17 @@ export function TeamSidebar({
           <Separator />
 
           <div className="flex min-h-0 flex-1">
-            {/* EXP-870: the RAIL slot — the full main menu (17rem) or its
-                48px icon column beside a panel. Both stay mounted and
-                cross-fade while the slot's width animates; `inert` takes the
-                hidden one out of the tab order and the accessibility tree. */}
-            <div
-              className={cn(
-                `relative shrink-0 overflow-hidden transition-[width]`,
-                SLOT_MOTION,
-                compact ? `w-12` : `w-[17rem]`
-              )}
-            >
-              <div
+            {/* EXP-870: the RAIL slot — the full main menu (its dragged
+                `main` width, EXP-1156) or its 48px icon column beside a
+                panel. Both stay mounted and cross-fade while the slot's width
+                animates; `inert` takes the hidden one out of the tab order
+                and the accessibility tree. */}
+            <RailSlot compact={compact}>
+              <PanelLayer
+                panel="main"
                 inert={compact}
                 className={cn(
-                  `absolute inset-y-0 left-0 flex w-[17rem] flex-col transition-opacity`,
-                  SLOT_MOTION,
+                  `transition-opacity`,
                   compact ? `opacity-0` : `opacity-100`
                 )}
               >
@@ -620,7 +636,7 @@ export function TeamSidebar({
                     </SidebarMenuButton>
                   </div>
                 </SidebarFooter>
-              </div>
+              </PanelLayer>
 
               <div
                 inert={!compact}
@@ -638,24 +654,19 @@ export function TeamSidebar({
                   workflowsAsking={workflowsAsking}
                 />
               </div>
-            </div>
+            </RailSlot>
 
-            {/* EXP-870: the PANEL slot — 0 wide with the main menu, 17rem
-                beside the compact rail. Its two panels slide by DIRECTION
-                (`panelOffset`): going deeper a panel comes out from under the
-                rail's edge, coming back it slides back under it. */}
-            <div
-              className={cn(
-                `relative shrink-0 overflow-hidden transition-[width]`,
-                SLOT_MOTION,
-                compact ? `w-[17rem] border-l border-glass-stroke` : `w-0`
-              )}
-            >
-              <div
+            {/* EXP-870: the PANEL slot — 0 wide with the main menu, the
+                ACTIVE panel's dragged width (EXP-1156) beside the compact
+                rail. Its panels slide by DIRECTION (`panelOffset`, in each
+                layer's OWN width): going deeper a panel comes out from under
+                the rail's edge, coming back it slides back under it. */}
+            <PanelSlot occupant={occupant.kind}>
+              <PanelLayer
+                panel="settings"
                 inert={!inSettings}
                 className={cn(
-                  `absolute inset-y-0 left-0 flex w-[17rem] flex-col transition-transform`,
-                  SLOT_MOTION,
+                  `transition-transform`,
                   OFFSET_CLASS[panelOffset(`settings`, occupant.kind)]
                 )}
               >
@@ -664,17 +675,17 @@ export function TeamSidebar({
                   permissions={permissions}
                   onBack={handleSettingsBack}
                 />
-              </div>
+              </PanelLayer>
 
               {/* EXP-851: the LIST NAV — the list an open detail came from.
                   Mounted only while one is up: its lists run live queries and
                   tRPC polls, and an off-screen Support poll every 30s is not
                   free. */}
-              <div
+              <PanelLayer
+                panel="list"
                 inert={!listOrigin}
                 className={cn(
-                  `absolute inset-y-0 left-0 flex w-[17rem] flex-col transition-transform`,
-                  SLOT_MOTION,
+                  `transition-transform`,
                   OFFSET_CLASS[panelOffset(`list`, occupant.kind)]
                 )}
               >
@@ -691,31 +702,31 @@ export function TeamSidebar({
                     origin={listOrigin}
                   />
                 )}
-              </div>
+              </PanelLayer>
 
               {/* EXP-916: the REVIEW's file tree — a review's context is the
                   files its pull request touches, so that panel sits beside
                   it where another detail keeps its list. Same depth as the
                   list nav, so the two never slide over each other. */}
-              <div
+              <PanelLayer
+                panel="review"
                 inert={!reviewFiles}
                 className={cn(
-                  `absolute inset-y-0 left-0 flex w-[17rem] flex-col transition-transform`,
-                  SLOT_MOTION,
+                  `transition-transform`,
                   OFFSET_CLASS[panelOffset(`review`, occupant.kind)]
                 )}
               >
                 {reviewFiles && <ReviewFilesNav teamSlug={teamSlug} />}
-              </div>
+              </PanelLayer>
 
               {/* EXP-923: the Agent page's RECENT runs, behind that page's
                   history toggle. Same slot and depth as the list nav — the
                   Agent route never has one, so the two can never collide. */}
-              <div
+              <PanelLayer
+                panel="recent"
                 inert={!recentRuns}
                 className={cn(
-                  `absolute inset-y-0 left-0 flex w-[17rem] flex-col transition-transform`,
-                  SLOT_MOTION,
+                  `transition-transform`,
                   OFFSET_CLASS[panelOffset(`recent`, occupant.kind)]
                 )}
               >
@@ -725,10 +736,14 @@ export function TeamSidebar({
                     currentUserId={session?.user?.id}
                   />
                 )}
-              </div>
-            </div>
+              </PanelLayer>
+            </PanelSlot>
           </div>
         </div>
+        {/* EXP-1156: the column's ONE drag edge, over the gutter between the
+            sidebar and the content card. It resizes the panel beside the
+            rail; the main menu has none. */}
+        <SidebarResizeEdge panel={occupant.kind} />
       </Sidebar>
 
       <ChangelogSheet open={whatsNewOpen} onOpenChange={setWhatsNewOpen} />
@@ -746,4 +761,148 @@ export function TeamSidebar({
       <JoinTeamDialog open={joinTeamOpen} onOpenChange={setJoinTeamOpen} />
     </>
   )
+}
+
+// EXP-1156: the width-bearing pieces of the column are their OWN components,
+// each subscribed to the width store. A drag then re-renders these few
+// wrappers per frame while the menus inside them (passed in as `children`,
+// created by `TeamSidebar`, which never subscribes) bail out untouched.
+
+/** The rail slot: the main menu's width, or the 48px icon rail (`w-12`). */
+function RailSlot({
+  compact,
+  children,
+}: {
+  compact: boolean
+  children: ReactNode
+}) {
+  const main = useSidebarWidth(`main`)
+  return (
+    <div
+      className={cn(
+        `relative shrink-0 overflow-hidden transition-[width]`,
+        SLOT_MOTION,
+        compact && `w-12`
+      )}
+      style={compact ? undefined : { width: sidebarWidthCss(main) }}
+    >
+      {children}
+    </div>
+  )
+}
+
+/** The panel slot: the ACTIVE panel's width beside the rail, else 0. */
+function PanelSlot({
+  occupant,
+  children,
+}: {
+  occupant: SidebarOccupant[`kind`]
+  children: ReactNode
+}) {
+  const widths = useSidebarWidths()
+  const compact = occupant !== `main`
+  return (
+    <div
+      className={cn(
+        `relative shrink-0 overflow-hidden transition-[width]`,
+        SLOT_MOTION,
+        compact ? `border-l border-glass-stroke` : `w-0`
+      )}
+      style={compact ? { width: sidebarWidthCss(widths[occupant]) } : undefined}
+    >
+      {children}
+    </div>
+  )
+}
+
+/** One stacked layer, at ITS OWN panel's width (so it slides by that). */
+function PanelLayer({
+  panel,
+  inert,
+  className,
+  children,
+}: {
+  panel: SidebarPanelKey
+  inert: boolean
+  className?: string
+  children: ReactNode
+}) {
+  const width = useSidebarWidth(panel)
+  return (
+    <div
+      inert={inert}
+      className={cn(
+        `absolute inset-y-0 left-0 flex flex-col`,
+        SLOT_MOTION,
+        className
+      )}
+      style={{ width: sidebarWidthCss(width) }}
+    >
+      {children}
+    </div>
+  )
+}
+
+/**
+ * The column's drag edge. The `Sidebar` container is `position: fixed`, so
+ * this absolutely placed strip measures from the column's right edge: it
+ * starts 1px past it and spans `handleWidth` of the card's 10px gutter
+ * (`app-shell.ts`), touching neither the sidebar's scrollbars nor the card.
+ * Never on a phone: there `Sidebar` is the (retired) Sheet, and phones keep
+ * no sidebar widths at all.
+ */
+function SidebarResizeEdge({ panel }: { panel: SidebarPanelKey }) {
+  const { isMobile } = useSidebar()
+  const width = useSidebarWidth(panel)
+  const { min, max } = useSidebarWidthBounds(panel)
+  // The main menu stays as it is: only a panel beside the rail drags.
+  if (isMobile || !sidebarResizable(panel)) return null
+  return (
+    <ResizeHandle
+      aria-label="Resize sidebar"
+      className="z-20"
+      // PX, like the gutter it sits in (the card's insets are px literals).
+      style={{
+        right: -(SIDEBAR_HANDLE_WIDTH + 1),
+        width: SIDEBAR_HANDLE_WIDTH,
+      }}
+      value={width}
+      min={min}
+      max={max}
+      step={SIDEBAR_KEYBOARD_STEP}
+      scale={sidebarUnitScale()}
+      onChange={(next) => setSidebarWidth(panel, next, { persist: false })}
+      onCommit={(next) => setSidebarWidth(panel, next)}
+      onReset={() => resetSidebarWidth(panel)}
+      onDraggingChange={setSidebarResizing}
+    />
+  )
+}
+
+/**
+ * EXP-1156: the provider's `--sidebar-width` (the fixed container and the
+ * layout gap) and its `data-resizing` flag, written straight onto the wrapper
+ * from the width store. Imperative on purpose: the team layout renders every
+ * provider and the page, and re-rendering it per drag frame would be the
+ * whole app; this component re-renders alone.
+ */
+export function SidebarWidthSync({
+  wrapper,
+  occupant,
+}: {
+  /** The provider's wrapper ELEMENT (a callback ref's state, not a ref
+   *  object: this effect runs before a parent's ref attaches on mount). */
+  wrapper: HTMLDivElement | null
+  occupant: SidebarOccupant[`kind`]
+}) {
+  const widths = useSidebarWidths()
+  const resizing = useSidebarResizing()
+  const column = sidebarWidthCss(sidebarColumnWidth(widths, occupant))
+  useLayoutEffect(() => {
+    if (!wrapper) return
+    wrapper.style.setProperty(`--sidebar-width`, column)
+    if (resizing) wrapper.dataset.resizing = `true`
+    else delete wrapper.dataset.resizing
+  }, [wrapper, column, resizing])
+  return null
 }

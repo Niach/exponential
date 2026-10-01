@@ -36,6 +36,9 @@ interface Tokens {
   // EXP-787: the transcript's measure, gap ladder and type scale (flat
   // integers, px ≡ dp ≡ pt).
   transcript: Record<string, number>
+  // EXP-1156: the draggable sidebar columns (web md+ and the IDE only; flat
+  // px integers). Emitted for Rust alone — phones have no sidebar.
+  sidebar: Record<string, number>
   // Nested, unlike every group above: durations are integer milliseconds and
   // easings are 4-element CSS cubic-bezier control points [x1, y1, x2, y2]
   // (P0 = (0,0) and P3 = (1,1) implicit). The group's `$comment` lives one
@@ -543,6 +546,10 @@ function emitRust(): string {
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => `    ${rustF32(k, v)}`)
     .join(`\n`)
+  const sidebar = Object.entries(tokens.sidebar)
+    .filter(([k]) => !k.startsWith(`$`))
+    .map(([k, v]) => `    ${rustF32(k, v)}`)
+    .join(`\n`)
   const motionDuration = motionEntries(tokens.motion.duration)
     .map(([k, v]) => `        pub const ${screamingSnake(k)}_MS: u64 = ${v};`)
     .join(`\n`)
@@ -611,6 +618,12 @@ ${menuTouch}
 // The gap is chosen by \`steer::feed::transcript_gap\`.
 pub mod transcript {
 ${transcript}
+}
+
+// The draggable sidebar columns (EXP-1156), in px: one min/max, a default
+// per panel. Read through \`ui::resize_edge\`, which owns the clamp.
+pub mod sidebar {
+${sidebar}
 }
 
 // Motion (EXP-523) — durations in milliseconds (u64, so \`Duration::from_millis\`

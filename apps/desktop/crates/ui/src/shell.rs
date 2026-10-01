@@ -40,6 +40,7 @@ use gpui_component::{
 use sync::{SessionPhase, Store};
 
 use crate::{
+    resize_edge::{ResizeDrag, ResizeHost, SidebarPanel},
     debug_board::DebugBoardPanel, icons::ExpIcon, login::LoginView, navigation,
     navigation::Screen,
     screens::ScreensPanel,
@@ -83,22 +84,16 @@ const LAYOUT_VERSION: usize = 11;
 
 const DOCK_AREA_ID: &str = "exp-workspace";
 
-/// EXP-862: the width of the left column's PANEL — the expanded rail, the
-/// settings nav, the `ListNav`: one reading measure for all three. EXP-870:
-/// 272px, the web sidebar's `17rem`, so the two clients share the number.
-pub(crate) const LEFT_COLUMN_WIDTH: f32 = 272.;
-
 /// EXP-870: the rail FOLDED to its icon column — what stays of it while a
 /// list or the settings nav sits beside it (web `SIDEBAR_WIDTH_ICON`, 3rem).
 /// The rail never leaves the window: every destination stays one click away.
-pub(crate) const COMPACT_RAIL_WIDTH: f32 = 48.;
-
-/// EXP-862: the width of a SCREEN's own list column — the Files tree and
-/// Source Control's history beside their viewers (`screens.rs`). It was the
-/// `ListNav`'s width until the left column settled on one number; these two
-/// are not the left column, they are a list inside a screen, and they keep
-/// the wider reading measure.
-pub(crate) const SCREEN_LIST_WIDTH: f32 = 320.;
+/// EXP-1156: the generated token, the one width in the column that is NOT
+/// dragged. Every other width here — the expanded rail, each panel, the
+/// Files / Source Control lists (which replaced EXP-862's
+/// `SCREEN_LIST_WIDTH`) — is a [`SidebarPanel`]'s remembered width
+/// ([`crate::resize_edge::panel_width`]); the old one-number
+/// `LEFT_COLUMN_WIDTH` (272) lives on as `DEFAULT_MAIN`.
+pub(crate) const COMPACT_RAIL_WIDTH: f32 = theme::tokens::sidebar::RAIL_WIDTH;
 
 /// EXP-723 cutout: the gap between the working panel and the window edges —
 /// the same 10px the web shell uses (`app-shell.ts` `md:m-[10px]`).
@@ -228,22 +223,57 @@ pub(crate) fn window_left_occupant(window: &Window, cx: &App) -> LeftOccupant {
     )
 }
 
+impl LeftOccupant {
+    /// EXP-1156: the panel whose remembered width this occupant renders at —
+    /// the rail's EXPANDED width is the `main` panel's; the folded rail is
+    /// [`COMPACT_RAIL_WIDTH`] and never dragged.
+    pub(crate) const fn panel(self) -> SidebarPanel {
+        match self {
+            LeftOccupant::Rail => SidebarPanel::Main,
+            LeftOccupant::ListNav => SidebarPanel::List,
+            LeftOccupant::ReviewFiles => SidebarPanel::Review,
+            LeftOccupant::Settings => SidebarPanel::Settings,
+            LeftOccupant::RecentRuns => SidebarPanel::Recent,
+        }
+    }
+}
+
+/// EXP-1156: the window width the left column's clamp is measured against —
+/// the viewport less the Linux CSD frame (shadow + border are not content).
+pub(crate) fn window_extent(window: &Window) -> f32 {
+    f32::from(window.viewport_size().width - crate::window_frame::frame_horizontal_chrome(window))
+}
+
+/// EXP-870/EXP-1156: the RAIL slot's width under `occupant` — the expanded
+/// rail at the `main` width, else the folded icon column.
+pub(crate) fn rail_slot_width(occupant: LeftOccupant, extent: f32) -> f32 {
+    match occupant {
+        LeftOccupant::Rail => crate::resize_edge::panel_width(SidebarPanel::Main, extent),
+        _ => COMPACT_RAIL_WIDTH,
+    }
+}
+
+/// EXP-870/EXP-1156: the PANEL slot's width under `occupant` — zero under the
+/// expanded rail, else that occupant's own remembered width.
+pub(crate) fn panel_slot_width(occupant: LeftOccupant, extent: f32) -> f32 {
+    match occupant {
+        LeftOccupant::Rail => 0.,
+        other => crate::resize_edge::panel_width(other.panel(), extent),
+    }
+}
+
 /// EXP-870: the left column's width for `occupant` — the expanded rail
 /// alone, or the icon column plus the list / settings panel beside it.
-pub(crate) const fn left_column_width_for(occupant: LeftOccupant) -> f32 {
-    match occupant {
-        LeftOccupant::Rail => LEFT_COLUMN_WIDTH,
-        LeftOccupant::Settings
-        | LeftOccupant::ListNav
-        | LeftOccupant::ReviewFiles
-        | LeftOccupant::RecentRuns => COMPACT_RAIL_WIDTH + LEFT_COLUMN_WIDTH,
-    }
+/// EXP-1156: both halves are dragged widths now, clamped into `extent` (the
+/// window width, [`window_extent`]) at read time.
+pub(crate) fn left_column_width_for(occupant: LeftOccupant, extent: f32) -> f32 {
+    rail_slot_width(occupant, extent) + panel_slot_width(occupant, extent)
 }
 
 /// EXP-456/EXP-870: this window's left column width, for the surfaces that
 /// budget around it (`app_title_bar`'s strip, the fallback strip).
 pub(crate) fn window_left_column_width(window: &Window, cx: &App) -> f32 {
-    left_column_width_for(window_left_occupant(window, cx))
+    left_column_width_for(window_left_occupant(window, cx), window_extent(window))
 }
 
 /// EXP-870: how deep an occupant sits — the rail alone, a list beside it,
@@ -271,7 +301,10 @@ const LEFT_COL_ANIM_DURATION: Duration = theme::motion::STANDARD;
 /// The widths are not state: every slot width is a pure function of the
 /// occupant ([`left_column_width_for`]), so a swap animates from
 /// `from_occupant`'s layout to `occupant`'s (EXP-870 — the rail folds to its
-/// icon column while the panel slot opens beside it).
+/// icon column while the panel slot opens beside it). EXP-1156: they are a
+/// function of the occupant AND the remembered drag widths, which cannot
+/// move mid-swap — the edge handle is not mounted while `swapping`, and a
+/// swap that starts drops a live drag ([`Shell::sync_left_column`]).
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct LeftColumnAnim {
     /// The occupant sliding OUT (only meaningful while `swapping`).
@@ -374,6 +407,16 @@ pub struct Shell {
     /// EXP-456/EXP-851: the left column's occupant-swap transition state.
     left_anim: LeftColumnAnim,
     _left_anim_task: Option<Task<()>>,
+    /// EXP-1156: the left column's live edge drag (the expanded rail's or the
+    /// panel's — whichever occupies the column), `None` at rest. The Shell
+    /// hosts it because the column, its handle and the capture are all
+    /// rendered here ([`crate::resize_edge`]).
+    resize_drag: Option<ResizeDrag>,
+    /// EXP-1156: how far below the column's top its swapping PANE starts —
+    /// the titlebar strip plus the fixed header, measured at prepaint. The
+    /// edge handle starts there, so it never covers the traffic-light drag
+    /// strip or the header's buttons.
+    left_header_h: std::rc::Rc<std::cell::Cell<f32>>,
     /// EXP-863: the left column's titlebar strip is the SHELL's now (the
     /// fixed header rides it), so its window-drag latch (the vendored
     /// `TitleBar` `should_move` pattern) lives here, not on the occupants.
@@ -646,6 +689,8 @@ impl Shell {
             recent_runs,
             left_anim,
             _left_anim_task: None,
+            resize_drag: None,
+            left_header_h: Default::default(),
             left_strip_should_move: false,
             login,
             onboarding,
@@ -686,6 +731,9 @@ impl Shell {
     fn sync_left_column(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let occupant = window_left_occupant(window, cx);
         if let Some(epoch) = self.left_anim.retarget(occupant) {
+            // EXP-1156: the edge being dragged belongs to the occupant that
+            // is leaving — the swap's widths must not move under it.
+            self.resize_drag = None;
             // Settle after the transition: unmount the outgoing child so its
             // controls leave the hit-test/tab order. Dropping a superseded
             // task cancels its timer; the epoch guards against a stale one
@@ -762,20 +810,12 @@ impl Shell {
             gpui_component::animation::EffectTransition::new(LEFT_COL_ANIM_DURATION)
                 .ease(easing())
         };
-        let rail_w = |occupant: LeftOccupant| {
-            if occupant == LeftOccupant::Rail {
-                LEFT_COLUMN_WIDTH
-            } else {
-                COMPACT_RAIL_WIDTH
-            }
-        };
-        let panel_w = |occupant: LeftOccupant| {
-            if occupant == LeftOccupant::Rail {
-                0.
-            } else {
-                LEFT_COLUMN_WIDTH
-            }
-        };
+        // EXP-1156: every slot width is the occupant's remembered drag width,
+        // clamped against this window — read per frame, so a shrunk window
+        // narrows the column without touching the prefs.
+        let extent = window_extent(window);
+        let rail_w = |occupant: LeftOccupant| rail_slot_width(occupant, extent);
+        let panel_w = |occupant: LeftOccupant| panel_slot_width(occupant, extent);
         let rail_slot = div()
             .h_full()
             .flex_shrink_0()
@@ -804,8 +844,8 @@ impl Shell {
             (false, _, LeftOccupant::Rail) => None,
             (false, _, occupant) => Some(
                 panel_slot
-                    .w(px(LEFT_COLUMN_WIDTH))
-                    .child(self.left_child(occupant))
+                    .w(px(panel_w(occupant)))
+                    .child(self.left_child(occupant, panel_w(occupant)))
                     .into_any_element(),
             ),
             // The panel comes OUT from under the rail's edge (and goes back
@@ -813,17 +853,15 @@ impl Shell {
             // swap, which is why forward and back no longer look alike.
             (true, LeftOccupant::Rail, occupant) | (true, occupant, LeftOccupant::Rail) => {
                 let entering = anim.from_occupant == LeftOccupant::Rail;
-                let (from_x, to_x) = if entering {
-                    (-LEFT_COLUMN_WIDTH, 0.)
-                } else {
-                    (0., -LEFT_COLUMN_WIDTH)
-                };
+                // EXP-1156: the panel slides by ITS width, not one shared one.
+                let width = panel_w(occupant);
+                let (from_x, to_x) = if entering { (-width, 0.) } else { (0., -width) };
                 let child = div()
                     .absolute()
                     .top_0()
                     .bottom_0()
-                    .w(px(LEFT_COLUMN_WIDTH))
-                    .child(self.left_child(occupant));
+                    .w(px(width))
+                    .child(self.left_child(occupant, width));
                 let child = transition()
                     .slide_x(px(from_x), px(to_x))
                     .apply(child, left_slide_id(anim.epoch));
@@ -843,27 +881,33 @@ impl Shell {
             (true, from, to) => {
                 let forward = occupant_depth(to) > occupant_depth(from);
                 let (first, second) = if forward { (from, to) } else { (to, from) };
-                let (from_x, to_x) = if forward {
-                    (0., -LEFT_COLUMN_WIDTH)
-                } else {
-                    (-LEFT_COLUMN_WIDTH, 0.)
-                };
+                // EXP-1156: the two panels keep their own widths, so the
+                // strip is their SUM and the wipe travels the FIRST one's
+                // width (the deeper panel's left edge lands on the slot's).
+                let (first_w, second_w) = (panel_w(first), panel_w(second));
+                let (from_x, to_x) = if forward { (0., -first_w) } else { (-first_w, 0.) };
                 let strip = h_flex()
                     .absolute()
                     .top_0()
                     .bottom_0()
-                    .w(px(2. * LEFT_COLUMN_WIDTH))
-                    .child(self.left_child(first))
-                    .child(self.left_child(second));
+                    .w(px(first_w + second_w))
+                    .child(self.left_child(first, first_w))
+                    .child(self.left_child(second, second_w));
                 let strip = transition()
                     .slide_x(px(from_x), px(to_x))
                     .apply(strip, left_slide_id(anim.epoch));
-                Some(
-                    panel_slot
-                        .w(px(LEFT_COLUMN_WIDTH))
-                        .child(strip)
-                        .into_any_element(),
-                )
+                let (slot_from, slot_to) = (panel_w(from), panel_w(to));
+                let slot = panel_slot.child(strip);
+                Some(if slot_from != slot_to {
+                    // The slot opens or closes between the two widths on the
+                    // same curve (the column's own width follows below).
+                    transition()
+                        .width(px(slot_from), px(slot_to))
+                        .apply(slot, left_anim_id("shell-leftcol-panel", anim.epoch))
+                        .into_any_element()
+                } else {
+                    slot.w(px(slot_to)).into_any_element()
+                })
             }
         };
         let pane = h_flex()
@@ -875,6 +919,12 @@ impl Shell {
             .child(rail_slot)
             .children(panel_slot);
 
+        // The 8px `pt_2` the column takes where no titlebar strip renders.
+        let top_inset = if top_strip.is_none() {
+            0.5 * f32::from(window.rem_size())
+        } else {
+            0.
+        };
         let column = v_flex()
             .h_full()
             .flex_shrink_0()
@@ -894,10 +944,27 @@ impl Shell {
                     .child(header)
                     .child(crate::sidebar::left_column_divider(cx)),
             )
-            .child(pane);
+            .child(pane)
+            // EXP-1156: where the pane starts, measured relative to the
+            // column's own top (the first child sits there unless the 8px
+            // inset above applies — it is added back). The edge handle
+            // starts there; a changed measure repaints once.
+            .on_children_prepainted({
+                let measured = self.left_header_h.clone();
+                move |bounds, window, _| {
+                    let (Some(first), Some(last)) = (bounds.first(), bounds.last()) else {
+                        return;
+                    };
+                    let header_h = f32::from(last.origin.y - first.origin.y) + top_inset;
+                    if (measured.get() - header_h).abs() > 0.5 {
+                        measured.set(header_h);
+                        window.request_animation_frame();
+                    }
+                }
+            });
         let (from_w, to_w) = (
-            left_column_width_for(anim.from_occupant),
-            left_column_width_for(anim.occupant),
+            left_column_width_for(anim.from_occupant, extent),
+            left_column_width_for(anim.occupant, extent),
         );
         if anim.swapping && from_w != to_w {
             transition()
@@ -909,9 +976,45 @@ impl Shell {
         }
     }
 
+    /// EXP-1156: the left column's edge handle, an overlay the Shell's body
+    /// row positions over the column's RIGHT edge (the column clips, so it
+    /// cannot carry the strip itself), from under the fixed header to the
+    /// window bottom. It drives the occupant's panel: the expanded rail's
+    /// `main` width, or the panel beside the folded rail. Not mounted
+    /// mid-swap — the widths are animating then, and a press would start
+    /// from a width that is about to change.
+    ///
+    /// The strip sits OUTSIDE the edge (1px in, 7px out over the
+    /// `PANEL_MARGIN` gap) rather than centred on it: the sidebar's slim
+    /// scrollbar owns an 8px hit strip flush inside that edge (EXP-1095),
+    /// and a centred strip would eat half of it — the thumb could no longer
+    /// be grabbed. The hairline still lands on the edge itself.
+    fn render_left_edge_handle(&self, window: &Window, cx: &gpui::Context<Self>) -> Option<AnyElement> {
+        if self.left_anim.swapping {
+            return None;
+        }
+        let occupant = self.left_anim.occupant;
+        if !occupant.panel().resizable() {
+            return None;
+        }
+        let extent = window_extent(window);
+        let edge = left_column_width_for(occupant, extent);
+        let active = self
+            .resize_drag
+            .is_some_and(|drag| drag.panel == occupant.panel());
+        Some(
+            crate::resize_edge::handle(occupant.panel(), extent, active, cx)
+                .left(px(edge - crate::resize_edge::EDGE_INSET))
+                .top(px(self.left_header_h.get()))
+                .bottom_0()
+                .into_any_element(),
+        )
+    }
+
     /// One occupant of the left column, in a sized wrapper (load-bearing for
-    /// entity children — the dock wrapper's flex-child rule).
-    fn left_child(&self, occupant: LeftOccupant) -> AnyElement {
+    /// entity children — the dock wrapper's flex-child rule). EXP-1156: at
+    /// ITS width — the panels no longer share one.
+    fn left_child(&self, occupant: LeftOccupant, width: f32) -> AnyElement {
         let child: AnyElement = match occupant {
             LeftOccupant::Rail => self.rail.clone().into_any_element(),
             LeftOccupant::Settings => self.settings_nav.clone().into_any_element(),
@@ -920,7 +1023,7 @@ impl Shell {
             LeftOccupant::RecentRuns => self.recent_runs.clone().into_any_element(),
         };
         div()
-            .w(px(LEFT_COLUMN_WIDTH))
+            .w(px(width))
             .h_full()
             .flex_shrink_0()
             .child(child)
@@ -1045,6 +1148,12 @@ impl Shell {
     }
 }
 
+impl ResizeHost for Shell {
+    fn resize_drag(&mut self) -> &mut Option<ResizeDrag> {
+        &mut self.resize_drag
+    }
+}
+
 impl Render for Shell {
     fn render(
         &mut self,
@@ -1153,6 +1262,8 @@ impl Render for Shell {
             SessionPhase::Synced { .. } => h_flex()
                 .size_full()
                 .min_h_0()
+                // EXP-1156: the anchor of the column's edge handle overlay.
+                .relative()
                 // EXP-456: the leftmost column — the rail, or the settings
                 // nav while `Screen::Settings` is up (animated swap). The
                 // EXP-303 material rules live on `render_left_column`.
@@ -1181,7 +1292,10 @@ impl Render for Shell {
                             // exactly such a frame.
                             let band_w = (window.viewport_size().width
                                 - crate::window_frame::frame_horizontal_chrome(window)
-                                - px(left_column_width_for(self.left_anim.occupant)))
+                                - px(left_column_width_for(
+                                    self.left_anim.occupant,
+                                    window_extent(window),
+                                )))
                             .max(px(160.));
                             col.child(
                                 h_flex().flex_shrink_0().child(
@@ -1271,6 +1385,10 @@ impl Render for Shell {
                                 .child(self.session_bar.clone()),
                         )
                 })
+                // EXP-1156: the edge handle LAST, so it hit-tests above the
+                // content column it overhangs; then the live drag's capture.
+                .children(self.render_left_edge_handle(window, cx))
+                .children(crate::resize_edge::drag_capture(self.resize_drag, cx))
                 .into_any_element(),
             // No rail here, so the whole window is content on the root's
             // ground (EXP-303 single-layer rule: no second ramp here).
@@ -1922,18 +2040,45 @@ mod tests {
 
     /// EXP-870: the rail never leaves — beside a list or the settings nav it
     /// keeps its icon column, so the column grows by exactly that much. The
-    /// panel measure is the web sidebar's 17rem, the icon column its 3rem.
+    /// expanded rail's measure is the web sidebar's 17rem, the icon column
+    /// its 3rem. EXP-1156: each occupant maps to its OWN dragged panel, and
+    /// these are the token defaults a never-dragged machine opens at (read
+    /// off the table, not through `panel_width`, which would consult this
+    /// machine's real `ui-prefs.json`).
     #[test]
     fn left_column_width_follows_the_occupant() {
-        assert_eq!(LEFT_COLUMN_WIDTH, 272.);
         assert_eq!(COMPACT_RAIL_WIDTH, 48.);
-        assert_eq!(left_column_width_for(LeftOccupant::Rail), 272.);
-        assert_eq!(left_column_width_for(LeftOccupant::ListNav), 320.);
-        assert_eq!(left_column_width_for(LeftOccupant::Settings), 320.);
-        assert_eq!(left_column_width_for(LeftOccupant::ReviewFiles), 320.);
-        // A screen's OWN list column (Files, Source Control) is a different
-        // measure and keeps its own constant.
-        assert_eq!(SCREEN_LIST_WIDTH, 320.);
+        let occupants = [
+            LeftOccupant::Rail,
+            LeftOccupant::ListNav,
+            LeftOccupant::ReviewFiles,
+            LeftOccupant::Settings,
+            LeftOccupant::RecentRuns,
+        ];
+        let panels: Vec<SidebarPanel> = occupants.iter().map(|o| o.panel()).collect();
+        assert_eq!(
+            panels,
+            vec![
+                SidebarPanel::Main,
+                SidebarPanel::List,
+                SidebarPanel::Review,
+                SidebarPanel::Settings,
+                SidebarPanel::Recent,
+            ]
+        );
+        let default_column = |occupant: LeftOccupant| match occupant {
+            LeftOccupant::Rail => occupant.panel().default_width(),
+            _ => COMPACT_RAIL_WIDTH + occupant.panel().default_width(),
+        };
+        assert_eq!(default_column(LeftOccupant::Rail), 272.);
+        assert_eq!(default_column(LeftOccupant::ListNav), 400.);
+        assert_eq!(default_column(LeftOccupant::Settings), 320.);
+        assert_eq!(default_column(LeftOccupant::ReviewFiles), 320.);
+        assert_eq!(default_column(LeftOccupant::RecentRuns), 320.);
+        // Only the panel beside the folded rail counts the rail against the
+        // half-window bound; the expanded rail IS the column.
+        assert!(!SidebarPanel::Main.beside_rail());
+        assert!(occupants[1..].iter().all(|o| o.panel().beside_rail()));
     }
 
     /// EXP-870: the slide direction reads off depth — deeper is forward.

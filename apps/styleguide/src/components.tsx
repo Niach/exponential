@@ -124,6 +124,7 @@ import {
   PreviewMedia,
   RUN_TITLE_CLASS,
   RichTab,
+  ResizeHandle,
   SearchField,
   SegmentedControl,
   SessionResultsView,
@@ -4178,6 +4179,40 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     island: () => (
       <div className="w-72 overflow-hidden rounded-lg border border-glass-stroke-card bg-glass-card">
         <ListEmpty>No emoji found</ListEmpty>
+      </div>
+    ),
+  },
+  {
+    id: `resize-handle`,
+    title: `Column resize edge`,
+    kind: `Surfaces`,
+    blurb: `EXP-1156: the grab strip on a resizable column's right edge — the sidebar on web at md+ and every IDE sidebar column. Dragging follows the pointer between the shared \`sidebar\` token bounds (${designTokens.sidebar.minWidth}–${designTokens.sidebar.maxWidth}, the whole column never past half the window), ←/→ step it by ${designTokens.sidebar.keyboardStep}, a double-click resets the panel to its default. The width is remembered PER PANEL on the machine, never synced. At rest it draws nothing; a 1px hairline centred in the ${designTokens.sidebar.handleWidth}px strip shows on hover, focus and while dragging (the right column below). Phones have no sidebar, so no edge.`,
+    status: {
+      web: ok(`ResizeHandle`, `packages/ui/src/resize-handle.tsx`, `the team sidebar mounts one (components/team/sidebar.tsx); widths in lib/sidebar-widths.ts`),
+      desktop: ok(`resize_edge::handle`, `apps/desktop/crates/ui/src/resize_edge.rs`, `drag_capture tracks the drag; widths in ui_prefs::sidebar_width`),
+      ios: na(`phones have no sidebar column to resize`),
+      android: na(`phones have no sidebar column to resize`),
+    },
+    island: () => (
+      <div className="flex gap-6">
+        {[false, true].map((active) => (
+          <div
+            key={String(active)}
+            className="relative h-40 rounded-lg border border-glass-stroke-card bg-glass-card"
+            style={{ width: designTokens.sidebar.defaultMain / 2 }}
+          >
+            <ResizeHandle
+              aria-label="Resize column"
+              className="-right-[9px] w-2"
+              value={designTokens.sidebar.defaultMain}
+              min={designTokens.sidebar.minWidth}
+              max={designTokens.sidebar.maxWidth}
+              step={designTokens.sidebar.keyboardStep}
+              active={active}
+              onChange={noop}
+            />
+          </div>
+        ))}
       </div>
     ),
   },
