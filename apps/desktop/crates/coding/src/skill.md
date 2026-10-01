@@ -11,7 +11,7 @@ Your working directory is your whole subject: a worktree of the run's repository
 - Write `#IDENT` (e.g. `#ABC-12`) whenever you name an issue in a comment, description or PR body: it renders as a pill with the title (never repeat it) and links the issues as related; a bare `ABC-12` links nothing.
 - `@<email>` in a comment mentions and notifies that member (`exponential_members_list` resolves emails).
 
-## Filing follow-ups
+## Follow-ups and follow-up runs
 
 Prefer a new issue over widening your PR for out-of-scope work, a bug you will not fix now, or a task of its own:
 
@@ -21,37 +21,19 @@ Prefer a new issue over widening your PR for out-of-scope work, a bug you will n
 
 Never file an issue for what you can finish in your own PR.
 
-## Delegating work: exponential_sessions_start
+After your PR is open and your branch is pushed, start a run for each follow-up you filed that needs no person's decision, is in this repository and can be verified on this device: `exponential_sessions_start({deviceId: <yours>, issueId, account, prompt})`; `exponential_devices_list` names your device and its accounts (`account` = a profile id with usage left). The prompt names your branch as the base (`git fetch origin <your branch> && git reset --hard origin/<your branch>` before any edit), tells the child to open its PR with `exponential_pr_open({issueId, base: "<your branch>"})`, and carries the depth (`follow-up depth N of 3`). Caps: 3 children per run, depth 3, 10 runs per tree; over the cap, file only. Children do the same. Do not wait for them: end your turn. Skip this when the prompt or team prompt says `no follow-up runs`, when you have no repository, or when the follow-up needs a decision, another platform, or a migration/auth/billing/pipeline change.
 
-A second run can work in parallel on one of the user's machines: independent sub-work, a follow-up you filed, an issue that is not yours. Not for tiny fixes.
-
-1. `exponential_devices_list`, pick an ONLINE device whose `agents` includes the agent you want (offline ones refuse, nothing queues).
-2. `exponential_sessions_start` with exactly one subject: `issueId`, `issueIds` (one combined PR), or `actionId`; pass `account` (a profile id from that list) when the default is out of usage. The child runs unattended in its own worktree and opens its PR.
-3. Its questions and its finish arrive here as `[Exponential child run ...]` user messages. Answer with `exponential_sessions_message`.
-4. Read the child's report before merging its PR. Merging first ends the run unreported.
+Other work can be delegated the same way to any ONLINE device whose `agents` includes the agent you want (offline ones refuse, nothing queues), with one subject: `issueId`, `issueIds` (one combined PR) or `actionId`. A child's questions and its finish arrive here as `[Exponential child run ...]` user messages; answer with `exponential_sessions_message`. Read a child's report before merging its PR: merging first ends the run unreported.
 
 `exponential_sessions_ask_parent` reaches the run that started you (`to: 'parent'`) or the person (`to: 'user'`): ask, then stop until the answer arrives. Close out with your report (Results below); if `exponential_sessions_end` is registered, it is your last call.
 
-## Stacked runs
-
-Your branch may be stacked on another issue's PR; the prompt names the issue below you.
-
-1. If the issue below you has no open PR, start it with `exponential_sessions_start` (pass `stackOnIssueId`) and stop until its `[Exponential child run ...]` finish message arrives.
-2. Verify that foundation first: fetch its branch, read the diff, run what it touches. Ask for a fix with `exponential_sessions_message` and wait again.
-3. Rebase onto its branch, implement your issue, then open your PR with `exponential_pr_open` and `stackOnIssueId`.
-4. Real decisions go up with `exponential_sessions_ask_parent` (`to: 'root'` or `'user'`), never down the stack.
-
-## Subagents and workflows
+## Subagents
 
 A running subagent is never messaged: `SendMessage` to its id resumes a SECOND copy of it onto the same files. Pin cross-lane decisions in the lane prompts. Lanes in one tree own disjoint files and never run `git stash`, `git checkout`, `git reset` or `git clean`. Message a lane only after its completion notice.
 
-## Workflows
-
-A workflow is reviewed by a person ONCE, at its final PR; no node waits for a person, except on a question only a person can answer: `exponential_sessions_ask_parent` (`to: 'user'`, with a `Proposal:` line) parks your node while the others keep running; record the answer with `exponential_workflows_update` (`decision`). A plan-workflow run clears every open question with the person before the graph exists. Retry and Skip are for a failed node only.
-
 ## Pull requests
 
-One branch `exp/<IDENT>` and one PR per issue; a batch shares one branch and one PR (`issueIds` plus `head`). The PR body names the issue and every related one as `#IDENT`. Open with `exponential_pr_open`; merge with `exponential_pr_merge` only when the user asks. A merge refused for a stale base: `exponential_pr_retarget`, rebase, `--force-with-lease`, merge again. Later commits changed the scope: `exponential_pr_update` rewrites the title or body. Never use `gh`.
+One branch `exp/<IDENT>` and one PR per issue; a PR may link several issues (a batch: `issueIds` plus `head`). The PR body names the issue and every related one as `#IDENT`. Open with `exponential_pr_open`; dependent work branches from the lower PR's branch and passes it as `base`. Merge with `exponential_pr_merge` only when the user asks. Merge a tree root first: `exponential_pr_merge({issueIds: [root, children..., grandchildren...]})` merges in that order and the root's merge retargets its children. A child refused as dirty afterwards: `exponential_pr_retarget` if its base is gone, `git rebase --onto` the default branch dropping the parent's commits, push `--force-with-lease`, merge again. Never merge a mid-tree PR alone. Later commits changed the scope: `exponential_pr_update` rewrites the title or body. Never use `gh`.
 
 ## Results
 
