@@ -1832,16 +1832,21 @@ export function AgentSessionView({
               fold takes 10-170s with nothing measurable to report; the
               persistent marker row lands in the feed when it finishes. */}
           {compactingNow && (
-            <div className="border-t border-border/60 py-2">
+            <div className="py-1">
               <div className={TRANSCRIPT_COLUMN}>
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <CodingCompactIcon className="size-3 shrink-0" />
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground/80">
+                  <CodingCompactIcon className="size-3 shrink-0 opacity-75" />
                   <span>{COMPACTING_LABEL}</span>
                   {compacting?.trigger === `manual` && (
                     <span className="text-muted-foreground/60">requested</span>
                   )}
+                  {/* EXP-1157: a short hairline track beside the label, not
+                      a full-width bar. */}
+                  <Progress
+                    value={null}
+                    className="ml-1 h-0.5 w-[72px] shrink-0 bg-muted-foreground/12 [&>div]:bg-muted-foreground/55"
+                  />
                 </div>
-                <Progress value={null} className="mt-1 h-1" />
               </div>
             </div>
           )}

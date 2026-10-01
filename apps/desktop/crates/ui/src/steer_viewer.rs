@@ -7019,51 +7019,58 @@ impl SteerSessionView {
 
     /// EXP-724: the pinned strip while the agent folds its context. The bar
     /// is INDETERMINATE on purpose — no agent reports compaction progress,
-    /// and the only honest signal is "still going".
+    /// and the only honest signal is "still going". EXP-1157: a quiet
+    /// status line, not a banner — a short hairline track beside the label,
+    /// no divider above it.
     fn render_compaction_strip(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
-        let primary = cx.theme().primary;
         let row = h_flex()
-            .w_full()
             .min_w_0()
-            .gap_2()
+            .gap_1p5()
             .items_center()
             .child(
                 Icon::new(registry::CODING_COMPACT)
                     .xsmall()
-                    .text_color(muted.opacity(0.7)),
+                    .text_color(muted.opacity(0.6)),
             )
             .child(
                 div()
                     .flex_shrink_0()
                     .text_xs()
-                    .text_color(muted)
+                    .text_color(muted.opacity(0.8))
                     .child(COMPACTING_LABEL),
             )
             .child(
                 div()
-                    .flex_1()
-                    .min_w_0()
-                    .h(px(3.))
+                    .flex_shrink_0()
+                    .ml_1()
+                    .w(px(COMPACTING_TRACK_W))
+                    .h(px(2.))
                     .rounded_full()
-                    .bg(muted.opacity(0.15))
+                    .bg(muted.opacity(0.12))
                     .overflow_hidden()
                     .child(
                         div()
                             .h_full()
-                            .w(relative(0.3))
+                            .w(relative(0.35))
                             .rounded_full()
-                            .bg(primary.opacity(0.7))
+                            .bg(muted.opacity(0.55))
                             .with_animation(
                                 "steer-compacting",
                                 gpui::Animation::new(Duration::from_millis(1400))
                                     .repeat()
                                     .with_easing(bounce(ease_in_out)),
-                                |bar, delta| bar.ml(relative(delta * 0.7)),
+                                |bar, delta| bar.ml(relative(delta * 0.65)),
                             ),
                     ),
             );
-        banner_block(row.into_any_element()).into_any_element()
+        div()
+            .w_full()
+            .flex_shrink_0()
+            .px_3()
+            .py_1()
+            .child(work_column_row(row.into_any_element()))
+            .into_any_element()
     }
 
     /// EXP-698: pending images render as 48px THUMBNAILS with a corner ✕ —
@@ -7315,6 +7322,10 @@ fn strip_block(content: AnyElement) -> gpui::Div {
 /// pane's padding span the panel, the content sits in the reading column.
 /// They ran edge to edge and read as a different surface, like the strips
 /// before EXP-927.
+/// EXP-1157: the compaction strip's indeterminate track — a short accent
+/// beside its label, never the column's full width.
+const COMPACTING_TRACK_W: f32 = 72.;
+
 fn banner_block(content: AnyElement) -> gpui::Div {
     div()
         .w_full()
