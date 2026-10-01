@@ -10,7 +10,7 @@
 //!   toggle, no logo). Top: the team switcher + Search + New issue header
 //!   ([`render_left_column_header`], rendered FIXED by the `Shell` since
 //!   EXP-863). Middle (scrolling): the tool-window
-//!   selectors — **Inbox / Support / Devices / Actions / Automations /
+//!   selectors — **Inbox / Support / Devices / Actions / Workflows /
 //!   Reviews / Agent**, the team's boards, the **Sessions** section (EXP-791:
 //!   one row per open session tab or live run of the caller's — the rail is
 //!   the ONE navigation for coding sessions; hidden while empty), then
@@ -106,11 +106,6 @@ pub(crate) enum ToolWindow {
     /// EXP-851: the Reviews page's rows — a PR diff opened from there keeps
     /// the queue beside it.
     Reviews,
-    /// EXP-862: the Automations page's "Recent automated runs" log — opening
-    /// a finished automated run keeps that log beside it, and its Back goes
-    /// there rather than to the Agent page (an unattended run has no row on
-    /// the Agent page's lists).
-    Automations,
     /// EXP-981: the Workflows page's list — opening a workflow keeps it in
     /// the left column, and the detail's Back goes there.
     Workflows,
@@ -134,7 +129,6 @@ impl ToolWindow {
             ToolWindow::Files => Screen::Files,
             ToolWindow::SourceControl => Screen::SourceControl,
             ToolWindow::Reviews => Screen::Reviews,
-            ToolWindow::Automations => Screen::Automations,
             ToolWindow::Workflows => Screen::Workflows,
         }
     }
@@ -150,7 +144,6 @@ impl ToolWindow {
             ToolWindow::Files => "Files",
             ToolWindow::SourceControl => "Source Control",
             ToolWindow::Reviews => "Reviews",
-            ToolWindow::Automations => "Automations",
             ToolWindow::Workflows => domain::workflow_view::WORKFLOWS_TITLE,
         }
     }
@@ -415,7 +408,6 @@ pub(crate) fn focused_list(screen: Option<&Screen>) -> (ToolWindow, InboxTab) {
         Some(Screen::Files) => (ToolWindow::Files, InboxTab::Inbox),
         Some(Screen::SourceControl) => (ToolWindow::SourceControl, InboxTab::Inbox),
         Some(Screen::Reviews) => (ToolWindow::Reviews, InboxTab::Inbox),
-        Some(Screen::Automations) => (ToolWindow::Automations, InboxTab::Inbox),
         Some(Screen::Workflows) | Some(Screen::Workflow { .. }) => {
             (ToolWindow::Workflows, InboxTab::Inbox)
         }
@@ -1600,7 +1592,7 @@ impl RailView {
 
     /// A rail entry that navigates STRAIGHT to a tab-less full-page screen
     /// instead of activating a tool window (EXP-467's Actions entry,
-    /// generalized by EXP-686 for Devices / Actions / Automations, and by
+    /// generalized by EXP-686 for Devices / Actions, and by
     /// EXP-706 for Reviews): the settings gear's direct-navigation shape in
     /// the tool-icon slot. While its screen is up this entry is the ONE
     /// highlighted row.
@@ -1615,6 +1607,24 @@ impl RailView {
     ) -> gpui::AnyElement {
         let active = resolved_screen(&self.nav, cx).as_ref() == Some(&screen);
         self.rail_screen_entry_active(id, icon, label, screen, badge, active, cx)
+    }
+
+    /// The Actions entry. SLOP-2: it stays lit on ONE action's page too —
+    /// that page is reached through this list and has no entry of its own.
+    fn rail_actions_entry(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        let active = matches!(
+            resolved_screen(&self.nav, cx),
+            Some(Screen::Actions) | Some(Screen::Action { .. })
+        );
+        self.rail_screen_entry_active(
+            "rail-actions",
+            Icon::from(icons::registry::NAV_ACTIONS),
+            "Actions",
+            Screen::Actions,
+            None,
+            active,
+            cx,
+        )
     }
 
     /// [`Self::rail_screen_entry`] with the highlight decided by the CALLER —
@@ -2548,24 +2558,8 @@ impl Render for RailView {
                             None,
                             cx,
                         ))
-                        .child(self.rail_screen_entry(
-                            "rail-actions",
-                            Icon::from(icons::registry::NAV_ACTIONS),
-                            "Actions",
-                            Screen::Actions,
-                            None,
-                            cx,
-                        ))
-                        .child(self.rail_screen_entry(
-                            "rail-automations",
-                            Icon::from(icons::registry::NAV_AUTOMATIONS),
-                            "Automations",
-                            Screen::Automations,
-                            None,
-                            cx,
-                        ))
-                        // EXP-981: Workflows sits directly after Automations,
-                        // everywhere Automations appears.
+                        .child(self.rail_actions_entry(cx))
+                        // EXP-981: Workflows sits directly after Actions.
                         .child(self.rail_screen_entry(
                             "rail-workflows",
                             Icon::from(icons::registry::NAV_WORKFLOWS),
@@ -2635,7 +2629,7 @@ impl Render for RailView {
             // Settings/Account off small windows. Rail order (EXP-699, the
             // mobile tab-bar order; EXP-791 added Agent and Sessions;
             // EXP-878 the conditional Drafts entry under Inbox):
-            // [Inbox, Drafts?, Support, Devices, Actions, Automations,
+            // [Inbox, Drafts?, Support, Devices, Actions, Workflows,
             //  Reviews, Agent]
             // / Pinned (EXP-778) / boards + "+" / Running (EXP-923) / This
             // device: [Files, Source Control].
@@ -2662,8 +2656,8 @@ impl Render for RailView {
                     // personal pile before the team surfaces.
                     .children(drafts_entry)
                     .children(support_icon)
-                    // EXP-686: Devices · Actions · Automations, the three
-                    // surfaces the old Agents entry bundled.
+                    // EXP-686: Devices · Actions, the surfaces the old
+                    // Agents entry bundled.
                     .child(self.rail_screen_entry(
                         "rail-devices",
                         Icon::from(icons::registry::NAV_DEVICES),
@@ -2672,24 +2666,8 @@ impl Render for RailView {
                         None,
                         cx,
                     ))
-                    .child(self.rail_screen_entry(
-                        "rail-actions",
-                        Icon::from(icons::registry::NAV_ACTIONS),
-                        "Actions",
-                        Screen::Actions,
-                        None,
-                        cx,
-                    ))
-                    .child(self.rail_screen_entry(
-                        "rail-automations",
-                        Icon::from(icons::registry::NAV_AUTOMATIONS),
-                        "Automations",
-                        Screen::Automations,
-                        None,
-                        cx,
-                    ))
-                    // EXP-981: Workflows sits directly after Automations,
-                    // everywhere Automations appears.
+                    .child(self.rail_actions_entry(cx))
+                    // EXP-981: Workflows sits directly after Actions.
                     .child(self.rail_screen_entry(
                         "rail-workflows",
                         Icon::from(icons::registry::NAV_WORKFLOWS),
@@ -2869,11 +2847,9 @@ pub struct ListPanel {
     /// column's origin (or the Inbox tab) changes, since both lists share it.
     nav_list_scroll: VirtualListScrollHandle,
     /// EXP-915: the other sidebar lists' memoized queries — the inbox
-    /// grouping, the Reviews queue and the Automations log's row facts.
+    /// grouping and the Reviews queue.
     inbox_data: queries::Memo<queries::InboxDataKey, queries::InboxData>,
     reviews_data: queries::Memo<queries::ReviewGroupsKey, Vec<queries::ReviewGroup>>,
-    automation_facts:
-        queries::Memo<queries::AutomatedRunsKey, Vec<crate::run_rows::RunListFacts>>,
     /// EXP-981: the workflows list's rows — derived when the two workflow
     /// shapes move, never per repaint.
     workflows_data: queries::Memo<queries::WorkflowDataKey, Vec<domain::rows::WorkflowRow>>,
@@ -3008,7 +2984,6 @@ impl ListPanel {
             nav_list_scroll: VirtualListScrollHandle::new(),
             inbox_data: queries::Memo::default(),
             reviews_data: queries::Memo::default(),
-            automation_facts: queries::Memo::default(),
             workflows_data: queries::Memo::default(),
             _subscriptions: subscriptions,
         }
@@ -4755,67 +4730,6 @@ impl ListPanel {
         self.nav_scroll("list-nav-reviews-scroll", rows, cx)
     }
 
-    /// The Automations `ListNav` body (EXP-862): this team's automated runs,
-    /// newest first — the same rows and the same projection
-    /// ([`queries::automated_runs`]) the Automations page's "Recent automated
-    /// runs" log draws, with the open run selected. Opening a finished
-    /// automated run is the one path that lands here, and its Back goes to
-    /// the Automations page.
-    fn render_automations_nav(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        let team_id = active_team_id(&self.nav, cx);
-        let now_secs = chrono::Utc::now().timestamp();
-        // EXP-915: the log's rows are derived when a collection they read
-        // moves or the 5s clock ticks — never per repaint (every run row was
-        // cloned and re-captioned on each scrolled pixel).
-        let facts = {
-            let app: &App = cx;
-            let key = queries::automated_runs_key(app, team_id.as_deref(), now_secs);
-            self.automation_facts.get_or_insert_with(key, || {
-                queries::automated_runs(app, team_id.as_deref())
-                    .iter()
-                    .map(|session| {
-                        crate::run_rows::RunListFacts::derive(session, now_secs, app)
-                    })
-                    .collect()
-            })
-        };
-        if facts.is_empty() {
-            return self.list_note("Nothing has fired yet.", cx);
-        }
-        let open_session = match resolved_screen(&self.nav, cx) {
-            Some(Screen::Session { session_id }) => Some(session_id),
-            _ => None,
-        };
-        let origin = self.row_origin(cx);
-        let mut rows: Vec<gpui::AnyElement> = Vec::with_capacity(facts.len());
-        for (index, facts) in facts.iter().cloned().enumerate() {
-            let open_id = facts.session_id().to_string();
-            let active = open_session.as_deref() == Some(open_id.as_str());
-            let origin = origin.clone();
-            // EXP-874: the shared run rows (live → running row, ended → past
-            // row); automated runs are flat HERE (depth 0, no fold) — the
-            // Automations page is where the run tree nests (EXP-897).
-            rows.push(crate::run_rows::render_run_list_row(
-                "list-nav-automation",
-                index,
-                domain::tree_guides::Guides::default(),
-                None,
-                facts,
-                active,
-                Box::new(move |_, window, cx| {
-                    crate::session_screen::open_session_with_origin(
-                        &open_id,
-                        origin.clone(),
-                        window,
-                        cx,
-                    );
-                }),
-                cx,
-            ));
-        }
-        self.nav_scroll("list-nav-automations-scroll", rows, cx)
-    }
-
     /// The shared `ListNav` scroll body.
     /// The Workflows `ListNav` body (EXP-981): this team's workflows in the
     /// same three bands the page draws, with the open one selected. Opening
@@ -4958,7 +4872,6 @@ impl ListPanel {
             ToolWindow::Inbox => self.render_inbox_tool(cx),
             ToolWindow::Support => self.render_support_tool(cx),
             ToolWindow::Reviews => self.render_reviews_nav(cx),
-            ToolWindow::Automations => self.render_automations_nav(cx),
             ToolWindow::Workflows => self.render_workflows_nav(cx),
             // Files / Source Control are not list ORIGINS (`Screen::list_origin`).
             ToolWindow::Files | ToolWindow::SourceControl => div().into_any_element(),
@@ -5022,7 +4935,6 @@ impl Render for ListPanel {
                         self.nav_statuses.clear();
                         self.inbox_data.clear();
                         self.reviews_data.clear();
-                        self.automation_facts.clear();
                         self.workflows_data.clear();
                     }
                 }
@@ -5150,15 +5062,10 @@ mod tests {
             Screen::SourceControl
         );
         assert_eq!(ToolWindow::Reviews.origin_screen(None), Screen::Reviews);
-        assert_eq!(
-            ToolWindow::Automations.origin_screen(None),
-            Screen::Automations
-        );
         // The back row's words — a board overrides with its own name.
         assert_eq!(ToolWindow::Inbox.list_label(), "Inbox");
         assert_eq!(ToolWindow::Support.list_label(), "Support");
         assert_eq!(ToolWindow::Reviews.list_label(), "Reviews");
-        assert_eq!(ToolWindow::Automations.list_label(), "Automations");
         // EXP-981.
         assert_eq!(ToolWindow::Workflows.origin_screen(None), Screen::Workflows);
         assert_eq!(ToolWindow::Workflows.list_label(), "Workflows");
@@ -5243,10 +5150,6 @@ mod tests {
         assert_eq!(
             focused_list(Some(&Screen::Reviews)).0,
             ToolWindow::Reviews
-        );
-        assert_eq!(
-            focused_list(Some(&Screen::Automations)).0,
-            ToolWindow::Automations
         );
         // EXP-981: the list and its detail share one focused list.
         assert_eq!(

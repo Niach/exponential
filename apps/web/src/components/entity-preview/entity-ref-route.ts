@@ -1,4 +1,5 @@
 import type { EntityRef } from "@/lib/mcp/preview"
+import { isBuiltinActionId } from "@/lib/builtin-actions"
 
 // EXP-920: where a tool-row chip GOES — the pure half of
 // `useEntityRefTarget`. A ref carries ids, never slugs (three of the four
@@ -77,17 +78,13 @@ export function entityRefRoute(
         : null
     }
     case `action`:
-      return {
-        to: `/t/$teamSlug/actions`,
-        params: { teamSlug },
-        search: { editAction: ref.id },
-      }
-    case `automation`:
-      return {
-        to: `/t/$teamSlug/automations`,
-        params: { teamSlug },
-        search: { editAutomation: ref.id },
-      }
+      // A builtin has no page of its own; it lives in the list.
+      return isBuiltinActionId(ref.id)
+        ? { to: `/t/$teamSlug/actions`, params: { teamSlug } }
+        : {
+            to: `/t/$teamSlug/actions/$actionId`,
+            params: { teamSlug, actionId: ref.id },
+          }
     case `comment`: {
       const issueId = ctx.commentIssueId(ref.id)
       return issueId ? issueRoute(teamSlug, ctx.issueById(issueId)) : null

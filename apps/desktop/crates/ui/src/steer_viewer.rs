@@ -7552,7 +7552,7 @@ fn exp_open_results_button(id: FeedItemId, run_id: &str, cx: &App) -> AnyElement
 /// * `pr` — a link row opening the pull request in the browser;
 /// * `list` — "N results";
 /// * `results` — never reaches here: its row carries `Open Results` instead;
-/// * `session` / `board` / `action` / `automation` / `comment` — a name chip;
+/// * `session` / `board` / `action` / `comment` — a name chip;
 /// * `none` — nothing: the caption said it all.
 ///
 /// EXP-920: a preview carrying `refs` renders the ENTITY CHIP ROW instead
@@ -7652,7 +7652,7 @@ fn exp_tool_preview_row(
                     .into_any_element()
             }),
         kind::NONE | kind::RESULTS => None,
-        // session / board / action / automation / comment: a name chip.
+        // session / board / action / comment: a name chip.
         _ => exp_preview_label(preview).map(|label| exp_preview_chip(registry::CODING_TOOL, label, cx)),
     }
 }

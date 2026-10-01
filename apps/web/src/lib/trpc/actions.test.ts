@@ -41,6 +41,8 @@ const h = vi.hoisted(() => {
               onConflictDoNothing: () => ({
                 returning: async () => [{ id: `new-action`, ...values }],
               }),
+              // The legacy automations mirror upserts by trigger id.
+              onConflictDoUpdate: async () => undefined,
             }
           },
         }),
@@ -74,7 +76,7 @@ vi.mock(`@/lib/team-membership`, () => ({
 }))
 // loadAction / assertRepoInTeam import the db lazily — same fake.
 vi.mock(`@/db/connection`, () => ({ db: h.fakeDb }))
-// EXP-707: writes mint a txId sync barrier (automations.test.ts precedent).
+// EXP-707: writes mint a txId sync barrier.
 vi.mock(`@/lib/trpc`, async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>()
   return { ...mod, generateTxId: async () => 42 }
@@ -87,6 +89,7 @@ const { selectResults, inserts, updates, deletes, fakeDb } = h
 
 const TEAM_ID = `11111111-1111-4111-8111-111111111111`
 const ACTION_ID = `22222222-2222-4222-8222-222222222222`
+const TRIGGER_ID = `33333333-3333-4333-8333-333333333333`
 const BUILTIN_ID = `builtin:create-action`
 const FIX_CONFLICTS_ID = `builtin:fix-conflicts`
 
@@ -197,9 +200,9 @@ describe(`actions — tidy-up builtin (FEED-50)`, () => {
     expect(inserts).toHaveLength(0)
   })
 
-  // automations.action_id lost its FK (it may name the builtin), so the
-  // delete itself cascades: automations first, then the action row.
-  it(`delete removes the action's automations in the same transaction`, async () => {
+  // The legacy mirror's action_id carries no FK, so the delete itself
+  // cascades: mirror rows first, then the action row.
+  it(`delete removes the action's mirror rows in the same transaction`, async () => {
     selectResults.push([
       { id: ACTION_ID, teamId: TEAM_ID, name: `Nightly`, inputs: [] },
     ])
@@ -293,10 +296,10 @@ describe(`actions.create — inputs + reserved name (EXP-257)`, () => {
   })
 })
 
-// EXP-583: automations are their own rows; the actions router keeps ONE
-// guard — an input can't turn required while an ENABLED automation targets
-// the action (automated runs fill no inputs).
-describe(`actions.update — required inputs vs automations (EXP-583)`, () => {
+// SLOP-2: an action carries its triggers. A triggered run fills no inputs, so
+// an enabled trigger and a required input can never meet, whichever side the
+// write changes.
+describe(`actions.update — required inputs vs triggers`, () => {
   const requiredInput = {
     key: `target`,
     label: `Target`,
@@ -304,11 +307,19 @@ describe(`actions.update — required inputs vs automations (EXP-583)`, () => {
     required: true,
   }
   const optionalInput = { ...requiredInput, required: false }
+  const stored = (enabled: boolean) => ({
+    id: TRIGGER_ID,
+    enabled,
+    deviceId: `dev-1`,
+    kind: `schedule` as const,
+    interval: `daily` as const,
+    minuteOfDay: 540,
+  })
 
-  it(`refuses adding a required input to an action with an enabled automation`, async () => {
-    selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Sweep`, inputs: [] }])
-    // assertNoEnabledAutomation probe finds one.
-    selectResults.push([{ id: `auto-1` }])
+  it(`refuses adding a required input to an action with an enabled trigger`, async () => {
+    selectResults.push([
+      { id: ACTION_ID, teamId: TEAM_ID, name: `Sweep`, inputs: [], triggers: [stored(true)] },
+    ])
     const error = await rejectionOf(
       caller.update({ id: ACTION_ID, inputs: [requiredInput] })
     )
@@ -317,64 +328,152 @@ describe(`actions.update — required inputs vs automations (EXP-583)`, () => {
     expect(updates).toHaveLength(0)
   })
 
-  it(`allows a required input when no enabled automation targets the action`, async () => {
-    selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Sweep`, inputs: [] }])
-    selectResults.push([])
+  it(`allows a required input while every trigger is paused`, async () => {
+    selectResults.push([
+      { id: ACTION_ID, teamId: TEAM_ID, name: `Sweep`, inputs: [], triggers: [stored(false)] },
+    ])
     await caller.update({ id: ACTION_ID, inputs: [requiredInput] })
     expect(updates[0]!.inputs).toEqual([requiredInput])
   })
 
-  it(`allows making the inputs optional on an automated action`, async () => {
+  it(`refuses enabling a trigger on an action with a required input`, async () => {
     selectResults.push([
-      { id: ACTION_ID, teamId: TEAM_ID, name: `Sweep`, inputs: [requiredInput] },
+      {
+        id: ACTION_ID,
+        teamId: TEAM_ID,
+        name: `Sweep`,
+        inputs: [requiredInput],
+        triggers: [stored(false)],
+      },
+    ])
+    const error = await rejectionOf(
+      caller.update({ id: ACTION_ID, triggers: [stored(true)] })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect((error as TRPCError).message).toContain(`required inputs`)
+    expect(updates).toHaveLength(0)
+  })
+
+  it(`allows making the inputs optional on a triggered action`, async () => {
+    selectResults.push([
+      {
+        id: ACTION_ID,
+        teamId: TEAM_ID,
+        name: `Sweep`,
+        inputs: [requiredInput],
+        triggers: [stored(false)],
+      },
     ])
     await caller.update({ id: ACTION_ID, inputs: [optionalInput] })
     expect(updates[0]!.inputs).toEqual([optionalInput])
   })
 })
 
-// ── EXP-825: the input kinds are PICKS only ──────────────────────────────────
-// Free text reaches a run through the start's `prompt`, never an input def,
-// so `text`/`textarea` are not kinds any more (the compat shim that dropped
-// them retired with the 0.14.30/0.14.32/0.14.37 floors).
-
-describe(`actions.create/update — input kinds`, () => {
-  it(`rejects the retired text/textarea kinds on create`, async () => {
-    for (const type of [`text`, `textarea`]) {
-      const error = await rejectionOf(
-        caller.create({
-          teamId: TEAM_ID,
-          name: `Release`,
-          body: `x`,
-          inputs: [{ key: `scope`, label: `Scope`, type: type as never }],
-        })
-      )
-      expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
-    }
-    expect(inserts).toHaveLength(0)
+describe(`actions.update — triggers (SLOP-2)`, () => {
+  const existing = {
+    id: TRIGGER_ID,
+    enabled: true,
+    deviceId: `dev-1`,
+    agent: `claude`,
+    kind: `schedule` as const,
+    interval: `daily` as const,
+    minuteOfDay: 540,
+  }
+  const ownDevice = {
+    userId: `actor`,
+    sharedTeamIds: [],
+    kind: `desktop`,
+    caps: [`automations`],
+    agents: [`claude`],
+  }
+  const action = (triggers: unknown[]) => ({
+    id: ACTION_ID,
+    teamId: TEAM_ID,
+    name: `Sweep`,
+    inputs: [],
+    triggers,
   })
 
-  it(`rejects the retired kinds on update too`, async () => {
+  it(`keeps a held trigger's id, mints one for a new trigger and stores the event source`, async () => {
+    selectResults.push([action([existing])])
+    // The new trigger's device is checked; the unchanged binding is not.
+    selectResults.push([ownDevice])
+    await caller.update({
+      id: ACTION_ID,
+      triggers: [
+        { ...existing, enabled: false },
+        { deviceId: `dev-1`, kind: `event`, event: `pr_merged`, model: null },
+      ],
+    })
+    const written = updates[0]!.triggers as Record<string, unknown>[]
+    expect(written[0]).toEqual({ ...existing, enabled: false })
+    expect(written[1]).toEqual({
+      id: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      enabled: true,
+      deviceId: `dev-1`,
+      kind: `event`,
+      source: `exponential`,
+      event: `pr_merged`,
+    })
+    expect(written[1]!.id).not.toBe(TRIGGER_ID)
+  })
+
+  it(`re-mints an id the action does not hold (ids are the mirror's keys)`, async () => {
+    selectResults.push([action([])])
+    selectResults.push([ownDevice])
+    await caller.update({ id: ACTION_ID, triggers: [existing] })
+    const written = updates[0]!.triggers as Record<string, unknown>[]
+    expect(written[0]!.id).not.toBe(TRIGGER_ID)
+  })
+
+  it(`mirrors the triggers into the legacy automations rows, when-part only`, async () => {
+    selectResults.push([action([existing])])
+    await caller.update({ id: ACTION_ID, triggers: [existing] })
+    // Rows the action no longer holds go; the kept one is upserted by id.
+    expect(deletes).toEqual([automations])
+    expect(inserts).toEqual([
+      {
+        id: TRIGGER_ID,
+        teamId: TEAM_ID,
+        actionId: ACTION_ID,
+        deviceId: `dev-1`,
+        enabled: true,
+        trigger: { kind: `schedule`, interval: `daily`, minuteOfDay: 540 },
+        agent: `claude`,
+        account: null,
+        model: null,
+        effort: null,
+        sortOrder: 1,
+      },
+    ])
+  })
+
+  it(`refuses a device that is neither the caller's nor shared with the team`, async () => {
+    selectResults.push([action([])])
+    selectResults.push([{ ...ownDevice, userId: `someone-else` }])
     const error = await rejectionOf(
-      caller.update({
-        id: ACTION_ID,
-        inputs: [{ key: `topic`, label: `Topic`, type: `text` as never }],
-      })
+      caller.update({ id: ACTION_ID, triggers: [{ ...existing, id: undefined }] })
     )
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect((error as TRPCError).message).toContain(`device must be yours`)
     expect(updates).toHaveLength(0)
   })
 
-  it(`still rejects an unknown input kind`, async () => {
-    const error = await rejectionOf(
-      caller.create({
-        teamId: TEAM_ID,
-        name: `Bogus`,
-        body: `x`,
-        inputs: [{ key: `x`, label: `X`, type: `number` as never }],
-      })
-    )
-    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
-    expect(inserts).toHaveLength(0)
+  it(`refuses an account pin without its agent, and an unknown model`, async () => {
+    for (const pins of [{ agent: null, account: `work` }, { model: `gpt-nope` }]) {
+      selectResults.length = 0
+      selectResults.push([action([existing])])
+      const error = await rejectionOf(
+        caller.update({ id: ACTION_ID, triggers: [{ ...existing, ...pins }] })
+      )
+      expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    }
+    expect(updates).toHaveLength(0)
+  })
+
+  it(`lets the migrated Tidy up row keep its reserved name`, async () => {
+    selectResults.push([{ ...action([]), name: `Tidy up` }])
+    await caller.update({ id: ACTION_ID, name: `Tidy up`, description: `Mine` })
+    expect(updates[0]!.description).toBe(`Mine`)
   })
 })

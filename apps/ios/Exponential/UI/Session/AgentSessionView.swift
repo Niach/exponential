@@ -3020,7 +3020,7 @@ private struct ToolRow: View {
 ///                                   resolved off the store and tappable
 ///   pr                            → a link row opening the pull request
 ///   list                          → "N results"
-///   session/board/action/automation → a name chip
+///   session/board/action          → a name chip
 ///   results                       → an `Open Results` button (EXP-933)
 ///   none                          → the caption alone
 ///
@@ -3131,7 +3131,7 @@ private struct ExpToolRow: View {
         case .results:
             // The `Open Results` button below the row IS its preview.
             EmptyView()
-        case .session, .board, .action, .automation, .comment:
+        case .session, .board, .action, .comment:
             // A name/identifier chip — never a bare uuid: an id the reader
             // cannot place says less than the caption already did.
             if let name = preview.title ?? preview.identifier {

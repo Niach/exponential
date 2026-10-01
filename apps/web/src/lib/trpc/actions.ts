@@ -5,11 +5,18 @@ import {
   actionIconSchema,
   actionInputsSchema,
   actionPromptPlaceholderSchema,
+  actionTriggersSchema,
 } from "@exp/db-schema/domain"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { actions, automations, repositories } from "@/db/schema"
 import { assertTeamMember, assertTeamOwner } from "@/lib/team-membership"
 import { isUniqueViolation } from "@/lib/trpc/db-errors"
+import {
+  assertTriggersRunnable,
+  resolveTriggersWrite,
+  storedTriggers,
+} from "@/lib/action-trigger-rules"
+import { syncAutomationMirror } from "@/lib/action-triggers-mirror"
 import {
   BUILTIN_CREATE_ACTION_ID,
   BUILTIN_CHAT_ID,
@@ -53,6 +60,7 @@ const wireColumns = {
   body: actions.body,
   inputs: actions.inputs,
   promptPlaceholder: actions.promptPlaceholder,
+  triggers: actions.triggers,
   sortOrder: actions.sortOrder,
   createdAt: actions.createdAt,
   updatedAt: actions.updatedAt,
@@ -116,40 +124,6 @@ async function assertRepoInTeam(repositoryId: string, teamId: string) {
     throw new TRPCError({
       code: `BAD_REQUEST`,
       message: `Repository must belong to the team`,
-    })
-  }
-}
-
-// EXP-530/EXP-583: there is no server scheduler — the bound device selects
-// its automations off Electric and self-starts the target action with NO
-// input values. An action declaring required inputs while an ENABLED
-// automation targets it would run a prompt referencing values nobody ever
-// provided, so refuse the pairing at write time on BOTH sides (here when an
-// input turns required; in the automations router when one is created or
-// enabled). Tolerant reader: `inputs` is jsonb from possibly newer clients.
-export const AUTOMATION_REQUIRED_INPUTS_MESSAGE = `Automations can't run actions with required inputs. Make the inputs optional first.`
-
-export function hasRequiredInput(inputs: unknown): boolean {
-  if (!Array.isArray(inputs)) return false
-  return inputs.some(
-    (def) =>
-      Boolean(def) &&
-      typeof def === `object` &&
-      (def as { required?: unknown }).required === true
-  )
-}
-
-async function assertNoEnabledAutomation(actionId: string): Promise<void> {
-  const { db } = await import(`@/db/connection`)
-  const [row] = await db
-    .select({ id: automations.id })
-    .from(automations)
-    .where(and(eq(automations.actionId, actionId), eq(automations.enabled, true)))
-    .limit(1)
-  if (row) {
-    throw new TRPCError({
-      code: `BAD_REQUEST`,
-      message: AUTOMATION_REQUIRED_INPUTS_MESSAGE,
     })
   }
 }
@@ -310,6 +284,9 @@ export const actionsRouter = router({
         body: bodySchema.optional(),
         inputs: actionInputsSchema.optional(),
         promptPlaceholder: actionPromptPlaceholderSchema.nullable().optional(),
+        // SLOP-2: whole-array replace, like inputs. A trigger keeps its id
+        // when the action already holds it; a new one gets a server id.
+        triggers: actionTriggersSchema.optional(),
         sortOrder: z.number().finite().optional(),
       })
     )
@@ -317,14 +294,28 @@ export const actionsRouter = router({
       rejectBuiltin(input.id, `edited`)
       const existing = await loadAction(input.id)
       await assertTeamOwner(ctx.session.user.id, existing.teamId)
-      if (input.name !== undefined) assertNotReservedName(input.name)
+      // A rename only: the migrated "Tidy up" row (SLOP-2) keeps its name.
+      if (input.name !== undefined && input.name !== existing.name) {
+        assertNotReservedName(input.name)
+      }
       if (input.repositoryId) {
         await assertRepoInTeam(input.repositoryId, existing.teamId)
       }
-      // Adding a required input to an already-automated action is refused,
-      // mirroring the automations router's guard on create/enable.
-      if (input.inputs !== undefined && hasRequiredInput(input.inputs)) {
-        await assertNoEnabledAutomation(input.id)
+      const triggers =
+        input.triggers === undefined
+          ? undefined
+          : await resolveTriggersWrite({
+              written: input.triggers,
+              existing: storedTriggers(existing.triggers),
+              teamId: existing.teamId,
+              callerUserId: ctx.session.user.id,
+            })
+      // A triggered run fills no inputs: refused whichever side changes.
+      if (input.inputs !== undefined || triggers !== undefined) {
+        assertTriggersRunnable(
+          input.inputs ?? existing.inputs,
+          triggers ?? storedTriggers(existing.triggers)
+        )
       }
 
       // Pre-check renames against the (teamId, name) unique so the caller
@@ -359,6 +350,7 @@ export const actionsRouter = router({
       if (input.promptPlaceholder !== undefined) {
         updates.promptPlaceholder = input.promptPlaceholder || null
       }
+      if (triggers !== undefined) updates.triggers = triggers
       if (input.sortOrder !== undefined) updates.sortOrder = input.sortOrder
 
       // Nothing to change — return the current row (drizzle rejects an empty
@@ -392,6 +384,13 @@ export const actionsRouter = router({
               message: `Action not found`,
             })
           }
+          if (triggers !== undefined) {
+            await syncAutomationMirror(tx, {
+              id: existing.id,
+              teamId: existing.teamId,
+              triggers,
+            })
+          }
           return { action, txId }
         })
       } catch (err) {
@@ -406,9 +405,8 @@ export const actionsRouter = router({
 
   // Live coding_sessions rows survive a delete batch-shaped: action_id nulls
   // (FK SET NULL) while the action_name snapshot keeps labeling the run.
-  // Automations targeting the action go with it in the same transaction
-  // (EXP-583; FEED-50: `automations.action_id` is text so it can name the
-  // tidy-up builtin, so this delete IS the cascade).
+  // Its triggers go with the row; so do their legacy mirror rows, in the
+  // same transaction (`automations.action_id` carries no FK).
   delete: authedProcedure
     .input(z.object({ id: actionIdSchema }))
     .mutation(async ({ ctx, input }) => {

@@ -76,6 +76,7 @@ import com.exponential.app.ui.reviews.ReviewsScreen
 import com.exponential.app.ui.issue.IssueListMode
 import com.exponential.app.ui.issue.IssueListScreen
 import com.exponential.app.ui.issue.ChangesScreen
+import com.exponential.app.ui.actions.ActionDetailScreen
 import com.exponential.app.ui.actions.ActionsScreen
 import com.exponential.app.ui.search.SearchScreen
 import com.exponential.app.ui.work.WorkScreen
@@ -111,9 +112,6 @@ import dagger.hilt.android.EntryPointAccessors
  * on the top-level routes. Replaces the inline graph + `MainScaffold` drawer
  * shell that used to live in MainActivity.
  */
-/** EXP-920: the saved-state key the Actions entry reads its requested segment from. */
-private const val ACTIONS_SEGMENT_KEY = "exp.actions.segment"
-
 @Composable
 fun AppNavHost() {
     val viewModel: AppViewModel = hiltViewModel()
@@ -479,14 +477,11 @@ private fun AuthenticatedNav(
                 is EntityTarget.Workflow -> navController.navigate("workflow/${target.id}")
                 is EntityTarget.SupportThread -> navController.navigate("support/${target.id}")
                 EntityTarget.Workflows -> navController.navigate("workflows") { launchSingleTop = true }
-                EntityTarget.Actions, EntityTarget.Automations -> {
-                    navController.navigate("actions") {
-                        launchSingleTop = true
-                        popUpTo("home")
-                    }
-                    runCatching { navController.getBackStackEntry("actions") }.getOrNull()
-                        ?.savedStateHandle
-                        ?.set(ACTIONS_SEGMENT_KEY, if (target == EntityTarget.Automations) "automations" else null)
+                // SLOP-2: an `action` ref opens that action's page.
+                is EntityTarget.Action -> navController.navigate("action/${target.id}")
+                EntityTarget.Actions -> navController.navigate("actions") {
+                    launchSingleTop = true
+                    popUpTo("home")
                 }
                 EntityTarget.Devices -> navController.navigate("agents") {
                     launchSingleTop = true
@@ -575,19 +570,23 @@ private fun AuthenticatedNav(
             // the settings gear, and runs start from the Agent page composer.
             AgentsScreen()
         }
-        composable("actions") { entry ->
-            // Team actions (EXP-253, view + run only) — its own bottom-bar tab
-            // since EXP-686; NOT helpdesk-gated.
-            // EXP-920: an entity preview's Open on an automation asks for that
-            // segment through the entry's saved state (the route stays
-            // `actions`, which the tab bar compares against).
-            val requestedSegment by entry.savedStateHandle
-                .getStateFlow<String?>(ACTIONS_SEGMENT_KEY, null)
-                .collectAsStateWithLifecycle()
+        composable("actions") {
+            // Team actions (EXP-253) — its own bottom-bar tab since EXP-686;
+            // NOT helpdesk-gated.
             ActionsScreen(
-                onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
                 onOpenAgent = openAgent,
-                requestedSegment = requestedSegment,
+                onOpenAction = { id -> navController.navigate("action/$id") },
+            )
+        }
+        composable("action/{actionId}") {
+            // SLOP-2: one action — Prompt | Triggers | Runs on a pager. The
+            // ViewModel reads actionId from its SavedStateHandle like the
+            // workflow-detail route does; a run opened from Runs pops back
+            // here.
+            ActionDetailScreen(
+                onBack = { navController.popBackStack() },
+                onOpenAgent = openAgent,
+                onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
             )
         }
         composable(

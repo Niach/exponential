@@ -20,7 +20,7 @@ import {
   workflowCollection,
 } from "@/lib/collections"
 import { buildPrOptions, findPrOptionForIssue } from "@/lib/pr-options"
-import type { ActionRepoOption } from "@/components/action-editor-dialog"
+import type { ActionRepoOption } from "@/components/action-prompt-form"
 
 // The selected action's typed input fields (EXP-257; EXP-825 retired the
 // free-text kinds — the composer's own text is the run's instructions):

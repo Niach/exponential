@@ -411,14 +411,15 @@ data class CodingSessionEntity(
     // Both null on ordinary issue/batch sessions.
     @ColumnInfo(name = "action_id") @SerialName("action_id") @JsonNames("actionId") val actionId: String? = null,
     @ColumnInfo(name = "action_name") @SerialName("action_name") @JsonNames("actionName") val actionName: String? = null,
-    // EXP-530: why an automation started this run (`schedule` | `event`);
-    // NULL on every user-started session. Powers the automated-run list and
-    // keeps automation rows out of the post-send start watch (StartedRunMatch).
+    // EXP-530: which kind of trigger started this run (`schedule` | `event`);
+    // NULL on every user-started session. Titles the row on an
+    // action page's Runs and keeps triggered rows out of the post-send start
+    // watch (StartedRunMatch).
     @ColumnInfo(name = "started_reason") @SerialName("started_reason") @JsonNames("startedReason") val startedReason: String? = null,
-    // EXP-583: the automations row that fired this run (FK SET NULL), NULL on
-    // every user-started session. The Automations tab's "last run" column
-    // joins on it — an action can carry several automations now, so the
-    // action_id link no longer identifies which one ran.
+    // EXP-583 / SLOP-2: the id of the TRIGGER that fired this run (an element
+    // of its action's `triggers`; the column keeps its old name), NULL on
+    // every user-started session. An action can carry several triggers, so
+    // the action_id link alone does not identify which one ran.
     @ColumnInfo(name = "automation_id") @SerialName("automation_id") @JsonNames("automationId") val automationId: String? = null,
     // EXP-734: the run's OWN pull request. Populated only when the PR links no
     // issue — an action or chat run (issue_id NULL) that opened one via MCP
@@ -462,11 +463,11 @@ data class ActionEntity(
     // jsonb array of typed run-input defs ({key,label,type,required,placeholder}
     // — EXP-257), kept as its raw JSON string and parsed at the consumer.
     @Serializable(with = JsonAsStringSerializer::class) val inputs: String? = null,
-    // DEAD since EXP-583: automations became their own table + shape, and the
-    // server dropped this column. The local column stays (nullable, always
-    // NULL now) because removing it would need a Room migration for no gain —
-    // nothing reads it. Do not resurrect it.
-    @Serializable(with = JsonAsStringSerializer::class) val trigger: String? = null,
+    // SLOP-2: the action's triggers — a jsonb array of {id, enabled, deviceId,
+    // agent pins, when-part}, kept as its raw JSON string and parsed
+    // tolerantly at the consumer (`parseActionTriggers` — an unreadable
+    // element is skipped, never a crash). Absent/NULL = no triggers.
+    @Serializable(with = JsonAsStringSerializer::class) val triggers: String? = null,
     // EXP-825: the composer's field hint while this action is picked (≤200
     // chars, server-trimmed); null = the generic "Additional instructions
     // (optional)…" prompt. Absent on rows synced before the column existed.
@@ -476,41 +477,9 @@ data class ActionEntity(
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
 )
 
-// One automation (EXP-583, the 19th Electric shape): an action + a bound
-// device + the WHEN-part trigger, team-scoped. Split out of `actions.trigger`
-// so an action can carry several automations (and none by default). The bound
-// device selects its own enabled rows off this shape and fires locally —
-// there is no server scheduler. `agent`/`model`/`effort` NULL = the device's
-// own launch defaults.
-@Entity(
-    tableName = "automations",
-    indices = [Index("team_id"), Index("action_id")],
-)
-@Serializable
-data class AutomationEntity(
-    @PrimaryKey val id: String,
-    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String,
-    @ColumnInfo(name = "action_id") @SerialName("action_id") @JsonNames("actionId") val actionId: String,
-    // The steer deviceId (= devices.device_id) of the machine that runs it.
-    @ColumnInfo(name = "device_id") @SerialName("device_id") @JsonNames("deviceId") val deviceId: String = "",
-    val enabled: PgBool = true,
-    // The when-part jsonb as its raw JSON string, parsed tolerantly at the
-    // consumer (AutomationTrigger.parse — unknown kinds read as null).
-    @Serializable(with = JsonAsStringSerializer::class) val trigger: String? = null,
-    val agent: String? = null,
-    // EXP-995: the agent profile id the run spends on the bound device — it
-    // belongs to `agent`; null = unpinned, that machine's LAST USED login.
-    val account: String? = null,
-    val model: String? = null,
-    val effort: String? = null,
-    @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double = 0.0,
-    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
-    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
-)
-
 // One workflow (EXP-981, the 23rd Electric shape): a picked set of backlog
 // issues of ONE repository, planned as a DAG and — from the engine on — run by
-// the bound device. Team-scoped like `automations` (a workflow spans boards,
+// the bound device. Team-scoped like `actions` (a workflow spans boards,
 // so the board trash rules do not apply). The `blocks` relations among the
 // covered issues are the EDGES and are never copied here.
 //

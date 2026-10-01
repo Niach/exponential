@@ -166,7 +166,7 @@ internal fun AccountPickerPill(
  * health badge when the credential is dead, and a chevron only when [onClick]
  * opens something. EXP-1021 split it out of [AccountPickerPill] so a surface
  * can keep this exact capsule while its options move into the shared
- * `AccountPicker` sheet (the automation editor's pin).
+ * `AccountPicker` sheet (the trigger form's pin).
  */
 @Composable
 internal fun AccountPill(

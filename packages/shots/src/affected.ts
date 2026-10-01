@@ -734,7 +734,7 @@ const NATIVE_DIRS: { dir: string; views: RegExp }[] = [
   { dir: `personal`, views: /^(inbox|my-issues)$/ },
   { dir: `support`, views: /^support-/ },
   { dir: `settings`, views: /^settings-/ },
-  { dir: `actions`, views: /^(agents|actions-mobile|action-|automations)/ },
+  { dir: `actions`, views: /^(agents|actions-mobile|action-|trigger-)/ },
   // The coding family: the Agent composer, the agents surface, the machine
   // dialogs and the steering screen all live in one folder on both platforms
   // and share their view models.

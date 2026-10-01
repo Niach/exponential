@@ -80,7 +80,6 @@ import {
   User,
   UserPlus,
   X,
-  Zap,
   Link2,
   MessageCircle,
   Terminal,
@@ -173,9 +172,8 @@ export const IcBot = wrap(Bot)
 export const IcLifeBuoy = wrap(LifeBuoy)
 export const IcSparkles = wrap(Sparkles)
 export const IcPanelLeftClose = wrap(PanelLeftClose)
-/* nav-devices = monitor, nav-automations = zap (packages/icons/icons.json) */
+/* nav-devices = monitor (packages/icons/icons.json) */
 export const IcMonitor = wrap(Monitor)
-export const IcZap = wrap(Zap)
 /* ui-undock = arrow-up-right — the dock's "Open in new window" */
 export const IcArrowUpRight = wrap(ArrowUpRight)
 /* Curated action glyphs the seeded team actions carry (boardIcon set). */

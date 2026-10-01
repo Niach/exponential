@@ -272,7 +272,7 @@ extension GlassSheetChrome where Pinned == EmptyView {
 ///
 /// EXP-1021: the SHARED picker (`GlassPicker` + its ten typed pickers) is what
 /// a board / issue / action / account / device / assignee / icon / status /
-/// priority / label pick renders through — the automation form's "Any board"
+/// priority / label pick renders through — the trigger form's "Any board"
 /// event filter included, since its rows ARE the typed pickers' rows. This one
 /// stays for the picks that are not one of those ten — a repository, a branch,
 /// an estimate scale — and it draws its rows in the picker's OWN language so

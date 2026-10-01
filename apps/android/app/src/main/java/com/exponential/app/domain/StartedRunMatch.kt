@@ -61,7 +61,7 @@ object StartedRunMatch {
         cutoffMs: Long,
     ): Boolean {
         if (session.userId != userId) return false
-        // EXP-530: automation-started rows (started_reason non-null) are the
+        // EXP-530: trigger-started rows (started_reason non-null) are the
         // device's own doing — a user's pending start watch must never grab
         // one, even when the action name and timing line up.
         if (session.startedReason != null) return false

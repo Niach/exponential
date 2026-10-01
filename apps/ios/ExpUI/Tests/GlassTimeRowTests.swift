@@ -4,9 +4,9 @@ import XCTest
 import ExpUI
 
 // EXP-721: `GlassTimeRow` replaced the stock compact `DatePicker` in the
-// automation schedule. The row's VALUE is the part that had to be pinned: a
+// trigger schedule. The row's VALUE is the part that had to be pinned: a
 // locale-driven time renders "9:00 AM" on a US phone, and the same schedule
-// reads "09:00" on Android, desktop and web — one automation, two different
+// reads "09:00" on Android, desktop and web — one trigger, two different
 // sentences depending on which client opened it.
 final class GlassTimeRowTests: XCTestCase {
 

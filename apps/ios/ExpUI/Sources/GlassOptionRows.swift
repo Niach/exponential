@@ -22,9 +22,9 @@ public let glassFormRowFill = GlassTokens.fillRow
 /// once. Disabled dims the whole row and drops the tap.
 ///
 /// EXP-827: `icon` gives an option its own registry glyph, leading the value in
-/// the row AND every row of the sheet — what the automation form's Action pick
-/// needs so an action is recognised by its curated icon, exactly as web draws it
-/// (`automation-dialog.tsx`: `getActionIcon` inline with the name). Returning
+/// the row AND every row of the sheet — what an action pick needs so an action
+/// is recognised by its curated icon, exactly as web draws it (`getActionIcon`
+/// inline with the name). Returning
 /// nil for an option simply draws no glyph.
 public struct GlassPickerRow<SelectionValue: Hashable>: View {
     let title: String
@@ -128,7 +128,7 @@ public struct GlassPickerRowLabel: View {
 /// a wheel in a `GlassSheetChrome` instead of an option list. It replaces the
 /// stock compact `DatePicker`, whose grey pill was the last system control
 /// left among the glass rows — and whose 12/24-hour rendering follows the
-/// PHONE's locale, so the same automation read "9:00 AM" here and "09:00" on
+/// PHONE's locale, so the same trigger read "9:00 AM" here and "09:00" on
 /// Android, desktop and web.
 public struct GlassTimeRow: View {
     let title: String

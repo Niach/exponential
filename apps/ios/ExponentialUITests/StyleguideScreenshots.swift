@@ -19,8 +19,8 @@ import XCTest
 ///   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
 ///   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
 ///   sg_chat · sg_chat-issues · sg_chat-action ·
-///   sg_machine-settings · sg_action-create · sg_automations-list ·
-///   sg_automations · sg_action-suggestions · sg_reviews ·
+///   sg_machine-settings · sg_action-create · sg_action-triggers ·
+///   sg_trigger-editor · sg_action-runs · sg_action-suggestions · sg_reviews ·
 ///   sg_support-thread · sg_settings-root · sg_settings-team ·
 ///   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
 ///   sg_onboarding-devices
@@ -53,8 +53,8 @@ import XCTest
 ///
 /// Prerequisites — a seeded dev server (`apps/web/scripts/seed-screenshots.ts`:
 /// demo@exponential.at / screenshots-demo, team "Acme", boards "Mobile App" +
-/// the empty "Launch Marketing", showcase issue APP-5, open PRs, actions,
-/// automations, helpdesk threads) PLUS, since EXP-642, the relay stub:
+/// the empty "Launch Marketing", showcase issue APP-5, open PRs, actions with
+/// their triggers and runs, helpdesk threads) PLUS, since EXP-642, the relay stub:
 /// `bun run screenshots:desktop` (apps/web) registers the demo user's OWN
 /// device row, which is what `sg_machine-settings` (gated `isMine &&
 /// registered`) and the three `sg_chat*` shots photograph. No steer
@@ -64,7 +64,7 @@ import XCTest
 /// Every shot is gated on real seeded content, never on a container element —
 /// an empty list still renders its container and would silently ship a blank
 /// styleguide page. The exceptions are called out where they happen (the
-/// automations pair, whose rows are newer than this suite). Shared
+/// action page's Triggers and Runs tabs, whose rows an older seed lacks). Shared
 /// launch/sign-in/tap helpers live in ScreenshotFlow.swift, including the
 /// `snapshot(_:settle:)` overload every capture below goes through (it honours
 /// the lane's optional `shots:` allowlist).
@@ -453,7 +453,7 @@ final class StyleguideScreenshots: XCTestCase {
         _ = deviceSheet.waitForNonExistence(timeout: 10)
         settle(1)
 
-        // ── The Actions surface: four shots off one tab ──────────────────────
+        // ── The Actions surface: five shots off one tab ──────────────────────
         // EXP-686: Actions is a top-level tab of its own.
         let actionsBarTab = app.buttons["tab-actions"]
         XCTAssertTrue(actionsBarTab.waitForExistence(timeout: 15), "Actions tab missing")
@@ -463,7 +463,7 @@ final class StyleguideScreenshots: XCTestCase {
             "Actions surface never appeared"
         )
         // The segment choice is persisted in @AppStorage, so a retry after a
-        // mid-Actions failure would land on Automations/Suggestions — select
+        // mid-Actions failure would land on Suggestions — select
         // the Actions segment explicitly (the tap is idempotent). The segments
         // carry identifiers (EXP-686) because "Actions" also reads as the tab
         // and the nav bar title.
@@ -503,53 +503,76 @@ final class StyleguideScreenshots: XCTestCase {
         )
         settle(1)
 
-        // ── sg_automations-list: the Automations segment ─────────────────────
-        // Gated on the segment's OWN content rather than on a seeded automation
-        // name: the `automations` rows are newer than this suite, so an older
-        // seed shows the empty state — which is still a legitimate capture of
-        // this surface, unlike a half-synced list.
-        let automationsSegment = anyElement(app, identified: "actions-segment-automations")
-        XCTAssertTrue(automationsSegment.waitForExistence(timeout: 15), "Automations segment missing")
-        automationsSegment.tap()
-        let automationRow = anyElement(app, identified: "automation-row")
-        if !automationRow.waitForExistence(timeout: 45) {
-            print("EXP-566 sg_automations-list: no automation rows — reseed with `bun run seed:screenshots`")
-            XCTAssertTrue(
-                app.staticTexts["No automations yet."].waitForExistence(timeout: 15),
-                "The Automations segment rendered neither rows nor its empty state"
-            )
-        }
-        snapshot("sg_automations-list", settle: 2)
-
-        // ── sg_automations: the automation editor sheet ──────────────────────
-        // "New automation" is owner-only AND steer-gated on iOS (the pill is
-        // hidden when the backend has no STEER_RELAY_URL, since nothing could
-        // ever run the binding). Android's twin is not steer-gated, so fall
-        // back to Edit on a seeded row to keep the pair photographing the same
-        // sheet on a relay-less backend.
-        let newAutomationButton = app.buttons["New automation"]
-        if newAutomationButton.waitForExistence(timeout: 10) {
-            newAutomationButton.tap()
-        } else {
-            print("EXP-566 sg_automations: no \"New automation\" entry (steering off?) — editing a seeded automation instead")
-            let rowMenu = app.buttons["Automation actions"].firstMatch
-            XCTAssertTrue(
-                rowMenu.waitForExistence(timeout: 15),
-                "Neither the New-automation entry nor a seeded automation row is available"
-            )
-            rowMenu.tap()
-            let editAutomation = app.buttons["Edit"].firstMatch
-            XCTAssertTrue(editAutomation.waitForExistence(timeout: 15), "The automation row menu never opened")
-            editAutomation.tap()
-        }
-        let automationSheet = anyElement(app, identified: "automation-form-sheet")
+        // ── sg_action-triggers: the action page on its Triggers tab ─────────
+        // SLOP-2: an action carries its triggers. A row's body pushes the
+        // action page (Prompt · Triggers · Runs as tabs on a pager); the
+        // seeded "Nightly test triage" owns a daily schedule trigger and one
+        // scheduled run. Gated on the tab's OWN content rather than on a
+        // seeded trigger: an older seed shows the empty note — which is still
+        // a legitimate capture of this surface, unlike a half-synced list.
+        let seededAction = app.staticTexts[Self.seededActionName].firstMatch
+        seededAction.tap()
         XCTAssertTrue(
-            automationSheet.waitForExistence(timeout: 20),
-            "The automation form sheet did not open"
+            anyElement(app, identified: "action-tabs").waitForExistence(timeout: 30),
+            "The action page did not open"
         )
-        snapshot("sg_automations", settle: 2)
-        dismissSheet(app, whileVisible: automationSheet)
-        _ = automationSheet.waitForNonExistence(timeout: 10)
+        let triggersTab = anyElement(app, identified: "action-tab-triggers")
+        XCTAssertTrue(triggersTab.waitForExistence(timeout: 15), "Triggers tab missing")
+        triggersTab.tap()
+        let triggerRow = anyElement(app, identified: "trigger-row")
+        if !triggerRow.waitForExistence(timeout: 45) {
+            print("SLOP-2 sg_action-triggers: no trigger rows — reseed with `bun run seed:screenshots`")
+            XCTAssertTrue(
+                app.staticTexts["No triggers. This action runs when someone starts it."]
+                    .waitForExistence(timeout: 15),
+                "The Triggers tab rendered neither rows nor its empty note"
+            )
+        }
+        snapshot("sg_action-triggers", settle: 2)
+
+        // ── sg_trigger-editor: the trigger form sheet ────────────────────────
+        // "Add trigger" is owner-only AND steer-gated (hidden when the backend
+        // has no STEER_RELAY_URL, since nothing could ever fire the trigger),
+        // and so is a row's Edit — the form is the ONE trigger editor.
+        let addTriggerButton = app.buttons["Add trigger"]
+        XCTAssertTrue(
+            addTriggerButton.waitForExistence(timeout: 15),
+            "No \"Add trigger\" entry — the demo user must own the team and the backend needs STEER_RELAY_URL"
+        )
+        addTriggerButton.tap()
+        let triggerSheet = anyElement(app, identified: "trigger-form-sheet")
+        XCTAssertTrue(
+            triggerSheet.waitForExistence(timeout: 20),
+            "The trigger form sheet did not open"
+        )
+        snapshot("sg_trigger-editor", settle: 2)
+        dismissSheet(app, whileVisible: triggerSheet)
+        _ = triggerSheet.waitForNonExistence(timeout: 10)
+        settle(1)
+
+        // ── sg_action-runs: the action page on its Runs tab ─────────────────
+        // Every run of the action, newest first; the seeded scheduled run
+        // reads "Scheduled run". Same gate as the Triggers tab: rows, or
+        // the empty note on an older seed.
+        let runsTab = anyElement(app, identified: "action-tab-runs")
+        XCTAssertTrue(runsTab.waitForExistence(timeout: 15), "Runs tab missing")
+        runsTab.tap()
+        let endedRun = anyElement(app, identified: "ended-run-row")
+        let liveRun = anyElement(app, identified: "action-run-row")
+        if !endedRun.waitForExistence(timeout: 45), !liveRun.exists {
+            print("SLOP-2 sg_action-runs: no run rows — reseed with `bun run seed:screenshots`")
+            XCTAssertTrue(
+                app.staticTexts["No runs yet."].waitForExistence(timeout: 15),
+                "The Runs tab rendered neither rows nor its empty note"
+            )
+        }
+        snapshot("sg_action-runs", settle: 2)
+        // A pushed detail: back pops to the Actions tab.
+        goBack(app)
+        XCTAssertTrue(
+            app.navigationBars["Actions"].waitForExistence(timeout: 30),
+            "Did not return to the Actions surface"
+        )
         settle(1)
 
         // ── sg_action-suggestions: the Suggestions segment ────────────────────

@@ -75,7 +75,7 @@ public extension DevicePickerDevice {
     /// `DeviceIconDisplay`, EXP-924) and its plain name, with the OWNER of a
     /// teammate's shared server (EXP-432) as the muted line under it rather
     /// than folded into the name. A row with no label yet reads as its id.
-    /// Every device picker (the composer's pill, the automation editor's
+    /// Every device picker (the composer's pill, the trigger form's
     /// "Runs on", the workflow runner row) builds its rows here, so a machine
     /// cannot wear a glyph on one sheet and none on the next.
     init(_ device: SteerDevice) {
@@ -92,7 +92,7 @@ public extension ActionPickerAction {
     /// An action row: its curated glyph resolved ONCE (`ActionIconDisplay` —
     /// an unset or unknown name falls back to the generic action mark, never
     /// to a hole), its name, and its description under it. The composer's ▶
-    /// tool and the automation editor build their rows here.
+    /// tool and the trigger form build their rows here.
     init(_ action: ActionDto) {
         self.init(
             id: action.id,

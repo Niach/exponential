@@ -33,7 +33,7 @@
     {
       "id": "actions",
       "label": "Action authoring",
-      "blurb": "Editing actions and their automations. Web and desktop only: mobile views and runs actions but never edits them.",
+      "blurb": "An action as a page: its prompt, its triggers and its runs, plus the form that adds a trigger.",
       "order": 6
     },
     {
@@ -866,7 +866,7 @@
         "lane": "store"
       },
       "notes": {
-        "web": "EXP-686 gave Actions its own top-level route on every client. A desktop viewport shows the list alone — Automations is /automations and the seeds moved into Getting started; the phone keeps all three behind ?tab=."
+        "web": "EXP-686 gave Actions its own top-level route on every client. A desktop viewport shows the list alone — the seeds live in Getting started; the phone keeps Actions and Suggestions behind ?tab=. A row opens the action's page."
       },
       "desktop": {
         "drive": {
@@ -1165,71 +1165,75 @@
       }
     },
     {
-      "id": "action-editor",
+      "id": "action-page",
       "group": "actions",
-      "title": "Action editor",
-      "blurb": "One action's definition: name, icon, the markdown body the agent runs, its repo and its typed inputs.",
+      "title": "Action",
+      "blurb": "One action as a page: its prompt (name, icon, repository, the markdown body the agent runs), its triggers and its runs.",
       "order": 1,
       "web": {
-        "route": "/t/$teamSlug/actions",
+        "route": "/t/$teamSlug/actions/$actionId",
         "anchor": {
-          "text": "Edit action",
+          "text": "Daily at 03:00 (device time)",
           "timeoutMs": 20000
         },
-        "recipe": "openActionEditor",
         "settleMs": 600
       },
-      "notes": {
-        "web-mobile": "Editable on every client since EXP-694; mobile capture pending the next shots run.",
-        "ios": "Edit sheet shipped with EXP-694; capture pending the next shots run.",
-        "android": "Edit sheet shipped with EXP-694; capture pending the next shots run."
+      "webMobile": {
+        "route": "/t/$teamSlug/actions/$actionId",
+        "anchor": {
+          "text": "Save changes",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
       },
       "desktop": {
         "drive": {
-          "kind": "dialog",
-          "value": "action-editor:$action"
-        },
-        "anchorDelayMs": 600,
-        "env": {
-          "EXP_DEV_SCREEN": "actions"
+          "kind": "screen",
+          "value": "action:$action"
         }
+      },
+      "notes": {
+        "web": "A desktop viewport shows Prompt, Triggers and Runs as three sections of one page, so this one shot covers what the phone splits into tabs. The anchor is the seeded daily trigger's sentence.",
+        "web-mobile": "The phone shows the same three as tabs; this is the default Prompt tab. `action-triggers` and `action-runs` are the other two.",
+        "ios": "The Prompt tab is not captured on its own; `action-triggers` and `action-runs` photograph the page.",
+        "android": "The Prompt tab is not captured on its own; `action-triggers` and `action-runs` photograph the page."
       }
     },
     {
-      "id": "automations",
+      "id": "trigger-editor",
       "group": "actions",
-      "title": "Automation editor",
-      "blurb": "Binding an action to a device and a trigger: the schedule-or-event when-part behind the Automations tab.",
-      "order": 2,
+      "title": "Trigger editor",
+      "blurb": "Adding a trigger to an action: a schedule or an event, the device that runs it and the account, model and effort it runs with.",
+      "order": 4,
       "web": {
-        "route": "/t/$teamSlug/automations",
+        "route": "/t/$teamSlug/actions/$actionId?tab=triggers",
         "anchor": {
-          "text": "New automation",
+          "text": "New trigger",
           "timeoutMs": 20000
         },
-        "recipe": "openAutomationEditor",
+        "recipe": "openTriggerEditor",
         "settleMs": 600
-      },
-      "notes": {
-        "web-mobile": "The phone has no Automations route — the editor opens from the Actions page's Automations tab (/actions?tab=automations); the paired native shots cover it."
       },
       "desktop": {
         "drive": {
           "kind": "dialog",
-          "value": "automation-new"
+          "value": "trigger-new:$action"
         },
         "anchorDelayMs": 600,
         "env": {
-          "EXP_DEV_SCREEN": "automations"
+          "EXP_DEV_SCREEN": "action:$action"
         }
       },
       "ios": {
-        "shot": "sg_automations",
+        "shot": "sg_trigger-editor",
         "lane": "styleguide"
       },
       "android": {
-        "shot": "sg_automations",
+        "shot": "sg_trigger-editor",
         "lane": "styleguide"
+      },
+      "notes": {
+        "web-mobile": "The same form as a bottom sheet over the Triggers tab; the paired native shots cover it."
       }
     },
     {
@@ -1237,7 +1241,7 @@
       "group": "actions",
       "title": "New action",
       "blurb": "Authoring an action by describing it: the Agent page composer with the Create action builtin picked as its chip — describe the action in the prompt and the creator run writes the definition, no form (EXP-257, EXP-825).",
-      "order": 3,
+      "order": 5,
       "web": {
         "route": "/t/$teamSlug/agent?action=builtin:create-action",
         "anchor": {
@@ -1267,44 +1271,57 @@
       }
     },
     {
-      "id": "automations-list",
+      "id": "action-triggers",
       "group": "actions",
-      "title": "Automations",
-      "blurb": "The Automations tab itself: every action bound to a device and a trigger, plus what has fired recently.",
-      "order": 4,
-      "web": {
-        "route": "/t/$teamSlug/automations",
-        "anchor": {
-          "text": "Recent automated runs",
-          "timeoutMs": 30000
-        },
-        "settleMs": 800
-      },
+      "title": "Action triggers",
+      "blurb": "The Triggers tab of an action on a phone: each schedule and event watcher with its device and its switch.",
+      "order": 2,
       "webMobile": {
-        "route": "/t/$teamSlug/actions?tab=automations",
+        "route": "/t/$teamSlug/actions/$actionId?tab=triggers",
         "anchor": {
-          "text": "Recent automated runs",
+          "text": "Daily at 03:00 (device time)",
           "timeoutMs": 30000
         },
-        "recipe": "openAutomationsTab",
         "settleMs": 800
       },
       "ios": {
-        "shot": "sg_automations-list",
+        "shot": "sg_action-triggers",
         "lane": "styleguide"
       },
       "android": {
-        "shot": "sg_automations-list",
+        "shot": "sg_action-triggers",
         "lane": "styleguide"
       },
-      "desktop": {
-        "drive": {
-          "kind": "screen",
-          "value": "automations"
-        }
+      "notes": {
+        "web": "A desktop viewport has no tabs: Triggers is a section of `action-page`.",
+        "desktop": "The desktop app has no tabs: Triggers is a section of `action-page`."
+      }
+    },
+    {
+      "id": "action-runs",
+      "group": "actions",
+      "title": "Action runs",
+      "blurb": "The Runs tab of an action on a phone: every run of it, the triggered ones marked with their trigger's glyph.",
+      "order": 3,
+      "webMobile": {
+        "route": "/t/$teamSlug/actions/$actionId?tab=runs",
+        "anchor": {
+          "text": "Nightly test triage",
+          "timeoutMs": 30000
+        },
+        "settleMs": 800
+      },
+      "ios": {
+        "shot": "sg_action-runs",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_action-runs",
+        "lane": "styleguide"
       },
       "notes": {
-        "web-mobile": "EXP-686: the phone bar has no room for a seventh entry, so Automations stays a tab of the Actions page and the route carries it in ?tab=."
+        "web": "A desktop viewport has no tabs: Runs is a section of `action-page`.",
+        "desktop": "The desktop app has no tabs: Runs is a section of `action-page`."
       }
     },
     {
@@ -1312,7 +1329,7 @@
       "group": "actions",
       "title": "Workflows",
       "blurb": "The Workflows surface (EXP-981): Running, Draft and Done bands over the team's parallel runs. EXP-986: the seed files one draft, Offline editing (three backlog issues of the demo repo, one blocks edge), so the Draft band carries a real row.",
-      "order": 6,
+      "order": 7,
       "web": {
         "route": "/t/$teamSlug/workflows",
         "anchor": {
@@ -1338,7 +1355,7 @@
       "group": "actions",
       "title": "Workflow detail",
       "blurb": "One workflow (EXP-1069): a header with its name, status and the one primary action, the node chip strip as the picker (All, then each node), and the Issue · Runs · Changes · Results face toggle over the picked nodes. EXP-986: photographed on the seeded draft, Offline editing.",
-      "order": 7,
+      "order": 8,
       "web": {
         "route": "/t/$teamSlug/workflows/4e7a2c91-8d35-4b6f-a1c0-5f9e3b2d7a18",
         "anchor": {
@@ -1363,8 +1380,8 @@
       "id": "action-suggestions",
       "group": "actions",
       "title": "Suggestions",
-      "blurb": "The starter catalog: curated action seeds that prefill the creator run, some carrying an automation with them.",
-      "order": 5,
+      "blurb": "The starter catalog: curated action seeds that prefill the creator run, some setting up a trigger with them.",
+      "order": 6,
       "web": {
         "route": "/t/$teamSlug/actions",
         "anchor": {

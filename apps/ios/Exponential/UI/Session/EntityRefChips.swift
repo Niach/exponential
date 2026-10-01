@@ -24,6 +24,8 @@ enum EntityNavigation: Equatable {
     case session(String)
     case workflow(String)
     case thread(String)
+    /// SLOP-2: one action's page.
+    case action(String)
     case actions
     case devices
     case teamSettings
@@ -82,6 +84,8 @@ struct EntityRefChips: View {
             pushRoute(.workflow(accountId: accountId, id: id))
         case let .thread(id):
             pushRoute(.supportThread(accountId: accountId, threadId: id))
+        case let .action(id):
+            pushRoute(.action(accountId: accountId, id: id))
         case .actions:
             pushRoute(.actions)
         case .devices:
@@ -257,7 +261,6 @@ enum EntityRefResolver {
             case "issue": try issueModel(ref, db: db, teamId: teamId)
             case "board": try boardModel(ref, db: db)
             case "action": try actionModel(ref, db: db)
-            case "automation": try automationModel(ref, db: db)
             case "comment": try commentModel(ref, db: db, teamId: teamId)
             case "session": try sessionModel(ref, db: db)
             case "label": try labelModel(ref, db: db)
@@ -294,7 +297,7 @@ enum EntityRefResolver {
 
     private static func slimOpen(_ ref: EntityRef) -> EntityNavigation? {
         switch ref.kind {
-        case "action", "automation": .actions
+        case "action": .actions
         case "label", "status", "member", "invite", "team", "repository": .teamSettings
         case "device": .devices
         case "notification": .myWork
@@ -394,32 +397,7 @@ enum EntityRefResolver {
             title: action.name,
             excerpt: action.description,
             facts: facts,
-            open: .actions
-        )
-    }
-
-    private static func automationModel(_ ref: EntityRef, db: Database) throws -> EntityPreviewModel? {
-        guard let automation = try AutomationEntity.fetchOne(db, key: ref.id) else { return nil }
-        let action = try ActionEntity.fetchOne(db, key: automation.actionId)
-        let device = try DeviceEntity
-            .filter(Column("device_id") == automation.deviceId || Column("id") == automation.deviceId)
-            .fetchOne(db)
-        var facts: [EntityPreviewModel.Fact] = [
-            automation.enabled
-                ? .init(id: "enabled", label: "Enabled", tint: DesignTokens.Semantic.green)
-                : .init(id: "enabled", label: "Disabled"),
-        ]
-        if let device {
-            facts.append(.init(id: "device", label: device.label, icon: DeviceIconDisplay.iconName(for: device)))
-        }
-        let trigger = AutomationTrigger.parse(automation.trigger).map(AutomationTriggerDisplay.summary)
-        return EntityPreviewModel(
-            icon: .glyph(AppIcons.navAutomations, nil),
-            eyebrow: "Automation",
-            title: ref.title ?? action?.name ?? "Automation",
-            subtitle: [action.map { "Runs \($0.name)" }, trigger].compactMap { $0 }.joined(separator: " · "),
-            facts: facts,
-            open: .actions
+            open: .action(action.id)
         )
     }
 

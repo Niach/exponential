@@ -1,12 +1,15 @@
 package com.exponential.app.data.api
 
 import com.exponential.app.data.db.ActionEntity
+import com.exponential.app.domain.ActionTrigger
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.parseActionTriggers
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -66,17 +69,23 @@ data class ActionDto(
      * chars); null = the generic "Additional instructions (optional)…".
      */
     val promptPlaceholder: String? = null,
+    /**
+     * SLOP-2: the action's triggers as the server stores them (a jsonb array;
+     * builtins never carry any). Read through [parsedTriggers] — the tolerant
+     * parse skips whatever this build cannot read.
+     */
+    val triggers: JsonArray? = null,
 ) {
-    /** Whether this is the virtual builtin "Create action" row. */
+    /** Whether this is a virtual client-constructed builtin row. */
     val isBuiltin: Boolean get() = builtin == true
 
-    /** Whether an automation can target this action (EXP-583): a real team
-     * row — or Tidy up, the ONLY automatable builtin (FEED-50) — whose every
-     * input is optional: an automated run has nobody to type a required one,
-     * and the server refuses to enable such an automation. */
-    val automatable: Boolean
-        get() = (!isBuiltin || id == DomainContract.builtinTidyUpId) &&
-            inputs.orEmpty().none { it.required }
+    /** The readable triggers, in array order (unknown kinds are skipped). */
+    val parsedTriggers: List<ActionTrigger> get() = parseActionTriggers(triggers)
+
+    /** Whether the action declares a REQUIRED input: a triggered run has
+     * nobody to fill one in, so the server refuses to enable a trigger on
+     * such an action. */
+    val hasRequiredInputs: Boolean get() = inputs.orEmpty().any { it.required }
 
     companion object {
         /**
@@ -153,8 +162,9 @@ fun builtinFixConflictsAction(teamId: String): ActionDto = ActionDto(
 
 /**
  * The LISTED builtin "Tidy up" (FEED-50): let the agent dedupe, label and link
- * a board's issues over MCP — nothing is deleted. Both picks are optional, so
- * it is the ONLY builtin an automation may target. Mirrors
+ * a board's issues over MCP — nothing is deleted. Builtins never carry
+ * triggers; a team that wants Tidy up on a trigger owns a REAL row of that
+ * name, which hides this one ([hasOwnTidyUpAction]). Mirrors
  * apps/web/src/lib/builtin-actions.ts field-for-field.
  */
 fun builtinTidyUpAction(teamId: String): ActionDto = ActionDto(
@@ -234,16 +244,32 @@ fun builtinPlanWorkflowAction(teamId: String): ActionDto = ActionDto(
     promptPlaceholder = "Anything the plan should respect (optional)…",
 )
 
+/** The reserved name a team's OWN "Tidy up" row carries (SLOP-2). */
+const val BUILTIN_TIDY_UP_NAME = "Tidy up"
+
+/**
+ * SLOP-2: whether the team owns a REAL action row named exactly "Tidy up" (a
+ * migration created it for teams that had triggers on the builtin). That row
+ * replaces the virtual builtin in every list (web `hasOwnTidyUpAction`).
+ */
+fun hasOwnTidyUpAction(actions: List<ActionDto>): Boolean =
+    actions.any { !it.isBuiltin && it.name == BUILTIN_TIDY_UP_NAME }
+
 /**
  * The three LISTED builtins in the order every client pins them (the hidden
  * chat and plan-workflow rows are deliberately absent). EXP-270: mobile used
  * to construct only "Create action", so "Fix merge conflicts" silently
  * vanished from Android when EXP-268 moved the list onto the synced shape.
+ * SLOP-2: pass the team's synced rows as [teamActions] — a real "Tidy up" row
+ * among them hides the virtual one.
  */
-fun builtinActions(teamId: String): List<ActionDto> = listOf(
+fun builtinActions(
+    teamId: String,
+    teamActions: List<ActionDto> = emptyList(),
+): List<ActionDto> = listOfNotNull(
     builtinCreateAction(teamId),
     builtinFixConflictsAction(teamId),
-    builtinTidyUpAction(teamId),
+    builtinTidyUpAction(teamId).takeUnless { hasOwnTidyUpAction(teamActions) },
 )
 
 /** `actions.get`'s / `.update`'s answer — the full row, body included. */
@@ -333,7 +359,34 @@ class ActionsApi @Inject constructor(private val trpc: TrpcClient) {
         inputSerializer = JsonObject.serializer(),
         outputSerializer = ActionResult.serializer(),
     ).action
+
+    /**
+     * `actions.update({id, triggers})` — the ONLY trigger write (SLOP-2,
+     * owner-only): a WHOLE-ARRAY replace. [triggers] holds every trigger the
+     * action keeps (`actionTriggerWireJson`; an element without an `id` is
+     * new and gets a server id). Every other field is omitted, so it keeps
+     * its stored value; Electric echoes the row back, so a success needs no
+     * local write.
+     */
+    suspend fun setTriggers(
+        accountId: String,
+        id: String,
+        triggers: List<JsonObject>,
+    ): ActionDto = trpc.mutation(
+        accountId,
+        path = "actions.update",
+        input = updateActionTriggersInput(id = id, triggers = triggers),
+        inputSerializer = JsonObject.serializer(),
+        outputSerializer = ActionResult.serializer(),
+    ).action
 }
+
+/** `actions.update`'s trigger-only input: `{id, triggers: [...]}`. */
+internal fun updateActionTriggersInput(id: String, triggers: List<JsonObject>): JsonObject =
+    buildJsonObject {
+        put("id", id)
+        put("triggers", JsonArray(triggers))
+    }
 
 /**
  * Map a synced [ActionEntity] row to the UI's [ActionDto], parsing the stored
@@ -356,4 +409,7 @@ fun ActionEntity.toActionDto(json: Json): ActionDto = ActionDto(
         }.getOrNull()
     },
     promptPlaceholder = promptPlaceholder,
+    triggers = triggers?.let { raw ->
+        runCatching { json.parseToJsonElement(raw) }.getOrNull() as? JsonArray
+    },
 )

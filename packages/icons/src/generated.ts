@@ -418,7 +418,6 @@ export type BrandIconName = (typeof BRAND_ICON_NAMES)[number]
 
 /** Stable concept id -> icon name. Call sites reference the concept. */
 export const SEMANTIC_ICONS = {
-  "action-automation": `zap`,
   "action-chat": `message-circle`,
   "action-create": `sparkles`,
   "action-default": `zap`,
@@ -470,7 +469,6 @@ export const SEMANTIC_ICONS = {
   "nav-account": `circle-user`,
   "nav-actions": `bot`,
   "nav-admin": `shield`,
-  "nav-automations": `zap`,
   "nav-boards": `folder-kanban`,
   "nav-changelog": `megaphone`,
   "nav-create-issue": `square-pen`,
@@ -563,6 +561,8 @@ export const SEMANTIC_ICONS = {
   "status-todo": `circle`,
   "support-open": `circle-dot`,
   "support-resolved": `circle-check`,
+  "trigger-event": `zap`,
+  "trigger-schedule": `clock`,
   "ui-add": `plus`,
   "ui-agent-source": `bot`,
   "ui-archive": `archive`,

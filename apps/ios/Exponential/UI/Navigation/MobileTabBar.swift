@@ -5,7 +5,7 @@ import SwiftUI
 /// destinations (Issues, My Work — with an unread dot — Support — the team
 /// helpdesk inbox, present only while the active team's helpdesk flag is on
 /// (EXP-180) — Devices — the machines surface — Actions — the team's
-/// actions/automations surface, its own entry per EXP-686 — and Reviews — its
+/// actions surface, its own entry per EXP-686 — and Reviews — its
 /// own entry per EXP-147; base order per EXP-81) plus a detached launcher on
 /// the right: the SPLIT capsule (chat | new issue), on every bar-visible
 /// route since EXP-973 — the chat arm opens the Agent page (the sessions list
@@ -116,7 +116,7 @@ struct MobileTabBar: View {
                     action: onDevices
                 )
                 .accessibilityIdentifier("tab-devices")
-                // Actions (EXP-686): actions / automations / suggestions, no
+                // Actions (EXP-686): actions / suggestions, no
                 // longer a push off the Devices toolbar.
                 tab(
                     glyph: AppIcons.navActions,

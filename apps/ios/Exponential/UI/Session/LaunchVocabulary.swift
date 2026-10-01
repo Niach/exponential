@@ -5,8 +5,8 @@ import Foundation
 // per-agent option lists, the plan-mode capability and the picker captions
 // used to live three times over — the launcher's statics (now the Agent
 // page composer), a private copy inside DeviceSettingsSheet, and a third set
-// of shims in AutomationFormSheet. Every launch-shaped surface (the Agent
-// page composer, the automation editor, device launch defaults) now reads
+// of shims in the trigger form sheet. Every launch-shaped surface (the Agent
+// page composer, the trigger form, device launch defaults) now reads
 // them from here, so a contract change lands once.
 enum LaunchVocabulary {
     /// Sentinel for the blank "CLI default" choice (omit --effort; for codex
@@ -32,11 +32,11 @@ enum LaunchVocabulary {
         }
     }
 
-    /// The automation variant's model list. A binding offers "CLI default" for
+    /// The trigger variant's model list. A binding offers "CLI default" for
     /// EVERY agent (a blank pin is what stores NULL on the row and lets the
     /// machine decide), and the caller prepends it — so drop the copy
     /// `modelValues` already inserts for codex.
-    static func automationModelValues(for agent: String) -> [String] {
+    static func triggerModelValues(for agent: String) -> [String] {
         modelValues(for: agent).filter { $0 != cliDefault }
     }
 
@@ -79,7 +79,7 @@ enum LaunchVocabulary {
 
     /// The agent a machine starts on (EXP-437): its LAST USED agent
     /// (EXP-1158), clamped to what it advertises, else the first agent it
-    /// runs. EXP-615 retired the automation editors' "Device default" segment,
+    /// runs. EXP-615 retired the trigger editors' "Device default" segment,
     /// so a binding seeds its strip with this and stores a CONCRETE agent.
     static func lastUsedAgent(of device: SteerDevice?) -> String {
         let available = agents(of: device)
@@ -127,8 +127,8 @@ enum LaunchVocabulary {
     /// Picker caption for a machine. A teammate's shared server (EXP-432) is
     /// attributed to its owner — two people's boxes can wear the same label,
     /// and a run lands on somebody else's hardware, so the picker says whose.
-    /// EXP-615: no "(offline)" suffix anywhere — the automation editor offers
-    /// every automation-capable machine plainly (a sleeping box still owns the
+    /// EXP-615: no "(offline)" suffix anywhere — the trigger form offers
+    /// every trigger-capable machine plainly (a sleeping box still owns the
     /// binding), and the run pickers only ever list online ones.
     static func deviceCaption(_ device: SteerDevice) -> String {
         let name = device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel

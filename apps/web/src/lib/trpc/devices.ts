@@ -21,11 +21,11 @@ import {
   asc,
   desc,
   eq,
-  inArray,
   ne,
   sql,
 } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
+import { pauseDeviceTriggers } from "@/lib/action-triggers-mirror"
 import { deviceIconSchema } from "@exp/db-schema/domain"
 import {
   router,
@@ -34,7 +34,6 @@ import {
   type Context,
 } from "@/lib/trpc"
 import {
-  automations,
   deviceAgentAccountsSchema,
   deviceAgentHealthValues,
   deviceAgentUsageSchema,
@@ -1396,15 +1395,15 @@ export const devicesRouter = router({
       for (const teamId of added) {
         await assertTeamMember(ctx.session.user.id, teamId)
       }
-      // EXP-530 follow-up: an automation bound to this device by one of a
+      // EXP-530 follow-up: a trigger bound to this device by one of a
       // REVOKED team's owners keeps firing on the device owner's credentials
       // once the share is withdrawn (there is no server scheduler — the
-      // device self-selects automations off Electric), and the toggle is
+      // device self-selects triggers off Electric), and the toggle is
       // owner-only, so the machine's owner cannot stop it. Withdrawing the
-      // share disables those automations in the same transaction as the
-      // column write. Skipped when the device owner is an OWNER of that
-      // team: then the bindings are plausibly their own, and they keep the
-      // toggle to undo them.
+      // share pauses those triggers in the same transaction as the column
+      // write. Skipped when the device owner is an OWNER of that team: then
+      // the bindings are plausibly their own, and they keep the toggle to
+      // undo them.
       const disarm: string[] = []
       for (const teamId of revoked) {
         const member = await getTeamMember(ctx.session.user.id, teamId)
@@ -1417,17 +1416,7 @@ export const devicesRouter = router({
           .set({ sharedTeamIds: next, updatedAt: new Date() })
           .where(eq(devices.id, row.id))
         if (disarm.length > 0) {
-          await tx
-            .update(automations)
-            .set({ enabled: false, updatedAt: new Date() })
-            .where(
-              and(
-                inArray(automations.teamId, disarm),
-                eq(automations.deviceId, input.deviceId),
-                // Already-off rows stay untouched (no needless Electric op).
-                eq(automations.enabled, true)
-              )
-            )
+          await pauseDeviceTriggers(tx, disarm, input.deviceId)
         }
         return id
       })

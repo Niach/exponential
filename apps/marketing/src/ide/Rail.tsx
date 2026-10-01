@@ -1,7 +1,7 @@
 /* ─── The rail (sidebar.rs RailView, EXP-723/870) — it NEVER leaves the
    window. Labelled it is the 272px left column: the web-style header (team
    switcher · Search · New issue) · Inbox / Support / Devices / Actions /
-   Automations / Reviews / Agent (the live-run dot) · Boards ·
+   Reviews / Agent (the live-run dot) · Boards ·
    "This device": Files / Source Control · the What's new card · Getting
    started · the account row with the new-terminal button and the gear.
    While a list is folded in beside an open issue it is the 48px ICON
@@ -32,7 +32,6 @@ import {
   IcSquarePen,
   IcSquareTerminal,
   IcX,
-  IcZap,
   type IdeIcon,
 } from "./icons"
 
@@ -119,7 +118,6 @@ export function Rail({ compact = false }: { compact?: boolean }) {
     { key: `support`, Icon: IcLifeBuoy, label: `Support` },
     { key: `devices`, Icon: IcMonitor, label: `Devices` },
     { key: `actions`, Icon: IcBot, label: `Actions` },
-    { key: `automations`, Icon: IcZap, label: `Automations` },
     {
       key: `reviews`,
       Icon: IcGitPullRequest,

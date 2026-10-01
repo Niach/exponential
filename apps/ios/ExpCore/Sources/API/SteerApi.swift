@@ -684,11 +684,12 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// the chip menu hides both entries instead.
     public var canSignOutAccount: Bool { caps?.contains("account-sign-out") == true }
 
-    /// EXP-530: whether this machine runs action automations locally (watches
-    /// its own sync and fires schedule/event triggers). Trigger device pickers
+    /// EXP-530: whether this machine runs action triggers locally (watches
+    /// its own sync and fires the schedule/event ones bound to it; the cap
+    /// string keeps its old name). Trigger device pickers
     /// offer only these — an offline-but-capable machine stays pickable (its
     /// missed schedule fires once when it comes back).
-    public var canRunAutomations: Bool { caps?.contains("automations") == true }
+    public var canRunTriggers: Bool { caps?.contains("automations") == true }
 
     /// EXP-420: whether this device's reported version compares below the
     /// given latest. Unknown or unparsable on either side = false — the

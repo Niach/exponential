@@ -464,10 +464,11 @@ export function CodingDocsPage() {
               <strong>Resume</strong> takes its place and relaunches it.
             </p>
             <p>
-              Runs an <a href="/docs/actions/#automations">automation</a>{` `}
+              Runs a <a href="/docs/actions/#triggers">trigger</a>{` `}
               started are the ones that <strong>end themselves</strong>: the
-              agent closes the run when its work is done, and the Automations
-              tab&apos;s <strong>Recent automated runs</strong> keeps them.
+              agent closes the run when its work is done, and the action&apos;s
+              {` `}
+              <strong>Runs</strong> keeps them.
             </p>
 
             <h3>Chat</h3>

@@ -73,25 +73,25 @@ export function ActionsSection() {
           ))}
         </motion.div>
 
-        {/* ── Automations (EXP-583): actions bound to a device, fired by a
-               schedule or an event, always running locally. ── */}
-        <motion.div className={`glass-card ac-autos`} {...sectionReveal}>
-          <div className={`ac-autos-head`}>
-            <span className={`ac-autos-badge`}>New</span>
-            <h3 className={`ac-autos-title`}>Automations</h3>
+        {/* ── Triggers: an action bound to a device, fired by a schedule or
+               an event, always running locally. ── */}
+        <motion.div className={`glass-card ac-triggers`} {...sectionReveal}>
+          <div className={`ac-triggers-head`}>
+            <span className={`ac-triggers-badge`}>New</span>
+            <h3 className={`ac-triggers-title`}>Triggers</h3>
           </div>
-          <p className={`ac-autos-text`}>
-            Bind any action to one of your devices and run it on a schedule or
-            when something happens. Sort incoming issues, autofix them, review
+          <p className={`ac-triggers-text`}>
+            Give any action a trigger and one of your devices runs it on a
+            schedule or when something happens. Sort incoming issues, autofix them, review
             every PR each morning. Everything runs on your own machines, on
             your own subscription.
           </p>
-          <div className={`ac-autos-chips`}>
-            <span className={`ac-autos-chip`}>
+          <div className={`ac-triggers-chips`}>
+            <span className={`ac-triggers-chip`}>
               <IcCal size={13} />
               On a schedule
             </span>
-            <span className={`ac-autos-chip`}>
+            <span className={`ac-triggers-chip`}>
               <IcZap size={13} />
               When something happens
             </span>

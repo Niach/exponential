@@ -395,8 +395,8 @@ class AgentsViewModel @Inject constructor(
     // EXP-746: the caller's own FINISHED, person-started sessions in the
     // selected team, newest first — the source of the "Recent" list. Queried
     // wider than the list shows so a row the pure filter drops can't push a
-    // real one off the end; the DAO already excludes automation runs, which
-    // belong to the Automations tab's "Recent automated runs" alone.
+    // real one off the end; the DAO already excludes triggered runs, which
+    // belong to their action page's Runs alone.
     private val endedSessionRows = combine(
         dbFlow,
         selection.selectedId,
@@ -690,8 +690,8 @@ const val PAST_RUN_LIMIT = 20
  * the SELECTED team, newest first by when they ended, capped at [limit].
  *
  * `started_reason == null` is the whole predicate on top of ownership: a
- * scheduled or event-triggered run belongs to the Automations tab's "Recent
- * automated runs" and must NEVER list here (EXP-676's rule, kept). The DAO
+ * scheduled or event-triggered run belongs to its action page's Runs and
+ * must NEVER list here (EXP-676's rule, kept). The DAO
  * already scopes, filters and orders; the rules live here too so they are
  * testable and so a wider query can't leak a foreign, still-live or automated
  * row into the list. Signed out or no team selected lists nothing.

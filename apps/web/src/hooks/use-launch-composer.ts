@@ -55,7 +55,7 @@ import {
   useLaunchOptions,
   type LaunchOptions,
 } from "@/components/launch-dialog/use-launch-options"
-import type { TeamAction } from "@/components/action-editor-dialog"
+import type { TeamAction } from "@/components/action-prompt-form"
 import type { McpServerList } from "@/lib/mcp-servers"
 import type { LaunchSeed } from "@/lib/launch-seed"
 

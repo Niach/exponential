@@ -2,7 +2,7 @@
    Mirrors apps/web components/team/sidebar.tsx on the shadcn sidebar
    primitive: a 16rem (296px) transparent rail divided from the main pane by
    one hairline. Header = team switcher + icon-only Search and New-issue
-   actions (EXP-449). Nav = Inbox / Support / Devices / Actions / Automations /
+   actions (EXP-449). Nav = Inbox / Support / Devices / Actions /
    Reviews and Agent badged with DOTS (EXP-699/EXP-880). Then the Boards group,
    and a footer with Getting started and the user row + settings gear. */
 import { INBOX_ITEMS, REVIEWS } from "../ide/data"
@@ -18,7 +18,6 @@ import {
   ICON_4,
   IcActions,
   IcAgent,
-  IcAutomations,
   IcCode,
   IcCompose,
   IcDevices,
@@ -117,7 +116,7 @@ export function WebSidebar() {
 
       <div className="web-side-scroll">
         {/* EXP-699/EXP-818 nav order: Inbox, Support, Devices, Actions,
-            Automations, Reviews, Agent. Badges are dots (primary for unread,
+            Reviews, Agent. Badges are dots (primary for unread,
             green for live). */}
         <div className="web-side-group">
           <NavItem
@@ -139,10 +138,6 @@ export function WebSidebar() {
             label="Devices"
           />
           <NavItem icon={<IcActions size={ICON_4} />} label="Actions" />
-          <NavItem
-            icon={<IcAutomations size={ICON_4} />}
-            label="Automations"
-          />
           <NavItem
             icon={<IcReviews size={ICON_4} />}
             label="Reviews"

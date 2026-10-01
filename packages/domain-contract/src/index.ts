@@ -279,14 +279,17 @@ export interface DomainContract {
    */
   startPrompt: { maxLength: number; maxImages: number }
   /**
-   * Action automation triggers (EXP-530): the event kinds a trigger may
-   * watch (a subset of issueEventType), the schedule intervals, and the cap
-   * on each filter id list — parity-locked with @exp/db-schema/domain.
+   * Action triggers (EXP-530, SLOP-2): the event kinds a trigger may watch
+   * (a subset of issueEventType), the event sources, the schedule intervals,
+   * the cap on each filter id list and on an action's triggers —
+   * parity-locked with @exp/db-schema/domain.
    */
   actionTrigger: {
     eventValues: readonly string[]
     scheduleIntervalValues: readonly string[]
+    eventSourceValues: readonly string[]
     maxFilterIds: number
+    maxPerAction: number
   }
   /**
    * EXP-530 automation-host tuning: cooldown after any triggered start, and

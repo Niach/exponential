@@ -8024,8 +8024,6 @@ public object ExpIcons {
         else -> null
     }
 
-    /** Concept `action-automation`. */
-    public val actionAutomation: ImageVector get() = `zap`
     /** Concept `action-chat`. */
     public val actionChat: ImageVector get() = `message-circle`
     /** Concept `action-create`. */
@@ -8128,8 +8126,6 @@ public object ExpIcons {
     public val navActions: ImageVector get() = `bot`
     /** Concept `nav-admin`. */
     public val navAdmin: ImageVector get() = `shield`
-    /** Concept `nav-automations`. */
-    public val navAutomations: ImageVector get() = `zap`
     /** Concept `nav-boards`. */
     public val navBoards: ImageVector get() = `folder-kanban`
     /** Concept `nav-changelog`. */
@@ -8314,6 +8310,10 @@ public object ExpIcons {
     public val supportOpen: ImageVector get() = `circle-dot`
     /** Concept `support-resolved`. */
     public val supportResolved: ImageVector get() = `circle-check`
+    /** Concept `trigger-event`. */
+    public val triggerEvent: ImageVector get() = `zap`
+    /** Concept `trigger-schedule`. */
+    public val triggerSchedule: ImageVector get() = `clock`
     /** Concept `ui-add`. */
     public val uiAdd: ImageVector get() = `plus`
     /** Concept `ui-agent-source`. */

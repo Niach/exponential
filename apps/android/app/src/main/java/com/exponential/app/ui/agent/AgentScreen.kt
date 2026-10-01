@@ -125,7 +125,7 @@ fun AgentScreen(
     onOpenIssue: (issueId: String) -> Unit,
     // EXP-981: the phone has no sidebar, so the team's workflows hang off this
     // page's top bar beside its history button (web/desktop put them in the
-    // sidebar after Automations).
+    // sidebar).
     onOpenWorkflows: () -> Unit = {},
     // EXP-1050: a WORKFLOW group row in the sessions list leads to its
     // workflow. The default is the list, for a preview or a test that names no
@@ -430,7 +430,7 @@ fun AgentScreen(
                 actions = {
                     // EXP-981: the team's workflows, one tap away — the
                     // phone's stand-in for web's and the desktop's sidebar
-                    // entry after Automations.
+                    // entry.
                     // EXP-1069: a red dot while any workflow of the team has an
                     // open question — the one thing inside a run that waits
                     // for a person.

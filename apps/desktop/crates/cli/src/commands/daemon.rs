@@ -3003,23 +3003,22 @@ fn report_worktrees(
 }
 
 // ---------------------------------------------------------------------------
-// EXP-530: the automation host — this daemon's own Electric pipeline (a
-// 6-shape subset in `sync-cli.sqlite`), ONE delta-drain thread, and the
-// serialized automations worker. The worker evaluates the triggers bound to
+// EXP-530: the trigger host — this daemon's own Electric pipeline (a shape
+// subset in `sync-cli.sqlite`), ONE delta-drain thread, and the serialized
+// automations worker. The worker evaluates the triggers bound to
 // THIS device (`Ctx::device_id`) through the shared `coding::automations`
 // engine and self-starts the fired action runs; the sessions it spawns join
 // the normal `Sessions` vec, so heartbeat/parked-update/quit-sweep cover them
 // like any other run.
 // ---------------------------------------------------------------------------
 
-/// What the automation host syncs: the bindings (`automations`) and the
-/// actions they fire (`actions` — the name snapshot the log prints), the
+/// What the trigger host syncs: the actions and the `triggers` they carry
+/// (`actions` — SLOP-2 folded the old `automations` shape into it), the
 /// event feed (`issue_events`), and the rows the prompt lines and board
 /// filters read (`issues`, `boards`, `labels`, `issue_statuses`).
 /// Deliberately NOT the desktop's 24 — a headless daemon has no views to
 /// hydrate.
 const AUTOMATION_SHAPES: &[&str] = &[
-    "automations",
     "actions",
     "issues",
     "issue_events",
@@ -3101,8 +3100,8 @@ fn start_automation_sync(ctx: &Ctx, gated: &Arc<AtomicBool>) -> Option<Arc<sync:
 enum AutomationWork {
     /// A synced `issue_events` batch landed — the cache is stale.
     EventsChanged,
-    /// A synced `automations` (or `actions`) batch landed — an automation
-    /// was authored, retargeted or toggled. Re-decide, but the events
+    /// A synced `actions` batch landed — a trigger was authored, edited or
+    /// toggled (they ride `actions.triggers`). Re-decide, but the events
     /// snapshot is untouched.
     ActionsChanged,
     /// The 1s loop's [`AUTOMATION_TICK`] beat.
@@ -3129,7 +3128,7 @@ fn spawn_delta_drain(manager: &Arc<sync::SyncManager>, worker: flume::Sender<Aut
                 };
                 let work = match shape {
                     "issue_events" => AutomationWork::EventsChanged,
-                    "automations" | "actions" => AutomationWork::ActionsChanged,
+                    "actions" => AutomationWork::ActionsChanged,
                     _ => continue,
                 };
                 // A pure `up-to-date` heartbeat changed nothing.
@@ -3192,7 +3191,7 @@ fn rescan_events(batch: &[AutomationWork]) -> bool {
         .any(|work| matches!(work, AutomationWork::EventsChanged))
 }
 
-/// One automation bound to this device, plus what the LAUNCH needs beyond
+/// One trigger bound to this device, plus what the LAUNCH needs beyond
 /// the engine's view of it.
 #[derive(Clone, Debug)]
 struct AutomationAction {
@@ -3200,7 +3199,7 @@ struct AutomationAction {
     team_id: String,
     /// The target action's display name — the log line's handle.
     name: String,
-    /// The automation's pinned agent/account/model/effort; every `None`
+    /// The trigger's pinned agent/account/model/effort; every `None`
     /// falls back to this machine's launch defaults.
     agent: Option<String>,
     /// EXP-995: the agent profile the run spends (belongs to `agent`).
@@ -3225,10 +3224,8 @@ impl AutomationHost {
         // store and this device id, and a workflow moves whether or not the
         // machine has a single automation bound to it.
         self.workflow_beat(&store);
-        let automation_rows =
-            read_shape_rows::<domain::rows::AutomationRow>(&store, "automations");
         let action_rows = read_shape_rows::<domain::rows::ActionRow>(&store, "actions");
-        let actions = triggered_actions(&automation_rows, &action_rows, &self.device_id);
+        let actions = triggered_actions(&action_rows, &self.device_id);
         if actions.is_empty() {
             return;
         }
@@ -5579,49 +5576,23 @@ fn remember_branch_deleted(settings_path: &Path, device_id: &str, workflow_id: &
     });
 }
 
-/// The synced `automations` rows this device evaluates: ENABLED, bound to
-/// `device_id`, with a team and a target action to run. Fingerprints hash the
-/// DECODED trigger value — the same canonical input the GUI feeds
-/// `trigger_fingerprint` — so the two hosts agree on what counts as an edit.
-/// A MALFORMED but targeted trigger survives as `Unsupported` (inert, and the
-/// engine ignores it) so the row stays visible instead of vanishing.
-fn triggered_actions(
-    rows: &[domain::rows::AutomationRow],
-    actions: &[domain::rows::ActionRow],
-    device_id: &str,
-) -> Vec<AutomationAction> {
-    rows.iter()
-        .filter(|row| row.is_enabled())
-        .filter(|row| row.device_id.as_deref() == Some(device_id))
-        .filter_map(|row| {
-            let trigger = row.trigger.as_ref()?;
-            let parsed = coding::automations::parse_trigger(trigger)?;
-            let action_id = row.action_id.clone()?;
-            // A team-less row has nowhere to run (GUI parity) — and the
-            // team doubles as the engine's event fence.
-            let team_id = row.team_id.clone()?;
-            // The action's own row is only the display name here; the launch
-            // re-fetches it fresh (synced rows carry no body).
-            let name = actions
-                .iter()
-                .find(|action| action.id == action_id)
-                .and_then(|action| action.name.clone())
-                .unwrap_or_default();
-            Some(AutomationAction {
-                triggered: coding::automations::TriggeredAutomation {
-                    automation_id: row.id.clone(),
-                    action_id,
-                    team_id: team_id.clone(),
-                    fingerprint: coding::automations::trigger_fingerprint(trigger),
-                    trigger: parsed,
-                },
-                team_id,
-                name,
-                agent: row.agent.clone(),
-                account: row.account.clone(),
-                model: row.model.clone(),
-                effort: row.effort.clone(),
-            })
+/// The triggers this device evaluates, over every synced action
+/// ([`coding::automations::bound_triggers`] — the ONE resolution the GUI host
+/// shares, so the two agree on what counts as an edit and never re-seed each
+/// other's state).
+fn triggered_actions(actions: &[domain::rows::ActionRow], device_id: &str) -> Vec<AutomationAction> {
+    coding::automations::bound_triggers(actions.iter(), device_id)
+        .into_iter()
+        .map(|bound| AutomationAction {
+            team_id: bound.triggered.team_id.clone(),
+            triggered: bound.triggered,
+            // The synced row is only the display name here; the launch
+            // re-fetches the action fresh (synced rows carry no body).
+            name: bound.action_name,
+            agent: bound.pins.agent,
+            account: bound.pins.account,
+            model: bound.pins.model,
+            effort: bound.pins.effort,
         })
         .collect()
 }
@@ -6601,102 +6572,97 @@ mod tests {
     // EXP-530: the automation host's pure helpers
     // -----------------------------------------------------------------------
 
-    fn action_row(id: &str) -> domain::rows::ActionRow {
+    /// One synced `actions` row carrying `triggers`.
+    fn action_row(id: &str, triggers: serde_json::Value) -> domain::rows::ActionRow {
         serde_json::from_value(serde_json::json!({
             "id": id,
             "team_id": "team-1",
             "name": format!("Action {id}"),
+            "triggers": triggers,
         }))
         .expect("action row decodes")
     }
 
-    /// One synced `automations` row. `device` is the steer id it binds to.
-    fn automation_row(
-        id: &str,
-        action_id: &str,
-        device: &str,
-        enabled: bool,
-        trigger: serde_json::Value,
-    ) -> domain::rows::AutomationRow {
-        serde_json::from_value(serde_json::json!({
-            "id": id,
-            "team_id": "team-1",
-            "action_id": action_id,
-            "device_id": device,
-            "enabled": enabled,
-            "trigger": trigger,
-        }))
-        .expect("automation row decodes")
+    /// One trigger element. `device` is the steer id it binds to.
+    fn trigger(id: &str, device: &str, enabled: bool, when: serde_json::Value) -> serde_json::Value {
+        let mut element = when;
+        element["id"] = serde_json::json!(id);
+        element["deviceId"] = serde_json::json!(device);
+        element["enabled"] = serde_json::json!(enabled);
+        element
     }
 
     fn daily(minute: u32) -> serde_json::Value {
         serde_json::json!({"kind": "schedule", "interval": "daily", "minuteOfDay": minute})
     }
 
-    /// Only THIS device's ENABLED, evaluable automations become engine input.
+    /// Only THIS device's ENABLED, readable triggers become engine input.
     #[test]
-    fn triggered_actions_keeps_only_this_devices_rows() {
-        let actions = vec![action_row("act-1"), action_row("act-2")];
-        let rows = vec![
-            automation_row("auto-mine", "act-1", "cli-1", true, daily(420)),
-            // Another machine's binding — that host owns it.
-            automation_row("auto-theirs", "act-1", "desk-9", true, daily(420)),
-            // Switched off: inert before the engine ever sees it.
-            automation_row("auto-off", "act-2", "cli-1", false, daily(420)),
-            // Malformed but TARGETED: kept, inert (the engine skips
-            // Unsupported) so the row stays visible instead of vanishing.
-            automation_row(
-                "auto-future",
+    fn triggered_actions_keeps_only_this_devices_triggers() {
+        let actions = vec![
+            action_row(
+                "act-1",
+                serde_json::json!([
+                    trigger("auto-mine", "cli-1", true, daily(420)),
+                    // Another machine's binding — that host owns it.
+                    trigger("auto-theirs", "desk-9", true, daily(420)),
+                ]),
+            ),
+            action_row(
                 "act-2",
-                "cli-1",
-                true,
-                serde_json::json!({"kind": "cron"}),
+                serde_json::json!([
+                    // Switched off: inert before the engine ever sees it.
+                    trigger("auto-off", "cli-1", false, daily(420)),
+                    // A FUTURE kind is unreadable here: skipped.
+                    trigger("auto-future", "cli-1", true, serde_json::json!({"kind": "cron"})),
+                    trigger(
+                        "auto-event",
+                        "cli-1",
+                        true,
+                        serde_json::json!({"kind": "event", "source": "exponential",
+                                           "event": "created"}),
+                    ),
+                ]),
             ),
         ];
-        let mine = triggered_actions(&rows, &actions, "cli-1");
+        let mine = triggered_actions(&actions, "cli-1");
         assert_eq!(
             mine.iter()
                 .map(|entry| entry.triggered.automation_id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["auto-mine", "auto-future"]
+            vec!["auto-mine", "auto-event"]
         );
         assert_eq!(mine[0].triggered.action_id, "act-1");
-        assert_eq!(mine[0].team_id, "team-1", "the launch needs the row's team");
+        assert_eq!(mine[0].team_id, "team-1", "the launch needs the action's team");
         assert_eq!(mine[0].name, "Action act-1", "the log prints the action's name");
-        assert_eq!(
-            mine[1].triggered.trigger.kind,
-            coding::automations::TriggerKind::Unsupported
-        );
-        // An automation whose action has not synced yet still runs — the
-        // launch re-fetches the row; only the display name degrades.
-        let orphan = triggered_actions(&rows, &[], "cli-1");
-        assert_eq!(orphan[0].name, "");
+        assert_eq!(mine[1].triggered.action_id, "act-2");
 
-        // The fingerprint hashes the trigger VALUE — key order (Electric's
-        // jsonb round-trip) must not read as an edit, or the GUI and the CLI
-        // would re-seed each other's state forever.
-        let reordered = automation_row(
-            "auto-mine",
+        // The fingerprint hashes the WHEN-part's VALUE — key order
+        // (Electric's jsonb round-trip) and the runner half must not read as
+        // an edit, or the GUI and the CLI would re-seed each other's state
+        // forever (and an upgrade from the automations row would reseed).
+        let reordered = action_row(
             "act-1",
-            "cli-1",
-            true,
-            serde_json::json!({"minuteOfDay": 420, "interval": "daily", "kind": "schedule"}),
+            serde_json::json!([{
+                "minuteOfDay": 420, "enabled": true, "interval": "daily",
+                "deviceId": "cli-1", "kind": "schedule", "id": "auto-mine", "agent": "codex",
+            }]),
         );
+        let again = triggered_actions(&[reordered], "cli-1");
+        assert_eq!(again[0].triggered.fingerprint, mine[0].triggered.fingerprint);
         assert_eq!(
-            triggered_actions(&[reordered], &actions, "cli-1")[0]
-                .triggered
-                .fingerprint,
-            mine[0].triggered.fingerprint
+            mine[0].triggered.fingerprint,
+            coding::automations::trigger_fingerprint(&daily(420))
         );
     }
 
-    /// EXP-583: the pins ride from the row to the launch options.
+    /// EXP-583: the pins ride from the trigger to the launch options.
     #[test]
     fn triggered_actions_carry_the_launch_pins() {
-        let mut row = automation_row("auto-1", "act-1", "cli-1", true, daily(420));
-        row.agent = Some("codex".to_string());
-        row.model = Some("gpt-5.1-codex".to_string());
-        let resolved = triggered_actions(&[row], &[action_row("act-1")], "cli-1");
+        let mut pinned = trigger("auto-1", "cli-1", true, daily(420));
+        pinned["agent"] = serde_json::json!("codex");
+        pinned["model"] = serde_json::json!("gpt-5.1-codex");
+        let resolved = triggered_actions(&[action_row("act-1", serde_json::json!([pinned]))], "cli-1");
         assert_eq!(resolved[0].agent.as_deref(), Some("codex"));
         assert_eq!(resolved[0].model.as_deref(), Some("gpt-5.1-codex"));
         // An unpinned effort stays None — the device's default wins.

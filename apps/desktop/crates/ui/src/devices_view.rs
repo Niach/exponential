@@ -1,7 +1,7 @@
 //! The Devices center screen (EXP-686): the web `t/$teamSlug/devices` page —
 //! the signed-in user's devices and nothing else. It was the top section of
 //! the old Actions page; the split gave it its own rail entry so devices,
-//! actions and automations each stand on their own.
+//! and actions each stand on their own.
 //!
 //! The page owns nothing but the scaffold: every row, poll and mutation lives
 //! in [`crate::machines::MachinesSection`], which reads the synced `devices`

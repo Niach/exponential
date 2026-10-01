@@ -23,7 +23,6 @@ import androidx.room.TypeConverters
         IssueEventEntity::class,
         CodingSessionEntity::class,
         ActionEntity::class,
-        AutomationEntity::class,
         DeviceEntity::class,
         DeviceWorktreeEntity::class,
         PinEntity::class,
@@ -358,9 +357,16 @@ import androidx.room.TypeConverters
     // v77 (EXP-1105): teams.yolo_mode — the synced yolo switch that hides the
     //      Reviews tab while no PR is open. New on the teams shape allowlist;
     //      destructive fallback wipes + resyncs.
+    // v78 (SLOP-2): an action carries its triggers — actions.triggers (jsonb
+    //      array kept as raw text, read tolerantly) replaces the `automations`
+    //      table + shape, which this client no longer syncs or stores; the
+    //      dead actions.trigger column goes with it. coding_sessions
+    //      .automation_id stays (it names the TRIGGER that fired the run).
+    //      Destructive fallback wipes + resyncs so every action row arrives
+    //      carrying its triggers.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 77,
+    version = 78,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)
@@ -382,7 +388,6 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun issueEventDao(): IssueEventDao
     abstract fun codingSessionDao(): CodingSessionDao
     abstract fun actionDao(): ActionDao
-    abstract fun automationDao(): AutomationDao
     abstract fun deviceDao(): DeviceDao
     abstract fun deviceWorktreeDao(): DeviceWorktreeDao
     abstract fun pinDao(): PinDao

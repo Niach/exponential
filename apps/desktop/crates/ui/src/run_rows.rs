@@ -1,8 +1,7 @@
 //! EXP-746 — the agent-run rows, EXP-874 — ONE layout per kind.
 //!
 //! Every runs list (the Agent page's Running/Recent bands, an issue's Runs
-//! band, the Sessions list nav, the Automations page's "Recent automated
-//! runs" and its list nav)
+//! band, the Sessions list nav, an action page's Runs)
 //! draws a `coding_sessions` row through one of two renderers:
 //!
 //! - [`render_running_run_row`]: dot · identifier · title, the agent caption,
@@ -471,13 +470,26 @@ pub(crate) struct PastRunSpec {
     pub(crate) on_open: RunRowAction,
 }
 
+/// SLOP-2: a run's TITLE in its OWN action's Runs list (web `actionRunTitle`,
+/// ×4): every row there ran the same action, so the row says what started it
+/// instead of repeating the action's name.
+pub(crate) fn action_run_title(started_reason: Option<&str>) -> &'static str {
+    match started_reason {
+        Some("schedule") => "Scheduled run",
+        Some("event") => "Event run",
+        // Another run started it (`agent`, `workflow`, or a reason added later).
+        Some(reason) if !reason.is_empty() => "Agent run",
+        _ => "Manual run",
+    }
+}
+
 /// EXP-965: the session lists' base left padding — the connector's gutters
 /// are measured off it.
 const ROW_PAD: f32 = 12.;
 
 /// EXP-965: the vertical space between two of these rows — ZERO. Every list
 /// that draws them stacks them flush under a section band and reads as a
-/// table (EXP-818's `flat_row` rule: the Recent panel, the Automations log,
+/// table (EXP-818's `flat_row` rule: the Recent panel, an action's Runs,
 /// the list nav), so there is no gap for the connector to bridge. A list
 /// that ever spaces them has to move this number with its own `gap_*`, or
 /// the connector goes back to dashes.
@@ -833,8 +845,8 @@ pub(crate) fn render_group_row(spec: GroupRowSpec, cx: &App) -> gpui::AnyElement
     }
 }
 
-/// A row of a mixed list (the Automations logs): live runs draw as running
-/// rows, ended ones as past rows.
+/// A row of a mixed list (an action's Runs, a workflow's runs): live runs
+/// draw as running rows, ended ones as past rows.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum RunListFacts {
     Running(RunningRunFacts),
@@ -842,6 +854,20 @@ pub(crate) enum RunListFacts {
 }
 
 impl RunListFacts {
+    /// The row under another title (SLOP-2: an action's Runs names what
+    /// started the run — [`action_run_title`]). A past row's tree title
+    /// (a review's) gives way too: the list is about the start.
+    pub(crate) fn with_title(mut self, title: &'static str) -> Self {
+        match &mut self {
+            RunListFacts::Running(facts) => facts.title = title.into(),
+            RunListFacts::Past(facts) => {
+                facts.title = title.into();
+                facts.marks.review_title = None;
+            }
+        }
+        self
+    }
+
     pub(crate) fn derive(session: &domain::rows::CodingSession, now_epoch: i64, cx: &App) -> Self {
         if run_has_ended(session) {
             RunListFacts::Past(past_run_facts(session, now_epoch, cx))
@@ -859,8 +885,8 @@ impl RunListFacts {
 }
 
 /// A row of a mixed list (never killable). EXP-897: it carries the tree's
-/// place and fold like every other session row — the Automations log nests
-/// its child runs too.
+/// place and fold like every other session row — an action's Runs nests its
+/// child runs too.
 pub(crate) fn render_run_list_row(
     id_prefix: &'static str,
     index: usize,
@@ -1133,6 +1159,18 @@ pub(crate) fn past_run_ended_at(session: &domain::rows::CodingSession) -> Option
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// SLOP-2: the four cases, byte-identical ×4 (web `actionRunTitle`).
+    #[test]
+    fn action_run_title_names_what_started_the_run() {
+        assert_eq!(action_run_title(Some("schedule")), "Scheduled run");
+        assert_eq!(action_run_title(Some("event")), "Event run");
+        for reason in ["agent", "workflow", "something-new"] {
+            assert_eq!(action_run_title(Some(reason)), "Agent run", "{reason}");
+        }
+        assert_eq!(action_run_title(None), "Manual run");
+        assert_eq!(action_run_title(Some("")), "Manual run");
+    }
 
     fn session(id: &str) -> domain::rows::CodingSession {
         serde_json::from_value(serde_json::json!({ "id": id })).expect("row")

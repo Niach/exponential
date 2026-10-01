@@ -412,6 +412,51 @@ final class WireDecodingTests: XCTestCase {
         XCTAssertNil(ActionDto(entity: absentForm).promptPlaceholder)
     }
 
+    // SLOP-2: `triggers` (a jsonb array) rides the actions shape — the Electric
+    // wire's text form, a native array (fixtures) and an ABSENT or null key (a
+    // row from before the column) must all decode to a stored JSON string the
+    // tolerant reader takes.
+    func testActionDecodesTriggersTextArrayNullAndAbsent() throws {
+        let textForm = try decode(ActionEntity.self, #"""
+        {
+          "id": "a1", "team_id": "w1", "name": "Release",
+          "triggers": "[{\"id\":\"tr-1\",\"enabled\":false,\"deviceId\":\"dev-1\",\"kind\":\"schedule\",\"interval\":\"daily\",\"minuteOfDay\":540}]",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        let fromText = ActionDto(entity: textForm).triggers
+        XCTAssertEqual(fromText.map(\.id), ["tr-1"])
+        XCTAssertEqual(fromText.first?.enabled, false)
+
+        let arrayForm = try decode(ActionEntity.self, #"""
+        {
+          "id": "a2", "team_id": "w1", "name": "Sweep",
+          "triggers": [{"id":"tr-2","enabled":true,"deviceId":"dev-1","kind":"event","source":"exponential","event":"created"}],
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        let fromArray = ActionDto(entity: arrayForm).triggers
+        XCTAssertEqual(fromArray.map(\.id), ["tr-2"])
+        XCTAssertEqual(fromArray.first?.enabled, true)
+
+        let nullForm = try decode(ActionEntity.self, #"""
+        {
+          "id": "a3", "team_id": "w1", "name": "Report", "triggers": null,
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertEqual(nullForm.triggers, "[]")
+
+        let absentForm = try decode(ActionEntity.self, #"""
+        {
+          "id": "a4", "team_id": "w1", "name": "Digest",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertEqual(absentForm.triggers, "[]")
+        XCTAssertTrue(ActionDto(entity: absentForm).triggers.isEmpty)
+    }
+
     // The tRPC twin (`actions.get`/`.update` return the camelCase row).
     func testActionDtoDecodesPromptPlaceholderLeniently() throws {
         let withHint = try decode(ActionDto.self, #"""

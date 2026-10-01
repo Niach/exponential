@@ -361,7 +361,8 @@ data class SteerDevice(
     val canResumeRun: Boolean get() = caps?.contains("resume-run") == true
 
     /**
-     * Whether this machine runs action automations locally (EXP-530) — the
+     * Whether this machine runs action triggers locally (EXP-530; the cap
+     * string keeps its old name) — the
      * trigger device picker offers only these (offline-but-capable stays
      * pickable: the machine fires on its own clock once it's back).
      */

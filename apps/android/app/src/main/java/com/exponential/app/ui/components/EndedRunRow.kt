@@ -27,8 +27,8 @@ import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
 
 /**
- * EXP-637: one run in a runs list — the Actions screen's "Recent automated
- * runs" and the Agent page's "Recent" + issue detail's "Runs".
+ * EXP-637: one run in a runs list — an action page's Runs, the Agent page's
+ * "Recent" and issue detail's "Runs".
  *
  * EXP-773 made it a plain LINK. A row used to expand to the agent's close-out
  * summary and a Resume pill; both now live at the top of the fullscreen
@@ -51,8 +51,8 @@ fun EndedRunRow(
      * EXP-746: the Agent page's "Recent" caption, composed once by
      * `pastRunByline` — `<device> · <time>` (EXP-833).
      * When set it REPLACES the device/time line below, so the ×4 string is
-     * whatever that one function produced; the Automations list passes none
-     * and keeps the caption it always had.
+     * whatever that one function produced; a caller that passes none keeps
+     * the device/time caption below.
      */
     byline: String? = null,
     // The run is still going: "Running".

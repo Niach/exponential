@@ -75,7 +75,6 @@ describe(`MobileTabBar FAB (EXP-973)`, () => {
       `/t/$teamSlug/inbox`,
       `/t/$teamSlug/devices`,
       `/t/$teamSlug/actions`,
-      `/t/$teamSlug/automations`,
       `/t/$teamSlug/reviews`,
       `/t/$teamSlug/support`,
     ]) {

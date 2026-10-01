@@ -94,4 +94,32 @@ final class ActionUpdateInputEncodingTests: XCTestCase {
         XCTAssertEqual(clampedEmoji.utf16.count, cap)
         XCTAssertEqual(clampedEmoji.count, cap / 2)
     }
+
+    // SLOP-2: `triggers` is a WHOLE-ARRAY replace — omitted when untouched,
+    // the full array otherwise, and an empty array (the last trigger deleted)
+    // still travels, as `[]` rather than as an absent key.
+    func testTriggersOmittedWholeArrayAndEmpty() throws {
+        let untouched = try json(ActionUpdateInput(id: "a-1", patch: ActionPatch(name: "Ship")))
+        XCTAssertNil(untouched.index(forKey: "triggers"))
+
+        let daily = AutomationTrigger.schedule(
+            AutomationScheduleTrigger(interval: "daily", minuteOfDay: 540)
+        )
+        let set = try json(ActionUpdateInput(
+            id: "a-1",
+            patch: ActionPatch(triggers: [
+                ActionTriggerInput(id: "tr-1", deviceId: "dev-1", when: daily),
+                ActionTriggerInput(deviceId: "dev-2", when: daily),
+            ])
+        ))
+        XCTAssertEqual(set.keys.sorted(), ["id", "triggers"])
+        let elements = try XCTUnwrap(set["triggers"] as? [[String: Any]])
+        XCTAssertEqual(elements.map { $0["id"] as? String }, ["tr-1", nil])
+        XCTAssertEqual(elements.map { $0["deviceId"] as? String }, ["dev-1", "dev-2"])
+
+        let emptied = try json(ActionUpdateInput(id: "a-1", patch: ActionPatch(triggers: [])))
+        XCTAssertEqual((emptied["triggers"] as? [Any])?.count, 0)
+        // Deleting the last trigger is a change.
+        XCTAssertFalse(ActionPatch(triggers: []).isEmpty)
+    }
 }

@@ -30,7 +30,7 @@ data class AgentComposerSeed(
     val prIssueId: String? = null,
     /**
      * Text dropped into an EMPTY draft — a suggestion's description, with its
-     * automation note appended when the suggestion carries a trigger.
+     * trigger block appended when the suggestion carries a trigger.
      */
     val text: String? = null,
     /** A curated icon name seeding the Create action builtin's `icon` input. */

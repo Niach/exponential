@@ -2,7 +2,7 @@ import SwiftUI
 
 // EXP-1029 contract — the action picker: the team's actions (and the two
 // listed builtins) by curated icon (`ActionIconDisplay`) + name. The
-// composer's action chip and the automation editor pick one.
+// composer's action chip picks one.
 
 public struct ActionPickerAction: Identifiable, Hashable {
     public let id: String

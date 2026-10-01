@@ -492,13 +492,13 @@ class PickerContractTest {
     }
 
     /**
-     * EXP-615 (web `AutomationDevicePicker`): a binding is not a launch. An
-     * automation's "Runs on" row takes an offline or signed-out machine as
+     * EXP-615 (web `TriggerDevicePicker`): a binding is not a launch. A
+     * trigger's "Runs on" row takes an offline or signed-out machine as
      * readily as a ready one, and says nothing about its live state, because
      * a schedule catches up when the machine comes back.
      */
     @Test
-    fun anAutomationBindsAnyCapableMachineOfflineOrSignedOut() {
+    fun aTriggerBindsAnyCapableMachineOfflineOrSignedOut() {
         val offline = SteerDevice(deviceId = "d", deviceLabel = "buildbox", online = false)
             .toPickerDevice(startGate = false)
         assertFalse(offline.disabled)

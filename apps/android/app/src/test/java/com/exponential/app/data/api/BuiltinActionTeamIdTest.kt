@@ -172,24 +172,38 @@ class BuiltinActionTeamIdTest {
     }
 
     /**
-     * FEED-50: Tidy up is the ONLY automatable builtin — Create action needs
-     * free text, Fix conflicts a required `pr`; the hidden ones never list.
+     * SLOP-2: builtins never carry triggers, and a team's OWN action named
+     * exactly "Tidy up" (the migrated row) hides the virtual builtin from
+     * every list — web `hasOwnTidyUpAction`.
      */
     @Test
-    fun `only tidy up is automatable among builtins`() {
-        val builtins = builtinActions(teamId) + builtinChatAction(teamId) + builtinPlanWorkflowAction(teamId)
+    fun `a real tidy up row hides the builtin`() {
+        val own = ActionDto(id = "a3f0c9d2-0000-0000-0000-000000000002", teamId = teamId, name = "Tidy up")
+        val other = ActionDto(id = "a3f0c9d2-0000-0000-0000-000000000001", teamId = teamId, name = "Deploy")
+        assertTrue(hasOwnTidyUpAction(listOf(other, own)))
+        // The name is exact, and the virtual row itself never counts.
+        assertTrue(!hasOwnTidyUpAction(listOf(other, own.copy(name = "tidy up"))))
+        assertTrue(!hasOwnTidyUpAction(listOf(builtinTidyUpAction(teamId))))
+        assertTrue(builtinActions(teamId, listOf(other)).any { it.id == DomainContract.builtinTidyUpId })
         assertEquals(
-            listOf(DomainContract.builtinTidyUpId),
-            builtins.filter { it.automatable }.map { it.id },
+            listOf(DomainContract.builtinCreateActionId, DomainContract.builtinFixConflictsId),
+            builtinActions(teamId, listOf(other, own)).map { it.id },
         )
-        // A team row with only optional inputs stays automatable; a required
-        // input still blocks it.
+        assertTrue(
+            (builtinActions(teamId) + builtinChatAction(teamId) + builtinPlanWorkflowAction(teamId))
+                .all { it.parsedTriggers.isEmpty() },
+        )
+    }
+
+    /** A triggered run has nobody to fill a required input. */
+    @Test
+    fun `a required input is what locks a trigger`() {
         val synced = ActionDto(id = "a3f0c9d2-0000-0000-0000-000000000001", teamId = teamId, name = "Deploy")
-        assertTrue(synced.automatable)
+        assertTrue(!synced.hasRequiredInputs)
         val required = synced.copy(
             inputs = listOf(ActionInputDto(key = "pr", label = "PR", type = "pr", required = true)),
         )
-        assertTrue(!required.automatable)
+        assertTrue(required.hasRequiredInputs)
     }
 
     @Test

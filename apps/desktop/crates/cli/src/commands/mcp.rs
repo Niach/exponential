@@ -3,7 +3,7 @@
 //! YOUR connection to each.
 //!
 //! The server holds every credential, per member: connect once and it works
-//! on every device, remote start and automation. This machine holds none.
+//! on every device, remote start and trigger. This machine holds none.
 //! `connect` opens the web settings page's connect in your signed-in
 //! browser (the instance runs the OAuth flow there and keeps the token; its
 //! callback only accepts the member whose browser session started it); `set-secret` reads a typed value from a
@@ -31,7 +31,7 @@ Usage: exponential mcp <command> [--team <team-id|slug>]
   disconnect <server>   Delete your credential for a server
 
 <server> is a server name or id. Credentials are held by the server for you
-(every device, remote starts, automations); owners add servers under
+(every device, remote starts, triggers); owners add servers under
 Settings → MCP servers.
 ";
 
@@ -298,7 +298,7 @@ pub fn connect(args: &[String]) -> CommandResult {
                 }
                 None => println!("Connected {}.", config.name),
             }
-            println!("It works on every device, remote start and automation.");
+            println!("It works on every device, remote start and trigger.");
             return Ok(ExitCode::SUCCESS);
         }
     }
@@ -374,7 +374,7 @@ pub fn set_secret(args: &[String]) -> CommandResult {
     }
     api::mcp_servers::set_secret(&ctx.trpc, &config.id, value)?;
     println!(
-        "Stored your {label} for {}. Every device, remote start and automation uses it.",
+        "Stored your {label} for {}. Every device, remote start and trigger uses it.",
         config.name
     );
     Ok(ExitCode::SUCCESS)

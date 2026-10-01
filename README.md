@@ -23,7 +23,7 @@
 - **Start coding**: hand an issue to Claude Code or Codex from any client, on any of your machines. It plans, codes in a worktree, and opens the PR.
 - **One Work screen**: the issue, its run and its changes side by side. Watch the transcript, answer the agent's questions, read the diff and the screenshots it publishes, from your phone or the desktop. Runs keep their history on the machine that ran them.
 - **Your machines, your logins**: every desktop and server lists its agent accounts with plan, usage and reset times; switch a run to another account when one hits its limit.
-- **Actions & automations**: reusable team prompts, run on demand or on a schedule or an issue event, on your own machines.
+- **Actions**: reusable team prompts, run on demand, on a schedule or on an issue event, on your own machines.
 - **Headless CLI**: `exponential` turns any Linux or macOS box into an always-on agent machine your team starts runs on.
 - **Feedback widget & helpdesk**: a script tag for your site; bug reports with annotated screenshots land as issues, support requests as email tickets in a shared inbox.
 - **MCP server** at `/api/mcp` for Claude Code, Codex, Cursor, or any MCP client.

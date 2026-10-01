@@ -3,7 +3,6 @@ import { eq, useLiveQuery } from "@tanstack/react-db"
 import {
   actionCollection,
   attachmentCollection,
-  automationCollection,
   boardCollection,
   codingSessionCollection,
   commentCollection,
@@ -46,8 +45,6 @@ function rowSource(
       return of(boardCollection)
     case `action`:
       return of(actionCollection)
-    case `automation`:
-      return of(automationCollection)
     case `comment`:
       return of(commentCollection)
     case `session`:

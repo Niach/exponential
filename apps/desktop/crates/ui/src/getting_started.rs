@@ -23,7 +23,7 @@
 //!
 //! EXP-686: the page carries a second tab — "Suggested actions", the curated
 //! seed rows that used to live on the Actions page. The active tab rides the
-//! SCREEN ([`Screen::GettingStarted`]), so the Actions/Automations headers'
+//! SCREEN ([`Screen::GettingStarted`]), so the Actions header's
 //! lightbulb navigates straight into it and it survives go-back / tab
 //! restore. It is deliberately NOT a checklist entry: no new `EntryKey`, and
 //! `ENTRY_TITLES`/`ENTRY_DESCRIPTIONS` stay byte-equal with the web.
@@ -1137,7 +1137,7 @@ impl Render for GettingStartedView {
         let muted = cx.theme().muted_foreground;
         let team_id = active_team_id(&self.nav, cx);
         // EXP-686: the tab is navigation state, read fresh every render — the
-        // lightbulb on Actions/Automations navigates here WITH a tab, and a
+        // lightbulb on Actions navigates here WITH a tab, and a
         // go-back must land on the tab that was up.
         let tab = match resolved_screen(&self.nav, cx) {
             Some(Screen::GettingStarted { tab }) => tab,
@@ -1302,12 +1302,18 @@ fn render_suggestion_row(
     let row_hover = theme.list_hover;
     let description = suggestion.description.to_string();
     let icon = suggestion.icon.to_string();
-    // EXP-583: an "Action + automation" seed hands the create dialog a
-    // prefilled (still editable) trigger for its Automation block.
-    let automation = suggestion
-        .automation
-        .map(crate::action_suggestions::SuggestedAutomation::to_trigger);
-    let chip = if automation.is_some() { "Automation" } else { "Action" };
+    // EXP-583: a seed that carries a trigger appends it to the creator run's
+    // request as the machine-readable block (SLOP-2: for `actions.triggers`).
+    let trigger = suggestion
+        .trigger
+        .map(crate::action_suggestions::SuggestedTrigger::to_trigger);
+    // SLOP-2: what "Use" will set up, up front — the suggested trigger's
+    // glyph beside the title (the old "Automation"/"Action" pill is gone).
+    let badges = trigger
+        .as_ref()
+        .and_then(coding::automations::parse_trigger)
+        .map(|when| crate::trigger_editor::TriggerBadges::of_when(&when))
+        .unwrap_or_default();
     let no_agent = crate::coding_flow::no_agent_reason(cx);
     crate::surface::flat_row()
         // Keyed by the stable seed id, not the render index.
@@ -1333,13 +1339,13 @@ fn render_suggestion_row(
                 .on_click(move |_: &ClickEvent, window, cx| {
                     // The brief is a SEED, not a commitment — the composer
                     // opens with it as the editable request (EXP-825), the
-                    // creator builtin picked and the glyph seeded. An
-                    // automation suggestion appends the web's block.
+                    // creator builtin picked and the glyph seeded. A
+                    // suggestion with a trigger appends the web's block.
                     let _ = &team_id;
-                    let block = automation
+                    let block = trigger
                         .clone()
                         .map(|trigger| {
-                            crate::automation_editor::suggestion_automation_block(trigger, cx)
+                            crate::trigger_editor::suggestion_trigger_block(trigger, cx)
                         })
                         .unwrap_or_default();
                     crate::navigation::navigate_to_chat(
@@ -1381,21 +1387,7 @@ fn render_suggestion_row(
                                 .text_color(theme.foreground)
                                 .child(SharedString::from(suggestion.title)),
                         )
-                        // What "Use" will set up, up front.
-                        .child(
-                            div()
-                                .flex_shrink_0()
-                                .px_1p5()
-                                .py_0p5()
-                                .rounded(px(theme::tokens::radius::SM))
-                                .border_1()
-                                .border_color(
-                                    theme::tokens::glass::STROKE_CARD.to_hsla(),
-                                )
-                                .text_xs()
-                                .text_color(muted)
-                                .child(chip),
-                        ),
+                        .children(badges.render(cx)),
                 )
                 .child(
                     div()

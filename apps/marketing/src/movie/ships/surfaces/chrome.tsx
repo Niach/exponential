@@ -103,9 +103,7 @@ const BotIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
   </Svg>
 )
 
-// nav-devices = lucide `monitor`, nav-automations = lucide `zap`
-// (packages/icons/icons.json) — the two rail entries EXP-686 split out of the
-// old "Agents" row.
+// nav-devices = lucide `monitor` (packages/icons/icons.json).
 const MonitorIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
   <Svg size={size} sw={1.7}>
     <rect x="2" y="3" width="20" height="14" rx="2" />
@@ -126,12 +124,6 @@ const SquareTerminalIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
     <path d="m7 11 2-2-2-2" />
     <path d="M11 13h4" />
     <rect x="3" y="3" width="18" height="18" rx="2" />
-  </Svg>
-)
-
-const ZapIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
-  <Svg size={size} sw={1.7}>
-    <path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" />
   </Svg>
 )
 
@@ -509,7 +501,7 @@ export const CutoutPanel: React.FC<{ children: React.ReactNode }> = ({
 // the FIXED header (team switcher · Search · New issue, full column width)
 // over two slots: the rail folded to its 48px ICON column and the 272px
 // ListNav. The icon column keeps every destination in the expanded rail's
-// order — Inbox / Support / Devices / Actions / Automations / Reviews / Agent
+// order — Inbox / Support / Devices / Actions / Reviews / Agent
 // (its badge counts my live runs) · the boards · Files / Source Control —
 // as 32px squares (FILL_ACTIVE when active, badges pinned top-right), minus
 // everything that needs a label (section labels, What's new, Getting
@@ -521,7 +513,6 @@ export type RailRowId =
   | "support"
   | "devices"
   | "actions"
-  | "automations"
   | "reviews"
   | "agent"
   | "board"
@@ -545,7 +536,6 @@ const railIconY: Record<RailRowId, number> = (() => {
     "support",
     "devices",
     "actions",
-    "automations",
     "reviews",
     "agent",
   ]
@@ -585,7 +575,6 @@ const RAIL_ICON: Record<NavRowId, React.FC<{ size?: number }>> = {
   support: LifeBuoyIcon,
   devices: MonitorIcon,
   actions: BotIcon,
-  automations: ZapIcon,
   reviews: GitPullRequestIcon,
   agent: MessageCircleIcon,
   files: FolderIcon,
@@ -844,7 +833,6 @@ export const CompactRail: React.FC<CompactRailProps> = ({
           "support",
           "devices",
           "actions",
-          "automations",
           "reviews",
           "agent",
           "files",

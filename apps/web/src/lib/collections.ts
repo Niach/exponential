@@ -8,7 +8,6 @@ import {
 } from "@/lib/connectivity"
 import {
   selectSyncedActionSchema,
-  selectAutomationSchema,
   selectSyncedWorkflowSchema,
   selectWorkflowNodeSchema,
   selectWorkflowEventSchema,
@@ -148,18 +147,6 @@ export const actionCollection = createCollection(
     id: `actions`,
     shapeOptions: shapeOptions(`/api/shapes/actions`),
     schema: selectSyncedActionSchema,
-    getKey: (item) => item.id,
-  })
-)
-
-// EXP-583: automations are their own shape — a schedule/event trigger that
-// runs an action on a device. The bound device's host filters this same shape
-// to its own enabled rows.
-export const automationCollection = createCollection(
-  electricCollectionOptions({
-    id: `automations`,
-    shapeOptions: shapeOptions(`/api/shapes/automations`),
-    schema: selectAutomationSchema,
     getKey: (item) => item.id,
   })
 )

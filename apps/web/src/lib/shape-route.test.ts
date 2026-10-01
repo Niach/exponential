@@ -494,6 +494,9 @@ describe(`shape column + trash contracts`, () => {
       `inputs`,
       // EXP-825: the composer hint rides the shape (older natives drop it).
       `prompt_placeholder`,
+      // SLOP-2: the action's triggers ride the shape; the bound device
+      // reads them off it.
+      `triggers`,
       `sort_order`,
       `created_at`,
       `updated_at`,
@@ -506,6 +509,7 @@ describe(`shape column + trash contracts`, () => {
     )
   })
 
+  // SLOP-2: the legacy mirror clients from before the merge still sync.
   it(`pins the automations columns and scopes members by team`, async () => {
     const originUrl = new URL(`https://electric.example/v1/shape`)
     resolveSession.mockResolvedValue({ user: { id: `user-1` } })

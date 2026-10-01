@@ -17,7 +17,7 @@ import {
   workflows,
 } from "@/db/schema"
 import { assertTeamMember } from "@/lib/team-membership"
-import { assertDeviceUsable } from "@/lib/trpc/automations"
+import { assertDeviceUsable } from "@/lib/action-trigger-rules"
 import { nodeEdges, replanWorkflow, workflowIntegrationBranch } from "@/lib/workflows"
 import {
   bad,

@@ -26,7 +26,7 @@ public struct AgentComposerSeed: Hashable, Sendable {
     /// linked issue resolves — the picker normalizes by membership).
     public var prIssueId: String?
     /// Text dropped into an EMPTY draft — a suggestion's description, with
-    /// its automation note appended when the seed carries a trigger.
+    /// its trigger block appended when the seed carries a trigger.
     public var text: String?
     /// A curated icon name seeding the Create action builtin's `icon` input.
     public var icon: String?

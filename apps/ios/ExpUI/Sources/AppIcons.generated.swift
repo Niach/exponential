@@ -384,8 +384,6 @@ public enum AppIcons {
         allNames.contains(name) ? "lucide-\(name)" : nil
     }
 
-    /// Concept `action-automation`.
-    public static let actionAutomation: String = "zap"
     /// Concept `action-chat`.
     public static let actionChat: String = "message-circle"
     /// Concept `action-create`.
@@ -488,8 +486,6 @@ public enum AppIcons {
     public static let navActions: String = "bot"
     /// Concept `nav-admin`.
     public static let navAdmin: String = "shield"
-    /// Concept `nav-automations`.
-    public static let navAutomations: String = "zap"
     /// Concept `nav-boards`.
     public static let navBoards: String = "folder-kanban"
     /// Concept `nav-changelog`.
@@ -674,6 +670,10 @@ public enum AppIcons {
     public static let supportOpen: String = "circle-dot"
     /// Concept `support-resolved`.
     public static let supportResolved: String = "circle-check"
+    /// Concept `trigger-event`.
+    public static let triggerEvent: String = "zap"
+    /// Concept `trigger-schedule`.
+    public static let triggerSchedule: String = "clock"
     /// Concept `ui-add`.
     public static let uiAdd: String = "plus"
     /// Concept `ui-agent-source`.

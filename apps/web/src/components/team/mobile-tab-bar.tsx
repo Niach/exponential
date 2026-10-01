@@ -66,10 +66,19 @@ export function useMobileChromeVisible(): boolean {
     to: `/t/$teamSlug/support/$threadId`,
     fuzzy: true,
   })
+  // SLOP-2: one action's page is a detail with its own back header.
+  const onActionDetail = matchRoute({
+    to: `/t/$teamSlug/actions/$actionId`,
+    fuzzy: true,
+  })
   // EXP-851: the Agent page is a LIST screen again (composer over Running /
   // Recent in one scroller), so it keeps the standard phone chrome.
   return (
-    !onIssueDetail && !onReviewDetail && !onSessionDetail && !onSupportThread
+    !onIssueDetail &&
+    !onReviewDetail &&
+    !onSessionDetail &&
+    !onSupportThread &&
+    !onActionDetail
   )
 }
 
@@ -202,11 +211,8 @@ export function MobileTabBar({
   const onDevices = Boolean(
     matchRoute({ to: `/t/$teamSlug/devices`, fuzzy: true })
   )
-  // EXP-686: `/automations` replace-navigates into the Actions page's
-  // Automations tab on mobile, but a slow network can render this bar first.
   const onActions = Boolean(
-    matchRoute({ to: `/t/$teamSlug/actions`, fuzzy: true }) ||
-      matchRoute({ to: `/t/$teamSlug/automations`, fuzzy: true })
+    matchRoute({ to: `/t/$teamSlug/actions`, fuzzy: true })
   )
   const onReviews = Boolean(
     matchRoute({ to: `/t/$teamSlug/reviews`, fuzzy: true })
