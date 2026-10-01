@@ -93,35 +93,19 @@ class SteerStartInputWireTest {
         assertTrue(chat.indexOf("\"prompt\"") > chat.indexOf("\"inputs\""))
     }
 
-    /**
-     * EXP-981: the Plan workflow builtin rides its `workflowId` (the server
-     * refuses that builtin without one, and every other action id WITH one)
-     * plus the usual builtin teamId. Its free text stays optional.
-     */
+    /** SLOP-3: no start form carries a `workflowId` or a `stack` any more. */
     @Test
-    fun `the plan-workflow start carries the workflow id`() {
-        val encoded = json.encodeToString(
+    fun `no start form carries a workflow id or a stack`() {
+        val action = json.encodeToString(
             StartActionSessionInput.serializer(),
-            StartActionSessionInput(
-                actionId = "builtin:plan-workflow",
-                deviceId = "d-1",
-                teamId = "t-1",
-                workflowId = "w-1",
-                agent = "claude",
-            ),
+            StartActionSessionInput(actionId = "a-1", deviceId = "d-1"),
         )
-        assertEquals(
-            """{"actionId":"builtin:plan-workflow","deviceId":"d-1","teamId":"t-1",""" +
-                """"workflowId":"w-1","agent":"claude"}""",
-            encoded,
+        assertFalse(action.contains("workflowId"))
+        val single = json.encodeToString(
+            StartSessionInput.serializer(),
+            StartSessionInput(issueId = "i-1", deviceId = "d-1"),
         )
-        // Every other form omits it entirely.
-        assertFalse(
-            json.encodeToString(
-                StartActionSessionInput.serializer(),
-                StartActionSessionInput(actionId = "a-1", deviceId = "d-1"),
-            ).contains("workflowId"),
-        )
+        assertFalse(single.contains("stack"))
     }
 
     /**

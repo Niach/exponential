@@ -222,28 +222,6 @@ fun builtinChatAction(teamId: String): ActionDto = ActionDto(
     promptPlaceholder = null,
 )
 
-/**
- * The HIDDEN "Plan workflow" builtin (EXP-981): reads ONE draft workflow's
- * issues, sets the `blocks` relations (contracts-first fan-out by default),
- * splits big issues, declares `touches` and `risk`, and keeps the graph
- * shallow. Runs in the agent's scratch dir — it plans over MCP and writes no
- * code. Like Chat it is appended to NO list and NO picker: a workflow's own
- * Plan button constructs it, because it is meaningless without that
- * workflow's id (which rides the start as `workflowId`). Mirrors
- * apps/web/src/lib/builtin-actions.ts field-for-field.
- */
-fun builtinPlanWorkflowAction(teamId: String): ActionDto = ActionDto(
-    id = DomainContract.builtinPlanWorkflowId,
-    teamId = teamId,
-    name = "Plan workflow",
-    description = "Let your agent turn a workflow's issues into a shallow, parallel plan",
-    icon = "layers",
-    inputs = emptyList(),
-    sortOrder = 1e9 + 3,
-    builtin = true,
-    promptPlaceholder = "Anything the plan should respect (optional)…",
-)
-
 /** The reserved name a team's OWN "Tidy up" row carries (SLOP-2). */
 const val BUILTIN_TIDY_UP_NAME = "Tidy up"
 
@@ -257,7 +235,7 @@ fun hasOwnTidyUpAction(actions: List<ActionDto>): Boolean =
 
 /**
  * The three LISTED builtins in the order every client pins them (the hidden
- * chat and plan-workflow rows are deliberately absent). EXP-270: mobile used
+ * chat row is deliberately absent). EXP-270: mobile used
  * to construct only "Create action", so "Fix merge conflicts" silently
  * vanished from Android when EXP-268 moved the list onto the synced shape.
  * SLOP-2: pass the team's synced rows as [teamActions] — a real "Tidy up" row

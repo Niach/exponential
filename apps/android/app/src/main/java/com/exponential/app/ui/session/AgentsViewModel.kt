@@ -15,14 +15,11 @@ import com.exponential.app.data.api.agentProfileSignOutCommand
 import com.exponential.app.data.api.agentUsageRefreshCommand
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
-import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.UserEntity
-import com.exponential.app.data.db.WorkflowEntity
-import com.exponential.app.data.db.WorkflowNodeEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.electric.SyncStats
@@ -37,7 +34,6 @@ import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.MergeTarget
 import com.exponential.app.domain.RunResumeTarget
 import com.exponential.app.domain.SessionDevicePresentation
-import com.exponential.app.domain.SessionTreeContext
 import com.exponential.app.domain.isLiveRun
 import com.exponential.app.domain.resolveMergeTarget
 import com.exponential.app.domain.resolveSessionDevice
@@ -86,17 +82,10 @@ data class AgentRow(
     // the CURRENT label (not the start-time snapshot) plus whether the machine
     // dropped offline, which renders the row as paused rather than live.
     val device: SessionDevicePresentation = SessionDevicePresentation.Unknown,
-    // EXP-535: a batch session's resolved open PR, as a representative linked
-    // issue (merging through it merges the ONE batch PR — Reviews pattern).
-    // Set only on issueless batch rows in review with an UNAMBIGUOUS match.
-    val batchPrIssue: IssueEntity? = null,
-    // EXP-734: what this row's Merge control acts on — an issue (its own, or a
-    // batch PR's representative) or, for an action/chat run that opened a PR
-    // of its own, the SESSION. Null = nothing to merge.
+    // EXP-734/SLOP-3: what this row's Merge control acts on — its issue, or
+    // for an issue-less run (batch, chat, action) the PR on its own row.
+    // Null = nothing to merge.
     val mergeTarget: MergeTarget? = null,
-    // EXP-1068: the run's account when it is not its machine's last used for
-    // the agent (`runAccountLabel`); null = last used, unset or unknown.
-    val accountLabel: String? = null,
 )
 
 /**
@@ -121,10 +110,6 @@ data class AgentsState(
     // loading. Decides whether a row tap opens the live viewer directly or
     // falls back to the issue detail, and whether the devices section shows.
     val steerEnabled: Boolean? = null,
-    // EXP-1050: what the session TREE groups those rows by (EXP-996) — the
-    // team's workflows and their nodes, plus the issues the stack edges sit
-    // on. Empty until the shapes land, which simply means no group rows yet.
-    val treeContext: SessionTreeContext = SessionTreeContext(),
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -326,32 +311,11 @@ class AgentsViewModel @Inject constructor(
         it.codingSessionDao().observeByStatuses(CodingSessionLiveness.liveStatuses)
     }
 
-    // Bundled up front: the typed `combine` overloads stop at five flows, and
-    // the state below already needs seven. Boards ride along for the batch-PR
-    // resolution (EXP-535) — issues don't sync team_id, so team scoping goes
-    // through their board.
-    private val liveSessionsIssuesAndBoards = combine(
+    // Bundled up front: the typed `combine` overloads stop at five flows.
+    private val liveSessionsAndIssues = combine(
         liveSessionRows,
         dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
-        dbFlow.scopedQuery(emptyList()) { it.boardDao().observeAll() },
-    ) { sessions, issues, boards -> Triple(sessions, issues, boards) }
-
-    // EXP-1050: the session tree's grouping sources — a run belongs to the
-    // workflow whose NODE names it (by session, issue or covered batch issue),
-    // and the group row's name is the workflow row's. Team-scoped, like the
-    // Workflows screen's own list; the issues ride along above.
-    private val workflowRowsAndNodes = combine(dbFlow, selection.selectedId) { db, teamId ->
-        db to teamId
-    }.flatMapLatest { (db, teamId) ->
-        if (db == null || teamId == null) {
-            flowOf(emptyList<WorkflowEntity>() to emptyList<WorkflowNodeEntity>())
-        } else {
-            combine(
-                db.workflowDao().observeByTeam(teamId),
-                db.workflowNodeDao().observeByTeam(teamId),
-            ) { workflows, nodes -> workflows to nodes }
-        }
-    }
+    ) { sessions, issues -> sessions to issues }
 
     // Bundled to keep the combine below inside the typed overloads.
     private val steerEnabledAndDevices = combine(
@@ -360,7 +324,7 @@ class AgentsViewModel @Inject constructor(
     ) { steerEnabled, (devices, polledAt) -> Triple(steerEnabled, devices, polledAt) }
 
     val state: StateFlow<AgentsState> = combine(
-        liveSessionsIssuesAndBoards,
+        liveSessionsAndIssues,
         steerEnabledAndDevices,
         // Heartbeat-stale rows render as absent (EXP-153); the ticker clears
         // them once the liveness window elapses without a sync delta. The
@@ -368,13 +332,11 @@ class AgentsViewModel @Inject constructor(
         // cadence — a minute tick could lag the paused flip by two-thirds of
         // the window.
         DeviceLiveness.ticker(),
-        // Paired: the typed `combine` overloads stop at five flows, and
-        // EXP-1050 needed a sixth source.
-        combine(auth.userId, selection.selectedId) { userId, teamId -> userId to teamId },
-        workflowRowsAndNodes,
-    ) { (sessions, issues, boards), (steerEnabled, devices, polledAt), now, (userId, teamId), (workflows, workflowNodes) ->
+        auth.userId,
+        selection.selectedId,
+    ) { (sessions, issues), (steerEnabled, devices, polledAt), now, userId, teamId ->
         val rows = agentRows(
-            sessions, issues, boards, userId, teamId, now, devices,
+            sessions, issues, userId, teamId, now, devices,
             // The stamp rides elapsedRealtime, not the wall clock `now`.
             devicesFresh = DeviceFreshness.isTrustworthy(
                 polledAt,
@@ -384,11 +346,6 @@ class AgentsViewModel @Inject constructor(
         AgentsState(
             rows = rows,
             steerEnabled = steerEnabled,
-            treeContext = SessionTreeContext(
-                workflows = workflows,
-                workflowNodes = workflowNodes,
-                issues = sessionTreeIssues(rows),
-            ),
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AgentsState())
 
@@ -566,22 +523,6 @@ class AgentsViewModel @Inject constructor(
 }
 
 /**
- * EXP-1050: the stack edges the session tree reads — the LISTED rows' OWN
- * issues (web `useSessionTreeContext`, iOS `sessionTreeContext`), never the
- * whole synced pool: a stack only becomes a group when two of its runs are
- * listed, so scoping keeps the group's root an issue the reader can see
- * instead of a lower member nothing on screen belongs to.
- */
-private fun sessionTreeIssues(rows: List<AgentRow>): List<IssueEntity> {
-    val byId = LinkedHashMap<String, IssueEntity>()
-    for (row in rows) {
-        row.issue?.let { byId[it.id] = it }
-        for (issue in row.batchIssues) byId[issue.id] = issue
-    }
-    return byId.values.toList()
-}
-
-/**
  * The Agents list: the signed-in user's OWN live sessions in the SELECTED team
  * only. A teammate's live session is neither viewable nor steerable (EXP-312),
  * so listing it just read as "computer not online" — and a session in another
@@ -595,7 +536,6 @@ private fun sessionTreeIssues(rows: List<AgentRow>): List<IssueEntity> {
 fun agentRows(
     sessions: List<CodingSessionEntity>,
     issues: List<IssueEntity>,
-    boards: List<BoardEntity>,
     currentUserId: String?,
     teamId: String?,
     nowMs: Long,
@@ -614,35 +554,19 @@ fun agentRows(
             it.teamId == teamId &&
             CodingSessionLiveness.isLive(it, nowMs)
     }
-    // EXP-535: resolved only while an issueless, actionless in-review batch
-    // row actually needs it — an action run merges nothing, and a still
-    // running batch has no PR yet (in_review is flipped in the pr_open
-    // transaction).
-    val batchPrReps = if (live.any { it.isBatchInReview }) {
-        openBatchPrRepresentatives(issues, boards, teamId)
-    } else {
-        emptyList()
-    }
     // issueId is null for batch multi-issue sessions — those rows render
     // without an issue link.
     return live.map { session ->
         val issue = session.issueId?.let(issuesById::get)
-        val batchPrIssue = if (session.isBatchInReview) {
-            resolveBatchPrIssue(batchPrReps, session.branch)
-        } else {
-            null
-        }
         AgentRow(
             session = session,
             issue = issue,
             // EXP-876: what names a batch row.
             batchIssues = batchRunIssues(session, issues),
             device = resolveSessionDevice(session, devices, nowMs, devicesFresh),
-            batchPrIssue = batchPrIssue,
-            // EXP-734: an action or chat run can carry a PR of its OWN (one
-            // that links no issue), merged through codingSessions.mergePr.
-            mergeTarget = resolveMergeTarget(session, issue, batchPrIssue),
-            accountLabel = com.exponential.app.ui.agent.runAccountLabel(session, devices),
+            // EXP-734/SLOP-3: an issue-less run (batch, chat, action) merges
+            // the PR on its own row through codingSessions.mergePr.
+            mergeTarget = resolveMergeTarget(session, issue),
         )
     }
 }
@@ -767,68 +691,6 @@ fun issueRunRows(
             )
         }
 }
-
-// An issueless, actionless in-review session — the only row shape whose merge
-// shortcut needs the client-resolved batch PR (EXP-535). Internal since
-// EXP-678: the steer screen's Merge pill resolves its target the same way.
-internal val CodingSessionEntity.isBatchInReview: Boolean
-    get() = issueId == null &&
-        actionName == null &&
-        status == DomainContract.codingSessionStatusInReview
-
-// The batch launcher's branch namespace (`exp/batch-<id8>`); the contract
-// carries no constant for it — matching web's inline literal.
-private const val BATCH_BRANCH_PREFIX = "exp/batch-"
-
-/**
- * EXP-535: batch sessions carry no issue linkage, so a batch row resolves its
- * open PR client-side: the team's open-PR issues on an `exp/batch-` branch,
- * collapsed by prUrl to one representative (newest `createdAt`) issue — the
- * Reviews pattern; the server resolves that issue's PR to ALL linked issues
- * on merge. Team scoping goes through live boards ([issues] don't sync
- * team_id).
- */
-fun openBatchPrRepresentatives(
-    issues: List<IssueEntity>,
-    boards: List<BoardEntity>,
-    teamId: String?,
-): List<IssueEntity> {
-    if (teamId == null) return emptyList()
-    val teamBoardIds = boards
-        .filter { it.teamId == teamId && it.deletedAt == null }
-        .mapTo(mutableSetOf()) { it.id }
-    val byPrUrl = mutableMapOf<String, IssueEntity>()
-    for (issue in issues) {
-        val prUrl = issue.prUrl ?: continue
-        if (issue.prState != DomainContract.prStateOpen) continue
-        if (issue.branch?.startsWith(BATCH_BRANCH_PREFIX) != true) continue
-        if (issue.boardId !in teamBoardIds) continue
-        val current = byPrUrl[prUrl]
-        // ISO-8601 UTC timestamps — lexicographic order IS chronological
-        // (same comparison the list sorts already lean on).
-        if (current == null || issue.createdAt > current.createdAt) {
-            byPrUrl[prUrl] = issue
-        }
-    }
-    return byPrUrl.values.toList()
-}
-
-/**
- * EXP-545: a batch session's Merge shortcut must target its OWN PR — the
- * branch the server's pr_open batch flip stamped on the row. Matching "the
- * team's sole open batch PR" alone could offer a teammate's PR once this
- * session's own PR closed unmerged (prState `closed` while the row stays
- * in_review). EXP-546: the pre-EXP-545 branchless rows have drained, so a null
- * [sessionBranch] no longer falls back to "the sole open batch PR" — it
- * resolves nothing, and such a row simply shows no Merge shortcut. Anything
- * ambiguous resolves to null too — with concurrent batch runs Reviews still
- * lists every PR.
- */
-fun resolveBatchPrIssue(
-    representatives: List<IssueEntity>,
-    sessionBranch: String?,
-): IssueEntity? =
-    sessionBranch?.let { branch -> representatives.filter { it.branch == branch }.singleOrNull() }
 
 /**
  * The synced devices rows → the tab's SteerDevice list (EXP-481): the

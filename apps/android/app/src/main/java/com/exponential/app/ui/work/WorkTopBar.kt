@@ -51,6 +51,11 @@ enum class WorkBarVerb { Stop, Resume }
 @Composable
 fun WorkTopBar(
     title: String,
+    /**
+     * EXP-876: drawn INSTEAD of the plain [title] text — a multi-issue run's
+     * title is the stacked issue chip that opens the issues it covers.
+     */
+    titleContent: (@Composable () -> Unit)? = null,
     /** The shown session's state; null draws no dot (no live run). */
     dotTone: SessionDotTone?,
     /** EXP-848: the running dot pulses only while the agent is mid-turn. */
@@ -65,12 +70,6 @@ fun WorkTopBar(
      * bar's leading slot could carry the changed-files sheet.
      */
     action: (@Composable () -> Unit)? = null,
-    /**
-     * EXP-897: the stack/batch badge — the ONE mark for everything this work
-     * is entangled with, on every face. EXP-1097: in the actions, beside the
-     * `…` (a compact chip), no longer after the title.
-     */
-    badge: (@Composable () -> Unit)? = null,
     /** The issue `…` menu, for an issue subject. */
     menu: (@Composable () -> Unit)?,
     /**
@@ -88,20 +87,20 @@ fun WorkTopBar(
                     SessionToneDot(dotTone, busy = dotBusy)
                     Spacer(Modifier.width(8.dp))
                 }
-                Text(
-                    title,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.testTag("work-title"),
-                )
+                if (titleContent != null) {
+                    titleContent()
+                } else {
+                    Text(
+                        title,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.testTag("work-title"),
+                    )
+                }
             }
         },
         navigationIcon = { TopBarBackButton(onClick = onBack) },
         actions = {
-            // EXP-1097: the graph chip sits beside the `…` on every face.
-            if (badge != null) {
-                Box(Modifier.padding(end = 8.dp)) { badge() }
-            }
             when (verb) {
                 // EXP-818: ONE word for ending a run, wherever it is watched
                 // from — a red pill beside the `…`, confirm-gated by the host.

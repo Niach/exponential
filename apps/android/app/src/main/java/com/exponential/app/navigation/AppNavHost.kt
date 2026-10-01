@@ -82,8 +82,6 @@ import com.exponential.app.ui.search.SearchScreen
 import com.exponential.app.ui.work.WorkScreen
 import com.exponential.app.domain.WorkFaceKind
 import com.exponential.app.ui.work.WorkSubject
-import com.exponential.app.ui.workflows.WorkflowDetailScreen
-import com.exponential.app.ui.workflows.WorkflowsScreen
 import com.exponential.app.ui.session.AgentsScreen
 import com.exponential.app.ui.settings.AboutScreen
 import com.exponential.app.ui.settings.ServerDetailScreen
@@ -435,10 +433,6 @@ private fun AuthenticatedNav(
             navController.navigateDeepLink(route)
         }
     }
-    // EXP-981: the team's workflows — a pushed list off the Agent page's
-    // `nav-workflows` button (the phone has no sidebar), and the draft detail
-    // the bulk bar's "Create workflow…" lands on.
-    val openWorkflow: (String) -> Unit = { id -> navController.navigate("workflow/$id") }
     // EXP-1121: the "Ready to code?" fixes. Team settings shows the SELECTED
     // team, so the issue's team is selected first (a no-op when it already
     // is); both are PUSHED over the issue, so Back returns to Start coding.
@@ -474,9 +468,7 @@ private fun AuthenticatedNav(
                 is EntityTarget.Issue -> navController.navigate("issue/${target.id}")
                 is EntityTarget.Board -> navController.navigate("board/${target.id}")
                 is EntityTarget.Session -> navController.navigate("steer/${target.id}")
-                is EntityTarget.Workflow -> navController.navigate("workflow/${target.id}")
                 is EntityTarget.SupportThread -> navController.navigate("support/${target.id}")
-                EntityTarget.Workflows -> navController.navigate("workflows") { launchSingleTop = true }
                 // SLOP-2: an `action` ref opens that action's page.
                 is EntityTarget.Action -> navController.navigate("action/${target.id}")
                 EntityTarget.Actions -> navController.navigate("actions") {
@@ -531,7 +523,6 @@ private fun AuthenticatedNav(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenSettings = { navController.navigate("settings") },
                 onOpenAgent = openAgent,
-                onOpenWorkflow = openWorkflow,
                 // EXP-686: search left the bottom bar — the board header's
                 // button pushes it instead.
                 onOpenSearch = { navController.navigate("search") { launchSingleTop = true } },
@@ -581,8 +572,7 @@ private fun AuthenticatedNav(
         composable("action/{actionId}") {
             // SLOP-2: one action — Prompt | Triggers | Runs on a pager. The
             // ViewModel reads actionId from its SavedStateHandle like the
-            // workflow-detail route does; a run opened from Runs pops back
-            // here.
+            // issue-detail route does; a run opened from Runs pops back here.
             ActionDetailScreen(
                 onBack = { navController.popBackStack() },
                 onOpenAgent = openAgent,
@@ -608,33 +598,6 @@ private fun AuthenticatedNav(
                 onBack = { navController.popBackStack() },
                 onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
-                onOpenWorkflows = {
-                    navController.navigate("workflows") { launchSingleTop = true }
-                },
-                // EXP-1050: a WORKFLOW group row in the sessions list opens ITS
-                // workflow, not the list.
-                onOpenWorkflow = openWorkflow,
-            )
-        }
-        composable("workflows") {
-            // EXP-981: the team's workflows — Running / Draft / Done.
-            WorkflowsScreen(
-                onBack = { navController.popBackStack() },
-                onOpenWorkflow = openWorkflow,
-            )
-        }
-        composable("workflow/{workflowId}") {
-            // One workflow: the node strip over the Work screen faces, one
-            // primary action by status, Stop / Delete in the overflow. The
-            // ViewModel reads workflowId from its SavedStateHandle like the
-            // issue-detail route does.
-            WorkflowDetailScreen(
-                onBack = { navController.popBackStack() },
-                onOpenIssue = { id -> navController.navigate("issue/$id") },
-                onOpenAgent = openAgent,
-                // A run outside every node (the planner), and a PR's diff.
-                onOpenSession = { sessionId -> navController.navigate("steer/$sessionId") },
-                onOpenChanges = { id -> navController.navigate("issue/$id/changes") },
             )
         }
         composable("personal") {
@@ -678,7 +641,6 @@ private fun AuthenticatedNav(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenChanges = { id -> navController.navigate("issue/$id/changes") },
                 onOpenAgent = openAgent,
-                onOpenWorkflow = openWorkflow,
             )
         }
         composable("settings") {
@@ -768,7 +730,6 @@ private fun AuthenticatedNav(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onBack = { navController.popBackStack() },
                 onOpenAgent = openAgent,
-                onOpenWorkflow = openWorkflow,
                 onOpenSearch = { navController.navigate("search") { launchSingleTop = true } },
                 onNewIssue = { navController.navigate("board/$boardId/new") },
             )

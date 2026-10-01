@@ -44,8 +44,7 @@ import com.exponential.app.ui.theme.TextEmphasis
 
 /**
  * EXP-1029 contract, implemented by EXP-1043 — sub-shell navigation for the
- * settings shell (`OptionGroup` rows, EXP-994). Used for "Workflow settings"
- * inside the device settings sheet.
+ * settings shell (`OptionGroup` rows, EXP-994).
  *
  * A [SubShell] is a ROW ENTRY inside a card. Opening it slides a child page
  * in place of the WHOLE card — not a nested card, not a pushed screen —

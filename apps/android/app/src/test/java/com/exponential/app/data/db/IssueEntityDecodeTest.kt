@@ -40,30 +40,13 @@ class IssueEntityDecodeTest {
     """.trimIndent()
 
     @Test
-    fun `a row carrying pr_base_branch lands the stack edge`() {
+    fun `a row still carrying pr_base_branch decodes without it`() {
         val entity = json.decodeFromString(
             IssueEntity.serializer(),
             row(",\n  \"pr_base_branch\": \"exp/APP-11\""),
         )
-        assertEquals("exp/APP-11", entity.prBaseBranch)
         assertEquals("exp/APP-12", entity.branch)
         assertEquals("APP-12", entity.identifier)
-    }
-
-    @Test
-    fun `a row without pr_base_branch still decodes`() {
-        val entity = json.decodeFromString(IssueEntity.serializer(), row(""))
-        assertNull(entity.prBaseBranch)
-        assertEquals("exp/APP-12", entity.branch)
-    }
-
-    @Test
-    fun `an explicit null pr_base_branch decodes as no stack edge`() {
-        val entity = json.decodeFromString(
-            IssueEntity.serializer(),
-            row(",\n  \"pr_base_branch\": null"),
-        )
-        assertNull(entity.prBaseBranch)
     }
 
     // EXP-630: `estimate` joined the issues shape allowlist — a point number

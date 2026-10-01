@@ -1,6 +1,12 @@
 package com.exponential.app.ui.work
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
@@ -18,6 +24,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -56,6 +63,10 @@ import com.exponential.app.ui.issue.StartCircle
 import com.exponential.app.ui.issue.rememberIssueFaceController
 import com.exponential.app.ui.issue.toDiffFile
 import com.exponential.app.ui.components.GlassSegmentedControlDefaults
+import com.exponential.app.ui.components.GlassSheet
+import com.exponential.app.ui.components.IssueChip
+import com.exponential.app.ui.components.IssueChipSize
+import com.exponential.app.ui.components.IssueChipStack
 import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
 import com.exponential.app.ui.session.AgentSessionViewModel
 import com.exponential.app.ui.session.RunFace
@@ -114,8 +125,8 @@ fun WorkScreen(
     // follows `codingTarget` as the issue's runs come and go.
     var pinnedByUser by rememberSaveable { mutableStateOf(subject is WorkSubject.Session) }
     var killDialogOpen by rememberSaveable { mutableStateOf(false) }
-    // EXP-897: the stack/batch overlay behind the top bar's badge.
-    var graphSheetOpen by remember { mutableStateOf(false) }
+    // EXP-876: the covered-issues sheet behind a batch run's title.
+    var coveredSheetOpen by remember { mutableStateOf(false) }
     var resumeConfirmOpen by rememberSaveable { mutableStateOf(false) }
 
     // ── The shown run's model, one per id ──────────────────────────────────
@@ -336,8 +347,6 @@ fun WorkScreen(
     // EXP-1150: Start coding once the shown run ended for good.
     val offerStart = sessionEnded && ownShown && resumeTarget == null && issueId != null &&
         readiness?.visible == true
-    val sessionStackChoice by (sessionVm?.stackMergeChoice ?: remember { MutableStateFlow(null) })
-        .collectAsStateWithLifecycle()
     // The live run merges its own target (EXP-678/734).
     val sessionCanMerge = sessionVm != null && mergeTarget != null &&
         !sessionEnded && phase !is AgentPhase.Ended
@@ -359,8 +368,6 @@ fun WorkScreen(
                         "and closes the coding session."
             },
             onConfirm = { sessionVm.merge() },
-            stackChoice = if (fix) null else sessionStackChoice,
-            onMergeStack = { top -> sessionVm.mergeStack(top) },
             onFixConflicts = {
                 onOpenAgent(
                     AgentComposerSeed(
@@ -382,9 +389,6 @@ fun WorkScreen(
         .collectAsStateWithLifecycle()
     val changesConflict by (changesVm?.actionErrorIsConflict ?: remember { MutableStateFlow(false) })
         .collectAsStateWithLifecycle()
-    // EXP-1145: a stack member's Merge asks first, per merge source.
-    val changesStackChoice by (changesVm?.stackMergeChoice ?: remember { MutableStateFlow(null) })
-        .collectAsStateWithLifecycle()
     // EXP-1150: the header's ONE Merge PR, on every face — the live run's own
     // target first, else the issue's open PR.
     val headerMerge: ChangesMergeControl? = when {
@@ -401,8 +405,6 @@ fun WorkScreen(
                 confirmText = "Squash-merges PR #${issue.prNumber ?: ""} via the GitHub App. " +
                     "Any live coding session for it closes.",
                 onConfirm = { changesVm.mergePr() },
-                stackChoice = if (fix) null else changesStackChoice,
-                onMergeStack = { top -> changesVm.mergeStack(top) },
                 onFixConflicts = {
                     onOpenAgent(
                         AgentComposerSeed(
@@ -462,15 +464,9 @@ fun WorkScreen(
         }
     }
 
-    // ── The stack / batch graph (EXP-897) ───────────────────────────────────
-    // ONE model for the badge and its overlay: the stack off `pr_base_branch`,
-    // the batch off a shared `pr_url`, the run family off `parent_session_id`,
-    // the blockers off the `blocks` relations.
-    val graphVm: PrGraphViewModel = hiltViewModel()
-    LaunchedEffect(issueId, shownSessionId) { graphVm.bind(issueId, shownSessionId) }
-    val graph by graphVm.graph.collectAsStateWithLifecycle()
     // EXP-876: what names an issue-less BATCH run in the bar below.
-    val batchIssues by graphVm.batchIssues.collectAsStateWithLifecycle()
+    val batchIssues by (sessionVm?.batchIssues ?: remember { MutableStateFlow(emptyList()) })
+        .collectAsStateWithLifecycle()
 
     // ── Top bar inputs ──────────────────────────────────────────────────────
     val title = when {
@@ -495,6 +491,24 @@ fun WorkScreen(
             topBar = {
                 WorkTopBar(
                     title = title,
+                    // EXP-876: a multi-issue run's title (`EXP-874 +2`) is the
+                    // stacked issue chip that opens the issues it covers.
+                    titleContent = if (issueId == null && batchIssues.size > 1) {
+                        {
+                            IssueChipStack {
+                                IssueChip(
+                                    identifier = title,
+                                    title = null,
+                                    status = null,
+                                    size = IssueChipSize.Sm,
+                                    onClick = { coveredSheetOpen = true },
+                                    modifier = Modifier.testTag("work-covered-issues"),
+                                )
+                            }
+                        }
+                    } else {
+                        null
+                    },
                     dotTone = if (issueId != null) dotTone else null,
                     dotBusy = shownSession?.agentBusy == true,
                     onBack = onBack,
@@ -512,12 +526,6 @@ fun WorkScreen(
                     // the changed-files sheet.
                     action = changesPrUrl?.takeIf { face == WorkFaceKind.Changes }?.let { url ->
                         { GithubHeaderAction(url) }
-                    },
-                    // SLOP-16: a quiet icon button beside the `…` whose glyph
-                    // names the shape (stack, batch, runs, blockers); the
-                    // chip it replaced only repeated the title.
-                    badge = {
-                        PrGraphBadge(graph = graph) { graphSheetOpen = true }
                     },
                     // EXP-934: the `…` belongs to the ISSUE, so it shows on the
                     // Issue face alone (`faceShowsContextMenu`) — Run, Changes
@@ -614,22 +622,36 @@ fun WorkScreen(
         }
     }
 
-    // EXP-897: the badge's "Related work" sheet.
-    if (graphSheetOpen) {
-        val graphStatuses by graphVm.issueStatuses.collectAsStateWithLifecycle()
-        val graphUsers by graphVm.users.collectAsStateWithLifecycle()
-        PrGraphSheet(
-            graph = graph,
-            statuses = graphStatuses,
-            users = graphUsers,
-            onOpenIssue = onOpenIssue,
-            // SLOP-16 r3: a pull request row opens its Changes — this
-            // screen's own face for the subject's PR, else the review route.
-            onOpenPr = { id ->
-                if (id == issueId && hasChanges) faceName = WorkFaceKind.Changes.name else onOpenChanges(id)
-            },
-            onDismiss = { graphSheetOpen = false },
-        )
+    // EXP-876: the issues a batch run covers, each opening its issue.
+    if (coveredSheetOpen && batchIssues.size > 1) {
+        val statusTargets by (sessionVm?.issueRefCandidates ?: remember { MutableStateFlow(emptyList()) })
+            .collectAsStateWithLifecycle()
+        val statusById = remember(statusTargets) {
+            statusTargets.associate { it.issueId to it.resolvedStatus }
+        }
+        GlassSheet(title = COVERED_ISSUES_TITLE, onDismiss = { coveredSheetOpen = false }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 8.dp)
+                    .testTag("work-covered-issues-sheet"),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                batchIssues.forEach { covered ->
+                    IssueChip(
+                        identifier = covered.identifier,
+                        title = covered.title,
+                        status = statusById[covered.id],
+                        onClick = {
+                            coveredSheetOpen = false
+                            onOpenIssue(covered.id)
+                        },
+                    )
+                }
+            }
+        }
     }
 
     // EXP-1121: the "Ready to code?" checklist behind a not-ready Start coding.
@@ -720,3 +742,6 @@ fun WorkScreen(
         )
     }
 }
+
+/** EXP-876: the covered-issues sheet's title behind a batch run's title. */
+internal const val COVERED_ISSUES_TITLE = "Issues in this run"

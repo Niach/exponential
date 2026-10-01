@@ -77,19 +77,6 @@ data class AgentLaunchDefaults(
  * still stamps that key; both decoders here are `ignoreUnknownKeys`, so it is
  * simply skipped instead of failing the whole object.
  */
-/**
- * EXP-1029: a device's WORKFLOW model defaults (`launch_defaults.workflow`)
- * — the cheap [model] (leaves + subagents) and the [strongModel] (contract,
- * integration and `risk: high` nodes, every agent review) new workflows are
- * seeded from. Absent on a machine that predates them: readers fall back to
- * `DomainContract.deviceAgentDefaultsWorkflowModel` / `…StrongModel`.
- */
-@Serializable
-data class DeviceWorkflowDefaults(
-    @SerialName("model") val model: String? = null,
-    @SerialName("strongModel") val strongModel: String? = null,
-)
-
 @Serializable
 data class DeviceLaunchDefaults(
     /**
@@ -100,8 +87,6 @@ data class DeviceLaunchDefaults(
      */
     @SerialName("defaultAgent") val defaultAgent: String? = null,
     @SerialName("agents") val agents: Map<String, AgentLaunchDefaults> = emptyMap(),
-    /** EXP-1029: the workflow model defaults; null on an older machine. */
-    @SerialName("workflow") val workflow: DeviceWorkflowDefaults? = null,
 )
 
 /**
@@ -389,15 +374,6 @@ data class SteerDevice(
     val canSwitchAccount: Boolean get() = caps?.contains("account-switch") == true
 
     /**
-     * EXP-897: whether this machine reads a start frame's `stack` payload and
-     * cuts the branch from the lower PR's. An older build has no `stack` field
-     * in its decoder and would run UNSTACKED while the server had already
-     * written the `blocks` relation, so the blocked-start dialog hides
-     * "Stacked PR" for it (the server refuses `stack` on its behalf too).
-     */
-    val canStackStart: Boolean get() = caps?.contains("stacked-start") == true
-
-    /**
      * EXP-862: whether this machine can REMOVE one of its agent logins
      * (`agent_profile_remove` — it deletes its own copy of the profile, never
      * the account). Cap-gated like the switch: the server refuses the command
@@ -509,11 +485,6 @@ internal data class StartSessionInput(
     @SerialName("resume") val resume: Boolean? = null,
     @SerialName("account") val account: String? = null,
     @SerialName("prompt") val prompt: String? = null,
-    // EXP-897: start this issue as a STACKED run — the launcher cuts the
-    // branch from its blocker's PR branch and the pull request is based on it
-    // (the server resolves the chain). Single-issue starts only; omitted
-    // (null) = today's plain start.
-    @SerialName("stack") val stack: Boolean? = null,
 )
 
 // The batch form of steer.startSession (EXP-156): exactly one of
@@ -549,11 +520,6 @@ internal data class StartActionSessionInput(
     @SerialName("actionId") val actionId: String,
     @SerialName("deviceId") val deviceId: String,
     @SerialName("teamId") val teamId: String? = null,
-    // EXP-981: the DRAFT workflow a Plan-workflow start is about. The server
-    // refuses it beside any other action id — and refuses that builtin
-    // without it — and writes the prompt's `Workflow: <uuid>` first line
-    // itself, so nothing about the workflow rides in [prompt].
-    @SerialName("workflowId") val workflowId: String? = null,
     @SerialName("model") val model: String? = null,
     @SerialName("effort") val effort: String? = null,
     // EXP-981: claude only; omitted unless the composer picked one.
@@ -633,9 +599,6 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
         deviceId: String,
         options: SteerStartOptions = SteerStartOptions(),
         prompt: String? = null,
-        // EXP-897: the third start mode — a blocked issue's run is cut from
-        // its blocker's PR branch and its pull request is based on it.
-        stack: Boolean = false,
     ) {
         trpc.mutationUnit(
             accountId,
@@ -652,7 +615,6 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 resume = options.resume,
                 account = options.account,
                 prompt = prompt,
-                stack = if (stack) true else null,
             ),
             inputSerializer = StartSessionInput.serializer(),
         )
@@ -731,9 +693,6 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
      * (EXP-825) is the composer's text — REQUIRED by the server for the Chat
      * and Create action builtins, additional instructions otherwise. Same
      * endpoint + error mapping as the issue forms.
-     *
-     * EXP-981: [workflowId] names the DRAFT workflow a Plan-workflow start
-     * plans — required for that builtin and refused on every other action id.
      */
     suspend fun startActionSession(
         accountId: String,
@@ -743,7 +702,6 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
         teamId: String? = null,
         inputs: Map<String, String>? = null,
         prompt: String? = null,
-        workflowId: String? = null,
     ) {
         trpc.mutationUnit(
             accountId,
@@ -752,7 +710,6 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 actionId = actionId,
                 deviceId = deviceId,
                 teamId = teamId,
-                workflowId = workflowId,
                 model = options.model,
                 effort = options.effort,
                 subagentModel = options.subagentModel,

@@ -11,7 +11,7 @@ import com.exponential.app.data.db.ElectricOffsetEntity
  *
  * The "done" marker is a sentinel row in `electric_offsets` itself: it lives
  * and dies with the account database it describes (no Room version bump, whose
- * destructive fallback would re-sync all 24 shapes), and no shape is ever
+ * destructive fallback would re-sync all 21 shapes), and no shape is ever
  * named with the `_repair:` prefix.
  */
 internal data class ShapeRepair(val id: String, val shapes: List<String>)

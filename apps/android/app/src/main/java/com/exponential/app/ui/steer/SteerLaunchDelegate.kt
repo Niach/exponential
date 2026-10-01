@@ -190,9 +190,6 @@ class SteerLaunchDelegate @Inject constructor(
      * was accepted — the caller clears its draft only then — and, on success,
      * watches the synced coding_sessions flow for the desktop's row in the
      * background.
-     *
-     * EXP-981: [workflowId] rides the Plan-workflow builtin and only it — the
-     * server validates the workflow and writes the prompt's first line itself.
      */
     suspend fun runAction(
         device: SteerDevice,
@@ -200,7 +197,6 @@ class SteerLaunchDelegate @Inject constructor(
         options: SteerStartOptions,
         inputs: Map<String, String>,
         prompt: String? = null,
-        workflowId: String? = null,
     ): Boolean {
         val scope = scope ?: return false
         val accountId = auth.activeAccountId.value ?: return false
@@ -214,7 +210,6 @@ class SteerLaunchDelegate @Inject constructor(
                 teamId = action.teamId.takeIf { action.isBuiltin },
                 inputs = inputs.takeIf { it.isNotEmpty() },
                 prompt = prompt,
-                workflowId = workflowId,
             )
         } catch (t: Throwable) {
             if (t is CancellationException) throw t
@@ -233,16 +228,12 @@ class SteerLaunchDelegate @Inject constructor(
      * contract as [runAction]: EXP-536 waits for the desktop's row and
      * surfaces it as [startedSessionId], so the host screen opens the live
      * session.
-     *
-     * EXP-897: [stack] is the blocked-issue start mode — it rides the
-     * SINGLE-issue form only (a batch run has no one branch to stack on).
      */
     suspend fun startIssues(
         device: SteerDevice,
         issueIds: List<String>,
         options: SteerStartOptions,
         prompt: String? = null,
-        stack: Boolean = false,
     ): Boolean {
         val key = StartedRunKey.forIssues(issueIds) ?: return false
         val scope = scope ?: return false
@@ -252,7 +243,7 @@ class SteerLaunchDelegate @Inject constructor(
             if (issueIds.size >= 2) {
                 steerApi.startSession(accountId, issueIds, device.deviceId, options, prompt)
             } else {
-                steerApi.startSession(accountId, issueIds.first(), device.deviceId, options, prompt, stack)
+                steerApi.startSession(accountId, issueIds.first(), device.deviceId, options, prompt)
             }
         } catch (t: Throwable) {
             if (t is CancellationException) throw t
