@@ -7,7 +7,7 @@
 //!   Effort selects and the capability-gated toggles (ultracode, plan
 //!   mode). This is [`LaunchOptionsSection`], which OWNS that
 //!   state and hands out a [`LaunchOptions`] snapshot.
-//! - Automation: [`crate::automation_editor`]'s launch PINS:
+//! - Automation: [`crate::trigger_editor`]'s launch PINS:
 //!   the exact same strip (seeded to the bound device's default agent — no
 //!   "Device default" pill since EXP-615), the same choice lists behind the
 //!   launch "CLI default" sentinel, and NO toggles (an unattended run never
@@ -23,7 +23,7 @@
 //! capsule strip ([`agent_tabs`]) survives only for the surfaces that have not
 //! moved onto a group yet.
 //!
-//! The state-owning half follows the [`crate::automation_editor`] idiom: the
+//! The state-owning half follows the [`crate::trigger_editor`] idiom: the
 //! host keeps a plain field and passes a `fn(&mut V) -> &mut Self` accessor,
 //! so the callbacks reach back into it without a second entity.
 

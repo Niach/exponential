@@ -342,48 +342,6 @@ pub(crate) fn review_groups_key(cx: &App, team_id: &str) -> ReviewGroupsKey {
     }
 }
 
-/// Every input the Automations log's rows derive from (EXP-915):
-/// [`automated_runs`] plus the collections `run_rows` joins for the facts,
-/// and the clock in 5-second steps — the rows carry relative times and a
-/// liveness that expires (the sessions sections' tick period), so a repaint
-/// re-derives them at most that often.
-#[derive(PartialEq, Eq)]
-pub(crate) struct AutomatedRunsKey {
-    team_id: Option<String>,
-    coding_sessions: u64,
-    devices: u64,
-    issues: u64,
-    /// `RunListFacts::derive` BAKES theme colours into the cached facts (the
-    /// caption's muted foreground), so a theme swap has to re-derive them —
-    /// as raw float bits, since `Hsla` is not `Eq`. (The `actions` shape is
-    /// deliberately absent: the query never reads it — an action run's name
-    /// is the `action_name` SNAPSHOT on the session row.)
-    muted: [u32; 4],
-    clock: i64,
-}
-
-pub(crate) fn automated_runs_key(
-    cx: &App,
-    team_id: Option<&str>,
-    now_secs: i64,
-) -> AutomatedRunsKey {
-    let collections = Store::global(cx).collections();
-    let muted = gpui_component::ActiveTheme::theme(cx).muted_foreground;
-    AutomatedRunsKey {
-        team_id: team_id.map(str::to_string),
-        coding_sessions: collections.coding_sessions.read(cx).revision(),
-        devices: collections.devices.read(cx).revision(),
-        issues: collections.issues.read(cx).revision(),
-        muted: [
-            muted.h.to_bits(),
-            muted.s.to_bits(),
-            muted.l.to_bits(),
-            muted.a.to_bits(),
-        ],
-        clock: now_secs.div_euclid(5),
-    }
-}
-
 /// Today as `YYYY-MM-DD` for the overdue boundary. Device-LOCAL date — the
 /// EXP-38 boundary every client uses: web `formatDateForMutation(new Date())`,
 /// iOS `Calendar.current`, Android `LocalDate.now()`.
@@ -561,7 +519,11 @@ pub fn team_actions(cx: &App, team_id: &str) -> (Vec<api::actions::Action>, bool
             .then_with(|| a.name.cmp(&b.name))
     });
     // FEED-50: Create action → Fix conflicts → Tidy up, then the team's rows.
-    out.insert(0, api::actions::builtin_tidy_up_action(team_id));
+    // SLOP-2: a team that owns a REAL `Tidy up` row (it carries the triggers
+    // a builtin cannot) lists that one — the virtual builtin steps aside.
+    if !api::actions::has_own_tidy_up_action(out.iter().map(|action| action.name.as_str())) {
+        out.insert(0, api::actions::builtin_tidy_up_action(team_id));
+    }
     out.insert(0, api::actions::builtin_fix_conflicts_action(team_id));
     out.insert(0, api::actions::builtin_create_action(team_id));
     (out, collection.is_ready())
@@ -721,26 +683,6 @@ pub(crate) fn workflow_data_key(
         ready: collections.workflows.read(cx).is_ready()
             && collections.workflow_nodes.read(cx).is_ready(),
     }
-}
-
-/// EXP-583: a team's synced `automations` rows in the server's own list
-/// order (`sortOrder`, then `createdAt`). The bool is the shape's readiness —
-/// an empty list before it is "still syncing", never "no automations".
-pub fn team_automations(cx: &App, team_id: &str) -> (Vec<api::automations::Automation>, bool) {
-    let collections = Store::global(cx).collections();
-    let collection = collections.automations.read(cx);
-    let mut out: Vec<api::automations::Automation> = collection
-        .iter()
-        .filter(|row| row.team_id.as_deref() == Some(team_id))
-        .map(api::automations::from_row)
-        .collect();
-    out.sort_by(|a, b| {
-        a.sort_order
-            .total_cmp(&b.sort_order)
-            .then_with(|| a.created_at.cmp(&b.created_at))
-            .then_with(|| a.id.cmp(&b.id))
-    });
-    (out, collection.is_ready())
 }
 
 /// EXP-314: a team's `issue_statuses` rows in the canonical order (category
@@ -2094,25 +2036,19 @@ pub(crate) fn session_dot_tone(facts: SessionDotFacts, muted: gpui::Hsla) -> gpu
 // Live and past run projections (EXP-696 / EXP-746)
 // ---------------------------------------------------------------------------
 
-/// EXP-862 — this team's UNATTENDED runs, newest first: the Automations tab's
-/// "Recent automated runs" list and the Agent page's automated-runs origin
-/// (opening a finished automated run shows this list in the left column) read
-/// the same projection.
-///
-/// `started_reason` is the discriminator the server stamps — a manually
-/// started run of the same action never appears here — and it takes EVERY
-/// unattended run (`started_reason.is_some()`, byte-equal with
-/// web/iOS/Android; EXP-676: it is the ONLY finished-runs list).
-pub(crate) fn automated_runs(cx: &App, team_id: Option<&str>) -> Vec<domain::rows::CodingSession> {
-    let (Some(store), Some(team_id)) = (Store::try_global(cx), team_id) else {
+/// SLOP-2 — every run of ONE action, newest first: the action page's Runs
+/// section. Person-started and triggered runs alike (`action_id` is the
+/// discriminator); a triggered one stays excluded from the regular
+/// Running/Recent lists, so this is where it is found.
+pub(crate) fn action_runs(cx: &App, action_id: &str) -> Vec<domain::rows::CodingSession> {
+    let Some(store) = Store::try_global(cx) else {
         return Vec::new();
     };
     let collection = store.collections().coding_sessions.clone();
     let mut runs: Vec<domain::rows::CodingSession> = collection
         .read(cx)
         .iter()
-        .filter(|session| session.team_id.as_deref() == Some(team_id))
-        .filter(|session| session.started_reason.is_some())
+        .filter(|session| session.action_id.as_deref() == Some(action_id))
         .cloned()
         .collect();
     // ISO-8601 sorts lexicographically — newest first.
@@ -2170,9 +2106,9 @@ pub(crate) const PAST_RUNS_CAP: usize = 20;
 /// - `ended` only — a live row belongs to Running, and a stale live row is
 ///   treated as absent everywhere else (`coding_session_is_live`), so it must
 ///   not resurface here either;
-/// - `started_reason` unset — an AUTOMATION run's home is the Automations
-///   tab's "Recent automated runs" (EXP-676), and listing it twice was the
-///   duplication that split;
+/// - `started_reason` unset — a TRIGGERED run's home is its action page's
+///   Runs section (SLOP-2; EXP-676 split it out of here), and listing it
+///   twice was the duplication that split;
 /// - the caller's own rows — a live session is owner-only (EXP-312) and its
 ///   transcript stays that way once it ends;
 /// - the ACTIVE team, strictly: a row without a `team_id` cannot be proven to
@@ -4409,8 +4345,8 @@ mod tests {
         assert_eq!(chain_ids(&rows, "q"), vec!["p", "q"]);
     }
 
-    /// EXP-676: an automation's runs live in the Automations tab's "Recent
-    /// automated runs" and nowhere else.
+    /// EXP-676: a triggered run lives in its action page's Runs section and
+    /// nowhere else.
     #[test]
     fn an_automation_run_never_appears() {
         let mut scheduled = past_row(

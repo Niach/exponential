@@ -29,7 +29,7 @@ import { MAX_SESSION_CHAIN_DEPTH, oneLine } from "@/lib/steer-child-messages"
 import { assertTeamMember } from "@/lib/team-membership"
 import { boardVisible } from "@/lib/board-visibility"
 import { BUILTIN_REVIEW_NODE_NAME } from "@/lib/builtin-actions"
-import { assertDeviceUsable } from "@/lib/trpc/automations"
+import { assertDeviceUsable } from "@/lib/action-trigger-rules"
 import { isWorkflowReviewBranch } from "@/lib/workflows"
 
 // EXP-981: workflows — a picked set of issues of ONE repository, planned as a

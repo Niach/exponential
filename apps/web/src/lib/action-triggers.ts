@@ -2,6 +2,7 @@ import {
   actionScheduleIntervalValues,
   actionTriggerEventValues,
   issuePriorityValues,
+  type ActionTrigger,
   type AutomationEventTriggerFilters,
   type AutomationScheduleTrigger,
   type AutomationTrigger,
@@ -9,14 +10,14 @@ import {
   type IssuePriority,
 } from "@exp/db-schema/domain"
 
-// Client-side trigger helpers (EXP-530; automations split out of actions in
-// EXP-583 — the trigger is the when-part only, device/enabled/agent are
-// columns on the automations row). Deliberately DB-free (the
-// lib/action-inputs.ts precedent) so dialogs and tests import it without
-// pulling server code. Reads are TOLERANT — the strict write union lives in
-// domain.ts; here anything unparseable (a future trigger kind, a future event
-// value, a corrupted payload) degrades to `null` = "no automation", never a
-// throw. Old clients must keep working when the vocabulary grows.
+// Client-side trigger helpers (EXP-530; SLOP-2: an action carries its
+// triggers, each = a WHEN-part (`AutomationTrigger`: schedule or event) plus
+// its runner). Deliberately DB-free (the lib/action-inputs.ts precedent) so
+// dialogs and tests import it without pulling server code. Reads are
+// TOLERANT — the strict write schema lives in domain.ts; here anything
+// unparseable (a future trigger kind, event value or event source, a
+// corrupted payload) degrades to `null` = "never fires", never a throw. Old
+// clients must keep working when the vocabulary grows.
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === `object` && value !== null && !Array.isArray(value)
@@ -49,7 +50,8 @@ function priorityList(value: unknown): IssuePriority[] | undefined {
   return priorities.length > 0 ? priorities : undefined
 }
 
-/** Tolerant read of an automations row's `trigger` jsonb. Never throws. */
+/** Tolerant read of a trigger's WHEN-part (the runner fields beside it are
+ * ignored). Never throws. */
 export function parseAutomationTrigger(value: unknown): AutomationTrigger | null {
   if (!isRecord(value)) return null
 
@@ -73,7 +75,9 @@ export function parseAutomationTrigger(value: unknown): AutomationTrigger | null
   }
 
   if (value.kind === `event`) {
-    // An old client reading a FUTURE event kind treats it as "no automation".
+    // A FUTURE event source or kind reads as "never fires" on an old client.
+    // An absent source is Exponential's (rows from before sources existed).
+    if (value.source !== undefined && value.source !== `exponential`) return null
     if (!includesValue(actionTriggerEventValues, value.event)) return null
     const filters: AutomationEventTriggerFilters = {}
     if (isRecord(value.filters)) {
@@ -94,6 +98,75 @@ export function parseAutomationTrigger(value: unknown): AutomationTrigger | null
   }
 
   return null
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === `string` && value.length > 0 ? value : undefined
+}
+
+/** Tolerant read of ONE stored trigger: its when-part plus the runner. A
+ * trigger without an id or a device, or with an unreadable when-part, is
+ * `null`. Never throws. */
+export function parseActionTrigger(value: unknown): ActionTrigger | null {
+  if (!isRecord(value)) return null
+  const when = parseAutomationTrigger(value)
+  const id = optionalString(value.id)
+  const deviceId = optionalString(value.deviceId)
+  if (!when || !id || !deviceId) return null
+  const agent = optionalString(value.agent)
+  const account = optionalString(value.account)
+  const model = optionalString(value.model)
+  const effort = optionalString(value.effort)
+  const runner = {
+    id,
+    // Only an explicit `false` pauses: a missing flag is an enabled trigger.
+    enabled: value.enabled !== false,
+    deviceId,
+    ...(agent ? { agent } : {}),
+    ...(account ? { account } : {}),
+    ...(model ? { model } : {}),
+    ...(effort ? { effort } : {}),
+  }
+  return when.kind === `schedule`
+    ? { ...runner, ...when }
+    : { ...runner, ...when, source: `exponential` }
+}
+
+/** Tolerant read of an action's `triggers`: the readable ones, in order. */
+export function parseActionTriggers(value: unknown): ActionTrigger[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry) => {
+    const trigger = parseActionTrigger(entry)
+    return trigger ? [trigger] : []
+  })
+}
+
+/** What an action row's trigger glyphs draw: `schedule` (clock) and `event`
+ * (bolt), each present when the action has a trigger of that kind and
+ * `active` while at least one of them is enabled (a paused kind is muted). */
+export interface TriggerBadges {
+  schedule: { active: boolean } | null
+  event: { active: boolean } | null
+}
+
+export function triggerBadges(triggers: readonly ActionTrigger[]): TriggerBadges {
+  const badge = (kind: ActionTrigger[`kind`]) => {
+    const ofKind = triggers.filter((trigger) => trigger.kind === kind)
+    if (ofKind.length === 0) return null
+    return { active: ofKind.some((trigger) => trigger.enabled) }
+  }
+  return { schedule: badge(`schedule`), event: badge(`event`) }
+}
+
+/** A run's title in its OWN action's Runs list (×4): every row there ran
+ * the same action, so the row says what started it instead of repeating the
+ * action's name. */
+export function actionRunTitle(startedReason: string | null | undefined): string {
+  if (startedReason === `schedule`) return `Scheduled run`
+  if (startedReason === `event`) return `Event run`
+  // Another run started it (`agent`, `workflow`, or a reason added later).
+  if (startedReason) return `Agent run`
+  return `Manual run`
 }
 
 // ISO weekday names, index = weekday - 1 (1=Mon … 7=Sun).
@@ -139,7 +212,7 @@ function eventFilterCount(filters: AutomationEventTriggerFilters | undefined): n
   )
 }
 
-/** The shared one-line trigger sentence (cards, Automations tab rows). */
+/** The shared one-line trigger sentence (an action's Triggers rows). */
 export function triggerSummary(trigger: AutomationTrigger): string {
   if (trigger.kind === `schedule`) {
     const at = formatMinuteOfDay(trigger.minuteOfDay)
@@ -222,9 +295,9 @@ export function nextScheduleRun(
   )
 }
 
-/** What an action+automation suggestion (or the create dialog's Automation
- * block) asks the creator agent to set up alongside the new action. */
-export interface AutomationSpec {
+/** What a suggestion with a trigger asks the creator agent to set up on the
+ * action it creates. */
+export interface TriggerSpec {
   trigger: AutomationTrigger
   deviceId: string
   agent?: string
@@ -233,18 +306,19 @@ export interface AutomationSpec {
 }
 
 /**
- * The machine-readable block the create dialog appends to the builtin
- * "Create action" description — the creator agent creates the action, then
- * copies this JSON verbatim into `exponential_automations_create` (adding the
- * new action's id). The dialog never talks to the server itself.
+ * The machine-readable block a suggestion appends to the builtin "Create
+ * action" request — the creator agent creates the action, then passes this
+ * JSON verbatim as `triggers` to `exponential_actions_update`. The client
+ * never talks to the server itself. Byte-identical ×4: the when-part's keys
+ * first, in their stored order, then `deviceId`, then the set pins.
  */
-export function formatAutomationBlock(spec: AutomationSpec): string {
+export function formatTriggerBlock(spec: TriggerSpec): string {
   const payload: Record<string, unknown> = {
+    ...spec.trigger,
     deviceId: spec.deviceId,
-    trigger: spec.trigger,
   }
   if (spec.agent) payload.agent = spec.agent
   if (spec.model) payload.model = spec.model
   if (spec.effort) payload.effort = spec.effort
-  return `\n\nAutomation — after creating the action, call exponential_automations_create with its id and exactly these fields: \`${JSON.stringify(payload)}\`. An automated run fills no inputs, so declare none as required.`
+  return `\n\nTrigger — after creating the action, call exponential_actions_update with its id and \`triggers\` set to exactly this array: \`${JSON.stringify([payload])}\`. A triggered run fills no inputs, so declare none as required.`
 }

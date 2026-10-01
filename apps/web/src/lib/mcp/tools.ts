@@ -3,7 +3,7 @@ import { TRPCError } from "@trpc/server"
 import { contract } from "@exp/domain-contract"
 import {
   actionInputsSchema,
-  automationTriggerSchema,
+  actionTriggersSchema,
   WORKFLOW_MAX_ISSUES,
   wfNodeKindSchema,
   wfRiskSchema,
@@ -50,7 +50,6 @@ import { db } from "@/db/connection"
 import {
   actions,
   attachments,
-  automations,
   workflowNodes,
   workflows,
   codingSessions,
@@ -85,6 +84,7 @@ import {
   builtinCreateAction,
   builtinFixConflictsAction,
   builtinTidyUpAction,
+  hasOwnTidyUpAction,
   isBuiltinActionId,
 } from "@/lib/builtin-actions"
 import {
@@ -384,8 +384,6 @@ async function getActionContext(id: string) {
   return row
 }
 
-// Automation id → its team, for grant checks on update/toggle/delete
-// (EXP-660; owner-ship itself is enforced in the automations router).
 /** The workflow node a session runs for (EXP-982), or null. */
 async function loadWorkflowNodeForSession(sessionId: string) {
   const [row] = await db
@@ -466,16 +464,6 @@ const workflowNodePatchSchema = z
     touches: workflowTouchesSchema.optional(),
   })
   .strict()
-
-async function getAutomationContext(id: string) {
-  const [row] = await db
-    .select({ teamId: automations.teamId })
-    .from(automations)
-    .where(eq(automations.id, id))
-    .limit(1)
-  if (!row) throw new Error(`Automation not found`)
-  return row
-}
 
 // Support thread id → its team plus that team's helpdesk switch, in ONE
 // select (EXP-660). The helpdesk router deliberately never reads the flag
@@ -5268,7 +5256,7 @@ export function registerExponentialTools(
     `exponential_actions_list`,
     {
       annotations: READ_ONLY,
-      description: `List a team's actions: reusable markdown prompts run as interactive agent sessions on a member's own desktop. Team members only.`,
+      description: `List a team's actions: reusable markdown prompts run as agent sessions on a member's device, each with its triggers (schedule or event, bound to a device). Team members only.`,
       inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
     },
     async ({ teamId, limit, offset }) => {
@@ -5282,14 +5270,16 @@ export function registerExponentialTools(
         // EXP-539: actions.list stopped appending the virtual builtins
         // (native clients construct them locally); agents still need them
         // listed, so this tool appends the three listed ones (FEED-50:
-        // + Tidy up).
+        // + Tidy up, which yields to a team's own "Tidy up" row, SLOP-2).
         return ok(
           page(
             [
               ...result.actions,
               builtinCreateAction(teamId),
               builtinFixConflictsAction(teamId),
-              builtinTidyUpAction(teamId),
+              ...(hasOwnTidyUpAction(result.actions)
+                ? []
+                : [builtinTidyUpAction(teamId)]),
             ],
             limit,
             offset
@@ -5331,7 +5321,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_actions_update`,
     {
-      description: `Update an action by UUID (owner only); pass only fields to change. icon: null clears; inputs: whole-array replace.`,
+      description: `Update an action by UUID (owner only); pass only fields to change. icon: null clears; inputs and triggers: whole-array replace (send every trigger you keep, with its id). A trigger = {deviceId, enabled?, agent?, account?, model?, effort?} plus {kind:schedule,interval:daily|weekly|monthly,minuteOfDay,weekday?,dayOfMonth?} or {kind:event,event:created|status_changed|assignee_changed|label_added|priority_changed|pr_opened|pr_merged,filters?}; the device runs it itself. account = an agent profile id on that device (needs agent). An enabled trigger needs every input optional.`,
       inputSchema: strictInput({
         id: uuidString,
         name: z.string().min(1).max(255).optional(),
@@ -5341,6 +5331,9 @@ export function registerExponentialTools(
         body: z.string().min(1).optional(),
         inputs: actionInputsSchema.optional(),
         promptPlaceholder: z.string().max(200).nullable().optional(),
+        // Loose for the MCP context budget; the strict schema validates
+        // below (and again in the router — single source).
+        triggers: z.array(z.record(z.string(), z.unknown())).optional(),
         sortOrder: z.number().finite().optional(),
       }),
     },
@@ -5350,7 +5343,13 @@ export function registerExponentialTools(
           const action = await getActionContext(input.id)
           assertTeamFullyGranted(access, action.teamId)
         }
-        const result = await caller(user, request).actions.update(input)
+        const result = await caller(user, request).actions.update({
+          ...input,
+          triggers:
+            input.triggers === undefined
+              ? undefined
+              : actionTriggersSchema.parse(input.triggers),
+        })
         return ok(result.action)
       } catch (e) {
         return err(e)
@@ -5371,155 +5370,6 @@ export function registerExponentialTools(
           assertTeamFullyGranted(access, action.teamId)
         }
         await caller(user, request).actions.delete({ id })
-        return ok({ ok: true, id })
-      } catch (e) {
-        return err(e)
-      }
-    }
-  )
-
-  // -----------------------------------------------------------------------
-  // Automations (EXP-583): schedule/event trigger → action on a device
-  // -----------------------------------------------------------------------
-
-  server.registerTool(
-    `exponential_automations_create`,
-    {
-      description: `Create an automation (owner only) running actionId on deviceId; pass provided values verbatim. trigger = {kind:schedule,interval:daily|weekly|monthly,minuteOfDay,weekday?,dayOfMonth?} or {kind:event,event:created|status_changed|assignee_changed|label_added|priority_changed|pr_opened|pr_merged,filters?}. account = an agent profile id on that device (needs agent). actionId may be builtin:tidy-up.`,
-      inputSchema: strictInput({
-        teamId: uuidString,
-        // A uuid or builtin:tidy-up (FEED-50); loose for the context
-        // budget, the router validates.
-        actionId: z.string(),
-        deviceId: z.string().min(1).max(128),
-        trigger: z.record(z.string(), z.unknown()),
-        // Null and absent both mean the device's launch defaults — the same
-        // nullability contract as automations_update (EXP-707 theme F).
-        agent: z.enum(codingAgentValues).nullable().optional(),
-        // EXP-995: the agent profile the run spends (`devices.agent_accounts`
-        // lists them); the agent rides beside it. EXP-1158: `system` = the
-        // ambient login, null = the machine's last used login.
-        account: z.string().max(64).nullable().optional(),
-        model: z.string().max(64).nullable().optional(),
-        effort: z.string().max(32).nullable().optional(),
-      }),
-    },
-    async (input) => {
-      try {
-        if (!access.full) assertTeamFullyGranted(access, input.teamId)
-        // Declared loose to stay inside the MCP context budget; the strict
-        // union validates here (and again in the router — single source).
-        const trigger = automationTriggerSchema.parse(input.trigger)
-        const result = await caller(user, request).automations.create({
-          ...input,
-          trigger,
-        })
-        return ok(result.automation)
-      } catch (e) {
-        return err(e)
-      }
-    }
-  )
-
-  // EXP-660: the rest of the automations surface. Owner checks, the
-  // enabled⇒no-required-inputs rule, device/agent validation and the
-  // trigger union all live in the router; these add the grant check only.
-  server.registerTool(
-    `exponential_automations_list`,
-    {
-      annotations: READ_ONLY,
-      description: `List a team's automations: which action runs on which device, its trigger (schedule or issue event), launch agent/account/model/effort and whether it is enabled. Team members only.`,
-      inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
-    },
-    async ({ teamId, limit, offset }) => {
-      try {
-        // Rows name devices and locally executed actions — team-level
-        // operational data, gated like actions_list.
-        if (!access.full) assertTeamFullyGranted(access, teamId)
-        const result = await caller(user, request).automations.list({ teamId })
-        return ok(page(result.automations, limit, offset))
-      } catch (e) {
-        return err(e)
-      }
-    }
-  )
-
-  server.registerTool(
-    `exponential_automations_update`,
-    {
-      description: `Update an automation (owner only); pass only changed fields. trigger/actionId as in exponential_automations_create; null agent/account/model/effort = unpinned. Enabling needs every action input optional.`,
-      inputSchema: strictInput({
-        id: uuidString,
-        actionId: z.string().optional(),
-        deviceId: z.string().min(1).max(128).optional(),
-        trigger: z.record(z.string(), z.unknown()).optional(),
-        enabled: z.boolean().optional(),
-        sortOrder: z.number().finite().optional(),
-        agent: z.enum(codingAgentValues).nullable().optional(),
-        account: z.string().max(64).nullable().optional(),
-        model: z.string().max(64).nullable().optional(),
-        effort: z.string().max(32).nullable().optional(),
-      }),
-    },
-    async (input) => {
-      try {
-        if (!access.full) {
-          const automation = await getAutomationContext(input.id)
-          assertTeamFullyGranted(access, automation.teamId)
-        }
-        // Loose in the schema for the context budget; the strict union
-        // validates here (and again in the router — single source).
-        const trigger =
-          input.trigger === undefined
-            ? undefined
-            : automationTriggerSchema.parse(input.trigger)
-        const result = await caller(user, request).automations.update({
-          ...input,
-          trigger,
-        })
-        return ok(result.automation)
-      } catch (e) {
-        return err(e)
-      }
-    }
-  )
-
-  server.registerTool(
-    `exponential_automations_toggle`,
-    {
-      description: `Enable or disable an automation (owner only) without touching its trigger, device or action. Enabling needs every input of the action optional.`,
-      inputSchema: strictInput({ id: uuidString, enabled: z.boolean() }),
-    },
-    async ({ id, enabled }) => {
-      try {
-        if (!access.full) {
-          const automation = await getAutomationContext(id)
-          assertTeamFullyGranted(access, automation.teamId)
-        }
-        const result = await caller(user, request).automations.update({
-          id,
-          enabled,
-        })
-        return ok(result.automation)
-      } catch (e) {
-        return err(e)
-      }
-    }
-  )
-
-  server.registerTool(
-    `exponential_automations_delete`,
-    {
-      description: `Delete an automation (owner only). Past runs keep their history; nothing else is touched.`,
-      inputSchema: strictInput({ id: uuidString }),
-    },
-    async ({ id }) => {
-      try {
-        if (!access.full) {
-          const automation = await getAutomationContext(id)
-          assertTeamFullyGranted(access, automation.teamId)
-        }
-        await caller(user, request).automations.delete({ id })
         return ok({ ok: true, id })
       } catch (e) {
         return err(e)

@@ -99,7 +99,7 @@ final class PickerContractTests: XCTestCase {
     /// whole meaning is in the header says it: the relations linker titles
     /// stage two by the link being made ("Parent of"), move-to-board and
     /// escalate-to-issue by the `…` item that opened them, and an
-    /// automation's "Runs on" row by its own words.
+    /// trigger's "Runs on" row by its own words.
     func testATypedPickerHeaderIsAParameterNotAConstant() {
         XCTAssertEqual(
             IssuePicker(issues: [], value: [], onChange: { _ in }, trigger: { EmptyView() }).title,
@@ -420,7 +420,7 @@ final class PickerContractTests: XCTestCase {
 
     /// The same for an action: the curated glyph through `ActionIconDisplay`
     /// (unset = the generic action mark, never a hole), the description under
-    /// the name — so the automation editor and the composer draw one row.
+    /// the name — so every action pick draws the composer's row.
     func testAnActionRowIsBridgedOnceWithItsGlyph() {
         func dto(icon: String?) -> ActionDto {
             ActionDto(

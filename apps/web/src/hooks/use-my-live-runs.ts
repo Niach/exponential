@@ -8,7 +8,7 @@ import { isLiveRun } from "@/lib/past-runs"
 
 // EXP-870: the signed-in user's OWN live runs in the team — running and
 // in_review (EXP-194), heartbeat-dead rows dropped (EXP-153). Every run
-// counts: person-started, automations, remote devices. ONE definition behind
+// counts: person-started, triggered, remote devices. ONE definition behind
 // the Agent entry's count badge (`useAgentsRunningCount`) and the work tabs'
 // auto-added live tabs, so the badge and the strip never disagree. Own-only
 // to match the owner-only session views (EXP-312).

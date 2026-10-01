@@ -56,7 +56,7 @@ Two ways in:
 
 ## Tool families
 
-Around 75 tools, all named `exponential_<family>_<verb>`:
+Around 85 tools, all named `exponential_<family>_<verb>`:
 
 - **teams**: list, get, create, update the user's teams.
 - **boards**: CRUD boards inside a team; a board can be backed by a GitHub
@@ -94,16 +94,18 @@ Around 75 tools, all named `exponential_<family>_<verb>`:
 - **repositories**: list and register GitHub repos; `branch_diff` diffs an
   issue's branch against the repo default branch.
 - **actions**: CRUD reusable team prompts that members run locally.
+  `actions_list` returns each action's `triggers`; `actions_update` takes
+  `triggers` as the WHOLE array (every trigger you keep with its `id`, a
+  new one without). A trigger is `{enabled, deviceId, agent?, account?, model?,
+  effort?}` plus either `{kind:"schedule",
+  interval:"daily"|"weekly"|"monthly", minuteOfDay, weekday?,
+  dayOfMonth?}` (the device's local clock) or `{kind:"event",
+  event:"created"|"status_changed"|"assignee_changed"|"label_added"|
+  "priority_changed"|"pr_opened"|"pr_merged", filters?}`. Writes are
+  owner-only, and a trigger can only be enabled while every input of its
+  action is optional.
 - **attachments**: upload, get, delete images; upload returns the
   embeddable markdown form.
-- **automations**: list, create, update, toggle, delete the runs bound to
-  one action and one device. `trigger` is either
-  `{kind:"schedule", interval:"daily"|"weekly"|"monthly", minuteOfDay,
-  weekday?, dayOfMonth?}` (the device's local clock) or
-  `{kind:"event", event:"created"|"status_changed"|"assignee_changed"|
-  "label_added"|"priority_changed"|"pr_opened"|"pr_merged", filters?}`.
-  Writes are owner-only, and an ENABLED automation needs every input of
-  its action to be optional.
 - **sessions**: list, get, message (steer), kill, and start a coding,
   action or chat session on one of the user's own machines. A start
   targets an ONLINE device (`devices_list` first) — offline devices are
@@ -152,9 +154,9 @@ user's membership.
   `repo`, `board`, `pr`, `icon`; free text goes in the run's prompt, the
   composer's "Additional instructions") that members run as local agent
   sessions from the desktop app, the web, or the CLI. An
-  **automation** is a separate row binding one action to one device and a
-  schedule-or-event trigger; the bound machine starts the run itself, so
-  nothing fires while it is off.
+  action's **triggers** each bind it to one device and a schedule or an
+  event; the bound machine starts the run itself, so nothing fires while
+  it is off.
 - **Coding agents**: sessions run Claude Code or Codex locally with the
   Exponential MCP server wired in automatically; from the agent's point of
   view the tools look the same on both.

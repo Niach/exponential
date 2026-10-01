@@ -1,15 +1,19 @@
-//! Action automations engine (EXP-530; EXP-583 moved the rows into their own
-//! `automations` shape): local-only schedules + event triggers. PURE — hosts
-//! (the desktop GUI's automation host, the CLI daemon's worker) snapshot
-//! their inputs (the automations bound to THIS device, persisted
-//! [`AutomationState`]s, pre-fetched event rows, live-run ids, the clock) and
-//! [`evaluate`] returns [`Decision`]s; every side effect (settings IO, the
-//! launch) is the host's.
+//! Action triggers engine (EXP-530; SLOP-2: the triggers live on their
+//! action, in the synced `actions.triggers` array): local-only schedules +
+//! event triggers. PURE — hosts (the desktop GUI's trigger host, the CLI
+//! daemon's worker) snapshot their inputs (the triggers bound to THIS device,
+//! persisted [`AutomationState`]s, pre-fetched event rows, live-run ids, the
+//! clock) and [`evaluate`] returns [`Decision`]s; every side effect (settings
+//! IO, the launch) is the host's.
 //!
-//! The device binding and the on/off flag are COLUMNS of the automations row,
-//! so the hosts filter (`device_id == mine && enabled`) BEFORE the engine
-//! sees a row — everything here is per-automation bookkeeping, keyed by the
-//! automation's id. The launch reservation still keys on the ACTION
+//! The module, its types and the state dir keep the `automation` name on
+//! purpose (the wire still says `automationId`, and the persisted state is
+//! keyed by the same id) — an "automation" here IS one trigger of an action.
+//!
+//! The device binding and the on/off flag ride each trigger element, so
+//! [`bound_triggers`] filters (`deviceId == mine && enabled`) BEFORE the
+//! engine sees one — everything here is per-trigger bookkeeping, keyed by the
+//! trigger's id. The launch reservation still keys on the ACTION
 //! (`action:{id}`), because that is what a remote start holds.
 //!
 //! Firing protocol (both hosts, in order): claim the `action:{id}`
@@ -50,12 +54,13 @@ pub use schedule::{latest_occurrence, next_occurrence};
 pub use state::{read_states, write_states, AutomationState, AutomationStore, AUTOMATIONS_KEY};
 pub use summary::{schedule_phrase, trigger_summary};
 pub use trigger::{
-    parse_trigger, parse_trigger_str, trigger_fingerprint, EventKind, EventSpec, ParsedTrigger,
-    Schedule, ScheduleInterval, TriggerKind,
+    parse_action_trigger, parse_action_triggers, parse_trigger, parse_trigger_str,
+    trigger_fingerprint, when_part, ActionTrigger, EventKind, EventSpec, LaunchPins,
+    ParsedTrigger, Schedule, ScheduleInterval, TriggerKind,
 };
 
-/// The launch options an automation runs with — the ONE resolution both
-/// hosts use (EXP-583). An automation may PIN an agent/account/model/effort;
+/// The launch options a triggered run starts with — the ONE resolution both
+/// hosts use (EXP-583). A trigger may PIN an agent/account/model/effort;
 /// every unpinned field falls back to the device's own launch defaults,
 /// exactly like a dialog start with untouched options. Plan mode is forced
 /// OFF (F7): an unattended run must never park at the plan-approval card
@@ -101,12 +106,13 @@ pub const PREPARE_FAILURE_BACKOFF_MS: i64 = 5 * 60_000;
 /// section — the overflow becomes one "…and N more." line.
 pub const TRIGGER_PROMPT_MAX_LINES: usize = 50;
 
-/// One automation bound to THIS device, pre-parsed by the host. The host has
-/// already dropped every row that targets another device or is switched off.
+/// One trigger bound to THIS device, pre-parsed by [`bound_triggers`], which
+/// has already dropped every trigger that targets another device or is
+/// switched off.
 #[derive(Clone, Debug)]
 pub struct TriggeredAutomation {
-    /// The `automations` row id — the state map's key AND the id stamped on
-    /// the run it fires.
+    /// The trigger's id — the state map's key AND the `automationId` stamped
+    /// on the run it fires.
     pub automation_id: String,
     /// The action this fires (the reservation key and the launch target).
     pub action_id: String,
@@ -114,8 +120,53 @@ pub struct TriggeredAutomation {
     /// events snapshot (hosts sync every member team's rows into one place).
     pub team_id: String,
     pub trigger: ParsedTrigger,
-    /// [`trigger_fingerprint`] of the RAW trigger JSON.
+    /// [`ActionTrigger::fingerprint`] — the when-part alone.
     pub fingerprint: String,
+}
+
+/// One trigger this device fires: the engine's input plus what the LAUNCH
+/// needs beyond it.
+#[derive(Clone, Debug)]
+pub struct BoundTrigger {
+    pub triggered: TriggeredAutomation,
+    /// The target action's display name (a log handle; may be empty).
+    pub action_name: String,
+    pub pins: LaunchPins,
+}
+
+/// The triggers `device_id` evaluates, over every synced action: ENABLED,
+/// bound to this device, on an action that has a team to run in. The ONE
+/// resolution both hosts use, so a GUI↔CLI hand-off reads the same
+/// fingerprints and never re-seeds the shared state.
+pub fn bound_triggers<'a>(
+    actions: impl Iterator<Item = &'a domain::rows::ActionRow>,
+    device_id: &str,
+) -> Vec<BoundTrigger> {
+    let mut bound = Vec::new();
+    for action in actions {
+        // A team-less row has nowhere to run — and the team doubles as the
+        // engine's event fence.
+        let Some(team_id) = action.team_id.as_deref() else {
+            continue;
+        };
+        for trigger in parse_action_triggers(action.triggers.as_ref()) {
+            if !trigger.enabled || trigger.device_id != device_id {
+                continue; // switched off, or another machine's (or host's)
+            }
+            bound.push(BoundTrigger {
+                triggered: TriggeredAutomation {
+                    fingerprint: trigger.fingerprint(),
+                    automation_id: trigger.id,
+                    action_id: action.id.clone(),
+                    team_id: team_id.to_string(),
+                    trigger: trigger.when,
+                },
+                action_name: action.name.clone().unwrap_or_default(),
+                pins: trigger.pins,
+            });
+        }
+    }
+    bound
 }
 
 /// One evaluation pass's snapshot.
@@ -731,6 +782,72 @@ mod tests {
             }
             other => panic!("expected Reseed, got {other:?}"),
         }
+    }
+
+    /// Only THIS device's ENABLED, readable triggers on a team's action reach
+    /// the engine — everything else belongs to another host (or to none).
+    #[test]
+    fn bound_triggers_keep_only_this_devices_enabled_ones() {
+        use serde_json::json;
+        let action = |id: &str, team: Option<&str>, triggers: serde_json::Value| {
+            let mut row = json!({"id": id, "name": format!("Action {id}"), "triggers": triggers});
+            if let Some(team) = team {
+                row["team_id"] = json!(team);
+            }
+            serde_json::from_value::<domain::rows::ActionRow>(row).expect("action row decodes")
+        };
+        let daily = |id: &str, device: &str, enabled: bool| {
+            json!({"id": id, "enabled": enabled, "deviceId": device,
+                   "kind": "schedule", "interval": "daily", "minuteOfDay": 420})
+        };
+        let rows = vec![
+            action(
+                "act-1",
+                Some("team-1"),
+                json!([
+                    daily("mine", "dev-gui", true),
+                    daily("theirs", "dev-cli", true),
+                    daily("off", "dev-gui", false),
+                    // A FUTURE kind is unreadable: skipped, never evaluated.
+                    {"id": "future", "deviceId": "dev-gui", "kind": "moon_phase"},
+                    {"id": "pinned", "deviceId": "dev-gui", "agent": "codex",
+                     "model": "gpt-5.1-codex", "source": "exponential",
+                     "kind": "event", "event": "created"},
+                ]),
+            ),
+            // A team-less action has nowhere to run.
+            action("act-2", None, json!([daily("teamless", "dev-gui", true)])),
+            // TEXT-stored jsonb (the native stores' form) reads the same.
+            action(
+                "act-3",
+                Some("team-2"),
+                json!(json!([daily("text", "dev-gui", true)]).to_string()),
+            ),
+            action("act-4", Some("team-1"), json!(null)),
+        ];
+        let bound = bound_triggers(rows.iter(), "dev-gui");
+        assert_eq!(
+            bound
+                .iter()
+                .map(|entry| entry.triggered.automation_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["mine", "pinned", "text"]
+        );
+        assert_eq!(bound[0].triggered.action_id, "act-1", "the launch target rides along");
+        assert_eq!(bound[0].triggered.team_id, "team-1");
+        assert_eq!(bound[0].action_name, "Action act-1");
+        assert_eq!(bound[2].triggered.team_id, "team-2");
+        assert_eq!(bound[0].pins, LaunchPins::default(), "unpinned = the device's defaults");
+        assert_eq!(bound[1].pins.agent.as_deref(), Some("codex"));
+        assert_eq!(bound[1].pins.model.as_deref(), Some("gpt-5.1-codex"));
+        // The fingerprint is the WHEN-part's — what the old automations row
+        // hashed, whatever the runner half says.
+        assert_eq!(
+            bound[0].triggered.fingerprint,
+            trigger_fingerprint(&json!({
+                "kind": "schedule", "interval": "daily", "minuteOfDay": 420
+            }))
+        );
     }
 
     #[test]

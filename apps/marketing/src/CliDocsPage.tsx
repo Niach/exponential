@@ -267,7 +267,7 @@ exponential daemon install
               pick that machine, and it runs on it exactly like it would on
               the desktop app: the same launcher, the same live activity
               feed, the same steering from web, iOS, or Android. Batch runs,
-              chat runs, <a href="/docs/actions/#automations">automations</a>{` `}
+              chat runs, <a href="/docs/actions/#triggers">triggers</a>{` `}
               and the built-in <em>Fix merge conflicts</em> action work too.
             </p>
             <p>
@@ -276,8 +276,8 @@ exponential daemon install
               finishes its turn it waits for your next reply, and the daemon
               keeps its process and worktree alive with no idle timeout. Hit{` `}
               <strong>Stop</strong> on the run in the web or mobile app when
-              you are done with it. Runs started by an{` `}
-              <a href="/docs/actions/">automation</a> are the ones that end
+              you are done with it. Runs started by a{` `}
+              <a href="/docs/actions/#triggers">trigger</a> are the ones that end
               themselves when their work is done.
             </p>
             <p>

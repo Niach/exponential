@@ -6,15 +6,15 @@ import {
   type ActionSuggestion,
 } from "@/lib/action-suggestions"
 import { BUILTIN_CREATE_ACTION_ID } from "@/lib/builtin-actions"
-import { formatAutomationBlock } from "@/lib/action-triggers"
+import { formatTriggerBlock } from "@/lib/action-triggers"
 import {
   conceptIcon,
-  Pill,
   GlassRow,
   GlassSectionHeader,
   BOARD_ICON_COMPONENTS,
 } from "@exp/ui"
-import { automationDevices } from "@/components/automation-section"
+import { triggerDevices } from "@/components/trigger-fields"
+import { TriggerGlyph } from "@/components/action-triggers-section"
 import { useSteerConfig } from "@/components/agent-session"
 import { useOpenComposer } from "@/hooks/use-open-composer"
 import { useRemoteStart } from "@/hooks/use-remote-start"
@@ -23,17 +23,16 @@ import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { defaultDeviceId } from "@/lib/steer-devices"
 
 // EXP-686: the suggestion seeds left the Actions surface and became the
-// "Suggested actions" tab of Getting started — the Actions and Automations
-// pages only keep the lightbulb that opens it. EXP-825: a row is a
-// navigation to the Agent page composer with the Create action builtin
-// picked, the description as the draft text and the icon as its input; an
-// automation seed appends the machine-readable trigger block the creator
-// agent copies into `exponential_automations_create` (EXP-583) — that block
-// needs a runner device, so the devices are still read here for it.
+// "Suggested actions" tab of Getting started — the Actions page only keeps
+// the lightbulb that opens it. EXP-825: a row is a navigation to the Agent
+// page composer with the Create action builtin picked, the description as
+// the draft text and the icon as its input; a seed with a trigger appends
+// the machine-readable block the creator agent passes to
+// `exponential_actions_update` (SLOP-2) — that block needs a runner device,
+// so the devices are still read here for it.
 
 // EXP-530: the suggestion glyph is a cross-client concept, never a raw glyph.
 const ActionSuggestionIcon = conceptIcon(`action-suggestion`)
-const ActionAutomationIcon = conceptIcon(`action-automation`)
 
 // One suggestion seed as a row (EXP-530; rows since EXP-618 — native-app
 // parity). EXP-694: the trailing "Use" button is gone on every client — the
@@ -65,14 +64,14 @@ function SuggestionRow({
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5 text-sm">
           <span className="truncate font-medium">{suggestion.title}</span>
-          {/* EXP-583: a seed either just authors an action, or authors it and
-              sets up the automation that runs it. */}
-          <Pill className="shrink-0 gap-1">
-            {suggestion.automation && (
-              <ActionAutomationIcon className="h-3 w-3" />
-            )}
-            {suggestion.automation ? `Automation` : `Action`}
-          </Pill>
+          {/* SLOP-2: a seed that also sets up a trigger wears its glyph, like
+              an action row does. */}
+          {suggestion.trigger && (
+            <TriggerGlyph
+              kind={suggestion.trigger.kind}
+              className="size-3 shrink-0 text-muted-foreground"
+            />
+          )}
         </div>
         <div className="line-clamp-3 text-xs text-muted-foreground">
           {suggestion.description}
@@ -102,11 +101,11 @@ export function ActionSuggestionsPanel({ team }: { team: Team }) {
     teamId,
   })
   const openComposer = useOpenComposer()
-  // The automation's runner — automation-capable machines, online or not (a
+  // The trigger's runner — trigger-capable machines, online or not (a
   // schedule catches up on reconnect): the caller's default one, else the
   // first. Without one the block is simply left off, as the old dialog did.
-  const automationDeviceId = useMemo(() => {
-    const candidates = automationDevices(remote.devices ?? [])
+  const triggerDeviceId = useMemo(() => {
+    const candidates = triggerDevices(remote.devices ?? [])
     return defaultDeviceId(candidates) ?? candidates[0]?.deviceId ?? null
   }, [remote.devices])
   const suggestions = useMemo(() => ACTION_SUGGESTIONS, [])
@@ -115,10 +114,10 @@ export function ActionSuggestionsPanel({ team }: { team: Team }) {
 
   const use = (suggestion: ActionSuggestion) => {
     const block =
-      suggestion.automation && automationDeviceId
-        ? formatAutomationBlock({
-            trigger: suggestion.automation,
-            deviceId: automationDeviceId,
+      suggestion.trigger && triggerDeviceId
+        ? formatTriggerBlock({
+            trigger: suggestion.trigger,
+            deviceId: triggerDeviceId,
           })
         : ``
     openComposer({

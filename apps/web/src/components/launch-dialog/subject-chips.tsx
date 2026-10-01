@@ -1,5 +1,5 @@
 import type { Issue } from "@/db/schema"
-import type { TeamAction } from "@/components/action-editor-dialog"
+import type { TeamAction } from "@/components/action-prompt-form"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { IssueChip } from "@/components/issue-chip"
 import { ChipRemoveButton, Pill, conceptIcon, getActionIcon } from "@exp/ui"

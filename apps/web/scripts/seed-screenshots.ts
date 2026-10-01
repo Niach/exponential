@@ -37,7 +37,6 @@ import {
   actions,
   apikeys,
   attachments,
-  automations,
   codingSessions,
   comments,
   devices,
@@ -63,7 +62,9 @@ import {
   workflowNodes,
   workflows,
 } from "@/db/schema"
+import type { ActionTrigger } from "@exp/db-schema/domain"
 import { auth } from "@/lib/auth"
+import { syncAutomationMirror } from "@/lib/action-triggers-mirror"
 import {
   buildAttachmentStorageKey,
   buildAttachmentUrl,
@@ -78,6 +79,7 @@ import { assertLocalDatabase } from "./lib/local-db-guard"
 import {
   DEMO_API_KEYS,
   DEMO_ATTACHMENT_DATES,
+  DEMO_ACTION_ID,
   DEMO_DEVICE_ID,
   DEMO_SERVER_DEVICE_ID,
   DEMO_DEVICE_LABEL,
@@ -92,6 +94,7 @@ import {
   DEMO_SERVER_VERSION,
   DEMO_SHOWCASE_COMMENT_HOURS_AGO,
   DEMO_SESSION_IDS,
+  DEMO_TRIGGER_IDS,
   DEMO_TIMEZONE,
   DEMO_USER_ID,
   DEMO_WORKFLOW,
@@ -1178,6 +1181,7 @@ async function main() {
       {
         teamId: ws.id,
         repositoryId: repo.id,
+        id: DEMO_ACTION_ID,
         name: `Nightly test triage`,
         description: `Investigate failing or flaky tests and file issues for real bugs.`,
         icon: `flask-conical`,
@@ -1196,58 +1200,71 @@ async function main() {
     .returning()
   const action = Object.fromEntries(actionRows.map((a) => [a.name, a]))
 
-  // Automations (EXP-583) for the `automations` view — without rows it
-  // photographs a blank "New automation" dialog over "No automations yet."
-  // They are their own entity, never a field on the action: a when-part
-  // (`trigger` jsonb — schedule or issue event, typed in
-  // @exp/db-schema domain.ts) plus the runner binding, which is the MACHINE's
-  // steer deviceId, not a row uuid. minuteOfDay is device-local wall clock by
-  // design (no tz field). One disabled row so the toggle has an off state to
-  // render.
-  const automationRows = await db
-    .insert(automations)
-    .values([
-      {
-        teamId: ws.id,
-        actionId: action[`Nightly test triage`].id,
-        deviceId: DEMO_DEVICE_ID,
-        trigger: { kind: `schedule`, interval: `daily`, minuteOfDay: 180 },
-        agent: `claude`,
-        sortOrder: 0,
-        createdAt: daysAgo(21),
-      },
-      {
-        teamId: ws.id,
-        actionId: action[`Update dependencies`].id,
-        deviceId: DEMO_DEVICE_ID,
-        trigger: {
+  // Triggers (SLOP-2) for the `action-*` views — without them the action
+  // page photographs "No triggers." An action carries them: a when-part
+  // (schedule or issue event, typed in @exp/db-schema domain.ts) plus the
+  // runner binding, which is the MACHINE's steer deviceId, not a row uuid.
+  // minuteOfDay is device-local wall clock by design (no tz field). One
+  // paused trigger so the toggle has an off state to render. Written the way
+  // the router writes them: the array on the action, mirrored into the legacy
+  // `automations` rows the run history's `automation_id` references.
+  const seededTriggers: { action: string; triggers: ActionTrigger[] }[] = [
+    {
+      action: `Nightly test triage`,
+      triggers: [
+        {
+          id: DEMO_TRIGGER_IDS.nightlyTriage,
+          enabled: true,
+          deviceId: DEMO_DEVICE_ID,
+          agent: `claude`,
+          kind: `schedule`,
+          interval: `daily`,
+          minuteOfDay: 180,
+        },
+      ],
+    },
+    {
+      action: `Update dependencies`,
+      triggers: [
+        {
+          id: DEMO_TRIGGER_IDS.updateDeps,
+          enabled: true,
+          deviceId: DEMO_DEVICE_ID,
+          agent: `codex`,
           kind: `schedule`,
           interval: `weekly`,
           weekday: 1,
           minuteOfDay: 540,
         },
-        agent: `codex`,
-        sortOrder: 10,
-        createdAt: daysAgo(18),
-      },
-      {
-        teamId: ws.id,
-        actionId: action[`Draft release notes`].id,
-        deviceId: DEMO_DEVICE_ID,
-        enabled: false,
-        trigger: { kind: `event`, event: `pr_merged` },
-        sortOrder: 20,
-        createdAt: daysAgo(6),
-      },
-    ])
-    .returning()
+      ],
+    },
+    {
+      action: `Draft release notes`,
+      triggers: [
+        {
+          id: DEMO_TRIGGER_IDS.releaseNotes,
+          enabled: false,
+          deviceId: DEMO_DEVICE_ID,
+          kind: `event`,
+          source: `exponential`,
+          event: `pr_merged`,
+        },
+      ],
+    },
+  ]
+  await db.transaction(async (tx) => {
+    for (const { action: name, triggers } of seededTriggers) {
+      const row = action[name]
+      await tx.update(actions).set({ triggers }).where(eq(actions.id, row.id))
+      await syncAutomationMirror(tx, { id: row.id, teamId: ws.id, triggers })
+    }
+  })
 
-  // Two finished automated runs so the tab's "Recent automated runs" section —
-  // and each row's "last run" line — say something other than "Nothing has
-  // fired yet." Action-scoped sessions carry the action id plus a display-name
-  // snapshot (actions are server-only, clients can't join), `started_reason`
-  // for the run-history filter and `automation_id` for the per-row last-run
-  // lookup. Ended, so they never join the live agents list.
+  // Two finished triggered runs so an action's Runs says something other
+  // than "No runs yet." Action-scoped sessions carry the action id plus a
+  // display-name snapshot, `started_reason` (which trigger kind fired) and
+  // `automation_id` (the trigger's id). Ended, so they never join the live
+  // agents list.
   //
   // EXP-663: both rows are a full EXP-637 close-out (`ended_by: 'agent'`).
   // EXP-864: the agent's summary is reported to the parent run, never stored,
@@ -1259,7 +1276,7 @@ async function main() {
       userId: demoId,
       actionId: action[`Nightly test triage`].id,
       actionName: `Nightly test triage`,
-      automationId: automationRows[0].id,
+      automationId: DEMO_TRIGGER_IDS.nightlyTriage,
       startedReason: `schedule`,
       deviceId: DEMO_DEVICE_ID,
       deviceLabel: DEMO_DEVICE_LABEL,
@@ -1277,7 +1294,7 @@ async function main() {
       userId: demoId,
       actionId: action[`Update dependencies`].id,
       actionName: `Update dependencies`,
-      automationId: automationRows[1].id,
+      automationId: DEMO_TRIGGER_IDS.updateDeps,
       startedReason: `schedule`,
       deviceId: DEMO_DEVICE_ID,
       deviceLabel: DEMO_DEVICE_LABEL,
@@ -1640,7 +1657,7 @@ Seeded screenshot demo data:
   reviews     4 open pull requests
   review shot APP-14 → ${REVIEW_PR_URL} (real diff, fetched from GitHub)
   actions     ${actionRows.length} saved team actions
-  automations ${automationRows.length} (2 scheduled + 1 event, 1 disabled) + 2 automated runs
+  triggers    ${seededTriggers.length} (2 scheduled + 1 event, 1 paused) + 2 triggered runs
   storage     ${seedAttachments.length} attachments (1 unreferenced image to sweep)
   mcp         3 team MCP servers: linear (OAuth, connected for the demo user), sentry (OAuth, not connected), acme-docs (no sign-in)
   widgets     2 widget configs (feedback+support, support-only)

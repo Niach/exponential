@@ -23,11 +23,11 @@ import { contract } from "@exp/domain-contract"
 // The agent options cluster (EXP-257; the launch dialog's right half until
 // EXP-825 retired that dialog for the Agent page composer, whose inline
 // options line lives in `launch-options-line.tsx`). What remains here is
-// shared by the device-settings defaults editor and the automations editor:
+// shared by the device-settings defaults editor and the trigger editor:
 // EXP-481 split the agent strip + model/effort/toggles cluster into
 // `AgentOptionsFields` so the device-settings dialog's defaults editor
 // renders the identical controls without duplicating them.
-// EXP-615 adds the `automation` variant of that cluster: the exact same
+// EXP-615 adds the `trigger` variant of that cluster: the exact same
 // strip and selects (the agent seeds to the bound device's default launch
 // agent; blank model/effort store NULL), minus the run-time toggles — an
 // unattended run never parks on plan mode.
@@ -75,7 +75,7 @@ export interface ResumeRowProps {
   branch: string
 }
 
-/** The launch variant's run-time switches — never rendered for an automation,
+/** The launch variant's run-time switches — never rendered for a trigger,
  * which has nobody to steer a plan or a resume. */
 interface LaunchToggleProps {
   ultracode: boolean
@@ -95,14 +95,14 @@ interface LaunchToggleProps {
 
 type AgentOptionsFieldsProps = {
   idPrefix: string
-  /** `` in the automation variant = device default. */
+  /** `` in the trigger variant = device default. */
   agent: string
   availableAgents: string[]
   onAgentChange: (agent: string) => void
   model: string
   onModelChange: (model: string) => void
   /** EXP-981: claude's subagent model, `""` = the CLI's own default. Omit the
-   * pair entirely on a surface that does not edit it (an automation). */
+   * pair entirely on a surface that does not edit it (a trigger). */
   subagentModel?: string
   onSubagentModelChange?: (model: string) => void
   effortValue: string
@@ -125,11 +125,11 @@ type AgentOptionsFieldsProps = {
   trailing?: ReactNode
 } & (
   | ({ variant?: `launch` } & LaunchToggleProps)
-  | { variant: `automation` }
+  | { variant: `trigger` }
 )
 
 /** The agent strip + model/effort selects + capability toggles — shared
- * by the automation editor and the device-settings defaults editor.
+ * by the trigger editor and the device-settings defaults editor.
  * `idPrefix` keeps element ids unique when both render at once. */
 export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
   const {
@@ -146,17 +146,17 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
     device,
     trailing,
   } = props
-  const automation = props.variant === `automation`
-  const toggles = props.variant === `automation` ? null : props
+  const trigger = props.variant === `trigger`
+  const toggles = props.variant === `trigger` ? null : props
   // A model or effort is only meaningful against a pinned agent (the server
-  // validates the pair). An automation's strip seeds to the bound device's
+  // validates the pair). A trigger's strip seeds to the bound device's
   // default agent, so `` only happens while no device is bound yet.
-  const pinned = !automation || agent !== ``
+  const pinned = !trigger || agent !== ``
   const modelSentinel = CLI_DEFAULT_MODEL
   const effortSentinel = CLI_DEFAULT_EFFORT
   const sentinelLabel = `CLI default`
   const modelOptions: PickerOption[] = [
-    ...(automation || agentAllowsBlankModel(agent)
+    ...(trigger || agentAllowsBlankModel(agent)
       ? [{ value: modelSentinel, label: sentinelLabel }]
       : []),
     ...(pinned
@@ -244,18 +244,18 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
         value={effortValue === `` ? effortSentinel : effortValue}
         onChange={(value) => {
           if (value !== null) {
-            onEffortChange(automation && value === effortSentinel ? `` : value)
+            onEffortChange(trigger && value === effortSentinel ? `` : value)
           }
         }}
         options={effortOptions}
         disabled={
-          automation
+          trigger
             ? !pinned
             : toggles!.ultracode && agentSupportsUltracode(agent)
         }
       />
-      {/* EXP-694: the run-time switches are rows of the SAME card now — an
-          automation never gets them (nobody is there to steer a plan), and a
+      {/* EXP-694: the run-time switches are rows of the SAME card now — a
+          trigger never gets them (nobody is there to steer a plan), and a
           capability the agent lacks simply drops its row. */}
       {toggles?.resumeRow && (
         <GlassToggleRow

@@ -24,7 +24,6 @@ import { commentsRouter } from "@/lib/trpc/comments"
 import { attachmentsRouter } from "@/lib/trpc/attachments"
 import { repositoriesRouter } from "@/lib/trpc/repositories"
 import { actionsRouter } from "@/lib/trpc/actions"
-import { automationsRouter } from "@/lib/trpc/automations"
 import { workflowsRouter } from "@/lib/trpc/workflows"
 import { codingSessionsRouter } from "@/lib/trpc/coding-sessions"
 import { steerRouter } from "@/lib/trpc/steer"
@@ -53,7 +52,6 @@ export const appRouter = router({
   attachments: attachmentsRouter,
   repositories: repositoriesRouter,
   actions: actionsRouter,
-  automations: automationsRouter,
   workflows: workflowsRouter,
   codingSessions: codingSessionsRouter,
   steer: steerRouter,

@@ -233,7 +233,7 @@ internal fun PickerRow(
     enabled: Boolean = true,
     /**
      * EXP-827: the glyph an option carries, when the thing being picked HAS one
-     * — the automation form's action picker, where the curated icon is how an
+     * — the trigger form's action picker, where the curated icon is how an
      * action is recognised everywhere else in the app (its row, its chip, its
      * session). Null (the default, and a per-option null) keeps the bare label.
      */
@@ -269,7 +269,7 @@ internal fun PickerRow(
 /**
  * The picker ROW on its own — label left, picked value + chevron right — with
  * no sheet of its own. EXP-1021 split it out of [PickerRow] so a form row can
- * be the TRIGGER of the shared `Picker` (the automation form's action and
+ * be the TRIGGER of the shared `Picker` (the trigger form's action and
  * filter rows) while the surfaces that still carry their own option sheet keep
  * rendering exactly the same row.
  */

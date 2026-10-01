@@ -23,7 +23,7 @@
 //! trigger, `StatusPick` + `status_menu` for the row CONTEXT submenus a
 //! trigger-based picker cannot express).
 //! EXP-1030 finished the sweep: the composer's `#` and ▶ tools, the launch
-//! pins, device settings, the automation editor's runner and the workflow
+//! pins, device settings, the trigger form's runner and the workflow
 //! runner row all mount their surface here now.
 #![allow(dead_code)]
 

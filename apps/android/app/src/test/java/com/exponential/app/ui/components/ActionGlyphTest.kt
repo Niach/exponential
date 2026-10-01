@@ -39,7 +39,7 @@ class ActionGlyphTest {
         assertEquals(ExpIcons.actionDefault, actionGlyph(action("not-a-real-glyph")))
     }
 
-    /** An automation or a session may name a row the shape hasn't synced yet. */
+    /** A run or a session may name a row the shape hasn't synced yet. */
     @Test
     fun `a missing action falls back to the generic action mark`() {
         assertEquals(ExpIcons.actionDefault, actionGlyph(null))

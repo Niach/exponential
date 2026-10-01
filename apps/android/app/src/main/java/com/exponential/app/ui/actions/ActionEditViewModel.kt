@@ -24,12 +24,13 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 // The action editor's data layer (EXP-694 — editing stopped being
-// web/desktop-only). The list metadata already rides the synced `actions`
-// shape, but the ≤64KB markdown `body` is excluded from sync on purpose, so
-// the sheet fetches the row through tRPC `actions.get` when it opens (the web
-// dialog and the desktop editor do exactly this) and writes back through
-// `actions.update`, which is OWNER-gated server-side — mirrored here so a
-// member gets a read-only sheet instead of a refusal on submit.
+// web/desktop-only; SLOP-2: the action page's Prompt tab). The list metadata
+// already rides the synced `actions` shape, but the ≤64KB markdown `body` is
+// excluded from sync on purpose, so the tab fetches the row through tRPC
+// `actions.get` when the page opens (the web form and the desktop editor do
+// exactly this) and writes back through `actions.update`, which is
+// OWNER-gated server-side — mirrored here so a member gets read-only fields
+// instead of a refusal on submit.
 
 data class ActionEditState(
     /** The `actions.get` round-trip is in flight (the prompt field parks). */
@@ -56,8 +57,7 @@ class ActionEditViewModel @Inject constructor(
 
     /**
      * Whether the caller OWNS the selected team — `actions.update` is
-     * owner-gated (ActionsViewModel.isTeamOwner's rule), so a member sees the
-     * same sheet with every field disabled and no Save.
+     * owner-gated, so a member sees the same fields disabled and no Save.
      */
     val isTeamOwner: StateFlow<Boolean> = combine(dbFlow, selection.selectedId) { db, teamId ->
         db to teamId
@@ -73,13 +73,10 @@ class ActionEditViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /**
-     * Fetch [actionId]'s full row. Deliberately UNCONDITIONAL: this model is
-     * nav-entry-scoped and outlives the sheet, so caching the last id would
-     * re-show a stale body when the row was edited elsewhere meanwhile, and
-     * would leave a failed first fetch with no retry. The sheet calls this
-     * once per presentation (a `LaunchedEffect(actionId)` in a composition
-     * that only exists while the sheet is up — iOS EditActionSheet's
-     * per-presentation `.task { await load() }`), so there is no fetch loop.
+     * Fetch [actionId]'s full row. Deliberately UNCONDITIONAL: the Prompt tab
+     * calls this once per page visit (a `LaunchedEffect(actionId)`), so a
+     * body edited elsewhere meanwhile is re-read and a failed first fetch
+     * retries on the next open.
      */
     fun load(actionId: String) {
         _state.value = ActionEditState(loading = true)
@@ -102,19 +99,9 @@ class ActionEditViewModel @Inject constructor(
     }
 
     /**
-     * Drop the fetched row when the sheet goes away, so the NEXT presentation
-     * starts empty instead of rendering the previous fetch for a frame (and
-     * seeding its form from it) before [load]'s answer lands.
-     */
-    fun reset() {
-        _state.value = ActionEditState()
-    }
-
-    /**
      * Save the edited row. Blank [description]/[icon]/[repositoryId]/
-     * [promptPlaceholder] clear those fields (explicit nulls on the wire);
-     * [onDone] fires only on success, so a refusal leaves the sheet open with
-     * the server's message.
+     * [promptPlaceholder] clear those fields (explicit nulls on the wire); a
+     * refusal surfaces as the state's error under the fields.
      */
     fun save(
         actionId: String,
@@ -124,7 +111,6 @@ class ActionEditViewModel @Inject constructor(
         repositoryId: String,
         body: String,
         promptPlaceholder: String,
-        onDone: () -> Unit,
     ) {
         if (_state.value.saving) return
         _state.value = _state.value.copy(saving = true, error = null)
@@ -146,7 +132,6 @@ class ActionEditViewModel @Inject constructor(
                     promptPlaceholder = promptPlaceholder.trim().takeIf { it.isNotEmpty() },
                 )
                 _state.value = _state.value.copy(saving = false, action = saved)
-                onDone()
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 _state.value = _state.value.copy(

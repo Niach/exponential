@@ -15,7 +15,8 @@ import { useMyIssuesData } from "@/hooks/use-my-issues-data"
 import { useReviewsData } from "@/hooks/use-reviews-data"
 import { useSession } from "@/hooks/use-session"
 import { useOpenSession } from "@/hooks/use-open-session"
-import { codingSessionCollection } from "@/lib/collections"
+import { actionRunTitle } from "@/lib/action-triggers"
+import { actionCollection, codingSessionCollection } from "@/lib/collections"
 import { useSessionListRows } from "@/hooks/use-agents-data"
 import { SessionTree } from "@/components/session-tree"
 import {
@@ -36,7 +37,7 @@ import { SidebarBackRow } from "@/components/team/sidebar-back-row"
 // it sits in the 17rem panel slot beside the compact rail (never replacing
 // it), sharing that slot and its directional slide with the settings nav. It carries the same back row (`SidebarBackRow`, labelled
 // with the list) and the list itself, simplified: a board's issue rows, the
-// inbox stream, the support threads, the automated runs, the review queue.
+// inbox stream, the support threads, an action's runs, the review queue.
 // EXP-923: the AGENT origin lost its panel with the Agent page's own list —
 // a run opened from there keeps the main menu (`originHasListNav`), and the
 // page's Recent list is a toggled panel of its own (`recent-runs-nav.tsx`).
@@ -66,6 +67,19 @@ export function TeamListNav({
     ? (boards?.find((row) => row.slug === boardSlug) ?? null)
     : null
 
+  // An action origin is labelled with the action's name, off the synced row.
+  const actionId = origin.kind === `action` ? origin.actionId : null
+  const { data: actionRows } = useLiveQuery(
+    (query) =>
+      actionId
+        ? query
+            .from({ actions: actionCollection })
+            .where(({ actions }) => eq(actions.id, actionId))
+        : undefined,
+    [actionId]
+  )
+  const actionName = actionRows?.[0]?.name ?? null
+
   // EXP-870: the one back-to-the-list destination (`originListNavigation`),
   // shared with the session route's Back and the md+ back chevron.
   const goBack = () => {
@@ -75,7 +89,10 @@ export function TeamListNav({
 
   return (
     <>
-      <SidebarBackRow label={originLabel(origin, board?.name)} onBack={goBack} />
+      <SidebarBackRow
+        label={originLabel(origin, board?.name ?? actionName)}
+        onBack={goBack}
+      />
       {/* A plain column, not `SidebarContent`: each list below owns its own
           scrollport, and two nested `overflow-auto` boxes make the sidebar
           scroll twice. */}
@@ -92,8 +109,8 @@ export function TeamListNav({
         {origin.kind === `reviews` && (
           <ReviewsListNav teamSlug={teamSlug} team={team} />
         )}
-        {origin.kind === `automations` && team && (
-          <AutomationsListNav team={team} />
+        {origin.kind === `action` && team && (
+          <ActionRunsListNav team={team} actionId={origin.actionId} />
         )}
       </div>
     </>
@@ -361,41 +378,34 @@ function SupportListNav({
   )
 }
 
-/** EXP-862: the Automations page's AUTOMATED runs — the one list that shows
- *  an unattended run. A finished automated run opened from that page keeps
- *  this list beside it, and Back returns to Automations (never the Agent
- *  page, whose list is the person-started one). Same rows the page's "Recent
- *  automated runs" section draws, at the sidebar's density. */
-function AutomationsListNav({ team }: { team: Team }) {
-  const teamId = team.id
+/** EXP-862/SLOP-2: one action's runs — the list that shows a TRIGGERED
+ *  run. A run opened from the action's page keeps this list beside it, and
+ *  Back returns to that page (never the Agent page, whose list is the
+ *  person-started one). Same rows the page's Runs draws, at the sidebar's
+ *  density. */
+function ActionRunsListNav({ team, actionId }: { team: Team; actionId: string }) {
   const { sessionId } = useActiveDetail()
   const openSession = useOpenSession()
   const { data: sessionRows } = useLiveQuery(
     (query) =>
       query
         .from({ sessions: codingSessionCollection })
-        .where(({ sessions }) => eq(sessions.teamId, teamId)),
-    [teamId]
+        .where(({ sessions }) => eq(sessions.actionId, actionId)),
+    [actionId]
   )
-  // A run is AUTOMATED exactly when it carries a `started_reason` — set only
-  // by the device-side automation hosts (the Automations page's own rule).
   const runs = useMemo(
     () =>
-      [...((sessionRows ?? []) as CodingSession[])]
-        .filter((session) => session.startedReason !== null)
-        .sort(
-          (left, right) =>
-            new Date(right.createdAt).getTime() -
-            new Date(left.createdAt).getTime()
-        ),
+      [...((sessionRows ?? []) as CodingSession[])].sort(
+        (left, right) =>
+          new Date(right.createdAt).getTime() -
+          new Date(left.createdAt).getTime()
+      ),
     [sessionRows]
   )
-  const rows = useSessionListRows(teamId, runs)
+  const rows = useSessionListRows(team.id, runs)
   if (rows.length === 0) {
     return (
-      <div className="px-3 py-2 text-xs text-muted-foreground">
-        Nothing has fired yet.
-      </div>
+      <div className="px-3 py-2 text-xs text-muted-foreground">No runs yet.</div>
     )
   }
   return (
@@ -404,8 +414,9 @@ function AutomationsListNav({ team }: { team: Team }) {
       <SessionTree
         rows={rows}
         activeSessionId={sessionId}
+        titleOf={(row) => actionRunTitle(row.session.startedReason)}
         onOpen={(session) =>
-          openSession(session, { origin: { kind: `automations` } })
+          openSession(session, { origin: { kind: `action`, actionId } })
         }
       />
     </div>

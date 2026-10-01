@@ -4109,7 +4109,6 @@ function ExpToolResult({
     kind === `session` ||
     kind === `board` ||
     kind === `action` ||
-    kind === `automation` ||
     kind === `comment`
   ) {
     if (!label) return null

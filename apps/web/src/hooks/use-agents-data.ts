@@ -491,8 +491,8 @@ export interface PastRunRow {
 /**
  * EXP-746: the caller's OWN finished, PERSON-started runs in one team — the
  * "Recent" band (EXP-886, was "Past") on the Agent page, mirrored on iOS, Android and the desktop.
- * Automated runs (`started_reason` set) belong to the Automations tab's
- * "Recent automated runs" (EXP-676) and are filtered out by `selectPastRuns`.
+ * Automated runs (`started_reason` set) belong to their action's Runs
+ * (EXP-676, SLOP-2) and are filtered out by `selectPastRuns`.
  *
  * Known scoping caveat: the coding-sessions shape is team-scoped with the
  * static trash/archive predicate (`buildTeamScopedChildWhere`), so an ended
@@ -731,9 +731,8 @@ export type SessionListRow = Pick<
 >
 
 /**
- * EXP-874: joins an ARBITRARY set of session rows (the Automations lists'
- * automated runs — not the caller's own person-started ones `useAgentsData`
- * serves) into row shape: the issue + board, the live device label and
+ * EXP-874: joins an ARBITRARY set of session rows (an action's runs — not
+ * the caller's own person-started ones `useAgentsData` serves) into row shape: the issue + board, the live device label and
  * online-ness, and the Merge target (the issue, else the run's own chore PR),
  * plus the issues a batch row names itself after (EXP-876).
  * A batch run's representative-issue lookup is `useAgentsData`'s alone.

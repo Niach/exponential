@@ -768,17 +768,19 @@ export const actionInputsSchema = z
     }
   })
 
-// ── Automation triggers (EXP-530, split out of actions in EXP-583) ──────────
-// An automation is its OWN row (`automations` table, synced via its own
-// shape): a schedule OR an issue-event watcher targeting ONE action, bound to
-// ONE runner device (`device_id` = the machine's steer deviceId, never the row
-// uuid) with its own agent/model/effort. Many automations per action.
+// ── Action triggers (EXP-530; one Action with triggers since SLOP-2) ────────
+// An action carries its triggers (`actions.triggers` jsonb array). `manual` is
+// implied and never stored; a stored trigger is a schedule OR an event watcher
+// plus its RUNNER: ONE device (`deviceId` = the machine's steer deviceId, never
+// the row uuid), optional agent/account/model/effort pins and `enabled`.
 // Deliberately LOCAL-ONLY: no server scheduler — the bound device (desktop GUI
 // or the CLI daemon) watches its own Electric sync and starts the run itself.
-// The `trigger` jsonb below carries ONLY the when-part (device/enabled/agent
-// are real columns). Writes are STRICT (this schema); readers everywhere stay
-// tolerant and treat an unparseable/unknown trigger as "never fires". The
-// event vocabulary is APPEND-ONLY.
+// An event names its `source` (`exponential` today) so another provider can
+// become one later without a migration. Writes are STRICT (these schemas);
+// readers everywhere stay tolerant and treat an unparseable/unknown trigger as
+// "never fires". The event vocabulary is APPEND-ONLY.
+// `Automation*` = the WHEN-part alone: the shape the legacy `automations`
+// mirror rows keep in their `trigger` column until that table is dropped.
 
 export const actionTriggerEventValues = [
   `created`,
@@ -799,7 +801,11 @@ export const actionScheduleIntervalValues = [
 export type ActionScheduleInterval =
   (typeof actionScheduleIntervalValues)[number]
 
+export const actionTriggerSourceValues = [`exponential`] as const
+export type ActionTriggerSource = (typeof actionTriggerSourceValues)[number]
+
 export const MAX_TRIGGER_FILTER_IDS = 20
+export const MAX_ACTION_TRIGGERS = 10
 
 export interface AutomationScheduleTrigger {
   kind: `schedule`
@@ -831,73 +837,156 @@ export interface AutomationEventTrigger {
 
 export type AutomationTrigger = AutomationScheduleTrigger | AutomationEventTrigger
 
+/** The runner half every stored trigger carries. Unset pins are OMITTED
+ * (= the device's launch defaults / its last used login). */
+export interface ActionTriggerRunner {
+  /** Stable uuid: run attribution (`coding_sessions.automation_id`) and the
+   * device's firing state key on it. */
+  id: string
+  enabled: boolean
+  deviceId: string
+  agent?: string
+  /** The agent PROFILE id on the bound device; needs `agent`. */
+  account?: string
+  model?: string
+  effort?: string
+}
+
+export type ActionScheduleTrigger = ActionTriggerRunner & AutomationScheduleTrigger
+export type ActionEventTrigger = ActionTriggerRunner &
+  AutomationEventTrigger & { source: ActionTriggerSource }
+export type ActionTrigger = ActionScheduleTrigger | ActionEventTrigger
+
 // Filter arrays reject empty ([] would silently match nothing) and cap at 20.
 const triggerIdArraySchema = z
   .array(z.string().uuid())
   .min(1)
   .max(MAX_TRIGGER_FILTER_IDS)
 
-const automationScheduleTriggerSchema = z
-  .strictObject({
-    kind: z.literal(`schedule`),
-    interval: z.enum(actionScheduleIntervalValues),
-    minuteOfDay: z.number().int().min(0).max(1439),
-    weekday: z.number().int().min(1).max(7).optional(),
-    dayOfMonth: z.number().int().min(1).max(28).optional(),
-  })
-  .superRefine((t, ctx) => {
-    const issue = (message: string) =>
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message })
-    if (t.interval === `weekly` && t.weekday === undefined)
-      issue(`weekly requires weekday`)
-    if (t.interval === `monthly` && t.dayOfMonth === undefined)
-      issue(`monthly requires dayOfMonth`)
-    if (t.interval !== `weekly` && t.weekday !== undefined)
-      issue(`weekday only applies to weekly`)
-    if (t.interval !== `monthly` && t.dayOfMonth !== undefined)
-      issue(`dayOfMonth only applies to monthly`)
-  })
-
-const automationEventTriggerSchema = z
-  .strictObject({
-    kind: z.literal(`event`),
-    event: z.enum(actionTriggerEventValues),
-    filters: z
-      .strictObject({
-        boardIds: triggerIdArraySchema.optional(),
-        labelIds: triggerIdArraySchema.optional(),
-        priorities: z
-          .array(z.enum(issuePriorityValues))
-          .min(1)
-          .max(MAX_TRIGGER_FILTER_IDS)
-          .optional(),
-        toStatusIds: triggerIdArraySchema.optional(),
-      })
-      .optional(),
-  })
-  .superRefine((t, ctx) => {
-    const issue = (message: string) =>
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message })
-    if (t.filters?.labelIds && t.event !== `label_added`)
-      issue(`labelIds only applies to label_added`)
-    if (t.filters?.toStatusIds && t.event !== `status_changed`)
-      issue(`toStatusIds only applies to status_changed`)
-    if (
-      t.filters?.priorities &&
-      t.event !== `created` &&
-      t.event !== `priority_changed`
-    )
-      issue(`priorities only applies to created/priority_changed`)
-  })
-
-/** Strict WRITE schema (tRPC + MCP); every reader stays tolerant instead. */
-export const automationTriggerSchema = z.discriminatedUnion(`kind`, [
-  automationScheduleTriggerSchema,
-  automationEventTriggerSchema,
-])
-
-/** devices.device_id cap — the automation's runner binding. */
+/** devices.device_id cap — a trigger's runner binding. */
 export const automationDeviceIdSchema = z.string().min(1).max(128)
+
+// The runner fields as WRITTEN: `id` may be omitted (the server mints it) and
+// a pin may be null/empty (= unset; the server stores it omitted).
+const triggerRunnerShape = {
+  id: z.string().uuid().optional(),
+  enabled: z.boolean().default(true),
+  deviceId: automationDeviceIdSchema,
+  agent: z.string().max(16).nullable().optional(),
+  account: z.string().max(64).nullable().optional(),
+  model: z.string().max(64).nullable().optional(),
+  effort: z.string().max(32).nullable().optional(),
+}
+
+const scheduleTriggerShape = {
+  kind: z.literal(`schedule`),
+  interval: z.enum(actionScheduleIntervalValues),
+  minuteOfDay: z.number().int().min(0).max(1439),
+  weekday: z.number().int().min(1).max(7).optional(),
+  dayOfMonth: z.number().int().min(1).max(28).optional(),
+}
+
+const eventTriggerShape = {
+  kind: z.literal(`event`),
+  // Optional on the wire (an agent may omit it), always stored.
+  source: z.enum(actionTriggerSourceValues).default(`exponential`),
+  event: z.enum(actionTriggerEventValues),
+  filters: z
+    .strictObject({
+      boardIds: triggerIdArraySchema.optional(),
+      labelIds: triggerIdArraySchema.optional(),
+      priorities: z
+        .array(z.enum(issuePriorityValues))
+        .min(1)
+        .max(MAX_TRIGGER_FILTER_IDS)
+        .optional(),
+      toStatusIds: triggerIdArraySchema.optional(),
+    })
+    .optional(),
+}
+
+function refineSchedule(
+  t: { interval: ActionScheduleInterval; weekday?: number; dayOfMonth?: number },
+  ctx: z.RefinementCtx
+): void {
+  const issue = (message: string) =>
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message })
+  if (t.interval === `weekly` && t.weekday === undefined)
+    issue(`weekly requires weekday`)
+  if (t.interval === `monthly` && t.dayOfMonth === undefined)
+    issue(`monthly requires dayOfMonth`)
+  if (t.interval !== `weekly` && t.weekday !== undefined)
+    issue(`weekday only applies to weekly`)
+  if (t.interval !== `monthly` && t.dayOfMonth !== undefined)
+    issue(`dayOfMonth only applies to monthly`)
+}
+
+function refineEvent(
+  t: { event: ActionTriggerEvent; filters?: AutomationEventTriggerFilters },
+  ctx: z.RefinementCtx
+): void {
+  const issue = (message: string) =>
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message })
+  if (t.filters?.labelIds && t.event !== `label_added`)
+    issue(`labelIds only applies to label_added`)
+  if (t.filters?.toStatusIds && t.event !== `status_changed`)
+    issue(`toStatusIds only applies to status_changed`)
+  if (
+    t.filters?.priorities &&
+    t.event !== `created` &&
+    t.event !== `priority_changed`
+  )
+    issue(`priorities only applies to created/priority_changed`)
+}
+
+/** Strict WRITE schema for ONE trigger (tRPC + MCP); readers stay tolerant. */
+export const actionTriggerSchema = z.discriminatedUnion(`kind`, [
+  z
+    .strictObject({ ...triggerRunnerShape, ...scheduleTriggerShape })
+    .superRefine(refineSchedule),
+  z
+    .strictObject({ ...triggerRunnerShape, ...eventTriggerShape })
+    .superRefine(refineEvent),
+])
+export type ActionTriggerInput = z.infer<typeof actionTriggerSchema>
+
+/** The whole array an action update replaces its triggers with. */
+export const actionTriggersSchema = z
+  .array(actionTriggerSchema)
+  .max(MAX_ACTION_TRIGGERS)
+  .superRefine((triggers, ctx) => {
+    const seen = new Set<string>()
+    for (const trigger of triggers) {
+      if (!trigger.id) continue
+      if (seen.has(trigger.id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Duplicate trigger id "${trigger.id}"`,
+        })
+      }
+      seen.add(trigger.id)
+    }
+  })
+
+/** The when-part of a stored trigger: what the legacy mirror row keeps. */
+export function triggerWhenPart(trigger: ActionTrigger): AutomationTrigger {
+  if (trigger.kind === `schedule`) {
+    return {
+      kind: `schedule`,
+      interval: trigger.interval,
+      minuteOfDay: trigger.minuteOfDay,
+      ...(trigger.weekday !== undefined ? { weekday: trigger.weekday } : {}),
+      ...(trigger.dayOfMonth !== undefined
+        ? { dayOfMonth: trigger.dayOfMonth }
+        : {}),
+    }
+  }
+  return {
+    kind: `event`,
+    event: trigger.event,
+    ...(trigger.filters ? { filters: trigger.filters } : {}),
+  }
+}
 
 export const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 

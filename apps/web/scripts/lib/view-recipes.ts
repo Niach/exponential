@@ -499,45 +499,6 @@ async function recipeOpenAddServer(page: Page): Promise<void> {
 
 // ---------------------------------------------------------------- actions
 
-/** Open the editor for the seeded "Update dependencies" action (owner-only). */
-async function recipeOpenActionEditor(page: Page): Promise<void> {
-  const menu = page.getByRole(`button`, { name: `Action menu for Update dependencies` })
-  if (!(await appears(menu, 20_000))) {
-    throw new Error(
-      `no action menu for "Update dependencies" — the seed is stale, or the ` +
-        `session is not a team owner (editing is owner-only)`
-    )
-  }
-  await menu.first().click()
-  await page.getByRole(`menuitem`, { name: `Edit`, exact: true }).click()
-  await page.getByRole(`heading`, { name: `Edit action` }).waitFor({ timeout: 15_000 })
-}
-
-/**
- * The automations list plus its "Recent automated runs" section
- * (automations-tab.tsx), one step short of `openAutomationEditor`. EXP-686
- * gave automations their own desktop route, so the tab strip exists on the
- * PHONE only — click it when it is there, and otherwise the page already IS
- * the view. The runs header is the anchor because it renders unconditionally:
- * the list above it can legitimately be the "No automations yet" empty state,
- * and waiting on a row would photograph a half-mounted view whenever the
- * automations shape has not landed yet.
- */
-async function clickTabIfPresent(page: Page, name: string): Promise<void> {
-  const tab = page.getByRole(`tab`, { name, exact: true })
-  if (!(await appears(tab, 5_000))) return
-  await tab.first().click()
-}
-
-async function recipeOpenAutomationsTab(page: Page): Promise<void> {
-  await clickTabIfPresent(page, `Automations`)
-  await page
-    .getByText(`Recent automated runs`)
-    .filter({ visible: true })
-    .first()
-    .waitFor({ timeout: 15_000 })
-}
-
 /**
  * The shipped seed catalog that prefills the creator run. EXP-686 split its
  * two homes: the phone keeps it as the Actions page's third tab, while a
@@ -572,21 +533,20 @@ async function recipeOpenSuggestionsTab(page: Page): Promise<void> {
 }
 
 /**
- * Open the create-automation editor. On the phone that means switching to the
- * Actions page's Automations tab first; a desktop viewport is already on
- * `/automations` and has no tab strip (EXP-686).
+ * Open the new-trigger form on the seeded action's page (`actions/$actionId`;
+ * the phone route lands on its Triggers tab). Owner-only, and it needs a
+ * steer relay: without either the "Add trigger" pill is not mounted.
  */
-async function recipeOpenAutomationEditor(page: Page): Promise<void> {
-  await clickTabIfPresent(page, `Automations`)
-  const create = page.getByRole(`button`, { name: `New automation` })
-  if (!(await appears(create, 15_000))) {
+async function recipeOpenTriggerEditor(page: Page): Promise<void> {
+  const add = page.getByRole(`button`, { name: `Add trigger` })
+  if (!(await appears(add, 15_000))) {
     throw new Error(
-      `no "New automation" button — creating needs STEER_RELAY_URL and an owner session`
+      `no "Add trigger" button — adding needs STEER_RELAY_URL and an owner session`
     )
   }
-  await create.first().click()
-  // The trigger and the dialog heading share the label; the submit button does not.
-  await page.getByRole(`button`, { name: `Create automation` }).waitFor({ timeout: 15_000 })
+  await add.first().click()
+  // The pill and the submit button share the label; the heading does not.
+  await page.getByRole(`heading`, { name: `New trigger` }).waitFor({ timeout: 15_000 })
 }
 
 // --------------------------------------------------------------- settings
@@ -661,10 +621,8 @@ export const RECIPES: Record<string, Recipe> = {
   openMachineSettings: recipeOpenMachineSettings,
   expandFirstDevice: recipeExpandFirstDevice,
   openAddServer: recipeOpenAddServer,
-  openActionEditor: recipeOpenActionEditor,
-  openAutomationsTab: recipeOpenAutomationsTab,
   openSuggestionsTab: recipeOpenSuggestionsTab,
-  openAutomationEditor: recipeOpenAutomationEditor,
+  openTriggerEditor: recipeOpenTriggerEditor,
   openWidgetEditor: recipeOpenWidgetEditor,
   openGettingStarted: recipeOpenGettingStarted,
 }

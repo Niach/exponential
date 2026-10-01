@@ -5,9 +5,12 @@ import type {
   ActionTriggerEvent,
 } from "@exp/db-schema/domain"
 import {
-  formatAutomationBlock,
+  formatTriggerBlock,
   nextScheduleRun,
+  parseActionTriggers,
   parseAutomationTrigger,
+  actionRunTitle,
+  triggerBadges,
   triggerSummary,
 } from "./action-triggers"
 
@@ -234,20 +237,110 @@ describe(`nextScheduleRun`, () => {
   })
 })
 
-describe(`formatAutomationBlock`, () => {
-  it(`emits the machine-readable block with the exact JSON`, () => {
-    const trigger = schedule({ minuteOfDay: 420 })
+describe(`formatTriggerBlock`, () => {
+  it(`emits the machine-readable block, byte-locked ×4`, () => {
     expect(
-      formatAutomationBlock({ trigger, deviceId: `dev-1`, agent: `claude`, model: `opus` })
+      formatTriggerBlock({
+        trigger: { kind: `schedule`, interval: `daily`, minuteOfDay: 540 },
+        deviceId: `d-1`,
+      })
     ).toBe(
-      `\n\nAutomation — after creating the action, call exponential_automations_create with its id and exactly these fields: \`${JSON.stringify({ deviceId: `dev-1`, trigger, agent: `claude`, model: `opus` })}\`. An automated run fills no inputs, so declare none as required.`
+      `\n\nTrigger — after creating the action, call exponential_actions_update with its id and \`triggers\` set to exactly this array: \`[{"kind":"schedule","interval":"daily","minuteOfDay":540,"deviceId":"d-1"}]\`. A triggered run fills no inputs, so declare none as required.`
     )
   })
 
-  it(`omits blank agent/model/effort`, () => {
+  it(`appends the set pins after the device, and omits blank ones`, () => {
     const trigger = schedule()
-    expect(formatAutomationBlock({ trigger, deviceId: `dev-1`, model: `` })).toContain(
-      JSON.stringify({ deviceId: `dev-1`, trigger })
+    expect(
+      formatTriggerBlock({ trigger, deviceId: `dev-1`, agent: `claude`, model: `opus` })
+    ).toContain(
+      JSON.stringify([{ ...trigger, deviceId: `dev-1`, agent: `claude`, model: `opus` }])
     )
+    expect(formatTriggerBlock({ trigger, deviceId: `dev-1`, model: `` })).toContain(
+      JSON.stringify([{ ...trigger, deviceId: `dev-1` }])
+    )
+  })
+})
+
+describe(`parseActionTriggers`, () => {
+  const stored = {
+    id: `t-1`,
+    enabled: true,
+    deviceId: `d-1`,
+    kind: `schedule`,
+    interval: `daily`,
+    minuteOfDay: 540,
+  }
+
+  it(`reads a trigger with its runner, in order`, () => {
+    expect(
+      parseActionTriggers([
+        { ...stored, agent: `claude`, account: `work`, model: `opus`, effort: `high` },
+        { id: `t-2`, enabled: false, deviceId: `d-2`, kind: `event`, source: `exponential`, event: `created` },
+      ])
+    ).toEqual([
+      { ...stored, agent: `claude`, account: `work`, model: `opus`, effort: `high` },
+      { id: `t-2`, enabled: false, deviceId: `d-2`, kind: `event`, source: `exponential`, event: `created` },
+    ])
+  })
+
+  it(`treats a missing enabled flag as enabled and a missing source as Exponential's`, () => {
+    expect(
+      parseActionTriggers([
+        { id: `t-1`, deviceId: `d-1`, kind: `event`, event: `pr_merged` },
+      ])
+    ).toEqual([
+      { id: `t-1`, enabled: true, deviceId: `d-1`, kind: `event`, source: `exponential`, event: `pr_merged` },
+    ])
+  })
+
+  it(`skips what it cannot read instead of throwing`, () => {
+    expect(parseActionTriggers(null)).toEqual([])
+    expect(parseActionTriggers({})).toEqual([])
+    expect(
+      parseActionTriggers([
+        `nope`,
+        { ...stored, id: undefined },
+        { ...stored, deviceId: `` },
+        { ...stored, kind: `webhook` },
+        // A future event source reads as "never fires".
+        { id: `t-3`, deviceId: `d-1`, kind: `event`, source: `vapp:crm`, event: `created` },
+        stored,
+      ])
+    ).toEqual([stored])
+  })
+})
+
+describe(`actionRunTitle`, () => {
+  it(`says what started the run`, () => {
+    expect(actionRunTitle(`schedule`)).toBe(`Scheduled run`)
+    expect(actionRunTitle(`event`)).toBe(`Event run`)
+    expect(actionRunTitle(null)).toBe(`Manual run`)
+    expect(actionRunTitle(undefined)).toBe(`Manual run`)
+    // A child run another run started is neither a trigger's nor a person's.
+    expect(actionRunTitle(`agent`)).toBe(`Agent run`)
+    expect(actionRunTitle(`workflow`)).toBe(`Agent run`)
+  })
+})
+
+describe(`triggerBadges`, () => {
+  const of = (kind: `schedule` | `event`, enabled: boolean) =>
+    parseActionTriggers([
+      kind === `schedule`
+        ? { id: `s`, enabled, deviceId: `d`, kind, interval: `daily`, minuteOfDay: 0 }
+        : { id: `e`, enabled, deviceId: `d`, kind, event: `created` },
+    ])
+
+  it(`draws nothing for an action without triggers`, () => {
+    expect(triggerBadges([])).toEqual({ schedule: null, event: null })
+  })
+
+  it(`draws a glyph per kind, muted while none of that kind is enabled`, () => {
+    expect(
+      triggerBadges([...of(`schedule`, false), ...of(`event`, true)])
+    ).toEqual({ schedule: { active: false }, event: { active: true } })
+    expect(
+      triggerBadges([...of(`schedule`, false), ...of(`schedule`, true)])
+    ).toEqual({ schedule: { active: true }, event: null })
   })
 })

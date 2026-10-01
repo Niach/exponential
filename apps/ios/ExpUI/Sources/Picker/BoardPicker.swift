@@ -2,7 +2,7 @@ import SwiftUI
 
 // EXP-1029 contract — the board picker: every row draws the board's ICON
 // (`BoardIconDisplay`) and COLOUR, everywhere a board is PICKED — the
-// composer, the create-issue sheet, move-to-board, an automation's board
+// composer, the create-issue sheet, move-to-board, a trigger's board
 // filter. Not the board SWITCHER: navigating to a board is a nav sheet by
 // EXP-698 design, not a value being picked. EXP-1021 fills the rows over
 // `GlassPicker`.

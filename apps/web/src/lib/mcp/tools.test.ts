@@ -49,7 +49,6 @@ const h = vi.hoisted(() => {
     attachments: { delete: vi.fn() },
     // EXP-660: the deferred families.
     statuses: { create: vi.fn(), update: vi.fn(), delete: vi.fn() },
-    automations: { list: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
     workflows: {
       update: vi.fn(),
       setIssues: vi.fn(),
@@ -701,39 +700,6 @@ const descriptors: Array<Descriptor> = [
     resolved: { txId: 1, reassigned: 3, reassignedToId: UUID },
     expected: { ok: true, id: STATUS, reassigned: 3, reassignedToId: UUID },
     calledWith: { teamId: WS, statusId: STATUS, reassignToId: UUID },
-  },
-  // ── EXP-660: automations ──
-  {
-    tool: `exponential_automations_list`,
-    pick: () => caller.automations.list,
-    args: { teamId: WS },
-    resolved: { automations: [{ id: AUTO, enabled: true }] },
-    expected: [{ id: AUTO, enabled: true }],
-    calledWith: { teamId: WS },
-  },
-  {
-    tool: `exponential_automations_update`,
-    pick: () => caller.automations.update,
-    args: { id: AUTO, enabled: false },
-    resolved: { automation: { id: AUTO, enabled: false }, txId: 1 },
-    expected: { id: AUTO, enabled: false },
-    calledWith: { id: AUTO, enabled: false },
-  },
-  {
-    tool: `exponential_automations_toggle`,
-    pick: () => caller.automations.update,
-    args: { id: AUTO, enabled: true },
-    resolved: { automation: { id: AUTO, enabled: true }, txId: 1 },
-    expected: { id: AUTO, enabled: true },
-    calledWith: { id: AUTO, enabled: true },
-  },
-  {
-    tool: `exponential_automations_delete`,
-    pick: () => caller.automations.delete,
-    args: { id: AUTO },
-    resolved: { ok: true, txId: 1 },
-    expected: { ok: true, id: AUTO },
-    calledWith: { id: AUTO },
   },
   // ── EXP-660: sessions / devices ──
   {
@@ -5299,41 +5265,56 @@ describe(`exponential_sessions_start`, () => {
   })
 })
 
-describe(`exponential_automations_update trigger`, () => {
+// SLOP-2: an action's triggers ride `actions_update` as a whole array.
+describe(`exponential_actions_update triggers`, () => {
   it(`rejects a malformed trigger before calling the router`, async () => {
-    const result = await tool(`exponential_automations_update`)({
+    const result = await tool(`exponential_actions_update`)({
       id: AUTO,
-      trigger: { kind: `nope` },
+      triggers: [{ deviceId: `mac-1`, kind: `nope` }],
     })
     expect(result.isError).toBe(true)
-    expect(caller.automations.update).not.toHaveBeenCalled()
+    expect(caller.actions.update).not.toHaveBeenCalled()
   })
 
-  it(`forwards a parsed schedule trigger`, async () => {
-    caller.automations.update.mockResolvedValue({ automation: { id: AUTO }, txid: 1 })
-    const trigger = { kind: `schedule`, interval: `daily`, minuteOfDay: 540 }
-    const result = await tool(`exponential_automations_update`)({ id: AUTO, trigger })
-    expect(parseOk(result)).toEqual({ id: AUTO })
-    expect(caller.automations.update).toHaveBeenCalledWith(
-      expect.objectContaining({ id: AUTO, trigger })
-    )
-  })
-})
-
-describe(`exponential_automations_create tidy-up (FEED-50)`, () => {
-  it(`forwards the builtin:tidy-up target to the router`, async () => {
-    caller.automations.create.mockResolvedValue({ automation: { id: AUTO }, txId: 1 })
-    const trigger = { kind: `schedule`, interval: `weekly`, minuteOfDay: 540, weekday: 1 }
-    const result = await tool(`exponential_automations_create`)({
-      teamId: WS,
-      actionId: `builtin:tidy-up`,
-      deviceId: `mac-1`,
-      trigger,
+  it(`forwards the parsed triggers, defaults filled`, async () => {
+    caller.actions.update.mockResolvedValue({ action: { id: AUTO }, txId: 1 })
+    const result = await tool(`exponential_actions_update`)({
+      id: AUTO,
+      triggers: [
+        { deviceId: `mac-1`, kind: `schedule`, interval: `daily`, minuteOfDay: 540 },
+        { deviceId: `mac-1`, enabled: false, kind: `event`, event: `pr_merged` },
+      ],
     })
     expect(parseOk(result)).toEqual({ id: AUTO })
-    expect(caller.automations.create).toHaveBeenCalledWith(
-      expect.objectContaining({ actionId: `builtin:tidy-up`, trigger })
-    )
+    expect(caller.actions.update).toHaveBeenCalledWith({
+      id: AUTO,
+      triggers: [
+        {
+          deviceId: `mac-1`,
+          enabled: true,
+          kind: `schedule`,
+          interval: `daily`,
+          minuteOfDay: 540,
+        },
+        {
+          deviceId: `mac-1`,
+          enabled: false,
+          kind: `event`,
+          source: `exponential`,
+          event: `pr_merged`,
+        },
+      ],
+    })
+  })
+
+  it(`leaves the triggers alone when none are passed`, async () => {
+    caller.actions.update.mockResolvedValue({ action: { id: AUTO }, txId: 1 })
+    await tool(`exponential_actions_update`)({ id: AUTO, name: `Sweep` })
+    expect(caller.actions.update).toHaveBeenCalledWith({
+      id: AUTO,
+      name: `Sweep`,
+      triggers: undefined,
+    })
   })
 })
 

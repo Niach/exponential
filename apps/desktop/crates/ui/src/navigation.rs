@@ -85,13 +85,17 @@ pub enum Screen {
     /// the team's action rows; editing lives in the edit dialog).
     /// EXP-480: a tab-less full-page mode like Settings (no sidebar, no tab
     /// chip), opened from the rail's Actions entry; the rail stays up.
-    /// EXP-686 split machines and automations out into their own screens.
+    /// EXP-686 split machines out into their own screen.
     Actions,
-    /// The Automations page (EXP-686 — the web `t/$teamSlug/automations`
-    /// page: the automation rows plus "Recent automated runs").
-    Automations,
+    /// One action's page (SLOP-2 — the web `t/$teamSlug/actions/$actionId`
+    /// page): its Prompt, its Triggers and its Runs as three sections of ONE
+    /// scrolling page. It replaced the edit dialog and the old Automations
+    /// screen. Tab-less full-page mode like [`Screen::Actions`], whose rail
+    /// entry stays lit; context-free, so a run opened from its Runs shows the
+    /// rail and its Back (the history) returns here.
+    Action { action_id: String },
     /// The Workflows page (EXP-981): this team's workflows in three bands
-    /// (Running / Draft / Done). Tab-less full-page mode like Automations,
+    /// (Running / Draft / Done). Tab-less full-page mode like Actions,
     /// opened from the rail's Workflows entry; it IS a list, so the detail a
     /// row opens keeps it in the left column.
     Workflows,
@@ -133,7 +137,7 @@ pub enum Screen {
     /// web checklist). Tab-less full-page mode exactly like Actions, opened
     /// from a conditional rail entry. EXP-686: the page carries the
     /// suggestion rows as a second tab, and the tab rides the SCREEN so the
-    /// Actions/Automations lightbulb can navigate straight into it (and so
+    /// Actions lightbulb can navigate straight into it (and so
     /// go-back / tab restore keep the tab the user was on).
     GettingStarted { tab: GettingStartedTab },
 }
@@ -218,8 +222,8 @@ impl Screen {
 
     /// EXP-851: which LIST this screen IS, expressed as the [`TabOrigin`] a
     /// detail opened from it inherits. The list screens are a board, the
-    /// Inbox, Support, Reviews and the Automations log; everything else —
-    /// Settings, Devices, Actions, Getting started, Files, Source Control, a
+    /// Inbox, Support, Reviews and Workflows; everything else — Settings,
+    /// Devices, Actions, an action's page, Getting started, Files, Source Control, a
     /// terminal, any detail — is CONTEXT-FREE and leaves the rail up.
     ///
     /// EXP-923: the Agent page is NOT one any more. Its Running rows moved to
@@ -247,9 +251,6 @@ impl Screen {
             // EXP-981: the Workflows page is a list like any other — the
             // workflow a row opens keeps it in the left column.
             Screen::Workflows => ToolWindow::Workflows,
-            // EXP-862: the Automations page's run log is a list like any
-            // other — a run opened from it keeps it in the left column.
-            Screen::Automations => ToolWindow::Automations,
             _ => return None,
         };
         Some(TabOrigin {
@@ -415,7 +416,15 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
         Screen::Devices => "Devices".into(),
         Screen::Drafts => "Drafts".into(),
         Screen::Actions => "Actions".into(),
-        Screen::Automations => "Automations".into(),
+        // The synced name, or the generic word while the row has not landed.
+        Screen::Action { action_id } => Store::global(cx)
+            .collections()
+            .actions
+            .read(cx)
+            .get(action_id)
+            .and_then(|row| row.name.clone())
+            .map(gpui::SharedString::from)
+            .unwrap_or_else(|| "Action".into()),
         Screen::Workflows => domain::workflow_view::WORKFLOWS_TITLE.into(),
         // EXP-981: the synced name, or the generic word while the row has
         // not landed yet.
@@ -749,7 +758,8 @@ impl Navigation {
 }
 
 /// DEV-ONLY `EXP_DEV_SCREEN` values: `settings` | `account` | `devices` |
-/// `actions` | `automations` | `usage` | `board-issues` | `inbox` |
+/// `actions` | `action:<uuid>` (SLOP-2: one action's page) | `usage` |
+/// `board-issues` | `inbox` |
 /// `inbox-my-issues` | `support` | `files` | `source-control` (EXP-851 — the
 /// list screens the rail's tool windows became) | `chat` | `chat?<seed>` (EXP-825:
 /// `issues=<a>,<b>&action=<id>&pr=<issue>&device=<id>&text=<url-encoded>`
@@ -775,7 +785,6 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
         // EXP-878: the drafts list.
         "drafts" => Some(Screen::Drafts),
         "actions" => Some(Screen::Actions),
-        "automations" => Some(Screen::Automations),
         // EXP-981: the workflows list; one workflow is `workflow:<uuid>`.
         "workflows" => Some(Screen::Workflows),
         // EXP-818: Usage folded into Devices (its Accounts section); the old
@@ -827,6 +836,12 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
             if let Some(id) = spec.strip_prefix("workflow:") {
                 return Some(Screen::Workflow {
                     workflow_id: id.to_string(),
+                });
+            }
+            // SLOP-2: one action's page (Prompt · Triggers · Runs).
+            if let Some(id) = spec.strip_prefix("action:") {
+                return Some(Screen::Action {
+                    action_id: id.to_string(),
                 });
             }
             spec.strip_prefix("support:")
@@ -1996,8 +2011,8 @@ mod tests {
     }
 
     /// EXP-686: the three full-page rail screens each have their own
-    /// `EXP_DEV_SCREEN` value — a capture run reaches Devices and Automations
-    /// without synthetic input, and the pre-split `actions` value keeps
+    /// `EXP_DEV_SCREEN` value — a capture run reaches Devices and an action's
+    /// page without synthetic input, and the pre-split `actions` value keeps
     /// meaning the Actions list.
     #[test]
     fn dev_screen_values_cover_the_full_page_screens() {
@@ -2005,7 +2020,12 @@ mod tests {
         // EXP-878: a capture run reaches the Drafts page.
         assert_eq!(parse_dev_screen("drafts"), Some(Screen::Drafts));
         assert_eq!(parse_dev_screen("actions"), Some(Screen::Actions));
-        assert_eq!(parse_dev_screen("automations"), Some(Screen::Automations));
+        // SLOP-2: the Automations screen is gone; an action has its page.
+        assert_eq!(parse_dev_screen("automations"), None);
+        assert_eq!(
+            parse_dev_screen("action:act-1"),
+            Some(Screen::Action { action_id: "act-1".into() })
+        );
         // EXP-706: Reviews joined them (it was a rail TOOL window before).
         assert_eq!(parse_dev_screen("reviews"), Some(Screen::Reviews));
         // EXP-818: Usage folded into the Devices page.
@@ -2148,7 +2168,7 @@ mod tests {
     }
 
     /// EXP-851/EXP-862: exactly six screens are LISTS — a board, the Inbox,
-    /// Support, the Agent page, Reviews and (EXP-862) the Automations page's
+    /// Support, the Agent page, Reviews and (EXP-981) the Workflows page's
     /// run log. Every other screen (and every detail) is context-free: a
     /// detail opened from it keeps the rail up.
     #[test]
@@ -2189,7 +2209,6 @@ mod tests {
         for (screen, tool) in [
             (Screen::Support, ToolWindow::Support),
             (Screen::Reviews, ToolWindow::Reviews),
-            (Screen::Automations, ToolWindow::Automations),
         ] {
             assert_eq!(screen.list_origin().map(|origin| origin.tool), Some(tool));
         }
@@ -2198,6 +2217,7 @@ mod tests {
             Screen::Devices,
             Screen::Drafts,
             Screen::Actions,
+            Screen::Action { action_id: "act-1".into() },
             // EXP-923: the Agent page is a composer, not a list.
             Screen::Chat,
             Screen::Files,
@@ -2324,11 +2344,11 @@ mod tests {
             assert_eq!(derive_origin(Some(&previous), None, &issue), None, "{previous:?}");
             assert_eq!(derive_origin(Some(&previous), None, &session), None);
         }
-        // EXP-862: the Automations page IS a list (its run log), so a run
-        // opened from it comes along with it.
+        // SLOP-2: an action's page is context-free — a run opened from its
+        // Runs section shows the rail, and Back (the history) returns there.
         assert_eq!(
-            derive_origin(Some(&Screen::Automations), None, &session).map(|origin| origin.tool),
-            Some(ToolWindow::Automations)
+            derive_origin(Some(&Screen::Action { action_id: "act-1".into() }), None, &session),
+            None
         );
         // A deep link at boot (nothing before) has no list either.
         assert_eq!(derive_origin(None, None, &issue), None);
@@ -2504,7 +2524,6 @@ mod tests {
             assert_eq!(screen_title(&Screen::Devices, cx), "Devices");
             assert_eq!(screen_title(&Screen::Drafts, cx), "Drafts");
             assert_eq!(screen_title(&Screen::Actions, cx), "Actions");
-            assert_eq!(screen_title(&Screen::Automations, cx), "Automations");
             assert_eq!(screen_title(&Screen::Reviews, cx), "Reviews");
             assert_eq!(
                 screen_title(

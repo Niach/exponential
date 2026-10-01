@@ -17,7 +17,7 @@ import {
 
 // EXP-740: "open this run" is a NAVIGATION, not a dock toggle. Every surface
 // that used to call `openDock(id)` — the issue detail's Watch, the Agent
-// page's list, the Automations runs list, the
+// page's list, an action's Runs, the
 // post-start watch in use-remote-start — calls this instead, so there is ONE
 // place that decides where a run is steered.
 //

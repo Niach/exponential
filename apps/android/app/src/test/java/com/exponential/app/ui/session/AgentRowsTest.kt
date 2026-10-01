@@ -599,8 +599,8 @@ class AgentRowsTest {
     @Test
     fun `a scheduled run never lists under Past`() {
         // The DAO already filters on `started_reason IS NULL`, but the pure
-        // rule has to hold on its own: an automation-heavy team would
-        // otherwise see its Automations rows leak into this list, and the
+        // rule has to hold on its own: a trigger-heavy team would
+        // otherwise see its triggered runs leak into this list, and the
         // query cap would push the real ones off the end.
         val mixed = (1..60).map { i ->
             pastRun(

@@ -938,7 +938,7 @@ impl IssueDetailView {
     }
 
     /// EXP-496: fetch the widget/agent submission metadata for the incoming
-    /// issue (`action_editor_dialog::fetch_body` pattern). Errors degrade to
+    /// issue (`action_prompt_form::fetch_body` pattern). Errors degrade to
     /// "no card" — non-members and non-widget issues both land there, the
     /// same silent-absence contract as web.
     fn fetch_widget_submission(

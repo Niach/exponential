@@ -3,7 +3,7 @@ import Foundation
 /// EXP-820 — the chips over the Agent page's empty prompt box.
 ///
 /// A POOL rather than three fixed chips: the chat talks to an agent that holds
-/// the whole product's MCP surface (issues, boards, labels, automations,
+/// the whole product's MCP surface (issues, boards, labels, actions,
 /// sessions on other machines, reviews), so the chips exist to SHOW that range
 /// the way the getting-started cards do — each mount draws a few at random.
 /// A suggestion ending in `#` lands the caret right after it so the issue-ref
@@ -23,8 +23,8 @@ public enum ChatSuggestions {
         "Set a priority on every unprioritized issue",
         "Find duplicate issues and link them",
         "Do a code review of the open PRs and file the findings on a new board",
-        "Create an automation that labels new issues",
-        "Set up a weekly standup digest automation",
+        "Create an action that labels new issues",
+        "Set up a weekly standup digest action",
         "Draft release notes from the issues completed this month",
         "Summarize what changed across the boards this week",
         "Start a session for # on my other machine",

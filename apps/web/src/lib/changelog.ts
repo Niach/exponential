@@ -25,6 +25,19 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-01-action-triggers`,
+    date: `2026-10-01`,
+    title: `Actions have triggers`,
+    summary: `Automations are now triggers on the action they run: one Actions list, and each action is a page with its prompt, its triggers and its runs.`,
+    body: `- **Triggers**: a schedule or an event that starts an action now lives on that action. Your automations became triggers on their action and keep firing on the same device, with the same account, model and effort.
+- **Action page**: opening an action shows its prompt, its triggers and its runs, as sections of one page on desktop and as tabs on a phone. The Automations page and tab are gone.
+- **Actions list**: a clock marks an action with a schedule, a bolt one that an event starts. The mark is dimmed while that trigger is paused.
+- **Runs**: an action lists every run of it, the triggered ones marked. It replaces Recent automated runs.
+- **Tidy up**: a team that had scheduled Tidy up now owns it as an action with the same prompt, free to edit.
+- **MCP**: \`exponential_actions_update\` takes \`triggers\`. The \`exponential_automations_*\` tools are gone.
+- **Older apps**: desktop apps and CLI daemons from before this release keep firing their triggers, but only an updated app can edit them.`,
+  },
+  {
     id: `2026-10-01-last-used-account`,
     date: `2026-10-01`,
     title: `Last used account`,

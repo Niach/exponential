@@ -24,6 +24,7 @@ import { z } from "zod"
 import {
   type ActionInputDef,
   actionInputsSchema,
+  type ActionTrigger,
   type AutomationTrigger,
   type WorkflowLaunchStored,
   type DeviceWorkflowDefaults,
@@ -2380,6 +2381,14 @@ export const actions = pgTable(
     // picked — what the requester should type now that free-text inputs are
     // gone (their placeholder/label seeded it). NULL = the generic hint.
     promptPlaceholder: varchar(`prompt_placeholder`, { length: 200 }),
+    // SLOP-2: the action's triggers — schedules and event watchers, each
+    // carrying its runner (device, agent/account/model/effort, enabled).
+    // `manual` is implied, never stored. '[]' = manual only. The bound device
+    // reads them off the shape and self-starts; there is no server scheduler.
+    triggers: jsonb()
+      .$type<ActionTrigger[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     ...timestamps,
   },
@@ -2389,19 +2398,13 @@ export const actions = pgTable(
   ]
 )
 
-// EXP-583: automations are their own entity — a schedule or issue-event
-// trigger (`trigger` jsonb, when-part only; typed union + strict write zod in
-// domain.ts) that runs ONE action on ONE device with its own agent/model/
-// effort. Synced via the 19th Electric shape (team-scoped). LOCAL-ONLY by
-// design: `device_id` is the steer device_id (not a row uuid) of the machine
-// whose desktop/daemon watches its own sync and fires the run; there is no
-// server scheduler. `action_id` = TEXT with NO FK (FEED-50): it names a team
-// action's uuid OR the tidy-up builtin id; `actions.delete` removes the
-// automations targeting it in the same transaction. Agent/model/effort NULL = the device's launch defaults.
-// EXP-995: `account` = the agent PROFILE id on the bound device the run
-// spends (`agent_profiles`, like `coding_sessions.agent_account`); it belongs
-// to the pinned `agent` and NULL = that machine's LAST USED login (EXP-1158). Every editor
-// picks an ACCOUNT (brand mark + email) and the agent rides the pick.
+// SLOP-2: a LEGACY MIRROR of `actions.triggers`, one row per trigger with the
+// trigger's id. Nothing edits it directly: `lib/action-triggers-mirror.ts`
+// rewrites an action's rows inside every triggers write, so clients and
+// daemons from before the merge (which still sync this shape) keep firing the
+// current triggers, and `coding_sessions.automation_id` keeps its FK. Dropped,
+// with its shape, once those clients are gone. `trigger` = the when-part only;
+// `action_id` = TEXT with NO FK (it once named the tidy-up builtin).
 export const automations = pgTable(
   `automations`,
   {
@@ -3193,6 +3196,11 @@ export const selectMcpServerSchema = createSelectSchema(mcpServers, {
 
 export const selectActionSchema = createSelectSchema(actions, {
   inputs: actionInputsSchema,
+  // TOLERANT read (unlike the strict write schema in domain.ts): the actions
+  // collection must not brick on a future trigger kind or source, so runtime
+  // validation only checks "array" — clients parse each trigger leniently
+  // (parseActionTrigger) and treat unknown shapes as "never fires".
+  triggers: z.custom<ActionTrigger[]>((value) => Array.isArray(value)),
 })
 
 export const selectWorkflowSchema = createSelectSchema(workflows)
@@ -3203,17 +3211,6 @@ export const selectSyncedWorkflowSchema = selectWorkflowSchema.omit({
 export type SyncedWorkflow = z.infer<typeof selectSyncedWorkflowSchema>
 export const selectWorkflowNodeSchema = createSelectSchema(workflowNodes)
 export const selectWorkflowEventSchema = createSelectSchema(workflowEvents)
-
-export const selectAutomationSchema = createSelectSchema(automations, {
-  // TOLERANT read (unlike the strict write union in domain.ts): the web
-  // automations collection must not brick on a future trigger kind, so runtime
-  // validation only checks "object" — clients parse triggers leniently
-  // (parseAutomationTrigger) and treat unknown shapes as "never fires".
-  trigger: z.custom<AutomationTrigger>(
-    (value) =>
-      value !== null && typeof value === `object` && !Array.isArray(value)
-  ),
-})
 
 // The shape-synced projection: the actions shape pins a columns allowlist
 // that EXCLUDES `body` (the ≤64KB prompt never rides sync — fetched via

@@ -9,9 +9,9 @@
 //!
 //! **Recent** is the ×4 section (web/iOS/Android have their own): own,
 //! person-started, ENDED rows in the active team, newest end first
-//! ([`crate::queries::own_ended_runs`]). An automation's runs are NOT here —
-//! their home is the Automations tab's "Recent automated runs" (EXP-676), and
-//! listing them twice is the duplication that split. EXP-923 moved it behind
+//! ([`crate::queries::own_ended_runs`]). A TRIGGERED run is NOT here — its
+//! home is its action page's Runs section (SLOP-2; EXP-676 split it out), and
+//! listing it twice is the duplication that split. EXP-923 moved it behind
 //! the Agent page's history button, into the left column
 //! ([`RecentRunsNav`], `shell::LeftOccupant::RecentRuns`) — the composer's
 //! page is a composer and nothing else.
@@ -654,8 +654,8 @@ impl Collapsible for PastSessionsSection {
     }
 }
 
-// EXP-897: the Automations page's run log folds exactly like these two.
-impl Collapsible for crate::automations_view::AutomationsView {
+// EXP-897: an action page's Runs fold exactly like these two.
+impl Collapsible for crate::action_view::ActionView {
     fn collapsed_mut(&mut self) -> &mut HashSet<String> {
         self.collapsed_runs_mut()
     }

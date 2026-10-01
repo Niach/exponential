@@ -243,15 +243,20 @@ final class AgentComposerModel {
     /// The action picker's pool: the three LISTED builtins pinned FIRST by
     /// the `builtin` flag (EXP-257 — never by sort order), "Fix merge
     /// conflicts" ahead of "Create action" (the web order), then "Tidy up"
-    /// (FEED-50), then the team's rows. Chat is in NO pool: it is what "no
-    /// subject" means.
+    /// (FEED-50) unless the team owns a REAL row of that name (SLOP-2,
+    /// `hasOwnTidyUpAction`), then the team's rows. Chat is in NO pool: it is
+    /// what "no subject" means.
     var actions: [ActionDto] {
         guard let teamId else { return [] }
-        return [
+        let teamActions = sessions.teamActions(teamId: teamId)
+        var builtins = [
             ActionDto.builtinFixConflictsAction(teamId: teamId),
             ActionDto.builtinCreateAction(teamId: teamId),
-            ActionDto.builtinTidyUpAction(teamId: teamId),
-        ] + sessions.teamActions(teamId: teamId)
+        ]
+        if !ActionDto.hasOwnTidyUpAction(teamActions) {
+            builtins.append(ActionDto.builtinTidyUpAction(teamId: teamId))
+        }
+        return builtins + teamActions
     }
 
     var boards: [BoardEntity] {

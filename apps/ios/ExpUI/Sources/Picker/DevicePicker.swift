@@ -2,8 +2,8 @@ import SwiftUI
 
 // EXP-1029 contract — the device picker: the machines a run may start on,
 // each by its device glyph (`DeviceIconDisplay`) + name, offline ones
-// disabled with the reason as the description. The composer, the automation
-// editor and the workflow runner row pick one.
+// disabled with the reason as the description. The composer, the trigger
+// form and the workflow runner row pick one.
 
 public struct DevicePickerDevice: Identifiable, Hashable {
     public let id: String
@@ -28,7 +28,7 @@ public struct DevicePicker<Trigger: View>: View {
     public let value: String?
     public let onChange: (String) -> Void
     /// The sheet headline; the default names the picker. A row that asks the
-    /// question in its own words — the automation editor's "Runs on" — says so
+    /// question in its own words — the trigger form's "Runs on" — says so
     /// here, exactly as on Android (`DevicePicker.kt`), so the sheet cannot
     /// contradict the row that opened it.
     public let title: String

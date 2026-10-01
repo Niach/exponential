@@ -30,7 +30,7 @@ import com.exponential.app.ui.theme.TextEmphasis
  * signed-in login the bound machine reports, across agents, so picking one
  * IMPLIES its agent (EXP-872). It carries what the EXP-991 account menu
  * carried, its options AND its preview, onto [Picker]; that menu is gone, and
- * every surface that picks a login (the composer, the automation editor, the
+ * every surface that picks a login (the composer, the trigger form, the
  * device settings) goes through this one sheet.
  *
  * A row says exactly what the menu row said: the agent's brand mark, the

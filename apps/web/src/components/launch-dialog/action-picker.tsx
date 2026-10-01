@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from "react"
-import type { TeamAction } from "@/components/action-editor-dialog"
+import type { TeamAction } from "@/components/action-prompt-form"
 import {
   ActionPicker as SharedActionPicker,
   PickerList,
@@ -18,7 +18,7 @@ import {
 // EXP-1021). The row is the primitive's now — the action's curated icon
 // (`getActionIcon` inside `actionPickerItems`), its name, and its description
 // as the muted second line — so the composer draws the same action row as the
-// automation editor beside it.
+// trigger editor beside it.
 
 /** The team's actions as the shared picker's rows; null = the shape is still
  *  loading, which the surface says instead of drawing an empty list. */

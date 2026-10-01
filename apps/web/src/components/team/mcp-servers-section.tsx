@@ -1,7 +1,7 @@
 // EXP-792: Settings › MCP servers. The team's MCP server registry, made easy:
 // every member sees the list and connects THEIR OWN account once (the server
 // holds the credential, encrypted, per member — it then works on every
-// device, remote starts and automations); owners add, edit and remove.
+// device, remote starts and triggers); owners add, edit and remove.
 //
 // A row = name, where it lives, "N of M connected" and ONE action for the
 // viewer: Connect (OAuth: `mcpServers.connect` → the provider's consent page

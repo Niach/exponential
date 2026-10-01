@@ -108,6 +108,7 @@ const h = vi.hoisted(() => {
     assertTeamMember: vi.fn(),
     getTeamMember: vi.fn(async () => ({ role: `member` }) as unknown),
     endForeignHostedSessions: vi.fn(async () => [] as string[]),
+    pauseDeviceTriggers: vi.fn(async (..._args: unknown[]) => {}),
   }
 })
 
@@ -120,6 +121,10 @@ vi.mock(`@/lib/steer`, () => ({
 vi.mock(`@/lib/team-membership`, () => ({
   assertTeamMember: h.assertTeamMember,
   getTeamMember: h.getTeamMember,
+}))
+// SLOP-2: the trigger pause is its own unit (action-triggers-mirror.test.ts).
+vi.mock(`@/lib/action-triggers-mirror`, () => ({
+  pauseDeviceTriggers: h.pauseDeviceTriggers,
 }))
 vi.mock(`@/lib/coding-session-kill`, () => ({
   endForeignHostedSessions: h.endForeignHostedSessions,
@@ -536,10 +541,14 @@ describe(`devices.setShared — toggle form`, () => {
     expect(h.state.updates[0]?.set).toMatchObject({
       sharedTeamIds: [TEAM_A, TEAM_C],
     })
-    // The revoked team's automations are disarmed (device owner is a plain
+    // The revoked team's triggers are paused (device owner is a plain
     // member there), and only its foreign runs on this box die.
     expect(h.getTeamMember).toHaveBeenCalledWith(`actor`, TEAM_B)
-    expect(h.state.updates).toHaveLength(2)
+    expect(h.pauseDeviceTriggers).toHaveBeenCalledWith(
+      expect.anything(),
+      [TEAM_B],
+      `dev-1`
+    )
     expect(h.endForeignHostedSessions).toHaveBeenCalledTimes(1)
     expect(h.endForeignHostedSessions).toHaveBeenCalledWith(
       `actor`,
@@ -650,12 +659,14 @@ describe(`devices.setShared — kill fan-out`, () => {
   it(`ends the old team's hosted sessions when the share is cleared`, async () => {
     h.state.selectQueue = sharedProbe(TEAM_A)
     // The column write must land FIRST — once shared_team_ids has moved, no
-    // new foreign attribution can slip in behind the fan-out. Two updates by
-    // then: the share column plus the automation disarm that rides the same
-    // transaction.
+    // new foreign attribution can slip in behind the fan-out. By then the
+    // share column is written and the trigger pause, which rides the same
+    // transaction, has run.
     let updatesWhenKilled = -1
+    let pausesWhenKilled = -1
     h.endForeignHostedSessions.mockImplementation(async () => {
       updatesWhenKilled = h.state.updates.length
+      pausesWhenKilled = h.pauseDeviceTriggers.mock.calls.length
       return []
     })
 
@@ -666,7 +677,8 @@ describe(`devices.setShared — kill fan-out`, () => {
       TEAM_A,
       `dev-1`
     )
-    expect(updatesWhenKilled).toBe(2)
+    expect(updatesWhenKilled).toBe(1)
+    expect(pausesWhenKilled).toBe(1)
   })
 
   it(`ends the OLD team's sessions when its share is withdrawn (toggle form)`, async () => {
@@ -712,33 +724,37 @@ describe(`devices.setShared — kill fan-out`, () => {
   })
 })
 
-// EXP-530 follow-up (EXP-583: automations rows): withdrawing a share must
-// also stop the teammate-created automations bound to this device — the
-// device self-selects automations off Electric, and the toggle is owner-only.
-describe(`devices.setShared — automation disarm`, () => {
+// EXP-530 follow-up: withdrawing a share must also stop the teammate-created
+// triggers bound to this device — the device self-selects triggers off
+// Electric, and the toggle is owner-only.
+describe(`devices.setShared — trigger pause`, () => {
   const TEAM_A = `11111111-1111-4111-8111-111111111111`
   const TEAM_B = `22222222-2222-4222-8222-222222222222`
 
-  // The trigger-disabling UPDATE, if it ran (the device row write is first).
-  const automationUpdate = () => h.state.updates[1]
-
-  it(`disables the old team's triggers when the share is cleared`, async () => {
+  it(`pauses the old team's triggers when the share is cleared`, async () => {
     h.state.selectQueue = sharedProbe(TEAM_A)
 
     await caller.setShared({ deviceId: `dev-1`, teamId: null, shared: false })
 
     expect(h.getTeamMember).toHaveBeenCalledWith(`actor`, TEAM_A)
-    expect(h.state.updates).toHaveLength(2)
-    expect(automationUpdate()!.set).toMatchObject({ enabled: false })
+    expect(h.pauseDeviceTriggers).toHaveBeenCalledWith(
+      expect.anything(),
+      [TEAM_A],
+      `dev-1`
+    )
   })
 
-  it(`disables the old team's triggers when its share is withdrawn (toggle form)`, async () => {
+  it(`pauses the old team's triggers when its share is withdrawn (toggle form)`, async () => {
     h.state.selectQueue = sharedProbe(TEAM_A, TEAM_B)
 
     await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_A, shared: false })
 
     expect(h.getTeamMember).toHaveBeenCalledWith(`actor`, TEAM_A)
-    expect(h.state.updates).toHaveLength(2)
+    expect(h.pauseDeviceTriggers).toHaveBeenCalledWith(
+      expect.anything(),
+      [TEAM_A],
+      `dev-1`
+    )
   })
 
   // Adding a team revokes none, so no trigger is disarmed.
@@ -749,6 +765,7 @@ describe(`devices.setShared — automation disarm`, () => {
 
     expect(h.getTeamMember).not.toHaveBeenCalled()
     expect(h.state.updates).toHaveLength(1)
+    expect(h.pauseDeviceTriggers).not.toHaveBeenCalled()
     expect(h.state.updates[0]?.set).toMatchObject({
       sharedTeamIds: [TEAM_A, TEAM_B],
     })
@@ -761,18 +778,21 @@ describe(`devices.setShared — automation disarm`, () => {
     await caller.setShared({ deviceId: `dev-1`, teamId: null, shared: false })
 
     expect(h.state.updates).toHaveLength(1)
+    expect(h.pauseDeviceTriggers).not.toHaveBeenCalled()
   })
 
   it(`touches nothing on a first share or a same-team re-share`, async () => {
     h.state.selectQueue = sharedProbe()
     await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_A, shared: true })
     expect(h.state.updates).toHaveLength(1)
+    expect(h.pauseDeviceTriggers).not.toHaveBeenCalled()
 
     h.state.updates = []
     h.state.updateReturning = [[{ id: `row-1` }]]
     h.state.selectQueue = sharedProbe(TEAM_A)
     await caller.setShared({ deviceId: `dev-1`, teamId: TEAM_A, shared: true })
     expect(h.state.updates).toHaveLength(1)
+    expect(h.pauseDeviceTriggers).not.toHaveBeenCalled()
     expect(h.getTeamMember).not.toHaveBeenCalled()
   })
 })

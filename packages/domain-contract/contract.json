@@ -477,7 +477,9 @@
       "pr_merged"
     ],
     "scheduleIntervalValues": ["daily", "weekly", "monthly"],
-    "maxFilterIds": 20
+    "eventSourceValues": ["exponential"],
+    "maxFilterIds": 20,
+    "maxPerAction": 10
   },
   "automation": {
     "cooldownSeconds": 60,
@@ -528,7 +530,6 @@
       "session",
       "board",
       "action",
-      "automation",
       "list",
       "results"
     ],
@@ -569,7 +570,7 @@
       {
         "name": "actions_update",
         "title": "Update action",
-        "blurb": "Edits an action's name, prompt body, repository or inputs.",
+        "blurb": "Edits an action's name, prompt body, repository, inputs or triggers.",
         "progressive": "Updating action",
         "done": "Updated action",
         "progressiveMany": "Updating {n} actions",
@@ -620,61 +621,6 @@
         "doneMany": "Uploaded {n} attachments",
         "subjectKey": "filename",
         "result": "none"
-      },
-      {
-        "name": "automations_create",
-        "title": "Create automation",
-        "blurb": "Binds an action to a device on a schedule or an event trigger.",
-        "progressive": "Creating automation",
-        "done": "Created automation",
-        "progressiveMany": "Creating {n} automations",
-        "doneMany": "Created {n} automations",
-        "subjectKey": "name",
-        "result": "automation"
-      },
-      {
-        "name": "automations_delete",
-        "title": "Delete automation",
-        "blurb": "Removes an automation and stops its runs.",
-        "progressive": "Deleting automation",
-        "done": "Deleted automation",
-        "progressiveMany": "Deleting {n} automations",
-        "doneMany": "Deleted {n} automations",
-        "subjectKey": "id",
-        "result": "none"
-      },
-      {
-        "name": "automations_list",
-        "title": "List automations",
-        "blurb": "Lists the team's automations with their triggers and their runners.",
-        "progressive": "Listing automations",
-        "done": "Listed automations",
-        "progressiveMany": "Listing automations {n} times",
-        "doneMany": "Listed automations {n} times",
-        "subjectKey": "",
-        "result": "list"
-      },
-      {
-        "name": "automations_toggle",
-        "title": "Toggle automation",
-        "blurb": "Switches an automation on or off without deleting it.",
-        "progressive": "Toggling automation",
-        "done": "Toggled automation",
-        "progressiveMany": "Toggling {n} automations",
-        "doneMany": "Toggled {n} automations",
-        "subjectKey": "id",
-        "result": "automation"
-      },
-      {
-        "name": "automations_update",
-        "title": "Update automation",
-        "blurb": "Edits an automation's action, device, trigger or agent defaults.",
-        "progressive": "Updating automation",
-        "done": "Updated automation",
-        "progressiveMany": "Updating {n} automations",
-        "doneMany": "Updated {n} automations",
-        "subjectKey": "id",
-        "result": "automation"
       },
       {
         "name": "boards_create",
@@ -1618,7 +1564,7 @@
   },
   "entityRefKind": {
     "values": [
-      "issue", "board", "action", "automation", "comment", "session", "label",
+      "issue", "board", "action", "comment", "session", "label",
       "status", "workflow", "device", "member", "repository", "team", "invite",
       "notification", "thread", "attachment", "list"
     ]
@@ -1635,11 +1581,6 @@
       { "name": "attachments_get", "refs": "attachment@" },
       { "name": "attachments_list", "refs": "list:attachment@attachments issue@$issueId" },
       { "name": "attachments_upload", "refs": "attachment@" },
-      { "name": "automations_create", "refs": "automation@" },
-      { "name": "automations_delete", "refs": "" },
-      { "name": "automations_list", "refs": "list:automation@" },
-      { "name": "automations_toggle", "refs": "automation@" },
-      { "name": "automations_update", "refs": "automation@" },
       { "name": "boards_create", "refs": "board@" },
       { "name": "boards_delete", "refs": "" },
       { "name": "boards_get", "refs": "board@" },

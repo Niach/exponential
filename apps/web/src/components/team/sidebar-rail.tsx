@@ -48,7 +48,6 @@ const NavAboutIcon = conceptIcon(`settings-about`)
 const NavAdminIcon = conceptIcon(`nav-admin`)
 const NavActionsIcon = conceptIcon(`nav-actions`)
 const NavAgentIcon = conceptIcon(`action-chat`)
-const NavAutomationsIcon = conceptIcon(`nav-automations`)
 const NavWorkflowsIcon = conceptIcon(`nav-workflows`)
 const NavChangelogIcon = conceptIcon(`nav-changelog`)
 const NavDevicesIcon = conceptIcon(`nav-devices`)
@@ -399,13 +398,7 @@ export function TeamSidebarRail({
         <RailItem label="Actions" link={{ to: `/t/$teamSlug/actions`, params }}>
           <NavActionsIcon className="size-4" />
         </RailItem>
-        <RailItem
-          label="Automations"
-          link={{ to: `/t/$teamSlug/automations`, params }}
-        >
-          <NavAutomationsIcon className="size-4" />
-        </RailItem>
-        {/* EXP-981: directly after Automations, like the expanded sidebar. */}
+        {/* EXP-981: directly after Actions, like the expanded sidebar. */}
         <RailItem
           label={WORKFLOWS_TITLE}
           link={{ to: `/t/$teamSlug/workflows`, params }}

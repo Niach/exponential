@@ -23,7 +23,6 @@ public enum EntityChipIcon {
         "ui-issue": AppIcons.uiIssue,
         "nav-boards": AppIcons.navBoards,
         "nav-actions": AppIcons.navActions,
-        "nav-automations": AppIcons.navAutomations,
         "notification-issue-comment": AppIcons.notificationIssueComment,
         "coding-running": AppIcons.codingRunning,
         "settings-labels": AppIcons.settingsLabels,

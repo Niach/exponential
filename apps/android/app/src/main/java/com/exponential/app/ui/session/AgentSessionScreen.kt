@@ -4466,12 +4466,11 @@ private fun ExpToolPreview(display: ExpToolRow, preview: ToolResultPreview?) {
                 modifier = Modifier.padding(start = EXP_TOOL_PREVIEW_INSET, top = 2.dp),
             )
         }
-        // A row that has a NAME: the session, board, action, automation or
-        // comment the call touched. Its identifier wins when it has one.
+        // A row that has a NAME: the session, board, action or comment the
+        // call touched. Its identifier wins when it has one.
         ExpToolDisplay.RESULT_SESSION,
         ExpToolDisplay.RESULT_BOARD,
         ExpToolDisplay.RESULT_ACTION,
-        ExpToolDisplay.RESULT_AUTOMATION,
         ExpToolDisplay.RESULT_COMMENT,
         -> {
             val label = result.identifier?.takeIf { it.isNotBlank() }

@@ -672,7 +672,7 @@ pub(crate) fn open_undocked_terminal_tab(
 }
 
 /// Bring a terminal tab into VIEW wherever it currently lives (EXP-686 — the
-/// automations run log opens a live run from its row): an undocked tab raises
+/// a run log opens a live run from its row): an undocked tab raises
 /// its own window, a docked one shows its terminal screen in `origin`
 /// (EXP-769). Best-effort: a tab whose window is already gone simply no-ops.
 pub(crate) fn reveal_terminal_tab(

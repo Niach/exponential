@@ -68,7 +68,6 @@ import {
   User,
   UserPlus,
   X,
-  Zap,
   type LucideProps,
 } from "lucide-react"
 
@@ -100,7 +99,6 @@ export const IcInbox = wrap(Inbox) // nav-inbox
 export const IcReviews = wrap(GitPullRequest) // nav-reviews
 export const IcDevices = wrap(Monitor) // nav-devices
 export const IcActions = wrap(Bot) // nav-actions
-export const IcAutomations = wrap(Zap) // nav-automations
 export const IcSupport = wrap(LifeBuoy) // nav-support
 export const IcSparkles = wrap(Sparkles) // nav-getting-started
 export const IcSettings = wrap(Settings) // nav-settings

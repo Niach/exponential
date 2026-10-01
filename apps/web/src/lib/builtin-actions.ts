@@ -77,17 +77,19 @@ export const BUILTIN_FIX_REVIEW_FINDINGS_NAME = `Fix review findings`
 
 /** FEED-50: the "Tidy up" builtin — a non-destructive board cleanup
  * (duplicates, existing labels, relations; nothing is deleted). LISTED like
- * Create action / Fix conflicts, and the ONLY automatable builtin. */
+ * Create action / Fix conflicts. Builtins never carry triggers. */
 export const BUILTIN_TIDY_UP_ID = contract.builtinAction.tidyUpId
 
 export const BUILTIN_TIDY_UP_NAME = `Tidy up`
 
-/** The builtins an automation may target: every input optional, no free
- * text required. Create action needs its prompt, Fix conflicts a `pr`. */
-export const AUTOMATABLE_BUILTIN_IDS: readonly string[] = [BUILTIN_TIDY_UP_ID]
-
-export function isAutomatableBuiltinId(id: string): boolean {
-  return AUTOMATABLE_BUILTIN_IDS.includes(id)
+/** SLOP-2: a team that automated Tidy up before triggers moved onto actions
+ * owns a REAL row of that name (the migration made it, so it could carry the
+ * triggers; the name stays reserved for everyone else). Where it exists the
+ * virtual builtin steps aside, so the list never shows Tidy up twice. ×4. */
+export function hasOwnTidyUpAction(
+  actions: readonly { name: string }[]
+): boolean {
+  return actions.some((action) => action.name === BUILTIN_TIDY_UP_NAME)
 }
 
 export function isBuiltinActionId(id: string): boolean {

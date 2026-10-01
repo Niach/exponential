@@ -12,7 +12,7 @@
 // EXP-851 made the token the only input: `?from=` decides the sidebar occupant
 // (`sidebarOccupant`) and where Back goes. The vocabulary is the list set —
 // `board:<slug>`, `inbox`, `inbox:my-issues`, `support`, `agent`, `reviews`,
-// `automations` (EXP-862) — plus one legacy spelling that still parses:
+// `action:<id>` (an action page's Runs) — plus one legacy spelling that still parses:
 // `sessions` (the old `agent`).
 // Pure, so every combination is a test.
 
@@ -24,10 +24,10 @@ export type DetailOrigin =
   | { kind: `reviews` }
   /** The Agent page's Running/Past list. */
   | { kind: `agent` }
-  /** EXP-862: the Automations page's finished-automated-runs list — the one
-   *  list that shows an UNATTENDED run, so a run opened from it returns
-   *  there rather than to the Agent page's person-started list. */
-  | { kind: `automations` }
+  /** An action page's Runs (EXP-862, SLOP-2) — the one list that shows a
+   *  TRIGGERED run, so a run opened from it returns there rather than to the
+   *  Agent page's person-started list. */
+  | { kind: `action`; actionId: string }
   /** EXP-923: the sidebar's RUNNING section — a live run of mine, opened from
    *  the main menu itself. It is an origin rather than "no origin" because it
    *  carries two extra rules: the navigation creates NO work tab
@@ -36,7 +36,7 @@ export type DetailOrigin =
   | { kind: `running` }
 
 /** The screen a navigation starts FROM. `other` is every full-page screen
- * (Devices, Actions, Automations, Settings…) — the context-free set, desktop
+ * (Devices, the Actions list, Settings…) — the context-free set, desktop
  * `Screen::is_context_free`. */
 export type OriginScreen =
   | { kind: `inbox` }
@@ -48,9 +48,8 @@ export type OriginScreen =
   /** The Agent page — a list context (desktop `Screen::Chat`: the Sessions
    * column's own center), never context-free. */
   | { kind: `agent` }
-  /** The Automations page — a list context too (desktop
-   * `ToolWindow::Automations`), never context-free. */
-  | { kind: `automations` }
+  /** An action's page — a list context too (its Runs), never context-free. */
+  | { kind: `action`; actionId: string }
   | { kind: `other` }
 
 /** What is being opened. */
@@ -74,7 +73,8 @@ export function screenFromPath(pathname: string): OriginScreen {
   if (rest === null) return { kind: `other` }
   if (rest === `/inbox`) return { kind: `inbox` }
   if (rest === `/agent`) return { kind: `agent` }
-  if (rest === `/automations`) return { kind: `automations` }
+  const action = rest.match(/^\/actions\/([^/]+)$/)
+  if (action) return { kind: `action`, actionId: action[1] }
   if (rest === `/support`) return { kind: `support` }
   if (rest === `/reviews`) return { kind: `reviews` }
   if (/^\/sessions\/[^/]+$/.test(rest)) return { kind: `session` }
@@ -117,8 +117,8 @@ export function capturedOrigin(
       return { kind: `support` }
     case `reviews`:
       return { kind: `reviews` }
-    case `automations`:
-      return { kind: `automations` }
+    case `action`:
+      return { kind: `action`, actionId: screen.actionId }
     case `session`:
       return carried
     case `agent`:
@@ -163,8 +163,8 @@ export function formatOrigin(origin: DetailOrigin | null): string | undefined {
       return `reviews`
     case `agent`:
       return `agent`
-    case `automations`:
-      return `automations`
+    case `action`:
+      return `action:${origin.actionId}`
     case `running`:
       return `running`
   }
@@ -182,18 +182,19 @@ export function parseOrigin(
   if (value === `support`) return { kind: `support` }
   if (value === `reviews`) return { kind: `reviews` }
   if (value === `agent` || value === `sessions`) return { kind: `agent` }
-  if (value === `automations`) return { kind: `automations` }
   if (value === `running`) return { kind: `running` }
   const board = value.match(/^board:([^:]+)$/)
   if (board) return { kind: `board`, boardSlug: board[1] }
+  const action = value.match(/^action:([^:]+)$/)
+  if (action) return { kind: `action`, actionId: action[1] }
   return null
 }
 
 /** The list nav's back-row label — the list this detail came from. A board
- * origin needs the board's NAME, which only the caller can resolve. */
+ * or action origin needs its NAME, which only the caller can resolve. */
 export function originLabel(
   origin: DetailOrigin,
-  boardName?: string | null
+  name?: string | null
 ): string {
   switch (origin.kind) {
     case `inbox`:
@@ -204,12 +205,12 @@ export function originLabel(
       return `Reviews`
     case `agent`:
       return `Agent`
-    case `automations`:
-      return `Automations`
+    case `action`:
+      return name || `Action`
     case `running`:
       return `Running`
     case `board`:
-      return boardName || `Board`
+      return name || `Board`
   }
 }
 
@@ -250,11 +251,11 @@ export function originListNavigation(
       return { to: `/t/$teamSlug/reviews`, params: { teamSlug }, search: {} }
     case `agent`:
       return { to: `/t/$teamSlug/agent`, params: { teamSlug }, search: {} }
-    case `automations`:
+    case `action`:
       return {
-        to: `/t/$teamSlug/automations`,
-        params: { teamSlug },
-        search: {},
+        to: `/t/$teamSlug/actions/$actionId`,
+        params: { teamSlug, actionId: origin.actionId },
+        search: { tab: `runs` },
       }
     case `running`:
       // The sidebar's Running section is not a page — a run opened from it

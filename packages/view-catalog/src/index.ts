@@ -134,7 +134,7 @@ export interface NativeCapture {
  * How the desktop IDE is driven to the view.
  *
  *   - `screen`  → `EXP_DEV_SCREEN` (`navigation::parse_dev_screen`): `settings`,
- *                 `devices`, `actions`, `automations`, `getting-started`,
+ *                 `devices`, `actions`, `action:<uuid>`, `getting-started`,
  *                 `issue:<uuid>`, `pr:<uuid>`.
  *   - `tool`    → a sidebar tool window (`sidebar::ToolWindow`): `board`,
  *                 `inbox`, `my-issues`, `reviews`, `support`, `files`,
