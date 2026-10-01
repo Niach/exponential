@@ -7,7 +7,6 @@ import {
 } from "@tanstack/react-router"
 import { TRPCClientError } from "@trpc/client"
 import { useEffect, useState } from "react"
-import type * as React from "react"
 import { fetchSessionOnce } from "@/lib/auth/client"
 import { rememberLastVisited } from "@/lib/last-visited"
 import { trpc } from "@/lib/trpc-client"
@@ -16,7 +15,7 @@ import { TeamMobileTopbar } from "@/components/team/mobile-topbar"
 import { MobileTabBar } from "@/components/team/mobile-tab-bar"
 import { AgentLoginDialogHost } from "@/components/agent-login-dialog"
 import { LaunchDialogHost } from "@/components/launch-dialog/launch-dialog"
-import { TeamSidebar } from "@/components/team/sidebar"
+import { SidebarWidthSync, TeamSidebar } from "@/components/team/sidebar"
 import {
   MAIN_COLUMN_CLASS,
   MAIN_OUTLET_CLASS,
@@ -141,20 +140,23 @@ function TeamLayout() {
     return () => window.removeEventListener(`keydown`, handleKeyDown)
   }, [])
 
-  // EXP-870: the sidebar is the rail alone (17rem) or the compact 3rem rail
-  // plus a 17rem panel beside it — the provider's width follows the URL, and
-  // the shadcn gap/container animate it on the shared motion tokens.
+  // EXP-870: the sidebar is the main menu alone or the compact 3rem rail plus
+  // a panel beside it — the provider's width follows the URL, and the shadcn
+  // gap/container animate it on the shared motion tokens. EXP-1156: each
+  // width is the user's dragged one; `SidebarWidthSync` writes the column's
+  // `--sidebar-width` onto the wrapper so a drag never re-renders this layout.
   const occupant = useSidebarOccupant()
-  const sidebarWidth = occupant.kind === `main` ? `17rem` : `20rem`
+  const [sidebarWrapper, setSidebarWrapper] = useState<HTMLDivElement | null>(
+    null
+  )
   // EXP-870: browser-like work tabs above the card, md+ only.
   const isMobile = useIsMobile()
   const { tabs } = useWorkTabs(team?.id)
   const showWorkTabs = !isMobile && Boolean(team) && tabs.length > 0
 
   return (
-    <SidebarProvider
-      style={{ "--sidebar-width": sidebarWidth } as React.CSSProperties}
-    >
+    <SidebarProvider ref={setSidebarWrapper}>
+      <SidebarWidthSync wrapper={sidebarWrapper} occupant={occupant.kind} />
       {/* Team-scoped `#IDENTIFIER` + `@email` resolution for pill
           rendering, the editor/composer autocompletes and the duplicate-of
           picker. */}

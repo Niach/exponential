@@ -1140,6 +1140,10 @@ pub struct ScreensPanel {
     /// One frame stale during a live resize; 0.0 before the first paint
     /// falls back to stretch.
     slot_width: std::rc::Rc<std::cell::Cell<f32>>,
+    /// EXP-1156: the live edge drag of the Files / Source Control list
+    /// column (a list INSIDE a screen, so this panel hosts it, not the
+    /// Shell — [`crate::resize_edge`]).
+    resize_drag: Option<crate::resize_edge::ResizeDrag>,
     /// EXP-698 round 5: the "No boards yet" state scrolls — it carries the
     /// Getting-started cards under it.
     empty_scroll: gpui::ScrollHandle,
@@ -1323,6 +1327,7 @@ impl ScreensPanel {
             tabs_team: None,
             active_screen: None,
             slot_width: std::rc::Rc::new(std::cell::Cell::new(0.0)),
+            resize_drag: None,
             _subscriptions: subscriptions,
         };
         this.sync_tabs(window, cx);
@@ -2906,18 +2911,56 @@ impl ScreensPanel {
             .into_any_element()
     }
 
+    /// EXP-1156: the clamp extent of a screen's own list column — the screen
+    /// area itself (this panel's recorded painted width), so the list stays
+    /// at most half of it ([`crate::resize_edge::clamp_width`]). Before the
+    /// first paint there is no measure yet and only MIN/MAX apply.
+    fn screen_list_extent(&self) -> f32 {
+        let recorded = self.slot_width.get();
+        if recorded > 1. {
+            recorded
+        } else {
+            f32::INFINITY
+        }
+    }
+
+    /// EXP-1156: a screen list's edge handle (Files, Source Control), over
+    /// the list's right edge, full height. The list draws its own
+    /// `border_r_1` in its last pixel, so the strip sits one pixel further in
+    /// than the left column's and its hover hairline lands ON that border
+    /// instead of doubling it.
+    fn screen_list_handle(
+        &self,
+        panel: crate::resize_edge::SidebarPanel,
+        width: f32,
+        extent: f32,
+        cx: &gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let active = self.resize_drag.is_some_and(|drag| drag.panel == panel);
+        crate::resize_edge::handle(panel, extent, active, cx)
+            .left(px(width - 1. - crate::resize_edge::EDGE_INSET))
+            .top_0()
+            .bottom_0()
+            .into_any_element()
+    }
+
     /// EXP-851: the Files SCREEN — the trunk tree beside the read-only
     /// viewer. It was a tool column plus a tool-default centre; one screen
-    /// now, with the tree as its own fixed-width list.
+    /// now, with the tree as its own list. EXP-1156: the `files` panel — its
+    /// right edge drags.
     fn render_files_screen(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let file_tree = self.rail.read(cx).file_tree();
         let refresh_tree = file_tree.clone();
+        let panel = crate::resize_edge::SidebarPanel::Files;
+        let extent = self.screen_list_extent();
+        let list_w = crate::resize_edge::panel_width(panel, extent);
         h_flex()
             .size_full()
             .min_h_0()
+            .relative()
             .child(
                 v_flex()
-                    .w(px(crate::shell::SCREEN_LIST_WIDTH))
+                    .w(px(list_w))
                     .flex_shrink_0()
                     .h_full()
                     .min_h_0()
@@ -2950,6 +2993,8 @@ impl ScreensPanel {
                     .h_full()
                     .child(self.file_viewer.clone()),
             )
+            .child(self.screen_list_handle(panel, list_w, extent, cx))
+            .children(crate::resize_edge::drag_capture(self.resize_drag, cx))
             .into_any_element()
     }
 
@@ -2973,12 +3018,17 @@ impl ScreensPanel {
                     .pb_1()
                     .child(picker)
             });
+        // EXP-1156: the `sourceControl` panel — its right edge drags.
+        let panel = crate::resize_edge::SidebarPanel::SourceControl;
+        let extent = self.screen_list_extent();
+        let list_w = crate::resize_edge::panel_width(panel, extent);
         h_flex()
             .size_full()
             .min_h_0()
+            .relative()
             .child(
                 v_flex()
-                    .w(px(crate::shell::SCREEN_LIST_WIDTH))
+                    .w(px(list_w))
                     .flex_shrink_0()
                     .h_full()
                     .min_h_0()
@@ -3022,6 +3072,8 @@ impl ScreensPanel {
                     .h_full()
                     .child(self.source_control.clone()),
             )
+            .child(self.screen_list_handle(panel, list_w, extent, cx))
+            .children(crate::resize_edge::drag_capture(self.resize_drag, cx))
             .into_any_element()
     }
 
@@ -3514,6 +3566,12 @@ impl ScreensPanel {
     }
 }
 
+impl crate::resize_edge::ResizeHost for ScreensPanel {
+    fn resize_drag(&mut self) -> &mut Option<crate::resize_edge::ResizeDrag> {
+        &mut self.resize_drag
+    }
+}
+
 impl Render for ScreensPanel {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let screen = resolved_screen(&self.nav, cx);
@@ -3604,7 +3662,10 @@ impl Render for ScreensPanel {
                 crate::navigation::recent_runs_open(window, cx),
             );
             let available = (window.viewport_size().width
-                - px(crate::shell::left_column_width_for(occupant))
+                - px(crate::shell::left_column_width_for(
+                    occupant,
+                    crate::shell::window_extent(window),
+                ))
                 - px(2. * crate::shell::PANEL_MARGIN + 16.))
             .max(px(160.));
             div()

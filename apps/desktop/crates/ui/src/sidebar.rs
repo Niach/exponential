@@ -3,8 +3,8 @@
 //!
 //! Two cooperating views share per-window state through [`RailShared`]:
 //!
-//! - [`RailView`] — the [`crate::shell::LEFT_COLUMN_WIDTH`]-wide sidebar
-//!   owned by the `Shell` and
+//! - [`RailView`] — the sidebar (EXP-1156: at the dragged `main` width,
+//!   [`crate::resize_edge::panel_width`]) owned by the `Shell` and
 //!   rendered OUTSIDE the `DockArea`, full window height. EXP-723 made it the
 //!   web sidebar's twin and removed the collapse entirely (no icon strip, no
 //!   toggle, no logo). Top: the team switcher + Search + New issue header
@@ -2607,8 +2607,15 @@ impl Render for RailView {
         // scrollers take `sidebar_scroll_pane`'s slim variant: a 3-4px thumb
         // inset 1px from the column's right edge in an 8px hit strip, i.e.
         // wholly inside that gutter, beside the rows instead of over them.
+        // EXP-1156: the dragged `main` width, read exactly as the Shell's
+        // rail slot reads it — a FIXED width rather than `w_full`, so while
+        // the slot animates between the expanded and folded widths the rows
+        // are clipped instead of reflowing frame by frame.
         v_flex()
-            .w(px(crate::shell::LEFT_COLUMN_WIDTH))
+            .w(px(crate::resize_edge::panel_width(
+                crate::resize_edge::SidebarPanel::Main,
+                crate::shell::window_extent(window),
+            )))
             .flex_shrink_0()
             .h_full()
             .pb_2()

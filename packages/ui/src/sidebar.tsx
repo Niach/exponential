@@ -28,10 +28,11 @@ import {
 const SIDEBAR_COOKIE_NAME = `sidebar_state`
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
 // EXP-862: 17rem — the web half of ONE sidebar width across the clients
-// (desktop `shell::LEFT_COLUMN_WIDTH` = 264px for the rail, the list nav and
-// the settings nav). The collapsed/icon width below is its own constant, not
-// a fraction of this one, so widening the open rail leaves the icon rail
-// untouched.
+// (desktop `shell::LEFT_COLUMN_WIDTH` = 272px, the `sidebar.defaultMain`
+// token). Only the FALLBACK since EXP-1156: the team layout drives
+// `--sidebar-width` from the user's dragged per-panel widths. The
+// collapsed/icon width below is its own constant, not a fraction of this one,
+// so widening the open rail leaves the icon rail untouched.
 const SIDEBAR_WIDTH = `17rem`
 const SIDEBAR_WIDTH_MOBILE = `18rem`
 const SIDEBAR_WIDTH_ICON = `3rem`
@@ -210,9 +211,11 @@ function Sidebar({
       <div
         data-slot="sidebar-gap"
         className={cn(
-          // EXP-870: the shared motion tokens, so the width change a list panel
-          // brings (17rem ↔ 20rem) moves with the rail and panel slots inside.
-          `relative w-(--sidebar-width) bg-transparent transition-[width] duration-standard ease-standard motion-reduce:transition-none`,
+          // EXP-870: the shared motion tokens, so the width change a panel
+          // brings moves with the rail and panel slots inside. EXP-1156: a
+          // drag (`data-resizing` on the wrapper) turns it off, or the column
+          // trails the pointer by the whole duration.
+          `relative w-(--sidebar-width) bg-transparent transition-[width] duration-standard ease-standard motion-reduce:transition-none group-data-[resizing=true]/sidebar-wrapper:transition-none`,
           `group-data-[collapsible=offcanvas]:w-0`,
           `group-data-[side=right]:rotate-180`,
           variant === `floating` || variant === `inset`
@@ -223,7 +226,7 @@ function Sidebar({
       <div
         data-slot="sidebar-container"
         className={cn(
-          `fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-standard ease-standard motion-reduce:transition-none md:flex`,
+          `fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-standard ease-standard motion-reduce:transition-none group-data-[resizing=true]/sidebar-wrapper:transition-none md:flex`,
           side === `left`
             ? `left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]`
             : `right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]`,
