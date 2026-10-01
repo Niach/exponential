@@ -77,11 +77,11 @@ enum LaunchVocabulary {
         return DomainContract.codingAgentValues.filter { supported.contains($0) }
     }
 
-    /// The agent a machine starts on (EXP-437): its configured default,
-    /// clamped to what it advertises, else the first agent it runs. EXP-615
-    /// retired the automation editors' "Device default" segment, so a binding
-    /// seeds its strip with this and stores a CONCRETE agent.
-    static func defaultAgent(of device: SteerDevice?) -> String {
+    /// The agent a machine starts on (EXP-437): its LAST USED agent
+    /// (EXP-1158), clamped to what it advertises, else the first agent it
+    /// runs. EXP-615 retired the automation editors' "Device default" segment,
+    /// so a binding seeds its strip with this and stores a CONCRETE agent.
+    static func lastUsedAgent(of device: SteerDevice?) -> String {
         let available = agents(of: device)
         if let advertised = device?.defaultLaunchAgent, available.contains(advertised) {
             return advertised

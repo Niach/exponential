@@ -27,7 +27,7 @@ public struct SessionAccountOption: Equatable, Sendable, Identifiable {
     public let plan: String?
     public let signedIn: Bool
     public let health: AgentAccountHealth
-    /// The machine's CURRENT login for the agent.
+    /// The machine's LAST USED login for the agent (`profiles[].active`).
     public let active: Bool
     /// This login's own rate-limit windows, when the machine reported them.
     public let usage: AgentUsage?
@@ -249,8 +249,9 @@ public enum SessionAccountSwitch {
     /// What the switch carries as `account` — the picked profile VERBATIM,
     /// `system` included.
     ///
-    /// A fresh start omits the ambient login (`system` is the absence of an
-    /// account there), but a switch may not: the server reads the PRESENCE of
+    /// A fresh start sends it verbatim too since EXP-1158 (`system` names the
+    /// ambient login, an absent account means the last used one), and a
+    /// switch must never omit it: the server reads the PRESENCE of
     /// `account` as "this resume is a switch" and that is the only thing that
     /// lets a resume ride a LIVE run, so an omitted field would come back as
     /// "That run is still live". `system` is accepted there explicitly and

@@ -70,8 +70,9 @@ export function assertLaunch(launch: WorkflowLaunch): void {
 /**
  * EXP-1032: a workflow's launch, seeded from the machine BOUND to run it
  * (`update({deviceId})` on a draft — a workflow is created on the contract
- * defaults, with no runner) — the device's default ACCOUNT names the agent it
- * runs on, its `launch_defaults.workflow` the two models. A device that
+ * defaults, with no runner) — the device's LAST USED agent is the agent it
+ * runs on (no account named: the machine runs it on that agent's last used
+ * login), its `launch_defaults.workflow` the two models. A device that
  * advertises none (or no device at all, `null`) falls back to contract
  * `workflowLaunch` defaults. A model outside that agent's vocabulary is a
  * stale advertisement: the fallback stands in rather than a launch
@@ -84,14 +85,10 @@ export function launchFromDeviceDefaults(
     workflowLaunchAgentValues.find((value) => value === defaults?.defaultAgent) ?? `claude`
   // EXP-1020's clamp: a stored name counts only for the agent it belongs to,
   // else that agent's contract pair stands in.
-  const launch: WorkflowLaunch = {
+  return {
     agent,
     ...workflowDefaultsFor(agent, defaults?.workflow),
   }
-  // The default account is one of `defaultAgent`'s profile ids, so it only
-  // ever rides beside a valid agent (`clampLaunchDefaults`).
-  if (defaults?.defaultAccount) launch.account = defaults.defaultAccount
-  return launch
 }
 
 /** The launch a workflow bound to `deviceId` is seeded with. A device row
@@ -126,13 +123,12 @@ export async function firstRunnableAgent(
 
 /**
  * EXP-1032: the launch a workflow gets when a runner is bound to it (`create`
- * and `update` with a `deviceId`): agent, account and both models from THAT
+ * and `update` with a `deviceId`): the agent and both models from THAT
  * machine's agent defaults; the workflow screen has no settings panel, so the
  * device IS the choice. Ownership and the cap are asserted first, so those
  * refusals stay `assertDeviceUsable`'s. A machine that advertises an agent it
  * cannot actually run (or none at all) gets the first one it CAN run, on the
- * contract pair; the account drops with the agent, a profile id belongs to
- * the agent it was advertised for. No runnable agent at all leaves the seed
+ * contract pair. No runnable agent at all leaves the seed
  * alone: the caller's final assert refuses it, as before.
  */
 export async function seedLaunchFromBoundDevice(

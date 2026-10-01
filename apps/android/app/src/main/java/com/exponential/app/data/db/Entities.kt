@@ -499,7 +499,7 @@ data class AutomationEntity(
     @Serializable(with = JsonAsStringSerializer::class) val trigger: String? = null,
     val agent: String? = null,
     // EXP-995: the agent profile id the run spends on the bound device — it
-    // belongs to `agent`; null = that machine's default login for it.
+    // belongs to `agent`; null = unpinned, that machine's LAST USED login.
     val account: String? = null,
     val model: String? = null,
     val effort: String? = null,

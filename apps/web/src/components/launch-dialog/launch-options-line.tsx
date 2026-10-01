@@ -47,7 +47,7 @@ import { accountOptionKey } from "@/lib/accounts/account-option"
 //
 // EXP-872: the Agent pick and the Account pick MERGED into THE account picker
 // (@exp/ui `account-picker`): one flattened list of the machine's logins,
-// brand mark + email, the device default first — picking a login implies
+// brand mark + email, the last used one first — picking a login implies
 // its agent. The Device menu rows carry the machine's kind glyph like its
 // trigger. The repository picker renders only while the team has SEVERAL
 // repos (one repo is not a choice; there is no repo-less option any more),

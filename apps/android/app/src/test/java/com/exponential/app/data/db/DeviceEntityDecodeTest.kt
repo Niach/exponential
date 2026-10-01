@@ -62,6 +62,28 @@ class DeviceEntityDecodeTest {
         assertEquals(listOf("team-1"), entity.sharedTeamIds)
     }
 
+    /**
+     * EXP-1158: the account key a pre-EXP-1158 row may still store (spelled
+     * in two halves so the retired name stays out of the source) is an
+     * UNKNOWN key now — the row and its launch defaults decode around it.
+     */
+    @Test
+    fun `a stored pre-EXP-1158 account key in launch_defaults still decodes`() {
+        val legacyKey = "default" + "Account"
+        val row = """
+            {
+              "id": "row-1",
+              "user_id": "user-1",
+              "device_id": "dev-1",
+              "label": "mac",
+              "launch_defaults": {"defaultAgent": "codex", "$legacyKey": "work", "agents": {}}
+            }
+        """.trimIndent()
+        val entity = json.decodeFromString(DeviceEntity.serializer(), row)
+        val defaults = com.exponential.app.domain.parseLaunchDefaults(entity.launchDefaults)
+        assertEquals("codex", defaults?.defaultAgent)
+    }
+
     @Test
     fun `camelCase (tRPC-shaped) keys decode via JsonNames`() {
         val row = """

@@ -1399,8 +1399,8 @@ impl RailView {
             .into_any_element();
         }
         let fold = self.rail_run_fold(index, &row.key, row.has_children, cx);
-        // EXP-1068: the rail row has no caption line, so a non-default account
-        // rides the device glyph's tooltip.
+        // EXP-1068: the rail row has no caption line, so an off-last-used
+        // account rides the device glyph's tooltip.
         let device_label: Option<SharedString> = match (run.device_label.clone(), run.marks.account.clone()) {
             (Some(device), Some(account)) => Some(format!("{device} · {account}").into()),
             (device, account) => device.or(account),

@@ -105,9 +105,8 @@ pub const MIN_CODEX_ACP_VERSION: (u32, u32, u32) = (0, 144, 0);
 ///   the desktop advertises it too but updates through its own updater).
 /// - `account-switch` (EXP-849) — this build honours the `account` field on a
 ///   `start_session` frame that RESUMES a live claude run (the mid-run account
-///   switch) and runs the `agent_profile_use` command ("use this account
-///   here"). It refuses nothing new: a machine without it simply never gets
-///   asked, and the server refuses both on its behalf.
+///   switch). It refuses nothing new: a machine without it simply never gets
+///   asked, and the server refuses it on its behalf.
 /// - `account-remove` (EXP-862) — this build runs `agent_profile_remove`:
 ///   delete ONE account's login from this machine (its profile dir and its
 ///   index row), never the account itself. An older build would leave the
@@ -326,7 +325,7 @@ pub struct ToolCheck {
     /// agent's doctor row ("not supported (…)").
     pub acp_note: Option<String>,
     /// EXP-1138: a NAMED account profile of this agent that probed signed in
-    /// while the AMBIENT login is signed out (the device default first, the
+    /// while the AMBIENT login is signed out (the last used login first, the
     /// first hit wins). It keeps the agent runnable (`ok`); `authed`,
     /// `account` and `usage_eligible` stay the ambient login's answer, which
     /// the heartbeat's `system` row reads. `None` while the ambient login is
@@ -861,7 +860,7 @@ fn check_agent(settings: &Settings, data_dir: &Path, agent: CodingAgent) -> Tool
 /// EXP-1138: a check the auth gate turned red (the AMBIENT login is signed
 /// out — `authed == Some(false)` is set by nothing else, so a missing binary
 /// or a too-old claude is never restored here) goes green again on the first
-/// NAMED profile of `agent` that probes signed in — the device default
+/// NAMED profile of `agent` that probes signed in — the last used login
 /// first, then the rest in creation order, stopping at the first hit. The
 /// ambient answer (`authed`, `account`, `usage_eligible`) is kept: the
 /// heartbeat's `system` row reads it. A profile's unreadable probe reads as
@@ -2287,7 +2286,7 @@ mod tests {
         assert_eq!(claude.profiles.len(), 2, "system + the added profile");
         let system = &claude.profiles[0];
         assert_eq!(system.id, crate::agent_profiles::SYSTEM_PROFILE);
-        assert!(system.active, "the ambient login is the default account");
+        assert!(system.active, "the ambient login is the last used login");
         assert!(system.signed_in);
         let work = &claude.profiles[1];
         assert_eq!(work.label.as_deref(), Some("Work"));
@@ -2601,18 +2600,18 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// The device default is probed first, so the profile the check names is
-    /// the one a default launch lands on.
+    /// The last used login is probed first, so the profile the check names is
+    /// the one an unnamed launch lands on.
     #[cfg(unix)]
     #[test]
-    fn the_profile_fallback_probes_the_device_default_first() {
+    fn the_profile_fallback_probes_the_last_used_login_first() {
         let (dir, settings) = profile_doctor("default-first");
         let agent = CodingAgent::Claude;
         let home = crate::agent_profiles::create(&dir, agent, "Home").unwrap();
         let work = crate::agent_profiles::create(&dir, agent, "Work").unwrap();
         crate::test_support::sign_in_profile(&dir, agent, &home.id);
         crate::test_support::sign_in_profile(&dir, agent, &work.id);
-        crate::agent_profiles::set_active_profile(&dir, agent, &work.id).unwrap();
+        crate::agent_profiles::note_last_used(&dir, agent, &work.id).unwrap();
         let report = run_doctor(&settings, &dir);
         assert_eq!(report.claude.signed_in_profile.as_deref(), Some(work.id.as_str()));
         let _ = std::fs::remove_dir_all(&dir);

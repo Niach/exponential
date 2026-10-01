@@ -34,7 +34,6 @@ import {
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
-  AccountPicker,
   Combobox,
   AlertDialogHeader,
   AlertDialogTitle,
@@ -83,9 +82,6 @@ import {
   CLI_DEFAULT_EFFORT,
   modelLabel,
 } from "@/components/launch-dialog/launch-options-pane"
-import { accountOptionKey } from "@/lib/accounts/account-option"
-import { deviceAccountOptions } from "@/lib/devices/account-options"
-import { healthBadgeLabel, SYSTEM_PROFILE_ID } from "@/lib/agent-usage"
 import { agentLabel } from "@exp/ui"
 
 const RemoveIcon = conceptIcon(`ui-delete`)
@@ -197,20 +193,17 @@ export function DeviceSettingsDialog({
   const [agentTab, setAgentTab] = useState<string>(
     contract.codingAgent.values[0]
   )
-  const [defaultAgentDraft, setDefaultAgentDraft] = useState<string>(
+  // EXP-1158: the machine's LAST USED agent (`launch_defaults.defaultAgent`)
+  // — READ-ONLY here: only the device writes it, and a save omits it so the
+  // server carries it forward.
+  const [lastUsedAgent, setLastUsedAgent] = useState<string>(
     contract.codingAgent.values[0]
   )
-  // EXP-872: "default agent" is "default account" now — the profile id of
-  // the default agent's login the machine starts on; undefined = its
-  // active login.
-  const [defaultAccountDraft, setDefaultAccountDraft] = useState<
-    string | undefined
-  >(undefined)
   const [drafts, setDrafts] = useState<Record<string, AgentDraft>>({})
   // EXP-1020: the "Workflow settings" pair (`launch_defaults.workflow`) —
   // what a new workflow created on this machine is seeded from. It belongs
-  // to the DEFAULT account's agent, not to the agent tab, so it reseeds
-  // whenever that changes.
+  // to the last used agent, not to the agent tab, so it reseeds whenever
+  // that changes.
   const [workflowDraft, setWorkflowDraft] = useState(() =>
     workflowDefaultsFor(contract.codingAgent.values[0], null)
   )
@@ -245,47 +238,25 @@ export function DeviceSettingsDialog({
     row?.agentUsage,
   ])
 
-  // EXP-872/EXP-1020: the default-account rows — the machine's flattened
-  // logins plus one ambient option per editable agent that reports none, so
-  // a one-login machine can still be pointed at the other agent.
-  const defaultAccountOptions = useMemo(() => {
-    const options = deviceAccountOptions(row, editorAgents)
-    return options.map((option) => ({
-      key: accountOptionKey(option),
-      id: option.id,
-      agent: option.agent,
-      email: option.email,
-      hint: healthBadgeLabel(option.health) ?? undefined,
-      limits: option.limits,
-    }))
-  }, [row, editorAgents])
-  // EXP-1020: the workflow pair is picked from the DEFAULT account's agent's
+  // EXP-1020: the workflow pair is picked from the last used agent's
   // models — the two vocabularies do not overlap, so the tab's agent would
   // offer names a workflow on this machine could never run.
   const workflowModelOptions = useMemo(
     () =>
-      agentModelValues(defaultAgentDraft).map((value) => ({
+      agentModelValues(lastUsedAgent).map((value) => ({
         value,
         label: modelLabel(value),
       })),
-    [defaultAgentDraft]
+    [lastUsedAgent]
   )
-
-  const defaultAccountKey =
-    defaultAccountOptions.find(
-      (option) =>
-        option.agent === defaultAgentDraft &&
-        (defaultAccountDraft
-          ? option.id === defaultAccountDraft
-          : true)
-    )?.key ?? null
 
   // The value we last wrote, so our OWN write doesn't reseed the drafts back
   // to the pre-write row in the window before it syncs home.
   const sentNameRef = useRef<string | null>(null)
   const sentDefaultsStampRef = useRef(0)
 
-  /** Applies a row's launch defaults to the drafts; returns the default agent. */
+  /** Applies a row's launch defaults to the drafts; returns the last used
+   *  agent. */
   const seedDefaultsFrom = (source: Device, agents: string[]) => {
     const seeded: Record<string, AgentDraft> = {}
     for (const agent of agents) {
@@ -295,21 +266,16 @@ export function DeviceSettingsDialog({
       )
     }
     setDrafts(seeded)
-    const configuredDefault = source.launchDefaults?.defaultAgent
-    const defaultAgent =
-      configuredDefault && agents.includes(configuredDefault)
-        ? configuredDefault
+    const stored = source.launchDefaults?.defaultAgent
+    const agent =
+      stored && agents.includes(stored)
+        ? stored
         : (agents[0] ?? contract.codingAgent.values[0])
-    setDefaultAgentDraft(defaultAgent)
-    setDefaultAccountDraft(
-      configuredDefault === defaultAgent
-        ? (source.launchDefaults?.defaultAccount ?? undefined)
-        : undefined
-    )
+    setLastUsedAgent(agent)
     setWorkflowDraft(
-      workflowDefaultsFor(defaultAgent, source.launchDefaults?.workflow ?? null)
+      workflowDefaultsFor(agent, source.launchDefaults?.workflow ?? null)
     )
-    return defaultAgent
+    return agent
   }
 
   useEffect(() => {
@@ -443,8 +409,6 @@ export function DeviceSettingsDialog({
     label,
     nameDraft,
     drafts,
-    defaultAgentDraft,
-    defaultAccountDraft,
     workflowDraft,
     namePending,
     defaultsPending,
@@ -454,8 +418,6 @@ export function DeviceSettingsDialog({
     label,
     nameDraft,
     drafts,
-    defaultAgentDraft,
-    defaultAccountDraft,
     workflowDraft,
     namePending,
     defaultsPending,
@@ -535,14 +497,9 @@ export function DeviceSettingsDialog({
     void trpc.devices.setLaunchDefaults
       .mutate({
         deviceId: snapshot.deviceId,
+        // EXP-1158: no `defaultAgent` — the device writes the last used
+        // agent and the server carries it forward past this save.
         launchDefaults: {
-          defaultAgent: snapshot.defaultAgentDraft,
-          // null = the system login (the save replaces the stored object).
-          defaultAccount:
-            snapshot.defaultAccountDraft &&
-            snapshot.defaultAccountDraft !== SYSTEM_PROFILE_ID
-              ? snapshot.defaultAccountDraft
-              : null,
           agents,
           // EXP-1020: the pair rides EVERY save — setLaunchDefaults REPLACES
           // the stored object.
@@ -906,32 +863,6 @@ export function DeviceSettingsDialog({
                 )}
               </div>
             )}
-            {/* EXP-872: the ONE account picker — "Default agent" is "Default
-                account": the machine's logins by email, both agents, and a
-                pick names the agent too. */}
-            <GlassGroup>
-              <AccountPicker
-                variant="row"
-                mobileTitle="Default account"
-                value={defaultAccountKey}
-                options={defaultAccountOptions}
-                onChange={(key) => {
-                  const option = defaultAccountOptions.find(
-                    (candidate) => candidate.key === key
-                  )
-                  if (!option) return
-                  setDefaultAgentDraft(option.agent)
-                  setDefaultAccountDraft(option.id)
-                  // The pair belongs to the picked agent now: a name from the
-                  // other vocabulary falls back to that agent's defaults.
-                  setWorkflowDraft((current) =>
-                    workflowDefaultsFor(option.agent, current)
-                  )
-                  scheduleDefaults()
-                }}
-                data-testid="device-settings-default-account"
-              />
-            </GlassGroup>
             <AgentOptionsFields
               idPrefix="device-settings"
               agent={agentTab}
@@ -962,7 +893,7 @@ export function DeviceSettingsDialog({
               /* EXP-1020: the LAST ROW of the agent card, not a card of its
                  own — the model pair a workflow started on this machine is
                  seeded from. Shown whichever agent is selected (it hangs off
-                 the DEFAULT account's agent, not the tab), and it opens as a
+                 the machine's last used agent, not the tab), and it opens as a
                  page of this same shell rather than a second dialog. */
               trailing={
                 <SubShell

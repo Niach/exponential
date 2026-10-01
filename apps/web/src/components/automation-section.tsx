@@ -17,10 +17,10 @@ import { AgentOptionsFields } from "@/components/launch-dialog/launch-options-pa
 import { accountOptionsOf } from "@/components/launch-dialog/use-launch-options"
 import {
   accountOptionKey,
-  defaultAccountOption,
+  lastUsedAccountOption,
   type AccountOption,
 } from "@/lib/accounts/account-option"
-import { healthBadgeLabel, SYSTEM_PROFILE_ID } from "@/lib/agent-usage"
+import { healthBadgeLabel } from "@/lib/agent-usage"
 import { deviceCanRunAutomations, type SteerDevice } from "@/lib/steer-devices"
 import { contract } from "@exp/domain-contract"
 import {
@@ -358,29 +358,26 @@ export function AutomationDevicePicker({
 }
 
 /** EXP-995: the launch pin of an automated run, keyed the way every picker
- * keys it (`accountOptionKey`): the pinned agent + its profile, the ambient
- * login as `system`. */
+ * keys it (`accountOptionKey`): the pinned agent + its profile id. */
 export interface AutomationAccountPin {
   /** `` = no agent pinned yet (only while no device is bound). */
   agent: string
-  /** `` = the machine's default login for `agent` (stored NULL). */
+  /** `` = unpinned (stored NULL): the machine's LAST USED login for `agent`.
+   *  `system` NAMES the ambient login (EXP-1158). */
   account: string
 }
 
 export function automationAccountKey(pin: AutomationAccountPin): string {
   return accountOptionKey({
     agent: pin.agent as AccountOption[`agent`],
-    id: pin.account === `` ? SYSTEM_PROFILE_ID : pin.account,
+    id: pin.account,
   })
 }
 
-/** The pin an `AccountOption` stores: the agent, and the profile id unless it
- * is the ambient `system` login (which stores as NULL). */
+/** The pin an `AccountOption` stores: the agent and the profile id VERBATIM,
+ * the ambient `system` login included (EXP-1158). */
 export function accountPinOf(option: AccountOption): AutomationAccountPin {
-  return {
-    agent: option.agent,
-    account: option.id === SYSTEM_PROFILE_ID ? `` : option.id,
-  }
+  return { agent: option.agent, account: option.id }
 }
 
 /** EXP-995: which option the Account row reads back for a stored pin — the
@@ -400,9 +397,9 @@ export function pickedAccountOption(
 
 /** EXP-995: the pin a bound machine seeds — the row's own when that machine
  * reports EXACTLY that login (a manual pick sticks), else that machine's
- * default account for the same agent when it runs it (its first login of
- * that agent, the device default first), else the machine's DEFAULT account
- * (which names the agent). Profile ids are device-LOCAL, so a device switch
+ * last used login for the same agent when it runs it (its first login of
+ * that agent), else the machine's LAST USED login (which names the agent).
+ * An unpinned row seeds the same way. Profile ids are device-LOCAL, so a device switch
  * always lands on a login the new machine reports: what the Account row
  * shows (`pickedAccountOption`) IS what Save stores. `undefined` = leave the
  * pin alone (no machine bound, or one reporting no login at all). */
@@ -418,19 +415,19 @@ export function seedAccountPin(
       return undefined
     }
   }
-  // Options run device default first, so the agent's first row IS the
-  // device default whenever that is the agent.
+  // Options run the agent's active (last used) login first within each
+  // agent, so the agent's first row IS its last used login.
   const fallback =
     (current.agent !== ``
       ? options.find((option) => option.agent === current.agent)
-      : undefined) ?? defaultAccountOption(options)
+      : undefined) ?? lastUsedAccountOption(options)
   return fallback ? accountPinOf(fallback) : undefined
 }
 
 /** Account + Model + Effort for an automated run. EXP-995: the agent strip
  * is gone — the FIRST row is THE account picker every launch surface shares
- * (`@exp/ui` `AccountPicker`: brand mark + email, the bound machine's default
- * first), and a pick implies the agent. Model/Effort below it are the launch
+ * (`@exp/ui` `AccountPicker`: brand mark + email, the bound machine's last
+ * used login first), and a pick implies the agent. Model/Effort below it are the launch
  * dialog's own cluster in its `automation` variant (EXP-615), fed a single
  * agent so it draws no strip. Blank on Model/Effort means "whatever the
  * device is configured to launch with" (the row stores NULL).

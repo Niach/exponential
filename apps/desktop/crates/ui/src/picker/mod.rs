@@ -1692,7 +1692,7 @@ mod tests {
                     id: "system".to_string(),
                     agent: coding::CodingAgent::Claude,
                     email: "ada@example.com".to_string(),
-                    is_device_default: true,
+                    is_last_used: true,
                     health: coding::Health::Ok,
                     limits: None,
                 }];

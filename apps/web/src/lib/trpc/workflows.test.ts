@@ -215,7 +215,6 @@ describe(`workflows.create`, () => {
         {
           launchDefaults: {
             defaultAgent: `codex`,
-            defaultAccount: `p-7`,
             workflow: { model: `gpt-5.6-luna`, strongModel: `gpt-5.6-luna` },
           },
         },
@@ -226,7 +225,6 @@ describe(`workflows.create`, () => {
       deviceId: `dev-codex`,
       launch: {
         agent: `codex`,
-        account: `p-7`,
         model: `gpt-5.6-luna`,
         strongModel: `gpt-5.6-luna`,
       },
@@ -343,10 +341,9 @@ describe(`workflows.update`, () => {
       selectQueue.push([workflow({ launch: stored })], [{ launchDefaults }])
     }
 
-    it(`takes agent, account and BOTH models from the machine's defaults`, async () => {
+    it(`takes the last used agent and BOTH models from the machine's defaults`, async () => {
       bind({
         defaultAgent: `codex`,
-        defaultAccount: `p-7`,
         workflow: { model: `gpt-5.6-luna`, strongModel: `gpt-5.6-luna` },
       })
       await caller.update({ id: WF, deviceId: `dev-codex` })
@@ -354,7 +351,6 @@ describe(`workflows.update`, () => {
         deviceId: `dev-codex`,
         launch: {
           agent: `codex`,
-          account: `p-7`,
           model: `gpt-5.6-luna`,
           strongModel: `gpt-5.6-luna`,
         },
@@ -372,11 +368,10 @@ describe(`workflows.update`, () => {
 
     it(`stands the first RUNNABLE agent in when the advertised one cannot run`, async () => {
       h.assertDeviceUsable.mockImplementation(codexOnly)
-      bind({ defaultAgent: `claude`, defaultAccount: `p-1`, workflow: { model: `sonnet` } })
+      bind({ defaultAgent: `claude`, workflow: { model: `sonnet` } })
       await caller.update({ id: WF, deviceId: `dev-codex` })
       expect(written[0]!.values).toEqual({
         deviceId: `dev-codex`,
-        // The account belonged to claude, so it goes with it.
         launch: codexDefaults,
       })
       h.assertDeviceUsable.mockReset()
@@ -405,7 +400,7 @@ describe(`launchFromDeviceDefaults`, () => {
     ).toEqual({ agent: `codex`, model: `gpt-5.6-sol`, strongModel: `gpt-5.6-luna` })
   })
 
-  it(`drops an account nobody advertised and an unknown agent`, () => {
+  it(`falls back to claude for an unknown agent`, () => {
     expect(launchFromDeviceDefaults({ defaultAgent: `pi` })).toEqual({
       agent: `claude`,
       model: `opus`,

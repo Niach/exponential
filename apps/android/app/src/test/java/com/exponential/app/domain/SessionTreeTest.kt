@@ -712,8 +712,6 @@ class SessionTreeCaptionTest {
     private fun markDevice(json: JsonObject) = SessionMarkDevice(
         deviceId = json.getValue("deviceId").jsonPrimitive.content,
         userId = json["userId"].str(),
-        defaultAgent = (json["launchDefaults"] as? JsonObject)?.get("defaultAgent").str(),
-        defaultAccount = (json["launchDefaults"] as? JsonObject)?.get("defaultAccount").str(),
         profiles = (json["agentAccounts"] as? JsonObject).orEmpty().mapValues { (_, entry) ->
             (entry.jsonObject["profiles"] as? JsonArray).orEmpty().map { profile ->
                 val p = profile.jsonObject

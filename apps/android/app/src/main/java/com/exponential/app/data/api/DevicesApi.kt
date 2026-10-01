@@ -70,8 +70,8 @@ private data class SetDefaultInput(
 data class CreatedCommand(@SerialName("id") val id: String)
 
 /**
- * One queued owner→device command (EXP-481) — an agent sign-in or a profile
- * switch, pending until the machine completes it. [result] carries the
+ * One queued owner→device command (EXP-481) — an agent sign-in, sign-out or
+ * removal, pending until the machine completes it. [result] carries the
  * device-reported message: the login URL, or the refusal reason on a `failed`
  * row.
  */
@@ -109,12 +109,11 @@ private val launchDefaultsJson = Json {
 }
 
 /**
- * `devices.setLaunchDefaults` input. Hand-built because an UNSET default
- * account beside a default agent must ride as a literal `defaultAccount: null`
- * (the clear), which the shared Json's `explicitNulls = false` would drop off
- * a `@Serializable` class: the server reads an ABSENT key as "an older client
- * that never sends it" and keeps the stored pin. Every other field encodes
- * exactly as [DeviceLaunchDefaults] always did; decoding is untouched.
+ * `devices.setLaunchDefaults` input. Hand-built so the `defaultAgent` KEY never
+ * rides: the last used agent is the DEVICE's to write (EXP-1158), and the
+ * server carries the stored value forward when a save omits it. Every other
+ * field encodes exactly as [DeviceLaunchDefaults] always did; decoding is
+ * untouched.
  *
  * EXP-1043: that includes the `workflow` pair ([DeviceWorkflowDefaults]) —
  * present, it rides as its own object; absent, `explicitNulls = false` leaves
@@ -129,14 +128,9 @@ internal fun setLaunchDefaultsInput(
     val encoded = launchDefaultsJson
         .encodeToJsonElement(DeviceLaunchDefaults.serializer(), defaults)
         .jsonObject
-    val launchDefaults = if (defaults.defaultAgent != null && defaults.defaultAccount == null) {
-        JsonObject(encoded + ("defaultAccount" to JsonNull))
-    } else {
-        encoded
-    }
     return buildJsonObject {
         put("deviceId", deviceId)
-        put("launchDefaults", launchDefaults)
+        put("launchDefaults", JsonObject(encoded - "defaultAgent"))
     }
 }
 
@@ -263,8 +257,9 @@ class DevicesApi @Inject constructor(private val trpc: TrpcClient) {
      * `devices.createCommand` (EXP-481) — queue a command for the machine.
      * Durable: an OFFLINE machine runs it when it returns (the sheet says so
      * instead of blocking). Build the payload with [agentLoginCommand],
-     * [agentLoginCodeCommand] or [agentProfileUseCommand] — the worktree
-     * kinds are no longer emitted from here (see the file header).
+     * [agentLoginCodeCommand], [agentProfileSignOutCommand] or
+     * [agentProfileRemoveCommand] — the worktree kinds are no longer emitted
+     * from here (see the file header).
      */
     suspend fun createCommand(
         accountId: String,
@@ -322,24 +317,6 @@ fun agentLoginCommand(
 
 /** The server clamps a profile label at 64 (web `MAX_PROFILE_LABEL`). */
 const val MAX_PROFILE_LABEL = 64
-
-/**
- * The `agent_profile_use` input for [DevicesApi.createCommand] (EXP-849) —
- * make the ALREADY-SIGNED-IN profile [profileId] the machine's ACTIVE login
- * for [agent] ("Set as default", EXP-862). Deliberately not a sign-in: no
- * credential is touched and nothing is signed out (a `codex logout` would
- * revoke the token server-wide), the machine just points itself at that
- * profile and re-reports `agent_accounts` on its next heartbeat, which is what
- * moves the chip's check. Gated on [SteerDevice.canAgentLogin] like the
- * sign-in, since it is the same machine capability.
- */
-fun agentProfileUseCommand(deviceId: String, agent: String, profileId: String): JsonObject =
-    buildJsonObject {
-        put("deviceId", deviceId)
-        put("kind", "agent_profile_use")
-        put("agent", agent)
-        put("profileId", profileId)
-    }
 
 /**
  * The `agent_profile_remove` input for [DevicesApi.createCommand] (EXP-862) —

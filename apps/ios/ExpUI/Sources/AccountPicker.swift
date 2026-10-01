@@ -10,7 +10,7 @@ import SwiftUI
 //
 // The trigger and every row read the same way: the agent's brand mark + the
 // login's EMAIL. Never the profile name, never the word "default" — the
-// device default is simply FIRST. A dead credential rides as a muted badge
+// last used login is simply FIRST. A dead credential rides as a muted badge
 // beside the email (`AgentAccountHealth.badgeLabel`).
 //
 // EXP-992: on TOUCH the limits preview sits INLINE under the email — three
@@ -175,7 +175,7 @@ public struct AccountPickerMenu: View {
     }
 
     /// What the trigger names: the caller's pick, else the first option (the
-    /// device default) — the trigger always says something.
+    /// last used login) — the trigger always says something.
     private var current: AccountOption? {
         selection ?? options.first
     }

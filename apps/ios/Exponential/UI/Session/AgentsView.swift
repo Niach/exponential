@@ -23,8 +23,7 @@ import SwiftUI
 ///
 /// EXP-909: every device row LISTS ITS OWN LOGINS beneath it (`DeviceLogins`)
 /// — who each login is, its health, its compact usage line, and (own machines
-/// only) the menu that signs it in, makes it that machine's default, or
-/// removes it. The separate cross-device "Accounts" section is gone: it
+/// only) the menu that signs it in, signs it out, or removes it. The separate cross-device "Accounts" section is gone: it
 /// email-merged logins that are per MACHINE, so one account lived in two
 /// places with two orderings and two menus. A login belongs to the machine
 /// that holds it, and that is where it now reads.

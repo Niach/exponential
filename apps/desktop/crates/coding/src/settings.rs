@@ -72,11 +72,13 @@ pub const DEFAULT_CLAUDE_EFFORT: &str = "";
 /// session bar, which has no collapsed form to pick), and the EXP-201 pi keys
 /// (EXP-849 dropped the agent for good), and the EXP-746 `externalAgents`
 /// list (EXP-862 dropped external ACP agents whole — a settings file carrying
-/// one still loads, and the next save drops the key).
+/// one still loads, and the next save drops the key), and the EXP-872
+/// `defaultAccount` (EXP-1158: a launch naming no account runs on the login
+/// last used on this device, so there is no default to store).
 /// Foreign top-level keys other subsystems own (`launchDefaultsSync`,
 /// `actionAutomations`) ride the merge-save untouched and must never enter
 /// this list.
-const DEAD_KEYS: [&str; 23] = [
+const DEAD_KEYS: [&str; 24] = [
     "usageWindow",
     "subagentModel",
     "subagentEffort",
@@ -102,6 +104,7 @@ const DEAD_KEYS: [&str; 23] = [
     // EXP-909: the claude keep-alive toggle (EXP-852) — the refresh has ONE
     // path now and no setting.
     "claudeKeepAlive",
+    "defaultAccount",
 ];
 
 /// The resolved coding settings. `repos_root` is stored in its raw
@@ -111,27 +114,13 @@ const DEAD_KEYS: [&str; 23] = [
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
     /// The agent the Start-coding dialog preselects (EXP-201) — still
-    /// overridable per launch. Lenient on load: an unknown/hand-edited value
+    /// overridable per launch. EXP-1158: the LAST USED agent — the launcher
+    /// stamps it when a PERSON starts a run (`launcher::prepare`); the
+    /// settings UI never writes it. Lenient on load: an unknown/hand-edited value
     /// degrades to Claude WITHOUT failing the whole settings parse (a typed
     /// enum error would silently reset every other setting).
     #[serde(deserialize_with = "lenient_agent")]
     pub default_agent: CodingAgent,
-    /// EXP-872 — the DEFAULT ACCOUNT: the profile id, among
-    /// [`Self::default_agent`]'s logins, this machine launches as unless the
-    /// composer picks another. "Default agent" became "default account"
-    /// everywhere: a picked account IMPLIES its agent, and the two fields are
-    /// written together (`coding::account_option::flatten_accounts` resolves
-    /// the pair into the option that leads the list).
-    ///
-    /// `None` = this agent's ambient login, which is also what a blank or
-    /// non-string value degrades to — leniently, like `defaultAgent`, so a
-    /// hand-edited file never resets every other setting. OMITTED from the
-    /// wire when unset.
-    #[serde(
-        deserialize_with = "lenient_account",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub default_account: Option<String>,
     /// Program name or absolute path of the Claude CLI (§7.7 — the doctor's
     /// target and the launcher's spawn program, used verbatim).
     pub claude_path: String,
@@ -236,25 +225,10 @@ fn lenient_agent<'de, D: serde::Deserializer<'de>>(
         .unwrap_or_default())
 }
 
-/// Deserialize [`Settings::default_account`] leniently: a non-string or
-/// blank value is "no pinned account" rather than a parse failure that would
-/// silently reset every other field.
-fn lenient_account<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Option<String>, D::Error> {
-    let value = serde_json::Value::deserialize(deserializer)?;
-    Ok(value
-        .as_str()
-        .map(str::trim)
-        .filter(|account| !account.is_empty())
-        .map(str::to_string))
-}
-
 impl Default for Settings {
     fn default() -> Self {
         Self {
             default_agent: CodingAgent::Claude,
-            default_account: None,
             claude_path: DEFAULT_CLAUDE_PATH.to_string(),
             codex_path: DEFAULT_CODEX_PATH.to_string(),
             repos_root: DEFAULT_REPOS_ROOT.to_string(),
@@ -935,7 +909,6 @@ mod tests {
         let path = dir.0.join("settings.json");
         let settings = Settings {
             default_agent: CodingAgent::Codex,
-            default_account: Some("0a1b2c3d".to_string()),
             claude_path: "/opt/homebrew/bin/claude".to_string(),
             codex_path: "/opt/homebrew/bin/codex".to_string(),
             repos_root: "~/code/repos".to_string(),
@@ -967,9 +940,25 @@ mod tests {
         assert!(raw.contains("\"claudeUltracode\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"claudePlanMode\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"changelogSeenId\""), "camelCase keys: {raw}");
-        // EXP-872: the default ACCOUNT rides beside the default agent.
-        assert!(raw.contains("\"defaultAccount\": \"0a1b2c3d\""), "camelCase keys: {raw}");
         assert_eq!(Settings::load(&path), settings);
+    }
+
+    /// EXP-1158: the EXP-872 `defaultAccount` is DEAD — an unnamed launch
+    /// runs on the login last used on this device. A file still carrying it
+    /// loads untouched and the next save drops it.
+    #[test]
+    fn the_retired_exp_872_account_key_is_dropped_on_save() {
+        let dir = TempDir::new("exp-872-account-dead");
+        let path = dir.0.join("settings.json");
+        fs::write(&path, r#"{"defaultAgent":"codex","defaultAccount":"0a1b2c3d"}"#).unwrap();
+        let settings = Settings::load(&path);
+        assert_eq!(settings.default_agent, CodingAgent::Codex, "the rest still parses");
+        settings.save(&path).unwrap();
+
+        let root: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(root.get("defaultAccount").is_none());
+        assert_eq!(root["defaultAgent"], "codex");
     }
 
     /// EXP-773: `startInTerminal` is a DEAD key — the PTY coding path is

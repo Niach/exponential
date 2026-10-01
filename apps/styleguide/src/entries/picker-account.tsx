@@ -31,7 +31,7 @@ export const entry: StyleguideEntry = {
   section: `general`,
   owner: `EXP-1021`,
   title: `Account picker`,
-  blurb: `EXP-872: ONE picker for the agent AND its login — there is no separate agent pick. The list is every signed-in login the machine reports across both agents, each row the agent's brand mark beside the login's EMAIL (never the profile name, never the word "default": the device default is simply the first row), and picking one implies its agent. A dead credential rides as a muted hint. EXP-992 adds the rate-limit preview — three small bars (5h / week / the model window) off the option's fractions, right of the row on a pointer, inline under the email in the sheet.`,
+  blurb: `EXP-872: ONE picker for the agent AND its login — there is no separate agent pick. The list is every signed-in login the machine reports across both agents, each row the agent's brand mark beside the login's EMAIL (never the profile name, never the word "default": the last used login is simply the first row), and picking one implies its agent. A dead credential rides as a muted hint. EXP-992 adds the rate-limit preview — three small bars (5h / week / the model window) off the option's fractions, right of the row on a pointer, inline under the email in the sheet.`,
   status: typedPickerStatus(`AccountPicker`, {
     web: `account-picker.tsx`,
     desktop: `account_picker.rs`,

@@ -102,7 +102,8 @@ const COMMANDS_PER_HEARTBEAT = 32
 // write; UI clients pre-clamp via agentSeed anyway. Unknown agents, invalid
 // models/efforts, and capability-masked toggles are dropped. A save REPLACES
 // the whole object: an absent key is a clear, like an explicit null (every
-// client at the floors sends every key it knows, compat round 26).
+// client at the floors sends every key it knows, compat round 26) — except
+// `defaultAgent`, which `setLaunchDefaults` carries forward (EXP-1158).
 function clampLaunchDefaults(
   input: z.infer<typeof deviceLaunchDefaultsSchema>
 ): DeviceLaunchDefaults {
@@ -110,11 +111,6 @@ function clampLaunchDefaults(
   const out: DeviceLaunchDefaults = {}
   if (input.defaultAgent && agentIds.includes(input.defaultAgent)) {
     out.defaultAgent = input.defaultAgent
-    // EXP-872: the default ACCOUNT rides only beside a valid default agent —
-    // it is one of that agent's profile ids, so alone it names nothing.
-    if (typeof input.defaultAccount === `string` && input.defaultAccount) {
-      out.defaultAccount = input.defaultAccount
-    }
   }
   if (input.agents) {
     const agents: Record<string, DeviceAgentLaunchDefaults> = {}
@@ -161,8 +157,8 @@ function clampLaunchDefaults(
     if (Object.keys(agents).length > 0) out.agents = agents
   }
   // EXP-1029: the workflow model defaults (`DeviceWorkflowDefaults`). Both
-  // names come out of the closed model vocabularies (the default account's
-  // agent decides which; the clamp accepts either); an incomplete or unknown
+  // names come out of the closed model vocabularies (the last used agent
+  // decides which; the clamp accepts either); an incomplete or unknown
   // pair is dropped whole — a workflow is never seeded from half a pair.
   if (input.workflow) {
     const models: readonly string[] = [
@@ -363,7 +359,6 @@ export function nudgeDevice(ownerId: string, deviceId: string): void {
  * instead of failing the mutation with "That command is already queued". */
 const IDEMPOTENT_COMMAND_KINDS: ReadonlySet<string> = new Set([
   `agent_usage_refresh`,
-  `agent_profile_use`,
   `agent_profile_remove`,
   // EXP-1137: signing a login out twice is one wish.
   `agent_profile_sign_out`,
@@ -849,6 +844,17 @@ export const devicesRouter = router({
         }
       }
       const clamped = clampLaunchDefaults(input.launchDefaults)
+      // EXP-1158: `defaultAgent` = the LAST USED agent, written only by the
+      // device. Clients stop sending it, so a save that omits it keeps the
+      // stored one — a whole-object UI save can never revert it.
+      const storedAgent = row.launchDefaults?.defaultAgent
+      if (
+        !clamped.defaultAgent &&
+        storedAgent &&
+        (contract.codingAgent.values as readonly string[]).includes(storedAgent)
+      ) {
+        clamped.defaultAgent = storedAgent
+      }
       const now = new Date()
       const txid = await ctx.db.transaction(async (tx) => {
         const id = await generateTxId(tx)
@@ -1009,12 +1015,6 @@ export const devicesRouter = router({
           `agent_login`,
           `agent_login_code`,
           `agent_usage_refresh`,
-          // EXP-849: make an already-signed-in profile the agent's ACTIVE
-          // login on that machine. NON-DESTRUCTIVE: no logout, no login, no
-          // credential is touched — the machine just points the agent at that
-          // profile and re-heartbeats `agent_accounts`. (Never `codex
-          // logout`: that revokes the account server-wide.)
-          `agent_profile_use`,
           // EXP-862: delete THIS machine's copy of an agent login (its
           // profile dir and its index row). The ACCOUNT is untouched: the
           // device never runs `codex logout` (that revokes the account
@@ -1122,30 +1122,8 @@ export const devicesRouter = router({
         payload = { agent: input.agent, code: input.code }
       }
 
-      // EXP-849: "Use this account here" — same payload shape as
-      // `agent_usage_refresh` (agent + profile). Two caps, because the
-      // command needs both halves: `agent-login` to drive the agent's own
-      // login state at all, and `account-switch` for the profile machinery
-      // itself. A build missing either would leave the row pending forever.
-      if (input.kind === `agent_profile_use`) {
-        if (!input.agent || !input.profileId) {
-          throw new TRPCError({
-            code: `BAD_REQUEST`,
-            message: `agent_profile_use needs an agent and a profileId`,
-          })
-        }
-        const caps = row.caps ?? []
-        if (!caps.includes(`agent-login`) || !caps.includes(`account-switch`)) {
-          throw new TRPCError({
-            code: `PRECONDITION_FAILED`,
-            message: `That machine runs an older Exponential app that cannot switch agent accounts. Update it first.`,
-          })
-        }
-        payload = { agent: input.agent, profileId: input.profileId }
-      }
-
       // EXP-862: "Remove account" — the machine deletes its own copy of that
-      // login. Two caps, like `agent_profile_use`: `agent-login` to drive the
+      // login. Two caps: `agent-login` to drive the
       // machine's logins at all, `account-remove` for this command itself. A
       // build missing either would leave the row pending forever.
       if (input.kind === `agent_profile_remove`) {

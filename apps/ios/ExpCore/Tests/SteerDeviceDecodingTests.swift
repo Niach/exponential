@@ -412,8 +412,7 @@ final class SteerDeviceDecodingTests: XCTestCase {
     }
 
     /// A machine that names NOTHING at all keeps its defaults editable: every
-    /// contract agent, so the default account stays pickable (a one-agent
-    /// list renders as a plain label, which is not a choice).
+    /// contract agent gets its tab of per-agent defaults.
     func testAMachineThatNamesNothingOffersEveryContractAgent() throws {
         let result = try decode("""
         {"devices":[{"deviceId":"d23","deviceLabel":"silent","agents":[],

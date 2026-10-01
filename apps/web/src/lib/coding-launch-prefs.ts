@@ -29,8 +29,9 @@ export interface CodingLaunchPrefs {
    * when nothing is picked; the server refuses ids outside the team. */
   mcpServerIds?: string[]
   /** EXP-825 (EXP-747 B7): the agent account PROFILE the run launches on —
-   * one of the device's reported `agentAccounts[agent].profiles` ids.
-   * Omitted for the machine's ambient login (`SYSTEM_PROFILE_ID`). */
+   * one of the device's reported `agentAccounts[agent].profiles` ids,
+   * `SYSTEM_PROFILE_ID` naming the ambient login (EXP-1158). Omitted = the
+   * machine's last used login. */
   account?: string
 }
 

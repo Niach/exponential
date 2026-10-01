@@ -341,11 +341,11 @@ final class AgentAccountsRowsTests: XCTestCase {
     }
     // MARK: - EXP-862: the chip menu
 
-    // Three states, three menus (web `MachineAccountChip`, Android and the
-    // desktop chips): a signed-out or expired login offers ONLY "Sign in", a
-    // healthy login the machine is not using offers "Set as default" plus
-    // "Remove account", and the machine's current login offers the removal
-    // alone.
+    // Two states, two menus (web `MachineAccountChip`, Android and the
+    // desktop chips): a signed-out or expired login offers "Sign in", a
+    // healthy login — the machine's last used one or not — the removal alone
+    // (EXP-1158: no "make it the default" entry; a start takes the last used
+    // login).
     func testTheChipMenuOffersOneMenuPerState() throws {
         func chip(
             _ signedIn: Bool,
@@ -376,14 +376,12 @@ final class AgentAccountsRowsTests: XCTestCase {
         // credential's state never decided whether that is possible.
         let signedOut = chip(false, true, .signedOut)
         XCTAssertTrue(AgentAccountsRows.chipSignsIn(signedOut))
-        XCTAssertFalse(AgentAccountsRows.chipSetsDefault(signedOut, canSwitchAccount: true))
         XCTAssertTrue(AgentAccountsRows.canRemoveAccount(
             signedOut, canAgentLogin: true, canRemoveAccount: true
         ))
 
         let expired = chip(true, false, .needsRelogin)
         XCTAssertTrue(AgentAccountsRows.chipSignsIn(expired))
-        XCTAssertFalse(AgentAccountsRows.chipSetsDefault(expired, canSwitchAccount: true))
         XCTAssertTrue(AgentAccountsRows.canRemoveAccount(
             expired, canAgentLogin: true, canRemoveAccount: true
         ))
@@ -398,14 +396,12 @@ final class AgentAccountsRowsTests: XCTestCase {
 
         let current = chip(true, true, .ok)
         XCTAssertFalse(AgentAccountsRows.chipSignsIn(current))
-        XCTAssertFalse(AgentAccountsRows.chipSetsDefault(current, canSwitchAccount: true))
         XCTAssertTrue(AgentAccountsRows.canRemoveAccount(
             current, canAgentLogin: true, canRemoveAccount: true
         ))
 
         let other = chip(true, false, .ok)
         XCTAssertFalse(AgentAccountsRows.chipSignsIn(other))
-        XCTAssertTrue(AgentAccountsRows.chipSetsDefault(other, canSwitchAccount: true))
         XCTAssertTrue(AgentAccountsRows.canRemoveAccount(
             other, canAgentLogin: true, canRemoveAccount: true
         ))
@@ -415,32 +411,6 @@ final class AgentAccountsRowsTests: XCTestCase {
         XCTAssertFalse(AgentAccountsRows.canRemoveAccount(
             ambient, canAgentLogin: true, canRemoveAccount: true
         ))
-    }
-
-    // "Set as default" is a CAPABILITY, not just a state: `agent_profile_use`
-    // shipped in desktop/CLI 0.14.38 and the server answers
-    // PRECONDITION_FAILED below it, so a machine without the `account-switch`
-    // cap is never offered it.
-    func testSetAsDefaultNeedsTheAccountSwitchCap() throws {
-        let other = AgentProfileUsageRow(
-            key: "dev:claude:work",
-            deviceId: "dev",
-            deviceLabel: "dev",
-            mine: true,
-            online: true,
-            agent: "claude",
-            profileId: "work",
-            profileLabel: "Work",
-            active: false,
-            signedIn: true,
-            email: "dev@acme.test",
-            plan: nil,
-            usage: nil,
-            checkedAt: nil,
-            health: .ok
-        )
-        XCTAssertFalse(AgentAccountsRows.chipSetsDefault(other, canSwitchAccount: false))
-        XCTAssertTrue(AgentAccountsRows.chipSetsDefault(other, canSwitchAccount: true))
     }
 
     // EXP-862: the removal is capped too, and refused for the same three
@@ -490,7 +460,7 @@ final class AgentAccountsRowsTests: XCTestCase {
 
     // EXP-1137: a build with the sign-out body offers "Sign out" on every
     // signed-in login and "Remove account" on the ambient one too; the fixed
-    // order ×4 is sign in, set as default, sign out, remove (web
+    // order ×4 is sign in, sign out, remove (web
     // `accountChipActions`, desktop `chip_actions`, Android `chipActions`).
     func testSignOutAndTheAmbientRemovalRideTheSignOutCap() throws {
         func chip(

@@ -202,7 +202,7 @@ pub(crate) const DUPLICATE_LIVE_TOOLTIP: &str = "Two live runs on this node";
 /// EXP-1068 — what a session TREE node adds to its run's row, beyond the
 /// session row itself: a review's `Review r2 · approved` title, the
 /// duplicate-run warning, the red "needs you" dot of a pending question and
-/// the non-default account the run spends.
+/// the account the run spends when it is not its device's last used one.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct RunTreeMarks {
     /// `Some` on a REVIEW chain: replaces the action-name title.
@@ -211,7 +211,7 @@ pub(crate) struct RunTreeMarks {
     /// `pending_question` is set — a person has to answer.
     pub(crate) needs_you: bool,
     /// `account <label>` when the run spends an account other than its
-    /// device's default for that agent.
+    /// device's last used login for that agent.
     pub(crate) account: Option<SharedString>,
 }
 
@@ -266,9 +266,9 @@ impl RunTreeMarks {
 }
 
 /// EXP-1108 — `account <label>` for a WORKFLOW run that spends an account
-/// other than its device's default for that agent: the shared rule
+/// other than its device's last used login for that agent: the shared rule
 /// ([`domain::session_tree::workflow_run_account_caption`]), fed the synced
-/// device rows. `None` outside a workflow, for the default or no account.
+/// device rows. `None` outside a workflow, for the last used or no account.
 fn run_account_label(
     session: &domain::rows::CodingSession,
     collections: &sync::collections::Collections,
@@ -298,14 +298,6 @@ pub(crate) fn mark_session(session: &domain::rows::CodingSession) -> domain::ses
 /// The caption's device columns off a synced row (tolerant: a garbage
 /// jsonb reads as absent, one bad agent entry drops only that agent).
 pub(crate) fn mark_device(row: &domain::rows::DeviceRow) -> domain::session_tree::MarkDevice {
-    let launch_defaults = row
-        .launch_defaults
-        .as_ref()
-        .and_then(|value| match value {
-            serde_json::Value::String(raw) => serde_json::from_str::<serde_json::Value>(raw).ok(),
-            other => Some(other.clone()),
-        })
-        .and_then(|value| serde_json::from_value(value).ok());
     let agent_accounts = row.agent_accounts.as_ref().map(|value| {
         crate::device_settings::parse_agent_map::<domain::session_tree::MarkAgentAccount>(Some(value))
             .into_iter()
@@ -314,7 +306,6 @@ pub(crate) fn mark_device(row: &domain::rows::DeviceRow) -> domain::session_tree
     domain::session_tree::MarkDevice {
         device_id: row.device_id.clone(),
         user_id: row.user_id.clone(),
-        launch_defaults,
         agent_accounts,
     }
 }

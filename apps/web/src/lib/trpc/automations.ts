@@ -67,8 +67,9 @@ const wireColumns = {
 // (agent ?? claude) contract lists, mirroring steer.startSession.
 // EXP-995: `account` = the agent PROFILE id on the bound device
 // (`agent_profiles`, what a start passes as `account`). It names a directory
-// under ONE agent's config root, so it needs the agent pinned beside it; the
-// ambient `system` login and NULL both mean "that machine's default login".
+// under ONE agent's config root, so it needs the agent pinned beside it.
+// EXP-1158: `system` NAMES the ambient login; NULL = unpinned = the login the
+// machine LAST USED for that agent.
 // Which profiles a machine holds is device-local (the heartbeat's
 // `agent_accounts` may lag), so the id itself is not checked here — the
 // runner falls back to the ambient login for a profile it no longer has.
@@ -79,12 +80,13 @@ const launchFieldsSchema = z.object({
   effort: z.string().max(32).nullable().optional(),
 })
 
-/** The web/desktop `SYSTEM_PROFILE_ID`: the ambient login, stored as NULL. */
-const SYSTEM_ACCOUNT = `system`
-
-function normalizeAccount(account: string | null | undefined): string | null {
+/** Blank = unpinned (NULL); anything else, `system` included, is stored
+ *  verbatim (EXP-1158: `system` names the ambient login). */
+function normalizeAccount(
+  account: string | null | undefined
+): string | null {
   const trimmed = account?.trim() ?? ``
-  return trimmed === `` || trimmed === SYSTEM_ACCOUNT ? null : trimmed
+  return trimmed === `` ? null : trimmed
 }
 
 function assertLaunchFields(fields: {
@@ -346,8 +348,8 @@ export const automationsRouter = router({
         // EXP-995: a profile belongs to ONE agent AND ONE machine (the
         // `agent_profiles` dir lives on the device that reported it): an
         // agent OR device switch that names no account drops the old pin,
-        // never carries it across. Additive: a client that never sends
-        // `account` still lands on the machine's default login.
+        // never carries it across. A dropped pin runs on the machine's last
+        // used login for that agent.
         account:
           input.account === undefined
             ? agent === existing.agent && deviceId === existing.deviceId

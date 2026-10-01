@@ -13,9 +13,8 @@
 //! * the label is ALWAYS the brand mark + the EMAIL — never the profile
 //!   name, never the word "default". A login reported without an address
 //!   shows its plan; with neither, its profile id;
-//! * the DEVICE DEFAULT is marked by ORDER (it is first) and by a check, not
-//!   by a label: it is `launch_defaults.defaultAccount` of `defaultAgent`
-//!   when the device stores one, else that agent's active login, else the
+//! * EXP-1158: the LAST USED login leads, marked by ORDER (it is first) and
+//!   by a check, not by a label: `defaultAgent`'s active login, else the
 //!   first contract agent's active login, else the first row. The rest follow
 //!   in `sort_device_logins` order (`ui::usage_bar`, web `sortDeviceLogins`);
 //! * `limits` are FRACTIONS 0..1 off the usage windows (`percent / 100`):
@@ -56,16 +55,16 @@ pub struct AccountLimits {
 #[derive(Clone, Debug, PartialEq)]
 pub struct AccountOption {
     /// The profile id (`agent_profiles`), what a launch passes as `account`
-    /// ([`SYSTEM_PROFILE`] = the ambient login, which rides the wire as
-    /// `None`).
+    /// ([`SYSTEM_PROFILE`] = the ambient login, named as such).
     pub id: String,
     /// Picking the option picks this agent: there is no separate agent pick.
     pub agent: CodingAgent,
     /// What the row SAYS beside the brand mark — email, else plan, else the
     /// profile id.
     pub email: String,
-    /// Exactly one option per device is the default; it is also listed first.
-    pub is_device_default: bool,
+    /// Exactly one option per device is the last used login; it is also
+    /// listed first.
+    pub is_last_used: bool,
     /// EXP-849: the device's verdict on the credential.
     pub health: Health,
     pub limits: Option<AccountLimits>,
@@ -78,10 +77,11 @@ impl AccountOption {
         format!("{}:{}", self.agent.id(), self.id)
     }
 
-    /// What a launch puts on the wire: the ambient login is `None`, never
-    /// the literal `system` id.
+    /// What a launch puts on the wire: the id VERBATIM — EXP-1158: `system`
+    /// NAMES the ambient login, while an absent account means "the last used
+    /// login". Always `Some`; the `Option` is the launch slot's own type.
     pub fn wire_account(&self) -> Option<String> {
-        (self.id != SYSTEM_PROFILE).then(|| self.id.clone())
+        Some(self.id.clone())
     }
 }
 
@@ -95,12 +95,12 @@ pub fn parse_account_option_key(key: &str) -> Option<(String, String)> {
     Some((key[..at].to_string(), key[at + 1..].to_string()))
 }
 
-/// The option a launch surface should START on: the device default, else the
-/// first option. `None` for a device that reports no login at all.
-pub fn default_account_option(options: &[AccountOption]) -> Option<&AccountOption> {
+/// The option a launch surface should START on: the last used login, else
+/// the first option. `None` for a device that reports no login at all.
+pub fn last_used_account_option(options: &[AccountOption]) -> Option<&AccountOption> {
     options
         .iter()
-        .find(|option| option.is_device_default)
+        .find(|option| option.is_last_used)
         .or_else(|| options.first())
 }
 
@@ -259,14 +259,13 @@ fn option_limits(row: &LoginRow) -> Option<AccountLimits> {
 }
 
 /// THE flattener: one machine's reported logins as the options every launch
-/// surface offers, the device default first. See the module header for the
-/// rules; `default_agent`/`default_account` are the machine's stored
-/// `launch_defaults`.
+/// surface offers, the last used login first. See the module header for the
+/// rules; `default_agent` is the machine's stored `launch_defaults
+/// .defaultAgent` (the last used agent).
 pub fn flatten_accounts(
     accounts: &AgentAccounts,
     usage: &AgentUsageMap,
     default_agent: Option<&str>,
-    default_account: Option<&str>,
 ) -> Vec<AccountOption> {
     let rows = login_rows(accounts, usage);
     if rows.is_empty() {
@@ -276,18 +275,12 @@ pub fn flatten_accounts(
     let active_of = |agent: Option<CodingAgent>| {
         agent.and_then(|agent| rows.iter().position(|row| row.agent == agent && row.active))
     };
-    let stored = match (configured, default_account) {
-        (Some(agent), Some(account)) => rows
-            .iter()
-            .position(|row| row.agent == agent && row.profile_id == account),
-        _ => None,
-    };
-    let default_at = stored
-        .or_else(|| active_of(configured))
+    let last_used_at = active_of(configured)
         .or_else(|| CodingAgent::ALL.iter().find_map(|agent| active_of(Some(*agent))))
         .unwrap_or(0);
 
-    let order = std::iter::once(default_at).chain((0..rows.len()).filter(|at| *at != default_at));
+    let order =
+        std::iter::once(last_used_at).chain((0..rows.len()).filter(|at| *at != last_used_at));
     order
         .map(|at| {
             let row = &rows[at];
@@ -299,7 +292,7 @@ pub fn flatten_accounts(
                     row.email.as_deref(),
                     row.plan.as_deref(),
                 ),
-                is_device_default: at == default_at,
+                is_last_used: at == last_used_at,
                 health: row.health,
                 limits: option_limits(row),
             }
@@ -314,7 +307,7 @@ mod tests {
 
     /// The fixture ×4 (`account-option.test.ts` `ACCOUNT_FIXTURE`): two
     /// claude logins (work = active, home = a dead credential), one codex
-    /// login, and a `system` codex profile that is signed out. The default
+    /// login, and a `system` codex profile that is signed out. The last used
     /// agent is codex.
     fn fixture() -> AgentAccounts {
         serde_json::from_value(json!({
@@ -379,19 +372,14 @@ mod tests {
             .collect()
     }
 
-    fn flatten(default_agent: Option<&str>, default_account: Option<&str>) -> Vec<AccountOption> {
-        flatten_accounts(
-            &fixture(),
-            &AgentUsageMap::new(),
-            default_agent,
-            default_account,
-        )
+    fn flatten(default_agent: Option<&str>) -> Vec<AccountOption> {
+        flatten_accounts(&fixture(), &AgentUsageMap::new(), default_agent)
     }
 
     #[test]
     fn yields_one_option_per_signed_in_login_across_both_agents() {
         assert_eq!(
-            keys(&flatten(Some("codex"), None)),
+            keys(&flatten(Some("codex"))),
             vec!["codex:main", "claude:work", "claude:home"]
         );
     }
@@ -401,7 +389,7 @@ mod tests {
         // A profile { id: 'work', label: 'Work laptop', email: 'a@x.test' }
         // yields email 'a@x.test'; no option's email is 'Work laptop' or
         // contains the word 'default'.
-        let options = flatten(Some("codex"), None);
+        let options = flatten(Some("codex"));
         assert_eq!(
             options
                 .iter()
@@ -416,58 +404,33 @@ mod tests {
     }
 
     #[test]
-    fn puts_the_device_default_first_and_marks_exactly_one_option() {
+    fn puts_the_last_used_login_first_and_marks_exactly_one_option() {
         // defaultAgent = codex with an active codex login → that login is
-        // options[0] and the only `is_device_default`.
-        let options = flatten(Some("codex"), None);
+        // options[0] and the only `is_last_used`.
+        let options = flatten(Some("codex"));
         assert_eq!(options[0].agent, CodingAgent::Codex);
         assert_eq!(options[0].id, "main");
-        assert!(options[0].is_device_default);
-        assert_eq!(
-            options.iter().filter(|option| option.is_device_default).count(),
-            1
-        );
-        assert_eq!(default_account_option(&options), Some(&options[0]));
+        assert!(options[0].is_last_used);
+        assert_eq!(options.iter().filter(|option| option.is_last_used).count(), 1);
+        assert_eq!(last_used_account_option(&options), Some(&options[0]));
     }
 
     #[test]
-    fn prefers_the_stored_default_account_of_the_default_agent() {
-        // EXP-872: "default agent" became "default account" — the device
-        // stores the profile id, and it wins over the agent's ACTIVE login.
-        let options = flatten(Some("claude"), Some("home"));
-        assert_eq!(options[0].agent, CodingAgent::Claude);
-        assert_eq!(options[0].id, "home");
-        assert!(options[0].is_device_default);
-        assert_eq!(
-            options.iter().filter(|option| option.is_device_default).count(),
-            1
-        );
-        // A stored profile the device no longer reports falls back to the
-        // active login.
-        let gone = flatten(Some("claude"), Some("retired"));
-        assert_eq!(gone[0].agent, CodingAgent::Claude);
-        assert_eq!(gone[0].id, "work");
-    }
-
-    #[test]
-    fn falls_back_to_the_first_contract_agents_active_login_when_no_default_agent_is_set() {
-        let options = flatten(None, None);
+    fn falls_back_to_the_first_contract_agents_active_login_when_no_last_used_agent_is_set() {
+        let options = flatten(None);
         assert_eq!(options[0].agent, CodingAgent::Claude);
         assert_eq!(options[0].id, "work");
-        assert!(options[0].is_device_default);
-        assert_eq!(
-            options.iter().filter(|option| option.is_device_default).count(),
-            1
-        );
-        // A default agent with no active login falls back the same way.
-        let stale = flatten(Some("pi"), None);
+        assert!(options[0].is_last_used);
+        assert_eq!(options.iter().filter(|option| option.is_last_used).count(), 1);
+        // A last used agent with no active login falls back the same way.
+        let stale = flatten(Some("pi"));
         assert_eq!(stale[0].agent, CodingAgent::Claude);
         assert_eq!(stale[0].id, "work");
     }
 
     #[test]
     fn carries_the_agent_on_the_option_so_a_pick_implies_it() {
-        let options = flatten(Some("codex"), None);
+        let options = flatten(Some("codex"));
         let by_id = |id: &str| {
             options
                 .iter()
@@ -482,13 +445,13 @@ mod tests {
             Some(("codex".to_string(), "main".to_string()))
         );
         assert_eq!(parse_account_option_key("nope"), None);
-        // The ambient login rides the wire as "nothing pinned".
+        // The option's id rides the wire verbatim.
         assert_eq!(by_id("main").wire_account(), Some("main".to_string()));
     }
 
     #[test]
     fn derives_limits_as_0_1_fractions_from_the_session_weekly_and_first_model_windows() {
-        let options = flatten(Some("codex"), None);
+        let options = flatten(Some("codex"));
         let by_id = |id: &str| {
             options
                 .iter()
@@ -519,7 +482,7 @@ mod tests {
 
     #[test]
     fn omits_limits_for_a_login_with_no_usage_report() {
-        let options = flatten(Some("codex"), None);
+        let options = flatten(Some("codex"));
         assert_eq!(
             options
                 .iter()
@@ -541,7 +504,7 @@ mod tests {
             }
         }))
         .unwrap();
-        let options = flatten_accounts(&accounts, &AgentUsageMap::new(), None, None);
+        let options = flatten_accounts(&accounts, &AgentUsageMap::new(), None);
         assert_eq!(
             options
                 .iter()
@@ -561,12 +524,12 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(
-            flatten_accounts(&accounts, &usage, None, None),
+            flatten_accounts(&accounts, &usage, None),
             vec![AccountOption {
                 id: SYSTEM_PROFILE.to_string(),
                 agent: CodingAgent::Claude,
                 email: "solo@x.test".to_string(),
-                is_device_default: true,
+                is_last_used: true,
                 health: Health::Ok,
                 limits: Some(AccountLimits {
                     five_hour: 0.2,
@@ -575,16 +538,16 @@ mod tests {
                 }),
             }]
         );
-        // And the ambient login puts NOTHING on the wire.
+        // EXP-1158: and the ambient login is NAMED on the wire.
         assert_eq!(
-            flatten_accounts(&accounts, &usage, None, None)[0].wire_account(),
-            None
+            flatten_accounts(&accounts, &usage, None)[0].wire_account(),
+            Some(SYSTEM_PROFILE.to_string())
         );
     }
 
     #[test]
     fn skips_signed_out_logins_and_retired_agents() {
-        let options = flatten(Some("codex"), None);
+        let options = flatten(Some("codex"));
         assert!(!options.iter().any(|option| option.id == "system"));
         assert!(!options
             .iter()
@@ -592,10 +555,9 @@ mod tests {
         assert!(flatten_accounts(
             &AgentAccounts::new(),
             &AgentUsageMap::new(),
-            None,
             None
         )
         .is_empty());
-        assert_eq!(default_account_option(&[]), None);
+        assert_eq!(last_used_account_option(&[]), None);
     }
 }

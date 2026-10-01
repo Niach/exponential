@@ -4,11 +4,9 @@ import com.exponential.app.data.api.AgentAccount
 import com.exponential.app.data.api.AgentLaunchDefaults
 import com.exponential.app.data.api.DeviceLaunchDefaults
 import com.exponential.app.data.api.DeviceWorkflowDefaults
-import com.exponential.app.data.api.SYSTEM_PROFILE_ID
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.setLaunchDefaultsInput
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.ui.components.deviceAccountOptions
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
@@ -67,7 +65,7 @@ class DeviceSettingsDefaultsTest {
     }
 
     @Test
-    fun `stored default agent wins when editable, else claude, else first`() {
+    fun `the last used agent wins when editable, else claude, else first`() {
         assertEquals(
             "codex",
             seededDefaultAgent(
@@ -105,10 +103,8 @@ class DeviceSettingsDefaultsTest {
     }
 
     @Test
-    fun `buildDefaults masks capabilities per agent and carries the default`() {
+    fun `buildDefaults masks capabilities per agent and never names an agent`() {
         val built = buildDefaults(
-            defaultAgent = "claude",
-            defaultAccount = "work",
             agents = listOf("claude", "codex", "pi"),
             drafts = mapOf(
                 "claude" to AgentDraft("fable", "", ultracode = true, planMode = true),
@@ -116,9 +112,8 @@ class DeviceSettingsDefaultsTest {
                 "pi" to AgentDraft("", "", ultracode = false, planMode = true),
             ),
         )
-        assertEquals("claude", built.defaultAgent)
-        // EXP-872: the default ACCOUNT rides beside the agent it belongs to.
-        assertEquals("work", built.defaultAccount)
+        // EXP-1158: the last used agent is the device's to write.
+        assertNull(built.defaultAgent)
         assertTrue(built.agents.getValue("claude").ultracode)
         assertTrue(built.agents.getValue("claude").planMode)
         // codex: neither ultracode nor plan mode survives.
@@ -153,120 +148,38 @@ class DeviceSettingsDefaultsTest {
         val echoed = device(
             agents = agents,
             unauthed = emptyList(),
-            defaults = buildDefaults(
-                defaultAgent = "codex",
-                defaultAccount = "main",
-                agents = agents,
-                drafts = edited,
-            ),
+            defaults = buildDefaults(agents = agents, drafts = edited),
         )
         assertEquals(agents, editableAgents(echoed))
-        assertEquals("codex", seededDefaultAgent(echoed, agents))
-        assertEquals("main", echoed.launchDefaults?.defaultAccount)
         assertEquals(edited, agents.associateWith { agentDraft(echoed, it) })
     }
 
     /**
-     * EXP-872: nothing picked (the agent's ACTIVE login) is an unset
-     * `defaultAccount`, and the REQUEST spells it as an explicit null: the
-     * server reads an absent key as an older client and keeps the stored pin.
+     * EXP-1158: a settings save never names an agent or an account. The last
+     * used agent is the DEVICE's to write (the server carries the stored one
+     * forward when a save omits it), and the account concept is gone — so
+     * neither key rides, not even as a null, whatever the DTO holds.
      */
     @Test
-    fun `an unpicked default account clears with an explicit null`() {
-        val built = buildDefaults(
-            defaultAgent = "claude",
-            defaultAccount = "",
-            agents = listOf("claude"),
-            drafts = emptyMap(),
+    fun `the setLaunchDefaults input omits both the agent and the account`() {
+        val input = setLaunchDefaultsInput(
+            deviceId = "dev-1",
+            defaults = DeviceLaunchDefaults(
+                defaultAgent = "codex",
+                agents = mapOf("claude" to AgentLaunchDefaults(model = "opus")),
+            ),
         )
-        assertNull(built.defaultAccount)
-        val input = setLaunchDefaultsInput(deviceId = "dev-1", defaults = built)
         assertEquals(JsonPrimitive("dev-1"), input["deviceId"])
         val sent = input.getValue("launchDefaults").jsonObject
-        assertEquals(JsonPrimitive("claude"), sent["defaultAgent"])
-        assertTrue(sent.containsKey("defaultAccount"))
-        assertEquals(JsonNull, sent["defaultAccount"])
+        assertFalse(sent.containsKey("defaultAgent"))
+        assertFalse(sent.keys.any { it.contains("account", ignoreCase = true) })
+        assertEquals(JsonPrimitive("opus"), sent.getValue("agents").jsonObject.getValue("claude").jsonObject["model"])
         // The rest of the object still drops its nulls, as it always did.
         assertFalse(sent.getValue("agents").jsonObject.getValue("claude").jsonObject.containsValue(JsonNull))
     }
 
     /**
-     * EXP-1043: the AMBIENT login is a picker SENTINEL, never a stored
-     * profile id — and since every login-less agent now contributes one, it
-     * is the normal pick. The server clamp takes any non-empty string, so a
-     * leaked `"system"` would pin a profile the machine does not have; it
-     * clears, exactly as "nothing picked" does.
-     */
-    @Test
-    fun `the ambient login clears the pin instead of storing the sentinel`() {
-        val built = buildDefaults(
-            defaultAgent = "codex",
-            defaultAccount = SYSTEM_PROFILE_ID,
-            agents = listOf("claude", "codex"),
-            drafts = emptyMap(),
-        )
-        assertEquals("codex", built.defaultAgent)
-        assertNull(built.defaultAccount)
-        val sent = setLaunchDefaultsInput(deviceId = "dev-1", defaults = built)
-            .getValue("launchDefaults").jsonObject
-        assertEquals(JsonNull, sent["defaultAccount"])
-
-        // A REAL profile id on the same agent still rides as itself.
-        val pinned = buildDefaults(
-            defaultAgent = "codex",
-            defaultAccount = "work",
-            agents = listOf("claude", "codex"),
-            drafts = emptyMap(),
-        )
-        assertEquals("work", pinned.defaultAccount)
-        assertEquals(
-            JsonPrimitive("work"),
-            setLaunchDefaultsInput(deviceId = "dev-1", defaults = pinned)
-                .getValue("launchDefaults").jsonObject["defaultAccount"],
-        )
-    }
-
-    @Test
-    fun `a picked default account rides as itself, and none without an agent`() {
-        val pinned = setLaunchDefaultsInput(
-            deviceId = "dev-1",
-            defaults = DeviceLaunchDefaults(defaultAgent = "claude", defaultAccount = "work"),
-        ).getValue("launchDefaults").jsonObject
-        assertEquals(JsonPrimitive("work"), pinned["defaultAccount"])
-        val agentless = setLaunchDefaultsInput(
-            deviceId = "dev-1",
-            defaults = DeviceLaunchDefaults(),
-        ).getValue("launchDefaults").jsonObject
-        assertFalse(agentless.containsKey("defaultAccount"))
-    }
-
-    /**
-     * EXP-1043: the sheet's default-account row is how a machine's default
-     * AGENT is changed, so an agent the machine reports no login for still
-     * offers its ambient one — otherwise a machine signed into claude alone
-     * could never be pointed at codex.
-     */
-    @Test
-    fun `the device sheet offers an option for every editable agent`() {
-        val signedIntoClaude = device(
-            agents = listOf("claude", "codex"),
-            accounts = mapOf("claude" to AgentAccount(signedIn = true, email = "me@acme.dev")),
-        )
-        val options = deviceAccountOptions(signedIntoClaude, listOf("claude", "codex"))
-        assertEquals(listOf("claude", "codex"), options.map { it.agent })
-        assertEquals("me@acme.dev", options.first().email)
-        // The reported login stays THE default; the ambient one never claims it.
-        assertEquals(1, options.count { it.isDeviceDefault })
-        assertTrue(options.first().isDeviceDefault)
-        // A machine that reports nothing at all is already one per agent.
-        assertEquals(
-            listOf("claude", "codex"),
-            deviceAccountOptions(device(), listOf("claude", "codex")).map { it.agent },
-        )
-    }
-
-    /**
-     * EXP-1043: the workflow pair is resolved for the DEFAULT agent, and the
+     * EXP-1043: the workflow pair is resolved for the LAST USED agent, and the
      * two vocabularies do not overlap — a stored name belonging to the other
      * agent is not something that agent can run, so it falls back.
      */
@@ -311,8 +224,6 @@ class DeviceSettingsDefaultsTest {
     @Test
     fun `the workflow pair rides the setLaunchDefaults payload`() {
         val built = buildDefaults(
-            defaultAgent = "claude",
-            defaultAccount = "work",
             agents = listOf("claude"),
             drafts = emptyMap(),
             workflow = DeviceWorkflowDefaults(model = "opus", strongModel = "fable"),
@@ -326,8 +237,6 @@ class DeviceSettingsDefaultsTest {
         val without = setLaunchDefaultsInput(
             deviceId = "dev-1",
             defaults = buildDefaults(
-                defaultAgent = "claude",
-                defaultAccount = "work",
                 agents = listOf("claude"),
                 drafts = emptyMap(),
             ),
@@ -364,8 +273,6 @@ class DeviceSettingsDefaultsTest {
         val sent = setLaunchDefaultsInput(
             deviceId = "dev-1",
             defaults = buildDefaults(
-                defaultAgent = "claude",
-                defaultAccount = "work",
                 agents = agents,
                 drafts = edited,
             ),
@@ -379,8 +286,6 @@ class DeviceSettingsDefaultsTest {
         val fresh = setLaunchDefaultsInput(
             deviceId = "dev-1",
             defaults = buildDefaults(
-                defaultAgent = "claude",
-                defaultAccount = "work",
                 agents = listOf("claude"),
                 drafts = mapOf(
                     "claude" to AgentDraft("fable", "", ultracode = false, planMode = false, autoRotateAccounts = true),
@@ -391,7 +296,7 @@ class DeviceSettingsDefaultsTest {
         assertFalse(
             setLaunchDefaultsInput(
                 deviceId = "dev-1",
-                defaults = buildDefaults("claude", "work", listOf("claude"), emptyMap()),
+                defaults = buildDefaults(listOf("claude"), emptyMap()),
             ).getValue("launchDefaults").jsonObject.getValue("agents").jsonObject
                 .getValue("claude").jsonObject.containsKey("autoRotateAccounts"),
         )

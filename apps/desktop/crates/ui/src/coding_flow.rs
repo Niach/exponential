@@ -98,6 +98,15 @@ struct CodingHubGlobal(Entity<CodingHub>);
 
 impl gpui::Global for CodingHubGlobal {}
 
+/// EXP-1158: `default_agent` is the LAST USED agent — the launcher stamps it
+/// into settings.json, and no settings surface edits it — so a UI save takes
+/// the file's value rather than a possibly older copy held in memory.
+fn keep_last_used_agent(settings: &mut Settings, path: &std::path::Path) {
+    if path.exists() {
+        settings.default_agent = Settings::load(path).default_agent;
+    }
+}
+
 impl CodingHub {
     /// The hub, created lazily on first access. Creation loads the persisted
     /// settings and kicks the FIRST doctor run — the §7.7 onboarding rule
@@ -175,10 +184,11 @@ impl CodingHub {
     /// the launcher and the file never silently diverge from the UI.
     pub fn save_settings(
         hub: &Entity<CodingHub>,
-        settings: Settings,
+        mut settings: Settings,
         cx: &mut App,
     ) -> Result<(), String> {
         let (result, settings_path) = hub.update(cx, |this, cx| {
+            keep_last_used_agent(&mut settings, &this.settings_path);
             let result = settings
                 .save(&this.settings_path)
                 .map_err(|err| format!("Could not save settings: {err}"));
@@ -217,8 +227,9 @@ impl CodingHub {
     /// a launcher knob, and an emoji pick must not spawn `--version` probes.
     ///
     /// [`save_settings`]: Self::save_settings
-    pub fn save_ui_prefs(hub: &Entity<CodingHub>, settings: Settings, cx: &mut App) {
+    pub fn save_ui_prefs(hub: &Entity<CodingHub>, mut settings: Settings, cx: &mut App) {
         let result = hub.update(cx, |this, cx| {
+            keep_last_used_agent(&mut settings, &this.settings_path);
             let result = settings.save(&this.settings_path);
             this.settings = settings;
             cx.notify();
@@ -668,6 +679,9 @@ impl LocalSessions {
         }
         // EXP-481: a session registering changes the inventory's busy flags.
         crate::device_sync::report_soon(cx);
+        // EXP-1158: and a person's start just moved the last used login +
+        // agent (the launcher's stamp) — beat now so the row carries them.
+        crate::device_sync::beat_soon(cx);
         sessions.update(cx, |this, cx| {
             if !watchers.is_empty() {
                 this.watchers.insert(session_key, watchers);

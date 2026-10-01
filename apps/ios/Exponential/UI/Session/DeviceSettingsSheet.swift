@@ -16,9 +16,9 @@ import SwiftUI
 //   Sharing  — devices.setShared, SERVER devices only: one toggle per team
 //              (FEED-33), each written straight through off the live row.
 //   Defaults — the device's SERVER-AUTHORITATIVE launch defaults
-//              (devices.setLaunchDefaults), debounced per edit: the default
-//              agent (the shared picker) and, per agent, Model / Effort /
-//              Ultracode / Plan. Editable while the device is OFFLINE too: the
+//              (devices.setLaunchDefaults), debounced per edit: per agent,
+//              Model / Effort / Ultracode / Plan. EXP-1158: no default
+//              account — every start uses the login last used there. Editable while the device is OFFLINE too: the
 //              row is the truth and the device's settings.json converges on its
 //              next heartbeat, so the only offline concession is a footer
 //              saying so.
@@ -28,7 +28,7 @@ import SwiftUI
 //              → Accounts.
 //              EXP-1042: and its last row is the "Workflow settings" SUB-SHELL
 //              (`SubShell`, ×4) — the machine's workflow model pair, which
-//              belongs to the DEFAULT agent rather than to the agent tab, so
+//              belongs to the LAST USED agent rather than to the agent tab, so
 //              it sits outside the tabs and slides its own page in.
 //   Update   — EXP-909, SERVER devices only (a desktop app updates itself):
 //              the version, an amber "Update available" caption, and the
@@ -91,13 +91,10 @@ struct DeviceSettingsSheet: View {
     @State private var iconPick: String?
     @State private var savingShare = false
     @State private var savingDefaultDevice = false
-    @State private var defaultAgent = "claude"
-    /// EXP-872: the machine's default ACCOUNT — a login profile id of
-    /// `defaultAgent` (`""` = none stored, which reads as its active login).
-    /// EXP-1042: a pick may also park the picker's ambient sentinel
-    /// (`system`) here, so the row reads as selected; it never reaches the
-    /// server — `DeviceLaunchDefaultsInput` folds it into the clear.
-    @State private var defaultAccount = ""
+    /// EXP-1158: the machine's LAST USED agent (`launchDefaults.defaultAgent`),
+    /// READ-ONLY here — only the device writes it. The workflow pair is
+    /// clamped to its vocabulary.
+    @State private var lastUsedAgent = "claude"
     @State private var selectedAgent = "claude"
     @State private var drafts: [String: AgentDraft] = [:]
     @State private var savingDefaults = false
@@ -106,8 +103,8 @@ struct DeviceSettingsSheet: View {
     @Environment(\.toaster) private var toaster
     /// EXP-1029: the machine's stored WORKFLOW pair, held raw (`""` = nothing
     /// stored). What the page renders and what a save sends is the RESOLVED
-    /// pair — `DeviceWorkflowSettings` clamps it to the default agent's
-    /// vocabulary, so switching the default account re-seeds it for free.
+    /// pair — `DeviceWorkflowSettings` clamps it to the last used agent's
+    /// vocabulary, so a run started on the other agent re-seeds it for free.
     @State private var workflowModel = ""
     @State private var workflowStrongModel = ""
     /// EXP-420/EXP-909: the instance's advertised latest versions — the Update
@@ -236,19 +233,14 @@ struct DeviceSettingsSheet: View {
     private func applyDefaults(_ device: SteerDevice, keepTab: Bool) {
         let agents = device.editableAgentIds
         let advertisedDefault = device.launchDefaults?.defaultAgent
-        defaultAgent = agents.contains(advertisedDefault ?? "") ? advertisedDefault! : (agents.first ?? "claude")
-        // EXP-872: the stored account belongs to the stored agent — it only
-        // survives a clamp that kept that agent.
-        defaultAccount = defaultAgent == advertisedDefault
-            ? (device.launchDefaults?.defaultAccount ?? "")
-            : ""
+        lastUsedAgent = agents.contains(advertisedDefault ?? "") ? advertisedDefault! : (agents.first ?? "claude")
         // EXP-1029: the workflow pair belongs to the MACHINE, not to an
         // agent's block — it rides verbatim and the resolver clamps it to the
-        // default agent's vocabulary wherever it is read.
+        // last used agent's vocabulary wherever it is read.
         workflowModel = device.launchDefaults?.workflow?.model ?? ""
         workflowStrongModel = device.launchDefaults?.workflow?.strongModel ?? ""
         // A re-seed must not yank the tab the reader is looking at.
-        selectedAgent = keepTab && agents.contains(selectedAgent) ? selectedAgent : defaultAgent
+        selectedAgent = keepTab && agents.contains(selectedAgent) ? selectedAgent : lastUsedAgent
         var next: [String: AgentDraft] = [:]
         for agent in agents {
             next[agent] = Self.draft(from: device.agentDefaults(for: agent), agent: agent)
@@ -495,74 +487,14 @@ struct DeviceSettingsSheet: View {
 
     // MARK: - Agent defaults
 
-    /// EXP-872: every login this machine reports, as the ONE list the default
-    /// is picked from. An editable agent that reports no login still gets a
-    /// row, named by the agent and standing for its AMBIENT login — an
-    /// offline box's default stays editable even though it is advertising
-    /// nothing right now.
-    ///
-    /// EXP-1042: per MISSING agent, not all-or-nothing. A machine that
-    /// reports one claude login used to offer that single row, which the
-    /// picker renders as a plain label (one option is not a choice) — so the
-    /// default could not be moved to codex at all.
-    private func accountOptions(_ device: SteerDevice) -> [AccountOption] {
-        let reported = AccountOptions.flatten(
-            accounts: device.agentAccounts,
-            usage: device.agentUsage,
-            launchDefaults: device.launchDefaults
-        )
-        let covered = Set(reported.map(\.agent))
-        let ambient = device.editableAgentIds
-            .filter { !covered.contains($0) }
-            .map { agent in
-                AccountOption(
-                    id: AgentAccountsRows.systemProfileId,
-                    agent: agent,
-                    email: LaunchVocabulary.agentLabel(agent),
-                    // The reported logins carry the device default among
-                    // them; an agent that reports nothing never is one.
-                    isDeviceDefault: reported.isEmpty && agent == defaultAgent
-                )
-            }
-        return reported + ambient
-    }
-
     /// EXP-694: the agent block is the SHARED `LaunchOptionsSection` — the
     /// sheet used to hand-roll the same tabs/model/effort/toggle rows, which is
     /// how it drifted (bare tabs bleeding to the screen edge, no brand marks).
-    /// Only the default stays here, as its own leading card: it is a property
-    /// of the MACHINE, not of the agent whose tab is open.
-    ///
-    /// EXP-872: and it is a default ACCOUNT now, not a default agent — the
-    /// pick stores a login profile id and the agent derives from it. Shown
-    /// whenever there is anything to pick at all (a lone login is still the
-    /// machine's default, and the row is where a person reads which one it is).
+    /// EXP-1158: no account card above it — a start runs on the login last
+    /// used on the machine, which is no setting.
     @ViewBuilder
     private func defaultsSection(_ device: SteerDevice) -> some View {
         let agents = device.editableAgentIds
-        let options = accountOptions(device)
-        if !options.isEmpty {
-            Section {
-                // EXP-872: the SHARED account picker (brand mark + email per
-                // row, the EXP-992 limit bars under each) — the same control
-                // the composer's options row and the IDE's settings wear.
-                // EXP-1030: `AccountPickerMenu` is the trigger + the
-                // lone-login rule over `ExpUI.AccountPicker`, so this row
-                // opens the ONE picker sheet rather than a menu of its own.
-                HStack(spacing: 8) {
-                    Text("Default account")
-                        .foregroundStyle(.white.opacity(TextOpacity.primary))
-                    Spacer(minLength: 8)
-                    AccountPickerMenu(
-                        options: options,
-                        selection: selectedDefaultAccount(in: options),
-                        mark: { AgentBrandMark.image($0) },
-                        onSelect: { pickDefaultAccount($0) }
-                    )
-                }
-            }
-            .listRowBackground(glassFormRowFill)
-        }
         LaunchOptionsSection(
             variant: .device,
             devices: [],
@@ -588,20 +520,19 @@ struct DeviceSettingsSheet: View {
 
     /// The machine's workflow model pair, one SUB-SHELL row — the last entry
     /// of the agent-defaults card (EXP-1020): tapping it slides its page in
-    /// over the sheet. Shown for both agents — a workflow runs on the
-    /// machine's DEFAULT account, so the pair follows the default agent
-    /// rather than the tab that happens to be open.
+    /// over the sheet. Shown for both agents — the pair follows the
+    /// machine's LAST USED agent rather than the tab that happens to be open.
     private func workflowRow() -> some View {
         SubShell(label: "Workflow settings", value: workflowSummary) {
             workflowPage()
         }
     }
 
-    /// The stored pair, clamped to the default agent's vocabulary — what the
+    /// The stored pair, clamped to the last used agent's vocabulary — what the
     /// row summarises, what the page renders, and what a save sends.
     private var workflowResolved: (model: String, strongModel: String) {
         DeviceWorkflowSettings.resolve(
-            agent: defaultAgent,
+            agent: lastUsedAgent,
             stored: DeviceWorkflowDefaults(
                 model: workflowModel, strongModel: workflowStrongModel
             )
@@ -617,7 +548,7 @@ struct DeviceSettingsSheet: View {
     /// The page: one card, the two rungs a workflow launches on. Each pick
     /// writes through the same debounce the rest of the defaults use.
     private func workflowPage() -> some View {
-        let options = DeviceWorkflowSettings.modelValues(for: defaultAgent)
+        let options = DeviceWorkflowSettings.modelValues(for: lastUsedAgent)
         return Form {
             Section {
                 VStack(alignment: .leading, spacing: 4) {
@@ -667,27 +598,6 @@ struct DeviceSettingsSheet: View {
                 scheduleDefaultsAutosave()
             }
         )
-    }
-
-    /// Which option the row reads as: the stored pair, else that agent's first
-    /// login (a stored profile the machine no longer reports), else the first
-    /// row — the same ladder `AccountOptions.flatten` walks for the default.
-    private func selectedDefaultAccount(in options: [AccountOption]) -> AccountOption? {
-        options.first { $0.agent == defaultAgent && $0.id == defaultAccount }
-            ?? options.first { $0.agent == defaultAgent }
-            ?? options.first
-    }
-
-    /// Like `draftBinding`, a choke point that only a USER pick runs through —
-    /// a picker never writes for a programmatic re-seed, which is exactly why
-    /// the live echo can't trigger a save loop. EXP-872: one pick writes BOTH
-    /// halves, since the agent is derived from the account.
-    private func pickDefaultAccount(_ option: AccountOption) {
-        guard option.agent != defaultAgent || option.id != defaultAccount else { return }
-        defaultAgent = option.agent
-        defaultAccount = option.id
-        defaultsPending = true
-        scheduleDefaultsAutosave()
     }
 
     private func draftBinding<Value>(_ keyPath: WritableKeyPath<AgentDraft, Value>) -> Binding<Value> {
@@ -743,20 +653,14 @@ struct DeviceSettingsSheet: View {
         }
         // Built synchronously: the payload is what the drafts say NOW, and a
         // later edit re-arms the debounce on its own.
+        // EXP-1158: no `defaultAgent` — the device owns the last used agent
+        // and the server carries it forward over this save.
         let payload = DeviceLaunchDefaultsInput(
-            defaultAgent: defaultAgent,
-            // EXP-872: nil while nothing is picked; the input encodes it as
-            // an explicit null (the clear), and the machine then falls back
-            // to its active login, exactly as flatten does. EXP-1042: the
-            // draft is handed over RAW — the input folds both the blank and
-            // the ambient `system` sentinel into that nil itself, so no
-            // writer here can leak the sentinel to the server.
-            defaultAccount: defaultAccount,
             agents: agents,
             // EXP-1029: a whole-object save REPLACES the stored defaults, so
             // the workflow pair rides every write — leaving it out would
             // clobber it with nothing. The RESOLVED pair goes, which is also
-            // how a default-agent switch persists the clamp.
+            // how a last-used-agent switch persists the clamp.
             workflow: DeviceWorkflowDefaultsInput(
                 model: workflowResolved.model,
                 strongModel: workflowResolved.strongModel

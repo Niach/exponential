@@ -13,16 +13,15 @@
 //    profile name (`label`), never the word "default". A login the device
 //    reports without an address shows its plan; with neither, "No email"
 //    (EXP-1013 `accountName`; a signed-out login keeps its last address);
-//  - the DEVICE DEFAULT is marked by ORDER (it is first) and by a check, not
-//    by a label: `isDeviceDefault` is true for exactly one option — the
-//    `launch_defaults.defaultAccount` profile of `defaultAgent` when the
-//    device stores one, else the active login of `defaultAgent`, falling back
-//    to the first contract agent's active login. The rest follow in
-//    `sortDeviceLogins` order (lib/agent-usage.ts);
+//  - the LAST USED login leads (EXP-1158): `defaultAgent`'s active login,
+//    else the first contract agent's active login, else the first row. It is
+//    marked by ORDER (it is first) and by a check, not by a label:
+//    `isLastUsed` is true for exactly one option. The rest follow in
+//    `sortDeviceLogins` order (lib/agent-usage.ts). Last used = per agent,
+//    the login a PERSON last started or switched a run on, on that device
+//    (`profiles[].active`); the last used agent = `defaultAgent`;
 //  - selecting an option IMPLIES the agent: there is no separate agent pick,
-//    `agent` rides the option and the launch takes both from it;
-//  - "default agent" settings become "default account": the setting stores a
-//    profile id, and the agent is derived from it.
+//    `agent` rides the option and the launch takes both from it.
 //
 // `limits` are FRACTIONS 0..1 off the usage windows EXP-909 settled
 // (`DeviceUsageWindow.percent / 100`): `fiveHour` = the `session` window,
@@ -55,8 +54,9 @@ export interface AccountOption {
   /** What the row SAYS (beside the brand mark). See the header for the
    * fallbacks when the device reported no address. */
   email: string
-  /** Exactly one option per device is the default; it is also listed first. */
-  isDeviceDefault: boolean
+  /** Exactly one option per device is the last used one; it is also listed
+   * first. */
+  isLastUsed: boolean
   /** EXP-849: the device's verdict on the credential — a run started on a
    * dead login dies on its first call, so the row badges `needs_relogin`. */
   health: DeviceAgentHealth
@@ -134,44 +134,34 @@ export function flattenAccounts(device: AccountSource): AccountOption[] {
   ).filter((row) => row.signedIn)
   if (rows.length === 0) return []
 
-  // The default: the stored default account of the configured default agent,
-  // else that agent's active login, else the first contract agent's active
-  // login, else the first row — never none.
+  // The last used login: the last used agent's active login, else the first
+  // contract agent's active login, else the first row — never none.
   const order = contract.codingAgent.values as readonly string[]
-  const configured = device.launchDefaults?.defaultAgent
-  const configuredAccount = device.launchDefaults?.defaultAccount
   const activeOf = (agent: string | undefined) =>
     agent ? rows.find((row) => row.agent === agent && row.active) : undefined
-  const stored =
-    configured && configuredAccount
-      ? rows.find(
-          (row) => row.agent === configured && row.profileId === configuredAccount
-        )
-      : undefined
-  const defaultRow =
-    stored ??
-    activeOf(configured) ??
+  const lastUsedRow =
+    activeOf(device.launchDefaults?.defaultAgent) ??
     order.map((agent) => activeOf(agent)).find(Boolean) ??
     rows[0]!
 
-  const ordered = [defaultRow, ...rows.filter((row) => row !== defaultRow)]
+  const ordered = [lastUsedRow, ...rows.filter((row) => row !== lastUsedRow)]
   return ordered.map((row) => {
     const limits = optionLimits(row)
     return {
       id: row.profileId,
       agent: row.agent as AccountOption[`agent`],
       email: optionEmail(row),
-      isDeviceDefault: row === defaultRow,
+      isLastUsed: row === lastUsedRow,
       health: row.health,
       ...(limits ? { limits } : {}),
     }
   })
 }
 
-/** The option a launch surface should START on: the device default, or the
+/** The option a launch surface should START on: the last used login, or the
  * first option. `undefined` for a device that reports no login at all. */
-export function defaultAccountOption(
+export function lastUsedAccountOption(
   options: readonly AccountOption[]
 ): AccountOption | undefined {
-  return options.find((option) => option.isDeviceDefault) ?? options[0]
+  return options.find((option) => option.isLastUsed) ?? options[0]
 }

@@ -1637,6 +1637,17 @@ impl ChatScreenView {
                             // resumable issue continues it there.
                             account: same_agent.then(|| options.account.clone()).flatten(),
                         };
+                        // EXP-1158: an account picked for the resume is a
+                        // person's switch — it moves the last used login (a
+                        // LOCAL resume is also a rotation hop's shape, so the
+                        // launcher leaves this one to its caller).
+                        if let Some(account) = &request.account {
+                            coding::record_last_used(
+                                &coding_flow::coding_data_dir(cx),
+                                request.record.agent,
+                                Some(account),
+                            );
+                        }
                         // FEED-49: a workflow node's run is held for the
                         // engine before the resume relaunches it (the same
                         // hold `action_run::resume_run` takes) — a pass in

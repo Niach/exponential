@@ -4,9 +4,9 @@ import type { DeviceWorkflowDefaults } from "@exp/db-schema/domain"
 import { agentModelValues } from "@/lib/coding-launch-prefs"
 
 /**
- * EXP-1020: a device's WORKFLOW model defaults, resolved for the agent its
- * default account implies — the pair the "Workflow settings" sub-shell edits
- * and a new workflow is seeded from (`launch_defaults.workflow`,
+ * EXP-1020: a device's WORKFLOW model defaults, resolved for its last used
+ * agent — the pair the "Workflow settings" sub-shell edits and a new
+ * workflow is seeded from (`launch_defaults.workflow`,
  * `DeviceWorkflowDefaults`).
  *
  * `model` is the cheap one (leaf nodes and the subagents inside them),

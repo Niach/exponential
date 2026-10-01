@@ -316,10 +316,10 @@ internal data class AgentSeed(
 )
 
 /**
- * Which agent a machine starts on (EXP-437): the one it has configured as its
- * default, clamped to what it can actually run. A machine that advertises no
- * default (or an unrunnable one) falls back to claude, then to whatever it
- * runs first — the pre-EXP-437 behavior.
+ * Which agent a machine starts on (EXP-437): its LAST USED agent
+ * (`defaultAgent`, EXP-1158), clamped to what it can actually run. A machine
+ * that advertises none (or an unrunnable one) falls back to claude, then to
+ * whatever it runs first — the pre-EXP-437 behavior.
  */
 internal fun defaultAgentFor(device: SteerDevice?): String {
     val available = availableAgentsFor(device)

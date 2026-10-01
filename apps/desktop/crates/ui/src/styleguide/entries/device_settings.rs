@@ -8,9 +8,7 @@
 //! cleans them.
 //!
 //! EXP-1063: the demo is drawn by the dialog's OWN parts, in the dialog's
-//! order — the glass rows, the shared account picker over
-//! `device_account_options` (no logins reported, so each agent contributes
-//! its ambient row), `AgentDefaultsGroup` with real selects, the "Workflow
+//! order — the glass rows, `AgentDefaultsGroup` with real selects, the "Workflow
 //! settings" `sub_shell_row` opening `device_settings::render_workflow_page`
 //! inside a `SubShellHost`, then Update and the Remove row. The dialog view
 //! itself is bound to a synced device row and the store, so the entry owns a
@@ -32,14 +30,12 @@ use coding::CodingAgent;
 
 use crate::coding_selects::{
     agent_icon, choice_select, effort_choices_for, model_choices_for, workflow_model_choices_for,
-    AccountTrigger, ChoiceSelect, SUBAGENT_MODEL_CHOICES,
+    ChoiceSelect, SUBAGENT_MODEL_CHOICES,
 };
 use crate::controls::{glass_input, WebControl as _};
 use crate::device_settings::{choice_label, render_workflow_page, workflow_defaults_for};
 use crate::icons::registry;
-use crate::launch_options::{
-    account_key, device_account_options, AgentDefaultsGroup, AgentPill, DefaultsToggle,
-};
+use crate::launch_options::{AgentDefaultsGroup, AgentPill, DefaultsToggle};
 use crate::sub_shell::{
     focus_back_on_open, sub_shell_row, SubShellHost, SubShellNav, SubShellPage, SubShellProps,
 };
@@ -126,41 +122,6 @@ impl DeviceSettingsDemo {
             nav: SubShellNav::new(),
             back_focus: cx.focus_handle(),
         }
-    }
-
-    fn account_row(&self, cx: &mut Context<Self>) -> Div {
-        let settings = coding::Settings {
-            default_agent: self.default_agent,
-            ..coding::Settings::default()
-        };
-        let options = device_account_options(
-            &Default::default(),
-            &Default::default(),
-            &settings,
-            &CodingAgent::ALL,
-        );
-        let current = account_key(self.default_agent, None);
-        let view = cx.entity().downgrade();
-        surface::glass_group_rows(vec![surface::glass_picker_row(
-            "Default account",
-            None,
-            crate::coding_selects::account_picker(
-                "sg-device-default-account",
-                &options,
-                Some(current.as_str()),
-                AccountTrigger::Row,
-                move |option, _, cx| {
-                    let agent = option.agent;
-                    view.update(cx, |this, cx| {
-                        this.default_agent = agent;
-                        cx.notify();
-                    })
-                    .ok();
-                },
-                cx,
-            ),
-            cx,
-        )])
     }
 
     fn defaults_group(&self, cx: &mut Context<Self>) -> Div {
@@ -300,7 +261,6 @@ impl Render for DeviceSettingsDemo {
             .gap_2()
             .child(surface::glass_group_rows(vec![identity_row]))
             .child(surface::glass_group_rows(vec![default_row]))
-            .child(self.account_row(cx))
             .child(self.defaults_group(cx))
             .child(self.update_section(cx))
             .child(self.remove_row());

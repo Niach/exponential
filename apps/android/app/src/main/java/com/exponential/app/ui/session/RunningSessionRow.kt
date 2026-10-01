@@ -65,7 +65,7 @@ internal fun RunningSessionRow(
     // EXP-1068: glyphs drawn right after the state dot (the "needs you" red
     // dot, the duplicate-live warning).
     dotAccessory: (@Composable RowScope.() -> Unit)? = null,
-    // EXP-1068: the run's account when it is not the machine's default for
+    // EXP-1068: the run's account when it is not the machine's last used for
     // its agent — the byline then ends `· account <label>`.
     accountLabel: String? = null,
 ) {

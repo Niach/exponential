@@ -34,9 +34,10 @@ final class LaunchOptionsState {
     /// EXP-481: the resume offer's latch — defaults ON, only the user flips
     /// it; eligibility (`resumeCandidate`) is the composer's to compute.
     var resume = true
-    /// EXP-825: the picked login profile id, `""` = the machine's active
-    /// login (never sent). Reset on every device or agent change — profiles
-    /// are per machine and per agent.
+    /// EXP-825: the picked login profile id, sent verbatim (`system` = the
+    /// ambient login); `""` = unnamed, the machine's last used login (sent as
+    /// no account). Reset on every device or agent change — profiles are per
+    /// machine and per agent.
     var account = ""
 
     /// The machine the options currently reflect (EXP-437).
@@ -94,18 +95,18 @@ final class LaunchOptionsState {
             agent = available.first ?? "claude"
         }
         applyAgentDefaults(for: agent, device: device)
-        // EXP-872: the machine's default ACCOUNT decides the agent too — the
-        // options list is every login it reports and the default is its first
-        // row. Only when that agent is actually runnable here: a login for an
-        // agent the machine cannot start is still a login, but it is not a
-        // seed.
-        if let option = AccountOptions.defaultOption(accountOptions(on: device)),
+        // EXP-1158: the machine's LAST USED login decides the agent too —
+        // the options list is every login it reports and the last used one is
+        // its first row. Only when that agent is actually runnable here: a
+        // login for an agent the machine cannot start is still a login, but it
+        // is not a seed. The id lands VERBATIM (`system` included).
+        if let option = AccountOptions.lastUsed(accountOptions(on: device)),
            available.contains(option.agent) {
             if option.agent != agent {
                 agent = option.agent
                 applyAgentDefaults(for: agent, device: device)
             }
-            account = option.id == Self.systemProfileId ? "" : option.id
+            account = option.id
         }
         lastSeededDeviceId = device?.deviceId
     }
@@ -173,7 +174,7 @@ final class LaunchOptionsState {
     // MARK: - Accounts (EXP-825/EXP-872)
 
     /// EXP-872: the ONE launch list — every signed-in login the picked machine
-    /// reports, across agents, the machine's default first
+    /// reports, across agents, the machine's last used login first
     /// (`AccountOptions.flatten`). Picking one picks its agent too: there is
     /// no separate agent pick any more.
     ///
@@ -188,37 +189,37 @@ final class LaunchOptionsState {
         )
         if !options.isEmpty { return options }
         let agents = availableAgents(for: device)
-        let fallbackDefault = device?.defaultLaunchAgent ?? agents.first
+        let lastUsedAgent = device?.defaultLaunchAgent ?? agents.first
         return agents.map { value in
             AccountOption(
                 id: Self.systemProfileId,
                 agent: value,
                 email: LaunchVocabulary.agentLabel(value),
-                isDeviceDefault: value == fallbackDefault
+                isLastUsed: value == lastUsedAgent
             )
         }
     }
 
     /// Which option the trigger reads as: the exact pick, else that agent's
-    /// first login (the account was reset by an agent clamp), else the first
-    /// row — the picker never renders blank.
+    /// first login (its last used one — what an unnamed start runs on, after
+    /// an agent clamp reset the account), else the first row — the picker
+    /// never renders blank.
     func selectedAccount(in options: [AccountOption]) -> AccountOption? {
-        let id = account.isEmpty ? Self.systemProfileId : account
-        return options.first { $0.agent == agent && $0.id == id }
+        options.first { $0.agent == agent && $0.id == account }
             ?? options.first { $0.agent == agent }
             ?? options.first
     }
 
     /// EXP-872: take BOTH halves of a picked option — the agent reseeds the
     /// per-agent options (`selectAgent` clears the account), then the login
-    /// lands on top. `system` is the ambient login, which a start never names.
+    /// lands on top, VERBATIM: `system` NAMES the ambient login (EXP-1158).
     func selectAccount(_ option: AccountOption, device: SteerDevice?) {
         selectAgent(option.agent, device: device)
-        account = option.id == Self.systemProfileId ? "" : option.id
+        account = option.id
     }
 
-    /// The web's `SYSTEM_PROFILE_ID`: the machine's ambient login, which a
-    /// start never names explicitly.
+    /// The web's `SYSTEM_PROFILE_ID`: the machine's ambient login. A start
+    /// sends it by name; an ABSENT account means the last used login.
     static let systemProfileId = "system"
 
     // MARK: - Wire
@@ -227,7 +228,6 @@ final class LaunchOptionsState {
     /// `resume` is the composer's call: single-issue starts only.
     func buildOptions(resume: Bool? = nil) -> SteerStartOptions {
         let isClaude = agent == "claude"
-        let profile = account.isEmpty || account == Self.systemProfileId ? nil : account
         return SteerStartOptions(
             agent: agent,
             model: model == LaunchVocabulary.cliDefault ? "" : model,
@@ -246,7 +246,9 @@ final class LaunchOptionsState {
                 ? (resume == true ? false : planMode)
                 : nil,
             resume: resume,
-            account: profile
+            // EXP-1158: the picked id VERBATIM (`system` names the ambient
+            // login); blank = unnamed = the machine's last used login.
+            account: AccountOptions.wireAccount(account)
         )
     }
 }

@@ -132,9 +132,9 @@ pub(crate) struct DeviceOption {
     pub(crate) accounts: coding::agent_accounts::AgentAccounts,
     /// EXP-992: its `agent_usage` payload, the picker's limit bars.
     pub(crate) usage: coding::agent_usage::AgentUsageMap,
-    /// Its published launch defaults clamped onto a default `Settings` — what
-    /// names the machine's DEFAULT ACCOUNT (`default_agent` +
-    /// `default_account`), the first row of the picker.
+    /// Its published launch defaults clamped onto a default `Settings` — its
+    /// `default_agent` (the last used agent) names the machine's LAST USED
+    /// login, the first row of the picker.
     pub(crate) settings: coding::Settings,
 }
 
@@ -311,10 +311,10 @@ impl AutomationEditorState {
             self.model = None;
             self.effort = None;
             self.agent = next;
-            // The seeded agent takes the machine's DEFAULT ACCOUNT when that
+            // The seeded agent takes the machine's LAST USED login when that
             // is its login — the composer's seed, `settle_account`.
             let options = self.account_options(cx);
-            let seeded = coding::default_account_option(&options)
+            let seeded = coding::last_used_account_option(&options)
                 .filter(|option| Some(option.agent.id()) == self.agent.as_deref())
                 .and_then(|option| option.wire_account());
             self.account = seeded;
@@ -340,7 +340,8 @@ impl AutomationEditorState {
     }
 
     /// EXP-995: every signed-in login the BOUND machine reports, across
-    /// agents, its default first ([`launch_options::machine_account_options`]);
+    /// agents, its last used login first
+    /// ([`launch_options::machine_account_options`]);
     /// a machine that reports none (or none bound yet) offers one ambient row
     /// per runnable agent, named by the agent, so the row never goes empty.
     fn account_options(&self, cx: &mut App) -> Vec<coding::AccountOption> {
@@ -977,14 +978,15 @@ impl AutomationEditorState {
         cx: &mut Context<V>,
     ) -> Div {
         let options = self.account_options(cx);
-        let current = self.agent.as_deref().map(|agent| {
-            format!(
-                "{agent}:{}",
-                self.account.as_deref().unwrap_or(coding::SYSTEM_PROFILE)
-            )
-        });
-        // The stored pair, else that agent's first login (a profile the
-        // machine no longer reports), else the picker's own default.
+        // EXP-1158: an UNPINNED row (no account) runs on the machine's last
+        // used login of the agent, so it reads as that agent's first login.
+        let current = self
+            .agent
+            .as_deref()
+            .zip(self.account.as_deref())
+            .map(|(agent, account)| format!("{agent}:{account}"));
+        // The stored pair, else that agent's first login (unpinned, or a
+        // profile the machine no longer reports), else the picker's first row.
         let current_key = current
             .filter(|key| options.iter().any(|option| &option.account_option_key() == key))
             .or_else(|| {
@@ -998,12 +1000,12 @@ impl AutomationEditorState {
         // EXP-1021: THE account picker — the shared picker's rows (brand mark
         // + login email, a dead credential's health as the muted line) behind
         // the trigger the other pin rows in this group wear. What the trigger
-        // READS as: the stored pair, else the machine's own default, which is
-        // the picker's first row.
+        // READS as: the stored pair, else the machine's last used login, which
+        // is the picker's first row.
         let current_option = current_key
             .as_deref()
             .and_then(|key| options.iter().find(|option| option.account_option_key() == key))
-            .or_else(|| coding::default_account_option(&options))
+            .or_else(|| coding::last_used_account_option(&options))
             .cloned();
         let picker = match current_option {
             // No login to offer: the row keeps its label and nothing else —
@@ -1201,18 +1203,18 @@ fn settle_seed_agent(
 }
 
 /// EXP-995: the account pin for `agent` on a NEWLY bound device: the
-/// machine's default login when it is `agent`'s, else `agent`'s first login
+/// machine's last used login when it is `agent`'s, else `agent`'s first login
 /// there — exactly the row the account picker would DISPLAY for that agent
-/// ([`AutomationEditorState::render_launch_pins`]'s fallback), on the
-/// wire (the ambient login = `None`). `None` too when nothing of `agent`'s
-/// is runnable there.
+/// ([`AutomationEditorState::render_launch_pins`]'s fallback), its id
+/// verbatim on the wire (EXP-1158: `system` names the ambient login). `None`
+/// when nothing of `agent`'s is runnable there.
 fn settle_device_account(
     agent: Option<&str>,
     options: &[coding::AccountOption],
 ) -> Option<String> {
     let agent = agent?;
     let of_agent = |option: &&coding::AccountOption| option.agent.id() == agent;
-    coding::default_account_option(options)
+    coding::last_used_account_option(options)
         .filter(of_agent)
         .or_else(|| options.iter().find(of_agent))
         .and_then(|option| option.wire_account())
@@ -1252,7 +1254,7 @@ pub(crate) fn automation_devices(cx: &App) -> Vec<DeviceOption> {
                 .filter(|agent| agents.contains(agent));
             // EXP-995: the published defaults clamped onto a default
             // Settings (the same clamp `device_settings::baseline_for` runs
-            // for a remote row) — what names the machine's default account.
+            // for a remote row) — what names the machine's last used login.
             let mut settings = coding::Settings::default();
             if let Some(patch) = launch_defaults
                 .as_ref()
@@ -1343,11 +1345,11 @@ mod tests {
     /// pin from the NEW machine, to the row the picker would display.
     #[test]
     fn a_device_switch_reseeds_the_account_from_the_new_machine() {
-        let option = |agent: &str, id: &str, is_device_default: bool| coding::AccountOption {
+        let option = |agent: &str, id: &str, is_last_used: bool| coding::AccountOption {
             id: id.to_string(),
             agent: coding::CodingAgent::parse(agent).expect("contract agent"),
             email: id.to_string(),
-            is_device_default,
+            is_last_used,
             health: coding::Health::Ok,
             limits: None,
         };
@@ -1356,13 +1358,16 @@ mod tests {
             option("claude", "home", false),
             option("claude", "side", false),
         ];
-        // The new machine's default login is the agent's own: the pin.
+        // The new machine's last used login is the agent's own: the pin.
         assert_eq!(settle_device_account(Some("codex"), &options), Some("work".to_string()));
         // Another agent: its FIRST login there — what the picker shows.
         assert_eq!(settle_device_account(Some("claude"), &options), Some("home".to_string()));
-        // The ambient login rides the wire as `None`.
+        // EXP-1158: the ambient login is NAMED on the wire.
         let ambient = vec![option("claude", coding::SYSTEM_PROFILE, true)];
-        assert_eq!(settle_device_account(Some("claude"), &ambient), None);
+        assert_eq!(
+            settle_device_account(Some("claude"), &ambient),
+            Some(coding::SYSTEM_PROFILE.to_string())
+        );
         // Nothing of the agent's runnable there, or no agent: no pin.
         assert_eq!(settle_device_account(Some("codex"), &ambient), None);
         assert_eq!(settle_device_account(None, &options), None);

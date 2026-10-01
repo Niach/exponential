@@ -19,7 +19,7 @@ class AutomationPinSeedTest {
     private fun login(id: String, email: String, active: Boolean = false) =
         AgentAccountProfile(id = id, label = id, signedIn = true, email = email, active = active, health = "ok")
 
-    /** Laptop: claude (work = active, home) + codex (main); default = codex/main. */
+    /** Laptop: claude (work = active, home) + codex (main); last used = codex/main. */
     private val laptop = SteerDevice(
         deviceId = "laptop",
         agents = listOf("claude", "codex"),
@@ -30,17 +30,17 @@ class AutomationPinSeedTest {
             ),
             "codex" to AgentAccount(signedIn = true, profiles = listOf(login("main", "codex@x.test", active = true))),
         ),
-        launchDefaults = DeviceLaunchDefaults(defaultAgent = "codex", defaultAccount = "main"),
+        launchDefaults = DeviceLaunchDefaults(defaultAgent = "codex"),
     )
 
-    /** Server: claude only, ONE login (`srv`), which is its default. */
+    /** Server: claude only, ONE login (`srv`), which is its last used one. */
     private val server = SteerDevice(
         deviceId = "server",
         agents = listOf("claude"),
         agentAccounts = mapOf(
             "claude" to AgentAccount(signedIn = true, profiles = listOf(login("srv", "srv@x.test", active = true))),
         ),
-        launchDefaults = DeviceLaunchDefaults(defaultAgent = "claude", defaultAccount = "srv"),
+        launchDefaults = DeviceLaunchDefaults(defaultAgent = "claude"),
     )
 
     /** Codex-only box, reporting no logins at all (ambient `system` rows). */
@@ -60,7 +60,7 @@ class AutomationPinSeedTest {
     }
 
     @Test
-    fun `an unset pin seeds the machine's default account`() {
+    fun `an unset pin seeds the machine's last used login`() {
         val seeded = seedAutomationPin(AutomationDraft(deviceId = "laptop"), laptop, deviceSwitched = false)
         assertEquals(
             AutomationDraft(deviceId = "laptop", agent = "codex", account = "main", model = "", effort = ""),
@@ -77,20 +77,21 @@ class AutomationPinSeedTest {
     }
 
     @Test
-    fun `a device switch to a machine without the agent seeds its default account`() {
+    fun `a device switch to a machine without the agent seeds its last used login`() {
         val seeded = seedAutomationPin(pinned.copy(deviceId = "box"), codexBox, deviceSwitched = true)
         assertEquals(
-            AutomationDraft(deviceId = "box", agent = "codex", account = "", model = "", effort = ""),
+            AutomationDraft(deviceId = "box", agent = "codex", account = "system", model = "", effort = ""),
             seeded,
         )
     }
 
     @Test
-    fun `a device switch onto an ambient login stores no profile id`() {
-        // Codex on the laptop → the codex box, which reports no profiles:
-        // the pin becomes the `system` login, which stores as NULL.
+    fun `a device switch onto an ambient login pins it by name`() {
+        // Codex on the laptop → the codex box, which reports no profiles: the
+        // pin becomes the `system` login, stored VERBATIM (EXP-1158: `system`
+        // names the ambient login; NULL would mean the last used one).
         val codexPin = AutomationDraft(deviceId = "laptop", agent = "codex", account = "main", model = "gpt-5")
         val seeded = seedAutomationPin(codexPin.copy(deviceId = "box"), codexBox, deviceSwitched = true)
-        assertEquals(codexPin.copy(deviceId = "box", account = ""), seeded)
+        assertEquals(codexPin.copy(deviceId = "box", account = "system"), seeded)
     }
 }

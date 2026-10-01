@@ -125,33 +125,27 @@ public struct DeviceWorkflowDefaults: Decodable, Equatable, Sendable {
 }
 
 public struct DeviceLaunchDefaults: Decodable, Equatable, Sendable {
-    /// The machine's configured default agent. Clamped to what it actually
-    /// runs by the reader — a signed-out default must not preselect.
+    /// EXP-1158: the machine's LAST USED agent — the agent a person last
+    /// started or switched a run on there. Only the DEVICE writes it; clients
+    /// read it (`AccountOptions.flatten` leads with its active login) and never
+    /// send it back. Clamped to what the machine actually runs by the reader.
     public let defaultAgent: String?
-    /// EXP-872: the machine's default ACCOUNT — a login profile id of
-    /// `defaultAgent` (`system` = its ambient login). "Default agent" became
-    /// "default account" on every client: the setting stores this, and the
-    /// agent derives from it (`AccountOptions.flatten`). Absent on an older
-    /// desktop, which is exactly the fallback ladder flatten already walks.
-    public let defaultAccount: String?
     public let agents: [String: AgentLaunchDefaults]?
     /// EXP-1029: the workflow model defaults; nil on an older machine.
     public let workflow: DeviceWorkflowDefaults?
 
     public init(
         defaultAgent: String? = nil,
-        defaultAccount: String? = nil,
         agents: [String: AgentLaunchDefaults]? = nil,
         workflow: DeviceWorkflowDefaults? = nil
     ) {
         self.defaultAgent = defaultAgent
-        self.defaultAccount = defaultAccount
         self.agents = agents
         self.workflow = workflow
     }
 
     private enum CodingKeys: String, CodingKey {
-        case defaultAgent, defaultAccount, agents, workflow
+        case defaultAgent, agents, workflow
     }
 
     /// Lenient like the rest of the device payload: a field of a shape this
@@ -160,7 +154,6 @@ public struct DeviceLaunchDefaults: Decodable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         defaultAgent = try? c.decodeIfPresent(String.self, forKey: .defaultAgent)
-        defaultAccount = try? c.decodeIfPresent(String.self, forKey: .defaultAccount)
         agents = try? c.decodeIfPresent([String: AgentLaunchDefaults].self, forKey: .agents)
         workflow = try? c.decodeIfPresent(DeviceWorkflowDefaults.self, forKey: .workflow)
     }
@@ -629,7 +622,7 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// affordances — an old build would never pick the command up.
     public var canAgentLogin: Bool { caps?.contains("agent-login") == true }
 
-    /// EXP-437: the machine's configured default agent, clamped to what it can
+    /// EXP-437/EXP-1158: the machine's LAST USED agent, clamped to what it can
     /// actually RUN. Nil when it advertises none (older desktop) or names an
     /// agent it no longer runs — the caller keeps its own choice then.
     public var defaultLaunchAgent: String? {
@@ -763,8 +756,8 @@ public struct SteerStartOptions: Sendable {
     /// never carry it (the server rejects it there).
     public let resume: Bool?
     /// EXP-825 (EXP-792): the agent login profile to launch under — one of
-    /// the machine's `agentAccounts[agent].profiles` ids. Nil = the
-    /// machine's active login (the `system` profile is never sent).
+    /// the machine's `agentAccounts[agent].profiles` ids, `system` = the
+    /// ambient login by name. Nil = the machine's last used login (EXP-1158).
     public let account: String?
 
     public init(

@@ -329,15 +329,13 @@ class AgentAccountsRowsTest {
             active = active,
             profileLabel = "Work",
         )
-        // EXP-862: a dead credential is never "set as default" — it would not
-        // work. EXP-944: it IS removable, though; the removal deletes a profile
+        // EXP-944: a dead credential IS removable; the removal deletes a profile
         // dir and the credential's state never decided whether that is possible.
         val signedOut = chip(signedIn = false, active = true, health = AgentHealth.SignedOut)
         assertEquals(
             listOf("Sign in", "Remove account"),
             AgentAccountsRows.chipActions(
                 signedOut,
-                canSwitchAccount = true,
                 canRemoveAccount = true,
                 canAgentLogin = true,
             ),
@@ -347,7 +345,6 @@ class AgentAccountsRowsTest {
             listOf("Sign in", "Remove account"),
             AgentAccountsRows.chipActions(
                 expired,
-                canSwitchAccount = true,
                 canRemoveAccount = true,
                 canAgentLogin = true,
             ),
@@ -363,33 +360,22 @@ class AgentAccountsRowsTest {
                     health = AgentHealth.SignedOut,
                     profileId = "system",
                 ),
-                canSwitchAccount = true,
                 canRemoveAccount = true,
                 canAgentLogin = true,
             ),
         )
-        // Healthy and not the machine's login: both entries.
-        val other = chip(signedIn = true, active = false, health = AgentHealth.Ok)
-        assertEquals(
-            listOf("Set as default", "Remove account"),
-            AgentAccountsRows.chipActions(
-                other,
-                canSwitchAccount = true,
-                canRemoveAccount = true,
-                canAgentLogin = true,
-            ),
-        )
-        // Healthy and already the default: only the removal.
-        val current = chip(signedIn = true, active = true, health = AgentHealth.Ok)
-        assertEquals(
-            listOf("Remove account"),
-            AgentAccountsRows.chipActions(
-                current,
-                canSwitchAccount = true,
-                canRemoveAccount = true,
-                canAgentLogin = true,
-            ),
-        )
+        // EXP-1158: healthy, last used or not, the menu is the same — there
+        // is no "make it the default" entry any more.
+        listOf(true, false).forEach { active ->
+            assertEquals(
+                listOf("Remove account"),
+                AgentAccountsRows.chipActions(
+                    chip(signedIn = true, active = active, health = AgentHealth.Ok),
+                    canRemoveAccount = true,
+                    canAgentLogin = true,
+                ),
+            )
+        }
     }
 
     @Test
@@ -402,53 +388,46 @@ class AgentAccountsRowsTest {
             active = active,
         )
         val other = chip("work", active = false)
-        // `agent_profile_use` shipped in desktop/CLI 0.14.38 and
-        // `agent_profile_remove` in EXP-862; the server refuses either without
-        // its cap, so an older machine simply does not offer that entry.
+        // `agent_profile_remove` shipped in EXP-862; the server refuses it
+        // without its cap, so an older machine simply does not offer it.
         assertEquals(
             listOf("Remove account"),
             AgentAccountsRows.chipActions(
                 other,
-                canSwitchAccount = false,
                 canRemoveAccount = true,
                 canAgentLogin = true,
             ),
         )
-        assertEquals(
-            listOf("Set as default"),
+        assertTrue(
             AgentAccountsRows.chipActions(
                 other,
-                canSwitchAccount = true,
                 canRemoveAccount = false,
                 canAgentLogin = true,
-            ),
+            ).isEmpty(),
         )
         // The AMBIENT login is the agent CLI's own config dir — not ours to
         // delete, whatever the machine advertises.
         assertTrue(
             AgentAccountsRows.chipActions(
                 chip("system", active = true),
-                canSwitchAccount = true,
                 canRemoveAccount = true,
                 canAgentLogin = true,
             ).isEmpty(),
         )
         // `agent_profile_remove` ALSO needs `agent-login` server-side: a
         // machine advertising `account-remove` without it offers no removal.
-        assertEquals(
-            listOf("Set as default"),
+        assertTrue(
             AgentAccountsRows.chipActions(
                 other,
-                canSwitchAccount = true,
                 canRemoveAccount = true,
                 canAgentLogin = false,
-            ),
+            ).isEmpty(),
         )
     }
 
     // EXP-1137: a build with the sign-out body offers "Sign out" on every
     // signed-in login and "Remove account" on the ambient one too; the fixed
-    // order ×4 is sign in, set as default, sign out, remove.
+    // order ×4 is sign in, sign out, remove.
     @Test
     fun `a build that signs out offers it and removes the ambient login`() {
         fun chip(
@@ -467,15 +446,14 @@ class AgentAccountsRowsTest {
         val all = { row: AgentProfileUsageRow ->
             AgentAccountsRows.chipActions(
                 row,
-                canSwitchAccount = true,
                 canRemoveAccount = true,
                 canAgentLogin = true,
                 canSignOutAccount = true,
             )
         }
-        // A named login, healthy, not the default: every entry but the sign-in.
+        // A named login, healthy: every entry but the sign-in.
         assertEquals(
-            listOf("Set as default", "Sign out", "Remove account"),
+            listOf("Sign out", "Remove account"),
             all(chip(signedIn = true, active = false, health = AgentHealth.Ok)),
         )
         // The ambient login, healthy and active (the screenshot's first row):
@@ -510,7 +488,6 @@ class AgentAccountsRowsTest {
             listOf("Sign out"),
             AgentAccountsRows.chipActions(
                 chip(signedIn = true, active = false, health = AgentHealth.Ok),
-                canSwitchAccount = false,
                 canRemoveAccount = false,
                 canAgentLogin = true,
                 canSignOutAccount = true,
@@ -519,7 +496,6 @@ class AgentAccountsRowsTest {
         assertTrue(
             AgentAccountsRows.chipActions(
                 chip(signedIn = true, active = true, health = AgentHealth.Ok, profileId = "system"),
-                canSwitchAccount = true,
                 canRemoveAccount = true,
                 canAgentLogin = false,
                 canSignOutAccount = true,

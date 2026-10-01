@@ -1127,7 +1127,6 @@ pub(crate) fn usage_caption(state: UsageState, as_of: Option<&str>) -> Option<St
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ChipAction {
     SignIn,
-    SetDefault,
     SignOut,
     Remove,
 }
@@ -1136,7 +1135,6 @@ impl ChipAction {
     pub(crate) fn label(self) -> &'static str {
         match self {
             ChipAction::SignIn => "Sign in",
-            ChipAction::SetDefault => "Set as default",
             ChipAction::SignOut => "Sign out",
             ChipAction::Remove => "Remove account",
         }
@@ -1145,7 +1143,6 @@ impl ChipAction {
     pub(crate) fn icon(self) -> crate::icons::ExpIcon {
         match self {
             ChipAction::SignIn => crate::icons::registry::UI_SIGN_IN,
-            ChipAction::SetDefault => crate::icons::registry::UI_SWAP,
             ChipAction::SignOut => crate::icons::registry::UI_SIGN_OUT,
             ChipAction::Remove => crate::icons::registry::UI_DELETE,
         }
@@ -1161,7 +1158,6 @@ impl ChipAction {
 /// in this fixed order:
 ///
 /// * a sign-in: signed out, or a credential that expired here;
-/// * make it the default: healthy and not the machine's login (`can_switch`);
 /// * EXP-1137, sign out: signed in, on a build with the sign-out body
 ///   (`can_sign_out`) — the row stays;
 /// * remove: a NAMED profile on a build with `can_remove` (EXP-944: signed
@@ -1176,9 +1172,7 @@ impl ChipAction {
 pub(crate) fn chip_actions(
     signed_in: bool,
     health: coding::agent_accounts::Health,
-    active: bool,
     profile_id: &str,
-    can_switch: bool,
     can_remove: bool,
     can_sign_out: bool,
 ) -> Vec<ChipAction> {
@@ -1187,9 +1181,6 @@ pub(crate) fn chip_actions(
     let mut out = Vec::new();
     if signs_in {
         out.push(ChipAction::SignIn);
-    }
-    if !signs_in && !active && can_switch {
-        out.push(ChipAction::SetDefault);
     }
     if signed_in && can_sign_out {
         out.push(ChipAction::SignOut);
@@ -2208,93 +2199,83 @@ mod tests {
         // named profile is exactly what people want gone, and the removal is
         // a profile-dir delete the credential's state never gated.
         assert_eq!(
-            chip_actions(false, Health::SignedOut, false, "0a1b", true, true, false),
+            chip_actions(false, Health::SignedOut, "0a1b", true, false),
             vec![ChipAction::SignIn, ChipAction::Remove]
         );
         // Revoked here: the same pair, even though the CLI reports in.
         assert_eq!(
-            chip_actions(true, Health::NeedsRelogin, true, "0a1b", true, true, false),
+            chip_actions(true, Health::NeedsRelogin, "0a1b", true, false),
             vec![ChipAction::SignIn, ChipAction::Remove]
-        );
-        // A dead login is never "set as default": it would not work.
-        assert!(
-            !chip_actions(false, Health::SignedOut, false, "0a1b", true, true, false)
-                .contains(&ChipAction::SetDefault)
         );
         // The AMBIENT login ends at the sign-in on an EXP-862 build: its
         // config dir is the CLI's own, and that build cannot sign it out.
         assert_eq!(
-            chip_actions(false, Health::SignedOut, true, SYSTEM_PROFILE_ID, true, true, false),
+            chip_actions(false, Health::SignedOut, SYSTEM_PROFILE_ID, true, false),
             vec![ChipAction::SignIn]
         );
         // An older machine without the remove cap keeps its menu of one.
         assert_eq!(
-            chip_actions(false, Health::SignedOut, false, "0a1b", true, false, false),
+            chip_actions(false, Health::SignedOut, "0a1b", false, false),
             vec![ChipAction::SignIn]
         );
-        // Healthy, not the machine's default.
+        // Healthy: only the removal (EXP-1158: no entry picks a start's login).
         assert_eq!(
-            chip_actions(true, Health::Ok, false, "0a1b", true, true, false),
-            vec![ChipAction::SetDefault, ChipAction::Remove]
-        );
-        // Healthy and already the default: only the removal.
-        assert_eq!(
-            chip_actions(true, Health::Ok, true, "0a1b", true, true, false),
+            chip_actions(true, Health::Ok, "0a1b", true, false),
             vec![ChipAction::Remove]
         );
         // The ambient login is not removable on an EXP-862 build.
         assert!(
-            chip_actions(true, Health::Ok, true, SYSTEM_PROFILE_ID, true, true, false).is_empty()
+            chip_actions(true, Health::Ok, SYSTEM_PROFILE_ID, true, false).is_empty()
         );
         // An older machine advertises no cap: the chip is a statement.
-        assert!(chip_actions(true, Health::Ok, false, "0a1b", false, false, false).is_empty());
+        assert!(chip_actions(true, Health::Ok, "0a1b", false, false).is_empty());
     }
 
     /// EXP-1137: a build with the sign-out body offers "Sign out" on every
     /// signed-in login and "Remove account" on the ambient one too — the
-    /// fixed order ×4 is sign in, set as default, sign out, remove (web
+    /// fixed order ×4 is sign in, sign out, remove (web
     /// `accountChipActions`, iOS `DeviceLogins`, Android `chipActions`).
     #[test]
     fn a_build_that_signs_out_offers_it_and_removes_the_ambient_login() {
         use coding::agent_accounts::Health;
-        // A named login, healthy, not the default: every entry but the sign-in.
+        // A named login, healthy: every entry but the sign-in.
         assert_eq!(
-            chip_actions(true, Health::Ok, false, "0a1b", true, true, true),
-            vec![ChipAction::SetDefault, ChipAction::SignOut, ChipAction::Remove]
+            chip_actions(true, Health::Ok, "0a1b", true, true),
+            vec![ChipAction::SignOut, ChipAction::Remove]
         );
         // The ambient login, healthy and active: a sign-out and a removal
         // instead of no menu at all.
         assert_eq!(
-            chip_actions(true, Health::Ok, true, SYSTEM_PROFILE_ID, true, true, true),
+            chip_actions(true, Health::Ok, SYSTEM_PROFILE_ID, true, true),
             vec![ChipAction::SignOut, ChipAction::Remove]
         );
         // The ambient login, signed out: the sign-in and the removal that
         // hides it. A blank id spells the same login.
         assert_eq!(
-            chip_actions(false, Health::SignedOut, true, SYSTEM_PROFILE_ID, true, true, true),
+            chip_actions(false, Health::SignedOut, SYSTEM_PROFILE_ID, true, true),
             vec![ChipAction::SignIn, ChipAction::Remove]
         );
         assert_eq!(
-            chip_actions(false, Health::SignedOut, true, "", true, true, true),
+            chip_actions(false, Health::SignedOut, "", true, true),
             vec![ChipAction::SignIn, ChipAction::Remove]
         );
         // A revoked credential still signs out: that is how it leaves.
         assert_eq!(
-            chip_actions(true, Health::NeedsRelogin, false, "0a1b", true, true, true),
+            chip_actions(true, Health::NeedsRelogin, "0a1b", true, true),
             vec![ChipAction::SignIn, ChipAction::SignOut, ChipAction::Remove]
         );
         // A signed-out named login has nothing to sign out of.
         assert_eq!(
-            chip_actions(false, Health::SignedOut, false, "0a1b", true, true, true),
+            chip_actions(false, Health::SignedOut, "0a1b", true, true),
             vec![ChipAction::SignIn, ChipAction::Remove]
         );
         // The sign-out cap alone never removes a NAMED profile.
         assert_eq!(
-            chip_actions(true, Health::Ok, false, "0a1b", false, false, true),
+            chip_actions(true, Health::Ok, "0a1b", false, true),
             vec![ChipAction::SignOut]
         );
         assert!(ChipAction::SignOut.destructive() && ChipAction::Remove.destructive());
-        assert!(!ChipAction::SignIn.destructive() && !ChipAction::SetDefault.destructive());
+        assert!(!ChipAction::SignIn.destructive());
         assert_eq!(ChipAction::SignOut.label(), "Sign out");
     }
 

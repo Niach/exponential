@@ -24,8 +24,8 @@ struct RunningSessionRow<Footer: View>: View {
     var expandable: Bool = false
     var expanded: Bool = true
     var onToggle: (() -> Void)?
-    /// EXP-1068: the workflow marks (needs-you dot, duplicate warning, a
-    /// non-default account). Empty on every other surface.
+    /// EXP-1068: the workflow marks (needs-you dot, duplicate warning, an
+    /// account off the machine's last used one). Empty on every other surface.
     var marks = RunningSessionRowMarks()
     @ViewBuilder let footer: () -> Footer
 
@@ -173,7 +173,7 @@ struct RunningSessionRowMarks {
     /// Two live author (or review) runs on this node.
     var duplicateLive = false
     /// The `account <label>` caption, only on a workflow run off its
-    /// machine's default (`nonDefaultAccount`).
+    /// machine's last used login (`offLastUsedAccount`).
     var account: String?
 }
 
@@ -206,14 +206,14 @@ extension RunningSessionRowMarks {
     }
 
     /// EXP-1108: `account <label>` on a WORKFLOW run that does not spend its
-    /// host's default account for its agent (the shared rule,
+    /// host's last used login for its agent (the shared rule,
     /// `SessionTree.workflowRunAccountCaption`). Nil on every other run, and
     /// when the host is not synced to this phone.
     ///
     /// `currentUserId` = the signed-in user: the rule prefers the row whose
     /// `userId` is the session owner's, and the caller's OWN device rows
     /// carry no `owner`, so it is what names them (see `markDevice`).
-    static func nonDefaultAccount(
+    static func offLastUsedAccount(
         _ session: CodingSessionEntity, devices: [SteerDevice]?, currentUserId: String?
     ) -> String? {
         SessionTree.workflowRunAccountCaption(
@@ -234,16 +234,11 @@ extension RunningSessionRowMarks {
     /// stamped with the signed-in user. Without that, the "same device id
     /// prefers the session owner's row" rule could never pick an own row and
     /// fell to the first match, possibly a teammate's shared copy of the same
-    /// machine with other defaults, giving a wrong or missing caption.
+    /// machine with other logins, giving a wrong or missing caption.
     private static func markDevice(_ device: SteerDevice, currentUserId: String?) -> SessionTree.MarkDevice {
         SessionTree.MarkDevice(
             deviceId: device.deviceId,
             userId: device.owner?.id ?? currentUserId,
-            launchDefaults: device.launchDefaults.map {
-                SessionTree.MarkLaunchDefaults(
-                    defaultAgent: $0.defaultAgent, defaultAccount: $0.defaultAccount
-                )
-            },
             agentAccounts: device.agentAccounts?.mapValues { account in
                 SessionTree.MarkAgentAccount(profiles: account.profiles?.map {
                     SessionTree.MarkProfile(id: $0.id, label: $0.label, active: $0.active)

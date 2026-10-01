@@ -6,7 +6,7 @@
 //!
 //! | Card   | Contents                                                     |
 //! |--------|--------------------------------------------------------------|
-//! | Agents | Default agent, then one TAB per agent: CLI path + model +    |
+//! | Agents | One TAB per agent: CLI path + model +                        |
 //! |        | effort, the agent's own toggles — Claude: ultracode, plan    |
 //! |        | mode; Codex: none (EXP-690: every run bypasses permissions,  |
 //! |        | no toggle). EXP-862: accounts and usage live on the Devices  |
@@ -19,10 +19,11 @@
 //!
 //! EXP-694: the pane wears the SHARED grouped agent picker
 //! ([`crate::launch_options::AgentDefaultsGroup`]) — the exact component the
-//! Device settings dialog and the Start-coding dialog render, with the
-//! default agent on the shared [`crate::coding_selects::agent_picker`] — and
-//! AUTOSAVES like both of them: no Save button, pickers and switches write on
-//! change, a typed CLI path after [`PATH_SAVE_DEBOUNCE`] (or on blur).
+//! Device settings dialog and the Start-coding dialog render — and AUTOSAVES
+//! like both of them: no Save button, pickers and switches write on change, a
+//! typed CLI path after [`PATH_SAVE_DEBOUNCE`] (or on blur). EXP-1158: there
+//! is no default agent or account to pick — every start runs on the login
+//! last used on this machine.
 //!
 //! Settings persist through [`crate::coding_flow::CodingHub`] to the local
 //! per-install `settings.json` — never synced. Saving re-runs the doctor
@@ -75,15 +76,10 @@ const PATH_SAVE_DEBOUNCE: Duration = Duration::from_millis(800);
 // ---------------------------------------------------------------------------
 
 pub struct AgentsPane {
-    /// The default agent the Start-coding dialog preselects (EXP-201) —
-    /// EXP-862: picked with the SHARED [`agent_picker`], so the pane holds
-    /// the value itself instead of a one-off choice select.
+    /// EXP-1158: the LAST USED agent (`Settings.default_agent`), read-only
+    /// here — the launcher stamps it. The workflow pair speaks its
+    /// vocabulary.
     default_agent: CodingAgent,
-    /// EXP-872: the DEFAULT ACCOUNT — the profile id of `default_agent`'s
-    /// logins this install launches as. "Default agent" became "default
-    /// account": the picker offers the machine's logins and the agent above
-    /// derives from the pick.
-    default_account: Option<String>,
     claude_input: Entity<InputState>,
     model_select: ChoiceSelect,
     effort_select: ChoiceSelect,
@@ -96,7 +92,7 @@ pub struct AgentsPane {
     /// EXP-1020: the "Workflow settings" page's pair — what a workflow
     /// started on this machine is seeded from.
     /// ONE pair per agent, like the model/effort selects: the pair belongs
-    /// to the DEFAULT agent's vocabulary, and the two do not overlap.
+    /// to the last used agent's vocabulary, and the two do not overlap.
     workflow_model_select: ChoiceSelect,
     workflow_strong_model_select: ChoiceSelect,
     codex_workflow_model_select: ChoiceSelect,
@@ -237,7 +233,6 @@ impl AgentsPane {
 
         let mut this = Self {
             default_agent: defaults.default_agent,
-            default_account: defaults.default_account.clone(),
             claude_input,
             model_select,
             effort_select,
@@ -311,7 +306,6 @@ impl AgentsPane {
             input.set_value(settings.codex_path.clone(), window, cx)
         });
         self.default_agent = settings.default_agent;
-        self.default_account = settings.default_account.clone();
         // The persisted values are load-normalized into the choice sets, so
         // every set_selected_value below finds its row.
         for (select, value) in [
@@ -373,14 +367,12 @@ impl AgentsPane {
         };
         let mut drafted = self.synced.clone().unwrap_or_default();
         let owned = Settings {
-            default_agent: self.default_agent,
-            default_account: self.default_account.clone(),
             claude_path: value(&self.claude_input, &defaults.claude_path),
             codex_path: value(&self.codex_input, &defaults.codex_path),
             claude_model: selected(&self.model_select, cx),
             claude_effort: selected(&self.effort_select, cx),
             claude_subagent_model: selected(&self.subagent_model_select, cx),
-            // The stored pair is the DEFAULT agent's.
+            // The stored pair is the last used agent's.
             workflow_model: selected(&self.workflow_selects(self.default_agent).0, cx),
             workflow_strong_model: selected(&self.workflow_selects(self.default_agent).1, cx),
             codex_model: selected(&self.codex_model_select, cx),
@@ -507,8 +499,8 @@ impl AgentsPane {
         );
         // EXP-1020: `Opus · Fable` — the same display labels the Model rows
         // show, never the raw aliases.
-        // The pair belongs to the DEFAULT account's agent, so both the
-        // names and the list they are labelled against follow it.
+        // The pair belongs to the last used agent, so both the names and the
+        // list they are labelled against follow it.
         let drafted = self.drafted(cx);
         let workflow_choices = model_choices_for(drafted.default_agent);
         let workflow_summary = SharedString::from(format!(
@@ -576,63 +568,10 @@ impl AgentsPane {
                     },
                 ));
         }
-        // EXP-872: "Default agent" became "Default account" — the ONE shared
-        // account picker over THIS install's logins, across agents. A pick
-        // writes both fields: the agent derives from the login.
-        // EXP-1020: `device_account_options`, so an agent with no login here
-        // still gets an ambient row — otherwise a claude-only install offers
-        // one option, the picker renders it as a plain label, and the
-        // default cannot be changed at all.
-        let pane = cx.entity();
-        let (accounts, usage) = crate::device_settings::own_agent_status(cx);
-        let settings = Settings {
-            default_agent: self.default_agent,
-            default_account: self.default_account.clone(),
-            ..Settings::default()
-        };
-        let options = crate::launch_options::device_account_options(
-            &accounts,
-            &usage,
-            &settings,
-            &CodingAgent::ALL,
-        );
-        let current = crate::launch_options::account_key(
-            self.default_agent,
-            self.default_account.as_deref(),
-        );
-        let default_row = surface::glass_picker_row(
-            "Default account",
-            None,
-            crate::coding_selects::account_picker(
-                "settings-default-account",
-                &options,
-                Some(current.as_str()),
-                crate::coding_selects::AccountTrigger::Row,
-                move |option, _window, cx| {
-                    let agent = option.agent;
-                    let account = option.wire_account();
-                    pane.update(cx, |this, cx| {
-                        this.default_agent = agent;
-                        this.default_account = account;
-                        this.save(cx);
-                        cx.notify();
-                    });
-                },
-                cx,
-            ),
-            cx,
-        );
         // EXP-1020: no "Agents" headline — nothing else shares this page, so
         // the headline only named the page it was already on (the device
         // settings dialog has carried no title over this block since EXP-686).
-        section(cx).child(
-            // 8px between the two groups (EXP-694's group rhythm).
-            v_flex()
-                .w_full()
-                .gap_2()
-                .child(surface::glass_group_rows(vec![default_row]))
-                .child(group.render(cx)),
-        )
+        section(cx).child(group.render(cx))
     }
 
 }

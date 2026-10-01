@@ -4528,8 +4528,9 @@ export function registerExponentialTools(
         // EXP-897: build the new run on top of this issue's open PR.
         stackOnIssueId: z.string().min(1).optional(),
         // EXP-906: the agent account profile on the target device — the
-        // same field steer.startSession takes. Without it an orchestrator
-        // whose default profile is walled had to route around this tool
+        // same field steer.startSession takes (absent = the machine's last
+        // used login, `system` = the ambient one). Without it an orchestrator
+        // whose last used profile is walled had to route around this tool
         // (and lose the parent link) to launch on another account.
         account: z.string().min(1).max(64).optional(),
         // EXP-1082: workflow membership for the frame (honoured only from
@@ -4747,7 +4748,7 @@ export function registerExponentialTools(
     `exponential_devices_list`,
     {
       annotations: READ_ONLY,
-      description: `List your registered machines (desktop app / CLI daemon), plus servers teammates shared with teamId. Pick an online device whose agents includes the agent you want; caps must include resume-run to resume an ended run. agentUsage.<agent> = the machine's DEFAULT login: windows[] (percent + resetsAt), fetchedAt = when those numbers were read, stale: true = the last refresh failed and they are as old as fetchedAt; agentUsageAt = when the device last reported. A session running on another account moves that account's own row under agentAccounts.<agent>.profiles[].usage instead. A live session refreshes only the account it runs on, per turn; once it ends — or a window's resetsAt passes — that login returns to the polled cadence.`,
+      description: `List your registered machines (desktop app / CLI daemon), plus servers teammates shared with teamId. Pick an online device whose agents includes the agent you want; caps must include resume-run to resume an ended run. agentUsage.<agent> = its last used login: windows[] (percent + resetsAt), fetchedAt = when those numbers were read, stale: true = the last refresh failed and they are as old as fetchedAt; agentUsageAt = when the device last reported. A session running on another account moves that account's own row under agentAccounts.<agent>.profiles[].usage instead. A live session refreshes only the account it runs on, per turn; once it ends — or a window's resetsAt passes — that login returns to the polled cadence.`,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
         ...pageInput,
@@ -5396,7 +5397,8 @@ export function registerExponentialTools(
         // nullability contract as automations_update (EXP-707 theme F).
         agent: z.enum(codingAgentValues).nullable().optional(),
         // EXP-995: the agent profile the run spends (`devices.agent_accounts`
-        // lists them); the agent rides beside it.
+        // lists them); the agent rides beside it. EXP-1158: `system` = the
+        // ambient login, null = the machine's last used login.
         account: z.string().max(64).nullable().optional(),
         model: z.string().max(64).nullable().optional(),
         effort: z.string().max(32).nullable().optional(),

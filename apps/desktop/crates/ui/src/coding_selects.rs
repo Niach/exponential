@@ -241,7 +241,7 @@ pub(crate) enum AccountTrigger {
 ///
 /// The trigger and every row read the same way: the agent's brand mark + the
 /// login's EMAIL, never the profile name and never the word "default" — the
-/// device default is simply the first row. A dead credential rides as a muted
+/// last used login is simply the first row. A dead credential rides as a muted
 /// health badge beside the email.
 ///
 /// With exactly ONE option there is nothing to pick, so the trigger collapses
@@ -252,8 +252,8 @@ pub(crate) enum AccountTrigger {
 /// EXP-1030: the SURFACE is THE picker primitive's
 /// ([`crate::picker::account_picker`]) — this function is the trigger and the
 /// row body, nothing else. Every launch surface (the composer's account pin,
-/// the automation editor's, device settings, Settings → Agents) reaches the
-/// primitive through here, so none of them holds a menu of its own any more.
+/// the automation editor's) reaches the primitive through here, so none of
+/// them holds a menu of its own any more.
 pub(crate) fn account_picker(
     id: impl Into<gpui::ElementId>,
     options: &[coding::AccountOption],
@@ -268,7 +268,7 @@ pub(crate) fn account_picker(
     let Some(current) = options
         .iter()
         .find(|option| Some(option.account_option_key().as_str()) == current_key)
-        .or_else(|| coding::default_account_option(options))
+        .or_else(|| coding::last_used_account_option(options))
     else {
         return gpui::div().into_any_element();
     };

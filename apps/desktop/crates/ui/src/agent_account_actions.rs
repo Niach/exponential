@@ -1,6 +1,7 @@
-//! EXP-909 — the three ACCOUNT writes a login row offers, wherever it is
-//! read: make this login the device's default, remove the device's copy of
-//! it, and the way into that device's settings.
+//! EXP-909 — the ACCOUNT writes a login row offers, wherever it is read:
+//! sign it out, remove the device's copy of it, and the way into that
+//! device's settings. EXP-1158: no entry picks the login a start runs on —
+//! every start runs on the login last used on that device.
 //!
 //! They were the Accounts section's (EXP-818/862) until the Devices page
 //! absorbed it: the logins now hang under their own device row
@@ -28,65 +29,6 @@ use crate::usage_bar::{remove_account_confirm, remove_ambient_account_confirm, s
 /// The device row's menu entry AND the login rows' way into it — one string
 /// ×4 (it replaced "Edit" with EXP-862).
 pub(crate) const DEVICE_SETTINGS: &str = "Device settings";
-
-/// EXP-849 — "Set as default": make this login the device's DEFAULT for its
-/// agent. Non-destructive — it moves a device-local pointer and signs nobody
-/// out, which is why it is offered beside (never instead of) the sign-in.
-///
-/// This device writes the pointer directly; another of mine gets the
-/// `agent_profile_use` command on its heartbeat and answers by re-reporting,
-/// so the CHECK moves on the next beat either way.
-pub(crate) fn use_account_here(
-    device_id: String,
-    device_label: String,
-    own: bool,
-    agent: CodingAgent,
-    profile_id: String,
-    window: &mut Window,
-    cx: &mut App,
-) {
-    if own {
-        // The SAME body the `agent_profile_use` command runs
-        // (`coding::use_profile`): same signed-in check, same sentences, same
-        // re-probe — so "Set as default" means one thing whether it was asked
-        // for on this device or from another client.
-        match crate::device_sync::use_agent_profile_here(agent, &profile_id, cx) {
-            Ok(()) => crate::toast::success(
-                format!("{} now runs as this account here.", agent.label()),
-                window,
-                cx,
-            ),
-            Err(err) => crate::toast::error(err, window, cx),
-        }
-        return;
-    }
-    let Some(trpc) = queries::trpc_client(cx) else {
-        return;
-    };
-    let handle = window.window_handle();
-    cx.spawn(async move |cx| {
-        let result = cx
-            .background_executor()
-            .spawn(async move {
-                api::devices::create_agent_profile_use_command(
-                    &trpc,
-                    &device_id,
-                    agent.id(),
-                    &profile_id,
-                )
-            })
-            .await;
-        let _ = handle.update(cx, |_, window, cx| match result {
-            Ok(_) => crate::toast::success(
-                format!("{device_label} will run {} as this account.", agent.label()),
-                window,
-                cx,
-            ),
-            Err(err) => crate::toast::error(err.user_message(), window, cx),
-        });
-    })
-    .detach();
-}
 
 /// EXP-862 — "Remove account": delete the DEVICE's copy of a login (the
 /// profile's config dir, credentials included, and its index row). The ACCOUNT

@@ -14,16 +14,19 @@ import Foundation
 ///    the profile name (`label`), never the word "default". A login reported
 ///    without an address shows its plan; with neither, its profile id (the
 ///    machine has nothing better to say);
-///  - the DEVICE DEFAULT is marked by ORDER (it is first) and by a check, not
-///    by a label: `isDeviceDefault` is true for exactly one option — the
-///    `launchDefaults.defaultAccount` profile of `defaultAgent` when the
-///    device stores one, else that agent's active login, falling back to the
-///    first contract agent's active login, then to the first row. The rest
-///    follow in `AgentAccountsRows.sortDeviceLogins` order;
+///  - the LAST USED login leads, marked by ORDER (it is first) and by a
+///    check, not by a label: `isLastUsed` is true for exactly one option —
+///    `defaultAgent`'s active login, else the first contract agent's active
+///    login, else the first row. The rest follow in
+///    `AgentAccountsRows.sortDeviceLogins` order;
 ///  - selecting an option IMPLIES the agent: there is no separate agent pick,
-///    `agent` rides the option and the launch takes both from it;
-///  - "default agent" settings became "default account": the setting stores a
-///    profile id, and the agent derives from it.
+///    `agent` rides the option and the launch takes both from it.
+///
+/// EXP-1158: last used = per agent, the login a PERSON last started or
+/// switched a run on, on that device (`agent_accounts[agent].profiles[].active`);
+/// the last used agent = `launch_defaults.defaultAgent`. Automations, workflow
+/// nodes, agent-started runs and auto-rotation never move it. A launch naming
+/// no account runs on it; `account: "system"` names the ambient login.
 ///
 /// `limits` are FRACTIONS 0..1 off the usage windows (`percent / 100`):
 /// `fiveHour` = the `session` window, `week` = the `weekly` window, `model` =
@@ -63,8 +66,9 @@ public struct AccountOption: Equatable, Sendable {
     public let agent: String
     /// What the row SAYS beside the brand mark (see the header's fallbacks).
     public let email: String
-    /// Exactly one option per device is the default; it is also listed first.
-    public let isDeviceDefault: Bool
+    /// Exactly one option per device is the last used login; it is also
+    /// listed first.
+    public let isLastUsed: Bool
     /// EXP-849: the device's verdict on the credential — a run started on a
     /// dead login dies on its first call, so the row badges `needs_relogin`.
     public let health: AgentAccountHealth
@@ -74,14 +78,14 @@ public struct AccountOption: Equatable, Sendable {
         id: String,
         agent: String,
         email: String,
-        isDeviceDefault: Bool,
+        isLastUsed: Bool,
         health: AgentAccountHealth = .unknown,
         limits: AccountLimits? = nil
     ) {
         self.id = id
         self.agent = agent
         self.email = email
-        self.isDeviceDefault = isDeviceDefault
+        self.isLastUsed = isLastUsed
         self.health = health
         self.limits = limits
     }
@@ -92,7 +96,7 @@ public struct AccountOption: Equatable, Sendable {
 }
 
 public enum AccountOptions {
-    /// Every signed-in login ONE machine reports, default first. Takes the
+    /// Every signed-in login ONE machine reports, last used first. Takes the
     /// three pieces the row carries so both a `SteerDevice` and a synced
     /// devices row can feed it.
     public static func flatten(
@@ -113,44 +117,43 @@ public enum AccountOptions {
         ).filter(\.signedIn)
         guard let first = rows.first else { return [] }
 
-        // The default: the stored default account of the configured default
-        // agent, else that agent's active login, else the first contract
-        // agent's active login, else the first row — never none.
-        let configured = launchDefaults?.defaultAgent
-        let configuredAccount = launchDefaults?.defaultAccount
+        // The last used login leads: the last used agent's active login, else
+        // the first contract agent's active login, else the first row — never
+        // none.
         func activeOf(_ agent: String?) -> AgentProfileUsageRow? {
             guard let agent, !agent.isEmpty else { return nil }
             return rows.first { $0.agent == agent && $0.active }
         }
-        let stored: AgentProfileUsageRow? = {
-            guard let configured, let configuredAccount, !configuredAccount.isEmpty
-            else { return nil }
-            return rows.first {
-                $0.agent == configured && $0.profileId == configuredAccount
-            }
-        }()
-        let defaultRow = stored
-            ?? activeOf(configured)
+        let lastUsedRow = activeOf(launchDefaults?.defaultAgent)
             ?? DomainContract.codingAgentValues.compactMap { activeOf($0) }.first
             ?? first
 
-        let ordered = [defaultRow] + rows.filter { $0.key != defaultRow.key }
+        let ordered = [lastUsedRow] + rows.filter { $0.key != lastUsedRow.key }
         return ordered.map { row in
             AccountOption(
                 id: row.profileId,
                 agent: row.agent,
                 email: optionEmail(row),
-                isDeviceDefault: row.key == defaultRow.key,
+                isLastUsed: row.key == lastUsedRow.key,
                 health: row.health,
                 limits: optionLimits(row)
             )
         }
     }
 
-    /// The option a launch surface should START on: the device default, else
+    /// The option a launch surface should START on: the last used login, else
     /// the first option. Nil for a device that reports no login at all.
-    public static func defaultOption(_ options: [AccountOption]) -> AccountOption? {
-        options.first(where: \.isDeviceDefault) ?? options.first
+    public static func lastUsed(_ options: [AccountOption]) -> AccountOption? {
+        options.first(where: \.isLastUsed) ?? options.first
+    }
+
+    /// EXP-1158: what a start (or an automation pin) carries as `account`
+    /// for a picked profile id — the id VERBATIM, `system` included (it NAMES
+    /// the ambient login); a blank pick is unnamed and rides as no account,
+    /// which runs on the machine's last used login.
+    public static func wireAccount(_ picked: String?) -> String? {
+        guard let picked, !picked.isEmpty else { return nil }
+        return picked
     }
 
     // MARK: - Internals

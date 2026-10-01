@@ -108,14 +108,11 @@ public struct DeviceWorkflowDefaultsInput: Encodable, Sendable {
 /// EXP-481: the whole-object `launchDefaults` payload — the device settings
 /// sheet sends the full edited struct (UI edits omit `expectedUpdatedAt`
 /// server-side: unconditional last-write-wins between humans).
+///
+/// EXP-1158: no `defaultAgent` and no account. The stored `defaultAgent` is
+/// the machine's LAST USED agent, which only the DEVICE writes; the server
+/// carries it forward when a save omits it. Fields ride only when set.
 public struct DeviceLaunchDefaultsInput: Encodable, Sendable {
-    public let defaultAgent: String?
-    /// EXP-872: the default ACCOUNT — a login profile id of `defaultAgent`.
-    /// nil beside a default agent rides as an explicit JSON null (see
-    /// `encode(to:)`): the clear. EXP-1042: the picker's ambient sentinel
-    /// (`system`) and the blank are folded into that nil by `init`, so this
-    /// property is only ever a REAL profile id — see there.
-    public let defaultAccount: String?
     public let agents: [String: AgentLaunchDefaultsInput]?
     /// EXP-1029: the workflow pair. A whole-object save REPLACES the stored
     /// defaults, so a sender that edits them has to include it in every
@@ -124,44 +121,11 @@ public struct DeviceLaunchDefaultsInput: Encodable, Sendable {
     public let workflow: DeviceWorkflowDefaultsInput?
 
     public init(
-        defaultAgent: String? = nil,
-        defaultAccount: String? = nil,
         agents: [String: AgentLaunchDefaultsInput]? = nil,
         workflow: DeviceWorkflowDefaultsInput? = nil
     ) {
-        self.defaultAgent = defaultAgent
-        // EXP-1042: `system` is a PICKER sentinel standing for the agent's
-        // AMBIENT login, never a stored profile id — the server clamp takes
-        // any non-empty string, so a sender that forwarded it verbatim would
-        // pin the literal word. Folded into the clear HERE, the one place
-        // every writer passes through, rather than at each pick site.
-        let account = defaultAccount ?? ""
-        self.defaultAccount = account.isEmpty || account == AgentAccountsRows.systemProfileId
-            ? nil
-            : account
         self.agents = agents
         self.workflow = workflow
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case defaultAgent, defaultAccount, agents, workflow
-    }
-
-    /// Hand-written for ONE key: an unset default account beside a default
-    /// agent must reach the server as `"defaultAccount": null`. The server
-    /// reads an ABSENT key as "an older client that never sends it" and keeps
-    /// the stored pin, so the synthesized `encodeIfPresent` could never clear
-    /// it. Every other field still rides only when set.
-    public func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(defaultAgent, forKey: .defaultAgent)
-        if let defaultAccount {
-            try c.encode(defaultAccount, forKey: .defaultAccount)
-        } else if defaultAgent != nil {
-            try c.encodeNil(forKey: .defaultAccount)
-        }
-        try c.encodeIfPresent(agents, forKey: .agents)
-        try c.encodeIfPresent(workflow, forKey: .workflow)
     }
 }
 
@@ -194,9 +158,8 @@ private struct CreateCommandInput: Encodable {
     let code: String?
     /// EXP-829 (`agent_usage_refresh`, EXP-747 C4): which login profile to
     /// re-read (`system` = the ambient login). The server requires it for
-    /// that kind and ignores it for every other. EXP-849's
-    /// `agent_profile_use` and EXP-862's `agent_profile_remove` name their
-    /// target with it too.
+    /// that kind and ignores it for every other. EXP-862's
+    /// `agent_profile_remove` names its target with it too.
     let profileId: String?
     /// EXP-827: `agent_login` creates a NEW profile with this label first and
     /// signs into that one — what "+ Add account" queues on a machine whose

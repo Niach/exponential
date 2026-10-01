@@ -813,14 +813,16 @@ final class SessionTreeNodeTests: XCTestCase {
         let teammateCopy = SessionTree.MarkDevice(
             deviceId: "d1",
             userId: "u2",
-            launchDefaults: SessionTree.MarkLaunchDefaults(defaultAgent: "claude", defaultAccount: "p2"),
-            agentAccounts: nil
+            agentAccounts: [
+                "claude": SessionTree.MarkAgentAccount(profiles: [
+                    SessionTree.MarkProfile(id: "p2", label: "Work", active: true),
+                ]),
+            ]
         )
         func ownRow(userId: String?) -> SessionTree.MarkDevice {
             SessionTree.MarkDevice(
                 deviceId: "d1",
                 userId: userId,
-                launchDefaults: SessionTree.MarkLaunchDefaults(defaultAgent: "claude", defaultAccount: "system"),
                 agentAccounts: [
                     "claude": SessionTree.MarkAgentAccount(profiles: [
                         SessionTree.MarkProfile(id: "system", label: "Default", active: true),
@@ -836,8 +838,8 @@ final class SessionTreeNodeTests: XCTestCase {
             ),
             "account Work"
         )
-        // Left nil, the teammate's copy is read instead and its defaults
-        // hide the caption: the reason the adapter fills the id in.
+        // Left nil, the teammate's copy is read instead and its last used
+        // login hides the caption: the reason the adapter fills the id in.
         XCTAssertNil(
             SessionTree.workflowRunAccountCaption(
                 session: session, devices: [teammateCopy, ownRow(userId: nil)]

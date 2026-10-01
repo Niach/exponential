@@ -37,8 +37,8 @@ import com.exponential.app.ui.theme.TextEmphasis
 // draws them).
 //
 // The chip and the row read the same way: the agent's brand mark + the login's
-// EMAIL. Never the profile name, never the word "default" — the device default
-// is simply the first row. A dead credential rides as a muted badge beside the
+// EMAIL. Never the profile name, never the word "default" — the last used
+// login is simply the first row. A dead credential rides as a muted badge beside the
 // email.
 //
 // EXP-992: on a TOUCH platform the three tiny bars sit INLINE under the email
@@ -224,12 +224,11 @@ internal fun AccountPill(
     )
 }
 
-
 /**
  * EXP-872 (web `accountOptionsOf`): the machine's flattened logins, or — for a
  * machine that reports NONE at all (a build before profiles, a heartbeat that
  * has not landed) — one AMBIENT option per agent in [fallbackAgents], labelled
- * by the agent's own name, the machine's default agent first. The picker never
+ * by the agent's own name, the machine's last used agent first. The picker never
  * goes empty while a run could still start on that machine.
  */
 internal fun accountOptionsFor(
@@ -243,26 +242,6 @@ internal fun accountOptionsFor(
         fallbackAgents,
         device.launchDefaults?.defaultAgent?.takeIf { it in fallbackAgents },
     )
-}
-
-/**
- * EXP-1043: [accountOptionsFor] for the DEVICE SETTINGS sheet, where the
- * default-account row is the machine's "which agent do runs start on"
- * setting and must therefore always be changeable: every agent in [agents]
- * that reports no login of its own still contributes its AMBIENT one, so a
- * machine signed into claude alone can still be pointed at codex. The launch
- * surfaces keep [accountOptionsFor]'s stricter list — there, an agent with no
- * login on the machine is not something to start a run on.
- */
-internal fun deviceAccountOptions(
-    device: SteerDevice?,
-    agents: List<String>,
-): List<AccountOption> {
-    val reported = accountOptionsFor(device, agents)
-    val missing = agents.filter { agent -> reported.none { it.agent == agent } }
-    if (missing.isEmpty()) return reported
-    return reported + ambientAccountOptions(missing, preferred = null)
-        .map { it.copy(isDeviceDefault = false) }
 }
 
 /**
@@ -282,9 +261,9 @@ internal fun ambientAccountOptions(
                 id = SYSTEM_PROFILE_ID,
                 agent = agent,
                 email = agentLabel(agent),
-                isDeviceDefault = agent == first,
+                isLastUsed = agent == first,
                 health = AgentHealth.Unknown,
             )
         }
-        .sortedByDescending { it.isDeviceDefault }
+        .sortedByDescending { it.isLastUsed }
 }

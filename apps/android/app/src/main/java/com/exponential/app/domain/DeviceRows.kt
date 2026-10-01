@@ -115,7 +115,8 @@ private fun parseAgentList(raw: String?): List<String>? =
 
 /** The stored `launch_defaults` jsonb object → the shared DTO; null/bad = null.
  *  EXP-849: a retired agent's defaults (and a `defaultAgent` naming one) drop
- *  here, so no picker can seed itself off an agent this build cannot run. */
+ *  here, so no picker can seed itself off an agent this build cannot run. A
+ *  pre-EXP-1158 row's stored account key is unknown here and simply skipped. */
 fun parseLaunchDefaults(raw: String?): DeviceLaunchDefaults? =
     raw?.let {
         runCatching {

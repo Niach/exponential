@@ -214,7 +214,6 @@ describe(`domain-contract parity`, () => {
       strongModel: contract.workflowLaunch.codexStrongModel,
     })
     expect(DEVICE_AGENT_DEFAULTS).toEqual({
-      account: null,
       model: contract.deviceAgentDefaults.model,
       subagentModel: contract.deviceAgentDefaults.subagentModel,
       workflow: {

@@ -183,7 +183,7 @@ fn apply_start_pick(
     check: &ToolCheck,
 ) -> Option<crate::account_rotation::StartPick> {
     // EXP-1138: a launch bound for a REMOVED ambient login lands on the
-    // device default first, and one bound for a SIGNED-OUT ambient login on
+    // last used login first, and one bound for a SIGNED-OUT ambient login on
     // the profile the doctor found signed in, so the rotation below judges a
     // login that exists (a hidden `system` has no usage row, and an unlisted
     // launch account is never moved).
@@ -1641,6 +1641,101 @@ fn map_token_error(err: ApiError, full_name: &str) -> Result<Prepared, CodingErr
     token_error_reason(err, full_name).map(Prepared::Disabled)
 }
 
+/// EXP-1158 — what a launch moves "last used" to, decided from the REQUEST
+/// before `launch_account`/the start-time rotation rewrite its account.
+/// Last used = per agent, the login a PERSON last started or switched a run
+/// on, on that device (`agent_accounts[agent].profiles[].active`); the last
+/// used agent = `launch_defaults.defaultAgent`. Automations, workflow nodes,
+/// agent-started runs and auto-rotation never move it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct LastUsedStamp {
+    agent: CodingAgent,
+    /// The account the person NAMED (`system` = the ambient login); `None` =
+    /// nothing named, so only the agent is stamped.
+    account: Option<String>,
+}
+
+fn last_used_stamp(req: &PrepareRequest) -> Option<LastUsedStamp> {
+    let fresh = |options: &LaunchOptions| LastUsedStamp {
+        agent: options.agent,
+        account: options
+            .account
+            .as_deref()
+            .map(str::trim)
+            .filter(|account| !account.is_empty())
+            .map(str::to_string),
+    };
+    match req {
+        PrepareRequest::Issue(issue_req) => started_reason(&issue_req.origin, None, issue_req.workflow.as_ref())
+            .is_none()
+            .then(|| fresh(&issue_req.options)),
+        PrepareRequest::Batch(batch_req) => started_reason(&batch_req.origin, None, batch_req.workflow.as_ref())
+            .is_none()
+            .then(|| fresh(&batch_req.options)),
+        PrepareRequest::Action(action_req) => {
+            let engine = matches!(
+                action_req.kind,
+                ActionRunKind::ReviewNode { .. } | ActionRunKind::FixReviewFindings { .. }
+            );
+            let person = !engine
+                && action_req.automation_id.is_none()
+                && started_reason(&action_req.origin, action_req.trigger.as_ref(), None).is_none();
+            person.then(|| fresh(&action_req.options))
+        }
+        // A resume keeps its recorded account; only a PERSON's remote
+        // mid-run switch (a relay resume naming an account) moves last used.
+        // The desktop's local switch stamps in `account_switch`, and a
+        // rotation hop never comes through as a person's relay resume.
+        PrepareRequest::ResumeRun(resume_req) => match (&resume_req.origin, &resume_req.account) {
+            (LaunchOrigin::Relay { started_reason: None, .. }, Some(account)) => Some(LastUsedStamp {
+                agent: resume_req.record.agent,
+                account: Some(account.trim().to_string()).filter(|account| !account.is_empty()),
+            }),
+            _ => None,
+        },
+    }
+}
+
+fn apply_last_used_stamp(stamp: &LastUsedStamp, data_dir: &Path) {
+    record_last_used(data_dir, stamp.agent, stamp.account.as_deref());
+}
+
+/// EXP-1158 — record that a PERSON started or switched a run on `agent` /
+/// `account` (`system` = the ambient login; `None` = nothing named, the agent
+/// alone): the login (`profiles.json`'s `active`) and `settings.json`'s
+/// `defaultAgent`, each only on a change. [`prepare`] calls it for every
+/// person-started launch; the desktop's LOCAL mid-run switch calls it itself
+/// (a local resume is also what a rotation hop is, so `prepare` cannot tell
+/// the two apart). Best effort — a failed write costs the memory, never the
+/// launch.
+pub fn record_last_used(data_dir: &Path, agent: CodingAgent, account: Option<&str>) {
+    if let Some(account) = account.map(str::trim).filter(|account| !account.is_empty()) {
+        if let Err(err) = crate::agent_profiles::note_last_used(data_dir, agent, account) {
+            log::warn!("coding: last used login not recorded ({account}): {err}");
+        }
+    }
+    let path = Settings::default_path(data_dir);
+    let mut settings = Settings::load(&path);
+    if settings.default_agent != agent {
+        settings.default_agent = agent;
+        if let Err(err) = settings.save(&path) {
+            log::warn!("coding: last used agent not recorded: {err}");
+        }
+    }
+}
+
+/// [`prepare_launch`], then (EXP-1158) the last used stamp of a launch a
+/// PERSON started, once it is [`Prepared::Ready`]: a refused launch moves
+/// nothing.
+pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, CodingError> {
+    let stamp = last_used_stamp(req);
+    let prepared = prepare_launch(req, deps)?;
+    if let (Some(stamp), Prepared::Ready(_)) = (&stamp, &prepared) {
+        apply_last_used_stamp(stamp, &deps.data_dir);
+    }
+    Ok(prepared)
+}
+
 /// Steps 0–6 of §7.1 (blocking; run on the background executor) — ONE
 /// skeleton for both launch shapes, per-shape only at the marked match
 /// points:
@@ -1662,7 +1757,7 @@ fn map_token_error(err: ApiError, full_name: &str) -> Result<Prepared, CodingErr
 ///    (direct argv when small, PROMPT.md otherwise);
 /// 6. `codingSessions.start` / `start_batch` — BEFORE spawn; its id keys
 ///    tab + steer room.
-pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, CodingError> {
+fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, CodingError> {
     // Action runs share none of the worktree/branch/PR skeleton below —
     // they get their own sequence (EXP-253).
     if let PrepareRequest::Action(action_req) = req {
@@ -6221,6 +6316,146 @@ mod tests {
         }
     }
 
+    // ---- EXP-1158: the last used stamp ----
+
+    fn relay(started_reason: Option<&str>) -> LaunchOrigin {
+        LaunchOrigin::Relay {
+            device_id: "dev-1".to_string(),
+            claimant: "acct".to_string(),
+            started_by: None,
+            started_reason: started_reason.map(str::to_string),
+        }
+    }
+
+    /// Only a launch a PERSON started moves last used — with the account
+    /// they NAMED (before the launcher resolves or rotates it), or the agent
+    /// alone when they named none.
+    #[test]
+    fn a_person_start_stamps_last_used_and_unattended_starts_do_not() {
+        let mut person = request("EXP-1");
+        person.options.agent = CodingAgent::Codex;
+        person.options.account = Some(" 0a1b2c3d ".to_string());
+        assert_eq!(
+            last_used_stamp(&PrepareRequest::Issue(person.clone())),
+            Some(LastUsedStamp { agent: CodingAgent::Codex, account: Some("0a1b2c3d".to_string()) })
+        );
+        // A remote person start (no reason) stamps too; nothing named =
+        // the agent alone.
+        person.origin = relay(None);
+        person.options.account = None;
+        assert_eq!(
+            last_used_stamp(&PrepareRequest::Issue(person.clone())),
+            Some(LastUsedStamp { agent: CodingAgent::Codex, account: None })
+        );
+        // `system` NAMES the ambient login.
+        let mut batch = batch_request();
+        batch.options.account = Some("system".to_string());
+        assert_eq!(
+            last_used_stamp(&PrepareRequest::Batch(batch.clone())).and_then(|stamp| stamp.account),
+            Some("system".to_string())
+        );
+
+        // An agent child (MCP `sessions_start`) never stamps.
+        let mut child = request("EXP-2");
+        child.origin = relay(Some("agent"));
+        assert_eq!(last_used_stamp(&PrepareRequest::Issue(child)), None);
+        // A workflow node never stamps.
+        let mut node = request("EXP-3");
+        node.workflow = Some(WorkflowRun {
+            workflow_id: "wf-1".to_string(),
+            name: "Flow".to_string(),
+            decisions: String::new(),
+            blockers: Vec::new(),
+        });
+        assert_eq!(last_used_stamp(&PrepareRequest::Issue(node)), None);
+        batch.workflow = Some(WorkflowRun {
+            workflow_id: "wf-1".to_string(),
+            name: "Flow".to_string(),
+            decisions: String::new(),
+            blockers: Vec::new(),
+        });
+        assert_eq!(last_used_stamp(&PrepareRequest::Batch(batch)), None);
+
+        // An action a person started stamps; an automation's never does.
+        assert!(last_used_stamp(&PrepareRequest::Action(action_request())).is_some());
+        let mut automated = action_request();
+        automated.automation_id = Some("auto-1".to_string());
+        automated.trigger = Some(TriggerNote {
+            kind: crate::action_prompt::TriggerNoteKind::Schedule { phrase: "daily".to_string() },
+        });
+        assert_eq!(last_used_stamp(&PrepareRequest::Action(automated)), None);
+        // Nor does the workflow engine's reviewer.
+        let mut review = action_request();
+        review.kind = ActionRunKind::ReviewNode {
+            node_id: "n-1".to_string(),
+            identifier: "EXP-4".to_string(),
+            branch: "exp/EXP-4".to_string(),
+            base_branch: "main".to_string(),
+            review_branch: "exp/wf-1-review".to_string(),
+            adversarial: false,
+            landed: None,
+        };
+        assert_eq!(last_used_stamp(&PrepareRequest::Action(review)), None);
+    }
+
+    /// A resume keeps its recorded account and moves nothing — except a
+    /// person's REMOTE mid-run switch. A rotation hop resumes with a LOCAL
+    /// origin, so it never stamps.
+    #[test]
+    fn only_a_persons_relay_switch_stamps_on_resume() {
+        let dir = temp_dir("stamp-resume");
+        let record = resume_record(&dir.0, "sess-old");
+        let mut switch = resume_request(record);
+        switch.origin = relay(None);
+        switch.account = Some("0a1b2c3d".to_string());
+        assert_eq!(
+            last_used_stamp(&PrepareRequest::ResumeRun(switch.clone())),
+            Some(LastUsedStamp { agent: CodingAgent::Claude, account: Some("0a1b2c3d".to_string()) })
+        );
+        // A plain remote resume names no account.
+        let mut plain = switch.clone();
+        plain.account = None;
+        assert_eq!(last_used_stamp(&PrepareRequest::ResumeRun(plain)), None);
+        // The rotation's switch (local origin) and an agent's resume never stamp.
+        let mut rotation = switch.clone();
+        rotation.origin = LaunchOrigin::Local;
+        assert_eq!(last_used_stamp(&PrepareRequest::ResumeRun(rotation)), None);
+        let mut agent = switch;
+        agent.origin = relay(Some("agent"));
+        assert_eq!(last_used_stamp(&PrepareRequest::ResumeRun(agent)), None);
+    }
+
+    /// The stamp writes the login pointer and `defaultAgent`; `system`
+    /// clears the pointer back to the ambient login.
+    #[test]
+    fn the_stamp_records_the_login_and_the_agent() {
+        let dir = temp_dir("stamp-apply");
+        let work = crate::agent_profiles::create(&dir.0, CodingAgent::Codex, "Work").unwrap();
+        apply_last_used_stamp(
+            &LastUsedStamp { agent: CodingAgent::Codex, account: Some(work.id.clone()) },
+            &dir.0,
+        );
+        assert_eq!(crate::agent_profiles::active_profile(&dir.0, CodingAgent::Codex), work.id);
+        let path = Settings::default_path(&dir.0);
+        assert_eq!(Settings::load(&path).default_agent, CodingAgent::Codex);
+        // An agent-only stamp leaves the login alone.
+        apply_last_used_stamp(&LastUsedStamp { agent: CodingAgent::Codex, account: None }, &dir.0);
+        assert_eq!(crate::agent_profiles::active_profile(&dir.0, CodingAgent::Codex), work.id);
+        apply_last_used_stamp(
+            &LastUsedStamp { agent: CodingAgent::Claude, account: Some("system".to_string()) },
+            &dir.0,
+        );
+        assert_eq!(Settings::load(&path).default_agent, CodingAgent::Claude);
+        apply_last_used_stamp(
+            &LastUsedStamp { agent: CodingAgent::Codex, account: Some("system".to_string()) },
+            &dir.0,
+        );
+        assert_eq!(
+            crate::agent_profiles::active_profile(&dir.0, CodingAgent::Codex),
+            crate::agent_profiles::SYSTEM_PROFILE
+        );
+    }
+
     /// The claude native path: the recorded transcript still exists under
     /// `~/.claude/projects/<munged cwd>/<id>.jsonl`, so the resume reopens
     /// THAT conversation (`--resume <id>`, no seed prompt, no `--session-id`).
@@ -8697,11 +8932,11 @@ mod tests {
     }
 
     /// EXP-1137's "Remove account" on the ambient login: a launch that
-    /// names no account lands on the device default (the first named
+    /// names no account lands on the last used login (the first named
     /// profile) instead of the removed login.
     #[cfg(unix)]
     #[test]
-    fn a_hidden_ambient_login_moves_an_ambient_launch_to_the_device_default() {
+    fn a_hidden_ambient_login_moves_an_ambient_launch_to_the_last_used_login() {
         let dir = temp_dir("gate-hidden");
         let (base, _captured) = canned_server_recording(vec![(200, START_ACTION_OK.to_string())]);
         let deps = auth_deps(&base, &dir.0);

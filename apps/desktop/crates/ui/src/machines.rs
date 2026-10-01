@@ -23,10 +23,9 @@
 //! logins beneath itself, one flat sub-row each: the brand mark, the login's
 //! identity (`usage_bar::login_label`), its health badge, its mini usage line
 //! and a `⋯` menu — the ×4 rule (`usage_bar::chip_actions`, the shared login
-//! menu): sign in, set as
-//! default (`agent_profile_use`: a device-local pointer, never a logout and
-//! never a credential copy), remove this device's copy of the login
-//! (`agent_profile_remove`). A team device's logins are read-only: they belong
+//! menu): sign in, sign out, remove this device's copy of the login
+//! (`agent_profile_remove`). EXP-1158: there is no "default" to set — every
+//! start runs on the login last used on that device. A team device's logins are read-only: they belong
 //! to their owner.
 //!
 //! EXP-909: a device row carries ONE control — a settings GEAR revealed on
@@ -805,7 +804,6 @@ impl MachinesSection {
             return rows;
         }
         let actionable = device.actionable();
-        let can_switch = device.own || device.has_cap(coding::doctor::ACCOUNT_SWITCH_CAP);
         let can_remove = device.has_cap(coding::doctor::ACCOUNT_REMOVE_CAP);
         // EXP-1137: this build signs out, so its own row always may.
         let can_sign_out = device.own || device.has_cap(coding::doctor::ACCOUNT_SIGN_OUT_CAP);
@@ -826,9 +824,7 @@ impl MachinesSection {
                 chip_actions(
                     login.signed_in,
                     login.health,
-                    login.active,
                     &login.profile_id,
-                    can_switch,
                     can_remove,
                     can_sign_out,
                 )
@@ -866,17 +862,6 @@ impl MachinesSection {
                                 window,
                                 cx,
                             ),
-                            ChipAction::SetDefault => {
-                                crate::agent_account_actions::use_account_here(
-                                    device_id.clone(),
-                                    device_label.to_string(),
-                                    own,
-                                    agent,
-                                    profile_id.clone(),
-                                    window,
-                                    cx,
-                                )
-                            }
                             ChipAction::SignOut => crate::agent_account_actions::sign_out_account(
                                 device_id.clone(),
                                 device_label.clone(),

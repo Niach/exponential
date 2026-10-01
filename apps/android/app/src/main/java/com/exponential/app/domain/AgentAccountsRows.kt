@@ -38,7 +38,10 @@ data class AgentProfileUsageRow(
     val profileId: String,
     /** The profile's label (`Default` for the system profile when the device sent none). */
     val profileLabel: String,
-    /** The account is the machine's ACTIVE login (the ambient login always is). */
+    /**
+     * The machine's LAST USED login for this agent (wire `active`; the ambient
+     * login of a profile-less agent always is). Only the device moves it.
+     */
     val active: Boolean,
     val signedIn: Boolean,
     /**
@@ -277,9 +280,8 @@ object AgentAccountsRows {
     fun healthBadge(row: AgentProfileUsageRow): String? =
         AgentHealthRules.badgeLabel(row.health)
 
-    /** The chip menu's four entries, byte-identical ×4. */
+    /** The chip menu's three entries, byte-identical ×4. */
     const val ACTION_SIGN_IN = "Sign in"
-    const val ACTION_SET_DEFAULT = "Set as default"
     const val ACTION_SIGN_OUT = "Sign out"
     const val ACTION_REMOVE = "Remove account"
 
@@ -298,7 +300,6 @@ object AgentAccountsRows {
      * EXP-862: what a login's chip menu offers, on a machine row or on an
      * account row — the SAME rule on every client, in this fixed order:
      *  - signed out, or a credential that expired here: a sign-in first;
-     *  - healthy and not the machine's login: make it the default;
      *  - EXP-1137, signed in on a build with the sign-out body: sign it out
      *    (the row stays);
      *  - remove: any NAMED login on a build with `account-remove`, and
@@ -314,19 +315,16 @@ object AgentAccountsRows {
      * An empty list means the chip is a statement, not a control (a machine
      * that is offline, a teammate's, or too old to take any of the commands).
      *
-     * [canSwitchAccount] is the machine's `account-switch` cap,
-     * [canRemoveAccount] its `account-remove` one and [canSignOutAccount] its
-     * `account-sign-out` one: the server refuses each command without its cap,
-     * so an older machine simply does not offer that entry. [canAgentLogin] is
-     * its `agent-login` cap, which the server ALSO requires for every one of
-     * them (web `devices.ts` `createCommand`).
+     * [canRemoveAccount] is the machine's `account-remove` cap and
+     * [canSignOutAccount] its `account-sign-out` one: the server refuses each
+     * command without its cap, so an older machine simply does not offer that
+     * entry. [canAgentLogin] is its `agent-login` cap, which the server ALSO
+     * requires for every one of them (web `devices.ts` `createCommand`).
      */
     fun chipActions(
         signedIn: Boolean,
         health: AgentHealth,
-        active: Boolean,
         profileId: String,
-        canSwitchAccount: Boolean,
         canRemoveAccount: Boolean,
         canAgentLogin: Boolean,
         canSignOutAccount: Boolean = false,
@@ -335,7 +333,6 @@ object AgentAccountsRows {
         val ambient = isAmbient(profileId)
         val out = mutableListOf<String>()
         if (signsIn) out += ACTION_SIGN_IN
-        if (!signsIn && !active && canSwitchAccount) out += ACTION_SET_DEFAULT
         if (signedIn && canAgentLogin && canSignOutAccount) out += ACTION_SIGN_OUT
         val removes = if (ambient) canSignOutAccount else canRemoveAccount
         if (removes && canAgentLogin) out += ACTION_REMOVE
@@ -345,16 +342,13 @@ object AgentAccountsRows {
     /** [chipActions] for an account row's machine chip. */
     fun chipActions(
         row: AgentProfileUsageRow,
-        canSwitchAccount: Boolean,
         canRemoveAccount: Boolean,
         canAgentLogin: Boolean,
         canSignOutAccount: Boolean = false,
     ): List<String> = chipActions(
         signedIn = row.signedIn,
         health = row.health,
-        active = row.active,
         profileId = row.profileId,
-        canSwitchAccount = canSwitchAccount,
         canRemoveAccount = canRemoveAccount,
         canAgentLogin = canAgentLogin,
         canSignOutAccount = canSignOutAccount,

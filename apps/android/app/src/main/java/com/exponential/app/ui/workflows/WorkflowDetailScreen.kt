@@ -1133,7 +1133,7 @@ private fun AllFaces(
                 val guides = remember(tree) { TreeGuides.compute(tree.map { it.depth }) }
                 // EXP-1068/1083: the same marks as the Agent page's lists — a
                 // review's `Review r2 · approved` title, the needs-you dot, the
-                // duplicate-run warning and the non-default account the run
+                // duplicate-run warning and the off-last-used account the run
                 // spends (the row the engine rotated, EXP-1067).
                 val nodesById = remember(graph.nodes) { graph.nodes.associateBy { it.id } }
                 if (tree.isEmpty()) {

@@ -69,7 +69,8 @@ internal val AGENT_LIST_ROW_GAP = 6.dp
  * EXP-1068: a review run is titled by its round + verdict
  * ([SessionTree.reviewRowCaption]), a node with two live runs warns on its
  * author row, an open question adds a red "needs you" dot, and a run on a
- * non-default account says so in its byline ([AgentRow.accountLabel]).
+ * login other than its machine's last used one says so in its byline
+ * ([AgentRow.accountLabel]).
  */
 internal fun LazyListScope.agentSessionsList(
     rows: List<AgentRow>,
@@ -242,10 +243,10 @@ internal fun reviewRowTitle(
 
 /**
  * EXP-1068/EXP-1108: the account a WORKFLOW run spends, when it is NOT its
- * machine's default for the run's agent (the shared
+ * machine's last used one for the run's agent (the shared
  * [SessionTree.workflowRunAccountLabel]; the row prefixes `account `). Null
  * outside a workflow, when unset, when the machine is not synced, or on the
- * default.
+ * last used one.
  */
 internal fun runAccountLabel(session: CodingSessionEntity, devices: List<DeviceEntity>): String? =
     SessionTree.workflowRunAccountLabel(SessionMarkRow.of(session), devices.map(SessionMarkDevice::of))
