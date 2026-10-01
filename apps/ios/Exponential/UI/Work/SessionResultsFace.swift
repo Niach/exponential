@@ -60,8 +60,7 @@ struct SessionResultsFace: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 20) {
-                // By position: the workflow page concatenates several runs'
-                // reports, so one topic can repeat.
+                // By position: one topic can repeat.
                 ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
                     VStack(alignment: .leading, spacing: 0) {
                         GlassSectionBand(group.topic)

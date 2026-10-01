@@ -42,7 +42,6 @@ final class EntityChipTests: XCTestCase {
         XCTAssertEqual(EntityChipIcon.glyphs["coding-running"], AppIcons.codingRunning)
         XCTAssertEqual(EntityChipIcon.glyphs["settings-labels"], AppIcons.settingsLabels)
         XCTAssertEqual(EntityChipIcon.glyphs["settings-statuses"], AppIcons.settingsStatuses)
-        XCTAssertEqual(EntityChipIcon.glyphs["nav-workflows"], AppIcons.navWorkflows)
         XCTAssertEqual(EntityChipIcon.glyphs["ui-device"], AppIcons.uiDevice)
         XCTAssertEqual(EntityChipIcon.glyphs["ui-avatar-placeholder"], AppIcons.uiAvatarPlaceholder)
         XCTAssertEqual(EntityChipIcon.glyphs["ui-repository"], AppIcons.uiRepository)

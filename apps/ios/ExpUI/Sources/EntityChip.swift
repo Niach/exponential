@@ -27,7 +27,6 @@ public enum EntityChipIcon {
         "coding-running": AppIcons.codingRunning,
         "settings-labels": AppIcons.settingsLabels,
         "settings-statuses": AppIcons.settingsStatuses,
-        "nav-workflows": AppIcons.navWorkflows,
         "ui-device": AppIcons.uiDevice,
         "ui-avatar-placeholder": AppIcons.uiAvatarPlaceholder,
         "ui-repository": AppIcons.uiRepository,

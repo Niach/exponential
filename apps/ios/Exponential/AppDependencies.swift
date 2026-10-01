@@ -61,9 +61,6 @@ final class AppDependencies: @unchecked Sendable {
     // Team actions (EXP-253) — synced for reads; tRPC for the prompt body and
     // the owner-gated writes (the editor fields and, SLOP-2, the triggers).
     let actionsApi: ActionsApi
-    // Workflows (EXP-981) — synced for reads (shapes 23/24), member-gated tRPC
-    // for every write.
-    let workflowsApi: WorkflowsApi
     // Widget/agent submission metadata (EXP-496) — tRPC-only.
     let widgetsApi: WidgetsApi
 
@@ -171,7 +168,6 @@ final class AppDependencies: @unchecked Sendable {
         self.devicesApi = DevicesApi(trpc: trpc)
         self.codingSessionsApi = CodingSessionsApi(trpc: trpc)
         self.actionsApi = ActionsApi(trpc: trpc)
-        self.workflowsApi = WorkflowsApi(trpc: trpc)
         self.widgetsApi = WidgetsApi(trpc: trpc)
 
         // Push notifications

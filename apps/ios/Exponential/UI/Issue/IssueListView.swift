@@ -45,15 +45,13 @@ struct IssueListView: View {
     @State private var bulkSheet: BulkSheet?
     /// The selection bar's Delete confirmation (EXP-698 r5).
     @State private var showBulkDeleteConfirm = false
-    /// EXP-981: a `workflows.create` is in flight (the play menu's third item).
-    @State private var creatingWorkflow = false
     // Inline status/priority editing straight from a row's icon (EXP-247) —
     // non-selection rows only, moderator-gated.
     @State private var inlineEdit: InlineEdit?
     /// EXP-980: the issue whose blocks mini-graph is up (a row badge tap).
     @State private var blocksTarget: IssueGraphTarget?
-    // EXP-1031: transient start feedback (no desktop online, relay off, a
-    // refused workflow) is the shared toast now.
+    // EXP-1031: transient start feedback (no desktop online, relay off) is
+    // the shared toast now.
     @Environment(\.toaster) private var toaster
     /// Identifier column floor — fits "EXP-999" in .caption.monospaced at
     /// default Dynamic Type and scales with the user's text size (EXP-24).
@@ -777,31 +775,16 @@ struct IssueListView: View {
 
             // The play menu — the bar's raison d'être (EXP-239). Only on
             // repo-backed boards, and only while the relay isn't known-off.
-            // EXP-981: the single "Start coding" pill became a MENU of three
-            // ways to run the selection (the ×4 rule), labels from
-            // `WorkflowView`.
+            // The "Start coding" pill is a MENU (the ×4 rule) whose one entry
+            // starts the selection as a batch on the composer.
             if vm.board?.repositoryId != nil, steerEnabled != false {
                 GlassMenu {
-                    GlassMenuItem(WorkflowView.startAsBatchLabel) {
+                    GlassMenuItem(BatchRun.startAsBatchLabel) {
                         startCodingTapped()
-                    }
-                    // A stack is a chain of single-issue runs (EXP-897): it
-                    // needs exactly ONE picked issue, and that issue has to be
-                    // blocked by something. Disabled rather than hidden — the
-                    // composer's blocked-start dialog is where the stack is
-                    // actually offered.
-                    GlassMenuItem(
-                        WorkflowView.startAsStackLabel,
-                        enabled: canStartAsStack(vm)
-                    ) {
-                        startCodingTapped()
-                    }
-                    GlassMenuItem(WorkflowView.createWorkflowLabel) {
-                        createWorkflowTapped(vm)
                     }
                 } label: {
                     HStack(spacing: 6) {
-                        if steerDevices == nil || creatingWorkflow {
+                        if steerDevices == nil {
                             ProgressView()
                                 .controlSize(.small)
                                 .tint(DesignTokens.Palette.primaryForeground)
@@ -1078,38 +1061,6 @@ struct IssueListView: View {
             .filter { selectedIds.contains($0.id) }.map(\.id)
         exitSelection()
         pushRoute(.agent(accountId: accountId, seed: AgentComposerSeed(issueIds: ids)))
-    }
-
-    /// EXP-981: "Start as stack" applies to exactly ONE picked issue that
-    /// something still blocks — the composer's blocked-start dialog is what
-    /// then offers the stacked pull request.
-    private func canStartAsStack(_ vm: IssueListViewModel) -> Bool {
-        guard selectedIds.count == 1, let id = selectedIds.first else { return false }
-        return (vm.blockCounts[id]?.blockedBy ?? 0) > 0
-    }
-
-    /// EXP-981: plan the selection as ONE workflow — `workflows.create` in the
-    /// board's team with the issues in DISPLAY order, then straight into the
-    /// new workflow's detail. A refusal (a started issue, two repositories) is
-    /// the server's own sentence, shown on the bar like a failed start.
-    private func createWorkflowTapped(_ vm: IssueListViewModel) {
-        guard !creatingWorkflow, let teamId = vm.board?.teamId else { return }
-        let ids = (viewModel?.displayOrderedIssues ?? [])
-            .filter { selectedIds.contains($0.id) }.map(\.id)
-        guard !ids.isEmpty else { return }
-        creatingWorkflow = true
-        Task {
-            defer { creatingWorkflow = false }
-            do {
-                let workflow = try await deps.workflowsApi.create(
-                    accountId: accountId, teamId: teamId, issueIds: ids
-                )
-                exitSelection()
-                pushRoute(.workflow(accountId: accountId, id: workflow.id))
-            } catch {
-                toaster.error(error.userFacingMessage)
-            }
-        }
     }
 
     private func formatDueDate(_ dateString: String) -> String {

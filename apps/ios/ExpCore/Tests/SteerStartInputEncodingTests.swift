@@ -19,7 +19,7 @@ final class SteerStartInputEncodingTests: XCTestCase {
         let object = try json(StartSessionInput(
             issueId: "i-1", deviceId: "d-1", agent: "claude", model: "opus",
             subagentModel: nil, effort: "", ultracode: false, planMode: true,
-            resume: nil, account: nil, prompt: nil, stack: nil
+            resume: nil, account: nil, prompt: nil
         ))
         XCTAssertEqual(object["issueId"] as? String, "i-1")
         XCTAssertEqual(object["deviceId"] as? String, "d-1")
@@ -28,21 +28,8 @@ final class SteerStartInputEncodingTests: XCTestCase {
         XCTAssertNil(object.index(forKey: "prompt"))
         XCTAssertNil(object.index(forKey: "account"))
         XCTAssertNil(object.index(forKey: "resume"))
-        // EXP-897: a plain start never mentions the stack at all.
+        // SLOP-3: there is no stacked start any more.
         XCTAssertNil(object.index(forKey: "stack"))
-    }
-
-    // EXP-897: a STACKED start is the single-issue input carrying `stack:
-    // true` — the flag is sent only when it is true, and only here (the batch
-    // and action inputs have no such field).
-    func testIssueStartCarriesTheStackFlagWhenStacked() throws {
-        let object = try json(StartSessionInput(
-            issueId: "i-1", deviceId: "d-1", agent: nil, model: nil,
-            subagentModel: nil, effort: nil, ultracode: nil, planMode: nil,
-            resume: nil, account: nil, prompt: nil, stack: true
-        ))
-        XCTAssertEqual(object["stack"] as? Bool, true)
-        XCTAssertEqual(object["issueId"] as? String, "i-1")
     }
 
     func testIssueStartCarriesThePromptVerbatim() throws {
@@ -50,7 +37,7 @@ final class SteerStartInputEncodingTests: XCTestCase {
         let object = try json(StartSessionInput(
             issueId: "i-1", deviceId: "d-1", agent: nil, model: nil,
             subagentModel: nil, effort: nil, ultracode: nil, planMode: nil,
-            resume: true, account: "profile-2", prompt: prompt, stack: nil
+            resume: true, account: "profile-2", prompt: prompt
         ))
         XCTAssertEqual(object["prompt"] as? String, prompt)
         XCTAssertEqual(object["account"] as? String, "profile-2")
@@ -88,7 +75,7 @@ final class SteerStartInputEncodingTests: XCTestCase {
 
     func testActionStartOmitsPromptTeamAndInputsWhenUnset() throws {
         let object = try json(StartActionSessionInput(
-            actionId: "act-1", teamId: nil, workflowId: nil, deviceId: "d-1",
+            actionId: "act-1", teamId: nil, deviceId: "d-1",
             agent: nil, model: nil, subagentModel: nil, effort: nil,
             ultracode: nil, planMode: nil, inputs: nil, account: nil, prompt: nil
         ))
@@ -103,7 +90,7 @@ final class SteerStartInputEncodingTests: XCTestCase {
     // server-side id.
     func testChatStartCarriesPromptTeamAndRepo() throws {
         let object = try json(StartActionSessionInput(
-            actionId: DomainContract.builtinChatId, teamId: "t-1", workflowId: nil,
+            actionId: DomainContract.builtinChatId, teamId: "t-1",
             deviceId: "d-1", agent: "claude", model: "opus", subagentModel: nil,
             effort: "", ultracode: false, planMode: false,
             inputs: ["repo": "repo-1"], account: nil, prompt: "Summarize the open bugs"
@@ -144,37 +131,6 @@ final class SteerStartInputEncodingTests: XCTestCase {
         XCTAssertEqual(object.count, 3)
     }
 
-    // MARK: - Plan workflow (EXP-981)
-
-    // The hidden Plan-workflow builtin: `workflowId` names the DRAFT it plans
-    // (the server writes the prompt's `Workflow: <uuid>` first line itself),
-    // `teamId` rides like every builtin, and the free text — additional
-    // instructions — is optional.
-    func testPlanWorkflowStartCarriesTheWorkflowId() throws {
-        let object = try json(StartActionSessionInput(
-            actionId: DomainContract.builtinPlanWorkflowId, teamId: "t-1",
-            workflowId: "wf-1", deviceId: "d-1", agent: nil, model: nil,
-            subagentModel: nil, effort: nil, ultracode: nil, planMode: nil,
-            inputs: nil, account: nil, prompt: nil
-        ))
-        XCTAssertEqual(object["actionId"] as? String, "builtin:plan-workflow")
-        XCTAssertEqual(object["workflowId"] as? String, "wf-1")
-        XCTAssertEqual(object["teamId"] as? String, "t-1")
-        XCTAssertNil(object.index(forKey: "prompt"))
-        XCTAssertNil(object.index(forKey: "inputs"))
-    }
-
-    // Every other subject leaves the field out entirely — the server refuses
-    // `workflowId` beside anything but that builtin.
-    func testOtherStartsNeverMentionTheWorkflow() throws {
-        let action = try json(StartActionSessionInput(
-            actionId: "act-1", teamId: nil, workflowId: nil, deviceId: "d-1",
-            agent: nil, model: nil, subagentModel: nil, effort: nil,
-            ultracode: nil, planMode: nil, inputs: nil, account: nil, prompt: nil
-        ))
-        XCTAssertNil(action.index(forKey: "workflowId"))
-    }
-
     // MARK: - Subagent model (EXP-981)
 
     // Claude-only, and "default" is the ABSENT field: the server validates the
@@ -184,7 +140,7 @@ final class SteerStartInputEncodingTests: XCTestCase {
         let issue = try json(StartSessionInput(
             issueId: "i-1", deviceId: "d-1", agent: "claude", model: "opus",
             subagentModel: "sonnet", effort: nil, ultracode: nil, planMode: nil,
-            resume: nil, account: nil, prompt: nil, stack: nil
+            resume: nil, account: nil, prompt: nil
         ))
         XCTAssertEqual(issue["subagentModel"] as? String, "sonnet")
         let batch = try json(StartBatchSessionInput(

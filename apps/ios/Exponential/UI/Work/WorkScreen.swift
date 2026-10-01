@@ -83,43 +83,25 @@ struct WorkScreen: View {
     /// What the sheet asked for, run once it has dismissed (a push from
     /// under a dismissing sheet is dropped).
     @State private var readinessFollowUp: ReadinessFollowUp?
-    /// EXP-897 Part 4: the stack / batch / run-tree the subject is entangled
-    /// with — ONE badge in the header, ONE overlay behind it, sections per
-    /// face.
-    @State private var prGraphModel: PrGraphModel?
-    @State private var prGraphOpen = false
+    /// EXP-876: the issues a multi-issue run covers, opened from its title.
+    @State private var coveredIssuesOpen = false
     /// EXP-952: the issue's PR / pushed-branch files, read only when there is
     /// no live diff to draw. The model lives HERE, not inside the Changes face
     /// (Android's `WorkScreen` owns its `ChangesViewModel` the same way), so
     /// the files load before the face was ever opened. Handed into
     /// `PrChangesFace`; the Reviews page keeps creating its own.
     @State private var prChangesModel: ChangesViewModel?
-    /// EXP-917: a refused stack merge from the overlay. The sheet is gone by
-    /// the time the server answers, so the refusal is an error toast
-    /// (EXP-1031) — it used to be swallowed (`try?`), the one merge on this
-    /// screen that reported nothing.
-    @Environment(\.toaster) private var toaster
-
-    /// The workflow page's hook: the face this screen switches to, so a
-    /// step to the next node keeps it (EXP-1086).
-    private let onFaceChange: ((WorkFaceKind) -> Void)?
-
-    /// `initialFace` opens an issue subject on that face (the workflow page
-    /// keeps its face across nodes); unavailable faces fall back as usual.
-    init(
-        subject: WorkSubject,
-        initialFace: WorkFaceKind = .issue,
-        onFaceChange: ((WorkFaceKind) -> Void)? = nil
-    ) {
+    /// `initialFace` opens an issue subject on that face (a deep link's
+    /// Results); unavailable faces fall back as usual.
+    init(subject: WorkSubject, initialFace: WorkFaceKind = .issue) {
         self.subject = subject
-        self.onFaceChange = onFaceChange
         switch subject {
         case .issue:
             _face = State(initialValue: initialFace)
             _pendingInitialFace = State(initialValue: initialFace == .issue ? nil : initialFace)
         case .session:
             // The run's faces only: `.issue` lands on Run through the same
-            // rule, so a workflow batch node keeps the page's face too.
+            // rule.
             let first = WorkFaces.fallbackFace(
                 shown: initialFace, available: [.run, .changes, .results]
             ) ?? .run
@@ -356,36 +338,48 @@ struct WorkScreen: View {
         issue != nil && WorkFaces.faceShowsContextMenu(face)
     }
 
-    // MARK: - The PR graph (EXP-897 Part 4)
-
     private var teamId: String? {
         issueVM?.board?.teamId ?? shownSession?.teamId
     }
 
-    private var prGraph: PrGraph.Graph? {
-        prGraphModel?.graph(
-            issue: issue,
-            session: shownSession,
-            // EXP-876: a batch run's covered issues — the pill and its sheet
-            // name it before its pull request exists.
-            batchIssues: subjectModel?.batchIssues ?? []
-        )
+    // MARK: - Covered issues (EXP-876)
+
+    /// The issues a multi-issue (batch) run covers; empty on every other
+    /// subject, where the header draws the plain title.
+    private var coveredIssues: [IssueEntity] {
+        guard issueId == nil, let batch = subjectModel?.batchIssues, batch.count > 1 else {
+            return []
+        }
+        return batch
     }
 
-    /// SLOP-16 r2: the header's graph icon button, when there IS a stack, a
-    /// batch or (EXP-1097) an open blocker to name — the same on
-    /// every face.
+    /// The nav bar's title: the plain `WorkTitle`, or — on a multi-issue run —
+    /// its `EXP-874 +2` as the stacked issue chip that opens the issues it
+    /// covers.
     @ViewBuilder
-    private var prGraphBadge: some View {
-        if let graph = prGraph, let chip = PrGraph.badgeChip(graph) {
-            let shape = PrGraph.badgeShape(graph)
-            PrGraphBadge(
-                shape: shape,
-                count: chip.count,
-                accessibilityName: PrGraphBadge.accessibilityName(shape)
-            ) {
-                prGraphOpen = true
+    private var principalTitle: some View {
+        if coveredIssues.isEmpty {
+            WorkTitle(text: title, tone: dotTone, pulsing: dotPulsing)
+        } else {
+            IssueChipStack {
+                IssueChip(
+                    identifier: title,
+                    title: nil,
+                    iconName: nil,
+                    statusColor: nil,
+                    size: .sm,
+                    onTap: { coveredIssuesOpen = true }
+                )
             }
+            .accessibilityLabel(CoveredIssuesSheet.runTitle)
+            .accessibilityIdentifier("work-covered-issues")
+        }
+    }
+
+    private var coveredIssuesSheet: some View {
+        CoveredIssuesSheet(title: CoveredIssuesSheet.runTitle, issues: coveredIssues) { id in
+            coveredIssuesOpen = false
+            deps.deepLinkBus.navigateToIssue(id, accountId: accountId)
         }
     }
 
@@ -398,26 +392,14 @@ struct WorkScreen: View {
     /// EXP-1150: the tab strip OUTSIDE every face, so it never jumps, and
     /// (EXP-1152) the face pager under it. Standalone, the strip is part of
     /// the HEADER BAND (title row, then tabs, one hairline under both — see
-    /// `workHeaderBand`); embedded in the workflow page (which draws its own
-    /// rows under its nav bar) it stays a plain row above the face.
-    @ViewBuilder
+    /// `workHeaderBand`).
     private var screenContent: some View {
         ZStack {
             AppBackground()
-            if isEmbedded {
-                VStack(spacing: 0) {
-                    faceTabs
-                    facePager
-                }
-            } else {
-                facePager
-                    .workHeaderBand { faceTabs }
-            }
+            facePager
+                .workHeaderBand { faceTabs }
         }
     }
-
-    /// Hosted by the workflow page (EXP-1086), which owns the nav bar.
-    private var isEmbedded: Bool { onFaceChange != nil }
 
     private var faceTabs: some View {
         WorkFaceTabs(
@@ -434,7 +416,6 @@ struct WorkScreen: View {
                 WorkMergePill(
                     target: mergeTarget,
                     issue: mergeIssue(for: mergeTarget),
-                    prIssues: prGraphModel?.prIssues ?? [],
                     steerEnabled: steerEnabled
                 )
                 // A new target starts clean (no stale conflict caption).
@@ -464,7 +445,7 @@ struct WorkScreen: View {
         guard case let .issue(id) = target else { return nil }
         if let issue, issue.id == id { return issue }
         if let row = shownModel?.mergeIssue, row.id == id { return row }
-        return prGraphModel?.issue(id: id)
+        return nil
     }
 
     private func mergeTargetKey(_ target: MergeTarget) -> String {
@@ -475,8 +456,7 @@ struct WorkScreen: View {
     }
 
     /// EXP-1152: every face is a PAGE; a settled drag moves `face` through
-    /// `switchFace` like a tab tap does (keyboard down, overlays closed, the
-    /// workflow page told).
+    /// `switchFace` like a tab tap does (keyboard down, overlays closed).
     private var facePager: some View {
         WorkFacePager(
             faces: availableFaces,
@@ -596,22 +576,10 @@ struct WorkScreen: View {
             // EXP-1150: standalone, the header band draws the bar's material
             // over the title row AND the tabs, with its own hairline — the
             // nav bar's background and divider stand down.
-            .toolbarBackground(isEmbedded ? .visible : .hidden, for: .navigationBar)
+            .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    WorkTitle(text: title, tone: dotTone, pulsing: dotPulsing)
-                }
-                // SLOP-16 r2: the ONE graph icon button sits on the action
-                // edge, left of `…` / Stop, on EVERY face, in the bar's own
-                // capsule like `…`. Always mounted (EXP-942: an action-edge
-                // item that comes and goes sometimes failed to reappear).
-                // Borderless like everywhere else: on iOS 26 the bar would
-                // otherwise fuse it with `…` into one shared capsule.
-                if #available(iOS 26.0, *) {
-                    ToolbarItem(placement: .topBarTrailing) { prGraphBadge }
-                        .sharedBackgroundVisibility(.hidden)
-                } else {
-                    ToolbarItem(placement: .topBarTrailing) { prGraphBadge }
+                    principalTitle
                 }
                 // EXP-942: Stop / Resume is its OWN bar item, so the system
                 // gives it its own capsule instead of merging it with the
@@ -726,27 +694,10 @@ struct WorkScreen: View {
             } message: {
                 Text("This action cannot be undone.")
             }
-            // EXP-897 Part 4: the badge's overlay, the same on every face.
+            // EXP-876: a multi-issue run's covered issues, off its title.
             .background {
                 Color.clear
-                    .sheet(isPresented: $prGraphOpen) {
-                        if let graph = prGraph {
-                            PrGraphSheet(
-                                graph: graph,
-                                subjectIssueId: issue?.id,
-                                users: prGraphModel?.users ?? [],
-                                teamStatuses: issueVM?.teamStatuses ?? [],
-                                onOpenIssue: { id in
-                                    prGraphOpen = false
-                                    deps.deepLinkBus.navigateToIssue(id, accountId: accountId)
-                                },
-                                onOpenPullRequest: { entry in
-                                    prGraphOpen = false
-                                    openPullRequest(entry, subject: graph)
-                                }
-                            )
-                        }
-                    }
+                    .sheet(isPresented: $coveredIssuesOpen) { coveredIssuesSheet }
             }
             // EXP-1121: "Ready to code?" — its own node (EXP-240). Its
             // fixes that leave the issue run AFTER the dismiss.
@@ -870,10 +821,6 @@ struct WorkScreen: View {
             // A session subject learns its issue off its row.
             .onChange(of: subjectModel?.issueId, initial: true) { _, _ in
                 ensureIssueViewModel()
-                ensurePrGraphModel()
-            }
-            .onChange(of: teamId) { _, _ in
-                ensurePrGraphModel()
             }
             // `shownSessionId` follows the coding target until a pick.
             .onChange(of: targetSessionId, initial: true) { _, id in
@@ -899,7 +846,6 @@ struct WorkScreen: View {
             .onChange(of: face) { _, next in
                 menuOpen = false
                 runsMenuOpen = false
-                onFaceChange?(next)
             }
             // EXP-893: the session view's report, held while the pager has
             // the Run page unmounted (the preference resets then).
@@ -949,7 +895,6 @@ struct WorkScreen: View {
         subjectModel?.start()
         ensureIssueViewModel()
         issueVM?.startObserving()
-        ensurePrGraphModel()
         ensureReadinessModel()
         // EXP-952: re-arm the PR-files observation like every other one here.
         prChangesModel?.startObserving()
@@ -975,21 +920,11 @@ struct WorkScreen: View {
         }
     }
 
-    /// The graph's rows, re-armed on every appear like every other observation
-    /// here (the issue and the team may resolve after the first pass).
-    private func ensurePrGraphModel() {
-        if prGraphModel == nil {
-            prGraphModel = PrGraphModel(accountId: accountId, db: deps.db)
-        }
-        prGraphModel?.start(issueId: issueId, teamId: teamId)
-    }
-
     private func disappear() {
         // Belt-and-braces with EditorTextView.willMove(toWindow:) — no
         // first responder may outlive this screen (EXP-246).
         UIApplication.endEditing()
         subjectModel?.stop()
-        prGraphModel?.stop()
         readinessModel?.stop()
         prChangesModel?.stopObserving()
         continuation.stop()
@@ -1079,9 +1014,6 @@ struct WorkScreen: View {
         // the run view's chrome preference, which the Issue face dropped.
         guard !continuation.isPending, !resuming else { return }
         guard sawLiveSession else { return }
-        // Embedded in the workflow page, a node's ended run must not pop
-        // the whole page; the page keeps the node in place.
-        guard !isEmbedded else { return }
         dismiss()
     }
 
@@ -1090,18 +1022,6 @@ struct WorkScreen: View {
     /// A tab tap (or an in-face link): the pages SLIDE to the face.
     private func selectFace(_ next: WorkFaceKind) {
         withAnimation(motion.standard) { switchFace(next) }
-    }
-
-    /// SLOP-16 r3: a Related work PR row — the subject's own PR is this
-    /// screen's Changes face; any other one opens on its own.
-    private func openPullRequest(_ entry: PrGraph.Entry, subject graph: PrGraph.Graph) {
-        if entry.id == graph.entry?.id, availableFaces.contains(.changes) {
-            selectFace(.changes)
-        } else {
-            deps.deepLinkBus.navigateToIssue(
-                entry.representative.id, accountId: accountId, face: .changes
-            )
-        }
     }
 
     private func switchFace(_ next: WorkFaceKind) {
@@ -1233,7 +1153,7 @@ struct WorkScreen: View {
 
     private func deleteIssue() {
         Task {
-            if await issueVM?.deleteIssue() == true, !isEmbedded {
+            if await issueVM?.deleteIssue() == true {
                 dismiss()
             }
         }

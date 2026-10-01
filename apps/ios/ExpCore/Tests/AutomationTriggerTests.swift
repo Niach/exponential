@@ -286,7 +286,6 @@ final class AutomationTriggerTests: XCTestCase {
         XCTAssertEqual(ActionRunTitle.of(startedReason: "schedule"), "Scheduled run")
         XCTAssertEqual(ActionRunTitle.of(startedReason: "event"), "Event run")
         XCTAssertEqual(ActionRunTitle.of(startedReason: "agent"), "Agent run")
-        XCTAssertEqual(ActionRunTitle.of(startedReason: "workflow"), "Agent run")
         XCTAssertEqual(ActionRunTitle.of(startedReason: "something-new"), "Agent run")
         XCTAssertEqual(ActionRunTitle.of(startedReason: nil), "Manual run")
         XCTAssertEqual(ActionRunTitle.of(startedReason: ""), "Manual run")

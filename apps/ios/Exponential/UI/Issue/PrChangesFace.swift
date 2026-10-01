@@ -35,8 +35,6 @@ struct PrChangesFace: View {
     /// The face's OWN model, when none was injected.
     @State private var ownModel: ChangesViewModel?
     @State private var mergeConfirm = false
-    /// EXP-1145: the stack merge dialog, and the choice it was opened with.
-    @State private var stackChoice: PrStack.StackMergeChoice?
     @State private var closeConfirm = false
     // "Fix conflicts" (EXP-323, desktop parity): a refused merge is usually a
     // conflict, so the bar offers the builtin recovery run seeded with THIS
@@ -96,22 +94,6 @@ struct PrChangesFace: View {
         } message: {
             Text(mergeMessage)
         }
-        // EXP-1145: a stack member with other open members asks first.
-        .confirmationDialog(
-            PrStack.stackMergeChoiceTitle,
-            isPresented: Binding(
-                get: { stackChoice != nil },
-                set: { if !$0 { stackChoice = nil } }
-            ),
-            titleVisibility: .visible,
-            presenting: stackChoice
-        ) { choice in
-            Button(PrStack.mergeStackLabel) { viewModel?.mergeStack(topIssueId: choice.topIssueId) }
-            Button(PrStack.mergeThisPrLabel) { viewModel?.mergePr() }
-            Button(PrStack.stackMergeCancelLabel, role: .cancel) {}
-        } message: { choice in
-            Text(choice.body)
-        }
         // Close-without-merge (EXP-100) — the drop path; Reviews only.
         .confirmationDialog(
             "Close pull request?",
@@ -143,14 +125,8 @@ struct PrChangesFace: View {
         }
     }
 
-    /// EXP-1145: the stack dialog when the PR is a member of a stack with
-    /// other open members, the plain merge alert otherwise.
     private func requestMerge(_ vm: ChangesViewModel) {
-        if let choice = vm.stackMergeChoice {
-            stackChoice = choice
-        } else {
-            mergeConfirm = true
-        }
+        mergeConfirm = true
     }
 
     /// The merge alert message — carries the PR number when known.

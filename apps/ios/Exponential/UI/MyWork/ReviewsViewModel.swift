@@ -18,50 +18,9 @@ struct ReviewEntry: Identifiable {
     var prUrl: String? { representative.prUrl }
     var prNumber: Int? { representative.prNumber }
     var branch: String? { representative.branch }
-    /// EXP-897: the branch this PR is BASED on — the stack edge.
-    var prBaseBranch: String? { representative.prBaseBranch }
     /// Identifiers of every linked issue, newest first — mirrors `issues`
     /// (for the batch row subtitle).
     var identifiers: [String] { issues.compactMap { $0.identifier } }
-}
-
-/// EXP-897: one rendered Reviews row — an entry plus its place in its STACK.
-/// The list is flat; the depth is what indents it and the caption is what
-/// names the pull request it is built on.
-struct ReviewRow: Identifiable {
-    let entry: ReviewEntry
-    /// 0 for a root (a PR based on something nobody here owns), +1 per rung.
-    let depth: Int
-    /// Something is stacked on this row.
-    let hasChildren: Bool
-    /// The identifier of the entry directly BELOW — `on top of #EXP-11`.
-    let stackedOn: String?
-    /// How many pull requests the stack this row roots holds (1 = not a
-    /// stack). Only meaningful on the bottom row — the "Merge stack" copy.
-    var stackSize: Int = 1
-    /// EXP-1094: the status of the workflow whose node covers this PR's
-    /// issue(s), else nil (`ReviewsMerge.reviewWorkflowStatus`).
-    var workflowStatus: String?
-    var id: String { entry.id }
-
-    /// The LOWEST row of a real stack: the one that offers "Merge stack".
-    /// Its own issue id is what `mergePr({mergeStack: true})` takes — the
-    /// server resolves the top of the chain from it.
-    var isStackBottom: Bool { depth == 0 && hasChildren }
-
-    /// EXP-1094: what the ONE merge control rule reads off this row.
-    var mergeInput: ReviewsMerge.Input {
-        ReviewsMerge.Input(
-            stack: isStackBottom ? .bottom : depth > 0 ? .upper : .none,
-            workflowStatus: workflowStatus
-        )
-    }
-
-    /// The row's ONE merge control (`merge` / `merge_stack` / none).
-    var mergeAction: ReviewsMerge.Action { ReviewsMerge.reviewRowMergeAction(mergeInput) }
-
-    /// Why the row offers no merge control; a muted caption.
-    var mergeDisabledReason: String? { ReviewsMerge.reviewsMergeDisabledReason(mergeInput) }
 }
 
 /// EXP-734: one AGENT RUN's own open pull request — the chore PR an action or
@@ -77,40 +36,13 @@ struct RunReviewEntry: Identifiable {
     var branch: String? { session.branch }
 }
 
-/// EXP-1072: a workflow's ONE final pull request (integration branch → the
-/// default branch). The workflow row carries its url/number/state, so it is
-/// the workflow's OWN PR here — never an "external" one — and merges through
-/// `workflows.mergeFinalPr`, which completes the workflow and its issues.
-/// Mirrors web `WorkflowReviewEntry` (use-reviews-data.ts).
-struct WorkflowReviewEntry: Identifiable {
-    let workflow: WorkflowEntity
-    var id: String { WorkflowFinalPr.reviewKey(workflowId: workflow.id) }
-    var prUrl: String? { workflow.finalPrUrl }
-    var prNumber: Int? { workflow.finalPrNumber }
-    var branch: String { workflow.integrationBranch }
-
-    /// EXP-1094: a final PR row merges only while that PR is open.
-    var mergeAction: ReviewsMerge.Action {
-        ReviewsMerge.reviewRowMergeAction(
-            ReviewsMerge.Input(
-                workflowStatus: workflow.status, finalPr: true, finalPrState: workflow.finalPrState
-            )
-        )
-    }
-}
-
 /// One board's review entries — Reviews groups by board like the other
-/// cross-board lists group by status.
+/// cross-board lists group by status. The rows are FLAT: one per open pull
+/// request, newest first.
 struct ReviewGroup: Identifiable {
     let board: BoardEntity
-    /// EXP-897: the board's rows in NESTED order — a stack member follows the
-    /// pull request it is based on, one level deeper, and a whole stack lives
-    /// in the board of its ROOT entry (a stack spanning two boards reads as
-    /// one thing, where it starts).
-    let rows: [ReviewRow]
+    let entries: [ReviewEntry]
     var id: String { board.id }
-    /// The flat entries behind the rows — counts and pickers.
-    var entries: [ReviewEntry] { rows.map(\.entry) }
 }
 
 /// "Reviews" (EXP-131): every issue in the ACTIVE team with an open PR,
@@ -124,40 +56,21 @@ final class ReviewsViewModel {
     /// EXP-734: issue-less runs whose OWN pull request is open — the chore PRs
     /// no board group can ever show.
     var runSessions: [CodingSessionEntity] = []
-    /// EXP-1072: workflows whose ONE final pull request is open.
-    var workflows: [WorkflowEntity] = []
-    /// EXP-1094: every synced workflow + node, so a node's PR row merges
-    /// through its running/paused workflow instead of from the row.
-    var allWorkflows: [WorkflowEntity] = []
-    var workflowNodes: [WorkflowNodeEntity] = []
-    /// SLOP-16 r3: every synced member — a batch sheet's issue rows (THE
-    /// relation row) wear their assignee's avatar.
-    var users: [UserEntity] = []
-
     private let accountId: String
     private let db: DatabaseManager
 
     private var issueTask: Task<Void, Never>?
     private var boardTask: Task<Void, Never>?
     private var sessionTask: Task<Void, Never>?
-    private var workflowTask: Task<Void, Never>?
-    private var allWorkflowTask: Task<Void, Never>?
-    private var nodeTask: Task<Void, Never>?
-    private var userTask: Task<Void, Never>?
-    /// The team the workflow observations are scoped to (nil = none armed).
-    private var workflowTeamId: String?
 
     init(accountId: String, db: DatabaseManager) {
         self.accountId = accountId
         self.db = db
     }
 
-    /// `teamId` = the ACTIVE team: the workflow + node observations are
-    /// scoped to it (Android parity, `observeByTeam`), so a member of many
-    /// teams never loads every team's workflow rows for one Reviews list.
-    /// The issue/board/session loops stay team-agnostic and filter at read
-    /// time (`groups(teamId:)`), as before.
-    func startObserving(teamId: String?) {
+    /// The loops are team-agnostic and filter at read time
+    /// (`groups(teamId:)`, `runEntries(teamId:)`).
+    func startObserving() {
         stopObserving() // restartable: the view re-arms on every appear
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
 
@@ -203,77 +116,6 @@ final class ReviewsViewModel {
                 }
             } catch {}
         }
-
-        let userObservation = ValueObservation.tracking { db in try UserEntity.fetchAll(db) }
-        userTask = Task { [weak self] in
-            do {
-                for try await users in userObservation.values(in: pool) {
-                    self?.users = users
-                }
-            } catch {}
-        }
-
-        // EXP-1072: a workflow's final PR lives on the workflow row itself.
-        let workflowObservation = ValueObservation.tracking { db in
-            try WorkflowEntity
-                .filter(Column("final_pr_state") == DomainContract.prStateOpen)
-                .fetchAll(db)
-        }
-        workflowTask = Task { [weak self] in
-            do {
-                for try await workflows in workflowObservation.values(in: pool) {
-                    self?.workflows = workflows
-                }
-            } catch {}
-        }
-
-        observeWorkflowRows(teamId: teamId, pool: pool)
-    }
-
-    /// Re-scope the workflow + node observations to a new active team; the
-    /// other loops are unaffected. A no-op while the team is unchanged.
-    func updateTeam(_ teamId: String?) {
-        guard teamId != workflowTeamId else { return }
-        guard let pool = try? db.pool(forAccountId: accountId) else { return }
-        observeWorkflowRows(teamId: teamId, pool: pool)
-    }
-
-    /// EXP-1094: which PRs are workflow node PRs, and whether their workflow
-    /// still runs. Both rows carry `team_id`, so the observation is scoped
-    /// to the active team; no team = nothing observed, empty rows.
-    private func observeWorkflowRows(teamId: String?, pool: DatabasePool) {
-        allWorkflowTask?.cancel()
-        allWorkflowTask = nil
-        nodeTask?.cancel()
-        nodeTask = nil
-        workflowTeamId = teamId
-        guard let teamId else {
-            allWorkflows = []
-            workflowNodes = []
-            return
-        }
-        let allWorkflowObservation = ValueObservation.tracking { db in
-            try WorkflowEntity.filter(Column("team_id") == teamId).fetchAll(db)
-        }
-        allWorkflowTask = Task { [weak self] in
-            do {
-                for try await workflows in allWorkflowObservation.values(in: pool) {
-                    guard let self, self.workflowTeamId == teamId else { return }
-                    self.allWorkflows = workflows
-                }
-            } catch {}
-        }
-        let nodeObservation = ValueObservation.tracking { db in
-            try WorkflowNodeEntity.filter(Column("team_id") == teamId).fetchAll(db)
-        }
-        nodeTask = Task { [weak self] in
-            do {
-                for try await nodes in nodeObservation.values(in: pool) {
-                    guard let self, self.workflowTeamId == teamId else { return }
-                    self.workflowNodes = nodes
-                }
-            } catch {}
-        }
     }
 
     func stopObserving() {
@@ -283,15 +125,6 @@ final class ReviewsViewModel {
         boardTask = nil
         sessionTask?.cancel()
         sessionTask = nil
-        workflowTask?.cancel()
-        workflowTask = nil
-        allWorkflowTask?.cancel()
-        allWorkflowTask = nil
-        nodeTask?.cancel()
-        nodeTask = nil
-        userTask?.cancel()
-        userTask = nil
-        workflowTeamId = nil
     }
 
     /// Review entries grouped by board, scoped to `teamId`. Entries
@@ -320,84 +153,31 @@ final class ReviewsViewModel {
             let sorted = bucket.sorted { Self.newerFirst($0, $1) }
             return ReviewEntry(id: key, issues: sorted)
         }
+        .sorted { Self.newerFirst($0.representative, $1.representative) }
 
-        // EXP-897: order FIRST, then nest — `nestPrStacks` keeps the caller's
-        // root order and threads every stacked entry under the one it is based
-        // on, so the newest-first rule survives the nesting.
-        let ordered = entries.sorted { Self.newerFirst($0.representative, $1.representative) }
-        let nested = PrStack.nestPrStacks(
-            ordered,
-            id: { $0.id },
-            branch: { $0.branch },
-            base: { $0.prBaseBranch }
-        )
-
-        // Walk the nested list once: a row's board is its ROOT's board, and
-        // the entry directly below it is the nearest preceding row one level
-        // shallower (`ancestors`).
-        let workflowStatusByIssue = ReviewsMerge.workflowStatusByIssue(
-            workflows: allWorkflows.map { (id: $0.id, status: $0.status) },
-            nodes: workflowNodes.map {
-                (workflowId: $0.workflowId, issueId: $0.issueId, memberIssueIds: $0.memberIssueIds)
-            }
-        )
-        var rows: [ReviewRow] = []
-        var boardOfRow: [String] = []
-        var ancestors: [ReviewEntry] = []
-        var rootBoardId = ""
-        for nestedRow in nested {
-            let entry = nestedRow.entry
-            if ancestors.count > nestedRow.depth {
-                ancestors.removeSubrange(nestedRow.depth...)
-            }
-            let below = nestedRow.depth > 0 ? ancestors.last : nil
-            if nestedRow.depth == 0 { rootBoardId = entry.representative.boardId }
-            rows.append(ReviewRow(
-                entry: entry,
-                depth: nestedRow.depth,
-                hasChildren: nestedRow.hasChildren,
-                stackedOn: below?.representative.identifier,
-                workflowStatus: ReviewsMerge.reviewWorkflowStatus(
-                    issueIds: entry.issues.map(\.id), byIssue: workflowStatusByIssue
-                )
-            ))
-            boardOfRow.append(rootBoardId)
-            ancestors.append(entry)
-        }
-
-        // The bottom row of a stack carries its size: the contiguous run of
-        // deeper rows that follows it.
-        for index in rows.indices where rows[index].depth == 0 {
-            var size = 1
-            var cursor = index + 1
-            while cursor < rows.count, rows[cursor].depth > 0 {
-                size += 1
-                cursor += 1
-            }
-            rows[index].stackSize = size
-        }
-
-        var byBoard: [String: [ReviewRow]] = [:]
-        for (index, row) in rows.enumerated() {
-            byBoard[boardOfRow[index], default: []].append(row)
-        }
-
+        // A pull request linking issues on two boards lists under its
+        // representative's board.
+        let byBoard = Dictionary(grouping: entries) { $0.representative.boardId }
         return teamBoards
             .sorted { ($0.sortOrder ?? 0) < ($1.sortOrder ?? 0) }
             .compactMap { board in
-                guard let boardRows = byBoard[board.id], !boardRows.isEmpty else { return nil }
-                return ReviewGroup(board: board, rows: boardRows)
+                guard let boardEntries = byBoard[board.id], !boardEntries.isEmpty else { return nil }
+                return ReviewGroup(board: board, entries: boardEntries)
             }
     }
 
     /// EXP-734: the team's agent runs parking their OWN open pull request, one
     /// entry per distinct prUrl (newest run wins), newest first. Sessions carry
-    /// `team_id`, so no board scope is needed.
+    /// `team_id`, so no board scope is needed. A batch run's PR also links its
+    /// issues, so a run PR an issue row already lists is left to that row.
     func runEntries(teamId: String?) -> [RunReviewEntry] {
         guard let teamId else { return [] }
+        let issuePrUrls = Set(issues.compactMap { $0.prUrl }.filter { !$0.isEmpty })
         var byPrUrl: [String: CodingSessionEntity] = [:]
         for session in runSessions where session.teamId == teamId {
-            guard session.hasOpenPr, let prUrl = session.prUrl else { continue }
+            guard session.hasOpenPr, let prUrl = session.prUrl,
+                  !issuePrUrls.contains(prUrl)
+            else { continue }
             if let current = byPrUrl[prUrl], Self.newerFirst(current, session) { continue }
             byPrUrl[prUrl] = session
         }
@@ -409,23 +189,6 @@ final class ReviewsViewModel {
                     title: PastRuns.chatSubject($0) ?? $0.actionName ?? PastRuns.chatRunName
                 )
             }
-    }
-
-    /// EXP-1072: the team's workflows whose final pull request is open, newest
-    /// workflow first (web `workflowEntries` parity).
-    func workflowEntries(teamId: String?) -> [WorkflowReviewEntry] {
-        guard let teamId else { return [] }
-        return workflows
-            .filter {
-                $0.teamId == teamId &&
-                    $0.finalPrState == DomainContract.prStateOpen &&
-                    !($0.finalPrUrl ?? "").isEmpty
-            }
-            .sorted {
-                if $0.createdAt != $1.createdAt { return $0.createdAt > $1.createdAt }
-                return $0.id > $1.id
-            }
-            .map { WorkflowReviewEntry(workflow: $0) }
     }
 
     /// Newest-first by `startedAt`, id as the deterministic tie-break — the

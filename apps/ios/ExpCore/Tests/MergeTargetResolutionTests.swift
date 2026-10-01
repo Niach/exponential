@@ -2,9 +2,9 @@ import Foundation
 import XCTest
 @testable import ExpCore
 
-// EXP-734: an action or chat run's pull request links no issue at all, so its
-// Merge affordance targets the SESSION row the server stamped it on. Issue and
-// batch runs keep merging through an issue.
+// EXP-734/SLOP-3: an issue-less run (batch, action, chat) owns the pull request
+// it opened on its own row, so its Merge affordance targets the SESSION. Issue
+// runs keep merging through their issue.
 final class MergeTargetResolutionTests: XCTestCase {
     private func session(
         id: String = "cs-1",
@@ -77,15 +77,12 @@ final class MergeTargetResolutionTests: XCTestCase {
             prState: DomainContract.prStateOpen
         )
         XCTAssertEqual(
-            MergeTargetResolution.resolve(session: row, issue: nil, openBatchPrs: []),
+            MergeTargetResolution.resolve(session: row, issue: nil),
             .session(sessionId: "cs-action")
         )
     }
 
     func testChatRunWithItsOwnOpenPrTargetsTheSession() {
-        // A chat run is issue-less AND action-less, like a batch run — but its
-        // `exp/chat-` branch matches no open batch PR, so it falls through to
-        // its own stamped one.
         let row = session(
             id: "cs-chat",
             status: DomainContract.codingSessionStatusInReview,
@@ -95,7 +92,7 @@ final class MergeTargetResolutionTests: XCTestCase {
             prState: DomainContract.prStateOpen
         )
         XCTAssertEqual(
-            MergeTargetResolution.resolve(session: row, issue: nil, openBatchPrs: []),
+            MergeTargetResolution.resolve(session: row, issue: nil),
             .session(sessionId: "cs-chat")
         )
     }
@@ -103,7 +100,7 @@ final class MergeTargetResolutionTests: XCTestCase {
     func testIssueRunTargetsItsIssue() {
         let row = session(id: "cs-issue", issueId: "i-1")
         XCTAssertEqual(
-            MergeTargetResolution.resolve(session: row, issue: issue(), openBatchPrs: []),
+            MergeTargetResolution.resolve(session: row, issue: issue()),
             .issue(issueId: "i-1")
         )
         // A merged or closed issue PR leaves nothing to merge — and the run's
@@ -111,8 +108,7 @@ final class MergeTargetResolutionTests: XCTestCase {
         XCTAssertNil(
             MergeTargetResolution.resolve(
                 session: row,
-                issue: issue(prState: DomainContract.prStateMerged),
-                openBatchPrs: []
+                issue: issue(prState: DomainContract.prStateMerged)
             )
         )
     }
@@ -127,7 +123,7 @@ final class MergeTargetResolutionTests: XCTestCase {
                 prState: state
             )
             XCTAssertNil(
-                MergeTargetResolution.resolve(session: row, issue: nil, openBatchPrs: []),
+                MergeTargetResolution.resolve(session: row, issue: nil),
                 "\(state) must offer no merge"
             )
         }
@@ -136,24 +132,34 @@ final class MergeTargetResolutionTests: XCTestCase {
             actionName: "Refresh screenshots", prState: DomainContract.prStateOpen
         )
         XCTAssertNil(
-            MergeTargetResolution.resolve(session: urlless, issue: nil, openBatchPrs: [])
+            MergeTargetResolution.resolve(session: urlless, issue: nil)
         )
     }
 
-    func testBatchRunStillTargetsItsRepresentativeIssue() {
-        let batchUrl = "https://github.com/acme/web/pull/7"
-        let representative = issue(id: "i-batch", prUrl: batchUrl, branch: "exp/batch-a1b2c3d4")
-        let open = BatchPrResolution.openBatchPrs(
-            issues: [representative], teamBoardIds: ["b-1"]
-        )
+    func testBatchRunTargetsItsOwnPr() {
+        // SLOP-3: a batch run owns the combined PR it opened on its own row.
         let row = session(
             id: "cs-batch",
             status: DomainContract.codingSessionStatusInReview,
-            branch: "exp/batch-a1b2c3d4"
+            branch: "exp/batch-a1b2c3d4",
+            prUrl: "https://github.com/acme/web/pull/7",
+            prNumber: 7,
+            prState: DomainContract.prStateOpen
         )
         XCTAssertEqual(
-            MergeTargetResolution.resolve(session: row, issue: nil, openBatchPrs: open),
-            .issue(issueId: "i-batch")
+            MergeTargetResolution.resolve(session: row, issue: nil),
+            .session(sessionId: "cs-batch")
+        )
+        // No PR on its row: nothing to merge, whatever its branch says.
+        XCTAssertNil(
+            MergeTargetResolution.resolve(
+                session: session(
+                    id: "cs-batch-2",
+                    status: DomainContract.codingSessionStatusInReview,
+                    branch: "exp/batch-a1b2c3d4"
+                ),
+                issue: nil
+            )
         )
     }
 }

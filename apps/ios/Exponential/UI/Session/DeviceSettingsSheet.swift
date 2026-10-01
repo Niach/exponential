@@ -26,10 +26,6 @@ import SwiftUI
 //              is a flow, not a setting: signing in lives on the account chips
 //              (`AgentLoginSheet`) and the numbers live on ONE surface, Devices
 //              → Accounts.
-//              EXP-1042: and its last row is the "Workflow settings" SUB-SHELL
-//              (`SubShell`, ×4) — the machine's workflow model pair, which
-//              belongs to the LAST USED agent rather than to the agent tab, so
-//              it sits outside the tabs and slides its own page in.
 //   Update   — EXP-909, SERVER devices only (a desktop app updates itself):
 //              the version, an amber "Update available" caption, and the
 //              Update / Queued / Updating… control the device ROW used to
@@ -92,8 +88,7 @@ struct DeviceSettingsSheet: View {
     @State private var savingShare = false
     @State private var savingDefaultDevice = false
     /// EXP-1158: the machine's LAST USED agent (`launchDefaults.defaultAgent`),
-    /// READ-ONLY here — only the device writes it. The workflow pair is
-    /// clamped to its vocabulary.
+    /// READ-ONLY here — only the device writes it; the agent tab opens on it.
     @State private var lastUsedAgent = "claude"
     @State private var selectedAgent = "claude"
     @State private var drafts: [String: AgentDraft] = [:]
@@ -101,12 +96,6 @@ struct DeviceSettingsSheet: View {
     @State private var defaultsSaveTask: Task<Void, Never>?
     @State private var defaultsPending = false
     @Environment(\.toaster) private var toaster
-    /// EXP-1029: the machine's stored WORKFLOW pair, held raw (`""` = nothing
-    /// stored). What the page renders and what a save sends is the RESOLVED
-    /// pair — `DeviceWorkflowSettings` clamps it to the last used agent's
-    /// vocabulary, so a run started on the other agent re-seeds it for free.
-    @State private var workflowModel = ""
-    @State private var workflowStrongModel = ""
     /// EXP-420/EXP-909: the instance's advertised latest versions — the Update
     /// section offers its button only when a newer CLI build really exists.
     /// Instance config, not machine state: one tRPC read when the sheet opens
@@ -140,27 +129,22 @@ struct DeviceSettingsSheet: View {
             title: "Device settings",
             height: .full,
             content: {
-                // EXP-1042: the sheet IS the card a sub-shell page replaces —
-                // "Workflow settings" slides in over the whole form, with a
-                // back button on top, rather than pushing a screen.
-                SubShellHost {
-                    Form {
-                        nameSection(device)
-                        defaultDeviceSection(device)
-                        if device.isServer {
-                            sharingSection(device)
-                        }
-                        defaultsSection(device)
-                        if device.isServer {
-                            updateSection(device)
-                        }
-                        removeSection(device)
+                Form {
+                    nameSection(device)
+                    defaultDeviceSection(device)
+                    if device.isServer {
+                        sharingSection(device)
                     }
-                    // EXP-603: the sheet's own background shows through the
-                    // grouped list; rows carry the glass fill.
-                    .scrollContentBackground(.hidden)
-                    .listSectionSpacing(8)
+                    defaultsSection(device)
+                    if device.isServer {
+                        updateSection(device)
+                    }
+                    removeSection(device)
                 }
+                // EXP-603: the sheet's own background shows through the
+                // grouped list; rows carry the glass fill.
+                .scrollContentBackground(.hidden)
+                .listSectionSpacing(8)
             }
         )
         // EXP-694: no Done button — every field autosaves, so the only exits
@@ -234,11 +218,6 @@ struct DeviceSettingsSheet: View {
         let agents = device.editableAgentIds
         let advertisedDefault = device.launchDefaults?.defaultAgent
         lastUsedAgent = agents.contains(advertisedDefault ?? "") ? advertisedDefault! : (agents.first ?? "claude")
-        // EXP-1029: the workflow pair belongs to the MACHINE, not to an
-        // agent's block — it rides verbatim and the resolver clamps it to the
-        // last used agent's vocabulary wherever it is read.
-        workflowModel = device.launchDefaults?.workflow?.model ?? ""
-        workflowStrongModel = device.launchDefaults?.workflow?.strongModel ?? ""
         // A re-seed must not yank the tab the reader is looking at.
         selectedAgent = keepTab && agents.contains(selectedAgent) ? selectedAgent : lastUsedAgent
         var next: [String: AgentDraft] = [:]
@@ -510,93 +489,7 @@ struct DeviceSettingsSheet: View {
             effort: draftBinding(\.effort),
             ultracode: draftBinding(\.ultracode),
             planMode: draftBinding(\.planMode),
-            footerNote: device.isOnline ? nil : "Applies when the device comes online.",
-            // EXP-1020: the LAST row of that same card, not a card of its own.
-            trailing: AnyView(workflowRow())
-        )
-    }
-
-    // MARK: - Workflow settings (EXP-1029)
-
-    /// The machine's workflow model pair, one SUB-SHELL row — the last entry
-    /// of the agent-defaults card (EXP-1020): tapping it slides its page in
-    /// over the sheet. Shown for both agents — the pair follows the
-    /// machine's LAST USED agent rather than the tab that happens to be open.
-    private func workflowRow() -> some View {
-        SubShell(label: "Workflow settings", value: workflowSummary) {
-            workflowPage()
-        }
-    }
-
-    /// The stored pair, clamped to the last used agent's vocabulary — what the
-    /// row summarises, what the page renders, and what a save sends.
-    private var workflowResolved: (model: String, strongModel: String) {
-        DeviceWorkflowSettings.resolve(
-            agent: lastUsedAgent,
-            stored: DeviceWorkflowDefaults(
-                model: workflowModel, strongModel: workflowStrongModel
-            )
-        )
-    }
-
-    /// The trailing summary, `Opus · Fable`.
-    private var workflowSummary: String {
-        let pair = workflowResolved
-        return "\(LaunchVocabulary.modelLabel(pair.model)) · \(LaunchVocabulary.modelLabel(pair.strongModel))"
-    }
-
-    /// The page: one card, the two rungs a workflow launches on. Each pick
-    /// writes through the same debounce the rest of the defaults use.
-    private func workflowPage() -> some View {
-        let options = DeviceWorkflowSettings.modelValues(for: lastUsedAgent)
-        return Form {
-            Section {
-                VStack(alignment: .leading, spacing: 4) {
-                    GlassPickerRow(
-                        "Model",
-                        selection: workflowBinding(strong: false),
-                        options: options,
-                        label: LaunchVocabulary.modelLabel
-                    )
-                    Text("Leaf nodes and the subagents inside them.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    GlassPickerRow(
-                        "Strong model",
-                        selection: workflowBinding(strong: true),
-                        options: options,
-                        label: LaunchVocabulary.modelLabel
-                    )
-                    Text("Contract, integration and risky nodes, and every review.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .listRowBackground(glassFormRowFill)
-        }
-        .scrollContentBackground(.hidden)
-        .listSectionSpacing(8)
-    }
-
-    /// Like `draftBinding`: only a USER pick writes, so a re-seed can never
-    /// start a save loop. The stored half is written RAW — the resolver is
-    /// what renders it back, clamped.
-    private func workflowBinding(strong: Bool) -> Binding<String> {
-        Binding(
-            get: { strong ? workflowResolved.strongModel : workflowResolved.model },
-            set: { newValue in
-                let current = strong ? workflowResolved.strongModel : workflowResolved.model
-                guard newValue != current else { return }
-                if strong {
-                    workflowStrongModel = newValue
-                } else {
-                    workflowModel = newValue
-                }
-                defaultsPending = true
-                scheduleDefaultsAutosave()
-            }
+            footerNote: device.isOnline ? nil : "Applies when the device comes online."
         )
     }
 
@@ -655,17 +548,7 @@ struct DeviceSettingsSheet: View {
         // later edit re-arms the debounce on its own.
         // EXP-1158: no `defaultAgent` — the device owns the last used agent
         // and the server carries it forward over this save.
-        let payload = DeviceLaunchDefaultsInput(
-            agents: agents,
-            // EXP-1029: a whole-object save REPLACES the stored defaults, so
-            // the workflow pair rides every write — leaving it out would
-            // clobber it with nothing. The RESOLVED pair goes, which is also
-            // how a last-used-agent switch persists the clamp.
-            workflow: DeviceWorkflowDefaultsInput(
-                model: workflowResolved.model,
-                strongModel: workflowResolved.strongModel
-            )
-        )
+        let payload = DeviceLaunchDefaultsInput(agents: agents)
         defaultsPending = false
         savingDefaults = true
         let api = deps.devicesApi

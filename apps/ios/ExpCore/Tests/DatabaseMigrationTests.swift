@@ -122,7 +122,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v53_invite_placeholder", "v54_invite_sent_at",
              "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped",
              "v57_team_yolo_mode", "v58_workflows_gate_dropped",
-             "v59_action_triggers"]
+             "v59_action_triggers", "v60_drop_workflows_and_stacks"]
         )
     }
 
@@ -171,7 +171,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v53_invite_placeholder", "v54_invite_sent_at",
              "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped",
              "v57_team_yolo_mode", "v58_workflows_gate_dropped",
-             "v59_action_triggers"]
+             "v59_action_triggers", "v60_drop_workflows_and_stacks"]
         )
     }
 
@@ -220,7 +220,8 @@ final class DatabaseMigrationTests: XCTestCase {
 
     // v56 (EXP-1066/EXP-1090): a store migrated through v55 whose
     // `workflows` still carries the dead `start_on` column (every pre-v56
-    // install) drops it, keeping its rows; a second pass is a no-op.
+    // install) drops it, keeping its rows; a second pass is a no-op. Only UP
+    // TO v56: v60 (SLOP-3) drops the whole table.
     func testWorkflowStartOnDroppedFromExistingStore() throws {
         let pool = try makePool("workflow-start-on-drop")
         let migrator = DatabaseManager.makeMigrator()
@@ -235,13 +236,13 @@ final class DatabaseMigrationTests: XCTestCase {
                 """)
         }
 
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v56_workflow_start_on_dropped"))
         XCTAssertFalse(try columnNames(pool, "workflows").contains("start_on"))
         let name = try pool.read { db in
             try String.fetchOne(db, sql: #"SELECT "name" FROM "workflows" WHERE "id" = 'wf-1'"#)
         }
         XCTAssertEqual(name, "Ship it")
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v56_workflow_start_on_dropped"))
     }
 
     // v51 (EXP-995): a store migrated through v50 carries an `automations`
@@ -626,7 +627,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v53_invite_placeholder", "v54_invite_sent_at",
              "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped",
              "v57_team_yolo_mode", "v58_workflows_gate_dropped",
-             "v59_action_triggers"]
+             "v59_action_triggers", "v60_drop_workflows_and_stacks"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -723,7 +724,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v53_invite_placeholder", "v54_invite_sent_at",
              "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped",
              "v57_team_yolo_mode", "v58_workflows_gate_dropped",
-             "v59_action_triggers"]
+             "v59_action_triggers", "v60_drop_workflows_and_stacks"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1280,7 +1281,7 @@ final class DatabaseMigrationTests: XCTestCase {
     // created before it existed must gain the column via the guarded ALTER and
     // get the issues offset reset (shape key 'issues'), or the sync apply path
     // would keep dropping the wire column the local schema lacks and no client
-    // could ever see a stack.
+    // could ever see a stack. Only UP TO v40: v60 (SLOP-3) drops it again.
     func testIssuePrBaseBranchColumnAddedToExistingStore() throws {
         let pool = try makePool("issue-pr-base-branch")
         let migrator = DatabaseManager.makeMigrator()
@@ -1300,7 +1301,7 @@ final class DatabaseMigrationTests: XCTestCase {
                 """)
         }
 
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v40_issue_pr_base_branch"))
         let column = try pool.read { db in
             try db.columns(in: "issues").first { $0.name == "pr_base_branch" }
         }
@@ -1324,15 +1325,15 @@ final class DatabaseMigrationTests: XCTestCase {
                       "attachments", "notifications", "issue_subscribers",
                       "issue_events", "coding_sessions", "actions",
                       "issue_statuses", "pins", "issue_drafts",
-                      "workflows", "workflow_nodes", "workflow_events",
                       "electric_offsets"] {
             let exists = try pool.read { db in try db.tableExists(table) }
             XCTAssertTrue(exists, "missing table \(table)")
         }
         // The renamed-away tables must be gone on a fresh install.
         // SLOP-2: `automations` too — triggers live on their action now.
+        // SLOP-3: and the workflow tables.
         for table in ["workspaces", "projects", "workspace_members", "workspace_invites", "releases",
-                      "automations"] {
+                      "automations", "workflows", "workflow_nodes", "workflow_events"] {
             let exists = try pool.read { db in try db.tableExists(table) }
             XCTAssertFalse(exists, "legacy table \(table) must not exist")
         }
@@ -1357,8 +1358,8 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertFalse(try columnNames(pool, "coding_sessions").contains("project_id"))
 
         XCTAssertTrue(try columnNames(pool, "issues").contains("duplicate_of_id"))
-        // EXP-897: the stack edge rides the issues shape.
-        XCTAssertTrue(try columnNames(pool, "issues").contains("pr_base_branch"))
+        // SLOP-3: the stack edge is gone.
+        XCTAssertFalse(try columnNames(pool, "issues").contains("pr_base_branch"))
         // EXP-630: story points ride the issues shape, the scale the teams one.
         XCTAssertTrue(try columnNames(pool, "issues").contains("estimate"))
         XCTAssertTrue(try columnNames(pool, "teams").contains("estimation_type"))
@@ -1435,29 +1436,6 @@ final class DatabaseMigrationTests: XCTestCase {
              "created_at", "updated_at"]
         )
 
-        // EXP-981: workflows + their nodes are team-scoped (shapes 23/24) —
-        // the column lists byte-match the two shape proxies' allowlists, minus
-        // the server-only `creator_id`.
-        XCTAssertEqual(
-            try columnNames(pool, "workflows"),
-            ["id", "team_id", "repository_id", "name", "status", "device_id",
-             "launch", "integration_branch", "final_pr_url",
-             "final_pr_number", "final_pr_state", "decisions", "metrics",
-             "started_at", "ended_at", "created_at", "updated_at"]
-        )
-        // `wave` / `lane` / `on_cycle` ARE the server-computed layout: no
-        // client lays a graph out. EXP-982's `approved_at` + `note` arrive as
-        // v48 ALTERs, EXP-983's `checkpoint_at` + `after_node_ids` as v49 ones
-        // and EXP-984's `review_round` + `review` as v50 ones, so they sit at
-        // the END of a fresh store's column list.
-        XCTAssertEqual(
-            try columnNames(pool, "workflow_nodes"),
-            ["id", "workflow_id", "team_id", "issue_id", "member_issue_ids",
-             "kind", "state", "risk", "wave", "lane", "on_cycle", "session_id",
-             "attempt", "base_branch", "touches", "created_at",
-             "updated_at", "approved_at", "note", "checkpoint_at",
-             "after_node_ids", "review_round", "review"]
-        )
         // status_id is NULLABLE: NULL means the team's Backlog builtin.
         let draftStatusId = try pool.read { db in
             try db.columns(in: "issue_drafts").first { $0.name == "status_id" }
@@ -2286,7 +2264,7 @@ final class DatabaseMigrationTests: XCTestCase {
                 """)
         }
 
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v47_workflows"))
         XCTAssertTrue(try pool.read { db in try db.tableExists("workflows") })
         XCTAssertTrue(try pool.read { db in try db.tableExists("workflow_nodes") })
         XCTAssertTrue(try columnNames(pool, "workflows").contains("metrics"))
@@ -2300,7 +2278,7 @@ final class DatabaseMigrationTests: XCTestCase {
             )
         }
         XCTAssertEqual(untouched, true)
-        // Re-running converges without a duplicate-table throw.
+        // The rest of the chain runs clean on top (v60 drops both again).
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 
@@ -2326,7 +2304,7 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertFalse(try columnNames(pool, "workflow_nodes").contains("approved_at"))
 
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v48_workflow_node_approval"))
         let columns = try pool.read { db in try db.columns(in: "workflow_nodes") }
         for name in ["approved_at", "note"] {
             let added = columns.first { $0.name == name }
@@ -2369,7 +2347,7 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertFalse(try columnNames(pool, "workflow_nodes").contains("checkpoint_at"))
 
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v49_workflow_node_checkpoint"))
         let columns = try pool.read { db in try db.columns(in: "workflow_nodes") }
         for name in ["checkpoint_at", "after_node_ids"] {
             let added = columns.first { $0.name == name }
@@ -2413,7 +2391,7 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertFalse(try columnNames(pool, "workflow_nodes").contains("review_round"))
 
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v50_workflow_node_review"))
         let columns = try pool.read { db in try db.columns(in: "workflow_nodes") }
         let round = columns.first { $0.name == "review_round" }
         XCTAssertNotNil(round)
@@ -2455,7 +2433,7 @@ final class DatabaseMigrationTests: XCTestCase {
                 """)
         }
 
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v55_workflow_session_membership_events"))
         let cols = try columnNames(pool, "coding_sessions")
         for column in columns {
             XCTAssertTrue(cols.contains(column), "missing coding_sessions.\(column)")
@@ -2474,6 +2452,85 @@ final class DatabaseMigrationTests: XCTestCase {
             )
         }
         XCTAssertEqual(reset, true)
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // v60 (SLOP-3): workflows, stacked starts and the PR stack edge are gone.
+    // A store migrated through v59 loses the three workflow tables and their
+    // cursors, `issues.pr_base_branch` and the run's workflow membership
+    // columns, while every surviving issue and coding_sessions row (and every
+    // other shape's offset) stays exactly where it was; a re-run is a no-op.
+    func testWorkflowsAndStacksDroppedKeepingExistingRows() throws {
+        let pool = try makePool("drop-workflows-and-stacks")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v59_action_triggers")
+        try pool.write { db in
+            try db.execute(sql: """
+                INSERT INTO "issues" ("id", "board_id", "title", "status", "priority",
+                    "branch", "pr_base_branch", "created_at", "updated_at")
+                VALUES ('i-1', 'b-1', 'Keep me', 'in_review', 'none',
+                    'exp/EXP-2', 'exp/EXP-1', '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z')
+                """)
+            try db.execute(sql: """
+                INSERT INTO "coding_sessions" ("id", "issue_id", "team_id", "user_id",
+                    "device_label", "status", "workflow_id", "workflow_node_id",
+                    "workflow_role", "pending_question", "started_at", "created_at",
+                    "updated_at")
+                VALUES ('cs-1', 'i-1', 't-1', 'u-1', 'macbook', 'running', 'wf-1',
+                    'n-1', 'author', '{"question":"?"}', '2026-10-01T00:00:00Z',
+                    '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z')
+                """)
+            try db.execute(sql: """
+                INSERT INTO "workflows" ("id", "team_id", "name")
+                VALUES ('wf-1', 't-1', 'Ship it')
+                """)
+            for shape in ["issues", "coding-sessions", "workflows", "workflow-nodes", "workflow-events"] {
+                try db.execute(
+                    sql: """
+                        INSERT INTO "electric_offsets"
+                            ("shape", "handle", "offset", "needs_refetch", "is_live")
+                        VALUES (?, 'h', '0_0', 0, 1)
+                        """,
+                    arguments: [shape]
+                )
+            }
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        for table in ["workflows", "workflow_nodes", "workflow_events"] {
+            XCTAssertFalse(try pool.read { db in try db.tableExists(table) }, table)
+        }
+        XCTAssertFalse(try columnNames(pool, "issues").contains("pr_base_branch"))
+        let sessionCols = try columnNames(pool, "coding_sessions")
+        for column in ["workflow_id", "workflow_node_id", "workflow_role"] {
+            XCTAssertFalse(sessionCols.contains(column), column)
+        }
+        XCTAssertTrue(sessionCols.contains("pending_question"))
+
+        // The rows survive, columns intact.
+        let issue = try pool.read { db in
+            try Row.fetchOne(db, sql: #"SELECT "title", "branch" FROM "issues" WHERE "id" = 'i-1'"#)
+        }
+        XCTAssertEqual(issue?["title"] as String?, "Keep me")
+        XCTAssertEqual(issue?["branch"] as String?, "exp/EXP-2")
+        let session = try pool.read { db in
+            try Row.fetchOne(
+                db,
+                sql: #"SELECT "issue_id", "pending_question" FROM "coding_sessions" WHERE "id" = 'cs-1'"#
+            )
+        }
+        XCTAssertEqual(session?["issue_id"] as String?, "i-1")
+        XCTAssertEqual(session?["pending_question"] as String?, #"{"question":"?"}"#)
+
+        // The retired shapes' cursors are gone; the survivors keep theirs.
+        let shapes = try pool.read { db in
+            try String.fetchAll(
+                db,
+                sql: #"SELECT "shape" FROM "electric_offsets" WHERE "handle" = 'h' ORDER BY "shape""#
+            )
+        }
+        XCTAssertEqual(shapes, ["coding-sessions", "issues"])
+
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 

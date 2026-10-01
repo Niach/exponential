@@ -46,10 +46,6 @@ final class AgentComposerModel {
     private(set) var checked: [String] = []
     /// The picked action (a team row or a builtin id); nil = issues or chat.
     private(set) var actionId: String?
-    /// EXP-981: the DRAFT workflow a `builtin:plan-workflow` subject plans —
-    /// seeded by that workflow's Plan button and sent as `workflowId`. Cleared
-    /// with the action, because the builtin is meaningless without it.
-    private(set) var workflowId: String?
     /// Typed input values keyed by the def's `key`; `""` = cleared. A key
     /// that was never touched resolves to its default (`value(for:)`).
     var inputValues: [String: String] = [:]
@@ -62,8 +58,8 @@ final class AgentComposerModel {
     var sending = false
     var error: String?
     /// EXP-897: the blocked-start prompt, up while the reader chooses between
-    /// a stacked PR, an ordinary run and cancelling. EXP-980: it asks for a
-    /// BATCH too (blockers outside the picked set), and never for a resume.
+    /// an ordinary run and cancelling. EXP-980: it asks for a BATCH too
+    /// (blockers outside the picked set), and never for a resume.
     var blockedPrompt: BlockedStartPrompt?
 
     /// The repo registry — one tRPC read; the chat picker and the `repo`
@@ -120,11 +116,6 @@ final class AgentComposerModel {
     func apply(_ seed: AgentComposerSeed) {
         if let actionId = seed.actionId {
             self.actionId = actionId
-            // EXP-981: rides ONLY with the Plan workflow builtin — the server
-            // refuses it beside any other subject.
-            workflowId = actionId == DomainContract.builtinPlanWorkflowId
-                ? seed.workflowId
-                : nil
             checked = []
             inputValues = [:]
         } else if !seed.effectiveIssueIds.isEmpty {
@@ -282,23 +273,6 @@ final class AgentComposerModel {
         )
     }
 
-    /// EXP-897: the target machine reads the frame's `stack` payload. An
-    /// older desktop/CLI has no `stack` field in its decoder and would run
-    /// UNSTACKED while the server had already recorded a stack, so the prompt
-    /// DISABLES "Stacked PR" for it (EXP-980: disabled, never hidden) and
-    /// `startStacked()` refuses to send one.
-    var canStackStart: Bool { device?.canStackStart == true }
-
-    /// Why the prompt's "Stacked PR" is off, or nil when it is on — the shared
-    /// rule over the picked count, the machine's capability and the graph.
-    func stackDisabledReason(_ prompt: BlockedStartPrompt) -> StackStart.StackDisabledReason? {
-        StackStart.stackDisabledReason(
-            pickedCount: prompt.issueIds.count,
-            canStack: canStackStart,
-            hasCycle: prompt.graph.hasCycle
-        )
-    }
-
     /// Every `blocks` row and the issues at either end. Armed once: the rule
     /// is keyed on the picked SET, which changes without any database change,
     /// so there is nothing per-subject to re-point.
@@ -349,11 +323,7 @@ final class AgentComposerModel {
 
     var selectedAction: ActionDto? {
         guard let actionId else { return nil }
-        if let picked = actions.first(where: { $0.id == actionId }) { return picked }
-        // EXP-981: the Plan workflow builtin is in NO pool — a workflow's Plan
-        // button seeds it directly, so it resolves here and nowhere else.
-        guard actionId == DomainContract.builtinPlanWorkflowId, let teamId else { return nil }
-        return ActionDto.builtinPlanWorkflowAction(teamId: teamId)
+        return actions.first(where: { $0.id == actionId })
     }
 
     var subject: AgentComposerPrompt.Subject {
@@ -394,7 +364,6 @@ final class AgentComposerModel {
         touched = true
         if actionId != nil {
             actionId = nil
-            workflowId = nil
             inputValues = [:]
         }
         if let index = checked.firstIndex(of: id) {
@@ -411,8 +380,6 @@ final class AgentComposerModel {
         guard action.id != actionId else { return }
         touched = true
         actionId = action.id
-        // Only a seed can name a workflow; picking another action drops it.
-        workflowId = nil
         checked = []
         inputValues = [:]
         refreshBlockers()
@@ -421,7 +388,6 @@ final class AgentComposerModel {
     func clearAction() {
         touched = true
         actionId = nil
-        workflowId = nil
         inputValues = [:]
         refreshBlockers()
     }
@@ -701,7 +667,7 @@ final class AgentComposerModel {
     // MARK: - Submit
 
     /// EXP-897/EXP-980: a start on BLOCKED work asks first — start anyway, or
-    /// build on the blocker's pull request. One issue and a batch both ask;
+    /// cancel. One issue and a batch both ask;
     /// an action run and a chat never do, and neither does a RESUME (it
     /// re-enters a run whose blockers were answered when it started, the
     /// desktop's rule since EXP-897).
@@ -722,25 +688,14 @@ final class AgentComposerModel {
                 return
             }
         }
-        send(stack: nil)
+        send()
     }
 
     /// The reader chose an ordinary run despite the blockers — exactly what
     /// was picked, the whole batch for a batch.
     func startAnyway() {
         blockedPrompt = nil
-        send(stack: nil)
-    }
-
-    /// The reader chose a stacked pull request: the branch is cut from the
-    /// blocker's PR branch and the pull request is based on it. Never sent
-    /// while the shared rule disables the choice (a machine without
-    /// `stacked-start`, a batch, a cycle) — the button is disabled there, and
-    /// this guard keeps a stale tap from downgrading to a plain run.
-    func startStacked() {
-        guard let prompt = blockedPrompt, stackDisabledReason(prompt) == nil else { return }
-        blockedPrompt = nil
-        send(stack: true)
+        send()
     }
 
     /// Upload the pending images (sequentially, stamping `uploadedId` so a
@@ -748,7 +703,7 @@ final class AgentComposerModel {
     /// compose the `prompt`, then dispatch chat / action / issue / batch.
     /// On success the composer clears and the watcher pushes the run once
     /// its row syncs; on failure the draft, the chips and the strip stay.
-    private func send(stack: Bool?) {
+    private func send() {
         guard canSubmit, let device, let teamId, !sending else { return }
         sending = true
         error = nil
@@ -778,7 +733,7 @@ final class AgentComposerModel {
             )
             do {
                 let key = try await dispatch(
-                    device: device, teamId: teamId, prompt: prompt, stack: stack
+                    device: device, teamId: teamId, prompt: prompt
                 )
                 startWatcher.begin(
                     key: key,
@@ -791,7 +746,6 @@ final class AgentComposerModel {
                 pendingImages = []
                 checked = []
                 actionId = nil
-                workflowId = nil
                 inputValues = [:]
                 pendingPrIssueId = nil
                 seededDraft = ""
@@ -807,7 +761,7 @@ final class AgentComposerModel {
     /// One `steer.startSession` per subject. Returns the watch key that
     /// recognises the desktop-inserted row (`StartedRunMatch`).
     private func dispatch(
-        device: SteerDevice, teamId: String, prompt: String?, stack: Bool? = nil
+        device: SteerDevice, teamId: String, prompt: String?
     ) async throws -> StartedRunKey {
         switch subject {
         case .none:
@@ -841,12 +795,6 @@ final class AgentComposerModel {
                 actionId: action.id,
                 deviceId: device.deviceId,
                 teamId: action.isBuiltin ? action.teamId : nil,
-                // EXP-981: the Plan workflow builtin names its DRAFT; the
-                // server writes the prompt's `Workflow: <uuid>` head itself
-                // and refuses the field beside any other action.
-                workflowId: action.id == DomainContract.builtinPlanWorkflowId
-                    ? workflowId
-                    : nil,
                 options: launch.buildOptions(),
                 inputs: values.isEmpty ? nil : values,
                 prompt: prompt
@@ -873,10 +821,7 @@ final class AgentComposerModel {
                     issueId: ids[0],
                     deviceId: device.deviceId,
                     options: launch.buildOptions(resume: resumeActive ? true : nil),
-                    prompt: prompt,
-                    // EXP-897: single-issue only — the batch form above has no
-                    // such field, and the server refuses it there.
-                    stack: stack
+                    prompt: prompt
                 )
             }
             return key
@@ -899,12 +844,11 @@ struct BlockedStartPrompt: Identifiable {
 
     var id: String { issueIds.joined(separator: ",") }
 
-    /// Two or more picked issues = a batch, which reads differently and can
-    /// never be stacked.
+    /// Two or more picked issues = a batch, which reads differently.
     var isBatch: Bool { issueIds.count > 1 }
 
-    /// Byte-identical ×4 (`StackStart`).
+    /// Byte-identical ×4 (`BlockedStart`).
     var title: String {
-        isBatch ? StackStart.blockedBatchTitle : StackStart.blockedStartTitle
+        isBatch ? BlockedStart.blockedBatchTitle : BlockedStart.blockedStartTitle
     }
 }

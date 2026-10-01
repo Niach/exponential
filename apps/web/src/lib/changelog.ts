@@ -25,6 +25,20 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-01-one-run`,
+    date: `2026-10-01`,
+    title: `One kind of run`,
+    summary: `Workflows and stacked starts are gone: a run plans and fans out its own work, and batches and GitHub stacked pull requests keep working.`,
+    body: `- **Runs**: workflows and the stacked start are removed. A run splits its own work with subagents and starts further runs for the follow-ups it files, each on its own pull request.
+- **Batches**: starting several issues as one batch run with one combined pull request works as before.
+- **Dependent work**: a pull request can still be based on another one. Merge the first one first: its merge moves the ones built on it to the default branch.
+- **Reviews**: one flat list of open pull requests, each with a plain Merge. Merge stack and the Workflows group are gone.
+- **Blocked issues**: starting a blocked issue asks Cancel or Start anyway.
+- **Header**: the Related work badge is gone. A batch run's title lists its issues, and what blocks an issue stays on the issue list.
+- **MCP**: the \`exponential_workflows_*\` tools, \`stackOnIssueId\` and \`mergeStack\` are gone. \`exponential_pr_open\` takes \`base\`, and \`exponential_pr_merge\` merges \`issueIds\` in the given order.
+- **Older apps**: desktop, CLI and Android need this release. An older iPhone app keeps working and shows an empty Workflows page.`,
+  },
+  {
     id: `2026-10-01-release-train`,
     date: `2026-10-01`,
     title: `Triggers, accounts and connections, tightened`,

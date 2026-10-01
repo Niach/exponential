@@ -2137,6 +2137,44 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v60 (SLOP-3): workflows, stacked starts and the PR stack edge are
+        // gone. The app syncs 21 shapes: the `workflows`, `workflow-nodes`
+        // and `workflow-events` tables and their cursors go, as do
+        // `issues.pr_base_branch` and the run's workflow membership columns
+        // (`coding_sessions.workflow_id`/`workflow_node_id`/`workflow_role`;
+        // `pending_question` stays). No index covers a dropped column, and
+        // SQLite >= 3.35 (iOS 15+) drops columns in place, so every surviving
+        // row and offset keeps its cursor. Guarded so fresh installs and
+        // re-runs converge.
+        migrator.registerMigration("v60_drop_workflows_and_stacks") { db in
+            for table in ["workflow_events", "workflow_nodes", "workflows"] {
+                try db.execute(sql: "DROP TABLE IF EXISTS \"\(table)\"")
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    DELETE FROM "electric_offsets"
+                    WHERE "shape" IN ('workflows', 'workflow-nodes', 'workflow-events')
+                    """)
+            }
+            if try db.tableExists("issues") {
+                let existing = Set(try db.columns(in: "issues").map(\.name))
+                if existing.contains("pr_base_branch") {
+                    try db.alter(table: "issues") { t in
+                        t.drop(column: "pr_base_branch")
+                    }
+                }
+            }
+            if try db.tableExists("coding_sessions") {
+                let existing = Set(try db.columns(in: "coding_sessions").map(\.name))
+                for column in ["workflow_id", "workflow_node_id", "workflow_role"]
+                where existing.contains(column) {
+                    try db.alter(table: "coding_sessions") { t in
+                        t.drop(column: column)
+                    }
+                }
+            }
+        }
+
         return migrator
     }
 
@@ -2159,11 +2197,6 @@ public final class DatabaseManager: @unchecked Sendable {
         guard let pool = lock.withLock({ pools[accountId] }) else { return }
         try pool.write { db in
             try db.execute(sql: "DELETE FROM electric_offsets")
-            // EXP-981: nodes reference issues and their workflow — child first.
-            // EXP-1082: events reference their workflow and nodes — first.
-            try db.execute(sql: "DELETE FROM workflow_events")
-            try db.execute(sql: "DELETE FROM workflow_nodes")
-            try db.execute(sql: "DELETE FROM workflows")
             // EXP-778: pins point at issues/sessions/actions — first.
             try db.execute(sql: "DELETE FROM pins")
             // EXP-878: drafts resolve a board — wiped with the rest.

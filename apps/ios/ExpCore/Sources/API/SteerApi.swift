@@ -109,21 +109,6 @@ public struct AgentLaunchDefaults: Decodable, Equatable, Sendable {
 /// EXP-773 dropped `startInTerminal`: the PTY coding path is gone. Decoding
 /// ignores unknown keys, so a row an older server still stamps it onto keeps
 /// parsing.
-/// EXP-1029: a device's WORKFLOW model defaults (`launch_defaults.workflow`)
-/// — the cheap `model` (leaves + subagents) and the `strongModel` (contract,
-/// integration and `risk: high` nodes, every agent review) new workflows are
-/// seeded from. Absent on a machine that predates them: readers fall back to
-/// `DomainContract.deviceAgentDefaultsWorkflowModel` / `…StrongModel`.
-public struct DeviceWorkflowDefaults: Decodable, Equatable, Sendable {
-    public let model: String?
-    public let strongModel: String?
-
-    public init(model: String? = nil, strongModel: String? = nil) {
-        self.model = model
-        self.strongModel = strongModel
-    }
-}
-
 public struct DeviceLaunchDefaults: Decodable, Equatable, Sendable {
     /// EXP-1158: the machine's LAST USED agent — the agent a person last
     /// started or switched a run on there. Only the DEVICE writes it; clients
@@ -131,21 +116,17 @@ public struct DeviceLaunchDefaults: Decodable, Equatable, Sendable {
     /// send it back. Clamped to what the machine actually runs by the reader.
     public let defaultAgent: String?
     public let agents: [String: AgentLaunchDefaults]?
-    /// EXP-1029: the workflow model defaults; nil on an older machine.
-    public let workflow: DeviceWorkflowDefaults?
 
     public init(
         defaultAgent: String? = nil,
-        agents: [String: AgentLaunchDefaults]? = nil,
-        workflow: DeviceWorkflowDefaults? = nil
+        agents: [String: AgentLaunchDefaults]? = nil
     ) {
         self.defaultAgent = defaultAgent
         self.agents = agents
-        self.workflow = workflow
     }
 
     private enum CodingKeys: String, CodingKey {
-        case defaultAgent, agents, workflow
+        case defaultAgent, agents
     }
 
     /// Lenient like the rest of the device payload: a field of a shape this
@@ -155,7 +136,6 @@ public struct DeviceLaunchDefaults: Decodable, Equatable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         defaultAgent = try? c.decodeIfPresent(String.self, forKey: .defaultAgent)
         agents = try? c.decodeIfPresent([String: AgentLaunchDefaults].self, forKey: .agents)
-        workflow = try? c.decodeIfPresent(DeviceWorkflowDefaults.self, forKey: .workflow)
     }
 }
 
@@ -663,13 +643,6 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// the same login, so the switch would silently do nothing.
     public var canSwitchAccount: Bool { caps?.contains("account-switch") == true }
 
-    /// EXP-897: whether this machine reads a start frame's `stack` payload and
-    /// cuts the branch from the lower PR's. An older build has no `stack`
-    /// field in its decoder and would run UNSTACKED while the server had
-    /// already written the `blocks` relation, so the blocked-start alert
-    /// hides "Stacked PR" for it (the server refuses `stack` on its behalf).
-    public var canStackStart: Bool { caps?.contains("stacked-start") == true }
-
     /// EXP-862: whether this machine runs `agent_profile_remove` — deleting
     /// its own copy of a login (the profile's config dir plus its index row;
     /// the ACCOUNT itself is never touched). Its own cap beside `agent-login`:
@@ -803,11 +776,6 @@ struct StartSessionInput: Encodable {
     // forbids it only next to `resumeSessionId` (a recorded run keeps its
     // options), which this input never carries.
     let prompt: String?
-    // EXP-897: start a STACKED run — the branch is cut from the blocker's PR
-    // branch and the pull request is based on it. SINGLE-ISSUE only: the
-    // batch and action inputs deliberately have no such field, and the server
-    // refuses it beside `resumeSessionId`. Omitted when nil, never `false`.
-    let stack: Bool?
 }
 
 /// Batch remote-start (EXP-156): 2+ issues → ONE Claude session on one pushed
@@ -842,10 +810,6 @@ struct StartBatchSessionInput: Encodable {
 struct StartActionSessionInput: Encodable {
     let actionId: String
     let teamId: String?
-    /// EXP-981: the DRAFT workflow a Plan-workflow start is about. Required
-    /// with that builtin and forbidden with every other subject — the server
-    /// writes the prompt's `Workflow: <uuid>` first line itself.
-    let workflowId: String?
     let deviceId: String
     let agent: String?
     let model: String?
@@ -907,15 +871,12 @@ public final class SteerApi: Sendable {
     /// online device. Throws `SteerStartError.rejected` with the server's
     /// human-readable reason on PRECONDITION_FAILED (device offline, no repo
     /// linked, relay off) so the UI can surface it verbatim.
-    /// - Parameter stack: EXP-897 — cut this run's branch from the blocking
-    ///   issue's pull-request branch and base its PR on it (single-issue only).
     public func startSession(
         accountId: String,
         issueId: String,
         deviceId: String,
         options: SteerStartOptions = SteerStartOptions(),
-        prompt: String? = nil,
-        stack: Bool? = nil
+        prompt: String? = nil
     ) async throws {
         do {
             let _: StartSessionResult = try await trpc.mutation(
@@ -932,8 +893,7 @@ public final class SteerApi: Sendable {
                     planMode: options.planMode,
                     resume: options.resume,
                     account: options.account,
-                    prompt: prompt,
-                    stack: stack
+                    prompt: prompt
                 )
             )
         } catch let TrpcError.httpError(status, body) {
@@ -992,15 +952,11 @@ public final class SteerApi: Sendable {
     /// text / creation request for the two hidden builtins, additional
     /// instructions otherwise). Same endpoint and PRECONDITION_FAILED →
     /// `SteerStartError.rejected` mapping as the issue forms.
-    /// - Parameter workflowId: EXP-981 — the DRAFT workflow a
-    ///   `builtin:plan-workflow` start plans. Required with that builtin and
-    ///   refused with every other subject.
     public func startSession(
         accountId: String,
         actionId: String,
         deviceId: String,
         teamId: String? = nil,
-        workflowId: String? = nil,
         options: SteerStartOptions = SteerStartOptions(),
         inputs: [String: String]? = nil,
         prompt: String? = nil
@@ -1012,7 +968,6 @@ public final class SteerApi: Sendable {
                 input: StartActionSessionInput(
                     actionId: actionId,
                     teamId: teamId,
-                    workflowId: workflowId,
                     deviceId: deviceId,
                     agent: options.agent,
                     model: options.model,

@@ -3,9 +3,8 @@ import SwiftUI
 
 /// EXP-1014 — the STACKED issue chip: `IssueChip` with ghost chip outlines
 /// peeking out behind it, up and to the right in small steps. It is the ×4
-/// shorthand for "this is several issues as ONE piece of work" — a workflow's
-/// compound node, a batch or a PR stack is drawn with it, exactly where a
-/// single-issue node draws the plain chip.
+/// shorthand for "this is several issues as ONE piece of work" — a batch run
+/// is drawn with it, exactly where a single-issue run draws the plain chip.
 ///
 /// SLOP-15/16: ALWAYS two ghosts whatever the count (the `+N` beside the stack
 /// says how many), bare OUTLINES (no fill) in 2pt steps, the far one at half

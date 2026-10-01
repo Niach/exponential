@@ -444,3 +444,22 @@ public enum IssueGraph {
         (issue.identifier ?? issue.id, issue.id)
     }
 }
+
+/// EXP-897/EXP-980 — the blocked-start prompt's copy, byte-identical ×4. A
+/// start on work that open issues block asks first: Cancel, or Start anyway
+/// (an ordinary run off the board's base branch). The open blockers come from
+/// `IssueGraph.openBlockersOfSet`, the chain under the sentence from
+/// `IssueGraph.blockGraph`.
+public enum BlockedStart {
+    /// The prompt's title for one picked issue.
+    public static let blockedStartTitle = "This issue is blocked"
+    /// The title when two or more issues were picked.
+    public static let blockedBatchTitle = "Some of these issues are blocked"
+    /// The one answer that starts.
+    public static let startAnywayLabel = "Start anyway"
+    /// The sentence around the blocker identifiers (one picked issue).
+    public static let bodyPrefix = "This issue is blocked by "
+    public static let bodySuffix = ". Start anyway?"
+    /// The batch body, above the graph.
+    public static let blockedBatchBody = "Open issues outside this batch block it. Start anyway?"
+}

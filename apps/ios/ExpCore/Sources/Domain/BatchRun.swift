@@ -24,6 +24,9 @@ import Foundation
 public enum BatchRun {
     /// The one string a batch with no knowable issues shows. Byte-identical ×4.
     public static let fallback = "Batch run"
+    /// The issue list's bulk play menu entry that starts the selection as ONE
+    /// batch run on the composer. Byte-identical ×4.
+    public static let startAsBatchLabel = "Start as batch"
 
     /// What a batch row shows.
     public struct Name: Equatable {

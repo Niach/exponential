@@ -3,14 +3,14 @@ import SwiftUI
 // EXP-1029 contract — the device picker: the machines a run may start on,
 // each by its device glyph (`DeviceIconDisplay`) + name, offline ones
 // disabled with the reason as the description. The composer, the trigger
-// form and the workflow runner row pick one.
+// form pick one.
 
 public struct DevicePickerDevice: Identifiable, Hashable {
     public let id: String
     public let name: String
     /// Contract `deviceIcon`; nil = the kind default.
     public let icon: String?
-    /// A muted reason under the name (`Offline`, `Update to run workflows`).
+    /// A muted reason under the name (`Offline`).
     public let description: String?
     public let disabled: Bool
 

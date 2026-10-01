@@ -268,12 +268,11 @@ final class AgentSessionModel {
     /// included (`resumeDevice` is the ENDED-run affordance and stays that).
     private(set) var switchDevice: SteerDevice?
     /// EXP-678: the issue whose PR the Merge pill merges — this session's own
-    /// issue, or, for an issueless + actionless batch run in review, the
-    /// representative issue of the batch PR its branch names (EXP-535). Nil
-    /// for action runs and whenever there is nothing to merge through.
+    /// issue. Nil for every issue-less run (batch, action, chat: their PR
+    /// rides the session row) and whenever there is nothing to merge through.
     private(set) var mergeIssue: IssueEntity?
-    /// EXP-734: WHAT the Merge pill merges — `mergeIssue`'s PR, or (an action
-    /// or chat run that opened its own issue-less PR) this session row's own.
+    /// EXP-734: WHAT the Merge pill merges — `mergeIssue`'s PR, or (an
+    /// issue-less run that opened its own PR) this session row's own.
     /// Nil whenever there is nothing to merge.
     private(set) var mergeTarget: MergeTarget?
     /// Kill-switch failure (EXP-268), surfaced as an inline banner — cleared
@@ -829,11 +828,8 @@ final class AgentSessionModel {
     /// "we don't know" back into knowledge.
     private var deviceFreshnessTask: Task<Void, Never>?
     private var deviceRows: [DeviceEntity] = []
-    /// EXP-678: the rows behind `mergeIssue` — the session's own issue, or
-    /// (batch runs) every issue + board the batch PR resolution scopes over.
+    /// EXP-678: the row behind `mergeIssue` — the session's own issue.
     private var mergeObservationTask: Task<Void, Never>?
-    private var mergeIssueRows: [IssueEntity] = []
-    private var mergeBoardRows: [BoardEntity] = []
     /// EXP-802: the rows behind the composer's @-mention vocabulary — every
     /// synced user plus the membership rows that scope them to THIS run's team.
     private var mentionObservationTask: Task<Void, Never>?
@@ -1682,9 +1678,9 @@ final class AgentSessionModel {
     /// Watch whatever the Merge pill would merge through. WHICH query that is
     /// is decided once, off the row the model was constructed with: a
     /// session's `issue_id` and `action_name` never change over its life.
-    /// EXP-734: an action run observes no issue rows — its own PR rides the
-    /// SESSION row, so the session observation's `rebuildMergeTarget` is the
-    /// only input it needs.
+    /// EXP-734: an issue-less run observes no issue rows — its own PR rides
+    /// the SESSION row, so the session observation's `rebuildMergeTarget` is
+    /// the only input it needs.
     private func startObservingMergeIssue() {
         guard mergeObservationTask == nil else { return }
         guard let session else { return }
@@ -1712,63 +1708,19 @@ final class AgentSessionModel {
                     }
                 }
             }
-        } else if session.actionName == nil {
-            // A batch run carries no issue linkage, so its PR resolves
-            // client-side off the team's open batch PRs, keyed on the branch
-            // the pr_open flip stamped (EXP-535/545, BatchPrResolution).
-            let observation = ValueObservation.tracking { db -> ([IssueEntity], [BoardEntity]) in
-                (try IssueEntity.fetchAll(db), try BoardEntity.fetchAll(db))
-            }
-            mergeObservationTask = Task { [weak self] in
-                while !Task.isCancelled {
-                    do {
-                        for try await (issues, boards) in observation.values(in: pool) {
-                            guard let self else { return }
-                            self.mergeIssueRows = issues
-                            self.mergeBoardRows = boards
-                            self.rebuildMergeTarget()
-                        }
-                        return
-                    } catch is CancellationError {
-                        return
-                    } catch {
-                        try? await Task.sleep(for: .seconds(1))
-                    }
-                }
-            }
         }
     }
 
-    /// Re-derive what the Merge pill merges. Several inputs move
-    /// independently — the observed issue row, a batch run's issue/board rows,
-    /// and the session's own row (the pr_open transaction flips its status,
-    /// and EXP-734 stamps an issue-less run's own PR right onto it) — so every
-    /// observer calls this.
+    /// Re-derive what the Merge pill merges. Two inputs move independently —
+    /// the observed issue row and the session's own row (the pr_open
+    /// transaction flips its status, and EXP-734 stamps an issue-less run's
+    /// own PR right onto it) — so every observer calls this.
     private func rebuildMergeTarget() {
         guard let session else {
             mergeTarget = nil
             return
         }
-        var openBatchPrs: [IssueEntity] = []
-        // A batch run carries no issue linkage: its PR resolves client-side
-        // off the team's open batch PRs (EXP-535/545). A chat run runs through
-        // the same arm and simply matches nothing.
-        if session.issueId == nil, session.actionName == nil {
-            // Issues don't sync `team_id` — the team's synced board ids are
-            // the scope, same as AgentsViewModel's rebuild.
-            let teamBoardIds = Set(mergeBoardRows.filter { $0.teamId == session.teamId }.map(\.id))
-            openBatchPrs = BatchPrResolution.openBatchPrs(
-                issues: mergeIssueRows, teamBoardIds: teamBoardIds
-            )
-            mergeIssue = session.status == DomainContract.codingSessionStatusInReview
-                ? BatchPrResolution.resolve(
-                    sessionBranch: session.branch, openBatchPrs: openBatchPrs
-                )
-                : nil
-        }
-        mergeTarget = MergeTargetResolution.resolve(
-            session: session, issue: mergeIssue, openBatchPrs: openBatchPrs
-        )
+        mergeTarget = MergeTargetResolution.resolve(session: session, issue: mergeIssue)
     }
 
     // MARK: - Connect lifecycle

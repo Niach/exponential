@@ -7,10 +7,8 @@ import SwiftUI
 /// from the Devices tab, which keeps machines only (web parity, EXP-818).
 ///
 /// EXP-996: the list draws the session TREE, not a flat roll of strangers —
-/// `SessionTree.sessionTree` (the ×4 selector): a resume succession is ONE row,
-/// a child run nests under its parent, the runs of a workflow sit under one
-/// group row that LINKS to the workflow, and a stack sits under one group row
-/// in linear order, lowest first.
+/// `SessionTree.sessionTree` (the ×4 selector): a resume succession is ONE row
+/// and a child run nests under its parent.
 ///
 /// EXP-923: the finished runs are NOT here. "Recent" was a fold nobody opened
 /// under the composer; history now lives behind the page's toolbar glyph, in
@@ -27,9 +25,8 @@ struct AgentSessionsList: View {
     @Environment(\.accountId) private var accountId
 
     /// EXP-897/EXP-996: the nodes folded shut, keyed by the NODE key
-    /// (`SessionTree.nodeKey`: a run's id, else `workflow:<id>` /
-    /// `stack:<rootIssueId>`) — a group folds exactly like a parent run does,
-    /// and its chevron hides the whole subtree. The ×4 rule.
+    /// (`SessionTree.nodeKey`) — a parent's chevron hides its whole subtree.
+    /// The ×4 rule.
     @State private var collapsedRunning: Set<String> = []
 
     var body: some View {
@@ -62,64 +59,26 @@ struct AgentSessionsList: View {
     // MARK: - Nesting (EXP-818/EXP-897/EXP-996)
 
     /// EXP-996: the list is the `sessionTree` SELECTOR drawn — a resume
-    /// succession is ONE row, children nest, and the runs of a workflow or of a
-    /// stack sit under one group row. `vm.sessionTreeContext` carries what the
-    /// rows alone cannot say (which workflow, which stack).
+    /// succession is ONE row and children nest.
     private var runningRows: [SessionTree.FlatRow] {
         SessionTree.visibleRows(
-            SessionTree.sessionTree(vm.rows.map(\.session), context: vm.sessionTreeContext),
+            SessionTree.sessionTree(vm.rows.map(\.session)),
             collapsed: collapsedRunning
         )
     }
 
-    /// One drawn row: a run, or the group row its runs hang off.
+    /// One drawn row. The tree is built from THESE rows, so the lookup always
+    /// resolves; a row that somehow did not is simply not drawn.
     @ViewBuilder
     private func treeRow(
         _ entry: SessionTree.FlatRow, rows: [String: AgentsViewModel.Row]
     ) -> some View {
-        let expanded = !collapsedRunning.contains(entry.key)
-        let onToggle = { toggle(&collapsedRunning, entry.key) }
-        switch entry.node {
-        case let .session(node):
-            // The tree is built from THESE rows, so the lookup always resolves;
-            // a row that somehow did not is simply not drawn.
-            if let row = rows[node.session.id] {
-                sessionRow(
-                    row,
-                    node: node,
-                    expandable: entry.hasChildren,
-                    expanded: expanded,
-                    onToggle: onToggle
-                )
-            }
-        case let .workflow(group):
-            // EXP-1068: the workflow's status dot + `3 running · 5 of 8 done`.
-            SessionGroupRow(
-                glyph: AppIcons.navWorkflows,
-                title: group.name,
-                count: group.children.count,
-                open: .route(.workflow(accountId: accountId, id: group.workflowId)),
-                key: entry.key,
-                expanded: expanded,
-                onToggle: onToggle,
-                status: group.status,
-                caption: SessionTree.workflowGroupCaption(
-                    liveRuns: group.liveRuns,
-                    nodesDone: group.nodesDone,
-                    nodesTotal: group.nodesTotal
-                )
-            )
-        case let .stack(group):
-            // A stack is not a place you can go — its members are its only
-            // page — so the row only folds.
-            SessionGroupRow(
-                glyph: AppIcons.prStack,
-                title: SessionTree.stackGroupLabel,
-                count: group.children.count,
-                open: .none,
-                key: entry.key,
-                expanded: expanded,
-                onToggle: onToggle
+        if let row = rows[entry.node.session.id] {
+            sessionRow(
+                row,
+                expandable: entry.hasChildren,
+                expanded: !collapsedRunning.contains(entry.key),
+                onToggle: { toggle(&collapsedRunning, entry.key) }
             )
         }
     }
@@ -150,7 +109,6 @@ struct AgentSessionsList: View {
     @ViewBuilder
     private func sessionRow(
         _ row: AgentsViewModel.Row,
-        node: SessionTree.SessionNode? = nil,
         expandable: Bool = false,
         expanded: Bool = true,
         onToggle: (() -> Void)? = nil
@@ -167,7 +125,7 @@ struct AgentSessionsList: View {
             identifier: sessionRowIdentifier(
                 issue: row.issue, session: row.session, batchIssues: row.batchIssues
             ),
-            title: reviewTitle(node) ?? sessionRowTitle(
+            title: sessionRowTitle(
                 issue: row.issue, session: row.session, batchIssues: row.batchIssues
             ),
             state: state,
@@ -177,29 +135,10 @@ struct AgentSessionsList: View {
             expanded: expanded,
             onToggle: onToggle,
             marks: RunningSessionRowMarks(
-                needsYou: !(row.session.pendingQuestion ?? "").isEmpty,
-                duplicateLive: node?.duplicateLive == true,
-                account: offLastUsedAccount(row.session)
+                needsYou: !(row.session.pendingQuestion ?? "").isEmpty
             )
         )
         .accessibilityIdentifier("agent-session-row")
-    }
-
-    // MARK: - Workflow marks (EXP-1068)
-
-    /// The shared rule (`RunningSessionRowMarks.reviewTitle`), fed this
-    /// list's synced node row.
-    private func reviewTitle(_ node: SessionTree.SessionNode?) -> String? {
-        let nodeRow = vm.sessionTreeContext.workflowNode(id: node?.session.workflowNodeId)
-        return RunningSessionRowMarks.reviewTitle(
-            node, nodeReviewRound: nodeRow?.reviewRound, review: nodeRow?.review
-        )
-    }
-
-    private func offLastUsedAccount(_ session: CodingSessionEntity) -> String? {
-        RunningSessionRowMarks.offLastUsedAccount(
-            session, devices: vm.devices, currentUserId: vm.currentUserId
-        )
     }
 
     /// Every listed row is the caller's own (EXP-312: live sessions are

@@ -1,9 +1,9 @@
 import Foundation
 
-/// EXP-734: WHAT a run's Merge affordance merges through. An issue-linked run
-/// (and a batch run, through its PR's representative issue) merges the ISSUE's
-/// PR; an action or chat run's PR links no issue at all, so it merges through
-/// the SESSION row the server stamped it on.
+/// EXP-734: WHAT a run's Merge affordance merges through. An issue run merges
+/// the ISSUE's PR; every issue-less run (batch, action, chat) owns the PR it
+/// opened on its OWN row (`coding_sessions.pr_*`), so it merges through the
+/// SESSION.
 public enum MergeTarget: Equatable, Sendable {
     case issue(issueId: String)
     case session(sessionId: String)
@@ -15,12 +15,9 @@ public enum MergeTargetResolution {
     /// - Parameters:
     ///   - session: the run.
     ///   - issue: the run's own issue, when it has one (already observed).
-    ///   - openBatchPrs: the team's open batch PRs, one representative issue
-    ///     per distinct prUrl (`BatchPrResolution.openBatchPrs`).
     public static func resolve(
         session: CodingSessionEntity,
-        issue: IssueEntity?,
-        openBatchPrs: [IssueEntity]
+        issue: IssueEntity?
     ) -> MergeTarget? {
         // An issue run merges its own issue's PR.
         if session.issueId != nil {
@@ -29,18 +26,7 @@ public enum MergeTargetResolution {
             }
             return nil
         }
-        // A batch run carries no issue linkage — its PR resolves client-side
-        // off the branch the pr_open flip stamped (EXP-535/545).
-        if session.actionName == nil,
-            session.status == DomainContract.codingSessionStatusInReview,
-            let batchIssue = BatchPrResolution.resolve(
-                sessionBranch: session.branch, openBatchPrs: openBatchPrs
-            )
-        {
-            return .issue(issueId: batchIssue.id)
-        }
-        // Anything else merges through its OWN stamped PR — an action or chat
-        // run's issue-less chore PR (EXP-734).
+        // An issue-less run merges through its OWN stamped PR.
         if session.hasOpenPr {
             return .session(sessionId: session.id)
         }
