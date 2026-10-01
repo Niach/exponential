@@ -98,214 +98,26 @@ pub(crate) struct PastRunFacts {
     pub(crate) marks: RunTreeMarks,
 }
 
-/// EXP-996 — what a GROUP row of a session tree groups. A group row is NOT a
-/// session: no state dot, no device glyph, no kill — it carries the concept
-/// icon, the name and the fold, and nothing else.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) enum SessionGroupKind {
-    /// The workflow whose node runs sit under it — the row OPENS it.
-    Workflow { workflow_id: String },
-    /// A PR stack (EXP-897), linear and lowest first. It has no screen of its
-    /// own, so the row only folds.
-    Stack,
-}
-
-/// One group row's facts, derived off a [`domain::session_tree`] group node.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct SessionGroupFacts {
-    /// The workflow's name, or [`domain::session_tree::STACK_GROUP_LABEL`] —
-    /// both ×4 copy owned by `domain`.
-    pub(crate) label: SharedString,
-    /// How many runs the group holds: a STACK's trailing cell.
-    pub(crate) members: usize,
-    pub(crate) kind: SessionGroupKind,
-    /// EXP-1068: a workflow's contract `wfStatus` (the status dot); `None` on
-    /// a stack.
-    pub(crate) status: Option<String>,
-    /// EXP-1068: a workflow's caption counts
-    /// ([`domain::session_tree::workflow_group_caption`]).
-    pub(crate) live_runs: usize,
-    pub(crate) nodes_done: usize,
-    pub(crate) nodes_total: usize,
-}
-
-impl SessionGroupFacts {
-    /// The group's CONCEPT icon (EXP-273: never a raw glyph).
-    pub(crate) fn icon(&self) -> crate::icons::ExpIcon {
-        match self.kind {
-            SessionGroupKind::Workflow { .. } => registry::NAV_WORKFLOWS,
-            SessionGroupKind::Stack => registry::PR_STACK,
-        }
-    }
-
-    /// The trailing cell: a workflow's `3 running · 5 of 8 done` (empty with
-    /// neither), a stack's member count.
-    pub(crate) fn trailing(&self) -> String {
-        match self.kind {
-            SessionGroupKind::Workflow { .. } => domain::session_tree::workflow_group_caption(
-                self.live_runs,
-                self.nodes_done,
-                self.nodes_total,
-            ),
-            SessionGroupKind::Stack => self.members.to_string(),
-        }
-    }
-
-    /// EXP-1068: a workflow group's status dot — the run rows' own dot
-    /// tones: draft/cancelled muted, running green, paused amber, done blue
-    /// (the session dot's "done"). `None` on a stack.
-    pub(crate) fn status_dot(&self, muted: Hsla) -> Option<Hsla> {
-        let status = self.status.as_deref()?;
-        Some(match status {
-            "running" => theme::tokens::GREEN.to_hsla(),
-            "paused" => theme::tokens::YELLOW.to_hsla(),
-            "done" => theme::tokens::BLUE.to_hsla(),
-            _ => muted.opacity(0.4),
-        })
-    }
-
-    /// The facts of a group node — `None` for a session node, which draws as a
-    /// run row instead.
-    pub(crate) fn from_node<T>(
-        node: &domain::session_tree::SessionTreeNode<T>,
-    ) -> Option<Self> {
-        match node {
-            domain::session_tree::SessionTreeNode::Session(_) => None,
-            domain::session_tree::SessionTreeNode::Workflow(group) => Some(Self {
-                label: SharedString::from(group.name.clone()),
-                members: group.children.len(),
-                kind: SessionGroupKind::Workflow {
-                    workflow_id: group.workflow_id.clone(),
-                },
-                status: Some(group.status.clone()),
-                live_runs: group.live_runs,
-                nodes_done: group.nodes_done,
-                nodes_total: group.nodes_total,
-            }),
-            domain::session_tree::SessionTreeNode::Stack(group) => Some(Self {
-                label: SharedString::from(domain::session_tree::STACK_GROUP_LABEL),
-                members: group.children.len(),
-                kind: SessionGroupKind::Stack,
-                status: None,
-                live_runs: 0,
-                nodes_done: 0,
-                nodes_total: 0,
-            }),
-        }
-    }
-}
-
-/// The tooltip of a node's duplicate-run warning (EXP-1068).
-pub(crate) const DUPLICATE_LIVE_TOOLTIP: &str = "Two live runs on this node";
-
 /// EXP-1068 — what a session TREE node adds to its run's row, beyond the
-/// session row itself: a review's `Review r2 · approved` title, the
-/// duplicate-run warning, the red "needs you" dot of a pending question and
-/// the account the run spends when it is not its device's last used one.
+/// session row itself: the red "needs you" dot of a pending question.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct RunTreeMarks {
-    /// `Some` on a REVIEW chain: replaces the action-name title.
-    pub(crate) review_title: Option<SharedString>,
-    pub(crate) duplicate_live: bool,
     /// `pending_question` is set — a person has to answer.
     pub(crate) needs_you: bool,
-    /// `account <label>` when the run spends an account other than its
-    /// device's last used login for that agent.
-    pub(crate) account: Option<SharedString>,
 }
 
 impl RunTreeMarks {
     pub(crate) fn derive(
         node: &domain::session_tree::SessionNode<&domain::rows::CodingSession>,
-        cx: &App,
+        _cx: &App,
     ) -> Self {
         let session: &domain::rows::CodingSession = node.session();
-        let collections = sync::Store::try_global(cx).map(|store| store.collections().clone());
-        // The chain's membership = its newest stamped row's (the tree's rule).
-        let member = node.chain.iter().rev().find(|row| row.workflow_id.is_some());
-        let review_title = member
-            .filter(|row| row.workflow_role.as_deref() == Some("review"))
-            .map(|row| {
-                let node_row = row.workflow_node_id.as_deref().and_then(|id| {
-                    collections
-                        .as_ref()
-                        .and_then(|collections| collections.workflow_nodes.read(cx).get(id).cloned())
-                });
-                let review = node_row.as_ref().and_then(|row| row.review_facts());
-                let verdict = domain::session_tree::review_round_verdict(
-                    node.review_round,
-                    node_row.as_ref().map(|row| {
-                        (
-                            row.review_count(),
-                            review.as_ref().map(|review| (review.round, review.verdict.as_str())),
-                        )
-                    }),
-                );
-                SharedString::from(domain::session_tree::review_row_caption(
-                    node.review_round,
-                    verdict,
-                    domain::session_tree::session_row_is_live(session.status.as_deref().unwrap_or_default()),
-                ))
-            });
-        let needs_you = domain::session_tree::session_needs_you(
-            session.status.as_deref().unwrap_or_default(),
-            session.pending_question.as_ref().is_some_and(|question| !question.is_null()),
-        );
-        let account = collections
-            .as_ref()
-            .and_then(|collections| run_account_label(session, collections, cx))
-            .map(SharedString::from);
         Self {
-            review_title,
-            duplicate_live: node.duplicate_live,
-            needs_you,
-            account,
+            needs_you: domain::session_tree::session_needs_you(
+                session.status.as_deref().unwrap_or_default(),
+                session.pending_question.as_ref().is_some_and(|question| !question.is_null()),
+            ),
         }
-    }
-}
-
-/// EXP-1108 — `account <label>` for a WORKFLOW run that spends an account
-/// other than its device's last used login for that agent: the shared rule
-/// ([`domain::session_tree::workflow_run_account_caption`]), fed the synced
-/// device rows. `None` outside a workflow, for the last used or no account.
-fn run_account_label(
-    session: &domain::rows::CodingSession,
-    collections: &sync::collections::Collections,
-    cx: &App,
-) -> Option<String> {
-    session.workflow_id.as_deref()?;
-    let devices = collections.devices.read(cx);
-    let marks: Vec<domain::session_tree::MarkDevice> = devices
-        .iter()
-        .filter(|row| row.device_id.is_some() && row.device_id == session.device_id)
-        .map(mark_device)
-        .collect();
-    domain::session_tree::workflow_run_account_caption(&mark_session(session), &marks)
-}
-
-/// The caption's session columns off a synced row.
-pub(crate) fn mark_session(session: &domain::rows::CodingSession) -> domain::session_tree::MarkSession {
-    domain::session_tree::MarkSession {
-        agent: session.agent.clone(),
-        agent_account: session.agent_account.clone(),
-        device_id: session.device_id.clone(),
-        user_id: session.user_id.clone(),
-        workflow_id: session.workflow_id.clone(),
-    }
-}
-
-/// The caption's device columns off a synced row (tolerant: a garbage
-/// jsonb reads as absent, one bad agent entry drops only that agent).
-pub(crate) fn mark_device(row: &domain::rows::DeviceRow) -> domain::session_tree::MarkDevice {
-    let agent_accounts = row.agent_accounts.as_ref().map(|value| {
-        crate::device_settings::parse_agent_map::<domain::session_tree::MarkAgentAccount>(Some(value))
-            .into_iter()
-            .collect()
-    });
-    domain::session_tree::MarkDevice {
-        device_id: row.device_id.clone(),
-        user_id: row.user_id.clone(),
-        agent_accounts,
     }
 }
 
@@ -477,7 +289,7 @@ pub(crate) fn action_run_title(started_reason: Option<&str>) -> &'static str {
     match started_reason {
         Some("schedule") => "Scheduled run",
         Some("event") => "Event run",
-        // Another run started it (`agent`, `workflow`, or a reason added later).
+        // Another run started it (`agent`, or a reason added later).
         Some(reason) if !reason.is_empty() => "Agent run",
         _ => "Manual run",
     }
@@ -498,14 +310,11 @@ const ROW_GAP: f32 = 0.;
 /// The flat list row both kinds sit in: `list_hover` under the pointer,
 /// `list_active` while its session is on screen (EXP-811/862). EXP-965: a
 /// NESTED row paints its tree connector in the gutter its indent reserves.
-/// `interactive` = the row opens something: only then does it take the
-/// pointer cursor and the hover fill (a stack's group row only folds).
 fn row_shell(
     id_prefix: &'static str,
     index: usize,
     guides: &domain::tree_guides::Guides,
     active: bool,
-    interactive: bool,
     cx: &App,
 ) -> gpui::Stateful<gpui::Div> {
     let theme = cx.theme();
@@ -523,34 +332,16 @@ fn row_shell(
         .py_2p5()
         .pl(gpui::px(ROW_PAD + crate::tree_guides::LEVEL_PITCH * guides.depth() as f32))
         .when(active, |this| this.bg(row_active))
-        .when(interactive, |this| {
-            this.cursor_pointer()
-                .hover(move |style| style.bg(if active { row_active } else { row_hover }))
-        })
+        .cursor_pointer()
+        .hover(move |style| style.bg(if active { row_active } else { row_hover }))
         .children(crate::tree_guides::guide_layer(guides, ROW_PAD, ROW_GAP))
 }
 
-fn fold_chevron(id_prefix: &'static str, index: usize, fold: RunRowFold, muted: Hsla) -> impl IntoElement {
-    fold_chevron_labelled(
-        id_prefix,
-        index,
-        fold,
-        muted,
-        domain::pr_stack::EXPAND_CHILD_RUNS,
-        domain::pr_stack::COLLAPSE_CHILD_RUNS,
-    )
-}
+/// The fold chevron's accessible labels, byte-identical ×4.
+pub(crate) const EXPAND_CHILD_RUNS: &str = "Expand child runs";
+pub(crate) const COLLAPSE_CHILD_RUNS: &str = "Collapse child runs";
 
-/// The same chevron under a caller's own pair of labels — EXP-996: a GROUP row
-/// folds SIBLINGS, not child runs, so it names them differently.
-fn fold_chevron_labelled(
-    id_prefix: &'static str,
-    index: usize,
-    fold: RunRowFold,
-    muted: Hsla,
-    expand: &'static str,
-    collapse: &'static str,
-) -> impl IntoElement {
+fn fold_chevron(id_prefix: &'static str, index: usize, fold: RunRowFold, muted: Hsla) -> impl IntoElement {
     let RunRowFold { collapsed, on_toggle } = fold;
     div()
         .id((SharedString::from(format!("{id_prefix}-fold")), index))
@@ -558,7 +349,11 @@ fn fold_chevron_labelled(
         .cursor_pointer()
         // EXP-897: the fold's accessible label, byte-identical ×4.
         .tooltip(move |window, cx| {
-            gpui_component::tooltip::Tooltip::new(if collapsed { expand } else { collapse })
+            gpui_component::tooltip::Tooltip::new(if collapsed {
+                EXPAND_CHILD_RUNS
+            } else {
+                COLLAPSE_CHILD_RUNS
+            })
                 .build(window, cx)
         })
         .child(
@@ -646,7 +441,7 @@ pub(crate) fn render_running_run_row(
                 .map(|label| small_line(label, theme::tokens::YELLOW.to_hsla())),
         );
 
-    let row = row_shell(id_prefix, index, &guides, active, true, cx)
+    let row = row_shell(id_prefix, index, &guides, active, cx)
         .on_click(move |event, window, cx| on_open(event, window, cx))
         .child(body);
     match kill {
@@ -682,12 +477,8 @@ pub(crate) fn render_past_run_row(spec: PastRunSpec, active: bool, cx: &App) -> 
     let theme = cx.theme();
     let muted = theme.muted_foreground;
     let marks = facts.marks.clone();
-    let title = marks.review_title.clone().unwrap_or(facts.title);
-    let byline: SharedString = match &marks.account {
-        Some(account) if facts.byline.is_empty() => account.clone(),
-        Some(account) => format!("{} · {account}", facts.byline).into(),
-        None => facts.byline,
-    };
+    let title = facts.title;
+    let byline = facts.byline;
     let line1 = div()
         .flex()
         .w_full()
@@ -711,8 +502,7 @@ pub(crate) fn render_past_run_row(spec: PastRunSpec, active: bool, cx: &App) -> 
                 .truncate()
                 .text_color(theme.foreground)
                 .child(title),
-        )
-        .children(duplicate_live_warning(id_prefix, index, marks.duplicate_live));
+        );
     let body = gpui_component::v_flex()
         .flex_1()
         .min_w_0()
@@ -729,7 +519,7 @@ pub(crate) fn render_past_run_row(spec: PastRunSpec, active: bool, cx: &App) -> 
                     .child(byline),
             )
         });
-    row_shell(id_prefix, index, &guides, active, true, cx)
+    row_shell(id_prefix, index, &guides, active, cx)
         .on_click(move |event, window, cx| on_open(event, window, cx))
         .child(body)
         .child(
@@ -746,106 +536,7 @@ pub(crate) fn needs_you_dot(needs_you: bool) -> Option<gpui::AnyElement> {
     needs_you.then(|| crate::surface::live_dot(theme::tokens::RED.to_hsla(), false))
 }
 
-/// EXP-1068: the warning glyph an author row wears while its node has two
-/// live runs ([`domain::session_tree::SessionNode::duplicate_live`]).
-pub(crate) fn duplicate_live_warning(
-    id_prefix: &'static str,
-    index: usize,
-    duplicate_live: bool,
-) -> Option<gpui::AnyElement> {
-    duplicate_live.then(|| {
-        div()
-            .id((SharedString::from(format!("{id_prefix}-duplicate")), index))
-            .flex_shrink_0()
-            .tooltip(|window, cx| {
-                gpui_component::tooltip::Tooltip::new(DUPLICATE_LIVE_TOOLTIP).build(window, cx)
-            })
-            .child(
-                Icon::from(registry::UI_WARNING)
-                    .xsmall()
-                    .text_color(theme::tokens::YELLOW.to_hsla()),
-            )
-            .into_any_element()
-    })
-}
-
-/// EXP-996 — one GROUP row of a session tree ([`render_group_row`]).
-pub(crate) struct GroupRowSpec {
-    pub(crate) id_prefix: &'static str,
-    pub(crate) index: usize,
-    pub(crate) guides: domain::tree_guides::Guides,
-    pub(crate) fold: Option<RunRowFold>,
-    pub(crate) facts: SessionGroupFacts,
-    /// `Some` = the row opens its subject (a workflow). A stack has no screen,
-    /// so its row only folds.
-    pub(crate) on_open: Option<RunRowAction>,
-}
-
-/// EXP-996 — the GROUP row every nested session list draws over its runs: the
-/// concept icon, the group's name, the same fold chevron a parent run wears.
-/// Toned like a band rather than a row, because it is structure, not work.
-pub(crate) fn render_group_row(spec: GroupRowSpec, cx: &App) -> gpui::AnyElement {
-    let GroupRowSpec {
-        id_prefix,
-        index,
-        guides,
-        fold,
-        facts,
-        on_open,
-    } = spec;
-    let muted = cx.theme().muted_foreground;
-    let icon = facts.icon();
-    let status_dot = facts.status_dot(muted);
-    let trailing = facts.trailing();
-    let row = row_shell(id_prefix, index, &guides, false, on_open.is_some(), cx)
-        .children(fold.map(|fold| {
-            fold_chevron_labelled(
-                id_prefix,
-                index,
-                fold,
-                muted,
-                domain::session_tree::EXPAND_GROUP_LABEL,
-                domain::session_tree::COLLAPSE_GROUP_LABEL,
-            )
-        }))
-        .child(
-            div()
-                .flex_shrink_0()
-                .child(Icon::from(icon).xsmall().text_color(muted)),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .text_xs()
-                .text_color(muted)
-                .child(facts.label),
-        )
-        // EXP-1068: the workflow's status, the run rows' own dot tones.
-        .children(status_dot.map(|tone| crate::surface::live_dot(tone, false)))
-        // The ×4 trailing cell: a workflow's `3 running · 5 of 8 done`
-        // (EXP-1068), a stack's member count.
-        .when(!trailing.is_empty(), |row| {
-            row.child(
-                div()
-                    .flex_shrink_0()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(trailing),
-            )
-        });
-    match on_open {
-        Some(on_open) => row
-            .on_click(move |event, window, cx| on_open(event, window, cx))
-            .into_any_element(),
-        // Nothing to open: the row is a fold and a label (no pointer, no
-        // hover fill: `row_shell` got `interactive = false`).
-        None => row.into_any_element(),
-    }
-}
-
-/// A row of a mixed list (an action's Runs, a workflow's runs): live runs
+/// A row of a mixed list (an action's Runs): live runs
 /// draw as running rows, ended ones as past rows.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum RunListFacts {
@@ -855,15 +546,11 @@ pub(crate) enum RunListFacts {
 
 impl RunListFacts {
     /// The row under another title (SLOP-2: an action's Runs names what
-    /// started the run — [`action_run_title`]). A past row's tree title
-    /// (a review's) gives way too: the list is about the start.
+    /// started the run — [`action_run_title`]).
     pub(crate) fn with_title(mut self, title: &'static str) -> Self {
         match &mut self {
             RunListFacts::Running(facts) => facts.title = title.into(),
-            RunListFacts::Past(facts) => {
-                facts.title = title.into();
-                facts.marks.review_title = None;
-            }
+            RunListFacts::Past(facts) => facts.title = title.into(),
         }
         self
     }
@@ -1165,7 +852,7 @@ mod tests {
     fn action_run_title_names_what_started_the_run() {
         assert_eq!(action_run_title(Some("schedule")), "Scheduled run");
         assert_eq!(action_run_title(Some("event")), "Event run");
-        for reason in ["agent", "workflow", "something-new"] {
+        for reason in ["agent", "something-new"] {
             assert_eq!(action_run_title(Some(reason)), "Agent run", "{reason}");
         }
         assert_eq!(action_run_title(None), "Manual run");

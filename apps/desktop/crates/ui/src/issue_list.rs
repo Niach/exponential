@@ -1218,21 +1218,14 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
         .into_any_element()
     };
 
-    // EXP-981: the play control is a MENU now — Start as batch (what the
-    // single pill always did), Start as stack (one blocked issue: the
-    // composer's blocked-start dialog offers the stack there) and Create
-    // workflow… (the picked set, planned as a DAG).
+    // EXP-981: the play control is a MENU — its one entry, Start as batch,
+    // hands the picked set to the composer (Android parity).
     let start_coding = {
         let ids = ids.clone();
         let list = list.clone();
-        let team_id = team_id.clone();
         // EXP-367: no agent CLI installed → disabled with the reason,
         // never hidden (same copy as every Start-coding affordance).
         let no_agent = crate::coding_flow::no_agent_reason(cx);
-        // EXP-981: the stack item needs exactly ONE pick with something
-        // blocking it — a stack is cut into the issue below.
-        let stackable = ids.len() == 1
-            && crate::issue_graph::block_counts_for(&ids[0], cx).blocked_by > 0;
         // The ONE emphasised control of the bar (web `Start coding` is
         // the primary button there too).
         with_label(
@@ -1251,13 +1244,8 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
             .dropdown_menu(move |menu, _window, _cx| {
                 let batch_ids = ids.clone();
                 let batch_list = list.clone();
-                let stack_ids = ids.clone();
-                let stack_list = list.clone();
-                let workflow_ids = ids.clone();
-                let workflow_list = list.clone();
-                let workflow_team = team_id.clone();
                 menu.item(
-                    PopupMenuItem::new(domain::workflow_view::START_AS_BATCH_LABEL)
+                    PopupMenuItem::new(domain::batch_run::START_AS_BATCH_LABEL)
                         .icon(Icon::new(registry::ACTION_RUN))
                         .on_click(move |_, window, cx| {
                             // EXP-825: the composer takes the selection over
@@ -1268,35 +1256,6 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
                                 window,
                                 cx,
                                 crate::navigation::ChatSeed::issues(batch_ids.clone()),
-                            );
-                        }),
-                )
-                .item(
-                    PopupMenuItem::new(domain::workflow_view::START_AS_STACK_LABEL)
-                        .icon(Icon::new(registry::RELATION_BLOCKED_BY))
-                        .disabled(!stackable)
-                        .on_click(move |_, window, cx| {
-                            // The SAME composer open as a single-issue start
-                            // — the EXP-980 blocked-start dialog is what
-                            // offers the stack there.
-                            let _ = stack_list.update(cx, |this, cx| this.clear_selection(cx));
-                            crate::navigation::navigate_to_chat(
-                                window,
-                                cx,
-                                crate::navigation::ChatSeed::issues(stack_ids.clone()),
-                            );
-                        }),
-                )
-                .item(
-                    PopupMenuItem::new(domain::workflow_view::CREATE_WORKFLOW_LABEL)
-                        .icon(Icon::new(registry::NAV_WORKFLOWS))
-                        .on_click(move |_, window, cx| {
-                            spawn_create_workflow(
-                                workflow_team.clone(),
-                                workflow_ids.clone(),
-                                workflow_list.clone(),
-                                window,
-                                cx,
                             );
                         }),
                 )
@@ -1401,83 +1360,6 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
 
 // Fluent `when` helper (gpui's FluentBuilder) — imported via prelude below.
 use gpui::prelude::FluentBuilder as _;
-
-/// EXP-981 — `workflows.create` over the selection, in DISPLAY order: the
-/// selection clears and the new workflow's detail opens. A refusal (a
-/// started issue, two repositories, a board without one) is the server's own
-/// sentence — shown as the window's error notice.
-///
-/// EXP-1032: a workflow created HERE names this machine as its runner, so the
-/// server seeds its two models from THIS install's own workflow defaults
-/// (`launch_defaults.workflow`) rather than from the contract fallbacks. Only
-/// while this build actually advertises the engine capability — the server
-/// refuses a machine that cannot run workflows, and an un-run-able IDE must
-/// still be able to PLAN one.
-fn spawn_create_workflow<V: BulkSelectionHost>(
-    team_id: String,
-    issue_ids: Vec<String>,
-    list: WeakEntity<V>,
-    window: &Window,
-    cx: &mut App,
-) {
-    let Some(trpc) = queries::trpc_client(cx) else {
-        log::warn!("[ui] workflows.create skipped: no signed-in account");
-        return;
-    };
-    // Resolved on the UI thread: both reads want the app's globals.
-    let own_device_id = queries::own_device_id(cx);
-    let device_id = queries::device_caps(cx, &own_device_id)
-        .iter()
-        .any(|cap| cap == coding::doctor::WORKFLOWS_CAP)
-        .then_some(own_device_id);
-    let _ = list.update(cx, |this, cx| {
-        this.set_bulk_busy(true);
-        cx.notify();
-    });
-    let handle = window.window_handle();
-    cx.spawn(async move |cx| {
-        let result = cx
-            .background_executor()
-            .spawn(async move {
-                api::workflows::create(
-                    &trpc,
-                    &team_id,
-                    &issue_ids,
-                    None,
-                    device_id.as_deref(),
-                )
-            })
-            .await;
-        let _ = list.update(cx, |this, cx| {
-            this.set_bulk_busy(false);
-            cx.notify();
-        });
-        let _ = cx.update(|cx| match result {
-            Ok(workflow) => {
-                let _ = handle.update(cx, |_, window, cx| {
-                    // The selection is now the workflow's; the bar goes away
-                    // with it.
-                    let _ = list.update(cx, |this, cx| this.clear_selection(cx));
-                    crate::navigation::navigate(
-                        window,
-                        cx,
-                        crate::navigation::Screen::Workflow {
-                            workflow_id: workflow.id.clone(),
-                        },
-                    );
-                });
-            }
-            Err(err) => {
-                let message = err.user_message();
-                log::warn!("[ui] workflows.create failed: {message}");
-                let _ = handle.update(cx, |_, window, cx| {
-                    crate::toast::error(message, window, cx);
-                });
-            }
-        });
-    })
-    .detach();
-}
 
 /// One bulk mutation run: chunk at [`BULK_CHUNK`] ids and call SEQUENTIALLY
 /// on one background task (FIX F4 — Electric replays commits in order, so

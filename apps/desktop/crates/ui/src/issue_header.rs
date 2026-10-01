@@ -770,9 +770,7 @@ impl IssueHeader {
         changes_open: bool,
         cx: &mut gpui::Context<Self>,
     ) -> Vec<gpui::AnyElement> {
-        let mut cluster = Vec::with_capacity(5);
-        // EXP-897 §4: the ONE stack/batch badge, shared by all three faces.
-        cluster.extend(self.pr_graph_badge(issue, cx));
+        let mut cluster = Vec::with_capacity(4);
         cluster.extend(leading);
         // EXP-916: the way out to GitHub for a subject with a pull request —
         // the diff surfaces no longer carry one of their own. EXP-949: on
@@ -804,14 +802,6 @@ impl IssueHeader {
         cluster
     }
 
-    /// EXP-897 §4 / SLOP-16 — the related-work badge: an icon button
-    /// (`pr-stack` / `pr-batch` / `relation-blocked-by`, `+N`) opening the
-    /// "Related work" dialog, the same on every face. Absent when there is
-    /// nothing around this issue at all.
-    fn pr_graph_badge(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
-        let spec = crate::pr_graph::issue_spec(issue, cx);
-        crate::pr_graph::badge("issue-pr-graph", spec, cx)
-    }
 
     /// EXP-877: the tray's trailing action cluster — `[Merge PR while the PR
     /// is open] [the ONE coding action]`. The coding action comes from the

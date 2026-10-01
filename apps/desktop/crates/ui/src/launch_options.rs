@@ -685,8 +685,6 @@ impl<V: Render> DefaultsToggle<V> {
 /// - [`Self::leading`] — between the tabs and Model (the CLI-path row).
 /// - [`Self::subagent`] — EXP-1020, right under Model: claude's subagent
 ///   model, the row the device settings had on web and nowhere else.
-/// - [`Self::trailing`] — after the toggles (the "Workflow settings"
-///   sub-shell row the two device surfaces end on).
 ///
 /// EXP-862 dropped the trailing account + usage rows with the device-settings
 /// dialog's account block; the composer's own options row is the only launch
@@ -704,7 +702,6 @@ pub(crate) struct AgentDefaultsGroup<V: Render> {
     toggles: Vec<DefaultsToggle<V>>,
     leading: Vec<Div>,
     subagent: Option<ChoiceSelect>,
-    trailing: Vec<Div>,
 }
 
 impl<V: Render> AgentDefaultsGroup<V> {
@@ -729,7 +726,6 @@ impl<V: Render> AgentDefaultsGroup<V> {
             toggles: Vec::new(),
             leading: Vec::new(),
             subagent: None,
-            trailing: Vec::new(),
         }
     }
 
@@ -757,12 +753,6 @@ impl<V: Render> AgentDefaultsGroup<V> {
         self
     }
 
-    /// Rows after the toggles — the last rows of the card.
-    pub(crate) fn trailing(mut self, rows: Vec<Div>) -> Self {
-        self.trailing = rows;
-        self
-    }
-
     pub(crate) fn render(self, cx: &mut Context<V>) -> Div {
         let Self {
             prefix,
@@ -776,7 +766,6 @@ impl<V: Render> AgentDefaultsGroup<V> {
             toggles,
             leading,
             subagent,
-            trailing,
         } = self;
         let mut rows: Vec<Div> = vec![agent_tabs_row(prefix, pills, active, on_select, cx)];
         rows.extend(leading);
@@ -810,7 +799,6 @@ impl<V: Render> AgentDefaultsGroup<V> {
         for toggle in toggles {
             rows.push(toggle.row(cx));
         }
-        rows.extend(trailing);
         surface::glass_group_rows(rows)
     }
 }
@@ -1151,7 +1139,6 @@ impl LaunchOptionsSection {
     /// here reach it, and only while the picker sits on that same agent.
     pub(crate) fn options(&self, resume_active: bool, cx: &App) -> LaunchOptions {
         LaunchOptions {
-            workflow: None,
             agent: self.agent,
             model: selected(&self.model, cx),
             // Ignored by the argv while ultracode is on (ultracode IS the

@@ -570,12 +570,6 @@ pub(crate) fn end_then_resume_on_account(
     if !session.turn_signal().is_idle() {
         return false;
     }
-    // FEED-49: a workflow node's run is held for the engine BEFORE it ends —
-    // a pass between the end and the resumed row would otherwise re-decide
-    // the node off the ended row and start it afresh, orphaning the
-    // continuation from its node (checkpoint, request_upstream and the
-    // derived PR base all answered "not a workflow node").
-    crate::workflow_host::hold_person_resume(&session_id, cx);
     // FEED-68: this end is half of a resume — an agent parent must not read
     // it as "ended without a report" and resume the run a second time.
     coding::mark_resuming(&session_id);
@@ -611,7 +605,6 @@ pub(crate) fn end_then_resume_on_account(
             }
         }
         let _ = cx.update(|cx| {
-            crate::workflow_host::release_person_resume(&session_id, cx);
             coding::unmark_resuming(&session_id);
             let message = "The run did not stop in time — switch accounts again once it has.";
             crate::action_run::notify_target_error(target, message, cx);

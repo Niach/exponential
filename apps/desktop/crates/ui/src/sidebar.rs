@@ -10,7 +10,7 @@
 //!   toggle, no logo). Top: the team switcher + Search + New issue header
 //!   ([`render_left_column_header`], rendered FIXED by the `Shell` since
 //!   EXP-863). Middle (scrolling): the tool-window
-//!   selectors — **Inbox / Support / Devices / Actions / Workflows /
+//!   selectors — **Inbox / Support / Devices / Actions /
 //!   Reviews / Agent**, the team's boards, the **Sessions** section (EXP-791:
 //!   one row per open session tab or live run of the caller's — the rail is
 //!   the ONE navigation for coding sessions; hidden while empty), then
@@ -106,9 +106,6 @@ pub(crate) enum ToolWindow {
     /// EXP-851: the Reviews page's rows — a PR diff opened from there keeps
     /// the queue beside it.
     Reviews,
-    /// EXP-981: the Workflows page's list — opening a workflow keeps it in
-    /// the left column, and the detail's Back goes there.
-    Workflows,
 }
 
 impl ToolWindow {
@@ -129,7 +126,6 @@ impl ToolWindow {
             ToolWindow::Files => Screen::Files,
             ToolWindow::SourceControl => Screen::SourceControl,
             ToolWindow::Reviews => Screen::Reviews,
-            ToolWindow::Workflows => Screen::Workflows,
         }
     }
 
@@ -144,7 +140,6 @@ impl ToolWindow {
             ToolWindow::Files => "Files",
             ToolWindow::SourceControl => "Source Control",
             ToolWindow::Reviews => "Reviews",
-            ToolWindow::Workflows => domain::workflow_view::WORKFLOWS_TITLE,
         }
     }
 }
@@ -408,9 +403,6 @@ pub(crate) fn focused_list(screen: Option<&Screen>) -> (ToolWindow, InboxTab) {
         Some(Screen::Files) => (ToolWindow::Files, InboxTab::Inbox),
         Some(Screen::SourceControl) => (ToolWindow::SourceControl, InboxTab::Inbox),
         Some(Screen::Reviews) => (ToolWindow::Reviews, InboxTab::Inbox),
-        Some(Screen::Workflows) | Some(Screen::Workflow { .. }) => {
-            (ToolWindow::Workflows, InboxTab::Inbox)
-        }
         _ => (ToolWindow::BoardIssues, InboxTab::Inbox),
     }
 }
@@ -846,8 +838,8 @@ pub struct RailView {
     /// Re-derived at the top of every render from the window's occupant.
     compact: bool,
     /// EXP-923/EXP-996: the folded rows of the Running section, by
-    /// [`domain::session_tree::session_tree_node_key`] — a parent run's id, or
-    /// `workflow:`/`stack:` for a group row. Per window, never persisted.
+    /// [`domain::session_tree::session_tree_node_key`] — a parent run's id.
+    /// Per window, never persisted.
     collapsed_runs: HashSet<String>,
     /// EXP-923: the Running rows carry a liveness that expires with
     /// `last_seen_at` and produces no collection delta — the session lists'
@@ -896,10 +888,6 @@ impl RailView {
             // The Running section (EXP-923) and the pinned session rows are
             // live reads over my coding_sessions rows.
             cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()),
-            // EXP-996: the Running section's GROUP rows — which workflow a run
-            // is a node of, and the name that group row wears.
-            cx.observe(&collections.workflows, |_, _, cx| cx.notify()),
-            cx.observe(&collections.workflow_nodes, |_, _, cx| cx.notify()),
             // The pinned session rows' dots read the runs THIS process hosts
             // (and their paused edge the devices rows below).
             cx.observe(&local_sessions, |_, _, cx| cx.notify()),
@@ -1126,16 +1114,6 @@ impl RailView {
         // are the switcher's dot now.
         let nav = self.nav.clone();
         let rows = crate::sessions_section::rail_running_rows(&nav, cx);
-        // EXP-996: the icon column draws no structure — 14px of indent inside a
-        // 32px square would only clip the mark, and a group row there would be
-        // a square with no work behind it. The runs stay, flat.
-        let rows: Vec<_> = if self.compact {
-            rows.into_iter()
-                .filter(|row| row.run().is_some())
-                .collect()
-        } else {
-            rows
-        };
         let rows = crate::sessions_section::drop_collapsed(
             rows,
             &self.collapsed_runs,
@@ -1155,10 +1133,7 @@ impl RailView {
             .enumerate()
             .map(|(index, row)| {
                 let guides = guides.get(index).cloned().unwrap_or_default();
-                let Some(run) = row.run() else {
-                    // EXP-996: a workflow / stack band, not a session.
-                    return self.rail_group_row(index, row, guides, cx);
-                };
+                let run = &row.run;
                 // EXP-870: the row stays current across the Issue | Run
                 // toggle — both faces are the same piece of work.
                 let active = match &screen {
@@ -1186,9 +1161,8 @@ impl RailView {
         )
     }
 
-    /// EXP-923/EXP-996 — the fold chevron a rail row with nested rows wears: a
-    /// parent run and a GROUP row alike, keyed by the tree's node key so both
-    /// live in one collapsed set.
+    /// EXP-923 — the fold chevron a rail row with nested rows wears, keyed by
+    /// the tree's node key.
     fn rail_run_fold(
         &self,
         index: usize,
@@ -1226,95 +1200,6 @@ impl RailView {
                 }))
                 .into_any_element(),
         )
-    }
-
-    /// EXP-996 — ONE group row of the rail's Running tree: the workflow whose
-    /// node runs sit under it, or the PR stack they form. Not a session: no
-    /// agent mark, no attention badge, no device glyph, no Stop — the concept
-    /// icon, the name, the member count and the fold. A workflow row OPENS its
-    /// workflow; a stack has no screen of its own and only folds.
-    ///
-    /// It draws the same FACTS as [`run_rows::render_group_row`] but not that
-    /// row: the rail's chrome is its own ([`crate::surface::flat_row_compact`],
-    /// pad 8 and [`RUNNING_ROW_GAP`] against the list's pad 12 and gap 0), and
-    /// a rail row opens its detail with [`navigation::navigate_from_rail`], so
-    /// sharing the renderer would mean threading all of that through it.
-    fn rail_group_row(
-        &self,
-        index: usize,
-        row: &crate::sessions_section::SessionTreeRow<crate::sessions_section::RailRunRow>,
-        guides: domain::tree_guides::Guides,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let crate::sessions_section::SessionTreeRowKind::Group(facts) = &row.kind else {
-            return div().into_any_element();
-        };
-        let muted = cx.theme().muted_foreground;
-        let fold = self.rail_run_fold(index, &row.key, row.has_children, cx);
-        let open = match &facts.kind {
-            crate::run_rows::SessionGroupKind::Workflow { workflow_id } => {
-                Some(workflow_id.clone())
-            }
-            crate::run_rows::SessionGroupKind::Stack => None,
-        };
-        let status_dot = facts.status_dot(muted);
-        let trailing = facts.trailing();
-        crate::surface::flat_row_compact()
-            .id(("rail-running-group", index))
-            .w_full()
-            .flex_shrink_0()
-            .relative()
-            .pl(px(8. + crate::tree_guides::LEVEL_PITCH * guides.depth() as f32))
-            .when(open.is_some(), |this| this.cursor_pointer())
-            .when(open.is_some(), |this| {
-                this.hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
-            })
-            .children(crate::tree_guides::guide_layer(
-                &guides,
-                8.,
-                RUNNING_ROW_GAP,
-            ))
-            .children(fold)
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .child(Icon::from(facts.icon()).xsmall().text_color(muted)),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(facts.label.clone()),
-            )
-            // EXP-1068: the workflow's status dot, then the ×4 trailing cell
-            // (`3 running · 5 of 8 done`; a stack's member count).
-            .children(status_dot.map(|tone| crate::surface::live_dot(tone, false)))
-            .when(!trailing.is_empty(), |this| {
-                this.child(
-                    div()
-                        .flex_shrink_0()
-                        .text_xs()
-                        .text_color(muted)
-                        .child(trailing),
-                )
-            })
-            .when_some(open, |this, workflow_id| {
-                this.on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                    // EXP-851: a rail row opens its detail with no list beside
-                    // it, so the rail stays up.
-                    crate::navigation::navigate_from_rail(
-                        window,
-                        cx,
-                        Screen::Workflow {
-                            workflow_id: workflow_id.clone(),
-                        },
-                    );
-                }))
-            })
-            .into_any_element()
     }
 
     /// ONE Running row ([`Self::render_running_section`]) in the rail's
@@ -1356,8 +1241,7 @@ impl RailView {
             .into_any_element();
         // The compact square has no room for two texts: the tooltip is the
         // whole label the expanded row splits into identifier + title.
-        // EXP-1068: a review chain is titled by its round and verdict.
-        let title = run.marks.review_title.clone().unwrap_or_else(|| run.title.clone());
+        let title = run.title.clone();
         let label: SharedString = match &run.identifier {
             Some(identifier) => format!("{identifier} {title}").into(),
             None => title.clone(),
@@ -1391,12 +1275,7 @@ impl RailView {
             .into_any_element();
         }
         let fold = self.rail_run_fold(index, &row.key, row.has_children, cx);
-        // EXP-1068: the rail row has no caption line, so an off-last-used
-        // account rides the device glyph's tooltip.
-        let device_label: Option<SharedString> = match (run.device_label.clone(), run.marks.account.clone()) {
-            (Some(device), Some(account)) => Some(format!("{device} · {account}").into()),
-            (device, account) => device.or(account),
-        };
+        let device_label: Option<SharedString> = run.device_label.clone();
         let device = div()
             .id(("rail-running-device", index))
             .flex_shrink_0()
@@ -1442,11 +1321,6 @@ impl RailView {
                     .child(identifier)
             }))
             .child(div().flex_1().min_w_0().truncate().child(title))
-            .children(crate::run_rows::duplicate_live_warning(
-                "rail-running",
-                index,
-                run.marks.duplicate_live,
-            ))
             .child(device)
             .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| open(window, cx)));
         // EXP-874: the kill rides the row's right-click menu, not a trailing
@@ -2287,10 +2161,6 @@ impl Render for RailView {
                     || !queries::review_runs(cx, &id).is_empty()
             })
             .unwrap_or(false);
-        // EXP-1085: a workflow of the team waits on a person.
-        let workflows_badge = active_team_id(&self.nav, cx)
-            .filter(|id| crate::workflow_view::team_has_open_question(id, cx))
-            .map(|_| RailBadge::Dot(theme::tokens::RED.to_hsla()));
         // Inbox badge (EXP-699): any unread renderable notification — the
         // primary-tinted dot the mobile tab bars show.
         let inbox_badge = queries::inbox_unread(cx)
@@ -2559,15 +2429,6 @@ impl Render for RailView {
                             cx,
                         ))
                         .child(self.rail_actions_entry(cx))
-                        // EXP-981: Workflows sits directly after Actions.
-                        .child(self.rail_screen_entry(
-                            "rail-workflows",
-                            Icon::from(icons::registry::NAV_WORKFLOWS),
-                            domain::workflow_view::WORKFLOWS_TITLE,
-                            Screen::Workflows,
-                            workflows_badge.clone(),
-                            cx,
-                        ))
                         .children(reviews_entry)
                         .child(self.rail_agent_entry(active_chat_action.as_deref(), cx))
                         .children(pinned_section)
@@ -2629,8 +2490,7 @@ impl Render for RailView {
             // Settings/Account off small windows. Rail order (EXP-699, the
             // mobile tab-bar order; EXP-791 added Agent and Sessions;
             // EXP-878 the conditional Drafts entry under Inbox):
-            // [Inbox, Drafts?, Support, Devices, Actions, Workflows,
-            //  Reviews, Agent]
+            // [Inbox, Drafts?, Support, Devices, Actions, Reviews, Agent]
             // / Pinned (EXP-778) / boards + "+" / Running (EXP-923) / This
             // device: [Files, Source Control].
             .child(crate::scroll_pane::sidebar_scroll_pane(
@@ -2667,15 +2527,6 @@ impl Render for RailView {
                         cx,
                     ))
                     .child(self.rail_actions_entry(cx))
-                    // EXP-981: Workflows sits directly after Actions.
-                    .child(self.rail_screen_entry(
-                        "rail-workflows",
-                        Icon::from(icons::registry::NAV_WORKFLOWS),
-                        domain::workflow_view::WORKFLOWS_TITLE,
-                        Screen::Workflows,
-                        workflows_badge.clone(),
-                        cx,
-                    ))
                     // EXP-706: Reviews is a full-page screen like the three
                     // above it, not a tool window with a docked list.
                     // EXP-1105: absent in yolo mode unless a merge failed.
@@ -2850,9 +2701,6 @@ pub struct ListPanel {
     /// grouping and the Reviews queue.
     inbox_data: queries::Memo<queries::InboxDataKey, queries::InboxData>,
     reviews_data: queries::Memo<queries::ReviewGroupsKey, Vec<queries::ReviewGroup>>,
-    /// EXP-981: the workflows list's rows — derived when the two workflow
-    /// shapes move, never per repaint.
-    workflows_data: queries::Memo<queries::WorkflowDataKey, Vec<domain::rows::WorkflowRow>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -2984,7 +2832,6 @@ impl ListPanel {
             nav_list_scroll: VirtualListScrollHandle::new(),
             inbox_data: queries::Memo::default(),
             reviews_data: queries::Memo::default(),
-            workflows_data: queries::Memo::default(),
             _subscriptions: subscriptions,
         }
     }
@@ -4731,115 +4578,6 @@ impl ListPanel {
     }
 
     /// The shared `ListNav` scroll body.
-    /// The Workflows `ListNav` body (EXP-981): this team's workflows in the
-    /// same three bands the page draws, with the open one selected. Opening
-    /// a workflow from the page is the one path that lands here, and its
-    /// Back goes to the Workflows page.
-    fn render_workflows_nav(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        use domain::workflow_view::{workflow_band, workflow_shape_line, WORKFLOW_BANDS};
-
-        let Some(team_id) = active_team_id(&self.nav, cx) else {
-            return self.list_note("No team selected.", cx);
-        };
-        // EXP-915's rule: derived when a collection the rows read moves,
-        // never per repaint (the nav re-renders on every scrolled pixel).
-        let workflows = {
-            let app: &App = cx;
-            let key = queries::workflow_data_key(app, Some(team_id.as_str()), None);
-            self.workflows_data.get_or_insert_with(key, || {
-                queries::team_workflows(app, &team_id).0
-            })
-        };
-        if workflows.is_empty() {
-            return self.list_note("No workflows yet.", cx);
-        }
-        let open_workflow = match resolved_screen(&self.nav, cx) {
-            Some(Screen::Workflow { workflow_id }) => Some(workflow_id),
-            _ => None,
-        };
-        let theme = cx.theme();
-        let (row_hover, row_active, muted, danger) = (
-            theme.list_hover,
-            theme.list_active,
-            theme.muted_foreground,
-            theme.danger,
-        );
-        let mut rows: Vec<gpui::AnyElement> = Vec::with_capacity(workflows.len());
-        for band in WORKFLOW_BANDS {
-            let banded: Vec<&domain::rows::WorkflowRow> = workflows
-                .iter()
-                .filter(|row| workflow_band(row.status_wire()) == band)
-                .collect();
-            // An empty band is hidden, never an empty heading.
-            if banded.is_empty() {
-                continue;
-            }
-            rows.push(
-                crate::surface::glass_section_band(None, band.title(), None, cx).into_any_element(),
-            );
-            for (index, row) in banded.iter().enumerate() {
-                let shape = row.shape();
-                let active = open_workflow.as_deref() == Some(row.id.as_str());
-                let name = SharedString::from(row.name.clone().unwrap_or_default());
-                let line = SharedString::from(workflow_shape_line(&shape));
-                let cycles = !shape.cycles.is_empty();
-                let open_id = row.id.clone();
-                rows.push(
-                    crate::surface::flat_row()
-                        .id((crate::workflows_view::band_row_id(band), index))
-                        .flex()
-                        .w_full()
-                        .min_w_0()
-                        .items_center()
-                        .gap_2()
-                        .px_2()
-                        .py_1p5()
-                        .cursor_pointer()
-                        .when(active, |this| this.bg(row_active))
-                        .hover(move |style| style.bg(row_hover))
-                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                            this.open_from_list(
-                                Screen::Workflow {
-                                    workflow_id: open_id.clone(),
-                                },
-                                window,
-                                cx,
-                            );
-                        }))
-                        .child(
-                            div().flex_shrink_0().child(
-                                Icon::from(icons::registry::NAV_WORKFLOWS)
-                                    .xsmall()
-                                    .text_color(muted),
-                            ),
-                        )
-                        .child(
-                            v_flex()
-                                .flex_1()
-                                .min_w_0()
-                                .child(div().w_full().min_w_0().truncate().text_sm().child(name))
-                                .child(
-                                    div()
-                                        .w_full()
-                                        .min_w_0()
-                                        .truncate()
-                                        .text_xs()
-                                        .text_color(muted)
-                                        .child(line),
-                                ),
-                        )
-                        .when(cycles, |this| {
-                            this.child(div().flex_shrink_0().child(
-                                Icon::from(icons::registry::UI_WARNING).xsmall().text_color(danger),
-                            ))
-                        })
-                        .into_any_element(),
-                );
-            }
-        }
-        self.nav_scroll("list-nav-workflows-scroll", rows, cx)
-    }
-
     fn nav_scroll(
         &self,
         id: &'static str,
@@ -4872,7 +4610,6 @@ impl ListPanel {
             ToolWindow::Inbox => self.render_inbox_tool(cx),
             ToolWindow::Support => self.render_support_tool(cx),
             ToolWindow::Reviews => self.render_reviews_nav(cx),
-            ToolWindow::Workflows => self.render_workflows_nav(cx),
             // Files / Source Control are not list ORIGINS (`Screen::list_origin`).
             ToolWindow::Files | ToolWindow::SourceControl => div().into_any_element(),
         }
@@ -4935,7 +4672,6 @@ impl Render for ListPanel {
                         self.nav_statuses.clear();
                         self.inbox_data.clear();
                         self.reviews_data.clear();
-                        self.workflows_data.clear();
                     }
                 }
                 // EXP-863: the issue bodies refill these; any other list
@@ -5066,9 +4802,6 @@ mod tests {
         assert_eq!(ToolWindow::Inbox.list_label(), "Inbox");
         assert_eq!(ToolWindow::Support.list_label(), "Support");
         assert_eq!(ToolWindow::Reviews.list_label(), "Reviews");
-        // EXP-981.
-        assert_eq!(ToolWindow::Workflows.origin_screen(None), Screen::Workflows);
-        assert_eq!(ToolWindow::Workflows.list_label(), "Workflows");
     }
 
     /// EXP-862: which list a row click pins on the detail it opens. The bug
@@ -5150,15 +4883,6 @@ mod tests {
         assert_eq!(
             focused_list(Some(&Screen::Reviews)).0,
             ToolWindow::Reviews
-        );
-        // EXP-981: the list and its detail share one focused list.
-        assert_eq!(
-            focused_list(Some(&Screen::Workflows)).0,
-            ToolWindow::Workflows
-        );
-        assert_eq!(
-            focused_list(Some(&Screen::Workflow { workflow_id: "wf-1".into() })).0,
-            ToolWindow::Workflows
         );
         // An issue detail, Settings, nothing at all: never the inbox stream.
         for screen in [

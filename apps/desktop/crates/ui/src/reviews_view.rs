@@ -57,10 +57,6 @@ pub struct ReviewsView {
     open_pulls_key: Option<String>,
     /// Bumped per fetch — a stale response checks it before landing.
     open_pulls_seq: u64,
-    /// EXP-897: the stack BOTTOMS whose members are folded away, by
-    /// representative issue id (the sessions lists' rule, one fold ×4). Per
-    /// view, never persisted.
-    collapsed: HashSet<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -76,9 +72,6 @@ impl ReviewsView {
             // EXP-734: the "Agent runs" block is a live read over the synced
             // `coding_sessions` rows (a run's own chore PR lives there).
             subscriptions.push(cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()));
-            // EXP-1072: the "Workflows" block reads the synced `workflows`
-            // rows (a workflow's ONE final PR lives there).
-            subscriptions.push(cx.observe(&collections.workflows, |_, _, cx| cx.notify()));
         }
         // EXP-325: the rows' merge arm/spinner/error live in the shared
         // app-global merge state (any surface can drive them).
@@ -95,7 +88,6 @@ impl ReviewsView {
             open_pulls: None,
             open_pulls_key: None,
             open_pulls_seq: 0,
-            collapsed: HashSet::new(),
             _subscriptions: subscriptions,
         }
     }
@@ -188,8 +180,8 @@ impl ReviewsView {
     /// trailing Merge button, the branch as a sub-line, optional error
     /// caption. A single-issue entry shows the issue identifier + title; a
     /// BATCH entry (EXP-131: N issues on ONE PR) shows `#<pr_number>` (the
-    /// only identifier it has), a "N issues" count, and the linked identifiers
-    /// in place of the title. Merge acts on the representative issue's id —
+    /// only identifier it has), the `pr-batch` glyph with its issues in a
+    /// popover, and the linked identifiers in place of the title. Merge acts on the representative issue's id —
     /// the server merges the ONE PR and completes every linked issue. Clicking
     /// the row opens the PR diff screen (EXP-181), which owns the close-PR
     /// affordance (EXP-706 took the ghost `×` off this row: the list is a
@@ -202,50 +194,20 @@ impl ReviewsView {
     fn review_row(
         &self,
         entry: &queries::ReviewEntry,
-        workflow_status: Option<String>,
-        has_children: bool,
-        guides: &domain::tree_guides::Guides,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let issue = entry.representative();
         let is_batch = entry.is_batch();
-        // EXP-1094: ONE merge control per row from the shared rule. The
-        // BOTTOM of a stack merges the whole chain (the server resolves the
-        // top off this row's own issue id); an upper member and a live
-        // workflow's node PR offer none.
-        let merge_input = domain::reviews_merge::ReviewMergeInput {
-            stack: if entry.depth > 0 {
-                domain::reviews_merge::ReviewStackPosition::Upper
-            } else if entry.stack_top_issue_id.is_some() {
-                domain::reviews_merge::ReviewStackPosition::Bottom
-            } else {
-                domain::reviews_merge::ReviewStackPosition::None
-            },
-            workflow_status,
-            final_pr: false,
-            final_pr_state: None,
-        };
-        let merge_action = domain::reviews_merge::review_row_merge_action(&merge_input);
-        let merge_reason = domain::reviews_merge::reviews_merge_disabled_reason(&merge_input);
-        let merges_stack = merge_action == domain::reviews_merge::ReviewMergeAction::MergeStack;
-        let collapsed = self.collapsed.contains(&issue.id);
         let (identifier_text, title_text) = pr_row_texts(&entry.issues);
         // EXP-897: a batch PR wears the `pr-batch` CONCEPT with its issues in
-        // the shared overlay, never a bare count.
+        // a popover, never a bare count.
         let batch_glyph = is_batch.then(|| {
-            crate::pr_graph::batch_glyph(
+            batch_glyph(
                 SharedString::from(format!("review-batch-{}", issue.id)),
                 entry.issues.clone(),
                 cx,
             )
         });
-        // The caption an upper stack member carries: `on top of #EXP-11`.
-        let stacked_on = entry
-            .stacked_on
-            .as_deref()
-            .map(domain::pr_stack::on_top_of);
-
-        let muted = cx.theme().muted_foreground;
 
         let selected = matches!(
             resolved_screen(&self.nav, cx),
@@ -329,29 +291,15 @@ impl ReviewsView {
             if merging {
                 button = button.label("Merging…").loading(true).disabled(true);
             } else if armed {
-                button = button
-                    .label(if merges_stack {
-                        domain::pr_stack::MERGE_STACK_CONFIRM_LABEL
-                    } else {
-                        "Confirm merge"
-                    })
-                    .danger()
-                    .cursor_pointer();
+                button = button.label("Confirm merge").danger().cursor_pointer();
             } else {
                 // EXP-642 (web parity): the merge glyph rides the label.
-                // EXP-897: the bottom of a stack merges the whole chain.
                 button = button
-                    .icon(Icon::new(if merges_stack {
-                        registry::PR_STACK
-                    } else {
-                        registry::PR_MERGED
-                    }))
+                    .icon(Icon::new(registry::PR_MERGED))
                     .label(if swapped {
                         crate::work_header::RETRY_MERGE_LABEL
-                    } else if merges_stack {
-                        domain::reviews_merge::MERGE_STACK_LABEL
                     } else {
-                        domain::reviews_merge::MERGE_LABEL
+                        MERGE_LABEL
                     });
             }
             let click_id = issue.id.clone();
@@ -361,7 +309,6 @@ impl ReviewsView {
                     crate::pr_merge::two_click(
                         MergeOp::MergeIssuePr {
                             issue_id: click_id.clone(),
-                            merge_stack: merges_stack,
                         },
                         None,
                         None,
@@ -372,11 +319,8 @@ impl ReviewsView {
         };
         // The swap: a conflict-classified merge failure takes the PRIMARY
         // trailing slot; Merge steps down to the ghost "Retry merge" beside it
-        // rather than disappearing until the PR closes. A row the rule gives
-        // no merge keeps only the fix; a workflow node PR says why, quietly.
-        let no_merge = merge_action == domain::reviews_merge::ReviewMergeAction::None;
+        // rather than disappearing until the PR closes.
         let trailing = match fix_button {
-            Some(fix) if no_merge => fix,
             Some(fix) => h_flex()
                 .flex_shrink_0()
                 .items_center()
@@ -384,55 +328,10 @@ impl ReviewsView {
                 .child(merge_button)
                 .child(fix)
                 .into_any_element(),
-            // Any reason the rule gives draws (iOS, Android and web parity),
-            // not only the workflow one.
-            None if no_merge => match merge_reason {
-                Some(reason) => div()
-                    .flex_shrink_0()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(reason)
-                    .into_any_element(),
-                None => div().into_any_element(),
-            },
             None => merge_button,
         };
 
         let nav_id = issue.id.clone();
-        // EXP-897: the fold chevron every parent row carries (×4).
-        let fold = has_children.then(|| {
-            let fold_id = issue.id.clone();
-            div()
-                .id(SharedString::from(format!("review-fold-{}", issue.id)))
-                .flex_shrink_0()
-                .cursor_pointer()
-                .tooltip(move |window, cx| {
-                    gpui_component::tooltip::Tooltip::new(if collapsed {
-                        domain::pr_stack::EXPAND_CHILD_RUNS
-                    } else {
-                        domain::pr_stack::COLLAPSE_CHILD_RUNS
-                    })
-                    .build(window, cx)
-                })
-                .child(
-                    Icon::new(if collapsed {
-                        registry::UI_CHEVRON_RIGHT
-                    } else {
-                        registry::UI_CHEVRON_DOWN
-                    })
-                    .xsmall()
-                    .text_color(muted),
-                )
-                .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                    // The row itself opens the diff — folding must not.
-                    cx.stop_propagation();
-                    if !this.collapsed.insert(fold_id.clone()) {
-                        this.collapsed.remove(&fold_id);
-                    }
-                    cx.notify();
-                }))
-                .into_any_element()
-        });
         let on_click: crate::run_rows::RunRowAction = Box::new(cx.listener(move |_, _, window, cx| {
             // Any click outside the armed button disarms the confirm.
             MergeState::disarm(cx);
@@ -454,11 +353,8 @@ impl ReviewsView {
                 identifier: identifier_text,
                 title: title_text,
                 pr_state: None,
-                guides: guides.clone(),
                 selected,
-                fold,
                 batch_glyph,
-                stacked_on,
                 sub,
                 error,
                 trailing,
@@ -616,241 +512,6 @@ impl ReviewsView {
                     }),
             )
             .child(merge_button)
-            .into_any_element()
-    }
-
-    /// EXP-1072 — one "Workflows" row: a workflow's ONE final pull request
-    /// (integration branch → default branch), the workflow's OWN linked PR.
-    /// Shaped like [`Self::run_row`]: PR glyph + `#N` + the workflow's name
-    /// with a trailing Merge, the integration branch as the sub-line, an
-    /// error caption. Merging goes through `workflows.mergeFinalPr` and is
-    /// ECHO-settled on the workflow row's `final_pr_state`. A refusal on a
-    /// REAL conflict swaps the Merge slot for "Fix conflicts" (the builtin's
-    /// `pr` input takes the workflow id), Merge stepping down to the ghost
-    /// "Retry merge" beside it. Clicking the row opens the workflow.
-    fn workflow_row(
-        &self,
-        workflow: &domain::rows::WorkflowRow,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let theme = cx.theme();
-        let fg = theme.foreground;
-        let muted = theme.muted_foreground;
-        let danger = theme.danger;
-        let row_active = theme.list_active;
-        let row_hover = row_active.opacity(0.5);
-        let pr_green = theme::tokens::GREEN.to_hsla();
-
-        let selected = matches!(
-            resolved_screen(&self.nav, cx),
-            Some(Screen::Workflow { workflow_id }) if workflow_id == workflow.id
-        );
-        let key = crate::pr_merge::workflow_merge_key(&workflow.id);
-        let (merging, armed, error, failed_op, is_conflict) = {
-            let state = MergeState::global(cx);
-            let state = state.read(cx);
-            (
-                state.merging(&key),
-                state.armed(&key),
-                state.error(&key),
-                state.failed_op(&key),
-                state.is_conflict(&key),
-            )
-        };
-
-        let number = match workflow.final_pr_number {
-            Some(number) => format!("#{number}"),
-            None => String::new(),
-        };
-        let title = workflow.name.clone().unwrap_or_default();
-        let branch = workflow
-            .integration_branch
-            .clone()
-            .filter(|branch| !branch.is_empty());
-
-        // EXP-533/917: the ONE swap rule — a refused MERGE on a real conflict
-        // with a recorded branch (the integration branch the run rebases).
-        let fixing = branch.as_deref().is_some_and(|branch| {
-            crate::coding_flow::LocalSessions::global_ref(cx)
-                .is_some_and(|sessions| sessions.read(cx).is_branch_fixing(branch))
-        });
-        let fix_button = crate::work_header::merge_slot_swapped(
-            workflow.final_pr_state.as_deref() == Some(domain::contract::PR_STATE_OPEN),
-            failed_op == Some(crate::pr_merge::FailedOp::Merge),
-            is_conflict,
-            branch.is_some(),
-        )
-        .then(|| {
-            let mut button =
-                Button::new(SharedString::from(format!("workflow-fix-{}", workflow.id)))
-                    .web_sm()
-                    .outline()
-                    .cursor_pointer();
-            if fixing {
-                button = button.label("Fixing…").disabled(true);
-            } else if let Some(reason) = crate::coding_flow::no_agent_reason(cx) {
-                button = button.label("Fix conflicts").tooltip(reason).disabled(true);
-            } else {
-                button = button.label("Fix conflicts");
-            }
-            let click_id = workflow.id.clone();
-            button
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    cx.stop_propagation();
-                    // The builtin's `pr` input takes the WORKFLOW id (EXP-1072).
-                    this.on_fix_conflicts_click(click_id.clone(), window, cx);
-                }))
-                .into_any_element()
-        });
-        let swapped = fix_button.is_some();
-        // EXP-1094: a final PR merges only while it is open.
-        let can_merge = domain::reviews_merge::review_row_merge_action(
-            &domain::reviews_merge::ReviewMergeInput {
-                stack: domain::reviews_merge::ReviewStackPosition::None,
-                workflow_status: workflow.status.clone(),
-                final_pr: true,
-                final_pr_state: workflow.final_pr_state.clone(),
-            },
-        ) == domain::reviews_merge::ReviewMergeAction::Merge;
-
-        let merge_button = {
-            let mut button =
-                Button::new(SharedString::from(format!("workflow-merge-{}", workflow.id)))
-                    .web_sm()
-                    .cursor_pointer();
-            button = if swapped {
-                button.ghost()
-            } else {
-                button.outline()
-            };
-            if merging {
-                button = button.label("Merging…").loading(true).disabled(true);
-            } else if armed {
-                button = button.label("Confirm merge").danger().cursor_pointer();
-            } else {
-                button = button.icon(Icon::new(registry::PR_MERGED)).label(if swapped {
-                    crate::work_header::RETRY_MERGE_LABEL
-                } else {
-                    domain::reviews_merge::MERGE_LABEL
-                });
-            }
-            let workflow_id = workflow.id.clone();
-            button
-                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                    cx.stop_propagation();
-                    // Echo-settled: the row leaves this list when the synced
-                    // `final_pr_state` flips off `open`.
-                    crate::pr_merge::two_click(
-                        MergeOp::MergeWorkflowFinalPr {
-                            workflow_id: workflow_id.clone(),
-                        },
-                        None,
-                        None,
-                        cx,
-                    );
-                }))
-                .into_any_element()
-        };
-        let trailing = match fix_button {
-            Some(fix) if can_merge => h_flex()
-                .flex_shrink_0()
-                .items_center()
-                .gap_1()
-                .child(merge_button)
-                .child(fix)
-                .into_any_element(),
-            Some(fix) => fix,
-            None if can_merge => merge_button,
-            None => div().into_any_element(),
-        };
-
-        let nav_id = workflow.id.clone();
-        crate::surface::flat_row()
-            .id(SharedString::from(format!("workflow-{}", workflow.id)))
-            .flex()
-            .flex_row()
-            .items_center()
-            .w_full()
-            .min_w_0()
-            .px_3()
-            .py_2p5()
-            .gap_2()
-            .when(selected, |this| this.bg(row_active))
-            .hover(move |this| this.bg(row_hover))
-            .cursor_pointer()
-            .on_click(cx.listener(move |_, _, window, cx| {
-                MergeState::disarm(cx);
-                // The workflow's detail: its graph, gate and final PR caption.
-                let screen = Screen::Workflow {
-                    workflow_id: nav_id.clone(),
-                };
-                match Screen::Reviews.list_origin() {
-                    Some(origin) => {
-                        crate::navigation::navigate_from(window, cx, screen, origin)
-                    }
-                    None => crate::navigation::navigate(window, cx, screen),
-                }
-            }))
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .gap_0p5()
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .min_w_0()
-                            .items_center()
-                            .gap_1p5()
-                            .child(
-                                Icon::from(ExpIcon::GitPullRequest)
-                                    .xsmall()
-                                    .flex_shrink_0()
-                                    .text_color(pr_green),
-                            )
-                            .when(!number.is_empty(), |this| {
-                                this.child(
-                                    div()
-                                        .flex_shrink_0()
-                                        .text_xs()
-                                        .text_color(muted)
-                                        .font_family(theme::terminal::FONT_FAMILY)
-                                        .child(SharedString::from(number.clone())),
-                                )
-                            })
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .text_xs()
-                                    .truncate()
-                                    .text_color(fg)
-                                    .child(SharedString::from(title)),
-                            ),
-                    )
-                    .when_some(branch, |this, branch| {
-                        this.child(
-                            div()
-                                .pl_5()
-                                .text_xs()
-                                .truncate()
-                                .font_family(theme::terminal::FONT_FAMILY)
-                                .text_color(muted)
-                                .child(SharedString::from(branch)),
-                        )
-                    })
-                    .when_some(error, |this, message| {
-                        this.child(
-                            div()
-                                .pl_5()
-                                .text_xs()
-                                .truncate()
-                                .text_color(danger)
-                                .child(message),
-                        )
-                    }),
-            )
-            .child(trailing)
             .into_any_element()
     }
 
@@ -1036,26 +697,11 @@ impl Render for ReviewsView {
             .as_deref()
             .map(|id| queries::review_runs(cx, id))
             .unwrap_or_default();
-        // EXP-1072: each workflow's ONE final PR — the workflow's own, so it
-        // is never listed among the unlinked pulls below.
-        let workflows = team_id
-            .as_deref()
-            .map(|id| queries::review_workflows(cx, id))
-            .unwrap_or_default();
-        // EXP-1094: a live workflow's node PRs merge through the workflow.
-        let workflow_status_by_issue = team_id
-            .as_deref()
-            .map(|id| queries::review_workflow_status_by_issue(cx, id))
-            .unwrap_or_default();
-        let workflow_pr_urls = team_id
-            .as_deref()
-            .map(|id| queries::workflow_final_pr_urls(cx, id))
-            .unwrap_or_default();
         let pull_repos: Vec<api::repositories::OpenPullsRepo> = self
             .open_pulls
             .as_ref()
             .filter(|(ws, _)| Some(ws.as_str()) == team_id.as_deref())
-            .map(|(_, repos)| queries::visible_pull_repos(repos, &workflow_pr_urls))
+            .map(|(_, repos)| queries::visible_pull_repos(repos))
             .unwrap_or_default();
 
         // Unlinked pulls have no Electric echo — a pull merged elsewhere drops
@@ -1084,7 +730,6 @@ impl Render for ReviewsView {
                 .child(crate::controls::skeleton().h_3p5().w_48())
                 .child(crate::controls::skeleton().h_3p5().w_32())
         } else if groups.is_empty()
-            && workflows.is_empty()
             && runs.is_empty()
             && pull_repos.is_empty()
         {
@@ -1138,89 +783,9 @@ impl Render for ReviewsView {
                                 .child(SharedString::from(format!("{}", group.entries.len()))),
                         ),
                 );
-                // EXP-897: the rows a nested list actually DRAWS — the
-                // sessions lists' fold, one rule.
-                let visible = crate::sessions_section::drop_collapsed(
-                    group.entries.iter().collect::<Vec<_>>(),
-                    &self.collapsed,
-                    |entry| entry.representative().id.as_str(),
-                    |entry| entry.depth,
-                );
-                // EXP-965: the connector, off the VISIBLE depth sequence.
-                let guides = domain::tree_guides::guides_for(
-                    &visible.iter().map(|entry| entry.depth).collect::<Vec<_>>(),
-                );
-                for (index, entry) in visible.iter().enumerate() {
-                    // A parent is a row the NEXT one in tree order nests under
-                    // (the fold hides the subtree, so read it off the group).
-                    let has_children = group
-                        .entries
-                        .iter()
-                        .skip_while(|row| row.representative().id != entry.representative().id)
-                        .nth(1)
-                        .is_some_and(|next| next.depth > entry.depth);
-                    let workflow_status = domain::reviews_merge::review_workflow_status(
-                        entry.issues.iter().map(|issue| issue.id.as_str()),
-                        &workflow_status_by_issue,
-                    );
-                    block = block.child(self.review_row(
-                        entry,
-                        workflow_status,
-                        has_children,
-                        &guides.get(index).cloned().unwrap_or_default(),
-                        cx,
-                    ));
-                }
-                children.push(block.into_any_element());
-            }
-            // EXP-1072: a workflow's ONE final PR, between the board groups
-            // and the agent runs — the workflow's own linked PR (its merge
-            // completes the workflow), never an external one.
-            if !workflows.is_empty() {
-                let mut block = v_flex().min_w_0().pb_2().child(
-                    // EXP-818: the group BAND (`surface::glass_section_band`).
-                    h_flex()
-                        .w_full()
-                        .min_w_0()
-                        .px_3()
-                        .py_1p5()
-                        .mb_1()
-                        .rounded(gpui::px(theme::tokens::radius::MD))
-                        .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
-                        .gap_1p5()
-                        .items_center()
-                        .child(
-                            Icon::new(registry::NAV_WORKFLOWS)
-                                .xsmall()
-                                .flex_shrink_0()
-                                .text_color(heading_fg.opacity(0.7)),
-                        )
-                        .child(
-                            div()
-                                .min_w_0()
-                                .text_sm()
-                                .truncate()
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(heading_fg.opacity(0.7))
-                                .child("Workflows"),
-                        )
-                        .child(
-                            div()
-                                .flex_shrink_0()
-                                .text_xs()
-                                .text_color(heading_fg.opacity(0.5))
-                                .child(SharedString::from(format!("{}", workflows.len()))),
-                        )
-                        .child(
-                            div()
-                                .flex_shrink_0()
-                                .text_xs()
-                                .text_color(muted.opacity(0.8))
-                                .child("final pull requests"),
-                        ),
-                );
-                for workflow in &workflows {
-                    block = block.child(self.workflow_row(workflow, cx));
+                // One FLAT row per pull request (deduped by `pr_url`).
+                for entry in &group.entries {
+                    block = block.child(self.review_row(entry, cx));
                 }
                 children.push(block.into_any_element());
             }
@@ -1372,16 +937,10 @@ pub(crate) struct PrRowSpec {
     /// The PR's state; `None` = open (the Reviews queue only lists open PRs).
     /// A merged or closed PR wears its own glyph, muted.
     pub(crate) pr_state: Option<String>,
-    /// EXP-965: the row's place in its stack (depth = the indent).
-    pub(crate) guides: domain::tree_guides::Guides,
-    /// The active fill (the PR on screen / the member the view is about).
+    /// The active fill (the PR on screen).
     pub(crate) selected: bool,
-    /// The fold chevron a parent row carries.
-    pub(crate) fold: Option<gpui::AnyElement>,
     /// The batch glyph after the title.
     pub(crate) batch_glyph: Option<gpui::AnyElement>,
-    /// The `on top of #EXP-11` caption.
-    pub(crate) stacked_on: Option<String>,
     /// The branch sub-line.
     pub(crate) sub: Option<String>,
     /// A failed merge's caption.
@@ -1390,9 +949,6 @@ pub(crate) struct PrRowSpec {
     pub(crate) trailing: gpui::AnyElement,
     pub(crate) on_click: crate::run_rows::RunRowAction,
 }
-
-/// The base left padding of a [`pr_row`] (`px_3`).
-const PR_ROW_PAD: f32 = 12.;
 
 /// THE pull request row — the Reviews queue's: PR glyph · mono identifier ·
 /// title · batch glyph, the sub-lines under it, the trailing slot centred.
@@ -1411,7 +967,6 @@ pub(crate) fn pr_row(spec: PrRowSpec, cx: &gpui::App) -> gpui::AnyElement {
         Some("closed") => (registry::PR_CLOSED, muted),
         _ => (ExpIcon::GitPullRequest, theme::tokens::GREEN.to_hsla()),
     };
-    let depth = spec.guides.depth();
     let on_click = spec.on_click;
     // EXP-642: one glass row CARD per PR (web parity) — selected wears the
     // active fill, hover half of it.
@@ -1427,21 +982,13 @@ pub(crate) fn pr_row(spec: PrRowSpec, cx: &gpui::App) -> gpui::AnyElement {
         .items_center()
         .w_full()
         .min_w_0()
-        .relative()
         .px_3()
         .py_2p5()
-        // EXP-897: 14px per stack level — the sessions lists' indent.
-        // EXP-965: and the connector that indent's gutter carries.
-        .pl(gpui::px(PR_ROW_PAD + crate::tree_guides::LEVEL_PITCH * depth as f32))
         .gap_2()
-        // EXP-965: the stack's rows stack FLUSH inside their block (the
-        // `v_flex` carries no gap), so there is nothing to bridge.
-        .children(crate::tree_guides::guide_layer(&spec.guides, PR_ROW_PAD, 0.))
         .when(spec.selected, |this| this.bg(row_active))
         .hover(move |this| this.bg(row_hover))
         .cursor_pointer()
         .on_click(move |event, window, cx| on_click(event, window, cx))
-        .children(spec.fold)
         .child(
             v_flex()
                 .flex_1()
@@ -1473,16 +1020,6 @@ pub(crate) fn pr_row(spec: PrRowSpec, cx: &gpui::App) -> gpui::AnyElement {
                         )
                         .children(spec.batch_glyph),
                 )
-                .when_some(spec.stacked_on, |this, caption| {
-                    this.child(
-                        div()
-                            .pl_5()
-                            .text_xs()
-                            .truncate()
-                            .text_color(muted)
-                            .child(SharedString::from(caption)),
-                    )
-                })
                 .when_some(spec.sub, |this, branch| {
                     this.child(
                         div()
@@ -1509,4 +1046,88 @@ pub(crate) fn pr_row(spec: PrRowSpec, cx: &gpui::App) -> gpui::AnyElement {
         )
         .child(spec.trailing)
         .into_any_element()
+}
+
+/// The Reviews row's resting merge label (web `ReviewRow`, iOS, Android).
+pub(crate) const MERGE_LABEL: &str = "Merge";
+
+/// The covered-issues popover's title on a multi-issue run's header (iOS and
+/// Android "Issues in this run").
+pub(crate) const COVERED_ISSUES_TITLE: &str = "Issues in this run";
+
+/// A popover's width — issue rows, not a graph.
+const ISSUES_POPOVER_W: f32 = 360.;
+
+/// THE issue-list popover: `trigger` opens `issues` as the relations card's
+/// issue rows (a click opens the issue), under an optional muted `title`.
+/// The Reviews batch glyph and a multi-issue run's header title share it.
+pub(crate) fn issues_popover<T>(
+    id: SharedString,
+    trigger: T,
+    title: Option<&'static str>,
+    issues: Vec<domain::rows::Issue>,
+) -> gpui::AnyElement
+where
+    T: gpui_component::Selectable + IntoElement + 'static,
+{
+    gpui_component::popover::Popover::new(id)
+        .p_1()
+        .trigger(trigger)
+        .content(move |_, _window, cx| {
+            let muted = cx.theme().muted_foreground;
+            let rows: Vec<gpui::AnyElement> = issues
+                .iter()
+                .map(|issue| {
+                    crate::issue_relations::issue_row(
+                        &format!("issues-popover-{}", issue.id),
+                        issue,
+                        crate::issue_relations::IssueRowOpts {
+                            title: None,
+                            open: true,
+                            remove: None,
+                            guides: None,
+                            in_dialog: false,
+                        },
+                        cx,
+                    )
+                })
+                .collect();
+            v_flex()
+                .w(gpui::px(ISSUES_POPOVER_W))
+                .min_w_0()
+                .children(title.map(|title| {
+                    div()
+                        .px_3()
+                        .pt_1p5()
+                        .pb_1()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(title)
+                }))
+                .children(rows)
+        })
+        .into_any_element()
+}
+
+/// The Reviews list's batch glyph: the `pr-batch` concept with the batch's
+/// issues in [`issues_popover`].
+pub(crate) fn batch_glyph(
+    id: SharedString,
+    issues: Vec<domain::rows::Issue>,
+    cx: &gpui::App,
+) -> gpui::AnyElement {
+    use crate::surface::{glass_pill_button, PillSize};
+    let count = issues.len();
+    let muted = cx.theme().muted_foreground;
+    let trigger = glass_pill_button(id.clone(), PillSize::Sm, cx)
+        .icon(
+            Icon::new(registry::PR_BATCH)
+                .with_size(gpui::px(PillSize::Sm.glyph()))
+                .text_color(muted),
+        )
+        .label(SharedString::from(format!("{count} issues")))
+        .tooltip(SharedString::from(format!(
+            "This pull request closes {count} issues"
+        )));
+    issues_popover(SharedString::from(format!("{id}-batch")), trigger, None, issues)
 }

@@ -115,9 +115,6 @@ pub fn connect_account(account: &api::Account, cx: &mut App) -> bool {
             // EXP-530: the action-trigger host (schedules + event
             // triggers bound to THIS device) rides the same lifecycle.
             crate::automation_host::start_automation_host(account, cx);
-        // EXP-982: and the workflow engine beside it — a started workflow
-        // only moves while its runner device is up.
-        crate::workflow_host::start_workflow_host(account, cx);
             // EXP-1005: walled runs rotate to another account between turns.
             crate::account_rotation_host::start_account_rotation_host(cx);
             // EXP-229: end the coding_sessions rows a crash / forced logout
@@ -198,7 +195,6 @@ pub fn sign_out_active(cx: &mut App) {
     crate::steer_wiring::stop_control_channel(&account_id, cx);
     crate::device_sync::stop_device_sync(&account_id, cx);
     crate::automation_host::stop_automation_host(&account_id, cx);
-    crate::workflow_host::stop_workflow_host(&account_id, cx);
     let auth = AuthContext::global(cx).clone();
 
     // Best-effort server-side session ends + revocation — local sign-out
@@ -272,7 +268,6 @@ pub fn reset_ide_data(cx: &mut App) {
         crate::steer_wiring::stop_control_channel(&account.id, cx);
         crate::device_sync::stop_device_sync(&account.id, cx);
         crate::automation_host::stop_automation_host(&account.id, cx);
-        crate::workflow_host::stop_workflow_host(&account.id, cx);
         if let Some(token) = auth.auth.token(&account.id) {
             let client = Arc::clone(&auth.client);
             let instance = account.instance_url.clone();

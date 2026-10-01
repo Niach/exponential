@@ -45,10 +45,7 @@ use gpui::{
     InteractiveElement as _, IntoElement, ParentElement, Render, SharedString, Styled,
     Subscription, Window,
 };
-use gpui_component::{
-    button::Button, h_flex, v_flex, ActiveTheme as _, Icon,
-    Sizable as _,
-};
+use gpui_component::{button::Button, v_flex, ActiveTheme as _, Sizable as _};
 
 use crate::coding_flow::{LocalSessions, StartCodingControl};
 use crate::icons::registry;
@@ -67,7 +64,7 @@ pub(crate) fn open_session(session_id: &str, window: &mut Window, cx: &mut App) 
 
 /// EXP-862: [`open_session`] from a LIST, which pins that list explicitly —
 /// the run's Back and its left column then name the rows it was picked from
-/// (a board, the Inbox, the Workflows page) instead
+/// (a board, the Inbox, Reviews) instead
 /// of whatever the breadcrumb rule can derive from the screen that was up.
 /// `None` falls back to [`open_session`].
 pub(crate) fn open_session_with_origin(
@@ -537,82 +534,6 @@ impl SessionScreenView {
         crate::work_header::resume_path_cached(&row, &mut self.resumable, cx)
     }
 
-    /// EXP-897 — a STACKED run says where it sits before its transcript: the
-    /// position line (`2 of 3 · on top of #EXP-11`) and the one sentence that
-    /// explains the diff it is about to show (`Your pull request is based on
-    /// #EXP-11's branch, not on master.`). Derived from the SYNCED chain
-    /// (`issues.pr_base_branch`), so it is right on every machine.
-    fn render_stack_position(&mut self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        let row = self.inner.read(cx).session_row().cloned()?;
-        let issue_id = row.issue_id.clone()?;
-        let store = sync::Store::try_global(cx)?;
-        let collections = store.collections().clone();
-        let issue = collections.issues.read(cx).get(&issue_id).cloned()?;
-        let boards = collections.boards.read(cx);
-        let board = boards.get(&issue.board_id).cloned()?;
-        // The stack rule matches branch names, so the list is scoped to the
-        // issue's TEAM (its twin on every other client does the same).
-        let issues: Vec<domain::rows::Issue> = collections
-            .issues
-            .read(cx)
-            .iter()
-            .filter(|row| {
-                boards
-                    .get(&row.board_id)
-                    .is_some_and(|other| other.team_id == board.team_id)
-            })
-            .cloned()
-            .collect();
-        let position = domain::pr_stack::stack_position(&issue, &issues)?;
-        let below = position.below.clone()?;
-        let default_branch = board
-            .default_branch
-            .clone()
-            .filter(|branch| !branch.trim().is_empty())
-            .unwrap_or_else(|| "the default branch".to_string());
-        let muted = cx.theme().muted_foreground;
-        Some(
-            h_flex()
-                .w_full()
-                .flex_shrink_0()
-                .min_w_0()
-                .items_start()
-                .gap_1p5()
-                .px_3()
-                .py_1p5()
-                .border_b_1()
-                .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
-                .child(
-                    Icon::new(registry::PR_STACK)
-                        .xsmall()
-                        .flex_shrink_0()
-                        .text_color(muted),
-                )
-                .child(
-                    v_flex()
-                        .min_w_0()
-                        .gap_0p5()
-                        .child(div().text_xs().text_color(muted).child(SharedString::from(
-                            domain::pr_stack::stack_position_line(
-                                position.position,
-                                position.size,
-                                &below,
-                            ),
-                        )))
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(muted.opacity(0.7))
-                                .child(SharedString::from(domain::pr_stack::stack_base_note(
-                                    &below,
-                                    &default_branch,
-                                ))),
-                        ),
-                )
-                .into_any_element(),
-        )
-    }
-
     /// The face toggle for this screen: `Issue` when the run is issue-bound,
     /// `Run`, the diff item when the run has changes and (EXP-879) `Results`
     /// when it has published pictures; active follows the sub-face on show.
@@ -766,21 +687,31 @@ impl SessionScreenView {
         }
 
         // Issue-less (or the issue row not synced yet): the run's own title —
-        // for a BATCH, the issues it covers (EXP-876).
-        let title = crate::work_header::title_row(match row.as_ref() {
+        // for a BATCH, the issues it covers (EXP-876). A multi-issue run's
+        // `EXP-874 +2` title opens the covered issues (iOS/Android parity).
+        let title = match row.as_ref() {
             Some(row) => {
                 let batch_issues = crate::run_rows::batch_run_issues(row, cx);
-                crate::run_rows::run_title(row, None, &batch_issues)
+                let title = crate::run_rows::run_title(row, None, &batch_issues);
+                match crate::run_rows::run_identifier(row, None, &batch_issues) {
+                    Some(identifier) if batch_issues.len() > 1 => {
+                        crate::reviews_view::issues_popover(
+                            SharedString::from(format!("session-covered-issues-{}", row.id)),
+                            crate::picker::PickerTrigger::new(
+                                "session-covered-issues-trigger".into(),
+                                crate::work_header::title_row(format!("{identifier} {title}")),
+                            )
+                            .cursor_pointer(),
+                            Some(crate::reviews_view::COVERED_ISSUES_TITLE),
+                            batch_issues,
+                        )
+                    }
+                    _ => crate::work_header::title_row(title),
+                }
             }
-            None => SharedString::from("Loading…"),
-        });
+            None => crate::work_header::title_row("Loading…"),
+        };
         let mut right: Vec<AnyElement> = Vec::with_capacity(4);
-        // EXP-897 §4: the same badge an issue-bound header carries — a batch
-        // run's PR closes several issues, and a chat run can be stacked.
-        if let Some(row) = row.as_ref() {
-            let spec = crate::pr_graph::session_spec(row, cx);
-            right.extend(crate::pr_graph::badge("session-pr-graph", spec, cx));
-        }
         // EXP-916: the run's own PR (EXP-626/EXP-734) reaches GitHub from the
         // header, exactly as an issue's does — EXP-949: on the Changes face
         // alone, where the diff it opens is on show.
@@ -963,10 +894,6 @@ impl Focusable for SessionScreenView {
 impl Render for SessionScreenView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let header = self.render_header(window, cx);
-        // EXP-897: for a stacked run, where in the stack it sits. (EXP-974:
-        // the "Continues an earlier run" band is gone — a resumed run and
-        // its predecessor share the header's `Runs` menu.)
-        let stack_position = self.render_stack_position(cx);
         // EXP-773/EXP-877: one column — the shared work header, then the
         // transcript, whose own footer carries the composer (and the usage
         // readout). EXP-862 stopped storing `coding_sessions.summary`, so no
@@ -977,7 +904,6 @@ impl Render for SessionScreenView {
             .min_h_0()
             .track_focus(&self.focus_handle)
             .child(header)
-            .children(stack_position)
             .child(div().flex_1().min_h_0().child(self.inner.clone()))
     }
 }

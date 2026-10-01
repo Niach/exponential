@@ -6,9 +6,7 @@
 //! lives on an entity `window.use_keyed_state` keeps), `sub_shell_row` as the
 //! row, and `SubShellHost` rendering the card at rest or the open page with
 //! `controls::back_glyph` on top. The page holds a second sub-shell, so the
-//! demo shows one level deeper and Back returning exactly one. Live users:
-//! the device settings dialog and Settings → Agents, both for "Workflow
-//! settings".
+//! demo shows one level deeper and Back returning exactly one.
 
 use gpui::{
     div, App, Context, Div, FocusHandle, IntoElement, ParentElement as _,
@@ -100,9 +98,9 @@ impl Render for SubShellDemo {
                 cx,
             ),
             self.row(
-                SubShellProps::new("sg-sub-shell-workflow", "Workflow settings")
-                    .icon(Icon::new(registry::NAV_WORKFLOWS))
-                    .value("Opus · Fable"),
+                SubShellProps::new("sg-sub-shell-agent-defaults", "Agent defaults")
+                    .icon(Icon::new(registry::SETTINGS_AGENTS))
+                    .value("Opus · High"),
                 cx,
             ),
             self.row(

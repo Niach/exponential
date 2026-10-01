@@ -1185,14 +1185,14 @@ pub(crate) fn deferred(
 /// bare `AnyElement` is none of those. The wrapper adds NO paint of its own
 /// — the caller owns how its chip looks, open or shut.
 #[derive(IntoElement)]
-struct PickerTrigger {
+pub(crate) struct PickerTrigger {
     base: Stateful<Div>,
     element: Option<AnyElement>,
     selected: bool,
 }
 
 impl PickerTrigger {
-    fn new(id: ElementId, element: AnyElement) -> Self {
+    pub(crate) fn new(id: ElementId, element: AnyElement) -> Self {
         Self {
             base: div().id(id),
             element: Some(element),

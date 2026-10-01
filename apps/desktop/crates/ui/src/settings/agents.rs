@@ -56,8 +56,7 @@ use coding::{CodingAgent, Settings};
 
 use crate::coding_flow::CodingHub;
 use crate::coding_selects::{
-    agent_icon, choice_select, effort_choices_for, model_choices_for, selected,
-    workflow_model_choices_for, ChoiceSelect,
+    agent_icon, choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
 };
 use crate::launch_options::{AgentDefaultsGroup, AgentPill, DefaultsToggle};
 use crate::surface;
@@ -76,10 +75,6 @@ const PATH_SAVE_DEBOUNCE: Duration = Duration::from_millis(800);
 // ---------------------------------------------------------------------------
 
 pub struct AgentsPane {
-    /// EXP-1158: the LAST USED agent (`Settings.default_agent`), read-only
-    /// here — the launcher stamps it. The workflow pair speaks its
-    /// vocabulary.
-    default_agent: CodingAgent,
     claude_input: Entity<InputState>,
     model_select: ChoiceSelect,
     effort_select: ChoiceSelect,
@@ -89,19 +84,6 @@ pub struct AgentsPane {
     /// EXP-981/EXP-1020: the model claude's SUBAGENTS run on — the row web
     /// had and the IDE did not.
     subagent_model_select: ChoiceSelect,
-    /// EXP-1020: the "Workflow settings" page's pair — what a workflow
-    /// started on this machine is seeded from.
-    /// ONE pair per agent, like the model/effort selects: the pair belongs
-    /// to the last used agent's vocabulary, and the two do not overlap.
-    workflow_model_select: ChoiceSelect,
-    workflow_strong_model_select: ChoiceSelect,
-    codex_workflow_model_select: ChoiceSelect,
-    codex_workflow_strong_model_select: ChoiceSelect,
-    /// EXP-1020: which sub-shell page is open, if any.
-    nav: crate::sub_shell::SubShellNav,
-    /// The sub-shell page's back control: focused as the page opens, so
-    /// Escape pops the page rather than reaching whatever hosts the pane.
-    sub_shell_back_focus: gpui::FocusHandle,
     /// Which agent tab of the Agents card is showing — pure UI state, not
     /// persisted (EXP-206).
     agent_tab: CodingAgent,
@@ -157,34 +139,6 @@ impl AgentsPane {
             window,
             cx,
         );
-        let (claude_workflow, claude_workflow_strong) =
-            crate::device_settings::workflow_pair_for(&defaults, CodingAgent::Claude);
-        let (codex_workflow, codex_workflow_strong) =
-            crate::device_settings::workflow_pair_for(&defaults, CodingAgent::Codex);
-        let workflow_model_select = choice_select(
-            &workflow_model_choices_for(CodingAgent::Claude),
-            &claude_workflow,
-            window,
-            cx,
-        );
-        let workflow_strong_model_select = choice_select(
-            &workflow_model_choices_for(CodingAgent::Claude),
-            &claude_workflow_strong,
-            window,
-            cx,
-        );
-        let codex_workflow_model_select = choice_select(
-            &workflow_model_choices_for(CodingAgent::Codex),
-            &codex_workflow,
-            window,
-            cx,
-        );
-        let codex_workflow_strong_model_select = choice_select(
-            &workflow_model_choices_for(CodingAgent::Codex),
-            &codex_workflow_strong,
-            window,
-            cx,
-        );
 
         // Creating the hub also kicks the FIRST doctor run (§7.7 onboarding).
         let hub = CodingHub::global(cx);
@@ -215,10 +169,6 @@ impl AgentsPane {
             &codex_model_select,
             &codex_effort_select,
             &subagent_model_select,
-            &workflow_model_select,
-            &workflow_strong_model_select,
-            &codex_workflow_model_select,
-            &codex_workflow_strong_model_select,
         ] {
             // EXP-694 autosave: confirming a choice IS the save (the baseline
             // guard in `save` swallows the pane's own rewrites).
@@ -232,7 +182,6 @@ impl AgentsPane {
         cx.on_release(|this, cx| this.flush_pending_path(cx)).detach();
 
         let mut this = Self {
-            default_agent: defaults.default_agent,
             claude_input,
             model_select,
             effort_select,
@@ -240,12 +189,6 @@ impl AgentsPane {
             codex_model_select,
             codex_effort_select,
             subagent_model_select,
-            workflow_model_select,
-            workflow_strong_model_select,
-            codex_workflow_model_select,
-            codex_workflow_strong_model_select,
-            nav: crate::sub_shell::SubShellNav::new(),
-            sub_shell_back_focus: cx.focus_handle(),
             agent_tab: defaults.default_agent,
             claude_ultracode: defaults.claude_ultracode,
             claude_plan_mode: defaults.claude_plan_mode,
@@ -261,20 +204,6 @@ impl AgentsPane {
     /// Overlay ONLY this pane's owned fields from `from` onto `onto` —
     /// the single definition `resync`/`save` both lean on so the two can
     /// never drift.
-    /// The workflow pair's selects for `agent`.
-    fn workflow_selects(&self, agent: CodingAgent) -> (ChoiceSelect, ChoiceSelect) {
-        match agent {
-            CodingAgent::Claude => (
-                self.workflow_model_select.clone(),
-                self.workflow_strong_model_select.clone(),
-            ),
-            CodingAgent::Codex => (
-                self.codex_workflow_model_select.clone(),
-                self.codex_workflow_strong_model_select.clone(),
-            ),
-        }
-    }
-
     fn overlay_owned(onto: &mut Settings, from: &Settings) {
         // EXP-1020: the launch defaults are `coding`'s ONE definition,
         // shared with the Device settings dialog so the two lists cannot
@@ -305,7 +234,6 @@ impl AgentsPane {
         self.codex_input.update(cx, |input, cx| {
             input.set_value(settings.codex_path.clone(), window, cx)
         });
-        self.default_agent = settings.default_agent;
         // The persisted values are load-normalized into the choice sets, so
         // every set_selected_value below finds its row.
         for (select, value) in [
@@ -316,23 +244,6 @@ impl AgentsPane {
             (
                 &self.subagent_model_select,
                 settings.claude_subagent_model.clone(),
-            ),
-            // EXP-1020: each agent's pair takes ITS OWN names.
-            (
-                &self.workflow_model_select,
-                crate::device_settings::workflow_pair_for(&settings, CodingAgent::Claude).0,
-            ),
-            (
-                &self.workflow_strong_model_select,
-                crate::device_settings::workflow_pair_for(&settings, CodingAgent::Claude).1,
-            ),
-            (
-                &self.codex_workflow_model_select,
-                crate::device_settings::workflow_pair_for(&settings, CodingAgent::Codex).0,
-            ),
-            (
-                &self.codex_workflow_strong_model_select,
-                crate::device_settings::workflow_pair_for(&settings, CodingAgent::Codex).1,
             ),
         ] {
             select.update(cx, |select, cx| {
@@ -372,9 +283,6 @@ impl AgentsPane {
             claude_model: selected(&self.model_select, cx),
             claude_effort: selected(&self.effort_select, cx),
             claude_subagent_model: selected(&self.subagent_model_select, cx),
-            // The stored pair is the last used agent's.
-            workflow_model: selected(&self.workflow_selects(self.default_agent).0, cx),
-            workflow_strong_model: selected(&self.workflow_selects(self.default_agent).1, cx),
             codex_model: selected(&self.codex_model_select, cx),
             codex_effort: selected(&self.codex_effort_select, cx),
             claude_ultracode: self.claude_ultracode,
@@ -497,30 +405,6 @@ impl AgentsPane {
             surface::glass_row_input(glass_input(path, window, cx)).into_any_element(),
             cx,
         );
-        // EXP-1020: `Opus · Fable` — the same display labels the Model rows
-        // show, never the raw aliases.
-        // The pair belongs to the last used agent, so both the names and the
-        // list they are labelled against follow it.
-        let drafted = self.drafted(cx);
-        let workflow_choices = model_choices_for(drafted.default_agent);
-        let workflow_summary = SharedString::from(format!(
-            "{} · {}",
-            crate::device_settings::choice_label(workflow_choices, &drafted.workflow_model),
-            crate::device_settings::choice_label(workflow_choices, &drafted.workflow_strong_model),
-        ));
-        let workflow_row = crate::sub_shell::sub_shell_row(
-            crate::sub_shell::SubShellProps::new("settings-workflow", "Workflow settings")
-                .icon(gpui_component::Icon::new(
-                    crate::icons::registry::NAV_WORKFLOWS,
-                ))
-                .value(workflow_summary),
-            cx.listener(|this: &mut Self, _, window, cx| {
-                this.nav.open("Workflow settings");
-                crate::sub_shell::focus_back_on_open(&this.sub_shell_back_focus, window, cx);
-                cx.notify();
-            }),
-            cx,
-        );
 
         let mut group = AgentDefaultsGroup::new(
             "settings-agents",
@@ -537,11 +421,7 @@ impl AgentsPane {
             effort,
         )
         .effort_disabled(agent_tab == CodingAgent::Claude && self.claude_ultracode)
-        .leading(vec![path_row])
-        // EXP-1020: the "Workflow settings" page — the model pair a workflow
-        // started on this machine is seeded from. It hangs off the DEFAULT
-        // account's agent rather than the tab, so it shows on both.
-        .trailing(vec![workflow_row]);
+        .leading(vec![path_row]);
         // EXP-981/EXP-1020: claude's subagent model, the row the IDE was
         // missing while web had it.
         if agent_tab.supports_subagent_model() {
@@ -586,21 +466,6 @@ impl Render for AgentsPane {
         if let Some(error) = &self.save_error {
             body = body.child(error_notice(error.clone(), cx));
         }
-        // EXP-1029/1020: the pane is a SUB-SHELL host — "Workflow settings"
-        // slides its page in place of the whole card, back glyph on top.
-        let mut host = crate::sub_shell::SubShellHost::new(body);
-        if self.nav.is_open() {
-            let (model, strong_model) = self.workflow_selects(self.default_agent);
-            let page = crate::device_settings::render_workflow_page(&model, &strong_model, cx);
-            host = host.open(
-                crate::sub_shell::SubShellPage::new("Workflow settings", page),
-                &self.sub_shell_back_focus,
-                cx.listener(|this: &mut Self, _, _window, cx| {
-                    this.nav.back();
-                    cx.notify();
-                }),
-            );
-        }
-        div().w_full().child(host.render(window, cx))
+        div().w_full().child(body)
     }
 }

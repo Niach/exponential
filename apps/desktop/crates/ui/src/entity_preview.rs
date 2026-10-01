@@ -54,7 +54,6 @@ pub(crate) fn concept_icon(concept: &str) -> Option<ExpIcon> {
         "coding-running" => registry::CODING_RUNNING,
         "settings-labels" => registry::SETTINGS_LABELS,
         "settings-statuses" => registry::SETTINGS_STATUSES,
-        "nav-workflows" => registry::NAV_WORKFLOWS,
         "ui-device" => registry::UI_DEVICE,
         "ui-avatar-placeholder" => registry::UI_AVATAR_PLACEHOLDER,
         "ui-repository" => registry::UI_REPOSITORY,
@@ -130,7 +129,6 @@ pub(crate) fn row_facts(kind: &str, id: &str, cx: &App) -> EntityRowFacts {
         "session" => synced(collections.coding_sessions.read(cx).get(id).is_some()),
         "label" => synced(collections.labels.read(cx).get(id).is_some()),
         "status" => synced(collections.issue_statuses.read(cx).get(id).is_some()),
-        "workflow" => synced(collections.workflows.read(cx).get(id).is_some()),
         "device" => synced(find_device(id, cx).is_some()),
         "member" => synced(collections.users.read(cx).get(id).is_some()),
         "team" => synced(collections.teams.read(cx).get(id).is_some()),
@@ -160,7 +158,7 @@ pub(crate) enum EntityTarget {
 
 /// The click-target rule, pure over [`EntityRowFacts`]:
 ///
-/// * a synced row opens its detail (issue, board, run, workflow), its page
+/// * a synced row opens its detail (issue, board, run), its page
 ///   (action), the Devices page, Settings (label, status,
 ///   member, invite, team) or the Inbox (notification);
 /// * a comment / an attachment opens the ISSUE it belongs to;
@@ -185,7 +183,6 @@ pub(crate) fn target_for(kind: &str, id: &str, facts: &EntityRowFacts) -> Option
         "board" => EntityTarget::Screen(Screen::BoardIssues { board_id: id.to_string() }),
         "session" => EntityTarget::Session(id.to_string()),
         "action" => EntityTarget::Action(id.to_string()),
-        "workflow" => EntityTarget::Screen(Screen::Workflow { workflow_id: id.to_string() }),
         "device" => EntityTarget::Screen(Screen::Devices),
         "label" | "status" | "member" | "invite" | "team" => EntityTarget::Screen(Screen::Settings),
         "notification" => {
@@ -300,7 +297,6 @@ pub(crate) fn card(r#ref: &EntityRef, members: &[EntityRef], cx: &mut App) -> Op
         "session" => session_card(&r#ref.id, cx),
         "label" => label_card(&r#ref.id, cx),
         "status" => status_card(&r#ref.id, cx),
-        "workflow" => workflow_card(&r#ref.id, cx),
         "device" => device_card(&r#ref.id, cx),
         "member" => member_card(&r#ref.id, cx),
         "team" => team_card(&r#ref.id, cx),
@@ -632,47 +628,6 @@ fn status_card(status_id: &str, cx: &mut App) -> Option<AnyElement> {
     )
 }
 
-fn workflow_card(workflow_id: &str, cx: &mut App) -> Option<AnyElement> {
-    let collections = sync::Store::try_global(cx)?.collections().clone();
-    let workflow = collections.workflows.read(cx).get(workflow_id).cloned()?;
-    let nodes = collections
-        .workflow_nodes
-        .read(cx)
-        .iter()
-        .filter(|node| node.workflow_id.as_deref() == Some(workflow.id.as_str()))
-        .count();
-    let name = workflow
-        .name
-        .clone()
-        .map(|name| name.trim().to_string())
-        .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| "Workflow".to_string());
-    let status = workflow
-        .status
-        .as_deref()
-        .map(capitalized)
-        .unwrap_or_default();
-    let mut facts: Vec<String> = Vec::new();
-    if !status.is_empty() {
-        facts.push(status);
-    }
-    facts.push(match nodes {
-        1 => "1 node".to_string(),
-        n => format!("{n} nodes"),
-    });
-    Some(
-        card_frame(cx)
-            .child(header(
-                Icon::new(registry::NAV_WORKFLOWS)
-                    .small()
-                    .text_color(cx.theme().muted_foreground),
-                name,
-            ))
-            .child(muted_line(facts.join(" · "), cx))
-            .into_any_element(),
-    )
-}
-
 fn device_card(device_id: &str, cx: &mut App) -> Option<AnyElement> {
     let device = find_device(device_id, cx)?;
     let now_ms = now_epoch() * 1_000;
@@ -937,10 +892,8 @@ mod tests {
         // SLOP-2: the `automation` kind is gone from the contract — a ref
         // an OLD publisher still sends is an unknown kind, inert.
         assert_eq!(target_for("automation", "au-1", &synced()), None);
-        assert_eq!(
-            target_for("workflow", "w-1", &synced()),
-            Some(EntityTarget::Screen(Screen::Workflow { workflow_id: "w-1".into() }))
-        );
+        // SLOP-3: so is `workflow` — an old ref renders as plain text.
+        assert_eq!(target_for("workflow", "w-1", &synced()), None);
         assert_eq!(target_for("device", "d-1", &synced()), Some(EntityTarget::Screen(Screen::Devices)));
         for kind in ["label", "status", "member", "invite", "team"] {
             assert_eq!(

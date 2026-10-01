@@ -75,12 +75,11 @@ pub(crate) fn merge_when_live(merge: Option<MergeTarget>, over: bool) -> Option<
     merge.filter(|_| !over)
 }
 
-/// What the session's Merge pill acts on. An ISSUE target (EXP-498) is the
-/// representative synced issue with an open PR — `issues.mergePr` on it fans
-/// out to every issue sharing the prUrl, so any batch sibling merges the whole
-/// PR. A SESSION target (EXP-734) is a run whose PR links NO issue at all (an
-/// action or chat run's chore PR) — it lives on the `coding_sessions` row and
-/// merges through `codingSessions.mergePr`.
+/// What the session's Merge pill acts on. An ISSUE target (EXP-498) is a
+/// single-issue run's own issue with an open PR (`issues.mergePr`). A SESSION
+/// target (EXP-734) is an issue-less run — a batch, chat or action run — whose
+/// PR lives on its own `coding_sessions` row (every run that opened a PR
+/// carries it there) and merges through `codingSessions.mergePr`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum MergeTarget {
     Issue { issue_id: String },
@@ -101,9 +100,6 @@ impl MergeTarget {
         match self {
             MergeTarget::Issue { issue_id } => crate::pr_merge::MergeOp::MergeIssuePr {
                 issue_id: issue_id.clone(),
-                // The Changes bar merges THIS pull request; a whole stack is
-                // merged from its bottom row in Reviews (EXP-897).
-                merge_stack: false,
             },
             MergeTarget::Session { session_id } => crate::pr_merge::MergeOp::MergeSessionPr {
                 session_id: session_id.clone(),
@@ -129,36 +125,22 @@ impl MergeTarget {
 /// EXP-734), pure so every arm can be tested against it:
 ///
 /// 1. an ISSUE-linked run merges its OWN issue, when that issue's PR is open;
-/// 2. otherwise a BATCH run resolves the representative open-PR issue through
-///    the head branch `pr_open` stamped on it (every batch sibling shares the
-///    one prUrl, so any of them merges the whole PR);
-/// 3. otherwise (EXP-734) an ACTION or CHAT run merges its OWN chore PR off
-///    the `coding_sessions` row — no issue links it, so nothing else can.
+/// 2. otherwise an issue-less run (batch, chat, action) merges its OWN PR off
+///    the `coding_sessions` row — the run owns the PR it opened.
 ///
 /// `row` is the synced session row (absent while a just-started run has not
-/// synced yet — then only the issue/branch rules can fire).
+/// synced yet — then only the issue rule can fire).
 pub(crate) fn merge_target_for_run<'a>(
     issue_id: Option<&str>,
-    branch: &str,
     row: Option<&domain::rows::CodingSession>,
-    issues: impl Iterator<Item = &'a domain::rows::Issue>,
+    mut issues: impl Iterator<Item = &'a domain::rows::Issue>,
 ) -> Option<MergeTarget> {
-    let issues: Vec<&domain::rows::Issue> = issues.collect();
     if let Some(issue_id) = issue_id {
-        if let Some(issue) = issues
-            .iter()
-            .copied()
-            .find(|issue| issue.id == issue_id && issue_has_open_pr(issue))
-        {
+        if issues.any(|issue| issue.id == issue_id && issue_has_open_pr(issue)) {
             return Some(MergeTarget::Issue {
-                issue_id: issue.id.clone(),
+                issue_id: issue_id.to_string(),
             });
         }
-    }
-    if let Some(issue) = open_pr_issue_on_branch(branch, issues.into_iter()) {
-        return Some(MergeTarget::Issue {
-            issue_id: issue.id.clone(),
-        });
     }
     let row = row?;
     row.has_open_pr().then(|| MergeTarget::Session {
@@ -169,8 +151,8 @@ pub(crate) fn merge_target_for_run<'a>(
 /// [`merge_target_for_run`] for a run with no local session to consult: the
 /// merge target of a synced `coding_sessions` row. Same rules every client
 /// applies (iOS `AgentSessionModel.mergeTarget`, web `use-agents-data`) —
-/// including EXP-734's third one, which is why an ACTION or CHAT run is not
-/// turned away here: its own chore PR is right on the row.
+/// including EXP-734's, which is why an issue-less run is not turned away
+/// here: its own PR is right on the row.
 pub(crate) fn merge_meta_for_session(
     session: &domain::rows::CodingSession,
     cx: &App,
@@ -179,7 +161,6 @@ pub(crate) fn merge_meta_for_session(
     let issues = store.collections().issues.read(cx);
     merge_target_for_run(
         session.issue_id.as_deref(),
-        session.branch.as_deref().unwrap_or_default(),
         Some(session),
         issues.iter(),
     )
@@ -187,28 +168,6 @@ pub(crate) fn merge_meta_for_session(
 
 pub(crate) fn issue_has_open_pr(issue: &domain::rows::Issue) -> bool {
     issue.pr_state.as_deref() == Some("open")
-}
-
-/// The synced open-PR issue on `branch` that REPRESENTS its pull request — a
-/// batch run's merge target. Pure (unit-tested); an empty branch never matches
-/// (trunk/scratch runs record no branch).
-///
-/// EXP-917: the pick is [`crate::queries::representative_order`], the Reviews
-/// row's rule, NOT "the first one the collection happens to yield". The
-/// issues collection is a `HashMap`, so the old `.next()` returned an
-/// arbitrary sibling: the run header then keyed the conflict swap on a
-/// different issue than Reviews merged through, and a real conflict fell back
-/// to the plain Merge pill.
-pub(crate) fn open_pr_issue_on_branch<'a>(
-    branch: &str,
-    issues: impl Iterator<Item = &'a domain::rows::Issue>,
-) -> Option<&'a domain::rows::Issue> {
-    if branch.is_empty() {
-        return None;
-    }
-    issues
-        .filter(|issue| issue.branch.as_deref() == Some(branch) && issue_has_open_pr(issue))
-        .min_by(|a, b| crate::queries::representative_order(a, b))
 }
 
 #[cfg(test)]
@@ -232,104 +191,8 @@ mod tests {
         assert_eq!(merge_when_live(None, false), None);
     }
 
-    /// EXP-498: the batch run's merge target — any synced OPEN-PR issue on
-    /// the session's branch; nothing else qualifies.
-    #[test]
-    fn open_pr_issue_on_branch_picks_only_open_prs_on_the_branch() {
-        let issue =
-            |id: &str, branch: Option<&str>, pr_state: Option<&str>| -> domain::rows::Issue {
-                serde_json::from_value(serde_json::json!({
-                    "id": id, "board_id": "b-1", "number": 1,
-                    "identifier": "EXP-1", "title": "t", "status": "in_review",
-                    "branch": branch, "pr_state": pr_state,
-                }))
-                .unwrap()
-            };
-        let open = issue("i-open", Some("exp/batch-a1b2c3d4"), Some("open"));
-        let merged = issue("i-merged", Some("exp/batch-a1b2c3d4"), Some("merged"));
-        let other = issue("i-other", Some("exp/EXP-9"), Some("open"));
-        let branchless = issue("i-none", None, Some("open"));
-
-        let found = open_pr_issue_on_branch(
-            "exp/batch-a1b2c3d4",
-            [&merged, &other, &open, &branchless].into_iter(),
-        );
-        assert_eq!(found.map(|issue| issue.id.as_str()), Some("i-open"));
-        assert!(open_pr_issue_on_branch(
-            "exp/batch-a1b2c3d4",
-            [&merged, &other, &branchless].into_iter()
-        )
-        .is_none());
-        // Trunk/scratch sessions record no branch — never a merge target.
-        assert!(open_pr_issue_on_branch("", [&open].into_iter()).is_none());
-    }
-
-    /// EXP-917: a BATCH pull request has one representative, and both paths
-    /// to it agree. The run header resolves it through the branch
-    /// ([`open_pr_issue_on_branch`]) while Reviews merges through
-    /// `ReviewEntry::representative` (`issues[0]` after
-    /// [`crate::queries::sort_pr_issues`]) — and the conflict swap keys
-    /// `MergeState` on that id, so a disagreement hid the swap. The issues
-    /// collection is a `HashMap`, so the branch lookup is fed here in every
-    /// order.
-    #[test]
-    fn a_batch_pr_resolves_the_same_representative_on_both_paths() {
-        let issue = |id: &str, created_at: &str| -> domain::rows::Issue {
-            serde_json::from_value(serde_json::json!({
-                "id": id, "board_id": "b-1", "number": 1,
-                "identifier": "EXP-1", "title": "t", "status": "in_review",
-                "branch": "exp/batch-a1b2c3d4", "pr_state": "open",
-                "pr_url": "https://github.com/o/r/pull/7",
-                "created_at": created_at,
-            }))
-            .unwrap()
-        };
-        let older = issue("i-older", "2026-09-01T10:00:00Z");
-        let newest = issue("i-newest", "2026-09-03T10:00:00Z");
-        let middle = issue("i-middle", "2026-09-02T10:00:00Z");
-
-        // The Reviews side: the entry's `issues[0]`.
-        let mut sorted = vec![older.clone(), newest.clone(), middle.clone()];
-        crate::queries::sort_pr_issues(&mut sorted);
-        assert_eq!(sorted[0].id, "i-newest");
-
-        // The run-header side: every iteration order the HashMap can yield.
-        let rows = [&older, &newest, &middle];
-        for a in 0..3 {
-            for b in 0..3 {
-                for c in 0..3 {
-                    if a == b || b == c || a == c {
-                        continue;
-                    }
-                    let found = open_pr_issue_on_branch(
-                        "exp/batch-a1b2c3d4",
-                        [rows[a], rows[b], rows[c]].into_iter(),
-                    );
-                    assert_eq!(
-                        found.map(|issue| issue.id.as_str()),
-                        Some(sorted[0].id.as_str()),
-                        "both paths merge through the same batch sibling"
-                    );
-                }
-            }
-        }
-
-        // Issues created in the same instant fall back to the id — still ONE
-        // answer, never the collection's order.
-        let tie_a = issue("i-b", "2026-09-04T10:00:00Z");
-        let tie_b = issue("i-a", "2026-09-04T10:00:00Z");
-        let mut tied = vec![tie_a.clone(), tie_b.clone()];
-        crate::queries::sort_pr_issues(&mut tied);
-        assert_eq!(tied[0].id, "i-a");
-        assert_eq!(
-            open_pr_issue_on_branch("exp/batch-a1b2c3d4", [&tie_a, &tie_b].into_iter())
-                .map(|issue| issue.id.as_str()),
-            Some("i-a")
-        );
-    }
-
-    /// EXP-734: the ONE merge-target rule. An action/chat run carries its own
-    /// chore PR on the SESSION row (no issue links it); an issue run still
+    /// EXP-734: the ONE merge-target rule. An issue-less run (batch, chat,
+    /// action) carries its own PR on the SESSION row; an issue run still
     /// prefers its own issue; a run whose PR already merged offers nothing.
     #[test]
     fn merge_target_for_run_falls_back_to_the_runs_own_pr() {
@@ -356,12 +219,7 @@ mod tests {
         // Action/chat run with an OPEN chore PR → the session itself.
         let open_row = row(Some("open"));
         assert_eq!(
-            merge_target_for_run(
-                None,
-                "exp/chat-a1b2c3d4",
-                Some(&open_row),
-                std::iter::empty()
-            ),
+            merge_target_for_run(None, Some(&open_row), std::iter::empty()),
             Some(MergeTarget::Session {
                 session_id: "cs-1".to_string()
             })
@@ -378,45 +236,34 @@ mod tests {
 
         // An ISSUE run prefers its own issue even with a row in hand.
         assert_eq!(
-            merge_target_for_run(
-                Some("i-1"),
-                "exp/EXP-1",
-                Some(&open_row),
-                [&linked].into_iter()
-            ),
+            merge_target_for_run(Some("i-1"), Some(&open_row), [&linked].into_iter()),
             Some(MergeTarget::Issue {
                 issue_id: "i-1".to_string()
             })
         );
 
-        // A BATCH run still resolves through its branch (no issue, no row PR).
+        // A BATCH run merges its own row's PR — never an issue sniffed off
+        // its branch, even when one carries the same branch.
         let batch_issue = issue("i-2", Some("exp/batch-a1b2c3d4"), Some("open"));
-        let plain_row = row(None);
         assert_eq!(
-            merge_target_for_run(
-                None,
-                "exp/batch-a1b2c3d4",
-                Some(&plain_row),
-                [&batch_issue].into_iter()
-            ),
-            Some(MergeTarget::Issue {
-                issue_id: "i-2".to_string()
+            merge_target_for_run(None, Some(&open_row), [&batch_issue].into_iter()),
+            Some(MergeTarget::Session {
+                session_id: "cs-1".to_string()
             })
+        );
+        assert_eq!(
+            merge_target_for_run(None, Some(&row(None)), [&batch_issue].into_iter()),
+            None
         );
 
         // A merged (or absent) run PR is not a merge target.
         let merged_row = row(Some("merged"));
         assert_eq!(
-            merge_target_for_run(
-                None,
-                "exp/chat-a1b2c3d4",
-                Some(&merged_row),
-                std::iter::empty()
-            ),
+            merge_target_for_run(None, Some(&merged_row), std::iter::empty()),
             None
         );
         assert_eq!(
-            merge_target_for_run(None, "exp/chat-a1b2c3d4", None, std::iter::empty()),
+            merge_target_for_run(None, None, std::iter::empty()),
             None
         );
     }

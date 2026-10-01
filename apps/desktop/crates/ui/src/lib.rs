@@ -120,7 +120,6 @@ mod picker;
 mod pins;
 mod pr_description_dialog;
 mod pr_diff;
-mod pr_graph;
 mod pr_merge;
 mod queries;
 mod repo_resolver;
@@ -153,12 +152,8 @@ mod transcript_rows;
 // EXP-965: the nested lists' connector lines.
 mod tree_guides;
 mod workflow_card;
-mod workflow_events;
-mod workflow_host;
 // EXP-1005: the account-rotation wall beat.
 mod account_rotation_host;
-mod workflow_view;
-mod workflows_view;
 pub mod steer_wiring;
 // EXP-1029: sub-shell navigation for the settings shell (EXP-1020).
 mod sub_shell;

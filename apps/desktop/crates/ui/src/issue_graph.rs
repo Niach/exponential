@@ -12,10 +12,7 @@
 //! graph as a list grouped by wave.
 //!
 //! EXP-981 generalised the pixel half into [`grid_view`]: a NODE-KEYED grid
-//! over `(wave, lane)` positions with a caller-supplied box renderer. The
-//! workflow detail feeds it the server-laid-out `workflow_nodes` (whose
-//! `wave`/`lane` come off the wire rather than from `block_graph`), so both
-//! surfaces draw the same picture with the same edges and the same red.
+//! over `(wave, lane)` positions with a caller-supplied box renderer.
 //!
 //! EXP-1057: the boxes' pixels are [`domain::issue_graph::geometry`] — the ONE
 //! look locked ×4 by `fixtures/issue-graph-geometry.json` (176×28 boxes, a
@@ -35,10 +32,9 @@ use gpui::{
 use gpui_component::{h_flex, v_flex, ActiveTheme as _};
 
 use domain::issue_graph::{
-    block_graph, geometry, open_blockers_of_set, BlockCounts, GraphIssue, GraphRelation,
-    IssueGraph, ISSUE_GRAPH_CYCLE_NOTE, ISSUE_GRAPH_TRUNCATED_NOTE,
+    block_graph, geometry, open_blockers_of_set, GraphIssue, GraphRelation,
+    IssueGraph, WorkflowEdgeStyle, ISSUE_GRAPH_CYCLE_NOTE, ISSUE_GRAPH_TRUNCATED_NOTE,
 };
-use domain::workflow_view::WorkflowEdgeStyle;
 
 use crate::issue_chip::issue_chip;
 
@@ -106,7 +102,7 @@ impl GridGeometry {
 }
 
 /// EXP-981 — one placed box of the shared grid, keyed by whatever the host
-/// calls its nodes (an ISSUE id here, a `workflow_nodes` row id there).
+/// calls its nodes (an ISSUE id here).
 pub(crate) struct GridNode {
     pub(crate) key: String,
     /// The row (the rule's `wave`; top = the first blockers).
@@ -120,8 +116,8 @@ pub(crate) struct GridEdge {
     pub(crate) from: String,
     pub(crate) to: String,
     /// EXP-983: what the line SAYS — the ONE rule every client paints by
-    /// ([`domain::workflow_view::workflow_edge_style`]). The blocks
-    /// mini-graph only ever uses `Plain` and `Cycle`.
+    /// ([`domain::issue_graph::WorkflowEdgeStyle`]). The blocks mini-graph
+    /// only ever uses `Plain` and `Cycle`.
     pub(crate) style: WorkflowEdgeStyle,
 }
 
@@ -388,37 +384,6 @@ pub(crate) fn graph_for(subject_ids: &[&str], cx: &App) -> IssueGraph {
         })
         .collect();
     block_graph(subject_ids, &graph_relations, &graph_issues)
-}
-
-/// EXP-981 — one issue's badge numbers, for the bulk bar's "Start as stack"
-/// gate (an issue with nothing blocking it has no stack to cut into).
-pub(crate) fn block_counts_for(issue_id: &str, cx: &App) -> BlockCounts {
-    let Some(store) = sync::Store::try_global(cx) else {
-        return BlockCounts::default();
-    };
-    let collections = store.collections();
-    let issues = collections.issues.read(cx);
-    let relations = collections.issue_relations.read(cx);
-    let graph_issues: Vec<GraphIssue<'_>> = issues
-        .iter()
-        .map(|issue| GraphIssue {
-            id: &issue.id,
-            identifier: &issue.identifier,
-            status: issue.status.as_wire().unwrap_or_default(),
-        })
-        .collect();
-    let graph_relations: Vec<GraphRelation<'_>> = relations
-        .iter()
-        .map(|row| GraphRelation {
-            kind: row.kind.as_deref().unwrap_or_default(),
-            issue_id: &row.issue_id,
-            related_issue_id: &row.related_issue_id,
-        })
-        .collect();
-    domain::issue_graph::block_counts(&graph_relations, &graph_issues)
-        .get(issue_id)
-        .copied()
-        .unwrap_or_default()
 }
 
 /// EXP-980 — the OPEN issues that block any of `picked` from OUTSIDE the set,
