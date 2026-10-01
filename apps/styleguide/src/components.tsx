@@ -3956,7 +3956,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `account-picker`,
     title: `Account picker`,
     kind: `Inputs & pickers`,
-    blurb: `EXP-872: ONE account picker per platform, replacing the agent picker + the account picker on every launch surface (the composer's options line, the device settings' "Default account" row, the workflow runner). The list is every signed-in login the machine reports across both agents, flattened (\`flattenAccounts\`): the row and the chip read as the agent's brand mark + the login's EMAIL — never a profile name, never the word "default"; the device default is simply first, and a dead credential rides a muted hint. Picking a login implies its agent. One login collapses the inline word to plain text. EXP-992: on a pointer platform hovering a row shows a very small preview right of it — three 4px bars labelled 5h / week / <model> off the login's limits; on touch the same bars sit inline under the email in the sheet row. The menu is a portal, so the specimen is the closed trigger at both variants beside the bars block.`,
+    blurb: `EXP-872: ONE account picker per platform, replacing the agent picker + the account picker on every launch surface (the composer's options line, the automation editor's Account row, the workflow runner). The list is every signed-in login the machine reports across both agents, flattened (\`flattenAccounts\`): the row and the chip read as the agent's brand mark + the login's EMAIL — never a profile name, never the word "default"; the last used login is simply first, and a dead credential rides a muted hint. Picking a login implies its agent. One login collapses the inline word to plain text. EXP-992: on a pointer platform hovering a row shows a very small preview right of it — three 4px bars labelled 5h / week / <model> off the login's limits; on touch the same bars sit inline under the email in the sheet row. The menu is a portal, so the specimen is the closed trigger at both variants beside the bars block.`,
     status: {
       web: ok(
         `AccountPicker / AccountLimitBars`,
@@ -3999,7 +3999,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         <GlassGroup>
           <AccountPicker
             variant="row"
-            mobileTitle="Default account"
+            mobileTitle="Account"
             value="claude:work"
             onChange={noop}
             options={[

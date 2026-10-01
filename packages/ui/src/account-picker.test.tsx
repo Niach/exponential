@@ -115,14 +115,14 @@ describe(`AccountPicker`, () => {
     render(
       <AccountPicker
         variant="row"
-        mobileTitle="Default account"
+        mobileTitle="Account"
         value="codex:main"
         options={options}
         onChange={vi.fn()}
       />
     )
     const row = screen.getByRole(`button`)
-    expect(row.textContent).toContain(`Default account`)
+    expect(row.textContent).toContain(`Account`)
     expect(row.textContent).toContain(`codex@x.test`)
   })
 })

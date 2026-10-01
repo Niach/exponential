@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   accountOptionKey,
-  defaultAccountOption,
+  lastUsedAccountOption,
   flattenAccounts,
   parseAccountOptionKey,
   type AccountSource,
@@ -14,7 +14,7 @@ import {
 
 /** The fixture ×4: two claude logins (work = active, home = a dead
  * credential), one codex login, and a `system` codex profile that is signed
- * out. The default agent is codex. */
+ * out. The last used agent is codex. */
 export const ACCOUNT_FIXTURE: AccountSource = {
   launchDefaults: { defaultAgent: `codex` },
   agentAccounts: {
@@ -97,38 +97,20 @@ describe(`flattenAccounts (EXP-872)`, () => {
     }
   })
 
-  it(`puts the device default first and marks exactly one option`, () => {
+  it(`puts the last used login first and marks exactly one option`, () => {
     // launchDefaults.defaultAgent = 'codex' with an active codex login →
-    // that login is options[0] and the only isDeviceDefault: true.
+    // that login is options[0] and the only isLastUsed: true.
     const options = flattenAccounts(ACCOUNT_FIXTURE)
-    expect(options[0]).toMatchObject({ agent: `codex`, id: `main`, isDeviceDefault: true })
-    expect(options.filter((option) => option.isDeviceDefault)).toHaveLength(1)
-    expect(defaultAccountOption(options)).toBe(options[0])
+    expect(options[0]).toMatchObject({ agent: `codex`, id: `main`, isLastUsed: true })
+    expect(options.filter((option) => option.isLastUsed)).toHaveLength(1)
+    expect(lastUsedAccountOption(options)).toBe(options[0])
   })
 
-  it(`prefers the stored default account of the default agent`, () => {
-    // EXP-872: "default agent" became "default account" — the device stores
-    // the profile id, and it wins over the agent's ACTIVE login.
-    const options = flattenAccounts({
-      ...ACCOUNT_FIXTURE,
-      launchDefaults: { defaultAgent: `claude`, defaultAccount: `home` },
-    })
-    expect(options[0]).toMatchObject({ agent: `claude`, id: `home`, isDeviceDefault: true })
-    expect(options.filter((option) => option.isDeviceDefault)).toHaveLength(1)
-    // A stored profile the device no longer reports falls back to the
-    // active login.
-    const gone = flattenAccounts({
-      ...ACCOUNT_FIXTURE,
-      launchDefaults: { defaultAgent: `claude`, defaultAccount: `retired` },
-    })
-    expect(gone[0]).toMatchObject({ agent: `claude`, id: `work` })
-  })
-
-  it(`falls back to the first contract agent's active login when no default agent is set`, () => {
+  it(`falls back to the first contract agent's active login when no last used agent is set`, () => {
     const options = flattenAccounts({ ...ACCOUNT_FIXTURE, launchDefaults: null })
-    expect(options[0]).toMatchObject({ agent: `claude`, id: `work`, isDeviceDefault: true })
-    expect(options.filter((option) => option.isDeviceDefault)).toHaveLength(1)
-    // A default agent with no active login falls back the same way.
+    expect(options[0]).toMatchObject({ agent: `claude`, id: `work`, isLastUsed: true })
+    expect(options.filter((option) => option.isLastUsed)).toHaveLength(1)
+    // A last used agent with no active login falls back the same way.
     const stale = flattenAccounts({
       ...ACCOUNT_FIXTURE,
       launchDefaults: { defaultAgent: `pi` },
@@ -197,7 +179,7 @@ describe(`flattenAccounts (EXP-872)`, () => {
         id: `system`,
         agent: `claude`,
         email: `solo@x.test`,
-        isDeviceDefault: true,
+        isLastUsed: true,
         health: `ok`,
         limits: { fiveHour: 0.2, week: 0 },
       },
@@ -209,6 +191,6 @@ describe(`flattenAccounts (EXP-872)`, () => {
     expect(options.some((option) => option.id === `system`)).toBe(false)
     expect(options.some((option) => (option.agent as string) === `pi`)).toBe(false)
     expect(flattenAccounts({})).toEqual([])
-    expect(defaultAccountOption([])).toBeUndefined()
+    expect(lastUsedAccountOption([])).toBeUndefined()
   })
 })

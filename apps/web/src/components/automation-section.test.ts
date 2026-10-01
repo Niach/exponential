@@ -12,10 +12,10 @@ import type { SteerDevice } from "@/lib/steer-devices"
 
 // EXP-995: the automation editor's ACCOUNT pin — the pure half of the web
 // dialog (`seedAccountPin` / `pickedAccountOption`), which the desktop, iOS
-// and Android editors mirror rule for rule: a bound machine seeds its DEFAULT
-// account (which names the agent), a stored profile the machine no longer
-// reports reads back as that agent's first login, and the ambient `system`
-// login stores as a blank (NULL on the row).
+// and Android editors mirror rule for rule: a bound machine seeds its LAST
+// USED login (which names the agent), a stored profile the machine no longer
+// reports reads back as that agent's first login, and every pick stores its
+// profile id verbatim, the ambient `system` login included (EXP-1158).
 
 const device: SteerDevice = {
   deviceId: `dev-1`,
@@ -27,12 +27,12 @@ const device: SteerDevice = {
 }
 
 describe(`automation account pin (EXP-995)`, () => {
-  it(`keys the pin like every account picker, the ambient login as system`, () => {
+  it(`keys the pin like every account picker`, () => {
     expect(automationAccountKey({ agent: `claude`, account: `work` })).toBe(`claude:work`)
-    expect(automationAccountKey({ agent: `codex`, account: `` })).toBe(`codex:system`)
+    expect(automationAccountKey({ agent: `codex`, account: `system` })).toBe(`codex:system`)
   })
 
-  it(`stores a picked option as its agent + profile, system as a blank`, () => {
+  it(`stores a picked option as its agent + profile, system included`, () => {
     const options = flattenAccounts(ACCOUNT_FIXTURE)
     expect(accountPinOf(options[0]!)).toEqual({ agent: `codex`, account: `main` })
     expect(
@@ -40,14 +40,14 @@ describe(`automation account pin (EXP-995)`, () => {
         id: `system`,
         agent: `claude`,
         email: `Claude Code`,
-        isDeviceDefault: false,
+        isLastUsed: false,
         health: `unknown`,
       })
-    ).toEqual({ agent: `claude`, account: `` })
+    ).toEqual({ agent: `claude`, account: `system` })
   })
 
-  it(`seeds a bound machine's default account and leaves a reported pin alone`, () => {
-    // Nothing pinned yet: the machine's default login, which names the agent.
+  it(`seeds a bound machine's last used login and leaves a reported pin alone`, () => {
+    // Nothing pinned yet: the machine's last used login, which names the agent.
     expect(seedAccountPin(device, { agent: ``, account: `` })).toEqual({
       agent: `codex`,
       account: `main`,
@@ -64,8 +64,7 @@ describe(`automation account pin (EXP-995)`, () => {
   // row never shows a fallback it would not save.
   it(`re-seeds a pin the machine does not report to that agent's login there`, () => {
     // Same agent, a profile this machine never had (another machine's id, or
-    // a deleted one): that agent's first login here, the device default when
-    // that is the agent.
+    // a deleted one): that agent's first login here, its last used one.
     expect(seedAccountPin(device, { agent: `claude`, account: `gone` })).toEqual({
       agent: `claude`,
       account: `work`,
@@ -74,12 +73,13 @@ describe(`automation account pin (EXP-995)`, () => {
       agent: `codex`,
       account: `main`,
     })
-    // The ambient login of an agent this machine runs through PROFILES.
+    // An unpinned row (stored NULL): that agent's last used login, so the
+    // Account row shows what Save stores.
     expect(seedAccountPin(device, { agent: `codex`, account: `` })).toEqual({
       agent: `codex`,
       account: `main`,
     })
-    // An agent this machine does not run at all: the machine's default.
+    // An agent this machine does not run at all: the machine's last used login.
     const claudeOnly: SteerDevice = {
       ...device,
       deviceId: `dev-2`,
@@ -96,7 +96,7 @@ describe(`automation account pin (EXP-995)`, () => {
     const bare: SteerDevice = { ...claudeOnly, agentAccounts: undefined }
     expect(seedAccountPin(bare, { agent: `claude`, account: `work` })).toEqual({
       agent: `claude`,
-      account: ``,
+      account: `system`,
     })
   })
 

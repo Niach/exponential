@@ -23,7 +23,7 @@ describe(`workflowDefaultsFor`, () => {
   })
 
   it(`drops a stored name from the OTHER agent's vocabulary`, () => {
-    // The device was on claude and its default account moved to codex.
+    // The device was on claude and its last used agent moved to codex.
     expect(workflowDefaultsFor(`codex`, { model: `opus`, strongModel: `fable` })).toEqual({
       model: `gpt-5.6-sol`,
       strongModel: `gpt-5.6-luna`,

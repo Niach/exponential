@@ -18,16 +18,19 @@ import com.exponential.app.data.api.SteerDevice
 //    profile name, never the word "default". A login the device reports
 //    without an address shows its plan; with neither, its profile id (the
 //    machine has nothing better);
-//  - the DEVICE DEFAULT is marked by ORDER (it is first) and by a check, not
-//    by a label: [AccountOption.isDeviceDefault] is true for exactly one
-//    option — the `launchDefaults.defaultAccount` profile of `defaultAgent`
-//    when the device stores one, else the active login of `defaultAgent`,
-//    falling back to the first contract agent's active login. The rest follow
-//    in [AgentAccountsRows.sortDeviceLogins] order;
+//  - the LAST USED login leads, marked by ORDER (it is first) and by a check,
+//    not by a label: [AccountOption.isLastUsed] is true for exactly one
+//    option — `defaultAgent`'s active login, else the first contract agent's
+//    active login, else the first row. The rest follow in
+//    [AgentAccountsRows.sortDeviceLogins] order;
 //  - selecting an option IMPLIES the agent: there is no separate agent pick,
-//    the agent rides the option and the launch takes both from it;
-//  - "default agent" settings become "default account": the setting stores a
-//    profile id, and the agent is derived from it.
+//    the agent rides the option and the launch takes both from it.
+//
+// Last used = per agent, the login a PERSON last started or switched a run
+// on, on that device (`agent_accounts[agent].profiles[].active`); the last
+// used agent = `launch_defaults.defaultAgent`. Automations, workflow nodes,
+// agent-started runs and auto-rotation never move it. A launch naming no
+// account runs on it; `account: "system"` names the ambient login.
 //
 // [AccountOption.limits] are FRACTIONS 0-1 off the usage windows EXP-909
 // settled (`AgentUsageWindow.percent / 100`): `fiveHour` = the `session`
@@ -57,8 +60,8 @@ data class AccountOption(
     val agent: String,
     /** What the row SAYS beside the brand mark; see the header's fallbacks. */
     val email: String,
-    /** Exactly one option per device is the default; it is also listed first. */
-    val isDeviceDefault: Boolean,
+    /** Exactly one option per device is the last used one; it is also listed first. */
+    val isLastUsed: Boolean,
     /**
      * EXP-849: the device's verdict on the credential — a run started on a
      * dead login dies on its first call, so the row badges `needs_relogin`.
@@ -87,7 +90,7 @@ object AccountOptions {
     private const val MODEL_WINDOW_PREFIX = "model:"
 
     /**
-     * The flattened logins of ONE machine's reporting, device default first.
+     * The flattened logins of ONE machine's reporting, last used first.
      * Empty for a machine that reports no signed-in login at all — the caller
      * then decides whether it has a fallback (the composer offers one ambient
      * option per runnable agent) or simply nothing to pick.
@@ -105,28 +108,19 @@ object AccountOptions {
             .filter { it.signedIn }
         if (rows.isEmpty()) return emptyList()
 
-        // The default: the stored default account of the configured default
-        // agent, else that agent's active login, else the first contract
-        // agent's active login, else the first row — never none.
-        val configured = launchDefaults?.defaultAgent
-        val configuredAccount = launchDefaults?.defaultAccount
-        val stored = if (configured != null && configuredAccount != null) {
-            rows.firstOrNull { it.agent == configured && it.profileId == configuredAccount }
-        } else {
-            null
-        }
-        val defaultRow = stored
-            ?: activeOf(rows, configured)
+        // The LAST USED login leads: `defaultAgent`'s active login, else the
+        // first contract agent's active login, else the first row — never none.
+        val lastUsedRow = activeOf(rows, launchDefaults?.defaultAgent)
             ?: DomainContract.codingAgentValues.firstNotNullOfOrNull { activeOf(rows, it) }
             ?: rows.first()
 
-        val ordered = listOf(defaultRow) + rows.filter { it !== defaultRow }
+        val ordered = listOf(lastUsedRow) + rows.filter { it !== lastUsedRow }
         return ordered.map { row ->
             AccountOption(
                 id = row.profileId,
                 agent = row.agent,
                 email = optionEmail(row),
-                isDeviceDefault = row === defaultRow,
+                isLastUsed = row === lastUsedRow,
                 health = row.health,
                 limits = optionLimits(row),
             )
@@ -138,11 +132,11 @@ object AccountOptions {
         flatten(device.agentAccounts, device.agentUsage, device.launchDefaults)
 
     /**
-     * The option a launch surface should START on: the device default, or the
+     * The option a launch surface should START on: the last used login, or the
      * first option. Null for a device that reports no login at all.
      */
-    fun default(options: List<AccountOption>): AccountOption? =
-        options.firstOrNull { it.isDeviceDefault } ?: options.firstOrNull()
+    fun lastUsed(options: List<AccountOption>): AccountOption? =
+        options.firstOrNull { it.isLastUsed } ?: options.firstOrNull()
 
     /** An [AccountOption.key] back into its parts; null on anything else. */
     fun parseKey(key: String): AccountOptionKey? {

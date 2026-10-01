@@ -287,7 +287,7 @@ describe(`LaunchComposer`, () => {
         ...fakeLaunch(),
         accountKey: `claude:system`,
         accountOptions: [
-          { id: `system`, agent: `claude`, email: `me@example.com`, isDeviceDefault: true, health: `ok` },
+          { id: `system`, agent: `claude`, email: `me@example.com`, isLastUsed: true, health: `ok` },
         ],
       },
     })
@@ -306,8 +306,8 @@ describe(`LaunchComposer`, () => {
         setAccountKey,
         accountKey: `claude:p1`,
         accountOptions: [
-          { id: `p1`, agent: `claude`, email: `work@example.com`, isDeviceDefault: true, health: `ok` },
-          { id: `only`, agent: `codex`, email: `codex@example.com`, isDeviceDefault: false, health: `needs_relogin` },
+          { id: `p1`, agent: `claude`, email: `work@example.com`, isLastUsed: true, health: `ok` },
+          { id: `only`, agent: `codex`, email: `codex@example.com`, isLastUsed: false, health: `needs_relogin` },
         ],
       },
     })

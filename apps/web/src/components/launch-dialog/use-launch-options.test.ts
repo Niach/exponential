@@ -66,8 +66,9 @@ describe(`useLaunchOptions readiness`, () => {
 })
 
 // EXP-872: ONE account picker — the flattened logins of the settled device
-// (both agents, email-labelled, the device default first); a pick implies
-// the agent, and only a NAMED, non-system profile rides out as `account`.
+// (both agents, email-labelled, the last used one first); a pick implies
+// the agent. EXP-1158: the picked option's id rides out as `account`
+// VERBATIM, `system` included (it names the ambient login).
 describe(`useLaunchOptions account`, () => {
   const profiled: SteerDevice = {
     ...device,
@@ -90,7 +91,7 @@ describe(`useLaunchOptions account`, () => {
     },
   }
 
-  it(`lists every login default-first, by email, and seeds the default`, () => {
+  it(`lists every login last-used-first, by email, and seeds the last used one`, () => {
     const { result } = renderHook(() =>
       useLaunchOptions({ open: true, devices: [profiled] })
     )
@@ -106,8 +107,9 @@ describe(`useLaunchOptions account`, () => {
     ])
     expect(result.current.accountKey).toBe(`claude:system`)
     expect(result.current.agent).toBe(`claude`)
-    // The ambient login is the server's default — nothing rides out.
-    expect(result.current.buildOptions().account).toBeUndefined()
+    // The ambient login rides out by NAME: an absent account would mean
+    // "the last used one", which may differ by the time the device starts.
+    expect(result.current.buildOptions().account).toBe(`system`)
   })
 
   it(`a pick implies the agent and emits a named profile`, () => {
@@ -133,15 +135,15 @@ describe(`useLaunchOptions account`, () => {
         id: `system`,
         agent: `claude`,
         email: `Claude Code`,
-        isDeviceDefault: true,
+        isLastUsed: true,
         health: `unknown`,
       },
     ])
     expect(result.current.accountKey).toBe(`claude:system`)
-    expect(result.current.buildOptions().account).toBeUndefined()
+    expect(result.current.buildOptions().account).toBe(`system`)
   })
 
-  it(`re-seeds to the default login when the pick vanishes with a device switch`, () => {
+  it(`re-seeds to the last used login when the pick vanishes with a device switch`, () => {
     const other: SteerDevice = {
       ...profiled,
       deviceId: `dev-2`,

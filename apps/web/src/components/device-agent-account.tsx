@@ -12,8 +12,6 @@
 // its entries in this fixed order:
 //
 //   - "Sign in": signed out, or a credential that expired here.
-//   - "Set as default": healthy and NOT the machine's current login
-//     (`agent_profile_use` — no login flow, no logout, no credential copied).
 //   - "Sign out" (EXP-1137): signed in, on a build with the sign-out body
 //     (`agent_profile_sign_out`: claude's own `auth logout` inside that
 //     profile's config dir, codex's credential file deleted — never `codex
@@ -23,6 +21,9 @@
 //     index row); EXP-1137: the machine's own AMBIENT login too, on a build
 //     with the sign-out body — it is signed out there and hidden until it
 //     signs in again.
+//
+// EXP-1158: no entry picks the login the machine starts on — that is the
+// LAST USED one, moved only by a person's start or switch.
 //
 // The account itself is untouched by every entry, which is exactly what each
 // confirm says (`lib/agent-account-remove.ts`).
@@ -78,7 +79,6 @@ import {
 } from "@/lib/agent-account-remove"
 import {
   deviceCanAgentLogin,
-  deviceCanSwitchAccount,
   deviceIsOnline,
   deviceIsMine,
   type SteerDevice,
@@ -88,15 +88,13 @@ import { trpcErrorMessage } from "@/lib/trpc-error"
 
 const SignInIcon = conceptIcon(`ui-sign-in`)
 const SignOutIcon = conceptIcon(`ui-sign-out`)
-const SwapIcon = conceptIcon(`ui-swap`)
 const RemoveIcon = conceptIcon(`ui-delete`)
 const CopyIcon = conceptIcon(`ui-copy`)
 const ExternalLinkIcon = conceptIcon(`ui-external-link`)
 
-/** The chip menu's four entries, byte-identical ×4 (Android
+/** The chip menu's three entries, byte-identical ×4 (Android
  * `AgentAccountsRows.ACTION_*`). */
 export const ACTION_SIGN_IN = `Sign in`
-export const ACTION_SET_DEFAULT = `Set as default`
 export const ACTION_SIGN_OUT = `Sign out`
 export const ACTION_REMOVE = `Remove account`
 
@@ -129,7 +127,7 @@ export interface AccountChipRow {
   email?: string | null
   plan?: string | null
   signedIn: boolean
-  /** The machine's ACTIVE login for that agent. */
+  /** The machine's LAST USED login for that agent (`profiles[].active`). */
   active: boolean
   health: DeviceAgentHealth
 }
@@ -137,16 +135,6 @@ export interface AccountChipRow {
 /** The chip's one repair is a sign-in: it has no working credential here. */
 export function chipSignsIn(row: AccountChipRow): boolean {
   return !row.signedIn || row.health === `needs_relogin`
-}
-
-/** A healthy login this machine is not using becomes its login — one queued
- * `agent_profile_use`, gated on the machine's `account-switch` cap (the
- * server refuses the command without it). */
-export function chipSetsDefault(
-  row: AccountChipRow,
-  canSwitchAccount: boolean
-): boolean {
-  return !chipSignsIn(row) && !row.active && canSwitchAccount
 }
 
 /** The entries this chip's menu shows, in order. EXP-944: a signed-out login
@@ -161,9 +149,6 @@ export function accountChipActions(
 ): string[] {
   const out: string[] = []
   if (chipSignsIn(row)) out.push(ACTION_SIGN_IN)
-  if (chipSetsDefault(row, deviceCanSwitchAccount(device))) {
-    out.push(ACTION_SET_DEFAULT)
-  }
   if (canSignOutAccountOn(device, row)) out.push(ACTION_SIGN_OUT)
   if (canRemoveAccountOn(device, row)) out.push(ACTION_REMOVE)
   return out
@@ -267,7 +252,7 @@ export function AccountChipMenu({
   const loginLabel = accountLabel ?? accountChipLabel(row)
 
   const queue = async (
-    kind: `agent_profile_use` | `agent_profile_remove` | `agent_profile_sign_out`,
+    kind: `agent_profile_remove` | `agent_profile_sign_out`,
     success: string,
     failure: string
   ) => {
@@ -315,21 +300,6 @@ export function AccountChipMenu({
             <DropdownMenuItem onSelect={signIn}>
               <SignInIcon />
               {ACTION_SIGN_IN}
-            </DropdownMenuItem>
-          )}
-          {actions.includes(ACTION_SET_DEFAULT) && (
-            <DropdownMenuItem
-              disabled={busy}
-              onSelect={() =>
-                void queue(
-                  `agent_profile_use`,
-                  `${deviceLabel} will run ${agentLabel(row.agent)} as this account.`,
-                  `Couldn't switch the account on that device`
-                )
-              }
-            >
-              <SwapIcon />
-              {ACTION_SET_DEFAULT}
             </DropdownMenuItem>
           )}
           {actions.includes(ACTION_SIGN_OUT) && (

@@ -33,13 +33,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.AgentLaunchDefaults
 import com.exponential.app.data.api.DeviceLaunchDefaults
 import com.exponential.app.data.api.DeviceWorkflowDefaults
-import com.exponential.app.data.api.SYSTEM_PROFILE_ID
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.deviceUpdateAvailable
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.CLI_DEFAULT_MODEL
-import com.exponential.app.ui.components.AccountPickerPill
 import com.exponential.app.ui.components.DEFAULT_AGENT
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
@@ -56,7 +54,6 @@ import com.exponential.app.ui.components.SheetHeight
 import com.exponential.app.ui.components.SubShell
 import com.exponential.app.ui.components.SubShellHost
 import com.exponential.app.ui.components.SwitchRow
-import com.exponential.app.ui.components.deviceAccountOptions
 import com.exponential.app.ui.components.defaultModelFor
 import com.exponential.app.ui.components.deviceIconName
 import com.exponential.app.ui.components.effortValuesFor
@@ -141,21 +138,16 @@ fun DeviceSettingsSheet(
     // picker hands the previous value back.
     var iconPick by remember(device.rowId) { mutableStateOf<String?>(null) }
     var editableAgents by remember { mutableStateOf(editableAgents(device)) }
-    var defaultAgent by remember { mutableStateOf(seededDefaultAgent(device, editableAgents)) }
-    // EXP-872: "default agent" became "default ACCOUNT" — the row stores a
-    // login's profile id and the agent is derived from it. "" = nothing stored
-    // yet (including the AMBIENT login, which is never a stored id), and the
-    // picker then sits on that agent's ambient option.
-    var defaultAccount by remember {
-        mutableStateOf(device.launchDefaults?.defaultAccount.orEmpty())
-    }
-    var agentTab by remember { mutableStateOf(defaultAgent) }
+    // EXP-1158: the machine's LAST USED agent — read-only here, only the
+    // device writes it. It opens the agent tab and keys the workflow pair.
+    var lastUsedAgent by remember { mutableStateOf(seededDefaultAgent(device, editableAgents)) }
+    var agentTab by remember { mutableStateOf(lastUsedAgent) }
     var drafts by remember {
         mutableStateOf(editableAgents.associateWith { agentDraft(device, it) })
     }
     // EXP-1043: the STORED workflow pair, exactly as the row carries it. What
-    // the pickers show is [workflowDefaults] of it for the DEFAULT agent, so
-    // moving the default account to the other agent falls back to that
+    // the pickers show is [workflowDefaults] of it for the LAST USED agent, so
+    // a machine whose last run moved to the other agent falls back to that
     // agent's contract pair instead of showing a name it cannot run.
     var workflow by remember { mutableStateOf(device.launchDefaults?.workflow) }
     // "Remove device" waiting on its confirm. The sheet needs no dismiss of
@@ -176,8 +168,7 @@ fun DeviceSettingsSheet(
     LaunchedEffect(device.launchDefaults, device.agents, device.unauthedAgents) {
         if (!viewModel.hasPendingDefaults()) {
             editableAgents = editableAgents(device)
-            defaultAgent = seededDefaultAgent(device, editableAgents)
-            defaultAccount = device.launchDefaults?.defaultAccount.orEmpty()
+            lastUsedAgent = seededDefaultAgent(device, editableAgents)
             drafts = editableAgents.associateWith { agentDraft(device, it) }
             workflow = device.launchDefaults?.workflow
             if (agentTab !in editableAgents) agentTab = editableAgents.first()
@@ -193,20 +184,16 @@ fun DeviceSettingsSheet(
     /**
      * Queue the WHOLE edited struct — `setLaunchDefaults` replaces the stored
      * object, so every save carries the workflow pair too (resolved for the
-     * agent it is being saved under) or it would wipe it.
+     * last used agent) or it would wipe it.
      */
     fun queueDefaults(
-        agent: String = defaultAgent,
-        account: String = defaultAccount,
         next: Map<String, AgentDraft> = drafts,
         stored: DeviceWorkflowDefaults? = workflow,
     ) {
-        val (model, strongModel) = workflowDefaults(agent, stored)
+        val (model, strongModel) = workflowDefaults(lastUsedAgent, stored)
         viewModel.queueDefaults(
             device.deviceId,
             buildDefaults(
-                agent,
-                account,
                 editableAgents,
                 next,
                 DeviceWorkflowDefaults(model = model, strongModel = strongModel),
@@ -371,63 +358,19 @@ fun DeviceSettingsSheet(
                             modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
                         )
                     }
-                    // EXP-872: the SHARED account picker — the same trigger the
-                    // composer's options row wears, so "which login" looks the same
-                    // wherever it is asked. The machine's default AGENT rides the
-                    // picked login. EXP-1043: every editable agent contributes at
-                    // least its AMBIENT login here, so the default account is always
-                    // changeable — the setting is about which agent a run starts on,
-                    // and a machine that reports a login for one agent only must not
-                    // lock the other one away.
-                    val accountOptions = deviceAccountOptions(device, editableAgents)
-                    OptionGroup {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                "Default account",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Spacer(Modifier.weight(1f))
-                            AccountPickerPill(
-                                options = accountOptions,
-                                // An unset pin IS the ambient login, and that is
-                                // the option carrying `system` — the same
-                                // `agent:id` key every other picker builds.
-                                selectedKey =
-                                    "$defaultAgent:${defaultAccount.ifEmpty { SYSTEM_PROFILE_ID }}",
-                                onSelect = { option ->
-                                    // The ambient login is NOT a profile id: it
-                                    // stores as "nothing pinned", which is what
-                                    // the row echoes back (see [buildDefaults]).
-                                    val picked = option.id
-                                        .takeIf { it != SYSTEM_PROFILE_ID }
-                                        .orEmpty()
-                                    defaultAgent = option.agent
-                                    defaultAccount = picked
-                                    queueDefaults(agent = option.agent, account = picked)
-                                },
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
                     // EXP-694: the SAME agent card every launch surface renders — the
                     // embedded agent tabs, model/effort and the toggles, in one
                     // inset-grouped card. EXP-862: NO accounts or usage in here — those
                     // belong to Devices → Accounts, the one surface that owns them.
                     val draft = drafts[agentTab] ?: agentDraft(device, agentTab)
                     // ── Workflow settings (EXP-1043) ─────────────────────────
-                    // Both agents' workflows run on the DEFAULT agent's models, so
+                    // Both agents' workflows run on the LAST USED agent's models, so
                     // this row is the same one whatever tab is selected above — it
                     // belongs to the machine, not to the tab. A stored name that
                     // belongs to the other agent falls back to the contract pair
                     // (see [workflowDefaults]).
-                    val (workflowModel, workflowStrongModel) = workflowDefaults(defaultAgent, workflow)
-                    val workflowModels = modelValuesFor(defaultAgent)
+                    val (workflowModel, workflowStrongModel) = workflowDefaults(lastUsedAgent, workflow)
+                    val workflowModels = modelValuesFor(lastUsedAgent)
                     LaunchOptionsSection(
                         variant = LaunchOptionsVariant.Device,
                         // The sheet already IS the machine — no "Runs on" row.
@@ -721,7 +664,7 @@ internal fun editableAgents(device: SteerDevice): List<String> {
     return ordered.ifEmpty { DomainContract.codingAgentValues }
 }
 
-/** The stored default agent, clamped to the editable set. */
+/** The device's last used agent (`defaultAgent`), clamped to the editable set. */
 internal fun seededDefaultAgent(device: SteerDevice, editable: List<String>): String =
     device.launchDefaults?.defaultAgent?.takeIf { it in editable }
         ?: DEFAULT_AGENT.takeIf { it in editable }
@@ -768,33 +711,19 @@ internal fun agentDraft(device: SteerDevice, agent: String): AgentDraft {
  * toggle never rides).
  */
 internal fun buildDefaults(
-    defaultAgent: String,
-    /**
-     * EXP-872: the profile id of [defaultAgent]'s login the machine should
-     * start on; "" (nothing picked yet) builds a null, which the request
-     * sends as an explicit `defaultAccount: null` (the clear), and the
-     * agent's ACTIVE login stays the default.
-     *
-     * [SYSTEM_PROFILE_ID] means the same thing and clears too: the AMBIENT
-     * login is a PICKER sentinel, never a stored id (the server clamp takes
-     * any non-empty string, so a leaked `"system"` would pin a profile that
-     * does not exist). The mapping lives here rather than at the pick site
-     * alone so the next writer cannot forget it.
-     */
-    defaultAccount: String,
     agents: List<String>,
     drafts: Map<String, AgentDraft>,
     /**
-     * EXP-1043: the machine's WORKFLOW model pair, already resolved for
-     * [defaultAgent] ([workflowDefaults]). It rides EVERY save because the
+     * EXP-1043: the machine's WORKFLOW model pair, already resolved for the
+     * last used agent ([workflowDefaults]). It rides EVERY save because the
      * mutation REPLACES the stored object; null (a caller with nothing to
      * say about it) leaves the key off, which the server reads as an older
      * client and keeps what is stored.
      */
     workflow: DeviceWorkflowDefaults? = null,
 ): DeviceLaunchDefaults = DeviceLaunchDefaults(
-    defaultAgent = defaultAgent,
-    defaultAccount = defaultAccount.takeIf { it.isNotEmpty() && it != SYSTEM_PROFILE_ID },
+    // EXP-1158: no `defaultAgent` — the last used agent is the device's to
+    // write, and the request never carries it (`setLaunchDefaultsInput`).
     workflow = workflow,
     agents = agents.associateWith { agent ->
         val draft = drafts[agent]
@@ -824,8 +753,8 @@ internal fun buildDefaults(
  * from (`launch_defaults.workflow`).
  *
  * The two agents' vocabularies do not overlap, so a [stored] name only counts
- * for the agent it belongs to: a machine that was on claude and moved its
- * default account to codex reads as CODEX's contract pair rather than showing
+ * for the agent it belongs to: a machine that was on claude and last ran
+ * codex reads as CODEX's contract pair rather than showing
  * `opus` in a codex picker.
  */
 internal fun workflowDefaults(

@@ -936,13 +936,12 @@ describe(`devices.setLaunchDefaults`, () => {
 
   // Compat round 26: a save REPLACES the stored object. Every client at the
   // version floors sends every key it knows, so an ABSENT key is a clear —
-  // nothing stored rides along any more (subagentModel, defaultAccount,
-  // autoRotateAccounts, the workflow pair).
+  // nothing stored rides along any more (subagentModel, autoRotateAccounts,
+  // the workflow pair) — except `defaultAgent` (EXP-1158, below).
   it(`carries nothing stored forward when the save omits a KEY`, async () => {
     h.state.selectQueue = deviceRow({
       launchDefaults: {
         defaultAgent: `claude`,
-        defaultAccount: `0a1b2c3d`,
         agents: { claude: { model: `fable`, subagentModel: `sonnet`, autoRotateAccounts: false } },
         workflow: { model: `opus`, strongModel: `fable` },
       },
@@ -1008,43 +1007,37 @@ describe(`devices.setLaunchDefaults`, () => {
     expect(result.launchDefaults).toEqual({ agents: { claude: { model: `fable` } } })
   })
 
-  it(`drops a stored defaultAccount when the key-less save CHANGES the default agent`, async () => {
-    // The pin is one of the OLD agent's logins: under another agent it names
-    // nothing, so it must not ride along.
-    h.state.selectQueue = deviceRow({
-      launchDefaults: { defaultAgent: `claude`, defaultAccount: `0a1b2c3d` },
-    })
-    const result = await caller.setLaunchDefaults({
-      deviceId: `dev-1`,
-      launchDefaults: { defaultAgent: `codex` },
-    })
-    expect(result.launchDefaults).toEqual({ defaultAgent: `codex` })
-  })
-
-  it(`lets a newer client clear or replace defaultAccount explicitly`, async () => {
-    const stored = { defaultAgent: `claude`, defaultAccount: `0a1b2c3d` }
-    // An explicit null (the key is PRESENT) is a clear, not an omission: the
-    // stored pin does not ride along and the jsonb stays null-free.
+  // EXP-1158: `defaultAgent` = the LAST USED agent, written only by the
+  // device. Clients stop sending it, so a save that omits it keeps the stored
+  // one; a device push always sends it (`device push with the matching stamp
+  // wins` above).
+  it(`carries the stored last used agent forward when a save omits it`, async () => {
+    const stored = { defaultAgent: `codex`, agents: { claude: { model: `fable` } } }
     h.state.selectQueue = deviceRow({ launchDefaults: stored })
     let result = await caller.setLaunchDefaults({
       deviceId: `dev-1`,
-      launchDefaults: { defaultAgent: `claude`, defaultAccount: null },
+      launchDefaults: { agents: { claude: { model: `opus` } } },
     })
-    expect(result.launchDefaults).toEqual({ defaultAgent: `claude` })
+    expect(result.launchDefaults).toEqual({
+      defaultAgent: `codex`,
+      agents: { claude: { model: `opus` } },
+    })
     expect(h.state.updates[0]?.set).toMatchObject({
-      launchDefaults: { defaultAgent: `claude` },
+      launchDefaults: { defaultAgent: `codex` },
     })
 
-    // An explicit string replaces it.
+    // An explicit null is an omission too: a client cannot clear it.
     h.state.selectQueue = deviceRow({ launchDefaults: stored })
     result = await caller.setLaunchDefaults({
       deviceId: `dev-1`,
-      launchDefaults: { defaultAgent: `claude`, defaultAccount: `9f8e7d6c` },
+      launchDefaults: { defaultAgent: null, agents: { claude: { model: `opus` } } },
     })
-    expect(result.launchDefaults).toEqual({
-      defaultAgent: `claude`,
-      defaultAccount: `9f8e7d6c`,
-    })
+    expect(result.launchDefaults).toMatchObject({ defaultAgent: `codex` })
+
+    // A retired stored agent does not ride along.
+    h.state.selectQueue = deviceRow({ launchDefaults: { defaultAgent: `pi` } })
+    result = await caller.setLaunchDefaults({ deviceId: `dev-1`, launchDefaults: {} })
+    expect(result.launchDefaults).toEqual({})
   })
 
   // EXP-1020: the "Workflow settings" sub-shell's pair.
@@ -1064,7 +1057,7 @@ describe(`devices.setLaunchDefaults`, () => {
     })
     expect(result.launchDefaults).toEqual({})
 
-    // Either vocabulary is accepted; the default account's agent decides.
+    // Either vocabulary is accepted; the last used agent decides.
     h.state.selectQueue = deviceRow({})
     result = await caller.setLaunchDefaults({
       deviceId: `dev-1`,
@@ -2068,52 +2061,6 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
     expect(h.state.inserted).toHaveLength(0)
   })
 
-  // EXP-849: "Use this account here" — the non-destructive active-profile
-  // switch. Same payload as a refresh, gated on BOTH `agent-login` (a build
-  // that cannot drive logins cannot switch between them) and
-  // `account-switch` (the profile machinery itself).
-  it(`queues agent_profile_use with the agent and the profile id`, async () => {
-    h.state.selectQueue = [...capableProbe(), []]
-    h.state.insertReturning = [[{ id: `cmd-9` }]]
-    const result = await caller.createCommand({
-      deviceId: `dev-1`,
-      kind: `agent_profile_use`,
-      agent: `claude`,
-      profileId: `work`,
-    })
-    expect(result).toEqual({ id: `cmd-9` })
-    expect(h.state.inserted[0]).toMatchObject({
-      deviceRowId: `row-1`,
-      kind: `agent_profile_use`,
-      payload: { agent: `claude`, profileId: `work` },
-    })
-  })
-
-  it(`refuses agent_profile_use without an agent, a profile or the cap`, async () => {
-    h.state.selectQueue = capableProbe()
-    await expect(
-      caller.createCommand({
-        deviceId: `dev-1`,
-        kind: `agent_profile_use`,
-        agent: `claude`,
-      })
-    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
-    // Either cap missing is a refusal: a pre-EXP-849 build advertises
-    // `agent-login` alone and would leave the row pending forever.
-    for (const caps of [[], [`agent-login`], [`account-switch`]]) {
-      h.state.selectQueue = [[{ id: `row-1`, caps }]]
-      await expect(
-        caller.createCommand({
-          deviceId: `dev-1`,
-          kind: `agent_profile_use`,
-          agent: `claude`,
-          profileId: `work`,
-        })
-      ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
-    }
-    expect(h.state.inserted).toHaveLength(0)
-  })
-
   // EXP-862: "Remove account" — the machine deletes its own copy of a login.
   // Same payload again, gated on `agent-login` + `account-remove`, refused for
   // the ambient login and for a profile the machine never reported.
@@ -2331,7 +2278,6 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
   it(`reuses the pending row for an idempotent kind`, async () => {
     for (const kind of [
       `agent_usage_refresh`,
-      `agent_profile_use`,
       `agent_profile_remove`,
       `agent_profile_sign_out`,
     ] as const) {

@@ -5,10 +5,11 @@ import Foundation
 /// and the subagents inside them, and the `strongModel` that runs contract,
 /// integration and risky nodes and every review.
 ///
-/// The pair belongs to the machine's DEFAULT AGENT: a model id is one agent's
-/// vocabulary, so a stored value counts only while that agent is the default
-/// (switching the default account to the other agent falls the pair back to
-/// the new agent's own defaults rather than sending it an id it cannot run).
+/// The pair belongs to the machine's LAST USED agent (`defaultAgent`): a model
+/// id is one agent's vocabulary, so a stored value counts only while that
+/// agent is the last used one (a run started on the other agent falls the pair
+/// back to the new agent's own defaults rather than sending it an id it cannot
+/// run).
 /// One resolver ×4, so the device settings sheet and every later reader agree
 /// on what an absent, stale or foreign value means.
 public enum DeviceWorkflowSettings {

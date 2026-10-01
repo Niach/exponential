@@ -158,14 +158,10 @@ public extension SteerDevice {
         }
         return DeviceLaunchDefaults(
             defaultAgent: defaultAgent,
-            // EXP-872: the stored default ACCOUNT is a profile of that agent,
-            // so it goes wherever the agent went — a default account naming a
-            // retired agent's login must not outlive its agent.
-            defaultAccount: defaultAgent == nil ? nil : decoded.defaultAccount,
             agents: decoded.agents?.filter { AgentUsagePresentation.isContractAgent($0.key) },
             // EXP-1029: the workflow pair rides through untouched — it names
             // MODELS, not agents, and `DeviceWorkflowSettings.resolve` is what
-            // clamps it to the default agent's vocabulary at read time.
+            // clamps it to the last used agent's vocabulary at read time.
             workflow: decoded.workflow
         )
     }

@@ -936,17 +936,6 @@ extension SessionTree {
         }
     }
 
-    /// The machine's launch defaults (fixture `launchDefaults`).
-    public struct MarkLaunchDefaults: Sendable, Equatable, Decodable {
-        public let defaultAgent: String?
-        public let defaultAccount: String?
-
-        public init(defaultAgent: String?, defaultAccount: String?) {
-            self.defaultAgent = defaultAgent
-            self.defaultAccount = defaultAccount
-        }
-    }
-
     /// One agent's profiles on a machine (fixture `agentAccounts[agent]`).
     public struct MarkAgentAccount: Sendable, Equatable, Decodable {
         public let profiles: [MarkProfile]?
@@ -960,36 +949,28 @@ extension SessionTree {
     public struct MarkDevice: Sendable, Equatable, Decodable {
         public let deviceId: String
         public let userId: String?
-        public let launchDefaults: MarkLaunchDefaults?
         public let agentAccounts: [String: MarkAgentAccount]?
 
         public init(
-            deviceId: String, userId: String?, launchDefaults: MarkLaunchDefaults?,
-            agentAccounts: [String: MarkAgentAccount]?
+            deviceId: String, userId: String?, agentAccounts: [String: MarkAgentAccount]?
         ) {
             self.deviceId = deviceId
             self.userId = userId
-            self.launchDefaults = launchDefaults
             self.agentAccounts = agentAccounts
         }
     }
 
-    /// The account a machine runs `agent` on by default: its
-    /// `defaultAccount` when `agent` is the machine's default agent, else that
-    /// agent's ACTIVE profile, else `system`. Nil without a device or agent.
-    public static func deviceDefaultAccount(_ device: MarkDevice?, agent: String?) -> String? {
+    /// The account a machine last used for `agent` (EXP-1158): that agent's
+    /// ACTIVE profile, else `system`. Nil without a device or agent.
+    public static func deviceLastUsedAccount(_ device: MarkDevice?, agent: String?) -> String? {
         guard let device, let agent else { return nil }
-        if device.launchDefaults?.defaultAgent == agent,
-           let account = device.launchDefaults?.defaultAccount, !account.isEmpty {
-            return account
-        }
         let profiles = device.agentAccounts?[agent]?.profiles ?? []
         return profiles.first { $0.active == true }?.id ?? "system"
     }
 
     /// `account <label>` when a WORKFLOW run does not run on its device's
-    /// default account for its agent. Nil outside a workflow, without an
-    /// `agentAccount`, on an unsynced device, or on the default. Label = the
+    /// last used account for its agent. Nil outside a workflow, without an
+    /// `agentAccount`, on an unsynced device, or on the last used one. Label = the
     /// profile's label, else `Default` for `system`, else the raw id.
     public static func workflowRunAccountCaption(
         session: MarkSession, devices: [MarkDevice]
@@ -998,7 +979,7 @@ extension SessionTree {
         guard let account = session.agentAccount, !account.isEmpty else { return nil }
         let matches = devices.filter { $0.deviceId == session.deviceId }
         let device = matches.first { $0.userId == session.userId } ?? matches.first
-        guard let fallback = deviceDefaultAccount(device, agent: session.agent),
+        guard let fallback = deviceLastUsedAccount(device, agent: session.agent),
               fallback != account else { return nil }
         let profile = session.agent.flatMap { agent in
             device?.agentAccounts?[agent]?.profiles?.first { $0.id == account }

@@ -137,8 +137,8 @@ export function AutomationDialog({
   )
   // EXP-615/995: no "Device default" pill — whenever the bound machine
   // changes (a pick, or its rows refreshing) the pin re-seeds to a login THAT
-  // machine reports: the same agent's default when it runs it, else the
-  // machine's DEFAULT ACCOUNT, which names the agent, exactly like the
+  // machine reports: the same agent's last used login when it runs it, else
+  // the machine's LAST USED login, which names the agent, exactly like the
   // composer. A pin the machine reports as-is is left alone, so what the
   // Account row shows is what Save stores (profile ids are device-local).
   useEffect(() => {

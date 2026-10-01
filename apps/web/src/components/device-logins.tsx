@@ -10,9 +10,9 @@
 //           5h ▁▁ 0%  Week ▆▆ 73%  Fable ██ 100%   as of 18 hours ago
 //           Add account
 //
-// The ⋯ menu is the UNCHANGED `AccountChipMenu` (Sign in / Set as default /
-// Remove account, same gating) — only its trigger changed from a pill to the
-// ghost ⋯ every other row uses. Team devices are READ-ONLY: their logins are
+// The ⋯ menu is the `AccountChipMenu` (Sign in / Sign out / Remove account,
+// same gating) — only its trigger changed from a pill to the ghost ⋯ every
+// other row uses. Team devices are READ-ONLY: their logins are
 // somebody else's to repair.
 //
 // Hand-mirrored ×4 (desktop `machines.rs` `render_login_rows`, iOS

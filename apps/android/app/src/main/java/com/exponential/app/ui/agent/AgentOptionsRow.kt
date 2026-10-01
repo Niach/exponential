@@ -85,7 +85,7 @@ internal fun AgentOptionsRow(
     device: SteerDevice?,
     onDeviceChange: (String) -> Unit,
     launch: LaunchDraft,
-    /** EXP-872: the settled machine's logins, device default first. */
+    /** EXP-872: the settled machine's logins, last used first. */
     accountOptions: List<AccountOption>,
     /** A picked login sets the agent AND the account in one go. */
     onAccountChange: (AccountOption) -> Unit,

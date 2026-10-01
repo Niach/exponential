@@ -94,8 +94,7 @@ import kotlinx.coroutines.delay
  * person came for (which box needs a sign-in) was the thing it hid. Each
  * device row now lists its OWN logins beneath it, one flat sub-row each:
  * the brand mark, the login's identity, its health badge, its numbers in the
- * mini form, and the unchanged ⋯ menu (Sign in / Set as default / Remove
- * account). A teammate's shared machine renders its logins READ-ONLY —
+ * mini form, and the ⋯ menu (Sign in / Sign out / Remove account). A teammate's shared machine renders its logins READ-ONLY —
  * seeing that a shared server's codex login expired explains a refused start,
  * but only its owner can fix it.
  */
@@ -110,8 +109,8 @@ fun AgentsScreen(
     // the device list has landed, which is what makes a row say "Checking…"
     // rather than flashing "No login reported".
     val deviceLogins by viewModel.deviceLogins.collectAsStateWithLifecycle()
-    // EXP-849: the account commands the MACHINE rows issued (`agent_profile_use`
-    // — "use this account here"), keyed by machine × login: the row spins
+    // EXP-849: the account commands the MACHINE rows issued (sign-out,
+    // removal), keyed by machine × login: the row spins
     // while one is in flight and captions a refusal. Sign-ins are not here:
     // they round-trip a link and a code, which the login sheet owns.
     val accountCommandStates by viewModel.accountCommandStates.collectAsStateWithLifecycle()
@@ -202,7 +201,6 @@ fun AgentsScreen(
                                 expanded = device.deviceId in expandedDeviceIds,
                                 onToggleExpanded = { toggleDeviceExpanded(device.deviceId) },
                                 logins = deviceLogins?.get(device.deviceId),
-                                onSetAccountDefault = { row -> viewModel.useAccountHere(device, row) },
                                 onRemoveAccount = { row -> removeTargetAccount = device to row },
                                 onSignOutAccount = { row -> signOutTargetAccount = device to row },
                                 // EXP-862: the sign-in link, its code field and
@@ -238,7 +236,6 @@ fun AgentsScreen(
                                 // READ-ONLY: seeing that a shared server's
                                 // codex login expired explains a refused
                                 // start, but only its owner can fix it.
-                                onSetAccountDefault = {},
                                 onRemoveAccount = {},
                                 onSignOutAccount = {},
                                 onSignInAccount = {},
@@ -471,9 +468,6 @@ private fun MachineRow(
     /** EXP-909: the logins this machine holds — null while the list is still
      *  loading, which is what makes the row say "Checking…". */
     logins: List<AgentProfileUsageRow>?,
-    /** EXP-862 "Set as default": make this login the machine's ACTIVE one
-     *  (`agent_profile_use`). */
-    onSetAccountDefault: (AgentProfileUsageRow) -> Unit,
     /** EXP-862 "Remove account": the machine drops ITS copy of the login. */
     onRemoveAccount: (AgentProfileUsageRow) -> Unit,
     /** EXP-1137 "Sign out": the machine signs the login out and keeps its row. */
@@ -698,7 +692,6 @@ private fun MachineRow(
                 // until it wakes, which reads as a dead tap.
                 actionable = device.isMine && online && device.canAgentLogin,
                 commandStates = commandStates,
-                onSetDefault = onSetAccountDefault,
                 onRemove = onRemoveAccount,
                 onSignOut = onSignOutAccount,
                 onSignIn = onSignInAccount,
@@ -717,9 +710,8 @@ private fun MachineRow(
  * names the agent by its brand mark, the login by its identity alone
  * ([AgentAccountsRows.loginLabel] — never a status), badges THIS machine's
  * health for it, shows its numbers in the mini form, and carries the repairs
- * that machine owes it (EXP-862): sign in, make it the machine's default
- * (`agent_profile_use` — no login flow, no logout, no credential touched), or
- * remove this machine's copy of it.
+ * that machine owes it (EXP-862): sign in, sign out (EXP-1137), or remove
+ * this machine's copy of it.
  */
 @Composable
 private fun DeviceLoginRows(
@@ -727,7 +719,6 @@ private fun DeviceLoginRows(
     logins: List<AgentProfileUsageRow>?,
     actionable: Boolean,
     commandStates: Map<String, DeviceCommandUiState>,
-    onSetDefault: (AgentProfileUsageRow) -> Unit,
     onRemove: (AgentProfileUsageRow) -> Unit,
     onSignOut: (AgentProfileUsageRow) -> Unit,
     onSignIn: (AgentProfileUsageRow) -> Unit,
@@ -753,12 +744,10 @@ private fun DeviceLoginRows(
                     DeviceLoginRow(
                         row = login,
                         actionable = actionable,
-                        canSwitch = device.canSwitchAccount,
                         canRemove = device.canRemoveAccount,
                         canAgentLogin = device.canAgentLogin,
                         canSignOut = device.canSignOutAccount,
                         state = commandStates[deviceLoginCommandKey(login)],
-                        onSetDefault = { onSetDefault(login) },
                         onRemove = { onRemove(login) },
                         onSignOut = { onSignOut(login) },
                         onSignIn = { onSignIn(login) },
@@ -793,16 +782,13 @@ private fun LoginHint(text: String) {
 private fun DeviceLoginRow(
     row: AgentProfileUsageRow,
     actionable: Boolean,
-    /** The machine advertises `account-switch` — see [AgentAccountsRows.chipActions]. */
-    canSwitch: Boolean,
-    /** …and `account-remove`, for the destructive entry. */
+    /** The machine advertises `account-remove` — see [AgentAccountsRows.chipActions]. */
     canRemove: Boolean,
     /** …and `agent-login`, which a removal needs as well. */
     canAgentLogin: Boolean,
     /** EXP-1137: …and `account-sign-out`, for the sign-out and the ambient removal. */
     canSignOut: Boolean,
     state: DeviceCommandUiState?,
-    onSetDefault: () -> Unit,
     onRemove: () -> Unit,
     onSignOut: () -> Unit,
     onSignIn: () -> Unit,
@@ -813,14 +799,13 @@ private fun DeviceLoginRow(
     val busy = state is DeviceCommandUiState.Sending || state is DeviceCommandUiState.Running
     var menuOpen by remember { mutableStateOf(false) }
     // EXP-862: the entries, decided in ONE place ×4 — a signed-out or expired
-    // login offers a sign-in first; a healthy one can become the machine's
-    // default, be signed out (EXP-1137) and be removed from it. Empty = the
+    // login offers a sign-in first; a signed-in one can be signed out
+    // (EXP-1137) and any can be removed from it. Empty = the
     // row is a statement (a teammate's machine, an offline one, a build too
     // old for any of the commands).
     val actions = if (actionable) {
         AgentAccountsRows.chipActions(
             row,
-            canSwitchAccount = canSwitch,
             canRemoveAccount = canRemove,
             canAgentLogin = canAgentLogin,
             canSignOutAccount = canSignOut,
@@ -834,7 +819,7 @@ private fun DeviceLoginRow(
     val description = buildString {
         append("${agentLabel(row.agent)}, $label")
         planTail?.let { append(", $it") }
-        if (row.active) append(", the account this device uses")
+        if (row.active) append(", last used on this device")
         badge?.let { append(", ${it.lowercase()}") }
     }
     Column(
@@ -908,10 +893,6 @@ private fun DeviceLoginRow(
                                 menuOpen = false
                                 onSignIn()
                             },
-                            onSetDefault = {
-                                menuOpen = false
-                                onSetDefault()
-                            },
                             onRemove = {
                                 menuOpen = false
                                 onRemove()
@@ -948,10 +929,10 @@ private fun DeviceLoginRow(
                 LoginHint(if (asOf != null) "No usage reported · $asOf" else "No usage reported")
             }
         }
-        // The material outcome of a pick arrives by SYNC (the machine
-        // re-reports its accounts, which moves the check), but a refusal would
-        // otherwise be silent — including the honest one a machine too old to
-        // know the command answers with.
+        // The material outcome of a command arrives by SYNC (the machine
+        // re-reports its accounts), but a refusal would otherwise be silent —
+        // including the honest one a machine too old to know the command
+        // answers with.
         (state as? DeviceCommandUiState.Failed)?.let { failure ->
             Text(
                 failure.message,
@@ -975,7 +956,6 @@ private fun AccountChipMenuItems(
     actions: List<String>,
     busy: Boolean,
     onSignIn: () -> Unit,
-    onSetDefault: () -> Unit,
     onRemove: () -> Unit,
     onSignOut: () -> Unit,
 ) {
@@ -986,12 +966,6 @@ private fun AccountChipMenuItems(
                 leadingIcon = { Icon(ExpIcons.uiSignIn, contentDescription = null) },
                 enabled = !busy,
                 onClick = onSignIn,
-            )
-            AgentAccountsRows.ACTION_SET_DEFAULT -> GlassMenuItem(
-                text = { Text(action) },
-                leadingIcon = { Icon(ExpIcons.uiSwap, contentDescription = null) },
-                enabled = !busy,
-                onClick = onSetDefault,
             )
             AgentAccountsRows.ACTION_SIGN_OUT -> GlassMenuItem(
                 text = { Text(action) },

@@ -224,8 +224,9 @@ describe(`automations.create`, () => {
     expect((error as TRPCError).message).toBe(`codex is not available on that device`)
   })
 
-  // EXP-995: an account is a profile of ONE agent, so it pins beside one;
-  // the ambient `system` login stores as NULL like a blank.
+  // EXP-995: an account is a profile of ONE agent, so it pins beside one.
+  // EXP-1158: `system` NAMES the ambient login and is stored verbatim; only
+  // a blank stores NULL (unpinned = the machine's last used login).
   it(`stores an account pin beside its agent and refuses one without`, async () => {
     selectResults.push([action])
     selectResults.push([ownDevice])
@@ -251,7 +252,20 @@ describe(`automations.create`, () => {
       agent: `claude`,
       account: `system`,
     })
-    expect(ambient.automation).toMatchObject({ agent: `claude`, account: null })
+    expect(ambient.automation).toMatchObject({ agent: `claude`, account: `system` })
+
+    selectResults.push([action])
+    selectResults.push([ownDevice])
+    selectResults.push([])
+    const unpinned = await caller.create({
+      teamId: TEAM_ID,
+      actionId: ACTION_ID,
+      deviceId: `device-1`,
+      trigger: schedule,
+      agent: `claude`,
+      account: ` `,
+    })
+    expect(unpinned.automation).toMatchObject({ agent: `claude`, account: null })
 
     selectResults.push([action])
     const error = await rejectionOf(
@@ -264,7 +278,7 @@ describe(`automations.create`, () => {
       })
     )
     expect((error as TRPCError).message).toBe(`An account pin needs its agent pinned`)
-    expect(inserts).toHaveLength(2)
+    expect(inserts).toHaveLength(3)
   })
 
   it(`validates model/effort against the agent's contract lists`, async () => {

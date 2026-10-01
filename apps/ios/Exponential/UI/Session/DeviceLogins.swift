@@ -180,14 +180,11 @@ struct DeviceLogins: View {
     /// the server gates on that cap, and an offline machine would hold the
     /// command until it wakes, which reads as a dead tap. A row whose state
     /// leaves no entry at all (a healthy login on a build with neither
-    /// `account-switch` nor `account-remove`) carries no menu rather than an
+    /// `account-sign-out` nor `account-remove`) carries no menu rather than an
     /// empty one.
     private func isActionable(_ row: AgentProfileUsageRow) -> Bool {
         guard !readOnly, row.mine, device.isOnline, device.canAgentLogin else { return false }
         if AgentAccountsRows.chipSignsIn(row) { return true }
-        if AgentAccountsRows.chipSetsDefault(row, canSwitchAccount: device.canSwitchAccount) {
-            return true
-        }
         if AgentAccountsRows.chipSignsOut(
             row,
             canAgentLogin: device.canAgentLogin,
@@ -206,8 +203,8 @@ struct DeviceLogins: View {
     @ViewBuilder
     private func menuItems(_ row: AgentProfileUsageRow) -> some View {
         // ONE rule, byte-identical with web's `accountChipActions`, the
-        // desktop rows and Android, in this fixed order: Sign in, Set as
-        // default, Sign out (EXP-1137), Remove account. EXP-944: a signed-out
+        // desktop rows and Android, in this fixed order: Sign in, Sign out
+        // (EXP-1137), Remove account. EXP-944: a signed-out
         // or refused login keeps Sign in as its first, repairing entry — but
         // no longer ENDS there: a dead NAMED profile can be removed too.
         // EXP-1137: a signed-in login can be signed out, and the ambient
@@ -216,11 +213,6 @@ struct DeviceLogins: View {
         if AgentAccountsRows.chipSignsIn(row) {
             GlassMenuItem("Sign in", icon: AppIcons.uiSignIn) {
                 onSignIn(row)
-            }
-        }
-        if AgentAccountsRows.chipSetsDefault(row, canSwitchAccount: device.canSwitchAccount) {
-            GlassMenuItem("Set as default", icon: AppIcons.uiSwap) {
-                viewModel.useAccountHere(row)
             }
         }
         // EXP-1137: gated on the machine's `account-sign-out` cap, like the

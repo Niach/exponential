@@ -69,7 +69,7 @@ struct AutomationFormSheet: View {
     }
 
     /// EXP-995: the ONE account list — every signed-in login the bound
-    /// machine reports, across agents, its default first
+    /// machine reports, across agents, its last used login first
     /// (`AccountOptions.flatten`, the composer's list). A machine that reports
     /// no login (or none bound yet) still offers a row per runnable agent,
     /// named by the agent, so the pin can be made before the heartbeat lands.
@@ -81,24 +81,24 @@ struct AutomationFormSheet: View {
             launchDefaults: device?.launchDefaults
         )
         if !options.isEmpty { return options }
-        let preferred = LaunchVocabulary.defaultAgent(of: device)
+        let lastUsedAgent = LaunchVocabulary.lastUsedAgent(of: device)
         return availableAgents.map { value in
             AccountOption(
                 id: AgentAccountsRows.systemProfileId,
                 agent: value,
                 email: LaunchVocabulary.agentLabel(value),
-                isDeviceDefault: value == preferred
+                isLastUsed: value == lastUsedAgent
             )
         }
     }
 
     /// Which option the row reads back as: the stored (agent, account) pair,
-    /// else that agent's first login (a profile the machine no longer
-    /// reports), else the first row.
+    /// else that agent's first login — its last used one, what an UNPINNED
+    /// (NULL) account runs on, or a profile the machine no longer reports —
+    /// else the first row.
     private var selectedAccount: AccountOption? {
         let options = accountOptions
-        let id = storedProfileId
-        return options.first { $0.agent == agent && $0.id == id }
+        return options.first { $0.agent == agent && $0.id == account }
             ?? options.first { $0.agent == agent }
             ?? options.first
     }
@@ -219,7 +219,7 @@ struct AutomationFormSheet: View {
 
     /// Seed (and re-seed) the pin off the bound machine: an unset pin — a
     /// row saved before EXP-615 carries a NULL agent — or one the bound
-    /// machine cannot run falls back to that machine's DEFAULT ACCOUNT, which
+    /// machine cannot run falls back to that machine's LAST USED login, which
     /// names the agent (EXP-995: the composer's seed), clamped to what it
     /// advertises. Model/effort vocabularies are per-agent, so an agent
     /// change clears them to the "CLI default" blank.
@@ -236,26 +236,20 @@ struct AutomationFormSheet: View {
         guard rebound || !runsPinnedAgent else { return }
         let options = accountOptions
         let fallback: AccountOption? = runsPinnedAgent
-            ? options.first { $0.agent == agent && $0.id == storedProfileId }
+            ? options.first { $0.agent == agent && $0.id == account }
                 ?? options.first { $0.agent == agent }
-            : options.first(where: \.isDeviceDefault) ?? options.first
+            : AccountOptions.lastUsed(options)
         let previousAgent = agent
         if let fallback {
             agent = fallback.agent
-            account = fallback.id == AgentAccountsRows.systemProfileId ? "" : fallback.id
+            account = fallback.id
         } else {
-            agent = LaunchVocabulary.defaultAgent(of: selectedDevice)
+            agent = LaunchVocabulary.lastUsedAgent(of: selectedDevice)
             account = ""
         }
         guard agent != previousAgent else { return }
         model = LaunchVocabulary.cliDefault
         effort = LaunchVocabulary.cliDefault
-    }
-
-    /// The pin's profile id as an option row carries it (`system` = the
-    /// ambient login the blank stores as NULL).
-    private var storedProfileId: String {
-        account.isEmpty ? AgentAccountsRows.systemProfileId : account
     }
 
     private func selectAgent(_ value: String) {
@@ -270,11 +264,12 @@ struct AutomationFormSheet: View {
     }
 
     /// EXP-995: take BOTH halves of a picked option — the agent first (which
-    /// clears the per-agent pins), then the login on top. `system` is the
-    /// machine's ambient login, which stores as NULL.
+    /// clears the per-agent pins), then the login on top, VERBATIM: `system`
+    /// pins the machine's ambient login by name, while a NULL account is
+    /// unpinned and runs on the machine's last used login (EXP-1158).
     private func selectAccount(_ option: AccountOption) {
         selectAgent(option.agent)
-        account = option.id == AgentAccountsRows.systemProfileId ? "" : option.id
+        account = option.id
     }
 
     // MARK: - Seed / submit
@@ -309,7 +304,9 @@ struct AutomationFormSheet: View {
         // "CLI default" that stores NULL.
         let launch = AutomationLaunchPatch(
             agent: agent.isEmpty ? nil : agent,
-            account: agent.isEmpty || account.isEmpty ? nil : account,
+            // EXP-1158: the pick VERBATIM (`system` pins the ambient login);
+            // NULL = unpinned = the machine's last used login.
+            account: agent.isEmpty ? nil : AccountOptions.wireAccount(account),
             model: model.isEmpty || model == LaunchVocabulary.cliDefault ? nil : model,
             effort: effort.isEmpty || effort == LaunchVocabulary.cliDefault ? nil : effort
         )

@@ -21,7 +21,7 @@ import { useIsMobile } from "./use-mobile"
 //
 // The row and the chip read the same way: the agent's brand mark + the
 // login's EMAIL. Never the profile name, never the word "default" — the
-// device default is simply the first row. A dead credential rides as a muted
+// last used login is simply the first row. A dead credential rides as a muted
 // `hint` beside the email (the app passes `healthBadgeLabel`).
 //
 // EXP-992: hovering a row on a POINTER platform shows a very small preview

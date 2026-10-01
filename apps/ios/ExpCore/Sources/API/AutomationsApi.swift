@@ -146,8 +146,8 @@ private struct CreateInput: Encodable {
 /// edited them (the enable toggle never does).
 public struct AutomationLaunchPatch: Sendable, Equatable {
     public let agent: String?
-    /// EXP-995: the agent profile id (belongs to `agent`); nil = the
-    /// machine's default login.
+    /// EXP-995: the agent profile id (belongs to `agent`), `system` = the
+    /// ambient login by name; nil = unpinned, the machine's last used login.
     public let account: String?
     public let model: String?
     public let effort: String?

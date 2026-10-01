@@ -639,7 +639,6 @@ export function flattenSessionTree<T extends SessionTreeRow>(
 export interface SessionMarkDevice {
   deviceId: string
   userId: string
-  launchDefaults?: { defaultAgent?: string | null; defaultAccount?: string | null } | null
   agentAccounts?: Record<
     string,
     { profiles?: readonly { id: string; label?: string | null; active?: boolean | null }[] | null }
@@ -650,26 +649,22 @@ export interface SessionMarkDevice {
 export type SessionMarkRow = Pick<CodingSession, `agent` | `agentAccount` | `deviceId` | `userId`> &
   Partial<Pick<CodingSession, `workflowId`>>
 
-/** The device's DEFAULT account for `agent` (EXP-872): `defaultAccount` when
- *  `agent` is the default agent, else that agent's ACTIVE profile, else
- *  `system`. Null when the device is unknown or the run has no agent. */
-export function deviceDefaultAccount(
+/** The device's LAST USED account for `agent` (EXP-1158): that agent's
+ *  ACTIVE profile, else `system`. Null when the device is unknown or the run
+ *  has no agent. */
+export function deviceLastUsedAccount(
   device: SessionMarkDevice | undefined,
   agent: string | null
 ): string | null {
   if (!device || !agent) return null
-  const defaults = device.launchDefaults ?? {}
-  if (defaults.defaultAgent === agent && defaults.defaultAccount) {
-    return defaults.defaultAccount
-  }
   const profiles = device.agentAccounts?.[agent]?.profiles ?? []
   return profiles.find((profile) => profile.active)?.id ?? `system`
 }
 
 /** EXP-1068: `account <label>` when a WORKFLOW run (a row with `workflowId`)
- *  does not run on its device's default account for its agent. Null for a
+ *  does not run on its device's last used account for its agent. Null for a
  *  row outside a workflow, a row with no `agentAccount`, an unsynced device,
- *  or a run on the default. Label = the profile's `label`, else `Default` for
+ *  or a run on the last used one. Label = the profile's `label`, else `Default` for
  *  `system`, else the raw account id. */
 export function workflowRunAccountCaption(
   session: SessionMarkRow,
@@ -680,7 +675,7 @@ export function workflowRunAccountCaption(
   if (!account) return null
   const matches = devices.filter((device) => device.deviceId === session.deviceId)
   const device = matches.find((entry) => entry.userId === session.userId) ?? matches[0]
-  const fallback = deviceDefaultAccount(device, session.agent)
+  const fallback = deviceLastUsedAccount(device, session.agent)
   if (!fallback || fallback === account) return null
   const profile = session.agent
     ? device?.agentAccounts?.[session.agent]?.profiles?.find((entry) => entry.id === account)

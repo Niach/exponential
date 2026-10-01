@@ -583,7 +583,7 @@ final class AgentsViewModel {
     // MARK: - One machine's logins (EXP-909)
 
     /// EXP-909: one machine's logins, in the order its row draws them
-    /// (contract agent order, its active login first). The ONE per-device
+    /// (contract agent order, its last used login first). The ONE per-device
     /// entry point since the cross-device Accounts section was folded away.
     func deviceLoginRows(_ deviceId: String) -> [AgentProfileUsageRow] {
         AgentAccountsRows.deviceRows(accountRows, deviceId: deviceId)
@@ -605,29 +605,6 @@ final class AgentsViewModel {
     func accountActionError(deviceId: String) -> String? {
         accountActionErrors[deviceId]
     }
-
-    /// EXP-849: make this login the machine's ACTIVE one for its agent — the
-    /// chip menu's "Set as default" (EXP-862 renamed the entry; the command is
-    /// unchanged).
-    ///
-    /// Its own command kind (`agent_profile_use`, payload `{agent,
-    /// profileId}`): the machine points its active-profile pointer at a login
-    /// it ALREADY holds and re-reports `agent_accounts`. Deliberately not
-    /// `agent_login` — that one drives a sign-in flow (and a switch's logout
-    /// revokes a codex token server-side), neither of which this needs. No
-    /// credential is read, copied or moved.
-    ///
-    /// Offered only on one of MY machines that is online; the server re-checks
-    /// ownership and an unknown profile is refused there too. The outcome
-    /// arrives via sync, when the machine's next report moves `active`.
-    func useAccountHere(_ row: AgentProfileUsageRow) {
-        queueAccountCommand(row, kind: Self.useAccountCommandKind)
-    }
-
-    /// EXP-849: the command kind that activates an EXISTING login on a
-    /// machine. Accepted by `devices.createCommand` and handled by the desktop
-    /// and the headless daemon (`agent_profiles::set_active_profile`).
-    private static let useAccountCommandKind = "agent_profile_use"
 
     /// EXP-862: delete the MACHINE's copy of a login — the chip menu's
     /// destructive entry, confirmed before it gets here.

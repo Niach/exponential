@@ -24,8 +24,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import com.exponential.app.data.api.SYSTEM_PROFILE_ID
 import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.domain.AccountOptions
 import com.exponential.app.domain.AutomationTrigger
 import com.exponential.app.domain.AutomationTriggerFilters
 import com.exponential.app.domain.DomainContract
@@ -82,11 +82,12 @@ internal const val AUTOMATION_KIND_EVENT = "event"
  * converts at submit and incomplete reads as null. The filter picks are
  * SINGLE-select with an "Any" default — the mobile simplification of the web's
  * multi-selects; the wire lists carry one-or-none entries from here.
- * [agent] is seeded from the bound machine's default (EXP-615 — empty only
- * before one is bound); EXP-995: [account] is the agent profile the run
- * spends, picked WITH its agent off the account row ("" = the machine's
- * default login, saved as NULL); an empty [model]/[effort] is the "CLI
- * default" that saves as NULL.
+ * [agent] is seeded from the bound machine's last used agent (EXP-615 — empty
+ * only before one is bound); EXP-995: [account] is the agent profile the run
+ * spends, picked WITH its agent off the account row as the option id
+ * VERBATIM (`system` = the ambient login); "" is unpinned, saved as NULL, and
+ * runs on the machine's LAST USED login (EXP-1158). An empty [model]/[effort]
+ * is the "CLI default" that saves as NULL.
  */
 internal data class AutomationDraft(
     val kind: String = AUTOMATION_KIND_SCHEDULE,
@@ -333,15 +334,17 @@ internal fun AutomationTriggerFields(
  * what Save STORES. Null = leave the draft alone.
  *
  *  - An unset pin (a row saved before EXP-615 carries a NULL agent) or one
- *    [bound] cannot run falls back to that machine's default ACCOUNT, which
+ *    [bound] cannot run falls back to that machine's LAST USED login, which
  *    names the agent, clamped to what it advertises; model/effort reset to
  *    the "CLI default" blank since their vocabularies are per agent.
  *  - A runnable pin on the SAME machine is left alone, so a manual pick sticks.
  *  - EXP-995: a profile id is DEVICE-LOCAL, so on a switch ([deviceSwitched])
- *    a runnable pin moves onto the new machine's default login of the SAME
- *    agent (its stored default account, else that agent's active login —
- *    [accountOptionsFor] lists it first), keeping model/effort; an agent the
- *    new machine reports no login for falls back to its default account.
+ *    a runnable pin moves onto the new machine's last used login of the SAME
+ *    agent ([accountOptionsFor] lists that agent's active login first),
+ *    keeping model/effort; an agent the new machine reports no login for
+ *    falls back to its last used login.
+ *
+ * Every seeded pin is the option id VERBATIM, `system` included.
  */
 internal fun seedAutomationPin(
     draft: AutomationDraft,
@@ -355,13 +358,13 @@ internal fun seedAutomationPin(
     if (runnable) {
         val sameAgent = options.firstOrNull { it.agent == draft.agent }
         if (sameAgent != null) {
-            return draft.copy(account = sameAgent.id.takeIf { it != SYSTEM_PROFILE_ID }.orEmpty())
+            return draft.copy(account = sameAgent.id)
         }
     }
-    val fallback = options.firstOrNull { it.isDeviceDefault } ?: options.firstOrNull()
+    val fallback = AccountOptions.lastUsed(options)
     return draft.copy(
         agent = fallback?.agent ?: defaultAgentFor(bound),
-        account = fallback?.id?.takeIf { it != SYSTEM_PROFILE_ID }.orEmpty(),
+        account = fallback?.id.orEmpty(),
         model = CLI_DEFAULT_MODEL,
         effort = CLI_DEFAULT_EFFORT,
     )
@@ -372,8 +375,8 @@ internal fun seedAutomationPin(
  * with its model/effort. EXP-615 retired the "Device default" agent option;
  * EXP-995 retired the agent strip itself — the card's first row is THE
  * account picker ([AccountPicker], brand mark + email over the bound
- * machine's logins, its default first) and a pick names the agent too. The
- * pin seeds to the bound machine's DEFAULT ACCOUNT (the composer's seed) and
+ * machine's logins, its last used first) and a pick names the agent too. The
+ * pin seeds to the bound machine's LAST USED login (the composer's seed) and
  * the row saves that concrete agent + profile. Model/Effort speak the launch
  * "CLI default" sentinel, which is what writes NULL.
  */
@@ -412,7 +415,7 @@ internal fun AutomationBindingFields(
         devices = devices,
         device = device,
         // The re-seed above moves the pin onto the new machine (its own
-        // profile for the same agent, else its default account).
+        // profile for the same agent, else its last used login).
         onDeviceChange = { id -> onChange(draft.copy(deviceId = id)) },
         agent = draft.agent,
         availableAgents = device?.runnableAgents.orEmpty(),
@@ -447,11 +450,11 @@ internal fun AutomationBindingFields(
                         ),
                     )
                     Spacer(Modifier.weight(1f))
-                    // The pin's own key, falling back to the first login the
-                    // way the pill always did — a draft can name an account
-                    // this machine no longer reports.
-                    val selectedKey = "${draft.agent}:${draft.account.ifEmpty { SYSTEM_PROFILE_ID }}"
-                    val current = accountOptions.firstOrNull { it.key == selectedKey }
+                    // The pin's own key; an unpinned draft shows its agent's
+                    // last used login (that agent's first option), and a pin
+                    // this machine no longer reports falls back to the first.
+                    val current = accountOptions.firstOrNull { it.key == "${draft.agent}:${draft.account}" }
+                        ?: accountOptions.firstOrNull { draft.account.isEmpty() && it.agent == draft.agent }
                         ?: accountOptions.first()
                     // EXP-1021: the same capsule over the SHARED account sheet
                     // — the login rows, their EXP-992 limit bars and the
@@ -466,13 +469,13 @@ internal fun AutomationBindingFields(
                                 // Only an AGENT change invalidates the
                                 // vocabularies below; another login of the same
                                 // agent keeps model and effort exactly as
-                                // picked. "" is the machine's ambient login,
-                                // never an id on the wire.
+                                // picked. The id rides VERBATIM, `system`
+                                // naming the ambient login.
                                 val agentChanged = option.agent != draft.agent
                                 onChange(
                                     draft.copy(
                                         agent = option.agent,
-                                        account = option.id.takeIf { it != SYSTEM_PROFILE_ID }.orEmpty(),
+                                        account = option.id,
                                         model = if (agentChanged) CLI_DEFAULT_MODEL else draft.model,
                                         effort = if (agentChanged) CLI_DEFAULT_EFFORT else draft.effort,
                                     ),

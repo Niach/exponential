@@ -9,7 +9,7 @@ import XCTest
 final class AccountOptionTests: XCTestCase {
     /// The fixture ×4: two claude logins (work = active, home = a dead
     /// credential), one codex login, and a `system` codex profile that is
-    /// signed out. The default agent is codex.
+    /// signed out. The last used agent is codex.
     private func fixtureAccounts() -> [String: AgentAccount] {
         [
             "claude": AgentAccount(
@@ -91,43 +91,25 @@ final class AccountOptionTests: XCTestCase {
         }
     }
 
-    func testPutsTheDeviceDefaultFirstAndMarksExactlyOneOption() {
-        // defaultAgent = 'codex' with an active codex login → that login is
-        // options[0] and the only `isDeviceDefault`.
+    func testPutsTheLastUsedLoginFirstAndMarksExactlyOneOption() {
+        // EXP-1158: defaultAgent (the last used agent) = 'codex' with an
+        // active (last used) codex login → that login is options[0] and the
+        // only `isLastUsed`.
         let options = fixture()
         XCTAssertEqual(options.first?.agent, "codex")
         XCTAssertEqual(options.first?.id, "main")
-        XCTAssertEqual(options.first?.isDeviceDefault, true)
-        XCTAssertEqual(options.filter(\.isDeviceDefault).count, 1)
-        XCTAssertEqual(AccountOptions.defaultOption(options), options.first)
+        XCTAssertEqual(options.first?.isLastUsed, true)
+        XCTAssertEqual(options.filter(\.isLastUsed).count, 1)
+        XCTAssertEqual(AccountOptions.lastUsed(options), options.first)
     }
 
-    func testPrefersTheStoredDefaultAccountOfTheDefaultAgent() {
-        // EXP-872: "default agent" became "default account" — the device
-        // stores the profile id, and it wins over the agent's ACTIVE login.
-        let options = fixture(
-            defaults: DeviceLaunchDefaults(defaultAgent: "claude", defaultAccount: "home")
-        )
-        XCTAssertEqual(options.first?.agent, "claude")
-        XCTAssertEqual(options.first?.id, "home")
-        XCTAssertEqual(options.first?.isDeviceDefault, true)
-        XCTAssertEqual(options.filter(\.isDeviceDefault).count, 1)
-        // A stored profile the device no longer reports falls back to the
-        // active login.
-        let gone = fixture(
-            defaults: DeviceLaunchDefaults(defaultAgent: "claude", defaultAccount: "retired")
-        )
-        XCTAssertEqual(gone.first?.agent, "claude")
-        XCTAssertEqual(gone.first?.id, "work")
-    }
-
-    func testFallsBackToTheFirstContractAgentsActiveLoginWhenNoDefaultAgentIsSet() {
+    func testFallsBackToTheFirstContractAgentsActiveLoginWhenNoLastUsedAgentIsSet() {
         let options = fixture(defaults: nil)
         XCTAssertEqual(options.first?.agent, "claude")
         XCTAssertEqual(options.first?.id, "work")
-        XCTAssertEqual(options.first?.isDeviceDefault, true)
-        XCTAssertEqual(options.filter(\.isDeviceDefault).count, 1)
-        // A default agent with no active login falls back the same way.
+        XCTAssertEqual(options.first?.isLastUsed, true)
+        XCTAssertEqual(options.filter(\.isLastUsed).count, 1)
+        // A last used agent with no active login falls back the same way.
         let stale = fixture(defaults: DeviceLaunchDefaults(defaultAgent: "pi"))
         XCTAssertEqual(stale.first?.agent, "claude")
         XCTAssertEqual(stale.first?.id, "work")
@@ -199,11 +181,22 @@ final class AccountOptionTests: XCTestCase {
                 id: "system",
                 agent: "claude",
                 email: "solo@x.test",
-                isDeviceDefault: true,
+                isLastUsed: true,
                 health: .ok,
                 limits: AccountLimits(fiveHour: 0.2, week: 0)
             )
         ])
+    }
+
+    /// EXP-1158: a composer (and an automation pin) sends the picked id
+    /// VERBATIM — `system` names the ambient login and is never dropped; only
+    /// a blank pick is unnamed, which runs on the last used login.
+    func testTheComposerSendsThePickedIdVerbatimIncludingSystem() {
+        let options = fixture()
+        XCTAssertEqual(AccountOptions.wireAccount(AgentAccountsRows.systemProfileId), "system")
+        XCTAssertEqual(AccountOptions.wireAccount(options.first?.id), "main")
+        XCTAssertNil(AccountOptions.wireAccount(""))
+        XCTAssertNil(AccountOptions.wireAccount(nil))
     }
 
     func testSkipsSignedOutLoginsAndRetiredAgents() {
@@ -213,6 +206,6 @@ final class AccountOptionTests: XCTestCase {
         XCTAssertEqual(
             AccountOptions.flatten(accounts: nil, usage: nil, launchDefaults: nil), []
         )
-        XCTAssertNil(AccountOptions.defaultOption([]))
+        XCTAssertNil(AccountOptions.lastUsed([]))
     }
 }

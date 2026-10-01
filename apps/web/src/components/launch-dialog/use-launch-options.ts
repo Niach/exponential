@@ -26,8 +26,8 @@ import { CLI_DEFAULT_EFFORT } from "@/components/launch-dialog/launch-options-pa
 import { SYSTEM_PROFILE_ID } from "@/lib/agent-usage"
 import {
   accountOptionKey,
-  defaultAccountOption,
   flattenAccounts,
+  lastUsedAccountOption,
   type AccountOption,
 } from "@/lib/accounts/account-option"
 import { agentLabel } from "@exp/ui"
@@ -87,13 +87,14 @@ export interface LaunchOptions {
   toggleMcpServer: (id: string) => void
   /** EXP-872: the ONE list the composer's account picker offers — every
    * signed-in login the settled device reports, across both agents, the
-   * device default first (`flattenAccounts`). A machine that reports no login
+   * last used one first (`flattenAccounts`). A machine that reports no login
    * at all falls back to one ambient option per runnable agent, labelled by
    * the agent's name, so the picker never goes empty while a run could
    * still start. Picking an option IMPLIES its agent. */
   accountOptions: AccountOption[]
-  /** The picked option's key (`accountOptionKey`), re-seeded to the device
-   * default on every device change; `undefined` while there is no option. */
+  /** The picked option's key (`accountOptionKey`), re-seeded to the device's
+   * last used login on every device change; `undefined` while there is no
+   * option. */
   accountKey: string | undefined
   /** A pick: sets the agent (re-seeding model/effort/toggles like an agent
    * switch) and the account in one go. */
@@ -146,7 +147,7 @@ export function useLaunchOptions({
   const [pickedDeviceId, setPickedDeviceId] = useState<string | null>(null)
   const [mcpServerIds, setMcpServerIdsState] = useState<string[]>([])
   // EXP-872: the account pick — one key over the flattened login list; a
-  // device change re-seeds it to that machine's default option (below).
+  // device change re-seeds it to that machine's last used login (below).
   const [accountKey, setAccountKeyState] = useState<string | undefined>(
     undefined
   )
@@ -219,18 +220,18 @@ export function useLaunchOptions({
     if (seededDeviceRef.current === device.deviceId) return
     seededDeviceRef.current = device.deviceId
     const available = deviceAgentIds(device)
-    // EXP-872: the machine's default ACCOUNT names the agent — the stored
-    // default agent's login, or the first login it reports.
-    const defaultOption = defaultAccountOption(accountOptionsOf(device))
+    // EXP-1158: the machine's LAST USED login names the agent — the last used
+    // agent's active login, or the first login it reports.
+    const lastUsed = lastUsedAccountOption(accountOptionsOf(device))
     const next =
-      defaultOption?.agent ??
+      lastUsed?.agent ??
       deviceDefaultAgent(device) ??
       (available.includes(agent)
         ? agent
         : (available[0] ?? DEFAULT_LAUNCH_AGENT))
     const seed = agentSeed(next, deviceAgentLaunchDefaults(device, next))
     setAgent(next)
-    setAccountKeyState(defaultOption ? accountOptionKey(defaultOption) : undefined)
+    setAccountKeyState(lastUsed ? accountOptionKey(lastUsed) : undefined)
     setModel(seed.model)
     setSubagentModel(seed.subagentModel ?? ``)
     setEffortValue(seed.effort === `` ? CLI_DEFAULT_EFFORT : seed.effort)
@@ -287,18 +288,18 @@ export function useLaunchOptions({
   const pickedOption = accountOptions.find(
     (option) => accountOptionKey(option) === accountKey
   )
-  const defaultKey = (() => {
-    const option = defaultAccountOption(accountOptions)
+  const lastUsedKey = (() => {
+    const option = lastUsedAccountOption(accountOptions)
     return option ? accountOptionKey(option) : undefined
   })()
   useEffect(() => {
     if (!open) return
     if (pickedOption) return
-    setAccountKeyState(defaultKey)
-    const option = defaultAccountOption(accountOptions)
+    setAccountKeyState(lastUsedKey)
+    const option = lastUsedAccountOption(accountOptions)
     if (option && option.agent !== agent) switchAgent(option.agent)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, device?.deviceId, defaultKey, pickedOption === undefined])
+  }, [open, device?.deviceId, lastUsedKey, pickedOption === undefined])
 
   const setAccountKey = (key: string) => {
     const option = accountOptions.find(
@@ -334,11 +335,9 @@ export function useLaunchOptions({
     // EXP-792: omitted when nothing is picked — the server treats an absent
     // list and an empty one alike, and older relays never see the key.
     ...(mcpServerIds.length > 0 ? { mcpServerIds: [...mcpServerIds] } : {}),
-    // EXP-825: the ambient login is the server's default — only a NAMED
-    // profile rides out, and only one the device actually reported.
-    ...(pickedOption &&
-    pickedOption.id !== SYSTEM_PROFILE_ID &&
-    pickedOption.agent === agent
+    // EXP-1158: the picked login rides out VERBATIM, `system` included (it
+    // NAMES the ambient login; an absent account = the last used one).
+    ...(pickedOption && pickedOption.agent === agent
       ? { account: pickedOption.id }
       : {}),
   })
@@ -376,7 +375,7 @@ export function useLaunchOptions({
 /** EXP-872: the device's flattened logins, or — for a machine that reports
  * none at all (a build before profiles, a heartbeat not landed yet) — one
  * ambient option per runnable agent, labelled by the agent's name, the
- * device's default agent first. */
+ * device's last used agent first. */
 export function accountOptionsOf(
   device: SteerDevice | undefined
 ): AccountOption[] {
@@ -390,8 +389,8 @@ export function accountOptionsOf(
       id: SYSTEM_PROFILE_ID,
       agent: agent as AccountOption[`agent`],
       email: agentLabel(agent),
-      isDeviceDefault: agent === preferred,
+      isLastUsed: agent === preferred,
       health: `unknown` as const,
     }))
-    .sort((a, b) => Number(b.isDeviceDefault) - Number(a.isDeviceDefault))
+    .sort((a, b) => Number(b.isLastUsed) - Number(a.isLastUsed))
 }

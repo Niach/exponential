@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-01-last-used-account`,
+    date: `2026-10-01`,
+    title: `Last used account`,
+    summary: `There is no default account any more: every start picks the account you last used on that device.`,
+    body: `- **Last used**: the composer on every client starts on the account you last started or switched a run on, per device, and a run that names no account (an automation without a pinned account, a CLI or MCP start) runs on it too.
+- **Removed**: the Default account row in Device settings and Settings > Agents, and Set as default in a device's account menu.
+- **Unattended runs**: automations, workflows, agent-started runs and automatic account rotation never change it.`,
+  },
+  {
     id: `2026-10-01-runs-recover`,
     date: `2026-10-01`,
     title: `Runs recover from API errors and dead connections`,

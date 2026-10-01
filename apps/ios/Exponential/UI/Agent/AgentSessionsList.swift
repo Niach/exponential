@@ -179,7 +179,7 @@ struct AgentSessionsList: View {
             marks: RunningSessionRowMarks(
                 needsYou: !(row.session.pendingQuestion ?? "").isEmpty,
                 duplicateLive: node?.duplicateLive == true,
-                account: nonDefaultAccount(row.session)
+                account: offLastUsedAccount(row.session)
             )
         )
         .accessibilityIdentifier("agent-session-row")
@@ -196,8 +196,8 @@ struct AgentSessionsList: View {
         )
     }
 
-    private func nonDefaultAccount(_ session: CodingSessionEntity) -> String? {
-        RunningSessionRowMarks.nonDefaultAccount(
+    private func offLastUsedAccount(_ session: CodingSessionEntity) -> String? {
+        RunningSessionRowMarks.offLastUsedAccount(
             session, devices: vm.devices, currentUserId: vm.currentUserId
         )
     }

@@ -349,11 +349,9 @@ public enum AgentAccountsRows {
 
     // MARK: - Row copy
 
-    /// The `account-switch` device cap: the machine handles
-    /// `agent_profile_use`. Shipped in desktop/CLI 0.14.38 — the server
-    /// REFUSES the command (`PRECONDITION_FAILED`) for a machine that does not
-    /// advertise it, so offering the switch there would only produce a
-    /// refusal. `SteerDevice.canSwitchAccount` reads the cap.
+    /// The `account-switch` device cap: the machine switches a live run onto
+    /// another login (the mid-run switch). `SteerDevice.canSwitchAccount`
+    /// reads the cap.
     public static let switchCap = "account-switch"
 
     /// EXP-862: the `account-remove` device cap — the machine runs
@@ -378,20 +376,6 @@ public enum AgentAccountsRows {
     /// a person: sign in. (Web `MachineAccountChip`, Android `chipSignsIn`.)
     public static func chipSignsIn(_ row: AgentProfileUsageRow) -> Bool {
         !row.signedIn || row.health == .needsRelogin
-    }
-
-    /// EXP-862: whether the chip menu offers "Set as default" — a HEALTHY login
-    /// the machine is not currently using simply BECOMES its login
-    /// (`agent_profile_use`: no login flow, no logout, no credential touched).
-    /// An expired one is never switched to (it would not work: it signs in
-    /// instead), and neither is a login on a machine whose build has no
-    /// `agent_profile_use` — the server refuses that before it reaches the
-    /// machine.
-    public static func chipSetsDefault(
-        _ row: AgentProfileUsageRow,
-        canSwitchAccount: Bool
-    ) -> Bool {
-        canSwitchAccount && !chipSignsIn(row) && !row.active
     }
 
     /// Byte-identical with the server's refusal (`lib/trpc/devices.ts`), so a

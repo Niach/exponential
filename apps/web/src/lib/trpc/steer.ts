@@ -368,6 +368,8 @@ export const steerRouter = router({
           // EXP-849: also rides a `resumeSessionId` start — naming a
           // DIFFERENT profile there is the account switch (claude only; the
           // device refuses what it cannot move a transcript into).
+          // EXP-1158: `system` NAMES the ambient login and rides verbatim;
+          // absent = the machine's last used login for the agent.
           account: z.string().min(1).max(64).optional(),
           // EXP-637: relaunch an ENDED run in its own worktree, continuing
           // the agent's transcript where it stopped. A subject of its own —
@@ -874,7 +876,7 @@ export const steerRouter = router({
 
       // EXP-1138 gate split: `device.agents` lists an agent as runnable when
       // ANY of its logins is signed in, but a frame with no `account` lands on
-      // the machine's ambient login, which the doctor refuses when that one
+      // the machine's LAST USED login, which the doctor refuses when that one
       // is signed out. Name the first signed-in profile instead; refuse when
       // none is (lib/steer-devices.ts `resolveStartAccount`). A caller's own
       // pick always wins. Additive: an older heartbeat without profiles

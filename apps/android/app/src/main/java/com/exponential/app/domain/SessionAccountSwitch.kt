@@ -29,7 +29,7 @@ data class SessionAccountOption(
     val plan: String?,
     val signedIn: Boolean,
     val health: AgentHealth,
-    /** The machine's CURRENT login for the agent. */
+    /** The machine's LAST USED login for the agent (wire `active`). */
     val active: Boolean,
     /**
      * EXP-909: the login THIS RUN is on — resolved once in

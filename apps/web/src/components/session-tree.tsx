@@ -66,7 +66,7 @@ import {
 // synced status dot and the `3 running · 5 of 8 done` caption, and every
 // member row its role: a review nests under its node's author row as
 // `Review r2 · approved`, a node with two live runs wears the warning glyph,
-// an open question the red dot, an off-default account its caption.
+// an open question the red dot, an off-last-used account its caption.
 
 const ChevronDownIcon = conceptIcon(`ui-chevron-down`)
 const ChevronRightIcon = conceptIcon(`ui-chevron-right`)

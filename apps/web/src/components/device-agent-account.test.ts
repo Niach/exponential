@@ -5,7 +5,6 @@
 import { describe, expect, it } from "vitest"
 import {
   ACTION_REMOVE,
-  ACTION_SET_DEFAULT,
   ACTION_SIGN_IN,
   ACTION_SIGN_OUT,
   accountChipActionable,
@@ -32,7 +31,7 @@ function chip(patch: Partial<AccountChipRow> = {}): AccountChipRow {
   }
 }
 
-// The EXP-862 build: switch + remove, no sign-out body yet.
+// The EXP-862 build: remove, no sign-out body yet.
 const ALL_CAPS = [`agent-login`, `account-switch`, `account-remove`]
 // EXP-1137: a build that also signs logins out.
 const SIGN_OUT_CAPS = [...ALL_CAPS, `account-sign-out`]
@@ -57,7 +56,6 @@ describe(`accountChipActions`, () => {
   it(`offers the repairs that state allows`, () => {
     // Signed out or expired: the sign-in leads, and (EXP-944) the removal
     // rides along — a dead named profile is exactly what people want gone.
-    // A dead credential is never "set as default": it would not work.
     expect(
       accountChipActions(
         device(),
@@ -75,12 +73,9 @@ describe(`accountChipActions`, () => {
         chip({ profileId: `system`, signedIn: false, health: `signed_out` })
       )
     ).toEqual([ACTION_SIGN_IN])
-    // Healthy and not the device's login: both entries.
-    expect(accountChipActions(device(), chip())).toEqual([
-      ACTION_SET_DEFAULT,
-      ACTION_REMOVE,
-    ])
-    // Healthy and already the default: only the removal.
+    // Healthy: only the removal, last used or not (EXP-1158: nothing picks
+    // the login the machine starts on).
+    expect(accountChipActions(device(), chip())).toEqual([ACTION_REMOVE])
     expect(accountChipActions(device(), chip({ active: true }))).toEqual([
       ACTION_REMOVE,
     ])
@@ -98,10 +93,9 @@ describe(`accountChipActions`, () => {
         device({ caps: [`agent-login`, `account-switch`] }),
         chip()
       )
-    ).toEqual([ACTION_SET_DEFAULT])
+    ).toEqual([])
     // The ambient login is the agent CLI's own config dir: an EXP-862 build
-    // cannot sign it out — and it is already the active one, so nothing is
-    // left.
+    // cannot sign it out, so nothing is left.
     expect(
       accountChipActions(
         device(),
@@ -112,12 +106,11 @@ describe(`accountChipActions`, () => {
 
   // EXP-1137: a build with the sign-out body offers "Sign out" on every
   // signed-in login, and "Remove account" on the ambient one too. The order
-  // is fixed ×4: sign in, set as default, sign out, remove.
+  // is fixed ×4: sign in, sign out, remove.
   it(`offers a sign-out and the ambient removal on a build that signs out`, () => {
     const machine = device({ caps: SIGN_OUT_CAPS })
-    // A named login, healthy, not the default: every entry but the sign-in.
+    // A named login, healthy: every entry but the sign-in.
     expect(accountChipActions(machine, chip())).toEqual([
-      ACTION_SET_DEFAULT,
       ACTION_SIGN_OUT,
       ACTION_REMOVE,
     ])

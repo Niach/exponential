@@ -55,10 +55,10 @@ final class PickerContractTests: XCTestCase {
                 id: "system",
                 agent: "claude",
                 email: "ada@exp.dev",
-                isDeviceDefault: true,
+                isLastUsed: true,
                 health: .needsRelogin
             ),
-            AccountOption(id: "system", agent: "codex", email: "ada@exp.dev", isDeviceDefault: false),
+            AccountOption(id: "system", agent: "codex", email: "ada@exp.dev", isLastUsed: false),
         ])
         XCTAssertEqual(rows.map(\.value), ["claude:system", "codex:system"])
         XCTAssertEqual(rows.map(\.label), ["ada@exp.dev", "ada@exp.dev"])

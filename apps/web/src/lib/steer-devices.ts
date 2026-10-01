@@ -366,14 +366,14 @@ export function deviceUsageWallAt(
 /** EXP-1138 gate split: which login a start with NO `account` lands on.
  *
  * The device advertises `agent` as runnable when ANY of its logins is signed
- * in, but a frame without `account` lands on the machine's AMBIENT login
- * (the active/system profile), which the doctor refuses when that one is
- * signed out ("Pick another account"). So the server fills the gap:
- *   - `ambient`: the default login is signed in (or the machine reports no
+ * in, but a frame without `account` lands on the machine's LAST USED login
+ * (EXP-1158: the agent's `active` profile, else `system`), which the doctor
+ * refuses when that one is signed out ("Pick another account"). So the
+ * server fills the gap:
+ *   - `ambient`: the last used login is signed in (or the machine reports no
  *     profiles, an older build): send the frame as is;
- *   - `profile`: the default login is signed out and another profile is
- *     signed in: name that profile (the machine's default first, then the
- *     reported order);
+ *   - `profile`: the last used login is signed out and another profile is
+ *     signed in: name the first one in the reported order;
  *   - `none`: nothing is signed in: refuse the start.
  */
 export function resolveStartAccount(

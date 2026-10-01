@@ -68,8 +68,8 @@ data class AgentLaunchDefaults(
  * A machine's per-agent coding defaults, advertised on the presence row so a
  * remote Start-coding sheet opens on the SAME settings the machine itself
  * would use (EXP-437). [agents] is keyed by contract `codingAgent` id and
- * covers only the RUNNABLE agents; [defaultAgent] is the machine's configured
- * default and must be clamped to what it can actually run. The whole field is
+ * covers only the RUNNABLE agents; [defaultAgent] is the machine's last used
+ * agent and must be clamped to what it can actually run. The whole field is
  * absent on an older desktop — readers fall back to the static contract
  * defaults.
  *
@@ -92,16 +92,13 @@ data class DeviceWorkflowDefaults(
 
 @Serializable
 data class DeviceLaunchDefaults(
-    @SerialName("defaultAgent") val defaultAgent: String? = null,
     /**
-     * EXP-872: the machine's default ACCOUNT — a profile id of [defaultAgent]'s
-     * logins (`agent_profiles`), which the one account picker seeds itself to.
-     * "Default agent" became "default account" on every surface: the agent is
-     * DERIVED from the picked login, and this field names which login that is.
-     * Absent on a machine (or a stored row) from before the rename — the
-     * agent's ACTIVE login is then the default, exactly as it was.
+     * EXP-1158: the machine's LAST USED agent. Only the DEVICE writes it;
+     * clients read it and never send it (the server carries the stored value
+     * forward when a save omits it). The account key a pre-EXP-1158 row may
+     * still store is an unknown key every decoder here skips.
      */
-    @SerialName("defaultAccount") val defaultAccount: String? = null,
+    @SerialName("defaultAgent") val defaultAgent: String? = null,
     @SerialName("agents") val agents: Map<String, AgentLaunchDefaults> = emptyMap(),
     /** EXP-1029: the workflow model defaults; null on an older machine. */
     @SerialName("workflow") val workflow: DeviceWorkflowDefaults? = null,

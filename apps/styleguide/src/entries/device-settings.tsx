@@ -1,5 +1,4 @@
 import {
-  AccountPicker,
   Combobox,
   GlassGroup,
   GlassSectionHeader,
@@ -25,7 +24,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1020`,
   title: `Device settings`,
-  blurb: `One layout on all four clients (EXP-1020). Top to bottom: the identity row, the default-device toggle, sharing (server machines), then the agent-defaults card — default account (always changeable), agent tabs, model, subagent model (claude only), effort, ultracode, plan mode — ending in the "Workflow settings" SUB-SHELL row. Update comes last but one; "Remove device" is a plain row, not a section of its own. No worktrees: a machine's worktrees are the IDE's local Settings → Worktrees. A headline only appears where something else shares the page, which is why the agent card has none.`,
+  blurb: `One layout on all four clients (EXP-1020). Top to bottom: the identity row, the default-device toggle, sharing (server machines), then the agent-defaults card — agent tabs, model, subagent model (claude only), effort, ultracode, plan mode — ending in the "Workflow settings" SUB-SHELL row. Update comes last but one; "Remove device" is a plain row, not a section of its own. No worktrees: a machine's worktrees are the IDE's local Settings → Worktrees. A headline only appears where something else shares the page, which is why the agent card has none.`,
   status: {
     web: {
       state: `ok`,
@@ -68,13 +67,6 @@ export const entry: StyleguideEntry = {
         />
       </GlassGroup>
       <GlassGroup>
-        <AccountPicker
-          variant="row"
-          mobileTitle="Default account"
-          value="claude:demo"
-          options={[{ key: `claude:demo`, agent: `claude`, email: `dev@acme.test` }]}
-          onChange={noop}
-        />
         <Combobox
           triggerVariant="row"
           searchable={false}

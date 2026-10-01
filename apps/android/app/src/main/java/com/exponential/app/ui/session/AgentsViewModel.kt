@@ -12,7 +12,6 @@ import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.agentProfileRemoveCommand
 import com.exponential.app.data.api.agentProfileSignOutCommand
-import com.exponential.app.data.api.agentProfileUseCommand
 import com.exponential.app.data.api.agentUsageRefreshCommand
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
@@ -95,8 +94,8 @@ data class AgentRow(
     // batch PR's representative) or, for an action/chat run that opened a PR
     // of its own, the SESSION. Null = nothing to merge.
     val mergeTarget: MergeTarget? = null,
-    // EXP-1068: the run's account when it is not its machine's default for
-    // the agent (`runAccountLabel`); null = default, unset or unknown.
+    // EXP-1068: the run's account when it is not its machine's last used for
+    // the agent (`runAccountLabel`); null = last used, unset or unknown.
     val accountLabel: String? = null,
 )
 
@@ -266,49 +265,14 @@ class AgentsViewModel @Inject constructor(
     }
 
     // ── EXP-849: the MACHINE rows' account repair (Devices, not Accounts) ───
-    // "Set as default" is the one repair a device row runs by itself:
-    // `agent_profile_use` points the agent at a login the device ALREADY
-    // holds. Sign-ins are NOT here — they round-trip a link and a code, which
-    // the device-settings sheet owns (one implementation, not one per
-    // surface). Keyed by machine × login ([deviceLoginCommandKey]), so two
-    // logins — or two machines holding the same one — caption independently.
+    // The commands a device row runs by itself: sign-out and removal of a
+    // login the device ALREADY holds. Sign-ins are NOT here — they round-trip
+    // a link and a code, which the device-settings sheet owns (one
+    // implementation, not one per surface). Keyed by machine × login
+    // ([deviceLoginCommandKey]), so two logins — or two machines holding the
+    // same one — caption independently.
     private val _accountCommandStates = MutableStateFlow<Map<String, DeviceCommandUiState>>(emptyMap())
     val accountCommandStates: StateFlow<Map<String, DeviceCommandUiState>> = _accountCommandStates
-
-    /**
-     * EXP-849/EXP-862 "Set as default" — make this already-signed-in login
-     * [device]'s ACTIVE one (`agent_profile_use`). No credential is touched
-     * and nothing is signed out; the machine re-reports `agent_accounts` on
-     * its next heartbeat, which is what moves the chip's check.
-     *
-     * Only the OWNER of an online machine may run it (the server re-checks),
-     * and never a logout: signing codex out would revoke the account
-     * server-wide.
-     */
-    fun useAccountHere(device: SteerDevice, row: AgentProfileUsageRow) {
-        setAccountDefault(device, row.agent, row.profileId)
-    }
-
-    /**
-     * EXP-862 "Set as default" — the same `agent_profile_use` command, called
-     * from either surface (a machine row's chip or an account row's machine
-     * chip), so both caption in the same keyed slot.
-     */
-    fun setAccountDefault(device: SteerDevice, agent: String, profileId: String) {
-        if (!device.isMine || !device.online) return
-        val key = accountCommandKey(device.deviceId, agent, profileId)
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            runDeviceCommand(
-                devicesApi,
-                accountId,
-                agentProfileUseCommand(device.deviceId, agent, profileId),
-                device.online,
-            ) { state ->
-                _accountCommandStates.value = _accountCommandStates.value + (key to state)
-            }
-        }
-    }
 
     /**
      * EXP-862 "Remove account" — the machine deletes ITS copy of the login

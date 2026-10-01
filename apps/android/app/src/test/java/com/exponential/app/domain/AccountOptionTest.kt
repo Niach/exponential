@@ -21,7 +21,7 @@ class AccountOptionTest {
     /**
      * The fixture ×4: two claude logins (work = active, home = a dead
      * credential), one codex login, and a `system` codex profile that is
-     * signed out. The default agent is codex.
+     * signed out. The last used agent is codex.
      */
     private val accounts = mapOf(
         "claude" to AgentAccount(
@@ -108,41 +108,24 @@ class AccountOptionTest {
     }
 
     @Test
-    fun `puts the device default first and marks exactly one option`() {
-        // launchDefaults.defaultAgent = 'codex' with an active codex login →
-        // that login is options[0] and the only isDeviceDefault: true.
+    fun `puts the last used login first and marks exactly one option`() {
+        // launchDefaults.defaultAgent = 'codex' (the last used agent) with an
+        // active codex login → that login is options[0] and the only
+        // isLastUsed: true.
         val options = flatten()
         assertEquals("codex", options.first().agent)
         assertEquals("main", options.first().id)
-        assertTrue(options.first().isDeviceDefault)
-        assertEquals(1, options.count { it.isDeviceDefault })
-        assertEquals(options.first(), AccountOptions.default(options))
+        assertTrue(options.first().isLastUsed)
+        assertEquals(1, options.count { it.isLastUsed })
+        assertEquals(options.first(), AccountOptions.lastUsed(options))
     }
 
     @Test
-    fun `prefers the stored default account of the default agent`() {
-        // EXP-872: "default agent" became "default account" — the device
-        // stores the profile id, and it wins over the agent's ACTIVE login.
-        val options = flatten(
-            DeviceLaunchDefaults(defaultAgent = "claude", defaultAccount = "home"),
-        )
-        assertEquals("claude:home", options.first().key)
-        assertTrue(options.first().isDeviceDefault)
-        assertEquals(1, options.count { it.isDeviceDefault })
-        // A stored profile the device no longer reports falls back to the
-        // active login.
-        val gone = flatten(
-            DeviceLaunchDefaults(defaultAgent = "claude", defaultAccount = "retired"),
-        )
-        assertEquals("claude:work", gone.first().key)
-    }
-
-    @Test
-    fun `falls back to the first contract agent's active login when no default agent is set`() {
+    fun `falls back to the first contract agent's active login when no last used agent is set`() {
         val options = flatten(launchDefaults = null)
         assertEquals("claude:work", options.first().key)
-        assertEquals(1, options.count { it.isDeviceDefault })
-        // A default agent with no active login falls back the same way.
+        assertEquals(1, options.count { it.isLastUsed })
+        // A last used agent with no active login falls back the same way.
         val stale = flatten(DeviceLaunchDefaults(defaultAgent = "pi"))
         assertEquals("claude:work", stale.first().key)
     }
@@ -229,7 +212,7 @@ class AccountOptionTest {
                     id = "system",
                     agent = "claude",
                     email = "solo@x.test",
-                    isDeviceDefault = true,
+                    isLastUsed = true,
                     health = AgentHealth.Ok,
                     limits = AccountLimits(fiveHour = 0.2, week = 0.0),
                 ),
@@ -244,6 +227,6 @@ class AccountOptionTest {
         assertTrue(options.none { it.id == "system" })
         assertTrue(options.none { it.agent == "pi" })
         assertEquals(emptyList<AccountOption>(), AccountOptions.flatten(null, null, null))
-        assertNull(AccountOptions.default(emptyList()))
+        assertNull(AccountOptions.lastUsed(emptyList()))
     }
 }

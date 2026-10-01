@@ -116,7 +116,8 @@ sealed interface ComposerSubject {
 /**
  * The launch options as picked (EXP-437 seeding rules): the machine is a
  * PREFERENCE resolved against the startable pool (nothing set = the default
- * machine), [account] is a login profile id or "" for the machine's active
+ * machine), [account] is the picked login's profile id (`system` = the
+ * ambient one) or "" for none named, which runs on the machine's LAST USED
  * login.
  *
  * EXP-836: a play button's REQUEST and a person's PICK are separate fields, not
@@ -141,10 +142,20 @@ data class LaunchDraft(
 ) {
     /**
      * EXP-872: the picked login as an `AccountOption.key`, which is what the
-     * ONE account picker selects on. `""` is the machine's AMBIENT login —
-     * the `system` profile, which a start deliberately sends no `account` for.
+     * ONE account picker selects on. `""` (nothing picked yet) reads as the
+     * ambient `system` option.
      */
     val accountKey: String get() = "$agent:${account.ifEmpty { SYSTEM_PROFILE_ID }}"
+
+    /**
+     * The `account` a start sends: the picked id VERBATIM, `system` included
+     * (EXP-1158: it NAMES the ambient login); null = none named, which runs on
+     * the machine's LAST USED login.
+     */
+    val wireAccount: String? get() = account.takeIf { it.isNotEmpty() }
+
+    /** [account] set to [option]'s id verbatim; "" only for no option at all. */
+    fun withAccount(option: AccountOption?): LaunchDraft = copy(account = option?.id.orEmpty())
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -404,25 +415,25 @@ class AgentComposerViewModel @Inject constructor(
         viewModelScope.launch {
             device.collect { settled ->
                 settled ?: return@collect
-                // EXP-872: the machine's default ACCOUNT names the agent — the
-                // stored default agent's login, or the first login it reports.
+                // EXP-1158: the machine's LAST USED login names the agent — the
+                // last used agent's active login, or the first login it reports.
                 val options = accountOptionsFor(settled, availableAgentsFor(settled))
                 if (seededDeviceId == settled.deviceId) {
                     val available = availableAgentsFor(settled)
                     // A heartbeat can land AFTER the machine settled: a pick
                     // that no longer names a reported login goes back to the
-                    // default one (idempotent — the next beat matches again).
+                    // last used one (idempotent — the next beat matches again).
                     if (options.none { it.key == _launch.value.accountKey }) {
-                        AccountOptions.default(options)?.let(::selectAccount)
+                        AccountOptions.lastUsed(options)?.let(::selectAccount)
                     } else if (_launch.value.agent !in available) {
                         applyAgentSeed(available.firstOrNull() ?: DEFAULT_AGENT, settled)
                     }
                     return@collect
                 }
                 seededDeviceId = settled.deviceId
-                val default = AccountOptions.default(options)
-                applyAgentSeed(default?.agent ?: defaultAgentFor(settled), settled)
-                applyAccountPick(default)
+                val lastUsed = AccountOptions.lastUsed(options)
+                applyAgentSeed(lastUsed?.agent ?: defaultAgentFor(settled), settled)
+                applyAccountPick(lastUsed)
             }
         }
     }
@@ -593,11 +604,9 @@ class AgentComposerViewModel @Inject constructor(
         applyAccountPick(option)
     }
 
-    /** The picked login as the wire carries it: `""` for the ambient one. */
+    /** The picked login as the wire carries it ([LaunchDraft.withAccount]). */
     private fun applyAccountPick(option: AccountOption?) {
-        _launch.value = _launch.value.copy(
-            account = option?.id?.takeIf { it != SYSTEM_PROFILE_ID }.orEmpty(),
-        )
+        _launch.value = _launch.value.withAccount(option)
     }
 
     fun setModel(value: String) {
@@ -676,7 +685,7 @@ class AgentComposerViewModel @Inject constructor(
             },
             agent = agent,
             resume = if (resume) true else null,
-            account = draft.account.takeIf { it.isNotEmpty() && it != SYSTEM_PROFILE_ID },
+            account = draft.wireAccount,
         )
     }
 
