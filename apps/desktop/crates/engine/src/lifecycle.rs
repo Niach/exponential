@@ -654,6 +654,7 @@ fn spawn_tickers(
                     blocked.tick(wall.as_ref(), &blocked_hook);
                 }
                 tick_stall(&ctx, &mut stall, &commands);
+                tick_api_retry(&ctx, &commands);
                 // REV2-17: the run's ONE redactor (`SessionCtx.redactor`),
                 // never a weaker key-only one — the worktree patch is the
                 // likeliest place a launcher secret an agent copied into a
@@ -748,6 +749,47 @@ fn tick_stall(
             );
             ctx.set_failure(crate::stall::StallWatchdog::end_reason(silent));
             let _ = commands.send(EngineCommand::Shutdown { outcome: "ended" });
+        }
+    }
+}
+
+/// One API-retry tick (FEED-61): a run whose turn died on a transient API
+/// error and has sat idle for its backoff gets the engine's own "continue",
+/// through the same inbox a relay `input` frame takes.
+fn tick_api_retry(ctx: &SessionCtx, commands: &flume::Sender<EngineCommand>) {
+    let blocked = ctx
+        .blocked
+        .lock()
+        .ok()
+        .map(|wall| wall.is_some())
+        .unwrap_or(false);
+    let action = ctx
+        .api_retry
+        .lock()
+        .unwrap_or_else(|err| err.into_inner())
+        .tick(crate::api_retry::RetryInput {
+            now: std::time::Instant::now(),
+            live: ctx.feed.phase() == Some(EnginePhase::Live),
+            idle: ctx.turn_signal.is_idle(),
+            needs_input: ctx.needs_input.load(Ordering::SeqCst),
+            blocked,
+        });
+    match action {
+        crate::api_retry::RetryAction::None => {}
+        crate::api_retry::RetryAction::Retry { attempt } => {
+            log::warn!(
+                "engine: session {} went idle on an API error — automatic retry {attempt} of {}",
+                ctx.session_id,
+                crate::api_retry::BACKOFF.len()
+            );
+            let _ = commands.send(EngineCommand::Steer(crate::api_retry::retry_message(attempt)));
+        }
+        crate::api_retry::RetryAction::GiveUp => {
+            log::warn!(
+                "engine: session {} still failing on API errors — automatic retries exhausted",
+                ctx.session_id
+            );
+            ctx.notice(crate::api_retry::give_up_notice());
         }
     }
 }

@@ -1068,15 +1068,13 @@ private fun RunFaceContent(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f, fill = false),
                         )
-                        caption.countdown?.let { countdown ->
-                            Text(
-                                countdown,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                softWrap = false,
-                            )
-                        }
+                        Text(
+                            caption.detail,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            softWrap = false,
+                        )
                         Spacer(Modifier.weight(1f))
                         // EXP-849: the PRIMARY move on a usage wall is another
                         // account, not waiting for the reset — the button opens the
@@ -5173,7 +5171,22 @@ internal data class RateLimitCaption(val message: String, val countdown: String?
     /** The banner's accessibility label: `"<message> <countdown>"`. */
     val accessibilityLabel: String
         get() = if (countdown == null) message else "$message $countdown"
+
+    /**
+     * FEED-61: the muted caption: the countdown when a reset is known, then
+     * the wall's scope, `resets in 2h 10m · per account`, or the bare note
+     * (web `rateLimitDetail`).
+     */
+    val detail: String
+        get() = if (countdown == null) RATE_LIMIT_ACCOUNT_NOTE else "$countdown · $RATE_LIMIT_ACCOUNT_NOTE"
 }
+
+/**
+ * FEED-61: what a wall is scoped to. A usage window belongs to the ACCOUNT,
+ * so a model switch never lifts it; another account does (the pill beside
+ * it). Byte-identical ×4 (web `RATE_LIMIT_ACCOUNT_NOTE`).
+ */
+internal const val RATE_LIMIT_ACCOUNT_NOTE = "per account"
 
 internal fun rateLimitCaption(message: String?, resetsAtMs: Long?, nowMs: Long): RateLimitCaption {
     val head = message?.trim()?.takeIf { it.isNotEmpty() } ?: "Rate limit reached"

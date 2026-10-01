@@ -1103,6 +1103,9 @@ pub(crate) struct SessionCtx {
     /// a turn edge) — the stall watchdog's clock. The `diff` ticker's own
     /// snapshots never advance it.
     pub(crate) last_activity: Mutex<Instant>,
+    /// FEED-61: the API-error retry's view of the turn stream, fed by
+    /// [`SessionCtx::dispatch`] and ticked by the lifecycle.
+    pub(crate) api_retry: Mutex<crate::api_retry::ApiRetry>,
     /// FEED-25: the reason a watchdog ended this run, surfaced as
     /// `EnginePhase::Failed` ahead of `Ended` (the connection itself did not
     /// error, so nothing else would say why).
@@ -1161,6 +1164,15 @@ impl SessionCtx {
             }
             policy.has_pending()
         };
+        // FEED-61: the retry policy reads the same stream. A replay's rows
+        // are history, never a turn to pick back up.
+        if !self.replay {
+            let now = Instant::now();
+            let mut retry = self.api_retry.lock().unwrap_or_else(|err| err.into_inner());
+            for event in &out.wire {
+                retry.observe(event, now);
+            }
+        }
         self.deliver(out);
         if gate_edge {
             self.request_drain();
@@ -2052,6 +2064,9 @@ fn handle_command(
         // renders as read. Every client hands the bar's text back to the
         // composer on its Stop.
         EngineCommand::Cancel => {
+            // FEED-61: a person's Stop also stops the engine's own retry of
+            // a turn that died on an API error.
+            ctx.api_retry.lock().unwrap_or_else(|err| err.into_inner()).disarm();
             ctx.with_mapper(|mapper| mapper.forget_deliveries());
             ctx.clear_prompt_queue();
             // EXP-936: the person said stop; a `/compact` owed from before

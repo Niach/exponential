@@ -866,6 +866,34 @@ pub fn live_host_cwds(data_dir: &Path) -> Vec<PathBuf> {
     live_host_runs(data_dir).into_iter().map(|(_, cwd)| cwd).collect()
 }
 
+/// FEED-61: how many runs of `agent` with a LIVE host each account profile
+/// is carrying right now (`system` = the ambient login). The start pick
+/// weighs them: the usage cache only knows what a login has already spent,
+/// not the runs currently drawing on it.
+pub fn live_runs_per_account(
+    data_dir: &Path,
+    agent: CodingAgent,
+) -> std::collections::BTreeMap<String, u32> {
+    let _guard = locked(data_dir);
+    let registry = load_registry(data_dir);
+    live_account_counts(&registry.records, agent, crate::process::is_alive)
+}
+
+fn live_account_counts(
+    records: &[RunRecord],
+    agent: CodingAgent,
+    alive: impl Fn(u32) -> bool,
+) -> std::collections::BTreeMap<String, u32> {
+    let mut counts = std::collections::BTreeMap::new();
+    for record in records {
+        if record.agent == agent && record.host_pid.is_some_and(&alive) {
+            let profile = crate::agent_profiles::profile_id(record.account().as_deref());
+            *counts.entry(profile).or_insert(0) += 1;
+        }
+    }
+    counts
+}
+
 /// [`live_host_cwds`] with the session id beside each cwd (empty when an
 /// unknown entry has none) — FEED-53: a finished run's cleanup must tell
 /// its OWN record (whose host clears its pid only at the end) from another
@@ -1814,6 +1842,29 @@ mod tests {
 
     /// EXP-766: only records whose host process is alive, unknown entries
     /// included (a newer build's live run is still live work).
+    #[test]
+    fn live_runs_are_counted_per_account_profile() {
+        let mut ambient = sample_record("s1");
+        ambient.host_pid = Some(1);
+        let mut work = sample_record("s2");
+        work.host_pid = Some(2);
+        work.set_account(Some("work"));
+        let mut work_too = sample_record("s3");
+        work_too.host_pid = Some(3);
+        work_too.set_account(Some("work"));
+        let mut dead = sample_record("s4");
+        dead.host_pid = Some(99);
+        dead.set_account(Some("work"));
+        let mut ended = sample_record("s5");
+        ended.host_pid = None;
+        let records = [ambient, work, work_too, dead, ended];
+        let agent = records[0].agent;
+        let counts = live_account_counts(&records, agent, |pid| pid != 99);
+        assert_eq!(counts.get(crate::SYSTEM_PROFILE), Some(&1));
+        assert_eq!(counts.get("work"), Some(&2));
+        assert_eq!(counts.len(), 2);
+    }
+
     #[test]
     fn live_host_cwds_reads_known_and_unknown_entries() {
         let dir = temp_dir("live-hosts");

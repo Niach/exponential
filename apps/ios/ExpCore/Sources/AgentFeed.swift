@@ -1270,6 +1270,19 @@ public enum AgentFeed {
         return (message, AgentUsagePresentation.resetCountdown(reset: reset, now: now))
     }
 
+    /// FEED-61: what a wall is scoped to. A usage window belongs to the
+    /// ACCOUNT, so a model switch never lifts it — another account does (the
+    /// pill beside it). Byte-identical ×4 (web `RATE_LIMIT_ACCOUNT_NOTE`).
+    public static let rateLimitAccountNote = "per account"
+
+    /// The banner's muted caption: the countdown when a reset is known, then
+    /// the scope — `resets in 2h 10m · per account`, or the bare note (web
+    /// `rateLimitDetail`).
+    public static func rateLimitDetail(_ countdown: String?) -> String {
+        guard let countdown else { return rateLimitAccountNote }
+        return "\(countdown) · \(rateLimitAccountNote)"
+    }
+
     /// The banner's accessibility label: `"<message> <countdown>"`.
     public static func rateLimitAccessibilityLabel(
         _ limit: AgentSessionRateLimit, now: Date = Date()

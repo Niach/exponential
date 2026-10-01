@@ -1371,13 +1371,11 @@ struct AgentSessionView: View {
                     .foregroundStyle(DesignTokens.Semantic.yellow)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                if let countdown = caption.countdown {
-                    Text(verbatim: countdown)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                }
+                Text(verbatim: AgentFeed.rateLimitDetail(caption.countdown))
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
                 Spacer(minLength: 0)
                 // EXP-849: the wall's PRIMARY answer — the other account. It
                 // opens the readout's account rows (bars and health included),

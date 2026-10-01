@@ -103,6 +103,9 @@ final class AgentSessionComposerTests: XCTestCase {
             ).message,
             "Rate limit reached"
         )
+        // FEED-61: the muted caption names the wall's scope, ×4.
+        XCTAssertEqual(AgentFeed.rateLimitDetail("resets in 45m"), "resets in 45m · per account")
+        XCTAssertEqual(AgentFeed.rateLimitDetail(nil), "per account")
         // The accessibility label reads both, space-joined, no ` · `.
         XCTAssertEqual(
             AgentFeed.rateLimitAccessibilityLabel(limit, now: reset.addingTimeInterval(-45 * 60)),

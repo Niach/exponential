@@ -146,7 +146,7 @@ pub use launcher::{apply_account_env, set_session_end_observer, start_heartbeat,
 pub use launcher::SESSION_HEARTBEAT_INTERVAL;
 pub use launcher::{
     claude_projects_root, claude_transcript_exists, context_layers_for, default_device_label,
-    end_session, end_session_best_effort, locate_claude_transcript, prepare, prepare_agent_shell,
+    end_session, end_session_best_effort, mark_resuming, unmark_resuming, locate_claude_transcript, prepare, prepare_agent_shell,
     AcpLaunch, ActionLaunchRequest, ActionRunKind, ACP_TRANSPORT,
     AgentShellLaunch, AgentShellRequest, CodingDeps, CodingError, DisabledReason,
     GitWorktrees, IssueSeed, IssueSeedFn, LaunchOrigin, LaunchOutcome, LaunchRequest,

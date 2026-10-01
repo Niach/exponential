@@ -159,9 +159,14 @@ pub(crate) fn http_error(status: u16, body: &str) -> ApiError {
 /// `ureq`, reqwest returns `Ok(response)` for non-2xx statuses, so an `Err`
 /// here is always transport — status mapping lives in [`status_error_authed`]
 /// / [`status_error_unauthed`], which the response path calls explicitly.
+///
+/// FEED-69: the message carries the whole `source()` chain (the cause is what
+/// a log needs), and every failure feeds the shared client's dead-connection
+/// streak ([`crate::http::record_failure`]).
 pub(crate) fn transport_error(err: reqwest::Error) -> ApiError {
+    crate::http::record_failure();
     ApiError::Transport {
-        message: err.to_string(),
+        message: crate::http::error_chain(&err),
         offline: is_offline_failure(err.is_connect(), err.is_timeout(), err.is_request()),
     }
 }

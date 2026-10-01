@@ -13,8 +13,10 @@ import {
 import { router, authedProcedure, type Context } from "@/lib/trpc"
 import { notifySessionBlocked } from "@/lib/integrations/notifications"
 import {
+  findLiveResumeId,
   notifyParentOfChildBlocked,
   notifyParentOfChildEnd,
+  notifyParentOfChildResumed,
 } from "@/lib/steer-child-messages"
 import {
   actions,
@@ -213,6 +215,18 @@ async function resolveResumedFrom(
     throw new TRPCError({
       code: `FORBIDDEN`,
       message: `You can only resume your own run`,
+    })
+  }
+  // FEED-68: the run is already live again under another id (the account
+  // rotation resumed it, or the parent did). Its worktree and branch are
+  // that run's; a second resume would put two agents on the same files.
+  // steer.startSession refuses the remote path before the frame leaves;
+  // this is the same rule for a Resume made on the machine itself.
+  const liveResumeId = await findLiveResumeId(db, row.id)
+  if (liveResumeId) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: `That run was already resumed and is live as ${liveResumeId} — open that run instead of resuming it again`,
     })
   }
   return {
@@ -458,7 +472,9 @@ async function repointWorkflowNodes(
   }
 }
 
-/** The two succession writes every resume performs, after the insert. */
+/** The two succession writes every resume performs, after the insert, and
+ * the word to an agent parent that its child is live under the new id
+ * (FEED-68; best-effort, never throws). */
 async function adoptPredecessor(
   db: Context[`db`],
   predecessorId: string,
@@ -467,6 +483,7 @@ async function adoptPredecessor(
 ): Promise<void> {
   await restampChildren(db, predecessorId, successorId, successorTeamId)
   await repointWorkflowNodes(db, predecessorId, successorId)
+  await notifyParentOfChildResumed(db, predecessorId, successorId)
 }
 
 // The desktop launcher's live "coding now" record (§4a step 7). One row per
@@ -2002,7 +2019,15 @@ export const codingSessionsRouter = router({
     }),
 
   end: authedProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        // FEED-68: the device ends this run ONLY to resume it itself right
+        // away (account switch / rotation). Never stored; it words the
+        // parent's message.
+        resuming: z.boolean().optional(),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
       const [existing] = await ctx.db
         .select({
@@ -2093,9 +2118,12 @@ export const codingSessionsRouter = router({
       // EXP-700: a client end is an agent-started child that vanished
       // WITHOUT its close-out — tell a live parent so it is not left waiting
       // forever. Best-effort (internally caught, relay 3s-bounded).
+      // FEED-68: an end that is half of the device's own resume says so —
+      // "ended without a report" had the parent resume it a second time.
       await notifyParentOfChildEnd(ctx.db, input.id, {
         summary: null,
         endedBy: `client`,
+        resuming: input.resuming === true,
       })
       // EXP-1146: an ended run may complete its yolo tree.
       fireYoloTreeMerge(input.id)

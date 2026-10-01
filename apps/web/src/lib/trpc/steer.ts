@@ -56,6 +56,7 @@ import {
 } from "@/lib/steer-devices"
 import { SYSTEM_PROFILE_ID } from "@/lib/agent-usage"
 import { runIsStaleEnd } from "@/lib/past-runs"
+import { findLiveResumeId } from "@/lib/steer-child-messages"
 import { fireYoloTreeMerge } from "@/lib/sessions/yolo-tree-trigger"
 import {
   findLiveRunForIssues,
@@ -930,6 +931,20 @@ export const steerRouter = router({
         // login's own rollout store, so there is no transcript to move. Both
         // refusals name the way forward, because the caller is often an agent
         // reading the message.
+        // FEED-68: an ENDED run that is already live again under another id
+        // (the account rotation resumed it, or someone else did) shares its
+        // worktree and branch with that resume. A second one would put two
+        // agents on the same files — refuse, and name the run to talk to.
+        if (session.status === `ended`) {
+          const { db } = await import(`@/db/connection`)
+          const liveResumeId = await findLiveResumeId(db, session.id)
+          if (liveResumeId) {
+            throw new TRPCError({
+              code: `PRECONDITION_FAILED`,
+              message: `That run was already resumed and is live as ${liveResumeId} — track and message that run (exponential_sessions_get / exponential_sessions_message) instead of resuming it again`,
+            })
+          }
+        }
         const switching = Boolean(input.account)
         const liveSwitch = switching && session.status !== `ended`
         if (session.status !== `ended`) {

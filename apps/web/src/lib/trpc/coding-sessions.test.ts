@@ -52,6 +52,8 @@ vi.mock(`@/lib/trpc/repositories`, () => ({
 vi.mock(`@/lib/steer-child-messages`, () => ({
   notifyParentOfChildEnd: vi.fn(async () => ({ delivered: false })),
   notifyParentOfChildBlocked: vi.fn(async () => ({ delivered: false })),
+  notifyParentOfChildResumed: vi.fn(async () => ({ delivered: false })),
+  findLiveResumeId: vi.fn(async (): Promise<string | null> => null),
 }))
 
 // EXP-980/1005: a wall tells the run's owner unless the device handles it.
@@ -77,8 +79,10 @@ vi.mock(`@/lib/mcp/context-budget`, () => ({
 import { codingSessionsRouter } from "@/lib/trpc/coding-sessions"
 import { codingSessions, sessionAttachments, workflowNodes } from "@/db/schema"
 import {
+  findLiveResumeId,
   notifyParentOfChildBlocked,
   notifyParentOfChildEnd,
+  notifyParentOfChildResumed,
 } from "@/lib/steer-child-messages"
 import { notifySessionBlocked } from "@/lib/integrations/notifications"
 import { fireYoloTreeMerge } from "@/lib/sessions/yolo-tree-trigger"
@@ -2329,6 +2333,22 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
     expect(selectWheres).toHaveLength(1)
   })
 
+  // FEED-68: a run that is live again under another id is never resumed a
+  // second time — two agents would share its worktree and branch.
+  it(`refuses to resume a run that is already live under another id`, async () => {
+    const LIVE = `77777777-7777-4777-8777-777777777777`
+    selectResults.push([{ id: RESUMED_FROM, userId: `actor` }])
+    vi.mocked(findLiveResumeId).mockResolvedValueOnce(LIVE)
+
+    await expect(
+      caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
+    ).rejects.toMatchObject({
+      code: `PRECONDITION_FAILED`,
+      message: expect.stringContaining(`live as ${LIVE}`),
+    })
+    expect(inserts).toHaveLength(0)
+  })
+
   // EXP-906: a resume is the SAME run under a new id — the 2026-09-15 stack
   // lost every parent↔child link on the account switch because the new row
   // carried neither the parent nor the agent-started marker.
@@ -2363,6 +2383,12 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
       `col:team_id`,
       `ws-issue`,
     ])
+    // FEED-68: and the parent hears which id the child is live under now.
+    expect(notifyParentOfChildResumed).toHaveBeenCalledWith(
+      expect.anything(),
+      RESUMED_FROM,
+      SESSION_ID
+    )
   })
 
   // The inheritance turned the link into a write, so it is owner-gated: a
@@ -2590,7 +2616,23 @@ describe(`codingSessions.end — endedBy stamp (EXP-637)`, () => {
     expect(notifyParentOfChildEnd).toHaveBeenCalledWith(
       expect.anything(),
       SESSION_ID,
-      { summary: null, endedBy: `client` }
+      { summary: null, endedBy: `client`, resuming: false }
+    )
+  })
+
+  // FEED-68: the device ends a run only to resume it itself (account switch
+  // / rotation) — the parent is told THAT, not "ended without a report".
+  it(`passes the device's resuming flag to the parent notification`, async () => {
+    selectResults.push([
+      { id: SESSION_ID, userId: `actor`, hostUserId: null, status: `running` },
+    ])
+
+    await caller.end({ id: SESSION_ID, resuming: true })
+
+    expect(notifyParentOfChildEnd).toHaveBeenCalledWith(
+      expect.anything(),
+      SESSION_ID,
+      { summary: null, endedBy: `client`, resuming: true }
     )
   })
 

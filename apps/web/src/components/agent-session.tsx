@@ -144,6 +144,7 @@ import {
   QUEUE_STRIP_TITLE,
   type QueuedMessage,
   rateLimitBanner,
+  rateLimitDetail,
   rowClass,
   sessionIsWorking,
   subagentLabel,
@@ -3156,9 +3157,9 @@ function RateLimitBanner({
       >
         <UiUsageIcon className="size-3 shrink-0" />
         <span className="min-w-0 truncate">{text}</span>
-        {resets && (
-          <span className="shrink-0 text-muted-foreground">{resets}</span>
-        )}
+        <span className="shrink-0 text-muted-foreground">
+          {rateLimitDetail(resets)}
+        </span>
         {onSwitchAccount && (
           <Pill
             size="sm"

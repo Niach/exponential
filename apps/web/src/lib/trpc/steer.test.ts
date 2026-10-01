@@ -99,6 +99,8 @@ const h = vi.hoisted(() => {
     resolveStackChain: vi.fn(),
     // FEED-57: the fresh start's live-run probe (codingSessions helper).
     findLiveRunForIssues: vi.fn(),
+    // FEED-68: the resume's "already live under another id" probe.
+    findLiveResumeId: vi.fn(async (): Promise<string | null> => null),
     dbQueue,
     db: { select: () => makeChain() },
   }
@@ -128,6 +130,9 @@ vi.mock(`@/lib/stack-plan`, () => ({
 vi.mock(`@/lib/trpc/coding-sessions`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/trpc/coding-sessions")>()),
   findLiveRunForIssues: h.findLiveRunForIssues,
+}))
+vi.mock(`@/lib/steer-child-messages`, () => ({
+  findLiveResumeId: h.findLiveResumeId,
 }))
 vi.mock(`@/lib/steer`, () => ({
   getSteerRelayConfig: h.getSteerRelayConfig,
@@ -1920,6 +1925,41 @@ describe(`steer.startSession — agent-started runs (EXP-679)`, () => {
       resumeSessionId: uuid(7),
       startedReason: `agent`,
     })
+  })
+
+  // FEED-68: the account rotation had already resumed the walled child when
+  // its parent, told "ended without a report", resumed it AGAIN — two agents
+  // on one worktree and branch.
+  it(`refuses to resume a run that is already live under another id`, async () => {
+    h.dbQueue.push([
+      {
+        id: uuid(7),
+        userId: `actor`,
+        hostUserId: null,
+        teamId: `ws-1`,
+        status: `ended`,
+        deviceId: `dev-1`,
+        issueId: null,
+        actionId: null,
+        actionName: `Refresh screenshots`,
+        branch: null,
+        startedReason: `agent`,
+        parentSessionId: PARENT,
+      },
+    ])
+    h.findLiveResumeId.mockResolvedValueOnce(uuid(8))
+
+    const error = await rejectionOf(
+      caller.startSession({ resumeSessionId: uuid(7), deviceId: `dev-1` })
+    )
+
+    expect(error).toMatchObject({
+      code: `PRECONDITION_FAILED`,
+      message: expect.stringContaining(
+        `already resumed and is live as ${uuid(8)}`
+      ),
+    })
+    expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 
   it(`refuses a parent that is not the caller's own live session`, async () => {

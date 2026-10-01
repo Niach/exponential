@@ -1669,7 +1669,10 @@ impl Shell {
                         .loading(status.catching_up)
                         .on_click(move |_: &ClickEvent, _, cx| {
                             // Restart the account pipeline: parked backoffs and
-                            // held long-polls re-poll immediately (EXP-470 rails).
+                            // held long-polls re-poll immediately (EXP-470 rails)
+                            // — on a FRESH connection (FEED-69), never the
+                            // pooled one that may be what is failing.
+                            api::http::reset("offline banner Retry");
                             let store = Store::global(cx).clone();
                             store.resync_active(cx);
                         }),

@@ -2251,6 +2251,9 @@ fn end_for_account_switch(sessions: &Sessions, session_id: &str) -> anyhow::Resu
         return Err(SwitchBusy { session_id: session_id.to_string() }.into());
     }
     log::info!("account switch: ending live session {session_id} before the resume");
+    // FEED-68: this end is half of a resume — an agent parent must not read
+    // it as "ended without a report" and resume the run a second time.
+    coding::mark_resuming(session_id);
     live.kill();
     // ~10s: an engine teardown is sub-second. Past that the resume is refused
     // rather than launched into a worktree something may still hold.
@@ -2258,6 +2261,7 @@ fn end_for_account_switch(sessions: &Sessions, session_id: &str) -> anyhow::Resu
         .wait_timeout(std::time::Duration::from_secs(10))
         .is_none()
     {
+        coding::unmark_resuming(session_id);
         anyhow::bail!("account switch for {session_id} refused — the run did not stop in time");
     }
     Ok(())

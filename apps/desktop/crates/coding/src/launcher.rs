@@ -193,7 +193,14 @@ fn apply_start_pick(
         options.account.take(),
         Some(check),
     );
-    let profiles = crate::agent_usage::profile_usage_snapshot(options.agent, &deps.data_dir);
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    // FEED-61: the runs already live on each login count against it, so
+    // concurrent starts spread instead of sharing one 5h window.
+    let profiles = crate::account_rotation::weigh_live_runs(
+        crate::agent_usage::profile_usage_snapshot(options.agent, &deps.data_dir),
+        &crate::run_registry::live_runs_per_account(&deps.data_dir, options.agent),
+        now_ms,
+    );
     let model = Some(options.model.as_str()).filter(|model| !model.is_empty());
     crate::account_rotation::apply_start_pick(
         &mut options.account,
@@ -201,7 +208,7 @@ fn apply_start_pick(
         deps.settings.auto_rotate_accounts,
         options.agent,
         model,
-        chrono::Utc::now().timestamp_millis(),
+        now_ms,
     )
 }
 
@@ -4439,6 +4446,32 @@ pub fn set_session_end_observer(observer: SessionEndObserver) {
     let _ = SESSION_END_OBSERVER.set(observer);
 }
 
+/// Session ids this machine is about to end ONLY to resume them itself (an
+/// account switch or rotation). Their end tells the server so (FEED-68).
+static RESUMING: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// Call right before killing a live run that this machine relaunches as a
+/// resume: the run's own end then carries `resuming`, and an agent parent is
+/// told the child resumes itself instead of "ended without a report".
+pub fn mark_resuming(session_id: &str) {
+    let mut resuming = RESUMING.lock().unwrap_or_else(|e| e.into_inner());
+    if !resuming.iter().any(|id| id == session_id) {
+        resuming.push(session_id.to_string());
+    }
+}
+
+/// The resume did not happen after all (the run would not stop in time).
+pub fn unmark_resuming(session_id: &str) {
+    take_resuming(session_id);
+}
+
+fn take_resuming(session_id: &str) -> bool {
+    let mut resuming = RESUMING.lock().unwrap_or_else(|e| e.into_inner());
+    let before = resuming.len();
+    resuming.retain(|id| id != session_id);
+    resuming.len() != before
+}
+
 /// `codingSessions.end` with the outcome reported to the
 /// [`SessionEndObserver`]. Every end this crate issues goes through here so
 /// the host's registry sees each outcome exactly where it happens.
@@ -4446,7 +4479,8 @@ pub fn end_session(
     trpc: &TrpcClient,
     session_id: &str,
 ) -> Result<coding_sessions::CodingSession, ApiError> {
-    let result = coding_sessions::end(trpc, session_id);
+    let resuming = take_resuming(session_id);
+    let result = coding_sessions::end_with(trpc, session_id, resuming);
     if let Some(observer) = SESSION_END_OBSERVER.get() {
         observer(session_id, &result);
     }
