@@ -55,6 +55,23 @@ export function formatChildEndedSilently(
   return `[${CHILD_RUN_TAG} ${childRunLabel(child)} ended without a report (${endedBy})]`
 }
 
+/** FEED-68: the child's own machine ended it ONLY to relaunch it as a resume
+ * (an account switch, or the account rotation behind a usage wall). Said
+ * instead of "ended without a report", which a parent reads as its cue to
+ * resume the run itself: a second agent in the same worktree. */
+export function formatChildResuming(child: ChildRunRef): string {
+  return `[${CHILD_RUN_TAG} ${childRunLabel(child)} is switching accounts and resumes itself under a new id — do NOT resume or restart it]`
+}
+
+/** FEED-68: the resume landed. Names the successor's FULL uuid: that is the
+ * run the parent tracks and messages from here on. */
+export function formatChildResumed(
+  predecessor: ChildRunRef,
+  successorId: string
+): string {
+  return `[${CHILD_RUN_TAG} ${childRunLabel(predecessor)} resumed as ${successorId} — it is live under that id: track and message it there, do NOT resume ${predecessor.id.slice(0, 8)}]`
+}
+
 /** Names the child's FULL uuid — that is what the parent passes back to
  * `exponential_sessions_message`. */
 export function formatChildQuestion(
@@ -183,6 +200,40 @@ export async function resolveLiveParentSessionId(
       select cs.id, cs.status, 0 as hops
       from coding_sessions cs
       where cs.id = ${child.parentSessionId}::uuid
+      union all
+      select s.id, s.status, succession.hops + 1
+      from coding_sessions s
+      join succession on s.resumed_from_id = succession.id
+      where succession.hops < ${maxDepth}
+    )
+    select id from succession
+    where status in (${sql.join(
+      PARENT_LIVE_STATUSES.map((status) => sql`${status}`),
+      sql`, `
+    )})
+    order by hops desc
+    limit 1
+  `)
+  const row = (result.rows ?? [])[0]
+  return row ? ((row.id as string | null) ?? null) : null
+}
+
+/**
+ * FEED-68: the newest LIVE run that resumed `sessionId` (its
+ * `resumed_from_id` succession walked forward, the run itself excluded).
+ * Non-null = that run is already going again under another id, on the same
+ * worktree and branch — a second resume would put two agents on it.
+ */
+export async function findLiveResumeId(
+  db: Context[`db`],
+  sessionId: string,
+  maxDepth = MAX_SESSION_CHAIN_DEPTH
+): Promise<string | null> {
+  const result = await db.execute(sql`
+    with recursive succession as (
+      select s.id, s.status, 1 as hops
+      from coding_sessions s
+      where s.resumed_from_id = ${sessionId}::uuid
       union all
       select s.id, s.status, succession.hops + 1
       from coding_sessions s
@@ -362,7 +413,7 @@ export async function loadSubtreeSessionIds(
 export async function notifyParentOfChildEnd(
   db: Context[`db`],
   childSessionId: string,
-  end: { summary: string | null; endedBy: string }
+  end: { summary: string | null; endedBy: string; resuming?: boolean }
 ): Promise<{ delivered: boolean }> {
   try {
     const child = await loadChildParentContext(db, childSessionId)
@@ -377,8 +428,43 @@ export async function notifyParentOfChildEnd(
     const message =
       end.summary !== null
         ? formatChildFinished(child, end.summary)
-        : formatChildEndedSilently(child, end.endedBy)
+        : end.resuming
+          ? formatChildResuming(child)
+          : formatChildEndedSilently(child, end.endedBy)
     return await relayPostInput(config, target, message)
+  } catch {
+    return { delivered: false }
+  }
+}
+
+/**
+ * FEED-68: tell a live parent that its agent-started child is live again
+ * under a NEW id. Every resume of a child reaches here (the account
+ * rotation's, a person's Resume, the parent's own `resumeSessionId`), so the
+ * parent always learns the id to track — and that a resume already exists.
+ * Reads the SUCCESSOR's row: it inherited the parent link and the start
+ * reason (EXP-906). Same gating and best-effort contract as
+ * `notifyParentOfChildEnd`.
+ */
+export async function notifyParentOfChildResumed(
+  db: Context[`db`],
+  predecessorId: string,
+  successorId: string
+): Promise<{ delivered: boolean }> {
+  try {
+    const child = await loadChildParentContext(db, successorId)
+    if (!child || child.startedReason !== `agent` || !child.parentSessionId) {
+      return { delivered: false }
+    }
+    const target = await resolveLiveParentSessionId(db, child)
+    if (!target) return { delivered: false }
+    const config = getSteerRelayConfig()
+    if (!config) return { delivered: false }
+    return await relayPostInput(
+      config,
+      target,
+      formatChildResumed({ ...child, id: predecessorId }, successorId)
+    )
   } catch {
     return { delivered: false }
   }

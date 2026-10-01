@@ -52,6 +52,7 @@ vi.mock(`@/lib/trpc/repositories`, () => ({
 vi.mock(`@/lib/steer-child-messages`, () => ({
   notifyParentOfChildEnd: vi.fn(async () => ({ delivered: false })),
   notifyParentOfChildBlocked: vi.fn(async () => ({ delivered: false })),
+  notifyParentOfChildResumed: vi.fn(async () => ({ delivered: false })),
 }))
 
 // EXP-980/1005: a wall tells the run's owner unless the device handles it.
@@ -79,6 +80,7 @@ import { codingSessions, sessionAttachments, workflowNodes } from "@/db/schema"
 import {
   notifyParentOfChildBlocked,
   notifyParentOfChildEnd,
+  notifyParentOfChildResumed,
 } from "@/lib/steer-child-messages"
 import { notifySessionBlocked } from "@/lib/integrations/notifications"
 import { fireYoloTreeMerge } from "@/lib/sessions/yolo-tree-trigger"
@@ -2363,6 +2365,12 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
       `col:team_id`,
       `ws-issue`,
     ])
+    // FEED-68: and the parent hears which id the child is live under now.
+    expect(notifyParentOfChildResumed).toHaveBeenCalledWith(
+      expect.anything(),
+      RESUMED_FROM,
+      SESSION_ID
+    )
   })
 
   // The inheritance turned the link into a write, so it is owner-gated: a
@@ -2590,7 +2598,23 @@ describe(`codingSessions.end — endedBy stamp (EXP-637)`, () => {
     expect(notifyParentOfChildEnd).toHaveBeenCalledWith(
       expect.anything(),
       SESSION_ID,
-      { summary: null, endedBy: `client` }
+      { summary: null, endedBy: `client`, resuming: false }
+    )
+  })
+
+  // FEED-68: the device ends a run only to resume it itself (account switch
+  // / rotation) — the parent is told THAT, not "ended without a report".
+  it(`passes the device's resuming flag to the parent notification`, async () => {
+    selectResults.push([
+      { id: SESSION_ID, userId: `actor`, hostUserId: null, status: `running` },
+    ])
+
+    await caller.end({ id: SESSION_ID, resuming: true })
+
+    expect(notifyParentOfChildEnd).toHaveBeenCalledWith(
+      expect.anything(),
+      SESSION_ID,
+      { summary: null, endedBy: `client`, resuming: true }
     )
   })
 

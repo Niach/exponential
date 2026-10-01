@@ -685,7 +685,23 @@ pub fn context_budget(trpc: &TrpcClient) -> Result<McpContextBudget, ApiError> {
 
 /// `codingSessions.end` — mutation, idempotent server-side.
 pub fn end(trpc: &TrpcClient, id: &str) -> Result<CodingSession, ApiError> {
-    let envelope: SessionEnvelope = trpc.mutation("codingSessions.end", &SessionIdInput { id })?;
+    end_with(trpc, id, false)
+}
+
+#[derive(Serialize)]
+struct EndInput<'a> {
+    id: &'a str,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    resuming: bool,
+}
+
+/// [`end`], saying whether this machine ends the run only to RESUME it
+/// itself right away (an account switch or rotation, FEED-68). The server
+/// then tells an agent parent "resuming itself, hands off" instead of "ended
+/// without a report", which reads as an invitation to resume it a second
+/// time into the same worktree.
+pub fn end_with(trpc: &TrpcClient, id: &str, resuming: bool) -> Result<CodingSession, ApiError> {
+    let envelope: SessionEnvelope = trpc.mutation("codingSessions.end", &EndInput { id, resuming })?;
     Ok(envelope.session)
 }
 
