@@ -24,6 +24,12 @@ public enum DetailChrome {
     public static let faceDot: Double = 6
     /// …trailing the tab's label by this much.
     public static let faceDotGap: Double = 6
+    /// The Run tab's agent brand mark (it never draws a dot), this wide…
+    public static let faceMark: Double = 14
+    /// …leading the tab's label by this much…
+    public static let faceMarkGap: Double = 6
+    /// …with the needs-input badge this wide at its top trailing corner.
+    public static let faceMarkBadge: Double = 6
 
     /// Whether the header shows the COLLAPSED title (identifier over the
     /// title). A face with no title row of its own is always collapsed; a
@@ -40,7 +46,8 @@ public enum DetailChrome {
 
     /// FACE DOTS: the header title carries no state dot; the state lives on
     /// the face TABS. The Run tab wears `running` (or `needsInput`, amber,
-    /// while the run waits on a person) while its run is LIVE; an OPEN pull
+    /// while the run waits on a person) while its run is LIVE, DRAWN as the
+    /// run's agent brand mark (`faceMark`), never a dot; an OPEN pull
     /// request puts `review` on Results, else on Changes. A face not on show
     /// carries no dot, an ended run none.
     public static func faceDots(

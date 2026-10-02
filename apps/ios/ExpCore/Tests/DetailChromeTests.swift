@@ -50,6 +50,9 @@ final class DetailChromeTests: XCTestCase {
             "scrim": DetailChrome.scrim,
             "faceDot": DetailChrome.faceDot,
             "faceDotGap": DetailChrome.faceDotGap,
+            "faceMark": DetailChrome.faceMark,
+            "faceMarkGap": DetailChrome.faceMarkGap,
+            "faceMarkBadge": DetailChrome.faceMarkBadge,
         ]
         XCTAssertEqual(mirrored, try fixture().constants)
     }

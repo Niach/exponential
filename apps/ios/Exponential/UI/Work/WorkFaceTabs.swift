@@ -26,9 +26,14 @@ struct WorkFaceTabs<Trailing: View>: View {
     let multipleRuns: Bool
     /// EXP-1152: the Changes tab's counts — nil keeps the word `Changes`.
     var changesCounts: WorkFaces.ChangesFaceCounts? = nil
-    /// EXP-1162: the face tabs' state dots (`DetailChrome.faceDots`) — the
-    /// state the header title no longer carries.
+    /// EXP-1162: the face tabs' tones (`DetailChrome.faceDots`) — the state
+    /// the header title no longer carries. Run's is drawn as its agent mark.
     var dots: [WorkFaceKind: SessionDotTone] = [:]
+    /// The shown run's coding agent (contract `codingAgent`): the Run tab's
+    /// tone is drawn as THIS brand mark, never a dot. Nil = the agents glyph.
+    var runAgent: String? = nil
+    /// The shown run's synced `agent_busy`: the Run tab's mark beats.
+    var runBusy: Bool = false
     /// The Run segment's global frame — where the run menu hangs.
     @Binding var runsAnchor: CGRect
     let onSelect: (WorkFaceKind) -> Void
@@ -63,6 +68,8 @@ struct WorkFaceTabs<Trailing: View>: View {
             label: segmentLabel,
             identifier: { "work-face-\($0.rawValue)" },
             content: segmentContent,
+            leading: segmentMark,
+            leadingGap: DetailChrome.faceMarkGap,
             accessory: segmentDot,
             accessoryGap: DetailChrome.faceDotGap,
             spokenLabel: spokenLabel,
@@ -98,9 +105,20 @@ struct WorkFaceTabs<Trailing: View>: View {
         )
     }
 
-    /// EXP-1162: the tab's trailing state dot, in the session-dot colours.
+    /// EXP-1162: the Run tab's tone as the run's agent brand mark, leading
+    /// the label.
+    private func segmentMark(_ face: WorkFaceKind) -> AnyView? {
+        guard face == .run, let tone = dots[face] else { return nil }
+        return AnyView(
+            FaceTabRunMark(agent: runAgent, needsInput: tone == .needsInput, busy: runBusy)
+                .accessibilityHidden(true)
+        )
+    }
+
+    /// EXP-1162: the tab's trailing state dot, in the session-dot colours —
+    /// every tab but Run, which wears its mark instead.
     private func segmentDot(_ face: WorkFaceKind) -> AnyView? {
-        guard let tone = dots[face] else { return nil }
+        guard face != .run, let tone = dots[face] else { return nil }
         return AnyView(
             SessionStateDot(tone: tone, size: DetailChrome.faceDot)
                 .accessibilityHidden(true)
@@ -134,6 +152,65 @@ struct WorkFaceTabs<Trailing: View>: View {
             width: width,
             height: strip.height
         )
+    }
+}
+
+/// EXP-1162: the Run tab's mark — the run's agent brand mark at `faceMark`
+/// (the working row's `AgentBrandMark`, the agents glyph for an unknown or
+/// missing agent), with the session-dot amber badge at its top trailing
+/// corner while the run waits on a person. While the agent is mid-turn the
+/// mark beats like `WorkingIndicatorRow`'s (opacity 0.4 ↔ 1 over 1.4s);
+/// steady under Reduce Motion. The badge never beats.
+private struct FaceTabRunMark: View {
+    let agent: String?
+    let needsInput: Bool
+    let busy: Bool
+
+    var body: some View {
+        // A busy flip remounts the beat, so a stopped turn rests at full
+        // opacity instead of freezing mid-cycle.
+        BeatingAgentMark(agent: agent, beating: busy)
+            .id(busy)
+            .frame(width: DetailChrome.faceMark, height: DetailChrome.faceMark)
+            .overlay(alignment: .topTrailing) {
+                if needsInput {
+                    SessionStateDot(tone: .needsInput, size: DetailChrome.faceMarkBadge)
+                        .offset(x: DetailChrome.faceMarkBadge / 3, y: -DetailChrome.faceMarkBadge / 3)
+                }
+            }
+    }
+}
+
+private struct BeatingAgentMark: View {
+    let agent: String?
+    let beating: Bool
+
+    @Environment(\.motion) private var motion
+    @State private var dimmed = false
+
+    var body: some View {
+        mark
+            .opacity(dimmed ? 0.4 : 1)
+            .onAppear {
+                guard beating, !motion.reduceMotion else { return }
+                withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
+                    dimmed = true
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var mark: some View {
+        // EXP-849: never a bare `Image("agent-…")`.
+        if let agent, let image = AgentBrandMark.image(agent) {
+            image
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+        } else {
+            AppIcon(AppIcons.settingsAgents, size: DetailChrome.faceMark)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+        }
     }
 }
 

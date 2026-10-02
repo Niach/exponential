@@ -488,6 +488,8 @@ struct WorkScreen: View {
             multipleRuns: multipleRuns,
             changesCounts: changesCounts,
             dots: faceDots,
+            runAgent: shownSession?.agent,
+            runBusy: shownSession?.agentBusy ?? false,
             runsAnchor: $runsMenuAnchor,
             onSelect: selectFace,
             onReselectRuns: toggleRunsMenu,
