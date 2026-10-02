@@ -1,6 +1,10 @@
 import { conceptIcon, Button } from "@exp/ui"
 import { AgentLoginDialogHost } from "@/components/agent-login-dialog"
-import { DeviceSetup, useOwnDevices } from "@/components/device-setup"
+import {
+  DeviceSetup,
+  OwnDevicesList,
+  useOwnDevices,
+} from "@/components/device-setup"
 import { ONBOARDING_COPY } from "@/components/onboarding/onboarding-copy"
 import { StepCard, stepAdvanceLabel } from "@/components/onboarding/step-card"
 
@@ -12,7 +16,9 @@ const DevicesIcon = conceptIcon(`nav-devices`)
 // EXP-1169: it has two entrances, the wizard's step 4 after the board and
 // the join step an invited teammate with no machine of their own gets
 // (`routes/invite/$token.tsx`). The content is the shared device-setup block
-// (`device-setup.tsx`), the same one the Add device dialog renders. Neither
+// (`device-setup.tsx`), the same one the Add device dialog renders, plus the
+// caller's own machines, which only this step lists (the dialog opens over a
+// page that already shows them). Neither
 // entrance sits under the team route, so the step mounts its own host for
 // the block's "Sign in" pill.
 export function DevicesStep({
@@ -35,7 +41,8 @@ export function DevicesStep({
       subtitle={ONBOARDING_COPY.devices.subtitle}
     >
       <div className="space-y-4 p-6">
-        <DeviceSetup devices={devices} origin={origin} />
+        <DeviceSetup origin={origin} />
+        <OwnDevicesList devices={devices} />
 
         <div className="flex justify-end">
           <Button

@@ -15,12 +15,17 @@ import SwiftUI
 /// `server*`), because they are the same two steps said once: download the
 /// desktop app, or copy the daemon install one-liner for an always-on box.
 ///
-/// Under the cards, the caller's OWN registered machines off the synced
-/// `devices` shape: the same rows (and the same settings sheet) the Devices
-/// tab renders, so a machine that signed in while the block was open shows up
-/// here and a host's trailing button turns from "Skip for now" into "Continue".
+/// Under the cards, ONLY for the onboarding hosts (`listsDevices`), the
+/// caller's OWN registered machines off the synced `devices` shape: the same
+/// rows (and the same settings sheet) the Devices tab renders, so a machine
+/// that signed in while the step was open shows up here and the trailing
+/// button turns from "Skip for now" into "Continue". The Add device sheet
+/// opens over the tab that already lists them, so it shows the cards alone.
 struct DeviceSetup: View {
     let accountId: String
+    /// The onboarding hosts list the caller's machines under the cards; the
+    /// Add device sheet does not.
+    var listsDevices = true
     /// A host's trailing button, rendered by the host below this view. The
     /// block only reports whether at least one own machine exists.
     let onDevicesChanged: (Bool) -> Void
@@ -62,20 +67,22 @@ struct DeviceSetup: View {
             desktopCard
             serverCard
 
-            GlassSectionHeader(OnboardingCopy.devicesYours)
+            if listsDevices {
+                GlassSectionHeader(OnboardingCopy.devicesYours)
 
-            if myDevices.isEmpty {
-                Text(OnboardingCopy.devicesNone)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 12)
-                    .glassRow()
-            } else {
-                ForEach(myDevices) { device in
-                    deviceRow(device)
+                if myDevices.isEmpty {
+                    Text(OnboardingCopy.devicesNone)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 12)
+                        .glassRow()
+                } else {
+                    ForEach(myDevices) { device in
+                        deviceRow(device)
+                    }
                 }
             }
         }

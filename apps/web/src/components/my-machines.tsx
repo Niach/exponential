@@ -391,7 +391,6 @@ export function MyMachines({
       <AddDeviceDialog
         open={addServerOpen}
         onOpenChange={setAddServerOpen}
-        devices={mine}
         origin={origin}
       />
 

@@ -11,7 +11,9 @@ struct AddDeviceSheet: View {
 
     var body: some View {
         GlassSheetChrome(title: "Add device") {
-            DeviceSetup(accountId: accountId, onDevicesChanged: { _ in })
+            // The cards alone: the Devices tab behind this sheet already
+            // lists the caller's machines.
+            DeviceSetup(accountId: accountId, listsDevices: false, onDevicesChanged: { _ in })
                 .padding(16)
         }
         .accessibilityElement(children: .contain)

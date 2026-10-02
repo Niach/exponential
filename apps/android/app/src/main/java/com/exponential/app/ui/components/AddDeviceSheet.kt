@@ -33,7 +33,9 @@ fun AddDeviceSheet(
                 .padding(horizontal = GlassSheetDefaults.HorizontalPadding)
                 .testTag("add-device-sheet"),
         ) {
-            DeviceSetup(instanceOrigin = instanceOrigin, viewModel = viewModel)
+            // The cards alone: the Devices screen behind this sheet already
+            // lists the caller's machines.
+            DeviceSetup(instanceOrigin = instanceOrigin, listDevices = false, viewModel = viewModel)
         }
     }
 }

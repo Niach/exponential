@@ -3,8 +3,10 @@
 // join step an invited teammate with no machine gets, the Add device dialog
 // and the readiness "Set up a server" fix (which opens that dialog).
 //
-// Top to bottom: the desktop download card, the server card, then the
-// caller's OWN machines. The server card is ONE command and nothing else:
+// Two cards: the desktop download card, then the server card. The caller's
+// OWN machines are NOT part of it: the onboarding step lists them underneath
+// (`OwnDevicesList`, the Skip/Continue signal), the Add device dialog opens
+// over a page that already shows them. The server card is ONE command:
 // the CLI one-liner carrying a freshly minted one-time `EXP_INSTALL_TOKEN`
 // (EXP-1111: `devices.createInstallToken`, 15 minutes, reminted on expiry) so
 // the new daemon signs itself in. Until the token lands, or when minting
@@ -12,7 +14,7 @@
 // Copying the command reveals the one field that approves such a code in
 // place (the same claim + approve calls as /auth/device); before the copy
 // the card is the command alone. A machine that registers shows up in the
-// list underneath by itself.
+// onboarding step's list by itself.
 import {
   useCallback,
   useEffect,
@@ -176,12 +178,9 @@ interface MintedToken {
 }
 
 export function DeviceSetup({
-  devices,
   origin,
   active = true,
 }: {
-  /** The caller's OWN devices (synced shape); null while loading. */
-  devices: readonly SteerDevice[] | null
   origin: string
   /** False while the host is closed (a dialog): nothing mints or waits. */
   active?: boolean
@@ -362,53 +361,70 @@ export function DeviceSetup({
         )}
       </GlassRow>
 
-      <div>
-        <GlassSectionHeader label={ONBOARDING_COPY.devices.yours} />
-        {devices === null ? (
-          <div className="px-1 py-3 text-sm text-muted-foreground">Loading…</div>
-        ) : devices.length === 0 ? (
-          <div className="flex items-center gap-2 px-1 py-3 text-xs text-muted-foreground">
-            <OfflineIcon className="size-3.5 shrink-0" />
-            {ONBOARDING_COPY.devices.none}
-          </div>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {devices.map((device) => {
-              const online = deviceIsOnline(device)
-              // The first signed-out agent is what the pill signs in; a
-              // device with every agent signed in (or none installed)
-              // offers nothing here.
-              const signInAgent = deviceUnauthedAgentIds(device)[0]
-              const KindIcon = getDeviceIcon(device)
-              return (
-                <GlassRow key={device.deviceId}>
-                  <KindIcon className="size-4 shrink-0 text-foreground/70" />
-                  <div className="min-w-0 flex-1">
-                    <div className="min-w-0 truncate text-sm font-medium">
-                      {device.deviceLabel || device.deviceId}
-                    </div>
-                    <DeviceStatusLine
-                      online={online}
-                      lastSeenAt={device.lastSeenAt}
-                    />
+    </div>
+  )
+}
+
+/**
+ * The caller's OWN machines under the onboarding step (EXP-725): the rows
+ * the Devices page renders, each offering a "Sign in" pill while an installed
+ * agent is signed out there (EXP-862: the shared login dialog is the ONE
+ * place a sign-in renders). A machine that registers while the step is open
+ * shows up here by itself and turns "Skip for now" into "Continue".
+ */
+export function OwnDevicesList({
+  devices,
+}: {
+  /** The caller's OWN devices (synced shape); null while loading. */
+  devices: readonly SteerDevice[] | null
+}) {
+  return (
+    <div>
+      <GlassSectionHeader label={ONBOARDING_COPY.devices.yours} />
+      {devices === null ? (
+        <div className="px-1 py-3 text-sm text-muted-foreground">Loading…</div>
+      ) : devices.length === 0 ? (
+        <div className="flex items-center gap-2 px-1 py-3 text-xs text-muted-foreground">
+          <OfflineIcon className="size-3.5 shrink-0" />
+          {ONBOARDING_COPY.devices.none}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {devices.map((device) => {
+            const online = deviceIsOnline(device)
+            // The first signed-out agent is what the pill signs in; a
+            // device with every agent signed in (or none installed)
+            // offers nothing here.
+            const signInAgent = deviceUnauthedAgentIds(device)[0]
+            const KindIcon = getDeviceIcon(device)
+            return (
+              <GlassRow key={device.deviceId}>
+                <KindIcon className="size-4 shrink-0 text-foreground/70" />
+                <div className="min-w-0 flex-1">
+                  <div className="min-w-0 truncate text-sm font-medium">
+                    {device.deviceLabel || device.deviceId}
                   </div>
-                  {signInAgent && (
-                    <Pill
-                      mode="action"
-                      onClick={() =>
-                        requestAgentLogin({ device, agent: signInAgent })
-                      }
-                    >
-                      <SignInIcon className="size-3" />
-                      Sign in
-                    </Pill>
-                  )}
-                </GlassRow>
-              )
-            })}
-          </div>
-        )}
-      </div>
+                  <DeviceStatusLine
+                    online={online}
+                    lastSeenAt={device.lastSeenAt}
+                  />
+                </div>
+                {signInAgent && (
+                  <Pill
+                    mode="action"
+                    onClick={() =>
+                      requestAgentLogin({ device, agent: signInAgent })
+                    }
+                  >
+                    <SignInIcon className="size-3" />
+                    Sign in
+                  </Pill>
+                )}
+              </GlassRow>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

@@ -66,15 +66,18 @@ import com.exponential.app.ui.theme.glassRow
  * fix (the same sheet). Web and iOS draw the same block.
  *
  * Two install cards (the desktop IDE, the headless CLI daemon) reusing the
- * getting-started checklist's words verbatim, then the caller's own machines
- * as they arrive over the synced devices shape. A row taps into the same
- * [DeviceSettingsSheet] the Devices tab opens, so signing an agent in never
- * needs a detour. No header and no trailing button: those belong to the host.
+ * getting-started checklist's words verbatim, then, for the onboarding hosts
+ * only ([listDevices]), the caller's own machines as they arrive over the
+ * synced devices shape. A row taps into the same [DeviceSettingsSheet] the
+ * Devices tab opens, so signing an agent in never needs a detour. The Add
+ * device sheet opens over the tab that already lists them, so it shows the
+ * cards alone. No header and no trailing button: those belong to the host.
  */
 @Composable
 fun DeviceSetup(
     instanceOrigin: String?,
     modifier: Modifier = Modifier,
+    listDevices: Boolean = true,
     viewModel: DeviceSetupViewModel = hiltViewModel(),
 ) {
     val devices by viewModel.devices.collectAsStateWithLifecycle()
@@ -113,6 +116,7 @@ fun DeviceSetup(
             onApprove = viewModel::approve,
         )
 
+        if (!listDevices) return@Column
         Text(
             OnboardingCopy.DEVICES_YOURS,
             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),

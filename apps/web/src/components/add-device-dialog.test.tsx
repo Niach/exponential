@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
-import type { SteerDevice } from "@/lib/steer-devices"
 
 const mocks = vi.hoisted(() => {
   const device = Object.assign(vi.fn(), { approve: vi.fn() })
@@ -19,12 +18,6 @@ import {
 
 const ORIGIN = `https://app.example.com`
 const TOKEN = `expi_${`a`.repeat(43)}`
-
-const dev = (deviceId: string, online: boolean): SteerDevice => ({
-  deviceId,
-  deviceLabel: `Box ${deviceId}`,
-  online,
-})
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -51,35 +44,21 @@ describe(`install one-liner (EXP-1111)`, () => {
 // EXP-1169: the dialog is one host of the shared device-setup block, the same
 // content the wizard's devices step and the join step render.
 describe(`AddDeviceDialog`, () => {
-  it(`renders the device-setup block: both cards, then the caller's devices`, async () => {
-    const { rerender } = render(
-      <AddDeviceDialog open onOpenChange={() => {}} devices={[]} origin={ORIGIN} />
-    )
+  it(`renders the device-setup block: both cards, no device list`, async () => {
+    render(<AddDeviceDialog open onOpenChange={() => {}} origin={ORIGIN} />)
     await waitFor(() =>
       expect(screen.getByTestId(`install-snippet`).textContent).toContain(TOKEN)
     )
     expect(screen.getByText(`Get the desktop app`)).toBeTruthy()
     expect(screen.getByText(`Set up a server`)).toBeTruthy()
-    expect(
-      screen.getByText(
-        `No devices yet. Sign in on the desktop app or a server and it shows up here.`
-      )
-    ).toBeTruthy()
-
-    rerender(
-      <AddDeviceDialog
-        open
-        onOpenChange={() => {}}
-        devices={[dev(`a`, true)]}
-        origin={ORIGIN}
-      />
-    )
-    expect(screen.getByText(`Box a`)).toBeTruthy()
+    // The list is the onboarding step's (the dialog opens over the page
+    // that shows the machines).
+    expect(screen.queryByText(`Your devices`)).toBeNull()
   })
 
   it(`the server card is ONE command: the token one-liner, minted once`, async () => {
     render(
-      <AddDeviceDialog open onOpenChange={() => {}} devices={[]} origin={ORIGIN} />
+      <AddDeviceDialog open onOpenChange={() => {}} origin={ORIGIN} />
     )
     await waitFor(() =>
       expect(screen.getByTestId(`install-snippet`).textContent).toContain(
@@ -94,7 +73,7 @@ describe(`AddDeviceDialog`, () => {
   it(`keeps the plain command, and says nothing, when the mint fails`, async () => {
     mocks.createInstallToken.mockRejectedValue(new Error(`nope`))
     render(
-      <AddDeviceDialog open onOpenChange={() => {}} devices={[]} origin={ORIGIN} />
+      <AddDeviceDialog open onOpenChange={() => {}} origin={ORIGIN} />
     )
     await waitFor(() => expect(mocks.createInstallToken).toHaveBeenCalled())
     const snippet = screen.getByTestId(`install-snippet`).textContent ?? ``
@@ -105,7 +84,7 @@ describe(`AddDeviceDialog`, () => {
 
   it(`shows the code field only after the command was copied, and approves in place`, async () => {
     render(
-      <AddDeviceDialog open onOpenChange={() => {}} devices={[]} origin={ORIGIN} />
+      <AddDeviceDialog open onOpenChange={() => {}} origin={ORIGIN} />
     )
     await waitFor(() =>
       expect(screen.getByTestId(`install-snippet`).textContent).toContain(TOKEN)
@@ -129,7 +108,7 @@ describe(`AddDeviceDialog`, () => {
   it(`shows the device-code error and approves nothing`, async () => {
     mocks.device.mockResolvedValue({ data: null, error: { error: `expired_token` } })
     render(
-      <AddDeviceDialog open onOpenChange={() => {}} devices={[]} origin={ORIGIN} />
+      <AddDeviceDialog open onOpenChange={() => {}} origin={ORIGIN} />
     )
     fireEvent.click(screen.getByRole(`button`, { name: `Copy install command` }))
     fireEvent.change(
@@ -150,7 +129,6 @@ describe(`AddDeviceDialog`, () => {
       <AddDeviceDialog
         open={false}
         onOpenChange={() => {}}
-        devices={[]}
         origin={ORIGIN}
       />
     )
