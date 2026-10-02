@@ -7,7 +7,6 @@ import {
   ChangesFaceLabel,
   parseSessionResultGroups,
   useIsMobile,
-  type SessionDotTone,
   type SessionResultGroup,
 } from "@exp/ui"
 import { useNow } from "@/hooks/use-now"
@@ -42,8 +41,10 @@ import {
   availableFaces,
   changesFaceCounts,
   codingTarget,
+  faceDots,
   isSessionLive,
   issueResultsRun,
+  toggleFaceDots,
   type ChangesFaceCounts,
   type WorkFaceKind,
 } from "@/lib/work-faces"
@@ -375,6 +376,26 @@ function IssueDetailPage() {
       faceToggle={
         <WorkFaceToggle
           face={showResults ? `results` : `issue`}
+          /* EXP-1162: the tabs carry the state — live run, open PR. */
+          run={{
+            agent: runTarget?.agent,
+            busy: runTarget?.agentBusy === true,
+          }}
+          dots={toggleFaceDots(
+            faceDots({
+              faces: [
+                `issue`,
+                ...(runTarget ? ([`run`] as const) : []),
+                ...(runTarget && diffStats.fileCount > 0
+                  ? ([`changes`] as const)
+                  : []),
+                ...(hasResults ? ([`results`] as const) : []),
+              ],
+              runLive: runTarget ? isSessionLive(runTarget, now) : false,
+              needsInput: runTarget?.needsInput === true,
+              prOpen: issue.prState === `open`,
+            })
+          )}
           runMenu={{
             runs: issueRuns,
             checkedRunId: runTarget?.id,
@@ -486,13 +507,16 @@ function MobileIssuePage({
     hasChanges,
     hasResults,
   })
-  // The synced row is all the issue face knows: live → the running dot
-  // (amber while it waits on a person); no live run → no dot.
-  const sessionTone: SessionDotTone | null = runLive
-    ? runTarget?.needsInput
-      ? `needs_input`
-      : `running`
-    : null
+  // EXP-1162: the state lives on the TABS, never on the title — the Run tab
+  // says its run is live (amber while it waits on a person), the Results /
+  // Changes tab that the pull request is open. The synced row is all the
+  // issue face knows.
+  const dots = faceDots({
+    faces,
+    runLive,
+    needsInput: runTarget?.needsInput === true,
+    prOpen: issue.prState === `open`,
+  })
   const showChanges = view === `diff` && hasChanges
   const face: WorkFaceKind = showChanges
     ? `changes`
@@ -527,6 +551,8 @@ function MobileIssuePage({
     <MobileFaceTabs
       faces={faces}
       face={face}
+      dots={dots}
+      run={{ agent: runTarget?.agent, busy: runTarget?.agentBusy === true }}
       runs={issueRuns}
       viewedRunId={runTarget?.id ?? null}
       changesCounts={changesCounts}
@@ -535,7 +561,6 @@ function MobileIssuePage({
       trailing={mergePill}
     />
   )
-  const dot = sessionTone ? { tone: sessionTone } : null
   if (showChanges) {
     return (
       <IssueChangesFace
@@ -548,7 +573,6 @@ function MobileIssuePage({
         filesState={prFilesState}
         tabs={tabs}
         swipe={swipe}
-        dot={dot}
       />
     )
   }
@@ -564,7 +588,6 @@ function MobileIssuePage({
         groups={resultGroups}
         tabs={tabs}
         swipe={swipe}
-        dot={dot}
       />
     )
   }
@@ -577,7 +600,7 @@ function MobileIssuePage({
       teamId={team.id}
       readOnly={readOnly}
       origin={origin}
-      mobileWork={{ tabs, swipe, dot }}
+      mobileWork={{ tabs, swipe }}
     />
   )
 }

@@ -68,6 +68,21 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
     /// accessibility label; geometry, the constant weight and the
     /// active/inactive opacity (applied to the whole view) are unchanged.
     let content: (Option) -> AnyView?
+    /// EXP-1162: optional per-segment LEADING accessory (the Work screen's Run
+    /// tab wears its run's agent brand mark), `leadingGap` before the label
+    /// and drawn at full opacity on an inactive segment too. Unlike `icon` it
+    /// is a view, so it can carry a badge and an animation. nil leaves the
+    /// segment as before.
+    let leading: (Option) -> AnyView?
+    let leadingGap: CGFloat
+    /// EXP-1162: optional per-segment TRAILING accessory (the Work screen's
+    /// face-tab state dot), `accessoryGap` after the label and drawn at full
+    /// opacity on an inactive segment too. nil leaves the segment as before.
+    let accessory: (Option) -> AnyView?
+    let accessoryGap: CGFloat
+    /// EXP-1162: optional accessibility label override (`Run, running`) —
+    /// nil keeps `label`.
+    let spokenLabel: (Option) -> String?
     let style: Style
     let onSelect: (Option) -> Void
 
@@ -78,6 +93,11 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
         identifier: @escaping (Option) -> String? = { _ in nil },
         badge: @escaping (Option) -> Int = { _ in 0 },
         content: @escaping (Option) -> AnyView? = { _ in nil },
+        leading: @escaping (Option) -> AnyView? = { _ in nil },
+        leadingGap: CGFloat = 6,
+        accessory: @escaping (Option) -> AnyView? = { _ in nil },
+        accessoryGap: CGFloat = 6,
+        spokenLabel: @escaping (Option) -> String? = { _ in nil },
         style: Style = .capsule,
         onSelect: @escaping (Option) -> Void
     ) {
@@ -89,6 +109,11 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
             identifier: identifier,
             badge: badge,
             content: content,
+            leading: leading,
+            leadingGap: leadingGap,
+            accessory: accessory,
+            accessoryGap: accessoryGap,
+            spokenLabel: spokenLabel,
             style: style,
             onSelect: onSelect
         )
@@ -104,6 +129,11 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
         identifier: @escaping (Option) -> String? = { _ in nil },
         badge: @escaping (Option) -> Int = { _ in 0 },
         content: @escaping (Option) -> AnyView? = { _ in nil },
+        leading: @escaping (Option) -> AnyView? = { _ in nil },
+        leadingGap: CGFloat = 6,
+        accessory: @escaping (Option) -> AnyView? = { _ in nil },
+        accessoryGap: CGFloat = 6,
+        spokenLabel: @escaping (Option) -> String? = { _ in nil },
         style: Style = .capsule,
         onSelect: @escaping (Option) -> Void
     ) {
@@ -114,6 +144,11 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
         self.identifier = identifier
         self.badge = badge
         self.content = content
+        self.leading = leading
+        self.leadingGap = leadingGap
+        self.accessory = accessory
+        self.accessoryGap = accessoryGap
+        self.spokenLabel = spokenLabel
         self.style = style
         self.onSelect = onSelect
     }
@@ -157,21 +192,31 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
                         .scaledToFit()
                         .frame(width: 14, height: 14)
                 }
-                if let custom = content(option) {
-                    custom
-                        .opacity(active ? 1 : TextOpacity.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                } else {
-                    Text(label(option))
-                        // EXP-698: the weight is CONSTANT — only the opacity
-                        // moves. A semibold/regular swap re-flowed the strip on
-                        // every tap and made two adjacent segments look like
-                        // two type scales.
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.white.opacity(active ? 1 : TextOpacity.secondary))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
+                HStack(spacing: accessoryGap) {
+                    HStack(spacing: leadingGap) {
+                        if let mark = leading(option) {
+                            mark
+                        }
+                        if let custom = content(option) {
+                            custom
+                                .opacity(active ? 1 : TextOpacity.secondary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                        } else {
+                            Text(label(option))
+                                // EXP-698: the weight is CONSTANT — only the opacity
+                                // moves. A semibold/regular swap re-flowed the strip on
+                                // every tap and made two adjacent segments look like
+                                // two type scales.
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.white.opacity(active ? 1 : TextOpacity.secondary))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                        }
+                    }
+                    if let trailing = accessory(option) {
+                        trailing
+                    }
                 }
                 let count = badge(option)
                 if count > 0 {
@@ -192,7 +237,7 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(label(option))
+        .accessibilityLabel(spokenLabel(option) ?? label(option))
         .accessibilityIdentifier(identifier(option) ?? "")
     }
 }

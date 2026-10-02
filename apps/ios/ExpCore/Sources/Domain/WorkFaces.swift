@@ -241,19 +241,4 @@ public enum WorkFaces {
         else { return nil }
         return value
     }
-
-    /// The state dot's tone off the viewer phase — the `PhaseDot` rule: green
-    /// while live, amber while it waits on a human (or went quiet), muted once
-    /// it is over or paused. `connecting` says whether to pulse it.
-    public static func phaseDotTone(
-        live: Bool, connecting: Bool, awaitingInput: Bool, paused: Bool, stale: Bool
-    ) -> (tone: SessionDotTone, connecting: Bool) {
-        let connecting = !paused && connecting
-        let tone: SessionDotTone = if !paused, live {
-            (awaitingInput || stale) ? .needsInput : .running
-        } else {
-            .muted
-        }
-        return (tone, connecting)
-    }
 }

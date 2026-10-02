@@ -14,7 +14,7 @@ import UniformTypeIdentifiers
 /// (EXP-249). Identical UX to the Android AgentSessionScreen.
 ///
 /// EXP-893: a FACE of the Work screen, never a screen of its own. The nav
-/// bar, its title dot, the Stop / Resume pill and (EXP-1150) the face tabs
+/// bar, the Stop / Resume pill and (EXP-1150) the face tabs
 /// belong to `WorkScreen`; this view reports what they need through
 /// `RunChrome` and takes the screen's requests (`RunRequest`) and its Start
 /// coding offer (`startReadiness`).
@@ -190,6 +190,9 @@ struct AgentSessionView: View {
             }
             bottomBar(model)
         }
+        // EXP-1162: the bottom edge strip behind the band — not behind an
+        // open composer card, which is opaque and rides the keyboard.
+        .floatingBarEdge(bandRetired(model) || !composerOpen(model))
     }
 
     /// The confirms: Kill, Merge, and a `/`-command's own.
@@ -383,25 +386,11 @@ struct AgentSessionView: View {
 
     // MARK: - Chrome report (EXP-893)
 
-    /// Whether the socket is on its way — the title dot pulses.
-    private var isConnecting: Bool {
-        switch model?.phase {
-        case .starting, .connecting, .idle, .none: return true
-        case let .closed(_, reconnecting): return reconnecting
-        default: return false
-        }
-    }
-
-    /// Everything the Work screen's nav bar, title dot and tabs read.
+    /// Everything the Work screen's nav bar and tabs read.
     private var runChrome: RunChrome {
         guard let model else { return RunChrome() }
         var chrome = RunChrome()
         chrome.live = model.phase == .live
-        chrome.connecting = isConnecting
-        chrome.paused = hostPaused || headerLost
-        chrome.awaitingInput = model.awaitingInput
-        chrome.stale = model.staleActivityMinutes != nil
-        chrome.busy = model.agentWorking
         chrome.over = model.isOver
         chrome.cardPending = model.cardPending
         chrome.hasDiff = model.latestDiff != nil
@@ -451,16 +440,6 @@ struct AgentSessionView: View {
     private var hostLabel: String {
         model?.hostDevice.displayLabel
             ?? SessionDevicePresentation.resolve(session: session, devices: []).displayLabel
-    }
-
-    /// The socket is gone for good as far as this screen is concerned — a
-    /// dropped connection or an ended run. The dot goes static neutral with
-    /// the paused ones: none of them is "coding now".
-    private var headerLost: Bool {
-        switch model?.phase {
-        case .ended, .closed: return true
-        default: return false
-        }
     }
 
     /// EXP-773: the journal fetch's own status line — which machine is being
@@ -806,10 +785,8 @@ struct AgentSessionView: View {
                         }
                     )
                 }
-                // EXP-698: the nav bar is `.ultraThinMaterial`, so a scrolled
-                // narration line used to be sliced through its letterforms at
-                // the header's edge. The fade lets it recede instead.
-                .stickyHeaderFade()
+                // EXP-1162: no `stickyHeaderFade` — the Work screen's header
+                // band hangs the top edge strip over every face itself.
                 .coordinateSpace(name: AgentSessionLayout.feedCoordSpace)
                 .modifier(FollowPinTracker(
                     atBottom: $atBottom,

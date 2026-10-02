@@ -6,13 +6,15 @@ import {
   type ReactNode,
   type TouchEvent,
 } from "react"
-import { ChangesFaceLabel } from "@exp/ui"
+import { ChangesFaceLabel, type WorkFaceStripRun } from "@exp/ui"
 import { cn } from "@/lib/utils"
 import type { CodingSession } from "@/db/schema"
 import type { PastRunRow } from "@/hooks/use-agents-data"
 import {
   swipeTarget,
+  toggleFaceDots,
   type ChangesFaceCounts,
+  type FaceDotTone,
   type SwipeDirection,
   type WorkFaceKind,
 } from "@/lib/work-faces"
@@ -420,6 +422,10 @@ export interface MobileFaceTabsProps {
   faces: readonly WorkFaceKind[]
   /** The face on show. */
   face: WorkFaceKind
+  /** EXP-1162: the tabs' state (`faceDots`), and the run whose brand mark
+   *  the Run tab wears. */
+  dots?: Partial<Record<WorkFaceKind, FaceDotTone>>
+  run?: WorkFaceStripRun
   /** The issue's runs of mine (`useIssueRuns`) — two or more turn the Run
    *  segment into `Runs` with the caret to the run menu (EXP-950). */
   runs?: readonly PastRunRow[]
@@ -439,6 +445,8 @@ export interface MobileFaceTabsProps {
 export function MobileFaceTabs({
   faces,
   face,
+  dots,
+  run,
   runs = [],
   viewedRunId = null,
   changesCounts = null,
@@ -492,6 +500,8 @@ export function MobileFaceTabs({
       <WorkFaceToggle
         face={toToggleFace(face)}
         items={items}
+        dots={dots ? toggleFaceDots(dots) : undefined}
+        run={run}
         runMenu={
           onOpenRun
             ? {

@@ -1,0 +1,178 @@
+{
+  "_comment": "EXP-1162: THE detail chrome, identical x4 (web lib/detail-chrome.ts, desktop domain::detail_chrome, iOS ExpCore DetailChrome, Android domain/DetailChrome). Points (web px = desktop px = iOS pt = Android dp). TITLE COLLAPSE: the issue face keeps its large title as a ROW of the scrolling content; the header shows the identifier alone until that row has scrolled away, then BREAKS (a threshold, never a progressive morph) into the collapsed title: the mono identifier (small, muted) over the title on ONE truncated line, fading in over `collapseMs` while rising `collapseRise`. `collapsed = !hasTitleRow || titleBottom <= headerBottom` (both in the same coordinate space, the header band's bottom edge incl. the face tabs). A face with no title row of its own (Run, Changes, Results) is ALWAYS collapsed. EDGE STRIPS: content scrolls UNDER the header band and the floating bottom bar. The header band is the page background at `scrim` alpha over a `edgeBlur` blur, no hairline; below it a strip `edgeTop` tall fades both the scrim and the blur to nothing. At the bottom a strip from the screen edge to `edgeBottom` above the bar's top fades the same way upwards. A client that cannot blur what is behind a view (desktop gpui) paints the band OPAQUE, since unblurred text would read through the scrim, and keeps the fades; Android below API 31 falls back to its blur library's scrim. FACE MARKS (EXP-1162): the header TITLE carries NO state dot on any client; state lives on the face tabs, and `faceDots` says which tab carries which tone. The RUN tab never draws a dot: while its run is LIVE it wears the run's AGENT BRAND MARK (claude / codex, the generic agents glyph for an unknown agent), the very mark the sidebar's Running rows and the session screen draw. It LEADS the tab's label, `faceMark` points, `faceMarkGap` before the label; tone `needs_input` adds the Running row's amber badge (`faceMarkBadge` points, top trailing corner of the mark); while the agent is mid-turn (the synced `agent_busy`) the mark beats like the session screen's working mark (reduced motion: steady). An ended run wears no mark. An OPEN pull request puts a `review` DOT on the Results tab, or on the Changes tab when there is no Results face: `faceDot` points wide, trailing the label by `faceDotGap`. Tones are the session-dot table's (x4). A face that is not on show carries nothing.",
+  "constants": {
+    "collapseMs": 160,
+    "collapseRise": 4,
+    "edgeTop": 24,
+    "edgeBottom": 32,
+    "edgeBlur": 8,
+    "scrim": 0.72,
+    "faceDot": 6,
+    "faceDotGap": 6,
+    "faceMark": 14,
+    "faceMarkGap": 6,
+    "faceMarkBadge": 6
+  },
+  "collapse": [
+    {
+      "name": "the title row sits below the header",
+      "hasTitleRow": true,
+      "titleBottom": 180,
+      "headerBottom": 96,
+      "collapsed": false
+    },
+    {
+      "name": "one point of the title still shows",
+      "hasTitleRow": true,
+      "titleBottom": 97,
+      "headerBottom": 96,
+      "collapsed": false
+    },
+    {
+      "name": "the title's bottom edge meets the header's: it breaks",
+      "hasTitleRow": true,
+      "titleBottom": 96,
+      "headerBottom": 96,
+      "collapsed": true
+    },
+    {
+      "name": "the title scrolled far away",
+      "hasTitleRow": true,
+      "titleBottom": -240,
+      "headerBottom": 96,
+      "collapsed": true
+    },
+    {
+      "name": "a face with no title row is always collapsed",
+      "hasTitleRow": false,
+      "titleBottom": 0,
+      "headerBottom": 96,
+      "collapsed": true
+    },
+    {
+      "name": "a title row not measured yet stays expanded",
+      "hasTitleRow": true,
+      "titleBottom": null,
+      "headerBottom": 96,
+      "collapsed": false
+    }
+  ],
+  "faceDots": [
+    {
+      "name": "no run and no pull request: no dots",
+      "faces": [
+        "issue"
+      ],
+      "runLive": false,
+      "needsInput": false,
+      "prOpen": false,
+      "dots": {}
+    },
+    {
+      "name": "a live run dots the Run tab",
+      "faces": [
+        "issue",
+        "run"
+      ],
+      "runLive": true,
+      "needsInput": false,
+      "prOpen": false,
+      "dots": {
+        "run": "running"
+      }
+    },
+    {
+      "name": "a run waiting on a person dots the Run tab amber",
+      "faces": [
+        "issue",
+        "run",
+        "changes"
+      ],
+      "runLive": true,
+      "needsInput": true,
+      "prOpen": false,
+      "dots": {
+        "run": "needs_input"
+      }
+    },
+    {
+      "name": "an ended run carries no dot, even if it still says needs input",
+      "faces": [
+        "issue",
+        "run"
+      ],
+      "runLive": false,
+      "needsInput": true,
+      "prOpen": false,
+      "dots": {}
+    },
+    {
+      "name": "an open pull request dots Results",
+      "faces": [
+        "issue",
+        "run",
+        "changes",
+        "results"
+      ],
+      "runLive": false,
+      "needsInput": false,
+      "prOpen": true,
+      "dots": {
+        "results": "review"
+      }
+    },
+    {
+      "name": "an open pull request with no Results face dots Changes",
+      "faces": [
+        "issue",
+        "run",
+        "changes"
+      ],
+      "runLive": false,
+      "needsInput": false,
+      "prOpen": true,
+      "dots": {
+        "changes": "review"
+      }
+    },
+    {
+      "name": "a live run with an open pull request dots both",
+      "faces": [
+        "issue",
+        "run",
+        "changes",
+        "results"
+      ],
+      "runLive": true,
+      "needsInput": false,
+      "prOpen": true,
+      "dots": {
+        "run": "running",
+        "results": "review"
+      }
+    },
+    {
+      "name": "an open pull request with neither face shows no dot",
+      "faces": [
+        "issue"
+      ],
+      "runLive": false,
+      "needsInput": false,
+      "prOpen": true,
+      "dots": {}
+    },
+    {
+      "name": "an issue-less run dots its Run tab too",
+      "faces": [
+        "run",
+        "changes"
+      ],
+      "runLive": true,
+      "needsInput": false,
+      "prOpen": false,
+      "dots": {
+        "run": "running"
+      }
+    }
+  ]
+}

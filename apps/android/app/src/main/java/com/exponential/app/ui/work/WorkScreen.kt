@@ -15,6 +15,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -34,6 +35,7 @@ import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.ActivityFeedState
 import com.exponential.app.domain.AgentPhase
 import com.exponential.app.domain.CodingSessionLiveness
+import com.exponential.app.domain.DetailChrome
 import com.exponential.app.domain.Diff
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeTarget
@@ -63,6 +65,7 @@ import com.exponential.app.ui.issue.StartCircle
 import com.exponential.app.ui.issue.rememberIssueFaceController
 import com.exponential.app.ui.issue.toDiffFile
 import com.exponential.app.ui.components.GlassSegmentedControlDefaults
+import com.exponential.app.ui.components.LocalDetailHaze
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.IssueChip
 import com.exponential.app.ui.components.IssueChipSize
@@ -70,9 +73,9 @@ import com.exponential.app.ui.components.IssueChipStack
 import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
 import com.exponential.app.ui.session.AgentSessionViewModel
 import com.exponential.app.ui.session.RunFace
-import com.exponential.app.ui.session.sessionDotTone
 import com.exponential.app.ui.session.sessionRowTitle
 import com.exponential.app.ui.steer.ActionRunState
+import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.flow.MutableStateFlow
 
 // EXP-893: the phone WORK SCREEN — one screen per subject (an issue, or a
@@ -345,7 +348,15 @@ fun WorkScreen(
         }
     }
 
-    val dotTone = sessionDotTone(shownSession, issue?.prState, liveClock, awaitingInput)
+    // EXP-1162: the state dots ride the face TABS, never the title — the Run
+    // tab while the shown run is live (amber while it waits on a person), an
+    // open pull request on Results (or Changes without Results).
+    val faceDots = DetailChrome.faceDots(
+        faces = faces,
+        runLive = shownLive && !sessionEnded,
+        needsInput = shownSession?.needsInput == true || awaitingInput,
+        prOpen = prOpen,
+    )
     // EXP-1150: Start coding once the shown run ended for good.
     val offerStart = sessionEnded && ownShown && resumeTarget == null && issueId != null &&
         readiness?.visible == true
@@ -504,7 +515,19 @@ fun WorkScreen(
         else -> null
     }
 
+    // EXP-1162: the detail chrome — ONE backdrop every face's scroller feeds
+    // (the header band and the bottom strips blur it), and the title-collapse
+    // input the Issue face's title row reports into.
+    val hazeState = rememberHazeState()
+    val titleCollapse = remember { TitleCollapseState() }
+    // Faces without a title row of their own are always collapsed.
+    val titleCollapsed = face != WorkFaceKind.Issue || titleCollapse.issueTitleCollapsed
+
     ProvideMarkdownToolbar {
+        CompositionLocalProvider(
+            LocalDetailHaze provides hazeState,
+            LocalTitleCollapse provides titleCollapse,
+        ) {
         Scaffold(
             containerColor = Color.Transparent,
             topBar = {
@@ -528,8 +551,12 @@ fun WorkScreen(
                     } else {
                         null
                     },
-                    dotTone = if (issueId != null) dotTone else null,
-                    dotBusy = shownSession?.agentBusy == true,
+                    // EXP-1162: an issue subject's header breaks into
+                    // identifier-over-title; issue-less and batch runs keep
+                    // their one title.
+                    collapsedTitle = issue?.title,
+                    collapsed = titleCollapsed,
+                    onHeaderBottom = titleCollapse::reportHeaderBottom,
                     onBack = onBack,
                     verb = verb,
                     verbEnabled = runState !is ActionRunState.Sending,
@@ -575,6 +602,9 @@ fun WorkScreen(
                                 faceName = WorkFaceKind.Run.name
                             },
                             changesCounts = changesCounts,
+                            dots = faceDots,
+                            runAgent = shownSession?.agent,
+                            runBusy = shownSession?.agentBusy == true,
                             trailing = headerMerge?.let { merge ->
                                 {
                                     MergePrHeaderPill(
@@ -643,6 +673,7 @@ fun WorkScreen(
                     )
                 }
             }
+        }
         }
     }
 

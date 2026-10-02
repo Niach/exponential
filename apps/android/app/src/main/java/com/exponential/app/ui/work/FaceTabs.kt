@@ -9,8 +9,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.material3.HorizontalDivider
-import com.exponential.app.ui.theme.GlassTokens
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -35,6 +33,22 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.ChangesFaceCounts
+import com.exponential.app.domain.DetailChrome
+import com.exponential.app.domain.SessionDotTone
+import com.exponential.app.ui.issue.DoneBlue
+import com.exponential.app.ui.issue.LiveGreen
+import com.exponential.app.ui.issue.NeedsInputAmber
+import com.exponential.app.ui.issue.ReviewGreen
+import com.exponential.app.ui.session.LostGray
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.draw.alpha
+import com.exponential.app.ui.components.agentIconPainter
+import com.exponential.app.ui.components.agentIconTint
+import com.exponential.app.ui.session.rememberWorkingMarkPulse
 import com.exponential.app.domain.Diff
 import com.exponential.app.domain.WorkFaceKind
 import com.exponential.app.domain.changesFaceText
@@ -56,8 +70,8 @@ import com.exponential.app.ui.session.PastRunRow
 // (`availableFaces` + `faceLabel`), plus the body SWIPE that moves to the
 // neighbour (`swipeTarget`). It replaces the EXP-893 bottom-right switcher
 // circle. The strip is part of the HEADER: [WorkFaceTabs] composes under the
-// top bar's title row inside the Scaffold's `topBar` slot (8dp below it, ONE
-// hairline under the strip), so title and tabs read as one band that never
+// top bar's title row inside the Scaffold's `topBar` slot (8dp below it), so
+// title and tabs read as one band that never
 // moves between faces. The row is `[strip][Merge PR pill]`: with a merge
 // the strip shrinks left and the pill trails at the row's end (every face).
 // [WorkFaceFrame] hosts the face BODIES as a pager (EXP-1152: the neighbour
@@ -150,8 +164,9 @@ fun WorkFaceFrame(
 }
 
 /**
- * The header's strip: 8dp under the title row, then ONE hairline closing the
- * band. Nothing at all (no strip, no hairline) with fewer than two faces.
+ * The header's strip: 8dp under the title row. EXP-1162: no hairline closes
+ * the band any more — the detail chrome's edge strip does. Nothing at all
+ * with fewer than two faces.
  * [runs] feed the `Runs` menu (two or more = a menu).
  */
 @Composable
@@ -166,6 +181,11 @@ fun WorkFaceTabs(
     trailing: (@Composable () -> Unit)? = null,
     /** EXP-1152: the Changes face's diff counts; null = the word `Changes`. */
     changesCounts: ChangesFaceCounts? = null,
+    /** EXP-1162: the tabs' state dots (`DetailChrome.faceDots`). */
+    dots: Map<WorkFaceKind, SessionDotTone> = emptyMap(),
+    /** EXP-1162: the shown run's agent (its Run mark) and mid-turn flag. */
+    runAgent: String? = null,
+    runBusy: Boolean = false,
 ) {
     if (faces.size < 2 && trailing == null) return
     val multipleRuns = runs.size >= 2
@@ -210,6 +230,28 @@ fun WorkFaceTabs(
                         }
                     },
                     testTag = { faceTag(it) },
+                    // EXP-1162: the state the header title no longer wears,
+                    // said out loud with the label. The Run tab wears the
+                    // run's agent mark LEADING it; every other tone (an open
+                    // PR's `Review`) a dot trailing it.
+                    leading = { f ->
+                        dots[f]?.takeIf { f == WorkFaceKind.Run }?.let { tone ->
+                            { FaceMark(runAgent.orEmpty(), tone, runBusy) }
+                        }
+                    },
+                    trailing = { f ->
+                        dots[f]?.takeIf { f != WorkFaceKind.Run }?.let { tone -> { FaceDot(tone) } }
+                    },
+                    description = { f ->
+                        DetailChrome.faceDotCaption(dots[f])?.let { caption ->
+                            val name = if (f == WorkFaceKind.Changes && changesCounts != null) {
+                                changesFaceText(changesCounts)
+                            } else {
+                                faceLabel(f, multipleRuns)
+                            }
+                            "$name, $caption"
+                        }
+                    },
                     modifier = Modifier.testTag("work-face-tabs"),
                 )
                 // Anchored under the `Runs` segment: an invisible box spanning
@@ -239,8 +281,62 @@ fun WorkFaceTabs(
             }
             trailing?.invoke()
         }
-        HorizontalDivider(thickness = GlassTokens.Hairline, color = GlassTokens.StrokeRow)
     }
+}
+
+/**
+ * EXP-1162: the Run tab's mark — the run's agent brand mark (`agentIconPainter`,
+ * the neutral agents glyph for an unknown agent), `faceMark` square and
+ * `faceMarkGap` before the label. `NeedsInput` adds an amber `faceMarkBadge`
+ * at its top end corner; while [busy] it beats like the session screen's
+ * working mark (reduced motion: steady). Only a live run gets here.
+ */
+@Composable
+private fun FaceMark(agent: String, tone: SessionDotTone, busy: Boolean) {
+    val alpha = if (busy) rememberWorkingMarkPulse() else 1f
+    Box(
+        modifier = Modifier
+            .size(DetailChrome.FACE_MARK.dp)
+            .testTag("work-face-run-mark"),
+    ) {
+        Icon(
+            agentIconPainter(agent),
+            contentDescription = null,
+            tint = agentIconTint(agent),
+            modifier = Modifier.matchParentSize().alpha(alpha),
+        )
+        if (tone == SessionDotTone.NeedsInput) {
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = (DetailChrome.FACE_MARK_BADGE / 3).dp, y = -(DetailChrome.FACE_MARK_BADGE / 3).dp)
+                    .size(DetailChrome.FACE_MARK_BADGE.dp)
+                    .background(NeedsInputAmber, CircleShape),
+            )
+        }
+    }
+    Spacer(Modifier.width(DetailChrome.FACE_MARK_GAP.dp))
+}
+
+/**
+ * EXP-1162: a tab's state dot — `faceDot` wide, `faceDotGap` after the label,
+ * in the session-dot table's colour for its tone.
+ */
+@Composable
+private fun FaceDot(tone: SessionDotTone) {
+    val color = when (tone) {
+        SessionDotTone.Running -> LiveGreen
+        SessionDotTone.NeedsInput -> NeedsInputAmber
+        SessionDotTone.Review -> ReviewGreen
+        SessionDotTone.Done -> DoneBlue
+        SessionDotTone.Muted -> LostGray
+    }
+    Spacer(Modifier.width(DetailChrome.FACE_DOT_GAP.dp))
+    Box(
+        Modifier
+            .size(DetailChrome.FACE_DOT.dp)
+            .background(color, CircleShape),
+    )
 }
 
 /**

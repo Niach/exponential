@@ -1218,26 +1218,7 @@ impl RailView {
         let issue_id = run.issue_id.clone();
         // EXP-923: the lead is the agent's brand mark, with the attention
         // badge on its corner — the compact column's badge rule, on a glyph.
-        let mark = crate::coding_selects::agent_mark(run.agent).with_size(px(16.));
-        let lead = div()
-            .relative()
-            .flex_shrink_0()
-            .child(mark)
-            .when(run.attention, |this| {
-                this.child(
-                    div()
-                        .absolute()
-                        .top(px(-2.))
-                        .right(px(-2.))
-                        .size(px(6.))
-                        .rounded_full()
-                        .bg(theme::tokens::YELLOW.to_hsla())
-                        // The hairline keeps the dot readable over the glyph
-                        // it overlaps (the rail's own ground).
-                        .border_1()
-                        .border_color(theme::tokens::BACKGROUND.to_hsla()),
-                )
-            })
+        let lead = crate::coding_selects::run_lead(Some(run.agent), 16., 6., run.attention)
             .into_any_element();
         // The compact square has no room for two texts: the tooltip is the
         // whole label the expanded row splits into identifier + title.

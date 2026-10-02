@@ -1,5 +1,5 @@
-import type { ReactNode } from "react"
-import { conceptIcon, Button } from "@exp/ui"
+import type { ReactNode, Ref } from "react"
+import { conceptIcon, Button, DETAIL_EDGE_TOP_CLASS } from "@exp/ui"
 import { cn } from "@/lib/utils"
 
 // EXP-851: the ONE phone header every detail screen wears — the native
@@ -21,12 +21,22 @@ export const HEADER_BUTTON_CLASS = `size-9 shrink-0 rounded-full text-muted-fore
 /** The fixed slot each end occupies — the balance that centres the title. */
 export const HEADER_SLOT_CLASS = `size-9 shrink-0`
 
-/** The bar itself: one line, a hairline under it, no card. */
-export const MOBILE_DETAIL_HEADER_CLASS = `flex h-12 shrink-0 items-center gap-1 border-b border-border px-2`
+/** The bar itself: one line, no card. */
+export const MOBILE_DETAIL_HEADER_CLASS = `flex h-12 shrink-0 items-center gap-1 px-2`
 
 /** EXP-1150: the header BAND — the title row plus whatever rides under it
- *  (the Work screen's face tabs), one block over one hairline. */
-const MOBILE_DETAIL_HEADER_BAND_CLASS = `shrink-0 border-b border-border`
+ *  (the Work screen's face tabs), one block. EXP-1162: no hairline closes it
+ *  any more — the band sits on the edge layer (`DETAIL_EDGE_TOP_CLASS`),
+ *  whose last 24px fade the content out under it. */
+const MOBILE_DETAIL_HEADER_BAND_CLASS = `z-20 shrink-0`
+
+/** EXP-1162: the root of a phone detail screen whose header is an OVERLAY —
+ *  a fixed-height screen (the dynamic viewport, never the window scrolling:
+ *  the header would leave with the page) that positions the band. Its
+ *  scroller pads its top by the band's measured height
+ *  (`useMeasuredHeight`), so content starts below the band and scrolls
+ *  under it. */
+export const MOBILE_DETAIL_SCREEN_CLASS = `relative flex h-dvh min-h-0 flex-col`
 
 export function MobileDetailHeader({
   title,
@@ -34,6 +44,8 @@ export function MobileDetailHeader({
   backLabel = `Back`,
   menu,
   below,
+  overlay = false,
+  ref,
   className,
 }: {
   /** The identifier or title, centred. */
@@ -47,15 +59,17 @@ export function MobileDetailHeader({
    *  screen's face tabs. The hairline moves under it, so the title and the
    *  tabs read as one header. */
   below?: ReactNode
+  /** EXP-1162: the band floats OVER the screen's scroller (the root is
+   *  `MOBILE_DETAIL_SCREEN_CLASS`) instead of sitting above it, so content
+   *  scrolls under it. Default: in flow, with only the fade hanging below. */
+  overlay?: boolean
+  /** The band — an overlay's scroller pads by its measured height. */
+  ref?: Ref<HTMLDivElement>
   className?: string
 }) {
   const row = (
     <div
-      className={cn(
-        MOBILE_DETAIL_HEADER_CLASS,
-        below !== undefined && below !== null && `border-b-0`,
-        className
-      )}
+      className={cn(MOBILE_DETAIL_HEADER_CLASS, className)}
     >
       {onBack ? (
         <Button
@@ -77,9 +91,16 @@ export function MobileDetailHeader({
       {menu ?? <span aria-hidden className={HEADER_SLOT_CLASS} />}
     </div>
   )
-  if (below === undefined || below === null) return row
   return (
-    <div className={MOBILE_DETAIL_HEADER_BAND_CLASS} data-testid="mobile-detail-header-band">
+    <div
+      ref={ref}
+      className={cn(
+        MOBILE_DETAIL_HEADER_BAND_CLASS,
+        overlay ? `absolute inset-x-0 top-0` : `relative`
+      )}
+      data-testid="mobile-detail-header-band"
+    >
+      <span aria-hidden className={DETAIL_EDGE_TOP_CLASS} />
       {row}
       {below}
     </div>

@@ -1,11 +1,13 @@
 import type { ReactNode } from "react"
 import { additionsLabel, deletionsLabel } from "@exp/domain-contract/diff"
 
+import { AgentRunMark } from "./agent-brand-mark"
 import { Button } from "./button"
 import { cn } from "./cn"
 import { DiffCounts } from "./diff-counts"
 import { DropdownMenu, DropdownMenuTrigger } from "./dropdown-menu"
 import { conceptIcon } from "./icons.generated"
+import { SESSION_DOT_CLASS, type SessionDotTone } from "./session-dot"
 import { SEGMENTED_TAB, Tabs, TabsList, TabsTrigger } from "./tabs"
 
 // EXP-1152 — THE Work face strip, one component for every Work screen on the
@@ -56,10 +58,80 @@ export function ChangesFaceLabel({
   )
 }
 
+/** EXP-1162: the segments' state (contract `detail-chrome.json` FACE MARKS,
+ *  ×4) — the header title carries none. The Run tab never draws a dot: while
+ *  its run is live it wears the agent's brand mark (`AgentRunMark`, the
+ *  sidebar Running row's), leading the label, with the amber badge while it
+ *  waits on a person. An open pull request puts a 6px dot on the Results /
+ *  Changes tab, 6px after the label. */
+export type WorkFaceStripDots = Partial<
+  Record<WorkFaceStripFace, SessionDotTone>
+>
+
+const FACE_DOT_LABEL: Partial<Record<SessionDotTone, string>> = {
+  running: `Running`,
+  needs_input: `Needs input`,
+  review: `Pull request open`,
+}
+
+/** The run behind the Run tab: whose mark it wears, and whether the agent
+ *  is mid-turn (the mark beats). */
+export interface WorkFaceStripRun {
+  agent: string | null | undefined
+  busy?: boolean
+}
+
+function RunMark({
+  tone,
+  run,
+}: {
+  tone: SessionDotTone | undefined
+  run: WorkFaceStripRun | undefined
+}) {
+  if (!tone) return null
+  return (
+    <span
+      role="img"
+      aria-label={FACE_DOT_LABEL[tone]}
+      title={FACE_DOT_LABEL[tone]}
+      data-testid="face-run-mark"
+      data-tone={tone}
+      // The segment's own `gap-1.5` is the contract's 6px.
+      className="inline-flex shrink-0"
+    >
+      <AgentRunMark
+        agent={run?.agent}
+        needsInput={tone === `needs_input`}
+        pulse={run?.busy === true}
+        ringClassName="ring-background"
+      />
+    </span>
+  )
+}
+
+function FaceDot({ tone }: { tone: SessionDotTone | undefined }) {
+  if (!tone) return null
+  return (
+    <span
+      role="img"
+      aria-label={FACE_DOT_LABEL[tone]}
+      title={FACE_DOT_LABEL[tone]}
+      data-testid="face-dot"
+      data-tone={tone}
+      className={cn(
+        `inline-block size-1.5 shrink-0 rounded-full`,
+        SESSION_DOT_CLASS[tone]
+      )}
+    />
+  )
+}
+
 export function WorkFaceStrip({
   face,
   items,
   runMenu,
+  dots,
+  run,
   className,
 }: {
   /** The face on show; `null` = none (every segment inactive). */
@@ -68,6 +140,10 @@ export function WorkFaceStrip({
   /** The `Runs` caret's menu — a `DropdownMenuContent` element. The caret
    *  shows only with this AND a `run` item to hang from. */
   runMenu?: { content: ReactNode }
+  /** EXP-1162: the segments' state, by face. */
+  dots?: WorkFaceStripDots
+  /** EXP-1162: the run whose mark the Run tab wears. */
+  run?: WorkFaceStripRun
   className?: string
 }) {
   const hasRunMenu =
@@ -104,6 +180,7 @@ export function WorkFaceStrip({
                 )}
                 data-face={item.face}
               >
+                <RunMark tone={dots?.run} run={run} />
                 {item.label}
               </TabsTrigger>
               <DropdownMenu>
@@ -130,7 +207,9 @@ export function WorkFaceStrip({
               className={SEGMENTED_TAB}
               data-face={item.face}
             >
+              {item.face === `run` && <RunMark tone={dots?.run} run={run} />}
               {item.label}
+              {item.face !== `run` && <FaceDot tone={dots?.[item.face]} />}
             </TabsTrigger>
           )
         )}

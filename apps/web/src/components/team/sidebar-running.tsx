@@ -3,7 +3,7 @@ import { useMemo } from "react"
 import { useParams, useRouterState } from "@tanstack/react-router"
 import { useLiveQuery } from "@tanstack/react-db"
 import {
-  AgentBrandMark,
+  AgentRunMark,
   getDeviceIcon,
   ListRow,
   SidebarGroup,
@@ -21,7 +21,6 @@ import type { CodingSession, Device } from "@/db/schema"
 import { deviceCollection } from "@/lib/collections"
 import { sessionDisplayState } from "@/lib/coding-session-display"
 import { sessionIdentity } from "@/lib/session-identity"
-import { cn } from "@/lib/utils"
 import {
   sessionNodeDecor,
   TreeFoldToggle,
@@ -147,37 +146,9 @@ function isShown(
 }
 
 /** The brand mark with its amber "wants you" badge — the row's lead and the
- *  rail button's whole content. */
-function RunningMark({
-  agent,
-  needsInput,
-  needsYou = false,
-  className,
-}: {
-  agent: string | null
-  needsInput: boolean
-  /** EXP-1068/1082 §4: an open question for a person — the RED badge, which
-   *  beats the amber one. */
-  needsYou?: boolean
-  className?: string
-}) {
-  return (
-    <span
-      className={cn(`relative flex size-3.5 items-center justify-center`, className)}
-    >
-      <AgentBrandMark agent={agent} className="size-3.5" />
-      {(needsInput || needsYou) && (
-        <span
-          aria-hidden
-          className={cn(
-            `absolute -top-0.5 -right-0.5 size-1.5 rounded-full ring-2 ring-sidebar`,
-            needsYou ? `bg-red-500` : `bg-yellow-400`
-          )}
-        />
-      )}
-    </span>
-  )
-}
+ *  rail button's whole content. EXP-1162: `@exp/ui` `AgentRunMark`, the very
+ *  mark the Work face strip's Run tab wears. */
+const RunningMark = AgentRunMark
 
 /** EXP-923: the expanded sidebar's Running group — hidden with nothing live. */
 export function SidebarRunningSection({

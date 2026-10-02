@@ -559,6 +559,22 @@ impl SessionScreenView {
         // the run reads as its transcript again, exactly like the viewer's
         // own fallback.
         let results = self.results_count(cx) > 0;
+        let pr_open = {
+            let row = self.inner.read(cx).session_row().cloned();
+            let issue_pr = issue_id.as_deref().and_then(|issue_id| {
+                sync::Store::try_global(cx)?
+                    .collections()
+                    .issues
+                    .read(cx)
+                    .get(issue_id)
+                    .map(|issue| issue.pr_state.clone())
+            });
+            let state = match issue_pr {
+                Some(state) => state,
+                None => row.and_then(|row| row.pr_state),
+            };
+            state.as_deref() == Some("open")
+        };
         let spec = FaceToggle {
             issue: issue_id.is_some(),
             run: Some(self.session_id.clone()),
@@ -577,6 +593,9 @@ impl SessionScreenView {
             },
             runs,
             checked_run: Some(viewed.clone()),
+            // EXP-1162: this run's state, and the PR (the issue's, else the
+            // run's own) ride the toggle.
+            state: crate::work_header::face_state(Some(&self.session_id), pr_open, cx),
         };
         crate::work_header::face_toggle(
             spec,
@@ -645,8 +664,14 @@ impl SessionScreenView {
             });
 
         if let (Some(row), Some(issue)) = (row.as_ref(), issue) {
-            let title =
-                crate::work_header::title_row(crate::run_rows::run_title(row, Some(&issue), &[]));
+            // EXP-1162: a run face has no title row of its own — always the
+            // compact title, never animated.
+            let title = crate::work_header::collapsed_title(
+                Some(SharedString::from(issue.identifier.clone())),
+                crate::run_rows::run_title(row, Some(&issue), &[]),
+                None,
+                cx,
+            );
             // EXP-950: `[Issue | Runs ⌄ | +N -M]` leads the cluster — the
             // run switcher is the Runs segment's caret.
             let toggle = self.face_toggle(Some(issue.id.clone()), cx);
@@ -667,7 +692,7 @@ impl SessionScreenView {
                 // EXP-916: the Changes pane has no bar of its own any more,
                 // so the tray keeps the ONE merge control on every face.
                 header.set_merge_suppressed(false);
-                let right = header.right_cluster(&issue, toggle, diff_open, cx);
+                let right = header.right_cluster(&issue, Vec::new(), toggle, diff_open, cx);
                 let actions = header.issue_actions(&issue, action, cx);
                 (
                     right,
@@ -677,7 +702,7 @@ impl SessionScreenView {
             });
             return crate::work_header::render_work_header(
                 WorkHeader {
-                    title,
+                    title: Some(title),
                     right,
                     tray,
                     extra,
@@ -689,27 +714,30 @@ impl SessionScreenView {
         // Issue-less (or the issue row not synced yet): the run's own title —
         // for a BATCH, the issues it covers (EXP-876). A multi-issue run's
         // `EXP-874 +2` title opens the covered issues (iOS/Android parity).
+        // EXP-1162: the compact title — the session's own title (and its
+        // identifier when it has one) in the bar.
         let title = match row.as_ref() {
             Some(row) => {
                 let batch_issues = crate::run_rows::batch_run_issues(row, cx);
                 let title = crate::run_rows::run_title(row, None, &batch_issues);
-                match crate::run_rows::run_identifier(row, None, &batch_issues) {
-                    Some(identifier) if batch_issues.len() > 1 => {
-                        crate::reviews_view::issues_popover(
-                            SharedString::from(format!("session-covered-issues-{}", row.id)),
-                            crate::picker::PickerTrigger::new(
-                                "session-covered-issues-trigger".into(),
-                                crate::work_header::title_row(format!("{identifier} {title}")),
-                            )
-                            .cursor_pointer(),
-                            Some(crate::reviews_view::COVERED_ISSUES_TITLE),
-                            batch_issues,
+                let identifier = crate::run_rows::run_identifier(row, None, &batch_issues);
+                let compact = crate::work_header::collapsed_title(identifier, title, None, cx);
+                if batch_issues.len() > 1 {
+                    crate::reviews_view::issues_popover(
+                        SharedString::from(format!("session-covered-issues-{}", row.id)),
+                        crate::picker::PickerTrigger::new(
+                            "session-covered-issues-trigger".into(),
+                            compact,
                         )
-                    }
-                    _ => crate::work_header::title_row(title),
+                        .cursor_pointer(),
+                        Some(crate::reviews_view::COVERED_ISSUES_TITLE),
+                        batch_issues,
+                    )
+                } else {
+                    compact
                 }
             }
-            None => crate::work_header::title_row("Loading…"),
+            None => crate::work_header::collapsed_title(None, "Loading…", None, cx),
         };
         let mut right: Vec<AnyElement> = Vec::with_capacity(4);
         // EXP-897 §4: the same badge an issue-bound header carries (a batch
@@ -783,7 +811,7 @@ impl SessionScreenView {
         }
         crate::work_header::render_work_header(
             WorkHeader {
-                title,
+                title: Some(title),
                 right,
                 tray: None,
                 extra,
@@ -910,7 +938,12 @@ impl Render for SessionScreenView {
             .min_h_0()
             .track_focus(&self.focus_handle)
             .child(header)
-            .child(div().flex_1().min_h_0().child(self.inner.clone()))
+            // EXP-1162: the top edge strip under the bar; the transcript's
+            // own bottom strip sits above the composer (`steer_viewer`).
+            .child(crate::work_header::work_body(
+                div().flex_1().min_h_0().child(self.inner.clone()).into_any_element(),
+                false,
+            ))
     }
 }
 

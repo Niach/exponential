@@ -271,3 +271,38 @@ export function phaseDotTone(input: {
       : `muted`
   return { tone, connecting }
 }
+
+/** EXP-1162: a face tab's state dot — the session-dot tones (×4). */
+export type FaceDotTone = `running` | `needs_input` | `review`
+
+/**
+ * EXP-1162: which face TABS carry a state dot (contract `detail-chrome.json`
+ * `faceDots`, ×4). The header title carries none. The Run tab says its run
+ * is live — amber while it waits on a person; an open pull request dots the
+ * Results tab, or the Changes tab when there is no Results face. An ended
+ * run carries no dot, and a face that is not on show never does.
+ */
+export function faceDots(input: {
+  faces: readonly WorkFaceKind[]
+  runLive: boolean
+  needsInput: boolean
+  prOpen: boolean
+}): Partial<Record<WorkFaceKind, FaceDotTone>> {
+  const dots: Partial<Record<WorkFaceKind, FaceDotTone>> = {}
+  if (input.runLive && input.faces.includes(`run`)) {
+    dots.run = input.needsInput ? `needs_input` : `running`
+  }
+  if (input.prOpen) {
+    if (input.faces.includes(`results`)) dots.results = `review`
+    else if (input.faces.includes(`changes`)) dots.changes = `review`
+  }
+  return dots
+}
+
+/** The same dots keyed the face TOGGLE's way (`diff` is the Changes face). */
+export function toggleFaceDots(
+  dots: Partial<Record<WorkFaceKind, FaceDotTone>>
+): Partial<Record<`issue` | `run` | `diff` | `results`, FaceDotTone>> {
+  const { changes, ...rest } = dots
+  return changes ? { ...rest, diff: changes } : rest
+}

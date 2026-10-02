@@ -26,6 +26,14 @@ struct WorkFaceTabs<Trailing: View>: View {
     let multipleRuns: Bool
     /// EXP-1152: the Changes tab's counts — nil keeps the word `Changes`.
     var changesCounts: WorkFaces.ChangesFaceCounts? = nil
+    /// EXP-1162: the face tabs' tones (`DetailChrome.faceDots`) — the state
+    /// the header title no longer carries. Run's is drawn as its agent mark.
+    var dots: [WorkFaceKind: SessionDotTone] = [:]
+    /// The shown run's coding agent (contract `codingAgent`): the Run tab's
+    /// tone is drawn as THIS brand mark, never a dot. Nil = the agents glyph.
+    var runAgent: String? = nil
+    /// The shown run's synced `agent_busy`: the Run tab's mark beats.
+    var runBusy: Bool = false
     /// The Run segment's global frame — where the run menu hangs.
     @Binding var runsAnchor: CGRect
     let onSelect: (WorkFaceKind) -> Void
@@ -60,6 +68,11 @@ struct WorkFaceTabs<Trailing: View>: View {
             label: segmentLabel,
             identifier: { "work-face-\($0.rawValue)" },
             content: segmentContent,
+            leading: segmentMark,
+            leadingGap: DetailChrome.faceMarkGap,
+            accessory: segmentDot,
+            accessoryGap: DetailChrome.faceDotGap,
+            spokenLabel: spokenLabel,
             style: .capsule,
             onSelect: tapped
         )
@@ -92,6 +105,33 @@ struct WorkFaceTabs<Trailing: View>: View {
         )
     }
 
+    /// EXP-1162: the Run tab's tone as the run's agent brand mark, leading
+    /// the label.
+    private func segmentMark(_ face: WorkFaceKind) -> AnyView? {
+        guard face == .run, let tone = dots[face] else { return nil }
+        return AnyView(
+            FaceTabRunMark(agent: runAgent, needsInput: tone == .needsInput, busy: runBusy)
+                .accessibilityHidden(true)
+        )
+    }
+
+    /// EXP-1162: the tab's trailing state dot, in the session-dot colours —
+    /// every tab but Run, which wears its mark instead.
+    private func segmentDot(_ face: WorkFaceKind) -> AnyView? {
+        guard face != .run, let tone = dots[face] else { return nil }
+        return AnyView(
+            SessionStateDot(tone: tone, size: DetailChrome.faceDot)
+                .accessibilityHidden(true)
+        )
+    }
+
+    /// A dotted tab says its state: `Run, running`, `Results, pull request
+    /// open`.
+    private func spokenLabel(_ face: WorkFaceKind) -> String? {
+        guard let tone = dots[face] else { return nil }
+        return "\(segmentLabel(face)), \(DetailChrome.faceDotSpokenState(tone))"
+    }
+
     private func tapped(_ face: WorkFaceKind) {
         if face == shown {
             if face == .run, multipleRuns { onReselectRuns() }
@@ -115,25 +155,91 @@ struct WorkFaceTabs<Trailing: View>: View {
     }
 }
 
+/// EXP-1162: the Run tab's mark — the run's agent brand mark at `faceMark`
+/// (the working row's `AgentBrandMark`, the agents glyph for an unknown or
+/// missing agent), with the session-dot amber badge at its top trailing
+/// corner while the run waits on a person. While the agent is mid-turn the
+/// mark beats like `WorkingIndicatorRow`'s (opacity 0.4 ↔ 1 over 1.4s);
+/// steady under Reduce Motion. The badge never beats.
+private struct FaceTabRunMark: View {
+    let agent: String?
+    let needsInput: Bool
+    let busy: Bool
+
+    var body: some View {
+        // A busy flip remounts the beat, so a stopped turn rests at full
+        // opacity instead of freezing mid-cycle.
+        BeatingAgentMark(agent: agent, beating: busy)
+            .id(busy)
+            .frame(width: DetailChrome.faceMark, height: DetailChrome.faceMark)
+            .overlay(alignment: .topTrailing) {
+                if needsInput {
+                    SessionStateDot(tone: .needsInput, size: DetailChrome.faceMarkBadge)
+                        .offset(x: DetailChrome.faceMarkBadge / 3, y: -DetailChrome.faceMarkBadge / 3)
+                }
+            }
+    }
+}
+
+private struct BeatingAgentMark: View {
+    let agent: String?
+    let beating: Bool
+
+    @Environment(\.motion) private var motion
+    @State private var dimmed = false
+
+    var body: some View {
+        mark
+            .opacity(dimmed ? 0.4 : 1)
+            .onAppear {
+                guard beating, !motion.reduceMotion else { return }
+                withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
+                    dimmed = true
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var mark: some View {
+        // EXP-849: never a bare `Image("agent-…")`.
+        if let agent, let image = AgentBrandMark.image(agent) {
+            image
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+        } else {
+            AppIcon(AppIcons.settingsAgents, size: DetailChrome.faceMark)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+        }
+    }
+}
+
 extension View {
     /// EXP-1150: the Work screen's HEADER BAND — the tabs ride the top safe
     /// area under the nav bar's title row, and the bar's material runs up
     /// behind both (the host hides the nav bar's own background and divider),
-    /// so title and tabs read as ONE header with ONE hairline under the tabs.
+    /// so title and tabs read as ONE header.
     /// The face scrolls beneath it. Drawn even with no tabs (a lone face), so
     /// the title row keeps its material.
-    func workHeaderBand<Header: View>(@ViewBuilder header: () -> Header) -> some View {
+    ///
+    /// EXP-1162: no hairline any more — the band is the detail chrome's scrim
+    /// (`headerEdgeChrome`: the page colour over a blur, a 24pt strip fading
+    /// it out below). `onBottom` reports the band's bottom edge in the global
+    /// space, the line the Issue face's title row collapses the nav-bar title
+    /// against (`DetailChrome.isTitleCollapsed`).
+    func workHeaderBand<Header: View>(
+        onBottom: ((CGFloat) -> Void)? = nil,
+        @ViewBuilder header: () -> Header
+    ) -> some View {
         let header = header()
         return safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
                 header
             }
             .frame(maxWidth: .infinity)
-            .background(.ultraThinMaterial, ignoresSafeAreaEdges: .top)
-            .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(GlassTokens.strokeSection)
-                    .frame(height: GlassTokens.hairline)
+            .headerEdgeChrome()
+            .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .global).maxY }) { bottom in
+                onBottom?(bottom)
             }
         }
     }

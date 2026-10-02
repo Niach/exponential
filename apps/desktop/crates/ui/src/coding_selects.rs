@@ -6,10 +6,15 @@
 //! deleted (rework decision 6): every surface picks from these lists, so the
 //! argv can never carry a value the CLI rejects.
 
-use gpui::{App, AppContext as _, Entity, SharedString, Styled as _, Window};
+use gpui::{
+    div, prelude::FluentBuilder as _, px, App, AppContext as _, Entity, ParentElement as _, SharedString,
+    Styled as _, Window,
+};
 use gpui_component::searchable_list::SearchableListItem;
 use gpui_component::select::SelectState;
-use gpui_component::{ActiveTheme as _, Icon, IndexPath};
+use gpui_component::{ActiveTheme as _, Icon, IndexPath, Sizable as _};
+
+use crate::icons::registry;
 
 /// One dropdown row: a display label + the argv value it stands for
 /// (`""` = omit the flag / inherit).
@@ -127,6 +132,41 @@ pub(crate) fn mark_icon(icon: crate::icons::ExpIcon) -> Icon {
 /// [`mark_icon`] for a shipped agent.
 pub(crate) fn agent_mark(agent: coding::CodingAgent) -> Icon {
     mark_icon(agent_icon(agent))
+}
+
+/// EXP-923/EXP-1162: a live run's LEAD — its agent's brand mark (the generic
+/// agents concept for an unknown agent, `None`), `size` square, with the
+/// amber "wants you" badge (`badge` wide) on its top trailing corner while
+/// it needs input. The rail's Running rows and the work header's Run tab.
+pub(crate) fn run_lead(
+    agent: Option<coding::CodingAgent>,
+    size: f32,
+    badge: f32,
+    attention: bool,
+) -> gpui::Div {
+    let mark = match agent {
+        Some(agent) => agent_mark(agent),
+        None => Icon::new(registry::SETTINGS_AGENTS),
+    };
+    div()
+        .relative()
+        .flex_shrink_0()
+        .child(mark.with_size(px(size)))
+        .when(attention, |this| {
+            this.child(
+                div()
+                    .absolute()
+                    .top(px(-2.))
+                    .right(px(-2.))
+                    .size(px(badge))
+                    .rounded_full()
+                    .bg(theme::tokens::YELLOW.to_hsla())
+                    // The hairline keeps the dot readable over the glyph it
+                    // overlaps.
+                    .border_1()
+                    .border_color(theme::tokens::BACKGROUND.to_hsla()),
+            )
+        })
 }
 
 /// EXP-862 — THE agent picker, one component per client (web

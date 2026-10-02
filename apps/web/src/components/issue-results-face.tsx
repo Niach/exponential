@@ -3,12 +3,13 @@ import type { Board, Issue } from "@/db/schema"
 import {
   MOBILE_WORK_BAR_CLEARANCE,
   SessionResultsView,
-  type SessionDotTone,
   type SessionResultGroup,
 } from "@exp/ui"
 import { cn } from "@/lib/utils"
 import { renderResultText } from "@/components/agent-session"
 import { IssueMobileHeader } from "@/components/issue-mobile-header"
+import { MOBILE_DETAIL_SCREEN_CLASS } from "@/components/team/mobile-detail-header"
+import { useMeasuredSize } from "@/hooks/use-detail-chrome"
 import {
   FACE_BODY_TOUCH_CLASS,
   type FaceSwipeHandlers,
@@ -50,7 +51,6 @@ export function IssueResultsFace({
   groups,
   tabs,
   swipe,
-  dot,
 }: {
   issue: Issue
   board: Board
@@ -63,11 +63,12 @@ export function IssueResultsFace({
    *  spreads (`useFaceSwipe`; EXP-1152: it moves the `data-face-body`). */
   tabs: ReactNode
   swipe?: FaceSwipeHandlers
-  dot?: { tone: SessionDotTone; connecting?: boolean } | null
 }) {
   const handlers = useIssuePropertyHandlers({ issue, teamSlug, readOnly })
+  // EXP-1162: the header band floats over the scroller, which pads by it.
+  const [headerRef, headerSize] = useMeasuredSize()
   return (
-    <div className="flex h-full min-h-0 flex-col" {...swipe}>
+    <div className={MOBILE_DETAIL_SCREEN_CLASS} {...swipe}>
       <IssueMobileHeader
         issue={issue}
         board={board}
@@ -77,8 +78,9 @@ export function IssueResultsFace({
         origin={origin}
         handlers={handlers}
         face="results"
-        dot={dot}
         tabs={tabs}
+        overlay
+        headerRef={headerRef}
       />
       <div
         className={cn(
@@ -88,6 +90,7 @@ export function IssueResultsFace({
         )}
         /* EXP-1152: the pager's body — it follows the finger. */
         data-face-body=""
+        style={{ paddingTop: headerSize.height }}
       >
         <IssueResultsBody groups={groups} />
       </div>

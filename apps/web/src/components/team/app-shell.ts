@@ -110,8 +110,3 @@ export const MAIN_OUTLET_CLASS = [
   `flex-1 min-h-0 min-w-0 overflow-x-clip`,
   `md:overflow-y-auto`,
 ].join(` `)
-
-// EXP-961: the sticky band moved into `@exp/ui` beside `WorkHeader`, its one
-// consumer — re-exported here so the app shell stays the single name every
-// layout constant is read from.
-export { DETAIL_STICKY_BAND_CLASS } from "@exp/ui"

@@ -25,7 +25,6 @@ import {
   useFaceSwipe,
 } from "@/components/mobile-face-tabs"
 import { ChangesView } from "@/components/changes-view"
-import { TitleStateDot } from "@/components/issue-mobile-header"
 import { COMPOSER_PLACEHOLDER } from "@/components/steer-composer"
 import {
   conceptIcon,
@@ -35,7 +34,6 @@ import {
   FabButton,
   GlassCard,
   useIsMobile,
-  type SessionDotTone,
   Button,
   Pill,
   Textarea,
@@ -55,9 +53,10 @@ import {
   ContextRing,
   SessionResultsView,
   parseSessionResultGroups,
-  RUN_TITLE_CLASS,
   WORK_COLUMN_CLASS,
   WorkHeader,
+  CollapsedTitle,
+  DETAIL_EDGE_BOTTOM_CARD_CLASS,
   Composer,
   ComposerSubmit,
   ExponentialLogo,
@@ -70,6 +69,8 @@ import {
   changesFaceCounts,
   OPEN_RESULTS_LABEL,
   phaseDotTone,
+  faceDots,
+  toggleFaceDots,
   START_CODING_LABEL,
   type WorkFaceKind,
 } from "@/lib/work-faces"
@@ -419,7 +420,6 @@ export function AgentSessionView({
    *  decides its action slot: Stop / Resume on Run, GitHub on Changes
    *  (EXP-949), nothing on Results. */
   renderMobileHeader?: (input: {
-    dot: { tone: SessionDotTone; connecting: boolean }
     shownFace: `run` | `changes` | `results`
     /** EXP-1150: the face strip the header carries under itself. */
     tabs: ReactNode
@@ -1079,8 +1079,8 @@ export function AgentSessionView({
         />
       )
 
-  /** EXP-893: the phone's state dot — the header title's, and the switcher
-   *  badge's off the Run face. */
+  /** The run's state tone — EXP-1162: it feeds the face TABS' dots
+   *  (`faceDots`), the header title carries none. */
   const dot = phaseDotTone({
     live,
     connecting:
@@ -1123,10 +1123,20 @@ export function AgentSessionView({
     () => changesFaceCounts(totals(changesFiles)),
     [changesFiles]
   )
+  /** EXP-1162: the state lives on the face TABS — the Run tab while this
+   *  run is live (amber while it waits on a person or went quiet), the
+   *  Results / Changes tab while the pull request is open. */
+  const dotState = {
+    runLive: dot.tone !== `muted`,
+    needsInput: dot.tone === `needs_input`,
+    prOpen: mergeProps?.prState === `open`,
+  }
   const mobileTabs = isMobile ? (
     <MobileFaceTabs
       faces={phoneFaces}
       face={shownFace}
+      dots={faceDots({ faces: phoneFaces, ...dotState })}
+      run={{ agent: session.agent, busy: working }}
       runs={issueRuns}
       viewedRunId={session.id}
       changesCounts={phoneChangesCounts}
@@ -1252,20 +1262,16 @@ export function AgentSessionView({
         /* EXP-893: the phone header never jumps between faces — an issue
            subject wears the issue's header (the route renders it, with Stop
            / Resume in its trailing slot on the Run face only); a run subject
-           the shared detail header with the state dot + its title, and the
+           the shared detail header with its title, and the
            same Stop / Resume on the right. No caption row, no plan chip:
            the strips under the transcript say what the run is doing. */
         renderMobileHeader ? (
-          renderMobileHeader({ dot, shownFace, tabs: mobileTabs })
+          renderMobileHeader({ shownFace, tabs: mobileTabs })
         ) : (
           <MobileDetailHeader
             below={mobileTabs}
-            title={
-              <>
-                <TitleStateDot tone={dot.tone} connecting={dot.connecting} />
-                {identity.subject}
-              </>
-            }
+            /* EXP-1162: no state dot on the title — the tabs carry it. */
+            title={identity.subject}
             onBack={onBack}
             menu={
               /* The cluster keeps the back button's width whether or not it
@@ -1294,11 +1300,14 @@ export function AgentSessionView({
            way out. No identity block, no phase caption: the title says what
            the run is, the transcript's footer says what it is doing. */
         <WorkHeader
+          /* EXP-1162: a run face has no title row of its own, so the bar is
+             always collapsed — the issue's identifier over its title, or
+             the run's own subject. */
           title={
             issueHeader ? (
               issueHeader.title
             ) : (
-              <h1 className={RUN_TITLE_CLASS}>{identity.subject}</h1>
+              <CollapsedTitle title={identity.subject} animate={false} />
             )
           }
           trailing={
@@ -1316,6 +1325,15 @@ export function AgentSessionView({
               <WorkFaceToggle
                 face={showDiffFace || showResultsFace ? face : `run`}
                 items={faceItems}
+                run={{ agent: session.agent, busy: working }}
+                dots={toggleFaceDots(
+                  faceDots({
+                    faces: faceItems.map((item) =>
+                      item.face === `diff` ? `changes` : item.face
+                    ),
+                    ...dotState,
+                  })
+                )}
                 runMenu={
                   issueRuns && onOpenRun
                     ? {
@@ -1754,6 +1772,12 @@ export function AgentSessionView({
                 </div>
               )}
             </div>
+            {/* EXP-1162: the bottom edge on md+ — the transcript's last rows
+                fade out over the composer instead of meeting a hairline (a
+                phone's floating bar carries its own). */}
+            {!isMobile && (
+              <span aria-hidden className={DETAIL_EDGE_BOTTOM_CARD_CLASS} />
+            )}
             {!atBottom && feed.length > 0 && (
               <Button
                 variant="secondary"
@@ -1910,7 +1934,7 @@ export function AgentSessionView({
           {/* Steering composer. Steering is fully seamless (EXP-312) — no
               captions, no operator state; live implies ownership. */}
           {composerVisible && !isMobile && (
-            <div className="border-t border-border p-2">
+            <div className="p-2">
               <div className={WORK_COLUMN_CLASS}>
                 <SteerComposer
                   store={store}

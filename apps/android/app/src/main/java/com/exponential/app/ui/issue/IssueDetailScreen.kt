@@ -42,6 +42,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.pointerInput
@@ -68,6 +71,10 @@ import com.exponential.app.ui.components.toPickerBoard
 import com.exponential.app.ui.components.toPickerMember
 import com.exponential.app.ui.components.toPickerRow
 import com.exponential.app.ui.components.BottomBarInset
+import com.exponential.app.ui.components.FloatingBarEdge
+import com.exponential.app.ui.components.detailHazeSource
+import com.exponential.app.ui.work.LocalTitleCollapse
+import com.exponential.app.ui.work.reportsTitleRow
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
@@ -485,15 +492,20 @@ fun IssueFace(
         val focusManager = LocalFocusManager.current
         val keyboard = LocalSoftwareKeyboardController.current
 
+        // EXP-1162: the page runs UNDER the header band and the floating bar
+        // — the host's top and bottom insets are CONTENT padding (the scroll
+        // column's top, the clearance spacer, the bar's own offset), never
+        // the face's. Only the sides pad the face.
+        val layoutDirection = LocalLayoutDirection.current
+        val topInset = padding.calculateTopPadding()
+        val bottomInset = padding.calculateBottomPadding()
+        val titleCollapse = LocalTitleCollapse.current
         Box(
             modifier = Modifier
-                .padding(padding)
-                // Shrink the scrollport above the keyboard: with edge-to-edge,
-                // adjustResize alone never resizes the window, so without this
-                // the focused editor line stays hidden behind the IME (EXP-135).
-                // consumeWindowInsets keeps imePadding from re-adding the
-                // nav-bar inset already applied by the Scaffold padding.
-                .consumeWindowInsets(padding)
+                .padding(
+                    start = padding.calculateStartPadding(layoutDirection),
+                    end = padding.calculateEndPadding(layoutDirection),
+                )
                 .fillMaxSize()
                 .pointerInput(Unit) {
                     detectTapGestures(onTap = {
@@ -504,8 +516,15 @@ fun IssueFace(
         ) {
             Column(
                 modifier = Modifier
+                    // Shrink the scrollport above the keyboard: with
+                    // edge-to-edge, adjustResize alone never resizes the
+                    // window, so without this the focused editor line stays
+                    // hidden behind the IME (EXP-135). Nothing above consumes
+                    // the nav-bar inset any more, so this is the whole IME.
                     .imePadding()
+                    .detailHazeSource()
                     .verticalScroll(rememberScrollState())
+                    .padding(top = topInset)
                     .padding(horizontal = 20.dp, vertical = 8.dp)
                     .fillMaxWidth(),
             ) {
@@ -627,6 +646,8 @@ fun IssueFace(
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.onSurface),
                     modifier = Modifier
                         .fillMaxWidth()
+                        // EXP-1162: the row the header's title collapse keys on.
+                        .reportsTitleRow(titleCollapse)
                         .onFocusChanged { focus ->
                             titleSync.setFocused(focus.isFocused)
                             // Dirty is measured against the seed BASELINE, not the live
@@ -766,17 +787,26 @@ fun IssueFace(
                 )
 
                 // Clearance so the last timeline row scrolls out from under the
-                // floating bar (kept in sync with the nav pill inset, EXP-36).
-                Spacer(Modifier.height(BottomBarInset))
+                // floating bar (kept in sync with the nav pill inset, EXP-36),
+                // plus the navigation bar the column now runs under.
+                Spacer(Modifier.height(BottomBarInset + bottomInset))
             }
 
             // The floating bottom bar / docked composer. Lives INSIDE the
             // ProvideMarkdownToolbar content (which bottom-insets by the
             // toolbar height), with a single imePadding — so the stack is
             // IME → markdown toolbar → composer.
-            Box(
+            // EXP-1162: the bottom edge strip behind the bar (hidden with it,
+            // and under an expanded composer card, which is its own surface).
+            FloatingBarEdge(
+                bottomInset = bottomInset,
+                visible = barVisible && !composerExpanded,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
+                    // Sits on the nav bar; the IME's own inset takes over
+                    // (minus that nav bar) while the keyboard is up.
+                    .padding(bottom = bottomInset)
+                    .consumeWindowInsets(PaddingValues(bottom = bottomInset))
                     .imePadding(),
             ) {
                 AnimatedVisibility(
