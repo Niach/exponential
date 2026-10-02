@@ -1,6 +1,11 @@
 package com.exponential.app.ui.work
 
 import android.content.Intent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
@@ -17,14 +23,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
+import com.exponential.app.domain.DetailChrome
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.SessionDotTone
 import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.HeaderEdgeChrome
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.TopBarActionButton
 import com.exponential.app.ui.components.TopBarBackButton
@@ -36,6 +48,7 @@ import com.exponential.app.ui.issue.PulsingDot
 import com.exponential.app.ui.issue.ReviewGreen
 import com.exponential.app.ui.issue.StaticDot
 import com.exponential.app.ui.session.LostGray
+import com.exponential.app.ui.theme.TextEmphasis
 
 // EXP-893: the Work screen's top bar — IDENTICAL across its faces, so it
 // never jumps: back · a small session-state dot + the identifier (an issue
@@ -43,6 +56,12 @@ import com.exponential.app.ui.session.LostGray
 // Stop / Resume show on the Run face ONLY; the issue `…` menu on every face
 // of an issue subject. No second caption line, no plan chip, no Reconnect.
 // EXP-1150: the face tabs ride the header under the title row ([tabs]).
+// EXP-1162: the band (title row + tabs) is the detail chrome's header — no
+// hairline, the page at `scrim` over the blurred content scrolling beneath,
+// a fading strip below ([HeaderEdgeChrome]). An issue subject's title BREAKS
+// into the collapsed form (identifier small + muted over the one-line title)
+// once the Issue face's own title row has scrolled under the band, and is
+// always collapsed on the faces without one (`DetailChrome.isTitleCollapsed`).
 
 /** The trailing verb the Run face wears — see `primaryAction`. */
 enum class WorkBarVerb { Stop, Resume }
@@ -83,23 +102,70 @@ fun WorkTopBar(
      * band's one hairline. Null = the bare title row.
      */
     tabs: (@Composable () -> Unit)? = null,
+    /**
+     * EXP-1162: the issue's title for the collapsed form; null = no collapse
+     * (an issue-less or batch run keeps its one title).
+     */
+    collapsedTitle: String? = null,
+    /** EXP-1162: whether the header shows the collapsed form now. */
+    collapsed: Boolean = false,
+    /** EXP-1162: the band's bottom edge in root px (tabs included). */
+    onHeaderBottom: (Float) -> Unit = {},
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
+    HeaderEdgeChrome {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .onGloballyPositioned { onHeaderBottom(it.positionInRoot().y + it.size.height) },
+    ) {
     CenterAlignedTopAppBar(
         title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (dotTone != null) {
-                    SessionToneDot(dotTone, busy = dotBusy)
-                    Spacer(Modifier.width(8.dp))
+            val showCollapsed = collapsed && collapsedTitle != null
+            // Starts `collapseRise` low and rises into place.
+            val riseOffset = with(LocalDensity.current) { DetailChrome.COLLAPSE_RISE.dp.roundToPx() }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (dotTone != null) {
+                        SessionToneDot(dotTone, busy = dotBusy)
+                        Spacer(Modifier.width(if (showCollapsed) 6.dp else 8.dp))
+                    }
+                    if (titleContent != null) {
+                        titleContent()
+                    } else {
+                        // ONE node in both forms (the `work-title` tag stays
+                        // unique); the threshold only restyles it.
+                        Text(
+                            title,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = if (showCollapsed) {
+                                MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace)
+                            } else {
+                                LocalTextStyle.current
+                            },
+                            color = if (showCollapsed) {
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+                            } else {
+                                Color.Unspecified
+                            },
+                            modifier = Modifier.testTag("work-title"),
+                        )
+                    }
                 }
-                if (titleContent != null) {
-                    titleContent()
-                } else {
+                // The break: the title fades in over `collapseMs` while rising
+                // `collapseRise`; it leaves at once (never a morph either way).
+                AnimatedVisibility(
+                    visible = showCollapsed,
+                    enter = fadeIn(tween(DetailChrome.COLLAPSE_MS)) +
+                        slideInVertically(tween(DetailChrome.COLLAPSE_MS)) { riseOffset },
+                    exit = ExitTransition.None,
+                ) {
                     Text(
-                        title,
+                        collapsedTitle.orEmpty(),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.testTag("work-title"),
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.testTag("work-collapsed-title"),
                     )
                 }
             }
@@ -137,9 +203,13 @@ fun WorkTopBar(
             action?.invoke()
             menu?.invoke()
         },
-        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
+        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+            containerColor = Color.Transparent,
+            scrolledContainerColor = Color.Transparent,
+        ),
     )
     tabs?.invoke()
+    }
     }
 }
 

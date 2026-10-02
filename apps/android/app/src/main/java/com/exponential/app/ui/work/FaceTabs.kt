@@ -9,8 +9,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.material3.HorizontalDivider
-import com.exponential.app.ui.theme.GlassTokens
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -56,8 +54,8 @@ import com.exponential.app.ui.session.PastRunRow
 // (`availableFaces` + `faceLabel`), plus the body SWIPE that moves to the
 // neighbour (`swipeTarget`). It replaces the EXP-893 bottom-right switcher
 // circle. The strip is part of the HEADER: [WorkFaceTabs] composes under the
-// top bar's title row inside the Scaffold's `topBar` slot (8dp below it, ONE
-// hairline under the strip), so title and tabs read as one band that never
+// top bar's title row inside the Scaffold's `topBar` slot (8dp below it), so
+// title and tabs read as one band that never
 // moves between faces. The row is `[strip][Merge PR pill]`: with a merge
 // the strip shrinks left and the pill trails at the row's end (every face).
 // [WorkFaceFrame] hosts the face BODIES as a pager (EXP-1152: the neighbour
@@ -150,8 +148,9 @@ fun WorkFaceFrame(
 }
 
 /**
- * The header's strip: 8dp under the title row, then ONE hairline closing the
- * band. Nothing at all (no strip, no hairline) with fewer than two faces.
+ * The header's strip: 8dp under the title row. EXP-1162: no hairline closes
+ * the band any more — the detail chrome's edge strip does. Nothing at all
+ * with fewer than two faces.
  * [runs] feed the `Runs` menu (two or more = a menu).
  */
 @Composable
@@ -239,7 +238,6 @@ fun WorkFaceTabs(
             }
             trailing?.invoke()
         }
-        HorizontalDivider(thickness = GlassTokens.Hairline, color = GlassTokens.StrokeRow)
     }
 }
 

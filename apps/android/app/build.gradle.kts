@@ -219,6 +219,8 @@ dependencies {
     implementation(libs.media3.ui)
     implementation(libs.media3.transformer)
     implementation(libs.media3.effect)
+    // EXP-1162: the Work screen's header + bottom-bar backdrop blur.
+    implementation(libs.haze)
 
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)

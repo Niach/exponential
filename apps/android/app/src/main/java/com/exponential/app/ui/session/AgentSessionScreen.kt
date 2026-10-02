@@ -82,6 +82,8 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
@@ -100,6 +102,13 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import com.exponential.app.domain.DetailChrome
+import com.exponential.app.ui.components.detailHazeSource
+import com.exponential.app.ui.components.FadeEdge
+import com.exponential.app.ui.components.EdgeFade
+import com.exponential.app.ui.components.FloatingBarEdge
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -686,33 +695,60 @@ private fun RunFaceContent(
                 composerEmoji.isNotEmpty()) -> ComposerMenu.Autocomplete
         else -> ComposerMenu.None
     }
-    Column(
+    // EXP-1162: the transcript runs UNDER the header band and the bottom
+    // band (banners, strips, menus, the composer), which FLOATS over its tail
+    // like iOS's `safeAreaInset(edge: .bottom)`: the list's bottom content
+    // padding tracks the band's measured height, so the last row clears it
+    // and follow-mode still lands on the true end.
+    val layoutDirection = LocalLayoutDirection.current
+    val topInset = padding.calculateTopPadding()
+    val bottomInset = padding.calculateBottomPadding()
+    var bandHeightPx by remember { mutableIntStateOf(0) }
+    val bandClearance = with(LocalDensity.current) { bandHeightPx.toDp() } + bottomInset
+    // The placeholder states (no feed yet) centre in the space between the
+    // bands; the feed itself scrolls under both.
+    val feedPlaceholder = feed.isEmpty() && (
+        history != null ||
+            (hostOffline && phase.isWaitingForStream) ||
+            phase == AgentPhase.Connecting || phase == AgentPhase.Starting ||
+            (!everRendered && phase == AgentPhase.Live && latestDiff == null)
+        )
+    Box(
         modifier = Modifier
-            .padding(padding)
-            // consumeWindowInsets keeps imePadding from re-adding the
-            // nav-bar inset already applied by the Scaffold padding —
-            // without it the message box floats a nav-bar-height above
-            // the keyboard (EXP-336).
-            .consumeWindowInsets(padding)
+            .padding(
+                start = padding.calculateStartPadding(layoutDirection),
+                end = padding.calculateEndPadding(layoutDirection),
+            )
+            // The bottom band sits on the nav bar (its own padding below);
+            // consuming it keeps imePadding from re-adding it, so the band
+            // lands exactly on the keyboard (EXP-336).
+            .consumeWindowInsets(PaddingValues(bottom = bottomInset))
             .fillMaxSize()
             .imePadding(),
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
+                .fillMaxSize()
                 .padding(horizontal = 12.dp),
         ) {
             // ── The activity feed (bottom-anchored, follow-scroll) ───────────
-            // EXP-893: nothing floats over its tail any more — the diff is the
-            // Changes face, Merge lives there too, and the bar below is in
-            // the flow, so the feed simply ends above it.
-            EndedRunHeader(
-                session = session,
-                hostLabel = hostDevice.displayLabel,
-                runState = launchRunState,
-            )
-            Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+            // EXP-893: the diff is the Changes face and Merge lives in the
+            // header. An ended run's byline heads the feed as its first row
+            // (so it scrolls with it), or sits above a placeholder.
+            if (feedPlaceholder) {
+                Spacer(Modifier.height(topInset))
+                EndedRunHeader(
+                    session = session,
+                    hostLabel = hostDevice.displayLabel,
+                    runState = launchRunState,
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .then(if (feedPlaceholder) Modifier.padding(bottom = bandClearance) else Modifier),
+            ) {
                 when {
                     // EXP-773: a finished run's transcript lives on the
                     // machine that ran it, and the relay is asking that
@@ -879,14 +915,44 @@ private fun RunFaceContent(
                                     question.wireId, question.askId, listOf(key), listOf(label), text,
                                 )
                             },
-                            // EXP-893: the bar is in the flow below, so the
-                            // tail needs no clearance of its own.
-                            bottomInset = 0.dp,
+                            // EXP-1162: the floating bottom band's height
+                            // (+ the nav bar) clears the tail; the header
+                            // band's height clears the head.
+                            bottomInset = bandClearance,
+                            topInset = topInset,
+                            header = {
+                                EndedRunHeader(
+                                    session = session,
+                                    hostLabel = hostDevice.displayLabel,
+                                    runState = launchRunState,
+                                )
+                            },
                         )
                     }
                 }
             }
+        }
 
+        // ── The bottom band: floats over the transcript's tail ───────────────
+        FloatingBarEdge(
+            bottomInset = bottomInset,
+            // An expanded composer card is its own surface.
+            visible = !composerExpanded,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(bottom = bottomInset),
+        ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .onSizeChanged { if (it.height != bandHeightPx) bandHeightPx = it.height },
+        ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp),
+        ) {
             // ── Status banners (feed retained above) ─────────────────────────
             val pausedBanner = hostOffline && phase.isWaitingForStream
             // EXP-550: an offline host outranks the "reconnecting" /
@@ -1330,6 +1396,8 @@ private fun RunFaceContent(
             )
         } else if (trailingBarSlot != null) {
             FloatingBottomBar(right = trailingBarSlot) { Spacer(Modifier.weight(1f)) }
+        }
+        }
         }
     }
 
@@ -1826,6 +1894,10 @@ private fun ActivityFeed(
      *  covers. The list pads past it (and so does the Jump-to-bottom pill), so
      *  the last message is never parked underneath it. */
     bottomInset: Dp = 0.dp,
+    /** EXP-1162: the header band the list's head scrolls under. */
+    topInset: Dp = 0.dp,
+    /** EXP-1162: the feed's leading row (an ended run's byline). */
+    header: @Composable () -> Unit = {},
 ) {
     // A card with a wire id stays answerable until it resolves; an id-less one
     // (a pre-EXP-249 desktop) is read-only (EXP-672).
@@ -1918,10 +1990,19 @@ private fun ActivityFeed(
         }
     }
 
+    // EXP-1162: the floating bottom band grew or shrank (a banner, the
+    // queue, the keyboard's composer) — a follower stays on the true end.
+    LaunchedEffect(bottomInset) {
+        if (follow) listState.scrollBy(1_000_000f)
+    }
+
     // Only composed once real activity has arrived (the placeholder states are
     // siblings) — the store-screenshot test waits on this tag so it never
     // captures "Connecting…" / "Waiting for activity…".
     Column(modifier = Modifier.fillMaxSize().testTag("agent-feed")) {
+        // The subagent tabs stay put above the list (under the header band,
+        // not beneath it); the list then starts below them.
+        if (visibleTabs.isNotEmpty()) Spacer(Modifier.height(topInset))
         if (visibleTabs.isNotEmpty()) {
             AgentTabStrip(
                 agents = visibleTabs,
@@ -1935,12 +2016,16 @@ private fun ActivityFeed(
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().detailHazeSource(),
             // Bottom-anchored: a short feed sits above the input bar, not at
             // the top of the screen.
             verticalArrangement = Arrangement.Bottom,
-            contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp + bottomInset),
+            contentPadding = PaddingValues(
+                top = 8.dp + if (visibleTabs.isEmpty()) topInset else 0.dp,
+                bottom = 8.dp + bottomInset,
+            ),
         ) {
+            item(key = "feed-header") { header() }
             if (focused != null) {
                 // EXP-356: the focused subagent's conversation — its
                 // delegation summary, then (EXP-773) its prose, the turns
@@ -2156,29 +2241,21 @@ private fun ActivityFeed(
                     .padding(bottom = 8.dp + bottomInset),
             )
         }
-        // EXP-698: a short fade at the scroller's top edge, so the feed's head
-        // dissolves out from under the transparent top bar instead of being
-        // sliced mid-glyph through the session title. Same idiom as the
-        // floating Latest-changes bar at the other end: the content keeps
-        // scrolling, the edge softens. Drawn LAST so it sits over the list —
-        // and inside the scroller, so the subagent tab strip above stays clear.
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth()
-                .height(FeedTopFadeHeight)
-                .background(
-                    Brush.verticalGradient(
-                        listOf(GlassTokens.BackgroundTop, Color.Transparent),
-                    ),
-                ),
-        )
+        // EXP-1162: the EXP-698 top fade is the header band's edge strip now
+        // (`HeaderEdgeChrome`), over every face alike. With the subagent tabs
+        // up the list starts below them, so its own head still dissolves.
+        if (visibleTabs.isNotEmpty()) {
+            EdgeFade(
+                FadeEdge.Top,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .height(DetailChrome.EDGE_TOP.dp),
+            )
+        }
         }
     }
 }
-
-/** The scroller's top fade (EXP-698) — enough to dissolve one line of text. */
-private val FeedTopFadeHeight = 24.dp
 
 /** Visually-at-the-bottom, with slack: the last item's bottom edge sits within
  *  [slackPx] of the viewport end (an empty list counts as bottom). A last item

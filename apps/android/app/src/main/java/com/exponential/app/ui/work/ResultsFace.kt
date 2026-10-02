@@ -36,6 +36,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.ui.platform.LocalLayoutDirection
+import com.exponential.app.ui.components.detailHazeSource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -91,7 +95,17 @@ fun ResultsFace(
 ) {
     var preview by remember { mutableStateOf<SessionResultEntry?>(null) }
 
-    BoxWithConstraints(modifier = Modifier.padding(padding).fillMaxSize()) {
+    // EXP-1162: the page runs under the header band — the host's insets are
+    // the list's CONTENT padding, not the face's.
+    val layoutDirection = LocalLayoutDirection.current
+    BoxWithConstraints(
+        modifier = Modifier
+            .padding(
+                start = padding.calculateStartPadding(layoutDirection),
+                end = padding.calculateEndPadding(layoutDirection),
+            )
+            .fillMaxSize(),
+    ) {
         // ONE factor for the whole page: the base height unless the widest
         // tile would overflow the column, then every tile scales by the same
         // amount so the equal-height strip survives (shared rule ×4). An
@@ -101,12 +115,12 @@ fun ResultsFace(
             sessionResultTileHeightFitting(groups.flatMap { it.entries }, availableDp)
         }
         LazyColumn(
-            modifier = Modifier.fillMaxSize().testTag("work-results"),
+            modifier = Modifier.fillMaxSize().detailHazeSource().testTag("work-results"),
             contentPadding = PaddingValues(
                 start = HorizontalPadding,
                 end = HorizontalPadding,
-                top = 4.dp,
-                bottom = BottomBarInset,
+                top = padding.calculateTopPadding() + 4.dp,
+                bottom = BottomBarInset + padding.calculateBottomPadding(),
             ),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {

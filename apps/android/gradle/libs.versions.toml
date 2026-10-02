@@ -51,6 +51,12 @@ play-app-update = "2.1.0"
 # artifacts libs.versions.toml never names) into a JSON licence report that
 # packages/licenses/scripts/collect-android.ts turns into inventory/android.json.
 license-plugin = "0.9.9"
+# EXP-1162: the detail chrome's backdrop blur behind the Work screen's header
+# band and floating bar (RenderEffect on API 31+, a plain scrim below). The
+# 1.x line on purpose: 2.x splits the blur into extra artifacts and drags
+# core-ktx 1.19 / activity 1.13 / lifecycle 2.11 in, and 1.7.3 pulls Compose
+# 1.12, which needs AGP 9.1. 1.7.2 resolves inside the graph we already ship.
+haze = "1.7.2"
 
 [libraries]
 core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core-ktx" }
@@ -109,6 +115,7 @@ screengrab = { group = "tools.fastlane", name = "screengrab", version.ref = "scr
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebase-bom" }
 firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging" }
 play-app-update-ktx = { group = "com.google.android.play", name = "app-update-ktx", version.ref = "play-app-update" }
+haze = { group = "dev.chrisbanes.haze", name = "haze", version.ref = "haze" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

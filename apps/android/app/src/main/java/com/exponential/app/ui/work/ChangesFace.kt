@@ -29,6 +29,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.ui.platform.LocalLayoutDirection
+import com.exponential.app.ui.components.FloatingBarEdge
+import com.exponential.app.ui.components.detailHazeSource
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -100,15 +105,26 @@ fun ChangesFace(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    Box(modifier = Modifier.padding(padding).fillMaxSize()) {
+    // EXP-1162: the page runs under the header band and the floating bar —
+    // the host's insets are the list's CONTENT padding, not the face's.
+    val layoutDirection = LocalLayoutDirection.current
+    val bottomInset = padding.calculateBottomPadding()
+    Box(
+        modifier = Modifier
+            .padding(
+                start = padding.calculateStartPadding(layoutDirection),
+                end = padding.calculateEndPadding(layoutDirection),
+            )
+            .fillMaxSize(),
+    ) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize().testTag("work-changes"),
+            modifier = Modifier.fillMaxSize().detailHazeSource().testTag("work-changes"),
             state = listState,
             contentPadding = PaddingValues(
                 start = 16.dp,
                 end = 16.dp,
-                top = 4.dp,
-                bottom = BottomBarInset,
+                top = padding.calculateTopPadding() + 4.dp,
+                bottom = BottomBarInset + bottomInset,
             ),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -139,9 +155,14 @@ fun ChangesFace(
                 )
             }
         }
-        Column(
-            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally,
+        // EXP-1162: the bottom edge strip fades the list out under the bar.
+        FloatingBarEdge(
+            bottomInset = bottomInset,
+            visible = files.isNotEmpty(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(bottom = bottomInset),
         ) {
             // EXP-916/EXP-1150: the files circle alone — Merge PR sits in
             // the header band beside the face tabs.

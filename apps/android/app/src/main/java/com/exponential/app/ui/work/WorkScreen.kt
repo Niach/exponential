@@ -15,6 +15,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -63,6 +64,7 @@ import com.exponential.app.ui.issue.StartCircle
 import com.exponential.app.ui.issue.rememberIssueFaceController
 import com.exponential.app.ui.issue.toDiffFile
 import com.exponential.app.ui.components.GlassSegmentedControlDefaults
+import com.exponential.app.ui.components.LocalDetailHaze
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.IssueChip
 import com.exponential.app.ui.components.IssueChipSize
@@ -73,6 +75,7 @@ import com.exponential.app.ui.session.RunFace
 import com.exponential.app.ui.session.sessionDotTone
 import com.exponential.app.ui.session.sessionRowTitle
 import com.exponential.app.ui.steer.ActionRunState
+import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.flow.MutableStateFlow
 
 // EXP-893: the phone WORK SCREEN — one screen per subject (an issue, or a
@@ -504,7 +507,19 @@ fun WorkScreen(
         else -> null
     }
 
+    // EXP-1162: the detail chrome — ONE backdrop every face's scroller feeds
+    // (the header band and the bottom strips blur it), and the title-collapse
+    // input the Issue face's title row reports into.
+    val hazeState = rememberHazeState()
+    val titleCollapse = remember { TitleCollapseState() }
+    // Faces without a title row of their own are always collapsed.
+    val titleCollapsed = face != WorkFaceKind.Issue || titleCollapse.issueTitleCollapsed
+
     ProvideMarkdownToolbar {
+        CompositionLocalProvider(
+            LocalDetailHaze provides hazeState,
+            LocalTitleCollapse provides titleCollapse,
+        ) {
         Scaffold(
             containerColor = Color.Transparent,
             topBar = {
@@ -528,6 +543,12 @@ fun WorkScreen(
                     } else {
                         null
                     },
+                    // EXP-1162: an issue subject's header breaks into
+                    // identifier-over-title; issue-less and batch runs keep
+                    // their one title.
+                    collapsedTitle = issue?.title,
+                    collapsed = titleCollapsed,
+                    onHeaderBottom = titleCollapse::reportHeaderBottom,
                     dotTone = if (issueId != null) dotTone else null,
                     dotBusy = shownSession?.agentBusy == true,
                     onBack = onBack,
@@ -643,6 +664,7 @@ fun WorkScreen(
                     )
                 }
             }
+        }
         }
     }
 
