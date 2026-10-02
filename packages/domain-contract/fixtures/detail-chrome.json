@@ -1,0 +1,55 @@
+{
+  "_comment": "EXP-1162: THE detail chrome, identical x4 (web lib/detail-chrome.ts, desktop domain::detail_chrome, iOS ExpCore DetailChrome, Android domain/DetailChrome). Points (web px = desktop px = iOS pt = Android dp). TITLE COLLAPSE: the issue face keeps its large title as a ROW of the scrolling content; the header shows the identifier alone until that row has scrolled away, then BREAKS (a threshold, never a progressive morph) into the collapsed title: the mono identifier (small, muted) over the title on ONE truncated line, fading in over `collapseMs` while rising `collapseRise`. `collapsed = !hasTitleRow || titleBottom <= headerBottom` (both in the same coordinate space, the header band's bottom edge incl. the face tabs). A face with no title row of its own (Run, Changes, Results) is ALWAYS collapsed. EDGE STRIPS: content scrolls UNDER the header band and the floating bottom bar. The header band is the page background at `scrim` alpha over a `edgeBlur` blur, no hairline; below it a strip `edgeTop` tall fades both the scrim and the blur to nothing. At the bottom a strip from the screen edge to `edgeBottom` above the bar's top fades the same way upwards. A client that cannot blur what is behind a view (desktop gpui, Android below API 31) draws the scrim fade alone.",
+  "constants": {
+    "collapseMs": 160,
+    "collapseRise": 4,
+    "edgeTop": 24,
+    "edgeBottom": 32,
+    "edgeBlur": 8,
+    "scrim": 0.72
+  },
+  "collapse": [
+    {
+      "name": "the title row sits below the header",
+      "hasTitleRow": true,
+      "titleBottom": 180,
+      "headerBottom": 96,
+      "collapsed": false
+    },
+    {
+      "name": "one point of the title still shows",
+      "hasTitleRow": true,
+      "titleBottom": 97,
+      "headerBottom": 96,
+      "collapsed": false
+    },
+    {
+      "name": "the title's bottom edge meets the header's: it breaks",
+      "hasTitleRow": true,
+      "titleBottom": 96,
+      "headerBottom": 96,
+      "collapsed": true
+    },
+    {
+      "name": "the title scrolled far away",
+      "hasTitleRow": true,
+      "titleBottom": -240,
+      "headerBottom": 96,
+      "collapsed": true
+    },
+    {
+      "name": "a face with no title row is always collapsed",
+      "hasTitleRow": false,
+      "titleBottom": 0,
+      "headerBottom": 96,
+      "collapsed": true
+    },
+    {
+      "name": "a title row not measured yet stays expanded",
+      "hasTitleRow": true,
+      "titleBottom": null,
+      "headerBottom": 96,
+      "collapsed": false
+    }
+  ]
+}
