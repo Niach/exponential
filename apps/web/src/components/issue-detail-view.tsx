@@ -6,7 +6,6 @@ import {
   conceptIcon,
   useIsMobile,
   Pill,
-  type SessionDotTone,
   MOBILE_WORK_BAR_CLEARANCE,
   WORK_BAR_HEIGHT,
   WORK_COLUMN_CLASS,
@@ -96,12 +95,10 @@ interface IssueDetailViewProps {
   faceBody?: React.ReactNode
   /** EXP-893: the phone's Work screen parts — EXP-1150: the face TABS under
    *  the header (`MobileFaceTabs`), the pager the root spreads
-   *  (`useFaceSwipe`, EXP-1152: it moves the `data-face-body`) and the shown session's state dot for the header
-   *  title. The bar's right circle is always Start coding now. */
+   *  (`useFaceSwipe`, EXP-1152: it moves the `data-face-body`). The bar's right circle is always Start coding now. */
   mobileWork?: {
     tabs?: React.ReactNode
     swipe?: FaceSwipeHandlers
-    dot?: { tone: SessionDotTone; connecting?: boolean } | null
   }
 }
 
@@ -605,7 +602,6 @@ export function IssueDetailView({
       readOnly={readOnly}
       origin={origin}
       handlers={handlers}
-      dot={mobileWork?.dot ?? null}
       tabs={mobileWork?.tabs}
       collapsed={titleCollapsed}
       overlay

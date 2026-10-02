@@ -2369,6 +2369,12 @@ impl IssueDetailView {
                     active,
                     runs,
                     checked_run: run_id.clone(),
+                    // EXP-1162: the run's state and the PR ride the toggle.
+                    state: crate::work_header::face_state(
+                        run_id.as_deref(),
+                        issue.pr_state.as_deref() == Some("open"),
+                        cx,
+                    ),
                 },
                 Rc::new(move |face, window, cx| {
                     // EXP-889: the issue's own Changes face, and the way back

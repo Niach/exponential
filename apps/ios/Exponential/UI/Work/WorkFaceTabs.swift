@@ -26,6 +26,9 @@ struct WorkFaceTabs<Trailing: View>: View {
     let multipleRuns: Bool
     /// EXP-1152: the Changes tab's counts — nil keeps the word `Changes`.
     var changesCounts: WorkFaces.ChangesFaceCounts? = nil
+    /// EXP-1162: the face tabs' state dots (`DetailChrome.faceDots`) — the
+    /// state the header title no longer carries.
+    var dots: [WorkFaceKind: SessionDotTone] = [:]
     /// The Run segment's global frame — where the run menu hangs.
     @Binding var runsAnchor: CGRect
     let onSelect: (WorkFaceKind) -> Void
@@ -60,6 +63,9 @@ struct WorkFaceTabs<Trailing: View>: View {
             label: segmentLabel,
             identifier: { "work-face-\($0.rawValue)" },
             content: segmentContent,
+            accessory: segmentDot,
+            accessoryGap: DetailChrome.faceDotGap,
+            spokenLabel: spokenLabel,
             style: .capsule,
             onSelect: tapped
         )
@@ -90,6 +96,22 @@ struct WorkFaceTabs<Trailing: View>: View {
                 font: .subheadline.monospaced().weight(.medium)
             )
         )
+    }
+
+    /// EXP-1162: the tab's trailing state dot, in the session-dot colours.
+    private func segmentDot(_ face: WorkFaceKind) -> AnyView? {
+        guard let tone = dots[face] else { return nil }
+        return AnyView(
+            SessionStateDot(tone: tone, size: DetailChrome.faceDot)
+                .accessibilityHidden(true)
+        )
+    }
+
+    /// A dotted tab says its state: `Run, running`, `Results, pull request
+    /// open`.
+    private func spokenLabel(_ face: WorkFaceKind) -> String? {
+        guard let tone = dots[face] else { return nil }
+        return "\(segmentLabel(face)), \(DetailChrome.faceDotSpokenState(tone))"
     }
 
     private func tapped(_ face: WorkFaceKind) {

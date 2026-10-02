@@ -3,7 +3,6 @@ import type { Board, Issue } from "@/db/schema"
 import {
   conceptIcon,
   PILL_PRIMARY_PAINT,
-  type SessionDotTone,
   MOBILE_WORK_BAR_CLEARANCE,
   MOBILE_WORK_CAPSULE_CLASS,
   MobileWorkBar,
@@ -76,7 +75,6 @@ export function IssueChangesFace({
   filesState: state,
   tabs,
   swipe,
-  dot,
 }: {
   issue: Issue
   board: Board
@@ -91,7 +89,6 @@ export function IssueChangesFace({
    *  spreads (`useFaceSwipe`; EXP-1152: it moves the `data-face-body`). */
   tabs: ReactNode
   swipe?: FaceSwipeHandlers
-  dot?: { tone: SessionDotTone; connecting?: boolean } | null
 }) {
   const [selected, setSelected] = useState<string | null>(null)
   // The `…` menu's Move to board / Unmark duplicate, the same handlers the
@@ -129,7 +126,6 @@ export function IssueChangesFace({
             issue={issue}
           />
         }
-        dot={dot}
         tabs={tabs}
         overlay
         headerRef={headerRef}

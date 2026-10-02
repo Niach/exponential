@@ -35,6 +35,7 @@ import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.ActivityFeedState
 import com.exponential.app.domain.AgentPhase
 import com.exponential.app.domain.CodingSessionLiveness
+import com.exponential.app.domain.DetailChrome
 import com.exponential.app.domain.Diff
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeTarget
@@ -72,7 +73,6 @@ import com.exponential.app.ui.components.IssueChipStack
 import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
 import com.exponential.app.ui.session.AgentSessionViewModel
 import com.exponential.app.ui.session.RunFace
-import com.exponential.app.ui.session.sessionDotTone
 import com.exponential.app.ui.session.sessionRowTitle
 import com.exponential.app.ui.steer.ActionRunState
 import dev.chrisbanes.haze.rememberHazeState
@@ -348,7 +348,15 @@ fun WorkScreen(
         }
     }
 
-    val dotTone = sessionDotTone(shownSession, issue?.prState, liveClock, awaitingInput)
+    // EXP-1162: the state dots ride the face TABS, never the title — the Run
+    // tab while the shown run is live (amber while it waits on a person), an
+    // open pull request on Results (or Changes without Results).
+    val faceDots = DetailChrome.faceDots(
+        faces = faces,
+        runLive = shownLive && !sessionEnded,
+        needsInput = shownSession?.needsInput == true || awaitingInput,
+        prOpen = prOpen,
+    )
     // EXP-1150: Start coding once the shown run ended for good.
     val offerStart = sessionEnded && ownShown && resumeTarget == null && issueId != null &&
         readiness?.visible == true
@@ -549,8 +557,6 @@ fun WorkScreen(
                     collapsedTitle = issue?.title,
                     collapsed = titleCollapsed,
                     onHeaderBottom = titleCollapse::reportHeaderBottom,
-                    dotTone = if (issueId != null) dotTone else null,
-                    dotBusy = shownSession?.agentBusy == true,
                     onBack = onBack,
                     verb = verb,
                     verbEnabled = runState !is ActionRunState.Sending,
@@ -596,6 +602,7 @@ fun WorkScreen(
                                 faceName = WorkFaceKind.Run.name
                             },
                             changesCounts = changesCounts,
+                            dots = faceDots,
                             trailing = headerMerge?.let { merge ->
                                 {
                                     MergePrHeaderPill(

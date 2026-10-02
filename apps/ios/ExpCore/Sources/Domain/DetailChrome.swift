@@ -20,6 +20,10 @@ public enum DetailChrome {
     public static let edgeBlur: Double = 8
     /// The page background's alpha over that blur.
     public static let scrim: Double = 0.72
+    /// A face tab's state dot, this wide…
+    public static let faceDot: Double = 6
+    /// …trailing the tab's label by this much.
+    public static let faceDotGap: Double = 6
 
     /// Whether the header shows the COLLAPSED title (identifier over the
     /// title). A face with no title row of its own is always collapsed; a
@@ -32,5 +36,38 @@ public enum DetailChrome {
         guard hasTitleRow else { return true }
         guard let titleBottom else { return false }
         return titleBottom <= headerBottom
+    }
+
+    /// FACE DOTS: the header title carries no state dot; the state lives on
+    /// the face TABS. The Run tab wears `running` (or `needsInput`, amber,
+    /// while the run waits on a person) while its run is LIVE; an OPEN pull
+    /// request puts `review` on Results, else on Changes. A face not on show
+    /// carries no dot, an ended run none.
+    public static func faceDots(
+        faces: [WorkFaceKind], runLive: Bool, needsInput: Bool, prOpen: Bool
+    ) -> [WorkFaceKind: SessionDotTone] {
+        var dots: [WorkFaceKind: SessionDotTone] = [:]
+        if runLive, faces.contains(.run) {
+            dots[.run] = needsInput ? .needsInput : .running
+        }
+        if prOpen {
+            if faces.contains(.results) {
+                dots[.results] = .review
+            } else if faces.contains(.changes) {
+                dots[.changes] = .review
+            }
+        }
+        return dots
+    }
+
+    /// What a dotted tab adds to its accessibility label (`Run, running`).
+    public static func faceDotSpokenState(_ tone: SessionDotTone) -> String {
+        switch tone {
+        case .running: "running"
+        case .needsInput: "needs input"
+        case .review: "pull request open"
+        case .done: "done"
+        case .muted: "idle"
+        }
     }
 }

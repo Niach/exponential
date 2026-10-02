@@ -2,7 +2,8 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-893: the ONE session state dot — the Work screen's nav-bar title dot,
+/// EXP-893: the ONE session state dot — the Work screen's face-tab dots
+/// (EXP-1162; the nav-bar title dot is gone),
 /// the face switcher's badge, and the issue bar's run circle used to draw
 /// their own. Tone follows `SessionDotTone` (web `lib/session-dot.ts`, the
 /// ×4 table): running / review green, needs-input amber, done blue, muted

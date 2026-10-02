@@ -51,8 +51,9 @@ import com.exponential.app.ui.session.LostGray
 import com.exponential.app.ui.theme.TextEmphasis
 
 // EXP-893: the Work screen's top bar — IDENTICAL across its faces, so it
-// never jumps: back · a small session-state dot + the identifier (an issue
-// subject) or the session's title (an issue-less run) · the trailing verbs.
+// never jumps: back · the identifier (an issue subject) or the session's title
+// (an issue-less run) · the trailing verbs. EXP-1162: the session-state dot
+// moved off the title onto the face tabs.
 // Stop / Resume show on the Run face ONLY; the issue `…` menu on every face
 // of an issue subject. No second caption line, no plan chip, no Reconnect.
 // EXP-1150: the face tabs ride the header under the title row ([tabs]).
@@ -75,10 +76,6 @@ fun WorkTopBar(
      * title is the stacked issue chip that opens the issues it covers.
      */
     titleContent: (@Composable () -> Unit)? = null,
-    /** The shown session's state; null draws no dot (no live run). */
-    dotTone: SessionDotTone?,
-    /** EXP-848: the running dot pulses only while the agent is mid-turn. */
-    dotBusy: Boolean,
     onBack: () -> Unit,
     verb: WorkBarVerb?,
     verbEnabled: Boolean,
@@ -124,11 +121,9 @@ fun WorkTopBar(
             // Starts `collapseRise` low and rises into place.
             val riseOffset = with(LocalDensity.current) { DetailChrome.COLLAPSE_RISE.dp.roundToPx() }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                // EXP-1162: no state dot in the title, in either form — the
+                // face tabs carry the state (`DetailChrome.faceDots`).
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (dotTone != null) {
-                        SessionToneDot(dotTone, busy = dotBusy)
-                        Spacer(Modifier.width(if (showCollapsed) 6.dp else 8.dp))
-                    }
                     if (titleContent != null) {
                         titleContent()
                     } else {

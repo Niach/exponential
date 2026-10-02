@@ -107,6 +107,18 @@ pub(crate) struct FaceToggle {
     /// The run the menu checks: the one on show (session screen) or the one
     /// the Run face opens (issue face).
     pub checked_run: Option<String>,
+    /// EXP-1162: the facts behind the face dots ([`FaceToggle::dots`]).
+    pub state: FaceState,
+}
+
+/// EXP-1162 FACE DOTS — what the toggle's dots say (contract
+/// `detail-chrome.json` `faceDots`): the tab's run is live, that live run
+/// waits on a person, the issue's (or run's) pull request is open.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct FaceState {
+    pub run_live: bool,
+    pub needs_input: bool,
+    pub pr_open: bool,
 }
 
 /// EXP-950: one row of the Run item's menu — `<device> · <when>`
@@ -183,6 +195,101 @@ impl FaceToggle {
         }
         items
     }
+
+    /// EXP-1162: which segment wears which session-dot tone — the shared
+    /// rule ([`domain::detail_chrome::face_dots`]) over the items on show.
+    pub(crate) fn dots(&self) -> Vec<(Face, domain::detail_chrome::FaceDotTone)> {
+        use domain::detail_chrome::DetailFace;
+        let faces: Vec<DetailFace> = self
+            .items()
+            .into_iter()
+            .map(|face| match face {
+                Face::Issue => DetailFace::Issue,
+                Face::Run => DetailFace::Run,
+                Face::Diff => DetailFace::Changes,
+                Face::Results => DetailFace::Results,
+            })
+            .collect();
+        domain::detail_chrome::face_dots(
+            &faces,
+            self.state.run_live,
+            self.state.needs_input,
+            self.state.pr_open,
+        )
+        .into_iter()
+        .map(|(face, tone)| {
+            let face = match face {
+                DetailFace::Issue => Face::Issue,
+                DetailFace::Run => Face::Run,
+                DetailFace::Changes => Face::Diff,
+                DetailFace::Results => Face::Results,
+            };
+            (face, tone)
+        })
+        .collect()
+    }
+}
+
+/// EXP-1162: the face-dot facts for a tab whose Run face shows `run_id`
+/// (the bound or shown run, read off the synced rows): live per
+/// [`crate::queries::coding_session_is_live`], waiting per its synced
+/// `needs_input`; `pr_open` is the caller's (the issue's, or an issue-less
+/// run's own PR).
+pub(crate) fn face_state(run_id: Option<&str>, pr_open: bool, cx: &App) -> FaceState {
+    let row = run_id.and_then(|run_id| {
+        Store::try_global(cx)?
+            .collections()
+            .coding_sessions
+            .read(cx)
+            .get(run_id)
+            .cloned()
+    });
+    let now = chrono::Utc::now().timestamp();
+    let run_live = row
+        .as_ref()
+        .is_some_and(|row| crate::queries::coding_session_is_live(row, now));
+    FaceState {
+        run_live,
+        needs_input: run_live && row.as_ref().and_then(|row| row.needs_input) == Some(true),
+        pr_open,
+    }
+}
+
+/// EXP-1162: a face dot's words — the segment's tooltip.
+pub(crate) fn face_dot_label(tone: domain::detail_chrome::FaceDotTone) -> &'static str {
+    use domain::detail_chrome::FaceDotTone;
+    match tone {
+        FaceDotTone::Running => "Running",
+        FaceDotTone::NeedsInput => "Needs input",
+        FaceDotTone::Review => "Pull request open",
+    }
+}
+
+/// EXP-1162: a face dot's colour — a row of the ONE session-dot table
+/// ([`crate::queries::session_dot_tone`]), never a colour of its own.
+pub(crate) fn face_dot_color(tone: domain::detail_chrome::FaceDotTone, cx: &App) -> gpui::Hsla {
+    use crate::queries::SessionDotFacts;
+    use domain::detail_chrome::FaceDotTone;
+    let facts = match tone {
+        FaceDotTone::Running => SessionDotFacts { running: true, ..Default::default() },
+        FaceDotTone::NeedsInput => SessionDotFacts {
+            running: true,
+            needs_input: true,
+            ..Default::default()
+        },
+        FaceDotTone::Review => SessionDotFacts { review: true, ..Default::default() },
+    };
+    crate::queries::session_dot_tone(facts, cx.theme().muted_foreground)
+}
+
+/// The dot itself: `faceDot` wide, `faceDotGap` after the label.
+fn face_dot(tone: domain::detail_chrome::FaceDotTone, cx: &App) -> gpui::Div {
+    div()
+        .flex_shrink_0()
+        .ml(px(domain::detail_chrome::FACE_DOT_GAP))
+        .size(px(domain::detail_chrome::FACE_DOT))
+        .rounded_full()
+        .bg(face_dot_color(tone, cx))
 }
 
 /// The callback a toggle pick lands on.
@@ -204,6 +311,8 @@ pub(crate) fn face_toggle(
         return None;
     }
     let items = spec.items();
+    let dots = spec.dots();
+    let dot_of = |face: Face| dots.iter().find(|(dotted, _)| *dotted == face).map(|(_, tone)| *tone);
     // The web `TabsList` capsule as-is (h-9, 3px inset, `px-3 text-sm`
     // triggers) — `controls::segmented` already mirrors it; only the width
     // changes from full to content.
@@ -211,6 +320,8 @@ pub(crate) fn face_toggle(
     for face in items {
         let active = spec.active == face;
         let on_pick = on_pick.clone();
+        // EXP-1162: the segment's state dot (and its words as the tooltip).
+        let dot = dot_of(face);
         if face == Face::Run && spec.multiple_runs() {
             // EXP-950: the capsule holds TWO siblings — the label (the face
             // pick) and the caret (the run menu) — so a caret click never
@@ -223,6 +334,14 @@ pub(crate) fn face_toggle(
                 .pl_3()
                 .pr_1()
                 .child(run_face_label(true))
+                .when_some(dot, |label, tone| {
+                    label
+                        .child(face_dot(tone, cx))
+                        .tooltip(move |window, cx| {
+                            gpui_component::tooltip::Tooltip::new(face_dot_label(tone))
+                                .build(window, cx)
+                        })
+                })
                 .when(!active, |label| {
                     label.on_click(move |_, window, cx| on_pick(face, window, cx))
                 });
@@ -261,6 +380,11 @@ pub(crate) fn face_toggle(
                     None => item.child(CHANGES_FACE_LABEL),
                 },
                 Face::Results => item.child(RESULTS_FACE_LABEL),
+            })
+            .when_some(dot, |item, tone| {
+                item.child(face_dot(tone, cx)).tooltip(move |window, cx| {
+                    gpui_component::tooltip::Tooltip::new(face_dot_label(tone)).build(window, cx)
+                })
             })
             .when(!active, |item| {
                 item.on_click(move |_, window, cx| on_pick(face, window, cx))
@@ -1438,6 +1562,7 @@ mod tests {
                         active: Face::Run,
                         runs: Vec::new(),
                         checked_run: None,
+                        state: FaceState::default(),
                     },
                     Rc::new(|_, _, _| {}),
                     Rc::new(|_, _, _| {}),
@@ -1676,6 +1801,49 @@ mod tests {
         }
     }
 
+    /// EXP-1162 FACE DOTS: the toggle hands its items to the shared rule —
+    /// the Changes item is the contract's `changes`, Results wins the PR dot
+    /// when both show — and each tone names itself and wears a row of the
+    /// ONE session-dot table.
+    #[gpui::test]
+    fn the_face_toggle_dots_follow_the_contract(cx: &mut gpui::TestAppContext) {
+        use domain::detail_chrome::FaceDotTone;
+        let spec = |results: bool, state: FaceState| FaceToggle {
+            issue: true,
+            run: Some("run-1".to_string()),
+            diff: Some((3, 1)),
+            pr_changes: true,
+            results,
+            active: Face::Issue,
+            runs: Vec::new(),
+            checked_run: None,
+            state,
+        };
+        let live = FaceState { run_live: true, needs_input: false, pr_open: true };
+        assert_eq!(
+            spec(false, live).dots(),
+            vec![(Face::Run, FaceDotTone::Running), (Face::Diff, FaceDotTone::Review)]
+        );
+        assert_eq!(
+            spec(true, live).dots(),
+            vec![(Face::Run, FaceDotTone::Running), (Face::Results, FaceDotTone::Review)]
+        );
+        let waiting = FaceState { needs_input: true, pr_open: false, ..live };
+        assert_eq!(spec(false, waiting).dots(), vec![(Face::Run, FaceDotTone::NeedsInput)]);
+        assert!(spec(true, FaceState::default()).dots().is_empty());
+
+        assert_eq!(face_dot_label(FaceDotTone::Running), "Running");
+        assert_eq!(face_dot_label(FaceDotTone::NeedsInput), "Needs input");
+        assert_eq!(face_dot_label(FaceDotTone::Review), "Pull request open");
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+            assert_eq!(face_dot_color(FaceDotTone::Running, cx), theme::tokens::GREEN.to_hsla());
+            assert_eq!(face_dot_color(FaceDotTone::NeedsInput, cx), theme::tokens::YELLOW.to_hsla());
+            assert_eq!(face_dot_color(FaceDotTone::Review, cx), theme::tokens::GREEN.to_hsla());
+        });
+    }
+
     /// EXP-1162: the edge strips and the break's motion are the CONTRACT's
     /// numbers, read through the domain mirror of `detail-chrome.json`.
     #[test]
@@ -1889,6 +2057,7 @@ mod tests {
             active,
             runs: Vec::new(),
                         checked_run: None,
+                        state: FaceState::default(),
         };
         let issue_only = toggle(true, None, None, Face::Issue);
         assert_eq!(issue_only.items(), vec![Face::Issue]);
@@ -1921,6 +2090,7 @@ mod tests {
             active: Face::Issue,
             runs: Vec::new(),
                         checked_run: None,
+                        state: FaceState::default(),
         };
         // No run at all: Issue | Changes.
         let pr_only = toggle(None, None, true);
@@ -1967,6 +2137,7 @@ mod tests {
                 active: Face::Run,
                 runs: Vec::new(),
                         checked_run: None,
+                        state: FaceState::default(),
             }
         };
         assert_eq!(
@@ -2013,6 +2184,7 @@ mod tests {
             active: Face::Run,
             runs: vec![entry("run-1")],
             checked_run: Some("run-1".to_string()),
+            state: FaceState::default(),
         };
         assert!(!spec.multiple_runs());
         assert!(!spec.is_shown(), "one face, one run: no control");
@@ -2050,6 +2222,7 @@ mod tests {
             active: Face::Run,
             runs: vec![entry("resume-1")],
             checked_run: Some("resume-1".to_string()),
+            state: FaceState::default(),
         };
         assert!(!spec.multiple_runs());
         assert_eq!(run_face_label(spec.multiple_runs()), "Run");

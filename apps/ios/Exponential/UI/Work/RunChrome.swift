@@ -1,22 +1,15 @@
 import SwiftUI
 
 /// EXP-893: what the session view REPORTS UP to the Work screen — the state
-/// its nav bar, its title dot and its face switcher draw from. The socket and
+/// its nav bar and its face tabs draw from. The socket and
 /// the feed stay the session view's; the chrome around them is the screen's,
 /// so the two talk through one preference instead of a shared model.
 struct RunChrome: Equatable {
-    /// The socket is live (phase `.live`).
+    /// The socket is live (phase `.live`). EXP-1162: the title dot that read
+    /// the socket phase is gone (the face tabs read the synced row); this
+    /// stays so a live run's report never equals the default the screen
+    /// discards (`chromeChanged`).
     var live = false
-    /// Dialling or re-dialling — pulse the title dot.
-    var connecting = false
-    /// The host machine is asleep, or the socket is gone for good.
-    var paused = false
-    /// A question or plan card waits on the steerer.
-    var awaitingInput = false
-    /// FEED-26: nothing has happened for ten minutes.
-    var stale = false
-    /// EXP-848: the agent is inside a turn — the dot pulses.
-    var busy = false
     /// The run is over as far as the screen can tell (`isOver`).
     var over = false
     /// A question or plan card is pending — the composer band is gone.

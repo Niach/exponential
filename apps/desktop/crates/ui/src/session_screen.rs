@@ -559,6 +559,22 @@ impl SessionScreenView {
         // the run reads as its transcript again, exactly like the viewer's
         // own fallback.
         let results = self.results_count(cx) > 0;
+        let pr_open = {
+            let row = self.inner.read(cx).session_row().cloned();
+            let issue_pr = issue_id.as_deref().and_then(|issue_id| {
+                sync::Store::try_global(cx)?
+                    .collections()
+                    .issues
+                    .read(cx)
+                    .get(issue_id)
+                    .map(|issue| issue.pr_state.clone())
+            });
+            let state = match issue_pr {
+                Some(state) => state,
+                None => row.and_then(|row| row.pr_state),
+            };
+            state.as_deref() == Some("open")
+        };
         let spec = FaceToggle {
             issue: issue_id.is_some(),
             run: Some(self.session_id.clone()),
@@ -577,6 +593,9 @@ impl SessionScreenView {
             },
             runs,
             checked_run: Some(viewed.clone()),
+            // EXP-1162: this run's state, and the PR (the issue's, else the
+            // run's own) ride the toggle.
+            state: crate::work_header::face_state(Some(&self.session_id), pr_open, cx),
         };
         crate::work_header::face_toggle(
             spec,

@@ -11,7 +11,8 @@ import SwiftUI
 /// (EXP-877/886); the pure rules are `WorkFaces` (web `lib/work-faces.ts`).
 ///
 /// The nav bar is identical across faces, so it never jumps: back · the
-/// title dot + identifier (or the session title) · on the Run face only,
+/// identifier (or the session title; EXP-1162: no dot, the state rides the
+/// face tabs) · on the Run face only,
 /// Stop / Resume · for issue subjects, the `…` menu. EXP-1150: directly under
 /// it the face TABS (`WorkFaceTabs`, two or more faces) sit at the same place
 /// on every face — tapping the selected `Runs` tab opens the run menu — and
@@ -295,27 +296,19 @@ struct WorkScreen: View {
             && CodingSessionOwnership.isOwn(shownSession, userId: deps.auth.userId)
     }
 
-    /// The title dot's tone: none without a LIVE run; on the Run face the
-    /// socket phase decides (`phaseDotTone`), elsewhere the synced row.
-    private var dotTone: SessionDotTone? {
-        guard let shownSession, CodingSessionLiveness.isLive(shownSession) else { return nil }
-        if face != .issue {
-            return WorkFaces.phaseDotTone(
-                live: runChrome.live,
-                connecting: runChrome.connecting,
-                awaitingInput: runChrome.awaitingInput,
-                paused: runChrome.paused,
-                stale: runChrome.stale
-            ).tone
-        }
-        let state = CodingSessionDisplayState.of(
-            session: shownSession, prState: issue?.prState ?? shownSession.prState
+    /// EXP-1162: the face tabs' state dots (`DetailChrome.faceDots`) — the
+    /// state the title no longer wears. Live = the shown run's synced row is
+    /// live; needs input = that row's `needsInput`; the pull request = the
+    /// issue's, else an issue-less run's own.
+    private var faceDots: [WorkFaceKind: SessionDotTone] {
+        let runLive = shownSession.map { CodingSessionLiveness.isLive($0) } ?? false
+        let prState = issue?.prState ?? (issueId == nil ? shownSession?.prState : nil)
+        return DetailChrome.faceDots(
+            faces: availableFaces,
+            runLive: runLive,
+            needsInput: shownSession?.needsInput ?? false,
+            prOpen: prState == DomainContract.prStateOpen
         )
-        return SessionStateDot.tone(of: state)
-    }
-
-    private var dotPulsing: Bool {
-        face != .issue ? runChrome.busy : (shownSession?.agentBusy ?? false)
     }
 
     /// EXP-952: whether the issue's PR files are the Changes face's source —
@@ -420,8 +413,6 @@ struct WorkScreen: View {
         if coveredIssues.isEmpty {
             WorkTitle(
                 text: title,
-                tone: dotTone,
-                pulsing: dotPulsing,
                 issueTitle: issue?.title,
                 collapsed: titleCollapsed
             )
@@ -496,6 +487,7 @@ struct WorkScreen: View {
             shown: face,
             multipleRuns: multipleRuns,
             changesCounts: changesCounts,
+            dots: faceDots,
             runsAnchor: $runsMenuAnchor,
             onSelect: selectFace,
             onReselectRuns: toggleRunsMenu,

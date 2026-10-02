@@ -14,6 +14,9 @@ package com.exponential.app.domain
  * EDGE STRIPS: content scrolls under the header band and the floating bottom
  * bar; behind them the page background at [SCRIM] over an [EDGE_BLUR] blur,
  * and a strip past each ([EDGE_TOP] / [EDGE_BOTTOM]) fades both to nothing.
+ *
+ * FACE DOTS: the header title carries NO state dot; state lives on the face
+ * tabs ([faceDots]).
  */
 object DetailChrome {
     /** The collapsed title's fade-in. */
@@ -33,6 +36,44 @@ object DetailChrome {
 
     /** The page background's alpha over the blur. */
     const val SCRIM = 0.72f
+
+    /** A face tab's state dot, wide. */
+    const val FACE_DOT = 6f
+
+    /** The gap between a tab's label and its dot. */
+    const val FACE_DOT_GAP = 6f
+
+    /**
+     * Which face tabs wear a state dot, in the session-dot tones. The Run tab
+     * while its run is LIVE (`NeedsInput` while it waits on a person, else
+     * `Running`); an OPEN pull request puts `Review` on Results, or on Changes
+     * when there is no Results face. A face not on show carries no dot, an
+     * ended run none.
+     */
+    fun faceDots(
+        faces: List<WorkFaceKind>,
+        runLive: Boolean,
+        needsInput: Boolean,
+        prOpen: Boolean,
+    ): Map<WorkFaceKind, SessionDotTone> = buildMap {
+        if (runLive && WorkFaceKind.Run in faces) {
+            put(WorkFaceKind.Run, if (needsInput) SessionDotTone.NeedsInput else SessionDotTone.Running)
+        }
+        if (prOpen) {
+            when {
+                WorkFaceKind.Results in faces -> put(WorkFaceKind.Results, SessionDotTone.Review)
+                WorkFaceKind.Changes in faces -> put(WorkFaceKind.Changes, SessionDotTone.Review)
+            }
+        }
+    }
+
+    /** What a dotted tab says after its label ("Run, running"); null = no dot. */
+    fun faceDotCaption(tone: SessionDotTone?): String? = when (tone) {
+        SessionDotTone.Running -> "running"
+        SessionDotTone.NeedsInput -> "needs input"
+        SessionDotTone.Review -> "pull request open"
+        else -> null
+    }
 
     /**
      * `collapsed = !hasTitleRow || titleBottom <= headerBottom`, both in the

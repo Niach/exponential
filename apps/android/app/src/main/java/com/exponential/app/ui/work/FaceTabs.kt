@@ -33,6 +33,17 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.ChangesFaceCounts
+import com.exponential.app.domain.DetailChrome
+import com.exponential.app.domain.SessionDotTone
+import com.exponential.app.ui.issue.DoneBlue
+import com.exponential.app.ui.issue.LiveGreen
+import com.exponential.app.ui.issue.NeedsInputAmber
+import com.exponential.app.ui.issue.ReviewGreen
+import com.exponential.app.ui.session.LostGray
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import com.exponential.app.domain.Diff
 import com.exponential.app.domain.WorkFaceKind
 import com.exponential.app.domain.changesFaceText
@@ -165,6 +176,8 @@ fun WorkFaceTabs(
     trailing: (@Composable () -> Unit)? = null,
     /** EXP-1152: the Changes face's diff counts; null = the word `Changes`. */
     changesCounts: ChangesFaceCounts? = null,
+    /** EXP-1162: the tabs' state dots (`DetailChrome.faceDots`). */
+    dots: Map<WorkFaceKind, SessionDotTone> = emptyMap(),
 ) {
     if (faces.size < 2 && trailing == null) return
     val multipleRuns = runs.size >= 2
@@ -209,6 +222,19 @@ fun WorkFaceTabs(
                         }
                     },
                     testTag = { faceTag(it) },
+                    // EXP-1162: the state the header title no longer wears —
+                    // a dot trailing the label, said out loud with it.
+                    trailing = { f -> dots[f]?.let { tone -> { FaceDot(tone) } } },
+                    description = { f ->
+                        DetailChrome.faceDotCaption(dots[f])?.let { caption ->
+                            val name = if (f == WorkFaceKind.Changes && changesCounts != null) {
+                                changesFaceText(changesCounts)
+                            } else {
+                                faceLabel(f, multipleRuns)
+                            }
+                            "$name, $caption"
+                        }
+                    },
                     modifier = Modifier.testTag("work-face-tabs"),
                 )
                 // Anchored under the `Runs` segment: an invisible box spanning
@@ -239,6 +265,27 @@ fun WorkFaceTabs(
             trailing?.invoke()
         }
     }
+}
+
+/**
+ * EXP-1162: a tab's state dot — `faceDot` wide, `faceDotGap` after the label,
+ * in the session-dot table's colour for its tone.
+ */
+@Composable
+private fun FaceDot(tone: SessionDotTone) {
+    val color = when (tone) {
+        SessionDotTone.Running -> LiveGreen
+        SessionDotTone.NeedsInput -> NeedsInputAmber
+        SessionDotTone.Review -> ReviewGreen
+        SessionDotTone.Done -> DoneBlue
+        SessionDotTone.Muted -> LostGray
+    }
+    Spacer(Modifier.width(DetailChrome.FACE_DOT_GAP.dp))
+    Box(
+        Modifier
+            .size(DetailChrome.FACE_DOT.dp)
+            .background(color, CircleShape),
+    )
 }
 
 /**

@@ -3,9 +3,8 @@ import { useNavigate } from "@tanstack/react-router"
 import type { Board, Issue } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import { originListNavigation, parseOrigin } from "@/lib/detail-origin"
-import { CollapsedTitle, SESSION_DOT_CLASS, type SessionDotTone } from "@exp/ui"
+import { CollapsedTitle } from "@exp/ui"
 import { faceShowsContextMenu, type WorkFaceKind } from "@/lib/work-faces"
-import { cn } from "@/lib/utils"
 import { issueUrlFor } from "@/components/issue-actions-menu"
 import { IssueDetailMobileMenu } from "@/components/issue-detail-mobile-menu"
 import { PinToggleButton } from "@/components/pin-toggle-button"
@@ -14,34 +13,12 @@ import type { useIssuePropertyHandlers } from "@/hooks/use-issue-property-handle
 
 // EXP-893: the phone header of an ISSUE subject, identical on every face of
 // its Work screen so nothing jumps when the face flips: round back on the
-// left (to the list the issue was opened from), the session-state dot + the
-// mono identifier centred, then the face's own action (Stop / Resume on the
+// left (to the list the issue was opened from), the mono identifier
+// centred, then the face's own action (Stop / Resume on the
 // Run face) and the `…` (Share · Move to board · Unmark duplicate · Delete).
 // Lifted out of `issue-detail-view.tsx` so the session route and the changes
 // face render the very same bar. EXP-1150: the face TABS ride directly under
 // it (`tabs`, `MobileFaceTabs`), in the same slot on every face.
-
-/** The small state dot that leads a title: a session's tone, pulsing while
- *  it connects. */
-export function TitleStateDot({
-  tone,
-  connecting = false,
-}: {
-  tone: SessionDotTone
-  connecting?: boolean
-}) {
-  return (
-    <span
-      aria-hidden
-      data-testid="work-title-dot"
-      className={cn(
-        `mr-1.5 inline-block size-2 shrink-0 rounded-full align-middle`,
-        SESSION_DOT_CLASS[tone],
-        connecting && `animate-pulse`
-      )}
-    />
-  )
-}
 
 export function IssueMobileHeader({
   issue,
@@ -53,7 +30,6 @@ export function IssueMobileHeader({
   handlers,
   action,
   graphBadge,
-  dot,
   face = `issue`,
   tabs,
   collapsed = face !== `issue`,
@@ -82,8 +58,6 @@ export function IssueMobileHeader({
    *  part of, before the controls that act on it, exactly like the md+ work
    *  header. Renders nothing when the issue is in no stack and no batch. */
   graphBadge?: ReactNode
-  /** The shown session's state; absent = no dot (no live run). */
-  dot?: { tone: SessionDotTone; connecting?: boolean } | null
   /** EXP-1150: the face strip INSIDE the header band, under the title row
    *  (`MobileFaceTabs`) — absent with a single face. */
   tabs?: ReactNode
@@ -126,27 +100,19 @@ export function IssueMobileHeader({
       below={tabs}
       overlay={overlay}
       ref={headerRef}
+      /* EXP-1162: no state dot on the title — the face tabs carry it
+         (`faceDots`). */
       title={
         collapsed ? (
           <CollapsedTitle
             align="center"
             // Only the Issue face BREAKS; the others never showed less.
             animate={face === `issue`}
-            lead={
-              dot && (
-                <TitleStateDot tone={dot.tone} connecting={dot.connecting} />
-              )
-            }
             identifier={issue.identifier}
             title={issue.title}
           />
         ) : (
-          <>
-            {dot && (
-              <TitleStateDot tone={dot.tone} connecting={dot.connecting} />
-            )}
-            <span className="font-mono">{issue.identifier}</span>
-          </>
+          <span className="font-mono">{issue.identifier}</span>
         )
       }
       backLabel="Back"

@@ -73,6 +73,11 @@ fun <T> GlassSegmentedControl(
     // and the slot receives the segment's content color so it can keep the
     // EXP-698 alpha rule; geometry and the constant weight are unchanged.
     labelContent: ((T) -> (@Composable (contentColor: Color) -> Unit)?)? = null,
+    // EXP-1162: an optional per-segment TRAILING accessory after the label
+    // (the Work tabs' state dot), and the segment's spoken name when it says
+    // more than the label ("Run, running"). null = unchanged.
+    trailing: ((T) -> (@Composable () -> Unit)?)? = null,
+    description: ((T) -> String?)? = null,
 ) {
     val capsule = GlassSegmentedControlDefaults.Shape
     Row(
@@ -143,8 +148,9 @@ fun <T> GlassSegmentedControl(
                     Spacer(Modifier.width(6.dp))
                 }
                 val custom = labelContent?.invoke(option)
+                val spoken = description?.invoke(option)
                 if (custom != null) {
-                    val name = label(option)
+                    val name = spoken ?: label(option)
                     Row(
                         modifier = Modifier.clearAndSetSemantics { contentDescription = name },
                         verticalAlignment = Alignment.CenterVertically,
@@ -159,7 +165,13 @@ fun <T> GlassSegmentedControl(
                     color = contentColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = if (spoken != null) {
+                        Modifier.clearAndSetSemantics { contentDescription = spoken }
+                    } else {
+                        Modifier
+                    },
                 )
+                trailing?.invoke(option)?.invoke()
                 val count = badge(option)
                 if (count > 0) {
                     Spacer(Modifier.width(6.dp))

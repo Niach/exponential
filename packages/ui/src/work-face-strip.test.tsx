@@ -61,4 +61,30 @@ describe(`WorkFaceStrip`, () => {
       )
     ).toEqual([`Issue`, `Changes`])
   })
+
+  // EXP-1162: the tabs carry the state — the title never does.
+  it(`dots the segments it is told to, in the session tone`, () => {
+    render(
+      <WorkFaceStrip
+        face="issue"
+        dots={{ run: `needs_input`, results: `review` }}
+        items={[
+          { face: `issue`, label: `Issue`, onSelect: vi.fn() },
+          { face: `run`, label: `Run`, onSelect: vi.fn() },
+          { face: `results`, label: `Results`, onSelect: vi.fn() },
+        ]}
+      />
+    )
+    const dots = screen.getAllByTestId(`face-dot`)
+    expect(dots.map((dot) => dot.dataset.tone)).toEqual([
+      `needs_input`,
+      `review`,
+    ])
+    expect(dots[0]?.closest(`[data-face]`)?.getAttribute(`data-face`)).toBe(
+      `run`
+    )
+    expect(dots[0]?.className).toContain(`bg-amber-500`)
+    expect(dots[0]?.getAttribute(`aria-label`)).toBe(`Needs input`)
+    expect(dots[1]?.getAttribute(`aria-label`)).toBe(`Pull request open`)
+  })
 })

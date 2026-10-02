@@ -6,6 +6,7 @@ import { cn } from "./cn"
 import { DiffCounts } from "./diff-counts"
 import { DropdownMenu, DropdownMenuTrigger } from "./dropdown-menu"
 import { conceptIcon } from "./icons.generated"
+import { SESSION_DOT_CLASS, type SessionDotTone } from "./session-dot"
 import { SEGMENTED_TAB, Tabs, TabsList, TabsTrigger } from "./tabs"
 
 // EXP-1152 — THE Work face strip, one component for every Work screen on the
@@ -56,10 +57,42 @@ export function ChangesFaceLabel({
   )
 }
 
+/** EXP-1162: a segment's state dot (contract `detail-chrome.json` FACE
+ *  DOTS, ×4) — the header title carries none; the Run tab says its run is
+ *  live (amber while it waits on a person), the Results / Changes tab that
+ *  the pull request is open. 6px, 6px after the label. */
+export type WorkFaceStripDots = Partial<
+  Record<WorkFaceStripFace, SessionDotTone>
+>
+
+const FACE_DOT_LABEL: Partial<Record<SessionDotTone, string>> = {
+  running: `Running`,
+  needs_input: `Needs input`,
+  review: `Pull request open`,
+}
+
+function FaceDot({ tone }: { tone: SessionDotTone | undefined }) {
+  if (!tone) return null
+  return (
+    <span
+      role="img"
+      aria-label={FACE_DOT_LABEL[tone]}
+      title={FACE_DOT_LABEL[tone]}
+      data-testid="face-dot"
+      data-tone={tone}
+      className={cn(
+        `ml-1.5 inline-block size-1.5 shrink-0 rounded-full`,
+        SESSION_DOT_CLASS[tone]
+      )}
+    />
+  )
+}
+
 export function WorkFaceStrip({
   face,
   items,
   runMenu,
+  dots,
   className,
 }: {
   /** The face on show; `null` = none (every segment inactive). */
@@ -68,6 +101,8 @@ export function WorkFaceStrip({
   /** The `Runs` caret's menu — a `DropdownMenuContent` element. The caret
    *  shows only with this AND a `run` item to hang from. */
   runMenu?: { content: ReactNode }
+  /** EXP-1162: the segments' state dots, by face. */
+  dots?: WorkFaceStripDots
   className?: string
 }) {
   const hasRunMenu =
@@ -105,6 +140,7 @@ export function WorkFaceStrip({
                 data-face={item.face}
               >
                 {item.label}
+                <FaceDot tone={dots?.[item.face]} />
               </TabsTrigger>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -131,6 +167,7 @@ export function WorkFaceStrip({
               data-face={item.face}
             >
               {item.label}
+              <FaceDot tone={dots?.[item.face]} />
             </TabsTrigger>
           )
         )}

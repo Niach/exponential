@@ -216,48 +216,6 @@ final class WorkFacesTests: XCTestCase {
         )
     }
 
-    func testTonesTheStateDotOffThePhase() {
-        let base = WorkFaces.phaseDotTone(
-            live: true, connecting: false, awaitingInput: false, paused: false, stale: false
-        )
-        XCTAssertEqual(base.tone, .running)
-        XCTAssertFalse(base.connecting)
-        XCTAssertEqual(
-            WorkFaces.phaseDotTone(
-                live: true, connecting: false, awaitingInput: true, paused: false, stale: false
-            ).tone,
-            .needsInput
-        )
-        XCTAssertEqual(
-            WorkFaces.phaseDotTone(
-                live: true, connecting: false, awaitingInput: false, paused: false, stale: true
-            ).tone,
-            .needsInput
-        )
-        XCTAssertEqual(
-            WorkFaces.phaseDotTone(
-                live: true, connecting: false, awaitingInput: false, paused: true, stale: false
-            ).tone,
-            .muted
-        )
-        XCTAssertEqual(
-            WorkFaces.phaseDotTone(
-                live: false, connecting: false, awaitingInput: false, paused: false, stale: false
-            ).tone,
-            .muted
-        )
-        XCTAssertTrue(
-            WorkFaces.phaseDotTone(
-                live: false, connecting: true, awaitingInput: false, paused: false, stale: false
-            ).connecting
-        )
-        XCTAssertFalse(
-            WorkFaces.phaseDotTone(
-                live: false, connecting: true, awaitingInput: false, paused: true, stale: false
-            ).connecting
-        )
-    }
-
     // EXP-934 — mirrors web `shows the context menu on the issue face alone`
     // and Android `WorkFacesTest`.
     func testShowsTheContextMenuOnTheIssueFaceAlone() {

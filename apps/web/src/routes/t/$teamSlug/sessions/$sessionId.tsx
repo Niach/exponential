@@ -19,7 +19,6 @@ import {
   CollapsedTitle,
   PrGithubButton,
   useIsMobile,
-  type SessionDotTone,
 } from "@exp/ui"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import type { WorkFace } from "@/components/team/work-face-toggle"
@@ -368,11 +367,9 @@ function OwnSessionPage({
   const renderMobileHeader =
     issue && board
       ? ({
-          dot,
           shownFace,
           tabs,
         }: {
-          dot: { tone: SessionDotTone; connecting: boolean }
           shownFace: `run` | `changes` | `results`
           tabs: ReactNode
         }) => (
@@ -384,7 +381,6 @@ function OwnSessionPage({
             readOnly={readOnly}
             origin={from}
             handlers={handlers}
-            dot={dot}
             tabs={tabs}
             /* EXP-934: a session route never shows the ISSUE face (that is the
                issue's own URL), so the `…` never belongs in this bar — only

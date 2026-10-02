@@ -233,7 +233,7 @@ struct IssueFaceView: View {
 
                 // EXP-893: no "Coding now" row any more — the run is the
                 // screen's Run face, one switch away, and its state rides
-                // the nav-bar title dot.
+                // the Run tab's dot (EXP-1162).
 
                 // A remote edit arrived while editing locally — offer
                 // a non-blocking reload (field-level last-write-wins).
