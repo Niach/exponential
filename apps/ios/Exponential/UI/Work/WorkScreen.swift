@@ -95,6 +95,12 @@ struct WorkScreen: View {
     /// the files load before the face was ever opened. Handed into
     /// `PrChangesFace`; the Reviews page keeps creating its own.
     @State private var prChangesModel: ChangesViewModel?
+    /// EXP-1162: whether the Issue face's title row has scrolled under the
+    /// header band — flipped ONLY on the edge (`titleEdges`), so a scroll
+    /// never re-renders the screen.
+    @State private var issueTitleScrolledAway = false
+    /// The two edges the collapse compares, outside SwiftUI's diffing.
+    @State private var titleEdges = TitleEdges()
     /// `initialFace` opens an issue subject on that face (a deep link's
     /// Results); unavailable faces fall back as usual.
     init(subject: WorkSubject, initialFace: WorkFaceKind = .issue) {
@@ -412,7 +418,13 @@ struct WorkScreen: View {
     @ViewBuilder
     private var principalTitle: some View {
         if coveredIssues.isEmpty {
-            WorkTitle(text: title, tone: dotTone, pulsing: dotPulsing)
+            WorkTitle(
+                text: title,
+                tone: dotTone,
+                pulsing: dotPulsing,
+                issueTitle: issue?.title,
+                collapsed: titleCollapsed
+            )
         } else {
             IssueChipStack {
                 IssueChip(
@@ -427,6 +439,23 @@ struct WorkScreen: View {
             .accessibilityLabel(CoveredIssuesSheet.runTitle)
             .accessibilityIdentifier("work-covered-issues")
         }
+    }
+
+    /// EXP-1162: the nav-bar title's collapse (`DetailChrome`). Only the
+    /// Issue face has a title row of its own; every other face is collapsed.
+    private var titleCollapsed: Bool {
+        face == .issue ? issueTitleScrolledAway : true
+    }
+
+    /// One edge moved (the title row on scroll, the band on layout): re-run
+    /// the rule and write the state only when its answer flips.
+    private func titleEdgesChanged() {
+        let away = DetailChrome.isTitleCollapsed(
+            hasTitleRow: true,
+            titleBottom: titleEdges.titleBottom.map(Double.init),
+            headerBottom: Double(titleEdges.headerBottom)
+        )
+        if away != issueTitleScrolledAway { issueTitleScrolledAway = away }
     }
 
     private var coveredIssuesSheet: some View {
@@ -450,7 +479,14 @@ struct WorkScreen: View {
         ZStack {
             AppBackground()
             facePager
-                .workHeaderBand { faceTabs }
+                .workHeaderBand(onBottom: { bottom in
+                    titleEdges.headerBottom = bottom
+                    titleEdgesChanged()
+                }) { faceTabs }
+                .onPreferenceChange(IssueTitleRowBottomKey.self) { bottom in
+                    titleEdges.titleBottom = bottom
+                    titleEdgesChanged()
+                }
         }
     }
 
@@ -1256,6 +1292,14 @@ struct WorkScreen: View {
         pendingMoveTarget = nil
         moveTarget = target
     }
+}
+
+/// EXP-1162: the edges the title collapse compares, in the global space. A
+/// plain reference: the title row reports on every scroll frame, and only the
+/// rule's flipped answer may reach SwiftUI.
+private final class TitleEdges {
+    var titleBottom: CGFloat?
+    var headerBottom: CGFloat = 0
 }
 
 /// EXP-1121: what "Ready to code?" asked the screen to do once it closed.

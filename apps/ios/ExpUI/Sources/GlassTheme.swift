@@ -1,3 +1,4 @@
+import ExpCore
 import SwiftUI
 
 // The glass vocabulary (EXP-698). Every fill, stroke and radius below is a
@@ -278,25 +279,17 @@ public struct AppBackground: View {
 /// translucent header. Without it a line of body text that happens to sit at
 /// the header's edge is SLICED through its letterforms — half the glyph reads
 /// crisp, half reads behind the material — which is what made the steering
-/// feed look broken at the top of every scroll. The gradient starts at the
-/// page's own background colour so the fade reads as the page receding, not
-/// as a grey band.
+/// feed look broken at the top of every scroll. EXP-1162: it IS the detail
+/// chrome's top strip now (`EdgeFade`, scrim + blur fading out); the Work
+/// screen's faces get it from the header band itself and no longer add it.
 public struct StickyHeaderFade: View {
-    public static let height: CGFloat = 24
+    public static let height: CGFloat = DetailChrome.edgeTop
 
     public init() {}
 
     public var body: some View {
-        LinearGradient(
-            colors: [
-                GlassTokens.backgroundTop,
-                GlassTokens.backgroundTop.opacity(0),
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .frame(height: Self.height)
-        .allowsHitTesting(false)
+        EdgeFade(edge: .top)
+            .frame(height: Self.height)
     }
 }
 

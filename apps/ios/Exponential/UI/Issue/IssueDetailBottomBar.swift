@@ -91,7 +91,11 @@ struct IssueDetailBottomBar: View {
                     .padding(.top, FloatingBarTokens.topPadding)
                     .padding(.bottom, FloatingBarTokens.bottomPadding)
                 } else {
+                    // EXP-1162: the bottom edge strip rides the COLLAPSED bar
+                    // alone — the expanded composer is an opaque card over the
+                    // keyboard and needs no wash behind it.
                     collapsedBar
+                        .floatingBarEdge()
                 }
             } else {
                 Color.clear.frame(height: 0)

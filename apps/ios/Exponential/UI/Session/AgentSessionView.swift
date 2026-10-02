@@ -190,6 +190,9 @@ struct AgentSessionView: View {
             }
             bottomBar(model)
         }
+        // EXP-1162: the bottom edge strip behind the band — not behind an
+        // open composer card, which is opaque and rides the keyboard.
+        .floatingBarEdge(bandRetired(model) || !composerOpen(model))
     }
 
     /// The confirms: Kill, Merge, and a `/`-command's own.
@@ -806,10 +809,8 @@ struct AgentSessionView: View {
                         }
                     )
                 }
-                // EXP-698: the nav bar is `.ultraThinMaterial`, so a scrolled
-                // narration line used to be sliced through its letterforms at
-                // the header's edge. The fade lets it recede instead.
-                .stickyHeaderFade()
+                // EXP-1162: no `stickyHeaderFade` — the Work screen's header
+                // band hangs the top edge strip over every face itself.
                 .coordinateSpace(name: AgentSessionLayout.feedCoordSpace)
                 .modifier(FollowPinTracker(
                     atBottom: $atBottom,

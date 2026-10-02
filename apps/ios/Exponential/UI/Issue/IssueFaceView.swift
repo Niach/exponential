@@ -69,6 +69,18 @@ func issuePickerOpen(
     )
 }
 
+/// EXP-1162: the Issue face's title row's bottom edge (global space) — the
+/// Work screen collapses its nav-bar title once it is under the header band
+/// (`DetailChrome.isTitleCollapsed`). Nil = not measured (no Issue page up).
+struct IssueTitleRowBottomKey: PreferenceKey {
+    static let defaultValue: CGFloat? = nil
+    /// The pager keeps sibling pages alive beside the Issue page: their nil
+    /// must not wipe its report.
+    static func reduce(value: inout CGFloat?, nextValue: () -> CGFloat?) {
+        if let next = nextValue() { value = next }
+    }
+}
+
 /// EXP-893: the Work screen's ISSUE face — today's issue body (big title,
 /// props chip box, description, PR row, files, activity) and its floating
 /// bar. Everything around it — the nav bar, the `…` menu, share, delete, the
@@ -193,6 +205,16 @@ struct IssueFaceView: View {
                     .onChange(of: titleFocused) { _, focused in
                         if !focused { Task { await vm.saveTitle() } }
                     }
+                    // EXP-1162: the row the nav-bar title collapses against
+                    // — its bottom edge, up to the Work screen.
+                    .background {
+                        GeometryReader { row in
+                            Color.clear.preference(
+                                key: IssueTitleRowBottomKey.self,
+                                value: row.frame(in: .global).maxY
+                            )
+                        }
+                    }
                 }
 
                 // Property chip box (EXP-240) — replaces the old
@@ -316,10 +338,8 @@ struct IssueFaceView: View {
             }
         }
         .scrollDismissesKeyboard(.interactively)
-        // EXP-698: the toolbar is `.ultraThinMaterial`, so scrolled
-        // prose used to be sliced through its letterforms right at the
-        // header's edge — the same 24pt wash the steering feed wears.
-        .stickyHeaderFade()
+        // EXP-1162: no `stickyHeaderFade` here — the Work screen's header
+        // band hangs the top edge strip over every face itself.
         // The floating bottom bar (EXP-240): reserves scroll clearance
         // and rides the keyboard automatically. ALWAYS mounted so the
         // composer draft (bar-owned @State) survives; the bar renders

@@ -53,6 +53,9 @@ struct DiffFileList<Header: View>: View {
     var focusPath: String?
     /// What the surface answers to in a UI test.
     var accessibilityId = "session-diff-list"
+    /// The 24pt top wash under a translucent nav bar. EXP-1162: off on the
+    /// Work screen's faces, whose header band hangs its own edge strip.
+    var headerFade = true
     /// Anything the surface puts above the cards (the PR/branch header).
     @ViewBuilder var header: () -> Header
 
@@ -90,7 +93,9 @@ struct DiffFileList<Header: View>: View {
                 .padding(.top, 4)
                 .padding(.bottom, 24)
             }
-            .stickyHeaderFade()
+            .overlay(alignment: .top) {
+                if headerFade { StickyHeaderFade() }
+            }
             .onChange(of: focusPath) { _, path in
                 guard let path, !path.isEmpty else { return }
                 overrides[path] = true
@@ -146,6 +151,7 @@ struct SessionDiffList: View {
             truncatedLines: truncatedLines,
             emptyLabel: "No changed files.",
             focusPath: focusPath,
+            headerFade: false,
             header: {
                 DiffSummaryRow(
                     totals: Diff.totals(files), title: DiffPresentation.changesTitle

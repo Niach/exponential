@@ -116,6 +116,8 @@ struct RunChangesFace: View {
             } trailing: {
                 EmptyView()
             }
+            // EXP-1162: the bottom edge strip, behind the cluster.
+            .floatingBarEdge()
         }
     }
 }

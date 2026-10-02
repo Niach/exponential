@@ -187,6 +187,8 @@ struct PrChangesFace: View {
             emptyLabel: files == nil ? nil : "No changed files.",
             focusPath: selectedPath,
             accessibilityId: "changes-file-cards",
+            // EXP-1162: the Work screen's header band hangs its own strip.
+            headerFade: reviewMode,
             header: {
                 // The PR/branch header (and the floating action bar below)
                 // come from synced issue fields, so they render in EVERY load
@@ -301,6 +303,8 @@ struct PrChangesFace: View {
                     barTrailing(vm)
                 }
             }
+            // EXP-1162: the bottom edge strip, behind the cluster.
+            .floatingBarEdge()
             // EXP-642: the store slide's pop-out rect is measured off the
             // review bar (`PopRects`). `contain` keeps its buttons queryable.
             .accessibilityElement(children: .contain)

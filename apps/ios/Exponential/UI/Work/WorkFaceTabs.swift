@@ -119,21 +119,28 @@ extension View {
     /// EXP-1150: the Work screen's HEADER BAND — the tabs ride the top safe
     /// area under the nav bar's title row, and the bar's material runs up
     /// behind both (the host hides the nav bar's own background and divider),
-    /// so title and tabs read as ONE header with ONE hairline under the tabs.
+    /// so title and tabs read as ONE header.
     /// The face scrolls beneath it. Drawn even with no tabs (a lone face), so
     /// the title row keeps its material.
-    func workHeaderBand<Header: View>(@ViewBuilder header: () -> Header) -> some View {
+    ///
+    /// EXP-1162: no hairline any more — the band is the detail chrome's scrim
+    /// (`headerEdgeChrome`: the page colour over a blur, a 24pt strip fading
+    /// it out below). `onBottom` reports the band's bottom edge in the global
+    /// space, the line the Issue face's title row collapses the nav-bar title
+    /// against (`DetailChrome.isTitleCollapsed`).
+    func workHeaderBand<Header: View>(
+        onBottom: ((CGFloat) -> Void)? = nil,
+        @ViewBuilder header: () -> Header
+    ) -> some View {
         let header = header()
         return safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
                 header
             }
             .frame(maxWidth: .infinity)
-            .background(.ultraThinMaterial, ignoresSafeAreaEdges: .top)
-            .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(GlassTokens.strokeSection)
-                    .frame(height: GlassTokens.hairline)
+            .headerEdgeChrome()
+            .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .global).maxY }) { bottom in
+                onBottom?(bottom)
             }
         }
     }
