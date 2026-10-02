@@ -1,22 +1,20 @@
 // RFC 8628 device codes (EXP-403): the helpers the /auth/device page and the
 // Add device dialog's "enter the code the CLI shows" field (EXP-1111) share.
 
+import { DEVICE_SETUP_COPY } from "@/lib/device-setup-copy"
+
 // Better Auth resolves to `{ data, error }` — it does not throw. Map the
 // plugin's RFC 8628 error codes to human copy.
 export function deviceErrorMessage(
   error: { error?: string; message?: string } | null
 ): string {
   const code = error?.error ?? ``
-  if (code === `expired_token`) {
-    return `That code has expired. Run the login command again to get a new one.`
-  }
+  if (code === `expired_token`) return DEVICE_SETUP_COPY.codeExpired
   if (code === `invalid_request` || code === `invalid_grant`) {
-    return `That code isn't valid. Check for typos, or run the login command again.`
+    return DEVICE_SETUP_COPY.codeInvalid
   }
-  if (code === `access_denied`) {
-    return `This code was requested from a different account.`
-  }
-  return error?.message || `Something went wrong. Try again.`
+  if (code === `access_denied`) return DEVICE_SETUP_COPY.codeOtherAccount
+  return error?.message || DEVICE_SETUP_COPY.failed
 }
 
 // Codes are always 8 chars (printed XXXX-XXXX); the server strips dashes

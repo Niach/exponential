@@ -32,8 +32,21 @@ object AppConstants {
     /**
      * The headless-daemon install one-liner for [origin] (web's
      * `buildServerInstallSnippet`). One script for cloud and self-host alike —
-     * the target instance always rides `EXP_INSTANCE` explicitly.
+     * the target instance always rides `EXP_INSTANCE` explicitly. EXP-1169: a
+     * minted one-time [token] rides along as `EXP_INSTALL_TOKEN` so the new
+     * daemon signs itself in. This is what lands on the clipboard: ONE line.
      */
-    fun serverInstallSnippet(origin: String): String =
-        "curl -fsSL https://exponential.at/install.sh | EXP_INSTANCE=$origin sh"
+    fun serverInstallSnippet(origin: String, token: String? = null): String {
+        val tokenPart = token?.let { " EXP_INSTALL_TOKEN=$it" }.orEmpty()
+        return "curl -fsSL https://exponential.at/install.sh | EXP_INSTANCE=$origin$tokenPart sh"
+    }
+
+    /**
+     * The same command as the device-setup command box draws it: fixed lines,
+     * never a horizontal scroll (web's `displayedSnippet`).
+     */
+    fun serverInstallSnippetDisplayed(origin: String, token: String? = null): String {
+        val tokenPart = token?.let { " \\\n  EXP_INSTALL_TOKEN=$it" }.orEmpty()
+        return "curl -fsSL https://exponential.at/install.sh |\n  EXP_INSTANCE=$origin$tokenPart sh"
+    }
 }

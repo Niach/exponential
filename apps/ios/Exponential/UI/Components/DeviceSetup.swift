@@ -30,9 +30,20 @@ struct DeviceSetup: View {
 
     @State private var viewModel: AgentsViewModel?
     @State private var settingsTarget: DeviceSettingsTarget?
-    /// The pasteboard is silent — the server card's pill says so for 2s.
-    @State private var copiedInstall = false
+    /// The server card's one-time install token (`devices.createInstallToken`).
+    /// Nil until it lands, and after any failed mint: the box then shows the
+    /// plain command.
+    @State private var installToken: String?
+    /// The pasteboard is silent: the copy control shows a check for 1.5s.
+    @State private var copyFlash = false
     @State private var copyFlashTask: Task<Void, Never>?
+    /// The code field only exists once the command was copied: that is the
+    /// moment a CLI code can turn up.
+    @State private var commandCopied = false
+    @State private var userCode = ""
+    @State private var codeBusy = false
+    @State private var codeError: DeviceCodeError?
+    @State private var codeApproved = false
 
     /// The sheet's target is the ID only: the sheet reads the LIVE row itself
     /// (EXP-490), so a captured value would only go stale under it.
@@ -82,7 +93,15 @@ struct DeviceSetup: View {
         .onDisappear {
             viewModel?.stopObserving()
             copyFlashTask?.cancel()
+            copyFlash = false
+            installToken = nil
+            commandCopied = false
+            userCode = ""
+            codeError = nil
+            codeApproved = false
         }
+        // Cancelled on disappear, which orphans an in-flight mint.
+        .task { await mintInstallTokens() }
         .onChange(of: myDevices.isEmpty) { _, empty in
             onDevicesChanged(!empty)
         }
@@ -110,16 +129,115 @@ struct DeviceSetup: View {
         }
     }
 
+    /// EXP-1169: the same server card on all four clients (web's
+    /// `device-setup.tsx` is the reference): the install command in a box with
+    /// a copy control, then, once copied, the field that approves the CLI's
+    /// device code in place.
     private var serverCard: some View {
-        installCard(
-            icon: AppIcons.uiServer,
-            title: GettingStartedCopy.serverTitle,
-            description: GettingStartedCopy.serverDescription,
-            actionLabel: copiedInstall
-                ? OnboardingCopy.inviteCopied
-                : GettingStartedCopy.serverAction
-        ) {
-            copyInstallSnippet()
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                AppIcon(AppIcons.uiServer, size: AppIcon.Size.medium)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                Text(GettingStartedCopy.serverTitle)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+            }
+
+            Text(GettingStartedCopy.serverDescription)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let origin = ServerInstallSnippet.origin(accountId: accountId, auth: deps.auth) {
+                commandBox(origin: origin)
+            }
+
+            if codeApproved {
+                Text(DeviceSetupCopy.approved)
+                    .font(.caption)
+                    .foregroundStyle(.white)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("device-code-approved")
+            } else if commandCopied {
+                codeEntry
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
+    private func commandBox(origin: String) -> some View {
+        ZStack(alignment: .topTrailing) {
+            Text(Self.breakAnywhere(ServerInstallCommand.displayed(origin: origin, token: installToken)))
+                .font(.caption.monospaced())
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+                .padding(.trailing, 28)
+                .accessibilityIdentifier("install-snippet")
+
+            Button {
+                copyInstallCommand(origin: origin)
+            } label: {
+                AppIcon(copyFlash ? AppIcons.uiCheck : AppIcons.uiCopy, size: AppIcon.Size.small)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(2)
+            .accessibilityLabel(DeviceSetupCopy.copyCommand)
+            .accessibilityIdentifier("install-snippet-copy")
+        }
+        .background(GlassTokens.fillCard, in: RoundedRectangle(cornerRadius: GlassTokens.fieldRadius))
+        .overlay(
+            RoundedRectangle(cornerRadius: GlassTokens.fieldRadius)
+                .stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
+        )
+    }
+
+    private var codeEntry: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(DeviceSetupCopy.codeLabel)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 8) {
+                GlassTextField(
+                    DeviceSetupCopy.codePlaceholder,
+                    text: Binding(
+                        get: { userCode },
+                        set: { typed in
+                            userCode = DeviceUserCode.normalize(typed)
+                            codeError = nil
+                        }
+                    ),
+                    accessibilityIdentifier: "device-code-field"
+                )
+                .font(.subheadline.monospaced())
+                .textInputAutocapitalization(.characters)
+                .autocorrectionDisabled()
+                .onSubmit { approveCode() }
+
+                GlassPill(
+                    DeviceSetupCopy.approve,
+                    mode: .action { approveCode() },
+                    enabled: DeviceUserCode.isComplete(userCode) && !codeBusy
+                )
+            }
+
+            if let codeError {
+                Text(DeviceSetupCopy.message(codeError))
+                    .font(.caption)
+                    .foregroundStyle(DesignTokens.Palette.destructive)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -152,6 +270,18 @@ struct DeviceSetup: View {
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassCard()
+    }
+
+    /// The web box wraps with `break-all`: a long token breaks where the line
+    /// ends, not at the nearest word boundary (which strands the indent on an
+    /// empty line). Text has no such mode, so the DISPLAYED string gets a
+    /// zero-width break opportunity after every character. The pasteboard
+    /// never sees this string, which is also why the box is not selectable:
+    /// the copy control is the one way out.
+    private static func breakAnywhere(_ text: String) -> String {
+        text.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line in line.map(String.init).joined(separator: "\u{200B}") }
+            .joined(separator: "\n")
     }
 
     // MARK: - Machine rows
@@ -224,13 +354,47 @@ struct DeviceSetup: View {
         device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel
     }
 
-    private func copyInstallSnippet() {
-        guard ServerInstallSnippet.copy(accountId: accountId, auth: deps.auth) else { return }
-        copiedInstall = true
+    private func copyInstallCommand(origin: String) {
+        Platform.copyToPasteboard(ServerInstallCommand.copied(origin: origin, token: installToken))
+        commandCopied = true
+        copyFlash = true
         copyFlashTask?.cancel()
         copyFlashTask = Task {
-            try? await Task.sleep(for: .seconds(2))
-            if !Task.isCancelled { copiedInstall = false }
+            try? await Task.sleep(for: .seconds(1.5))
+            if !Task.isCancelled { copyFlash = false }
+        }
+    }
+
+    /// Mint the install token, and remint whenever it lapses while the block
+    /// is visible. Any failure (offline, the mint rate limit) is silent: the
+    /// box keeps the plain command.
+    private func mintInstallTokens() async {
+        while !Task.isCancelled {
+            guard let minted = try? await deps.devicesApi.createInstallToken(accountId: accountId),
+                  !Task.isCancelled else {
+                if !Task.isCancelled { installToken = nil }
+                return
+            }
+            installToken = minted.token
+            guard let expiresAt = minted.expiresAtDate else { return }
+            try? await Task.sleep(for: .seconds(max(0, expiresAt.timeIntervalSinceNow)))
+        }
+    }
+
+    /// The /auth/device page's claim + approve, in place.
+    private func approveCode() {
+        guard !codeBusy, DeviceUserCode.isComplete(userCode) else { return }
+        let code = userCode
+        codeBusy = true
+        codeError = nil
+        Task {
+            let error = await deps.authApi.approveDeviceCode(accountId: accountId, userCode: code)
+            codeBusy = false
+            if let error {
+                codeError = error
+            } else {
+                codeApproved = true
+            }
         }
     }
 }

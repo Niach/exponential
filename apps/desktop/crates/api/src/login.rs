@@ -193,6 +193,40 @@ pub enum DevicePoll {
     Denied,
 }
 
+/// What the server said to one approver-side device-code call (EXP-1169:
+/// the server card's code field). A refusal is a RESULT, never an `Err`;
+/// only transport failures error.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DeviceCodeAnswer {
+    /// 2xx. `status` is the code's state on the claim GET
+    /// (`pending`/`approved`/`denied`), `None` on the approve POST.
+    Accepted { status: Option<String> },
+    /// Non-2xx: the body's RFC 8628 `error` (empty when there was none).
+    Refused { error: String },
+}
+
+impl DeviceCodeAnswer {
+    fn from_response(response: AuthResponse) -> Self {
+        #[derive(Deserialize)]
+        struct Body {
+            #[serde(default)]
+            status: Option<String>,
+            #[serde(default)]
+            error: Option<String>,
+        }
+        let body: Option<Body> = serde_json::from_str(&response.body).ok();
+        if (200..300).contains(&response.status) {
+            DeviceCodeAnswer::Accepted {
+                status: body.and_then(|body| body.status),
+            }
+        } else {
+            DeviceCodeAnswer::Refused {
+                error: body.and_then(|body| body.error).unwrap_or_default(),
+            }
+        }
+    }
+}
+
 #[derive(Deserialize)]
 struct SignInResponseBody {
     token: Option<String>,
@@ -468,6 +502,53 @@ impl AuthClient {
         Ok(DevicePoll::Authorized {
             token: parsed.access_token,
         })
+    }
+
+    /// EXP-1169, the APPROVER side of the grant above:
+    /// `GET /api/auth/device?user_code=…` with the signed-in bearer claims a
+    /// code the CLI printed for this session (approve refuses unclaimed
+    /// codes) and reports its `status`. The web `/auth/device` page's first
+    /// call.
+    pub fn claim_device_code(
+        &self,
+        instance_url: &str,
+        token: &str,
+        user_code: &str,
+    ) -> Result<DeviceCodeAnswer, ApiError> {
+        let base = normalize_instance_url(instance_url);
+        let response = send(
+            versioned(self.client().get(format!(
+                "{base}/api/auth/device?user_code={}",
+                percent_encode(user_code)
+            )))
+            .header("Accept", "application/json")
+            .header("Authorization", format!("Bearer {token}"))
+            .header("Origin", &base),
+        )?;
+        Ok(DeviceCodeAnswer::from_response(response))
+    }
+
+    /// EXP-1169: `POST /api/auth/device/approve` `{userCode}` with the
+    /// signed-in bearer approves a claimed code; the CLI's next
+    /// [`Self::poll_device_token`] then gets its session token.
+    pub fn approve_device_code(
+        &self,
+        instance_url: &str,
+        token: &str,
+        user_code: &str,
+    ) -> Result<DeviceCodeAnswer, ApiError> {
+        let base = normalize_instance_url(instance_url);
+        let payload = serde_json::json!({ "userCode": user_code });
+        let response = send(
+            versioned(self.client().post(format!("{base}/api/auth/device/approve")))
+                .header("Accept", "application/json")
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {token}"))
+                // Better Auth's CSRF check 403s POSTs without an Origin header.
+                .header("Origin", &base)
+                .body(payload.to_string()),
+        )?;
+        Ok(DeviceCodeAnswer::from_response(response))
     }
 
     /// EXP-1111: `POST /api/cli/install-token/redeem` — trade the web "Add
@@ -1102,6 +1183,48 @@ mod tests {
             request.ends_with(r#"{"newEmail":"new@example.com","otp":"123456"}"#),
             "{request}"
         );
+    }
+
+    #[test]
+    fn device_code_claim_sends_bearer_and_reads_the_status() {
+        use crate::trpc::tests::one_shot_server;
+        let (base, captured) =
+            one_shot_server(200, r#"{"user_code":"ZP3H-V7HK","status":"pending"}"#);
+        let answer = AuthClient::new()
+            .claim_device_code(&base, "tok-1", "ZP3H-V7HK")
+            .unwrap();
+        assert_eq!(
+            answer,
+            DeviceCodeAnswer::Accepted { status: Some("pending".to_string()) }
+        );
+        let request = captured.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        assert!(
+            request.starts_with("GET /api/auth/device?user_code=ZP3H-V7HK HTTP/1.1"),
+            "{request}"
+        );
+        assert!(request.to_ascii_lowercase().contains("authorization: bearer tok-1"), "{request}");
+    }
+
+    #[test]
+    fn device_code_approve_posts_the_code_and_reads_refusals() {
+        use crate::trpc::tests::one_shot_server;
+        let (base, captured) = one_shot_server(
+            400,
+            r#"{"error":"expired_token","error_description":"Device code has expired"}"#,
+        );
+        let answer = AuthClient::new()
+            .approve_device_code(&base, "tok-1", "ZP3H-V7HK")
+            .unwrap();
+        assert_eq!(
+            answer,
+            DeviceCodeAnswer::Refused { error: "expired_token".to_string() }
+        );
+        let request = captured.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/auth/device/approve HTTP/1.1"), "{request}");
+        let lower = request.to_ascii_lowercase();
+        assert!(lower.contains("authorization: bearer tok-1"), "{request}");
+        assert!(lower.contains(&format!("origin: {base}")), "{request}");
+        assert!(request.ends_with(r#"{"userCode":"ZP3H-V7HK"}"#), "{request}");
     }
 
     #[test]

@@ -15,9 +15,15 @@ enum ServerInstallSnippet {
     @discardableResult
     @MainActor
     static func copy(accountId: String, auth: AuthRepository) -> Bool {
-        let instanceUrl = auth.accounts.first { $0.id == accountId }?.instanceUrl
-        guard let origin = WebLinks.normalizedBase(instanceUrl) else { return false }
+        guard let origin = origin(accountId: accountId, auth: auth) else { return false }
         Platform.copyToPasteboard(AppConstants.serverInstallSnippet(origin: origin))
         return true
+    }
+
+    /// `accountId`'s instance origin, the `EXP_INSTANCE` the command names
+    /// (EXP-1169: the device-setup card builds its own token-carrying one).
+    @MainActor
+    static func origin(accountId: String, auth: AuthRepository) -> String? {
+        WebLinks.normalizedBase(auth.accounts.first { $0.id == accountId }?.instanceUrl)
     }
 }

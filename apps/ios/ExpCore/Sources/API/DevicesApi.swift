@@ -8,6 +8,8 @@ import Foundation
 // What is left here is what a shape cannot carry: the registry MUTATIONS, the
 // owner→device command queue, and the instance-wide latest-version hint.
 
+private struct EmptyInput: Encodable {}
+
 private struct DeviceIdInput: Encodable {
     let deviceId: String
 }
@@ -313,6 +315,18 @@ public final class DevicesApi: Sendable {
                 deviceId: deviceId, kind: kind, agent: agent, switchAccount: switchAccount,
                 code: code, profileId: profileId, newProfileLabel: newProfileLabel
             )
+        )
+    }
+
+    /// EXP-1111/1169: mint the one-time `EXP_INSTALL_TOKEN` the device-setup
+    /// card puts into its install command (one live token per user; a remint
+    /// revokes the earlier one). Rate limited server-side: callers treat every
+    /// failure as "no token" and show the plain command.
+    public func createInstallToken(accountId: String) async throws -> CliInstallToken {
+        try await trpc.mutation(
+            accountId: accountId,
+            path: "devices.createInstallToken",
+            input: EmptyInput()
         )
     }
 

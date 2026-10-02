@@ -1,6 +1,18 @@
 package com.exponential.app.ui.components
 
 import android.content.Intent
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.sp
+import com.exponential.app.domain.DeviceCodeRules
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -67,14 +79,12 @@ fun DeviceSetup(
 ) {
     val devices by viewModel.devices.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
+    val server by viewModel.server.collectAsStateWithLifecycle()
     var settingsTarget by remember { mutableStateOf<String?>(null) }
-    var copied by remember { mutableStateOf(false) }
-    LaunchedEffect(copied) {
-        if (copied) {
-            kotlinx.coroutines.delay(2_000)
-            copied = false
-        }
+    // The install token lives exactly as long as the block is on screen.
+    DisposableEffect(viewModel) {
+        viewModel.activate()
+        onDispose { viewModel.deactivate() }
     }
 
     Column(
@@ -82,6 +92,7 @@ fun DeviceSetup(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         InstallCard(
+            icon = ExpIcons.uiDevice,
             title = GettingStartedCopy.DESKTOP_TITLE,
             description = GettingStartedCopy.DESKTOP_DESCRIPTION,
             actionLabel = GettingStartedCopy.DESKTOP_ACTION,
@@ -94,20 +105,12 @@ fun DeviceSetup(
                 }
             },
         )
-        // No resolved origin means no instance to point the daemon at:
-        // copying `EXP_INSTANCE= sh` would hand over a broken command
-        // (the Issues-tab checklist gates the same way).
-        InstallCard(
-            title = GettingStartedCopy.SERVER_TITLE,
-            description = GettingStartedCopy.SERVER_DESCRIPTION,
-            actionLabel = if (copied) OnboardingCopy.INVITE_COPIED else GettingStartedCopy.SERVER_ACTION,
-            actionIcon = if (copied) ExpIcons.uiCheck else ExpIcons.uiCopy,
-            onAction = instanceOrigin?.let { origin ->
-                {
-                    clipboard.setText(AnnotatedString(AppConstants.serverInstallSnippet(origin)))
-                    copied = true
-                }
-            },
+        ServerCard(
+            instanceOrigin = instanceOrigin,
+            state = server,
+            onCopied = viewModel::onCopied,
+            onCodeChange = viewModel::onCodeChange,
+            onApprove = viewModel::approve,
         )
 
         Text(
@@ -154,6 +157,7 @@ fun DeviceSetup(
 /** One install card: title, one line of why, one pill. */
 @Composable
 private fun InstallCard(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
     description: String,
     actionLabel: String,
@@ -164,17 +168,157 @@ private fun InstallCard(
         modifier = Modifier.fillMaxWidth().glassCard().padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(
-            title,
-            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-            color = MaterialTheme.colorScheme.onSurface,
-        )
+        CardHeader(icon = icon, title = title)
         Text(
             description,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
         GlassPill(label = actionLabel, icon = actionIcon, onClick = onAction, enabled = onAction != null)
+    }
+}
+
+/** A card's header on every client: the concept icon, then the title. */
+@Composable
+private fun CardHeader(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.size(16.dp),
+        )
+        Text(
+            title,
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}
+
+/**
+ * The web box wraps with `break-all`: a long token breaks where the line
+ * ends, not at the nearest word boundary (which strands the trailing
+ * backslash on a line of its own). Compose has no such mode, so the DISPLAYED
+ * text gets a zero-width break opportunity after every character. The
+ * clipboard never sees this string.
+ */
+private fun breakAnywhere(text: String): String =
+    text.lineSequence().joinToString("\n") { line -> line.toList().joinToString("\u200B") }
+
+/**
+ * The server card (EXP-1169, the same on all four clients): title, one line of
+ * why, the install command in a box with an icon-only copy control, and, once
+ * the command was copied, the field that approves the code the CLI prints.
+ * The box shows the command on fixed lines; the clipboard gets ONE line,
+ * carrying the minted `EXP_INSTALL_TOKEN` when there is one. No resolved
+ * origin means no instance to point the daemon at, so no box at all (a
+ * `EXP_INSTANCE= sh` command would be broken).
+ */
+@Composable
+private fun ServerCard(
+    instanceOrigin: String?,
+    state: ServerCardState,
+    onCopied: () -> Unit,
+    onCodeChange: (String) -> Unit,
+    onApprove: () -> Unit,
+) {
+    val clipboard = LocalClipboardManager.current
+    var justCopied by remember { mutableStateOf(false) }
+    LaunchedEffect(justCopied) {
+        if (justCopied) {
+            delay(1_500)
+            justCopied = false
+        }
+    }
+    Column(
+        modifier = Modifier.fillMaxWidth().glassCard().padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        CardHeader(icon = ExpIcons.uiServer, title = GettingStartedCopy.SERVER_TITLE)
+        Text(
+            GettingStartedCopy.SERVER_DESCRIPTION,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        )
+        if (instanceOrigin == null) return@Column
+        Box(modifier = Modifier.fillMaxWidth().glassRow().testTag("install-snippet")) {
+            Text(
+                breakAnywhere(AppConstants.serverInstallSnippetDisplayed(instanceOrigin, state.token)),
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 12.dp, top = 12.dp, bottom = 12.dp, end = 44.dp),
+            )
+            CircleIconButton(
+                icon = if (justCopied) ExpIcons.uiCheck else ExpIcons.uiCopy,
+                contentDescription = DeviceSetupCopy.COPY_COMMAND,
+                onClick = {
+                    clipboard.setText(
+                        AnnotatedString(AppConstants.serverInstallSnippet(instanceOrigin, state.token)),
+                    )
+                    justCopied = true
+                    onCopied()
+                },
+                borderless = true,
+                glyphSize = 16.dp,
+                modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
+            )
+        }
+        if (state.approved) {
+            Text(
+                DeviceSetupCopy.APPROVED,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        } else if (state.copied) {
+            Text(
+                DeviceSetupCopy.CODE_LABEL,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            val canApprove = !state.busy && DeviceCodeRules.isCompleteUserCode(state.code)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                GlassTextField(
+                    value = state.code,
+                    onValueChange = onCodeChange,
+                    modifier = Modifier.weight(1f).testTag("device-code-field"),
+                    placeholder = DeviceSetupCopy.CODE_PLACEHOLDER,
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(
+                        fontFamily = FontFamily.Monospace,
+                        letterSpacing = 2.sp,
+                    ),
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Characters,
+                        autoCorrectEnabled = false,
+                        keyboardType = KeyboardType.Ascii,
+                        imeAction = ImeAction.Done,
+                    ),
+                    keyboardActions = KeyboardActions(onDone = { if (canApprove) onApprove() }),
+                )
+                GlassSubmitButton(
+                    label = DeviceSetupCopy.APPROVE,
+                    onClick = onApprove,
+                    enabled = canApprove,
+                    modifier = Modifier.width(112.dp),
+                )
+            }
+            state.error?.let { error ->
+                Text(
+                    error,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
     }
 }
 

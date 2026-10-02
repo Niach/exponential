@@ -97,6 +97,7 @@ pub mod licenses;
 mod login;
 mod device_settings;
 mod devices_view;
+mod device_setup;
 mod drafts;
 mod drafts_view;
 mod device_sync;

@@ -247,6 +247,9 @@ pub struct OnboardingView {
     /// Keyed by team id, same rule as the board form.
     invite_panel: Option<(String, Entity<InviteLinkPanel>)>,
     doctor: Option<Entity<DoctorPanel>>,
+    /// EXP-1169: the devices step's server card (mints its install token
+    /// once, on first show).
+    server_card: Option<Entity<crate::device_setup::ServerCard>>,
     /// Base subscriptions (session/collections/hub); page-event
     /// subscriptions are pushed here as pages are lazily created.
     _subscriptions: Vec<Subscription>,
@@ -281,6 +284,7 @@ impl OnboardingView {
             create_board: None,
             invite_panel: None,
             doctor: None,
+            server_card: None,
             _subscriptions: subscriptions,
         };
         this.sync_account(cx);
@@ -662,7 +666,7 @@ impl OnboardingView {
     }
 
     /// EXP-725 step 4 — the doctor (git + agent CLIs), the always-on-server
-    /// install sub-card, and this account's registered machines. NO download
+    /// card (EXP-1169: the shared [`crate::device_setup::ServerCard`]), and this account's registered machines. NO download
     /// card: this IS the desktop app.
     fn devices_page(
         &mut self,
@@ -675,28 +679,11 @@ impl OnboardingView {
         let doctor = self.doctor.clone().expect("created above");
         let muted = cx.theme().muted_foreground;
 
-        let server_card = v_flex()
-            .gap_2()
-            .child(
-                v_flex()
-                    .gap_0p5()
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_weight(FontWeight::MEDIUM)
-                            .child(crate::getting_started::copy::SERVER_TITLE),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(muted)
-                            .child(crate::getting_started::copy::SERVER_DESCRIPTION),
-                    ),
-            )
-            .child(crate::machines::server_install_snippet_box(
-                "onboarding-server-copy",
-                cx,
-            ));
+        if self.server_card.is_none() {
+            self.server_card =
+                Some(cx.new(|cx| crate::device_setup::ServerCard::new(window, cx)));
+        }
+        let server_card = self.server_card.clone().expect("created above");
 
         let devices = Self::own_device_rows(cx);
         let mut devices_card = v_flex().gap_2().child(

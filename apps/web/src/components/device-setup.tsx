@@ -41,6 +41,7 @@ import {
   normalizeUserCode,
 } from "@/lib/auth/device-code"
 import { deviceCollection } from "@/lib/collections"
+import { DEVICE_SETUP_COPY } from "@/lib/device-setup-copy"
 import {
   DESKTOP_RELEASES_URL,
   desktopDownloadHref,
@@ -99,8 +100,8 @@ export function CopyIconButton({
       variant="glass"
       size="icon-sm"
       className="absolute top-1.5 right-1.5"
-      aria-label="Copy install command"
-      title="Copy install command"
+      aria-label={DEVICE_SETUP_COPY.copyCommand}
+      title={DEVICE_SETUP_COPY.copyCommand}
       onClick={() => {
         void navigator.clipboard.writeText(text)
         setCopied(true)
@@ -254,7 +255,7 @@ export function DeviceSetup({
       }
       const status = claimed.data?.status
       if (status === `approved` || status === `denied`) {
-        setCodeError(`That code has already been used. Run the login command again.`)
+        setCodeError(DEVICE_SETUP_COPY.codeUsed)
         return
       }
       const result = await authClient.device.approve({ userCode: code })
@@ -264,7 +265,7 @@ export function DeviceSetup({
       }
       setApproved(true)
     } catch {
-      setCodeError(`Something went wrong. Try again.`)
+      setCodeError(DEVICE_SETUP_COPY.failed)
     } finally {
       setCodeBusy(false)
     }
@@ -321,7 +322,7 @@ export function DeviceSetup({
         </div>
         {approved ? (
           <p className="text-sm" data-testid="device-code-approved">
-            Code approved. The CLI signs in within a few seconds.
+            {DEVICE_SETUP_COPY.approved}
           </p>
         ) : (
           copied && (
@@ -330,7 +331,7 @@ export function DeviceSetup({
               className="flex flex-col gap-2"
             >
               <Label htmlFor="add-device-code">
-                If the CLI shows a code, enter it here
+                {DEVICE_SETUP_COPY.codeLabel}
               </Label>
               <div className="flex gap-2">
                 <Input
@@ -340,7 +341,7 @@ export function DeviceSetup({
                     setCode(normalizeUserCode(event.target.value))
                     if (codeError) setCodeError(``)
                   }}
-                  placeholder="XXXX-XXXX"
+                  placeholder={DEVICE_SETUP_COPY.codePlaceholder}
                   maxLength={9}
                   autoComplete="off"
                   spellCheck={false}
@@ -350,7 +351,7 @@ export function DeviceSetup({
                   type="submit"
                   disabled={codeBusy || !isCompleteUserCode(code)}
                 >
-                  Approve
+                  {DEVICE_SETUP_COPY.approve}
                 </Button>
               </div>
               {codeError && (
