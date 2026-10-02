@@ -530,6 +530,9 @@ async function main() {
     pr?: `open` | `merged`
     /** Link this issue to REVIEW_PR instead of a fictional acme PR. */
     realPr?: boolean
+    /** SLOP-3: this PR is based on APP-<n>'s open PR branch (a stacked PR),
+     *  so the Related work badge shows a stack on both. */
+    stackedOn?: number
   }> = [
     {
       title: `Ship onboarding flow v2`,
@@ -686,6 +689,7 @@ async function main() {
       labels: [`Feature`],
       createdDaysAgo: 1,
       pr: `open`,
+      stackedOn: 14,
     },
     {
       title: `Fix flaky scroll restore on the issue list`,
@@ -744,6 +748,9 @@ async function main() {
               prNumber: spec.realPr ? REVIEW_PR_NUMBER : 40 + i,
               prState: spec.pr,
               branch: `exp/APP-${i + 1}`,
+              prBaseBranch: spec.stackedOn
+                ? `exp/APP-${spec.stackedOn}`
+                : undefined,
               prMergedAt: spec.pr === `merged` ? daysAgo(1) : undefined,
             }
           : {}),
