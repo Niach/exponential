@@ -76,6 +76,12 @@ data class ClosePrInput(@SerialName("issueId") val issueId: String)
 @Serializable
 data class MergePrInput(
     @SerialName("issueId") val issueId: String,
+    /**
+     * EXP-1145: merge the open STACK chain bottom-up THROUGH the issue named
+     * here, one PR at a time. Omitted (null) = the single merge; the shared
+     * Json drops nulls.
+     */
+    @SerialName("mergeStack") val mergeStack: Boolean? = null,
 )
 
 /**
@@ -211,12 +217,15 @@ class IssuesApi @Inject constructor(private val trpc: TrpcClient) {
      *
      * Merge always ends the linked live coding sessions (EXP-498) — the rows
      * drop out of the live lists via sync.
+     *
+     * EXP-1145: [mergeStack] merges the open stack bottom-up up to and
+     * including [issueId] (the top member's id = the whole stack).
      */
-    suspend fun mergePr(accountId: String, issueId: String) {
+    suspend fun mergePr(accountId: String, issueId: String, mergeStack: Boolean = false) {
         trpc.mutationUnit(
             accountId,
             path = "issues.mergePr",
-            input = MergePrInput(issueId),
+            input = MergePrInput(issueId, mergeStack = if (mergeStack) true else null),
             inputSerializer = MergePrInput.serializer(),
         )
     }

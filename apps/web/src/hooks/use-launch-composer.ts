@@ -18,9 +18,13 @@ import {
 import { openBlockersOfSet } from "@/lib/issue-graph"
 import {
   stackedStartPrompt,
-  stackTarget,
-  type StackDisabledReason,
+  stackLine,
+  stackPlan,
+  type StackPlan,
+  type StackPlanResult,
 } from "@/lib/blocked-start"
+
+type GraphRelationRow = { type: string; issueId: string; relatedIssueId: string }
 import {
   BUILTIN_CHAT_ID,
   BUILTIN_CHAT_NAME,
@@ -176,12 +180,13 @@ export interface LaunchComposerModel {
   closeBlockedStart: () => void
   /** Start the run, blockers and all. */
   startAnyway: () => Promise<void>
-  /** SLOP-3: the one blocker a stacked start bases on (`stackTarget`), or
-   * why "Stacked PR" is disabled. */
-  blockedStack: { target: Issue | null; reason: StackDisabledReason | null }
-  /** The SAME run as `startAnyway`, its prompt replaced by
-   * `stackedStartPrompt(blocker, branch, typed text)`. A no-op while
-   * `blockedStack.target` is null. */
+  /** SLOP-3: the dependency line a stacked start builds bottom-up
+   * (`stackLine` + `stackPlan`), or why "Stacked PR" is disabled. `first` =
+   * the issue of `plan.run[0]`, the one the stacked start launches. */
+  blockedStack: StackPlanResult & { first: Issue | null }
+  /** Start `plan.run[0]` (not necessarily the picked issue) with the same
+   * launch settings and `stackedStartPrompt(plan, typed text)`. A no-op
+   * while `blockedStack.plan` is null. */
   startStacked: () => Promise<void>
 
   launch: LaunchOptions
@@ -640,26 +645,81 @@ export function useLaunchComposer({
       [...known.values()]
     )
   }, [checkedIssues, relationRows, blockerRows])
-  // SLOP-3: "Stacked PR" bases the run on the ONE open blocker's PR branch.
-  // Both repositories come from the boards (an issue row carries none).
-  const blockedStack = useMemo(() => {
+  // SLOP-3: "Stacked PR" builds the whole dependency LINE under the ONE
+  // picked issue, so it needs the team's `blocks` rows and every team issue
+  // (a line member may sit on a repo-less board the codeable pool never
+  // queries). Queried only while a single blocked pick could ask.
+  const lineActive = checkedIssues.length === 1 && blockedStart.length > 0
+  const { data: teamRelationRows } = useLiveQuery(
+    (query) =>
+      lineActive
+        ? query
+            .from({ tr: issueRelationCollection })
+            .where(({ tr }) => eq(tr.teamId, teamId))
+        : undefined,
+    [lineActive, teamId]
+  )
+  const teamBoardIds = useMemo(() => boards.map((b) => b.id).sort(), [boards])
+  const { data: lineIssueRows } = useLiveQuery(
+    (query) =>
+      lineActive && teamBoardIds.length > 0
+        ? query
+            .from({ li: issueCollection })
+            .where(({ li }) => inArray(li.boardId, teamBoardIds))
+        : undefined,
+    [lineActive, teamBoardIds.join(`,`)]
+  )
+  // Both repositories come from the boards (an issue row carries none). A
+  // member is RUNNING when a live, non-stale run holds it (the same rows the
+  // pool's running exclusion reads) and its PR is not open yet.
+  const blockedStack = useMemo((): StackPlanResult & { first: Issue | null } => {
     const repoOf = (issue: Issue) =>
       boardById.get(issue.boardId)?.repositoryId ?? null
     const subjectIssue = checkedIssues.length === 1 ? checkedIssues[0]! : null
-    const blockers = blockedStart.map((issue) => ({
-      issue,
-      identifier: issue.identifier,
-      prState: issue.prState ?? null,
-      branch: issue.branch ?? null,
-      repositoryId: repoOf(issue),
-    }))
-    const { target, reason } = stackTarget({
+    const known = new Map<string, Issue>()
+    for (const row of (lineIssueRows ?? []) as Issue[]) known.set(row.id, row)
+    for (const row of (blockerRows ?? []) as Issue[]) known.set(row.id, row)
+    for (const row of checkedIssues) known.set(row.id, row)
+    const relations = [
+      ...((teamRelationRows ?? []) as GraphRelationRow[]),
+      ...((relationRows ?? []) as GraphRelationRow[]),
+    ]
+    const walk = subjectIssue
+      ? stackLine(subjectIssue.id, relations, [...known.values()])
+      : { line: [] as Issue[], fork: null, cycle: false }
+    const result = stackPlan({
       pickedCount: checkedIssues.length,
-      subjectRepositoryId: subjectIssue ? repoOf(subjectIssue) : null,
-      blockers,
+      subject: {
+        identifier: subjectIssue?.identifier ?? ``,
+        repositoryId: subjectIssue ? repoOf(subjectIssue) : null,
+      },
+      line: walk.line.map((issue) => ({
+        identifier: issue.identifier,
+        prState: issue.prState ?? null,
+        branch: issue.branch ?? null,
+        repositoryId: repoOf(issue),
+        running: runningIssueIds.has(issue.id) && issue.prState !== `open`,
+      })),
+      fork: walk.fork,
+      cycle: walk.cycle,
     })
-    return { target: target?.issue ?? null, reason }
-  }, [checkedIssues, blockedStart, boardById])
+    const firstIdent = result.plan?.run[0]
+    const first =
+      firstIdent === undefined
+        ? null
+        : ([...walk.line, ...(subjectIssue ? [subjectIssue] : [])].find(
+            (issue) => issue.identifier === firstIdent
+          ) ?? null)
+    return { ...result, first }
+  }, [
+    checkedIssues,
+    boardById,
+    lineIssueRows,
+    blockerRows,
+    teamRelationRows,
+    relationRows,
+    runningIssueIds,
+  ])
   // A fresh subject asks again.
   useEffect(() => {
     setBlockedOpen(false)
@@ -697,9 +757,9 @@ export function useLaunchComposer({
 
   // ── Submit ────────────────────────────────────────────────────────────────
 
-  /** The actual start. `stackOn` = a stacked start (SLOP-3): the same run,
-   *  the typed text wrapped in the base instruction. */
-  const start = async (stackOn?: { identifier: string; branch: string }) => {
+  /** The actual start. `stacked` = a stacked start (SLOP-3): the line's
+   *  first issue, the typed text wrapped by `stackedStartPrompt`. */
+  const start = async (stacked?: { plan: StackPlan; issueId: string }) => {
     if (blocked || !device) return
     setBlockedOpen(false)
     setSending(true)
@@ -726,12 +786,14 @@ export function useLaunchComposer({
         return
       }
       const prompt = buildSteerImageMessage(
-        stackOn
-          ? stackedStartPrompt(stackOn.identifier, stackOn.branch, text)
-          : text,
+        stacked ? stackedStartPrompt(stacked.plan, text) : text,
         ids
       )
-      const options = launch.buildOptions({ resume: resumeActive })
+      // A stacked start may launch an issue other than the picked one, whose
+      // worktree the resume offer never looked at: it always starts fresh.
+      const options = launch.buildOptions({
+        resume: stacked ? false : resumeActive,
+      })
       // The remote hook toasts its own failures and rethrows; a refused start
       // keeps the draft so it can be retried.
       if (subject === null) {
@@ -748,7 +810,7 @@ export function useLaunchComposer({
         await remote.startIssues(
           device,
           options,
-          subject.ids,
+          stacked ? [stacked.issueId] : subject.ids,
           prompt || undefined
         )
       } else if (selectedAction) {
@@ -822,9 +884,9 @@ export function useLaunchComposer({
     startAnyway: () => start(),
     blockedStack,
     startStacked: async () => {
-      const target = blockedStack.target
-      if (!target?.branch) return
-      await start({ identifier: target.identifier, branch: target.branch })
+      const { plan, first } = blockedStack
+      if (!plan || !first) return
+      await start({ plan, issueId: first.id })
     },
     launch,
     candidateDevices,

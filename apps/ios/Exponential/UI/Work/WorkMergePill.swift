@@ -5,7 +5,8 @@ import SwiftUI
 /// EXP-1150: the Work screen's ONE Merge PR — a compact primary pill at the
 /// face tabs' height, trailing the tab row in the header band on EVERY face.
 /// It took over the Changes bar's pill (and the Run bar's circle): the same
-/// flow — the confirm alert — and, after a merge the server refused on a REAL
+/// flow (the confirm alert, or the stack dialog for a member of an open PR
+/// stack, EXP-1145 `PrStack.stackMergeChoice`) and, after a merge the server refused on a REAL
 /// content conflict, the same "Fix conflicts" recovery run (EXP-706) in its
 /// place. The host resolves WHAT it merges (`target`): the run's own merge
 /// target while the run can merge, else the issue's open PR.
@@ -13,6 +14,8 @@ struct WorkMergePill: View {
     let target: MergeTarget
     /// The issue behind an `.issue` target — its PR number and branch.
     let issue: IssueEntity?
+    /// The stack pool (`PrGraphModel.prIssues`) the stack dialog reads.
+    let prIssues: [IssueEntity]
     /// Remote start is on — the recovery run can be launched.
     let steerEnabled: Bool
 
@@ -21,6 +24,7 @@ struct WorkMergePill: View {
     @Environment(\.pushRoute) private var pushRoute
     @Environment(\.toaster) private var toaster
     @State private var showMergeConfirm = false
+    @State private var stackChoice: PrStack.StackMergeChoice?
     @State private var merging = false
     @State private var mergeFailure: MergeFailure?
 
@@ -39,6 +43,21 @@ struct WorkMergePill: View {
             } else {
                 Text("Merges the pull request, completes every linked issue, and closes the coding session.")
             }
+        }
+        .confirmationDialog(
+            PrStack.stackMergeChoiceTitle,
+            isPresented: Binding(
+                get: { stackChoice != nil },
+                set: { if !$0 { stackChoice = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: stackChoice
+        ) { choice in
+            Button(PrStack.mergeStackLabel) { mergeStack(issueId: choice.topIssueId) }
+            Button(PrStack.mergeThisPrLabel) { mergeThis(choice) }
+            Button(PrStack.stackMergeCancelLabel, role: .cancel) {}
+        } message: { choice in
+            Text(choice.body)
         }
     }
 
@@ -88,8 +107,26 @@ struct WorkMergePill: View {
             && !(issue?.branch ?? "").isEmpty
     }
 
+    /// EXP-1145: a member of an open PR stack asks first; anything else
+    /// confirms the plain merge.
     private func requestMerge() {
-        showMergeConfirm = true
+        if case let .issue(issueId) = target,
+           let row = issue?.id == issueId ? issue : prIssues.first(where: { $0.id == issueId }),
+           let choice = PrStack.stackMergeChoice(row, issues: prIssues) {
+            stackChoice = choice
+        } else {
+            showMergeConfirm = true
+        }
+    }
+
+    /// "Merge this pull request": the bottom member merges plainly, any other
+    /// one lands the chain bottom-up THROUGH itself.
+    private func mergeThis(_ choice: PrStack.StackMergeChoice) {
+        guard choice.mergeThisUsesStack, case let .issue(issueId) = target else {
+            merge()
+            return
+        }
+        mergeStack(issueId: issueId)
     }
 
     /// No local surgery on success: the server ends the run and flips
@@ -106,6 +143,26 @@ struct WorkMergePill: View {
                 case let .session(sessionId):
                     try await deps.codingSessionsApi.mergePr(accountId: accountId, sessionId: sessionId)
                 }
+            } catch {
+                let failure = MergeFailure(error: error)
+                mergeFailure = failure
+                toaster.error(failure.message)
+            }
+            merging = false
+        }
+    }
+
+    /// EXP-1145: the stack merge through `issueId` (the top for Merge stack,
+    /// the member itself for Merge this); a refusal toasts the server's
+    /// message and keeps the conflict recovery offer.
+    private func mergeStack(issueId: String) {
+        mergeFailure = nil
+        merging = true
+        Task {
+            do {
+                try await deps.issuesApi.mergePr(
+                    accountId: accountId, issueId: issueId, mergeStack: true
+                )
             } catch {
                 let failure = MergeFailure(error: error)
                 mergeFailure = failure

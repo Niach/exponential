@@ -677,6 +677,7 @@ final class AgentComposerModel {
             let blockers = openBlockers
             if !blockers.isEmpty {
                 let picked = effectiveChecked
+                let stack = stackPlan(picked: picked)
                 blockedPrompt = BlockedStartPrompt(
                     issueIds: picked,
                     identifiers: blockers.map { $0.identifier ?? "" },
@@ -684,7 +685,8 @@ final class AgentComposerModel {
                         subjectIds: picked, relations: blockerRelations, issues: blockerIssues
                     ),
                     issues: blockerIssues,
-                    stack: stackTarget(picked: picked, blockers: blockers)
+                    stack: stack.result,
+                    stackStartIssueId: stack.startIssueId
                 )
                 return
             }
@@ -699,38 +701,63 @@ final class AgentComposerModel {
         send()
     }
 
-    /// SLOP-3: the SAME remote start as Start anyway, its `prompt` led by the
-    /// stack base instruction (`BlockedStart.stackedStartPrompt`) for the one
-    /// blocker's open PR branch. Prompt text only: no new start input.
+    /// SLOP-3: the SAME remote start as Start anyway, but of the line's
+    /// lowest unstarted issue (`StackPlan.run[0]`, not necessarily the picked
+    /// one), its `prompt` = `BlockedStart.stackedStartPrompt` around the typed
+    /// draft. Prompt text only: no new start input.
     func startStacked() {
-        guard let target = blockedPrompt?.stack.target, let branch = target.branch else { return }
+        guard let prompt = blockedPrompt, let plan = prompt.stack.plan,
+              let startIssueId = prompt.stackStartIssueId else { return }
         blockedPrompt = nil
-        send(stackedOn: (identifier: target.identifier, branch: branch))
+        send(stacked: (plan: plan, issueId: startIssueId))
     }
 
-    /// The stack rule's view of the picked subject and its open blockers: a
-    /// blocker's repository is its BOARD's, the subject's the picked issue's.
-    private func stackTarget(
-        picked: [String], blockers: [IssueEntity]
-    ) -> BlockedStart.StackTarget {
+    /// The stack rule's view of the picked subject and the open-blocker line
+    /// below it (`BlockedStart.stackLine`): a line member's repository is its
+    /// BOARD's, the subject's the picked issue's; a member is `running` while
+    /// a live run works on it and its pull request is not open yet. Also
+    /// resolves `run[0]`, the issue a stacked start actually starts.
+    private func stackPlan(
+        picked: [String]
+    ) -> (result: BlockedStart.StackPlanResult, startIssueId: String?) {
+        let subjectOption = checkedOptions.first { $0.id == picked.first }
+        let subject = BlockedStart.Subject(
+            identifier: subjectOption?.identifier ?? "",
+            repositoryId: subjectOption?.repositoryId
+        )
+        guard picked.count == 1, let subjectId = picked.first else {
+            let result = BlockedStart.stackPlan(
+                pickedCount: picked.count, subject: subject, line: [], fork: nil, cycle: false
+            )
+            return (result, nil)
+        }
+        let walk = BlockedStart.stackLine(
+            subjectId: subjectId, relations: blockerRelations, issues: blockerIssues
+        )
         let repoByBoard = Dictionary(
             boards.map { ($0.id, $0.repositoryId) }, uniquingKeysWith: { a, _ in a }
         )
-        let subjectRepo = picked.count == 1
-            ? checkedOptions.first { $0.id == picked[0] }?.repositoryId
-            : nil
-        return BlockedStart.stackTarget(
-            pickedCount: picked.count,
-            subjectRepositoryId: subjectRepo,
-            blockers: blockers.map {
-                BlockedStart.Blocker(
+        let live = sessions.liveRunIssueIds()
+        let result = BlockedStart.stackPlan(
+            pickedCount: 1,
+            subject: subject,
+            line: walk.line.map {
+                BlockedStart.LineMember(
                     identifier: $0.identifier ?? "",
                     prState: $0.prState,
                     branch: $0.branch,
-                    repositoryId: repoByBoard[$0.boardId] ?? nil
+                    repositoryId: repoByBoard[$0.boardId] ?? nil,
+                    running: live.contains($0.id) && $0.prState != DomainContract.prStateOpen
                 )
-            }
+            },
+            fork: walk.fork.map { $0.identifier ?? "" },
+            cycle: walk.cycle
         )
+        guard let first = result.plan?.run.first else { return (result, nil) }
+        let startId = first == subject.identifier
+            ? subjectId
+            : walk.line.first { $0.identifier == first }?.id
+        return (result, startId)
     }
 
     /// Upload the pending images (sequentially, stamping `uploadedId` so a
@@ -738,7 +765,7 @@ final class AgentComposerModel {
     /// compose the `prompt`, then dispatch chat / action / issue / batch.
     /// On success the composer clears and the watcher pushes the run once
     /// its row syncs; on failure the draft, the chips and the strip stay.
-    private func send(stackedOn stack: (identifier: String, branch: String)? = nil) {
+    private func send(stacked: (plan: BlockedStart.StackPlan, issueId: String)? = nil) {
         guard canSubmit, let device, let teamId, !sending else { return }
         sending = true
         error = nil
@@ -762,11 +789,10 @@ final class AgentComposerModel {
                     return
                 }
             }
-            // SLOP-3: a stacked start leads with the base instruction.
-            let text = stack.map {
-                BlockedStart.stackedStartPrompt(
-                    identifier: $0.identifier, branch: $0.branch, text: draftText
-                )
+            // SLOP-3: a stacked start's text is the line's prompt around the
+            // typed draft.
+            let text = stacked.map {
+                BlockedStart.stackedStartPrompt(plan: $0.plan, text: draftText)
             } ?? draftText
             let prompt = AgentComposerPrompt.build(
                 text: text,
@@ -774,7 +800,8 @@ final class AgentComposerModel {
             )
             do {
                 let key = try await dispatch(
-                    device: device, teamId: teamId, prompt: prompt
+                    device: device, teamId: teamId, prompt: prompt,
+                    issueIds: stacked.map { [$0.issueId] }
                 )
                 startWatcher.begin(
                     key: key,
@@ -800,9 +827,10 @@ final class AgentComposerModel {
     }
 
     /// One `steer.startSession` per subject. Returns the watch key that
-    /// recognises the desktop-inserted row (`StartedRunMatch`).
+    /// recognises the desktop-inserted row (`StartedRunMatch`). `issueIds`
+    /// overrides the picked issues (a stacked start starts `run[0]`).
     private func dispatch(
-        device: SteerDevice, teamId: String, prompt: String?
+        device: SteerDevice, teamId: String, prompt: String?, issueIds: [String]? = nil
     ) async throws -> StartedRunKey {
         switch subject {
         case .none:
@@ -842,7 +870,7 @@ final class AgentComposerModel {
             )
             return .action(name: action.name)
         case .issues:
-            let ids = effectiveChecked
+            let ids = issueIds ?? effectiveChecked
             guard let key = StartedRunKey.forIssues(ids) else {
                 throw SteerStartError.rejected("Pick an issue.")
             }
@@ -861,7 +889,9 @@ final class AgentComposerModel {
                     accountId: accountId,
                     issueId: ids[0],
                     deviceId: device.deviceId,
-                    options: launch.buildOptions(resume: resumeActive ? true : nil),
+                    options: launch.buildOptions(
+                        resume: resumeActive && issueIds == nil ? true : nil
+                    ),
                     prompt: prompt
                 )
             }
@@ -882,8 +912,10 @@ struct BlockedStartPrompt: Identifiable {
     let graph: IssueGraph.Graph
     /// The synced rows the graph names its nodes from.
     let issues: [IssueEntity]
-    /// SLOP-3: the blocker Stacked PR would base on, or why it is disabled.
-    let stack: BlockedStart.StackTarget
+    /// SLOP-3: the stacked line's plan, or why Stacked PR is disabled.
+    let stack: BlockedStart.StackPlanResult
+    /// The issue behind `stack.plan.run[0]`, what Stacked PR starts.
+    let stackStartIssueId: String?
 
     var id: String { issueIds.joined(separator: ",") }
 
@@ -895,10 +927,12 @@ struct BlockedStartPrompt: Identifiable {
         isBatch ? BlockedStart.blockedBatchTitle : BlockedStart.blockedStartTitle
     }
 
-    /// The note under a disabled Stacked PR, naming the one blocker.
+    /// Stacked PR is enabled only with a plan and its first issue resolved.
+    var stackable: Bool { stack.plan != nil && stackStartIssueId != nil }
+
+    /// The note under Stacked PR: the disabled reason, or (enabled, 2+
+    /// issues to start) the plan note.
     var stackNote: String? {
-        stack.reason.map {
-            BlockedStart.stackDisabledNote($0, ident: identifiers.first ?? "")
-        }
+        stack.note ?? stack.planNote
     }
 }

@@ -28,6 +28,9 @@ struct ReviewsListContent: View {
     @Environment(\.pushRoute) private var pushRoute
     @State private var viewModel: ReviewsViewModel?
     @State private var mergeTarget: ReviewEntry?
+    /// EXP-1145: the row whose Merge hit a member of an open PR stack, with
+    /// the dialog's content (`PrStack.stackMergeChoice`).
+    @State private var stackTarget: StackMergeTarget?
     /// EXP-897 Part 4: the batch PR whose issues the overlay lists.
     @State private var batchTarget: ReviewEntry?
     /// EXP-734: the agent run whose OWN pull request a merge confirm is
@@ -88,6 +91,33 @@ struct ReviewsListContent: View {
             Button("Cancel", role: .cancel) { mergeTarget = nil }
         } message: { entry in
             Text(mergeMessage(entry))
+        }
+        // EXP-1145: a member of an open PR stack asks first. The list stays
+        // FLAT; only the dialog knows the stack.
+        .confirmationDialog(
+            PrStack.stackMergeChoiceTitle,
+            isPresented: Binding(
+                get: { stackTarget != nil },
+                set: { if !$0 { stackTarget = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: stackTarget
+        ) { target in
+            Button(PrStack.mergeStackLabel) {
+                merge(target.entry, issueId: target.choice.topIssueId, mergeStack: true)
+            }
+            Button(PrStack.mergeThisPrLabel) {
+                // The bottom merges plainly, any other member lands the chain
+                // bottom-up THROUGH itself.
+                merge(
+                    target.entry,
+                    issueId: target.entry.representative.id,
+                    mergeStack: target.choice.mergeThisUsesStack
+                )
+            }
+            Button(PrStack.stackMergeCancelLabel, role: .cancel) { stackTarget = nil }
+        } message: { target in
+            Text(target.choice.body)
         }
         // EXP-734: a run's own pull request completes no issue, so it confirms
         // with its own copy.
@@ -384,7 +414,7 @@ struct ReviewsListContent: View {
         }
         .buttonStyle(.plain)
         .swipeActions(edge: .trailing) {
-            Button { mergeTarget = entry } label: {
+            Button { requestMerge(entry) } label: {
                 Label("Merge", appIcon: AppIcons.prMerged)
             }
             .tint(DesignTokens.Semantic.green)
@@ -396,7 +426,7 @@ struct ReviewsListContent: View {
                 Label("Open issue", appIcon: AppIcons.uiIssue)
             }
             Button {
-                mergeTarget = entry
+                requestMerge(entry)
             } label: {
                 Label(DomainContract.diffUiMergePr, appIcon: AppIcons.prMerged)
             }
@@ -452,7 +482,7 @@ struct ReviewsListContent: View {
             .contentShape(Capsule())
             .onTapGesture {
                 guard !merging.contains(entry.id) else { return }
-                mergeTarget = entry
+                requestMerge(entry)
             }
             .accessibilityAddTraits(.isButton)
             .accessibilityLabel("Merge pull request")
@@ -515,15 +545,35 @@ struct ReviewsListContent: View {
         return message
     }
 
+    /// EXP-1145: a member of an open PR stack opens the stack dialog, any
+    /// other row the plain confirm.
+    private func requestMerge(_ entry: ReviewEntry) {
+        if let choice = PrStack.stackMergeChoice(
+            entry.representative, issues: viewModel?.issues ?? []
+        ) {
+            stackTarget = StackMergeTarget(entry: entry, choice: choice)
+        } else {
+            mergeTarget = entry
+        }
+    }
+
     private func merge(_ entry: ReviewEntry) {
+        merge(entry, issueId: entry.representative.id, mergeStack: false)
+    }
+
+    /// The row's merge, plain or (EXP-1145) the stack merge through
+    /// `issueId`; a refusal captions the row with the server's message.
+    private func merge(_ entry: ReviewEntry, issueId: String, mergeStack: Bool) {
         mergeTarget = nil
-        let issueId = entry.representative.id
+        stackTarget = nil
         let key = entry.id
         mergeErrors[key] = nil
         merging.insert(key)
         Task {
             do {
-                try await deps.issuesApi.mergePr(accountId: accountId, issueId: issueId)
+                try await deps.issuesApi.mergePr(
+                    accountId: accountId, issueId: issueId, mergeStack: mergeStack ? true : nil
+                )
             } catch {
                 mergeErrors[key] = MergeFailure(error: error)
             }
@@ -543,6 +593,12 @@ struct ReviewsListContent: View {
             )
         ))
     }
+}
+
+/// EXP-1145: a Reviews row whose merge asks the stack question.
+private struct StackMergeTarget {
+    let entry: ReviewEntry
+    let choice: PrStack.StackMergeChoice
 }
 
 /// SLOP-16 r3: THE pull-request row's content — the batch/PR glyph, the

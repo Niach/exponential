@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.Diff
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.PrStack
 import com.exponential.app.ui.components.BarCircle
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.LocalToaster
@@ -45,6 +46,7 @@ import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.ChangesLoadState
 import com.exponential.app.ui.issue.DiffFileCard
 import com.exponential.app.ui.issue.DiffFileListSheet
+import com.exponential.app.ui.issue.StackMergeDialog
 import com.exponential.app.ui.issue.diffOpensByDefault
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -72,6 +74,12 @@ data class ChangesMergeControl(
     val confirmText: String,
     val onConfirm: () -> Unit,
     val onFixConflicts: () -> Unit,
+    /** EXP-1145: non-null = the merged PR is a stack member, so Merge asks first. */
+    val stackChoice: PrStack.StackMergeChoice? = null,
+    /** EXP-1145: the issue whose PR the plain merge lands (the stack dialog's "this one"). */
+    val stackIssueId: String? = null,
+    /** EXP-1145: merge the open stack bottom-up THROUGH the given issue. */
+    val onMergeStack: (throughIssueId: String) -> Unit = {},
 )
 
 @Composable
@@ -165,8 +173,8 @@ fun ChangesFace(
 
 /**
  * EXP-1150: the header's Merge PR — the [ChangesMergeControl] as a compact
- * primary pill at the face strip's end, on every face, running the confirm.
- * With a real conflict it becomes Fix conflicts (the
+ * primary pill at the face strip's end, on every face, running the confirm
+ * (or the stack dialog). With a real conflict it becomes Fix conflicts (the
  * branch glyph) and opens the recovery run. A refusal toasts.
  */
 @Composable
@@ -204,10 +212,23 @@ fun MergePrHeaderPill(merge: ChangesMergeControl, modifier: Modifier = Modifier)
 
 /**
  * EXP-498: merging always closes the session too, so the merge is
- * confirm-gated — same copy as Agents and Reviews.
+ * confirm-gated, same copy as Agents and Reviews. EXP-1145: a stack member
+ * asks which merge it means.
  */
 @Composable
 private fun MergeConfirmDialog(merge: ChangesMergeControl, onDismiss: () -> Unit) {
+    val stackChoice = merge.stackChoice
+    val stackIssueId = merge.stackIssueId
+    if (stackChoice != null && stackIssueId != null) {
+        StackMergeDialog(
+            choice = stackChoice,
+            issueId = stackIssueId,
+            onMergeStack = merge.onMergeStack,
+            onMergePlain = merge.onConfirm,
+            onDismiss = onDismiss,
+        )
+        return
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Merge pull request?") },

@@ -20,6 +20,15 @@ final class ChangesViewModel {
 
     private(set) var issue: IssueEntity?
     private(set) var load: LoadState = .loading
+    /// EXP-1145: every synced issue with an OPEN pull request, so a plain
+    /// Merge on a stack member can ask first (`stackMergeChoice`).
+    private(set) var openPrIssues: [IssueEntity] = []
+
+    /// The stack merge dialog's content, or nil for a plain merge.
+    var stackMergeChoice: PrStack.StackMergeChoice? {
+        guard let issue else { return nil }
+        return PrStack.stackMergeChoice(issue, issues: openPrIssues)
+    }
 
     /// Membership gates the Merge / Close affordances (resolved from the issue's
     /// board → team, like IssueDetailViewModel.refreshPermissions). The
@@ -50,6 +59,7 @@ final class ChangesViewModel {
     private let auth: AuthRepository
 
     private var observationTask: Task<Void, Never>?
+    private var openPrObservationTask: Task<Void, Never>?
     /// nil until the first issue row arrives; a flip re-fetches (Android's
     /// `distinctUntilChanged` on hasPr).
     private var hadPr: Bool?
@@ -93,11 +103,24 @@ final class ChangesViewModel {
                 }
             } catch {}
         }
+        let openPrs = ValueObservation.tracking { db in
+            try IssueEntity.filter(Column("pr_state") == "open").fetchAll(db)
+        }
+        openPrObservationTask = Task { [weak self] in
+            do {
+                for try await rows in openPrs.values(in: pool) {
+                    guard let self else { return }
+                    self.openPrIssues = rows
+                }
+            } catch {}
+        }
     }
 
     func stopObserving() {
         observationTask?.cancel()
         observationTask = nil
+        openPrObservationTask?.cancel()
+        openPrObservationTask = nil
     }
 
     func refresh() async {
@@ -146,6 +169,28 @@ final class ChangesViewModel {
         Task {
             do {
                 try await issuesApi.mergePr(accountId: accountId, issueId: issueId)
+            } catch {
+                actionError = error.userFacingMessage
+                actionErrorFrom = .merge
+                actionErrorIsConflict = error.isMergeConflict
+            }
+            merging = false
+        }
+    }
+
+    /// EXP-1145: the stack dialog's merges, bottom-up THROUGH `issueId`
+    /// (the top for Merge stack, this issue for Merge this pull request on a
+    /// member above the bottom). Same loading/failure handling; a refusal
+    /// captions the server's message and keeps the Fix conflicts offer.
+    func mergeStack(issueId: String) {
+        guard !merging else { return }
+        merging = true
+        actionError = nil
+        actionErrorFrom = nil
+        actionErrorIsConflict = false
+        Task {
+            do {
+                try await issuesApi.mergePr(accountId: accountId, issueId: issueId, mergeStack: true)
             } catch {
                 actionError = error.userFacingMessage
                 actionErrorFrom = .merge

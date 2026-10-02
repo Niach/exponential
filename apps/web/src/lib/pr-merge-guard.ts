@@ -69,3 +69,87 @@ export async function stackedOnOpenPr(
     .limit(1)
   return run?.prNumber != null ? `#${run.prNumber}` : null
 }
+
+/** One open PR of a stack: the issue that represents it (a batch PR = ONE
+ *  member, whichever of its issues the walk met). */
+export interface StackMember {
+  issueId: string
+  identifier: string
+  boardId: string | null
+  prNumber: number
+  prUrl: string
+  branch: string | null
+  prBaseBranch: string | null
+}
+
+/** Cycle-safe bound on the walk below a PR. */
+export const MAX_STACK_DEPTH = 10
+
+/**
+ * SLOP-3 `mergePr({mergeStack})`: the open chain BELOW AND INCLUDING
+ * `issueId`, bottom first. Each step follows `pr_base_branch` to the team
+ * issue whose OPEN PR (same repo) has that head, until the base is nobody's
+ * open issue PR. Empty when the issue itself has no open PR (the single
+ * merge then names why). Members above `issueId` are never included.
+ */
+export async function openStackThrough(
+  db: Pick<Context[`db`], `select`>,
+  opts: { issueId: string; teamId: string }
+): Promise<StackMember[]> {
+  const columns = {
+    issueId: issues.id,
+    identifier: issues.identifier,
+    boardId: issues.boardId,
+    prNumber: issues.prNumber,
+    prUrl: issues.prUrl,
+    prState: issues.prState,
+    branch: issues.branch,
+    prBaseBranch: issues.prBaseBranch,
+  }
+  const [start] = await db
+    .select(columns)
+    .from(issues)
+    .where(eq(issues.id, opts.issueId))
+    .limit(1)
+  if (!start || start.prState !== `open` || !start.prUrl || !start.prNumber) {
+    return []
+  }
+  // Same parse as pr-sync's repoFromPrUrl (not imported: this module stays
+  // a leaf the routers can load cheaply).
+  const repoFullName = start.prUrl.match(
+    /github\.com\/([^/]+\/[^/]+)\/pull\/\d+/
+  )?.[1]
+  if (!repoFullName) return []
+  const pattern = repoPrUrlPattern(repoFullName)
+  const toMember = (row: typeof start): StackMember => ({
+    issueId: row.issueId,
+    identifier: row.identifier,
+    boardId: row.boardId,
+    prNumber: row.prNumber!,
+    prUrl: row.prUrl!,
+    branch: row.branch,
+    prBaseBranch: row.prBaseBranch,
+  })
+  const chain = [toMember(start)]
+  const seenPrUrls = new Set([start.prUrl])
+  let base = start.prBaseBranch
+  while (base && chain.length < MAX_STACK_DEPTH) {
+    const [lower] = await db
+      .select(columns)
+      .from(issues)
+      .where(
+        and(
+          eq(issues.teamId, opts.teamId),
+          eq(issues.branch, base),
+          eq(issues.prState, `open`),
+          like(issues.prUrl, pattern)
+        )
+      )
+      .limit(1)
+    if (!lower?.prUrl || !lower.prNumber || seenPrUrls.has(lower.prUrl)) break
+    seenPrUrls.add(lower.prUrl)
+    chain.unshift(toMember(lower))
+    base = lower.prBaseBranch
+  }
+  return chain
+}

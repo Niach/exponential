@@ -46,9 +46,11 @@ import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.issue.RelationIssueRow
+import com.exponential.app.ui.issue.StackMergeDialog
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeFailure
+import com.exponential.app.domain.PrStack
 import com.exponential.app.domain.canOfferFixConflicts
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.BottomBarInset
@@ -114,6 +116,7 @@ private fun ReviewsListContent(
     // SLOP-16 r3: what the batch sheet's relation rows resolve against.
     val issueStatuses by viewModel.issueStatuses.collectAsStateWithLifecycle()
     val users by viewModel.users.collectAsStateWithLifecycle()
+    val allIssues by viewModel.allIssues.collectAsStateWithLifecycle()
     var mergeTarget by remember { mutableStateOf<ReviewEntry?>(null) }
     // EXP-734: an issueless run's own PR — merged through the session, so it
     // gets its own confirm target.
@@ -179,6 +182,20 @@ private fun ReviewsListContent(
     }
 
     mergeTarget?.let { entry ->
+        // EXP-1145/SLOP-3: a stack member's row asks which merge it means.
+        val stackChoice = remember(entry, allIssues) {
+            PrStack.stackMergeChoice(entry.representative, allIssues)
+        }
+        if (stackChoice != null) {
+            StackMergeDialog(
+                choice = stackChoice,
+                issueId = entry.representative.id,
+                onMergeStack = { through -> viewModel.mergePr(entry.groupKey, through, mergeStack = true) },
+                onMergePlain = { viewModel.mergePr(entry.groupKey, entry.representative.id) },
+                onDismiss = { mergeTarget = null },
+            )
+            return@let
+        }
         MergeConfirmDialog(
             entry = entry,
             onConfirm = {

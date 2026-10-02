@@ -304,11 +304,17 @@ impl ReviewsView {
             }
             let click_id = issue.id.clone();
             button
-                .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
                     cx.stop_propagation();
+                    // EXP-1145: a member of an open PR stack asks first
+                    // (the list itself stays FLAT).
+                    if crate::pr_merge::ask_stack_merge(&click_id, window, cx) {
+                        return;
+                    }
                     crate::pr_merge::two_click(
                         MergeOp::MergeIssuePr {
                             issue_id: click_id.clone(),
+                            stack_through: None,
                         },
                         None,
                         None,

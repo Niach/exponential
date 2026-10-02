@@ -369,13 +369,31 @@ pub struct MergeResult {
 /// EXP-498: merge always ends the issue's live coding sessions — the server
 /// enforces it unconditionally, and the desktop tears down off the resulting
 /// kill-watch echo (or its own local tab close).
-pub fn merge_pr(trpc: &TrpcClient, issue_id: &str) -> Result<MergeResult, ApiError> {
+///
+/// EXP-1145: `merge_stack` merges the open `pr_base_branch` chain bottom-up
+/// THROUGH `issue_id` (the stack dialog passes the top member for "Merge
+/// stack", the merged member for "Merge this pull request" above the
+/// bottom). The flag is serialized LAST and only when set, so an ordinary
+/// merge's wire frame stays byte-identical.
+pub fn merge_pr(
+    trpc: &TrpcClient,
+    issue_id: &str,
+    merge_stack: bool,
+) -> Result<MergeResult, ApiError> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
     struct Input<'a> {
         issue_id: &'a str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        merge_stack: Option<bool>,
     }
-    trpc.mutation("issues.mergePr", &Input { issue_id })
+    trpc.mutation(
+        "issues.mergePr",
+        &Input {
+            issue_id,
+            merge_stack: merge_stack.then_some(true),
+        },
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1050,12 +1068,26 @@ mod tests {
     #[test]
     fn merge_pr_posts_camel_case_input_and_decodes_result() {
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"merged":true}}}"#);
-        let out = merge_pr(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000").unwrap();
+        let out = merge_pr(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000", false).unwrap();
         assert!(out.merged);
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/issues.mergePr HTTP/1.1"));
         assert!(request.ends_with(r#"{"issueId":"1f7f6f9e-0000-4000-8000-000000000000"}"#));
         assert!(crate::trpc::tests::has_header(&request, "Authorization: Bearer tok-1"));
+    }
+
+    /// EXP-1145: `mergeStack` rides LAST and ONLY when set, so an ordinary
+    /// merge's frame is byte-identical to the one above.
+    #[test]
+    fn merge_pr_with_merge_stack_posts_the_flag_last() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"merged":true}}}"#);
+        let out = merge_pr(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000", true).unwrap();
+        assert!(out.merged);
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/issues.mergePr HTTP/1.1"));
+        assert!(request.ends_with(
+            r#"{"issueId":"1f7f6f9e-0000-4000-8000-000000000000","mergeStack":true}"#
+        ));
     }
 
     #[test]
@@ -1066,7 +1098,7 @@ mod tests {
             412,
             r#"{"error":{"message":"This issue has no linked pull request","code":-32603,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
         );
-        let result = merge_pr(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000");
+        let result = merge_pr(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000", false);
         match result {
             Err(ApiError::Http { status, message }) => {
                 assert_eq!(status, 412);

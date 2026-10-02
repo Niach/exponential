@@ -32,11 +32,11 @@ export const CHANGELOG: ChangelogEntry[] = [
     body: `- **Runs**: workflows are removed. A run splits its own work with subagents and starts further runs for the follow-ups it files, each on its own pull request.
 - **Batches**: starting several issues as one batch run with one combined pull request works as before.
 - **Dependent work**: a pull request can still be based on another one. Merge the first one first: its merge moves the ones built on it to the default branch.
-- **Reviews**: one flat list of open pull requests, each with a plain Merge. Merge stack and the Workflows group are gone.
-- **Blocked issues**: starting a blocked issue asks Cancel, Start anyway or Stacked PR. A stacked start builds on the blocker's open pull request and opens its own on top of it.
+- **Reviews**: one flat list of open pull requests. The Workflows group is gone.
+- **Blocked issues**: starting a blocked issue asks Cancel, Start anyway or Stacked PR. A stacked start builds the whole line bottom-up: the lowest issue without a pull request starts first, and each run starts the next one on top of its own.
 - **Header**: the Related work badge stays (blockers, batch, stack). A batch run's title also lists its issues.
-- **Merging**: a pull request built on another open one refuses to merge until that one is merged.
-- **MCP**: the \`exponential_workflows_*\` tools, \`stackOnIssueId\` and \`mergeStack\` are gone. \`exponential_pr_open\` takes \`base\`, and \`exponential_pr_merge\` merges \`issueIds\` in the given order.
+- **Merging**: Merge on a stacked pull request asks Merge stack or Merge this pull request, and lands the stack bottom-up.
+- **MCP**: the \`exponential_workflows_*\` tools and \`stackOnIssueId\` are gone. \`exponential_pr_open\` takes \`base\`, and \`exponential_pr_merge\` merges \`issueIds\` in the given order or a stack with \`mergeStack\`.
 - **Older apps**: desktop, CLI and Android need this release. An older iPhone app keeps working and shows an empty Workflows page.`,
   },
   {

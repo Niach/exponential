@@ -31,6 +31,11 @@ import { useTeamBySlug } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
 import { mergeFailure, type MergeFailure } from "@/lib/merge-failure"
+import { stackMergeChoice, type StackMergeChoice } from "@/lib/pr-stack"
+import {
+  StackMergeChoiceDialog,
+  type StackMergeInput,
+} from "@/components/stack-merge-choice-dialog"
 import { trpc } from "@/lib/trpc-client"
 import { pageTitle } from "@/lib/page-title"
 
@@ -78,6 +83,7 @@ function ReviewsPage() {
     isLoading,
     externalLoading,
     removeExternalPull,
+    openIssues,
   } = useReviewsData(team)
 
   // The entry whose confirm dialog is open, and the entries with an in-flight
@@ -87,6 +93,12 @@ function ReviewsPage() {
   // Closing without merging lives on the review-detail page (EXP-248) — list
   // rows offer merge only, matching the iOS/Android review rows.
   const [mergeTarget, setMergeTarget] = useState<ReviewEntry | null>(null)
+  // EXP-1145: a row whose PR is a member of an open stack asks first (the
+  // list itself stays FLAT). Holds the entry and what the dialog says.
+  const [stackTarget, setStackTarget] = useState<{
+    entry: ReviewEntry
+    choice: StackMergeChoice
+  } | null>(null)
   const [mergingIds, setMergingIds] = useState<Set<string>>(new Set())
   const [externalMergeTarget, setExternalMergeTarget] =
     useState<ExternalMergeTarget | null>(null)
@@ -170,10 +182,33 @@ function ReviewsPage() {
     })
   }
 
+  // A row's Merge (and its Retry merge): a stack member opens the stack
+  // dialog, anything else the plain confirm. The rows are already the team's
+  // open pull requests, exactly what the chain is read from.
+  const askMerge = (entry: ReviewEntry) => {
+    const choice = stackMergeChoice(entry.issue, openIssues)
+    if (choice) setStackTarget({ entry, choice })
+    else setMergeTarget(entry)
+  }
+
   const confirmMerge = () => {
     const entry = mergeTarget
     if (!entry) return
     setMergeTarget(null)
+    runMerge(entry, { issueId: entry.issue.id })
+  }
+
+  // EXP-1145: the stack dialog's two merges. A stack merge lands several pull
+  // requests; its refusal captions the row with the server's message but
+  // never swaps in "Fix conflicts" (that run rebases ONE pull request).
+  const confirmStackMerge = (input: StackMergeInput) => {
+    const target = stackTarget
+    if (!target) return
+    setStackTarget(null)
+    runMerge(target.entry, input)
+  }
+
+  function runMerge(entry: ReviewEntry, input: StackMergeInput) {
     setMergingIds((prev) => new Set(prev).add(entry.key))
     setMergeErrors((prev) => {
       const next = { ...prev }
@@ -184,18 +219,18 @@ function ReviewsPage() {
     // then completes every linked issue and ends its live coding sessions
     // (EXP-498).
     trpc.issues.mergePr
-      .mutate({ issueId: entry.issue.id }, { context: { skipErrorToast: true } })
+      .mutate(input, { context: { skipErrorToast: true } })
       .catch((error: unknown) => {
         // Captioned on the row instead of toasted: the reason (GitHub's
         // verbatim "not mergeable") has to stay next to the recovery button,
         // and unstick the spinner so the merge can be retried.
-        setMergeErrors((prev) => ({
-          ...prev,
-          [entry.key]: mergeFailure(
-            error,
-            `The pull request could not be merged`
-          ),
-        }))
+        const failure = input.mergeStack
+          ? {
+              ...mergeFailure(error, `The stack could not be merged`),
+              conflict: false,
+            }
+          : mergeFailure(error, `The pull request could not be merged`)
+        setMergeErrors((prev) => ({ ...prev, [entry.key]: failure }))
         setMergingIds((prev) => {
           const next = new Set(prev)
           next.delete(entry.key)
@@ -371,7 +406,7 @@ function ReviewsPage() {
                               disabled={merging}
                               onClick={(e) => {
                                 e.stopPropagation()
-                                setMergeTarget(entry)
+                                askMerge(entry)
                               }}
                             >
                               {merging ? (
@@ -407,7 +442,7 @@ function ReviewsPage() {
                                   disabled={merging}
                                   onClick={(e) => {
                                     e.stopPropagation()
-                                    setMergeTarget(entry)
+                                    askMerge(entry)
                                   }}
                                 >
                                   <PrMergedIcon className="size-3" />
@@ -618,6 +653,13 @@ function ReviewsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <StackMergeChoiceDialog
+        choice={stackTarget?.choice ?? null}
+        issueId={stackTarget?.entry.issue.id ?? ``}
+        onCancel={() => setStackTarget(null)}
+        onMerge={(input) => confirmStackMerge(input)}
+      />
 
       <Dialog
         open={sessionMergeTarget !== null}

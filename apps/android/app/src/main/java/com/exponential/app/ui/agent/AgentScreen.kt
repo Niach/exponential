@@ -752,7 +752,8 @@ private fun ChatSuggestionChips(suggestions: List<String>, onPick: (String) -> U
  * body, blockers outside the picked set), and under either the MINI-GRAPH of
  * the transitive chain, so the reader sees what the chain actually is before
  * answering. SLOP-3: three answers, Cancel · Start anyway · Stacked PR
- * (primary). Stacked PR is never hidden: disabled, the reason note says why.
+ * (primary). Stacked PR is never hidden: disabled, the reason note says why;
+ * enabled over a line of 2+ issues, the plan note says what starts first.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -764,7 +765,7 @@ private fun BlockedStartDialog(
     onDismiss: () -> Unit,
 ) {
     val isBatch = prompt.pickedIds.size > 1
-    val stackable = prompt.stack.target != null
+    val stackable = prompt.stack.plan != null
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -805,14 +806,22 @@ private fun BlockedStartDialog(
                         onOpenIssue(id)
                     },
                 )
-                // SLOP-3: why the stacked start is off, the shared note under
-                // a disabled (never hidden) button.
-                prompt.stackNote?.let { note ->
-                    Text(
-                        note,
+                // SLOP-3: why the stacked start is off (the note under a
+                // disabled, never hidden button), else what it starts first.
+                val stackNote = prompt.stackNote
+                val planNote = prompt.planNote
+                when {
+                    stackNote != null -> Text(
+                        stackNote,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                         modifier = Modifier.testTag("start-stacked-note"),
+                    )
+                    planNote != null -> Text(
+                        planNote,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        modifier = Modifier.testTag("start-stacked-plan"),
                     )
                 }
             }

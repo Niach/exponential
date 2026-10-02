@@ -38,6 +38,7 @@ import {
   type SQL,
 } from "drizzle-orm"
 import { db } from "@/db/connection"
+import { openStackThrough, type StackMember } from "@/lib/pr-merge-guard"
 import {
   actions,
   attachments,
@@ -2801,6 +2802,7 @@ export function registerExponentialTools(
     repositoryId: uuidString.optional(),
     prNumber: z.number().int().positive().optional(),
     endSessions: z.boolean().optional(),
+    mergeStack: z.boolean().optional(),
   })
   const prMerge = (
     async ({
@@ -2809,6 +2811,7 @@ export function registerExponentialTools(
       repositoryId,
       prNumber,
       endSessions,
+      mergeStack,
     }: z.infer<typeof prMergeInput>) => {
       // EXP-711: only forwarded when given, so the tRPC input stays byte-equal
       // to the pre-override shape for every caller that never passes it.
@@ -2827,6 +2830,10 @@ export function registerExponentialTools(
         }
         if (Boolean(repositoryId) !== (prNumber !== undefined)) {
           throw new Error(`repositoryId and prNumber must be passed together`)
+        }
+        // SLOP-3: a stack is a chain of ISSUE PRs; a chore PR records no base.
+        if (mergeStack && repositoryId) {
+          throw new Error(`mergeStack applies to issue PRs only`)
         }
 
         // EXP-637 decision 6, corrected in EXP-639. A run that merges the PR
@@ -2906,6 +2913,20 @@ export function registerExponentialTools(
           await resolveTeamAccess(user.id, issueCtx.teamId)
           teamIdByIssue.set(id, issueCtx.teamId)
         }
+        // SLOP-3: mergeStack also lands the open PRs below each target. They
+        // may sit on boards this token was never granted: refuse before
+        // GitHub sees anything.
+        const stackByIssue = new Map<string, StackMember[]>()
+        if (mergeStack) {
+          for (const id of ids) {
+            const teamId = teamIdByIssue.get(id)!
+            const chain = await openStackThrough(db, { issueId: id, teamId })
+            for (const member of chain) {
+              if (member.boardId) assertBoardGranted(access, member.boardId, teamId)
+            }
+            stackByIssue.set(id, chain)
+          }
+        }
 
         // One merge per distinct PR: issues sharing a batch prUrl collapse
         // onto the first listed issue (merging it completes the siblings).
@@ -2948,12 +2969,25 @@ export function registerExponentialTools(
               (stampable.branch !== null && row.branch === stampable.branch)
             if (own && row.prUrl) ownPrUrls.add(row.prUrl)
           }
+          // A stack merge lands the members below a target too.
+          for (const chain of stackByIssue.values()) {
+            for (const member of chain) {
+              const own =
+                member.issueId === stampable.issueId ||
+                (stampable.prUrl !== null && member.prUrl === stampable.prUrl) ||
+                (stampable.branch !== null && member.branch === stampable.branch)
+              if (own) ownPrUrls.add(member.prUrl)
+            }
+          }
         }
         const ownTargetIds = new Set(
           targets
             .filter((target) => {
-              const prUrl = rowById.get(target.id)?.prUrl
-              return Boolean(prUrl && ownPrUrls.has(prUrl))
+              const urls = [
+                rowById.get(target.id)?.prUrl,
+                ...(stackByIssue.get(target.id) ?? []).map((m) => m.prUrl),
+              ]
+              return urls.some((url) => Boolean(url && ownPrUrls.has(url)))
             })
             .map((target) => target.id)
         )
@@ -2971,6 +3005,8 @@ export function registerExponentialTools(
           queued?: boolean
           error?: string
           note?: string
+          // mergeStack: the PRs this target's call landed, bottom first.
+          stack?: string[]
         }[] = []
         // A queued merge is the run's own success in flight: the spare it
         // stamped stays, or the landing merge would end the run after all.
@@ -2985,6 +3021,7 @@ export function registerExponentialTools(
             const outcome = await trpcCaller.issues.mergePr({
               issueId: target.id,
               ...endSessionsInput,
+              ...(mergeStack ? { mergeStack: true } : {}),
             })
             // FEED-43 R1: an enqueued merge has not landed; say so instead of
             // a `merged: true` the queue may still take back.
@@ -2995,6 +3032,9 @@ export function registerExponentialTools(
               merged: !queued,
               ...(queued ? { queued: true } : {}),
               ...(outcome.note ? { note: outcome.note } : {}),
+              ...(outcome.stack
+                ? { stack: outcome.stack.map((pr) => pr.identifier) }
+                : {}),
             })
           } catch (e) {
             results.push({
@@ -3020,7 +3060,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_merge`,
     {
-      description: `Squash-merge open PRs via the GitHub App (no 'gh' or token). Pass EXACTLY ONE of 'issueId', 'issueIds' (one merge per distinct prUrl, so issues sharing a batch PR merge once), or 'repositoryId' + 'prNumber' for a PR with no issue. Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'); live coding sessions on them end unless the team's "end sessions on merge" setting is off; 'endSessions' overrides that setting for this call (false keeps them running), and YOUR OWN session always keeps running (it ends on its own exit or close-out). Each results[] element carries 'merged' + optional 'error' or 'queued' (in GitHub's merge queue; merged=false until it lands), plus issueId/identifier (issue path) or repositoryId/prNumber (chore path); one unmergeable PR never blocks the rest. A merge rejected for a stale base: fix with exponential_pr_retarget first. Idempotent: an already-merged PR answers merged=true.`,
+      description: `Squash-merge open PRs via the GitHub App (no 'gh' or token). Pass EXACTLY ONE of 'issueId', 'issueIds' (one merge per distinct prUrl, so issues sharing a batch PR merge once), or 'repositoryId' + 'prNumber' for a PR with no issue. Linked issues flip to merged and the team's PR-merge status (default 'done'); their live sessions end unless the team's "end sessions on merge" setting is off; 'endSessions' overrides it (false keeps them running), and YOUR OWN session always keeps running. 'mergeStack' also lands the open PRs it is stacked on, bottom-up. Each results[] element carries 'merged' + optional 'error' or 'queued' (GitHub's merge queue; merged=false until it lands), plus issueId/identifier (issue path) or repositoryId/prNumber (chore path); one unmergeable PR never blocks the rest. A merge rejected for a stale base: fix with exponential_pr_retarget first. Idempotent: an already-merged PR answers merged=true.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: prMergeInput,
     },

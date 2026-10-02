@@ -220,9 +220,14 @@ public struct ClosePrInput: Encodable, Sendable {
 /// EXP-498: merge always ends the linked live coding sessions.
 public struct MergePrInput: Encodable, Sendable {
     public let issueId: String
+    /// EXP-1145: merge the open stack chain bottom-up THROUGH this issue's
+    /// pull request, one PR at a time (the stack merge dialog's buttons).
+    /// Absent (nil) = the single-PR merge; the key is omitted, never `false`.
+    public let mergeStack: Bool?
 
-    public init(issueId: String) {
+    public init(issueId: String, mergeStack: Bool? = nil) {
         self.issueId = issueId
+        self.mergeStack = mergeStack
     }
 }
 
@@ -466,11 +471,15 @@ public final class IssuesApi: Sendable {
     /// resolves a batch PR to every linked issue, so merging completes them all;
     /// the `prState`/`status` flips arrive through Electric sync.
     /// Merge always ends the linked coding sessions (EXP-498).
-    public func mergePr(accountId: String, issueId: String) async throws {
+    /// - Parameter mergeStack: EXP-1145, merge the open chain below this
+    ///   pull request bottom-up, then this one (`PrStack.stackMergeChoice`).
+    public func mergePr(
+        accountId: String, issueId: String, mergeStack: Bool? = nil
+    ) async throws {
         try await trpc.mutationVoid(
             accountId: accountId,
             path: "issues.mergePr",
-            input: MergePrInput(issueId: issueId)
+            input: MergePrInput(issueId: issueId, mergeStack: mergeStack)
         )
     }
 

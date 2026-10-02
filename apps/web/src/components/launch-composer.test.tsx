@@ -142,7 +142,7 @@ function fakeModel(overrides: Partial<LaunchComposerModel> = {}): LaunchComposer
     blockedOpen: false,
     closeBlockedStart: vi.fn(),
     startAnyway: vi.fn().mockResolvedValue(undefined),
-    blockedStack: { target: null, reason: null },
+    blockedStack: { plan: null, reason: null, ident: null, first: null },
     startStacked: vi.fn().mockResolvedValue(undefined),
     launch: fakeLaunch(),
     candidateDevices: [device],
@@ -436,7 +436,7 @@ describe(`LaunchComposer blocked start`, () => {
           checkedIssues: [issue(`i1`, `APP-1`)],
           blockedStart: [issue(`i2`, `APP-2`)],
           blockedOpen: true,
-          blockedStack: { target: null, reason: `no-pr` },
+          blockedStack: { plan: null, reason: `running`, ident: `APP-2`, first: null },
           startAnyway,
           blocked: false,
         })}
@@ -452,13 +452,14 @@ describe(`LaunchComposer blocked start`, () => {
     expect(stacked.textContent).toBe(STACKED_PR_LABEL)
     expect((stacked as HTMLButtonElement).disabled).toBe(true)
     expect(screen.getByTestId(`blocked-start-stack-note`).textContent).toBe(
-      `#APP-2 has no open pull request yet.`
+      `#APP-2 is already running. Its pull request is not open yet.`
     )
+    expect(screen.queryByTestId(`blocked-start-plan-note`)).toBeNull()
     fireEvent.click(screen.getByText(START_ANYWAY_LABEL))
     expect(startAnyway).toHaveBeenCalledTimes(1)
   })
 
-  it(`starts a stacked PR when the one blocker has an open pull request`, () => {
+  it(`starts a stacked PR and says which issue of the line starts first`, () => {
     const startStacked = vi.fn().mockResolvedValue(undefined)
     const blocker = issue(`i2`, `APP-2`)
     render(
@@ -468,7 +469,12 @@ describe(`LaunchComposer blocked start`, () => {
           checkedIssues: [issue(`i1`, `APP-1`)],
           blockedStart: [blocker],
           blockedOpen: true,
-          blockedStack: { target: blocker, reason: null },
+          blockedStack: {
+            plan: { base: null, run: [`APP-2`, `APP-1`] },
+            reason: null,
+            ident: null,
+            first: blocker,
+          },
           startStacked,
           blocked: false,
         })}
@@ -477,6 +483,9 @@ describe(`LaunchComposer blocked start`, () => {
     )
     expect(screen.getByText(`. Start anyway, or start a stacked PR?`)).toBeTruthy()
     expect(screen.queryByTestId(`blocked-start-stack-note`)).toBeNull()
+    expect(screen.getByTestId(`blocked-start-plan-note`).textContent).toBe(
+      `Starts #APP-2 first, then #APP-1.`
+    )
     const stacked = screen.getByTestId(`blocked-start-stacked`)
     expect((stacked as HTMLButtonElement).disabled).toBe(false)
     fireEvent.click(stacked)

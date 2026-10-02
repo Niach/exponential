@@ -100,6 +100,7 @@ impl MergeTarget {
         match self {
             MergeTarget::Issue { issue_id } => crate::pr_merge::MergeOp::MergeIssuePr {
                 issue_id: issue_id.clone(),
+                stack_through: None,
             },
             MergeTarget::Session { session_id } => crate::pr_merge::MergeOp::MergeSessionPr {
                 session_id: session_id.clone(),

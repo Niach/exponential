@@ -7,14 +7,23 @@ import {
   BLOCKED_START_BODY_SUFFIX,
   BLOCKED_START_BODY_SUFFIX_STACKABLE,
   BLOCKED_START_TITLE,
+  STACK_BASE_TEMPLATE,
+  STACK_DISABLED_NOTES,
   STACK_DISABLED_REASONS,
+  STACK_LINE_TEMPLATE,
+  STACK_MAX_RUN,
+  STACK_PLAN_NOTE_TEMPLATE,
+  STACK_TEXT_TEMPLATE,
   stackDisabledNote,
   STACKED_PR_LABEL,
   stackedStartPrompt,
-  stackTarget,
+  stackLine,
+  stackPlan,
+  stackPlanNote,
   START_ANYWAY_LABEL,
-  type StackBlocker,
   type StackDisabledReason,
+  type StackLineMember,
+  type StackPlan,
 } from "./blocked-start"
 
 // SLOP-3: replayed off the ONE contract fixture ×4 (desktop
@@ -34,8 +43,14 @@ describe(`blocked start (contract fixture)`, () => {
     expect(STACKED_PR_LABEL).toBe(fixture.copy.stackedPr)
   })
 
-  it(`checks the reasons in the fixture's order`, () => {
+  it(`locks the cap, the reasons' order and the templates`, () => {
+    expect(STACK_MAX_RUN).toBe(fixture.maxRun)
     expect(STACK_DISABLED_REASONS).toEqual(fixture.reasons)
+    expect(STACK_DISABLED_NOTES).toEqual(fixture.notes)
+    expect(STACK_PLAN_NOTE_TEMPLATE).toBe(fixture.planNoteTemplate)
+    expect(STACK_BASE_TEMPLATE).toBe(fixture.baseTemplate)
+    expect(STACK_LINE_TEMPLATE).toBe(fixture.lineTemplate)
+    expect(STACK_TEXT_TEMPLATE).toBe(fixture.textTemplate)
   })
 
   it(`locks every note to its template`, () => {
@@ -47,36 +62,46 @@ describe(`blocked start (contract fixture)`, () => {
     }
   })
 
-  for (const entry of fixture.targetCases) {
-    it(entry.name, () => {
-      const blockers = entry.blockers as StackBlocker[]
-      const result = stackTarget({
-        pickedCount: entry.pickedCount,
-        subjectRepositoryId: entry.subjectRepositoryId,
-        blockers,
+  describe(`stackLine`, () => {
+    for (const entry of fixture.lineCases) {
+      it(entry.name, () => {
+        const result = stackLine(entry.subject, entry.relations, entry.issues)
+        expect(result.line.map((issue) => issue.identifier)).toEqual(entry.line)
+        expect(result.fork).toBe(entry.fork)
+        expect(result.cycle).toBe(entry.cycle)
       })
-      expect(result.target?.identifier ?? null).toBe(entry.target)
-      expect(result.reason).toBe(entry.reason)
-      const note = result.reason
-        ? stackDisabledNote(result.reason, blockers[0]?.identifier ?? ``)
-        : null
-      expect(note).toBe(entry.note)
-    })
-  }
+    }
+  })
 
-  for (const entry of fixture.promptCases) {
-    it(entry.name, () => {
-      expect(stackedStartPrompt(entry.identifier, entry.branch, entry.text)).toBe(
-        entry.prompt
-      )
-    })
-  }
+  describe(`stackPlan`, () => {
+    for (const entry of fixture.planCases) {
+      it(entry.name, () => {
+        const result = stackPlan({
+          pickedCount: entry.pickedCount,
+          subject: entry.subject,
+          line: entry.line as StackLineMember[],
+          fork: entry.fork,
+          cycle: entry.cycle,
+        })
+        expect(result.plan).toEqual(entry.plan)
+        expect(result.reason).toBe(entry.reason)
+        const note = result.reason
+          ? stackDisabledNote(result.reason, result.ident ?? ``)
+          : null
+        expect(note).toBe(entry.note)
+        expect(result.plan ? stackPlanNote(result.plan.run) : null).toBe(
+          entry.planNote
+        )
+      })
+    }
+  })
 
-  it(`builds the prompt off the fixture's template`, () => {
-    expect(stackedStartPrompt(`APP-1`, `exp/APP-1`, ``)).toBe(
-      fixture.promptTemplate
-        .replaceAll(`{ident}`, `APP-1`)
-        .replaceAll(`{branch}`, `exp/APP-1`)
-    )
+  describe(`stackedStartPrompt`, () => {
+    for (const entry of fixture.promptCases) {
+      it(entry.name, () => {
+        const plan: StackPlan = { base: entry.base, run: entry.run }
+        expect(stackedStartPrompt(plan, entry.text)).toBe(entry.prompt)
+      })
+    }
   })
 })

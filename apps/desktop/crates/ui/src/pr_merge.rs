@@ -76,12 +76,22 @@ pub enum FailedOp {
 }
 
 /// One confirmable merge-shaped server call.
+#[derive(Clone)]
 pub enum MergeOp {
     /// `issues.mergePr` — squash-merge the issue's linked PR (a batch PR
     /// completes every linked issue). Echo-settled: the spinner holds until
     /// `pr_state` leaves `open`. Merge always closes (EXP-498): the server
     /// ends the issues' live coding sessions on every merge.
-    MergeIssuePr { issue_id: String },
+    ///
+    /// EXP-1145: `stack_through` = the stack dialog's answer: `Some(id)`
+    /// posts `issues.mergePr({issueId: id, mergeStack: true})`, the open
+    /// chain merged bottom-up THROUGH `id`. `issue_id` stays the CLICKED row
+    /// (key, spinner, failure caption): it always sits at or below `id`, so
+    /// its own echo settles the spinner.
+    MergeIssuePr {
+        issue_id: String,
+        stack_through: Option<String>,
+    },
     /// `issues.closePr` — close the linked PR WITHOUT merging (EXP-100).
     /// Echo-settled like the merge.
     CloseIssuePr { issue_id: String },
@@ -103,7 +113,7 @@ impl MergeOp {
     /// The arm/in-flight key.
     fn key(&self) -> String {
         match self {
-            MergeOp::MergeIssuePr { issue_id } => issue_id.clone(),
+            MergeOp::MergeIssuePr { issue_id, .. } => issue_id.clone(),
             MergeOp::CloseIssuePr { issue_id } => close_pr_key(issue_id),
             MergeOp::MergeSessionPr { session_id } => session_merge_key(session_id),
             MergeOp::MergePull {
@@ -117,7 +127,7 @@ impl MergeOp {
     /// issue id whichever of merge/close failed).
     fn row_key(&self) -> String {
         match self {
-            MergeOp::MergeIssuePr { issue_id } | MergeOp::CloseIssuePr { issue_id } => {
+            MergeOp::MergeIssuePr { issue_id, .. } | MergeOp::CloseIssuePr { issue_id } => {
                 issue_id.clone()
             }
             MergeOp::MergeSessionPr { .. }
@@ -140,7 +150,7 @@ impl MergeOp {
     /// same issue row guard each other.
     fn guard_keys(&self) -> Vec<String> {
         match self {
-            MergeOp::MergeIssuePr { issue_id } | MergeOp::CloseIssuePr { issue_id } => {
+            MergeOp::MergeIssuePr { issue_id, .. } | MergeOp::CloseIssuePr { issue_id } => {
                 vec![issue_id.clone(), close_pr_key(issue_id)]
             }
             MergeOp::MergeSessionPr { .. }
@@ -156,7 +166,13 @@ impl MergeOp {
 
     fn describe(&self) -> String {
         match self {
-            MergeOp::MergeIssuePr { issue_id } => format!("issues.mergePr({issue_id})"),
+            MergeOp::MergeIssuePr {
+                issue_id,
+                stack_through,
+            } => match stack_through {
+                Some(through) => format!("issues.mergePr({through}, stack, from {issue_id})"),
+                None => format!("issues.mergePr({issue_id})"),
+            },
             MergeOp::CloseIssuePr { issue_id } => format!("issues.closePr({issue_id})"),
             MergeOp::MergeSessionPr { session_id } => {
                 format!("codingSessions.mergePr({session_id})")
@@ -170,7 +186,13 @@ impl MergeOp {
 
     fn run(&self, trpc: &api::TrpcClient) -> Result<(), api::ApiError> {
         match self {
-            MergeOp::MergeIssuePr { issue_id } => api::issues::merge_pr(trpc, issue_id).map(|_| ()),
+            MergeOp::MergeIssuePr {
+                issue_id,
+                stack_through,
+            } => match stack_through {
+                Some(through) => api::issues::merge_pr(trpc, through, true).map(|_| ()),
+                None => api::issues::merge_pr(trpc, issue_id, false).map(|_| ()),
+            },
             MergeOp::CloseIssuePr { issue_id } => {
                 api::issues::close_pr(trpc, issue_id).map(|_| ())
             }
@@ -469,6 +491,87 @@ pub enum TwoClick {
     Fired,
 }
 
+/// Fire an op that was CONFIRMED elsewhere (the stack merge dialog is the
+/// confirm): arms and fires in one go.
+pub fn fire_confirmed(op: MergeOp, cx: &mut App) -> TwoClick {
+    let key = op.key();
+    MergeState::global(cx).update(cx, |this, cx| this.arm_key(key, cx));
+    two_click(op, None, None, cx)
+}
+
+/// EXP-1145: whether merging `issue_id`'s pull request needs the stack
+/// dialog. Reads the issue and its team's open-PR rows off the synced
+/// collections; `None` (a lone PR, or nothing synced) merges plainly.
+pub(crate) fn stack_merge_choice_for(
+    issue_id: &str,
+    cx: &App,
+) -> Option<domain::pr_stack::StackMergeChoice> {
+    let store = Store::try_global(cx)?;
+    let issue = store.collections().issues.read(cx).get(issue_id).cloned()?;
+    let team_id = queries::issue_team_id(cx, issue_id)?;
+    let issues = queries::review_issues(cx, &team_id);
+    domain::pr_stack::stack_merge_choice(&issue, &issues)
+}
+
+/// The stack dialog's window height: the listing, a blank line and two
+/// sentences (the second wraps) above the three-button footer.
+const STACK_MERGE_CHOICE_HEIGHT: f32 = 290.;
+
+/// The two ops the stack dialog's answers fire, keyed on the CLICKED issue.
+/// "Merge stack" merges through the top; "Merge this pull request" is the
+/// plain merge on the bottom member, else a stack merge through itself.
+pub(crate) fn stack_merge_ops(
+    issue_id: &str,
+    choice: &domain::pr_stack::StackMergeChoice,
+) -> (MergeOp, MergeOp) {
+    let stack = MergeOp::MergeIssuePr {
+        issue_id: issue_id.to_string(),
+        stack_through: Some(choice.top_issue_id.clone()),
+    };
+    let this = MergeOp::MergeIssuePr {
+        issue_id: issue_id.to_string(),
+        stack_through: (!choice.is_bottom()).then(|| issue_id.to_string()),
+    };
+    (stack, this)
+}
+
+/// EXP-1145: a Merge control on ISSUE `issue_id` asks first when its pull
+/// request is part of an open stack. Returns `true` when the dialog took the
+/// click (the dialog IS the confirm, so its answers fire at once); `false`
+/// = no stack, the caller runs its plain two-click merge.
+pub(crate) fn ask_stack_merge(issue_id: &str, window: &mut gpui::Window, cx: &mut App) -> bool {
+    use domain::pr_stack::{MERGE_STACK_LABEL, MERGE_THIS_PR_LABEL, STACK_MERGE_CHOICE_TITLE};
+    // An in-flight merge or close of this row: the caller's guard ignores it.
+    let state = MergeState::global(cx);
+    if [issue_id.to_string(), close_pr_key(issue_id)]
+        .iter()
+        .any(|key| state.read(cx).merging.contains(key))
+    {
+        return false;
+    }
+    let Some(choice) = stack_merge_choice_for(issue_id, cx) else {
+        return false;
+    };
+    MergeState::disarm(cx);
+    let (stack_op, this_op) = stack_merge_ops(issue_id, &choice);
+    let spec = crate::native_dialog::AlertSpec::new(
+        STACK_MERGE_CHOICE_TITLE,
+        choice.body.clone(),
+        MERGE_STACK_LABEL,
+    )
+    .height(gpui::px(STACK_MERGE_CHOICE_HEIGHT))
+    .secondary(MERGE_THIS_PR_LABEL, move |_, cx| {
+        fire_confirmed(this_op.clone(), cx);
+        true
+    })
+    .on_ok(move |_, cx| {
+        fire_confirmed(stack_op.clone(), cx);
+        true
+    });
+    crate::native_dialog::open_alert(window, cx, spec);
+    true
+}
+
 /// The shared two-click flow: first call arms (auto-disarm ~5s), second call
 /// fires the op on the background executor. Failures land in the shared
 /// error slot (and run `on_failure` — the terminal dock jumps to the Reviews
@@ -591,6 +694,7 @@ mod tests {
         assert_eq!(close_pr_key("issue-1"), "close:issue-1");
         let merge = MergeOp::MergeIssuePr {
             issue_id: "i1".to_string(),
+            stack_through: None,
         };
         let close = MergeOp::CloseIssuePr {
             issue_id: "i1".to_string(),
@@ -634,6 +738,38 @@ mod tests {
         assert_eq!(close.failed_op(), FailedOp::Close);
         assert_eq!(pull.failed_op(), FailedOp::Merge);
         assert_eq!(session.failed_op(), FailedOp::Merge);
+    }
+
+    /// EXP-1145: "Merge stack" merges through the TOP; "Merge this pull
+    /// request" is the plain merge on the bottom member, a stack merge
+    /// through itself anywhere above it. Both stay keyed on the clicked row.
+    #[test]
+    fn the_stack_dialog_answers_map_to_merge_pr_calls() {
+        let choice = |position: usize| domain::pr_stack::StackMergeChoice {
+            members: vec!["EXP-1".into(), "EXP-2".into(), "EXP-3".into()],
+            position,
+            bottom_issue_id: "b".into(),
+            top_issue_id: "t".into(),
+            listing: String::new(),
+            stack_sentence: String::new(),
+            this_sentence: String::new(),
+            body: String::new(),
+        };
+        let through = |op: &MergeOp| match op {
+            MergeOp::MergeIssuePr {
+                issue_id,
+                stack_through,
+            } => (issue_id.clone(), stack_through.clone()),
+            _ => panic!("an issue merge"),
+        };
+        let (stack, this) = stack_merge_ops("b", &choice(1));
+        assert_eq!(through(&stack), ("b".into(), Some("t".into())));
+        assert_eq!(through(&this), ("b".into(), None));
+        let (stack, this) = stack_merge_ops("m", &choice(2));
+        assert_eq!(through(&stack), ("m".into(), Some("t".into())));
+        assert_eq!(through(&this), ("m".into(), Some("m".into())));
+        assert_eq!(stack.key(), "m");
+        assert_eq!(this.describe(), "issues.mergePr(m, stack, from m)");
     }
 
     #[test]

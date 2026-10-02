@@ -283,6 +283,11 @@ vi.mock(`@/lib/steer-child-messages`, async (importOriginal) => ({
   ...(await importOriginal<object>()),
   notifyParentOfChildEnd: vi.fn(),
 }))
+// SLOP-3: the stack walk behind pr_merge({mergeStack}); none by default.
+vi.mock(`@/lib/pr-merge-guard`, async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  openStackThrough: vi.fn(async () => []),
+}))
 
 import {
   loadRepositoryByFullName,
@@ -303,6 +308,7 @@ import {
 } from "@/lib/steer"
 import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
 import { maybeMergeYoloTree } from "@/lib/yolo-tree-merge"
+import { openStackThrough } from "@/lib/pr-merge-guard"
 import { retiredIdentifiers } from "@/lib/issue-resolver"
 import {
   branchExists,
@@ -4117,6 +4123,90 @@ const SERVER_ONLY_SESSION_COLUMNS = [
   // never stored and never projected.
   `summary`,
 ]
+
+// SLOP-3: mergeStack rides through to issues.mergePr; the members below the
+// target are checked against an OAuth grant before GitHub sees anything.
+describe(`exponential_pr_merge mergeStack`, () => {
+  const member = (n: number, boardId: string) => ({
+    issueId: `issue-${n}`,
+    identifier: `MET-${n}`,
+    boardId,
+    prNumber: n,
+    prUrl: `https://github.com/acme/app/pull/${n}`,
+    branch: `exp/MET-${n}`,
+    prBaseBranch: n === 1 ? `main` : `exp/MET-${n - 1}`,
+  })
+
+  it(`passes mergeStack through and reports the landed stack`, async () => {
+    vi.mocked(openStackThrough).mockResolvedValueOnce([
+      member(1, `proj-1`),
+      member(2, `proj-1`),
+    ])
+    caller.issues.mergePr.mockResolvedValue({
+      merged: true,
+      stack: [
+        { identifier: `MET-1`, prNumber: 1 },
+        { identifier: `MET-2`, prNumber: 2 },
+      ],
+    })
+
+    const result = await collectTools(USER, null).get(`exponential_pr_merge`)!({
+      issueId: UUID,
+      mergeStack: true,
+    })
+
+    expect(caller.issues.mergePr).toHaveBeenCalledWith({
+      issueId: UUID,
+      mergeStack: true,
+    })
+    expect(parseOk(result)).toMatchObject({
+      results: [{ issueId: UUID, merged: true, stack: [`MET-1`, `MET-2`] }],
+    })
+  })
+
+  it(`leaves mergeStack off the plain merge`, async () => {
+    caller.issues.mergePr.mockResolvedValue({ merged: true })
+
+    await collectTools(USER, null).get(`exponential_pr_merge`)!({ issueId: UUID })
+
+    expect(caller.issues.mergePr).toHaveBeenCalledWith({ issueId: UUID })
+    expect(openStackThrough).not.toHaveBeenCalled()
+  })
+
+  it(`refuses a stack reaching a board the token was never granted`, async () => {
+    vi.mocked(openStackThrough).mockResolvedValueOnce([
+      member(1, `proj-secret`),
+      member(2, `proj-1`),
+    ])
+    const scoped: McpAccess = {
+      full: false,
+      fullTeamIds: new Set(),
+      grantedBoardIds: new Set([`proj-1`]),
+      visibleTeamIds: new Set([`ws-1`]),
+    }
+
+    const result = await collectTools(
+      USER,
+      null,
+      ALL_MCP_TOOL_GATES,
+      scoped
+    ).get(`exponential_pr_merge`)!({ issueId: UUID, mergeStack: true })
+
+    expect(result.isError).toBe(true)
+    expect(caller.issues.mergePr).not.toHaveBeenCalled()
+  })
+
+  it(`refuses mergeStack on a chore PR`, async () => {
+    const result = await collectTools(USER, null).get(`exponential_pr_merge`)!({
+      repositoryId: REPO,
+      prNumber: 9,
+      mergeStack: true,
+    })
+
+    expect(result.isError).toBe(true)
+    expect(caller.repositories.mergePull).not.toHaveBeenCalled()
+  })
+})
 
 describe(`exponential_statuses_list color`, () => {
   it(`passes each row's color through`, async () => {

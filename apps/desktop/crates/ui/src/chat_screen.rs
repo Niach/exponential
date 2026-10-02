@@ -366,6 +366,10 @@ pub(crate) struct ChatScreenView {
     /// ONE start it was opened for, so `start` runs straight through. Cleared
     /// by [`Self::after_started`] and by every subject change.
     blocked_confirmed: bool,
+    /// SLOP-3: a "Stacked PR" answer's issue to start (`run[0]` of the
+    /// plan, not necessarily the picked one). Taken by the ONE
+    /// [`Self::start`] pass it was given for.
+    stacked_issue: Option<String>,
     /// EXP-792: the team's MCP servers with the person's own connection to
     /// each, one fetch per team; `None` while the fetch is out.
     mcp: Option<Vec<api::mcp_servers::McpServerListEntry>>,
@@ -510,6 +514,7 @@ impl ChatScreenView {
             launch: None,
             device: DevicePick::default(),
             blocked_confirmed: false,
+            stacked_issue: None,
             mcp: None,
             mcp_team: None,
             images: PendingImages::default(),
@@ -1421,6 +1426,9 @@ impl ChatScreenView {
     /// subjects take the same rails the deleted dialog took; a remote target
     /// sends ONE `steer.startSession`.
     fn start(&mut self, message: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        // SLOP-3: a Stacked PR answer starts THIS issue (run[0]) in place of
+        // the pick, on the same launcher, device and settings.
+        let stacked_issue = self.stacked_issue.take();
         let Some(team_id) = self.team_id.clone() else {
             return;
         };
@@ -1467,17 +1475,20 @@ impl ChatScreenView {
                     )
                 }
                 Subject::Issues(issues) => {
-                    let mut checked: Vec<String> = issues
-                        .rows
-                        .iter()
-                        .filter(|row| issues.checked.contains(&row.issue_id))
-                        .map(|row| row.issue_id.clone())
-                        .collect();
+                    let mut checked: Vec<String> = match &stacked_issue {
+                        Some(issue_id) => vec![issue_id.clone()],
+                        None => issues
+                            .rows
+                            .iter()
+                            .filter(|row| issues.checked.contains(&row.issue_id))
+                            .map(|row| row.issue_id.clone())
+                            .collect(),
+                    };
                     let subject = match checked.len() {
                         0 => return,
                         1 => RemoteSubject::Issue {
                             issue_id: &checked.pop().expect("one checked"),
-                            resume: self.resume_active(cx),
+                            resume: stacked_issue.is_none() && self.resume_active(cx),
                         }
                         .into_owned(),
                         _ => RemoteSubject::Batch { issue_ids: checked }.into_owned(),
@@ -1544,13 +1555,17 @@ impl ChatScreenView {
                 self.after_started(window, cx);
             }
             Subject::Issues(issues) => {
-                if issues.checked.len() == 1 {
-                    let issue_id = issues.checked.iter().next().cloned().expect("one checked");
+                if stacked_issue.is_some() || issues.checked.len() == 1 {
+                    let issue_id = match &stacked_issue {
+                        Some(issue_id) => issue_id.clone(),
+                        None => issues.checked.iter().next().cloned().expect("one checked"),
+                    };
                     // EXP-662: an active resume relaunches the RECORDED run
                     // exactly; only model/effort may be nudged, and only
-                    // while the pick sits on that same agent (D2).
-                    let record = self
-                        .resume_active(cx)
+                    // while the pick sits on that same agent (D2). A stacked
+                    // start never resumes (the blocked question skips a
+                    // resume, and its issue may not be the pick).
+                    let record = (stacked_issue.is_none() && self.resume_active(cx))
                         .then(|| self.resume_candidate().map(|(_, record)| record.clone()))
                         .flatten();
                     if let Some(record) = record {
@@ -1669,11 +1684,11 @@ impl ChatScreenView {
         if blockers.is_empty() {
             return None;
         }
-        let (stack_base, stack_note) = stack_choice(&picked, &blockers, cx);
+        let (stack, stack_note) = stack_choice(&picked, cx);
         Some(BlockedStart {
             picked,
             blockers,
-            stack_base,
+            stack,
             stack_note,
         })
     }
@@ -1706,15 +1721,16 @@ impl ChatScreenView {
         let refs: Vec<&str> = blocked.picked.iter().map(String::as_str).collect();
         let graph = crate::issue_graph::graph_for(&refs, cx);
         let note: Option<SharedString> = blocked.stack_note.clone().map(SharedString::from);
-        let stacked_message = blocked.stacked_message(&message);
+        let stacked = blocked.stacked_start(&message);
 
         let entity = cx.entity().downgrade();
         let opener = window.window_handle();
-        let resume = move |message: String, cx: &mut App| {
+        let resume = move |message: String, stacked_issue: Option<String>, cx: &mut App| {
             let entity = entity.clone();
             let _ = opener.update(cx, move |_, window, cx| {
                 let _ = entity.update(cx, |this, cx| {
                     this.blocked_confirmed = true;
+                    this.stacked_issue = stacked_issue;
                     this.start(message, window, cx);
                 });
             });
@@ -1727,13 +1743,13 @@ impl ChatScreenView {
         )
         .height(gpui::px(BLOCKED_DIALOG_HEIGHT))
         .secondary(blocked_start::START_ANYWAY, move |_, cx| {
-            anyway(message.clone(), cx);
+            anyway(message.clone(), None, cx);
             true
         })
-        .ok_disabled(stacked_message.is_none())
+        .ok_disabled(stacked.is_none())
         .on_ok(move |_, cx| {
-            if let Some(message) = stacked_message.clone() {
-                resume(message, cx);
+            if let Some((issue_id, message)) = stacked.clone() {
+                resume(message, Some(issue_id), cx);
             }
             true
         })
@@ -2886,7 +2902,7 @@ impl ChatScreenView {
         let title = pending.blocked.title();
         let description = pending.blocked.description();
         let note = pending.blocked.stack_note.clone();
-        let stackable = pending.blocked.stack_base.is_some();
+        let stackable = pending.blocked.stack.is_some();
         let muted = cx.theme().muted_foreground;
         v_flex()
             .w_full()
@@ -2959,9 +2975,9 @@ impl ChatScreenView {
         let Some(pending) = self.blocked.take() else {
             return;
         };
-        let message = if stacked {
-            match pending.blocked.stacked_message(&pending.message) {
-                Some(message) => message,
+        let (message, stacked_issue) = if stacked {
+            match pending.blocked.stacked_start(&pending.message) {
+                Some((issue_id, message)) => (message, Some(issue_id)),
                 // A disabled Stacked PR never answers.
                 None => {
                     self.blocked = Some(pending);
@@ -2969,9 +2985,10 @@ impl ChatScreenView {
                 }
             }
         } else {
-            pending.message
+            (pending.message, None)
         };
         self.blocked_confirmed = true;
+        self.stacked_issue = stacked_issue;
         self.start(message, window, cx);
     }
 }
@@ -3024,10 +3041,20 @@ pub(crate) fn dialog_action_id(cx: &App) -> Option<String> {
 struct BlockedStart {
     picked: Vec<String>,
     blockers: Vec<String>,
-    /// SLOP-3: the one blocker a stacked start builds on, `(identifier,
-    /// branch)`; `None` = Stacked PR is disabled, captioned by `stack_note`.
-    stack_base: Option<(String, String)>,
+    /// SLOP-3: what "Stacked PR" starts; `None` = the button is disabled,
+    /// captioned by `stack_note`.
+    stack: Option<StackedStart>,
+    /// The caption under the graph: the disabled reason, or (enabled, 2+
+    /// issues to run) the plan note.
     stack_note: Option<String>,
+}
+
+/// SLOP-3: the stacked start's plan and the issue it starts: `run[0]`, the
+/// bottom of the line to build (NOT necessarily the picked issue).
+#[derive(Clone)]
+struct StackedStart {
+    issue_id: String,
+    plan: blocked_start::StackPlan,
 }
 
 impl BlockedStart {
@@ -3049,63 +3076,134 @@ impl BlockedStart {
         if self.batch() {
             blocked_start::BATCH_BODY.to_string()
         } else {
-            blocked_start::body(&self.blockers, self.stack_base.is_some())
+            blocked_start::body(&self.blockers, self.stack.is_some())
         }
     }
 
-    /// The message a Stacked PR answer starts with: the base instruction,
-    /// then whatever was composed (text and image embeds). Prompt text only:
-    /// the run, its launcher and its subject are exactly Start anyway's.
-    fn stacked_message(&self, message: &str) -> Option<String> {
-        let (identifier, branch) = self.stack_base.as_ref()?;
-        Some(blocked_start::stacked_start_prompt(identifier, branch, message))
+    /// What a Stacked PR answer starts: `run[0]`'s issue id and its message,
+    /// [`blocked_start::stacked_start_prompt`] over the TYPED text, with the
+    /// composed image embeds kept attached. The launcher and its settings
+    /// are exactly Start anyway's.
+    fn stacked_start(&self, message: &str) -> Option<(String, String)> {
+        let stack = self.stack.as_ref()?;
+        let parsed = domain::image_message::parse_steer_message(message);
+        let prompt = blocked_start::stacked_start_prompt(&stack.plan, &parsed.text);
+        let message = domain::image_message::build_steer_image_message(
+            &prompt,
+            &parsed.attachment_ids,
+        );
+        Some((stack.issue_id.clone(), message))
     }
 }
 
-/// SLOP-3: the stacked start's base, or why there is none
-/// ([`blocked_start::stack_target`]). A repository is the issue's BOARD's.
-fn stack_choice(
-    picked: &[String],
-    blockers: &[String],
-    cx: &App,
-) -> (Option<(String, String)>, Option<String>) {
-    let mut subject_repository_id: Option<String> = None;
-    let mut rows: Vec<blocked_start::StackBlocker> = blockers
+/// SLOP-3: the stacked start for `picked`, or why there is none: the line
+/// below the subject ([`blocked_start::stack_line`]) read off the synced
+/// relations, then [`blocked_start::stack_plan`]. A repository is the
+/// issue's BOARD's; a line member is `running` while it has a live run (the
+/// one-session-per-issue rule's own test) and no open pull request.
+fn stack_choice(picked: &[String], cx: &App) -> (Option<StackedStart>, Option<String>) {
+    use domain::issue_graph::{GraphIssue, GraphRelation};
+    let Some(store) = Store::try_global(cx) else {
+        return (None, None);
+    };
+    let collections = store.collections();
+    let issues = collections.issues.read(cx);
+    let boards = collections.boards.read(cx);
+    let relations = collections.issue_relations.read(cx);
+    let repository_of = |board_id: &str| {
+        boards
+            .get(board_id)
+            .and_then(|board| board.repository_id.clone())
+    };
+    let Some(subject_row) = picked.first().and_then(|id| issues.get(id)) else {
+        return (None, None);
+    };
+    let subject = blocked_start::StackSubject {
+        identifier: subject_row.identifier.clone(),
+        repository_id: repository_of(&subject_row.board_id),
+    };
+
+    let (line_ids, fork, cycle) = if picked.len() > 1 {
+        // A batch never stacks: the plan says so before it reads a line.
+        (Vec::new(), None, false)
+    } else {
+        let graph_issues: Vec<GraphIssue<'_>> = issues
+            .iter()
+            .map(|issue| GraphIssue {
+                id: &issue.id,
+                identifier: &issue.identifier,
+                status: issue.status.as_wire().unwrap_or_default(),
+            })
+            .collect();
+        let graph_relations: Vec<GraphRelation<'_>> = relations
+            .iter()
+            .map(|row| GraphRelation {
+                kind: row.kind.as_deref().unwrap_or_default(),
+                issue_id: &row.issue_id,
+                related_issue_id: &row.related_issue_id,
+            })
+            .collect();
+        let found = blocked_start::stack_line(&subject_row.id, &graph_relations, &graph_issues);
+        (
+            found
+                .line
+                .iter()
+                .map(|issue| issue.id.to_string())
+                .collect::<Vec<_>>(),
+            found.fork.map(str::to_string),
+            found.cycle,
+        )
+    };
+
+    let now = chrono::Utc::now().timestamp();
+    let local = coding_flow::LocalSessions::global_ref(cx);
+    let sessions = collections.coding_sessions.read(cx);
+    let has_live_run = |issue_id: &str| -> bool {
+        local
+            .as_ref()
+            .is_some_and(|local| local.read(cx).get(issue_id).is_some())
+            || sessions.iter().any(|session| {
+                let covers = session.issue_id.as_deref() == Some(issue_id)
+                    || domain::batch_run::parse_batch_issue_ids(session.batch_issue_ids.as_ref())
+                        .iter()
+                        .any(|id| id == issue_id);
+                covers && queries::coding_session_is_live(session, now)
+            })
+    };
+    let line: Vec<blocked_start::StackMember> = line_ids
         .iter()
-        .map(|identifier| blocked_start::StackBlocker {
-            identifier: identifier.clone(),
-            ..Default::default()
+        .filter_map(|id| issues.get(id))
+        .map(|issue| {
+            let pr_open = issue.pr_state.as_deref() == Some("open");
+            blocked_start::StackMember {
+                identifier: issue.identifier.clone(),
+                pr_state: issue.pr_state.clone(),
+                branch: issue.branch.clone(),
+                repository_id: repository_of(&issue.board_id),
+                running: !pr_open && has_live_run(&issue.id),
+            }
         })
         .collect();
-    if let Some(store) = Store::try_global(cx) {
-        let collections = store.collections();
-        let issues = collections.issues.read(cx);
-        let boards = collections.boards.read(cx);
-        let repository_of = |board_id: &str| {
-            boards
-                .get(board_id)
-                .and_then(|board| board.repository_id.clone())
-        };
-        subject_repository_id = picked
-            .first()
-            .and_then(|id| issues.get(id))
-            .and_then(|issue| repository_of(&issue.board_id));
-        for row in &mut rows {
-            if let Some(issue) = issues.iter().find(|issue| issue.identifier == row.identifier) {
-                row.pr_state = issue.pr_state.clone();
-                row.branch = issue.branch.clone();
-                row.repository_id = repository_of(&issue.board_id);
-            }
+
+    match blocked_start::stack_plan(picked.len(), &subject, &line, fork.as_deref(), cycle) {
+        Ok(plan) => {
+            let first = plan.run.first().cloned().unwrap_or_default();
+            let issue_id = if first == subject.identifier {
+                subject_row.id.clone()
+            } else {
+                match line_ids
+                    .iter()
+                    .find(|id| issues.get(id).is_some_and(|issue| issue.identifier == first))
+                {
+                    Some(id) => id.clone(),
+                    None => return (None, None),
+                }
+            };
+            let note = blocked_start::stack_plan_note(&plan.run);
+            (Some(StackedStart { issue_id, plan }), note)
         }
+        Err(refusal) => (None, Some(refusal.note())),
     }
-    let (target, reason) =
-        blocked_start::stack_target(picked.len(), subject_repository_id.as_deref(), &rows);
-    if let Some(target) = target {
-        let branch = target.branch.clone().unwrap_or_default().trim().to_string();
-        return (Some((target.identifier.clone(), branch)), None);
-    }
-    let ident = rows.first().map(|row| row.identifier.as_str()).unwrap_or_default();
-    (None, reason.map(|reason| blocked_start::stack_disabled_note(reason, ident)))
 }
 
 /// EXP-1037 — the blocked-start question while the composer lives in a

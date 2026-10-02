@@ -65,6 +65,7 @@ import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.Diff
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeFailure
+import com.exponential.app.domain.PrStack
 import com.exponential.app.domain.TeamPermissions
 import com.exponential.app.ui.components.BarCircle
 import com.exponential.app.ui.components.BarSolidPill
@@ -137,6 +138,16 @@ class ChangesViewModel @AssistedInject constructor(
 
     val issue: StateFlow<IssueEntity?> =
         dbFlow.scopedQuery<IssueEntity?>(null) { it.issueDao().observeById(issueId) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    // EXP-1145: every synced issue, so a plain Merge on a stack member can
+    // ask first (Merge stack / Merge this pull request / Cancel).
+    private val allIssues: Flow<List<IssueEntity>> =
+        dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() }
+
+    /** EXP-1145: non-null when merging this issue's PR must ask first. */
+    val stackMergeChoice: StateFlow<PrStack.StackMergeChoice?> =
+        combine(issue, allIssues) { iss, all -> iss?.let { PrStack.stackMergeChoice(it, all) } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // Membership resolution for the merge/close controls (mirrors
@@ -237,7 +248,15 @@ class ChangesViewModel @AssistedInject constructor(
     }
 
     /** Squash-merge the issue's open PR via the GitHub App (batch PRs complete all linked issues). */
-    fun mergePr() {
+    fun mergePr() = merge(issueId, mergeStack = false)
+
+    /**
+     * EXP-1145: merge the open stack bottom-up THROUGH [targetIssueId]
+     * (the top member = the whole stack, this issue = it and those below).
+     */
+    fun mergeStack(targetIssueId: String) = merge(targetIssueId, mergeStack = true)
+
+    private fun merge(targetIssueId: String, mergeStack: Boolean) {
         if (_merging.value || _closing.value) return
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
@@ -245,7 +264,7 @@ class ChangesViewModel @AssistedInject constructor(
             _actionError.value = null
             _actionErrorFrom.value = null
             _actionErrorIsConflict.value = false
-            runCatching { issuesApi.mergePr(accountId, issueId) }
+            runCatching { issuesApi.mergePr(accountId, targetIssueId, mergeStack = mergeStack) }
                 .onFailure { t ->
                     if (t is CancellationException) throw t
                     val failure = MergeFailure.from(t, "The pull request could not be merged")
@@ -279,6 +298,50 @@ class ChangesViewModel @AssistedInject constructor(
     }
 }
 
+/**
+ * EXP-1145: the stack merge dialog every plain Merge control on a PR-stack
+ * member opens instead of "Merge pull request?". Copy = [PrStack.stackMergeChoice],
+ * byte-identical x4 (fixture `stack-merge-choice.json`). [onMergeStack] takes
+ * the issue the server merges the chain THROUGH: the top member for Merge
+ * stack, the merged issue for Merge this pull request above the bottom; the
+ * bottom member's Merge this pull request is the plain [onMergePlain].
+ */
+@Composable
+fun StackMergeDialog(
+    choice: PrStack.StackMergeChoice,
+    issueId: String,
+    onMergeStack: (throughIssueId: String) -> Unit,
+    onMergePlain: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(PrStack.STACK_MERGE_CHOICE_TITLE) },
+        text = { Text(choice.body) },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onDismiss()
+                    onMergeStack(choice.topIssueId)
+                },
+                modifier = Modifier.testTag("merge-stack"),
+            ) { Text(PrStack.MERGE_STACK_LABEL) }
+        },
+        dismissButton = {
+            Row {
+                TextButton(
+                    onClick = {
+                        onDismiss()
+                        if (choice.position > 1) onMergeStack(issueId) else onMergePlain()
+                    },
+                    modifier = Modifier.testTag("merge-this-pr"),
+                ) { Text(PrStack.MERGE_THIS_PR_LABEL) }
+                TextButton(onClick = onDismiss) { Text(PrStack.STACK_MERGE_CANCEL_LABEL) }
+            }
+        },
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChangesScreen(
@@ -298,6 +361,7 @@ fun ChangesScreen(
     val actionError by viewModel.actionError.collectAsStateWithLifecycle()
     val actionErrorFrom by viewModel.actionErrorFrom.collectAsStateWithLifecycle()
     val actionErrorIsConflict by viewModel.actionErrorIsConflict.collectAsStateWithLifecycle()
+    val stackMergeChoice by viewModel.stackMergeChoice.collectAsStateWithLifecycle()
 
     // "Fix conflicts" (EXP-323): gated on the relay being configured.
     val steerEnabled by viewModel.steerEnabled.collectAsStateWithLifecycle()
@@ -425,7 +489,17 @@ fun ChangesScreen(
             )
         }
 
-        if (mergeConfirmOpen) {
+        val stackChoice = stackMergeChoice
+        if (mergeConfirmOpen && stackChoice != null) {
+            // EXP-1145: a stack member asks which merge it means.
+            StackMergeDialog(
+                choice = stackChoice,
+                issueId = issueId,
+                onMergeStack = { through -> viewModel.mergeStack(through) },
+                onMergePlain = { viewModel.mergePr() },
+                onDismiss = { mergeConfirmOpen = false },
+            )
+        } else if (mergeConfirmOpen) {
             AlertDialog(
                 onDismissRequest = { mergeConfirmOpen = false },
                 title = { Text("Merge pull request?") },

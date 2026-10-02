@@ -1,5 +1,5 @@
 {
-  "$comment": "SLOP-3: starting a BLOCKED issue asks Cancel / Start anyway / Stacked PR, byte-identical x4 (web lib/blocked-start.ts, desktop domain blocked_start.rs, iOS BlockedStart.swift, Android BlockedStart.kt). The stacked start is PROMPT TEXT only: the same base instruction a follow-up run gets from the playbook. No stack plan, no relay frame, no server code. `stackTarget` picks the one blocker to stack on or the one reason the button is disabled (first match wins, in the order of `reasons`).",
+  "$comment": "SLOP-3: starting a BLOCKED issue asks Cancel / Start anyway / Stacked PR, byte-identical x4 (web lib/blocked-start.ts, desktop domain blocked_start.rs, iOS BlockedStart.swift, Android BlockedStart.kt). A stacked start builds the whole dependency LINE bottom-up and is PROMPT TEXT only (the playbook's follow-up rule carries it from run to run): no stack plan on the server, no relay frame. Two pure steps. (1) stackLine(subjectId, relations, issues): walk DOWN from the subject over open direct blockers (openBlockers): none = stop; exactly one = it joins the line and the walk continues from it; more than one = fork (the issue that has them); an issue seen twice = cycle. Result: line (the issues BELOW the subject, BOTTOM FIRST), fork, cycle. (2) stackPlan({pickedCount, subject, line, fork, cycle}): the first matching reason in the order of `reasons` disables the button with its note; else base = the line member NEAREST the subject with prState 'open' and a non-empty branch (null when none), run = the line members ABOVE the base bottom-first, then the subject. `repo` names the first line member (bottom-first) whose repositoryId is null or differs from the subject's (a null subject repository names the bottom member). `long` when run has more than maxRun issues. `running` names the first run member below the subject that has a LIVE run. The client starts run[0] (NOT necessarily the picked issue) with stackedStartPrompt(plan, typedText): the parts below joined by a blank line: baseTemplate when base is set; lineTemplate when run has 2+ issues ({line} = run joined as '#A, then #B', {next} = run[1]); the trimmed typed text when not empty, raw for a run of one, else wrapped in textTemplate ({subject} = the last of run). planNote (shown under the graph while the button is enabled and run has 2+ issues) = planNoteTemplate with {first} = run[0], {rest} = the others joined by ', then '.",
   "copy": {
     "title": "This issue is blocked",
     "batchTitle": "Some of these issues are blocked",
@@ -10,105 +10,735 @@
     "startAnyway": "Start anyway",
     "stackedPr": "Stacked PR"
   },
-  "reasons": ["batch", "many", "no-pr", "repo"],
+  "maxRun": 5,
+  "reasons": [
+    "batch",
+    "cycle",
+    "many",
+    "repo",
+    "long",
+    "running"
+  ],
   "notes": {
     "batch": "A stacked PR starts one issue at a time.",
-    "many": "A stacked PR needs exactly one open blocker.",
-    "no-pr": "#{ident} has no open pull request yet.",
-    "repo": "#{ident} lives in another repository."
+    "cycle": "These issues block each other in a cycle. Remove one relation to stack them.",
+    "many": "#{ident} has more than one open blocker. A stacked PR follows one line.",
+    "repo": "#{ident} lives in another repository.",
+    "long": "A stacked PR starts at most 5 issues in a line.",
+    "running": "#{ident} is already running. Its pull request is not open yet."
   },
-  "promptTemplate": "Stacked on #{ident}. Before any edit: `git fetch origin {branch}`; if this branch has no commits of its own, `git reset --hard origin/{branch}`, else `git rebase origin/{branch}`. Open your PR with `exponential_pr_open({issueId, base: \"{branch}\"})`.",
-  "targetCases": [
+  "planNoteTemplate": "Starts #{first} first, then #{rest}.",
+  "baseTemplate": "Stacked on #{ident}. Before any edit: `git fetch origin {branch}`; if this branch has no commits of its own, `git reset --hard origin/{branch}`, else `git rebase origin/{branch}`. Open your PR with `exponential_pr_open({issueId, base: \"{branch}\"})`.",
+  "lineTemplate": "This is the bottom of a stacked line: {line}. After your PR is open and your branch is pushed, start #{next} as a follow-up run on your branch (playbook: Follow-ups and follow-up runs), even under `no follow-up runs`. If more issues follow it, give it this paragraph with your own issue dropped from the line. Do not wait for it.",
+  "textTemplate": "Instructions for #{subject}, pass them along unchanged:\n{text}",
+  "planCases": [
     {
-      "name": "one open blocker with an open PR in the same repository is the target",
+      "name": "one blocker with an open PR: the subject stacks on it",
       "pickedCount": 1,
-      "subjectRepositoryId": "r1",
-      "blockers": [{ "identifier": "APP-11", "prState": "open", "branch": "exp/APP-11", "repositoryId": "r1" }],
-      "target": "APP-11",
+      "subject": {
+        "identifier": "APP-20",
+        "repositoryId": "r1"
+      },
+      "line": [
+        {
+          "identifier": "APP-11",
+          "prState": "open",
+          "branch": "exp/APP-11",
+          "repositoryId": "r1",
+          "running": false
+        }
+      ],
+      "fork": null,
+      "cycle": false,
+      "plan": {
+        "base": {
+          "identifier": "APP-11",
+          "branch": "exp/APP-11"
+        },
+        "run": [
+          "APP-20"
+        ]
+      },
       "reason": null,
-      "note": null
+      "note": null,
+      "planNote": null
+    },
+    {
+      "name": "one blocker without a PR: it starts first, on the default branch",
+      "pickedCount": 1,
+      "subject": {
+        "identifier": "APP-20",
+        "repositoryId": "r1"
+      },
+      "line": [
+        {
+          "identifier": "APP-11",
+          "prState": null,
+          "branch": null,
+          "repositoryId": "r1",
+          "running": false
+        }
+      ],
+      "fork": null,
+      "cycle": false,
+      "plan": {
+        "base": null,
+        "run": [
+          "APP-11",
+          "APP-20"
+        ]
+      },
+      "reason": null,
+      "note": null,
+      "planNote": "Starts #APP-11 first, then #APP-20."
+    },
+    {
+      "name": "a line of two without PRs starts bottom-up",
+      "pickedCount": 1,
+      "subject": {
+        "identifier": "APP-20",
+        "repositoryId": "r1"
+      },
+      "line": [
+        {
+          "identifier": "APP-10",
+          "prState": null,
+          "branch": null,
+          "repositoryId": "r1",
+          "running": false
+        },
+        {
+          "identifier": "APP-11",
+          "prState": null,
+          "branch": null,
+          "repositoryId": "r1",
+          "running": false
+        }
+      ],
+      "fork": null,
+      "cycle": false,
+      "plan": {
+        "base": null,
+        "run": [
+          "APP-10",
+          "APP-11",
+          "APP-20"
+        ]
+      },
+      "reason": null,
+      "note": null,
+      "planNote": "Starts #APP-10 first, then #APP-11, then #APP-20."
+    },
+    {
+      "name": "the nearest open PR is the base, what lies under it is left alone",
+      "pickedCount": 1,
+      "subject": {
+        "identifier": "APP-20",
+        "repositoryId": "r1"
+      },
+      "line": [
+        {
+          "identifier": "APP-9",
+          "prState": null,
+          "branch": null,
+          "repositoryId": "r1",
+          "running": false
+        },
+        {
+          "identifier": "APP-10",
+          "prState": "open",
+          "branch": "exp/APP-10",
+          "repositoryId": "r1",
+          "running": false
+        },
+        {
+          "identifier": "APP-11",
+          "prState": null,
+          "branch": null,
+          "repositoryId": "r1",
+          "running": false
+        }
+      ],
+      "fork": null,
+      "cycle": false,
+      "plan": {
+        "base": {
+          "identifier": "APP-10",
+          "branch": "exp/APP-10"
+        },
+        "run": [
+          "APP-11",
+          "APP-20"
+        ]
+      },
+      "reason": null,
+      "note": null,
+      "planNote": "Starts #APP-11 first, then #APP-20."
+    },
+    {
+      "name": "a merged or closed PR, or one without a branch, is no base",
+      "pickedCount": 1,
+      "subject": {
+        "identifier": "APP-20",
+        "repositoryId": "r1"
+      },
+      "line": [
+        {
+          "identifier": "APP-10",
+          "prState": "merged",
+          "branch": "exp/APP-10",
+          "repositoryId": "r1",
+          "running": false
+        },
+        {
+          "identifier": "APP-11",
+          "prState": "open",
+          "branch": "",
+          "repositoryId": "r1",
+          "running": false
+        }
+      ],
+      "fork": null,
+      "cycle": false,
+      "plan": {
+        "base": null,
+        "run": [
+          "APP-10",
+          "APP-11",
+          "APP-20"
+        ]
+      },
+      "reason": null,
+      "note": null,
+      "planNote": "Starts #APP-10 first, then #APP-11, then #APP-20."
     },
     {
       "name": "a batch never stacks",
       "pickedCount": 2,
-      "subjectRepositoryId": "r1",
-      "blockers": [{ "identifier": "APP-11", "prState": "open", "branch": "exp/APP-11", "repositoryId": "r1" }],
-      "target": null,
-      "reason": "batch",
-      "note": "A stacked PR starts one issue at a time."
-    },
-    {
-      "name": "two open blockers do not stack",
-      "pickedCount": 1,
-      "subjectRepositoryId": "r1",
-      "blockers": [
-        { "identifier": "APP-11", "prState": "open", "branch": "exp/APP-11", "repositoryId": "r1" },
-        { "identifier": "APP-12", "prState": null, "branch": null, "repositoryId": "r1" }
+      "subject": {
+        "identifier": "APP-20",
+        "repositoryId": "r1"
+      },
+      "line": [
+        {
+          "identifier": "APP-11",
+          "prState": "open",
+          "branch": "exp/APP-11",
+          "repositoryId": "r1",
+          "running": false
+        }
       ],
-      "target": null,
+      "fork": null,
+      "cycle": false,
+      "plan": null,
+      "reason": "batch",
+      "note": "A stacked PR starts one issue at a time.",
+      "planNote": null
+    },
+    {
+      "name": "a cycle never stacks",
+      "pickedCount": 1,
+      "subject": {
+        "identifier": "APP-20",
+        "repositoryId": "r1"
+      },
+      "line": [
+        {
+          "identifier": "APP-11",
+          "prState": null,
+          "branch": null,
+          "repositoryId": "r1",
+          "running": false
+        }
+      ],
+      "fork": null,
+      "cycle": true,
+      "plan": null,
+      "reason": "cycle",
+      "note": "These issues block each other in a cycle. Remove one relation to stack them.",
+      "planNote": null
+    },
+    {
+      "name": "a fork names the issue with several blockers",
+      "pickedCount": 1,
+      "subject": {
+        "identifier": "APP-20",
+        "repositoryId": "r1"
+      },
+      "line": [
+        {
+          "identifier": "APP-11",
+          "prState": null,
+          "branch": null,
+          "repositoryId": "r1",
+          "running": false
+        }
+      ],
+      "fork": "APP-11",
+      "cycle": false,
+      "plan": null,
       "reason": "many",
-      "note": "A stacked PR needs exactly one open blocker."
+      "note": "#APP-11 has more than one open blocker. A stacked PR follows one line.",
+      "planNote": null
     },
     {
-      "name": "a blocker without a pull request names itself",
+      "name": "a line member in another repository does not stack",
       "pickedCount": 1,
-      "subjectRepositoryId": "r1",
-      "blockers": [{ "identifier": "APP-11", "prState": null, "branch": null, "repositoryId": "r1" }],
-      "target": null,
-      "reason": "no-pr",
-      "note": "#APP-11 has no open pull request yet."
-    },
-    {
-      "name": "a merged or closed pull request is no base",
-      "pickedCount": 1,
-      "subjectRepositoryId": "r1",
-      "blockers": [{ "identifier": "APP-11", "prState": "merged", "branch": "exp/APP-11", "repositoryId": "r1" }],
-      "target": null,
-      "reason": "no-pr",
-      "note": "#APP-11 has no open pull request yet."
-    },
-    {
-      "name": "an open pull request without a recorded branch is no base",
-      "pickedCount": 1,
-      "subjectRepositoryId": "r1",
-      "blockers": [{ "identifier": "APP-11", "prState": "open", "branch": "", "repositoryId": "r1" }],
-      "target": null,
-      "reason": "no-pr",
-      "note": "#APP-11 has no open pull request yet."
-    },
-    {
-      "name": "a blocker in another repository does not stack",
-      "pickedCount": 1,
-      "subjectRepositoryId": "r1",
-      "blockers": [{ "identifier": "WEB-4", "prState": "open", "branch": "exp/WEB-4", "repositoryId": "r2" }],
-      "target": null,
+      "subject": {
+        "identifier": "APP-20",
+        "repositoryId": "r1"
+      },
+      "line": [
+        {
+          "identifier": "APP-10",
+          "prState": null,
+          "branch": null,
+          "repositoryId": "r1",
+          "running": false
+        },
+        {
+          "identifier": "WEB-4",
+          "prState": null,
+          "branch": null,
+          "repositoryId": "r2",
+          "running": false
+        }
+      ],
+      "fork": null,
+      "cycle": false,
+      "plan": null,
       "reason": "repo",
-      "note": "#WEB-4 lives in another repository."
+      "note": "#WEB-4 lives in another repository.",
+      "planNote": null
     },
     {
-      "name": "a repo-less subject or blocker does not stack",
+      "name": "a repo-less subject does not stack",
       "pickedCount": 1,
-      "subjectRepositoryId": null,
-      "blockers": [{ "identifier": "APP-11", "prState": "open", "branch": "exp/APP-11", "repositoryId": null }],
-      "target": null,
+      "subject": {
+        "identifier": "APP-20",
+        "repositoryId": null
+      },
+      "line": [
+        {
+          "identifier": "APP-11",
+          "prState": "open",
+          "branch": "exp/APP-11",
+          "repositoryId": null,
+          "running": false
+        }
+      ],
+      "fork": null,
+      "cycle": false,
+      "plan": null,
       "reason": "repo",
-      "note": "#APP-11 lives in another repository."
+      "note": "#APP-11 lives in another repository.",
+      "planNote": null
+    },
+    {
+      "name": "more than five issues to start is too long",
+      "pickedCount": 1,
+      "subject": {
+        "identifier": "APP-20",
+        "repositoryId": "r1"
+      },
+      "line": [
+        {
+          "identifier": "APP-1",
+          "prState": null,
+          "branch": null,
+          "repositoryId": "r1",
+          "running": false
+        },
+        {
+          "identifier": "APP-2",
+          "prState": null,
+          "branch": null,
+          "repositoryId": "r1",
+          "running": false
+        },
+        {
+          "identifier": "APP-3",
+          "prState": null,
+          "branch": null,
+          "repositoryId": "r1",
+          "running": false
+        },
+        {
+          "identifier": "APP-4",
+          "prState": null,
+          "branch": null,
+          "repositoryId": "r1",
+          "running": false
+        },
+        {
+          "identifier": "APP-5",
+          "prState": null,
+          "branch": null,
+          "repositoryId": "r1",
+          "running": false
+        }
+      ],
+      "fork": null,
+      "cycle": false,
+      "plan": null,
+      "reason": "long",
+      "note": "A stacked PR starts at most 5 issues in a line.",
+      "planNote": null
+    },
+    {
+      "name": "a line member that is running without a PR waits",
+      "pickedCount": 1,
+      "subject": {
+        "identifier": "APP-20",
+        "repositoryId": "r1"
+      },
+      "line": [
+        {
+          "identifier": "APP-10",
+          "prState": null,
+          "branch": null,
+          "repositoryId": "r1",
+          "running": false
+        },
+        {
+          "identifier": "APP-11",
+          "prState": null,
+          "branch": null,
+          "repositoryId": "r1",
+          "running": true
+        }
+      ],
+      "fork": null,
+      "cycle": false,
+      "plan": null,
+      "reason": "running",
+      "note": "#APP-11 is already running. Its pull request is not open yet.",
+      "planNote": null
+    },
+    {
+      "name": "a running member UNDER the base does not matter",
+      "pickedCount": 1,
+      "subject": {
+        "identifier": "APP-20",
+        "repositoryId": "r1"
+      },
+      "line": [
+        {
+          "identifier": "APP-10",
+          "prState": null,
+          "branch": null,
+          "repositoryId": "r1",
+          "running": true
+        },
+        {
+          "identifier": "APP-11",
+          "prState": "open",
+          "branch": "exp/APP-11",
+          "repositoryId": "r1",
+          "running": false
+        }
+      ],
+      "fork": null,
+      "cycle": false,
+      "plan": {
+        "base": {
+          "identifier": "APP-11",
+          "branch": "exp/APP-11"
+        },
+        "run": [
+          "APP-20"
+        ]
+      },
+      "reason": null,
+      "note": null,
+      "planNote": null
+    }
+  ],
+  "lineCases": [
+    {
+      "name": "no open blocker: an empty line",
+      "subject": "c",
+      "relations": [],
+      "issues": [
+        {
+          "id": "c",
+          "identifier": "C",
+          "status": "backlog"
+        }
+      ],
+      "line": [],
+      "fork": null,
+      "cycle": false
+    },
+    {
+      "name": "a chain comes back bottom first",
+      "subject": "c",
+      "relations": [
+        {
+          "type": "blocks",
+          "issueId": "b",
+          "relatedIssueId": "c"
+        },
+        {
+          "type": "blocks",
+          "issueId": "a",
+          "relatedIssueId": "b"
+        }
+      ],
+      "issues": [
+        {
+          "id": "a",
+          "identifier": "A",
+          "status": "backlog"
+        },
+        {
+          "id": "b",
+          "identifier": "B",
+          "status": "backlog"
+        },
+        {
+          "id": "c",
+          "identifier": "C",
+          "status": "backlog"
+        }
+      ],
+      "line": [
+        "A",
+        "B"
+      ],
+      "fork": null,
+      "cycle": false
+    },
+    {
+      "name": "a done blocker ends the line",
+      "subject": "c",
+      "relations": [
+        {
+          "type": "blocks",
+          "issueId": "b",
+          "relatedIssueId": "c"
+        },
+        {
+          "type": "blocks",
+          "issueId": "a",
+          "relatedIssueId": "b"
+        }
+      ],
+      "issues": [
+        {
+          "id": "a",
+          "identifier": "A",
+          "status": "done"
+        },
+        {
+          "id": "b",
+          "identifier": "B",
+          "status": "backlog"
+        },
+        {
+          "id": "c",
+          "identifier": "C",
+          "status": "backlog"
+        }
+      ],
+      "line": [
+        "B"
+      ],
+      "fork": null,
+      "cycle": false
+    },
+    {
+      "name": "two open blockers of the subject are a fork at the subject",
+      "subject": "c",
+      "relations": [
+        {
+          "type": "blocks",
+          "issueId": "b",
+          "relatedIssueId": "c"
+        },
+        {
+          "type": "blocks",
+          "issueId": "a",
+          "relatedIssueId": "c"
+        }
+      ],
+      "issues": [
+        {
+          "id": "a",
+          "identifier": "A",
+          "status": "backlog"
+        },
+        {
+          "id": "b",
+          "identifier": "B",
+          "status": "backlog"
+        },
+        {
+          "id": "c",
+          "identifier": "C",
+          "status": "backlog"
+        }
+      ],
+      "line": [],
+      "fork": "C",
+      "cycle": false
+    },
+    {
+      "name": "a fork further down keeps the line above it and names the forking issue",
+      "subject": "c",
+      "relations": [
+        {
+          "type": "blocks",
+          "issueId": "b",
+          "relatedIssueId": "c"
+        },
+        {
+          "type": "blocks",
+          "issueId": "a",
+          "relatedIssueId": "b"
+        },
+        {
+          "type": "blocks",
+          "issueId": "d",
+          "relatedIssueId": "b"
+        }
+      ],
+      "issues": [
+        {
+          "id": "a",
+          "identifier": "A",
+          "status": "backlog"
+        },
+        {
+          "id": "b",
+          "identifier": "B",
+          "status": "backlog"
+        },
+        {
+          "id": "c",
+          "identifier": "C",
+          "status": "backlog"
+        },
+        {
+          "id": "d",
+          "identifier": "D",
+          "status": "backlog"
+        }
+      ],
+      "line": [
+        "B"
+      ],
+      "fork": "B",
+      "cycle": false
+    },
+    {
+      "name": "a cycle is reported",
+      "subject": "c",
+      "relations": [
+        {
+          "type": "blocks",
+          "issueId": "b",
+          "relatedIssueId": "c"
+        },
+        {
+          "type": "blocks",
+          "issueId": "c",
+          "relatedIssueId": "b"
+        }
+      ],
+      "issues": [
+        {
+          "id": "b",
+          "identifier": "B",
+          "status": "backlog"
+        },
+        {
+          "id": "c",
+          "identifier": "C",
+          "status": "backlog"
+        }
+      ],
+      "line": [
+        "B"
+      ],
+      "fork": null,
+      "cycle": true
+    },
+    {
+      "name": "relations the subject blocks are ignored",
+      "subject": "c",
+      "relations": [
+        {
+          "type": "blocks",
+          "issueId": "c",
+          "relatedIssueId": "d"
+        }
+      ],
+      "issues": [
+        {
+          "id": "c",
+          "identifier": "C",
+          "status": "backlog"
+        },
+        {
+          "id": "d",
+          "identifier": "D",
+          "status": "backlog"
+        }
+      ],
+      "line": [],
+      "fork": null,
+      "cycle": false
     }
   ],
   "promptCases": [
     {
-      "name": "no typed text: the base instruction alone",
-      "identifier": "APP-11",
-      "branch": "exp/APP-11",
+      "name": "a run of one on a base, no typed text",
+      "base": {
+        "identifier": "APP-11",
+        "branch": "exp/APP-11"
+      },
+      "run": [
+        "APP-20"
+      ],
       "text": "",
       "prompt": "Stacked on #APP-11. Before any edit: `git fetch origin exp/APP-11`; if this branch has no commits of its own, `git reset --hard origin/exp/APP-11`, else `git rebase origin/exp/APP-11`. Open your PR with `exponential_pr_open({issueId, base: \"exp/APP-11\"})`."
     },
     {
-      "name": "typed text follows the base instruction after a blank line, trimmed",
-      "identifier": "APP-11",
-      "branch": "exp/batch-1a2b3c4d",
+      "name": "a run of one on a base, typed text raw after a blank line",
+      "base": {
+        "identifier": "APP-11",
+        "branch": "exp/batch-1a2b3c4d"
+      },
+      "run": [
+        "APP-20"
+      ],
       "text": "  keep the diff small\n",
       "prompt": "Stacked on #APP-11. Before any edit: `git fetch origin exp/batch-1a2b3c4d`; if this branch has no commits of its own, `git reset --hard origin/exp/batch-1a2b3c4d`, else `git rebase origin/exp/batch-1a2b3c4d`. Open your PR with `exponential_pr_open({issueId, base: \"exp/batch-1a2b3c4d\"})`.\n\nkeep the diff small"
+    },
+    {
+      "name": "a line from the default branch: the line paragraph alone",
+      "base": null,
+      "run": [
+        "APP-10",
+        "APP-11",
+        "APP-20"
+      ],
+      "text": "",
+      "prompt": "This is the bottom of a stacked line: #APP-10, then #APP-11, then #APP-20. After your PR is open and your branch is pushed, start #APP-11 as a follow-up run on your branch (playbook: Follow-ups and follow-up runs), even under `no follow-up runs`. If more issues follow it, give it this paragraph with your own issue dropped from the line. Do not wait for it."
+    },
+    {
+      "name": "a line on a base with typed text for the subject",
+      "base": {
+        "identifier": "APP-9",
+        "branch": "exp/APP-9"
+      },
+      "run": [
+        "APP-11",
+        "APP-20"
+      ],
+      "text": "keep the diff small",
+      "prompt": "Stacked on #APP-9. Before any edit: `git fetch origin exp/APP-9`; if this branch has no commits of its own, `git reset --hard origin/exp/APP-9`, else `git rebase origin/exp/APP-9`. Open your PR with `exponential_pr_open({issueId, base: \"exp/APP-9\"})`.\n\nThis is the bottom of a stacked line: #APP-11, then #APP-20. After your PR is open and your branch is pushed, start #APP-20 as a follow-up run on your branch (playbook: Follow-ups and follow-up runs), even under `no follow-up runs`. If more issues follow it, give it this paragraph with your own issue dropped from the line. Do not wait for it.\n\nInstructions for #APP-20, pass them along unchanged:\nkeep the diff small"
     }
   ]
 }

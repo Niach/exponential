@@ -21,8 +21,14 @@ import {
 } from "@exp/ui"
 import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
 import { mergeFailure, type MergeFailure } from "@/lib/merge-failure"
+import type { StackMergeChoice } from "@/lib/pr-stack"
 import { trpc } from "@/lib/trpc-client"
 import { useOpenComposer } from "@/hooks/use-open-composer"
+import { useStackMergeChoice } from "@/hooks/use-stack-merge-choice"
+import {
+  StackMergeChoiceDialog,
+  type StackMergeInput,
+} from "@/components/stack-merge-choice-dialog"
 import type { VariantProps } from "class-variance-authority"
 
 /** EXP-917: the ONE gate on the "Fix conflicts" swap — a REAL conflict
@@ -82,7 +88,13 @@ const UiBranchIcon = conceptIcon(`ui-branch`)
 // button keeps the plain merge one click away. Without both, a conflict
 // resolved OUTSIDE the recovery run (a teammate rebases and pushes, GitHub
 // recomputes mergeability) would hide Merge for the life of the open PR.
-
+//
+// EXP-1145: a PR that is a member of a STACK of 2+ open pull requests never
+// merges off the plain confirm. The click first reads the stack off the
+// synced rows (`useStackMergeChoice`, armed by the click so a list of these
+// buttons costs no live queries) and opens `StackMergeChoiceDialog`: Merge
+// stack, Merge this pull request (plain for the bottom member, the chain
+// through this one otherwise), Cancel. A run's own chore PR is in no stack.
 
 /** EXP-895: the two SHAPES the one merge control comes in. `pill` is the
  *  `Pill mode="action" primary` every Changes surface uses (the review's top
@@ -194,6 +206,11 @@ export function SessionMergeButton({
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [merging, setMerging] = useState(false)
   const [failure, setFailure] = useState<MergeFailure | null>(null)
+  // EXP-1145: the click ARMS the stack read; the answer decides which dialog
+  // opens. `stackChoice` holds the stack dialog's content while it is open.
+  const [armed, setArmed] = useState(false)
+  const [stackChoice, setStackChoice] = useState<StackMergeChoice | null>(null)
+  const stack = useStackMergeChoice(issueId, armed)
   const stamp =
     updatedAt instanceof Date ? updatedAt.toISOString() : (updatedAt ?? null)
 
@@ -201,9 +218,20 @@ export function SessionMergeButton({
     if (prState !== `open`) {
       setMerging(false)
       setConfirmOpen(false)
+      setArmed(false)
+      setStackChoice(null)
       setFailure(null)
     }
   }, [prState])
+
+  // The armed click resolves as soon as the rows are in: a stack member opens
+  // the stack dialog, anything else the plain confirm.
+  useEffect(() => {
+    if (!armed || !stack.ready) return
+    setArmed(false)
+    if (stack.choice) setStackChoice(stack.choice)
+    else setConfirmOpen(true)
+  }, [armed, stack.ready, stack.choice])
 
   // A re-synced row supersedes the refusal captioned on the old one.
   // (A refused merge writes nothing server-side, so this never races its own
@@ -226,7 +254,12 @@ export function SessionMergeButton({
     steerEnabled,
   })
 
-  const arm = () => setConfirmOpen(true)
+  // The click itself: a session PR goes straight to the plain confirm, an
+  // issue PR first asks the synced rows about its stack.
+  const arm = () => {
+    if (issueId) setArmed(true)
+    else setConfirmOpen(true)
+  }
 
   const merge = async () => {
     setMerging(true)
@@ -244,6 +277,7 @@ export function SessionMergeButton({
         )
       }
       setConfirmOpen(false) // keep `merging` until the echo flips prState
+      setStackChoice(null)
     } catch (error) {
       const next = mergeFailure(
         error,
@@ -251,6 +285,7 @@ export function SessionMergeButton({
       )
       setMerging(false)
       setConfirmOpen(false)
+      setStackChoice(null)
       setFailure(next)
       // The swap is this button's own caption for a conflict; every other
       // refusal has nowhere to live in a row this small, so it keeps the
@@ -262,6 +297,26 @@ export function SessionMergeButton({
           description: next.message,
         })
       }
+    }
+  }
+
+  // EXP-1145: a stack merge (Merge stack, or Merge this pull request on a
+  // member above the bottom) lands several pull requests; its refusal is the
+  // server's message about whichever one stopped the chain, never a
+  // rebase-and-resolve job for THIS one, so it is toasted, not swapped.
+  const mergeStack = async (input: StackMergeInput) => {
+    setMerging(true)
+    setFailure(null)
+    try {
+      await trpc.issues.mergePr.mutate(input, {
+        context: { skipErrorToast: true },
+      })
+      setStackChoice(null) // keep `merging` until the echo flips prState
+    } catch (error) {
+      const next = mergeFailure(error, `The stack could not be merged`)
+      setMerging(false)
+      setStackChoice(null)
+      toast.error(`Couldn't merge the stack`, { description: next.message })
     }
   }
 
@@ -325,6 +380,20 @@ export function SessionMergeButton({
           {label}
         </MergeControl>
       )}
+      {issueId ? (
+        <StackMergeChoiceDialog
+          choice={stackChoice}
+          issueId={issueId}
+          busy={merging}
+          onCancel={() => setStackChoice(null)}
+          onMerge={(input) => {
+            // The bottom member's "Merge this pull request" is the plain
+            // single-PR merge, Fix-conflicts swap and all.
+            if (input.mergeStack) void mergeStack(input)
+            else void merge()
+          }}
+        />
+      ) : null}
       <Dialog
         open={confirmOpen}
         onOpenChange={(next) => {

@@ -2,8 +2,8 @@ import Foundation
 
 /// EXP-897, the PR STACK, derived from synced data alone and mirrored ×4
 /// (web `lib/pr-stack.ts`, desktop `domain::pr_stack`, Android `PrStack.kt`).
-/// SLOP-3: the client CHAIN only, read by the related-work badge (`PrGraph`);
-/// no stack merge, no list nesting.
+/// SLOP-3: the client CHAIN, read by the related-work badge (`PrGraph`) and
+/// the stack merge dialog (`stackMergeChoice`, EXP-1145); no list nesting.
 ///
 /// One edge, one rule: a pull request is stacked ON another when its
 /// `prBaseBranch` equals the lower one's `branch` (both non-empty). No stack
@@ -105,6 +105,124 @@ public enum PrStack {
     public static func stackChain(_ issue: IssueEntity, issues: [IssueEntity]) -> [IssueEntity] {
         stackChain(
             issue, in: issues, id: { $0.id }, branch: { $0.branch }, base: { $0.prBaseBranch }
+        )
+    }
+
+    // MARK: - Stack merge choice
+
+    // EXP-1145: a PLAIN Merge control on a stack member asks first. Merging a
+    // member lands every open member BELOW it, so every merge control (the
+    // Work screen's pill, the Review screen, Reviews rows) offers Merge stack /
+    // Merge this pull request / Cancel. ONE pure
+    // function mirrored ×4 (web `stackMergeChoice` in `lib/pr-stack.ts`,
+    // desktop `pr_stack::stack_merge_choice`, Android
+    // `PrStack.stackMergeChoice`), fixture-locked by
+    // `packages/domain-contract/fixtures/stack-merge-choice.json`.
+
+    public static let stackMergeChoiceTitle = "This pull request is part of a stack"
+    public static let mergeStackLabel = "Merge stack"
+    public static let mergeThisPrLabel = "Merge this pull request"
+    public static let stackMergeCancelLabel = "Cancel"
+
+    /// Everything the stack merge dialog says, and what Merge stack targets.
+    public struct StackMergeChoice: Equatable, Sendable {
+        /// The chain's OPEN members, bottom to top, one label per pull
+        /// request (`EXP-874 +2` for a batch PR).
+        public let members: [String]
+        /// 1-based, from the bottom: where the pull request being merged sits.
+        public let position: Int
+        public let bottomIssueId: String
+        /// What Merge stack sends: `mergePr(issueId: top, mergeStack: true)`.
+        public let topIssueId: String
+        public let listing: String
+        public let stackSentence: String
+        public let thisSentence: String
+        /// The listing, a blank line, the two sentences.
+        public let body: String
+
+        /// Whether "Merge this pull request" goes through the stack merge:
+        /// the bottom member merges plainly, any other one sends
+        /// `mergePr(issueId: <itself>, mergeStack: true)` so the server lands
+        /// the chain bottom-up THROUGH it (`thisSentence`).
+        public var mergeThisUsesStack: Bool { position > 1 }
+
+        public init(
+            members: [String], position: Int, bottomIssueId: String, topIssueId: String,
+            listing: String, stackSentence: String, thisSentence: String, body: String
+        ) {
+            self.members = members
+            self.position = position
+            self.bottomIssueId = bottomIssueId
+            self.topIssueId = topIssueId
+            self.listing = listing
+            self.stackSentence = stackSentence
+            self.thisSentence = thisSentence
+            self.body = body
+        }
+    }
+
+    /// Whether merging `issue`'s pull request from a plain Merge control needs
+    /// the stack dialog. nil = a plain merge: no open pull request, or no
+    /// OTHER open member in its stack. Only OPEN pull requests form the chain,
+    /// read in identifier order so every client picks the same representative
+    /// for a fork or a batch.
+    public static func stackMergeChoice(
+        _ issue: IssueEntity, issues: [IssueEntity]
+    ) -> StackMergeChoice? {
+        guard issue.prState == "open" else { return nil }
+        let ident: (IssueEntity) -> String = { $0.identifier ?? "" }
+        let open = issues
+            .filter { $0.prState == "open" }
+            .sorted { Array(ident($0).utf16).lexicographicallyPrecedes(Array(ident($1).utf16)) }
+        let candidates = open.contains(where: { $0.id == issue.id }) ? open : [issue] + open
+        let chain = stackChain(issue, issues: candidates)
+        guard chain.count >= 2, let index = chain.firstIndex(where: { $0.id == issue.id }) else {
+            return nil
+        }
+
+        // A batch PR's siblings share its url: one label per pull request.
+        func label(_ member: IssueEntity) -> String {
+            var siblings = 0
+            if let url = member.prUrl, !url.isEmpty {
+                siblings = candidates.filter { $0.id != member.id && $0.prUrl == url }.count
+            }
+            return siblings > 0 ? "\(ident(member)) +\(siblings)" : ident(member)
+        }
+        let members = chain.map(label)
+        let own = members[index]
+        let below = Array(members[..<index])
+        let above = Array(members[(index + 1)...])
+
+        let listing = members.enumerated()
+            .map { $0.offset == index ? "\($0.element) (this one)" : $0.element }
+            .joined(separator: " \u{2192} ")
+        let stackSentence = "\(mergeStackLabel) lands all \(members.count) pull requests, bottom-up."
+        let landsBelow: String
+        switch below.count {
+        case 0: landsBelow = "\(own) alone"
+        case 1: landsBelow = "\(own) and the one below it (\(below.joined(separator: ", ")))"
+        default:
+            landsBelow = "\(own) and the \(below.count) below it (\(below.joined(separator: ", ")))"
+        }
+        let leftOpen: String
+        switch above.count {
+        case 0: leftOpen = ", the whole stack."
+        case 1:
+            leftOpen = "; \(above.joined(separator: ", ")) is retargeted onto the base branch and stays open."
+        default:
+            leftOpen = "; \(above.joined(separator: ", ")) are retargeted onto the base branch and stay open."
+        }
+        let thisSentence = "\(mergeThisPrLabel) lands \(landsBelow)\(leftOpen)"
+
+        return StackMergeChoice(
+            members: members,
+            position: index + 1,
+            bottomIssueId: chain[0].id,
+            topIssueId: chain[chain.count - 1].id,
+            listing: listing,
+            stackSentence: stackSentence,
+            thisSentence: thisSentence,
+            body: "\(listing)\n\n\(stackSentence)\n\(thisSentence)"
         )
     }
 

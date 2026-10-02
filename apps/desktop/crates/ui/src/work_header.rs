@@ -749,7 +749,14 @@ pub(crate) fn merge_pill_labeled(
         resting_label.unwrap_or(domain::contract::DIFF_UI_MERGE_PR)
     })
     .tooltip(target.tooltip())
-    .on_click(move |_, _window, cx| {
+    .on_click(move |_, window, cx| {
+        // EXP-1145: a member of an open PR stack asks first; a run's own
+        // chore PR (a Session target) is never a stack member.
+        if let MergeTarget::Issue { issue_id } = &target {
+            if crate::pr_merge::ask_stack_merge(issue_id, window, cx) {
+                return;
+            }
+        }
         crate::pr_merge::two_click(target.op(), None, None, cx);
     });
     if merging {

@@ -617,7 +617,7 @@ describe(`issues.mergePr always ends sessions (EXP-498)`, () => {
   })
 })
 
-// FEED-43: the merge-async fallback and the retired stack merge.
+// FEED-43: the merge-async fallback (the stack merge: issues-merge-stack.test.ts).
 describe(`issues.mergePr merge-async outcomes`, () => {
   const entryRow = {
     prNumber: 241,
@@ -626,16 +626,6 @@ describe(`issues.mergePr merge-async outcomes`, () => {
     identifier: `EXP-11`,
     title: `Lower`,
   }
-
-  it(`refuses mergeStack: a tree merges root first, then its children`, async () => {
-    await expect(
-      caller.mergePr({ issueId: ISSUE_ID, mergeStack: true })
-    ).rejects.toMatchObject({
-      code: `PRECONDITION_FAILED`,
-      message: `Merge the root first, then its children`,
-    })
-    expect(h.mergePullRequestSmart).not.toHaveBeenCalled()
-  })
 
   it(`reports a still-running merge-async job without failing the issue`, async () => {
     h.selectQueue.push([entryRow])

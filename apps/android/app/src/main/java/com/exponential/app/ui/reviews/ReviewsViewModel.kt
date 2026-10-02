@@ -231,13 +231,15 @@ class ReviewsViewModel @Inject constructor(
      * entry's [groupKey] plus the representative issue id — for a batch PR the
      * server resolves it to ALL linked issues and completes them together; the
      * `done` flips arrive via Electric sync, dropping the entry off this list.
+     * EXP-1145: [mergeStack] merges the open stack bottom-up THROUGH [issueId];
+     * a failure captions the row with the server's message.
      */
-    fun mergePr(groupKey: String, issueId: String) {
+    fun mergePr(groupKey: String, issueId: String, mergeStack: Boolean = false) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             _mergeErrors.value = _mergeErrors.value - groupKey
             _merging.value = _merging.value + groupKey
-            runCatching { issuesApi.mergePr(accountId, issueId) }
+            runCatching { issuesApi.mergePr(accountId, issueId, mergeStack = mergeStack) }
                 .onFailure { t ->
                     if (t is CancellationException) throw t
                     // Conflicts, branch protection and GitHub App errors are the
@@ -260,6 +262,14 @@ class ReviewsViewModel @Inject constructor(
     val issueStatuses: StateFlow<List<ResolvedIssueStatus>> =
         dbFlow.scopedQuery(emptyList<IssueStatusEntity>()) { it.issueStatusDao().observeAll() }
             .map { IssueStatusResolver.teamStatuses(it) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * EXP-1145: every synced issue, so a row's Merge on a PR-stack member
+     * asks first ([com.exponential.app.domain.PrStack.stackMergeChoice]).
+     */
+    val allIssues: StateFlow<List<IssueEntity>> =
+        dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** SLOP-16 r3: the batch sheet's assignee avatars. */

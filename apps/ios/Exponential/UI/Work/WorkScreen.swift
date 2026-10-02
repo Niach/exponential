@@ -469,6 +469,7 @@ struct WorkScreen: View {
                 WorkMergePill(
                     target: mergeTarget,
                     issue: mergeIssue(for: mergeTarget),
+                    prIssues: prGraphModel?.prIssues ?? [],
                     steerEnabled: steerEnabled
                 )
                 // A new target starts clean (no stale conflict caption).

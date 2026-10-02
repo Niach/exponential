@@ -22,6 +22,8 @@ const mockState = vi.hoisted(() => ({
     w: [] as unknown[],
     r: [] as unknown[],
     bl: [] as unknown[],
+    tr: [] as unknown[],
+    li: [] as unknown[],
   } as Record<string, unknown[]>,
   boards: [] as unknown[],
   repos: null as { id: string; fullName: string }[] | null,
@@ -156,6 +158,8 @@ beforeEach(() => {
   mockState.rows.w = []
   mockState.rows.r = []
   mockState.rows.bl = []
+  mockState.rows.tr = []
+  mockState.rows.li = []
   mockState.boards = [board(`b1`, `repo-1`), board(`b2`, `repo-1`)]
   mockState.repos = [{ id: `repo-1`, fullName: `acme/app` }]
   mockState.mcpServers = null
@@ -708,41 +712,80 @@ describe(`useLaunchComposer blocked start`, () => {
     expect(remote.startIssues).toHaveBeenCalledTimes(1)
   })
 
-  // SLOP-3: the third button, a stacked PR on the one blocker's branch.
-  it(`disables Stacked PR while the blocker has no open pull request`, () => {
+  // SLOP-3: the third button builds the dependency LINE bottom-up.
+  it(`disables Stacked PR while a line member is already running`, () => {
+    mockState.rows.s = [
+      { issueId: `i2`, status: `running`, teamId: `t1`, updatedAt: new Date() },
+    ]
     const { result } = mount()
     act(() => result.current.toggleIssue(`i1`))
-    expect(result.current.blockedStack).toEqual({ target: null, reason: `no-pr` })
+    expect(result.current.blockedStack).toMatchObject({
+      plan: null,
+      reason: `running`,
+      ident: `I2`,
+    })
   })
 
-  it(`Stacked PR starts the same run with the base instruction`, async () => {
+  it(`Stacked PR on an open blocker PR starts the picked issue with the base instruction`, async () => {
     mockState.rows.bl = [
       { ...issue(`i2`, `b2`, `in_progress`), prState: `open`, branch: `exp/I2` },
     ]
     const { result, remote } = mount()
     act(() => result.current.toggleIssue(`i1`))
     expect(result.current.blockedStack.reason).toBeNull()
-    expect(result.current.blockedStack.target?.id).toBe(`i2`)
+    expect(result.current.blockedStack.first?.id).toBe(`i1`)
     act(() => result.current.setText(`keep it small`))
     await act(() => result.current.submit())
     await act(() => result.current.startStacked())
     expect(result.current.blockedOpen).toBe(false)
     expect(remote.startIssues).toHaveBeenCalledWith(
       device,
-      expect.anything(),
+      expect.not.objectContaining({ resume: true }),
       [`i1`],
-      stackedStartPrompt(`I2`, `exp/I2`, `keep it small`)
+      stackedStartPrompt(
+        { base: { identifier: `I2`, branch: `exp/I2` }, run: [`I1`] },
+        `keep it small`
+      )
     )
   })
 
-  it(`disables Stacked PR for a blocker in another repository`, () => {
+  it(`Stacked PR on a line without PRs starts its BOTTOM issue`, async () => {
+    // i3 blocks i2 blocks i1: the line under i1 is [I3, I2].
+    mockState.rows.tr = [blocks(`i2`, `i1`), blocks(`i3`, `i2`)]
+    mockState.rows.li = [
+      issue(`i1`, `b1`),
+      issue(`i2`, `b1`, `in_progress`),
+      issue(`i3`, `b2`),
+    ]
+    const { result, remote } = mount()
+    act(() => result.current.toggleIssue(`i1`))
+    expect(result.current.blockedStack.plan).toEqual({
+      base: null,
+      run: [`I3`, `I2`, `I1`],
+    })
+    expect(result.current.blockedStack.first?.id).toBe(`i3`)
+    await act(() => result.current.submit())
+    await act(() => result.current.startStacked())
+    expect(remote.startIssues).toHaveBeenCalledWith(
+      device,
+      expect.anything(),
+      [`i3`],
+      stackedStartPrompt({ base: null, run: [`I3`, `I2`, `I1`] }, ``)
+    )
+  })
+
+  it(`disables Stacked PR for a line member in another repository`, () => {
     mockState.boards = [board(`b1`, `repo-1`), board(`b2`, `repo-2`)]
     mockState.rows.bl = [
       { ...issue(`i2`, `b2`, `in_progress`), prState: `open`, branch: `exp/I2` },
     ]
     const { result } = mount()
     act(() => result.current.toggleIssue(`i1`))
-    expect(result.current.blockedStack).toEqual({ target: null, reason: `repo` })
+    expect(result.current.blockedStack).toMatchObject({
+      plan: null,
+      reason: `repo`,
+      ident: `I2`,
+    })
   })
 
   it(`never asks for a done blocker`, async () => {

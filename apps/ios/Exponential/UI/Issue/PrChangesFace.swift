@@ -35,6 +35,8 @@ struct PrChangesFace: View {
     /// The face's OWN model, when none was injected.
     @State private var ownModel: ChangesViewModel?
     @State private var mergeConfirm = false
+    /// EXP-1145: the stack merge dialog, and the choice it was opened with.
+    @State private var stackChoice: PrStack.StackMergeChoice?
     @State private var closeConfirm = false
     // "Fix conflicts" (EXP-323, desktop parity): a refused merge is usually a
     // conflict, so the bar offers the builtin recovery run seeded with THIS
@@ -94,6 +96,22 @@ struct PrChangesFace: View {
         } message: {
             Text(mergeMessage)
         }
+        // EXP-1145: a stack member with other open members asks first.
+        .confirmationDialog(
+            PrStack.stackMergeChoiceTitle,
+            isPresented: Binding(
+                get: { stackChoice != nil },
+                set: { if !$0 { stackChoice = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: stackChoice
+        ) { choice in
+            Button(PrStack.mergeStackLabel) { viewModel?.mergeStack(issueId: choice.topIssueId) }
+            Button(PrStack.mergeThisPrLabel) { mergeThis(choice) }
+            Button(PrStack.stackMergeCancelLabel, role: .cancel) {}
+        } message: { choice in
+            Text(choice.body)
+        }
         // Close-without-merge (EXP-100) — the drop path; Reviews only.
         .confirmationDialog(
             "Close pull request?",
@@ -125,8 +143,24 @@ struct PrChangesFace: View {
         }
     }
 
+    /// EXP-1145: the stack dialog when the PR is a member of a stack with
+    /// other open members, the plain merge alert otherwise.
     private func requestMerge(_ vm: ChangesViewModel) {
-        mergeConfirm = true
+        if let choice = vm.stackMergeChoice {
+            stackChoice = choice
+        } else {
+            mergeConfirm = true
+        }
+    }
+
+    /// "Merge this pull request": the bottom member merges plainly, any other
+    /// one lands the chain bottom-up THROUGH itself.
+    private func mergeThis(_ choice: PrStack.StackMergeChoice) {
+        guard choice.mergeThisUsesStack, let issueId = viewModel?.issue?.id else {
+            viewModel?.mergePr()
+            return
+        }
+        viewModel?.mergeStack(issueId: issueId)
     }
 
     /// The merge alert message — carries the PR number when known.

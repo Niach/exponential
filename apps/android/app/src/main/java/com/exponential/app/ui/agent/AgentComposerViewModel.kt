@@ -16,6 +16,7 @@ import com.exponential.app.data.api.builtinChatAction
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.BoardEntity
+import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueRelationEntity
@@ -30,12 +31,14 @@ import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.BlockedStart
+import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.IssueGraph
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.LaunchDeviceRules
 import com.exponential.app.domain.MAX_STEER_IMAGES
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.RunResumeTarget
+import com.exponential.app.domain.batchRunIssueIds
 import com.exponential.app.domain.canonicalContentType
 import com.exponential.app.domain.isInlineImage
 import com.exponential.app.ui.components.DEFAULT_AGENT
@@ -251,16 +254,16 @@ class AgentComposerViewModel @Inject constructor(
         /** The pool the graph's nodes resolve against. */
         val issuesById: Map<String, IssueEntity>,
         /**
-         * SLOP-3: the one blocker "Stacked PR" bases on, or the reason it is
-         * disabled ([BlockedStart.stackTarget]).
+         * SLOP-3: the dependency line "Stacked PR" starts bottom-up, or the
+         * reason it is disabled ([BlockedStart.stackPlan]).
          */
-        val stack: BlockedStart.Target,
+        val stack: BlockedStart.PlanResult,
     ) {
         /** The note under a disabled "Stacked PR"; null while it is enabled. */
-        val stackNote: String?
-            get() = stack.reason?.let {
-                BlockedStart.stackDisabledNote(it, blockers.firstOrNull()?.identifier.orEmpty())
-            }
+        val stackNote: String? get() = stack.note
+
+        /** The note under an enabled "Stacked PR" whose run has 2+ issues. */
+        val planNote: String? get() = stack.plan?.let { BlockedStart.stackPlanNote(it.run) }
     }
 
     private val _blockedPrompt = MutableStateFlow<BlockedPrompt?>(null)
@@ -273,6 +276,21 @@ class AgentComposerViewModel @Inject constructor(
     private val allBoards: StateFlow<List<BoardEntity>> =
         dbFlow.scopedQuery(emptyList<BoardEntity>()) { it.boardDao().observeAll() }
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /**
+     * SLOP-3: the issues with a LIVE coding session (own or a batch's
+     * covered set), what marks a stacked line member as already running.
+     * Eager so a submit reads a warm value.
+     */
+    private val liveRunIssueIds: StateFlow<Set<String>> =
+        dbFlow.scopedQuery(emptyList<CodingSessionEntity>()) {
+            it.codingSessionDao().observeByStatuses(CodingSessionLiveness.liveStatuses)
+        }
+            .map { sessions ->
+                sessions.filter { CodingSessionLiveness.isLive(it) }
+                    .flatMapTo(HashSet()) { listOfNotNull(it.issueId) + batchRunIssueIds(it.batchIssueIds) }
+            }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
     /** The submit the dialog is holding — its arguments, replayed on answer. */
     private var heldStart: HeldStart? = null
@@ -717,22 +735,32 @@ class AgentComposerViewModel @Inject constructor(
             val issuesById = issues.associateBy { it.id }
             val repoOfBoard = allBoards.value.associate { it.id to it.repositoryId }
             fun repoOf(issue: IssueEntity?) = issue?.let { repoOfBoard[it.boardId] }
+            val relations = allRelations.value
+            val subject = ids.singleOrNull()?.let(issuesById::get)
+            val line = subject?.let { BlockedStart.stackLine(it.id, relations, issues) }
+            val live = liveRunIssueIds.value
             _blockedPrompt.value = BlockedPrompt(
                 pickedIds = ids,
                 blockers = blockers,
-                graph = IssueGraph.blockGraph(ids, allRelations.value, issues),
+                graph = IssueGraph.blockGraph(ids, relations, issues),
                 issuesById = issuesById,
-                stack = BlockedStart.stackTarget(
+                stack = BlockedStart.stackPlan(
                     pickedCount = ids.size,
-                    subjectRepositoryId = repoOf(ids.singleOrNull()?.let(issuesById::get)),
-                    blockers = blockers.map { blocker ->
-                        BlockedStart.Blocker(
-                            identifier = blocker.identifier,
-                            prState = blocker.prState,
-                            branch = blocker.branch,
-                            repositoryId = repoOf(blocker),
+                    subject = BlockedStart.Subject(
+                        identifier = subject?.identifier.orEmpty(),
+                        repositoryId = repoOf(subject),
+                    ),
+                    line = line?.line.orEmpty().map { member ->
+                        BlockedStart.Member(
+                            identifier = member.identifier,
+                            prState = member.prState,
+                            branch = member.branch,
+                            repositoryId = repoOf(member),
+                            running = member.id in live && member.prState != DomainContract.prStateOpen,
                         )
                     },
+                    fork = line?.fork?.identifier,
+                    cycle = line?.cycle == true,
                 ),
             )
             return
@@ -749,17 +777,26 @@ class AgentComposerViewModel @Inject constructor(
     }
 
     /**
-     * SLOP-3: "Stacked PR", the SAME start as [submitAnyway] whose `prompt`
-     * leads with the base instruction ([BlockedStart.stackedStartPrompt]) for
-     * the one blocker's PR branch. Prompt text only, no new start input.
+     * SLOP-3: "Stacked PR", the SAME start as [submitAnyway] (device, agent,
+     * model, account, images) but for the line's BOTTOM issue, `run[0]`, not
+     * necessarily the picked one, with the prompt
+     * [BlockedStart.stackedStartPrompt] wrapping the typed draft. The rest of
+     * the line starts run by run from that prompt.
      */
     fun submitStacked() {
         val held = heldStart
-        val target = _blockedPrompt.value?.stack?.target
+        val prompt = _blockedPrompt.value
+        val plan = prompt?.stack?.plan
         _blockedPrompt.value = null
         heldStart = null
-        if (held != null && target != null) dispatch(held.action, held.resumeOffered, stackedOn = target)
+        if (held == null || plan == null) return
+        val firstIdentifier = plan.run.firstOrNull() ?: return
+        val first = prompt.issuesById.values.firstOrNull { it.identifier == firstIdentifier } ?: return
+        dispatch(held.action, held.resumeOffered, stacked = StackedStart(first.id, plan))
     }
+
+    /** SLOP-3: what a "Stacked PR" dispatch starts instead of the picked issue. */
+    private data class StackedStart(val issueId: String, val plan: BlockedStart.Plan)
 
     /** Cancel: the composer keeps everything, nothing was sent. */
     fun dismissBlockedPrompt() {
@@ -770,7 +807,7 @@ class AgentComposerViewModel @Inject constructor(
     private fun dispatch(
         action: ActionDto?,
         resumeOffered: Boolean,
-        stackedOn: BlockedStart.Blocker? = null,
+        stacked: StackedStart? = null,
     ) {
         if (_sending.value) return
         val target = device.value ?: return
@@ -806,11 +843,11 @@ class AgentComposerViewModel @Inject constructor(
                     _imageError.value = trpcErrorMessage(t, "Couldn't upload image")
                     return@launch
                 }
-                val text = stackedOn?.let {
-                    BlockedStart.stackedStartPrompt(it.identifier, it.branch.orEmpty(), _draft.value)
-                } ?: _draft.value
+                val text = stacked?.let { BlockedStart.stackedStartPrompt(it.plan, _draft.value) }
+                    ?: _draft.value
                 val prompt = AgentComposerPrompt.build(text, ids)
-                val resume = resumeOffered && _resume.value &&
+                // A stacked start never resumes: its first issue may not be the picked one.
+                val resume = stacked == null && resumeOffered && _resume.value &&
                     (subject as? ComposerSubject.Issues)?.ids?.size == 1
                 val options = buildOptions(resume)
                 val accepted = when (subject) {
@@ -831,7 +868,12 @@ class AgentComposerViewModel @Inject constructor(
                         )
                     }
                     is ComposerSubject.Issues ->
-                        steerLaunch.startIssues(target, subject.ids, options, prompt)
+                        steerLaunch.startIssues(
+                            target,
+                            stacked?.let { listOf(it.issueId) } ?: subject.ids,
+                            options,
+                            prompt,
+                        )
                     is ComposerSubject.Action -> {
                         val row = action ?: return@launch
                         steerLaunch.runAction(

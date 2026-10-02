@@ -647,6 +647,18 @@ final class AgentsViewModel {
         IssueOption.build(issues: issues, boards: boards, teamId: teamId, exempt: exempt)
     }
 
+    /// SLOP-3: every issue a LIVE run (anyone's, `CodingSessionLiveness`)
+    /// works on, its own issue or a batch's covered ones. The blocked start's
+    /// stack plan reads it to mark a line member as already running.
+    func liveRunIssueIds() -> Set<String> {
+        var ids = Set<String>()
+        for session in sessions where CodingSessionLiveness.isLive(session) {
+            if let issueId = session.issueId { ids.insert(issueId) }
+            ids.formUnion(BatchRun.issueIds(session.batchIssueIds))
+        }
+        return ids
+    }
+
     /// EXP-825: the team's synced boards, sortOrder-then-name — the `board`
     /// inputs pick from them.
     func teamBoards(teamId: String?) -> [BoardEntity] {

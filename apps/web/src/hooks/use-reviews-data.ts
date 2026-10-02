@@ -233,6 +233,9 @@ export function useReviewsData(team: Team | null | undefined) {
       externalLoading,
       userMap,
       removeExternalPull,
+      // EXP-1145: every open-PR issue of the team, the rows a Merge reads its
+      // stack from (`stackMergeChoice`).
+      openIssues: list,
     }
   }, [
     issues,

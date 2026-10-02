@@ -349,6 +349,9 @@ fun WorkScreen(
     // EXP-1150: Start coding once the shown run ended for good.
     val offerStart = sessionEnded && ownShown && resumeTarget == null && issueId != null &&
         readiness?.visible == true
+    // EXP-1145: a stack member's Merge asks first, per merge source.
+    val sessionStackChoice by (sessionVm?.stackMergeChoice ?: remember { MutableStateFlow(null) })
+        .collectAsStateWithLifecycle()
     // The live run merges its own target (EXP-678/734).
     val sessionCanMerge = sessionVm != null && mergeTarget != null &&
         !sessionEnded && phase !is AgentPhase.Ended
@@ -370,6 +373,9 @@ fun WorkScreen(
                         "and closes the coding session."
             },
             onConfirm = { sessionVm.merge() },
+            stackChoice = if (fix) null else sessionStackChoice,
+            stackIssueId = (mergeTarget as? MergeTarget.Issue)?.issueId,
+            onMergeStack = { through -> sessionVm.mergeStack(through) },
             onFixConflicts = {
                 onOpenAgent(
                     AgentComposerSeed(
@@ -391,6 +397,8 @@ fun WorkScreen(
         .collectAsStateWithLifecycle()
     val changesConflict by (changesVm?.actionErrorIsConflict ?: remember { MutableStateFlow(false) })
         .collectAsStateWithLifecycle()
+    val changesStackChoice by (changesVm?.stackMergeChoice ?: remember { MutableStateFlow(null) })
+        .collectAsStateWithLifecycle()
     // EXP-1150: the header's ONE Merge PR, on every face — the live run's own
     // target first, else the issue's open PR.
     val headerMerge: ChangesMergeControl? = when {
@@ -407,6 +415,9 @@ fun WorkScreen(
                 confirmText = "Squash-merges PR #${issue.prNumber ?: ""} via the GitHub App. " +
                     "Any live coding session for it closes.",
                 onConfirm = { changesVm.mergePr() },
+                stackChoice = if (fix) null else changesStackChoice,
+                stackIssueId = issueId,
+                onMergeStack = { through -> changesVm.mergeStack(through) },
                 onFixConflicts = {
                     onOpenAgent(
                         AgentComposerSeed(

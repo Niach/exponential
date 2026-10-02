@@ -20,6 +20,7 @@ import {
   BLOCKED_START_TITLE,
   stackDisabledNote,
   type StackDisabledReason,
+  stackPlanNote,
   STACKED_PR_LABEL,
   START_ANYWAY_LABEL,
 } from "@/lib/blocked-start"
@@ -27,10 +28,12 @@ import {
 // EXP-980: starting a BLOCKED issue asks first over the transitive chain
 // drawn as the mini-graph. A batch asks too, about the blockers outside it.
 //
-// SLOP-3: Cancel · Start anyway · Stacked PR. "Stacked PR" starts the SAME
-// run with the base instruction in its prompt (`stackedStartPrompt`). It is
-// never hidden: while `stackTarget` returns a reason it is disabled and the
-// reason's note sits under the graph. The copy is byte-locked ×4
+// SLOP-3: Cancel · Start anyway · Stacked PR. "Stacked PR" builds the whole
+// dependency LINE bottom-up: it starts the line's first issue with the base
+// instruction and the line paragraph in its prompt (`stackedStartPrompt`).
+// It is never hidden: while `stackPlan` returns a reason it is disabled and
+// the reason's note sits under the graph; enabled with 2+ issues to start, the
+// plan note says which starts first. The copy is byte-locked ×4
 // (`lib/blocked-start.ts`, fixture `blocked-start.json`).
 
 export function BlockedStartDialog(props: {
@@ -40,8 +43,12 @@ export function BlockedStartDialog(props: {
   pickedIds: readonly string[]
   /** `openBlockersOfSet(...)`: never empty while the dialog is up. */
   blockers: readonly Issue[]
-  /** `stackTarget(...)`'s reason; null = "Stacked PR" is enabled. */
+  /** `stackPlan(...)`'s reason; null = "Stacked PR" is enabled. */
   stackReason: StackDisabledReason | null
+  /** The issue the reason's note names. */
+  stackIdent?: string | null
+  /** The plan's issues to start, bottom first (empty while disabled). */
+  stackRun?: readonly string[]
   busy?: boolean
   onOpenChange: (open: boolean) => void
   onStartAnyway: () => void
@@ -62,6 +69,8 @@ function BlockedStartBody({
   pickedIds,
   blockers,
   stackReason,
+  stackIdent = null,
+  stackRun = [],
   busy = false,
   onOpenChange,
   onStartAnyway,
@@ -71,11 +80,14 @@ function BlockedStartBody({
   pickedIds: readonly string[]
   blockers: readonly Issue[]
   stackReason: StackDisabledReason | null
+  stackIdent?: string | null
+  stackRun?: readonly string[]
   busy?: boolean
   onOpenChange: (open: boolean) => void
   onStartAnyway: () => void
   onStartStacked: () => void
 }) {
+  const planNote = stackReason === null ? stackPlanNote(stackRun) : null
   const batch = pickedIds.length > 1
   const suffix =
     stackReason === null
@@ -110,14 +122,21 @@ function BlockedStartBody({
         subjectIds={pickedIds}
         onNavigate={() => onOpenChange(false)}
       />
-      {stackReason !== null && (
+      {stackReason !== null ? (
         <div
           className="text-xs text-muted-foreground"
           data-testid="blocked-start-stack-note"
         >
-          {stackDisabledNote(stackReason, blockers[0]?.identifier ?? ``)}
+          {stackDisabledNote(stackReason, stackIdent ?? ``)}
         </div>
-      )}
+      ) : planNote !== null ? (
+        <div
+          className="text-xs text-muted-foreground"
+          data-testid="blocked-start-plan-note"
+        >
+          {planNote}
+        </div>
+      ) : null}
       <DialogFooter>
         <DialogCancel onClick={() => onOpenChange(false)} />
         <Button variant="outline" disabled={busy} onClick={onStartAnyway}>

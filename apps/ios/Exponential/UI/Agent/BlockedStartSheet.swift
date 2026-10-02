@@ -8,8 +8,9 @@ import SwiftUI
 /// than an alert: the reader can see WHAT is in the way before choosing.
 ///
 /// Three answers: Cancel · `Start anyway` · `Stacked PR` (primary). The
-/// stacked answer is never hidden: it is DISABLED with its reason note
-/// (`BlockedStart.stackTarget`, SLOP-3).
+/// stacked answer is never hidden: it is DISABLED with its reason note, or,
+/// when it starts a line of 2+ issues, says which one goes first
+/// (`BlockedStart.stackPlan`, SLOP-3).
 struct BlockedStartSheet: View {
     let prompt: BlockedStartPrompt
     let onCancel: () -> Void
@@ -17,7 +18,7 @@ struct BlockedStartSheet: View {
     let onStartStacked: () -> Void
     let onOpenIssue: (String) -> Void
 
-    private var stackable: Bool { prompt.stack.target != nil }
+    private var stackable: Bool { prompt.stackable }
 
     var body: some View {
         GlassSheetChrome(title: prompt.title, height: .fitted) {

@@ -365,6 +365,8 @@ export function LaunchComposer({
           if (!next) model.closeBlockedStart()
         }}
         stackReason={model.blockedStack.reason}
+        stackIdent={model.blockedStack.ident}
+        stackRun={model.blockedStack.plan?.run ?? []}
         onStartAnyway={() => void model.startAnyway()}
         onStartStacked={() => void model.startStacked()}
       />
