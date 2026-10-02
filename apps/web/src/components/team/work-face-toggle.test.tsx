@@ -7,8 +7,7 @@ import {
   runFaceLabel,
   WorkFaceToggle,
 } from "@/components/team/work-face-toggle"
-import { RUN_TITLE_CLASS, WorkHeader } from "@exp/ui"
-import { ISSUE_TITLE_FIELD_CLASS } from "@/components/issue-title-field"
+import { CollapsedTitle, WorkHeader } from "@exp/ui"
 import {
   MERGE_PR_LABEL,
   RESUME_LABEL,
@@ -81,10 +80,10 @@ describe(`WorkFaceToggle`, () => {
 })
 
 describe(`WorkHeader`, () => {
-  it(`is the fixed band with the title, the trailing cluster and the tray`, () => {
+  it(`is the fixed bar with the collapsed title, the trailing cluster and the tray`, () => {
     render(
       <WorkHeader
-        title={<h1 className={RUN_TITLE_CLASS}>Chat</h1>}
+        title={<CollapsedTitle title="Chat" animate={false} />}
         trailing={<button type="button">act</button>}
         tray={<div data-testid="tray" />}
       />
@@ -95,17 +94,6 @@ describe(`WorkHeader`, () => {
     expect(screen.getByText(`Chat`)).toBeTruthy()
     expect(screen.getByText(`act`)).toBeTruthy()
     expect(screen.getByTestId(`tray`)).toBeTruthy()
-  })
-
-  it(`a run title shares the issue title field's size and padding`, () => {
-    // The baseline must not move when the face flips: every size/padding
-    // token of the Textarea appears on the static title too.
-    for (const token of [`text-2xl`, `font-semibold`, `px-5`, `pt-4`, `pb-1`]) {
-      expect(RUN_TITLE_CLASS.split(/\s+/)).toContain(token)
-      expect(
-        ISSUE_TITLE_FIELD_CLASS.split(/\s+/).map((t) => t.replace(/^!/, ``))
-      ).toContain(token)
-    }
   })
 })
 

@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import type * as React from "react"
 import { Files } from "lucide-react"
 import {
+  CollapsedTitle,
   conceptIcon,
   useIsMobile,
   Pill,
   type SessionDotTone,
   MOBILE_WORK_BAR_CLEARANCE,
+  WORK_BAR_HEIGHT,
   WORK_COLUMN_CLASS,
   WorkHeader,
   toast,
@@ -16,6 +18,8 @@ import type { Issue, User, Board } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
 import { issueMemoryOwner } from "@/lib/work-tab-memory"
 import { useRememberedScroll } from "@/hooks/use-remembered-scroll"
+import { useMeasuredSize, useTitleCollapsed } from "@/hooks/use-detail-chrome"
+import { MOBILE_DETAIL_SCREEN_CLASS } from "@/components/team/mobile-detail-header"
 import { trpc } from "@/lib/trpc-client"
 import {
   getIssueDescriptionText,
@@ -170,7 +174,27 @@ export function IssueDetailView({
 
   const editorRef = useRef<MarkdownEditorRef>(null)
   // EXP-894: the body comes back where it was left after a work-tab switch.
-  const bodyScrollRef = useRememberedScroll(issueMemoryOwner(issue.id), `scroll`)
+  const rememberedScrollRef = useRememberedScroll(
+    issueMemoryOwner(issue.id),
+    `scroll`
+  )
+  // EXP-1162: the detail chrome. The title is a ROW of the scrolling body;
+  // the header above it (the phone's overlay band, the md+ floating bar)
+  // breaks into the collapsed title once that row scrolled away under it.
+  const [mobileHeaderRef, mobileHeaderSize] = useMeasuredSize()
+  const [clusterRef, clusterSize] = useMeasuredSize()
+  const {
+    scrollRef: collapseScrollRef,
+    titleRef,
+    collapsed: titleCollapsed,
+  } = useTitleCollapsed(isMobile ? mobileHeaderSize.height : WORK_BAR_HEIGHT)
+  const bodyScrollRef = useCallback(
+    (node: HTMLElement | null) => {
+      rememberedScrollRef(node)
+      collapseScrollRef(node)
+    },
+    [rememberedScrollRef, collapseScrollRef]
+  )
 
   // EXP-928: the synced row lags its own save by a round trip, and this view
   // is REUSED across issue switches (only the `[issue.id]` effect reseeds it)
@@ -583,6 +607,9 @@ export function IssueDetailView({
       handlers={handlers}
       dot={mobileWork?.dot ?? null}
       tabs={mobileWork?.tabs}
+      collapsed={titleCollapsed}
+      overlay
+      headerRef={mobileHeaderRef}
       graphBadge={
         /* EXP-897: the same badge the md+ header wears (SLOP-16: an icon
            button + `+N` beside the `…`), opening the overlay as a sheet. */
@@ -706,9 +733,8 @@ export function IssueDetailView({
 
   if (isMobile) {
     return (
-      <div className="flex flex-col h-full min-h-0" {...mobileWork?.swipe}>
+      <div className={MOBILE_DETAIL_SCREEN_CLASS} {...mobileWork?.swipe}>
         {showMobileHeader && mobileHeader}
-        {duplicateBanner}
         {/* EXP-698: clearance for the floating bar below, so the last comment
             scrolls clear of it instead of ending under the glass
             (`MOBILE_WORK_BAR_CLEARANCE`); the tab bar itself is hidden on this
@@ -723,10 +749,14 @@ export function IssueDetailView({
           /* EXP-1152: the pager's body — it follows the finger between
              faces; the header band and the bar stay put. */
           data-face-body=""
+          /* EXP-1162: the header band floats over this scroller — the
+             column starts below it and scrolls under it. */
+          style={{ paddingTop: showMobileHeader ? mobileHeaderSize.height : 0 }}
         >
+          {duplicateBanner}
           {propsTray(false, false)}
           {parentLine}
-          {titleField}
+          <div ref={titleRef}>{titleField}</div>
           {editor}
           {attachmentError}
           {filesSection}
@@ -757,46 +787,67 @@ export function IssueDetailView({
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* EXP-818: no breadcrumb row — the sidebar's board row already says
-          where you are. EXP-877: the header is the ONE work header the
-          session route renders too, FIXED above the scrolling body (the
-          IDE's `work_header.rs`): title | face toggle · pin · `…`, then the
-          properties tray with Merge and the coding action inside it. */}
+          where you are. */}
       {duplicateBanner}
-      <WorkHeader
-        title={
-          <>
-            {parentLine}
-            {titleField}
-          </>
-        }
-        trailing={
-          <>
-            {/* EXP-897: what this issue is part of: its stack, its batch
-                (SLOP-16: an icon button per shape) or its
-                open blockers (EXP-1097: the same badge on every face). */}
-            <PrGraphBadge
-              teamId={teamId}
-              teamSlug={teamSlug}
-              issue={issue}
-            />
-            {faceToggle}
-            {/* EXP-949: no GitHub here — the way out to the PR belongs to the
-                Changes face (the run's diff, the Reviews page), never beside
-                the issue itself. */}
-            {pinToggle}
-            <IssueActionsMenu
-              issue={issue}
-              board={board}
-              teamSlug={teamSlug}
-              readOnly={readOnly}
-            />
-          </>
-        }
-        tray={propsTray(true)}
-      />
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <div className="flex flex-1 min-w-0 flex-col overflow-hidden">
-          <div ref={bodyScrollRef} className="flex-1 min-h-0 overflow-y-auto">
+          <div
+            ref={bodyScrollRef}
+            className="flex-1 min-h-0 overflow-y-auto"
+            data-detail-scroll=""
+          >
+            {/* EXP-877: the ONE work header the session route renders too
+                (the IDE's `work_header.rs`). EXP-1162: a compact bar
+                FLOATING over this scroller — face toggle · pin · `…` on the
+                title's own line at rest; the collapsed title beside them
+                once the title row below scrolled away under it. */}
+            <WorkHeader
+              floating
+              collapsed={titleCollapsed}
+              title={
+                <CollapsedTitle
+                  identifier={issue.identifier}
+                  title={issue.title}
+                />
+              }
+              trailingRef={clusterRef}
+              trailing={
+                <>
+                  {/* EXP-897: what this issue is part of: its stack, its
+                      batch (SLOP-16: an icon button per shape) or its open
+                      blockers (EXP-1097: the same badge on every face). */}
+                  <PrGraphBadge
+                    teamId={teamId}
+                    teamSlug={teamSlug}
+                    issue={issue}
+                  />
+                  {faceToggle}
+                  {/* EXP-949: no GitHub here — the way out to the PR belongs
+                      to the Changes face (the run's diff, the Reviews page),
+                      never beside the issue itself. */}
+                  {pinToggle}
+                  <IssueActionsMenu
+                    issue={issue}
+                    board={board}
+                    teamSlug={teamSlug}
+                    readOnly={readOnly}
+                  />
+                </>
+              }
+            />
+            {/* The title row: the large editable title, clear of the bar's
+                cluster on its right. The tray (Merge and the coding action
+                inside it) follows as the next row and scrolls with it. */}
+            <div className={WORK_COLUMN_CLASS}>
+              <div
+                ref={titleRef}
+                style={{ paddingRight: clusterSize.width }}
+              >
+                {parentLine}
+                {titleField}
+              </div>
+            </div>
+            <div className="pb-3">{propsTray(true)}</div>
             <div className={WORK_COLUMN_CLASS}>
               {faceBody ?? (
                 <>

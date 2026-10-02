@@ -55,9 +55,10 @@ import {
   ContextRing,
   SessionResultsView,
   parseSessionResultGroups,
-  RUN_TITLE_CLASS,
   WORK_COLUMN_CLASS,
   WorkHeader,
+  CollapsedTitle,
+  DETAIL_EDGE_BOTTOM_CARD_CLASS,
   Composer,
   ComposerSubmit,
   ExponentialLogo,
@@ -1294,11 +1295,14 @@ export function AgentSessionView({
            way out. No identity block, no phase caption: the title says what
            the run is, the transcript's footer says what it is doing. */
         <WorkHeader
+          /* EXP-1162: a run face has no title row of its own, so the bar is
+             always collapsed — the issue's identifier over its title, or
+             the run's own subject. */
           title={
             issueHeader ? (
               issueHeader.title
             ) : (
-              <h1 className={RUN_TITLE_CLASS}>{identity.subject}</h1>
+              <CollapsedTitle title={identity.subject} animate={false} />
             )
           }
           trailing={
@@ -1754,6 +1758,12 @@ export function AgentSessionView({
                 </div>
               )}
             </div>
+            {/* EXP-1162: the bottom edge on md+ — the transcript's last rows
+                fade out over the composer instead of meeting a hairline (a
+                phone's floating bar carries its own). */}
+            {!isMobile && (
+              <span aria-hidden className={DETAIL_EDGE_BOTTOM_CARD_CLASS} />
+            )}
             {!atBottom && feed.length > 0 && (
               <Button
                 variant="secondary"
@@ -1910,7 +1920,7 @@ export function AgentSessionView({
           {/* Steering composer. Steering is fully seamless (EXP-312) — no
               captions, no operator state; live implies ownership. */}
           {composerVisible && !isMobile && (
-            <div className="border-t border-border p-2">
+            <div className="p-2">
               <div className={WORK_COLUMN_CLASS}>
                 <SteerComposer
                   store={store}

@@ -1,9 +1,9 @@
-import type { ReactNode } from "react"
+import type { ReactNode, Ref } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import type { Board, Issue } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import { originListNavigation, parseOrigin } from "@/lib/detail-origin"
-import { SESSION_DOT_CLASS, type SessionDotTone } from "@exp/ui"
+import { CollapsedTitle, SESSION_DOT_CLASS, type SessionDotTone } from "@exp/ui"
 import { faceShowsContextMenu, type WorkFaceKind } from "@/lib/work-faces"
 import { cn } from "@/lib/utils"
 import { issueUrlFor } from "@/components/issue-actions-menu"
@@ -56,6 +56,9 @@ export function IssueMobileHeader({
   dot,
   face = `issue`,
   tabs,
+  collapsed = face !== `issue`,
+  overlay = false,
+  headerRef,
 }: {
   issue: Issue
   board: Board
@@ -84,6 +87,14 @@ export function IssueMobileHeader({
   /** EXP-1150: the face strip INSIDE the header band, under the title row
    *  (`MobileFaceTabs`) — absent with a single face. */
   tabs?: ReactNode
+  /** EXP-1162: the title row scrolled away under the band — the header
+   *  breaks into identifier over title (`isTitleCollapsed`). A face with no
+   *  title row of its own (Run, Changes, Results) is always collapsed. */
+  collapsed?: boolean
+  /** EXP-1162: the band floats over the face's scroller (`MobileDetailHeader`
+   *  `overlay`); `headerRef` is the band the scroller pads by. */
+  overlay?: boolean
+  headerRef?: Ref<HTMLDivElement>
 }) {
   const navigate = useNavigate()
 
@@ -113,11 +124,30 @@ export function IssueMobileHeader({
   return (
     <MobileDetailHeader
       below={tabs}
+      overlay={overlay}
+      ref={headerRef}
       title={
-        <>
-          {dot && <TitleStateDot tone={dot.tone} connecting={dot.connecting} />}
-          <span className="font-mono">{issue.identifier}</span>
-        </>
+        collapsed ? (
+          <CollapsedTitle
+            align="center"
+            // Only the Issue face BREAKS; the others never showed less.
+            animate={face === `issue`}
+            lead={
+              dot && (
+                <TitleStateDot tone={dot.tone} connecting={dot.connecting} />
+              )
+            }
+            identifier={issue.identifier}
+            title={issue.title}
+          />
+        ) : (
+          <>
+            {dot && (
+              <TitleStateDot tone={dot.tone} connecting={dot.connecting} />
+            )}
+            <span className="font-mono">{issue.identifier}</span>
+          </>
+        )
       }
       backLabel="Back"
       onBack={goBackToList}

@@ -11,11 +11,12 @@ import { SEGMENTED_ROW, SEGMENTED_ROW_COMPACT, SEGMENTED_TAB } from "@exp/ui"
 // hand-rolled back row anywhere is the bug this pins.
 
 describe(`MobileDetailHeader`, () => {
-  it(`is one line with a hairline, never a card`, () => {
+  it(`is one line, never a card — and no hairline (EXP-1162)`, () => {
     const tokens = MOBILE_DETAIL_HEADER_CLASS.split(/\s+/)
     expect(tokens).toContain(`h-12`)
     expect(tokens).toContain(`shrink-0`)
-    expect(tokens).toContain(`border-b`)
+    // The band sits on the edge layer, whose fade replaced the hairline.
+    expect(MOBILE_DETAIL_HEADER_CLASS).not.toContain(`border`)
     // A rounded/filled bar would read as a second card inside the panel.
     expect(MOBILE_DETAIL_HEADER_CLASS).not.toContain(`rounded`)
     expect(MOBILE_DETAIL_HEADER_CLASS).not.toContain(`bg-`)

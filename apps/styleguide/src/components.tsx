@@ -122,7 +122,6 @@ import {
   Pill,
   PrGithubButton,
   PreviewMedia,
-  RUN_TITLE_CLASS,
   RichTab,
   ResizeHandle,
   SearchField,
@@ -143,6 +142,7 @@ import {
   UserAvatar,
   WORK_COLUMN_CLASS,
   WorkHeader,
+  CollapsedTitle,
   ChangesFaceLabel,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -3718,7 +3718,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `work-bar`,
     title: `Work bar`,
     kind: `Surfaces`,
-    blurb: `EXP-893: the phone's ONE floating bottom bar, \`[circle] [capsule] [circle]\` in the floating-glass recipe, shared by every face of the Work screen — the issue (Properties · Comment · Start), the run (usage ring · composer · Start once the run ended for good) and the changes (the file sheet); the results face has none. EXP-1150: the face SWITCHER circle is gone — the faces are the segmented tabs INSIDE the header band (the Work header's own \`WorkFaceToggle\`, iOS/Android \`GlassSegmentedControl\`) with the Merge PR pill beside them on every face, and the body swipes between them; the bar keeps only the face's own controls (the Reviews page keeps its Merge capsule). EXP-916 locked the geometry to Android's: a 20px screen inset, 10px between the slots, 52px circles with 20px glyphs, a capsule padded 18px. Expanding the composer replaces the left circle and the capsule while the trailing circle stays MOUNTED. The real bar is \`fixed … md:hidden\`, so the specimen is its SLOTS in a row.`,
+    blurb: `EXP-893: the phone's ONE floating bottom bar, \`[circle] [capsule] [circle]\` in the floating-glass recipe, shared by every face of the Work screen — the issue (Properties · Comment · Start), the run (usage ring · composer · Start once the run ended for good) and the changes (the file sheet); the results face has none. EXP-1150: the face SWITCHER circle is gone — the faces are the segmented tabs INSIDE the header band (the Work header's own \`WorkFaceToggle\`, iOS/Android \`GlassSegmentedControl\`) with the Merge PR pill beside them on every face, and the body swipes between them; the bar keeps only the face's own controls (the Reviews page keeps its Merge capsule). EXP-916 locked the geometry to Android's: a 20px screen inset, 10px between the slots, 52px circles with 20px glyphs, a capsule padded 18px. Expanding the composer replaces the left circle and the capsule while the trailing circle stays MOUNTED. EXP-1162: the last rows pass BEHIND the bar through the bottom edge layer (contract \`detail-chrome.json\`: a blurred scrim fading upwards from the screen edge to 32px above the bar) instead of ending hard under the slots. The real bar is \`fixed … md:hidden\`, so the specimen is its SLOTS in a row.`,
     status: {
       web: ok(
         `MobileWorkBar / MobileWorkCapsule`,
@@ -3762,49 +3762,78 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `work-header`,
     title: `Work header`,
     kind: `Surfaces`,
-    blurb: `EXP-877: the ONE header the issue route and the session route share, so the title never moves when the face flips between an issue and its run. Row 1 is the title — an editable field for an issue, static text at exactly the field's padding and weight for a run — with the right cluster top-aligned on the SAME line; row 2 is the properties tray, absent on issue-less runs. It is sticky at the top of the view's own scroller and rides the 896px reading column every other face uses (body, transcript, diff). The band repaints the panel's own ground under the window scrim, or it reads as a black bar over the card.`,
+    blurb: `EXP-877: the ONE header the issue route and the session route share, on the 896px reading column every face uses (body, transcript, diff). EXP-1162 (contract \`detail-chrome.json\`, ×4): it is a compact BAR and the large title is a ROW of the issue face's scrolling body. At rest the bar floats over the scroller with its right cluster alone, on the title's own line; once the title row scrolled away it BREAKS (a threshold, 160ms, rising 4px) into the collapsed title — the mono identifier over the title on one truncated line. A face with no title row of its own (Run, diff, Results) is always collapsed, with the properties tray under the bar. No hairline closes it: content scrolls under an edge layer (page ground at 72% over an 8px blur) whose last 24px fade to nothing; the phone's header band and floating bottom bar (32px) wear the same edges.`,
     status: {
       web: ok(
-        `WorkHeader`,
+        `WorkHeader / CollapsedTitle`,
         `packages/ui/src/work-header.tsx`,
-        `WORK_COLUMN_CLASS, RUN_TITLE_CLASS and DETAIL_STICKY_BAND_CLASS ship with it`
+        `detail-chrome.tsx holds CollapsedTitle and the DETAIL_EDGE_* layers the phone header and bar also draw`
       ),
       desktop: ok(
         `work_header::render_work_header`,
         `apps/desktop/crates/ui/src/work_header.rs`,
-        `WORK_COLUMN_W is the same 896; header_action_size picks the pill rung by PLACEMENT`
+        `gpui cannot blur in-window content: the edges are the scrim fade alone (surface.rs)`
       ),
-      ios: leftover(
+      ios: ok(
         `WorkTitle`,
         `apps/ios/Exponential/UI/Work/WorkTitle.swift`,
-        `the header is the system nav bar's .toolbar in WorkScreen.swift — no sticky band and no tray row`
+        `the system nav bar's .toolbar (WorkScreen.swift) over workHeaderBand; properties stay a row of the issue face`
       ),
-      android: leftover(
+      android: ok(
         `WorkTopBar`,
         `apps/android/app/src/main/java/com/exponential/app/ui/work/WorkTopBar.kt`,
-        `an M3 TopAppBar: the trailing verbs match, but there is no properties tray under it`
+        `an M3 TopAppBar over the face tabs; the blur needs API 31, below it the scrim fade alone`
       ),
     },
-    island: () => (
-      <WorkHeader
-        title={<h1 className={RUN_TITLE_CLASS}>Fix the merge queue</h1>}
-        trailing={
-          <Button variant="ghost" size="icon-sm" aria-label="More">
-            <MoreGlyph />
-          </Button>
-        }
-        tray={
-          <div className={`flex flex-wrap items-center gap-2 px-5 pt-1 ${WORK_COLUMN_CLASS}`}>
-            <Pill mode="select" leading={<StatusGlyph {...BACKLOG_GLYPH} className="size-3.5" />}>
-              Backlog
-            </Pill>
-            <Pill mode="select" leading={<MergeGlyph className="size-3.5" />}>
-              exp/APP-14
-            </Pill>
+    island: () => {
+      const cluster = (
+        <Button variant="ghost" size="icon-sm" aria-label="More">
+          <MoreGlyph />
+        </Button>
+      )
+      const lines = (
+        <div className={`flex flex-col gap-2 px-5 pb-4 text-sm text-muted-foreground ${WORK_COLUMN_CLASS}`}>
+          <p>Merges queue behind a stale base and never retry.</p>
+          <p>Retarget the open children first, then squash the root.</p>
+        </div>
+      )
+      return (
+        <div className="flex flex-col gap-4">
+          {/* At rest: the bar floats over the title row, cluster alone. */}
+          <div className="relative overflow-hidden rounded-xl border border-glass-stroke-card">
+            <WorkHeader floating collapsed={false} title={null} trailing={cluster} />
+            <h1 className={`px-5 pt-2 pb-3 pr-14 text-2xl font-semibold ${WORK_COLUMN_CLASS}`}>
+              Fix the merge queue
+            </h1>
+            {lines}
           </div>
-        }
-      />
-    ),
+          {/* Collapsed: the title broke into the bar, content fades under it. */}
+          <div className="relative overflow-hidden rounded-xl border border-glass-stroke-card">
+            <WorkHeader
+              title={
+                <CollapsedTitle
+                  identifier="APP-14"
+                  title="Fix the merge queue"
+                  animate={false}
+                />
+              }
+              trailing={cluster}
+              tray={
+                <div className={`flex flex-wrap items-center gap-2 px-5 pt-1 ${WORK_COLUMN_CLASS}`}>
+                  <Pill mode="select" leading={<StatusGlyph {...BACKLOG_GLYPH} className="size-3.5" />}>
+                    Backlog
+                  </Pill>
+                  <Pill mode="select" leading={<MergeGlyph className="size-3.5" />}>
+                    exp/APP-14
+                  </Pill>
+                </div>
+              }
+            />
+            {lines}
+          </div>
+        </div>
+      )
+    },
   },
   {
     id: `changes-file-sheet`,

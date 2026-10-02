@@ -12,10 +12,15 @@ import { IssueActionsMenu } from "@/components/issue-actions-menu"
 import { IssueCodingAction } from "@/components/issue-coding-action"
 import { IssueMobileHeader } from "@/components/issue-mobile-header"
 import { IssuePropertiesTray } from "@/components/issue-properties-tray"
-import { IssueTitleField } from "@/components/issue-title-field"
 import { PinToggleButton } from "@/components/pin-toggle-button"
 import { PrGraphBadge } from "@/components/pr-graph-badge"
-import { Button, PrGithubButton, useIsMobile, type SessionDotTone } from "@exp/ui"
+import {
+  Button,
+  CollapsedTitle,
+  PrGithubButton,
+  useIsMobile,
+  type SessionDotTone,
+} from "@exp/ui"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import type { WorkFace } from "@/components/team/work-face-toggle"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
@@ -316,7 +321,15 @@ function OwnSessionPage({
   const issueHeader =
     issue && board
       ? {
-          title: <IssueTitleField issue={issue} readOnly={readOnly} />,
+          // EXP-1162: the run face's bar is always collapsed — the title is
+          // edited on the Issue face, where it is a row of the body.
+          title: (
+            <CollapsedTitle
+              identifier={issue.identifier}
+              title={issue.title}
+              animate={false}
+            />
+          ),
           trailing: (
             <>
               <PinToggleButton

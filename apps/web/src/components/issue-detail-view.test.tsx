@@ -36,7 +36,7 @@ vi.mock(`@/hooks/use-issue-property-handlers`, () => ({
   }),
 }))
 vi.mock(`@/hooks/use-remembered-scroll`, () => ({
-  useRememberedScroll: () => ({ current: null }),
+  useRememberedScroll: () => () => {},
 }))
 vi.mock(`@/components/issue-ref-provider`, () => ({ useIssueRefs: () => null }))
 // Every sibling of the description is scenery for this test.

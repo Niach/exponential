@@ -545,6 +545,80 @@ html {
   backdrop-filter: blur(24px);
 }
 
+/* EXP-1162: the detail chrome's EDGE STRIPS (contract `detail-chrome.json`:
+   scrim 72%, blur 8px, 24px top / 32px bottom). Content scrolls UNDER the
+   header band and the floating bottom bar; these paint what it passes behind.
+   Top: the layer spans the band plus `edgeTop` below it — the band reads as
+   the page continuing (the same endpoint tint the chrome utilities above
+   use), and the last 24px fade scrim AND blur to nothing through the mask,
+   where a hairline used to cut. Bottom: the layer spans the bar plus
+   `edgeBottom` above it and fades upwards over its whole height, so the
+   floating slots sit on a soft ground instead of a band. `-card` repaints
+   the cutout panel's own fill, for chrome inside the md+ card (EXP-760). */
+@utility glass-edge-top {
+  background-color: color-mix(
+    in oklab,
+    var(--glass-background-top) 72%,
+    transparent
+  );
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    black calc(100% - 24px),
+    transparent
+  );
+  mask-image: linear-gradient(to bottom, black calc(100% - 24px), transparent);
+}
+
+@utility glass-edge-top-card {
+  background-color: color-mix(
+    in oklab,
+    var(--glass-background-top) 72%,
+    transparent
+  );
+  background-image: linear-gradient(
+    var(--glass-fill-panel),
+    var(--glass-fill-panel)
+  );
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    black calc(100% - 24px),
+    transparent
+  );
+  mask-image: linear-gradient(to bottom, black calc(100% - 24px), transparent);
+}
+
+@utility glass-edge-bottom {
+  background-color: color-mix(
+    in oklab,
+    var(--glass-background-bottom) 72%,
+    transparent
+  );
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  -webkit-mask-image: linear-gradient(to top, black, transparent);
+  mask-image: linear-gradient(to top, black, transparent);
+}
+
+@utility glass-edge-bottom-card {
+  background-color: color-mix(
+    in oklab,
+    var(--glass-background-top) 72%,
+    transparent
+  );
+  background-image: linear-gradient(
+    var(--glass-fill-panel),
+    var(--glass-fill-panel)
+  );
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  -webkit-mask-image: linear-gradient(to top, black, transparent);
+  mask-image: linear-gradient(to top, black, transparent);
+}
+
 /* Full-viewport gradient repaint for full-screen covers that would otherwise
    occlude the body gradient with an opaque background. */
 @utility bg-app-gradient {

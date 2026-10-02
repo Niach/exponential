@@ -1,4 +1,5 @@
 import type { ComponentProps, ReactNode } from "react"
+import { DETAIL_EDGE_BOTTOM_CLASS } from "./detail-chrome"
 import { FAB_CIRCLE_CLASS } from "./fab-chrome"
 import { useKeyboardInset } from "./use-keyboard-inset"
 import { cn } from "./cn"
@@ -96,6 +97,10 @@ export function MobileWorkBar({
       )}
       style={isExpanded && inset > 0 ? { bottom: inset } : undefined}
     >
+      {/* EXP-1162: the bottom edge — the last rows pass behind the bar
+          through a thin blurred fade instead of ending hard under the
+          slots. */}
+      <span aria-hidden className={DETAIL_EDGE_BOTTOM_CLASS} />
       {isExpanded ? (
         <div className="pointer-events-auto min-w-0 flex-1 animate-in fade-in zoom-in-95 duration-fast ease-standard motion-reduce:animate-none">
           {expanded}

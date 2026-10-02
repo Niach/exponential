@@ -14,6 +14,8 @@ import { cn } from "@/lib/utils"
 import type { ReviewFilesState } from "@/hooks/use-review-files"
 import { ChangesView } from "@/components/changes-view"
 import { IssueMobileHeader } from "@/components/issue-mobile-header"
+import { MOBILE_DETAIL_SCREEN_CLASS } from "@/components/team/mobile-detail-header"
+import { useMeasuredSize } from "@/hooks/use-detail-chrome"
 import {
   FACE_BODY_TOUCH_CLASS,
   type FaceSwipeHandlers,
@@ -96,10 +98,12 @@ export function IssueChangesFace({
   // issue face binds (`use-issue-property-handlers.ts`).
   const handlers = useIssuePropertyHandlers({ issue, teamSlug, readOnly })
   const files = state.kind === `files` ? state.files : []
+  // EXP-1162: the header band floats over the scroller, which pads by it.
+  const [headerRef, headerSize] = useMeasuredSize()
 
   return (
     <div
-      className="flex h-full min-h-0 flex-col"
+      className={MOBILE_DETAIL_SCREEN_CLASS}
       data-testid="issue-changes-face"
       {...swipe}
     >
@@ -127,6 +131,8 @@ export function IssueChangesFace({
         }
         dot={dot}
         tabs={tabs}
+        overlay
+        headerRef={headerRef}
       />
       <div
         className={cn(
@@ -136,6 +142,7 @@ export function IssueChangesFace({
         )}
         /* EXP-1152: the pager's body — it follows the finger. */
         data-face-body=""
+        style={{ paddingTop: headerSize.height }}
       >
         {state.kind === `loading` && (
           <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted-foreground">
