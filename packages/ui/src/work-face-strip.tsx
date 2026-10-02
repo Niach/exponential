@@ -96,7 +96,8 @@ function RunMark({
       title={FACE_DOT_LABEL[tone]}
       data-testid="face-run-mark"
       data-tone={tone}
-      className="mr-1.5 inline-flex shrink-0"
+      // The segment's own `gap-1.5` is the contract's 6px.
+      className="inline-flex shrink-0"
     >
       <AgentRunMark
         agent={run?.agent}
@@ -118,7 +119,7 @@ function FaceDot({ tone }: { tone: SessionDotTone | undefined }) {
       data-testid="face-dot"
       data-tone={tone}
       className={cn(
-        `ml-1.5 inline-block size-1.5 shrink-0 rounded-full`,
+        `inline-block size-1.5 shrink-0 rounded-full`,
         SESSION_DOT_CLASS[tone]
       )}
     />
