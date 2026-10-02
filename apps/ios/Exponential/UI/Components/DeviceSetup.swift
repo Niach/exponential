@@ -2,23 +2,27 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-/// Step 4 of the first-run wizard (EXP-725): point the user at the two places
-/// a coding session can actually run.
+/// The ONE device setup block (EXP-725, EXP-1169): point the user at the two
+/// places a coding session can actually run. Four hosts render it unchanged:
 ///
-/// LAST on purpose — it is the one step whose work happens on ANOTHER machine,
-/// so it must not stand between a new user and their first board. Both
-/// sub-cards reuse the getting-started checklist's copy (`desktop*` /
+///   1. the first-run wizard's step 4 (create path), via `DevicesStepView`
+///   2. the join step after `teamInvites.accept` when the caller owns no
+///      machine, via `DevicesStepView` (wizard, invite deep link, team sheet)
+///   3. `AddDeviceSheet`, the Devices tab's "Add device" pill
+///   4. the coding readiness sheet's server fix, via `AddDeviceSheet`
+///
+/// Both sub-cards reuse the getting-started checklist's copy (`desktop*` /
 /// `server*`), because they are the same two steps said once: download the
 /// desktop app, or copy the daemon install one-liner for an always-on box.
 ///
 /// Under the cards, the caller's OWN registered machines off the synced
-/// `devices` shape — the same rows (and the same settings sheet) the Devices
-/// tab renders, so a machine that signed in while the wizard was open shows up
-/// here and the trailing button turns from "Skip for now" into "Continue".
-struct OnboardingDevicesStep: View {
+/// `devices` shape: the same rows (and the same settings sheet) the Devices
+/// tab renders, so a machine that signed in while the block was open shows up
+/// here and a host's trailing button turns from "Skip for now" into "Continue".
+struct DeviceSetup: View {
     let accountId: String
-    /// The wizard's trailing button, rendered by the host below this view —
-    /// the step only reports whether at least one own machine exists.
+    /// A host's trailing button, rendered by the host below this view. The
+    /// block only reports whether at least one own machine exists.
     let onDevicesChanged: (Bool) -> Void
 
     @Environment(AppDependencies.self) private var deps
@@ -36,8 +40,8 @@ struct OnboardingDevicesStep: View {
         let id: String
     }
 
-    /// Own machines only. The wizard never lists a teammate's shared server:
-    /// this step is about the user's OWN setup.
+    /// Own machines only. The block never lists a teammate's shared server:
+    /// it is about the user's OWN setup.
     private var myDevices: [SteerDevice] {
         viewModel?.devices?.filter(\.isMine) ?? []
     }
@@ -85,7 +89,7 @@ struct OnboardingDevicesStep: View {
         .sheet(item: $settingsTarget) { target in
             if let viewModel {
                 // No team list: sharing a machine with a team is a later
-                // decision, and the wizard's user is in exactly one team.
+                // decision, made from the Devices tab's own rows.
                 DeviceSettingsSheet(
                     viewModel: viewModel, deviceId: target.id, teams: []
                 )
@@ -152,8 +156,8 @@ struct OnboardingDevicesStep: View {
 
     // MARK: - Machine rows
 
-    /// The Devices tab's row, minus the launcher and the overflow menu — there
-    /// is nothing to code on yet, and the wizard's only affordance is opening
+    /// The Devices tab's row, minus the launcher and the overflow menu: the
+    /// block is about setting a machine up, and its only affordance is opening
     /// the settings sheet to sign an agent in.
     private func deviceRow(_ device: SteerDevice) -> some View {
         Button {
@@ -186,8 +190,8 @@ struct OnboardingDevicesStep: View {
         .opacity(device.needsAgentSignIn ? 0.6 : 1)
     }
 
-    /// The Devices tab's live/offline caption, minus the update states the
-    /// wizard can never produce (EXP-409: signed-out agents replace "Online"
+    /// The Devices tab's live/offline caption, minus the update states a
+    /// freshly set up machine can never produce (EXP-409: signed-out agents replace "Online"
     /// when nothing is runnable, and annotate it otherwise).
     @ViewBuilder
     private func statusLine(_ device: SteerDevice) -> some View {

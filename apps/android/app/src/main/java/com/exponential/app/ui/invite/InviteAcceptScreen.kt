@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -30,7 +32,9 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.InvitePreview
 import com.exponential.app.data.api.TeamInvitesApi
 import com.exponential.app.data.api.trpcErrorMessage
+import com.exponential.app.ui.components.OwnDevices
 import com.exponential.app.ui.components.TopBarBackButton
+import com.exponential.app.ui.onboarding.OnboardingDevicesStep
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,6 +47,9 @@ data class InviteAcceptState(
     val preview: InvitePreview? = null,
     val accepting: Boolean = false,
     val acceptedTeamName: String? = null,
+    /** EXP-1169: accepted by a caller who owns no device, so the screen shows
+     *  the devices step before leaving. */
+    val showDeviceStep: Boolean = false,
     val error: String? = null,
 )
 
@@ -50,9 +57,12 @@ data class InviteAcceptState(
 class InviteAcceptViewModel @Inject constructor(
     private val invitesApi: TeamInvitesApi,
     private val auth: com.exponential.app.data.auth.AuthRepository,
+    private val ownDevices: OwnDevices,
 ) : ViewModel() {
     private val _state = MutableStateFlow(InviteAcceptState())
     val state: StateFlow<InviteAcceptState> = _state.asStateFlow()
+
+    val instanceOrigin: StateFlow<String?> = auth.instanceUrl
 
     fun load(token: String) {
         viewModelScope.launch {
@@ -75,9 +85,11 @@ class InviteAcceptViewModel @Inject constructor(
             _state.value = _state.value.copy(accepting = true, error = null)
             runCatching { invitesApi.accept(accountId, token) }
                 .onSuccess {
+                    val showDeviceStep = ownDevices.needsJoinDeviceStep()
                     _state.value = _state.value.copy(
                         accepting = false,
                         acceptedTeamName = it.team.name,
+                        showDeviceStep = showDeviceStep,
                     )
                 }
                 .onFailure {
@@ -99,10 +111,13 @@ fun InviteAcceptScreen(
     viewModel: InviteAcceptViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val instanceOrigin by viewModel.instanceOrigin.collectAsStateWithLifecycle()
 
     LaunchedEffect(token) { viewModel.load(token) }
-    LaunchedEffect(state.acceptedTeamName) {
-        if (state.acceptedTeamName != null) onAccepted()
+    // EXP-1169: a caller who owns no device sees the devices step first; its
+    // Continue leaves instead.
+    LaunchedEffect(state.acceptedTeamName, state.showDeviceStep) {
+        if (state.acceptedTeamName != null && !state.showDeviceStep) onAccepted()
     }
 
     Scaffold(
@@ -128,6 +143,12 @@ fun InviteAcceptScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             when {
+                state.showDeviceStep -> Column(
+                    modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    OnboardingDevicesStep(instanceOrigin = instanceOrigin, onContinue = onAccepted)
+                }
                 state.loading -> CircularProgressIndicator()
                 state.error != null -> Text(
                     state.error!!,

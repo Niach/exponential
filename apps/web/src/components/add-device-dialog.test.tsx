@@ -101,6 +101,32 @@ describe(`AddDeviceDialog`, () => {
     )
   })
 
+  // EXP-1169: the dialog is one host of the shared device-setup block, the
+  // same content the wizard's devices step and the join step render.
+  it(`renders the device-setup block: both cards, then the caller's devices`, async () => {
+    const { rerender } = render(
+      <AddDeviceDialog open onOpenChange={() => {}} devices={[]} origin={ORIGIN} />
+    )
+    await waitFor(() => screen.getByTestId(`install-snippet-token`))
+    expect(screen.getByText(`Get the desktop app`)).toBeTruthy()
+    expect(screen.getByText(`Set up a server`)).toBeTruthy()
+    expect(
+      screen.getByText(
+        `No devices yet. Sign in on the desktop app or a server and it shows up here.`
+      )
+    ).toBeTruthy()
+
+    rerender(
+      <AddDeviceDialog
+        open
+        onOpenChange={() => {}}
+        devices={[dev(`a`, true)]}
+        origin={ORIGIN}
+      />
+    )
+    expect(screen.getByText(`Box a`)).toBeTruthy()
+  })
+
   it(`shows the device-code error and keeps the plain command on a mint failure`, async () => {
     mocks.createInstallToken.mockRejectedValue(new Error(`nope`))
     mocks.device.mockResolvedValue({ data: null, error: { error: `expired_token` } })

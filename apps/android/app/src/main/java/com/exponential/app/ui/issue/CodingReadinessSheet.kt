@@ -42,10 +42,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -59,6 +57,7 @@ import com.exponential.app.domain.CodingReadiness.Fix
 import com.exponential.app.domain.CodingReadiness.StepKey
 import com.exponential.app.domain.CodingReadiness.StepState
 import com.exponential.app.domain.CodingReadinessRepoPicker
+import com.exponential.app.ui.components.AddDeviceSheet
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetDefaults
@@ -66,7 +65,6 @@ import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.GlassSheetSearchField
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.onboarding.GithubRepoPickerSheet
-import com.exponential.app.ui.onboarding.OnboardingCopy
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -120,28 +118,17 @@ fun CodingReadinessSheet(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val setting by viewModel.setting.collectAsStateWithLifecycle()
     val setError by viewModel.setError.collectAsStateWithLifecycle()
-    val instanceOrigin by viewModel.instanceOrigin.collectAsStateWithLifecycle()
     val readiness = state.readiness
     var page by rememberSaveable { mutableStateOf(ReadinessPage.Checklist) }
     var addFromGithub by remember { mutableStateOf(false) }
-    var serverCopied by remember { mutableStateOf(false) }
+    // EXP-1169: "Set up a server" opens the shared Add device sheet (the
+    // install snippet's copy pill gates on the instance origin there).
+    var addDevice by remember { mutableStateOf(false) }
     val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
-
-    // Copying the install command needs an instance to point the daemon at:
-    // `EXP_INSTANCE= sh` would hand over a broken command, so no origin = no button.
-    val fixes = availableFixes.filterTo(mutableSetOf()) { fix ->
-        fix != Fix.SET_UP_SERVER || instanceOrigin != null
-    }
+    val fixes = availableFixes
     // A board that got its repository (here or elsewhere) has nothing to pick.
     LaunchedEffect(state.board?.repositoryId) {
         if (state.board?.repositoryId != null) page = ReadinessPage.Checklist
-    }
-    LaunchedEffect(serverCopied) {
-        if (serverCopied) {
-            kotlinx.coroutines.delay(2_000)
-            serverCopied = false
-        }
     }
 
     val onFix: (Fix) -> Unit = { fix ->
@@ -153,10 +140,7 @@ fun CodingReadinessSheet(
             Fix.GET_DESKTOP_APP -> runCatching {
                 context.startActivity(Intent(Intent.ACTION_VIEW, AppConstants.DESKTOP_RELEASES_URL.toUri()))
             }
-            Fix.SET_UP_SERVER -> instanceOrigin?.let { origin ->
-                clipboard.setText(AnnotatedString(AppConstants.serverInstallSnippet(origin)))
-                serverCopied = true
-            }
+            Fix.SET_UP_SERVER -> addDevice = true
             Fix.CONNECT_GITHUB, Fix.BOARD_SETTINGS, Fix.OPEN_DEVICES -> onNavigateFix(fix)
         }
     }
@@ -166,7 +150,6 @@ fun CodingReadinessSheet(
             ReadinessPage.Checklist -> Checklist(
                 readiness = readiness,
                 fixes = fixes,
-                serverCopied = serverCopied,
                 onFix = onFix,
                 onStart = onStart,
             )
@@ -187,6 +170,9 @@ fun CodingReadinessSheet(
 
     val accountId = state.accountId
     val teamId = state.board?.teamId
+    if (addDevice) {
+        AddDeviceSheet(onDismiss = { addDevice = false })
+    }
     if (addFromGithub && accountId != null && teamId != null) {
         GithubRepoPickerSheet(
             accountId = accountId,
@@ -201,7 +187,6 @@ fun CodingReadinessSheet(
 private fun ColumnScope.Checklist(
     readiness: CodingReadiness.Readiness,
     fixes: Set<Fix>,
-    serverCopied: Boolean,
     onFix: (Fix) -> Unit,
     onStart: () -> Unit,
 ) {
@@ -246,7 +231,6 @@ private fun ColumnScope.Checklist(
             StepRow(
                 step = step,
                 fixes = step.fixes.filter { it in fixes },
-                serverCopied = serverCopied,
                 onFix = onFix,
             )
             HorizontalDivider(thickness = GlassTokens.Hairline, color = GlassTokens.StrokeRow)
@@ -296,7 +280,6 @@ private fun StepIcon(step: CodingReadiness.Step) {
 private fun StepRow(
     step: CodingReadiness.Step,
     fixes: List<Fix>,
-    serverCopied: Boolean,
     onFix: (Fix) -> Unit,
 ) {
     val current = step.state == StepState.CURRENT
@@ -312,7 +295,7 @@ private fun StepRow(
         if (step.state == StepState.MET) {
             MetRowText(step)
         } else {
-            OpenRowText(step, current, fixes, serverCopied, onFix)
+            OpenRowText(step, current, fixes, onFix)
         }
     }
 }
@@ -348,7 +331,6 @@ private fun RowScope.OpenRowText(
     step: CodingReadiness.Step,
     current: Boolean,
     fixes: List<Fix>,
-    serverCopied: Boolean,
     onFix: (Fix) -> Unit,
 ) {
     Column(modifier = Modifier.weight(1f)) {
@@ -373,12 +355,7 @@ private fun RowScope.OpenRowText(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 fixes.forEachIndexed { index, fix ->
-                    val label = if (fix == Fix.SET_UP_SERVER && serverCopied) {
-                        OnboardingCopy.INVITE_COPIED
-                    } else {
-                        fix.label
-                    }
-                    FixButton(label = label, primary = index == 0, onClick = { onFix(fix) })
+                    FixButton(label = fix.label, primary = index == 0, onClick = { onFix(fix) })
                 }
             }
         }

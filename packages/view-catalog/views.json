@@ -332,7 +332,7 @@
       "id": "onboarding-devices",
       "group": "auth",
       "title": "Onboarding · Set up devices",
-      "blurb": "The last wizard step: get the desktop app, copy the server install command and sign the agents in on the machines that show up. Skippable; the checklist keeps whatever was skipped.",
+      "blurb": "The last wizard step, and the one step an invited teammate with no device gets after accepting: get the desktop app, copy the server install command and sign the agents in on the machines that show up. Skippable; the checklist keeps whatever was skipped.",
       "order": 6,
       "web": {
         "route": "/onboarding",
@@ -1076,21 +1076,21 @@
       "id": "add-server",
       "group": "coding",
       "title": "Add a device",
-      "blurb": "Both ways to put a machine on the account: download the desktop app, or run the one-liner that installs the CLI daemon on a server.",
+      "blurb": "Both ways to put a machine on the account: download the desktop app, or run the one-liner that installs the CLI daemon on a server. The same device-setup block as the onboarding step.",
       "order": 9,
       "web": {
         "route": "/t/$teamSlug/devices",
         "anchor": {
-          "text": "Download desktop app",
+          "text": "Download the desktop app",
           "timeoutMs": 30000
         },
         "recipe": "openAddServer",
         "settleMs": 600
       },
       "notes": {
-        "web-mobile": "Copying a shell one-liner is a desk task; the phone layout hides the control.",
-        "ios": "See web-mobile.",
-        "android": "See web-mobile."
+        "web-mobile": "EXP-1169: the dialog holds the shared device-setup block and opens on phones too. The capture lands with the next screenshot refresh (a declared capture without a committed webp fails shots:check).",
+        "ios": "EXP-1169: AddDeviceSheet (Devices tab pill, readiness fix) holds the same block as the wizard step. See web-mobile for the capture.",
+        "android": "See ios."
       },
       "desktop": {
         "drive": {

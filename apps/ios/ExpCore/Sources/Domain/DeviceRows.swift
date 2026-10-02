@@ -233,6 +233,26 @@ public enum DeviceQueries {
             .filter(\.isOnline)
     }
 
+    /// EXP-1169: the join rule's one input. After a `teamInvites.accept`, a
+    /// caller with NO own machine gets the device setup step; one who owns
+    /// any keeps today's flow. Local rows only, never the network: the
+    /// pipeline restart that follows a join leaves the persisted rows alone.
+    public static func ownsDevice(
+        db: DatabaseManager,
+        accountId: String,
+        userId: String?
+    ) async -> Bool {
+        guard let pool = try? db.pool(forAccountId: accountId) else { return false }
+        let rows = (try? await pool.read { db in try DeviceEntity.fetchAll(db) }) ?? []
+        return ownsDevice(rows: rows, userId: userId)
+    }
+
+    /// Pure form of `ownsDevice`: the same `isMine` the device setup block
+    /// lists, so the rule and the list can never disagree.
+    public static func ownsDevice(rows: [DeviceEntity], userId: String?) -> Bool {
+        compose(rows: rows, users: [], teamId: nil, userId: userId).contains(where: \.isMine)
+    }
+
     /// Pure composition (unit-testable): own rows first, then teammates' rows
     /// shared with [teamId] — the `devices.list` grouping the surfaces
     /// already render. Within each group online machines lead, sorted by

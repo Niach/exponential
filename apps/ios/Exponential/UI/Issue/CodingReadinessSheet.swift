@@ -69,11 +69,11 @@ struct CodingReadinessSheet: View {
     /// A route fix: the host dismisses, then pushes.
     let onRoute: (CodingReadinessRoute) -> Void
 
-    @Environment(AppDependencies.self) private var deps
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
     @State private var showPicker = false
-    @State private var copiedInstall = false
+    /// EXP-1169: "Set up a server" opens the ONE device setup block.
+    @State private var showAddDevice = false
 
     private var readiness: CodingReadiness.Readiness {
         model.readiness(vm: vm, remoteStartEnabled: remoteStartEnabled)
@@ -106,6 +106,16 @@ struct CodingReadinessSheet: View {
                 CodingReadinessRepoPickerSheet(model: model, board: board, accountId: accountId)
             }
         }
+        // One presentation per node: the Add device sheet hangs off a
+        // zero-size node of its own.
+        .background(
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .sheet(isPresented: $showAddDevice) {
+                    AddDeviceSheet(accountId: accountId)
+                }
+        )
     }
 
     // MARK: - Header
@@ -255,16 +265,11 @@ struct CodingReadinessSheet: View {
 
     // MARK: - Fixes
 
-    private func fixLabel(_ fix: CodingReadiness.Fix) -> String {
-        if fix == .setUpServer && copiedInstall { return OnboardingCopy.inviteCopied }
-        return fix.label
-    }
-
     private func fixButton(_ fix: CodingReadiness.Fix, primary: Bool) -> some View {
         Button {
             perform(fix)
         } label: {
-            Text(fixLabel(fix))
+            Text(fix.label)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(primary ? Color.black : Color.white)
                 .lineLimit(1)
@@ -300,13 +305,9 @@ struct CodingReadinessSheet: View {
             // The sheet stays: back from Safari, the device row ticks.
             openURL(AppConstants.desktopReleasesUrl)
         case .setUpServer:
-            // The shared daemon one-liner (Getting started / onboarding).
-            guard ServerInstallSnippet.copy(accountId: accountId, auth: deps.auth) else { return }
-            copiedInstall = true
-            Task {
-                try? await Task.sleep(for: .seconds(2))
-                copiedInstall = false
-            }
+            // The sheet stays under it: a machine that signs in from the
+            // block ticks the device row.
+            showAddDevice = true
         }
     }
 

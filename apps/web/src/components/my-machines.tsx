@@ -30,9 +30,7 @@ import {
   Pill,
   GlassSectionHeader,
   ListRow,
-  LiveDot,
 } from "@exp/ui"
-import { relativeTime } from "@/components/comment-rows/format"
 import { cn } from "@/lib/utils"
 import {
   deviceCanRefreshUsage,
@@ -44,11 +42,12 @@ import {
   UPDATE_QUEUED_LINE,
 } from "@/lib/steer-devices"
 import { useNow } from "@/hooks/use-now"
+import { AddDeviceDialog } from "@/components/add-device-dialog"
 import {
-  AddDeviceDialog,
   buildServerInstallSnippet,
   CopyIconButton,
-} from "@/components/add-device-dialog"
+  DeviceStatusLine,
+} from "@/components/device-setup"
 import { DeviceSettingsDialog } from "@/components/device-settings-dialog"
 import { DeviceLogins } from "@/components/device-logins"
 import { useAgentUsageRefresh } from "@/hooks/use-agent-usage-refresh"
@@ -71,34 +70,9 @@ const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
 const ChevronDownIcon = conceptIcon(`ui-chevron-down`)
 
 
-// Moved beside the dialog (EXP-1111); re-exported for the other install
-// surfaces (onboarding, getting-started cards).
-export { buildServerInstallSnippet, CopyIconButton }
-
-// The row's second line (native `deviceStatusLine` parity): a live dot +
-// "Online", or the last-seen caption for offline devices. EXP-862: it says
-// nothing about sign-ins — the account chips own that.
-export function DeviceStatusLine({
-  online,
-  lastSeenAt,
-}: {
-  online: boolean
-  lastSeenAt: string | null | undefined
-}) {
-  if (!online) {
-    return (
-      <div className="truncate text-xs text-muted-foreground">
-        {lastSeenAt ? `Last seen ${relativeTime(lastSeenAt)}` : `Offline`}
-      </div>
-    )
-  }
-  return (
-    <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-      <LiveDot tone="live" className="size-1.5 shrink-0" />
-      <span className="truncate">Online</span>
-    </div>
-  )
-}
+// Moved into the device-setup block (EXP-1169); re-exported for the other
+// install surfaces (getting-started cards).
+export { buildServerInstallSnippet, CopyIconButton, DeviceStatusLine }
 
 export function MyMachines({
   devices,
@@ -411,10 +385,9 @@ export function MyMachines({
         </div>
       )}
 
-      {/* EXP-697: the add-device dialog — byte-matched copy and layout with
-          the IDE's (`machines.rs` open_add_server_dialog). EXP-1111: the CLI
-          one-liner carries a one-time install token, and a CLI's device code
-          can be approved in place. */}
+      {/* EXP-697: the add-device dialog. EXP-1169: its content is the shared
+          device-setup block (`device-setup.tsx`), the one the wizard and the
+          join step render too. */}
       <AddDeviceDialog
         open={addServerOpen}
         onOpenChange={setAddServerOpen}

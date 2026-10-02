@@ -22,7 +22,9 @@ import com.exponential.app.ui.components.GlassSheet
  * empty — iOS `TeamSetupSheet` draws exactly this.
  *
  * The callbacks fire on success; the team selection is already switched by the
- * view model, so a caller only has to close the sheet.
+ * view model, so a caller only has to close the sheet. A join by a caller who
+ * owns no device swaps the content to [OnboardingDevicesStep] first (EXP-1169);
+ * its Continue is what fires [onJoined].
  */
 @Composable
 fun TeamSetupSheet(
@@ -32,6 +34,7 @@ fun TeamSetupSheet(
     viewModel: TeamSetupViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val instanceOrigin by viewModel.instanceOrigin.collectAsStateWithLifecycle()
 
     LaunchedEffect(viewModel) {
         viewModel.reset()
@@ -43,7 +46,13 @@ fun TeamSetupSheet(
         }
     }
 
-    GlassSheet(title = "Set up a team", onDismiss = onDismiss, primaryAction = null) {
+    // EXP-1169: once a device-less caller has joined, dismissing the sheet
+    // means the same as the devices step's Continue.
+    GlassSheet(
+        title = if (state.showDeviceStep) null else "Set up a team",
+        onDismiss = if (state.showDeviceStep) viewModel::finishJoin else onDismiss,
+        primaryAction = null,
+    ) {
         // GlassSheet bounds its content slot but never scrolls it — the caller
         // owns the scroller. The sheet already applies the ime + system-bar
         // insets, so none are added here.
@@ -58,15 +67,22 @@ fun TeamSetupSheet(
                 // delay.
                 .testTag("team-setup-sheet"),
         ) {
-            TeamSetupForm(
-                state = TeamSetupFormState(
-                    busy = state.busy,
-                    createError = state.createError,
-                    joinError = state.joinError,
-                ),
-                onCreate = viewModel::createTeam,
-                onJoin = viewModel::joinTeam,
-            )
+            if (state.showDeviceStep) {
+                OnboardingDevicesStep(
+                    instanceOrigin = instanceOrigin,
+                    onContinue = viewModel::finishJoin,
+                )
+            } else {
+                TeamSetupForm(
+                    state = TeamSetupFormState(
+                        busy = state.busy,
+                        createError = state.createError,
+                        joinError = state.joinError,
+                    ),
+                    onCreate = viewModel::createTeam,
+                    onJoin = viewModel::joinTeam,
+                )
+            }
         }
     }
 }

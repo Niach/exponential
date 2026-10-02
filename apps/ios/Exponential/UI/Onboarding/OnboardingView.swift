@@ -8,7 +8,8 @@ import SwiftUI
 ///
 ///   0 welcome  — app name + one-line value prop + "Get started"
 ///   1 team     — create-or-join (signups get NO auto-created team; create →
-///                owner, join → paste an invite link and exit the wizard)
+///                owner, join → paste an invite link and exit the wizard,
+///                via step 4 first when the joiner owns no machine, EXP-1169)
 ///   2 board    — name + optional repository with inline GitHub connect
 ///   3 invite   — mint ONE invite link, or skip (`InviteLinkCreator`; the
 ///                control is absent entirely at the seat cap — 3.1.1)
@@ -45,8 +46,9 @@ struct OnboardingView: View {
     @State private var teamError: String?
     /// Step 3: a link was minted, so the trailing button reads "Continue".
     @State private var invitedSomeone = false
-    /// Step 4: at least one of the caller's OWN machines is registered.
-    @State private var hasOwnDevice = false
+    /// EXP-1169: the user JOINED a team and owns no machine, so step 4 is
+    /// the join step and its advance exits the wizard.
+    @State private var joined = false
     // Deliberately sticky once set: flipping needsOnboarding swaps this view out.
     @State private var finishing = false
 
@@ -103,33 +105,11 @@ struct OnboardingView: View {
     // MARK: - Step headers
 
     private func stepHeader(_ title: String, _ subtitle: String) -> some View {
-        VStack(spacing: 0) {
-            Text(title)
-                .font(.system(size: 24, weight: .bold))
-                .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
-
-            Spacer().frame(height: 8)
-
-            Text(subtitle)
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .multilineTextAlignment(.center)
-
-            Spacer().frame(height: 24)
-        }
+        OnboardingStepHeader(title: title, subtitle: subtitle)
     }
 
-    /// The ONE trailing control the two skippable steps share: "Skip for now"
-    /// until the step was actually used, "Continue" after.
     private func advanceButton(done: Bool, action: @escaping () -> Void) -> some View {
-        VStack(spacing: 0) {
-            Spacer().frame(height: 20)
-            GlassSubmitButton(
-                done ? OnboardingCopy.continueLabel : OnboardingCopy.skip,
-                action: action
-            )
-        }
+        OnboardingAdvanceButton(done: done, action: action)
     }
 
     // MARK: - Welcome
@@ -204,13 +184,7 @@ struct OnboardingView: View {
                             withAnimation(motion.standard) { page = Self.boardPage }
                         },
                         onJoined: {
-                            // teamInvites.accept stamps onboardingCompletedAt
-                            // server-side; mirror it locally so the nav gate
-                            // exits the wizard — joiners land in the team they
-                            // just joined, no board step.
-                            deps.auth.markOnboardingCompleted(
-                                ISO8601DateFormatter().string(from: Date())
-                            )
+                            Task { await enterJoinedTeam() }
                         }
                     )
                 }
@@ -275,15 +249,12 @@ struct OnboardingView: View {
     // MARK: - Step 4: Set up your devices
 
     private var devicesStep: some View {
-        VStack(spacing: 0) {
-            stepHeader(OnboardingCopy.devicesTitle, OnboardingCopy.devicesSubtitle)
-
-            OnboardingDevicesStep(
-                accountId: deps.auth.activeAccountId ?? "",
-                onDevicesChanged: { hasOwnDevice = $0 }
-            )
-
-            advanceButton(done: hasOwnDevice) {
+        DevicesStepView(accountId: deps.auth.activeAccountId ?? "") {
+            // EXP-1169: a joiner has no first board, so the done page (its
+            // copy is about that board) is skipped and the wizard exits here.
+            if joined {
+                Task { await finish() }
+            } else {
                 withAnimation(motion.standard) { page = Self.donePage }
             }
         }
@@ -398,9 +369,70 @@ struct OnboardingView: View {
         try? await deps.onboardingApi.complete(accountId: accountId)
     }
 
+    /// teamInvites.accept stamps onboardingCompletedAt server-side; mirroring
+    /// it locally makes the nav gate exit the wizard, so joiners land in the
+    /// team they just joined, no board step. EXP-1169: a joiner who owns no
+    /// machine sees the join step first, and the local flip waits for its
+    /// advance (it swaps this view out).
+    private func enterJoinedTeam() async {
+        let owns = await DeviceQueries.ownsDevice(
+            db: deps.db,
+            accountId: deps.auth.activeAccountId ?? "",
+            userId: deps.auth.userId
+        )
+        if owns {
+            deps.auth.markOnboardingCompleted(ISO8601DateFormatter().string(from: Date()))
+        } else {
+            joined = true
+            withAnimation(motion.standard) { page = Self.devicesPage }
+        }
+    }
+
     private func finish() async {
         guard !finishing else { return }
         finishing = true
         deps.auth.markOnboardingCompleted(ISO8601DateFormatter().string(from: Date()))
+    }
+}
+
+/// A wizard step's title + subtitle. Shared with `DevicesStepView`, which
+/// also renders outside the wizard (the join surfaces, EXP-1169).
+struct OnboardingStepHeader: View {
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Text(title)
+                .font(.system(size: 24, weight: .bold))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+
+            Spacer().frame(height: 8)
+
+            Text(subtitle)
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .multilineTextAlignment(.center)
+
+            Spacer().frame(height: 24)
+        }
+    }
+}
+
+/// The ONE trailing control the two skippable steps share: "Skip for now"
+/// until the step was actually used, "Continue" after.
+struct OnboardingAdvanceButton: View {
+    let done: Bool
+    let action: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer().frame(height: 20)
+            GlassSubmitButton(
+                done ? OnboardingCopy.continueLabel : OnboardingCopy.skip,
+                action: action
+            )
+        }
     }
 }

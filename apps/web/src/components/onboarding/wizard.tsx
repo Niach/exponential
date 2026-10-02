@@ -39,11 +39,12 @@ const SignOutIcon = conceptIcon(`nav-sign-out`)
 // choice → create-team | join → board → invite → devices. `initialTeam`
 // (resolved by the route via teams.getDefault) skips straight to the board
 // step: the resumed-onboarding case (team exists but onboarding never
-// completed). The join path leaves the wizard entirely — accepting an invite
-// marks onboarding complete server-side, so invited users never see the rest.
-// The board step stamps completion (as before); invite and devices continue
-// client-side, are skippable, and the getting-started checklist covers
-// whatever was skipped after a reload.
+// completed). The join path leaves the wizard for the invite page: accepting
+// marks onboarding complete server-side, and EXP-1169 gives a joiner who owns
+// no device the SAME devices step there (`routes/invite/$token.tsx`), so both
+// paths end on it. The board step stamps completion (as before); invite and
+// devices continue client-side, are skippable, and the getting-started
+// checklist covers whatever was skipped after a reload.
 type WizardTeam = { id: string; slug: string }
 type WizardStep =
   | { kind: `choice` }
@@ -83,46 +84,56 @@ export function OnboardingWizard({
   )
 
   return (
+    <WizardFrame>
+      {step.kind === `choice` && (
+        <ChoiceStep
+          onCreate={() => setStep({ kind: `create-team` })}
+          onJoin={() => setStep({ kind: `join` })}
+        />
+      )}
+      {step.kind === `create-team` && (
+        <CreateTeamStep
+          onBack={() => setStep({ kind: `choice` })}
+          onCreated={(team) => setStep({ kind: `board`, team })}
+        />
+      )}
+      {step.kind === `join` && (
+        <JoinStep onBack={() => setStep({ kind: `choice` })} />
+      )}
+      {step.kind === `board` && (
+        <BoardStep
+          teamId={step.team.id}
+          onCreated={() => setStep({ kind: `invite`, team: step.team })}
+        />
+      )}
+      {step.kind === `invite` && (
+        <InviteStep
+          teamId={step.team.id}
+          onNext={() => setStep({ kind: `devices`, team: step.team })}
+        />
+      )}
+      {step.kind === `devices` && (
+        <DevicesStep
+          teamId={step.team.id}
+          onNext={() =>
+            void navigate({
+              to: `/t/$teamSlug`,
+              params: { teamSlug: step.team.slug },
+            })
+          }
+        />
+      )}
+    </WizardFrame>
+  )
+}
+
+/** The page chrome every step sits in: centred, one column, the sign-out
+ * escape underneath. Shared with the join step on the invite page. */
+export function WizardFrame({ children }: { children: React.ReactNode }) {
+  return (
     <div className="flex min-h-screen items-center justify-center p-6">
       <div className="w-full max-w-2xl">
-        {step.kind === `choice` && (
-          <ChoiceStep
-            onCreate={() => setStep({ kind: `create-team` })}
-            onJoin={() => setStep({ kind: `join` })}
-          />
-        )}
-        {step.kind === `create-team` && (
-          <CreateTeamStep
-            onBack={() => setStep({ kind: `choice` })}
-            onCreated={(team) => setStep({ kind: `board`, team })}
-          />
-        )}
-        {step.kind === `join` && (
-          <JoinStep onBack={() => setStep({ kind: `choice` })} />
-        )}
-        {step.kind === `board` && (
-          <BoardStep
-            teamId={step.team.id}
-            onCreated={() => setStep({ kind: `invite`, team: step.team })}
-          />
-        )}
-        {step.kind === `invite` && (
-          <InviteStep
-            teamId={step.team.id}
-            onNext={() => setStep({ kind: `devices`, team: step.team })}
-          />
-        )}
-        {step.kind === `devices` && (
-          <DevicesStep
-            teamId={step.team.id}
-            onNext={() =>
-              void navigate({
-                to: `/t/$teamSlug`,
-                params: { teamSlug: step.team.slug },
-              })
-            }
-          />
-        )}
+        {children}
         <SignedInFooter />
       </div>
     </div>
@@ -305,8 +316,9 @@ function JoinStep({ onBack }: { onBack: () => void }) {
       )
       return
     }
-    // The invite page handles acceptance; accepting marks onboarding
-    // complete server-side, so this exits the wizard for good.
+    // The invite page handles acceptance (and the joiner's devices step);
+    // accepting marks onboarding complete server-side, so this exits the
+    // wizard for good.
     void navigate({ to: `/invite/$token`, params: { token } })
   }
 

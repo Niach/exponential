@@ -185,6 +185,19 @@ final class WorktreeResumeTests: XCTestCase {
         XCTAssertEqual(composed.map(\.deviceId), ["mine"])
     }
 
+    // EXP-1169: the join rule counts OWN rows only. A teammate's server
+    // shared with the joined team never skips the device setup step.
+    func testOwnsDeviceCountsOwnRowsOnly() {
+        let shared = entity(id: "r1", userId: "mate", deviceId: "shared", lastSeenAt: nil,
+                            sharedTeamIds: ["team-1"])
+        let mine = entity(id: "r2", userId: "me", deviceId: "mine", lastSeenAt: nil)
+        XCTAssertFalse(DeviceQueries.ownsDevice(rows: [], userId: "me"))
+        XCTAssertFalse(DeviceQueries.ownsDevice(rows: [shared], userId: "me"))
+        XCTAssertTrue(DeviceQueries.ownsDevice(rows: [shared, mine], userId: "me"))
+        // No resolved user owns nothing.
+        XCTAssertFalse(DeviceQueries.ownsDevice(rows: [mine], userId: nil))
+    }
+
     // One malformed agent entry drops ALONE — the other agents' sign-in state
     // and usage still render, instead of the whole map blanking.
     func testComposeDropsAMalformedAgentEntryAlone() {

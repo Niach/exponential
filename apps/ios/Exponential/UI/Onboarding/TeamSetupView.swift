@@ -15,7 +15,8 @@ struct TeamSetupView: View {
     let onCreated: (TeamResult) -> Void
     /// Called after `teamInvites.accept` succeeded and the pipeline
     /// restarted. The server stamps onboardingCompletedAt in the same
-    /// transaction, so joiners skip the rest of the wizard.
+    /// transaction, so joiners skip the rest of the wizard (bar the join
+    /// step, when they own no machine: EXP-1169).
     let onJoined: () -> Void
 
     @Environment(AppDependencies.self) private var deps
@@ -139,22 +140,34 @@ struct TeamSetupView: View {
 struct TeamSetupSheet: View {
     var onDone: () -> Void = {}
 
+    @Environment(AppDependencies.self) private var deps
     @Environment(\.dismiss) private var dismiss
+    /// EXP-1169: joined, and the caller owns no machine, so the sheet's
+    /// content swaps to the join step until its advance.
+    @State private var showDevicesStep = false
 
     var body: some View {
         // Two inline submits (Create / Join) — this sheet has no single
         // primary action, so the chrome's pinned slot stays empty.
         GlassSheetChrome(title: "Set up a team") {
-            TeamSetupView(
-                onCreated: { _ in
-                    onDone()
-                    dismiss()
-                },
-                onJoined: {
-                    onDone()
-                    dismiss()
+            Group {
+                if showDevicesStep {
+                    DevicesStepView(accountId: deps.auth.activeAccountId ?? "") {
+                        onDone()
+                        dismiss()
+                    }
+                } else {
+                    TeamSetupView(
+                        onCreated: { _ in
+                            onDone()
+                            dismiss()
+                        },
+                        onJoined: {
+                            Task { await enterJoinedTeam() }
+                        }
+                    )
                 }
-            )
+            }
             .padding(16)
         }
         // The styleguide lane's `sg_onboarding-create-team` anchor. It waits on
@@ -164,5 +177,19 @@ struct TeamSetupSheet: View {
         // fields and submits queryable inside it.
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("team-setup-sheet")
+    }
+
+    private func enterJoinedTeam() async {
+        let owns = await DeviceQueries.ownsDevice(
+            db: deps.db,
+            accountId: deps.auth.activeAccountId ?? "",
+            userId: deps.auth.userId
+        )
+        if owns {
+            onDone()
+            dismiss()
+        } else {
+            showDevicesStep = true
+        }
     }
 }
