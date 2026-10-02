@@ -15,8 +15,11 @@ package com.exponential.app.domain
  * bar; behind them the page background at [SCRIM] over an [EDGE_BLUR] blur,
  * and a strip past each ([EDGE_TOP] / [EDGE_BOTTOM]) fades both to nothing.
  *
- * FACE DOTS: the header title carries NO state dot; state lives on the face
- * tabs ([faceDots]).
+ * FACE MARKS: the header title carries NO state dot; state lives on the face
+ * tabs ([faceDots]). The Run tab never draws a dot: a live run wears its
+ * agent's brand mark LEADING the label ([FACE_MARK], amber [FACE_MARK_BADGE]
+ * for needs input, beating while `agent_busy`); the `Review` tone stays a
+ * trailing dot.
  */
 object DetailChrome {
     /** The collapsed title's fade-in. */
@@ -42,6 +45,15 @@ object DetailChrome {
 
     /** The gap between a tab's label and its dot. */
     const val FACE_DOT_GAP = 6f
+
+    /** The Run tab's agent brand mark, square. */
+    const val FACE_MARK = 14f
+
+    /** The gap between the Run tab's mark and its label. */
+    const val FACE_MARK_GAP = 6f
+
+    /** The needs-input badge on the mark's top end corner, wide. */
+    const val FACE_MARK_BADGE = 6f
 
     /**
      * Which face tabs wear a state dot, in the session-dot tones. The Run tab

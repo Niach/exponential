@@ -120,7 +120,7 @@ const WORKING_TICK: Duration = Duration::from_secs(1);
 
 /// EXP-850 §5: the working mark's pulse — opacity 0.4↔1 over 1.4 s,
 /// ease-in-out, ×4.
-const WORKING_PULSE: Duration = Duration::from_millis(1400);
+pub(crate) const WORKING_PULSE: Duration = Duration::from_millis(1400);
 
 /// EXP-850 §3: the fold key of one workflow agent's nested events.
 fn agent_fold_key(workflow_id: &str, index: u32) -> String {

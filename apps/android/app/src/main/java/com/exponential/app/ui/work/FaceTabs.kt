@@ -44,6 +44,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.draw.alpha
+import com.exponential.app.ui.components.agentIconPainter
+import com.exponential.app.ui.components.agentIconTint
+import com.exponential.app.ui.session.rememberWorkingMarkPulse
 import com.exponential.app.domain.Diff
 import com.exponential.app.domain.WorkFaceKind
 import com.exponential.app.domain.changesFaceText
@@ -178,6 +183,9 @@ fun WorkFaceTabs(
     changesCounts: ChangesFaceCounts? = null,
     /** EXP-1162: the tabs' state dots (`DetailChrome.faceDots`). */
     dots: Map<WorkFaceKind, SessionDotTone> = emptyMap(),
+    /** EXP-1162: the shown run's agent (its Run mark) and mid-turn flag. */
+    runAgent: String? = null,
+    runBusy: Boolean = false,
 ) {
     if (faces.size < 2 && trailing == null) return
     val multipleRuns = runs.size >= 2
@@ -222,9 +230,18 @@ fun WorkFaceTabs(
                         }
                     },
                     testTag = { faceTag(it) },
-                    // EXP-1162: the state the header title no longer wears —
-                    // a dot trailing the label, said out loud with it.
-                    trailing = { f -> dots[f]?.let { tone -> { FaceDot(tone) } } },
+                    // EXP-1162: the state the header title no longer wears,
+                    // said out loud with the label. The Run tab wears the
+                    // run's agent mark LEADING it; every other tone (an open
+                    // PR's `Review`) a dot trailing it.
+                    leading = { f ->
+                        dots[f]?.takeIf { f == WorkFaceKind.Run }?.let { tone ->
+                            { FaceMark(runAgent.orEmpty(), tone, runBusy) }
+                        }
+                    },
+                    trailing = { f ->
+                        dots[f]?.takeIf { f != WorkFaceKind.Run }?.let { tone -> { FaceDot(tone) } }
+                    },
                     description = { f ->
                         DetailChrome.faceDotCaption(dots[f])?.let { caption ->
                             val name = if (f == WorkFaceKind.Changes && changesCounts != null) {
@@ -265,6 +282,40 @@ fun WorkFaceTabs(
             trailing?.invoke()
         }
     }
+}
+
+/**
+ * EXP-1162: the Run tab's mark — the run's agent brand mark (`agentIconPainter`,
+ * the neutral agents glyph for an unknown agent), `faceMark` square and
+ * `faceMarkGap` before the label. `NeedsInput` adds an amber `faceMarkBadge`
+ * at its top end corner; while [busy] it beats like the session screen's
+ * working mark (reduced motion: steady). Only a live run gets here.
+ */
+@Composable
+private fun FaceMark(agent: String, tone: SessionDotTone, busy: Boolean) {
+    val alpha = if (busy) rememberWorkingMarkPulse() else 1f
+    Box(
+        modifier = Modifier
+            .size(DetailChrome.FACE_MARK.dp)
+            .testTag("work-face-run-mark"),
+    ) {
+        Icon(
+            agentIconPainter(agent),
+            contentDescription = null,
+            tint = agentIconTint(agent),
+            modifier = Modifier.matchParentSize().alpha(alpha),
+        )
+        if (tone == SessionDotTone.NeedsInput) {
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = (DetailChrome.FACE_MARK_BADGE / 3).dp, y = -(DetailChrome.FACE_MARK_BADGE / 3).dp)
+                    .size(DetailChrome.FACE_MARK_BADGE.dp)
+                    .background(NeedsInputAmber, CircleShape),
+            )
+        }
+    }
+    Spacer(Modifier.width(DetailChrome.FACE_MARK_GAP.dp))
 }
 
 /**

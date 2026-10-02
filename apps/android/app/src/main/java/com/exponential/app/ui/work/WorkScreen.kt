@@ -603,6 +603,8 @@ fun WorkScreen(
                             },
                             changesCounts = changesCounts,
                             dots = faceDots,
+                            runAgent = shownSession?.agent,
+                            runBusy = shownSession?.agentBusy == true,
                             trailing = headerMerge?.let { merge ->
                                 {
                                     MergePrHeaderPill(

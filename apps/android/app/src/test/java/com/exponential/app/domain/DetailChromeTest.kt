@@ -34,6 +34,9 @@ class DetailChromeTest {
             "scrim" to DetailChrome.SCRIM,
             "faceDot" to DetailChrome.FACE_DOT,
             "faceDotGap" to DetailChrome.FACE_DOT_GAP,
+            "faceMark" to DetailChrome.FACE_MARK,
+            "faceMarkGap" to DetailChrome.FACE_MARK_GAP,
+            "faceMarkBadge" to DetailChrome.FACE_MARK_BADGE,
         )
         assertEquals(expected.keys, c.keys)
         for ((key, value) in expected) {

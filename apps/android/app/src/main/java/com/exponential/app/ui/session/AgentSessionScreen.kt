@@ -2398,16 +2398,7 @@ private fun WorkingIndicatorRow(
             delay(WORKING_CLOCK_TICK_MS)
         }
     }
-    val reduceMotion = LocalReduceMotion.current
-    val pulse by rememberInfiniteTransition(label = "working").animateFloat(
-        initialValue = 1f,
-        targetValue = if (reduceMotion) 1f else 0.4f,
-        animationSpec = infiniteRepeatable(
-            tween(WORKING_PULSE_MS, easing = FastOutSlowInEasing),
-            RepeatMode.Reverse,
-        ),
-        label = "workingAlpha",
-    )
+    val pulse = rememberWorkingMarkPulse()
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -2433,6 +2424,26 @@ private fun WorkingIndicatorRow(
             overflow = TextOverflow.Ellipsis,
         )
     }
+}
+
+/**
+ * The working mark's alpha (EXP-850 S5): 1 → 0.4 and back, [WORKING_PULSE_MS]
+ * each way. Shared with the Work tabs' Run mark (EXP-1162), so the two beat
+ * alike. Reduced motion pins it at 1.
+ */
+@Composable
+internal fun rememberWorkingMarkPulse(): Float {
+    val reduceMotion = LocalReduceMotion.current
+    val pulse by rememberInfiniteTransition(label = "working").animateFloat(
+        initialValue = 1f,
+        targetValue = if (reduceMotion) 1f else 0.4f,
+        animationSpec = infiniteRepeatable(
+            tween(WORKING_PULSE_MS, easing = FastOutSlowInEasing),
+            RepeatMode.Reverse,
+        ),
+        label = "workingAlpha",
+    )
+    return pulse
 }
 
 /** EXP-850 (S5): the working caption's clock tick, and the brand mark's

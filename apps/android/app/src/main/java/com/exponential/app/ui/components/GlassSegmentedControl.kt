@@ -78,6 +78,10 @@ fun <T> GlassSegmentedControl(
     // more than the label ("Run, running"). null = unchanged.
     trailing: ((T) -> (@Composable () -> Unit)?)? = null,
     description: ((T) -> String?)? = null,
+    // EXP-1162: an optional per-segment LEADING accessory before the label
+    // (the Work tabs' Run mark), drawn as given: it owns its own gap. Unlike
+    // [leadingIcon] it may be absent per segment. null = unchanged.
+    leading: ((T) -> (@Composable () -> Unit)?)? = null,
 ) {
     val capsule = GlassSegmentedControlDefaults.Shape
     Row(
@@ -147,6 +151,7 @@ fun <T> GlassSegmentedControl(
                     }
                     Spacer(Modifier.width(6.dp))
                 }
+                leading?.invoke(option)?.invoke()
                 val custom = labelContent?.invoke(option)
                 val spoken = description?.invoke(option)
                 if (custom != null) {

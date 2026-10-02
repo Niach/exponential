@@ -12,7 +12,8 @@
 //! with no title row of its own (Run, Changes, Results) is always collapsed.
 //! gpui cannot blur what is behind a view, so the desktop draws the scrim
 //! fade alone ([`EDGE_BLUR`] and [`SCRIM`] are carried for parity).
-//! FACE DOTS ([`face_dots`]): state lives on the face tabs, never a title.
+//! FACE DOTS ([`face_dots`]): state lives on the face tabs, never a title;
+//! the Run tab draws its tone as the agent's brand mark ([`FACE_MARK`]).
 
 /// How long the collapsed title fades in, in milliseconds.
 pub const COLLAPSE_MS: u64 = 160;
@@ -31,6 +32,15 @@ pub const SCRIM: f32 = 0.72;
 pub const FACE_DOT: f32 = 6.;
 /// …and trails the tab's label by this much.
 pub const FACE_DOT_GAP: f32 = 6.;
+
+/// FACE MARKS: a live run's Run tab wears its agent's brand mark (never a
+/// dot), this big…
+pub const FACE_MARK: f32 = 14.;
+/// …LEADING the tab's label by this much…
+pub const FACE_MARK_GAP: f32 = 6.;
+/// …with the Running row's amber badge this wide at its top trailing corner
+/// while the run needs input.
+pub const FACE_MARK_BADGE: f32 = 6.;
 
 /// One face of a detail (the face toggle's segments), contract spelling.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -153,7 +163,10 @@ mod tests {
         assert!((constants["scrim"].as_f64().unwrap() - SCRIM as f64).abs() < 1e-6);
         assert_eq!(constants["faceDot"].as_f64(), Some(FACE_DOT as f64));
         assert_eq!(constants["faceDotGap"].as_f64(), Some(FACE_DOT_GAP as f64));
-        assert_eq!(constants.as_object().unwrap().len(), 8, "a new constant needs a test");
+        assert_eq!(constants["faceMark"].as_f64(), Some(FACE_MARK as f64));
+        assert_eq!(constants["faceMarkGap"].as_f64(), Some(FACE_MARK_GAP as f64));
+        assert_eq!(constants["faceMarkBadge"].as_f64(), Some(FACE_MARK_BADGE as f64));
+        assert_eq!(constants.as_object().unwrap().len(), 11, "a new constant needs a test");
     }
 
     fn face(key: &str) -> DetailFace {

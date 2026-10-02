@@ -20,7 +20,7 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, AnyElement, App, InteractiveElement as _,
+    div, prelude::FluentBuilder as _, px, AnimationExt as _, AnyElement, App, InteractiveElement as _,
     IntoElement, ParentElement, SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
 use gpui_component::{
@@ -113,12 +113,36 @@ pub(crate) struct FaceToggle {
 
 /// EXP-1162 FACE DOTS — what the toggle's dots say (contract
 /// `detail-chrome.json` `faceDots`): the tab's run is live, that live run
-/// waits on a person, the issue's (or run's) pull request is open.
+/// waits on a person, the issue's (or run's) pull request is open. FACE
+/// MARKS: the run's agent (`None` = an unknown one, the generic glyph) and
+/// its synced turn flag, for the Run tab's brand mark.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct FaceState {
     pub run_live: bool,
     pub needs_input: bool,
     pub pr_open: bool,
+    pub agent: Option<coding::CodingAgent>,
+    pub agent_busy: bool,
+}
+
+/// EXP-1162 FACE MARKS: how a segment draws its tone — the Run segment as
+/// the run's agent brand mark LEADING its label (badged amber while it
+/// needs input), every other segment as a dot trailing its label.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FaceMark {
+    Agent { attention: bool },
+    Dot(domain::detail_chrome::FaceDotTone),
+}
+
+/// The [`FaceMark`] a segment wears for the tone the rule gave it.
+pub(crate) fn face_mark(face: Face, tone: domain::detail_chrome::FaceDotTone) -> FaceMark {
+    use domain::detail_chrome::FaceDotTone;
+    match face {
+        Face::Run => FaceMark::Agent {
+            attention: tone == FaceDotTone::NeedsInput,
+        },
+        _ => FaceMark::Dot(tone),
+    }
 }
 
 /// EXP-950: one row of the Run item's menu — `<device> · <when>`
@@ -252,6 +276,15 @@ pub(crate) fn face_state(run_id: Option<&str>, pr_open: bool, cx: &App) -> FaceS
         run_live,
         needs_input: run_live && row.as_ref().and_then(|row| row.needs_input) == Some(true),
         pr_open,
+        // An absent agent id is claude (`codingSessions.start`'s default, the
+        // rail's fallback); an id this build does not know is `None`.
+        agent: match row.as_ref().and_then(|row| row.agent.as_deref()) {
+            None => Some(coding::CodingAgent::default()),
+            Some(id) => coding::CodingAgent::parse(id),
+        },
+        agent_busy: row
+            .as_ref()
+            .is_some_and(|row| crate::queries::session_agent_busy(row, None, now)),
     }
 }
 
@@ -292,6 +325,27 @@ fn face_dot(tone: domain::detail_chrome::FaceDotTone, cx: &App) -> gpui::Div {
         .bg(face_dot_color(tone, cx))
 }
 
+/// EXP-1162 FACE MARKS: the Run segment's lead — the run's brand mark,
+/// `faceMark` square, `faceMarkGap` before the label, the Running row's
+/// badge while it needs input; mid-turn it beats like the session screen's
+/// working mark (`steer_viewer::WORKING_PULSE`).
+fn face_agent_mark(state: FaceState, attention: bool) -> AnyElement {
+    use domain::detail_chrome::{FACE_MARK, FACE_MARK_BADGE, FACE_MARK_GAP};
+    let lead = crate::coding_selects::run_lead(state.agent, FACE_MARK, FACE_MARK_BADGE, attention)
+        .mr(px(FACE_MARK_GAP));
+    if !state.agent_busy {
+        return lead.into_any_element();
+    }
+    lead.with_animation(
+        "face-run-working-pulse",
+        gpui::Animation::new(crate::steer_viewer::WORKING_PULSE)
+            .repeat()
+            .with_easing(gpui::bounce(gpui::ease_in_out)),
+        |mark, delta| mark.opacity(0.4 + 0.6 * delta),
+    )
+    .into_any_element()
+}
+
 /// The callback a toggle pick lands on.
 pub(crate) type OnPickFace = Rc<dyn Fn(Face, &mut Window, &mut App)>;
 /// EXP-950: the callback a run-menu pick lands on (the picked run's id). The
@@ -320,8 +374,14 @@ pub(crate) fn face_toggle(
     for face in items {
         let active = spec.active == face;
         let on_pick = on_pick.clone();
-        // EXP-1162: the segment's state dot (and its words as the tooltip).
+        // EXP-1162: the segment's state (its words as the tooltip): the Run
+        // segment's agent mark LEADS its label, any other's dot trails it.
         let dot = dot_of(face);
+        let lead = dot.and_then(|tone| match face_mark(face, tone) {
+            FaceMark::Agent { attention } => Some(face_agent_mark(spec.state, attention)),
+            FaceMark::Dot(_) => None,
+        });
+        let trailing_dot = dot.filter(|tone| matches!(face_mark(face, *tone), FaceMark::Dot(_)));
         if face == Face::Run && spec.multiple_runs() {
             // EXP-950: the capsule holds TWO siblings — the label (the face
             // pick) and the caret (the run menu) — so a caret click never
@@ -333,14 +393,12 @@ pub(crate) fn face_toggle(
                 .items_center()
                 .pl_3()
                 .pr_1()
+                .children(lead)
                 .child(run_face_label(true))
                 .when_some(dot, |label, tone| {
-                    label
-                        .child(face_dot(tone, cx))
-                        .tooltip(move |window, cx| {
-                            gpui_component::tooltip::Tooltip::new(face_dot_label(tone))
-                                .build(window, cx)
-                        })
+                    label.tooltip(move |window, cx| {
+                        gpui_component::tooltip::Tooltip::new(face_dot_label(tone)).build(window, cx)
+                    })
                 })
                 .when(!active, |label| {
                     label.on_click(move |_, window, cx| on_pick(face, window, cx))
@@ -364,7 +422,10 @@ pub(crate) fn face_toggle(
             })
             .flex_none()
             .px_3()
+            // The contract's gaps are exact: no segment gap on top of them.
+            .gap_0()
             .text_sm()
+            .children(lead)
             .map(|item| match face {
                 Face::Issue => item.child("Issue"),
                 Face::Run => item.child(run_face_label(false)),
@@ -381,8 +442,9 @@ pub(crate) fn face_toggle(
                 },
                 Face::Results => item.child(RESULTS_FACE_LABEL),
             })
+            .children(trailing_dot.map(|tone| face_dot(tone, cx)))
             .when_some(dot, |item, tone| {
-                item.child(face_dot(tone, cx)).tooltip(move |window, cx| {
+                item.tooltip(move |window, cx| {
                     gpui_component::tooltip::Tooltip::new(face_dot_label(tone)).build(window, cx)
                 })
             })
@@ -1819,7 +1881,7 @@ mod tests {
             checked_run: None,
             state,
         };
-        let live = FaceState { run_live: true, needs_input: false, pr_open: true };
+        let live = FaceState { run_live: true, needs_input: false, pr_open: true, ..Default::default() };
         assert_eq!(
             spec(false, live).dots(),
             vec![(Face::Run, FaceDotTone::Running), (Face::Diff, FaceDotTone::Review)]
@@ -1831,6 +1893,32 @@ mod tests {
         let waiting = FaceState { needs_input: true, pr_open: false, ..live };
         assert_eq!(spec(false, waiting).dots(), vec![(Face::Run, FaceDotTone::NeedsInput)]);
         assert!(spec(true, FaceState::default()).dots().is_empty());
+
+        // FACE MARKS: the Run segment draws its tone as the agent's brand
+        // mark (badged while it needs input), never a dot; Results / Changes
+        // keep the `review` dot.
+        assert_eq!(face_mark(Face::Run, FaceDotTone::Running), FaceMark::Agent { attention: false });
+        assert_eq!(face_mark(Face::Run, FaceDotTone::NeedsInput), FaceMark::Agent { attention: true });
+        assert_eq!(face_mark(Face::Results, FaceDotTone::Review), FaceMark::Dot(FaceDotTone::Review));
+        assert_eq!(face_mark(Face::Diff, FaceDotTone::Review), FaceMark::Dot(FaceDotTone::Review));
+        let marks = |state: FaceState| {
+            spec(true, state)
+                .dots()
+                .into_iter()
+                .map(|(face, tone)| (face, face_mark(face, tone)))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            marks(waiting),
+            vec![(Face::Run, FaceMark::Agent { attention: true })]
+        );
+        assert_eq!(
+            marks(live),
+            vec![
+                (Face::Run, FaceMark::Agent { attention: false }),
+                (Face::Results, FaceMark::Dot(FaceDotTone::Review)),
+            ]
+        );
 
         assert_eq!(face_dot_label(FaceDotTone::Running), "Running");
         assert_eq!(face_dot_label(FaceDotTone::NeedsInput), "Needs input");
