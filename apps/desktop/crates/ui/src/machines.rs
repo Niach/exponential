@@ -41,9 +41,12 @@
 //! refresh round the section ran came along.
 
 use gpui::prelude::FluentBuilder as _;
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use gpui::{
-    div, px, App, ClipboardItem, InteractiveElement as _, IntoElement, ParentElement, Render,
-    SharedString, StatefulInteractiveElement as _, Styled, Window,
+    div, px, App, AppContext as _, Entity, InteractiveElement as _, IntoElement, ParentElement,
+    Render, SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -1056,100 +1059,53 @@ impl MachinesSection {
     }
 }
 
-/// Where the desktop app's builds live — the "Download desktop app" target.
-const DESKTOP_RELEASES_URL: &str = "https://github.com/Niach/exponential/releases/latest";
+/// Where the desktop app's builds live — the desktop card's download target.
+pub(crate) const DESKTOP_RELEASES_URL: &str = "https://github.com/Niach/exponential/releases/latest";
 
 /// The instance the install one-liner points the daemon at.
-fn server_install_origin(cx: &gpui::App) -> String {
+pub(crate) fn server_install_origin(cx: &gpui::App) -> String {
     queries::active_account(cx)
         .map(|account| account.instance_url.trim_end_matches('/').to_string())
         .unwrap_or_else(|| "https://app.exponential.at".to_string())
 }
 
-/// The headless-daemon install one-liner (web `buildServerInstallSnippet`) —
-/// the Add-device dialog shows it, the Getting-started server card copies it.
+/// The token-less headless-daemon install one-liner (web
+/// `buildServerInstallSnippet` without a token): the Getting-started server
+/// card copies it. The device-setup server card builds its own, token and all.
 pub(crate) fn server_install_snippet(cx: &gpui::App) -> String {
-    let origin = server_install_origin(cx);
-    format!("curl -fsSL https://exponential.at/install.sh | EXP_INSTANCE={origin} sh")
+    crate::device_setup::install_command(&server_install_origin(cx), None)
 }
 
-/// The install one-liner in its copyable box (EXP-725 — extracted so the
-/// Add-device dialog and the onboarding wizard's devices step render the SAME
-/// box). The clipboard gets the ONE-LINE command; the box shows it wrapped
-/// over two lines so the snippet never needs a horizontal scroll.
-pub(crate) fn server_install_snippet_box(
-    id: impl Into<gpui::ElementId>,
-    cx: &gpui::App,
-) -> impl IntoElement {
-    let origin = server_install_origin(cx);
-    let snippet = server_install_snippet(cx);
-    let line_two = SharedString::from(format!("  EXP_INSTANCE={origin} sh"));
-    div()
-        .relative()
-        .p_2()
-        .pr_8()
-        .rounded(px(theme::tokens::radius::SM))
-        .border_1()
-        .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-        .text_xs()
-        .font_family(theme::terminal::FONT_FAMILY)
-        .text_color(cx.theme().foreground)
-        .child(
-            gpui_component::v_flex()
-                .child("curl -fsSL https://exponential.at/install.sh |")
-                .child(line_two),
-        )
-        .child(
-            div().absolute().top_1().right_1().child(
-                // EXP-862: a copy glyph on a row is ghost chrome, not a circle.
-                crate::controls::ghost_icon_button(id, Icon::new(registry::UI_COPY), cx)
-                    .tooltip("Copy install command")
-                    .on_click(move |_, window, cx| {
-                        cx.write_to_clipboard(ClipboardItem::new_string(snippet.clone()));
-                        crate::toast::success("Copied install command", window, cx);
-                    }),
-            ),
-        )
-}
-
-/// The "Add device" dialog (EXP-697, one spec with the web twin): the desktop
-/// app first — it is what actually runs coding sessions — then the install
-/// one-liner for the headless `exponential` CLI as the always-on-server path.
-/// The script is served by the CLOUD marketing site for every instance
-/// (self-hosted ships no marketing pages), so the snippet always names the
-/// target instance explicitly via `EXP_INSTANCE` — the web
-/// `buildServerInstallSnippet` shape exactly. Shared (EXP-470): opened from
-/// this section's band and from the Getting-started page's server card.
+/// The "Add device" dialog (EXP-697, one spec with the web twin): the
+/// device-setup block's desktop card first (it is what actually runs coding
+/// sessions), then its server card (EXP-1169, [`crate::device_setup`]): the
+/// install command for the headless `exponential` CLI with a one-time install
+/// token, and the field that approves the CLI's device code in place.
+/// Shared (EXP-470): opened from this section's band and from the
+/// Getting-started page's server card.
 pub(crate) fn open_add_server_dialog(window: &mut Window, cx: &mut gpui::App) {
+    // The card is a stateful view (token mint, code field): created on the
+    // dialog's first frame, dropped with the window.
+    let server_card: Rc<RefCell<Option<Entity<crate::device_setup::ServerCard>>>> =
+        Rc::new(RefCell::new(None));
     let spec = AlertSpec::new(
         "Add device",
         "To run coding sessions, install the desktop app.",
         "Done",
     )
     .without_cancel()
-    .height(px(320.))
-    .content(move |_, cx| {
+    .height(px(600.))
+    .content(move |window, cx| {
+        let card = server_card
+            .borrow_mut()
+            .get_or_insert_with(|| {
+                cx.new(|cx| crate::device_setup::ServerCard::new(window, cx))
+            })
+            .clone();
         gpui_component::v_flex()
             .gap_3()
-            .child(
-                gpui_component::h_flex().child(
-                    Button::new("add-device-download")
-                        .outline()
-                        .web_sm()
-                        .icon(Icon::new(registry::UI_DOWNLOAD))
-                        .label("Download desktop app")
-                        .on_click(|_, _, cx| {
-                            crate::settings::open_url(cx, DESKTOP_RELEASES_URL.to_string());
-                        }),
-                ),
-            )
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child("Or install the Exponential CLI on a server:"),
-            )
-            .child(server_install_snippet_box("add-device-copy", cx))
+            .child(crate::device_setup::desktop_card(cx))
+            .child(card)
             .into_any_element()
     });
     native_dialog::open_alert(window, cx, spec);

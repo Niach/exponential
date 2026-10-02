@@ -328,6 +328,22 @@ pub fn latest_versions(trpc: &TrpcClient) -> Result<LatestVersions, ApiError> {
     trpc.query("devices.latestVersions")
 }
 
+/// EXP-1111 `devices.createInstallToken` output: the one-time `expi_…` token
+/// the server card's install command carries as `EXP_INSTALL_TOKEN`, and its
+/// ISO-8601 expiry (15 minutes).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallToken {
+    pub token: String,
+    pub expires_at: String,
+}
+
+/// `devices.createInstallToken` — mutation, no input. Rate limited
+/// server-side; callers treat any failure as "no token" (EXP-1169).
+pub fn create_install_token(trpc: &TrpcClient) -> Result<InstallToken, ApiError> {
+    trpc.mutation_no_input("devices.createInstallToken")
+}
+
 /// `devices.remove` — drop the registry row. A still-running daemon
 /// re-registers on its next heartbeat, and a live relay connection is
 /// untouched.

@@ -411,6 +411,47 @@ public final class AuthApi: Sendable {
         }
     }
 
+    // MARK: - Device codes (EXP-1169)
+
+    /// Approve a CLI's RFC 8628 user code for `accountId`, the /auth/device
+    /// page's two calls: `GET /api/auth/device` claims the code for this
+    /// session (approve refuses codes nobody claimed), then
+    /// `POST /api/auth/device/approve`. Returns nil on success.
+    public func approveDeviceCode(accountId: String, userCode: String) async -> DeviceCodeError? {
+        guard let account = auth.accounts.first(where: { $0.id == accountId }),
+              let base = WebLinks.normalizedBase(account.instanceUrl),
+              var claim = URLComponents(string: "\(base)/api/auth/device"),
+              let approveUrl = URL(string: "\(base)/api/auth/device/approve") else { return .failed }
+        claim.queryItems = [URLQueryItem(name: "user_code", value: userCode)]
+        guard let claimUrl = claim.url else { return .failed }
+        do {
+            let (claimData, claimResponse) = try await httpClient.get(claimUrl, bearerToken: account.token)
+            guard (200...299).contains(claimResponse.statusCode) else {
+                return DeviceCodeError.from(errorCode: Self.deviceErrorCode(from: claimData))
+            }
+            let status = (try? JSONSerialization.jsonObject(with: claimData) as? [String: Any])?["status"] as? String
+            if status == "approved" || status == "denied" { return .used }
+
+            let body = try JSONEncoder().encode(["userCode": userCode])
+            let (approveData, approveResponse) = try await httpClient.post(
+                approveUrl, body: body, bearerToken: account.token
+            )
+            guard (200...299).contains(approveResponse.statusCode) else {
+                return DeviceCodeError.from(errorCode: Self.deviceErrorCode(from: approveData))
+            }
+            return nil
+        } catch {
+            return .failed
+        }
+    }
+
+    /// The device plugin's RFC 8628 `error` field (`{"error": "expired_token",
+    /// "error_description": "..."}`), not the `code` the other routes use.
+    private static func deviceErrorCode(from data: Data) -> String? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return root["error"] as? String
+    }
+
     /// Extract the user-presentable `message` from a Better Auth error body
     /// (`{"code": "...", "message": "Invalid email or password"}`).
     private static func authErrorMessage(from data: Data) -> String? {

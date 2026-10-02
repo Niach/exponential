@@ -8,6 +8,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.parameter
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
@@ -68,6 +69,20 @@ data class RequestEmailChangeBody(val newEmail: String)
 
 @Serializable
 data class ChangeEmailBody(val newEmail: String, val otp: String)
+
+@Serializable
+data class DeviceApproveBody(val userCode: String)
+
+/**
+ * EXP-1169: how approving a CLI device code ended. [Refused.error] is Better
+ * Auth's RFC 8628 `error` field (`expired_token`, `invalid_request`, ...),
+ * null when the body carried none.
+ */
+sealed interface DeviceApproval {
+    data object Approved : DeviceApproval
+    data object AlreadyUsed : DeviceApproval
+    data class Refused(val error: String?) : DeviceApproval
+}
 
 @Serializable
 data class OauthExchangeRequest(
@@ -354,6 +369,46 @@ class AuthApi @Inject constructor(
     } catch (e: Exception) {
         Result.failure(IllegalStateException(trpcErrorMessage(e, "Network error")))
     }
+
+    /**
+     * EXP-1169: approve the code a CLI device login printed, as this signed-in
+     * account (the /auth/device page's two calls). `GET /api/auth/device`
+     * claims the code for this session first; approve refuses codes nobody
+     * claimed. A code already answered reads [DeviceApproval.AlreadyUsed].
+     * Throws on a transport failure.
+     */
+    suspend fun approveDeviceCode(accountId: String, userCode: String): DeviceApproval {
+        val account = auth.accounts.value.firstOrNull { it.id == accountId }
+            ?: throw IllegalStateException("No account $accountId")
+        val baseUrl = account.instanceUrl.trimEnd('/')
+        val claimed = client.get("$baseUrl/api/auth/device") {
+            parameter("user_code", userCode)
+            account.token?.let { header("Authorization", "Bearer $it") }
+        }
+        val claimedText = claimed.bodyAsText()
+        if (!claimed.status.isSuccess()) return DeviceApproval.Refused(deviceErrorCode(claimedText))
+        val status = runCatching {
+            (json.parseToJsonElement(claimedText) as? JsonObject)
+                ?.get("status")?.jsonPrimitive?.contentOrNull
+        }.getOrNull()
+        if (status == "approved" || status == "denied") return DeviceApproval.AlreadyUsed
+        val approved = client.post("$baseUrl/api/auth/device/approve") {
+            contentType(ContentType.Application.Json)
+            header("Origin", baseUrl)
+            account.token?.let { header("Authorization", "Bearer $it") }
+            setBody(DeviceApproveBody(userCode))
+        }
+        if (!approved.status.isSuccess()) {
+            return DeviceApproval.Refused(deviceErrorCode(approved.bodyAsText()))
+        }
+        return DeviceApproval.Approved
+    }
+
+    /** The RFC 8628 `error` of a Better Auth device endpoint's error body. */
+    private fun deviceErrorCode(body: String): String? = runCatching {
+        (json.parseToJsonElement(body) as? JsonObject)
+            ?.get("error")?.jsonPrimitive?.contentOrNull
+    }.getOrNull()?.takeIf { it.isNotBlank() }
 
     /**
      * Extract the user-presentable `message` from a Better Auth error body

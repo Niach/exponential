@@ -81,11 +81,6 @@ class CodingReadinessViewModel @Inject constructor(
     private val _setError = MutableStateFlow<String?>(null)
     val setError: StateFlow<String?> = _setError
 
-    /** The instance the "Set up a server" install command points the daemon at. */
-    val instanceOrigin: StateFlow<String?> = auth.instanceUrl
-        .map { it?.trimEnd('/')?.takeIf { url -> url.isNotBlank() } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-
     private val teamName = combine(dbFlow, teamId) { db, id -> db to id }
         .flatMapLatest { (db, id) ->
             if (db == null || id == null) flowOf(null) else db.teamDao().observeById(id).map { it?.name }

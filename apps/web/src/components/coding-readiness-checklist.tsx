@@ -328,7 +328,6 @@ export function ReadinessSteps({
     <>
       {!onSetUpServer && (
         <ReadinessAddDeviceDialog
-          state={state}
           open={addDeviceOpen}
           onOpenChange={setAddDeviceOpen}
         />
@@ -408,11 +407,9 @@ export function ReadinessSteps({
 
 /** "Set up a server" → the Devices page's own Add device dialog. */
 function ReadinessAddDeviceDialog({
-  state,
   open,
   onOpenChange,
 }: {
-  state: CodingReadinessState
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
@@ -420,7 +417,6 @@ function ReadinessAddDeviceDialog({
     <AddDeviceDialog
       open={open}
       onOpenChange={onOpenChange}
-      devices={state.ownDevices}
       origin={typeof window === `undefined` ? `` : window.location.origin}
     />
   )
@@ -513,7 +509,6 @@ export function CodingReadinessOverlay({
   }
   const addDevice = (
     <ReadinessAddDeviceDialog
-      state={state}
       open={addDeviceOpen}
       onOpenChange={setAddDeviceOpen}
     />

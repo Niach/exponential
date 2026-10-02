@@ -82,9 +82,9 @@ const MCP_DOCS_URL: &str = "https://exponential.at/docs/mcp/";
 pub(crate) mod copy {
     pub const DESKTOP_TITLE: &str = "Get the desktop app";
     pub const DESKTOP_DESCRIPTION: &str = "Runs coding sessions on your machine and registers it as one of your devices.";
-    /// Unused on the IDE — it IS the desktop app — but part of the shared
-    /// contract the drift test checks, so it lives here with its siblings.
-    #[allow(dead_code)]
+    /// The IDE's getting-started list has no desktop entry (it IS the
+    /// desktop app); the Add device dialog's desktop card labels its
+    /// download button with it (EXP-1169).
     pub const DESKTOP_ACTION: &str = "Download the desktop app";
 
     pub const GITHUB_TITLE: &str = "Connect a GitHub repo";

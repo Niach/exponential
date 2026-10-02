@@ -44,6 +44,8 @@ struct AgentsView: View {
     @State private var removeAccountTarget: AccountRemoveTarget?
     /// EXP-1137: the sign-out a chip is confirming.
     @State private var signOutAccountTarget: AccountRemoveTarget?
+    /// EXP-1169: the band's "Add device" sheet.
+    @State private var showAddDevice = false
     /// EXP-944: devices COLLAPSE. The list answers "which machines do I have
     /// and are they up" first; a machine's logins, their usage bars and its
     /// "Add account" are the second question, and three machines' worth of
@@ -168,7 +170,13 @@ struct AgentsView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
                 VStack(alignment: .leading, spacing: 0) {
-                    GlassSectionBand("My devices")
+                    // EXP-1169 (web + desktop parity): "Add device" rides
+                    // the band and opens the ONE device setup block.
+                    GlassSectionBand("My devices") {
+                        GlassPill("Add device", icon: AppIcons.uiAdd, mode: .action {
+                            showAddDevice = true
+                        })
+                    }
                     if let myDevices {
                         if myDevices.isEmpty {
                             deviceHintRow
@@ -208,8 +216,17 @@ struct AgentsView: View {
                 )
             }
         }
-        // One presentation per node is the rule, so the login sheet and the
-        // account confirm hang off a zero-size node of their own.
+        // One presentation per node is the rule, so the login sheet, the
+        // account confirm and the Add device sheet hang off zero-size nodes
+        // of their own.
+        .background(
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .sheet(isPresented: $showAddDevice) {
+                    AddDeviceSheet(accountId: accountId)
+                }
+        )
         .background(
             Color.clear
                 .frame(width: 0, height: 0)
@@ -507,10 +524,10 @@ struct AgentsView: View {
             // EXP-317: the same glyph the web draws on its empty devices row
             // (`ui-device-offline`); `ui-offline` stays the network indicator.
             AppIcon(AppIcons.uiDeviceOffline, size: AppIcon.Size.small)
-            // Web puts its install one-liner behind this row; a phone can't
-            // run it, so mobile points at the surface that can (Android says
-            // the same thing, word for word).
-            Text("No devices yet. Open the Exponential desktop app, or add a device on the web.")
+            // The web string, word for word: the band's "Add device" pill is
+            // the add (EXP-1169), the same device setup block every client
+            // opens.
+            Text("No devices yet. Open the Exponential desktop app, or add a device.")
                 .font(.caption)
             Spacer(minLength: 0)
         }

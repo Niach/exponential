@@ -78,7 +78,11 @@ test(`generates an invite and accepts it with a second user`, async ({
     await memberPage.getByRole(`button`, { name: `Accept Invite` }).click()
 
     // Accepting the invite stamps onboardingCompletedAt server-side, so the
-    // invited member lands straight in the team — never in the wizard.
+    // invited member never sees the wizard's team/board/invite steps. But a
+    // joiner who owns no device gets its LAST step (EXP-1169), skippable,
+    // and lands in the team from there.
+    await expect(memberPage.getByText(`Set up your devices`)).toBeVisible()
+    await memberPage.getByTestId(`onboarding-advance`).click()
     await expect(memberPage).toHaveURL(new RegExp(`/t/${teamSlug}/?$`))
 
     await openTeamSettings(memberPage, teamSlug)

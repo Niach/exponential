@@ -50,6 +50,7 @@ import com.exponential.app.domain.AgentHealthRules
 import com.exponential.app.domain.AgentProfileUsageRow
 import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.LaunchDeviceRules
+import com.exponential.app.ui.components.AddDeviceSheet
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassDropdownMenu
@@ -128,6 +129,8 @@ fun AgentsScreen(
     // The machine row whose settings sheet (EXP-481) is open — the sheet owns
     // Update and Remove now, confirm dialog included.
     var settingsTargetId by remember { mutableStateOf<String?>(null) }
+    // EXP-1169: the "My devices" header's Add device pill (web + desktop twin).
+    var showAddDevice by remember { mutableStateOf(false) }
     // EXP-862: the sign-in a chip (or the Add-account pill) asked for — the
     // machine runs its agent's OWN login flow and publishes the link back, so
     // the sheet is the ONE place that renders a login, wherever it started.
@@ -182,15 +185,20 @@ fun AgentsScreen(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    item(key = "__machines_header__") { SectionHeader("My devices") }
+                    item(key = "__machines_header__") {
+                        SectionHeader("My devices") {
+                            GlassPill(
+                                "Add device",
+                                icon = ExpIcons.uiAdd,
+                                onClick = { showAddDevice = true },
+                            )
+                        }
+                    }
                     when {
                         // null = still loading; render nothing under the header.
                         ownDevices == null -> Unit
                         ownDevices.isEmpty() -> item(key = "__no_machine__") {
-                            HintRow(
-                                "No devices yet. Open the Exponential desktop app, or add a " +
-                                    "device on the web.",
-                            )
+                            HintRow("No devices yet. Open the Exponential desktop app, or add a device.")
                         }
                         else -> items(ownDevices, key = { "dev_${it.deviceId}" }) { device ->
                             MachineRow(
@@ -246,6 +254,10 @@ fun AgentsScreen(
                 }
             }
         }
+    }
+
+    if (showAddDevice) {
+        AddDeviceSheet(onDismiss = { showAddDevice = false })
     }
 
     // EXP-481: the device-settings sheet, re-resolving the LIVE row on every

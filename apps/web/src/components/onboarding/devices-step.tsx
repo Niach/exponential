@@ -1,55 +1,26 @@
-import { useMemo } from "react"
-import { useLiveQuery } from "@tanstack/react-db"
-import type { Device } from "@/db/schema"
+import { conceptIcon, Button } from "@exp/ui"
+import { AgentLoginDialogHost } from "@/components/agent-login-dialog"
 import {
-  conceptIcon,
-  getDeviceIcon,
-  Button,
-  Pill,
-  GlassRow,
-  GlassSectionHeader,
-} from "@exp/ui"
-import { deviceCollection } from "@/lib/collections"
-import { useNow } from "@/hooks/use-now"
-import { useSession } from "@/hooks/use-session"
-import {
-  composeDeviceList,
-  deviceIsMine,
-  deviceIsOnline,
-  deviceUnauthedAgentIds,
-  type SteerDevice,
-} from "@/lib/steer-devices"
-import {
-  DESKTOP_RELEASES_URL,
-  desktopDownloadHref,
-} from "@/lib/desktop-download"
-import {
-  buildServerInstallSnippet,
-  CopyIconButton,
-  DeviceStatusLine,
-} from "@/components/my-machines"
-import { requestAgentLogin } from "@/components/agent-login-dialog"
-import { GETTING_STARTED_COPY } from "@/components/getting-started/getting-started-copy"
+  DeviceSetup,
+  OwnDevicesList,
+  useOwnDevices,
+} from "@/components/device-setup"
 import { ONBOARDING_COPY } from "@/components/onboarding/onboarding-copy"
 import { StepCard, stepAdvanceLabel } from "@/components/onboarding/step-card"
 
 const DevicesIcon = conceptIcon(`nav-devices`)
-const DesktopIcon = conceptIcon(`ui-device`)
-const ServerIcon = conceptIcon(`ui-server`)
-const OfflineIcon = conceptIcon(`ui-device-offline`)
-const DownloadIcon = conceptIcon(`ui-download`)
-const SignInIcon = conceptIcon(`ui-sign-in`)
 
-// Step 4, the last one (EXP-725): everything that means leaving this screen
-// for another machine — download the desktop app, install the CLI daemon on
-// a server, sign the agents in — so it comes after the board and is always
-// skippable. The two cards reuse the getting-started checklist's copy and
-// the add-device dialog's install box (`my-machines.tsx`); the device rows
-// are the caller's own machines off the synced devices shape (user-scoped,
-// so they show regardless of the shape rotation the new team just caused),
-// each offering a "Sign in" pill while an installed agent is signed out
-// there (EXP-862: the shared login dialog is the ONE place a sign-in
-// renders; the device-settings dialog carries no accounts any more).
+// The devices step (EXP-725): everything that means leaving this screen for
+// another machine — download the desktop app, install the CLI daemon on a
+// server, sign the agents in — so it comes last and is always skippable.
+// EXP-1169: it has two entrances, the wizard's step 4 after the board and
+// the join step an invited teammate with no machine of their own gets
+// (`routes/invite/$token.tsx`). The content is the shared device-setup block
+// (`device-setup.tsx`), the same one the Add device dialog renders, plus the
+// caller's own machines, which only this step lists (the dialog opens over a
+// page that already shows them). Neither
+// entrance sits under the team route, so the step mounts its own host for
+// the block's "Sign in" pill.
 export function DevicesStep({
   teamId,
   onNext,
@@ -57,36 +28,11 @@ export function DevicesStep({
   teamId: string
   onNext: () => void
 }) {
-  const { data: session } = useSession()
-  const currentUserId = session?.user?.id
-  const { data: deviceRows, isReady } = useLiveQuery((query) =>
-    query.from({ d: deviceCollection })
-  )
-  // 30s tick against the online window (the EXP-153 staleness idiom).
-  const now = useNow(30_000)
-  const devices = useMemo<SteerDevice[] | null>(() => {
-    // `isReady` is the loading signal (the use-agents-data idiom): an empty
-    // pre-snapshot array must not flash "No devices yet" at someone who has
-    // a machine.
-    if (!currentUserId || !isReady || deviceRows === undefined) return null
-    return composeDeviceList(
-      deviceRows as Device[],
-      new Map(),
-      now,
-      currentUserId,
-      teamId
-    ).filter(deviceIsMine)
-  }, [deviceRows, isReady, now, currentUserId, teamId])
-
+  const devices = useOwnDevices(teamId)
   const origin =
     typeof window === `undefined`
       ? `https://app.exponential.at`
       : window.location.origin
-  const snippet = buildServerInstallSnippet(origin)
-  const downloadHref =
-    typeof navigator === `undefined`
-      ? desktopDownloadHref(``)
-      : desktopDownloadHref(navigator.userAgent, navigator.maxTouchPoints)
 
   return (
     <StepCard
@@ -95,92 +41,8 @@ export function DevicesStep({
       subtitle={ONBOARDING_COPY.devices.subtitle}
     >
       <div className="space-y-4 p-6">
-        <GlassRow className="flex-col items-stretch gap-3">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <DesktopIcon className="size-4 shrink-0" />
-            {GETTING_STARTED_COPY.desktop.title}
-          </div>
-          <p className="text-sm text-muted-foreground">
-            {GETTING_STARTED_COPY.desktop.description}
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" asChild>
-              <a href={downloadHref} target="_blank" rel="noreferrer">
-                <DownloadIcon className="mr-1.5 size-4" />
-                {GETTING_STARTED_COPY.desktop.action}
-              </a>
-            </Button>
-            <Button size="sm" variant="outline" asChild>
-              <a href={DESKTOP_RELEASES_URL} target="_blank" rel="noreferrer">
-                All platforms
-              </a>
-            </Button>
-          </div>
-        </GlassRow>
-
-        <GlassRow className="flex-col items-stretch gap-3">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <ServerIcon className="size-4 shrink-0" />
-            {GETTING_STARTED_COPY.server.title}
-          </div>
-          <p className="text-sm text-muted-foreground">
-            {GETTING_STARTED_COPY.server.description}
-          </p>
-          <div className="relative">
-            <pre className="rounded-md border bg-muted/30 p-3 pr-10 text-left text-xs whitespace-pre-wrap">
-              {`curl -fsSL https://exponential.at/install.sh |\n  EXP_INSTANCE=${origin} sh`}
-            </pre>
-            <CopyIconButton text={snippet} />
-          </div>
-        </GlassRow>
-
-        <div>
-          <GlassSectionHeader label={ONBOARDING_COPY.devices.yours} />
-          {devices === null ? (
-            <div className="px-1 py-3 text-sm text-muted-foreground">Loading…</div>
-          ) : devices.length === 0 ? (
-            <div className="flex items-center gap-2 px-1 py-3 text-xs text-muted-foreground">
-              <OfflineIcon className="size-3.5 shrink-0" />
-              {ONBOARDING_COPY.devices.none}
-            </div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {devices.map((device) => {
-                const online = deviceIsOnline(device)
-                // The first signed-out agent is what the pill signs in; a
-                // device with every agent signed in (or none installed)
-                // offers nothing here.
-                const signInAgent = deviceUnauthedAgentIds(device)[0]
-                const KindIcon = getDeviceIcon(device)
-                return (
-                  <GlassRow key={device.deviceId}>
-                    <KindIcon className="size-4 shrink-0 text-foreground/70" />
-                    <div className="min-w-0 flex-1">
-                      <div className="min-w-0 truncate text-sm font-medium">
-                        {device.deviceLabel || device.deviceId}
-                      </div>
-                      <DeviceStatusLine
-                        online={online}
-                        lastSeenAt={device.lastSeenAt}
-                      />
-                    </div>
-                    {signInAgent && (
-                      <Pill
-                        mode="action"
-                        onClick={() =>
-                          requestAgentLogin({ device, agent: signInAgent })
-                        }
-                      >
-                        <SignInIcon className="size-3" />
-                        Sign in
-                      </Pill>
-                    )}
-                  </GlassRow>
-                )
-              })}
-            </div>
-          )}
-        </div>
+        <DeviceSetup origin={origin} />
+        <OwnDevicesList devices={devices} />
 
         <div className="flex justify-end">
           <Button
@@ -195,6 +57,7 @@ export function DevicesStep({
           </Button>
         </div>
       </div>
+      <AgentLoginDialogHost />
     </StepCard>
   )
 }

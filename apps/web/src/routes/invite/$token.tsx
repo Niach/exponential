@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react"
+import { useCallback, useState, useEffect, useRef } from "react"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { useSession } from "@/hooks/use-session"
 import { trpc } from "@/lib/trpc-client"
@@ -18,6 +18,10 @@ import {
   readPendingInvite,
   rememberPendingInvite,
 } from "@/lib/pending-invite"
+import { JOIN_DEVICE_WAIT_MS, joinDeviceStep } from "@/lib/join-device-step"
+import { useOwnDevices } from "@/components/device-setup"
+import { DevicesStep } from "@/components/onboarding/devices-step"
+import { WizardFrame } from "@/components/onboarding/wizard"
 
 export const Route = createFileRoute(`/invite/$token`)({
   head: () => ({ meta: [{ title: pageTitle(`Team Invite`) }] }),
@@ -34,7 +38,10 @@ function InviteAcceptPage() {
   const { data: session, isPending: sessionPending } = useSession()
   const [accepting, setAccepting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState(false)
+  // EXP-1169: the team this visit joined. Set on every successful accept;
+  // `JoinedGate` then decides between the devices step and the team.
+  const [joined, setJoined] = useState<JoinedTeam | null>(null)
+  const success = joined !== null
   // EXP-630: a used invite may be the viewer's OWN placeholder invite — the
   // session hook stamps it accepted the moment they sign in through the
   // mailbox, before this page is reached. `getByToken` cannot tell (the
@@ -78,13 +85,7 @@ function InviteAcceptPage() {
         token,
       })
       clearPendingInviteFor(token)
-      setSuccess(true)
-      setTimeout(() => {
-        navigate({
-          to: `/t/$teamSlug`,
-          params: { teamSlug: team.slug },
-        })
-      }, 1500)
+      setJoined({ id: team.id, slug: team.slug })
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : `Failed to accept invite`
@@ -104,13 +105,7 @@ function InviteAcceptPage() {
         if (cancelled) return
         clearPendingInviteFor(token)
         setUsedForViewer(false)
-        setSuccess(true)
-        setTimeout(() => {
-          navigate({
-            to: `/t/$teamSlug`,
-            params: { teamSlug: team.slug },
-          })
-        }, 1500)
+        setJoined({ id: team.id, slug: team.slug })
       })
       .catch(() => {
         if (cancelled) return
@@ -120,7 +115,7 @@ function InviteAcceptPage() {
     return () => {
       cancelled = true
     }
-  }, [inviteUsed, viewerLoggedIn, usedForViewer, token, navigate])
+  }, [inviteUsed, viewerLoggedIn, usedForViewer, token])
 
   // EXP-1132: remember the invite across the sign-in detour; once the
   // visitor comes back signed in, finish what they started — the accept runs
@@ -160,6 +155,8 @@ function InviteAcceptPage() {
     )
   }
 
+  if (joined) return <JoinedGate team={joined} />
+
   const isExpired = invite && invite.expiresAt < new Date()
   const isUsed = inviteUsed && (!viewerLoggedIn || usedForViewer === true)
   const isLoggedIn = viewerLoggedIn
@@ -170,31 +167,18 @@ function InviteAcceptPage() {
         <CardHeader className="text-center">
           <IconDisc icon={Users} className="mx-auto mb-4" />
           <CardTitle>
-            {success
-              ? `Welcome!`
-              : error && !invite
-                ? `Invalid Invite`
-                : `Team Invite`}
+            {error && !invite ? `Invalid Invite` : `Team Invite`}
           </CardTitle>
           <CardDescription>
-            {success
-              ? `You've joined the team. Redirecting...`
-              : error && !invite
-                ? error
-                : invite
-                  ? `You've been invited to join`
-                  : ``}
+            {error && !invite
+              ? error
+              : invite
+                ? `You've been invited to join`
+                : ``}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {success && (
-            <div className="flex items-center justify-center gap-2 text-sm text-green-500">
-              <CircleCheck className="h-4 w-4" />
-              Successfully joined team
-            </div>
-          )}
-
-          {invite && !success && (
+          {invite && (
             <>
               <div className="rounded-lg border p-4 text-center">
                 <div className="text-lg font-semibold">
@@ -263,6 +247,63 @@ function InviteAcceptPage() {
               Go to your team
             </Button>
           )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+type JoinedTeam = { id: string; slug: string }
+
+// EXP-1169: after the accept. A joiner who owns no device gets the wizard's
+// devices step (the creator's last step, skippable) before the team; one who
+// has a machine goes straight in, as before. The decision is made ONCE: a
+// device that registers while the step is open must not yank the page away,
+// the step's own button turns into "Continue" instead.
+function JoinedGate({ team }: { team: JoinedTeam }) {
+  const navigate = useNavigate()
+  const devices = useOwnDevices(team.id)
+  const [timedOut, setTimedOut] = useState(false)
+  const [decision, setDecision] = useState<`step` | `enter` | null>(null)
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setTimedOut(true), JOIN_DEVICE_WAIT_MS)
+    return () => window.clearTimeout(timer)
+  }, [])
+  useEffect(() => {
+    if (decision) return
+    const next = joinDeviceStep(devices, timedOut)
+    if (next !== `wait`) setDecision(next)
+  }, [decision, devices, timedOut])
+
+  const enter = useCallback(() => {
+    void navigate({ to: `/t/$teamSlug`, params: { teamSlug: team.slug } })
+  }, [navigate, team.slug])
+  useEffect(() => {
+    if (decision === `enter`) enter()
+  }, [decision, enter])
+
+  if (decision === `step`) {
+    return (
+      <WizardFrame>
+        <DevicesStep teamId={team.id} onNext={enter} />
+      </WizardFrame>
+    )
+  }
+
+  return (
+    <div className="flex min-h-screen items-center justify-center p-4">
+      <Card className="w-full max-w-md">
+        <CardHeader className="text-center">
+          <IconDisc icon={Users} className="mx-auto mb-4" />
+          <CardTitle>Welcome!</CardTitle>
+          <CardDescription>You&apos;ve joined the team.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-center gap-2 text-sm text-green-500">
+            <CircleCheck className="h-4 w-4" />
+            Successfully joined team
+          </div>
         </CardContent>
       </Card>
     </div>

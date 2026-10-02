@@ -615,7 +615,7 @@ fn fix_button(
         ReadinessFix::ChooseRepository => Some(registry::UI_BRANCH),
         ReadinessFix::ConnectGithub => Some(registry::UI_GITHUB),
         ReadinessFix::OpenDevices => Some(registry::NAV_DEVICES),
-        ReadinessFix::SetUpServer => Some(registry::UI_COPY),
+        ReadinessFix::SetUpServer => Some(registry::UI_SERVER),
         _ => None,
     };
     if let Some(glyph) = glyph {
@@ -661,10 +661,11 @@ fn fix_button(
                 popover.update(cx, |state, cx| state.dismiss(window, cx));
                 crate::navigation::navigate(window, cx, crate::navigation::Screen::Devices);
             }
+            // EXP-1169: the Add device dialog, the one place a device is
+            // set up (the web fix opens its twin), not a silent copy.
             ReadinessFix::SetUpServer => {
-                let snippet = crate::machines::server_install_snippet(cx);
-                cx.write_to_clipboard(gpui::ClipboardItem::new_string(snippet));
-                crate::toast::success("Copied install command", window, cx);
+                popover.update(cx, |state, cx| state.dismiss(window, cx));
+                crate::machines::open_add_server_dialog(window, cx);
             }
             // Never shown on the desktop (`desktop_fixes`).
             ReadinessFix::GetDesktopApp => {}

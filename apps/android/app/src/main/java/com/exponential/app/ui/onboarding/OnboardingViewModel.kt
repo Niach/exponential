@@ -12,6 +12,7 @@ import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.SessionInvalidator
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.domain.WebLinks
+import com.exponential.app.ui.components.OwnDevices
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,8 +26,8 @@ import kotlinx.coroutines.launch
 // → done. On load it RESOLVES the user's default team (`teams.getDefault`,
 // which never creates); null routes to the create-or-join choice. Creating a
 // team advances to the board step; joining via a pasted invite link completes
-// onboarding immediately (the server stamps onboardingCompletedAt in accept)
-// and skips the board step. A successful board create marks onboarding
+// onboarding (the server stamps onboardingCompletedAt in accept) and skips the
+// board step, through the devices step first when the caller owns no device. A successful board create marks onboarding
 // complete server-side and remembers the board as last-used so the Issues tab
 // opens on it; the local flag lands in finish() — the done step's single
 // action — which drops into the app.
@@ -44,6 +45,7 @@ class OnboardingViewModel @Inject constructor(
     private val holder: DatabaseHolder,
     private val selection: TeamSelection,
     private val sessionInvalidator: SessionInvalidator,
+    private val ownDevices: OwnDevices,
 ) : ViewModel() {
 
     val instanceUrl: StateFlow<String?> = auth.instanceUrl
@@ -76,6 +78,11 @@ class OnboardingViewModel @Inject constructor(
 
     private val _teamJoinError = MutableStateFlow<String?>(null)
     val teamJoinError: StateFlow<String?> = _teamJoinError.asStateFlow()
+
+    // EXP-1169: a join by a caller who owns no device lands on the devices
+    // step instead of exiting; its Continue then runs finish().
+    private val _joined = MutableStateFlow(false)
+    val joined: StateFlow<Boolean> = _joined.asStateFlow()
 
     private var reconciled = false
 
@@ -145,7 +152,11 @@ class OnboardingViewModel @Inject constructor(
      * completes onboarding (the server stamps onboardingCompletedAt in-tx), so
      * the LOCAL flag must flip too — without it AppNavHost's needsOnboarding
      * gate bounces straight back into this wizard — and _done exits, skipping
-     * the board step (the joined team already has its owner's boards). */
+     * the board step (the joined team already has its owner's boards).
+     *
+     * EXP-1169: a caller who owns no device gets the devices step first
+     * ([joined]); the local flag is then deferred to [finish], exactly as the
+     * create path defers it, because flipping it resets the nav graph. */
     fun joinTeam(input: String) {
         if (_teamSubmitting.value) return
         val token = WebLinks.extractInviteToken(input)
@@ -164,8 +175,12 @@ class OnboardingViewModel @Inject constructor(
                 }
                 selection.select(result.team.id)
             }.onSuccess {
-                auth.markOnboardingCompleted(java.time.Instant.now().toString())
-                _done.value = true
+                if (ownDevices.needsJoinDeviceStep()) {
+                    _joined.value = true
+                } else {
+                    auth.markOnboardingCompleted(java.time.Instant.now().toString())
+                    _done.value = true
+                }
             }.onFailure { _teamJoinError.value = trpcErrorMessage(it, "Couldn't join the team") }
             _teamSubmitting.value = false
         }
@@ -190,7 +205,8 @@ class OnboardingViewModel @Inject constructor(
         }
     }
 
-    /** Done-step action: set the local onboarding flag; the screen navigates home. */
+    /** Done-step action (and the join step's Continue): set the local
+     *  onboarding flag; the screen navigates home. */
     fun finish() {
         auth.markOnboardingCompleted(java.time.Instant.now().toString())
     }

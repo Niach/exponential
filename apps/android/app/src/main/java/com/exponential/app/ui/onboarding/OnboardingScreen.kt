@@ -56,7 +56,9 @@ import com.exponential.app.ui.theme.glassCard
 //   0. Welcome — app name + one-line value prop + "Get started".
 //   1. Team — resolving spinner, then create-or-join when the account has no
 //      team (signups no longer get one). Creating advances; joining via a
-//      pasted invite link completes onboarding and exits the wizard.
+//      pasted invite link completes onboarding and exits the wizard, or, when
+//      the caller owns no device (EXP-1169), jumps to step 4 first and exits
+//      from there (no done page: its copy is about the first board).
 //   2. Create your first board — board name + optional repository picker
 //      (with inline GitHub connect when nothing is installed yet).
 //   3. Invite your teammates — the shared invite-link creator. SKIPPABLE, and
@@ -83,6 +85,7 @@ fun OnboardingScreen(
     val teamSubmitting by viewModel.teamSubmitting.collectAsStateWithLifecycle()
     val teamCreateError by viewModel.teamCreateError.collectAsStateWithLifecycle()
     val teamJoinError by viewModel.teamJoinError.collectAsStateWithLifecycle()
+    val joined by viewModel.joined.collectAsStateWithLifecycle()
 
     var step by remember { mutableIntStateOf(0) }
     // EXP-523: `transitionSpec` is a plain lambda, not a composable one, so the
@@ -96,6 +99,9 @@ fun OnboardingScreen(
     // Reconcile self-heal: an account that already onboarded elsewhere skips the
     // wizard entirely (a completed create advances to the done step instead).
     LaunchedEffect(done) { if (done) onDone() }
+    // EXP-1169: a join by a caller with no device of their own goes to the
+    // devices step rather than out of the wizard.
+    LaunchedEffect(joined) { if (joined) step = 4 }
     // The team step is a pass-through once a team resolves (existing membership
     // or a successful create) — advance straight to the board step.
     LaunchedEffect(step, teamId) {
@@ -170,7 +176,14 @@ fun OnboardingScreen(
                     3 -> InviteStep(teamId = teamId, onContinue = { step = 4 })
                     4 -> OnboardingDevicesStep(
                         instanceOrigin = instanceUrl,
-                        onContinue = { step = 5 },
+                        onContinue = {
+                            if (joined) {
+                                viewModel.finish()
+                                onDone()
+                            } else {
+                                step = 5
+                            }
+                        },
                     )
                     else -> DoneStep(onFinish = {
                         viewModel.finish()

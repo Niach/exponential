@@ -9,6 +9,7 @@ import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.domain.WebLinks
+import com.exponential.app.ui.components.OwnDevices
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -45,13 +46,21 @@ class TeamSetupViewModel @Inject constructor(
     private val invitesApi: TeamInvitesApi,
     private val holder: DatabaseHolder,
     private val selection: TeamSelection,
+    private val ownDevices: OwnDevices,
 ) : ViewModel() {
+
+    /** The instance the devices step's server install snippet points at. */
+    val instanceOrigin: StateFlow<String?> = auth.instanceUrl
+
 
     data class UiState(
         // ONE in-flight flag: both submits are disabled while either runs.
         val busy: Boolean = false,
         val createError: String? = null,
         val joinError: String? = null,
+        // EXP-1169: joined by a caller who owns no device; the sheet shows the
+        // devices step and [finishJoin] fires the Joined event.
+        val showDeviceStep: Boolean = false,
     )
 
     private val _state = MutableStateFlow(UiState())
@@ -63,6 +72,14 @@ class TeamSetupViewModel @Inject constructor(
     /** A fresh opening must not show the previous attempt's errors. */
     fun reset() {
         if (!_state.value.busy) _state.value = UiState()
+    }
+
+    /** The devices step's Continue (or a dismiss on it): the join is already
+     *  done, so this only fires what a join success fires. */
+    fun finishJoin() {
+        if (!_state.value.showDeviceStep) return
+        _state.value = UiState()
+        _events.tryEmit(TeamSetupEvent.Joined)
     }
 
     /** First card: the creator becomes owner (open to every authed user). */
@@ -112,8 +129,12 @@ class TeamSetupViewModel @Inject constructor(
                 }
                 selection.select(result.team.id)
             }.onSuccess {
-                _events.emit(TeamSetupEvent.Joined)
-                _state.value = UiState()
+                if (ownDevices.needsJoinDeviceStep()) {
+                    _state.value = UiState(showDeviceStep = true)
+                } else {
+                    _events.emit(TeamSetupEvent.Joined)
+                    _state.value = UiState()
+                }
             }.onFailure {
                 _state.value = _state.value.copy(
                     busy = false,

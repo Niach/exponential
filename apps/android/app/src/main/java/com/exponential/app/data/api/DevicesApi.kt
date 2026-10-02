@@ -91,6 +91,16 @@ data class DeviceCommandDto(
     }
 }
 
+/**
+ * `devices.createInstallToken` (EXP-1111): a one-time `EXP_INSTALL_TOKEN` for
+ * the server install command, [expiresAt] = ISO-8601 (15 minutes out).
+ */
+@Serializable
+data class InstallToken(
+    @SerialName("token") val token: String,
+    @SerialName("expiresAt") val expiresAt: String,
+)
+
 @Serializable
 private data class CommandIdInput(@SerialName("commandId") val commandId: String)
 
@@ -144,6 +154,20 @@ class DevicesApi @Inject constructor(private val trpc: TrpcClient) {
             input = buildJsonObject { },
             inputSerializer = JsonObject.serializer(),
             outputSerializer = DeviceLatestVersions.serializer(),
+        )
+
+    /**
+     * `devices.createInstallToken` (EXP-1111, EXP-1169): input-less, rate
+     * limited per user (429 on a burst). The device-setup block swallows every
+     * failure and keeps the plain command.
+     */
+    suspend fun createInstallToken(accountId: String): InstallToken =
+        trpc.mutation(
+            accountId,
+            path = "devices.createInstallToken",
+            input = buildJsonObject { },
+            inputSerializer = JsonObject.serializer(),
+            outputSerializer = InstallToken.serializer(),
         )
 
     /** `devices.rename` — the registry label wins over what the relay holds. */

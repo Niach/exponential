@@ -40,7 +40,7 @@ export const Route = createFileRoute(`/auth/device`)({
 
 type Step = `enter` | `confirm` | `approved` | `denied`
 
-// The shared code helpers (the Add device dialog uses them too, EXP-1111);
+// The shared code helpers (the device-setup block uses them too, EXP-1111);
 // re-exported so the page's tests keep importing from here.
 export { normalizeUserCode }
 

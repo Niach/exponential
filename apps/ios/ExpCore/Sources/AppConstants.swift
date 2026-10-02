@@ -43,8 +43,10 @@ public enum AppConstants {
     /// The one-liner that installs the headless CLI daemon on an always-on
     /// machine, pointed at `origin` (web's `buildServerInstallSnippet`). The
     /// script is served by the cloud marketing site for EVERY instance, so the
-    /// target is always named explicitly.
-    public static func serverInstallSnippet(origin: String) -> String {
-        "curl -fsSL https://exponential.at/install.sh | EXP_INSTANCE=\(origin) sh"
+    /// target is always named explicitly. EXP-1169: a one-time install token,
+    /// when there is one, rides along as `EXP_INSTALL_TOKEN`.
+    public static func serverInstallSnippet(origin: String, token: String? = nil) -> String {
+        let tokenPart = token.map { " EXP_INSTALL_TOKEN=\($0)" } ?? ""
+        return "curl -fsSL https://exponential.at/install.sh | EXP_INSTANCE=\(origin)\(tokenPart) sh"
     }
 }
