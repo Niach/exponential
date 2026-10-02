@@ -2902,7 +2902,7 @@ pub(crate) fn issue_web_url(issue: &Issue, cx: &App) -> Option<String> {
 
 
 /// Web `PrStateBadge`: the PR state as an outline chip, state-tinted — the
-/// issue's PR row.
+/// issue's PR row and the "Related work" dialog's stack rows (`pr_graph`).
 pub(crate) fn pr_state_chip(state: &str, cx: &App) -> gpui::AnyElement {
     let theme = cx.theme();
     let (label, color) = match state {

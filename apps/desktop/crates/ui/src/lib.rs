@@ -120,6 +120,7 @@ mod picker;
 mod pins;
 mod pr_description_dialog;
 mod pr_diff;
+mod pr_graph;
 mod pr_merge;
 mod queries;
 mod repo_resolver;

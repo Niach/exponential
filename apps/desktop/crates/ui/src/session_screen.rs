@@ -712,6 +712,12 @@ impl SessionScreenView {
             None => crate::work_header::title_row("Loading…"),
         };
         let mut right: Vec<AnyElement> = Vec::with_capacity(4);
+        // EXP-897 §4: the same badge an issue-bound header carries (a batch
+        // run's PR closes several issues, and a chat run can be stacked).
+        if let Some(row) = row.as_ref() {
+            let spec = crate::pr_graph::session_spec(row, cx);
+            right.extend(crate::pr_graph::badge("session-pr-graph", spec, cx));
+        }
         // EXP-916: the run's own PR (EXP-626/EXP-734) reaches GitHub from the
         // header, exactly as an issue's does — EXP-949: on the Changes face
         // alone, where the diff it opens is on show.

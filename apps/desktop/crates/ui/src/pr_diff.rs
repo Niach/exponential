@@ -548,6 +548,11 @@ impl Render for PrDiffView {
                 );
             }
 
+            // EXP-897 §4: the review page IS a Changes face, so it carries the
+            // same badge and "Related work" dialog.
+            let spec = crate::pr_graph::issue_spec(issue, cx);
+            trailing.extend(crate::pr_graph::badge("review-pr-graph", spec, cx));
+
             // The reject path — a quiet CIRCLED `×` that only grows into a
             // labeled danger confirm once armed (EXP-100/EXP-916). Closing a
             // PR without merging is not a primary action.

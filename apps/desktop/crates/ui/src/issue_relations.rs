@@ -480,8 +480,9 @@ fn render_band(issue: &Issue, read: &Read, band: &RelationsViewBand, cx: &mut Ap
 /// A click handler of a [`FoldBand`].
 pub(crate) type BandClick = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
-/// SLOP-16 round 5 — everything one FOLDABLE relations band draws (the
-/// relations card's).
+/// SLOP-16 round 5: everything one FOLDABLE relations band draws. The
+/// relations card draws it, and so does the work header's "Related work"
+/// dialog (`pr_graph`).
 pub(crate) struct FoldBand {
     pub(crate) id: SharedString,
     /// The band's glyph after the chevron.
@@ -490,7 +491,7 @@ pub(crate) struct FoldBand {
     /// Every row the band holds (shown or not).
     pub(crate) count: usize,
     pub(crate) expanded: bool,
-    /// The rows to draw (already capped).
+    /// The rows to draw (already capped, [`band_window`]).
     pub(crate) rows: Vec<AnyElement>,
     /// "Show N more" / "Show less" under the rows.
     pub(crate) footer: Option<String>,
@@ -498,6 +499,25 @@ pub(crate) struct FoldBand {
     pub(crate) on_toggle: BandClick,
     /// A click on the footer shows all / shows less.
     pub(crate) on_footer: BandClick,
+}
+
+/// SLOP-16 round 5: the relations card's band cap, for a band built outside
+/// [`issue_relations_view`]: how many of `total` rows show, and the footer
+/// ("Show N more" / "Show less"), byte-for-byte the model's rule.
+pub(crate) fn band_window(total: usize, expanded: bool, show_all: bool) -> (usize, Option<String>) {
+    use domain::relations_view::{relations_show_more, RELATIONS_BAND_CAP};
+    let overflow = total > RELATIONS_BAND_CAP;
+    if !expanded {
+        return (0, None);
+    }
+    match (overflow, show_all) {
+        (false, _) => (total, None),
+        (true, false) => (
+            RELATIONS_BAND_CAP,
+            Some(relations_show_more(total - RELATIONS_BAND_CAP)),
+        ),
+        (true, true) => (total, Some(copy::SHOW_LESS.to_string())),
+    }
 }
 
 /// SLOP-16 round 5 — THE foldable relations band: chevron · glyph · title ·
@@ -615,7 +635,8 @@ const ISSUE_ROW_PAD: f32 = 12.;
 /// SLOP-16 round 3 — THE issue row: status glyph · mono identifier · title
 /// · (hover ✕) · assignee, a flat `px_3 py_1` row. Opens the issue; hovering
 /// shows the shared issue preview card. The relations card draws it, and so
-/// does the Reviews / run-header issues popover.
+/// do the work header's "Related work" dialog (`pr_graph`) and the Reviews /
+/// run-header issues popover.
 pub(crate) fn issue_row(key: &str, other: &Issue, opts: IssueRowOpts, cx: &mut App) -> AnyElement {
     let IssueRowOpts {
         title: title_text,
@@ -971,5 +992,14 @@ mod tests {
         assert_eq!(ring_percent(0, 0), 0.);
         assert_eq!(ring_percent(2, 4), 50.);
         assert_eq!(ring_percent(5, 4), 100.);
+    }
+
+    /// SLOP-16 round 5: the dialog's bands cap exactly like the model's.
+    #[test]
+    fn band_window_mirrors_the_models_cap() {
+        assert_eq!(band_window(2, true, false), (2, None));
+        assert_eq!(band_window(5, true, false), (3, Some("Show 2 more".to_string())));
+        assert_eq!(band_window(5, true, true), (5, Some("Show less".to_string())));
+        assert_eq!(band_window(5, false, false), (0, None));
     }
 }

@@ -22,6 +22,12 @@
 //! * [`relations_view`] — EXP-1097's issue-detail relations view (the
 //!   "Sub-issue of" line, the Sub-issues section, one foldable band per side),
 //!   byte-locked ×4 by `fixtures/issue-relations-view.json`;
+//! * [`pr_stack`]: the `pr_base_branch` edge and the bottom-up chain (web
+//!   `lib/pr-stack.ts`'s twin);
+//! * [`pr_graph`]: blockers + batch + stack for ONE subject, the model
+//!   behind the work header's related-work badge and its overlay;
+//! * [`blocked_start`]: SLOP-3's blocked-start dialog (Cancel / Start
+//!   anyway / Stacked PR), byte-locked ×4 by `fixtures/blocked-start.json`;
 //! * [`batch_run`] — EXP-876 `coding_sessions.batch_issue_ids`: which issues
 //!   a batch run covers and the `EXP-874 +2` name every list shows for it
 //!   (web `lib/batch-run.ts`'s twin);
@@ -76,6 +82,7 @@ pub mod contract {
 
 pub mod activity_fold;
 pub mod batch_run;
+pub mod blocked_start;
 pub mod board;
 pub mod client_version;
 // EXP-1121: the Start coding readiness checklist, fixture-locked ×4.
@@ -94,6 +101,8 @@ pub mod issue_rail;
 pub mod issue_search;
 pub mod options;
 pub mod placeholder_status;
+pub mod pr_graph;
+pub mod pr_stack;
 pub mod relations;
 // EXP-1097: the issue detail's relations view (parent line, sub-issues, bands).
 pub mod relations_view;

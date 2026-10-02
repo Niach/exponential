@@ -237,6 +237,13 @@ pub struct Issue {
     pub branch: Option<String>,
     #[serde(default)]
     pub pr_merged_at: Option<String>,
+    /// `issues.pr_base_branch`: the branch this issue's pull request
+    /// TARGETS. `None` (or the repo default) = an ordinary PR; another
+    /// issue's `branch` = a STACK edge, the one fact [`crate::pr_stack`]
+    /// chains. `None` on rows synced before the column existed;
+    /// `heal_missing_columns` ALTERs it in and the refetch backfills.
+    #[serde(default)]
+    pub pr_base_branch: Option<String>,
     /// EXP-630 `issues.estimate` — story points, always a point NUMBER;
     /// the team's `estimation_type` decides how it reads
     /// ([`crate::issue_estimate`]). `None` = unset (and on rows synced

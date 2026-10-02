@@ -189,6 +189,10 @@ pub const SHAPES: [ShapeSpec; 21] = [
             "pr_state",
             "branch",
             "pr_merged_at",
+            // SLOP-3: the SYNCED stack edge, the branch this issue's pull
+            // request targets (the related-work badge's stack band).
+            // `heal_missing_columns` ALTERs it onto existing store tables.
+            "pr_base_branch",
             // EXP-630: story points (always a point number; the team's
             // `estimation_type` decides how it reads). `heal_missing_columns`
             // ALTERs it onto existing store tables.
@@ -790,11 +794,12 @@ mod tests {
     }
 
     #[test]
-    fn issues_sync_no_pr_stack_columns() {
-        // SLOP-3: stacks are gone — neither the base branch nor the
-        // server-only stack number is requested any more.
+    fn issues_sync_the_pr_stack_edge() {
+        // SLOP-3: `pr_base_branch` is the related-work badge's stack band;
+        // `pr_stack_number` is gone server-side and must never be requested.
         let spec = shape_by_name("issues").unwrap();
-        assert!(!spec.columns.contains(&"pr_base_branch"));
+        assert!(spec.columns.contains(&"pr_base_branch"));
+        assert!(spec.columns.contains(&"branch"), "the other half of the edge");
         assert!(!spec.columns.contains(&"pr_stack_number"));
     }
 

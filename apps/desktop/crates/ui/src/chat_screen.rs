@@ -69,6 +69,7 @@ use coding::{
 use crate::action_inputs::ActionInputPicks;
 use crate::action_run::{self, ActionRepo, ActionRepoRow, StartActionArgs};
 use crate::chat_launch::{self, RemoteSubject, RepoState, SubjectKind};
+use domain::blocked_start;
 use crate::coding_flow::{self, CodingHub, SessionSubject};
 use crate::composer_images::{self, PendingImages};
 use crate::icons::registry;
@@ -1423,9 +1424,10 @@ impl ChatScreenView {
         let Some(team_id) = self.team_id.clone() else {
             return;
         };
-        // EXP-897/EXP-980: a pick that something OPEN blocks asks first —
-        // Cancel or Start anyway. Asked once per subject; the answer rides
-        // `blocked_confirmed` into the second pass. A BATCH asks too, about
+        // EXP-897/EXP-980/SLOP-3: a pick that something OPEN blocks asks
+        // first: Cancel, Start anyway or Stacked PR. Asked once per subject;
+        // the answer rides `blocked_confirmed` into the second pass (a
+        // stacked answer only rewrites the message). A BATCH asks too, about
         // the blockers outside it.
         if !self.blocked_confirmed {
             if let Some(blocked) = self.open_blockers(cx) {
@@ -1667,13 +1669,22 @@ impl ChatScreenView {
         if blockers.is_empty() {
             return None;
         }
-        Some(BlockedStart { picked, blockers })
+        let (stack_base, stack_note) = stack_choice(&picked, &blockers, cx);
+        Some(BlockedStart {
+            picked,
+            blockers,
+            stack_base,
+            stack_note,
+        })
     }
 
-    /// EXP-897/EXP-980 — the blocked-start dialog: the sentence, the
-    /// transitive blocks GRAPH underneath it, and Cancel / Start anyway. The
-    /// answer records the confirmation and re-enters [`Self::start`] with the
-    /// same composed message, so the two paths stay one code path.
+    /// EXP-897/EXP-980/SLOP-3: the blocked-start dialog: the sentence, the
+    /// transitive blocks GRAPH underneath it, and Cancel / Start anyway /
+    /// Stacked PR (primary). Both answers record the confirmation and
+    /// re-enter [`Self::start`]; Stacked PR only swaps the composed message
+    /// for [`BlockedStart::stacked_message`], so the two paths stay one code
+    /// path. Stacked PR is never hidden: without a stack base it is DISABLED
+    /// and its reason is captioned under the graph.
     fn prompt_blocked_start(
         &mut self,
         message: String,
@@ -1694,39 +1705,53 @@ impl ChatScreenView {
         }
         let refs: Vec<&str> = blocked.picked.iter().map(String::as_str).collect();
         let graph = crate::issue_graph::graph_for(&refs, cx);
-        let batch = blocked.picked.len() > 1;
-        let title = if batch {
-            chat_launch::blocked_batch_title()
-        } else {
-            chat_launch::blocked_start_title()
-        };
-        let description = if batch {
-            chat_launch::blocked_batch_body().to_string()
-        } else {
-            chat_launch::blocked_start_body(&blocked.blockers)
-        };
+        let note: Option<SharedString> = blocked.stack_note.clone().map(SharedString::from);
+        let stacked_message = blocked.stacked_message(&message);
 
         let entity = cx.entity().downgrade();
         let opener = window.window_handle();
-        let spec = crate::native_dialog::AlertSpec::new(
-            title,
-            description,
-            chat_launch::start_anyway_label(),
-        )
-        .height(gpui::px(BLOCKED_DIALOG_HEIGHT))
-        .on_ok(move |_, cx| {
+        let resume = move |message: String, cx: &mut App| {
             let entity = entity.clone();
-            let message = message.clone();
             let _ = opener.update(cx, move |_, window, cx| {
                 let _ = entity.update(cx, |this, cx| {
                     this.blocked_confirmed = true;
                     this.start(message, window, cx);
                 });
             });
+        };
+        let anyway = resume.clone();
+        let spec = crate::native_dialog::AlertSpec::new(
+            blocked.title(),
+            blocked.description(),
+            blocked_start::STACKED_PR,
+        )
+        .height(gpui::px(BLOCKED_DIALOG_HEIGHT))
+        .secondary(blocked_start::START_ANYWAY, move |_, cx| {
+            anyway(message.clone(), cx);
+            true
+        })
+        .ok_disabled(stacked_message.is_none())
+        .on_ok(move |_, cx| {
+            if let Some(message) = stacked_message.clone() {
+                resume(message, cx);
+            }
             true
         })
         .content(move |_, cx| {
-            crate::issue_graph::graph_in_dialog(&graph, BLOCKED_DIALOG_GRAPH_W, cx)
+            gpui_component::v_flex()
+                .min_w_0()
+                .gap_2()
+                .child(crate::issue_graph::graph_in_dialog(
+                    &graph,
+                    BLOCKED_DIALOG_GRAPH_W,
+                    cx,
+                ))
+                .children(note.clone().map(|note| {
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(note)
+                }))
                 .into_any_element()
         });
         crate::native_dialog::open_alert(window, cx, spec);
@@ -2846,11 +2871,11 @@ impl ChatScreenView {
         );
     }
 
-    /// EXP-1037/EXP-897 — the blocked-start question drawn INSIDE the
-    /// composer dialog: the alert's own title, body and transitive blocks
-    /// graph, with Cancel · Start anyway. The answer runs
-    /// [`Self::answer_blocked`], the ONE code path the alert's answer takes
-    /// on the page.
+    /// EXP-1037/EXP-897/SLOP-3: the blocked-start question drawn INSIDE the
+    /// composer dialog: the alert's own title, body, transitive blocks graph
+    /// and disabled-reason caption, with Cancel · Start anyway · Stacked PR.
+    /// Both answers run [`Self::answer_blocked`], the ONE code path the
+    /// alert's answers take on the page.
     fn render_blocked_panel(
         &self,
         pending: &PendingBlocked,
@@ -2858,17 +2883,10 @@ impl ChatScreenView {
     ) -> AnyElement {
         let refs: Vec<&str> = pending.blocked.picked.iter().map(String::as_str).collect();
         let graph = crate::issue_graph::graph_for(&refs, cx);
-        let batch = pending.blocked.picked.len() > 1;
-        let title = if batch {
-            chat_launch::blocked_batch_title()
-        } else {
-            chat_launch::blocked_start_title()
-        };
-        let description = if batch {
-            chat_launch::blocked_batch_body().to_string()
-        } else {
-            chat_launch::blocked_start_body(&pending.blocked.blockers)
-        };
+        let title = pending.blocked.title();
+        let description = pending.blocked.description();
+        let note = pending.blocked.stack_note.clone();
+        let stackable = pending.blocked.stack_base.is_some();
         let muted = cx.theme().muted_foreground;
         v_flex()
             .w_full()
@@ -2887,6 +2905,12 @@ impl ChatScreenView {
                 BLOCKED_PANEL_GRAPH_W,
                 cx,
             ))
+            .children(note.map(|note| {
+                div()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(SharedString::from(note))
+            }))
             .child(
                 h_flex()
                     .w_full()
@@ -2905,26 +2929,50 @@ impl ChatScreenView {
                     )
                     .child(
                         Button::new("chat-blocked-anyway")
+                            .outline()
+                            .cursor_pointer()
+                            .small()
+                            .label(blocked_start::START_ANYWAY)
+                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                this.answer_blocked(false, window, cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("chat-blocked-stacked")
                             .primary()
                             .cursor_pointer()
                             .small()
-                            .label(chat_launch::start_anyway_label())
+                            .label(blocked_start::STACKED_PR)
+                            .disabled(!stackable)
                             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                this.answer_blocked(window, cx);
+                                this.answer_blocked(true, window, cx);
                             })),
                     ),
             )
             .into_any_element()
     }
 
-    /// Record the "Start anyway" answer and re-enter [`Self::start`] with the
-    /// SAME composed message — the alert's closure, in-window.
-    fn answer_blocked(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+    /// Record the blocked-start answer and re-enter [`Self::start`]: Start
+    /// anyway with the SAME composed message, Stacked PR with
+    /// [`BlockedStart::stacked_message`] (the alert's closures, in-window).
+    fn answer_blocked(&mut self, stacked: bool, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let Some(pending) = self.blocked.take() else {
             return;
         };
+        let message = if stacked {
+            match pending.blocked.stacked_message(&pending.message) {
+                Some(message) => message,
+                // A disabled Stacked PR never answers.
+                None => {
+                    self.blocked = Some(pending);
+                    return;
+                }
+            }
+        } else {
+            pending.message
+        };
         self.blocked_confirmed = true;
-        self.start(pending.message, window, cx);
+        self.start(message, window, cx);
     }
 }
 
@@ -2976,6 +3024,88 @@ pub(crate) fn dialog_action_id(cx: &App) -> Option<String> {
 struct BlockedStart {
     picked: Vec<String>,
     blockers: Vec<String>,
+    /// SLOP-3: the one blocker a stacked start builds on, `(identifier,
+    /// branch)`; `None` = Stacked PR is disabled, captioned by `stack_note`.
+    stack_base: Option<(String, String)>,
+    stack_note: Option<String>,
+}
+
+impl BlockedStart {
+    fn batch(&self) -> bool {
+        self.picked.len() > 1
+    }
+
+    fn title(&self) -> &'static str {
+        if self.batch() {
+            blocked_start::BATCH_TITLE
+        } else {
+            blocked_start::TITLE
+        }
+    }
+
+    /// The batch body, or the one-issue sentence whose suffix offers the
+    /// stacked start only while it is enabled.
+    fn description(&self) -> String {
+        if self.batch() {
+            blocked_start::BATCH_BODY.to_string()
+        } else {
+            blocked_start::body(&self.blockers, self.stack_base.is_some())
+        }
+    }
+
+    /// The message a Stacked PR answer starts with: the base instruction,
+    /// then whatever was composed (text and image embeds). Prompt text only:
+    /// the run, its launcher and its subject are exactly Start anyway's.
+    fn stacked_message(&self, message: &str) -> Option<String> {
+        let (identifier, branch) = self.stack_base.as_ref()?;
+        Some(blocked_start::stacked_start_prompt(identifier, branch, message))
+    }
+}
+
+/// SLOP-3: the stacked start's base, or why there is none
+/// ([`blocked_start::stack_target`]). A repository is the issue's BOARD's.
+fn stack_choice(
+    picked: &[String],
+    blockers: &[String],
+    cx: &App,
+) -> (Option<(String, String)>, Option<String>) {
+    let mut subject_repository_id: Option<String> = None;
+    let mut rows: Vec<blocked_start::StackBlocker> = blockers
+        .iter()
+        .map(|identifier| blocked_start::StackBlocker {
+            identifier: identifier.clone(),
+            ..Default::default()
+        })
+        .collect();
+    if let Some(store) = Store::try_global(cx) {
+        let collections = store.collections();
+        let issues = collections.issues.read(cx);
+        let boards = collections.boards.read(cx);
+        let repository_of = |board_id: &str| {
+            boards
+                .get(board_id)
+                .and_then(|board| board.repository_id.clone())
+        };
+        subject_repository_id = picked
+            .first()
+            .and_then(|id| issues.get(id))
+            .and_then(|issue| repository_of(&issue.board_id));
+        for row in &mut rows {
+            if let Some(issue) = issues.iter().find(|issue| issue.identifier == row.identifier) {
+                row.pr_state = issue.pr_state.clone();
+                row.branch = issue.branch.clone();
+                row.repository_id = repository_of(&issue.board_id);
+            }
+        }
+    }
+    let (target, reason) =
+        blocked_start::stack_target(picked.len(), subject_repository_id.as_deref(), &rows);
+    if let Some(target) = target {
+        let branch = target.branch.clone().unwrap_or_default().trim().to_string();
+        return (Some((target.identifier.clone(), branch)), None);
+    }
+    let ident = rows.first().map(|row| row.identifier.as_str()).unwrap_or_default();
+    (None, reason.map(|reason| blocked_start::stack_disabled_note(reason, ident)))
 }
 
 /// EXP-1037 — the blocked-start question while the composer lives in a

@@ -109,8 +109,8 @@ mod tests {
     /// second frame reuses the entities `use_keyed_state` kept), and the
     /// two that used to only describe theirs — `sub-shell` and
     /// `device-settings` — now paint the product's own elements. EXP-1092
-    /// did the same for `menu` and `issue-context-menu` (real `PopupMenu`s)
-    /// and `session-tree` (the `run_rows`
+    /// did the same for `menu` and `issue-context-menu` (real `PopupMenu`s),
+    /// `pr-graph-badge` (`pr_graph::badge`) and `session-tree` (the `run_rows`
     /// renderers over `domain::session_tree`) — with NO `sync::Store`
     /// installed here, so every store read on those paths is `try_global`.
     #[gpui::test]

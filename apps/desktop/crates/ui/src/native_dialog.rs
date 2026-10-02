@@ -1076,6 +1076,14 @@ pub(crate) struct AlertSpec {
     cancel: bool,
     /// Extra block between the description and the footer.
     content: Option<AlertContentFn>,
+    /// EXP-897: a THIRD button between Cancel and OK, the second real
+    /// choice an alert sometimes has ("Start anyway" beside "Stacked PR").
+    /// Outline-styled like Cancel, because the primary answer stays the OK.
+    /// `None` (every alert before it) draws the two-button footer unchanged.
+    secondary: Option<(SharedString, OnOkFn)>,
+    /// EXP-980: the OK button is SHOWN but not pressable: the answer stays
+    /// visible (with a caption saying why it is off) instead of vanishing.
+    ok_disabled: bool,
     /// Return `true` to close the window (a `false` keeps it open — the
     /// typed-confirm mismatch case). Runs inside the dialog window.
     on_ok: OnOkFn,
@@ -1096,6 +1104,8 @@ impl AlertSpec {
             height: px(220.),
             cancel: true,
             content: None,
+            secondary: None,
+            ok_disabled: false,
             on_ok: Rc::new(|_, _| true),
         }
     }
@@ -1131,6 +1141,23 @@ impl AlertSpec {
         self.on_ok = Rc::new(on_ok);
         self
     }
+
+    /// EXP-980: show the OK button disabled (see [`AlertSpec::ok_disabled`]).
+    pub(crate) fn ok_disabled(mut self, disabled: bool) -> Self {
+        self.ok_disabled = disabled;
+        self
+    }
+
+    /// EXP-897: the optional middle button (see [`AlertSpec::secondary`]).
+    /// Same contract as [`Self::on_ok`]: `true` closes the window.
+    pub(crate) fn secondary(
+        mut self,
+        text: impl Into<SharedString>,
+        on_click: impl Fn(&mut Window, &mut App) -> bool + 'static,
+    ) -> Self {
+        self.secondary = Some((text.into(), Rc::new(on_click)));
+        self
+    }
 }
 
 /// Open a native confirm window over `window` (the opener).
@@ -1155,6 +1182,9 @@ struct AlertView {
 
 impl AlertView {
     fn confirm(view: &Entity<Self>, window: &mut Window, cx: &mut App) {
+        if view.read(cx).spec.ok_disabled {
+            return;
+        }
         let on_ok = view.read(cx).spec.on_ok.clone();
         if on_ok(window, cx) {
             close_dialog_window(window, cx);
@@ -1204,11 +1234,24 @@ impl Render for AlertView {
                                 .on_click(|_, window, cx| close_dialog_window(window, cx)),
                         )
                     })
+                    .children(self.spec.secondary.as_ref().map(|(label, on_click)| {
+                        let on_click = on_click.clone();
+                        Button::new("native-alert-secondary")
+                            .outline().cursor_pointer()
+                            .web_sm()
+                            .label(label.clone())
+                            .on_click(move |_, window, cx| {
+                                if on_click(window, cx) {
+                                    close_dialog_window(window, cx);
+                                }
+                            })
+                    }))
                     .child(
                         Button::new("native-alert-ok")
                             .with_variant(self.spec.ok_variant)
                             .web_sm()
                             .label(self.spec.ok_text.clone())
+                            .disabled(self.spec.ok_disabled)
                             .on_click(move |_, window, cx| {
                                 Self::confirm(&view, window, cx);
                             }),

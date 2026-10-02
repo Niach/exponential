@@ -21,6 +21,7 @@ pub(crate) mod toast;
 pub(crate) mod composer_dialog;
 pub(crate) mod issue_context_menu;
 pub(crate) mod session_tree;
+pub(crate) mod pr_graph_badge;
 pub(crate) mod device_settings;
 
 /// EXP-1030: whether `id`'s file is still the one-line placeholder rather
@@ -63,5 +64,6 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: composer_dialog::ID, owner: composer_dialog::OWNER, render: composer_dialog::render },
     Entry { id: issue_context_menu::ID, owner: issue_context_menu::OWNER, render: issue_context_menu::render },
     Entry { id: session_tree::ID, owner: session_tree::OWNER, render: session_tree::render },
+    Entry { id: pr_graph_badge::ID, owner: pr_graph_badge::OWNER, render: pr_graph_badge::render },
     Entry { id: device_settings::ID, owner: device_settings::OWNER, render: device_settings::render },
 ];

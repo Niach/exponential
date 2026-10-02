@@ -137,43 +137,6 @@ pub(crate) fn chat_repo_input(
         .collect()
 }
 
-/// EXP-897 — the "start it anyway" button, byte-identical ×4
-/// (web/iOS/Android `START_ANYWAY_LABEL`).
-pub(crate) fn start_anyway_label() -> &'static str {
-    "Start anyway"
-}
-
-/// EXP-897/EXP-980 — the blocked-start dialog's copy (Cancel · Start anyway),
-/// byte-identical ×4. The title and body for ONE picked issue.
-pub(crate) fn blocked_start_title() -> &'static str {
-    "This issue is blocked"
-}
-const BLOCKED_START_BODY_PREFIX: &str = "This issue is blocked by ";
-const BLOCKED_START_BODY_SUFFIX: &str = ". Start anyway?";
-
-/// The title when two or more issues were picked.
-pub(crate) fn blocked_batch_title() -> &'static str {
-    "Some of these issues are blocked"
-}
-
-/// The batch body, above the graph.
-pub(crate) fn blocked_batch_body() -> &'static str {
-    "Open issues outside this batch block it. Start anyway?"
-}
-
-/// The one-issue body sentence: the same prefix and suffix around plain
-/// `#IDENT` identifiers.
-pub(crate) fn blocked_start_body(identifiers: &[String]) -> String {
-    let names: Vec<String> = identifiers
-        .iter()
-        .map(|identifier| format!("#{identifier}"))
-        .collect();
-    format!(
-        "{BLOCKED_START_BODY_PREFIX}{}{BLOCKED_START_BODY_SUFFIX}",
-        names.join(", ")
-    )
-}
-
 /// The remote subject half of a [`api::steer::StartSessionInput`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum RemoteSubject<'a> {
@@ -478,29 +441,6 @@ mod tests {
         assert_eq!(inputs[0].input_type, "repo");
         assert_eq!(inputs[0].value, "repo-1");
         assert_eq!(inputs[0].display.as_deref(), Some("acme/web"));
-    }
-
-    /// EXP-897: the dialog's confirm button, byte for byte — the web, iOS
-    /// and Android constants say exactly this.
-    #[test]
-    fn the_blocked_start_labels_are_byte_locked() {
-        assert_eq!(start_anyway_label(), "Start anyway");
-    }
-
-    /// EXP-980: the dialog's titles and bodies, byte for byte — the web, iOS
-    /// and Android constants say exactly this.
-    #[test]
-    fn keeps_the_dialog_copy_byte_identical() {
-        assert_eq!(blocked_start_title(), "This issue is blocked");
-        assert_eq!(blocked_batch_title(), "Some of these issues are blocked");
-        assert_eq!(
-            blocked_batch_body(),
-            "Open issues outside this batch block it. Start anyway?"
-        );
-        assert_eq!(
-            blocked_start_body(&["ABC-12".to_string(), "ABC-13".to_string()]),
-            "This issue is blocked by #ABC-12, #ABC-13. Start anyway?"
-        );
     }
 
     /// EXP-825: the remote payload per subject — exactly one subject, the
