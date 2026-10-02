@@ -508,6 +508,7 @@ export const SEMANTIC_ICONS = {
   "pr-draft": `circle-dot`,
   "pr-merged": `git-merge`,
   "pr-open": `git-pull-request`,
+  "pr-stack": `layers`,
   "priority-high": `signal-high`,
   "priority-low": `signal-low`,
   "priority-medium": `signal-medium`,

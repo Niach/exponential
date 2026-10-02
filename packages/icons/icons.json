@@ -181,6 +181,7 @@
     "pr-closed": "circle-x",
     "pr-merged": "git-merge",
     "pr-draft": "circle-dot",
+    "pr-stack": "layers",
     "pr-batch": "boxes",
     "session-tree": "workflow",
 

@@ -81,6 +81,7 @@ vi.mock(`@/components/issue-properties-tray`, () => ({
 vi.mock(`@/components/issue-title-field`, () => ({
   IssueTitleField: () => null,
 }))
+vi.mock(`@/components/pr-graph-badge`, () => ({ PrGraphBadge: () => null }))
 vi.mock(`@/lib/storage/issue-image-upload`, () => ({
   uploadIssueFile: vi.fn(),
   uploadIssueImageFile: vi.fn(),

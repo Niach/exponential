@@ -107,6 +107,7 @@ import {
 import { resolveMentions } from "@/lib/integrations/mentions"
 import { ensureSubscribed } from "@/lib/integrations/subscriptions"
 import { recordIssueEvent } from "@/lib/integrations/activity"
+import { stackedOnMessage, stackedOnOpenPr } from "@/lib/pr-merge-guard"
 import {
   canonicalizeRelation,
   insertRelationInTx,
@@ -1476,6 +1477,7 @@ export const issuesRouter = router({
           prState: issues.prState,
           identifier: issues.identifier,
           title: issues.title,
+          prBaseBranch: issues.prBaseBranch,
         })
         .from(issues)
         .where(eq(issues.id, input.issueId))
@@ -1520,6 +1522,20 @@ export const issuesRouter = router({
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
           message: `The linked pull request URL is not a GitHub PR URL`,
+        })
+      }
+      // EXP-1145: a PR based on another OPEN PR's branch would squash INTO
+      // that branch; refused before any claim or GitHub call.
+      const parent = await stackedOnOpenPr(ctx.db, {
+        issueId: input.issueId,
+        teamId,
+        repoFullName,
+        prBaseBranch: row.prBaseBranch,
+      })
+      if (parent) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: stackedOnMessage(parent),
         })
       }
       if (!githubAppConfigured()) {
@@ -1955,9 +1971,8 @@ export const issuesRouter = router({
   // stacked-PR self-heal: after a parent PR is squash-merged its branch goes
   // stale, and GitHub only auto-retargets children when the base branch is
   // DELETED — we leave it in place. Omitting `base` targets the repo's live
-  // default branch (the right call after a squash-merge). Nothing is
-  // persisted locally — the DB carries no base column; GitHub stays the
-  // source of truth.
+  // default branch (the right call after a squash-merge). The new base is
+  // mirrored into the synced `pr_base_branch` of every issue on the PR.
   retargetPr: authedProcedure
     .input(
       z.object({
@@ -2074,6 +2089,12 @@ export const issuesRouter = router({
           }
           throw err
         }
+
+        // Every issue on this PR (a batch PR has several).
+        await ctx.db
+          .update(issues)
+          .set({ prBaseBranch: base })
+          .where(eq(issues.prUrl, row.prUrl))
 
         return { retargeted: true, base }
       }
@@ -2207,6 +2228,21 @@ export const issuesRouter = router({
               message: `GitHub retarget failed: ${err instanceof Error ? err.message : `unknown error`}`,
             })
           }
+        }
+      }
+
+      // Keep the synced `pr_base_branch` in step with GitHub's live answer
+      // (a 422'd heal means a concurrent one already moved it there);
+      // opportunistic, never worth failing the launch over.
+      const liveBase = state.retargetTo ?? state.baseRef
+      if (liveBase) {
+        try {
+          await ctx.db
+            .update(issues)
+            .set({ prBaseBranch: liveBase })
+            .where(eq(issues.prUrl, row.prUrl))
+        } catch {
+          // ignored
         }
       }
 

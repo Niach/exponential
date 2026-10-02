@@ -37,6 +37,7 @@ import {
   type OpenPull,
 } from "@/lib/integrations/github-pr"
 import { isNotMergeable, prMergeFailureError } from "@/lib/trpc/pr-merge-error"
+import { stackedOnMessage, stackedOnOpenPr } from "@/lib/pr-merge-guard"
 import {
   assertPrUpdateHasFields,
   patchPullDescription,
@@ -514,6 +515,34 @@ export async function mergeRepositoryPull(opts: {
   const { repo, prNumber } = opts
   const prUrl = opts.prUrl ?? `https://github.com/${repo.fullName}/pull/${prNumber}`
   const { db } = await import(`@/db/connection`)
+  // EXP-1145: a PR based on another OPEN PR's branch would squash INTO that
+  // branch; refused before any claim or GitHub call. Only an issue-linked PR
+  // records its base (`pr_base_branch`); an issue-less one passes.
+  const [based] = await db
+    .select({ id: issues.id, prBaseBranch: issues.prBaseBranch })
+    .from(issues)
+    .where(
+      and(
+        eq(issues.prUrl, prUrl),
+        eq(issues.teamId, repo.teamId),
+        isNotNull(issues.prBaseBranch)
+      )
+    )
+    .limit(1)
+  if (based) {
+    const parent = await stackedOnOpenPr(db, {
+      issueId: based.id,
+      teamId: repo.teamId,
+      repoFullName: repo.fullName,
+      prBaseBranch: based.prBaseBranch,
+    })
+    if (parent) {
+      throw new TRPCError({
+        code: `PRECONDITION_FAILED`,
+        message: stackedOnMessage(parent),
+      })
+    }
+  }
   if (!githubAppConfigured()) {
     throw new TRPCError({
       code: `PRECONDITION_FAILED`,

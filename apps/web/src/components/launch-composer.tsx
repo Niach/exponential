@@ -353,7 +353,8 @@ export function LaunchComposer({
         />
       </Composer>
       <LaunchOptionsLine model={model} />
-      {/* EXP-980: the submit on BLOCKED issues asks first. */}
+      {/* EXP-980: the submit on BLOCKED issues asks first (SLOP-3: Cancel ·
+          Start anyway · Stacked PR). */}
       <BlockedStartDialog
         open={model.blockedOpen}
         teamId={model.teamId}
@@ -363,7 +364,9 @@ export function LaunchComposer({
         onOpenChange={(next) => {
           if (!next) model.closeBlockedStart()
         }}
+        stackReason={model.blockedStack.reason}
         onStartAnyway={() => void model.startAnyway()}
+        onStartStacked={() => void model.startStacked()}
       />
     </div>
   )

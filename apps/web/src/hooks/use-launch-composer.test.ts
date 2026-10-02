@@ -80,6 +80,7 @@ vi.mock(`sonner`, async (importOriginal) => ({
 
 import { useLaunchComposer, type LaunchSeed } from "@/hooks/use-launch-composer"
 import type { RemoteStart } from "@/hooks/use-remote-start"
+import { stackedStartPrompt } from "@/lib/blocked-start"
 
 const device: SteerDevice = {
   rowId: `row-1`,
@@ -626,7 +627,8 @@ describe(`useLaunchComposer seed`, () => {
   })
 })
 
-// EXP-980: starting a BLOCKED issue asks first — Cancel or Start anyway.
+// EXP-980: starting a BLOCKED issue asks first (SLOP-3: Cancel, Start
+// anyway or Stacked PR).
 describe(`useLaunchComposer blocked start`, () => {
   const blocks = (blocker: string, blocked: string) => ({
     type: `blocks`,
@@ -704,6 +706,43 @@ describe(`useLaunchComposer blocked start`, () => {
     await act(() => result.current.submit())
     expect(result.current.blockedOpen).toBe(false)
     expect(remote.startIssues).toHaveBeenCalledTimes(1)
+  })
+
+  // SLOP-3: the third button, a stacked PR on the one blocker's branch.
+  it(`disables Stacked PR while the blocker has no open pull request`, () => {
+    const { result } = mount()
+    act(() => result.current.toggleIssue(`i1`))
+    expect(result.current.blockedStack).toEqual({ target: null, reason: `no-pr` })
+  })
+
+  it(`Stacked PR starts the same run with the base instruction`, async () => {
+    mockState.rows.bl = [
+      { ...issue(`i2`, `b2`, `in_progress`), prState: `open`, branch: `exp/I2` },
+    ]
+    const { result, remote } = mount()
+    act(() => result.current.toggleIssue(`i1`))
+    expect(result.current.blockedStack.reason).toBeNull()
+    expect(result.current.blockedStack.target?.id).toBe(`i2`)
+    act(() => result.current.setText(`keep it small`))
+    await act(() => result.current.submit())
+    await act(() => result.current.startStacked())
+    expect(result.current.blockedOpen).toBe(false)
+    expect(remote.startIssues).toHaveBeenCalledWith(
+      device,
+      expect.anything(),
+      [`i1`],
+      stackedStartPrompt(`I2`, `exp/I2`, `keep it small`)
+    )
+  })
+
+  it(`disables Stacked PR for a blocker in another repository`, () => {
+    mockState.boards = [board(`b1`, `repo-1`), board(`b2`, `repo-2`)]
+    mockState.rows.bl = [
+      { ...issue(`i2`, `b2`, `in_progress`), prState: `open`, branch: `exp/I2` },
+    ]
+    const { result } = mount()
+    act(() => result.current.toggleIssue(`i1`))
+    expect(result.current.blockedStack).toEqual({ target: null, reason: `repo` })
   })
 
   it(`never asks for a done blocker`, async () => {

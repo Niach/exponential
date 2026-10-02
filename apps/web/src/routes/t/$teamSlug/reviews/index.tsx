@@ -26,6 +26,7 @@ import {
   type SessionReviewEntry,
 } from "@/hooks/use-reviews-data"
 import { ReviewPrRow } from "@/components/review-pr-row"
+import { PrGraphBadge } from "@/components/pr-graph-badge"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
@@ -324,11 +325,22 @@ function ReviewsPage() {
                         issue={issue}
                         issues={entry.issues}
                         onOpen={() => openReview(issue.identifier)}
-                        /* A PR linking several issues wears the batch glyph.
-                            EXP-916: the lead cell is ALWAYS drawn. */
+                        /* A PR linking several issues wears the batch glyph;
+                            the overlay on it lists the issues it closes
+                            (EXP-897 Part 4). EXP-916: the lead cell is ALWAYS
+                            drawn: a badge that renders nothing (its siblings
+                            have not synced) falls back to the plain glyph. */
                         lead={
                           isBatch ? (
-                            <BatchIcon className="size-4 text-muted-foreground" />
+                            <PrGraphBadge
+                              teamId={team.id}
+                              teamSlug={teamSlug}
+                              issue={issue}
+                              variant="glyph"
+                              fallback={
+                                <BatchIcon className="size-4 text-muted-foreground" />
+                              }
+                            />
                           ) : (
                             <PrOpenIcon className="h-4 w-4 text-emerald-500" />
                           )

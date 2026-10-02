@@ -2,8 +2,12 @@ import { render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import type { Issue, Board } from "@/db/schema"
 
-// The PHONE header of a Work face: the identifier centred, the face's own
-// action and — on the Issue face alone — the issue's `…` and pin.
+// EXP-897: the PHONE header of a Work face carries the same stack / batch
+// chip (EXP-1058: the stacked issue chip) the md+ work header wears; tapping it opens the overlay as a sheet.
+// The pill is absent whenever the issue is part of nothing, so a lone issue's
+// header keeps the EXP-893 layout exactly as it was.
+
+const rows = vi.hoisted(() => ({ value: [] as unknown[] }))
 
 vi.mock(`@tanstack/react-router`, () => ({
   useNavigate: () => vi.fn(),
@@ -21,33 +25,55 @@ vi.mock(`@/components/issue-detail-mobile-menu`, () => ({
 vi.mock(`@/components/pin-toggle-button`, () => ({
   PinToggleButton: () => <button type="button">Pin</button>,
 }))
+// The badge's own dependencies: the model is what this test exercises, not
+// the rows it draws inside the overlay.
+vi.mock(`@/hooks/use-open-session`, () => ({ useOpenSession: () => vi.fn() }))
+vi.mock(`@/components/issue-chip`, () => ({ IssueChip: () => null }))
+vi.mock(`@/components/issue-coding-rows`, () => ({ PrStateBadge: () => null }))
+vi.mock(`@/components/agent-session-row`, () => ({
+  RunningIndicator: () => null,
+}))
 vi.mock(`@/lib/collections`, () => ({
   codingSessionCollection: {},
   issueCollection: {},
   issueRelationCollection: {},
 }))
+// One store behind all three of the badge's queries: only the ISSUE rows
+// decide a stack, and neither a session nor a `blocks` relation matches an
+// issue row, so the other two come out empty on their own.
+vi.mock(`@tanstack/react-db`, async (importOriginal) => {
+  const actual = (await importOriginal()) as Record<string, unknown>
+  return { ...actual, useLiveQuery: () => ({ data: rows.value }) }
+})
 
 import { IssueMobileHeader } from "@/components/issue-mobile-header"
+import { PrGraphBadge } from "@/components/pr-graph-badge"
 
-const issue = {
-  id: `lower`,
-  identifier: `LOWER`,
-  title: `Issue lower`,
-  status: `in_progress`,
-  boardId: `b1`,
-  branch: `exp/LOWER`,
-  prUrl: `https://github.com/acme/app/pull/1`,
-  prNumber: 1,
-  prState: `open`,
-  duplicateOfId: null,
-} as unknown as Issue
+const issue = (id: string, over: Partial<Issue> = {}): Issue =>
+  ({
+    id,
+    identifier: id.toUpperCase(),
+    title: `Issue ${id}`,
+    status: `in_progress`,
+    teamId: `t1`,
+    boardId: `b1`,
+    branch: `exp/${id.toUpperCase()}`,
+    prBaseBranch: null,
+    prUrl: `https://github.com/acme/app/pull/${id}`,
+    prNumber: 1,
+    prState: `open`,
+    duplicateOfId: null,
+    ...over,
+  }) as unknown as Issue
 
 const board = { id: `b1`, slug: `met` } as unknown as Board
+const lower = issue(`lower`)
+const upper = issue(`upper`, { prBaseBranch: `exp/LOWER`, prNumber: 2 })
 
-function renderHeader(face?: `issue` | `run` | `changes`) {
+function renderHeader(subject: Issue, face?: `issue` | `run` | `changes`) {
   return render(
     <IssueMobileHeader
-      issue={issue}
+      issue={subject}
       board={board}
       teamSlug="acme"
       teamId="t1"
@@ -57,26 +83,45 @@ function renderHeader(face?: `issue` | `run` | `changes`) {
         handleBoardChange: vi.fn(),
         handleUnmarkDuplicate: vi.fn(),
       }}
+      graphBadge={
+        <PrGraphBadge
+          teamId="t1"
+          teamSlug="acme"
+          issue={subject}
+        />
+      }
     />
   )
 }
 
 describe(`IssueMobileHeader`, () => {
-  it(`centres the identifier`, () => {
-    renderHeader()
+  it(`wears the stacked chip when the issue's pull request is stacked`, () => {
+    rows.value = [lower, upper]
+    renderHeader(upper)
+    expect(screen.getByTestId(`pr-graph-badge`)).toBeTruthy()
+    // The other member of the stack rides behind the front chip.
+    expect(screen.getByText(`+1`)).toBeTruthy()
+  })
+
+  it(`wears no pill when the issue is part of nothing`, () => {
+    rows.value = [lower]
+    renderHeader(lower)
+    expect(screen.queryByTestId(`pr-graph-badge`)).toBeNull()
+    // The header itself is untouched: identifier centred, `…` on the right.
     expect(screen.getByText(`LOWER`)).toBeTruthy()
   })
 
   // EXP-934: Share / Move to board / Delete act on the ISSUE, so they belong
   // to the Issue face alone. Every other face keeps the run's own verb.
   it(`carries the context menu on the issue face alone`, () => {
-    const issueFace = renderHeader(`issue`)
+    rows.value = [lower]
+    const issueFace = renderHeader(lower, `issue`)
     expect(screen.getByText(`More`)).toBeTruthy()
     expect(screen.getByText(`Pin`)).toBeTruthy()
     issueFace.unmount()
 
     for (const face of [`run`, `changes`] as const) {
-      const other = renderHeader(face)
+      const other = renderHeader(lower, face)
       expect(screen.queryByText(`More`), face).toBeNull()
       expect(screen.queryByText(`Pin`), face).toBeNull()
       other.unmount()

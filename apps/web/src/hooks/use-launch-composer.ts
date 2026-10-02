@@ -17,6 +17,11 @@ import {
 } from "@/lib/collections"
 import { openBlockersOfSet } from "@/lib/issue-graph"
 import {
+  stackedStartPrompt,
+  stackTarget,
+  type StackDisabledReason,
+} from "@/lib/blocked-start"
+import {
   BUILTIN_CHAT_ID,
   BUILTIN_CHAT_NAME,
   BUILTIN_CREATE_ACTION_ID,
@@ -171,6 +176,13 @@ export interface LaunchComposerModel {
   closeBlockedStart: () => void
   /** Start the run, blockers and all. */
   startAnyway: () => Promise<void>
+  /** SLOP-3: the one blocker a stacked start bases on (`stackTarget`), or
+   * why "Stacked PR" is disabled. */
+  blockedStack: { target: Issue | null; reason: StackDisabledReason | null }
+  /** The SAME run as `startAnyway`, its prompt replaced by
+   * `stackedStartPrompt(blocker, branch, typed text)`. A no-op while
+   * `blockedStack.target` is null. */
+  startStacked: () => Promise<void>
 
   launch: LaunchOptions
   /** Online machines with a runnable agent. */
@@ -628,6 +640,26 @@ export function useLaunchComposer({
       [...known.values()]
     )
   }, [checkedIssues, relationRows, blockerRows])
+  // SLOP-3: "Stacked PR" bases the run on the ONE open blocker's PR branch.
+  // Both repositories come from the boards (an issue row carries none).
+  const blockedStack = useMemo(() => {
+    const repoOf = (issue: Issue) =>
+      boardById.get(issue.boardId)?.repositoryId ?? null
+    const subjectIssue = checkedIssues.length === 1 ? checkedIssues[0]! : null
+    const blockers = blockedStart.map((issue) => ({
+      issue,
+      identifier: issue.identifier,
+      prState: issue.prState ?? null,
+      branch: issue.branch ?? null,
+      repositoryId: repoOf(issue),
+    }))
+    const { target, reason } = stackTarget({
+      pickedCount: checkedIssues.length,
+      subjectRepositoryId: subjectIssue ? repoOf(subjectIssue) : null,
+      blockers,
+    })
+    return { target: target?.issue ?? null, reason }
+  }, [checkedIssues, blockedStart, boardById])
   // A fresh subject asks again.
   useEffect(() => {
     setBlockedOpen(false)
@@ -665,8 +697,9 @@ export function useLaunchComposer({
 
   // ── Submit ────────────────────────────────────────────────────────────────
 
-  /** The actual start. */
-  const start = async () => {
+  /** The actual start. `stackOn` = a stacked start (SLOP-3): the same run,
+   *  the typed text wrapped in the base instruction. */
+  const start = async (stackOn?: { identifier: string; branch: string }) => {
     if (blocked || !device) return
     setBlockedOpen(false)
     setSending(true)
@@ -692,7 +725,12 @@ export function useLaunchComposer({
         })
         return
       }
-      const prompt = buildSteerImageMessage(text, ids)
+      const prompt = buildSteerImageMessage(
+        stackOn
+          ? stackedStartPrompt(stackOn.identifier, stackOn.branch, text)
+          : text,
+        ids
+      )
       const options = launch.buildOptions({ resume: resumeActive })
       // The remote hook toasts its own failures and rethrows; a refused start
       // keeps the draft so it can be retried.
@@ -738,7 +776,7 @@ export function useLaunchComposer({
     }
   }
 
-  // EXP-980: a BLOCKED start asks first (Cancel or Start anyway); a batch
+  // EXP-980: a BLOCKED start asks first (Cancel, Start anyway or Stacked PR); a batch
   // asks about blockers outside it. An action or a chat never asks, and
   // neither does a RESUME: it re-enters a worktree whose base was decided
   // when the run first started.
@@ -782,6 +820,12 @@ export function useLaunchComposer({
     blockedOpen,
     closeBlockedStart: () => setBlockedOpen(false),
     startAnyway: () => start(),
+    blockedStack,
+    startStacked: async () => {
+      const target = blockedStack.target
+      if (!target?.branch) return
+      await start({ identifier: target.identifier, branch: target.branch })
+    },
     launch,
     candidateDevices,
     deviceRequestNote,

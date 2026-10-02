@@ -233,8 +233,9 @@ export interface PullState {
   // ONLY attribution source — without it every polled merge fans out
   // anonymously and reaches the person who merged it. Null on an open PR.
   mergedBy: GithubActorRef | null
-  // The PR's live base branch, out of the same response. Null when GitHub
-  // omits it.
+  // The PR's live base branch, out of the same response: the GITHUB_POLLING
+  // poller mirrors it into `issues.pr_base_branch` without a second read.
+  // Null when GitHub omits it.
   baseRef: string | null
   // FEED-64: the squash commit of a merged PR — what the verify-after-failure
   // read hands back in place of the merge response's `sha`. Null on an open

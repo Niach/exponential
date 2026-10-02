@@ -2377,6 +2377,8 @@ describe(`exponential_pr_open batch session parking`, () => {
         prNumber: 5,
         prState: `open`,
         branch: `exp/batch-abcd1234`,
+        // The real base of the existing PR, not the one this call computed.
+        prBaseBranch: `develop`,
       })
     }
     expect(applyPrLifecycleStatusInTx).toHaveBeenCalledTimes(2)
@@ -5246,7 +5248,11 @@ describe(`exponential_pr_open — a follow-up run based on its parent's branch`,
     expect(parseOk(result)).toMatchObject({ number: 242 })
     expect(savepoints).toHaveLength(1)
     expect(insertRelationInTx).toHaveBeenCalledTimes(1)
-    expect(updates.some((u) => u.set.prUrl === `https://github.com/acme/app/pull/242`)).toBe(true)
+    // The link records the base the PR was opened against.
+    expect(
+      updates.find((u) => u.set.prUrl === `https://github.com/acme/app/pull/242`)
+        ?.set
+    ).toMatchObject({ prBaseBranch: `exp/EXP-11` })
     expect(warn).toHaveBeenCalled()
     warn.mockRestore()
   })

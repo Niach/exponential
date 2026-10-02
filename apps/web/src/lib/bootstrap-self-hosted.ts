@@ -68,6 +68,10 @@ export async function runPrPollPass(now: Date = new Date()): Promise<void> {
         prNumber: issues.prNumber,
         prState: issues.prState,
         teamId: boards.teamId,
+        // A PR's base moves on GitHub (a retarget on github.com, or GitHub's
+        // own when the PR below lands); a polling instance never gets the
+        // `edited` webhook, so the pass re-reads it.
+        prBaseBranch: issues.prBaseBranch,
       })
       .from(issues)
       .innerJoin(boards, eq(boards.id, issues.boardId))
@@ -105,6 +109,21 @@ export async function runPrPollPass(now: Date = new Date()): Promise<void> {
           })
           state = await fetchPullState(repo, row.prNumber, token)
           pullStates.set(row.prUrl, state)
+        }
+        // A still-open PR with a recorded base has it mirrored from the SAME
+        // read, written raw like the webhook leg.
+        if (
+          state.state === `open` &&
+          !state.merged &&
+          row.prBaseBranch !== null
+        ) {
+          const baseRef = state.baseRef
+          if (baseRef && baseRef !== row.prBaseBranch) {
+            await db
+              .update(issues)
+              .set({ prBaseBranch: baseRef })
+              .where(eq(issues.prUrl, row.prUrl))
+          }
         }
         switch (decidePrPollAction(row.prState, state)) {
           case `merge`:

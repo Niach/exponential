@@ -21,6 +21,7 @@ import { entry as toast } from "./toast.tsx"
 import { entry as composerDialog } from "./composer-dialog.tsx"
 import { entry as issueContextMenu } from "./issue-context-menu.tsx"
 import { entry as sessionTree } from "./session-tree.tsx"
+import { entry as prGraphBadge } from "./pr-graph-badge.tsx"
 import { entry as deviceSettings } from "./device-settings.tsx"
 import type { StyleguideEntry } from "./types.ts"
 
@@ -45,6 +46,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   composerDialog,
   issueContextMenu,
   sessionTree,
+  prGraphBadge,
   deviceSettings,
 ]
 

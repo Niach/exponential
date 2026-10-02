@@ -566,6 +566,8 @@ pub const PR_DRAFT: ExpIcon = ExpIcon::CircleDot;
 pub const PR_MERGED: ExpIcon = ExpIcon::GitMerge;
 /// Registry concept `pr-open` -> Lucide `git-pull-request`.
 pub const PR_OPEN: ExpIcon = ExpIcon::GitPullRequest;
+/// Registry concept `pr-stack` -> Lucide `layers`.
+pub const PR_STACK: ExpIcon = ExpIcon::Layers;
 /// Registry concept `priority-high` -> Lucide `signal-high`.
 pub const PRIORITY_HIGH: ExpIcon = ExpIcon::SignalHigh;
 /// Registry concept `priority-low` -> Lucide `signal-low`.

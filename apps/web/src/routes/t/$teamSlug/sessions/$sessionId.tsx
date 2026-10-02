@@ -14,7 +14,7 @@ import { IssueMobileHeader } from "@/components/issue-mobile-header"
 import { IssuePropertiesTray } from "@/components/issue-properties-tray"
 import { IssueTitleField } from "@/components/issue-title-field"
 import { PinToggleButton } from "@/components/pin-toggle-button"
-import { BatchIssuesPopover } from "@/components/batch-issues-popover"
+import { PrGraphBadge } from "@/components/pr-graph-badge"
 import { Button, PrGithubButton, useIsMobile, type SessionDotTone } from "@exp/ui"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import type { WorkFace } from "@/components/team/work-face-toggle"
@@ -377,6 +377,15 @@ function OwnSessionPage({
                issue's own URL), so the `…` never belongs in this bar — only
                Stop / Resume do. */
             face={shownFace}
+            graphBadge={
+              /* EXP-897: the same badge the md+ header wears. */
+              <PrGraphBadge
+                teamId={team.id}
+                teamSlug={teamSlug}
+                issue={issue}
+                session={session}
+              />
+            }
             action={
               shownFace === `run` ? (
                 <IssueCodingAction
@@ -433,12 +442,14 @@ function OwnSessionPage({
         onStart={onStart}
         prFiles={prFiles}
         prUrl={prUrl}
-        batchIssues={
-          /* The ONE node feeds the phone's bar and the md+ work header. */
-          <BatchIssuesPopover
+        graphBadge={
+          /* EXP-1079: the ONE node feeds the phone's bar and the md+ work
+             header. */
+          <PrGraphBadge
             teamId={team.id}
             teamSlug={teamSlug}
-            issues={row.batchIssues}
+            issue={issue}
+            session={session}
           />
         }
         renderMobileHeader={renderMobileHeader}

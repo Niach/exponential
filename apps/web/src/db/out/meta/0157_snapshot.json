@@ -4976,6 +4976,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "pr_base_branch": {
+          "name": "pr_base_branch",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -5085,6 +5091,22 @@
           ],
           "isUnique": false,
           "where": "pr_url IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_issues_pr_base_branch": {
+          "name": "idx_issues_pr_base_branch",
+          "columns": [
+            {
+              "expression": "pr_base_branch",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "pr_base_branch IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}

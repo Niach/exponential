@@ -25,11 +25,9 @@ WHERE cs."id" = pr."id";--> statement-breakpoint
 ALTER TABLE "coding_sessions" DROP CONSTRAINT IF EXISTS "coding_sessions_workflow_id_workflows_id_fk";--> statement-breakpoint
 ALTER TABLE "coding_sessions" DROP CONSTRAINT IF EXISTS "coding_sessions_workflow_node_id_workflow_nodes_id_fk";--> statement-breakpoint
 DROP INDEX IF EXISTS "idx_coding_sessions_workflow";--> statement-breakpoint
-DROP INDEX IF EXISTS "idx_issues_pr_base_branch";--> statement-breakpoint
 ALTER TABLE "coding_sessions" DROP COLUMN "workflow_id";--> statement-breakpoint
 ALTER TABLE "coding_sessions" DROP COLUMN "workflow_node_id";--> statement-breakpoint
 ALTER TABLE "coding_sessions" DROP COLUMN "workflow_role";--> statement-breakpoint
-ALTER TABLE "issues" DROP COLUMN "pr_base_branch";--> statement-breakpoint
 ALTER TABLE "issues" DROP COLUMN "pr_stack_number";--> statement-breakpoint
 DROP TABLE "workflow_events" CASCADE;--> statement-breakpoint
 DROP TABLE "workflow_nodes" CASCADE;--> statement-breakpoint

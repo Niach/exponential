@@ -67,15 +67,7 @@ export const ISSUE_GRAPH_TRUNCATED_NOTE = `Showing the nearest ${ISSUE_GRAPH_MAX
 /** Under a graph that holds a cycle. Byte-identical ×4. */
 export const ISSUE_GRAPH_CYCLE_NOTE = `Red issues block each other in a cycle.`
 
-// The blocked-start dialog's copy (Cancel · Start anyway), byte-identical ×4.
-export const BLOCKED_START_TITLE = `This issue is blocked`
-export const START_ANYWAY_LABEL = `Start anyway`
-/** The body, around the blocker chips: `<prefix>` chips `<suffix>`. */
-export const BLOCKED_START_BODY_PREFIX = `This issue is blocked by `
-export const BLOCKED_START_BODY_SUFFIX = `. Start anyway?`
-/** The title and body when two or more issues were picked. */
-export const BLOCKED_BATCH_TITLE = `Some of these issues are blocked`
-export const BLOCKED_BATCH_BODY = `Open issues outside this batch block it. Start anyway?`
+// The blocked-start dialog's copy lives in `lib/blocked-start.ts`.
 
 /** The badge's accessible label: `Blocked by 2`, `Blocking 1` or
  *  `Blocked by 2, blocking 1`. Byte-identical ×4. */

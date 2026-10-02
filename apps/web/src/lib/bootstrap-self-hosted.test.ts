@@ -8,8 +8,12 @@ let mockRows: Array<{
   prNumber: number | null
   prState: string | null
   teamId: string
+  // The recorded base the pass re-reads.
+  prBaseBranch: string | null
 }> = []
 let capturedWhere: unknown = null
+// The `pr_base_branch` rewrites the pass issued.
+let baseWrites: Array<Record<string, unknown>> = []
 // EXP-734: the second lane polls the chore PRs on coding_sessions rows
 // (a join-less select) — the stub answers it from mockSessionRows.
 let mockSessionRows: Array<{
@@ -33,6 +37,13 @@ vi.mock(`@/db/connection`, () => ({
         where: (clause: unknown) => {
           capturedSessionWhere = clause
           return Promise.resolve(mockSessionRows)
+        },
+      }),
+    }),
+    update: () => ({
+      set: (values: Record<string, unknown>) => ({
+        where: async () => {
+          baseWrites.push(values)
         },
       }),
     }),
@@ -72,8 +83,15 @@ function row(overrides: Partial<(typeof mockRows)[number]> = {}) {
     prNumber: 7,
     prState: `open` as string | null,
     teamId: `t1`,
+    prBaseBranch: null as string | null,
     ...overrides,
   }
+}
+
+// An open PR as the poller's one read reports it; `baseRef` = its live base.
+function openOnGitHub(baseRef: string | null = null) {
+  return { state: `open` as const, merged: false, mergedBy: null,
+      mergeCommitSha: null, baseRef }
 }
 
 // Flatten a drizzle SQL tree down to its bound parameter values.
@@ -145,6 +163,7 @@ describe(`runPrPollPass`, () => {
     mockSessionRows = []
     capturedWhere = null
     capturedSessionWhere = null
+    baseWrites = []
   })
 
   // EXP-734: the chore PR of an action/chat run lives on its session row.
@@ -262,6 +281,57 @@ describe(`runPrPollPass`, () => {
     expect(applyPrMergeState).not.toHaveBeenCalled()
     expect(applyPrClosedState).not.toHaveBeenCalled()
     expect(applyPrReopenedState).not.toHaveBeenCalled()
+    // A PR without a recorded base gets no base write.
+    expect(baseWrites).toEqual([])
+  })
+
+  // The `edited` webhook that mirrors a retarget never reaches a polling
+  // instance, so the pass takes the base of every open PR with a recorded one
+  // off its ONE state read and writes it back when it moved.
+  it(`rewrites a PR's base when GitHub moved it, off the one state read`, async () => {
+    mockRows = [
+      row({ issueId: `i1`, prBaseBranch: `exp/EXP-1` }),
+      // A batch sibling on the same PR shares the read.
+      row({ issueId: `i2`, prBaseBranch: `exp/EXP-1` }),
+    ]
+    vi.mocked(fetchPullState).mockResolvedValue(openOnGitHub(`master`))
+    await runPrPollPass()
+    // The base rides the state read: no second GitHub call per PR.
+    expect(fetchPullState).toHaveBeenCalledTimes(1)
+    expect(fetchPullState).toHaveBeenCalledWith(`acme/app`, 7, `tok`)
+    expect(baseWrites.map((write) => write.prBaseBranch)).toEqual([
+      `master`,
+      `master`,
+    ])
+    expect(applyPrMergeState).not.toHaveBeenCalled()
+  })
+
+  it(`leaves a PR's base alone while GitHub still agrees, and skips closed PRs`, async () => {
+    mockRows = [
+      row({ issueId: `i1`, prBaseBranch: `exp/EXP-1` }),
+      row({
+        issueId: `i2`,
+        prUrl: `https://github.com/acme/app/pull/8`,
+        prNumber: 8,
+        prBaseBranch: `exp/EXP-1`,
+      }),
+    ]
+    vi.mocked(fetchPullState)
+      .mockResolvedValueOnce(openOnGitHub(`exp/EXP-1`))
+      .mockResolvedValueOnce({
+        state: `closed`,
+        merged: false,
+        mergedBy: null,
+        mergeCommitSha: null,
+        // A closed PR's base is never mirrored, whatever it says.
+        baseRef: `master`,
+      })
+    await runPrPollPass()
+    expect(baseWrites).toEqual([])
+    expect(applyPrClosedState).toHaveBeenCalledWith({
+      issueId: `i2`,
+      prUrl: `https://github.com/acme/app/pull/8`,
+    })
   })
 
   it(`fetches a batch PR's state once and applies it to every linked issue`, async () => {

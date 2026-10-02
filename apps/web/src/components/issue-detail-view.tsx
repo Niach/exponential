@@ -66,6 +66,7 @@ import { WidgetSubmissionCard } from "@/components/widget-submission-card"
 import { IssueActionsMenu } from "@/components/issue-actions-menu"
 import { IssuePropertiesTray } from "@/components/issue-properties-tray"
 import { IssueTitleField } from "@/components/issue-title-field"
+import { PrGraphBadge } from "@/components/pr-graph-badge"
 
 const UiUndoIcon = conceptIcon(`ui-undo`)
 
@@ -582,6 +583,15 @@ export function IssueDetailView({
       handlers={handlers}
       dot={mobileWork?.dot ?? null}
       tabs={mobileWork?.tabs}
+      graphBadge={
+        /* EXP-897: the same badge the md+ header wears (SLOP-16: an icon
+           button + `+N` beside the `…`), opening the overlay as a sheet. */
+        <PrGraphBadge
+          teamId={teamId}
+          teamSlug={teamSlug}
+          issue={issue}
+        />
+      }
     />
   )
 
@@ -761,6 +771,14 @@ export function IssueDetailView({
         }
         trailing={
           <>
+            {/* EXP-897: what this issue is part of: its stack, its batch
+                (SLOP-16: an icon button per shape) or its
+                open blockers (EXP-1097: the same badge on every face). */}
+            <PrGraphBadge
+              teamId={teamId}
+              teamSlug={teamSlug}
+              issue={issue}
+            />
             {faceToggle}
             {/* EXP-949: no GitHub here — the way out to the PR belongs to the
                 Changes face (the run's diff, the Reviews page), never beside

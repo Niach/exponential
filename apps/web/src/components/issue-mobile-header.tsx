@@ -52,6 +52,7 @@ export function IssueMobileHeader({
   origin,
   handlers,
   action,
+  graphBadge,
   dot,
   face = `issue`,
   tabs,
@@ -73,6 +74,11 @@ export function IssueMobileHeader({
   >
   /** The face's trailing control before the `…` (Stop / Resume). */
   action?: ReactNode
+  /** EXP-897: the stack / batch pill (`PrGraphBadge`), the face's own overlay
+   *  as a SHEET. It LEADS the trailing cluster: it names what this work is
+   *  part of, before the controls that act on it, exactly like the md+ work
+   *  header. Renders nothing when the issue is in no stack and no batch. */
+  graphBadge?: ReactNode
   /** The shown session's state; absent = no dot (no live run). */
   dot?: { tone: SessionDotTone; connecting?: boolean } | null
   /** EXP-1150: the face strip INSIDE the header band, under the title row
@@ -117,6 +123,7 @@ export function IssueMobileHeader({
       onBack={goBackToList}
       menu={
         <div className="flex shrink-0 items-center gap-1">
+          {graphBadge}
           {action}
           {/* EXP-934: the issue's own controls, on the issue's own face. */}
           {faceShowsContextMenu(face) && (

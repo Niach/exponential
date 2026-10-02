@@ -10,8 +10,9 @@ import {
   BLOCKED_BATCH_BODY,
   BLOCKED_BATCH_TITLE,
   BLOCKED_START_TITLE,
+  STACKED_PR_LABEL,
   START_ANYWAY_LABEL,
-} from "@/lib/issue-graph"
+} from "@/lib/blocked-start"
 
 // EXP-825: the composer card over a FAKE model — chips, the per-subject
 // submit label and placeholder, Enter-sends, the suggestion pills. The hook
@@ -141,6 +142,8 @@ function fakeModel(overrides: Partial<LaunchComposerModel> = {}): LaunchComposer
     blockedOpen: false,
     closeBlockedStart: vi.fn(),
     startAnyway: vi.fn().mockResolvedValue(undefined),
+    blockedStack: { target: null, reason: null },
+    startStacked: vi.fn().mockResolvedValue(undefined),
     launch: fakeLaunch(),
     candidateDevices: [device],
     deviceRequestNote: null,
@@ -424,7 +427,7 @@ describe(`LaunchComposer`, () => {
 
 // EXP-980: the blocked-start dialog the composer opens on a blocked issue.
 describe(`LaunchComposer blocked start`, () => {
-  it(`offers Cancel and Start anyway over the blocker chips`, () => {
+  it(`offers Cancel, Start anyway and a disabled Stacked PR with its reason`, () => {
     const startAnyway = vi.fn().mockResolvedValue(undefined)
     render(
       <LaunchComposer
@@ -433,6 +436,7 @@ describe(`LaunchComposer blocked start`, () => {
           checkedIssues: [issue(`i1`, `APP-1`)],
           blockedStart: [issue(`i2`, `APP-2`)],
           blockedOpen: true,
+          blockedStack: { target: null, reason: `no-pr` },
           startAnyway,
           blocked: false,
         })}
@@ -443,9 +447,40 @@ describe(`LaunchComposer blocked start`, () => {
     // The blocker rides an ordinary issue chip.
     expect(screen.getByTestId(`blocked-start-chip-APP-2`)).toBeTruthy()
     expect(screen.getByText(`Cancel`)).toBeTruthy()
-    expect(screen.queryByText(`Stacked PR`)).toBeNull()
+    expect(screen.getByText(`. Start anyway?`)).toBeTruthy()
+    const stacked = screen.getByTestId(`blocked-start-stacked`)
+    expect(stacked.textContent).toBe(STACKED_PR_LABEL)
+    expect((stacked as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByTestId(`blocked-start-stack-note`).textContent).toBe(
+      `#APP-2 has no open pull request yet.`
+    )
     fireEvent.click(screen.getByText(START_ANYWAY_LABEL))
     expect(startAnyway).toHaveBeenCalledTimes(1)
+  })
+
+  it(`starts a stacked PR when the one blocker has an open pull request`, () => {
+    const startStacked = vi.fn().mockResolvedValue(undefined)
+    const blocker = issue(`i2`, `APP-2`)
+    render(
+      <LaunchComposer
+        model={fakeModel({
+          subject: { kind: `issues`, ids: [`i1`] },
+          checkedIssues: [issue(`i1`, `APP-1`)],
+          blockedStart: [blocker],
+          blockedOpen: true,
+          blockedStack: { target: blocker, reason: null },
+          startStacked,
+          blocked: false,
+        })}
+        users={[]}
+      />
+    )
+    expect(screen.getByText(`. Start anyway, or start a stacked PR?`)).toBeTruthy()
+    expect(screen.queryByTestId(`blocked-start-stack-note`)).toBeNull()
+    const stacked = screen.getByTestId(`blocked-start-stacked`)
+    expect((stacked as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(stacked)
+    expect(startStacked).toHaveBeenCalledTimes(1)
   })
 
   it(`asks about a batch with the batch copy`, () => {

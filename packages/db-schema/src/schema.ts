@@ -504,6 +504,11 @@ export const issues = pgTable(
     prState: prStateEnum(`pr_state`),
     branch: text(`branch`),
     prMergedAt: timestamp(`pr_merged_at`, { withTimezone: true }),
+    // EXP-897: the PR's base ref as GitHub last reported it (written by
+    // `pr_open`, retarget and the `edited` webhook leg). SYNCED: the stack
+    // edge every client derives is `child.pr_base_branch == lower.branch`
+    // within one repository. NULL = the board's default branch / no PR.
+    prBaseBranch: text(`pr_base_branch`),
     ...timestamps,
   },
   (table) => [
@@ -518,6 +523,10 @@ export const issues = pgTable(
     index(`idx_issues_pr_url`)
       .on(table.prUrl)
       .where(sql`pr_url IS NOT NULL`),
+    // EXP-897: "who is stacked on my branch?", asked by the merge guard.
+    index(`idx_issues_pr_base_branch`)
+      .on(table.prBaseBranch)
+      .where(sql`pr_base_branch IS NOT NULL`),
     // The duplicate_of_id SET NULL RI trigger fires on every issue delete;
     // without this it seq-scans issues per deleted row inside the cascade.
     index(`idx_issues_duplicate_of`)

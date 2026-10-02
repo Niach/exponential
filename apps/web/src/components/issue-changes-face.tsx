@@ -18,6 +18,7 @@ import {
   FACE_BODY_TOUCH_CLASS,
   type FaceSwipeHandlers,
 } from "@/components/mobile-face-tabs"
+import { PrGraphBadge } from "@/components/pr-graph-badge"
 import { MERGE_PR_LABEL } from "@/components/run-action-pills"
 import { SessionMergePill } from "@/components/session-merge-button"
 import { useIssuePropertyHandlers } from "@/hooks/use-issue-property-handlers"
@@ -114,6 +115,15 @@ export function IssueChangesFace({
         face="changes"
         action={
           issue.prUrl ? <PrGithubButton prUrl={issue.prUrl} /> : undefined
+        }
+        graphBadge={
+          /* SLOP-16: the same "Related work" overlay every face opens:
+             Blocked by · Same pull request · Pull request stack. */
+          <PrGraphBadge
+            teamId={teamId}
+            teamSlug={teamSlug}
+            issue={issue}
+          />
         }
         dot={dot}
         tabs={tabs}

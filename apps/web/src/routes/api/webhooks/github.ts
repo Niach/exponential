@@ -16,6 +16,7 @@ import {
   applyPrMergeState,
   applyPrOpenedState,
   applyPrReopenedState,
+  applyPrBaseBranchEdit,
   applySessionPrState,
   findIssueIdByBranch,
 } from "@/lib/integrations/pr-sync"
@@ -361,6 +362,8 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         merged_at?: string | null
         draft?: boolean
         head?: { ref?: string }
+        // The base GitHub reports on every delivery (`pr_base_branch`).
+        base?: { ref?: string }
         // EXP-617: the GitHub identity behind the event. `user` is the PR
         // author, `merged_by` whoever pressed Merge; both are the App bot for
         // anything our own server did, which is exactly why they complement
@@ -370,6 +373,8 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
       }
       repository?: { full_name?: string }
       sender?: GithubActorRef
+      // `edited` names what changed; a base change moves `pr_base_branch`.
+      changes?: { base?: { from?: { ref?: string } } }
     }
 
     const pr = payload.pull_request
@@ -463,7 +468,12 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         headRef,
       })
       for (const issueId of issueIds) {
-        await applyPrReopenedState({ issueId, prUrl: htmlUrl })
+        await applyPrReopenedState({
+          issueId,
+          prUrl: htmlUrl,
+          // The close cleared the base edge; the payload carries the live one.
+          baseBranch: pr.base?.ref ?? null,
+        })
       }
       await applySessionPrState({ prUrl: htmlUrl, state: `open` })
       return jsonResponse(200, { ok: true })
@@ -495,11 +505,22 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
           prUrl: htmlUrl,
           prNumber: pr.number,
           branch: headRef,
+          // A new PR never inherits the base of an earlier, closed one.
+          baseBranch: pr.base?.ref ?? null,
           ...(claim
             ? { actorUserId: claim.userId, actorViaAgent: claim.viaAgent }
             : { actorUserId: null }),
         })
       }
+      return jsonResponse(200, { ok: true })
+    }
+
+    // The PR was retargeted (on github.com, or by our own retarget/heal).
+    if (payload.action === `edited` && payload.changes?.base) {
+      await applyPrBaseBranchEdit({
+        prUrl: htmlUrl,
+        baseRef: pr.base?.ref ?? null,
+      })
       return jsonResponse(200, { ok: true })
     }
 

@@ -564,6 +564,8 @@ public enum AppIcons {
     public static let prMerged: String = "git-merge"
     /// Concept `pr-open`.
     public static let prOpen: String = "git-pull-request"
+    /// Concept `pr-stack`.
+    public static let prStack: String = "layers"
     /// Concept `priority-high`.
     public static let priorityHigh: String = "signal-high"
     /// Concept `priority-low`.

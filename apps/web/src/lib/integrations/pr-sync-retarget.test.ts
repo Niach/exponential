@@ -74,6 +74,7 @@ vi.mock(`@/lib/steer`, () => ({
 vi.mock(`@/lib/trpc`, () => ({ generateTxId: vi.fn() }))
 
 import {
+  applyPrBaseBranchEdit,
   applyPrClosedState,
   applyPrReopenedState,
   retargetChildrenOfMergedPr,
@@ -274,7 +275,8 @@ describe(`retargetChildrenOfMergedPr (EXP-324)`, () => {
       base: `master`,
       token: `tok`,
     })
-    expect(h.updates).toEqual([])
+    // The synced base follows only the retarget that landed (242).
+    expect(h.updates).toEqual([{ prBaseBranch: `master` }])
     errorSpy.mockRestore()
   })
 
@@ -290,10 +292,36 @@ describe(`retargetChildrenOfMergedPr (EXP-324)`, () => {
   })
 })
 
+// A closed PR targets nothing: its `pr_base_branch` goes with the flip, and
+// the reopen leg writes back the base GitHub reports.
 describe(`applyPrClosedState / applyPrReopenedState`, () => {
-  it(`close and reopen flip only the PR state`, async () => {
+  it(`close clears pr_base_branch with the flip`, async () => {
     await applyPrClosedState({ issueId: `issue-2`, prUrl: PARENT_PR_URL })
+    expect(h.updates).toEqual([{ prState: `closed`, prBaseBranch: null }])
+  })
+
+  it(`reopen restores the base it was handed, and leaves it cleared otherwise`, async () => {
+    await applyPrReopenedState({
+      issueId: `issue-2`,
+      prUrl: PARENT_PR_URL,
+      baseBranch: `exp/EXP-1`,
+    })
     await applyPrReopenedState({ issueId: `issue-2`, prUrl: PARENT_PR_URL })
-    expect(h.updates).toEqual([{ prState: `closed` }, { prState: `open` }])
+    expect(h.updates).toEqual([
+      { prState: `open`, prBaseBranch: `exp/EXP-1` },
+      { prState: `open` },
+    ])
+  })
+})
+
+describe(`applyPrBaseBranchEdit`, () => {
+  it(`mirrors an edited base onto every issue on the PR`, async () => {
+    await applyPrBaseBranchEdit({ prUrl: PARENT_PR_URL, baseRef: `exp/EXP-10` })
+    expect(h.updates).toEqual([{ prBaseBranch: `exp/EXP-10` }])
+  })
+
+  it(`writes nothing without a base`, async () => {
+    await applyPrBaseBranchEdit({ prUrl: PARENT_PR_URL, baseRef: null })
+    expect(h.updates).toEqual([])
   })
 })

@@ -1,0 +1,114 @@
+{
+  "$comment": "SLOP-3: starting a BLOCKED issue asks Cancel / Start anyway / Stacked PR, byte-identical x4 (web lib/blocked-start.ts, desktop domain blocked_start.rs, iOS BlockedStart.swift, Android BlockedStart.kt). The stacked start is PROMPT TEXT only: the same base instruction a follow-up run gets from the playbook. No stack plan, no relay frame, no server code. `stackTarget` picks the one blocker to stack on or the one reason the button is disabled (first match wins, in the order of `reasons`).",
+  "copy": {
+    "title": "This issue is blocked",
+    "batchTitle": "Some of these issues are blocked",
+    "batchBody": "Open issues outside this batch block it. Start anyway?",
+    "bodyPrefix": "This issue is blocked by ",
+    "bodySuffix": ". Start anyway?",
+    "bodySuffixStackable": ". Start anyway, or start a stacked PR?",
+    "startAnyway": "Start anyway",
+    "stackedPr": "Stacked PR"
+  },
+  "reasons": ["batch", "many", "no-pr", "repo"],
+  "notes": {
+    "batch": "A stacked PR starts one issue at a time.",
+    "many": "A stacked PR needs exactly one open blocker.",
+    "no-pr": "#{ident} has no open pull request yet.",
+    "repo": "#{ident} lives in another repository."
+  },
+  "promptTemplate": "Stacked on #{ident}. Before any edit: `git fetch origin {branch}`; if this branch has no commits of its own, `git reset --hard origin/{branch}`, else `git rebase origin/{branch}`. Open your PR with `exponential_pr_open({issueId, base: \"{branch}\"})`.",
+  "targetCases": [
+    {
+      "name": "one open blocker with an open PR in the same repository is the target",
+      "pickedCount": 1,
+      "subjectRepositoryId": "r1",
+      "blockers": [{ "identifier": "APP-11", "prState": "open", "branch": "exp/APP-11", "repositoryId": "r1" }],
+      "target": "APP-11",
+      "reason": null,
+      "note": null
+    },
+    {
+      "name": "a batch never stacks",
+      "pickedCount": 2,
+      "subjectRepositoryId": "r1",
+      "blockers": [{ "identifier": "APP-11", "prState": "open", "branch": "exp/APP-11", "repositoryId": "r1" }],
+      "target": null,
+      "reason": "batch",
+      "note": "A stacked PR starts one issue at a time."
+    },
+    {
+      "name": "two open blockers do not stack",
+      "pickedCount": 1,
+      "subjectRepositoryId": "r1",
+      "blockers": [
+        { "identifier": "APP-11", "prState": "open", "branch": "exp/APP-11", "repositoryId": "r1" },
+        { "identifier": "APP-12", "prState": null, "branch": null, "repositoryId": "r1" }
+      ],
+      "target": null,
+      "reason": "many",
+      "note": "A stacked PR needs exactly one open blocker."
+    },
+    {
+      "name": "a blocker without a pull request names itself",
+      "pickedCount": 1,
+      "subjectRepositoryId": "r1",
+      "blockers": [{ "identifier": "APP-11", "prState": null, "branch": null, "repositoryId": "r1" }],
+      "target": null,
+      "reason": "no-pr",
+      "note": "#APP-11 has no open pull request yet."
+    },
+    {
+      "name": "a merged or closed pull request is no base",
+      "pickedCount": 1,
+      "subjectRepositoryId": "r1",
+      "blockers": [{ "identifier": "APP-11", "prState": "merged", "branch": "exp/APP-11", "repositoryId": "r1" }],
+      "target": null,
+      "reason": "no-pr",
+      "note": "#APP-11 has no open pull request yet."
+    },
+    {
+      "name": "an open pull request without a recorded branch is no base",
+      "pickedCount": 1,
+      "subjectRepositoryId": "r1",
+      "blockers": [{ "identifier": "APP-11", "prState": "open", "branch": "", "repositoryId": "r1" }],
+      "target": null,
+      "reason": "no-pr",
+      "note": "#APP-11 has no open pull request yet."
+    },
+    {
+      "name": "a blocker in another repository does not stack",
+      "pickedCount": 1,
+      "subjectRepositoryId": "r1",
+      "blockers": [{ "identifier": "WEB-4", "prState": "open", "branch": "exp/WEB-4", "repositoryId": "r2" }],
+      "target": null,
+      "reason": "repo",
+      "note": "#WEB-4 lives in another repository."
+    },
+    {
+      "name": "a repo-less subject or blocker does not stack",
+      "pickedCount": 1,
+      "subjectRepositoryId": null,
+      "blockers": [{ "identifier": "APP-11", "prState": "open", "branch": "exp/APP-11", "repositoryId": null }],
+      "target": null,
+      "reason": "repo",
+      "note": "#APP-11 lives in another repository."
+    }
+  ],
+  "promptCases": [
+    {
+      "name": "no typed text: the base instruction alone",
+      "identifier": "APP-11",
+      "branch": "exp/APP-11",
+      "text": "",
+      "prompt": "Stacked on #APP-11. Before any edit: `git fetch origin exp/APP-11`; if this branch has no commits of its own, `git reset --hard origin/exp/APP-11`, else `git rebase origin/exp/APP-11`. Open your PR with `exponential_pr_open({issueId, base: \"exp/APP-11\"})`."
+    },
+    {
+      "name": "typed text follows the base instruction after a blank line, trimmed",
+      "identifier": "APP-11",
+      "branch": "exp/batch-1a2b3c4d",
+      "text": "  keep the diff small\n",
+      "prompt": "Stacked on #APP-11. Before any edit: `git fetch origin exp/batch-1a2b3c4d`; if this branch has no commits of its own, `git reset --hard origin/exp/batch-1a2b3c4d`, else `git rebase origin/exp/batch-1a2b3c4d`. Open your PR with `exponential_pr_open({issueId, base: \"exp/batch-1a2b3c4d\"})`.\n\nkeep the diff small"
+    }
+  ]
+}

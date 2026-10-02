@@ -16,24 +16,36 @@ import {
   BLOCKED_BATCH_TITLE,
   BLOCKED_START_BODY_PREFIX,
   BLOCKED_START_BODY_SUFFIX,
+  BLOCKED_START_BODY_SUFFIX_STACKABLE,
   BLOCKED_START_TITLE,
+  stackDisabledNote,
+  type StackDisabledReason,
+  STACKED_PR_LABEL,
   START_ANYWAY_LABEL,
-} from "@/lib/issue-graph"
+} from "@/lib/blocked-start"
 
-// EXP-980: starting a BLOCKED issue asks first — Cancel or Start anyway —
-// over the transitive chain drawn as the mini-graph. A batch asks too, about
-// the blockers outside it. The copy is byte-locked ×4 (`lib/issue-graph.ts`).
+// EXP-980: starting a BLOCKED issue asks first over the transitive chain
+// drawn as the mini-graph. A batch asks too, about the blockers outside it.
+//
+// SLOP-3: Cancel · Start anyway · Stacked PR. "Stacked PR" starts the SAME
+// run with the base instruction in its prompt (`stackedStartPrompt`). It is
+// never hidden: while `stackTarget` returns a reason it is disabled and the
+// reason's note sits under the graph. The copy is byte-locked ×4
+// (`lib/blocked-start.ts`, fixture `blocked-start.json`).
 
 export function BlockedStartDialog(props: {
   open: boolean
   teamId: string | undefined
   /** The checked issues, in pick order. */
   pickedIds: readonly string[]
-  /** `openBlockersOfSet(...)` — never empty while the dialog is up. */
+  /** `openBlockersOfSet(...)`: never empty while the dialog is up. */
   blockers: readonly Issue[]
+  /** `stackTarget(...)`'s reason; null = "Stacked PR" is enabled. */
+  stackReason: StackDisabledReason | null
   busy?: boolean
   onOpenChange: (open: boolean) => void
   onStartAnyway: () => void
+  onStartStacked: () => void
 }) {
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
@@ -49,18 +61,26 @@ function BlockedStartBody({
   teamId,
   pickedIds,
   blockers,
+  stackReason,
   busy = false,
   onOpenChange,
   onStartAnyway,
+  onStartStacked,
 }: {
   teamId: string
   pickedIds: readonly string[]
   blockers: readonly Issue[]
+  stackReason: StackDisabledReason | null
   busy?: boolean
   onOpenChange: (open: boolean) => void
   onStartAnyway: () => void
+  onStartStacked: () => void
 }) {
   const batch = pickedIds.length > 1
+  const suffix =
+    stackReason === null
+      ? BLOCKED_START_BODY_SUFFIX_STACKABLE
+      : BLOCKED_START_BODY_SUFFIX
   return (
     <DialogContent mobile="alert" data-testid="blocked-start-dialog">
       <DialogHeader>
@@ -80,7 +100,7 @@ function BlockedStartBody({
                   testId={`blocked-start-chip-${blocker.identifier}`}
                 />
               ))}
-              <span>{BLOCKED_START_BODY_SUFFIX.trimStart()}</span>
+              <span>{suffix.trimStart()}</span>
             </div>
           )}
         </DialogDescription>
@@ -90,10 +110,25 @@ function BlockedStartBody({
         subjectIds={pickedIds}
         onNavigate={() => onOpenChange(false)}
       />
+      {stackReason !== null && (
+        <div
+          className="text-xs text-muted-foreground"
+          data-testid="blocked-start-stack-note"
+        >
+          {stackDisabledNote(stackReason, blockers[0]?.identifier ?? ``)}
+        </div>
+      )}
       <DialogFooter>
         <DialogCancel onClick={() => onOpenChange(false)} />
-        <Button disabled={busy} onClick={onStartAnyway}>
+        <Button variant="outline" disabled={busy} onClick={onStartAnyway}>
           {START_ANYWAY_LABEL}
+        </Button>
+        <Button
+          disabled={busy || stackReason !== null}
+          onClick={onStartStacked}
+          data-testid="blocked-start-stacked"
+        >
+          {STACKED_PR_LABEL}
         </Button>
       </DialogFooter>
     </DialogContent>

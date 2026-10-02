@@ -8204,6 +8204,8 @@ public object ExpIcons {
     public val prMerged: ImageVector get() = `git-merge`
     /** Concept `pr-open`. */
     public val prOpen: ImageVector get() = `git-pull-request`
+    /** Concept `pr-stack`. */
+    public val prStack: ImageVector get() = `layers`
     /** Concept `priority-high`. */
     public val priorityHigh: ImageVector get() = `signal-high`
     /** Concept `priority-low`. */

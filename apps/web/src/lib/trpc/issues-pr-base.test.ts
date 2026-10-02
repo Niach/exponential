@@ -10,6 +10,8 @@ import { TRPCError } from "@trpc/server"
 const h = vi.hoisted(() => ({
   // Each ctx.db.select() call consumes the next result set, in call order.
   selectQueue: [] as unknown[][],
+  // The `pr_base_branch` writes the router issued (set values, in order).
+  updates: [] as Array<Record<string, unknown>>,
   assertIssueAccess: vi.fn(async () => ({
     issueId: `issue-1`,
     boardId: `board-1`,
@@ -138,6 +140,7 @@ vi.mock(`@/lib/integrations/activity`, () => ({
 }))
 
 import { issuesRouter } from "@/lib/trpc/issues"
+import { stackedOnMessage, stackedOnOpenPr } from "@/lib/pr-merge-guard"
 import {
   classifyPrBase,
   GitHubAsyncMergePending,
@@ -152,7 +155,13 @@ const ISSUE_ID = `22222222-2222-4222-8222-222222222222`
 const PR_URL = `https://github.com/owner/repo/pull/241`
 
 const db = {
-  update: vi.fn(() => ({ set: () => ({ where: async () => undefined }) })),
+  update: vi.fn(() => ({
+    set: (values: Record<string, unknown>) => ({
+      where: async () => {
+        h.updates.push(values)
+      },
+    }),
+  })),
   select: vi.fn(() => {
     const rows = h.selectQueue.shift() ?? []
     const builder = {
@@ -192,6 +201,7 @@ function mockExp320BaseState() {
 
 beforeEach(() => {
   h.selectQueue.length = 0
+  h.updates.length = 0
   vi.clearAllMocks()
   h.assertIssueAccess.mockResolvedValue({
     issueId: ISSUE_ID,
@@ -232,6 +242,8 @@ describe(`issues.prepareConflictFix (EXP-324)`, () => {
       retargeted: true,
       defaultBranch: `master`,
     })
+    // The synced base follows the heal.
+    expect(h.updates).toEqual([{ prBaseBranch: `master` }])
   })
 
   it(`returns the live parent branch as the rebase target for an open parent — no retarget`, async () => {
@@ -259,6 +271,8 @@ describe(`issues.prepareConflictFix (EXP-324)`, () => {
       rebaseOnto: `exp/EXP-314`,
       retargeted: false,
     })
+    // GitHub's live base is mirrored opportunistically.
+    expect(h.updates).toEqual([{ prBaseBranch: `exp/EXP-314` }])
   })
 
   it(`tolerates a 422 on the heal (concurrent retarget won the race)`, async () => {
@@ -272,6 +286,7 @@ describe(`issues.prepareConflictFix (EXP-324)`, () => {
 
     const result = await caller.prepareConflictFix({ issueId: ISSUE_ID })
     expect(result).toMatchObject({ rebaseOnto: `master`, retargeted: false })
+    expect(h.updates).toEqual([{ prBaseBranch: `master` }])
   })
 
   it(`surfaces a GitHub read failure as BAD_GATEWAY`, async () => {
@@ -308,6 +323,8 @@ describe(`issues.retargetPr (EXP-324)`, () => {
       token: `tok`,
     })
     expect(result).toEqual({ retargeted: true, base: `master` })
+    // Persisted for every issue on the PR.
+    expect(h.updates).toEqual([{ prBaseBranch: `master` }])
   })
 
   it(`passes an explicit base through and maps GitHub's 422 onto a named error`, async () => {
@@ -323,6 +340,7 @@ describe(`issues.retargetPr (EXP-324)`, () => {
       code: `PRECONDITION_FAILED`,
       message: `'nope' is not a valid base branch on owner/repo: Proposed base branch 'nope' was not found`,
     })
+    expect(h.updates).toEqual([])
   })
 
   it(`refuses a non-open PR`, async () => {
@@ -660,6 +678,174 @@ describe(`issues.mergePr merge-async outcomes`, () => {
       code: `PRECONDITION_FAILED`,
     })
     expect(takePrMergeClaim(`owner/repo`, 241)).toBeNull()
+  })
+})
+
+// EXP-1145: a PR whose recorded base is another OPEN PR's head would squash
+// INTO that branch: the diff never reaches the default branch while the issue
+// flips to Done. Refused before any claim or GitHub call, evaluated per merge
+// so a parent-then-child sequence (MCP `pr_merge({issueIds: [root, child]})`,
+// the yolo tree merge) passes once the parent landed.
+describe(`issues.mergePr on a PR stacked on an open PR (EXP-1145)`, () => {
+  const UPPER_ISSUE = `44444444-4444-4444-8444-444444444444`
+  const childRow = {
+    prNumber: 242,
+    prUrl: `https://github.com/owner/repo/pull/242`,
+    prState: `open`,
+    identifier: `EXP-12`,
+    title: `Upper`,
+    prBaseBranch: `exp/EXP-11`,
+  }
+
+  beforeEach(() => {
+    _clearPrActorClaims()
+    h.assertIssueAccess.mockResolvedValue({
+      issueId: UPPER_ISSUE,
+      boardId: `board-1`,
+      teamId: `ws-1`,
+    })
+  })
+
+  it(`refuses the merge, naming the parent, before any claim or GitHub call`, async () => {
+    h.selectQueue.push([childRow])
+    h.selectQueue.push([{ identifier: `EXP-11` }])
+
+    await expect(caller.mergePr({ issueId: UPPER_ISSUE })).rejects.toMatchObject({
+      code: `PRECONDITION_FAILED`,
+      message: `This pull request is stacked on EXP-11; merge EXP-11 first`,
+    })
+    expect(stackedOnMessage(`EXP-11`)).toBe(
+      `This pull request is stacked on EXP-11; merge EXP-11 first`
+    )
+    expect(h.resolveRepoInstallationTokenInfo).not.toHaveBeenCalled()
+    expect(h.mergePullRequestSmart).not.toHaveBeenCalled()
+    expect(takePrMergeClaim(`owner/repo`, 242)).toBeNull()
+  })
+
+  it(`names an issue-less parent run PR by its number`, async () => {
+    h.selectQueue.push([{ ...childRow, prBaseBranch: `exp/chat-1a2b3c4d` }])
+    h.selectQueue.push([])
+    h.selectQueue.push([{ prNumber: 240 }])
+
+    await expect(caller.mergePr({ issueId: UPPER_ISSUE })).rejects.toMatchObject({
+      message: `This pull request is stacked on #240; merge #240 first`,
+    })
+    expect(h.mergePullRequestSmart).not.toHaveBeenCalled()
+  })
+
+  it(`merges once the parent is no longer open (root first, then the child)`, async () => {
+    h.selectQueue.push([childRow])
+    // Neither an issue nor a run holds an OPEN PR on the base any more.
+    h.selectQueue.push([])
+    h.selectQueue.push([])
+    h.selectQueue.push([{ id: UPPER_ISSUE }])
+
+    await expect(caller.mergePr({ issueId: UPPER_ISSUE })).resolves.toEqual({
+      merged: true,
+    })
+    expect(h.mergePullRequestSmart).toHaveBeenCalledTimes(1)
+    expect(h.applyPrMergeState).toHaveBeenCalledTimes(1)
+  })
+
+  it(`never looks up a parent for a PR without a recorded base`, async () => {
+    h.selectQueue.push([{ ...childRow, prBaseBranch: null }])
+    h.selectQueue.push([{ id: UPPER_ISSUE }])
+
+    await expect(caller.mergePr({ issueId: UPPER_ISSUE })).resolves.toEqual({
+      merged: true,
+    })
+    expect(db.select).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe(`stackedOnOpenPr (EXP-1145)`, () => {
+  function recordingDb(answers: unknown[][]) {
+    const wheres: unknown[] = []
+    const select = vi.fn(() => {
+      const rows = answers.shift() ?? []
+      const p = Promise.resolve(rows) as Promise<unknown[]> &
+        Record<string, (arg?: unknown) => unknown>
+      for (const m of [`from`, `limit`]) p[m] = () => p
+      p.where = (cond?: unknown) => {
+        wheres.push(cond)
+        return p
+      }
+      return p
+    })
+    return { db: { select } as never, select, wheres }
+  }
+
+  it(`asks for the team issue whose OPEN PR head, in the same repo, is this PR's base`, async () => {
+    const { db: fake, wheres } = recordingDb([[{ identifier: `EXP-11` }]])
+    await expect(
+      stackedOnOpenPr(fake, {
+        issueId: ISSUE_ID,
+        teamId: `ws-1`,
+        repoFullName: `owner/repo`,
+        prBaseBranch: `exp/EXP-11`,
+      })
+    ).resolves.toBe(`EXP-11`)
+    expect(wheres).toHaveLength(1)
+    const { PgDialect } = await import(`drizzle-orm/pg-core`)
+    const query = new PgDialect().sqlToQuery(wheres[0] as never)
+    expect(query.sql).toContain(`"team_id" =`)
+    expect(query.sql).toContain(`"id" <>`)
+    expect(query.sql).toContain(`"branch" =`)
+    expect(query.sql).toContain(`"pr_state" =`)
+    expect(query.sql).toContain(`"pr_url" like`)
+    expect(query.params).toEqual([
+      `ws-1`,
+      ISSUE_ID,
+      `exp/EXP-11`,
+      `open`,
+      `https://github.com/owner/repo/pull/%`,
+    ])
+  })
+
+  it(`falls back to an issue-less run's open PR on that branch`, async () => {
+    const { db: fake, wheres } = recordingDb([[], [{ prNumber: 240 }]])
+    await expect(
+      stackedOnOpenPr(fake, {
+        issueId: ISSUE_ID,
+        teamId: `ws-1`,
+        repoFullName: `owner/repo`,
+        prBaseBranch: `exp/chat-1a2b3c4d`,
+      })
+    ).resolves.toBe(`#240`)
+    const { PgDialect } = await import(`drizzle-orm/pg-core`)
+    const query = new PgDialect().sqlToQuery(wheres[1] as never)
+    expect(query.sql).toContain(`"coding_sessions"."branch" =`)
+    expect(query.params).toEqual([
+      `ws-1`,
+      `exp/chat-1a2b3c4d`,
+      `open`,
+      `https://github.com/owner/repo/pull/%`,
+    ])
+  })
+
+  it(`answers null when nobody's open PR has that head`, async () => {
+    const { db: fake } = recordingDb([[], []])
+    await expect(
+      stackedOnOpenPr(fake, {
+        issueId: ISSUE_ID,
+        teamId: `ws-1`,
+        repoFullName: `owner/repo`,
+        prBaseBranch: `master`,
+      })
+    ).resolves.toBeNull()
+  })
+
+  it(`never queries for a PR without a recorded base`, async () => {
+    const { db: fake, select } = recordingDb([])
+    await expect(
+      stackedOnOpenPr(fake, {
+        issueId: ISSUE_ID,
+        teamId: `ws-1`,
+        repoFullName: `owner/repo`,
+        prBaseBranch: null,
+      })
+    ).resolves.toBeNull()
+    expect(select).not.toHaveBeenCalled()
   })
 })
 

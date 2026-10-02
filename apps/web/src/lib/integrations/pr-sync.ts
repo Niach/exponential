@@ -426,6 +426,10 @@ export async function applyPrOpenedState(opts: {
   // app user. Notification-only — it never touches the PR linkage or the
   // status automation, whose actor stays the in-app one.
   githubActorUserId?: string | null
+  // The PR's base branch as GitHub reports it (`pull_request.base.ref`),
+  // synced as `pr_base_branch`. Written on every link, null included: a NEW
+  // PR on an issue must never inherit an earlier PR's base.
+  baseBranch?: string | null
 }): Promise<void> {
   const applied = await db.transaction(async (tx) => {
     const txId = await generateTxId(tx)
@@ -456,6 +460,7 @@ export async function applyPrOpenedState(opts: {
         prNumber: opts.prNumber,
         prState: `open`,
         branch: opts.branch,
+        prBaseBranch: opts.baseBranch ?? null,
       })
       .where(and(eq(issues.id, opts.issueId), isNull(issues.prUrl)))
       .returning({ id: issues.id })
@@ -586,6 +591,9 @@ export async function applyPrMergeState(opts: {
         .set({
           prState: `merged`,
           prMergedAt: opts.mergedAt ?? new Date(),
+          // A landed PR targets nothing any more; the edge would otherwise
+          // outlive it and read as "stacked" to the merge guard.
+          prBaseBranch: null,
           ...backfill,
         })
         .where(
@@ -1018,6 +1026,11 @@ export async function retargetChildrenOfMergedPr(opts: {
         base: defaultBranch,
         token: resolved.token,
       })
+      // The synced base follows the one we just wrote.
+      await db
+        .update(issues)
+        .set({ prBaseBranch: defaultBranch })
+        .where(eq(issues.prUrl, child.url))
     } catch (err) {
       // One unreachable (or 422-refused) child never blocks the rest.
       console.error(
@@ -1037,7 +1050,10 @@ export async function applyPrClosedState(opts: {
   issueId: string
   prUrl?: string
 }): Promise<void> {
-  await applyPrStateFlip(opts.issueId, opts.prUrl, `closed`)
+  // A closed PR targets nothing; its base edge goes with it.
+  await applyPrStateFlip(opts.issueId, opts.prUrl, `closed`, {
+    prBaseBranch: null,
+  })
 }
 
 // PR reopened on GitHub after a close-without-merge (webhook `reopened`):
@@ -1046,14 +1062,23 @@ export async function applyPrClosedState(opts: {
 export async function applyPrReopenedState(opts: {
   issueId: string
   prUrl?: string
+  // The reopened PR's base as GitHub reports it (the close cleared the edge).
+  // Omitted = unknown, the edge stays cleared.
+  baseBranch?: string | null
 }): Promise<void> {
-  await applyPrStateFlip(opts.issueId, opts.prUrl, `open`)
+  await applyPrStateFlip(
+    opts.issueId,
+    opts.prUrl,
+    `open`,
+    opts.baseBranch !== undefined ? { prBaseBranch: opts.baseBranch } : {}
+  )
 }
 
 async function applyPrStateFlip(
   issueId: string,
   prUrl: string | undefined,
-  to: `closed` | `open`
+  to: `closed` | `open`,
+  extra: { prBaseBranch?: string | null } = {}
 ): Promise<void> {
   await db.transaction(async (tx) => {
     const txId = await generateTxId(tx)
@@ -1067,7 +1092,7 @@ async function applyPrStateFlip(
     const from = to === `closed` ? `open` : `closed`
     await tx
       .update(issues)
-      .set({ prState: to })
+      .set({ prState: to, ...extra })
       .where(
         and(
           eq(issues.id, issueId),
@@ -1078,4 +1103,19 @@ async function applyPrStateFlip(
         )
       )
   })
+}
+
+/**
+ * A PR's base changed on GitHub (`edited` with `changes.base`): mirror it into
+ * the synced `pr_base_branch` of every issue on that PR.
+ */
+export async function applyPrBaseBranchEdit(opts: {
+  prUrl: string
+  baseRef: string | null | undefined
+}): Promise<void> {
+  if (!opts.prUrl || !opts.baseRef) return
+  await db
+    .update(issues)
+    .set({ prBaseBranch: opts.baseRef })
+    .where(eq(issues.prUrl, opts.prUrl))
 }

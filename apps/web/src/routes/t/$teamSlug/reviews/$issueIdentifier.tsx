@@ -36,6 +36,7 @@ import {
 } from "@exp/ui"
 import { cn } from "@/lib/utils"
 import { ChangesTopBar } from "@/components/changes-top-bar"
+import { PrGraphBadge } from "@/components/pr-graph-badge"
 import { ChangesView } from "@/components/changes-view"
 import { MergeCapsule } from "@/components/issue-changes-face"
 import { useSteerConfig } from "@/components/agent-session"
@@ -305,6 +306,15 @@ function ReviewDetailPage() {
         merge={canMerge ? mergeTarget : null}
         onClosePr={() => setConfirmCloseOpen(true)}
         closing={closing}
+        trailing={
+          /* EXP-897: the review page IS the Changes face: the same
+             "Related work" button the run's header wears. */
+          <PrGraphBadge
+            teamId={team.id}
+            teamSlug={teamSlug}
+            issue={issue}
+          />
+        }
       />
 
       {/* A refused CLOSE captions the bar that produced it (EXP-333). A refused

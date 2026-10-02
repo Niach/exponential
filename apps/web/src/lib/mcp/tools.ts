@@ -2683,6 +2683,9 @@ export function registerExponentialTools(
                 prNumber: created.number,
                 prState: `open`,
                 branch: headBranch,
+                // The synced base the PR was opened against (or, reused, its
+                // real one).
+                prBaseBranch: baseBranch,
               })
               .where(eq(issues.id, id))
             await recordIssueEvent(tx, {

@@ -89,6 +89,7 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applyPrReopenedState: vi.fn(async () => {}),
   findIssueIdByBranch: vi.fn(async () => null),
   applySessionPrState: vi.fn(async () => ({ endedSessionIds: [] })),
+  applyPrBaseBranchEdit: vi.fn(async () => {}),
 }))
 // EXP-617: the resolver itself (bot filter, id-over-login rule) is covered in
 // github-identity.test.ts — here we only assert WHICH actor the webhook hands
@@ -170,6 +171,8 @@ function pullRequestPayload(overrides: {
   action: string
   merged?: boolean
   merged_at?: string | null
+  // The PR's base ref; omitted = a payload without one.
+  base?: string
 }): unknown {
   return {
     action: overrides.action,
@@ -179,6 +182,7 @@ function pullRequestPayload(overrides: {
       merged: overrides.merged ?? false,
       merged_at: overrides.merged_at ?? null,
       head: { ref: `exp/batch-a1b2c3d4` },
+      ...(overrides.base ? { base: { ref: overrides.base } } : {}),
     },
     repository: { full_name: `org/repo` },
   }
@@ -366,8 +370,47 @@ describe(`github webhook — batch PR fan-out (multi-issue pr_url resolution)`, 
       prUrl: HTML_URL,
       prNumber: 7,
       branch: `exp/batch-a1b2c3d4`,
+      baseBranch: null,
       actorUserId: null,
       githubActorUserId: null,
+    })
+  })
+
+  // `opened` and `reopened` both carry the base ref (`pr_base_branch`), so a
+  // PR opened on github.com (or a fresh PR on an issue whose earlier PR was
+  // closed) records the truth instead of inheriting a stale base.
+  it(`opened forwards the PR base ref`, async () => {
+    h.selectQueue.push([{ id: ISSUE_A }])
+
+    const res = await postHandler({
+      request: webhookRequest(
+        `pull_request`,
+        pullRequestPayload({ action: `opened`, base: `exp/EXP-4` })
+      ),
+    })
+
+    expect(res.status).toBe(200)
+    expect(prSyncMock.applyPrOpenedState).toHaveBeenCalledWith(
+      expect.objectContaining({ issueId: ISSUE_A, baseBranch: `exp/EXP-4` })
+    )
+  })
+
+  it(`reopened forwards the PR base ref (the close cleared it)`, async () => {
+    h.selectQueue.push([{ id: ISSUE_A }, { id: ISSUE_B }])
+
+    const res = await postHandler({
+      request: webhookRequest(
+        `pull_request`,
+        pullRequestPayload({ action: `reopened`, base: `master` })
+      ),
+    })
+
+    expect(res.status).toBe(200)
+    expect(prSyncMock.applyPrReopenedState).toHaveBeenCalledTimes(2)
+    expect(prSyncMock.applyPrReopenedState).toHaveBeenCalledWith({
+      issueId: ISSUE_B,
+      prUrl: HTML_URL,
+      baseBranch: `master`,
     })
   })
 
@@ -449,6 +492,7 @@ describe(`github webhook — batch PR fan-out (multi-issue pr_url resolution)`, 
       prUrl: HTML_URL,
       prNumber: 7,
       branch: `exp/batch-a1b2c3d4`,
+      baseBranch: null,
       actorUserId: `u-opener`,
       actorViaAgent: true,
       githubActorUserId: null,
@@ -471,6 +515,7 @@ describe(`github webhook — batch PR fan-out (multi-issue pr_url resolution)`, 
       prUrl: HTML_URL,
       prNumber: 7,
       branch: `exp/batch-a1b2c3d4`,
+      baseBranch: null,
       actorUserId: null,
       githubActorUserId: null,
     })
@@ -926,5 +971,47 @@ describe(`github webhook — GitHub actor identity (EXP-617)`, () => {
     expect(prSyncMock.applyPrOpenedState).toHaveBeenCalledWith(
       expect.objectContaining({ githubActorUserId: null, actorUserId: null })
     )
+  })
+})
+
+// A base changed on github.com (or by our own retarget/heal) reaches the
+// synced `pr_base_branch` through the `edited` delivery.
+describe(`github webhook — edited base`, () => {
+  function editedPayload(changes: Record<string, unknown>) {
+    return {
+      action: `edited`,
+      pull_request: {
+        html_url: HTML_URL,
+        number: 7,
+        merged: false,
+        head: { ref: `exp/EXP-11` },
+        base: { ref: `exp/EXP-10` },
+      },
+      repository: { full_name: `org/repo` },
+      changes,
+    }
+  }
+
+  it(`mirrors an 'edited' that changed the BASE, and ignores other edits`, async () => {
+    const res = await postHandler({
+      request: webhookRequest(
+        `pull_request`,
+        editedPayload({ base: { from: { ref: `master` } } })
+      ),
+    })
+    expect(res.status).toBe(200)
+    expect(prSyncMock.applyPrBaseBranchEdit).toHaveBeenCalledWith({
+      prUrl: HTML_URL,
+      baseRef: `exp/EXP-10`,
+    })
+
+    vi.clearAllMocks()
+    await postHandler({
+      request: webhookRequest(
+        `pull_request`,
+        editedPayload({ title: { from: `old` } })
+      ),
+    })
+    expect(prSyncMock.applyPrBaseBranchEdit).not.toHaveBeenCalled()
   })
 })
