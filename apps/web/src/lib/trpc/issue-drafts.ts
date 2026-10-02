@@ -16,18 +16,19 @@ import {
 } from "@/lib/storage/issue-attachments"
 import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
 
-// EXP-878: issue DRAFTS — what the create-issue dialog keeps when it is
-// closed with content in it, on every client. Three rules shape this router:
+// EXP-878: issue DRAFTS — what the New issue page keeps while you compose
+// (EXP-1170: the page IS the issue detail in draft mode, there is no create
+// dialog; the page autosaves into this row). Three rules shape this router:
 //
-//  * The row's id is CLIENT-MINTED and the write is an UPSERT, so a dialog
-//    session owns exactly one row no matter how often it is closed and
+//  * The row's id is CLIENT-MINTED and the write is an UPSERT, so a compose
+//    session owns exactly one row no matter how often the page is left and
 //    reopened, and `issues.create({ draftId })` can delete it in the same
 //    transaction it creates the issue in.
 //  * Everything is OWNER-scoped: a draft is private to the person composing
 //    it, never visible to teammates (the shape is `user_id = me`). `delete`
 //    and `listAttachments` therefore need no team lookup at all — the
 //    `user_id` predicate IS the authorization.
-//  * Uploads are EAGER (the dialog uploads a pasted image straight away), so
+//  * Uploads are EAGER (the page uploads a pasted image straight away), so
 //    a description reaching this router already carries FINAL
 //    `/api/attachments/{id}` URLs, and every one of them must belong to THIS
 //    draft. That is the same round-trip guard `issues.update` applies, moved
@@ -37,9 +38,11 @@ const draftIdSchema = z.string().uuid()
 
 export const issueDraftsRouter = router({
   /**
-   * Create or update the caller's draft. ONE idempotent write per dialog
-   * close (never per keystroke): the client mints the id when it opens the
-   * dialog blank and reuses the row's id when it reopens one.
+   * Create or update the caller's draft. ONE coalesced idempotent write per
+   * edit burst (EXP-1170: 800 ms after the last title/description keystroke,
+   * at once on a property pick, on blur and on leaving the page; never per
+   * keystroke): the client mints the id when it opens the page blank and
+   * reuses the row's id when it reopens a draft.
    */
   upsert: authedProcedure
     .input(

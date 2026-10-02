@@ -506,15 +506,14 @@
       "id": "issue-create",
       "group": "issues",
       "title": "New issue",
-      "blurb": "The new-issue page with its title/description editor and the inline property pickers.",
+      "blurb": "The new-issue page: the issue detail in draft mode with title, property chips, description and files, autosaved as a draft until Create files it.",
       "order": 5,
       "web": {
-        "route": "/t/$teamSlug/boards/$boardSlug",
+        "route": "/t/$teamSlug/drafts/$draftId",
         "anchor": {
-          "text": "New issue",
+          "testId": "issue-draft-page",
           "timeoutMs": 20000
         },
-        "recipe": "openCreateIssue",
         "settleMs": 500
       },
       "webMobile": "inherit",
@@ -528,8 +527,8 @@
       },
       "desktop": {
         "drive": {
-          "kind": "dialog",
-          "value": "create-issue"
+          "kind": "screen",
+          "value": "draft"
         },
         "anchorDelayMs": 600,
         "env": {
@@ -772,7 +771,7 @@
       "id": "drafts",
       "group": "my-work",
       "title": "Drafts",
-      "blurb": "Issues that were started and not filed: closing the new-issue dialog with anything in it keeps a draft, and clicking a row reopens the dialog on it.",
+      "blurb": "Issues that were started and not filed: leaving the new-issue page with anything in it keeps a draft, and a row reopens that page on it.",
       "order": 3,
       "web": {
         "route": "/t/$teamSlug/drafts",

@@ -135,7 +135,8 @@ export interface NativeCapture {
  *
  *   - `screen`  → `EXP_DEV_SCREEN` (`navigation::parse_dev_screen`): `settings`,
  *                 `devices`, `actions`, `action:<uuid>`, `getting-started`,
- *                 `issue:<uuid>`, `pr:<uuid>`.
+ *                 `issue:<uuid>`, `pr:<uuid>`, `draft` (EXP-1170: a fresh
+ *                 new-issue draft on the active board).
  *   - `tool`    → a sidebar tool window (`sidebar::ToolWindow`): `board`,
  *                 `inbox`, `my-issues`, `reviews`, `support`, `files`,
  *                 `source-control`.
