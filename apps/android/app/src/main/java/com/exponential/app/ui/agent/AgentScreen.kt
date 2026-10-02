@@ -61,7 +61,7 @@ import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.ChatSuggestions
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.IssueGraph
+import com.exponential.app.domain.BlockedStart
 import com.exponential.app.ui.issue.StaticDot
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.domain.MAX_STEER_IMAGES
@@ -703,14 +703,15 @@ fun AgentScreen(
         )
     }
 
-    // EXP-980: the picked work is still blocked — start it anyway, or cancel.
-    // Same title, body, graph and button words on all four clients
-    // (`IssueGraph`).
+    // EXP-980/SLOP-3: the picked work is still blocked: cancel, start it
+    // anyway, or start a stacked PR. Same title, body, graph and button words
+    // on all four clients (`BlockedStart`).
     blockedPrompt?.let { prompt ->
         BlockedStartDialog(
             prompt = prompt,
             onOpenIssue = onOpenIssue,
             onStartAnyway = viewModel::submitAnyway,
+            onStartStacked = viewModel::submitStacked,
             onDismiss = viewModel::dismissBlockedPrompt,
         )
     }
@@ -750,21 +751,24 @@ private fun ChatSuggestionChips(suggestions: List<String>, onPick: (String) -> U
  * chips in the shared prefix/suffix sentence) and for a BATCH alike (the batch
  * body, blockers outside the picked set), and under either the MINI-GRAPH of
  * the transitive chain, so the reader sees what the chain actually is before
- * answering. Two answers: `Start anyway` and Cancel.
+ * answering. SLOP-3: three answers, Cancel · Start anyway · Stacked PR
+ * (primary). Stacked PR is never hidden: disabled, the reason note says why.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun BlockedStartDialog(
-    prompt: AgentComposerViewModel.BlockedStart,
+    prompt: AgentComposerViewModel.BlockedPrompt,
     onOpenIssue: (String) -> Unit,
     onStartAnyway: () -> Unit,
+    onStartStacked: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val isBatch = prompt.pickedIds.size > 1
+    val stackable = prompt.stack.target != null
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text(if (isBatch) IssueGraph.BLOCKED_BATCH_TITLE else IssueGraph.BLOCKED_START_TITLE)
+            Text(if (isBatch) BlockedStart.BATCH_TITLE else BlockedStart.TITLE)
         },
         text = {
             Column(
@@ -772,9 +776,9 @@ private fun BlockedStartDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (isBatch) {
-                    Text(IssueGraph.BLOCKED_BATCH_BODY)
+                    Text(BlockedStart.BATCH_BODY)
                 } else {
-                    Text(IssueGraph.BLOCKED_START_BODY_PREFIX.trimEnd())
+                    Text(BlockedStart.BODY_PREFIX.trimEnd())
                     FlowRow(
                         modifier = Modifier.testTag("blocked-start-blockers"),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -788,7 +792,10 @@ private fun BlockedStartDialog(
                             )
                         }
                     }
-                    Text(IssueGraph.BLOCKED_START_BODY_SUFFIX.removePrefix(".").trim())
+                    Text(
+                        (if (stackable) BlockedStart.BODY_SUFFIX_STACKABLE else BlockedStart.BODY_SUFFIX)
+                            .removePrefix(".").trim(),
+                    )
                 }
                 IssueGraphList(
                     graph = prompt.graph,
@@ -798,15 +805,34 @@ private fun BlockedStartDialog(
                         onOpenIssue(id)
                     },
                 )
+                // SLOP-3: why the stacked start is off, the shared note under
+                // a disabled (never hidden) button.
+                prompt.stackNote?.let { note ->
+                    Text(
+                        note,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        modifier = Modifier.testTag("start-stacked-note"),
+                    )
+                }
             }
         },
         confirmButton = {
-            TextButton(onClick = onStartAnyway, modifier = Modifier.testTag("start-anyway")) {
-                Text(IssueGraph.START_ANYWAY_LABEL)
+            TextButton(
+                onClick = onStartStacked,
+                enabled = stackable,
+                modifier = Modifier.testTag("start-stacked"),
+            ) {
+                Text(BlockedStart.STACKED_PR)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            Row {
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+                TextButton(onClick = onStartAnyway, modifier = Modifier.testTag("start-anyway")) {
+                    Text(BlockedStart.START_ANYWAY)
+                }
+            }
         },
     )
 }

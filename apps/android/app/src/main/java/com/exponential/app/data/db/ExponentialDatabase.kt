@@ -364,9 +364,9 @@ import androidx.room.TypeConverters
     //      Same bump: the dead workflows.gate column (EXP-1010 relic, the
     //      server dropped it in migration 0149) leaves the entity.
     // v79 (SLOP-3): the EXP-978 workflows feature and the EXP-897 stacks are
-    //      gone — the workflows / workflow_nodes / workflow_events tables and
-    //      their Electric offsets drop, and so do issues.pr_base_branch and
-    //      coding_sessions.workflow_id / workflow_node_id / workflow_role.
+    //      gone: the workflows / workflow_nodes / workflow_events tables and
+    //      their Electric offsets drop, and so do coding_sessions.workflow_id /
+    //      workflow_node_id / workflow_role. issues.pr_base_branch STAYS.
     //      The FIRST explicit migration ([MIGRATION_78_79]): every other row
     //      and every other shape's offset survives, no resync.
     // Older versions still fall back to destructive + resync (DatabaseHolder).

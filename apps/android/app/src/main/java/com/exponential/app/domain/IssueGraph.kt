@@ -17,25 +17,7 @@ import com.exponential.app.data.db.IssueRelationEntity
  * finished issue is blocked by nothing. A SUBJECT is always kept, open or not.
  */
 object IssueGraph {
-    // ── EXP-980: the blocked-start dialog's words, byte-identical ×4. Two
-    //    answers: Start anyway (primary) and Cancel.
-
-    /** The title when ONE issue was picked. */
-    const val BLOCKED_START_TITLE = "This issue is blocked"
-
-    /** The title when two or more issues were picked. */
-    const val BLOCKED_BATCH_TITLE = "Some of these issues are blocked"
-
-    /** The single-issue body, around the blocker chips: prefix + chips + suffix. */
-    const val BLOCKED_START_BODY_PREFIX = "This issue is blocked by "
-    const val BLOCKED_START_BODY_SUFFIX = ". Start anyway?"
-
-    /** The batch body, above the graph. */
-    const val BLOCKED_BATCH_BODY = "Open issues outside this batch block it. Start anyway?"
-
-    /** The primary answer: start the run, blockers and all. */
-    const val START_ANYWAY_LABEL = "Start anyway"
-
+    // The blocked-start dialog's words live in [BlockedStart] (SLOP-3).
 
     /** The most nodes one graph draws; the rest is cut and `truncated` says so. */
     const val MAX_NODES = 60

@@ -70,6 +70,11 @@ fun WorkTopBar(
      * bar's leading slot could carry the changed-files sheet.
      */
     action: (@Composable () -> Unit)? = null,
+    /**
+     * EXP-897/SLOP-3: the related-work badge ([PrGraphBadge]), the ONE mark
+     * for everything this work is entangled with, on every face, beside the `…`.
+     */
+    badge: (@Composable () -> Unit)? = null,
     /** The issue `…` menu, for an issue subject. */
     menu: (@Composable () -> Unit)?,
     /**
@@ -101,6 +106,10 @@ fun WorkTopBar(
         },
         navigationIcon = { TopBarBackButton(onClick = onBack) },
         actions = {
+            // EXP-1097: the related-work badge sits beside the `…` on every face.
+            if (badge != null) {
+                Box(Modifier.padding(end = 8.dp)) { badge() }
+            }
             when (verb) {
                 // EXP-818: ONE word for ending a run, wherever it is watched
                 // from — a red pill beside the `…`, confirm-gated by the host.

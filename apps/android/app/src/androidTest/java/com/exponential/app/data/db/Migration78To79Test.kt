@@ -5,10 +5,12 @@ import android.database.sqlite.SQLiteDatabase
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -18,7 +20,8 @@ import org.junit.runner.RunWith
  * exported Room schemas and no JVM SQLite (no Robolectric), so this runs on a
  * device: the v78 file is built by raw SQL from the CURRENT schema Room itself
  * creates, plus what v78 had on top of it (the three workflow tables, the
- * dropped columns, their Electric offsets). Room then opens it with the
+ * dropped `coding_sessions` columns, their Electric offsets). v78's `issues`
+ * equals v79's, `pr_base_branch` included, and its data must survive. Room then opens it with the
  * migration and NO destructive fallback, so a schema the generated validation
  * rejects fails the test instead of silently wiping.
  */
@@ -57,12 +60,18 @@ class Migration78To79Test {
                 assertEquals("{a,b}", it.getString(3))
                 assertEquals("{\"question\":\"q\"}", it.getString(4))
             }
-            sql.query("SELECT id, branch, pr_url FROM issues").use {
+            sql.query("SELECT id, branch, pr_url, pr_base_branch FROM issues").use {
                 assertEquals(1, it.count)
                 it.moveToFirst()
                 assertEquals("i1", it.getString(0))
                 assertEquals("exp/ACME-1", it.getString(1))
                 assertEquals("https://github.com/acme/app/pull/7", it.getString(2))
+                assertEquals("exp/ACME-0", it.getString(3))
+            }
+            sql.query("PRAGMA table_info(`issues`)").use {
+                val columns = ArrayList<String>()
+                while (it.moveToNext()) columns.add(it.getString(it.getColumnIndexOrThrow("name")))
+                assertTrue("pr_base_branch" in columns)
             }
             sql.query("SELECT shape, handle, `offset` FROM electric_offsets ORDER BY shape").use {
                 val shapes = ArrayList<String>()
@@ -80,8 +89,9 @@ class Migration78To79Test {
                 assertFalse("workflow_id" in columns)
                 assertFalse("workflow_role" in columns)
             }
-            // The DAO reads the migrated rows like synced ones.
+            // The DAOs read the migrated rows like synced ones.
             assertEquals("h", runBlocking { db.electricOffsetDao().get("issues") }?.handle)
+            assertEquals("exp/ACME-0", runBlocking { db.issueDao().observeById("i1").first() }?.prBaseBranch)
         } finally {
             db.close()
         }
@@ -106,7 +116,6 @@ class Migration78To79Test {
         file.parentFile?.mkdirs()
         SQLiteDatabase.openOrCreateDatabase(file, null).use { db ->
             for (statement in schema) db.execSQL(statement)
-            db.execSQL("ALTER TABLE issues ADD COLUMN pr_base_branch TEXT")
             db.execSQL("ALTER TABLE coding_sessions ADD COLUMN workflow_id TEXT")
             db.execSQL("ALTER TABLE coding_sessions ADD COLUMN workflow_node_id TEXT")
             db.execSQL("ALTER TABLE coding_sessions ADD COLUMN workflow_role TEXT")

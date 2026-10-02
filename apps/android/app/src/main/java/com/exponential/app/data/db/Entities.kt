@@ -110,6 +110,11 @@ data class IssueEntity(
     @ColumnInfo(name = "pr_number") @SerialName("pr_number") @JsonNames("prNumber") val prNumber: Int? = null,
     @ColumnInfo(name = "pr_state") @SerialName("pr_state") @JsonNames("prState") val prState: String? = null,
     val branch: String? = null,
+    // EXP-897: the branch this issue's pull request is BASED on, the stack
+    // edge (`child.pr_base_branch == lower.branch`). NULL on an ordinary PR
+    // cut from the board's default branch. SLOP-3 keeps it: the related-work
+    // badge reads it ([com.exponential.app.domain.PrStack]).
+    @ColumnInfo(name = "pr_base_branch") @SerialName("pr_base_branch") @JsonNames("prBaseBranch") val prBaseBranch: String? = null,
     @ColumnInfo(name = "pr_merged_at") @SerialName("pr_merged_at") @JsonNames("prMergedAt") val prMergedAt: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") override val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") override val updatedAt: String,

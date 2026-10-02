@@ -127,6 +127,8 @@ fun WorkScreen(
     var killDialogOpen by rememberSaveable { mutableStateOf(false) }
     // EXP-876: the covered-issues sheet behind a batch run's title.
     var coveredSheetOpen by remember { mutableStateOf(false) }
+    // EXP-897/SLOP-3: the "Related work" sheet behind the top bar's badge.
+    var graphSheetOpen by remember { mutableStateOf(false) }
     var resumeConfirmOpen by rememberSaveable { mutableStateOf(false) }
 
     // ── The shown run's model, one per id ──────────────────────────────────
@@ -464,6 +466,12 @@ fun WorkScreen(
         }
     }
 
+    // ── The related-work graph (EXP-897/SLOP-3) ─────────────────────────────
+    // ONE model for the badge and its sheet: the blockers off the `blocks`
+    // relations, the batch off a shared `pr_url`, the stack off `pr_base_branch`.
+    val graphVm: PrGraphViewModel = hiltViewModel()
+    LaunchedEffect(issueId, shownSessionId) { graphVm.bind(issueId, shownSessionId) }
+    val graph by graphVm.graph.collectAsStateWithLifecycle()
     // EXP-876: what names an issue-less BATCH run in the bar below.
     val batchIssues by (sessionVm?.batchIssues ?: remember { MutableStateFlow(emptyList()) })
         .collectAsStateWithLifecycle()
@@ -526,6 +534,11 @@ fun WorkScreen(
                     // the changed-files sheet.
                     action = changesPrUrl?.takeIf { face == WorkFaceKind.Changes }?.let { url ->
                         { GithubHeaderAction(url) }
+                    },
+                    // SLOP-16: a quiet icon button beside the `…` whose glyph
+                    // names the shape (stack, batch, blockers).
+                    badge = {
+                        PrGraphBadge(graph = graph) { graphSheetOpen = true }
                     },
                     // EXP-934: the `…` belongs to the ISSUE, so it shows on the
                     // Issue face alone (`faceShowsContextMenu`) — Run, Changes
@@ -620,6 +633,24 @@ fun WorkScreen(
                 }
             }
         }
+    }
+
+    // EXP-897/SLOP-3: the badge's "Related work" sheet.
+    if (graphSheetOpen) {
+        val graphStatuses by graphVm.issueStatuses.collectAsStateWithLifecycle()
+        val graphUsers by graphVm.users.collectAsStateWithLifecycle()
+        PrGraphSheet(
+            graph = graph,
+            statuses = graphStatuses,
+            users = graphUsers,
+            onOpenIssue = onOpenIssue,
+            // SLOP-16 r3: a pull request row opens its Changes: this screen's
+            // own face for the subject's PR, else the review route.
+            onOpenPr = { id ->
+                if (id == issueId && hasChanges) faceName = WorkFaceKind.Changes.name else onOpenChanges(id)
+            },
+            onDismiss = { graphSheetOpen = false },
+        )
     }
 
     // EXP-876: the issues a batch run covers, each opening its issue.
