@@ -7,12 +7,17 @@ import SwiftUI
 /// It hosts the transitive chain (`IssueGraphView`), so it is a sheet rather
 /// than an alert: the reader can see WHAT is in the way before choosing.
 ///
-/// Two answers: Cancel · `Start anyway`.
+/// Three answers: Cancel · `Start anyway` · `Stacked PR` (primary). The
+/// stacked answer is never hidden: it is DISABLED with its reason note
+/// (`BlockedStart.stackTarget`, SLOP-3).
 struct BlockedStartSheet: View {
     let prompt: BlockedStartPrompt
     let onCancel: () -> Void
     let onStartAnyway: () -> Void
+    let onStartStacked: () -> Void
     let onOpenIssue: (String) -> Void
+
+    private var stackable: Bool { prompt.stack.target != nil }
 
     var body: some View {
         GlassSheetChrome(title: prompt.title, height: .fitted) {
@@ -46,20 +51,40 @@ struct BlockedStartSheet: View {
             }
             sentence = sentence + Text(name).font(.subheadline.monospaced())
         }
-        return sentence + Text(BlockedStart.bodySuffix)
+        return sentence + Text(
+            stackable ? BlockedStart.bodySuffixStackable : BlockedStart.bodySuffix
+        )
     }
 
     private var actions: some View {
-        HStack(spacing: 8) {
-            GlassPill("Cancel", size: .md, mode: .action(onCancel))
-            Spacer(minLength: 0)
-            GlassPill(
-                BlockedStart.startAnywayLabel,
-                size: .md,
-                mode: .action(onStartAnyway),
-                primary: true
-            )
-            .accessibilityIdentifier("blocked-start-anyway")
+        VStack(alignment: .trailing, spacing: 6) {
+            HStack(spacing: 8) {
+                GlassPill("Cancel", size: .md, mode: .action(onCancel))
+                Spacer(minLength: 0)
+                GlassPill(
+                    BlockedStart.startAnywayLabel,
+                    size: .md,
+                    mode: .action(onStartAnyway)
+                )
+                .accessibilityIdentifier("blocked-start-anyway")
+                GlassPill(
+                    BlockedStart.stackedPrLabel,
+                    size: .md,
+                    mode: .action(onStartStacked),
+                    primary: true,
+                    enabled: stackable
+                )
+                .accessibilityIdentifier("blocked-start-stacked")
+                .accessibilityHint(prompt.stackNote ?? "")
+            }
+            if let note = prompt.stackNote {
+                Text(note)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .multilineTextAlignment(.trailing)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("blocked-start-stacked-note")
+            }
         }
     }
 }

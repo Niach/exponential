@@ -85,6 +85,10 @@ struct WorkScreen: View {
     @State private var readinessFollowUp: ReadinessFollowUp?
     /// EXP-876: the issues a multi-issue run covers, opened from its title.
     @State private var coveredIssuesOpen = false
+    /// EXP-897 Part 4/SLOP-3: the blockers / batch / stack the subject is
+    /// entangled with: ONE badge in the header, ONE overlay behind it.
+    @State private var prGraphModel: PrGraphModel?
+    @State private var prGraphOpen = false
     /// EXP-952: the issue's PR / pushed-branch files, read only when there is
     /// no live diff to draw. The model lives HERE, not inside the Changes face
     /// (Android's `WorkScreen` owns its `ChangesViewModel` the same way), so
@@ -342,6 +346,55 @@ struct WorkScreen: View {
         issueVM?.board?.teamId ?? shownSession?.teamId
     }
 
+    // MARK: - The PR graph (EXP-897 Part 4)
+
+    private var prGraph: PrGraph.Graph? {
+        prGraphModel?.graph(
+            issue: issue,
+            session: shownSession,
+            // EXP-876: a batch run's covered issues, so the badge and its
+            // sheet name it before its pull request exists.
+            batchIssues: subjectModel?.batchIssues ?? []
+        )
+    }
+
+    /// SLOP-16 r2: the header's graph icon button, when there IS a stack, a
+    /// batch or (EXP-1097) an open blocker to name, the same on every face.
+    @ViewBuilder
+    private var prGraphBadge: some View {
+        if let graph = prGraph, let chip = PrGraph.badgeChip(graph) {
+            let shape = PrGraph.badgeShape(graph)
+            PrGraphBadge(
+                shape: shape,
+                count: chip.count,
+                accessibilityName: PrGraphBadge.accessibilityName(shape)
+            ) {
+                prGraphOpen = true
+            }
+        }
+    }
+
+    /// The graph's rows, re-armed on every appear like every other observation
+    /// here (the issue may resolve after the first pass).
+    private func ensurePrGraphModel() {
+        if prGraphModel == nil {
+            prGraphModel = PrGraphModel(accountId: accountId, db: deps.db)
+        }
+        prGraphModel?.start(issueId: issueId)
+    }
+
+    /// SLOP-16 r3: a Related work PR row. The subject's own PR is this
+    /// screen's Changes face; any other one opens on its own.
+    private func openPullRequest(_ entry: PrGraph.Entry, subject graph: PrGraph.Graph) {
+        if entry.id == graph.entry?.id, availableFaces.contains(.changes) {
+            selectFace(.changes)
+        } else {
+            deps.deepLinkBus.navigateToIssue(
+                entry.representative.id, accountId: accountId, face: .changes
+            )
+        }
+    }
+
     // MARK: - Covered issues (EXP-876)
 
     /// The issues a multi-issue (batch) run covers; empty on every other
@@ -445,7 +498,7 @@ struct WorkScreen: View {
         guard case let .issue(id) = target else { return nil }
         if let issue, issue.id == id { return issue }
         if let row = shownModel?.mergeIssue, row.id == id { return row }
-        return nil
+        return prGraphModel?.issue(id: id)
     }
 
     private func mergeTargetKey(_ target: MergeTarget) -> String {
@@ -581,6 +634,18 @@ struct WorkScreen: View {
                 ToolbarItem(placement: .principal) {
                     principalTitle
                 }
+                // SLOP-16 r2: the ONE graph icon button sits on the action
+                // edge, left of `…` / Stop, on EVERY face, in the bar's own
+                // capsule like `…`. Always mounted (EXP-942: an action-edge
+                // item that comes and goes sometimes failed to reappear).
+                // Borderless like everywhere else: on iOS 26 the bar would
+                // otherwise fuse it with `…` into one shared capsule.
+                if #available(iOS 26.0, *) {
+                    ToolbarItem(placement: .topBarTrailing) { prGraphBadge }
+                        .sharedBackgroundVisibility(.hidden)
+                } else {
+                    ToolbarItem(placement: .topBarTrailing) { prGraphBadge }
+                }
                 // EXP-942: Stop / Resume is its OWN bar item, so the system
                 // gives it its own capsule instead of merging it with the
                 // `…` menu into one shared shape. Mounted for the whole Run
@@ -693,6 +758,28 @@ struct WorkScreen: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("This action cannot be undone.")
+            }
+            // EXP-897 Part 4: the badge's overlay, the same on every face.
+            .background {
+                Color.clear
+                    .sheet(isPresented: $prGraphOpen) {
+                        if let graph = prGraph {
+                            PrGraphSheet(
+                                graph: graph,
+                                subjectIssueId: issue?.id,
+                                users: prGraphModel?.users ?? [],
+                                teamStatuses: issueVM?.teamStatuses ?? [],
+                                onOpenIssue: { id in
+                                    prGraphOpen = false
+                                    deps.deepLinkBus.navigateToIssue(id, accountId: accountId)
+                                },
+                                onOpenPullRequest: { entry in
+                                    prGraphOpen = false
+                                    openPullRequest(entry, subject: graph)
+                                }
+                            )
+                        }
+                    }
             }
             // EXP-876: a multi-issue run's covered issues, off its title.
             .background {
@@ -821,6 +908,7 @@ struct WorkScreen: View {
             // A session subject learns its issue off its row.
             .onChange(of: subjectModel?.issueId, initial: true) { _, _ in
                 ensureIssueViewModel()
+                ensurePrGraphModel()
             }
             // `shownSessionId` follows the coding target until a pick.
             .onChange(of: targetSessionId, initial: true) { _, id in
@@ -895,6 +983,7 @@ struct WorkScreen: View {
         subjectModel?.start()
         ensureIssueViewModel()
         issueVM?.startObserving()
+        ensurePrGraphModel()
         ensureReadinessModel()
         // EXP-952: re-arm the PR-files observation like every other one here.
         prChangesModel?.startObserving()
@@ -925,6 +1014,7 @@ struct WorkScreen: View {
         // first responder may outlive this screen (EXP-246).
         UIApplication.endEditing()
         subjectModel?.stop()
+        prGraphModel?.stop()
         readinessModel?.stop()
         prChangesModel?.stopObserving()
         continuation.stop()

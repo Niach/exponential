@@ -371,6 +371,9 @@ public struct FetchedIssue: Decodable, Sendable {
     public let prNumber: Int?
     public let prState: String?
     public let branch: String?
+    /// EXP-897: the stack edge (`issues.pr_base_branch`). Optional, so a
+    /// server that predates the column decodes as nil rather than throwing.
+    public let prBaseBranch: String?
     public let prMergedAt: String?
     /// EXP-630: story points (`issues.estimate`). Optional, so a server that
     /// predates the column decodes as nil rather than throwing.

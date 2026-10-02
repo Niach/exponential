@@ -683,7 +683,8 @@ final class AgentComposerModel {
                     graph: IssueGraph.blockGraph(
                         subjectIds: picked, relations: blockerRelations, issues: blockerIssues
                     ),
-                    issues: blockerIssues
+                    issues: blockerIssues,
+                    stack: stackTarget(picked: picked, blockers: blockers)
                 )
                 return
             }
@@ -698,12 +699,46 @@ final class AgentComposerModel {
         send()
     }
 
+    /// SLOP-3: the SAME remote start as Start anyway, its `prompt` led by the
+    /// stack base instruction (`BlockedStart.stackedStartPrompt`) for the one
+    /// blocker's open PR branch. Prompt text only: no new start input.
+    func startStacked() {
+        guard let target = blockedPrompt?.stack.target, let branch = target.branch else { return }
+        blockedPrompt = nil
+        send(stackedOn: (identifier: target.identifier, branch: branch))
+    }
+
+    /// The stack rule's view of the picked subject and its open blockers: a
+    /// blocker's repository is its BOARD's, the subject's the picked issue's.
+    private func stackTarget(
+        picked: [String], blockers: [IssueEntity]
+    ) -> BlockedStart.StackTarget {
+        let repoByBoard = Dictionary(
+            boards.map { ($0.id, $0.repositoryId) }, uniquingKeysWith: { a, _ in a }
+        )
+        let subjectRepo = picked.count == 1
+            ? checkedOptions.first { $0.id == picked[0] }?.repositoryId
+            : nil
+        return BlockedStart.stackTarget(
+            pickedCount: picked.count,
+            subjectRepositoryId: subjectRepo,
+            blockers: blockers.map {
+                BlockedStart.Blocker(
+                    identifier: $0.identifier ?? "",
+                    prState: $0.prState,
+                    branch: $0.branch,
+                    repositoryId: repoByBoard[$0.boardId] ?? nil
+                )
+            }
+        )
+    }
+
     /// Upload the pending images (sequentially, stamping `uploadedId` so a
     /// retry after a mid-batch failure never uploads the same file twice),
     /// compose the `prompt`, then dispatch chat / action / issue / batch.
     /// On success the composer clears and the watcher pushes the run once
     /// its row syncs; on failure the draft, the chips and the strip stay.
-    private func send() {
+    private func send(stackedOn stack: (identifier: String, branch: String)? = nil) {
         guard canSubmit, let device, let teamId, !sending else { return }
         sending = true
         error = nil
@@ -727,8 +762,14 @@ final class AgentComposerModel {
                     return
                 }
             }
+            // SLOP-3: a stacked start leads with the base instruction.
+            let text = stack.map {
+                BlockedStart.stackedStartPrompt(
+                    identifier: $0.identifier, branch: $0.branch, text: draftText
+                )
+            } ?? draftText
             let prompt = AgentComposerPrompt.build(
-                text: draftText,
+                text: text,
                 attachmentIds: pendingImages.compactMap(\.uploadedId)
             )
             do {
@@ -841,6 +882,8 @@ struct BlockedStartPrompt: Identifiable {
     let graph: IssueGraph.Graph
     /// The synced rows the graph names its nodes from.
     let issues: [IssueEntity]
+    /// SLOP-3: the blocker Stacked PR would base on, or why it is disabled.
+    let stack: BlockedStart.StackTarget
 
     var id: String { issueIds.joined(separator: ",") }
 
@@ -850,5 +893,12 @@ struct BlockedStartPrompt: Identifiable {
     /// Byte-identical ×4 (`BlockedStart`).
     var title: String {
         isBatch ? BlockedStart.blockedBatchTitle : BlockedStart.blockedStartTitle
+    }
+
+    /// The note under a disabled Stacked PR, naming the one blocker.
+    var stackNote: String? {
+        stack.reason.map {
+            BlockedStart.stackDisabledNote($0, ident: identifiers.first ?? "")
+        }
     }
 }

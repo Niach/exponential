@@ -186,8 +186,8 @@ struct AgentPageView: View {
             WorkScreen(subject: .session(id: target.sessionId))
                 .environment(\.accountId, accountId)
         }
-        // EXP-897/EXP-980: starting on BLOCKED work asks first — an ordinary
-        // run, or nothing. A SHEET, not an alert: it carries the transitive
+        // EXP-897/EXP-980/SLOP-3: starting on BLOCKED work asks first: an
+        // ordinary run, a stacked PR, or nothing. A SHEET, not an alert: it carries the transitive
         // chain under the sentence.
         .sheet(
             item: Binding(
@@ -199,6 +199,7 @@ struct AgentPageView: View {
                 prompt: prompt,
                 onCancel: { composer?.blockedPrompt = nil },
                 onStartAnyway: { composer?.startAnyway() },
+                onStartStacked: { composer?.startStacked() },
                 onOpenIssue: { id in
                     composer?.blockedPrompt = nil
                     deps.deepLinkBus.navigateToIssue(id, accountId: accountId)

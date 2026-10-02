@@ -2137,12 +2137,12 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
-        // v60 (SLOP-3): workflows, stacked starts and the PR stack edge are
-        // gone. The app syncs 21 shapes: the `workflows`, `workflow-nodes`
-        // and `workflow-events` tables and their cursors go, as do
-        // `issues.pr_base_branch` and the run's workflow membership columns
-        // (`coding_sessions.workflow_id`/`workflow_node_id`/`workflow_role`;
-        // `pending_question` stays). No index covers a dropped column, and
+        // v60 (SLOP-3): workflows and stacked starts are gone. The app syncs
+        // 21 shapes: the `workflows`, `workflow-nodes` and `workflow-events`
+        // tables and their cursors go, as do the run's workflow membership
+        // columns (`coding_sessions.workflow_id`/`workflow_node_id`/
+        // `workflow_role`; `pending_question` stays). `issues.pr_base_branch`
+        // STAYS: the related-work badge reads the stack edge. No index covers a dropped column, and
         // SQLite >= 3.35 (iOS 15+) drops columns in place, so every surviving
         // row and offset keeps its cursor. Guarded so fresh installs and
         // re-runs converge.
@@ -2155,14 +2155,6 @@ public final class DatabaseManager: @unchecked Sendable {
                     DELETE FROM "electric_offsets"
                     WHERE "shape" IN ('workflows', 'workflow-nodes', 'workflow-events')
                     """)
-            }
-            if try db.tableExists("issues") {
-                let existing = Set(try db.columns(in: "issues").map(\.name))
-                if existing.contains("pr_base_branch") {
-                    try db.alter(table: "issues") { t in
-                        t.drop(column: "pr_base_branch")
-                    }
-                }
             }
             if try db.tableExists("coding_sessions") {
                 let existing = Set(try db.columns(in: "coding_sessions").map(\.name))

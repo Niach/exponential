@@ -244,6 +244,10 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
     public let prNumber: Int?
     public let prState: String?
     public let branch: String?
+    /// EXP-897: the branch this issue's PR is BASED on. The stack edge:
+    /// `child.pr_base_branch == lower.branch` within one repository. NULL (or
+    /// the repo's default branch) = not stacked on anything of ours.
+    public let prBaseBranch: String?
     public let prMergedAt: String?
     /// EXP-630: story points — a point number whatever the team's scale
     /// (`teams.estimation_type` decides how it renders). NULL = no estimate.
@@ -272,6 +276,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         prNumber: Int?,
         prState: String?,
         branch: String?,
+        prBaseBranch: String? = nil,
         prMergedAt: String?,
         estimate: Int? = nil,
         createdAt: String,
@@ -297,6 +302,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         self.prNumber = prNumber
         self.prState = prState
         self.branch = branch
+        self.prBaseBranch = prBaseBranch
         self.prMergedAt = prMergedAt
         self.estimate = estimate
         self.createdAt = createdAt
@@ -316,6 +322,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         case prUrl = "pr_url"
         case prNumber = "pr_number"
         case prState = "pr_state"
+        case prBaseBranch = "pr_base_branch"
         case prMergedAt = "pr_merged_at"
         case estimate
         case createdAt = "created_at"
@@ -350,6 +357,7 @@ extension IssueEntity: Codable {
         prNumber = try container.decodeWireInt(forKey: .prNumber)
         prState = try container.decodeIfPresent(String.self, forKey: .prState)
         branch = try container.decodeIfPresent(String.self, forKey: .branch)
+        prBaseBranch = try container.decodeIfPresent(String.self, forKey: .prBaseBranch)
         prMergedAt = try container.decodeIfPresent(String.self, forKey: .prMergedAt)
         // EXP-630: an integer off the wire as Postgres text, a scalar from
         // tRPC; absent on a pre-rotation snapshot.

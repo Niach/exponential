@@ -1281,7 +1281,7 @@ final class DatabaseMigrationTests: XCTestCase {
     // created before it existed must gain the column via the guarded ALTER and
     // get the issues offset reset (shape key 'issues'), or the sync apply path
     // would keep dropping the wire column the local schema lacks and no client
-    // could ever see a stack. Only UP TO v40: v60 (SLOP-3) drops it again.
+    // could ever see a stack.
     func testIssuePrBaseBranchColumnAddedToExistingStore() throws {
         let pool = try makePool("issue-pr-base-branch")
         let migrator = DatabaseManager.makeMigrator()
@@ -1301,7 +1301,7 @@ final class DatabaseMigrationTests: XCTestCase {
                 """)
         }
 
-        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v40_issue_pr_base_branch"))
+        XCTAssertNoThrow(try migrator.migrate(pool))
         let column = try pool.read { db in
             try db.columns(in: "issues").first { $0.name == "pr_base_branch" }
         }
@@ -1358,8 +1358,8 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertFalse(try columnNames(pool, "coding_sessions").contains("project_id"))
 
         XCTAssertTrue(try columnNames(pool, "issues").contains("duplicate_of_id"))
-        // SLOP-3: the stack edge is gone.
-        XCTAssertFalse(try columnNames(pool, "issues").contains("pr_base_branch"))
+        // EXP-897: the stack edge rides the issues shape.
+        XCTAssertTrue(try columnNames(pool, "issues").contains("pr_base_branch"))
         // EXP-630: story points ride the issues shape, the scale the teams one.
         XCTAssertTrue(try columnNames(pool, "issues").contains("estimate"))
         XCTAssertTrue(try columnNames(pool, "teams").contains("estimation_type"))
@@ -2455,10 +2455,10 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 
-    // v60 (SLOP-3): workflows, stacked starts and the PR stack edge are gone.
-    // A store migrated through v59 loses the three workflow tables and their
-    // cursors, `issues.pr_base_branch` and the run's workflow membership
-    // columns, while every surviving issue and coding_sessions row (and every
+    // v60 (SLOP-3): workflows and stacked starts are gone. A store migrated
+    // through v59 loses the three workflow tables and their cursors and the
+    // run's workflow membership columns, keeping `issues.pr_base_branch`
+    // (the related-work badge reads it), while every surviving issue and coding_sessions row (and every
     // other shape's offset) stays exactly where it was; a re-run is a no-op.
     func testWorkflowsAndStacksDroppedKeepingExistingRows() throws {
         let pool = try makePool("drop-workflows-and-stacks")
@@ -2500,7 +2500,7 @@ final class DatabaseMigrationTests: XCTestCase {
         for table in ["workflows", "workflow_nodes", "workflow_events"] {
             XCTAssertFalse(try pool.read { db in try db.tableExists(table) }, table)
         }
-        XCTAssertFalse(try columnNames(pool, "issues").contains("pr_base_branch"))
+        XCTAssertTrue(try columnNames(pool, "issues").contains("pr_base_branch"))
         let sessionCols = try columnNames(pool, "coding_sessions")
         for column in ["workflow_id", "workflow_node_id", "workflow_role"] {
             XCTAssertFalse(sessionCols.contains(column), column)
@@ -2509,10 +2509,14 @@ final class DatabaseMigrationTests: XCTestCase {
 
         // The rows survive, columns intact.
         let issue = try pool.read { db in
-            try Row.fetchOne(db, sql: #"SELECT "title", "branch" FROM "issues" WHERE "id" = 'i-1'"#)
+            try Row.fetchOne(
+                db,
+                sql: #"SELECT "title", "branch", "pr_base_branch" FROM "issues" WHERE "id" = 'i-1'"#
+            )
         }
         XCTAssertEqual(issue?["title"] as String?, "Keep me")
         XCTAssertEqual(issue?["branch"] as String?, "exp/EXP-2")
+        XCTAssertEqual(issue?["pr_base_branch"] as String?, "exp/EXP-1")
         let session = try pool.read { db in
             try Row.fetchOne(
                 db,
