@@ -1,7 +1,7 @@
 // The Add device dialog (EXP-697, EXP-1111): one of the four hosts of the
 // device-setup block (EXP-1169, `device-setup.tsx`), which owns the content:
-// desktop download, the CLI one-liner with its one-time install token, the
-// device-code approval and the caller's own machines.
+// desktop download, the CLI one-liner with its one-time install token and
+// the caller's own machines.
 import {
   Dialog,
   DialogContent,
@@ -14,11 +14,10 @@ import {
   buildServerInstallSnippet,
   CopyIconButton,
   DeviceSetup,
-  newlyOnlineDevice,
 } from "@/components/device-setup"
 
 // Re-exported for the other install surfaces and their tests.
-export { buildServerInstallSnippet, CopyIconButton, newlyOnlineDevice }
+export { buildServerInstallSnippet, CopyIconButton }
 
 export function AddDeviceDialog({
   open,

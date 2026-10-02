@@ -1,13 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor } from "@testing-library/react"
 import type { SteerDevice } from "@/lib/steer-devices"
 
-const mocks = vi.hoisted(() => {
-  const device = Object.assign(vi.fn(), { approve: vi.fn() })
-  return { device, createInstallToken: vi.fn() }
-})
+const mocks = vi.hoisted(() => ({ createInstallToken: vi.fn() }))
 
-vi.mock(`@/lib/auth/client`, () => ({ authClient: { device: mocks.device } }))
 vi.mock(`@/lib/trpc-client`, () => ({
   trpc: { devices: { createInstallToken: { mutate: mocks.createInstallToken } } },
 }))
@@ -15,7 +11,6 @@ vi.mock(`@/lib/trpc-client`, () => ({
 import {
   AddDeviceDialog,
   buildServerInstallSnippet,
-  newlyOnlineDevice,
 } from "@/components/add-device-dialog"
 
 const ORIGIN = `https://app.example.com`
@@ -33,8 +28,6 @@ beforeEach(() => {
     token: TOKEN,
     expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
   })
-  mocks.device.mockResolvedValue({ data: { status: `pending` }, error: null })
-  mocks.device.approve.mockResolvedValue({ data: { success: true }, error: null })
 })
 
 describe(`install one-liner (EXP-1111)`, () => {
@@ -46,68 +39,18 @@ describe(`install one-liner (EXP-1111)`, () => {
       `curl -fsSL https://exponential.at/install.sh | EXP_INSTANCE=${ORIGIN} sh`
     )
   })
-
-  it(`a new device = an unseen id, or one offline when the dialog opened`, () => {
-    const baseline = new Map([
-      [`a`, true],
-      [`b`, false],
-    ])
-    expect(newlyOnlineDevice(baseline, [dev(`a`, true)])).toBeNull()
-    expect(newlyOnlineDevice(baseline, [dev(`a`, true), dev(`b`, true)])?.deviceId).toBe(`b`)
-    expect(newlyOnlineDevice(baseline, [dev(`c`, true)])?.deviceId).toBe(`c`)
-    expect(newlyOnlineDevice(baseline, [dev(`c`, false)])).toBeNull()
-  })
 })
 
+// EXP-1169: the dialog is one host of the shared device-setup block, the same
+// content the wizard's devices step and the join step render.
 describe(`AddDeviceDialog`, () => {
-  it(`mints a token, approves a typed code and waits for the new machine`, async () => {
-    const { rerender } = render(
-      <AddDeviceDialog
-        open
-        onOpenChange={() => {}}
-        devices={[dev(`a`, true)]}
-        origin={ORIGIN}
-      />
-    )
-    await waitFor(() =>
-      expect(screen.getByTestId(`install-snippet-token`).textContent).toContain(
-        `EXP_INSTALL_TOKEN=${TOKEN}`
-      )
-    )
-    expect(screen.getByTestId(`install-snippet-plain`).textContent).not.toContain(
-      `EXP_INSTALL_TOKEN`
-    )
-    expect(mocks.createInstallToken).toHaveBeenCalledTimes(1)
-
-    fireEvent.change(screen.getByLabelText(`Or enter the code the CLI shows`), {
-      target: { value: `zp3hv7hk` },
-    })
-    fireEvent.click(screen.getByRole(`button`, { name: `Approve` }))
-    await waitFor(() => screen.getByTestId(`device-code-approved`))
-    expect(mocks.device).toHaveBeenCalledWith({ query: { user_code: `ZP3H-V7HK` } })
-    expect(mocks.device.approve).toHaveBeenCalledWith({ userCode: `ZP3H-V7HK` })
-    expect(screen.getByText(`Waiting for the device to come online…`)).toBeTruthy()
-
-    rerender(
-      <AddDeviceDialog
-        open
-        onOpenChange={() => {}}
-        devices={[dev(`a`, true), dev(`n`, true)]}
-        origin={ORIGIN}
-      />
-    )
-    expect(screen.getByTestId(`add-device-online`).textContent).toBe(
-      `Box n is online`
-    )
-  })
-
-  // EXP-1169: the dialog is one host of the shared device-setup block, the
-  // same content the wizard's devices step and the join step render.
   it(`renders the device-setup block: both cards, then the caller's devices`, async () => {
     const { rerender } = render(
       <AddDeviceDialog open onOpenChange={() => {}} devices={[]} origin={ORIGIN} />
     )
-    await waitFor(() => screen.getByTestId(`install-snippet-token`))
+    await waitFor(() =>
+      expect(screen.getByTestId(`install-snippet`).textContent).toContain(TOKEN)
+    )
     expect(screen.getByText(`Get the desktop app`)).toBeTruthy()
     expect(screen.getByText(`Set up a server`)).toBeTruthy()
     expect(
@@ -127,25 +70,41 @@ describe(`AddDeviceDialog`, () => {
     expect(screen.getByText(`Box a`)).toBeTruthy()
   })
 
-  it(`shows the device-code error and keeps the plain command on a mint failure`, async () => {
-    mocks.createInstallToken.mockRejectedValue(new Error(`nope`))
-    mocks.device.mockResolvedValue({ data: null, error: { error: `expired_token` } })
+  it(`the server card is ONE command: the token one-liner, minted once`, async () => {
     render(
       <AddDeviceDialog open onOpenChange={() => {}} devices={[]} origin={ORIGIN} />
     )
     await waitFor(() =>
-      screen.getByText(`Couldn't create a one-time install command.`)
-    )
-    expect(screen.getByTestId(`install-snippet-plain`)).toBeTruthy()
-    fireEvent.change(screen.getByLabelText(`Or enter the code the CLI shows`), {
-      target: { value: `ZP3H-V7HK` },
-    })
-    fireEvent.click(screen.getByRole(`button`, { name: `Approve` }))
-    await waitFor(() =>
-      screen.getByText(
-        `That code has expired. Run the login command again to get a new one.`
+      expect(screen.getByTestId(`install-snippet`).textContent).toContain(
+        `EXP_INSTALL_TOKEN=${TOKEN}`
       )
     )
-    expect(mocks.device.approve).not.toHaveBeenCalled()
+    expect(screen.getAllByTestId(`install-snippet`)).toHaveLength(1)
+    expect(screen.getAllByRole(`button`, { name: `Copy install command` })).toHaveLength(1)
+    expect(mocks.createInstallToken).toHaveBeenCalledTimes(1)
+  })
+
+  it(`keeps the plain command, and says nothing, when the mint fails`, async () => {
+    mocks.createInstallToken.mockRejectedValue(new Error(`nope`))
+    render(
+      <AddDeviceDialog open onOpenChange={() => {}} devices={[]} origin={ORIGIN} />
+    )
+    await waitFor(() => expect(mocks.createInstallToken).toHaveBeenCalled())
+    const snippet = screen.getByTestId(`install-snippet`).textContent ?? ``
+    expect(snippet).toContain(`EXP_INSTANCE=${ORIGIN} sh`)
+    expect(snippet).not.toContain(`EXP_INSTALL_TOKEN`)
+    expect(screen.queryByText(/nope|Couldn't/)).toBeNull()
+  })
+
+  it(`mints nothing while closed`, () => {
+    render(
+      <AddDeviceDialog
+        open={false}
+        onOpenChange={() => {}}
+        devices={[]}
+        origin={ORIGIN}
+      />
+    )
+    expect(mocks.createInstallToken).not.toHaveBeenCalled()
   })
 })
