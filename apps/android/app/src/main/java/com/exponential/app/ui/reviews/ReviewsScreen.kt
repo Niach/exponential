@@ -116,7 +116,7 @@ private fun ReviewsListContent(
     // SLOP-16 r3: what the batch sheet's relation rows resolve against.
     val issueStatuses by viewModel.issueStatuses.collectAsStateWithLifecycle()
     val users by viewModel.users.collectAsStateWithLifecycle()
-    val allIssues by viewModel.allIssues.collectAsStateWithLifecycle()
+    val teamOpenPrIssues by viewModel.teamOpenPrIssues.collectAsStateWithLifecycle()
     var mergeTarget by remember { mutableStateOf<ReviewEntry?>(null) }
     // EXP-734: an issueless run's own PR — merged through the session, so it
     // gets its own confirm target.
@@ -183,8 +183,8 @@ private fun ReviewsListContent(
 
     mergeTarget?.let { entry ->
         // EXP-1145/SLOP-3: a stack member's row asks which merge it means.
-        val stackChoice = remember(entry, allIssues) {
-            PrStack.stackMergeChoice(entry.representative, allIssues)
+        val stackChoice = remember(entry, teamOpenPrIssues) {
+            PrStack.stackMergeChoice(entry.representative, teamOpenPrIssues)
         }
         if (stackChoice != null) {
             StackMergeDialog(

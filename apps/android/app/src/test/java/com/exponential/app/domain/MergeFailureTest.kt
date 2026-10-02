@@ -76,6 +76,22 @@ class MergeFailureTest {
         assertTrue(canOfferFixConflicts(failure, "exp/EXP-533", steerEnabled = true))
     }
 
+    // EXP-1145: a stack merge lands several pull requests, and the conflict
+    // may sit in another member: the message shows, the run is never offered.
+    @Test
+    fun aFailedStackMergeShowsTheMessageAndNeverOffersTheRun() {
+        val failure = MergeFailure.fromStack(
+            TrpcException("EXP-2 has conflicts that must be resolved", HttpStatusCode.Conflict),
+        )
+        assertEquals("EXP-2 has conflicts that must be resolved", failure.message)
+        assertFalse(failure.isConflict)
+        assertFalse(canOfferFixConflicts(failure, "exp/EXP-1"))
+        assertEquals(
+            "The stack could not be merged",
+            MergeFailure.fromStack(IllegalStateException("boom")).message,
+        )
+    }
+
     @Test
     fun noFailureOffersNothing() {
         assertFalse(canOfferFixConflicts(null, "exp/EXP-533"))

@@ -258,7 +258,12 @@ class AgentComposerViewModel @Inject constructor(
          * reason it is disabled ([BlockedStart.stackPlan]).
          */
         val stack: BlockedStart.PlanResult,
+        /** The issue behind `stack.plan.run[0]`, what "Stacked PR" starts. */
+        val stackStartIssueId: String?,
     ) {
+        /** "Stacked PR" is enabled only with a plan and its first issue resolved. */
+        val stackable: Boolean get() = stack.plan != null && stackStartIssueId != null
+
         /** The note under a disabled "Stacked PR"; null while it is enabled. */
         val stackNote: String? get() = stack.note
 
@@ -739,28 +744,36 @@ class AgentComposerViewModel @Inject constructor(
             val subject = ids.singleOrNull()?.let(issuesById::get)
             val line = subject?.let { BlockedStart.stackLine(it.id, relations, issues) }
             val live = liveRunIssueIds.value
+            val stack = BlockedStart.stackPlan(
+                pickedCount = ids.size,
+                subject = BlockedStart.Subject(
+                    identifier = subject?.identifier.orEmpty(),
+                    repositoryId = repoOf(subject),
+                ),
+                line = line?.line.orEmpty().map { member ->
+                    BlockedStart.Member(
+                        identifier = member.identifier,
+                        prState = member.prState,
+                        branch = member.branch,
+                        repositoryId = repoOf(member),
+                        running = member.id in live && member.prState != DomainContract.prStateOpen,
+                    )
+                },
+                fork = line?.fork?.identifier,
+                cycle = line?.cycle == true,
+            )
             _blockedPrompt.value = BlockedPrompt(
                 pickedIds = ids,
                 blockers = blockers,
                 graph = IssueGraph.blockGraph(ids, relations, issues),
                 issuesById = issuesById,
-                stack = BlockedStart.stackPlan(
-                    pickedCount = ids.size,
-                    subject = BlockedStart.Subject(
-                        identifier = subject?.identifier.orEmpty(),
-                        repositoryId = repoOf(subject),
-                    ),
-                    line = line?.line.orEmpty().map { member ->
-                        BlockedStart.Member(
-                            identifier = member.identifier,
-                            prState = member.prState,
-                            branch = member.branch,
-                            repositoryId = repoOf(member),
-                            running = member.id in live && member.prState != DomainContract.prStateOpen,
-                        )
-                    },
-                    fork = line?.fork?.identifier,
-                    cycle = line?.cycle == true,
+                stack = stack,
+                // `run[0]` resolves inside the walked line, never by
+                // identifier over every team's issues.
+                stackStartIssueId = BlockedStart.stackStartIssueId(
+                    stack.plan,
+                    line?.line.orEmpty(),
+                    subject,
                 ),
             )
             return
@@ -789,10 +802,9 @@ class AgentComposerViewModel @Inject constructor(
         val plan = prompt?.stack?.plan
         _blockedPrompt.value = null
         heldStart = null
-        if (held == null || plan == null) return
-        val firstIdentifier = plan.run.firstOrNull() ?: return
-        val first = prompt.issuesById.values.firstOrNull { it.identifier == firstIdentifier } ?: return
-        dispatch(held.action, held.resumeOffered, stacked = StackedStart(first.id, plan))
+        val startIssueId = prompt?.stackStartIssueId
+        if (held == null || plan == null || startIssueId == null) return
+        dispatch(held.action, held.resumeOffered, stacked = StackedStart(startIssueId, plan))
     }
 
     /** SLOP-3: what a "Stacked PR" dispatch starts instead of the picked issue. */

@@ -37,7 +37,13 @@ import {
   type OpenPull,
 } from "@/lib/integrations/github-pr"
 import { isNotMergeable, prMergeFailureError } from "@/lib/trpc/pr-merge-error"
-import { stackedOnMessage, stackedOnOpenPr } from "@/lib/pr-merge-guard"
+import {
+  awaitRebaseOffMergedBranch,
+  basedOnMergedPr,
+  squashCommitTitle,
+  stackedOnMessage,
+  stackedOnOpenPr,
+} from "@/lib/pr-merge-guard"
 import {
   assertPrUpdateHasFields,
   patchPullDescription,
@@ -502,6 +508,14 @@ export async function loadRepositoryByFullName(
 // every issue linked by the exact `pr_url` (`applyPrMergeState`), so a
 // self-hosted instance with no inbound webhook still echoes the merge to
 // every client; the webhook's later delivery degrades to a no-op.
+//
+// `queued` (FEED-43 R1, like `issues.mergePr`): GitHub's merge queue took
+// the merge and may still reject it, so nothing landed and nothing was
+// written; the webhook (or the poller) completes it. `merged` stays `true`
+// there only because `codingSessions.mergePr` declares `{ merged: true }`:
+// read `queued`.
+export type MergePullResult = { merged: true; queued?: true; note?: string }
+
 export async function mergeRepositoryPull(opts: {
   repo: Awaited<ReturnType<typeof loadRepository>>
   prNumber: number
@@ -511,24 +525,26 @@ export async function mergeRepositoryPull(opts: {
   // The stored PR url when the caller has one (the session path); otherwise
   // derived from the repo's current full name.
   prUrl?: string
-}): Promise<{ merged: true }> {
+}): Promise<MergePullResult> {
   const { repo, prNumber } = opts
   const prUrl = opts.prUrl ?? `https://github.com/${repo.fullName}/pull/${prNumber}`
   const { db } = await import(`@/db/connection`)
+  // The issues on this PR (a batch PR has several), oldest first: the first
+  // names the squash commit, like `issues.mergePr` does.
+  const onPr = await db
+    .select({
+      id: issues.id,
+      identifier: issues.identifier,
+      title: issues.title,
+      prBaseBranch: issues.prBaseBranch,
+    })
+    .from(issues)
+    .where(and(eq(issues.prUrl, prUrl), eq(issues.teamId, repo.teamId)))
+    .orderBy(asc(issues.createdAt))
   // EXP-1145: a PR based on another OPEN PR's branch would squash INTO that
   // branch; refused before any claim or GitHub call. Only an issue-linked PR
   // records its base (`pr_base_branch`); an issue-less one passes.
-  const [based] = await db
-    .select({ id: issues.id, prBaseBranch: issues.prBaseBranch })
-    .from(issues)
-    .where(
-      and(
-        eq(issues.prUrl, prUrl),
-        eq(issues.teamId, repo.teamId),
-        isNotNull(issues.prBaseBranch)
-      )
-    )
-    .limit(1)
+  const based = onPr.find((issue) => issue.prBaseBranch)
   if (based) {
     const parent = await stackedOnOpenPr(db, {
       issueId: based.id,
@@ -557,6 +573,41 @@ export async function mergeRepositoryPull(opts: {
     })
   }
 
+  // The parent already MERGED: its EXP-324 heal is fire-and-forget and this
+  // merge call would beat it, squashing INTO the parent's kept branch. Await
+  // the heal, then refuse while GitHub still reports the merged branch as
+  // the base (same as `issues.mergePr`). Before any claim.
+  if (based?.prBaseBranch) {
+    const mergedParent = await basedOnMergedPr(db, {
+      teamId: repo.teamId,
+      repoFullName: repo.fullName,
+      prBaseBranch: based.prBaseBranch,
+    })
+    if (mergedParent) {
+      const { retargetChildrenOfMergedPr } = await import(
+        `@/lib/integrations/pr-sync`
+      )
+      try {
+        await retargetChildrenOfMergedPr({
+          prUrl: mergedParent.prUrl,
+          headBranch: based.prBaseBranch,
+          teamId: repo.teamId,
+        })
+      } catch (err) {
+        // The check below refuses a PR left on the merged branch.
+        console.error(`retarget before merging ${repo.fullName}#${prNumber}:`, err)
+      }
+      await awaitRebaseOffMergedBranch(db, {
+        repoFullName: repo.fullName,
+        prNumber,
+        prUrl,
+        prBaseBranch: based.prBaseBranch,
+        mergedBranch: based.prBaseBranch,
+        token,
+      })
+    }
+  }
+
   // EXP-494: even an "unlinked" PR's `closed` webhook can resolve an
   // issue via the branch parse — claim the initiator so that fan-out is
   // attributed to (and excludes) the merging member instead of going out
@@ -574,6 +625,17 @@ export async function mergeRepositoryPull(opts: {
       repo: repo.fullName,
       prNumber,
       token,
+      // An issue's PR keeps its `IDENT: title (#N)` squash title on this
+      // path too (a batch merged from its run).
+      ...(onPr[0]
+        ? {
+            commitTitle: squashCommitTitle(
+              onPr[0].identifier,
+              onPr[0].title,
+              prNumber
+            ),
+          }
+        : {}),
     })
   } catch (err) {
     if (err instanceof GitHubAsyncMergePending) {
@@ -607,6 +669,17 @@ export async function mergeRepositoryPull(opts: {
       throw prMergeFailureError(err, diagnosis)
     }
     throw err
+  }
+
+  // EXP-897: a queued merge has not landed yet, the merge queue will run it.
+  // Nothing may be marked merged here: no issue completes, no session ends,
+  // nobody is notified. The claim stays for the landing merge's webhook.
+  if (smart.queued) {
+    return {
+      merged: true,
+      queued: true,
+      note: `GitHub queued the merge of PR #${prNumber}. Nothing is merged yet; it completes when the merge lands.`,
+    }
   }
 
   // FEED-64: the merge call failed but the PR reads merged — by a PERSON.
@@ -827,7 +900,7 @@ export const repositoriesRouter = router({
         endSessions: z.boolean().optional(),
       })
     )
-    .mutation(async ({ ctx, input }): Promise<{ merged: true }> => {
+    .mutation(async ({ ctx, input }): Promise<MergePullResult> => {
       const repo = await loadRepository(input.repositoryId)
       await assertRepoCapability(ctx.session.user.id, repo.teamId)
       return mergeRepositoryPull({

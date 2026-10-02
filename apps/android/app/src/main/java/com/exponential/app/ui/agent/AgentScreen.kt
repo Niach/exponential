@@ -765,7 +765,7 @@ private fun BlockedStartDialog(
     onDismiss: () -> Unit,
 ) {
     val isBatch = prompt.pickedIds.size > 1
-    val stackable = prompt.stack.plan != null
+    val stackable = prompt.stackable
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {

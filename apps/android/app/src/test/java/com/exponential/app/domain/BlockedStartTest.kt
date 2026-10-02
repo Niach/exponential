@@ -148,4 +148,26 @@ class BlockedStartTest {
             assertEquals(name, case.string("prompt"), BlockedStart.stackedStartPrompt(plan, case.string("text")))
         }
     }
+
+    // Identifiers are only team-unique: two teams with an `APP` board both
+    // own an `APP-20`. `run[0]` resolves inside the walked line + subject.
+    @Test
+    fun `a stacked start resolves its first issue inside the walked line`() {
+        val foreign = issueRow("team-b-app-20", "APP-20", "backlog")
+        val bottom = issueRow("team-a-app-20", "APP-20", "backlog")
+        val subject = issueRow("team-a-app-21", "APP-21", "backlog")
+        val plan = BlockedStart.Plan(base = null, run = listOf("APP-20", "APP-21"))
+
+        // What the old lookup did: the first identifier match over every team.
+        assertEquals(foreign.id, listOf(foreign, bottom, subject).first { it.identifier == "APP-20" }.id)
+        assertEquals(bottom.id, BlockedStart.stackStartIssueId(plan, listOf(bottom), subject))
+        // A run of one starts the subject itself.
+        assertEquals(
+            subject.id,
+            BlockedStart.stackStartIssueId(BlockedStart.Plan(null, listOf("APP-21")), emptyList(), subject),
+        )
+        // Nothing in the walk carries `run[0]`, or no plan: no start.
+        assertEquals(null, BlockedStart.stackStartIssueId(plan, emptyList(), subject))
+        assertEquals(null, BlockedStart.stackStartIssueId(null, listOf(bottom), subject))
+    }
 }

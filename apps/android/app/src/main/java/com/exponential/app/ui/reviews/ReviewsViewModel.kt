@@ -232,7 +232,8 @@ class ReviewsViewModel @Inject constructor(
      * server resolves it to ALL linked issues and completes them together; the
      * `done` flips arrive via Electric sync, dropping the entry off this list.
      * EXP-1145: [mergeStack] merges the open stack bottom-up THROUGH [issueId];
-     * a failure captions the row with the server's message.
+     * a failure captions the row with the server's message and never offers
+     * Fix conflicts: the conflicting pull request may be another member.
      */
     fun mergePr(groupKey: String, issueId: String, mergeStack: Boolean = false) {
         viewModelScope.launch {
@@ -246,8 +247,12 @@ class ReviewsViewModel @Inject constructor(
                     // COMMON, persistent failures of a squash merge — a silent
                     // drop left the row sitting there unexplained (REV2-50).
                     // Same copy as the issue Changes tab's merge.
-                    _mergeErrors.value = _mergeErrors.value +
-                        (groupKey to MergeFailure.from(t, "The pull request could not be merged"))
+                    val failure = if (mergeStack) {
+                        MergeFailure.fromStack(t)
+                    } else {
+                        MergeFailure.from(t, "The pull request could not be merged")
+                    }
+                    _mergeErrors.value = _mergeErrors.value + (groupKey to failure)
                 }
             _merging.value = _merging.value - groupKey
         }
@@ -265,11 +270,17 @@ class ReviewsViewModel @Inject constructor(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
-     * EXP-1145: every synced issue, so a row's Merge on a PR-stack member
-     * asks first ([com.exponential.app.domain.PrStack.stackMergeChoice]).
+     * EXP-1145: the SELECTED team's open pull requests, so a row's Merge on a
+     * PR-stack member asks first
+     * ([com.exponential.app.domain.PrStack.stackMergeChoice]). Never the whole
+     * account: branch names repeat across teams.
      */
-    val allIssues: StateFlow<List<IssueEntity>> =
-        dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() }
+    val teamOpenPrIssues: StateFlow<List<IssueEntity>> =
+        combine(dbFlow, selection.selectedId) { db, teamId -> db to teamId }
+            .flatMapLatest { (db, teamId) ->
+                if (db == null || teamId == null) flowOf(emptyList())
+                else db.issueDao().observeOpenPrsByTeam(teamId)
+            }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** SLOP-16 r3: the batch sheet's assignee avatars. */

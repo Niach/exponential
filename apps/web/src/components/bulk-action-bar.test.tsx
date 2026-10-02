@@ -1,8 +1,8 @@
-import { act, fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-// The bulk bar's play MENU: one pill whose one item starts the selection as
-// a batch on the composer.
+// The bulk bar's play pill: one press starts the selection on the composer,
+// with no menu in between.
 
 const openComposer = vi.hoisted(() => vi.fn())
 
@@ -26,21 +26,7 @@ vi.mock(`@/hooks/use-open-composer`, () => ({
   useOpenComposer: () => openComposer,
 }))
 
-import {
-  BulkStartCodingControl,
-  START_AS_BATCH_LABEL,
-} from "@/components/bulk-action-bar"
-
-/** Radix opens on pointerdown, not click (the repo's menu-test idiom). */
-function openMenu(trigger: HTMLElement) {
-  act(() => {
-    fireEvent.pointerDown(trigger, {
-      button: 0,
-      ctrlKey: false,
-      pointerType: `mouse`,
-    })
-  })
-}
+import { BulkStartCodingControl } from "@/components/bulk-action-bar"
 
 function mount(issueIds: string[]) {
   const onClear = vi.fn()
@@ -52,8 +38,7 @@ function mount(issueIds: string[]) {
       onClear={onClear}
     />
   )
-  openMenu(screen.getByTestId(`bulk-start-coding`))
-  return { onClear }
+  return { onClear, pill: screen.getByTestId(`bulk-start-coding`) }
 }
 
 beforeEach(() => {
@@ -61,17 +46,27 @@ beforeEach(() => {
 })
 
 describe(`BulkStartCodingControl`, () => {
-  it(`offers Start as batch`, () => {
-    mount([`i1`, `i2`])
-    expect(screen.getByTestId(`bulk-start-batch`).textContent).toBe(
-      START_AS_BATCH_LABEL
-    )
+  it(`is a plain pill: no menu opens behind it`, () => {
+    const { pill } = mount([`i1`, `i2`])
+    expect(pill.textContent).toBe(`Start coding`)
+    expect(pill.getAttribute(`aria-haspopup`)).toBeNull()
+    // Radix opens a menu on pointerdown; nothing may answer to it.
+    fireEvent.pointerDown(pill, { button: 0, pointerType: `mouse` })
+    expect(screen.queryByRole(`menu`)).toBeNull()
+    expect(openComposer).not.toHaveBeenCalled()
   })
 
   it(`starts a batch on the composer and clears the selection`, () => {
-    const { onClear } = mount([`i1`, `i2`])
-    fireEvent.click(screen.getByTestId(`bulk-start-batch`))
+    const { onClear, pill } = mount([`i1`, `i2`])
+    fireEvent.click(pill)
     expect(openComposer).toHaveBeenCalledWith({ issueIds: [`i1`, `i2`] })
+    expect(onClear).toHaveBeenCalled()
+  })
+
+  it(`starts a single issue the same way`, () => {
+    const { onClear, pill } = mount([`i1`])
+    fireEvent.click(pill)
+    expect(openComposer).toHaveBeenCalledWith({ issueIds: [`i1`] })
     expect(onClear).toHaveBeenCalled()
   })
 })

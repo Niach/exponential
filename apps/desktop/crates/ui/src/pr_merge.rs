@@ -540,7 +540,6 @@ pub(crate) fn stack_merge_ops(
 /// click (the dialog IS the confirm, so its answers fire at once); `false`
 /// = no stack, the caller runs its plain two-click merge.
 pub(crate) fn ask_stack_merge(issue_id: &str, window: &mut gpui::Window, cx: &mut App) -> bool {
-    use domain::pr_stack::{MERGE_STACK_LABEL, MERGE_THIS_PR_LABEL, STACK_MERGE_CHOICE_TITLE};
     // An in-flight merge or close of this row: the caller's guard ignores it.
     let state = MergeState::global(cx);
     if [issue_id.to_string(), close_pr_key(issue_id)]
@@ -553,8 +552,22 @@ pub(crate) fn ask_stack_merge(issue_id: &str, window: &mut gpui::Window, cx: &mu
         return false;
     };
     MergeState::disarm(cx);
-    let (stack_op, this_op) = stack_merge_ops(issue_id, &choice);
-    let spec = crate::native_dialog::AlertSpec::new(
+    let spec = stack_merge_alert(issue_id, &choice);
+    crate::native_dialog::open_alert(window, cx, spec);
+    true
+}
+
+/// The stack dialog itself: the contract's title and body, Cancel, "Merge
+/// this pull request" and the primary "Merge stack", each answer firing its
+/// op from [`stack_merge_ops`]. [`ask_stack_merge`] opens it; the styleguide
+/// specimen draws the same spec.
+pub(crate) fn stack_merge_alert(
+    issue_id: &str,
+    choice: &domain::pr_stack::StackMergeChoice,
+) -> crate::native_dialog::AlertSpec {
+    use domain::pr_stack::{MERGE_STACK_LABEL, MERGE_THIS_PR_LABEL, STACK_MERGE_CHOICE_TITLE};
+    let (stack_op, this_op) = stack_merge_ops(issue_id, choice);
+    crate::native_dialog::AlertSpec::new(
         STACK_MERGE_CHOICE_TITLE,
         choice.body.clone(),
         MERGE_STACK_LABEL,
@@ -567,9 +580,7 @@ pub(crate) fn ask_stack_merge(issue_id: &str, window: &mut gpui::Window, cx: &mu
     .on_ok(move |_, cx| {
         fire_confirmed(stack_op.clone(), cx);
         true
-    });
-    crate::native_dialog::open_alert(window, cx, spec);
-    true
+    })
 }
 
 /// The shared two-click flow: first call arms (auto-disarm ~5s), second call

@@ -1130,7 +1130,7 @@ export const steerRouter = router({
                 .where(eq(boards.id, issueRow.boardId))
                 .limit(1)
             : []
-          if (!repoRow) {          } else if (!repoRow) {
+          if (!repoRow) {
             throw new TRPCError({
               code: `PRECONDITION_FAILED`,
               message: `The pull request's board has no linked repository`,

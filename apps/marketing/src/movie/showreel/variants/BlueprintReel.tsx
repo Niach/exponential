@@ -231,7 +231,7 @@ export const BlueprintReel: React.FC<{ f: number }> = ({ f }) => {
           <Decode text="AGENT · UNATTENDED" f={f} at={244} dur={20} />
         </div>
         <div style={{ position: `absolute`, left: AGENT.x - 150, width: 300, top: AGENT.y - 12, textAlign: `center`, color: C.muted, fontSize: 14, lineHeight: `26px` }}>
-          <Decode text="SCHEDULE · EVENT · WORKFLOW" f={f} at={256} dur={18} />
+          <Decode text="SCHEDULE · EVENT · AGENT" f={f} at={256} dur={18} />
           <br />
           <span style={{ color: G }}>
             <Decode text="0 CLOUD AGENTS · 0 HANDS" f={f} at={266} dur={18} />

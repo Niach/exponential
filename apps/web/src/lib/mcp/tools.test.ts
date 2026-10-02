@@ -4089,6 +4089,123 @@ describe(`exponential_pr_merge — repository path and the self-merge spare`, ()
       needsInput: false,
     })
   })
+
+  // A stack merge that stops part-way fails its TARGET, yet the members
+  // below landed. The run's own PR among them keeps the spare (EXP-637).
+  it(`keeps the stamp when a partial stack merge landed the run's own PR`, async () => {
+    const OWN = `77777777-7777-4777-8777-777777777777`
+    const stackMember = (n: number, issueId: string) => ({
+      issueId,
+      identifier: `MET-${n}`,
+      boardId: `proj-1`,
+      prNumber: n,
+      prUrl: `https://github.com/acme/app/pull/${n}`,
+      branch: `exp/MET-${n}`,
+      prBaseBranch: n === 1 ? `main` : `exp/MET-${n - 1}`,
+    })
+    const updates = captureUpdates()
+    vi.mocked(openStackThrough).mockResolvedValueOnce([
+      stackMember(1, `issue-1`),
+      stackMember(2, OWN),
+      stackMember(3, UUID),
+    ])
+    caller.issues.mergePr.mockRejectedValue(
+      new TRPCError({
+        code: `CONFLICT`,
+        message: `Merged MET-1, MET-2. MET-3 (#3) stopped the stack: conflicts`,
+      })
+    )
+    const restore = stageSelects([
+      // The run sits on the MIDDLE member; it is asked to land the top one.
+      [runRow({ issueId: OWN })],
+      [
+        {
+          id: UUID,
+          identifier: `MET-3`,
+          prUrl: `https://github.com/acme/app/pull/3`,
+          branch: `exp/MET-3`,
+        },
+      ],
+      // The re-read before the revert: the run's own PR did land.
+      [{ id: OWN }],
+    ])
+
+    try {
+      const result = await collectTools(USER, SESSION).get(
+        `exponential_pr_merge`
+      )!({ issueId: UUID, mergeStack: true })
+      expect(parseOk(result)).toMatchObject({
+        results: [{ issueId: UUID, merged: false }],
+      })
+    } finally {
+      restore()
+    }
+
+    // The stamp, and NO revert.
+    expect(updates).toHaveLength(1)
+    expect(updates[0]!.set).toMatchObject({ mergedOwnPr: true })
+    // The re-read asks for the run's OWN PR only, merged.
+    const { params } = renderWhere()
+    expect(params).toContain(`https://github.com/acme/app/pull/2`)
+    expect(params).toContain(`merged`)
+    expect(params).not.toContain(`https://github.com/acme/app/pull/3`)
+  })
+
+  it(`reverts the stamp when a failed stack merge left the run's own PR open`, async () => {
+    const OWN = `77777777-7777-4777-8777-777777777777`
+    const updates = captureUpdates()
+    vi.mocked(openStackThrough).mockResolvedValueOnce([
+      {
+        issueId: OWN,
+        identifier: `MET-2`,
+        boardId: `proj-1`,
+        prNumber: 2,
+        prUrl: `https://github.com/acme/app/pull/2`,
+        branch: `exp/MET-2`,
+        prBaseBranch: `main`,
+      },
+      {
+        issueId: UUID,
+        identifier: `MET-3`,
+        boardId: `proj-1`,
+        prNumber: 3,
+        prUrl: `https://github.com/acme/app/pull/3`,
+        branch: `exp/MET-3`,
+        prBaseBranch: `exp/MET-2`,
+      },
+    ])
+    caller.issues.mergePr.mockRejectedValue(
+      new TRPCError({ code: `CONFLICT`, message: `MET-2 (#2): conflicts` })
+    )
+    const restore = stageSelects([
+      [runRow({ issueId: OWN })],
+      [
+        {
+          id: UUID,
+          identifier: `MET-3`,
+          prUrl: `https://github.com/acme/app/pull/3`,
+          branch: `exp/MET-3`,
+        },
+      ],
+      // The re-read: nothing of the run's own is merged.
+      [],
+    ])
+
+    try {
+      await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({
+        issueId: UUID,
+        mergeStack: true,
+      })
+    } finally {
+      restore()
+    }
+
+    expect(updates).toHaveLength(2)
+    expect(updates[1]!.set).toMatchObject({
+      mergedOwnPr: false,
+      status: `in_review`,
+    })
+  })
 })
 
 // ── EXP-660: the deferred families ───────────────────────────────────────────

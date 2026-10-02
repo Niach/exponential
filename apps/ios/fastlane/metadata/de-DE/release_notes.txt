@@ -1,5 +1,5 @@
-- Aktionen: Automationen sind jetzt Trigger an der Aktion, die sie ausführen, und jede Aktion ist eine Seite mit ihrem Prompt, ihren Triggern und ihren Läufen
-- Arbeitsansicht: zwischen Issue, Run, Changes und Results wischen, und Changes zeigt die Zeilenzahlen, sobald die Dateien bekannt sind
-- Runs: ein API-Fehler erscheint als eigene Zeile im Verlauf statt als falsche Nutzungslimit-Sperre
-- Konten: das Standardkonto pro Gerät entfällt, ein Lauf startet mit dem zuletzt verwendeten Login, sofern du kein anderes wählst
-- Stacks und Batches: ein dezenteres Badge im Header, kleinere Issue-Chips und ein kompakter Graph verwandter Arbeit
+- Runs: Workflows gibt es nicht mehr, ein Lauf plant und teilt seine Arbeit selbst auf und startet Folgeläufe von sich aus
+- Blockierte Issues: beim Starten fragt die App Cancel, Start anyway oder Stacked PR, das die ganze Reihe von Pull Requests von unten nach oben aufbaut
+- Mergen: Merge bei einem gestapelten Pull Request fragt nach Merge stack oder Merge this pull request
+- Arbeitsansicht: Auswahllisten, das Nutzungsblatt und das Dateiblatt öffnen sich beim ersten Tippen
+- Run-Tab: der Verlauf scrollt unter das Eingabefeld, sodass seine letzten Zeilen erreichbar bleiben

@@ -108,6 +108,35 @@ public enum PrStack {
         )
     }
 
+    // MARK: - Team scope
+
+    // A client database holds EVERY team of the account and branch names
+    // (`exp/<IDENTIFIER>`) repeat across teams, so a chain read off all of
+    // them can splice another team's pull request in. Every caller narrows
+    // its rows to the subject's team first (web reads the team's boards,
+    // `use-stack-merge-choice.ts`). An issue row carries no team id, its
+    // board does.
+
+    /// `issues` narrowed to the boards of `teamId`.
+    public static func teamPool(
+        _ issues: [IssueEntity], teamId: String, boards: [BoardEntity]
+    ) -> [IssueEntity] {
+        let boardIds = Set(boards.filter { $0.teamId == teamId }.map(\.id))
+        return issues.filter { boardIds.contains($0.boardId) }
+    }
+
+    /// `issues` narrowed to the team `issue` belongs to. A board that has not
+    /// synced yet keeps the issue's own board alone, never a guess across
+    /// teams.
+    public static func teamPool(
+        of issue: IssueEntity, issues: [IssueEntity], boards: [BoardEntity]
+    ) -> [IssueEntity] {
+        guard let teamId = boards.first(where: { $0.id == issue.boardId })?.teamId else {
+            return issues.filter { $0.boardId == issue.boardId }
+        }
+        return teamPool(issues, teamId: teamId, boards: boards)
+    }
+
     // MARK: - Stack merge choice
 
     // EXP-1145: a PLAIN Merge control on a stack member asks first. Merging a

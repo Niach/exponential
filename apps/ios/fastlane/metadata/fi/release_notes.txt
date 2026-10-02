@@ -1,5 +1,5 @@
-- Toiminnot: automaatiot ovat nyt niiden suorittaman toiminnon laukaisimia, ja jokainen toiminto on sivu, jolla on sen kehote, laukaisimet ja ajot
-- Työnäkymä: pyyhkäise Issue-, Run-, Changes- ja Results-välilehtien välillä, ja Changes näyttää rivimäärät heti kun tiedostot tiedetään
-- Runs: API-virhe näkyy omana rivinään tekstikopiossa väärän käyttörajailmoituksen sijaan
-- Tilit: laitekohtainen oletustili on poistettu, ajo käynnistyy viimeksi käyttämälläsi kirjautumisella, ellet valitse toista
-- Pinot ja erät: hillitympi merkki otsikossa, pienemmät issue-sirut ja tiivis kaavio liittyvästä työstä
+- Runs: työnkulut on poistettu, ajo suunnittelee ja jakaa työnsä itse ja käynnistää jatkoajot omin päin
+- Estetyt issuet: käynnistettäessä kysytään Cancel, Start anyway tai Stacked PR, joka rakentaa koko pull request -ketjun alhaalta ylös
+- Yhdistäminen: Merge pinotussa pull requestissa kysyy Merge stack tai Merge this pull request
+- Työnäkymä: valitsimet, käyttöpaneeli ja tiedostopaneeli aukeavat ensimmäisellä napautuksella
+- Run-välilehti: tekstikopio vierii kirjoituskentän alle, joten sen viimeiset rivit pysyvät ulottuvilla

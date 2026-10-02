@@ -176,6 +176,18 @@ object BlockedStart {
         return PlanResult(Plan(base, run), null, null)
     }
 
+    /**
+     * The issue a stacked start actually starts, [Plan.run]`[0]`, resolved
+     * INSIDE the walked line ([line] + [subject]). Identifiers are only
+     * team-unique, so a lookup over every synced issue could start another
+     * team's issue. Null when the walk holds no such issue: "Stacked PR"
+     * stays disabled.
+     */
+    fun stackStartIssueId(plan: Plan?, line: List<IssueEntity>, subject: IssueEntity?): String? {
+        val first = plan?.run?.firstOrNull() ?: return null
+        return (line + listOfNotNull(subject)).firstOrNull { it.identifier == first }?.id
+    }
+
     /** The note under a disabled "Stacked PR"; [ident] names the issue in the way. */
     fun stackDisabledNote(reason: Reason, ident: String): String = when (reason) {
         Reason.Batch -> "A stacked PR starts one issue at a time."

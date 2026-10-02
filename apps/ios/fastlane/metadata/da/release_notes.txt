@@ -1,5 +1,5 @@
-- Handlinger: automatiseringer er nu triggere på den handling, de kører, og hver handling er en side med sin prompt, sine triggere og sine kørsler
-- Arbejdsskærm: stryg mellem Issue, Run, Changes og Results, og Changes viser antal linjer, så snart filerne kendes
-- Runs: en API-fejl vises som sin egen række i transskriptionen i stedet for en falsk forbrugsgrænse
-- Konti: standardkontoen pr. enhed er væk, en kørsel starter med det login, du brugte sidst, medmindre du vælger et andet
-- Stacks og batches: et mere diskret badge i headeren, mindre issue-chips og en kompakt graf over relateret arbejde
+- Runs: workflows er væk, en kørsel planlægger og deler selv sit arbejde op og starter selv opfølgende kørsler
+- Blokerede issues: når du starter et, kan du vælge Cancel, Start anyway eller Stacked PR, som bygger hele rækken af pull requests nedefra og op
+- Merge: Merge på en stacked pull request giver valget Merge stack eller Merge this pull request
+- Arbejdsskærm: vælgere, forbrugsarket og filarket åbner ved første tryk
+- Fanen Run: transskriptionen ruller ind under skrivefeltet, så de sidste linjer altid kan nås

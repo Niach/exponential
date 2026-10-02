@@ -23,6 +23,8 @@ pub(crate) mod issue_context_menu;
 pub(crate) mod session_tree;
 pub(crate) mod pr_graph_badge;
 pub(crate) mod device_settings;
+pub(crate) mod blocked_start_dialog;
+pub(crate) mod stack_merge_choice_dialog;
 
 /// EXP-1030: whether `id`'s file is still the one-line placeholder rather
 /// than a demo. None is any more: EXP-1031 filled the last one (`toast`).
@@ -66,4 +68,6 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: session_tree::ID, owner: session_tree::OWNER, render: session_tree::render },
     Entry { id: pr_graph_badge::ID, owner: pr_graph_badge::OWNER, render: pr_graph_badge::render },
     Entry { id: device_settings::ID, owner: device_settings::OWNER, render: device_settings::render },
+    Entry { id: blocked_start_dialog::ID, owner: blocked_start_dialog::OWNER, render: blocked_start_dialog::render },
+    Entry { id: stack_merge_choice_dialog::ID, owner: stack_merge_choice_dialog::OWNER, render: stack_merge_choice_dialog::render },
 ];

@@ -25,6 +25,16 @@ data class MergeFailure(
             message = trpcErrorMessage(error, fallback),
             isConflict = isConflictError(error),
         )
+
+        /**
+         * EXP-1145: a failed STACK merge. Its refusal is about whichever pull
+         * request stopped the chain, not necessarily this one, so it shows the
+         * server's message and never offers the recovery run (web parity).
+         */
+        fun fromStack(error: Throwable): MergeFailure = MergeFailure(
+            message = trpcErrorMessage(error, "The stack could not be merged"),
+            isConflict = false,
+        )
     }
 }
 

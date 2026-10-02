@@ -1,5 +1,5 @@
-- Acțiuni: automatizările sunt acum declanșatoare pe acțiunea pe care o rulează, iar fiecare acțiune este o pagină cu promptul, declanșatoarele și rulările ei
-- Ecranul de lucru: glisează între Issue, Run, Changes și Results, iar Changes arată numărul de linii imediat ce fișierele sunt cunoscute
-- Runs: o eroare API apare ca rând separat în transcriere în loc de o falsă limită de utilizare
-- Conturi: contul implicit per dispozitiv a dispărut, o rulare pornește cu ultima autentificare folosită, dacă nu alegi alta
-- Stack-uri și loturi: o insignă mai discretă în antet, chip-uri de issue mai mici și un graf compact al lucrului asociat
+- Runs: workflow-urile au dispărut, o rulare își planifică și își împarte singură munca și pornește singură rulările următoare
+- Issue-uri blocate: la pornire primești Cancel, Start anyway sau Stacked PR, care construiește tot șirul de pull requesturi de jos în sus
+- Îmbinare: Merge pe un pull request suprapus întreabă Merge stack sau Merge this pull request
+- Ecranul de lucru: selectoarele, foaia de utilizare și foaia de fișiere se deschid de la prima atingere
+- Fila Run: transcrierea derulează sub câmpul de scriere, așa că ultimele rânduri rămân accesibile

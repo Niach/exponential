@@ -14,7 +14,8 @@ struct WorkMergePill: View {
     let target: MergeTarget
     /// The issue behind an `.issue` target — its PR number and branch.
     let issue: IssueEntity?
-    /// The stack pool (`PrGraphModel.prIssues`) the stack dialog reads.
+    /// The stack pool the stack dialog reads: the pull requests of the
+    /// issue's OWN team (`PrGraphModel.stackPool`).
     let prIssues: [IssueEntity]
     /// Remote start is on — the recovery run can be launched.
     let steerEnabled: Bool
@@ -153,8 +154,9 @@ struct WorkMergePill: View {
     }
 
     /// EXP-1145: the stack merge through `issueId` (the top for Merge stack,
-    /// the member itself for Merge this); a refusal toasts the server's
-    /// message and keeps the conflict recovery offer.
+    /// the member itself for Merge this). A refusal toasts the server's
+    /// message and never swaps the pill: the member that stopped the chain
+    /// may not be this pull request.
     private func mergeStack(issueId: String) {
         mergeFailure = nil
         merging = true
@@ -164,9 +166,7 @@ struct WorkMergePill: View {
                     accountId: accountId, issueId: issueId, mergeStack: true
                 )
             } catch {
-                let failure = MergeFailure(error: error)
-                mergeFailure = failure
-                toaster.error(failure.message)
+                toaster.error(MergeFailure(error: error, stackMerge: true).message)
             }
             merging = false
         }

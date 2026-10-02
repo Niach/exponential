@@ -1,5 +1,5 @@
-- Actions : les automatisations sont désormais des déclencheurs sur l'action qu'elles lancent, et chaque action est une page avec son prompt, ses déclencheurs et ses exécutions
-- Écran de travail : balayez entre Issue, Run, Changes et Results, et Changes affiche le nombre de lignes dès que les fichiers sont connus
-- Runs : une erreur d'API apparaît comme une ligne distincte dans la transcription au lieu d'un faux blocage de limite d'utilisation
-- Comptes : le compte par défaut par appareil disparaît, une exécution démarre avec la dernière connexion utilisée, sauf si vous en choisissez une autre
-- Stacks et lots : un badge plus discret dans l'en-tête, des puces d'issues plus petites et un graphe compact du travail associé
+- Runs : les workflows disparaissent, une exécution planifie et découpe elle-même son travail et lance seule les exécutions de suivi
+- Issues bloquées : en démarrer une propose Cancel, Start anyway ou Stacked PR, qui construit toute la chaîne de pull requests de bas en haut
+- Fusion : Merge sur une pull request empilée propose Merge stack ou Merge this pull request
+- Écran de travail : les sélecteurs, la fiche d'utilisation et la fiche des fichiers s'ouvrent dès le premier appui
+- Onglet Run : la transcription défile sous la zone de saisie, ses dernières lignes restent donc accessibles

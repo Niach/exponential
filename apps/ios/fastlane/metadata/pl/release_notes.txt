@@ -1,5 +1,5 @@
-- Akcje: automatyzacje są teraz wyzwalaczami akcji, którą uruchamiają, a każda akcja ma własną stronę z promptem, wyzwalaczami i uruchomieniami
-- Ekran pracy: przesuwaj między Issue, Run, Changes i Results, a Changes pokazuje liczbę linii, gdy tylko pliki są znane
-- Runs: błąd API wyświetla się jako osobny wiersz w zapisie zamiast fałszywej blokady limitu użycia
-- Konta: domyślne konto dla urządzenia zniknęło, uruchomienie startuje z ostatnio użytym logowaniem, chyba że wybierzesz inne
-- Stacki i partie: dyskretniejsza plakietka w nagłówku, mniejsze chipy issues i kompaktowy graf powiązanej pracy
+- Runs: workflowy zniknęły, uruchomienie samo planuje i dzieli swoją pracę oraz samo startuje kolejne uruchomienia
+- Zablokowane issues: przy starcie pojawia się wybór Cancel, Start anyway lub Stacked PR, który buduje cały ciąg pull requestów od dołu do góry
+- Scalanie: Merge na pull requeście ze stosu pyta o Merge stack lub Merge this pull request
+- Ekran pracy: selektory, arkusz użycia i arkusz plików otwierają się przy pierwszym dotknięciu
+- Karta Run: zapis przewija się pod polem pisania, więc jego ostatnie linie są zawsze dostępne

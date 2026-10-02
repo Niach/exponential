@@ -27,24 +27,48 @@ const h = vi.hoisted(() => ({
     defaultBranch: string
     defaultBranchOverride: string | null
   }>,
+  // Every select WITHOUT a join, in call order: the session flip's "does an
+  // issue carry this PR" read, then the team's repo row and its board pins
+  // (an issue-less merged PR). Empty once drained.
+  plainSelects: [] as unknown[][],
+  // What the session flip's `.returning()` yields.
+  flipped: [] as Array<{ id: string; branch: string | null; teamId: string }>,
 }))
 
-// One chainable builder: `.limit()` serves the linked-repo lookup.
+// A chainable builder per select: a JOINED one is the linked-repo lookup
+// (`.limit()` serves `linkedRepoRows`), a plain one drains `plainSelects`.
 vi.mock(`@/db/connection`, () => {
-  const chain: Record<string, unknown> = {}
-  Object.assign(chain, {
-    from: () => chain,
-    innerJoin: () => chain,
-    leftJoin: () => chain,
-    where: () => chain,
-    limit: async () => h.linkedRepoRows,
-  })
+  const select = () => {
+    let joined = false
+    let rows: unknown[] | null = null
+    const answer = () => {
+      if (joined) return h.linkedRepoRows
+      rows ??= h.plainSelects.shift() ?? []
+      return rows
+    }
+    const chain: Record<string, unknown> = {}
+    Object.assign(chain, {
+      from: () => chain,
+      innerJoin: () => {
+        joined = true
+        return chain
+      },
+      where: () => chain,
+      limit: async () => answer(),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      then: (res: any, rej: any) => Promise.resolve(answer()).then(res, rej),
+    })
+    return chain
+  }
   const db: Record<string, unknown> = {
-    select: () => chain,
+    select,
     update: () => ({
       set: (values: Record<string, unknown>) => ({
-        where: async () => {
+        where: () => {
           h.updates.push(values)
+          return Object.assign(Promise.resolve(), {
+            returning: async () => h.flipped,
+          })
         },
       }),
     }),
@@ -77,6 +101,7 @@ import {
   applyPrBaseBranchEdit,
   applyPrClosedState,
   applyPrReopenedState,
+  applySessionPrState,
   retargetChildrenOfMergedPr,
 } from "@/lib/integrations/pr-sync"
 
@@ -94,6 +119,8 @@ beforeEach(() => {
   h.listOpenPullsByBase.mockResolvedValue([])
   h.getSteerRelayConfig.mockReturnValue(null)
   h.linkedRepoRows = []
+  h.plainSelects = []
+  h.flipped = []
   h.updates.length = 0
 })
 
@@ -289,6 +316,126 @@ describe(`retargetChildrenOfMergedPr (EXP-324)`, () => {
       headBranch: `exp/EXP-314`,
     })
     expect(h.listOpenPullsByBase).not.toHaveBeenCalled()
+  })
+})
+
+// An issue-less merged PR (a chat/action run's) has no linked issue to reach
+// the team's repo row through, so the run's team does: the same EXP-466 /
+// EXP-712 guards and the team's pin as the retarget target. The team here
+// develops on `develop` while GitHub's default is `main`.
+describe(`retargetChildrenOfMergedPr for an issue-less PR`, () => {
+  const pinnedRepo = {
+    id: `repo-1`,
+    defaultBranch: `main`,
+    defaultBranchOverride: `develop`,
+  }
+
+  beforeEach(() => {
+    h.resolveRepoDefaultBranchCached.mockResolvedValue(`main`)
+    h.listOpenPullsByBase.mockResolvedValue([
+      { number: 241, url: `https://github.com/owner/repo/pull/241`, headRef: `exp/EXP-320` },
+    ])
+  })
+
+  it(`never sweeps the team's branch: a merged develop → main promotion PR retargets nothing`, async () => {
+    h.plainSelects = [[pinnedRepo], []]
+    await retargetChildrenOfMergedPr({
+      prUrl: PARENT_PR_URL,
+      headBranch: `develop`,
+      teamId: `ws-1`,
+    })
+    expect(h.plainSelects).toEqual([])
+    expect(h.listOpenPullsByBase).not.toHaveBeenCalled()
+    expect(h.retargetPullRequest).not.toHaveBeenCalled()
+  })
+
+  it(`bails on a head equal to the stored GitHub default or to a board pin`, async () => {
+    h.plainSelects = [[pinnedRepo], []]
+    await retargetChildrenOfMergedPr({
+      prUrl: PARENT_PR_URL,
+      headBranch: `main`,
+      teamId: `ws-1`,
+    })
+    h.plainSelects = [[pinnedRepo], [{ defaultBranch: `release/1.x` }]]
+    await retargetChildrenOfMergedPr({
+      prUrl: PARENT_PR_URL,
+      headBranch: `release/1.x`,
+      teamId: `ws-1`,
+    })
+    expect(h.listOpenPullsByBase).not.toHaveBeenCalled()
+    expect(h.retargetPullRequest).not.toHaveBeenCalled()
+  })
+
+  it(`retargets a chat run's children onto the team's pin, not GitHub's default`, async () => {
+    h.plainSelects = [[pinnedRepo], []]
+    await retargetChildrenOfMergedPr({
+      prUrl: PARENT_PR_URL,
+      headBranch: `exp/chat-1a2b3c4d`,
+      teamId: `ws-1`,
+    })
+    expect(h.listOpenPullsByBase).toHaveBeenCalledWith(
+      `owner/repo`,
+      `exp/chat-1a2b3c4d`,
+      `tok`
+    )
+    expect(h.retargetPullRequest).toHaveBeenCalledWith({
+      repo: `owner/repo`,
+      prNumber: 241,
+      base: `develop`,
+      token: `tok`,
+    })
+    expect(h.resolveRepoDefaultBranchCached).not.toHaveBeenCalled()
+    expect(h.updates).toEqual([{ prBaseBranch: `develop` }])
+  })
+
+  it(`falls back to GitHub's default when the team has no row for the repo`, async () => {
+    h.plainSelects = [[]]
+    await retargetChildrenOfMergedPr({
+      prUrl: PARENT_PR_URL,
+      headBranch: `exp/chat-1a2b3c4d`,
+      teamId: `ws-1`,
+    })
+    expect(h.retargetPullRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ base: `main` })
+    )
+  })
+
+  // The session flip is the caller: the flipped run row carries the team.
+  it(`applySessionPrState hands the run's team to the retarget (promotion PR)`, async () => {
+    h.flipped = [{ id: `sess-1`, branch: `develop`, teamId: `ws-1` }]
+    // No issue carries the PR, then the team's repo row and its board pins.
+    h.plainSelects = [[], [pinnedRepo], []]
+
+    await applySessionPrState({
+      prUrl: PARENT_PR_URL,
+      state: `merged`,
+      endSessions: false,
+    })
+    await vi.waitFor(() => expect(h.plainSelects).toEqual([]))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(h.listOpenPullsByBase).not.toHaveBeenCalled()
+    expect(h.retargetPullRequest).not.toHaveBeenCalled()
+  })
+
+  it(`applySessionPrState retargets a chat run's children onto the pin`, async () => {
+    h.flipped = [{ id: `sess-1`, branch: `exp/chat-1a2b3c4d`, teamId: `ws-1` }]
+    h.plainSelects = [[], [pinnedRepo], []]
+
+    await applySessionPrState({
+      prUrl: PARENT_PR_URL,
+      state: `merged`,
+      endSessions: false,
+    })
+
+    await vi.waitFor(() =>
+      expect(h.retargetPullRequest).toHaveBeenCalledWith({
+        repo: `owner/repo`,
+        prNumber: 241,
+        base: `develop`,
+        token: `tok`,
+      })
+    )
   })
 })
 

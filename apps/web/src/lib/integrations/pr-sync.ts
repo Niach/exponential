@@ -34,6 +34,10 @@ import {
   resolveRepoDefaultBranchCached,
   resolveRepoInstallationTokenInfo,
 } from "@/lib/integrations/github-app"
+import {
+  isRepoDefaultBranch,
+  loadRepoDefaultBranches,
+} from "@/lib/pr-merge-guard"
 
 // Extract `owner/repo` from a GitHub PR URL. Deliberately a duplicate of the
 // identical helper in lib/trpc/issues.ts — importing the router from here
@@ -848,6 +852,7 @@ export async function applySessionPrState(opts: {
 }): Promise<{ endedSessionIds: string[] }> {
   if (!opts.prUrl) return { endedSessionIds: [] }
   let retargetHead: string | null = null
+  let retargetTeamId: string | null = null
   const endedSessionIds = await db.transaction(async (tx) => {
     const txId = await generateTxId(tx)
     void txId
@@ -865,21 +870,29 @@ export async function applySessionPrState(opts: {
           fromState
         )
       )
-      .returning({ id: codingSessions.id, branch: codingSessions.branch })
+      .returning({
+        id: codingSessions.id,
+        branch: codingSessions.branch,
+        teamId: codingSessions.teamId,
+      })
 
     // SLOP-3: an issue-less PR has no `applyPrMergeState` to retarget the
     // PRs based on its head (EXP-324), so the run's row does it. Only the
     // writer whose update flipped the row to merged (a racing duplicate
     // flips none), and only when no issue carries the PR — an issue-linked
-    // merge already retargets from `applyPrMergeState`.
-    const head = flipped.find((row) => row.branch)?.branch ?? null
-    if (opts.state === `merged` && head) {
+    // merge already retargets from `applyPrMergeState`. The run's team rides
+    // along: with no issue it is the only way to the team's branch pins.
+    const headRow = flipped.find((row) => row.branch)
+    if (opts.state === `merged` && headRow?.branch) {
       const [linked] = await tx
         .select({ id: issues.id })
         .from(issues)
         .where(eq(issues.prUrl, opts.prUrl))
         .limit(1)
-      if (!linked) retargetHead = head
+      if (!linked) {
+        retargetHead = headRow.branch
+        retargetTeamId = headRow.teamId
+      }
     }
 
     if (opts.state !== `merged` || opts.endSessions === false) return []
@@ -942,6 +955,7 @@ export async function applySessionPrState(opts: {
     void retargetChildrenOfMergedPr({
       prUrl: opts.prUrl,
       headBranch: retargetHead,
+      ...(retargetTeamId ? { teamId: retargetTeamId } : {}),
     }).catch((err) => {
       console.error(`retargetChildrenOfMergedPr failed:`, err)
     })
@@ -959,6 +973,9 @@ export async function applySessionPrState(opts: {
 export async function retargetChildrenOfMergedPr(opts: {
   prUrl: string
   headBranch: string
+  // The merged PR's team, for a PR no issue links (a chat/action run's):
+  // the only way to the team's repo row and its branch pins.
+  teamId?: string
 }): Promise<void> {
   const repo = repoFromPrUrl(opts.prUrl)
   if (!repo || !opts.headBranch) return
@@ -989,9 +1006,22 @@ export async function retargetChildrenOfMergedPr(opts: {
     )
     .where(eq(issues.prUrl, opts.prUrl))
     .limit(1)
+  // An issue-less merged PR reaches the same pins through its run's team.
+  // Without them a team pinned to `develop` would see its children moved
+  // onto GitHub's raw default, and a merged `develop → main` promotion PR
+  // would sweep every develop-based PR onto `main`.
+  const teamRepo =
+    !linkedRepoRow && opts.teamId
+      ? await loadRepoDefaultBranches(db, {
+          teamId: opts.teamId,
+          repoFullName: repo,
+        })
+      : null
+  if (isRepoDefaultBranch(teamRepo, opts.headBranch)) return
   const defaultBranch =
     linkedRepoRow?.boardDefaultBranch ??
     linkedRepoRow?.defaultBranchOverride ??
+    teamRepo?.defaultBranchOverride ??
     (await resolveRepoDefaultBranchCached(repo))
   if (!defaultBranch) return
   // Load-bearing guard: a default-based PR's "children" would be every other

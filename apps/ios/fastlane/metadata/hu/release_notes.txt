@@ -1,5 +1,5 @@
-- Műveletek: az automatizálások mostantól az általuk futtatott művelet triggerei, és minden művelet egy oldal a promptjával, triggereivel és futásaival
-- Munkanézet: lapozz az Issue, Run, Changes és Results között, a Changes pedig megmutatja a sorok számát, amint a fájlok ismertek
-- Runs: az API-hiba saját sorként jelenik meg az átiratban hamis használati korlát helyett
-- Fiókok: megszűnt az eszközönkénti alapértelmezett fiók, a futás a legutóbb használt bejelentkezéssel indul, hacsak nem választasz másikat
-- Stackek és kötegek: visszafogottabb jelvény a fejlécben, kisebb issue-chipek és a kapcsolódó munka kompakt gráfja
+- Runs: megszűntek a workflow-k, a futás maga tervezi meg és osztja fel a munkáját, és magától indítja a folytató futásokat
+- Blokkolt issue-k: indításkor a Cancel, Start anyway vagy Stacked PR közül választhatsz, ez utóbbi alulról felfelé felépíti a pull requestek teljes sorát
+- Merge: egy egymásra épülő pull requesten a Merge rákérdez: Merge stack vagy Merge this pull request
+- Munkanézet: a választók, a használati lap és a fájllap már az első koppintásra megnyílnak
+- Run fül: az átirat a szerkesztőmező alá görget, így az utolsó sorai is elérhetők maradnak

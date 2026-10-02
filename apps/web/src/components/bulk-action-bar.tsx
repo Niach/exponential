@@ -565,7 +565,6 @@ export function BulkActionBar({
 
 const StartCodingIcon = conceptIcon(`action-run`)
 const START_CODING_LABEL = READINESS_COPY.start
-export const START_AS_BATCH_LABEL = `Start as batch`
 // ×4 concepts (iOS `IssueListView` bulk bar): status, assignee, labels.
 const StatusIcon = conceptIcon(`ui-checklist`)
 const AssigneeIcon = conceptIcon(`ui-assignee`)
@@ -582,7 +581,7 @@ const LabelsIcon = conceptIcon(`settings-labels`)
 // (`useCodingReadiness`, judged by the first repo-backed board of the
 // selection, else the first board) keeps the pill up: dashed amber with the
 // "Ready to code?" checklist while GitHub, a repository or a device is
-// missing, the play MENU once every step is met.
+// missing, the play pill once every step is met.
 function BulkStartCodingButton({
   teamId,
   issues,
@@ -638,7 +637,7 @@ function BulkStartCodingButton({
       open={open}
       onOpenChange={setOpen}
       // The checklist's own Start coding only lights once ready — by then
-      // the menu above has replaced this pill, so it just closes.
+      // the control above has replaced this pill, so it just closes.
       onStart={() => setOpen(false)}
     >
       <ReadinessStartPill
@@ -661,8 +660,9 @@ function BulkStartCodingButton({
 // shape) mounts only once the gates above passed — same posture as
 // RemoteStartRow in issue-coding-rows.tsx.
 //
-// The pill opens a menu whose one entry starts the selection as a batch on
-// the composer. Exported for its test.
+// The pill starts the selection on the composer at once (one issue, or a
+// batch of several): a menu with a single entry was a click for nothing.
+// Exported for its test.
 export function BulkStartCodingControl({
   teamId,
   currentUserId,
@@ -693,32 +693,21 @@ export function BulkStartCodingControl({
   }
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        {/* EXP-698 r5: the row's ONE call to action — the accent pill every
-            client paints here, text and all, on phones too. */}
-        <Pill
-          size="md"
-          mode="action"
-          primary
-          className={`mx-1 max-md:mx-0 max-md:gap-1 max-md:px-2.5 max-md:text-xs${
-            iconOnly ? ` px-2!` : ``
-          }`}
-          aria-label="Start coding"
-          data-testid="bulk-start-coding"
-        >
-          <StartCodingIcon className="size-4" />
-          {!iconOnly && `Start coding`}
-        </Pill>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" collisionPadding={12} className="w-[14rem]">
-        <DropdownMenuItem
-          data-testid="bulk-start-batch"
-          onSelect={startOnComposer}
-        >
-          {START_AS_BATCH_LABEL}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    // EXP-698 r5: the row's ONE call to action, the accent pill every
+    // client paints here, text and all, on phones too.
+    <Pill
+      size="md"
+      mode="action"
+      primary
+      className={`mx-1 max-md:mx-0 max-md:gap-1 max-md:px-2.5 max-md:text-xs${
+        iconOnly ? ` px-2!` : ``
+      }`}
+      aria-label="Start coding"
+      data-testid="bulk-start-coding"
+      onClick={startOnComposer}
+    >
+      <StartCodingIcon className="size-4" />
+      {!iconOnly && `Start coding`}
+    </Pill>
   )
 }

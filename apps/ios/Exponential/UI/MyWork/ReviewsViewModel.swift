@@ -166,6 +166,13 @@ final class ReviewsViewModel {
             }
     }
 
+    /// EXP-1145: the stack merge dialog's pool, the open pull requests of
+    /// `issue`'s OWN team. `issues` spans every team of the account and
+    /// branch names repeat across teams.
+    func stackPool(for issue: IssueEntity) -> [IssueEntity] {
+        PrStack.teamPool(of: issue, issues: issues, boards: boards)
+    }
+
     /// EXP-734: the team's agent runs parking their OWN open pull request, one
     /// entry per distinct prUrl (newest run wins), newest first. Sessions carry
     /// `team_id`, so no board scope is needed. A batch run's PR also links its

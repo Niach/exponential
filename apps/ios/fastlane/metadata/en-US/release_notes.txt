@@ -1,5 +1,5 @@
-- Actions: automations are now triggers on the action they run, and each action is a page with its prompt, its triggers and its runs
-- Work screen: swipe between Issue, Run, Changes and Results, and Changes shows its line counts once the files are known
-- Runs: an API error shows as its own row in the transcript instead of a false usage-limit wall
-- Accounts: the per-device default account is gone, a run starts on the login you used last unless you pick one
-- Stacks and batches: a quieter badge in the header, smaller issue chips and a compact graph of related work
+- Runs: workflows are gone, a run plans and splits its own work and starts follow-up runs by itself
+- Blocked issues: starting one asks Cancel, Start anyway or Stacked PR, which builds the whole line of pull requests bottom-up
+- Merging: Merge on a stacked pull request asks Merge stack or Merge this pull request
+- Work screen: pickers, the usage sheet and the file sheet open on the first tap
+- Run tab: the transcript scrolls under the composer, so its last lines stay reachable
