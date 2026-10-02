@@ -185,4 +185,15 @@ public struct MergeFailure: Sendable, Equatable {
     public init(error: Error) {
         self.init(message: error.userFacingMessage, isConflict: error.isMergeConflict)
     }
+
+    /// EXP-1145: a STACK merge lands several pull requests, so its refusal is
+    /// the server's message about whichever one stopped the chain, never a
+    /// rebase-and-resolve job for the one the control sits on: the message
+    /// only, no conflict offer (web `session-merge-button.tsx`).
+    public init(error: Error, stackMerge: Bool) {
+        self.init(
+            message: error.userFacingMessage,
+            isConflict: stackMerge ? false : error.isMergeConflict
+        )
+    }
 }

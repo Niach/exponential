@@ -974,6 +974,42 @@ describe(`steer.startSession — builtin tidy-up (FEED-50)`, () => {
 
 })
 
+// ── The fix-conflicts builtin: its repo is the picked PR's board's ───────────
+
+describe(`steer.startSession — builtin fix-conflicts`, () => {
+  const FIX_CONFLICTS = `builtin:fix-conflicts`
+  const PR_ISSUE_ID = `66666666-6666-4666-8666-666666666666`
+
+  it(`refuses a PR whose board lost its repository`, async () => {
+    // The pr resolver, the PR issue's board, then the board ⋈ repository
+    // lookup, which finds nothing once the board has no repository.
+    h.dbQueue.push([
+      {
+        teamId: BUILTIN_TEAM_ID,
+        identifier: `MET-7`,
+        prNumber: 7,
+        prState: `open`,
+      },
+    ])
+    h.dbQueue.push([{ boardId: `board-1` }])
+    h.dbQueue.push([])
+    queueOwnDevice({ caps: [`actions`, `action-inputs`, `fix-conflicts`] })
+    const error = await rejectionOf(
+      caller.startSession({
+        actionId: FIX_CONFLICTS,
+        teamId: BUILTIN_TEAM_ID,
+        deviceId: `dev-1`,
+        inputs: { pr: PR_ISSUE_ID },
+      })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toBe(
+      `The pull request's board has no linked repository`
+    )
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+})
+
 // ── EXP-1138 gate split: the start-time account fallback ─────────────────────
 
 describe(`steer.startSession — account fallback (EXP-1138)`, () => {

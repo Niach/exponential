@@ -363,6 +363,81 @@ describe(`issues.mergePr({mergeStack: true}) (SLOP-3)`, () => {
     }
   })
 
+  // The retry after that refusal: EXP-11 is merged now, so the chain is just
+  // EXP-12 and the plain path runs. Its recorded base is still the merged
+  // branch; without the merged-parent check it squashed into it.
+  it(`a retry after the refusal does not merge into the dead branch`, async () => {
+    vi.useFakeTimers()
+    try {
+      const upper = member(2)
+      h.openStackThrough.mockResolvedValue([upper])
+      h.selectQueue.push([
+        {
+          prNumber: upper.prNumber,
+          prUrl: upper.prUrl,
+          prState: `open`,
+          identifier: upper.identifier,
+          title: `Member 2`,
+          prBaseBranch: `exp/EXP-11`,
+        },
+      ])
+      // No OPEN PR on the base (issue, run); EXP-11's MERGED one is; the
+      // team has no repo row.
+      h.selectQueue.push([], [], [{ prUrl: member(1).prUrl }], [])
+      h.retargetChildrenOfMergedPr.mockResolvedValue(undefined)
+      h.getPullRequest.mockResolvedValue({
+        state: `open` as const,
+        merged: false,
+        draft: false,
+        headRef: `exp/EXP-12`,
+        baseRef: `exp/EXP-11`,
+        mergeable: true,
+        mergeableState: `clean`,
+      })
+
+      const pending = caller.mergePr({ issueId: ID(2), mergeStack: true })
+      const settled = expect(pending).rejects.toMatchObject({
+        code: `PRECONDITION_FAILED`,
+        message: `It is still based on exp/EXP-11; retarget it onto the default branch (exponential_pr_retarget) and merge again`,
+      })
+      await vi.runAllTimersAsync()
+      await settled
+      // The heal was tried again, awaited, before GitHub was asked.
+      expect(h.retargetChildrenOfMergedPr).toHaveBeenCalledWith({
+        prUrl: member(1).prUrl,
+        headBranch: `exp/EXP-11`,
+        teamId: `ws-1`,
+      })
+      expect(h.mergePullRequestSmart).not.toHaveBeenCalled()
+      expect(h.applyPrMergeState).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it(`a retry merges once the heal moved the PR onto the default branch`, async () => {
+    const upper = member(2)
+    h.openStackThrough.mockResolvedValue([upper])
+    h.selectQueue.push([
+      {
+        prNumber: upper.prNumber,
+        prUrl: upper.prUrl,
+        prState: `open`,
+        identifier: upper.identifier,
+        title: `Member 2`,
+        prBaseBranch: `exp/EXP-11`,
+      },
+    ])
+    h.selectQueue.push([], [], [{ prUrl: member(1).prUrl }], [])
+    h.selectQueue.push([{ id: upper.issueId }])
+
+    await expect(
+      caller.mergePr({ issueId: ID(2), mergeStack: true })
+    ).resolves.toEqual({ merged: true })
+    expect(h.log).toEqual([`retarget exp/EXP-11`, `merge #242`])
+    expect(h.updates).toEqual([{ prBaseBranch: `master` }])
+  })
+
   it(`is the plain merge for a PR in no stack`, async () => {
     h.openStackThrough.mockResolvedValue([member(1)])
     queueMemberMerge(1)
@@ -428,7 +503,8 @@ describe(`openStackThrough (SLOP-3)`, () => {
   }
 
   it(`walks DOWN from the issue to the bottom, bottom first`, async () => {
-    const { db: fake, wheres } = fakeDb([[row(2)], [row(1)]])
+    // The start, the PR below it, then the team's repo row (none).
+    const { db: fake, wheres } = fakeDb([[row(2)], [row(1)], []])
     const chain = await openStackThrough(fake, {
       issueId: ID(2),
       teamId: `ws-1`,
@@ -455,6 +531,8 @@ describe(`openStackThrough (SLOP-3)`, () => {
     const { db: fake, select } = fakeDb([
       [row(2, { prBaseBranch: `exp/EXP-11` })],
       [row(1, { prBaseBranch: `exp/EXP-12` })],
+      // The team's repo row, read once (none).
+      [],
       [row(2, { prBaseBranch: `exp/EXP-11` })],
     ])
     const chain = await openStackThrough(fake, {
@@ -462,11 +540,49 @@ describe(`openStackThrough (SLOP-3)`, () => {
       teamId: `ws-1`,
     })
     expect(chain.map((m) => m.identifier)).toEqual([`EXP-11`, `EXP-12`])
-    expect(select).toHaveBeenCalledTimes(3)
+    expect(select).toHaveBeenCalledTimes(4)
+  })
+
+  // A team on `develop` with its `develop → main` release PR open: the row
+  // carrying branch `develop` is no stack member, or Merge stack on any plain
+  // PR would land the release first.
+  it.each([
+    [`the team's pin`, `develop`, [] as unknown[]],
+    [`GitHub's stored default`, `main`, [] as unknown[]],
+    [`a board's pin`, `release/1.x`, [{ defaultBranch: `release/1.x` }]],
+  ])(`stops at a base that is %s, though a PR is open from it`, async (_label, base, pins) => {
+    const { db: fake, select } = fakeDb([
+      [row(2, { prBaseBranch: base })],
+      [row(1, { branch: base, prBaseBranch: `main` })],
+      [{ id: `repo-1`, defaultBranch: `main`, defaultBranchOverride: `develop` }],
+      pins,
+    ])
+    const chain = await openStackThrough(fake, {
+      issueId: ID(2),
+      teamId: `ws-1`,
+    })
+    expect(chain.map((m) => m.identifier)).toEqual([`EXP-12`])
+    expect(select).toHaveBeenCalledTimes(4)
+  })
+
+  it(`keeps a real stack that bottoms out on the team's branch`, async () => {
+    const { db: fake } = fakeDb([
+      [row(2)],
+      [row(1, { prBaseBranch: `develop` })],
+      [{ id: `repo-1`, defaultBranch: `main`, defaultBranchOverride: `develop` }],
+      [],
+      // The release PR open from `develop`.
+      [row(3, { branch: `develop`, prBaseBranch: `main` })],
+    ])
+    const chain = await openStackThrough(fake, {
+      issueId: ID(2),
+      teamId: `ws-1`,
+    })
+    expect(chain.map((m) => m.identifier)).toEqual([`EXP-11`, `EXP-12`])
   })
 
   it(`caps the walk at ten members`, async () => {
-    const answers = Array.from({ length: 20 }, (_, i) => [
+    const answers: unknown[][] = Array.from({ length: 20 }, (_, i) => [
       {
         ...row(1),
         issueId: `i-${i}`,
@@ -475,6 +591,8 @@ describe(`openStackThrough (SLOP-3)`, () => {
         prBaseBranch: `b-${i + 1}`,
       },
     ])
+    // The team's repo row, read once after the first PR below (none).
+    answers.splice(2, 0, [])
     const { db: fake } = fakeDb(answers)
     const chain = await openStackThrough(fake, {
       issueId: `i-0`,

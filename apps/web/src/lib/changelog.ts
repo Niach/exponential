@@ -25,6 +25,22 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-02-release-train`,
+    date: `2026-10-02`,
+    title: `Safer merges for dependent pull requests`,
+    summary: `Fixes on top of One kind of run: a pull request built on a merged one is never squashed into the merged branch, teams on their own default branch merge normally, and stack actions on phones stay inside the team.`,
+    body: `- **Merging dependent work**: a pull request based on one that just merged is first moved to the default branch and only then merged. Merging a root and its children in one go no longer squashes a child into the merged branch.
+- **Other default branches**: on a team that works on a branch like \`develop\`, a release pull request from that branch no longer makes every other pull request look stacked, and merging a run's own pull request no longer moves the others to the wrong base.
+- **Merge queue**: a run's merge that GitHub only queued no longer marks its issues as merged.
+- **Stacks on phones**: the Merge stack dialog, the Related work badge and a Stacked PR start only look at the issue's own team on iOS and Android. A failed stack merge shows the reason and no longer offers Fix conflicts for the wrong pull request.
+- **Bulk start**: Start coding in the selection bar starts the run directly on web, desktop, iOS and Android.
+- **Fix conflicts**: starting it remotely for a pull request whose board has no repository is refused with a clear message.
+- **Stacked lines**: a stacked start of more than three issues continues up to the issue you picked.
+- **iPhone**: pickers, the usage sheet and the file sheet on the Work screen open on the first tap, and the transcript scrolls under the composer on the Run tab.
+- **Desktop**: the device picker shows your default device right away, and the sidebar's resize handle sits on the edge of the main card.
+- **Older apps**: apps from before this release keep working. Their Workflows page is empty, and Stacked PR starts a plain run until the device has updated.`,
+  },
+  {
     id: `2026-10-01-one-run`,
     date: `2026-10-01`,
     title: `One kind of run`,
@@ -37,7 +53,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Header**: the Related work badge stays (blockers, batch, stack). A batch run's title also lists its issues.
 - **Merging**: Merge on a stacked pull request asks Merge stack or Merge this pull request, and lands the stack bottom-up.
 - **MCP**: the \`exponential_workflows_*\` tools and \`stackOnIssueId\` are gone. \`exponential_pr_open\` takes \`base\`, and \`exponential_pr_merge\` merges \`issueIds\` in the given order or a stack with \`mergeStack\`.
-- **Older apps**: desktop, CLI and Android need this release. An older iPhone app keeps working and shows an empty Workflows page.`,
+- **Older apps**: older apps keep working and show an empty Workflows page.`,
   },
   {
     id: `2026-10-01-release-train`,

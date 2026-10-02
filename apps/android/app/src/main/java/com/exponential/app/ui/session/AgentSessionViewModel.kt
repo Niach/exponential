@@ -698,8 +698,14 @@ class AgentSessionViewModel @AssistedInject constructor(
         mergeTarget,
         mergeIssue,
         dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() },
-    ) { target, row, issues ->
-        if (target is MergeTarget.Issue && row != null) PrStack.stackMergeChoice(row, issues) else null
+        dbFlow.scopedQuery(emptyList<BoardEntity>()) { it.boardDao().observeAll() },
+    ) { target, row, issues, boards ->
+        // The stack is read from the issue's TEAM only ([PrStack.teamIssues]).
+        if (target is MergeTarget.Issue && row != null) {
+            PrStack.stackMergeChoice(row, PrStack.teamIssues(row, issues, boards))
+        } else {
+            null
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val _merging = MutableStateFlow(false)
@@ -747,7 +753,8 @@ class AgentSessionViewModel @AssistedInject constructor(
     /**
      * EXP-1145: merge the open stack bottom-up THROUGH [throughIssueId]
      * (`issues.mergePr({ mergeStack: true })`), with [merge]'s state handling.
-     * A failure shows the server's message, a conflict keeps Fix conflicts.
+     * A failure shows the server's message and never swaps the pill for Fix
+     * conflicts: the pull request that stopped the chain may be another member.
      */
     fun mergeStack(throughIssueId: String) {
         viewModelScope.launch {
@@ -757,8 +764,7 @@ class AgentSessionViewModel @AssistedInject constructor(
             runCatching { issuesApi.mergePr(accountId, throughIssueId, mergeStack = true) }
                 .onFailure { t ->
                     if (t is CancellationException) throw t
-                    _mergeError.value =
-                        MergeFailure.from(t, "The pull request could not be merged")
+                    _mergeError.value = MergeFailure.fromStack(t)
                 }
             _merging.value = false
         }

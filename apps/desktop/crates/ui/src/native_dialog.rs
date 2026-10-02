@@ -847,14 +847,7 @@ impl Render for DialogShell {
                     .child(crate::app_title_bar::interactive(title_child))
                     .into_any_element()
             } else {
-                h_flex()
-                    .h(crate::title_bar::TITLE_BAR_HEIGHT)
-                    .w_full()
-                    .flex_shrink_0()
-                    .items_center()
-                    .px_3()
-                    .child(title_child)
-                    .into_any_element()
+                plain_title_band(title_child).into_any_element()
             }
         });
 
@@ -1053,9 +1046,24 @@ impl Render for DialogShell {
     }
 }
 
+/// The titlebar strip without client chrome: a plain labelled band (the WM
+/// draws the drag zone and the controls itself).
+fn plain_title_band(title_child: AnyElement) -> gpui::Div {
+    h_flex()
+        .h(crate::title_bar::TITLE_BAR_HEIGHT)
+        .w_full()
+        .flex_shrink_0()
+        .items_center()
+        .px_3()
+        .child(title_child)
+}
+
 // ---------------------------------------------------------------------------
 // Alerts (confirm dialogs)
 // ---------------------------------------------------------------------------
+
+/// Every alert window's width.
+const ALERT_WIDTH: f32 = 416.;
 
 type OnOkFn = Rc<dyn Fn(&mut Window, &mut App) -> bool>;
 type AlertContentFn = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
@@ -1165,7 +1173,7 @@ pub(crate) fn open_alert(window: &mut Window, cx: &mut App, spec: AlertSpec) {
     // `AlertSpec::height` is the whole window; `DialogSpec::size` is the
     // content below the titlebar strip (EXP-287).
     let content_height = (spec.height - crate::title_bar::TITLE_BAR_HEIGHT).max(px(0.));
-    let dialog_size = size(px(416.), content_height);
+    let dialog_size = size(px(ALERT_WIDTH), content_height);
     let title = spec.title.clone();
     open_dialog_window(window, cx, DialogSpec::new(title, dialog_size), move |_, cx| {
         let view = cx.new(|_| AlertView { spec });
@@ -1174,6 +1182,45 @@ pub(crate) fn open_alert(window: &mut Window, cx: &mut App, spec: AlertSpec) {
             .padless()
             .on_enter(move |window, cx| AlertView::confirm(&on_enter, window, cx))
     });
+}
+
+/// An alert OUTSIDE its window, for the styleguide's dialog specimens: the
+/// real [`AlertView`] over the SAME [`AlertSpec`] the product opens, at the
+/// alert's own width and height. A window cannot be embedded, so the frame
+/// stands in for [`DialogShell`]: the page gradient inside the card stroke,
+/// the plain titled band, then the panel fill the body sits on. `key` keeps
+/// the view across frames (`window.use_keyed_state`).
+pub(crate) fn alert_specimen(
+    key: &'static str,
+    spec: AlertSpec,
+    window: &mut Window,
+    cx: &mut App,
+) -> gpui::Div {
+    let title = spec.title.clone();
+    let height = spec.height;
+    let view = window.use_keyed_state(key, cx, |_, _| AlertView { spec });
+    let radius = px(t::radius::LG);
+    v_flex()
+        .w(px(ALERT_WIDTH))
+        .h(height)
+        .flex_shrink_0()
+        .rounded(radius)
+        .border_1()
+        .border_color(t::glass::STROKE_CARD.to_hsla())
+        .bg(theme::background_gradient())
+        .text_color(cx.theme().foreground)
+        .child(plain_title_band(
+            div().text_sm().child(title).into_any_element(),
+        ))
+        .child(
+            div()
+                .flex_1()
+                .min_h_0()
+                .bg(t::glass::FILL_PANEL.to_hsla())
+                .rounded_bl(radius)
+                .rounded_br(radius)
+                .child(view),
+        )
 }
 
 struct AlertView {

@@ -1,0 +1,5 @@
+- Runs: workflows are gone. A run plans and splits its own work and starts follow-up runs by itself
+- Blocked issues: starting one asks Cancel, Start anyway or Stacked PR, which builds the whole line bottom-up
+- Merging: Merge on a stacked pull request asks Merge stack or Merge this pull request
+- Reviews: one flat list of open pull requests
+- Fixes for stacked starts and stack merges when you are in several teams

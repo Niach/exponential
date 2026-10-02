@@ -1,5 +1,6 @@
 package com.exponential.app.domain
 
+import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.IssueEntity
 
 /**
@@ -55,6 +56,37 @@ object PrStack {
         }
 
         return below.reversed() + issue + above
+    }
+
+    /**
+     * The pool a stack is read from: the issues of ONE team. Branch names
+     * (`exp/<IDENTIFIER>`) repeat across teams, so the account's whole issue
+     * list can chain one team's pull request onto another's. An issue row
+     * carries no team of its own: it is reached through its board (web
+     * `use-stack-merge-choice.ts` scopes the same way). No team = no pool.
+     */
+    fun teamIssues(
+        teamId: String?,
+        issues: List<IssueEntity>,
+        boards: List<BoardEntity>,
+    ): List<IssueEntity> {
+        if (teamId == null) return emptyList()
+        val boardIds = boards.filter { it.teamId == teamId }.mapTo(HashSet()) { it.id }
+        return issues.filter { it.boardId in boardIds }
+    }
+
+    /**
+     * [teamIssues] for the team of [issue]'s board. A board that has not
+     * synced yet narrows the pool to that board alone, never widens it.
+     */
+    fun teamIssues(
+        issue: IssueEntity,
+        issues: List<IssueEntity>,
+        boards: List<BoardEntity>,
+    ): List<IssueEntity> {
+        val teamId = boards.firstOrNull { it.id == issue.boardId }?.teamId
+            ?: return issues.filter { it.boardId == issue.boardId }
+        return teamIssues(teamId, issues, boards)
     }
 
     // EXP-1145: a PLAIN Merge control on a stack member asks first. Mirrored

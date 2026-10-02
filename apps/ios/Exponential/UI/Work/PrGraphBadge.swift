@@ -329,12 +329,16 @@ final class PrGraphModel {
     /// SLOP-16 r3: every synced member, the overlay's issue rows (THE
     /// relation row) wear their assignee's avatar.
     private(set) var users: [UserEntity] = []
+    /// Every synced board: the store holds every team of the account, and
+    /// the board is what names an issue's team (`PrStack.teamPool`).
+    private(set) var boards: [BoardEntity] = []
 
     private let accountId: String
     private let db: DatabaseManager
     private var issueId: String?
 
     private var prTask: Task<Void, Never>?
+    private var boardTask: Task<Void, Never>?
     private var blockerTask: Task<Void, Never>?
     private var userTask: Task<Void, Never>?
 
@@ -349,6 +353,13 @@ final class PrGraphModel {
         prIssues.first { $0.id == id } ?? blockers.first { $0.id == id }
     }
 
+    /// The stack merge dialog's pool: the pull requests of `issue`'s OWN
+    /// team. Branch names repeat across teams, so the whole store would let
+    /// another team's pull request into the chain.
+    func stackPool(for issue: IssueEntity) -> [IssueEntity] {
+        PrStack.teamPool(of: issue, issues: prIssues, boards: boards)
+    }
+
     /// The graph for a subject, ready for the badge and the overlay.
     ///
     /// EXP-876: `batchIssues` are the covered issues of a BATCH run (the Work
@@ -359,14 +370,24 @@ final class PrGraphModel {
         session: CodingSessionEntity?,
         batchIssues: [IssueEntity] = []
     ) -> PrGraph.Graph {
+        // The subject's team alone (`PrStack.teamPool`): the issue's board
+        // names it, a run carries it.
+        let rows: [IssueEntity]
+        if let issue {
+            rows = PrStack.teamPool(of: issue, issues: prIssues + blockers, boards: boards)
+        } else if let session {
+            rows = PrStack.teamPool(prIssues + blockers, teamId: session.teamId, boards: boards)
+        } else {
+            rows = prIssues + blockers
+        }
         var byId: [String: IssueEntity] = [:]
-        for row in prIssues + blockers { byId[row.id] = row }
+        for row in rows { byId[row.id] = row }
         if let issue { byId[issue.id] = issue }
         // Deterministic order: the PR rows first (they carry the stack), then
         // anything only a blocker brought in.
         var pool: [IssueEntity] = []
         var seen = Set<String>()
-        for row in prIssues + blockers where !seen.contains(row.id) {
+        for row in rows where !seen.contains(row.id) {
             seen.insert(row.id)
             pool.append(byId[row.id] ?? row)
         }
@@ -391,6 +412,7 @@ final class PrGraphModel {
             relations = []
         }
         observePullRequests()
+        observeBoards()
         observeBlockers()
         observeUsers()
     }
@@ -398,6 +420,8 @@ final class PrGraphModel {
     func stop() {
         prTask?.cancel()
         prTask = nil
+        boardTask?.cancel()
+        boardTask = nil
         blockerTask?.cancel()
         blockerTask = nil
         userTask?.cancel()
@@ -425,6 +449,18 @@ final class PrGraphModel {
             do {
                 for try await rows in observation.values(in: pool) {
                     self?.prIssues = rows
+                }
+            } catch {}
+        }
+    }
+
+    private func observeBoards() {
+        guard boardTask == nil, let pool = try? db.pool(forAccountId: accountId) else { return }
+        let observation = ValueObservation.tracking { db in try BoardEntity.fetchAll(db) }
+        boardTask = Task { [weak self] in
+            do {
+                for try await rows in observation.values(in: pool) {
+                    self?.boards = rows
                 }
             } catch {}
         }

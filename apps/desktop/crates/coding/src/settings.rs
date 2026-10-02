@@ -73,7 +73,7 @@ pub const DEFAULT_CLAUDE_EFFORT: &str = "";
 /// Foreign top-level keys other subsystems own (`launchDefaultsSync`,
 /// `actionAutomations`) ride the merge-save untouched and must never enter
 /// this list.
-const DEAD_KEYS: [&str; 26] = [
+const DEAD_KEYS: [&str; 27] = [
     "usageWindow",
     "subagentModel",
     "subagentEffort",
@@ -103,6 +103,8 @@ const DEAD_KEYS: [&str; 26] = [
     // SLOP-3: the workflow model pair (EXP-1029) — workflows are gone.
     "workflowModel",
     "workflowStrongModel",
+    // The pre-document engine state (`workflowEngine.<deviceId>`).
+    "workflowEngine",
 ];
 
 /// The resolved coding settings. `repos_root` is stored in its raw

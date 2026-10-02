@@ -3048,7 +3048,20 @@ export function registerExponentialTools(
         // Only a merge that actually landed (or is queued to) earns the spare;
         // an unmergeable PR leaves the row exactly as this call found it.
         if (ownTargetIds.size > 0 && !ownMergeEarned()) {
-          await revertMergedOwnPr()
+          // A stack merge that stops part-way reports its target as failed
+          // while the members below it landed. The run's own PR may be one
+          // of those: the spare then stays (EXP-637).
+          const [ownLanded] = await db
+            .select({ id: issues.id })
+            .from(issues)
+            .where(
+              and(
+                inArray(issues.prUrl, [...ownPrUrls]),
+                eq(issues.prState, `merged`)
+              )
+            )
+            .limit(1)
+          if (!ownLanded) await revertMergedOwnPr()
         }
         return ok({ results })
       } catch (e) {

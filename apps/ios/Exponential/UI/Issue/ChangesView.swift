@@ -23,11 +23,16 @@ final class ChangesViewModel {
     /// EXP-1145: every synced issue with an OPEN pull request, so a plain
     /// Merge on a stack member can ask first (`stackMergeChoice`).
     private(set) var openPrIssues: [IssueEntity] = []
+    /// Every synced board: the board names an issue's team, and the stack
+    /// reads the issue's OWN team alone (`PrStack.teamPool`).
+    private(set) var boards: [BoardEntity] = []
 
     /// The stack merge dialog's content, or nil for a plain merge.
     var stackMergeChoice: PrStack.StackMergeChoice? {
         guard let issue else { return nil }
-        return PrStack.stackMergeChoice(issue, issues: openPrIssues)
+        return PrStack.stackMergeChoice(
+            issue, issues: PrStack.teamPool(of: issue, issues: openPrIssues, boards: boards)
+        )
     }
 
     /// Membership gates the Merge / Close affordances (resolved from the issue's
@@ -103,14 +108,18 @@ final class ChangesViewModel {
                 }
             } catch {}
         }
-        let openPrs = ValueObservation.tracking { db in
-            try IssueEntity.filter(Column("pr_state") == "open").fetchAll(db)
+        let openPrs = ValueObservation.tracking { db -> ([IssueEntity], [BoardEntity]) in
+            (
+                try IssueEntity.filter(Column("pr_state") == "open").fetchAll(db),
+                try BoardEntity.fetchAll(db)
+            )
         }
         openPrObservationTask = Task { [weak self] in
             do {
-                for try await rows in openPrs.values(in: pool) {
+                for try await (rows, boards) in openPrs.values(in: pool) {
                     guard let self else { return }
                     self.openPrIssues = rows
+                    self.boards = boards
                 }
             } catch {}
         }
@@ -180,8 +189,9 @@ final class ChangesViewModel {
 
     /// EXP-1145: the stack dialog's merges, bottom-up THROUGH `issueId`
     /// (the top for Merge stack, this issue for Merge this pull request on a
-    /// member above the bottom). Same loading/failure handling; a refusal
-    /// captions the server's message and keeps the Fix conflicts offer.
+    /// member above the bottom). Same loading handling; a refusal captions
+    /// the server's message and never offers Fix conflicts: the member that
+    /// stopped the chain may not be this pull request.
     func mergeStack(issueId: String) {
         guard !merging else { return }
         merging = true
@@ -192,9 +202,10 @@ final class ChangesViewModel {
             do {
                 try await issuesApi.mergePr(accountId: accountId, issueId: issueId, mergeStack: true)
             } catch {
-                actionError = error.userFacingMessage
+                let failure = MergeFailure(error: error, stackMerge: true)
+                actionError = failure.message
                 actionErrorFrom = .merge
-                actionErrorIsConflict = error.isMergeConflict
+                actionErrorIsConflict = failure.isConflict
             }
             merging = false
         }

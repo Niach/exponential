@@ -1,5 +1,5 @@
-- Åtgärder: automatiseringar är nu utlösare på åtgärden de kör, och varje åtgärd är en sida med sin prompt, sina utlösare och sina körningar
-- Arbetsvy: svep mellan Issue, Run, Changes och Results, och Changes visar antal rader så snart filerna är kända
-- Runs: ett API-fel visas som en egen rad i transkriptet i stället för en falsk användningsgräns
-- Konton: standardkontot per enhet är borta, en körning startar med inloggningen du använde senast om du inte väljer en annan
-- Stackar och batcher: en diskretare bricka i sidhuvudet, mindre issue-chips och en kompakt graf över relaterat arbete
+- Runs: arbetsflöden är borta, en körning planerar och delar upp sitt arbete själv och startar uppföljande körningar på egen hand
+- Blockerade issues: när du startar ett får du välja Cancel, Start anyway eller Stacked PR, som bygger hela raden av pull requests nerifrån och upp
+- Sammanslagning: Merge på en staplad pull request frågar Merge stack eller Merge this pull request
+- Arbetsvy: väljare, användningsbladet och filbladet öppnas vid första trycket
+- Fliken Run: transkriptet rullar in under skrivfältet, så dess sista rader går att nå

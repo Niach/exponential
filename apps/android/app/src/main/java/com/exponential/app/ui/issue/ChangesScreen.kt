@@ -57,6 +57,7 @@ import com.exponential.app.data.api.RepositoriesApi
 
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.accountDatabaseFlow
@@ -140,15 +141,19 @@ class ChangesViewModel @AssistedInject constructor(
         dbFlow.scopedQuery<IssueEntity?>(null) { it.issueDao().observeById(issueId) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    // EXP-1145: every synced issue, so a plain Merge on a stack member can
-    // ask first (Merge stack / Merge this pull request / Cancel).
+    // EXP-1145: the synced issues and boards, so a plain Merge on a stack
+    // member can ask first (Merge stack / Merge this pull request / Cancel).
+    // The stack is read from this issue's TEAM only ([PrStack.teamIssues]).
     private val allIssues: Flow<List<IssueEntity>> =
         dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() }
+    private val allBoards: Flow<List<BoardEntity>> =
+        dbFlow.scopedQuery(emptyList<BoardEntity>()) { it.boardDao().observeAll() }
 
     /** EXP-1145: non-null when merging this issue's PR must ask first. */
     val stackMergeChoice: StateFlow<PrStack.StackMergeChoice?> =
-        combine(issue, allIssues) { iss, all -> iss?.let { PrStack.stackMergeChoice(it, all) } }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        combine(issue, allIssues, allBoards) { iss, all, boards ->
+            iss?.let { PrStack.stackMergeChoice(it, PrStack.teamIssues(it, all, boards)) }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // Membership resolution for the merge/close controls (mirrors
     // IssueDetailViewModel): issue → board → team + members + auth.
@@ -267,7 +272,13 @@ class ChangesViewModel @AssistedInject constructor(
             runCatching { issuesApi.mergePr(accountId, targetIssueId, mergeStack = mergeStack) }
                 .onFailure { t ->
                     if (t is CancellationException) throw t
-                    val failure = MergeFailure.from(t, "The pull request could not be merged")
+                    // A stack merge's refusal may be about another member:
+                    // the message shows, the conflict offer does not.
+                    val failure = if (mergeStack) {
+                        MergeFailure.fromStack(t)
+                    } else {
+                        MergeFailure.from(t, "The pull request could not be merged")
+                    }
                     _actionError.value = failure.message
                     _actionErrorFrom.value = PrAction.Merge
                     _actionErrorIsConflict.value = failure.isConflict

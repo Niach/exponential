@@ -1,5 +1,5 @@
-- Akcije: automatizacije su sada okidači na akciji koju pokreću, a svaka akcija je stranica sa svojim promptom, okidačima i pokretanjima
-- Radni zaslon: prelazite prstom između Issue, Run, Changes i Results, a Changes prikazuje broj redaka čim su datoteke poznate
-- Runs: greška API-ja prikazuje se kao zaseban redak u zapisu umjesto lažnog ograničenja korištenja
-- Računi: zadani račun po uređaju je uklonjen, pokretanje počinje s prijavom koju ste zadnju koristili, osim ako odaberete drugu
-- Stackovi i skupine: diskretnija značka u zaglavlju, manji čipovi za issues i kompaktan graf povezanog rada
+- Runs: workflowi su uklonjeni, pokretanje samo planira i dijeli svoj posao te samo pokreće nastavna pokretanja
+- Blokirani issues: pokretanje jednog nudi Cancel, Start anyway ili Stacked PR, koji gradi cijeli niz pull requestova odozdo prema gore
+- Spajanje: Merge na složenom pull requestu nudi Merge stack ili Merge this pull request
+- Radni zaslon: birači, list potrošnje i list datoteka otvaraju se na prvi dodir
+- Kartica Run: zapis se pomiče ispod polja za pisanje, pa njegovi zadnji redci ostaju dostupni

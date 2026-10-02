@@ -1,5 +1,5 @@
-- Azioni: le automazioni ora sono trigger sull'azione che eseguono, e ogni azione è una pagina con il suo prompt, i suoi trigger e le sue esecuzioni
-- Schermata di lavoro: scorri tra Issue, Run, Changes e Results, e Changes mostra il conteggio delle righe appena i file sono noti
-- Runs: un errore API appare come riga a sé nella trascrizione invece di un falso blocco per limite di utilizzo
-- Account: l'account predefinito per dispositivo non c'è più, un'esecuzione parte con l'ultimo accesso usato a meno che tu non ne scelga un altro
-- Stack e batch: un badge più discreto nell'intestazione, chip delle issue più piccoli e un grafo compatto del lavoro correlato
+- Runs: i workflow non ci sono più, un'esecuzione pianifica e divide da sola il proprio lavoro e avvia da sola le esecuzioni successive
+- Issue bloccate: avviarne una chiede Cancel, Start anyway o Stacked PR, che costruisce l'intera catena di pull request dal basso verso l'alto
+- Merge: Merge su una pull request impilata chiede Merge stack o Merge this pull request
+- Schermata di lavoro: i selettori, il pannello di utilizzo e il pannello dei file si aprono al primo tocco
+- Scheda Run: la trascrizione scorre sotto il campo di scrittura, così le ultime righe restano raggiungibili

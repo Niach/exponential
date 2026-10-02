@@ -252,4 +252,16 @@ final class TrpcErrorInfoTests: XCTestCase {
         XCTAssertFalse(offline.isConflict)
         XCTAssertEqual(offline.message, offlineErrorMessage)
     }
+
+    // EXP-1145: a stack merge's conflict may sit on another member of the
+    // chain, so it keeps the message and drops the recovery offer.
+    func testAStackMergeFailureNeverOffersTheConflictRun() {
+        let error = TrpcError.httpError(
+            409, envelope(message: "This pull request has merge conflicts with the base branch.", code: "CONFLICT")
+        )
+        let stack = MergeFailure(error: error, stackMerge: true)
+        XCTAssertFalse(stack.isConflict)
+        XCTAssertEqual(stack.message, "This pull request has merge conflicts with the base branch.")
+        XCTAssertEqual(MergeFailure(error: error, stackMerge: false), MergeFailure(error: error))
+    }
 }

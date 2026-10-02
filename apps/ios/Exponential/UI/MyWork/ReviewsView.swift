@@ -549,7 +549,7 @@ struct ReviewsListContent: View {
     /// other row the plain confirm.
     private func requestMerge(_ entry: ReviewEntry) {
         if let choice = PrStack.stackMergeChoice(
-            entry.representative, issues: viewModel?.issues ?? []
+            entry.representative, issues: viewModel?.stackPool(for: entry.representative) ?? []
         ) {
             stackTarget = StackMergeTarget(entry: entry, choice: choice)
         } else {
@@ -562,7 +562,9 @@ struct ReviewsListContent: View {
     }
 
     /// The row's merge, plain or (EXP-1145) the stack merge through
-    /// `issueId`; a refusal captions the row with the server's message.
+    /// `issueId`; a refusal captions the row with the server's message. A
+    /// stack merge's never offers Fix conflicts: the member that stopped the
+    /// chain may not be this row's pull request.
     private func merge(_ entry: ReviewEntry, issueId: String, mergeStack: Bool) {
         mergeTarget = nil
         stackTarget = nil
@@ -575,7 +577,7 @@ struct ReviewsListContent: View {
                     accountId: accountId, issueId: issueId, mergeStack: mergeStack ? true : nil
                 )
             } catch {
-                mergeErrors[key] = MergeFailure(error: error)
+                mergeErrors[key] = MergeFailure(error: error, stackMerge: mergeStack)
             }
             merging.remove(key)
         }

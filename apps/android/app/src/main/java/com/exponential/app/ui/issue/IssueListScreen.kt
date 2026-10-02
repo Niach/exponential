@@ -103,8 +103,6 @@ import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.BottomNavDefaults
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.EmptyState
-import com.exponential.app.ui.components.GlassDropdownMenu
-import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.IssueGraphSheet
 import com.exponential.app.ui.components.LabelDot
 import com.exponential.app.ui.components.LoadingState
@@ -1262,8 +1260,6 @@ private fun SelectionBar(
     onDelete: () -> Unit,
 ) {
     val shape = RoundedCornerShape(percent = 50)
-    // Whether the play menu is open (its one entry: Start as batch).
-    var startMenuOpen by remember { mutableStateOf(false) }
     val neutral = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     // Suppress the 48dp minimum interactive inflation so the 32dp icon buttons
     // keep the bar at its own height instead of ballooning it.
@@ -1342,14 +1338,16 @@ private fun SelectionBar(
             }
             if (showStartCoding) {
                 Spacer(Modifier.width(4.dp))
-                Box {
+                // The ONE primary action starts the selection on the composer
+                // at once (one issue, or a batch of several): a menu with a
+                // single entry was a tap for nothing (web parity).
                 Row(
                     modifier = Modifier
-                        .testTag("bulk-start-menu")
+                        .testTag("bulk-start-coding")
                         .height(32.dp)
                         .clip(shape)
                         .background(MaterialTheme.colorScheme.primary)
-                        .clickable { startMenuOpen = true }
+                        .clickable(onClick = onStartCoding)
                         .padding(horizontal = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -1379,24 +1377,6 @@ private fun SelectionBar(
                         color = MaterialTheme.colorScheme.onPrimary,
                         maxLines = 1,
                     )
-                }
-                // The ONE primary action opens a menu whose one entry starts
-                // the selection as a batch on the composer (web parity).
-                GlassDropdownMenu(
-                    expanded = startMenuOpen,
-                    onDismissRequest = { startMenuOpen = false },
-                ) {
-                    GlassMenuItem(
-                        text = { Text(START_AS_BATCH_LABEL) },
-                        leadingIcon = {
-                            Icon(ExpIcons.actionRun, contentDescription = null)
-                        },
-                        onClick = {
-                            startMenuOpen = false
-                            onStartCoding()
-                        },
-                    )
-                }
                 }
             }
             // Destructive, so it sits LAST and alone on the far side of the
@@ -1500,6 +1480,3 @@ private fun BulkStatusPicker(
         onOpenChange = { open -> if (!open) onDismiss() },
     )
 }
-
-/** The bulk bar's play-menu entry: the picks start as ONE batch run. */
-internal const val START_AS_BATCH_LABEL = "Start as batch"

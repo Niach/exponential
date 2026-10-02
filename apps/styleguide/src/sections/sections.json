@@ -9,7 +9,8 @@
       "toast"
     ] },
     { "id": "special", "order": 3, "title": "3 Special components", "blurb": "Compositions with one owner: a dialog, a tree, a settings surface.", "entries": [
-      "composer-dialog", "issue-context-menu", "session-tree", "pr-graph-badge", "device-settings"
+      "composer-dialog", "issue-context-menu", "session-tree", "pr-graph-badge", "device-settings",
+      "blocked-start-dialog", "stack-merge-choice-dialog"
     ] },
     { "id": "views", "order": 4, "title": "4 Views", "blurb": "Whole screens, photographed on every platform.", "entries": [] }
   ],
@@ -33,6 +34,8 @@
     "composer-dialog": "EXP-1019",
     "session-tree": "EXP-996",
     "pr-graph-badge": "EXP-1058",
-    "device-settings": "EXP-1020"
+    "device-settings": "EXP-1020",
+    "blocked-start-dialog": "EXP-980",
+    "stack-merge-choice-dialog": "EXP-1145"
   }
 }

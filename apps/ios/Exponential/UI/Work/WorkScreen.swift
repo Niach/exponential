@@ -466,10 +466,11 @@ struct WorkScreen: View {
             showsTrailing: mergeTarget != nil
         ) {
             if let mergeTarget {
+                let mergeRow = mergeIssue(for: mergeTarget)
                 WorkMergePill(
                     target: mergeTarget,
-                    issue: mergeIssue(for: mergeTarget),
-                    prIssues: prGraphModel?.prIssues ?? [],
+                    issue: mergeRow,
+                    prIssues: mergeRow.flatMap { prGraphModel?.stackPool(for: $0) } ?? [],
                     steerEnabled: steerEnabled
                 )
                 // A new target starts clean (no stale conflict caption).

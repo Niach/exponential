@@ -23,6 +23,8 @@ import { entry as issueContextMenu } from "./issue-context-menu.tsx"
 import { entry as sessionTree } from "./session-tree.tsx"
 import { entry as prGraphBadge } from "./pr-graph-badge.tsx"
 import { entry as deviceSettings } from "./device-settings.tsx"
+import { entry as blockedStartDialog } from "./blocked-start-dialog.tsx"
+import { entry as stackMergeChoiceDialog } from "./stack-merge-choice-dialog.tsx"
 import type { StyleguideEntry } from "./types.ts"
 
 export type { StyleguideEntry } from "./types.ts"
@@ -48,6 +50,8 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   sessionTree,
   prGraphBadge,
   deviceSettings,
+  blockedStartDialog,
+  stackMergeChoiceDialog,
 ]
 
 export function entryById(id: string): StyleguideEntry | undefined {

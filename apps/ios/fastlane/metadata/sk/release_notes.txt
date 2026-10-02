@@ -1,5 +1,5 @@
-- Akcie: automatizácie sú teraz spúšťače na akcii, ktorú spúšťajú, a každá akcia má vlastnú stránku s promptom, spúšťačmi a behmi
-- Pracovná obrazovka: potiahnutím prechádzajte medzi Issue, Run, Changes a Results, Changes zobrazí počty riadkov, hneď ako sú súbory známe
-- Runs: chyba API sa v prepise zobrazí ako samostatný riadok namiesto falošného limitu využitia
-- Účty: predvolený účet pre zariadenie je preč, beh sa spustí s naposledy použitým prihlásením, ak nevyberiete iné
-- Stacky a dávky: nenápadnejší odznak v hlavičke, menšie čipy issues a kompaktný graf súvisiacej práce
+- Runs: workflowy sú preč, beh si sám naplánuje a rozdelí prácu a sám spúšťa nadväzujúce behy
+- Blokované issues: pri spustení sa zobrazí voľba Cancel, Start anyway alebo Stacked PR, ktorá zostaví celý rad pull requestov zdola nahor
+- Zlučovanie: Merge pri nadväzujúcom pull requeste ponúkne Merge stack alebo Merge this pull request
+- Pracovná obrazovka: výbery, prehľad využitia a prehľad súborov sa otvoria hneď na prvé ťuknutie
+- Karta Run: prepis sa posúva pod editor správ, takže jeho posledné riadky zostanú dostupné

@@ -1,5 +1,5 @@
-- Ações: as automatizações são agora acionadores na ação que executam, e cada ação é uma página com o seu prompt, os seus acionadores e as suas execuções
-- Ecrã de trabalho: deslize entre Issue, Run, Changes e Results, e Changes mostra a contagem de linhas assim que os ficheiros são conhecidos
-- Runs: um erro da API aparece como uma linha própria na transcrição em vez de um falso limite de utilização
-- Contas: a conta predefinida por dispositivo desapareceu, uma execução começa com o último início de sessão que usou, a menos que escolha outro
-- Stacks e lotes: um distintivo mais discreto no cabeçalho, chips de issues mais pequenos e um grafo compacto do trabalho relacionado
+- Runs: os fluxos de trabalho desapareceram, uma execução planeia e divide o seu próprio trabalho e inicia sozinha as execuções seguintes
+- Issues bloqueados: ao iniciar um, surge Cancel, Start anyway ou Stacked PR, que constrói toda a cadeia de pull requests de baixo para cima
+- Integração: Merge num pull request empilhado pergunta Merge stack ou Merge this pull request
+- Ecrã de trabalho: os seletores, a folha de utilização e a folha de ficheiros abrem ao primeiro toque
+- Separador Run: a transcrição desliza por baixo da caixa de escrita, por isso as últimas linhas continuam acessíveis

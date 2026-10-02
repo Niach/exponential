@@ -3,6 +3,7 @@ package com.exponential.app.ui.work
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
@@ -13,6 +14,7 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.PrGraph
+import com.exponential.app.domain.PrStack
 import com.exponential.app.domain.ResolvedIssueStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -55,11 +57,19 @@ class PrGraphViewModel @Inject constructor(
         dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() },
         dbFlow.scopedQuery(emptyList<CodingSessionEntity>()) { it.codingSessionDao().observeAll() },
         dbFlow.scopedQuery(emptyList<IssueRelationEntity>()) { it.issueRelationDao().observeAll() },
-    ) { current, issues, sessions, relations ->
+        dbFlow.scopedQuery(emptyList<BoardEntity>()) { it.boardDao().observeAll() },
+    ) { current, issues, sessions, relations, boards ->
+        val issue = current.issueId?.let { id -> issues.firstOrNull { it.id == id } }
+        val session = current.sessionId?.let { id -> sessions.firstOrNull { it.id == id } }
         PrGraph.build(
-            issue = current.issueId?.let { id -> issues.firstOrNull { it.id == id } },
-            session = current.sessionId?.let { id -> sessions.firstOrNull { it.id == id } },
-            issues = issues,
+            issue = issue,
+            session = session,
+            // The subject's TEAM only: branch names repeat across teams.
+            issues = if (issue != null) {
+                PrStack.teamIssues(issue, issues, boards)
+            } else {
+                PrStack.teamIssues(session?.teamId, issues, boards)
+            },
             relations = relations,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PrGraph.Graph(emptyList(), null))

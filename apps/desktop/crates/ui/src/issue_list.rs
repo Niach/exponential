@@ -1218,8 +1218,9 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
         .into_any_element()
     };
 
-    // EXP-981: the play control is a MENU — its one entry, Start as batch,
-    // hands the picked set to the composer (Android parity).
+    // SLOP-3: the play control starts directly (web parity). It hands the
+    // picked set to the composer: one issue is a plain start, two or more a
+    // batch.
     let start_coding = {
         let ids = ids.clone();
         let list = list.clone();
@@ -1241,24 +1242,16 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
         )
             .tooltip(no_agent.clone().unwrap_or_else(|| "Start coding".into()))
             .disabled(busy || no_agent.is_some())
-            .dropdown_menu(move |menu, _window, _cx| {
-                let batch_ids = ids.clone();
-                let batch_list = list.clone();
-                menu.item(
-                    PopupMenuItem::new(domain::batch_run::START_AS_BATCH_LABEL)
-                        .icon(Icon::new(registry::ACTION_RUN))
-                        .on_click(move |_, window, cx| {
-                            // EXP-825: the composer takes the selection over
-                            // — the multiselect clears right away (web
-                            // parity), and the seed carries the issues.
-                            let _ = batch_list.update(cx, |this, cx| this.clear_selection(cx));
-                            crate::navigation::navigate_to_chat(
-                                window,
-                                cx,
-                                crate::navigation::ChatSeed::issues(batch_ids.clone()),
-                            );
-                        }),
-                )
+            .on_click(move |_, window, cx| {
+                // EXP-825: the composer takes the selection over: the
+                // multiselect clears right away (web parity), and the seed
+                // carries the issues.
+                let _ = list.update(cx, |this, cx| this.clear_selection(cx));
+                crate::navigation::navigate_to_chat(
+                    window,
+                    cx,
+                    crate::navigation::ChatSeed::issues(ids.clone()),
+                );
             })
     };
 

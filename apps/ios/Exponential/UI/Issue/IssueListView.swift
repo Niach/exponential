@@ -773,15 +773,14 @@ struct IssueListView: View {
                 bulkSheet = .labels
             }
 
-            // The play menu — the bar's raison d'être (EXP-239). Only on
+            // The play pill — the bar's raison d'être (EXP-239). Only on
             // repo-backed boards, and only while the relay isn't known-off.
-            // The "Start coding" pill is a MENU (the ×4 rule) whose one entry
-            // starts the selection as a batch on the composer.
+            // It starts the selection on the composer at once (one issue, or
+            // a batch of several): a menu with a single entry was a tap for
+            // nothing (web parity).
             if vm.board?.repositoryId != nil, steerEnabled != false {
-                GlassMenu {
-                    GlassMenuItem(BatchRun.startAsBatchLabel) {
-                        startCodingTapped()
-                    }
+                Button {
+                    startCodingTapped()
                 } label: {
                     HStack(spacing: 6) {
                         if steerDevices == nil {
@@ -793,7 +792,6 @@ struct IssueListView: View {
                         }
                         Text("Start coding")
                             .font(.subheadline.weight(.medium))
-                        AppIcon(AppIcons.uiChevronDown, size: 10)
                     }
                     .foregroundStyle(DesignTokens.Palette.primaryForeground)
                     .padding(.horizontal, 12)
@@ -801,9 +799,10 @@ struct IssueListView: View {
                     .background(DesignTokens.Palette.primary, in: Capsule())
                     .contentShape(Capsule())
                 }
+                .buttonStyle(.plain)
                 .padding(.leading, 4)
                 .accessibilityLabel("Start coding")
-                .accessibilityIdentifier("bulk-start-menu")
+                .accessibilityIdentifier("bulk-start-coding")
             }
 
             // Delete (EXP-698 r5) — the one destructive control in the bar, and

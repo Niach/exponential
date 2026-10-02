@@ -1,5 +1,5 @@
-- Akce: automatizace jsou nyní spouštěče akce, kterou spouštějí, a každá akce má vlastní stránku s promptem, spouštěči a běhy
-- Pracovní obrazovka: přejíždějte mezi Issue, Run, Changes a Results, Changes zobrazí počty řádků, jakmile jsou soubory známé
-- Runs: chyba API se v přepisu zobrazí jako samostatný řádek místo falešného limitu využití
-- Účty: výchozí účet pro zařízení je pryč, běh se spustí s naposledy použitým přihlášením, pokud nevyberete jiné
-- Stacky a dávky: nenápadnější odznak v záhlaví, menší čipy issues a kompaktní graf související práce
+- Runs: workflowy jsou pryč, běh si sám naplánuje a rozdělí práci a sám spouští navazující běhy
+- Blokované issues: při spuštění se zobrazí volba Cancel, Start anyway nebo Stacked PR, která sestaví celou řadu pull requestů odspodu nahoru
+- Slučování: Merge u navazujícího pull requestu nabídne Merge stack nebo Merge this pull request
+- Pracovní obrazovka: výběry, přehled využití a přehled souborů se otevřou hned na první klepnutí
+- Karta Run: přepis se posouvá pod editor zpráv, takže jeho poslední řádky zůstanou dostupné

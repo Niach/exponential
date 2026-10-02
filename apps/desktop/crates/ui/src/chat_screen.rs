@@ -1720,7 +1720,6 @@ impl ChatScreenView {
         }
         let refs: Vec<&str> = blocked.picked.iter().map(String::as_str).collect();
         let graph = crate::issue_graph::graph_for(&refs, cx);
-        let note: Option<SharedString> = blocked.stack_note.clone().map(SharedString::from);
         let stacked = blocked.stacked_start(&message);
 
         let entity = cx.entity().downgrade();
@@ -1736,40 +1735,20 @@ impl ChatScreenView {
             });
         };
         let anyway = resume.clone();
-        let spec = crate::native_dialog::AlertSpec::new(
-            blocked.title(),
-            blocked.description(),
-            blocked_start::STACKED_PR,
-        )
-        .height(gpui::px(BLOCKED_DIALOG_HEIGHT))
-        .secondary(blocked_start::START_ANYWAY, move |_, cx| {
-            anyway(message.clone(), None, cx);
-            true
-        })
-        .ok_disabled(stacked.is_none())
-        .on_ok(move |_, cx| {
-            if let Some((issue_id, message)) = stacked.clone() {
-                resume(message, Some(issue_id), cx);
-            }
-            true
-        })
-        .content(move |_, cx| {
-            gpui_component::v_flex()
-                .min_w_0()
-                .gap_2()
-                .child(crate::issue_graph::graph_in_dialog(
-                    &graph,
-                    BLOCKED_DIALOG_GRAPH_W,
-                    cx,
-                ))
-                .children(note.clone().map(|note| {
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(note)
-                }))
-                .into_any_element()
-        });
+        let spec = blocked_start_alert(
+            &blocked,
+            graph,
+            move |_, cx| {
+                anyway(message.clone(), None, cx);
+                true
+            },
+            move |_, cx| {
+                if let Some((issue_id, message)) = stacked.clone() {
+                    resume(message, Some(issue_id), cx);
+                }
+                true
+            },
+        );
         crate::native_dialog::open_alert(window, cx, spec);
     }
 
@@ -3038,23 +3017,62 @@ pub(crate) fn dialog_action_id(cx: &App) -> Option<String> {
 /// EXP-980 — what the blocked-start dialog is about: everything that was
 /// picked (the graph's subjects, and what "Start anyway" starts) plus the
 /// identifiers of the open issues blocking it from outside.
-struct BlockedStart {
-    picked: Vec<String>,
-    blockers: Vec<String>,
+pub(crate) struct BlockedStart {
+    pub(crate) picked: Vec<String>,
+    pub(crate) blockers: Vec<String>,
     /// SLOP-3: what "Stacked PR" starts; `None` = the button is disabled,
     /// captioned by `stack_note`.
-    stack: Option<StackedStart>,
+    pub(crate) stack: Option<StackedStart>,
     /// The caption under the graph: the disabled reason, or (enabled, 2+
     /// issues to run) the plan note.
-    stack_note: Option<String>,
+    pub(crate) stack_note: Option<String>,
 }
 
 /// SLOP-3: the stacked start's plan and the issue it starts: `run[0]`, the
 /// bottom of the line to build (NOT necessarily the picked issue).
 #[derive(Clone)]
-struct StackedStart {
-    issue_id: String,
-    plan: blocked_start::StackPlan,
+pub(crate) struct StackedStart {
+    pub(crate) issue_id: String,
+    pub(crate) plan: blocked_start::StackPlan,
+}
+
+/// The blocked-start alert: the title and the sentence, the blocks graph
+/// with the caption under it, and Cancel · Start anyway · Stacked PR (the
+/// primary, disabled without a stack). [`ChatScreenView::prompt_blocked_start`]
+/// opens it; the styleguide specimen draws the same spec.
+pub(crate) fn blocked_start_alert(
+    blocked: &BlockedStart,
+    graph: domain::issue_graph::IssueGraph,
+    on_anyway: impl Fn(&mut Window, &mut App) -> bool + 'static,
+    on_stacked: impl Fn(&mut Window, &mut App) -> bool + 'static,
+) -> crate::native_dialog::AlertSpec {
+    let note: Option<SharedString> = blocked.stack_note.clone().map(SharedString::from);
+    crate::native_dialog::AlertSpec::new(
+        blocked.title(),
+        blocked.description(),
+        blocked_start::STACKED_PR,
+    )
+    .height(gpui::px(BLOCKED_DIALOG_HEIGHT))
+    .secondary(blocked_start::START_ANYWAY, on_anyway)
+    .ok_disabled(blocked.stack.is_none())
+    .on_ok(on_stacked)
+    .content(move |_, cx| {
+        gpui_component::v_flex()
+            .min_w_0()
+            .gap_2()
+            .child(crate::issue_graph::graph_in_dialog(
+                &graph,
+                BLOCKED_DIALOG_GRAPH_W,
+                cx,
+            ))
+            .children(note.clone().map(|note| {
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(note)
+            }))
+            .into_any_element()
+    })
 }
 
 impl BlockedStart {
@@ -3072,7 +3090,7 @@ impl BlockedStart {
 
     /// The batch body, or the one-issue sentence whose suffix offers the
     /// stacked start only while it is enabled.
-    fn description(&self) -> String {
+    pub(crate) fn description(&self) -> String {
         if self.batch() {
             blocked_start::BATCH_BODY.to_string()
         } else {
@@ -3185,19 +3203,31 @@ fn stack_choice(picked: &[String], cx: &App) -> (Option<StackedStart>, Option<St
         })
         .collect();
 
-    match blocked_start::stack_plan(picked.len(), &subject, &line, fork.as_deref(), cycle) {
+    let planned = blocked_start::stack_plan(picked.len(), &subject, &line, fork.as_deref(), cycle);
+    stack_outcome(planned, |first| {
+        if first == subject.identifier {
+            Some(subject_row.id.clone())
+        } else {
+            line_ids
+                .iter()
+                .find(|id| issues.get(id).is_some_and(|issue| issue.identifier == first))
+                .cloned()
+        }
+    })
+}
+
+/// What a plan means to the dialog: the stacked start (`run[0]`'s issue,
+/// resolved by `issue_id_of`) with its plan note, or no stack and the
+/// refusal's note. An unresolvable `run[0]` is no stack and no note.
+pub(crate) fn stack_outcome(
+    planned: Result<blocked_start::StackPlan, blocked_start::StackRefusal>,
+    issue_id_of: impl Fn(&str) -> Option<String>,
+) -> (Option<StackedStart>, Option<String>) {
+    match planned {
         Ok(plan) => {
             let first = plan.run.first().cloned().unwrap_or_default();
-            let issue_id = if first == subject.identifier {
-                subject_row.id.clone()
-            } else {
-                match line_ids
-                    .iter()
-                    .find(|id| issues.get(id).is_some_and(|issue| issue.identifier == first))
-                {
-                    Some(id) => id.clone(),
-                    None => return (None, None),
-                }
+            let Some(issue_id) = issue_id_of(&first) else {
+                return (None, None);
             };
             let note = blocked_start::stack_plan_note(&plan.run);
             (Some(StackedStart { issue_id, plan }), note)

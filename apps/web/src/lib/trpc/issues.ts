@@ -109,7 +109,10 @@ import { resolveMentions } from "@/lib/integrations/mentions"
 import { ensureSubscribed } from "@/lib/integrations/subscriptions"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 import {
+  awaitRebaseOffMergedBranch,
+  basedOnMergedPr,
   openStackThrough,
+  squashCommitTitle,
   stackedOnMessage,
   stackedOnOpenPr,
   type StackMember,
@@ -467,6 +470,37 @@ async function mergeOneIssuePr(
     })
   }
 
+  // The parent already MERGED (root first, then this child; a retry after a
+  // stack refusal): the EXP-324 heal behind that merge is fire-and-forget and
+  // this merge call would beat it, squashing INTO the parent's kept branch
+  // (the EXP-320 incident). Await the heal, then refuse while GitHub still
+  // reports the merged branch as the base. Before any claim.
+  const mergedParent = await basedOnMergedPr(ctx.db, {
+    teamId,
+    repoFullName,
+    prBaseBranch: row.prBaseBranch,
+  })
+  if (mergedParent && row.prBaseBranch) {
+    try {
+      await retargetChildrenOfMergedPr({
+        prUrl: mergedParent.prUrl,
+        headBranch: row.prBaseBranch,
+        teamId,
+      })
+    } catch (err) {
+      // The check below refuses a PR left on the merged branch.
+      console.error(`retarget before merging ${row.identifier}:`, err)
+    }
+    await awaitRebaseOffMergedBranch(ctx.db, {
+      repoFullName,
+      prNumber: row.prNumber,
+      prUrl: row.prUrl,
+      prBaseBranch: row.prBaseBranch,
+      mergedBranch: row.prBaseBranch,
+      token: resolved.token,
+    })
+  }
+
   // EXP-494: record the initiator BEFORE the GitHub merge call — the
   // `closed` webhook reliably beats the applyPrMergeState writes below,
   // and without the claim its fan-out degrades to the session-owner
@@ -490,7 +524,7 @@ async function mergeOneIssuePr(
       repo: repoFullName,
       prNumber: row.prNumber,
       token: resolved.token,
-      commitTitle: `${row.identifier}: ${row.title} (#${row.prNumber})`,
+      commitTitle: squashCommitTitle(row.identifier, row.title, row.prNumber),
     })
   } catch (err) {
     if (err instanceof GitHubAsyncMergePending) {
@@ -591,11 +625,6 @@ async function mergeOneIssuePr(
   return { merged: true }
 }
 
-/** GitHub computes mergeability lazily after a base move: `mergeable` reads
- *  null for a moment (and the base ref may lag one read). ≈10 s in all. */
-const STACK_SETTLE_MS = [1_000, 2_000, 3_000, 4_000]
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
-
 function stackPrName(pr: StackMergedPr): string {
   return `${pr.identifier} (#${pr.prNumber})`
 }
@@ -613,10 +642,9 @@ export function stackMergeFailureMessage(
 }
 
 /**
- * After the member below landed and the EXP-324 heal ran: wait until GitHub
- * reports this PR off the merged branch with its mergeability computed, and
- * sync the recorded base when GitHub moved it (the merge guard reads it).
- * Never squash INTO the merged branch: a base that stayed put refuses.
+ * After the member below landed and the EXP-324 heal ran: the shared
+ * `awaitRebaseOffMergedBranch` check, so this member never squashes INTO the
+ * merged branch.
  */
 async function awaitStackRebase(
   db: MergeCtx[`db`],
@@ -628,30 +656,14 @@ async function awaitStackRebase(
   const resolved = await resolveRepoInstallationTokenInfo(repo)
   // No token: the member's own merge names the cause.
   if (!resolved) return
-  let pull: Awaited<ReturnType<typeof getPullRequest>> | null = null
-  for (const delay of [0, ...STACK_SETTLE_MS]) {
-    if (delay) await sleep(delay)
-    try {
-      pull = await getPullRequest(repo, member.prNumber, resolved.token)
-    } catch {
-      // Unreadable: the merge itself reports what GitHub says.
-      return
-    }
-    if (pull.baseRef !== below.branch && pull.mergeable !== null) break
-  }
-  if (!pull) return
-  if (pull.baseRef === below.branch) {
-    throw new TRPCError({
-      code: `PRECONDITION_FAILED`,
-      message: `It is still based on ${below.branch}; retarget it onto the default branch (exponential_pr_retarget) and merge again`,
-    })
-  }
-  if (pull.baseRef && pull.baseRef !== member.prBaseBranch) {
-    await db
-      .update(issues)
-      .set({ prBaseBranch: pull.baseRef })
-      .where(eq(issues.prUrl, member.prUrl))
-  }
+  await awaitRebaseOffMergedBranch(db, {
+    repoFullName: repo,
+    prNumber: member.prNumber,
+    prUrl: member.prUrl,
+    prBaseBranch: member.prBaseBranch,
+    mergedBranch: below.branch,
+    token: resolved.token,
+  })
 }
 
 /**

@@ -1,5 +1,5 @@
-- Acties: automatiseringen zijn nu triggers op de actie die ze uitvoeren, en elke actie is een pagina met haar prompt, triggers en runs
-- Werkscherm: veeg tussen Issue, Run, Changes en Results, en Changes toont het aantal regels zodra de bestanden bekend zijn
-- Runs: een API-fout verschijnt als eigen regel in het transcript in plaats van een onterechte gebruikslimiet
-- Accounts: het standaardaccount per apparaat is verdwenen, een run start met de login die je het laatst gebruikte, tenzij je er een kiest
-- Stacks en batches: een rustiger badge in de header, kleinere issue-chips en een compacte grafiek van gerelateerd werk
+- Runs: workflows zijn verdwenen, een run plant en verdeelt zelf zijn werk en start zelf vervolgruns
+- Geblokkeerde issues: bij het starten kies je Cancel, Start anyway of Stacked PR, dat de hele reeks pull requests van onder naar boven opbouwt
+- Mergen: Merge op een gestapelde pull request vraagt Merge stack of Merge this pull request
+- Werkscherm: kiezers, het gebruiksoverzicht en het bestandsoverzicht openen bij de eerste tik
+- Tabblad Run: het transcript scrollt onder het invoerveld door, zodat de laatste regels bereikbaar blijven

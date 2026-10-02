@@ -65,6 +65,30 @@ const BranchIcon = conceptIcon(`ui-branch`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)
 const BatchIcon = conceptIcon(`pr-batch`)
 
+/**
+ * The rows one stack-dialog merge walks: the chain the choice already named
+ * (`choice.members`, bottom first, one label per pull request), through the
+ * member the call names. "Merge stack" takes the top, so the whole chain;
+ * "Merge this pull request" on a member above the bottom lands it and
+ * everything below. A plain merge walks nothing. Exported for its test.
+ */
+export function stackMergeEntries(
+  choice: StackMergeChoice,
+  input: StackMergeInput,
+  entries: readonly ReviewEntry[]
+): ReviewEntry[] {
+  if (!input.mergeStack) return []
+  const through =
+    input.issueId === choice.topIssueId ? choice.members.length : choice.position
+  // A label is the identifier, or `EXP-874 +2` for a batch pull request.
+  const named = new Set(
+    choice.members.slice(0, through).map((label) => label.split(` `)[0])
+  )
+  return entries.filter((entry) =>
+    entry.issues.some((issue) => named.has(issue.identifier))
+  )
+}
+
 interface ExternalMergeTarget {
   repositoryId: string
   fullName: string
@@ -205,11 +229,36 @@ function ReviewsPage() {
     const target = stackTarget
     if (!target) return
     setStackTarget(null)
-    runMerge(target.entry, input)
+    runMerge(target.entry, input, target.choice)
   }
 
-  function runMerge(entry: ReviewEntry, input: StackMergeInput) {
-    setMergingIds((prev) => new Set(prev).add(entry.key))
+  function runMerge(
+    entry: ReviewEntry,
+    input: StackMergeInput,
+    choice?: StackMergeChoice
+  ) {
+    // A stack merge lands several rows while the server walks the chain:
+    // every one of them spins, not only the pressed row, so none keeps a
+    // live Merge pill meanwhile.
+    const walked = choice
+      ? stackMergeEntries(
+          choice,
+          input,
+          groups.flatMap((group) => group.entries)
+        )
+      : []
+    const spinning = [entry, ...walked.filter((row) => row.key !== entry.key)]
+    const release = (rows: readonly ReviewEntry[]) =>
+      setMergingIds((prev) => {
+        const next = new Set(prev)
+        for (const row of rows) next.delete(row.key)
+        return next
+      })
+    setMergingIds((prev) => {
+      const next = new Set(prev)
+      for (const row of spinning) next.add(row.key)
+      return next
+    })
     setMergeErrors((prev) => {
       const next = { ...prev }
       delete next[entry.key]
@@ -220,6 +269,18 @@ function ReviewsPage() {
     // (EXP-498).
     trpc.issues.mergePr
       .mutate(input, { context: { skipErrorToast: true } })
+      .then((result) => {
+        // A stack merge can settle with members still open (a queued merge
+        // holds everything above it). The rows it landed keep their spinner
+        // until the echo removes them, like any merge; the rest are released.
+        if (!input.mergeStack) return
+        const landed = new Set((result.stack ?? []).map((pr) => pr.identifier))
+        release(
+          spinning.filter(
+            (row) => !row.issues.some((issue) => landed.has(issue.identifier))
+          )
+        )
+      })
       .catch((error: unknown) => {
         // Captioned on the row instead of toasted: the reason (GitHub's
         // verbatim "not mergeable") has to stay next to the recovery button,
@@ -231,11 +292,7 @@ function ReviewsPage() {
             }
           : mergeFailure(error, `The pull request could not be merged`)
         setMergeErrors((prev) => ({ ...prev, [entry.key]: failure }))
-        setMergingIds((prev) => {
-          const next = new Set(prev)
-          next.delete(entry.key)
-          return next
-        })
+        release(spinning)
       })
   }
 
