@@ -8,10 +8,19 @@
 // the CLI one-liner carrying a freshly minted one-time `EXP_INSTALL_TOKEN`
 // (EXP-1111: `devices.createInstallToken`, 15 minutes, reminted on expiry) so
 // the new daemon signs itself in. Until the token lands, or when minting
-// fails, the box holds the plain command: the CLI then prints a device code
-// and the /auth/device link to approve it. A machine that registers shows up
-// in the list underneath by itself.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+// fails, the box holds the plain command: the CLI then prints a device code.
+// Copying the command reveals the one field that approves such a code in
+// place (the same claim + approve calls as /auth/device); before the copy
+// the card is the command alone. A machine that registers shows up in the
+// list underneath by itself.
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react"
 import { useLiveQuery } from "@tanstack/react-db"
 import type { Device } from "@/db/schema"
 import {
@@ -20,9 +29,17 @@ import {
   getDeviceIcon,
   GlassRow,
   GlassSectionHeader,
+  Input,
+  Label,
   LiveDot,
   Pill,
 } from "@exp/ui"
+import { authClient } from "@/lib/auth/client"
+import {
+  deviceErrorMessage,
+  isCompleteUserCode,
+  normalizeUserCode,
+} from "@/lib/auth/device-code"
 import { deviceCollection } from "@/lib/collections"
 import {
   DESKTOP_RELEASES_URL,
@@ -69,7 +86,13 @@ function displayedSnippet(origin: string, token?: string): string {
 
 /** The icon-only copy control living INSIDE the install-snippet box
  * (EXP-697 — shared layout with the IDE's). */
-export function CopyIconButton({ text }: { text: string }) {
+export function CopyIconButton({
+  text,
+  onCopied,
+}: {
+  text: string
+  onCopied?: () => void
+}) {
   const [copied, setCopied] = useState(false)
   return (
     <Button
@@ -81,6 +104,7 @@ export function CopyIconButton({ text }: { text: string }) {
       onClick={() => {
         void navigator.clipboard.writeText(text)
         setCopied(true)
+        onCopied?.()
         window.setTimeout(() => setCopied(false), 1_500)
       }}
     >
@@ -200,6 +224,52 @@ export function DeviceSetup({
     return () => window.clearTimeout(timer)
   }, [active, minted, mint])
 
+  // Approving the CLI's device code here. The field only exists once the
+  // command was copied: that is the moment a code can turn up.
+  const [copied, setCopied] = useState(false)
+  const [code, setCode] = useState(``)
+  const [codeBusy, setCodeBusy] = useState(false)
+  const [codeError, setCodeError] = useState(``)
+  const [approved, setApproved] = useState(false)
+  useEffect(() => {
+    if (active) return
+    setCopied(false)
+    setCode(``)
+    setCodeError(``)
+    setApproved(false)
+  }, [active])
+
+  const approve = async (event: FormEvent) => {
+    event.preventDefault()
+    if (codeBusy || !isCompleteUserCode(code)) return
+    setCodeBusy(true)
+    setCodeError(``)
+    try {
+      // GET /api/auth/device claims the code for this session — approve
+      // refuses codes nobody claimed (the /auth/device page's two calls).
+      const claimed = await authClient.device({ query: { user_code: code } })
+      if (claimed.error) {
+        setCodeError(deviceErrorMessage(claimed.error))
+        return
+      }
+      const status = claimed.data?.status
+      if (status === `approved` || status === `denied`) {
+        setCodeError(`That code has already been used. Run the login command again.`)
+        return
+      }
+      const result = await authClient.device.approve({ userCode: code })
+      if (result.error) {
+        setCodeError(deviceErrorMessage(result.error))
+        return
+      }
+      setApproved(true)
+    } catch {
+      setCodeError(`Something went wrong. Try again.`)
+    } finally {
+      setCodeBusy(false)
+    }
+  }
+
   return (
     <div className="flex flex-col gap-4" data-testid="device-setup">
       <GlassRow className="flex-col items-stretch gap-3">
@@ -246,8 +316,49 @@ export function DeviceSetup({
           </pre>
           <CopyIconButton
             text={buildServerInstallSnippet(origin, minted?.token)}
+            onCopied={() => setCopied(true)}
           />
         </div>
+        {approved ? (
+          <p className="text-sm" data-testid="device-code-approved">
+            Code approved. The CLI signs in within a few seconds.
+          </p>
+        ) : (
+          copied && (
+            <form
+              onSubmit={(event) => void approve(event)}
+              className="flex flex-col gap-2"
+            >
+              <Label htmlFor="add-device-code">
+                If the CLI shows a code, enter it here
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  id="add-device-code"
+                  value={code}
+                  onChange={(event) => {
+                    setCode(normalizeUserCode(event.target.value))
+                    if (codeError) setCodeError(``)
+                  }}
+                  placeholder="XXXX-XXXX"
+                  maxLength={9}
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="font-mono tracking-widest"
+                />
+                <Button
+                  type="submit"
+                  disabled={codeBusy || !isCompleteUserCode(code)}
+                >
+                  Approve
+                </Button>
+              </div>
+              {codeError && (
+                <p className="text-sm text-destructive">{codeError}</p>
+              )}
+            </form>
+          )
+        )}
       </GlassRow>
 
       <div>
