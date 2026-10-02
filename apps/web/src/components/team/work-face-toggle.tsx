@@ -1,5 +1,9 @@
 import type { ReactNode } from "react"
-import { WorkFaceStrip, type WorkFaceStripDots } from "@exp/ui"
+import {
+  WorkFaceStrip,
+  type WorkFaceStripDots,
+  type WorkFaceStripRun,
+} from "@exp/ui"
 import { IssueRunMenuContent } from "@/components/issue-run-switcher"
 import type { CodingSession } from "@/db/schema"
 import type { PastRunRow } from "@/hooks/use-agents-data"
@@ -62,6 +66,7 @@ export function WorkFaceToggle({
   items,
   runMenu,
   dots,
+  run,
 }: {
   /** The face on show; `null` = none (every segment inactive). */
   face: WorkFace | null
@@ -69,6 +74,8 @@ export function WorkFaceToggle({
   runMenu?: WorkFaceRunMenu
   /** EXP-1162: the segments' state dots (`toggleFaceDots`). */
   dots?: WorkFaceStripDots
+  /** EXP-1162: the run whose brand mark the Run tab wears. */
+  run?: WorkFaceStripRun
 }) {
   // EXP-1152: the strip itself is `@exp/ui` `WorkFaceStrip` (the phone's
   // `MobileFaceTabs` and the styleguide wear the same one); this plugs in the
@@ -78,6 +85,7 @@ export function WorkFaceToggle({
       face={face}
       items={items}
       dots={dots}
+      run={run}
       runMenu={
         runMenu && runMenu.runs.length > 1
           ? {

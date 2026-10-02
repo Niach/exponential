@@ -25,6 +25,9 @@ describe(`detail chrome (contract fixture)`, () => {
       scrim: 0.72,
       faceDot: 6,
       faceDotGap: 6,
+      faceMark: 14,
+      faceMarkGap: 6,
+      faceMarkBadge: 6,
     })
   })
 })

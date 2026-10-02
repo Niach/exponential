@@ -377,6 +377,10 @@ function IssueDetailPage() {
         <WorkFaceToggle
           face={showResults ? `results` : `issue`}
           /* EXP-1162: the tabs carry the state — live run, open PR. */
+          run={{
+            agent: runTarget?.agent,
+            busy: runTarget?.agentBusy === true,
+          }}
           dots={toggleFaceDots(
             faceDots({
               faces: [
@@ -548,6 +552,7 @@ function MobileIssuePage({
       faces={faces}
       face={face}
       dots={dots}
+      run={{ agent: runTarget?.agent, busy: runTarget?.agentBusy === true }}
       runs={issueRuns}
       viewedRunId={runTarget?.id ?? null}
       changesCounts={changesCounts}

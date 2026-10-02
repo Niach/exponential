@@ -1136,6 +1136,7 @@ export function AgentSessionView({
       faces={phoneFaces}
       face={shownFace}
       dots={faceDots({ faces: phoneFaces, ...dotState })}
+      run={{ agent: session.agent, busy: working }}
       runs={issueRuns}
       viewedRunId={session.id}
       changesCounts={phoneChangesCounts}
@@ -1324,6 +1325,7 @@ export function AgentSessionView({
               <WorkFaceToggle
                 face={showDiffFace || showResultsFace ? face : `run`}
                 items={faceItems}
+                run={{ agent: session.agent, busy: working }}
                 dots={toggleFaceDots(
                   faceDots({
                     faces: faceItems.map((item) =>

@@ -43,3 +43,48 @@ export function AgentBrandMark({
   // agents concept stands in.
   return <SettingsAgentsIcon className={shared} />
 }
+
+/**
+ * EXP-923 / EXP-1162: a RUNNING run's mark — the agent's brand mark with the
+ * small "wants you" badge. One component for the sidebar's Running rows, the
+ * compact rail and the Work face strip's Run tab, so a live run reads the
+ * same wherever it is named (contract `detail-chrome.json` FACE MARKS, ×4).
+ */
+export function AgentRunMark({
+  agent,
+  needsInput = false,
+  needsYou = false,
+  pulse = false,
+  ringClassName = `ring-sidebar`,
+  className,
+}: {
+  agent: string | null | undefined
+  /** The run waits on a person: the amber badge. */
+  needsInput?: boolean
+  /** EXP-1068/1082 §4: an open question for a person — the RED badge, which
+   *  beats the amber one. */
+  needsYou?: boolean
+  /** The agent is mid-turn: the session screen's working beat. */
+  pulse?: boolean
+  /** The badge's ring is the ground it sits on. */
+  ringClassName?: string
+  className?: string
+}) {
+  return (
+    <span
+      className={cn(`relative flex size-3.5 items-center justify-center`, className)}
+    >
+      <AgentBrandMark agent={agent} className="size-3.5" pulse={pulse} />
+      {(needsInput || needsYou) && (
+        <span
+          aria-hidden
+          className={cn(
+            `absolute -top-0.5 -right-0.5 size-1.5 rounded-full ring-2`,
+            ringClassName,
+            needsYou ? `bg-red-500` : `bg-yellow-400`
+          )}
+        />
+      )}
+    </span>
+  )
+}

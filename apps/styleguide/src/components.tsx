@@ -1254,7 +1254,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `work-face-tabs`,
     title: `Work face tabs`,
     kind: `Inputs & pickers`,
-    blurb: `EXP-1152: the ONE strip every Work screen wears (the md+ work header, the phone's header band, the desktop IDE, iOS, Android): Issue · Run/Runs · +N −M · Results in that fixed order, the segmented capsule above. The Changes segment wears the diff's counts once its files are known and the word Changes until then (the desktop FaceToggle::diff rule); the Runs segment carries a caret to the run menu with several runs; an unavailable face is HIDDEN, never disabled, and the strip is absent under two faces. On phones the body under it is a PAGER: iOS TabView(.page), Android HorizontalPager, and on the web the face's body follows the finger and the next face slides in (the header band and the bar never move). EXP-1162 (contract \`detail-chrome.json\` face dots): the tabs carry the STATE, the header title never does. The Run tab wears a 6px dot while its run is live (emerald, amber while it waits on a person); an open pull request dots Results, or Changes when there is no Results face.`,
+    blurb: `EXP-1152: the ONE strip every Work screen wears (the md+ work header, the phone's header band, the desktop IDE, iOS, Android): Issue · Run/Runs · +N −M · Results in that fixed order, the segmented capsule above. The Changes segment wears the diff's counts once its files are known and the word Changes until then (the desktop FaceToggle::diff rule); the Runs segment carries a caret to the run menu with several runs; an unavailable face is HIDDEN, never disabled, and the strip is absent under two faces. On phones the body under it is a PAGER: iOS TabView(.page), Android HorizontalPager, and on the web the face's body follows the finger and the next face slides in (the header band and the bar never move). EXP-1162 (contract \`detail-chrome.json\` face marks): the tabs carry the STATE, the header title never does. The Run tab wears the run's agent brand mark while it is live (the sidebar Running row's mark, leading the label, beating while the agent works, with the amber badge while it waits on a person), never a dot; an open pull request puts a 6px dot on Results, or on Changes when there is no Results face.`,
     status: {
       web: ok(
         `WorkFaceStrip`,
@@ -1273,6 +1273,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         face="diff"
         // A run waiting on a person, and an open pull request.
         dots={{ run: `needs_input`, results: `review` }}
+        run={{ agent: `claude` }}
         items={[
           { face: `issue`, label: `Issue`, onSelect: noop },
           { face: `run`, label: `Runs`, onSelect: noop },
