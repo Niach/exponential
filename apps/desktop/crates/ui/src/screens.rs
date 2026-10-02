@@ -287,6 +287,9 @@ pub(crate) fn build_screen_content(
         Screen::Drafts => cx
             .new(|cx| crate::drafts_view::DraftsView::new(window, cx))
             .into(),
+        // EXP-1170: the New issue page is never undocked (one shared view
+        // owns the draft's autosave).
+        Screen::IssueDraft { .. } => cx.new(|_| NeverUndocked).into(),
         Screen::Actions => cx
             .new(|cx| crate::actions_view::ActionsView::new(window, cx))
             .into(),
@@ -310,6 +313,20 @@ pub(crate) fn build_screen_content(
         | Screen::Support
         | Screen::Files
         | Screen::SourceControl => cx.new(|_| NeverUndocked).into(),
+    }
+}
+
+/// EXP-1170: is `stored` the transient slot's entry for `screen`? A New
+/// issue page is ONE page per draft whatever board its chip moved it to
+/// (`navigation::set_draft_board` rewrites the screen in place), so drafts
+/// match by id; everything else by equality.
+fn same_transient(stored: &Screen, screen: &Screen) -> bool {
+    match (stored, screen) {
+        (
+            Screen::IssueDraft { draft_id: a, .. },
+            Screen::IssueDraft { draft_id: b, .. },
+        ) => a == b,
+        _ => stored == screen,
     }
 }
 
@@ -1059,9 +1076,13 @@ pub struct ScreensPanel {
     /// The Devices page (EXP-686 — the user's machines; the same tab-less
     /// full-page mode).
     devices: Entity<crate::devices_view::DevicesView>,
-    /// The Drafts page (EXP-878 — the create-issue dialogs closed with
-    /// content in them; the same tab-less full-page mode).
+    /// The Drafts page (EXP-878 — the New issue pages left with content in
+    /// them; the same tab-less full-page mode).
     drafts: Entity<crate::drafts_view::DraftsView>,
+    /// EXP-1170: the New issue page — ONE shared view re-pointed per draft
+    /// like the PR diff ([`Self::sync_issue_draft`]); a navigation off it
+    /// pays the draft out.
+    issue_draft: Entity<crate::issue_draft_screen::IssueDraftView>,
     /// The Actions page (EXP-467 — the team's action rows; EXP-480: a
     /// tab-less full-page mode like Settings).
     actions: Entity<crate::actions_view::ActionsView>,
@@ -1183,6 +1204,8 @@ impl ScreensPanel {
         let pr_diff = cx.new(|cx| crate::pr_diff::PrDiffView::new(window, cx));
         let devices = cx.new(|cx| crate::devices_view::DevicesView::new(window, cx));
         let drafts = cx.new(|cx| crate::drafts_view::DraftsView::new(window, cx));
+        let issue_draft =
+            cx.new(|cx| crate::issue_draft_screen::IssueDraftView::new(window, cx));
         let actions = cx.new(|cx| crate::actions_view::ActionsView::new(window, cx));
         let action = cx.new(|cx| crate::action_view::ActionView::new(window, cx));
         let chat = cx.new(|cx| crate::chat_screen::ChatScreenView::new(window, cx));
@@ -1200,6 +1223,9 @@ impl ScreensPanel {
         subscriptions.push(cx.observe_in(&nav, window, |this, _, window, cx| {
             this.sync_tabs(window, cx);
             this.sync_active_screen(cx);
+            // EXP-1170: point the New issue page at its draft, or pay the
+            // draft out when the navigation left it.
+            this.sync_issue_draft(window, cx);
             // A go-back can land on a diff whose PR merged while the entry
             // sat on the stack (EXP-525) — retire it immediately.
             this.dismiss_stale_pr_diff(window, cx);
@@ -1282,6 +1308,7 @@ impl ScreensPanel {
             pr_diff,
             devices,
             drafts,
+            issue_draft,
             actions,
             action,
             chat,
@@ -1313,8 +1340,26 @@ impl ScreensPanel {
         };
         this.sync_tabs(window, cx);
         this.sync_active_screen(cx);
+        this.sync_issue_draft(window, cx);
         this.sync_file_viewer(cx);
         this
+    }
+
+    /// EXP-1170: the New issue page follows the navigation — re-pointed at
+    /// the draft a [`Screen::IssueDraft`] names, and LEFT (its draft paid
+    /// out: saved, deleted when emptied, nothing when untouched) by every
+    /// navigation off it, a team switch included (that clears the screen).
+    fn sync_issue_draft(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        match resolved_screen(&self.nav, cx) {
+            Some(Screen::IssueDraft {
+                draft_id,
+                board_id,
+                status_id,
+            }) => self.issue_draft.update(cx, |view, cx| {
+                view.set_draft(draft_id, board_id, status_id, window, cx);
+            }),
+            _ => self.issue_draft.update(cx, |view, cx| view.leave(cx)),
+        }
     }
 
     /// EXP-369 (re-homed by EXP-238): the settings Personal panes hold
@@ -1438,7 +1483,7 @@ impl ScreensPanel {
         // EXP-851: the breadcrumb rule — the list comes from the screen we
         // navigated FROM (a list screen hands its own; another detail hands
         // the one it carries), and from nothing else. An explicit marker
-        // (deep link, OS notification, create dialog) still wins.
+        // (deep link, OS notification) still wins.
         let derived = {
             let previous = self.nav.read(cx).previous_screen().cloned();
             let previous_origin = previous
@@ -1452,7 +1497,7 @@ impl ScreensPanel {
             let existing = self
                 .transient_origin
                 .as_ref()
-                .filter(|(stored, _)| *stored == screen)
+                .filter(|(stored, _)| same_transient(stored, &screen))
                 .and_then(|(_, origin)| origin.clone());
             let origin =
                 resolve_tab_origin(pending_origin.as_ref(), existing.as_ref(), derived)
@@ -1584,6 +1629,7 @@ impl ScreensPanel {
             | Screen::SourceControl
             | Screen::Devices
             | Screen::Drafts
+            | Screen::IssueDraft { .. }
             | Screen::Actions
             | Screen::Action { .. }
             | Screen::Chat
@@ -3259,7 +3305,7 @@ impl Focusable for ScreensPanel {
 // DEV-ONLY one-shot dialog hook (§11.4 headless verification)
 // ---------------------------------------------------------------------------
 
-/// DEV-ONLY `EXP_DEV_DIALOG` values: `create-issue` | `search` |
+/// DEV-ONLY `EXP_DEV_DIALOG` values: `search` |
 /// `trigger-new:<action-uuid>` | `trigger-edit:<action-uuid>:<trigger-id>`
 /// (SLOP-2: the trigger form over that action's page) |
 /// `action-editor:<uuid>` (a legacy ALIAS — the edit dialog became the action
@@ -3272,7 +3318,6 @@ impl Focusable for ScreensPanel {
 /// for users.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum DevDialog {
-    CreateIssue,
     Search,
     ActionEditor(String),
     /// The action whose page gets a "New trigger" form.
@@ -3295,7 +3340,7 @@ enum DevDialog {
 
 /// The accepted [`DevDialog`] spellings, for the parse-failure log — a typo
 /// in a capture recipe must name its alternatives, not fail silently.
-const DEV_DIALOG_SPECS: &str = "create-issue | search | \
+const DEV_DIALOG_SPECS: &str = "search | \
     action-editor:<uuid> | trigger-new:<action-uuid> | \
     trigger-edit:<action-uuid>:<trigger-id> | \
     create-board | create-team | join-team[:<invite-token>] | add-server | \
@@ -3304,7 +3349,6 @@ const DEV_DIALOG_SPECS: &str = "create-issue | search | \
 
 fn parse_dev_dialog(spec: &str) -> Option<DevDialog> {
     match spec {
-        "create-issue" => Some(DevDialog::CreateIssue),
         "search" => Some(DevDialog::Search),
         "create-board" => Some(DevDialog::CreateBoard),
         "create-team" => Some(DevDialog::CreateTeam),
@@ -3352,7 +3396,6 @@ fn parse_dev_dialog(spec: &str) -> Option<DevDialog> {
 /// A [`DevDialog`] whose precondition has RESOLVED — the ids its opener takes
 /// are snapshotted here so the delayed spawn never re-reads the store.
 enum DevDialogTarget {
-    CreateIssue { board_id: String },
     Search,
     ActionEditor { action_id: String },
     TriggerNew { action_id: String },
@@ -3368,9 +3411,6 @@ enum DevDialogTarget {
 
 fn open_dev_dialog(target: DevDialogTarget, window: &mut Window, cx: &mut App) {
     match target {
-        DevDialogTarget::CreateIssue { board_id } => {
-            crate::create_issue_dialog::open(window, cx, board_id)
-        }
         DevDialogTarget::Search => crate::search_sheet::open_search(window, cx),
         DevDialogTarget::ActionEditor { action_id } => {
             crate::actions_view::open_action_page(window, cx, action_id)
@@ -3412,17 +3452,13 @@ pub(crate) fn dev_dialog_settled() -> bool {
     dev_dialog_spec().is_none() || DIALOG_OPENED.load(std::sync::atomic::Ordering::SeqCst)
 }
 
-/// The DEV-ONLY spec this run asked for: `EXP_DEV_DIALOG`, or the legacy
-/// `EXP_DEV_CREATE_DIALOG=1` kept working as an alias for `create-issue`.
+/// The DEV-ONLY spec this run asked for: `EXP_DEV_DIALOG`. (EXP-1170: the
+/// create dialog and its `EXP_DEV_CREATE_DIALOG` alias are gone — the New
+/// issue page is `EXP_DEV_SCREEN=draft`.)
 fn dev_dialog_spec() -> Option<String> {
-    if let Ok(spec) = std::env::var("EXP_DEV_DIALOG") {
-        let spec = spec.trim();
-        if !spec.is_empty() {
-            return Some(spec.to_string());
-        }
-    }
-    (std::env::var("EXP_DEV_CREATE_DIALOG").as_deref() == Ok("1"))
-        .then(|| "create-issue".to_string())
+    let spec = std::env::var("EXP_DEV_DIALOG").ok()?;
+    let spec = spec.trim();
+    (!spec.is_empty()).then(|| spec.to_string())
 }
 
 impl ScreensPanel {
@@ -3433,9 +3469,6 @@ impl ScreensPanel {
         let store = Store::global(cx);
         let signed_in = matches!(store.session(cx), sync::SessionPhase::Synced { .. });
         Some(match dialog {
-            DevDialog::CreateIssue => DevDialogTarget::CreateIssue {
-                board_id: active_board_id(&self.nav, cx)?,
-            },
             DevDialog::Search => {
                 // `open_search` self-guards on both — gate here too so the
                 // one-shot latch is never spent on a silent no-op.
@@ -3611,6 +3644,7 @@ impl Render for ScreensPanel {
             Some(Screen::SourceControl) => self.render_source_control_screen(window, cx),
             Some(Screen::Devices) => self.devices.clone().into_any_element(),
             Some(Screen::Drafts) => self.drafts.clone().into_any_element(),
+            Some(Screen::IssueDraft { .. }) => self.issue_draft.clone().into_any_element(),
             Some(Screen::Actions) => self.actions.clone().into_any_element(),
             Some(Screen::Action { .. }) => self.action.clone().into_any_element(),
             Some(Screen::Chat) => self.chat.clone().into_any_element(),
@@ -3727,9 +3761,41 @@ fn pinned_panel_root(
 #[cfg(test)]
 mod tests {
     use super::{
-        lead_reserve_px, neighbor_in_strip, parse_run_face, partition_tabs, resolve_tab_origin,
-        resume_swaps, takes_over_tab, ChipLead, RunFace,
+        lead_reserve_px, neighbor_in_strip, parse_dev_dialog, parse_run_face, partition_tabs,
+        resolve_tab_origin, resume_swaps, same_transient, takes_over_tab, ChipLead, DevDialog,
+        RunFace, DEV_DIALOG_SPECS,
     };
+
+    /// EXP-1170: the transient slot keeps a draft's list across a board
+    /// change (the chip rewrites the screen in place).
+    #[test]
+    fn a_draft_keeps_its_transient_slot_across_a_board_change() {
+        let draft = |board: &str| crate::navigation::Screen::IssueDraft {
+            draft_id: "d1".into(),
+            board_id: board.into(),
+            status_id: None,
+        };
+        assert!(same_transient(&draft("b1"), &draft("b2")));
+        let other = crate::navigation::Screen::IssueDraft {
+            draft_id: "d2".into(),
+            board_id: "b1".into(),
+            status_id: None,
+        };
+        assert!(!same_transient(&draft("b1"), &other));
+        assert!(same_transient(
+            &crate::navigation::Screen::Reviews,
+            &crate::navigation::Screen::Reviews
+        ));
+    }
+
+    /// EXP-1170: the create dialog is gone, and so is its dev spelling —
+    /// the New issue page is a SCREEN (`EXP_DEV_SCREEN=draft`).
+    #[test]
+    fn the_create_issue_dev_dialog_is_gone() {
+        assert_eq!(parse_dev_dialog("create-issue"), None);
+        assert_eq!(parse_dev_dialog("search"), Some(DevDialog::Search));
+        assert!(!DEV_DIALOG_SPECS.contains("create-issue"));
+    }
 
     /// EXP-895/EXP-879 (dev): `EXP_DEV_RUN_FACE` opens a run on its Changes
     /// or its Results face, so the capture lane photographs either without

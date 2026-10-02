@@ -17,6 +17,9 @@ struct MoveBoardPicker: View {
     let selectedId: String
     let open: Binding<Bool>
     var onDismiss: (() -> Void)?
+    /// The sheet's title — the `…` item's words by default; the New issue
+    /// page (EXP-1170) picks its draft's board, not a move.
+    var title: String = "Move to board"
     let onSelect: (BoardEntity) -> Void
 
     var body: some View {
@@ -29,7 +32,7 @@ struct MoveBoardPicker: View {
             },
             // The same words as the `…` item that opens it: the sheet must
             // not read as a plain board switch.
-            title: "Move to board",
+            title: title,
             open: open,
             hideTrigger: true,
             onDismiss: onDismiss,

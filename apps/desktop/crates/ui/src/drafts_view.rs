@@ -1,9 +1,10 @@
-//! The Drafts center screen (EXP-878): the create-issue dialogs this user
-//! closed with something in them, most recently touched first.
+//! The Drafts center screen (EXP-878): the New issue pages this user left
+//! with something in them, most recently touched first.
 //!
 //! A tab-less full-page screen like Devices / Reviews — context-free, so it
 //! leaves the rail up and lends no list to what it opens. Clicking a row
-//! REOPENS its dialog seeded from the row ([`crate::create_issue_dialog::open_draft`]);
+//! REOPENS its New issue page seeded from the row
+//! ([`crate::issue_draft_screen::open_existing`], EXP-1170);
 //! the row's hover-revealed ✕ deletes it outright (there is nothing
 //! destructive to confirm — a draft is by definition unfiled, and the whole
 //! feature exists so nothing has to be confirmed).
@@ -61,8 +62,8 @@ impl DraftsView {
     }
 
     /// One draft row: the resolved status glyph, the title (or a muted
-    /// "Untitled draft"), the board it would be filed onto, when it was last
-    /// touched, and the hover-revealed delete.
+    /// [`domain::issue_draft::UNTITLED`]), the board it would be filed onto,
+    /// when it was last touched, and the hover-revealed delete.
     fn draft_row(
         &self,
         index: usize,
@@ -93,7 +94,7 @@ impl DraftsView {
         };
         let title: SharedString = title
             .map(SharedString::from)
-            .unwrap_or_else(|| "Untitled draft".into());
+            .unwrap_or_else(|| domain::issue_draft::UNTITLED.into());
 
         let mut meta = h_flex()
             .min_w_0()
@@ -149,7 +150,7 @@ impl DraftsView {
                 else {
                     return; // raced a delete elsewhere
                 };
-                crate::create_issue_dialog::open_draft(window, cx, &draft);
+                crate::issue_draft_screen::open_existing(window, cx, &draft);
             }))
             .child(
                 div()
@@ -222,7 +223,7 @@ impl Render for DraftsView {
             v_flex().min_w_0().child(crate::controls::empty_state(
                 Icon::from(registry::NAV_DRAFTS),
                 "No drafts",
-                "Close the new-issue dialog with something in it and it waits for you here.",
+                "Start a new issue and leave it unfinished, and it waits for you here.",
                 cx,
             ))
         } else {

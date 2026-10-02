@@ -158,14 +158,14 @@ struct IssueParentLine: View {
 struct IssueSubIssuesSection: View {
     let vm: IssueDetailViewModel
     let subIssues: IssueRelationsView.SubIssues
-    /// The composer route that files a sub-issue; nil = the reader cannot
-    /// create issues here.
-    let addRoute: AppRoute?
+    /// Opens the New issue page filing a sub-issue (EXP-1170: the host mints
+    /// the draft id at TAP time); nil = the reader cannot create issues here.
+    let onAdd: (() -> Void)?
     let onOpen: (String) -> Void
 
     var body: some View {
         if subIssues.rows.isEmpty {
-            if let addRoute { addRow(addRoute) }
+            if let onAdd { addRow(onAdd) }
         } else {
             VStack(alignment: .leading, spacing: 0) {
                 GlassSectionBand(IssueRelationsView.Copy.subIssues) {
@@ -180,8 +180,8 @@ struct IssueSubIssuesSection: View {
                             .font(.caption.monospaced())
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     }
-                    if let addRoute {
-                        NavigationLink(value: addRoute) {
+                    if let onAdd {
+                        Button(action: onAdd) {
                             AppIcon(AppIcons.uiAdd, size: 14, weight: .medium)
                                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                                 .frame(width: 28, height: 24)
@@ -210,8 +210,8 @@ struct IssueSubIssuesSection: View {
         }
     }
 
-    private func addRow(_ route: AppRoute) -> some View {
-        NavigationLink(value: route) {
+    private func addRow(_ onAdd: @escaping () -> Void) -> some View {
+        Button(action: onAdd) {
             HStack(spacing: 8) {
                 AppIcon(AppIcons.uiAdd, size: 14, weight: .medium)
                 Text(IssueRelationsView.Copy.addSubIssues)

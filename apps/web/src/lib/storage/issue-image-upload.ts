@@ -100,7 +100,7 @@ export function draftUploadPath(draftId: string) {
 }
 
 /**
- * EXP-878: an image pasted/dropped into the CREATE dialog. Uploads are eager
+ * EXP-878: an image pasted/dropped into the New issue page (EXP-1170). Uploads are eager
  * there — the row exists before the issue does (`attachments.draft_id`), so
  * the description carries the final `/api/attachments/{id}` URL from the
  * moment the image lands, exactly like the issue-detail editor.
@@ -113,8 +113,8 @@ export async function uploadDraftImageFile(draftId: string, file: File) {
   )
 }
 
-/** EXP-878: a non-image attachment on a draft — the create dialog's Files
- *  rail, reparented onto the issue by `issues.create({ draftId })`. */
+/** EXP-878: a non-image attachment on a draft — the New issue page's Files
+ *  section, reparented onto the issue by `issues.create({ draftId })`. */
 export async function uploadDraftFile(draftId: string, file: File) {
   return postIssueUpload(draftUploadPath(draftId), file, `Failed to upload file`)
 }

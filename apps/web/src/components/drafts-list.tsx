@@ -14,6 +14,7 @@ import { relativeTime } from "@/components/comment-rows/format"
 import { useDraftEntries } from "@/hooks/use-issue-drafts"
 import { issueDraftCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
+import { openDraftNavigation } from "@/lib/issue-draft-page"
 
 const NavDraftsIcon = conceptIcon(`nav-drafts`)
 const DeleteIcon = conceptIcon(`ui-delete`)
@@ -22,16 +23,19 @@ const DeleteIcon = conceptIcon(`ui-delete`)
 // at. A band over flat rows (`GlassSectionHeader` + `ListRow`, EXP-818), the
 // status glyph a draft would file with, its board, when it was last touched,
 // and a hover-revealed delete at the trailing end. Clicking a row reopens the
-// create dialog on that draft's board (`?draft=<id>`), which is the only way
-// back into one.
+// draft on the New issue page (EXP-1170), which is the only way back into one.
 export function DraftsList({
   teamId,
   teamSlug,
   className,
+  from = `drafts`,
 }: {
   teamId: string | undefined
   teamSlug: string
   className?: string
+  /** The origin the reopened draft returns to: the md+ Drafts page, or the
+   *  phone inbox's Drafts tab. */
+  from?: `drafts` | `inbox:drafts`
 }) {
   const entries = useDraftEntries(teamId)
   const navigate = useNavigate()
@@ -58,7 +62,7 @@ export function DraftsList({
       <EmptyState
         icon={NavDraftsIcon}
         title="No drafts"
-        description="Close the new-issue dialog with something in it and it is kept here until you file it."
+        description="A new issue you leave with something in it is kept here until you file it."
       />
     )
   }
@@ -72,11 +76,14 @@ export function DraftsList({
           interactive
           className="group"
           onClick={() =>
-            void navigate({
-              to: `/t/$teamSlug/boards/$boardSlug`,
-              params: { teamSlug, boardSlug: entry.board.slug },
-              search: { draft: entry.draft.id },
-            })
+            void navigate(
+              openDraftNavigation({
+                teamSlug,
+                draftId: entry.draft.id,
+                boardId: entry.board.id,
+                from,
+              })
+            )
           }
         >
           <IssueStatusIcon

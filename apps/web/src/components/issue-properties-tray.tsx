@@ -1,3 +1,4 @@
+import type { ReactNode } from "react"
 import type { Board, Issue, User } from "@/db/schema"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import { useTeamById } from "@/hooks/use-team-data"
@@ -78,10 +79,7 @@ export function IssuePropertiesTray({
     ) : null
 
   return (
-    <div className={`${WORK_COLUMN_CLASS} px-4 pt-3`}>
-      {/* The IDE's `glass_tray`: the section fill inside the card hairline
-          (`bg-popover/40` vanished against the panel). */}
-      <div className="flex items-center gap-1.5 rounded-xl border border-glass-stroke-card bg-glass-section">
+    <PropertiesTrayCard>
         <div className="min-w-0 flex-1">
           <IssuePropertiesPanel
             status={statusOption}
@@ -118,6 +116,19 @@ export function IssuePropertiesTray({
             {codingAction}
           </div>
         )}
+    </PropertiesTrayCard>
+  )
+}
+
+/** EXP-1170: the tray's card — the issue detail's and the New issue page's
+ *  properties row sit in the very same chrome. */
+export function PropertiesTrayCard({ children }: { children: ReactNode }) {
+  return (
+    <div className={`${WORK_COLUMN_CLASS} px-4 pt-3`}>
+      {/* The IDE's `glass_tray`: the section fill inside the card hairline
+          (`bg-popover/40` vanished against the panel). */}
+      <div className="flex items-center gap-1.5 rounded-xl border border-glass-stroke-card bg-glass-section">
+        {children}
       </div>
     </div>
   )

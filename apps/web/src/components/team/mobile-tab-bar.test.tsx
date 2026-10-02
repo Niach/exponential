@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { fireEvent, render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { Board, Team } from "@/db/schema"
 
@@ -10,6 +10,7 @@ import type { Board, Team } from "@/db/schema"
 // control never moves under the thumb.
 
 const route = vi.hoisted(() => ({ value: `` as string }))
+const navigate = vi.hoisted(() => vi.fn())
 
 vi.mock(`@tanstack/react-router`, () => ({
   Link: ({
@@ -25,6 +26,10 @@ vi.mock(`@tanstack/react-router`, () => ({
     </a>
   ),
   useParams: () => ({}),
+  useNavigate: () => navigate,
+  useRouter: () => ({
+    state: { location: { pathname: `/t/acme/devices`, search: {} } },
+  }),
   // `matchRoute({ to })` — the bar only ever asks whether a route is active.
   useMatchRoute: () => (args: { to: string }) => args.to === route.value,
 }))
@@ -87,12 +92,19 @@ describe(`MobileTabBar FAB (EXP-973)`, () => {
     }
   })
 
+  // EXP-1170: the arm opens the New issue PAGE on a draft minted at tap
+  // time, filing onto the fallback board off a board route.
   it(`points the New issue arm at the fallback board off a board route`, () => {
     route.value = `/t/$teamSlug/devices`
+    navigate.mockReset()
     renderBar()
-    expect(
-      screen.getByTestId(`compose-button`).getAttribute(`href`)
-    ).toBe(`/t/$teamSlug/boards/$boardSlug`)
+    fireEvent.click(screen.getByTestId(`compose-button`))
+    expect(navigate).toHaveBeenCalledTimes(1)
+    const target = navigate.mock.calls[0][0]
+    expect(target.to).toBe(`/t/$teamSlug/drafts/$draftId`)
+    expect(target.params.teamSlug).toBe(`acme`)
+    expect(target.params.draftId).toMatch(/^[0-9a-f-]{36}$/)
+    expect(target.search).toEqual({ board: `b1` })
   })
 
   it(`dims the New issue arm in place when the team has no board`, () => {

@@ -12,13 +12,15 @@
 // EXP-851 made the token the only input: `?from=` decides the sidebar occupant
 // (`sidebarOccupant`) and where Back goes. The vocabulary is the list set —
 // `board:<slug>`, `inbox`, `inbox:my-issues`, `support`, `agent`, `reviews`,
-// `action:<id>` (an action page's Runs) — plus one legacy spelling that still parses:
+// `action:<id>` (an action page's Runs), `drafts` (EXP-1170) — plus one legacy spelling that still parses:
 // `sessions` (the old `agent`).
 // Pure, so every combination is a test.
 
 /** The list a detail sits beside / returns to. */
 export type DetailOrigin =
-  | { kind: `inbox`; tab?: `my-issues` }
+  /** EXP-1170: `drafts` = the phone inbox's Drafts tab — a draft reopened
+   *  from it returns there, not to Notifications. */
+  | { kind: `inbox`; tab?: `my-issues` | `drafts` }
   | { kind: `board`; boardSlug: string }
   | { kind: `support` }
   | { kind: `reviews` }
@@ -34,6 +36,9 @@ export type DetailOrigin =
    *  (`work-tabs.ts` `TABLESS_ORIGIN`), and the sidebar keeps its MAIN menu
    *  (the section the row lives in IS the list). */
   | { kind: `running` }
+  /** EXP-1170: the Drafts list (md+ `/drafts`) — a draft reopened from it
+   *  returns there. No list panel: the page is the list. */
+  | { kind: `drafts` }
 
 /** The screen a navigation starts FROM. `other` is every full-page screen
  * (Devices, the Actions list, Settings…) — the context-free set, desktop
@@ -154,7 +159,7 @@ export function formatOrigin(origin: DetailOrigin | null): string | undefined {
   if (!origin) return undefined
   switch (origin.kind) {
     case `inbox`:
-      return origin.tab === `my-issues` ? `inbox:my-issues` : `inbox`
+      return origin.tab ? `inbox:${origin.tab}` : `inbox`
     case `board`:
       return `board:${origin.boardSlug}`
     case `support`:
@@ -167,6 +172,8 @@ export function formatOrigin(origin: DetailOrigin | null): string | undefined {
       return `action:${origin.actionId}`
     case `running`:
       return `running`
+    case `drafts`:
+      return `drafts`
   }
 }
 
@@ -179,10 +186,12 @@ export function parseOrigin(
   if (!value) return null
   if (value === `inbox`) return { kind: `inbox` }
   if (value === `inbox:my-issues`) return { kind: `inbox`, tab: `my-issues` }
+  if (value === `inbox:drafts`) return { kind: `inbox`, tab: `drafts` }
   if (value === `support`) return { kind: `support` }
   if (value === `reviews`) return { kind: `reviews` }
   if (value === `agent` || value === `sessions`) return { kind: `agent` }
   if (value === `running`) return { kind: `running` }
+  if (value === `drafts`) return { kind: `drafts` }
   const board = value.match(/^board:([^:]+)$/)
   if (board) return { kind: `board`, boardSlug: board[1] }
   const action = value.match(/^action:([^:]+)$/)
@@ -209,6 +218,8 @@ export function originLabel(
       return name || `Action`
     case `running`:
       return `Running`
+    case `drafts`:
+      return `Drafts`
     case `board`:
       return name || `Board`
   }
@@ -243,7 +254,7 @@ export function originListNavigation(
       return {
         to: `/t/$teamSlug/inbox`,
         params: { teamSlug },
-        search: origin.tab === `my-issues` ? { tab: `my-issues` } : {},
+        search: origin.tab ? { tab: origin.tab } : {},
       }
     case `support`:
       return { to: `/t/$teamSlug/support`, params: { teamSlug }, search: {} }
@@ -257,6 +268,8 @@ export function originListNavigation(
         params: { teamSlug, actionId: origin.actionId },
         search: { tab: `runs` },
       }
+    case `drafts`:
+      return { to: `/t/$teamSlug/drafts`, params: { teamSlug }, search: {} }
     case `running`:
       // The sidebar's Running section is not a page — a run opened from it
       // has no list to go back to, so each caller falls back (a run to the
@@ -288,6 +301,8 @@ function isDetailRest(rest: string): boolean {
   if (/^\/sessions\/[^/]+$/.test(rest)) return true
   if (/^\/reviews\/[^/]+$/.test(rest)) return true
   if (/^\/support\/[^/]+$/.test(rest)) return true
+  // EXP-1170: the New issue page is the issue detail in draft mode.
+  if (/^\/drafts\/[^/]+$/.test(rest)) return true
   return false
 }
 
@@ -328,7 +343,11 @@ export function sidebarOccupant(
  * panel on that page) and `running` never had one — both keep the main menu,
  * while still naming where Back goes. */
 export function originHasListNav(origin: DetailOrigin): boolean {
-  return origin.kind !== `agent` && origin.kind !== `running`
+  return (
+    origin.kind !== `agent` &&
+    origin.kind !== `running` &&
+    origin.kind !== `drafts`
+  )
 }
 
 /** EXP-870: how deep an occupant sits — the main menu 0, a list nav (or a

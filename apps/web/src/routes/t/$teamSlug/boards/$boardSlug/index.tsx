@@ -1,15 +1,13 @@
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { BoardNotFound } from "@/components/board-not-found"
 import { BulkActionBar } from "@/components/bulk-action-bar"
-import { CreateIssueDialog } from "@/components/create-issue-dialog"
 import { GettingStartedSection } from "@/components/getting-started/getting-started-section"
 import { IssueList } from "@/components/issue-list"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { Button, conceptIcon } from "@exp/ui"
 import { useBoardViewData } from "@/hooks/use-board-view-data"
-import { useIssueDraft } from "@/hooks/use-issue-drafts"
-import { issueCollection } from "@/lib/collections"
+import { useOpenNewDraft } from "@/hooks/use-open-new-draft"
 import { useIssueSearch } from "@/hooks/use-issue-search"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import type { StatusRowOption } from "@/lib/team-statuses"
@@ -20,79 +18,29 @@ const NavSearchIcon = conceptIcon(`nav-search`)
 
 // validateSearch drops anything unrecognised.
 type BoardSearch = {
-  description?: string
   /** EXP-856: the origin token a detail hands BACK when it returns here
    *  (`lib/detail-origin.ts`). A board is a list screen, so the sidebar keeps
    *  its main menu either way — the param only has to survive the round trip
    *  instead of being dropped on the way in. */
   from?: string
-  new?: 1
-  title?: string
-  /** EXP-878: reopen the create dialog on this DRAFT (the Drafts list's row
-   *  click). Cleared when the dialog closes, never when it opens — the dialog
-   *  needs the id for its whole session. */
-  draft?: string
 }
 
 export const Route = createFileRoute(
   `/t/$teamSlug/boards/$boardSlug/`
 )({
+  // EXP-1170: no create keys any more — New issue is a page of its own.
   validateSearch: (search: Record<string, unknown>): BoardSearch => ({
-    new: search.new === 1 || search.new === `1` ? 1 : undefined,
-    title: typeof search.title === `string` ? search.title : undefined,
-    description:
-      typeof search.description === `string` ? search.description : undefined,
     from:
       typeof search.from === `string` && search.from ? search.from : undefined,
-    draft:
-      typeof search.draft === `string` && search.draft
-        ? search.draft
-        : undefined,
   }),
   component: BoardPage,
 })
 
 function BoardPage() {
   const { boardSlug, teamSlug } = Route.useParams()
-  const search = Route.useSearch()
   const navigate = useNavigate()
   const issueSearch = useIssueSearch()
-  const [createIssueOpen, setCreateIssueOpen] = useState(false)
-  const [defaultStatus, setDefaultStatus] = useState<
-    StatusRowOption | undefined
-  >()
-  const [prefill, setPrefill] = useState<
-    { title?: string; description?: string } | undefined
-  >(undefined)
-
-  const draft = useIssueDraft(search.draft)
-
-  // A `?draft=` link opens the dialog straight onto that draft.
-  useEffect(() => {
-    if (search.draft) setCreateIssueOpen(true)
-  }, [search.draft])
-
-  useEffect(() => {
-    if (search.new === 1 || search.title || search.description) {
-      setCreateIssueOpen(true)
-      setPrefill({
-        title: search.title,
-        description: search.description,
-      })
-      // Clear only the one-shot create keys.
-      void navigate({
-        to: `/t/$teamSlug/boards/$boardSlug`,
-        params: { teamSlug, boardSlug },
-        search: (prev) => ({
-          ...prev,
-          new: undefined,
-          title: undefined,
-          description: undefined,
-        }),
-        replace: true,
-      })
-    }
-  }, [search.new, search.title, search.description, navigate, teamSlug, boardSlug])
+  const openNewDraft = useOpenNewDraft(teamSlug)
 
   const {
     issueLabelMap,
@@ -125,10 +73,11 @@ function BoardPage() {
     [visibleGroups, selectedIds]
   )
 
+  // EXP-1170: the empty state's pill and a group header's "+" open the New
+  // issue page on THIS board, the "+" seeding its group's status.
   const handleNewIssue = (status?: StatusRowOption) => {
-    if (!permissions.canCreate) return
-    setDefaultStatus(status)
-    setCreateIssueOpen(true)
+    if (!permissions.canCreate || !board) return
+    openNewDraft({ boardId: board.id, status })
   }
 
   if (!board || !team) {
@@ -236,50 +185,6 @@ function BoardPage() {
           }
         />
       </div>
-
-      <CreateIssueDialog
-        open={createIssueOpen}
-        onOpenChange={(next) => {
-          setCreateIssueOpen(next)
-          if (next) return
-          setPrefill(undefined)
-          // EXP-878: the draft key is dropped on CLOSE — dropping it on open
-          // would pull the id out from under the dialog mid-session.
-          if (search.draft) {
-            void navigate({
-              to: `/t/$teamSlug/boards/$boardSlug`,
-              params: { teamSlug, boardSlug },
-              search: (prev) => ({ ...prev, draft: undefined }),
-              replace: true,
-            })
-          }
-        }}
-        boardId={board.id}
-        boardPrefix={board.prefix}
-        boardColor={board.color}
-        teamId={team.id}
-        teamSlug={teamSlug}
-        defaultStatus={defaultStatus}
-        prefill={prefill}
-        users={users}
-        draftId={search.draft}
-        draft={draft}
-        onCreated={async ({ issue, txId, boardSlug: createdBoardSlug }) => {
-          // EXP-878: land ON the issue that was just filed. Waiting for the
-          // txId means the detail route finds its row already synced instead
-          // of flashing a "not found" while Electric catches up.
-          await issueCollection.utils.awaitTxId(txId)
-          void navigate({
-            to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
-            params: {
-              teamSlug,
-              boardSlug: createdBoardSlug,
-              issueIdentifier: issue.identifier,
-            },
-            search: { from: `board:${boardSlug}` },
-          })
-        }}
-      />
     </div>
   )
 }

@@ -17,11 +17,12 @@ public enum GlassMetaRowTokens {
 /// The whole row is the Button — a tap anywhere opens the picker, which is why
 /// there is no chevron to advertise it.
 ///
-/// It started life as `CreateIssueView.metadataRow`; the issue Properties sheet
-/// grew its own near-copy with a chevron and a leading gutter glyph, so mobile
-/// showed two different property lists for the same five properties. This is
-/// the shared one both now render, stacked with `GlassDivider()` between rows
-/// (Android's `MetaRow`, dp for pt).
+/// It started life as the old create page's metadata row; the issue
+/// Properties sheet grew its own near-copy with a chevron and a leading gutter
+/// glyph, so mobile showed two different property lists for the same five
+/// properties. The Properties sheet renders it, stacked with `GlassDivider()`
+/// between rows (Android's `MetaRow`, dp for pt); since EXP-1170 the New issue
+/// page wears the issue face's chip box instead.
 public struct GlassMetaRow: View {
     let label: String
     let icon: String

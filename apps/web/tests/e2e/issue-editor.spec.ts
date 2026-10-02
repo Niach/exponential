@@ -24,17 +24,17 @@ async function createBoard(page: Page, app: AppFixture) {
 
 async function replaceIssueDescription(
   page: Page,
-  dialog: Locator,
+  scope: Locator,
   text: string
 ) {
-  const editor = dialog.getByLabel(`Issue description`)
+  const editor = scope.getByLabel(`Issue description`)
   await editor.click()
   await editor.press(SELECT_ALL_SHORTCUT)
   await page.keyboard.type(text)
 }
 
-async function selectDueDate(page: Page, dialog: Locator, dataDay: string) {
-  await dialog
+async function selectDueDate(page: Page, scope: Locator, dataDay: string) {
+  await scope
     .getByRole(`button`, { name: /Due date|^[A-Z][a-z]{2} \d{1,2}$/ })
     .click()
   const calendar = page.locator(`[data-slot="calendar"]`).last()
@@ -43,49 +43,62 @@ async function selectDueDate(page: Page, dialog: Locator, dataDay: string) {
     .locator(`[data-slot="calendar"] [data-day="${dataDay}"]`)
     .last()
     .click()
-  await dialog.getByPlaceholder(`Issue title`).click()
+  await scope.getByPlaceholder(`Issue title`).click()
   await expect(calendar).toBeHidden()
 }
 
 async function attachImage(
   page: Page,
-  dialog: Locator,
+  scope: Locator,
   filename = `draft-image.png`
 ) {
   const fileChooserPromise = page.waitForEvent(`filechooser`)
-  await dialog.getByLabel(`Add image`).click()
+  await scope.getByLabel(`Add image`).click()
   const fileChooser = await fileChooserPromise
   await fileChooser.setFiles({
     name: filename,
     mimeType: `image/png`,
     buffer: PNG_BUFFER,
   })
-  // EXP-878: uploads are EAGER now — in the create dialog they go to the
-  // draft's own route and the FINAL attachment URL is what lands in the
-  // description. Wait for that, or the next click races an in-flight upload
-  // (submit is blocked while one is running).
-  await expect(dialog.locator(`img.editor-image`).last()).toHaveAttribute(
+  // EXP-878: uploads are EAGER — on the New issue page they go to the draft's
+  // own route and the FINAL attachment URL is what lands in the description.
+  // Wait for that, or the next click races an in-flight upload.
+  await expect(scope.locator(`img.editor-image`).last()).toHaveAttribute(
     `src`,
     /\/api\/attachments\//,
     { timeout: 20_000 }
   )
 }
 
+/** EXP-1170: New issue is a PAGE — a fresh draft id in the URL. */
+async function openNewIssuePage(page: Page) {
+  await page.getByRole(`button`, { name: `New issue`, exact: true }).click()
+  await expect(page).toHaveURL(/\/t\/[^/]+\/drafts\/[0-9a-f-]{36}/)
+  const draftPage = page.getByTestId(`issue-draft-page`)
+  await expect(draftPage).toBeVisible()
+  return draftPage
+}
+
 /**
- * EXP-878: a create LANDS on the issue it just filed. Every board-list
- * assertion that used to follow a create has to step back explicitly — and
- * asserting the landing on the way past is the cheapest coverage of it.
+ * EXP-878/1170: Create LANDS on the issue it just filed (replacing the draft
+ * page in history). Every board-list assertion that follows a create has to
+ * step back explicitly — asserting the landing on the way past is the
+ * cheapest coverage of it.
  */
 async function backToBoardAfterCreate(page: Page, app: AppFixture) {
   await expect(page).toHaveURL(
     new RegExp(`/t/[^/]+/boards/${app.boardSlug}/issues/`)
   )
-  await page.goBack()
-  await page.reload()
-  await expect(page.getByRole(`heading`, { name: `Issues` })).toBeVisible()
+  await page.goto(page.url().replace(/\/issues\/.*$/, ``))
+  await expect(page.locator(`[data-testid^="issue-row-"]`).first()).toBeVisible()
 }
 
-test(`creates and edits an issue through the shared issue editor`, async ({
+/** The issue detail's body (title, tray, description) on md+. */
+function issueDetail(page: Page) {
+  return page.locator(`[data-detail-scroll]`)
+}
+
+test(`creates an issue on the New issue page and edits it on the detail`, async ({
   app,
   page,
 }) => {
@@ -96,31 +109,29 @@ test(`creates and edits an issue through the shared issue editor`, async ({
     new RegExp(`/t/[^/]+/boards/${app.boardSlug}/?$`)
   )
 
-  await page.getByRole(`button`, { name: `New Issue` }).click()
+  const draftPage = await openNewIssuePage(page)
+  // The header names the page; there is no identifier yet.
+  await expect(draftPage.getByRole(`button`, { name: `Create` })).toBeDisabled()
 
-  const createDialog = page.locator(`[data-testid="issue-editor-create"]`)
-  await expect(createDialog).toBeVisible()
+  await draftPage.getByPlaceholder(`Issue title`).fill(app.issueTitle)
+  await replaceIssueDescription(page, draftPage, app.issueDescription)
 
-  await createDialog.getByPlaceholder(`Issue title`).fill(app.issueTitle)
-  await replaceIssueDescription(page, createDialog, app.issueDescription)
-
-  await createDialog.getByRole(`button`, { name: `Label` }).click()
+  await draftPage.getByRole(`button`, { name: `Label` }).click()
   await page.getByText(`Create label`).click()
   await page.getByPlaceholder(`Label name`).fill(app.labelName)
   await page.getByLabel(`Select label color ${app.labelColor}`).click()
   await page.getByRole(`button`, { name: `Create label` }).click()
   await page.keyboard.press(`Escape`)
 
-  await createDialog.getByRole(`button`, { name: `Assignee` }).click()
+  await draftPage.getByRole(`button`, { name: `Assignee` }).click()
   await page.getByText(app.owner.name, { exact: true }).click()
 
-  await createDialog.getByRole(`button`, { name: `No priority` }).click()
+  await draftPage.getByRole(`button`, { name: `No priority` }).click()
   await page.getByRole(`menuitem`, { name: `High` }).click()
 
-  await selectDueDate(page, createDialog, app.dueDate.dataDay)
+  await selectDueDate(page, draftPage, app.dueDate.dataDay)
 
-  await createDialog.getByRole(`button`, { name: `Create issue` }).click()
-  await expect(createDialog).toBeHidden()
+  await draftPage.getByRole(`button`, { name: `Create` }).click()
   await backToBoardAfterCreate(page, app)
 
   const createdRow = page
@@ -144,227 +155,124 @@ test(`creates and edits an issue through the shared issue editor`, async ({
   }
 
   const row = page.locator(`[data-testid="issue-row-${identifier}"]`)
-  await expect(row.locator(`span.font-mono`)).toHaveText(identifier)
-
   await row.click()
 
-  const editDialog = page.locator(`[data-testid="issue-editor-edit"]`)
-  await expect(editDialog).toBeVisible()
-  await expect(
-    editDialog.getByRole(`button`, { name: app.labelName })
-  ).toBeVisible()
+  // Editing happens on the issue detail: title + description save on blur,
+  // the property chips at once.
+  const detail = issueDetail(page)
+  await expect(detail.getByPlaceholder(`Issue title`)).toHaveValue(
+    app.issueTitle
+  )
+  await detail.getByPlaceholder(`Issue title`).fill(app.updatedIssueTitle)
+  await replaceIssueDescription(page, detail, app.updatedIssueDescription)
+  await detail.getByPlaceholder(`Issue title`).click()
 
-  const titleInput = editDialog.getByPlaceholder(`Issue title`)
-  await titleInput.fill(app.updatedIssueTitle)
-  await editDialog.getByLabel(`Issue description`).click()
-  await replaceIssueDescription(page, editDialog, app.updatedIssueDescription)
-
-  await editDialog.getByRole(`button`, { name: `Backlog` }).click()
+  await detail.getByRole(`button`, { name: `Backlog` }).click()
   await page.getByRole(`menuitem`, { name: `In Progress` }).click()
 
-  await editDialog.getByRole(`button`, { name: `High` }).click()
+  await detail.getByRole(`button`, { name: `High` }).click()
   await page.getByRole(`menuitem`, { name: `Urgent` }).click()
 
-  await editDialog.getByRole(`button`, { name: app.labelName }).click()
-  await page
-    .getByLabel(`Suggestions`)
-    .getByText(app.labelName, { exact: true })
-    .click()
-  await page.keyboard.press(`Escape`)
-
-  await editDialog.getByRole(`button`, { name: `Close dialog` }).click()
-  await expect(editDialog).toBeHidden()
   await page.reload()
-  await expect(page.getByRole(`heading`, { name: `Issues` })).toBeVisible()
-
-  await expect(row).toContainText(app.updatedIssueTitle)
-  await expect(row).not.toContainText(app.labelName)
-
-  await row.click()
-  await expect(editDialog).toBeVisible()
-  await expect(editDialog.getByPlaceholder(`Issue title`)).toHaveValue(
+  await expect(detail.getByPlaceholder(`Issue title`)).toHaveValue(
     app.updatedIssueTitle
   )
-  await expect(editDialog.getByLabel(`Issue description`)).toContainText(
+  await expect(detail.getByLabel(`Issue description`)).toContainText(
     app.updatedIssueDescription
   )
-  await expect(
-    editDialog.getByRole(`button`, { name: `In Progress` })
-  ).toBeVisible()
-  await expect(editDialog.getByRole(`button`, { name: `Urgent` })).toBeVisible()
-  await expect(editDialog.getByRole(`button`, { name: `Label` })).toBeVisible()
-
-  await editDialog.getByRole(`button`, { name: `In Progress` }).click()
-  await page.getByRole(`menuitem`, { name: `Done` }).click()
-  await editDialog.getByRole(`button`, { name: `Close dialog` }).click()
-  await expect(editDialog).toBeHidden()
-  await page.reload()
-  await expect(page.getByRole(`heading`, { name: `Issues` })).toBeVisible()
-
-  await expect(
-    page.locator(
-      `[data-status-key="in_progress"] [data-testid="issue-row-${identifier}"]`
-    )
-  ).toHaveCount(0)
-  await expect(
-    page.locator(
-      `[data-status-key="done"] [data-testid="issue-row-${identifier}"]`
-    )
-  ).toBeVisible()
-
-  // Filter to backlog-only via the filter popover (the tab presets are gone,
-  // EXP-251) — the done issue disappears; clearing the filter brings it back.
-  await page.getByRole(`button`, { name: `Filter` }).click()
-  await page.getByRole(`option`, { name: `Status` }).click()
-  await page.getByRole(`option`, { name: `Backlog` }).click()
-  await page.keyboard.press(`Escape`)
-  await expect(
-    page.locator(`[data-testid="issue-row-${identifier}"]`)
-  ).toHaveCount(0)
-
-  await page.getByRole(`button`, { name: `Clear all` }).click()
-  await expect(
-    page.locator(
-      `[data-status-key="done"] [data-testid="issue-row-${identifier}"]`
-    )
-  ).toBeVisible()
+  await expect(detail.getByRole(`button`, { name: `In Progress` })).toBeVisible()
+  await expect(detail.getByRole(`button`, { name: `Urgent` })).toBeVisible()
 })
 
-test(`uploads create-time images, shows them in the footer rail, and removes them from the footer rail`, async ({
+test(`uploads images into the draft and carries them onto the created issue`, async ({
   app,
   page,
 }) => {
   await registerUser(page, app.owner)
   await createBoard(page, app)
 
-  await expect(page).toHaveURL(
-    new RegExp(`/t/[^/]+/boards/${app.boardSlug}/?$`)
-  )
+  const draftPage = await openNewIssuePage(page)
+  await draftPage.getByPlaceholder(`Issue title`).fill(app.issueTitle)
+  await replaceIssueDescription(page, draftPage, app.issueDescription)
+  await attachImage(page, draftPage)
 
-  await page.getByRole(`button`, { name: `New Issue` }).click()
-
-  const createDialog = page.locator(`[data-testid="issue-editor-create"]`)
-  await expect(createDialog).toBeVisible()
-
-  await createDialog.getByPlaceholder(`Issue title`).fill(app.issueTitle)
-  await replaceIssueDescription(page, createDialog, app.issueDescription)
-  await attachImage(page, createDialog)
-
-  // EXP-878: the create dialog uploads eagerly into its DRAFT, so the image
-  // is already a real attachment before the issue exists — no blob: URL, and
-  // nothing left to upload after the create.
-  const draftImage = createDialog.locator(`img.editor-image`)
+  // EXP-878: the page uploads eagerly into its DRAFT, so the image is already
+  // a real attachment before the issue exists — no blob: URL, and nothing
+  // left to upload after the create. Images render inline only.
+  const draftImage = draftPage.locator(`img.editor-image`)
   await expect(draftImage).toHaveCount(1)
   await expect(draftImage).toHaveAttribute(`src`, /\/api\/attachments\//)
-  // EXP-586: images render inline only — no chip row, no count.
-  await expect(createDialog.getByTestId(`issue-attachment-rail`)).toHaveCount(0)
+  await expect(draftPage.getByTestId(`issue-files-section`)).toHaveCount(0)
 
-  await createDialog.getByRole(`button`, { name: `Create issue` }).click()
-  await expect(createDialog).toBeHidden()
-  await backToBoardAfterCreate(page, app)
+  await draftPage.getByRole(`button`, { name: `Create` }).click()
+  await expect(page).toHaveURL(
+    new RegExp(`/t/[^/]+/boards/${app.boardSlug}/issues/`)
+  )
 
-  const createdRow = page
-    .locator(`[data-testid^="issue-row-"]`)
-    .filter({ hasText: app.issueTitle })
-
-  await expect(createdRow).toHaveCount(1)
-  await createdRow.click()
-
-  const editDialog = page.locator(`[data-testid="issue-editor-edit"]`)
-  await expect(editDialog).toBeVisible()
-  await expect(editDialog.getByLabel(`Issue description`)).toContainText(
+  const detail = issueDetail(page)
+  await expect(detail.getByLabel(`Issue description`)).toContainText(
     app.issueDescription
   )
-  await expect(editDialog.getByTestId(`issue-attachment-rail`)).toContainText(
-    `draft-image.png`
-  )
-  await expect(editDialog.getByTestId(`issue-attachment-rail`)).toContainText(
-    `1 image`
-  )
-  await expect(editDialog.locator(`img.editor-image`)).toHaveCount(1)
-  await expect(editDialog.locator(`img.editor-image`)).toHaveAttribute(
+  await expect(detail.locator(`img.editor-image`)).toHaveCount(1)
+  await expect(detail.locator(`img.editor-image`)).toHaveAttribute(
     `src`,
     /\/api\/attachments\//
   )
 
-  await editDialog
-    .getByRole(`button`, { name: `Remove attachment draft-image.png` })
-    .click()
-  await expect(editDialog.locator(`img.editor-image`)).toHaveCount(0)
-  await expect(
-    editDialog.getByRole(`button`, {
-      name: `Remove attachment draft-image.png`,
-    })
-  ).toHaveCount(0)
-  await expect(editDialog.getByTestId(`issue-attachment-rail`)).toContainText(
-    `0 images`
-  )
-
-  await editDialog.getByRole(`button`, { name: `Close dialog` }).click()
-  await expect(editDialog).toBeHidden()
-  await page.reload()
-  await expect(page.getByRole(`heading`, { name: `Issues` })).toBeVisible()
-
-  await createdRow.click()
-  await expect(editDialog).toBeVisible()
-  await expect(editDialog.locator(`img.editor-image`)).toHaveCount(0)
-  await expect(editDialog.getByTestId(`issue-attachment-rail`)).toContainText(
-    `0 images`
-  )
-})
-
-test(`removes uploaded images from the inline hover control`, async ({
-  app,
-  page,
-}) => {
-  await registerUser(page, app.owner)
-  await createBoard(page, app)
-
-  await expect(page).toHaveURL(
-    new RegExp(`/t/[^/]+/boards/${app.boardSlug}/?$`)
-  )
-
-  await page.getByRole(`button`, { name: `New Issue` }).click()
-
-  const createDialog = page.locator(`[data-testid="issue-editor-create"]`)
-  await expect(createDialog).toBeVisible()
-
-  await createDialog.getByPlaceholder(`Issue title`).fill(app.issueTitle)
-  await replaceIssueDescription(page, createDialog, app.issueDescription)
-  await attachImage(page, createDialog)
-  await createDialog.getByRole(`button`, { name: `Create issue` }).click()
-  await expect(createDialog).toBeHidden()
-  await backToBoardAfterCreate(page, app)
-
-  const createdRow = page
-    .locator(`[data-testid^="issue-row-"]`)
-    .filter({ hasText: app.issueTitle })
-
-  await expect(createdRow).toHaveCount(1)
-  await createdRow.click()
-
-  const editDialog = page.locator(`[data-testid="issue-editor-edit"]`)
-  await expect(editDialog).toBeVisible()
-  await expect(editDialog.locator(`img.editor-image`)).toHaveCount(1)
-
-  const imageNode = editDialog.locator(`.editor-image-node`).first()
+  // The inline hover control removes it from the issue.
+  const imageNode = detail.locator(`.editor-image-node`).first()
   await imageNode.hover()
   await imageNode
     .getByRole(`button`, { name: `Image options for draft-image.png` })
     .click()
   await page.getByRole(`menuitem`, { name: `Delete` }).click()
+  await expect(detail.locator(`img.editor-image`)).toHaveCount(0)
 
-  await expect(editDialog.locator(`img.editor-image`)).toHaveCount(0)
-  await expect(editDialog.getByTestId(`issue-attachment-rail`)).toContainText(
-    `0 images`
+  await page.reload()
+  await expect(detail.getByLabel(`Issue description`)).toContainText(
+    app.issueDescription
+  )
+  await expect(detail.locator(`img.editor-image`)).toHaveCount(0)
+})
+
+test(`keeps a draft on Back, reopens it from Drafts, and discards it`, async ({
+  app,
+  page,
+}) => {
+  await registerUser(page, app.owner)
+  await createBoard(page, app)
+
+  const draftPage = await openNewIssuePage(page)
+  const draftUrl = page.url()
+  // The open draft is the page itself, never a sidebar entry.
+  await expect(page.getByRole(`link`, { name: `Drafts` })).toHaveCount(0)
+
+  await draftPage.getByPlaceholder(`Issue title`).fill(app.issueTitle)
+  // Autosave: one coalesced write shortly after the last keystroke.
+  await page.waitForTimeout(1_500)
+
+  await page.goBack()
+  const draftsEntry = page.getByRole(`link`, { name: `Drafts` })
+  await expect(draftsEntry).toBeVisible()
+  await draftsEntry.click()
+
+  const list = page.getByTestId(`drafts-list`)
+  await expect(list).toContainText(app.issueTitle)
+  await list.getByText(app.issueTitle).click()
+
+  // The row reopens the SAME draft id.
+  const draftId = new URL(draftUrl).pathname.split(`/`).pop()
+  await expect(page).toHaveURL(new RegExp(`/drafts/${draftId}`))
+  const reopened = page.getByTestId(`issue-draft-page`)
+  await expect(reopened.getByPlaceholder(`Issue title`)).toHaveValue(
+    app.issueTitle
   )
 
-  await editDialog.getByRole(`button`, { name: `Close dialog` }).click()
-  await expect(editDialog).toBeHidden()
-  await page.reload()
-  await expect(page.getByRole(`heading`, { name: `Issues` })).toBeVisible()
+  await reopened.getByRole(`button`, { name: `Draft actions` }).click()
+  await page.getByRole(`menuitem`, { name: `Discard draft` }).click()
 
-  await createdRow.click()
-  await expect(editDialog).toBeVisible()
-  await expect(editDialog.locator(`img.editor-image`)).toHaveCount(0)
+  // Back to the Drafts list it came from, which has emptied out.
+  await expect(page).toHaveURL(/\/drafts\/?$/)
+  await expect(page.getByTestId(`drafts-list`)).toHaveCount(0)
+  await expect(page.getByRole(`link`, { name: `Drafts` })).toHaveCount(0)
 })

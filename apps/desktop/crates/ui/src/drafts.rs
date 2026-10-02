@@ -1,19 +1,19 @@
 //! EXP-878 issue drafts — the ONE place the desktop reads the per-user
 //! `issue_drafts` shape and fires `issueDrafts.upsert` / `.delete`.
 //!
-//! A draft is what the create-issue DIALOG kept when it was closed with
-//! something in it. There is no "Discard?" confirm anywhere: closing with
-//! content saves, closing an existing draft with everything cleared deletes,
-//! and an untouched blank close writes nothing. Exactly one write per close.
+//! A draft is what the New issue PAGE (EXP-1170, `issue_draft_screen`)
+//! autosaves while it has something in it. There is no "Discard?" confirm on
+//! leaving: content saves, an existing draft emptied out is deleted on leave,
+//! and an untouched blank page writes nothing (`draft_editor`).
 //!
 //! The shape is static per user and NOT team/trash scoped, so — like
 //! [`crate::pins`] — every reader here filters to the ACTIVE team and to rows
 //! whose BOARD still resolves in the sibling `boards` collection. A draft on
 //! a trashed board is simply hidden; it comes back when the board restores.
 //!
-//! Writes are fire-and-forget off the background executor (the
-//! `pins::toggle_pin` recipe): the synced row is the source of truth for the
-//! list, and there is no view left to report to on the close path anyway.
+//! The Drafts list's delete is fire-and-forget off the background executor
+//! (the `pins::toggle_pin` recipe): the synced row is the source of truth for
+//! the list. The page's own writes are sequenced by `draft_editor`.
 
 use chrono::NaiveDate;
 use gpui::App;
@@ -72,18 +72,19 @@ pub(crate) fn draft_title(draft: &IssueDraftRow) -> Option<String> {
         .map(str::to_string)
 }
 
-/// Is there anything in this composer worth keeping? The ONE rule behind
-/// every close path: a trimmed non-empty title, OR a non-empty description,
+/// Is there anything on this page worth keeping? The ONE rule behind every
+/// autosave and leave: a trimmed non-empty title, OR a non-empty description,
 /// OR at least one uploaded draft attachment. Property picks alone (a
-/// priority, a label) are not content — they are the dialog's defaults as
+/// priority, a label) are not content — they are the page's defaults as
 /// often as not, and saving on them would litter the list.
 pub(crate) fn has_content(title: &str, description: &str, attachment_count: usize) -> bool {
     !title.trim().is_empty() || !description.trim().is_empty() || attachment_count > 0
 }
 
-/// One draft write, read off the composer on the foreground and consumed on
-/// the background executor.
-#[derive(Clone, Debug)]
+/// One draft write, read off the New issue page on the foreground and
+/// consumed on the background executor. `PartialEq` so the autosave can
+/// tell an edit from a repaint.
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct DraftSave {
     pub(crate) id: String,
     pub(crate) team_id: String,
@@ -120,25 +121,34 @@ impl DraftSave {
     }
 }
 
-/// Fire `issueDrafts.upsert` for `save`. Fire-and-forget off the foreground:
-/// the synced row settles the Drafts list.
-pub(crate) fn save_draft(save: DraftSave, cx: &mut App) {
-    let Some(trpc) = queries::trpc_client(cx) else {
-        return;
-    };
-    let input = save.to_input();
-    cx.background_executor()
-        .spawn(async move {
-            if let Err(err) = api::issue_drafts::issue_drafts_upsert(&trpc, &input) {
-                log::warn!("[ui] issueDrafts.upsert({}) failed: {err}", input.id);
-            }
-        })
-        .detach();
+impl DraftSave {
+    /// The row this save writes, as the synced shape would carry it — what
+    /// the New issue page seeds from when it returns to a draft it wrote
+    /// whose echo has not synced yet ([`seed_from_row`] takes it as is).
+    pub(crate) fn as_row(&self) -> IssueDraftRow {
+        IssueDraftRow {
+            id: self.id.clone(),
+            user_id: None,
+            team_id: Some(self.team_id.clone()),
+            board_id: Some(self.board_id.clone()),
+            title: Some(self.title.clone()),
+            description: Some(self.description.clone()),
+            status_id: self.status_id.clone(),
+            priority: self.priority.as_wire().is_some().then_some(self.priority),
+            assignee_id: self.assignee_id.clone(),
+            label_ids: self.label_ids.clone(),
+            due_date: self
+                .due_date
+                .map(|date| date.format("%Y-%m-%d").to_string()),
+            created_at: None,
+            updated_at: None,
+        }
+    }
 }
 
-/// Fire `issueDrafts.delete` for `id` — the close path of a draft that was
-/// emptied out, and the Drafts list's row ✕. Fire-and-forget like
-/// [`save_draft`]; a row that is already gone answers `deleted: false`.
+/// Fire `issueDrafts.delete` for `id` — the Drafts list's row ✕ (the New
+/// issue page's own writes are `draft_editor`'s). Fire-and-forget; a row
+/// that is already gone answers `deleted: false`.
 pub(crate) fn delete_draft(id: String, cx: &mut App) {
     let Some(trpc) = queries::trpc_client(cx) else {
         return;
@@ -152,8 +162,8 @@ pub(crate) fn delete_draft(id: String, cx: &mut App) {
         .detach();
 }
 
-/// What opening a draft seeds the composer with — the synced row's fields
-/// resolved into the shapes the composer's own state uses.
+/// What opening a draft seeds the New issue page with — the synced row's
+/// fields resolved into the shapes the page's own state uses.
 #[derive(Clone, Debug)]
 pub(crate) struct DraftSeed {
     pub(crate) title: String,
@@ -251,6 +261,34 @@ mod tests {
         sort_drafts(&mut rows);
         let ids: Vec<&str> = rows.iter().map(|row| row.id.as_str()).collect();
         assert_eq!(ids, ["a", "c", "b", "z"]);
+    }
+
+    /// EXP-1170: a save read back as a row keeps every field the page seeds.
+    #[test]
+    fn a_save_reads_back_as_the_row_it_writes() {
+        let save = DraftSave {
+            id: "d-1".into(),
+            team_id: "t-1".into(),
+            board_id: "b-1".into(),
+            title: "Title".into(),
+            description: "Body".into(),
+            status_id: Some("s-1".into()),
+            priority: IssuePriority::High,
+            assignee_id: Some("u-1".into()),
+            label_ids: vec!["l-1".into()],
+            due_date: NaiveDate::from_ymd_opt(2026, 9, 14),
+        };
+        let row = save.as_row();
+        assert_eq!(row.id, "d-1");
+        assert_eq!(row.team_id.as_deref(), Some("t-1"));
+        assert_eq!(row.board_id.as_deref(), Some("b-1"));
+        assert_eq!(row.title.as_deref(), Some("Title"));
+        assert_eq!(row.description.as_deref(), Some("Body"));
+        assert_eq!(row.status_id.as_deref(), Some("s-1"));
+        assert_eq!(row.priority, Some(IssuePriority::High));
+        assert_eq!(row.assignee_id.as_deref(), Some("u-1"));
+        assert_eq!(row.label_ids, vec!["l-1".to_string()]);
+        assert_eq!(row.due_date.as_deref(), Some("2026-09-14"));
     }
 
     #[test]

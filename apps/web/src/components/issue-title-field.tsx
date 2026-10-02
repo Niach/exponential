@@ -46,22 +46,63 @@ export function IssueTitleField({
     }
   }
 
-  // A wrapping textarea (field-sizing-content), not an Input — long titles
-  // must wrap on narrow viewports instead of clipping (EXP-189). Enter
-  // commits via blur; titles stay single-logical-line.
+  return (
+    <IssueTitleInput
+      value={title}
+      onChange={setTitle}
+      onBlur={() => void handleTitleBlur()}
+      readOnly={readOnly}
+    />
+  )
+}
+
+/**
+ * EXP-1170: the bare title input both the issue detail and the New issue page
+ * draw. A wrapping textarea (field-sizing-content), not an Input — long
+ * titles must wrap on narrow viewports instead of clipping (EXP-189). Enter
+ * never inserts a newline: by default it commits via blur, `onEnter` lets the
+ * draft page move focus to the description instead. Titles stay
+ * single-logical-line.
+ */
+export function IssueTitleInput({
+  value,
+  onChange,
+  onBlur,
+  onEnter,
+  autoFocus,
+  placeholder = `Issue title`,
+  readOnly = false,
+  className,
+}: {
+  value: string
+  onChange: (value: string) => void
+  onBlur?: () => void
+  /** Replaces the default "Enter blurs". */
+  onEnter?: () => void
+  autoFocus?: boolean
+  placeholder?: string
+  readOnly?: boolean
+  className?: string
+}) {
   return (
     <Textarea
-      value={title}
+      value={value}
       rows={1}
-      onBlur={() => void handleTitleBlur()}
-      onChange={(e) => setTitle(e.target.value.replace(/\n/g, ``))}
+      autoFocus={autoFocus}
+      onBlur={onBlur}
+      onChange={(e) => onChange(e.target.value.replace(/\n/g, ``))}
       onKeyDown={(e) => {
-        if (e.key === `Enter`) {
-          e.preventDefault()
-          e.currentTarget.blur()
+        if (e.key !== `Enter`) return
+        e.preventDefault()
+        // Cmd/Ctrl+Enter bubbles to a host with its own Enter handling (the
+        // draft page's Create).
+        if (onEnter) {
+          if (!e.metaKey && !e.ctrlKey) onEnter()
+          return
         }
+        e.currentTarget.blur()
       }}
-      placeholder="Issue title"
+      placeholder={placeholder}
       disabled={readOnly}
       // EXP-424: ProseMirror's image drag carries the image URL as
       // `text/plain`, which a textarea happily accepts — an image dragged
@@ -72,7 +113,7 @@ export function IssueTitleField({
         e.dataTransfer.dropEffect = `none`
       }}
       onDrop={(e) => e.preventDefault()}
-      className={ISSUE_TITLE_FIELD_CLASS}
+      className={cn(ISSUE_TITLE_FIELD_CLASS, className)}
     />
   )
 }

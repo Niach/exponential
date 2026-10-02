@@ -8,7 +8,7 @@ import { pageTitle } from "@/lib/page-title"
 // entry, which only appears while the caller HAS a draft. Below md there is
 // no route: the Inbox grows a third tab instead, so a phone never navigates
 // to a page that can empty itself out from under it.
-export const Route = createFileRoute(`/t/$teamSlug/drafts`)({
+export const Route = createFileRoute(`/t/$teamSlug/drafts/`)({
   head: () => ({ meta: [{ title: pageTitle(`Drafts`) }] }),
   beforeLoad: async ({ context, location }) => {
     if (!context.session) {

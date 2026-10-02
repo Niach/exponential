@@ -1,16 +1,18 @@
 import type { Board, IssueDraft } from "@/db/schema"
 import type { IssuePriority } from "@/lib/domain"
+import { ISSUE_DRAFT_COPY } from "@/lib/issue-draft-page"
 
-// EXP-878: issue drafts — the pure half. Closing the create dialog with
-// content in it keeps a draft SILENTLY (no discard confirm on any path), so
-// every decision the dialog and the Drafts list make has to be a function
-// somebody can read: what counts as content, what the close writes, what a
-// reopened dialog is allowed to restore, and which rows a list may show.
+// EXP-878 / EXP-1170: issue drafts — the pure half. The New issue PAGE
+// autosaves to its draft row SILENTLY (no discard confirm on any path but the
+// explicit "Discard draft"), so every decision the page and the Drafts list
+// make has to be a function somebody can read: what counts as content, what a
+// write carries, what a reopened page is allowed to restore, and which rows a
+// list may show.
 
 /** The list's stand-in for a draft with no title yet. */
-export const draftTitleLabel = `Untitled draft`
+export const draftTitleLabel = ISSUE_DRAFT_COPY.untitled
 
-/** Everything the dialog holds that decides the draft row. */
+/** Everything the page holds that decides the draft row. */
 export interface DraftSnapshot {
   id: string
   teamId: string
@@ -60,7 +62,7 @@ export function toUpsertInput(snapshot: DraftSnapshot) {
   }
 }
 
-/** What a reopened dialog restores. */
+/** What a reopened draft page restores. */
 export interface DraftDialogSeed {
   id: string
   boardId: string
@@ -74,11 +76,11 @@ export interface DraftDialogSeed {
 }
 
 /**
- * Restore a draft into the dialog, DROPPING anything that no longer resolves:
+ * Restore a draft into the page, DROPPING anything that no longer resolves:
  * `label_ids` carries no foreign key and the assignee may have left the team,
  * so a stale id would either vanish on save or be refused by the create.
  * Resolving here (against the same synced collections the pickers read) keeps
- * the reopened form honest about what it will actually file.
+ * the reopened page honest about what it will actually file.
  */
 export function toDialogSeed(
   draft: IssueDraft,
@@ -122,7 +124,7 @@ export interface DraftEntry {
 /**
  * The drafts a team's list may show: this team's rows whose board still
  * resolves (a trashed, archived or left-behind board simply has none), newest
- * edit first — the order somebody who just closed a dialog expects.
+ * edit first — the order somebody who just left a draft expects.
  */
 export function resolveDraftEntries(
   drafts: readonly IssueDraft[],

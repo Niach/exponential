@@ -29,7 +29,8 @@ use gpui::{
 use sync::Store;
 
 use crate::actions::{
-    GoBack, GoForward, OpenAbout, OpenInbox, OpenIssue, OpenMyIssues, OpenBoard, OpenSettings,
+    GoBack, GoForward, NewIssue, OpenAbout, OpenInbox, OpenIssue, OpenMyIssues, OpenBoard,
+    OpenSettings,
     OpenSourceControl, OpenWhatsNew, SwitchTeam, SyncNow,
 };
 
@@ -76,11 +77,24 @@ pub enum Screen {
     /// user's machines and nothing else). Tab-less full-page mode like
     /// Settings (no sidebar, no tab chip), opened from the rail.
     Devices,
-    /// The Drafts page (EXP-878 — the create-issue dialogs this user closed
-    /// with content in them). Tab-less full-page mode like Devices, opened
-    /// from the rail's conditional Drafts entry; context-free, so it lends no
-    /// list to the dialog it reopens.
+    /// The Drafts page (EXP-878 — the New issue pages this user left with
+    /// content in them). Tab-less full-page mode like Devices, opened from
+    /// the rail's conditional Drafts entry; context-free, so it lends no list
+    /// to the page it reopens.
     Drafts,
+    /// EXP-1170: the NEW ISSUE page — the issue detail in DRAFT mode
+    /// ([`crate::issue_draft_screen`]). There is no create dialog any more:
+    /// every "New issue" opener mints `draft_id` at click time
+    /// (`api::issue_drafts::new_draft_id`) and navigates here; the Drafts
+    /// page's rows reopen a saved one under its own id. `board_id` EMPTY =
+    /// the window's active board (the [`Screen::BoardIssues`] sentinel);
+    /// `status_id` presets the status chip. Tab-less: it carries the list it
+    /// was opened from (a board keeps its rows beside it) and lends none.
+    IssueDraft {
+        draft_id: String,
+        board_id: String,
+        status_id: Option<String>,
+    },
     /// The Actions page (EXP-467 — the web `t/$teamSlug/actions` page 1:1:
     /// the team's action rows; editing lives in the edit dialog).
     /// EXP-480: a tab-less full-page mode like Settings (no sidebar, no tab
@@ -205,7 +219,10 @@ impl Screen {
         // EXP-791/EXP-870: a terminal is FULL WIDTH — this machine's shell is
         // not a step in any list, so it never inherits one.
         (self.is_detail() && !matches!(self, Screen::Terminal { .. }))
-            || matches!(self, Screen::PrDiff { .. } | Screen::Chat)
+            || matches!(
+                self,
+                Screen::PrDiff { .. } | Screen::Chat | Screen::IssueDraft { .. }
+            )
     }
 
     /// EXP-851: which LIST this screen IS, expressed as the [`TabOrigin`] a
@@ -400,6 +417,8 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
         Screen::SourceControl => "Source Control".into(),
         Screen::Devices => "Devices".into(),
         Screen::Drafts => "Drafts".into(),
+        // EXP-1170: the draft page names itself by the contract's header.
+        Screen::IssueDraft { .. } => domain::issue_draft::HEADER.into(),
         Screen::Actions => "Actions".into(),
         // The synced name, or the generic word while the row has not landed.
         Screen::Action { action_id } => Store::global(cx)
@@ -700,6 +719,43 @@ impl Navigation {
         self.recent_runs = false;
     }
 
+    /// EXP-1170: the pure rule behind [`navigate_replace`] — swap the CURRENT
+    /// screen for `screen` without pushing it onto the back stack (a filed
+    /// draft becomes its issue: Back from the issue skips the draft page).
+    /// A real navigation all the same: the forward stack is gone.
+    fn replace(&mut self, screen: Screen, origin: PendingOrigin) {
+        self.screen = Some(screen);
+        self.forward_stack.clear();
+        self.pending_origin = Some(origin);
+        self.recent_runs = false;
+    }
+
+    /// EXP-1170: the pure rule behind [`set_draft_board`] — every entry for
+    /// `draft_id` (the current screen and both stacks) now names `board_id`.
+    /// Returns whether anything changed.
+    fn retarget_draft(&mut self, draft_id: &str, board_id: &str) -> bool {
+        let mut changed = false;
+        let entries = self
+            .screen
+            .iter_mut()
+            .chain(self.back_stack.iter_mut())
+            .chain(self.forward_stack.iter_mut());
+        for screen in entries {
+            if let Screen::IssueDraft {
+                draft_id: id,
+                board_id: board,
+                ..
+            } = screen
+            {
+                if id == draft_id && board != board_id {
+                    *board = board_id.to_string();
+                    changed = true;
+                }
+            }
+        }
+        changed
+    }
+
     /// The pure rule behind [`go_forward`]: pop the forward stack, park the
     /// current screen for [`go_back`]. `None` with nothing forward.
     fn step_forward(&mut self) -> Option<Screen> {
@@ -717,6 +773,7 @@ impl Navigation {
 }
 
 /// DEV-ONLY `EXP_DEV_SCREEN` values: `settings` | `account` | `devices` |
+/// `drafts` | `draft` (EXP-1170: a fresh New issue page, active board) |
 /// `actions` | `action:<uuid>` (SLOP-2: one action's page) | `usage` |
 /// `board-issues` | `inbox` |
 /// `inbox-my-issues` | `support` | `files` | `source-control` (EXP-851 — the
@@ -743,6 +800,12 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
         "devices" => Some(Screen::Devices),
         // EXP-878: the drafts list.
         "drafts" => Some(Screen::Drafts),
+        // EXP-1170: a fresh New issue page on the window's active board.
+        "draft" => Some(Screen::IssueDraft {
+            draft_id: api::issue_drafts::new_draft_id(),
+            board_id: String::new(),
+            status_id: None,
+        }),
         "actions" => Some(Screen::Actions),
         // EXP-818: Usage folded into Devices (its Accounts section); the old
         // dev value lands there.
@@ -914,9 +977,11 @@ fn legacy_tool_screen() -> Option<Screen> {
 /// (`issue:…`, `support:…`, `session:…`) — the pair used to mean "tool column
 /// + centre tab" and now means "ListNav + main view", so it seeds the first
 /// navigation's explicit origin. `None` whenever either half is missing or
-/// the screen is not a detail (a list screen carries its own rail).
+/// the screen carries no list (a list screen carries its own rail).
+/// EXP-1170: gated on [`Screen::carries_list`], so `EXP_DEV_SCREEN=draft`
+/// beside `EXP_DEV_TOOL=board` photographs the draft page beside its board.
 fn dev_tab_origin(screen: Option<&Screen>) -> Option<TabOrigin> {
-    if !screen?.is_detail() {
+    if !screen?.carries_list() {
         return None;
     }
     let mut origin = legacy_tool_screen()?.list_origin()?;
@@ -1071,7 +1136,7 @@ pub fn remove_window(window_id: WindowId, cx: &mut App) {
 /// back stack (no-op when already there). The screens panel captures the
 /// tab's origin from the CURRENT rail tool + board (every sidebar-row click
 /// path runs with its tool already active); use [`navigate_from`] where the
-/// rail may point anywhere (create dialog, deep links).
+/// rail may point anywhere (deep links, OS notifications).
 pub fn navigate(window: &Window, cx: &mut App, screen: Screen) {
     navigate_inner(window, cx, screen, PendingOrigin::Derive);
 }
@@ -1099,7 +1164,7 @@ pub(crate) fn navigate_from_live_rail(window: &Window, cx: &mut App, screen: Scr
 /// Open an issue's detail LANDING FULLY SCOPED on its board (EXP-510): the
 /// board becomes the window's active one and the detail's left column is its
 /// board list, EXPLICITLY — for the paths where nothing on screen names the
-/// list (the create dialog, deep links, an OS notification). In-app row
+/// list (deep links, an OS notification). In-app row
 /// clicks keep plain [`navigate`]: the EXP-851 breadcrumb reads the list they
 /// came from.
 pub(crate) fn open_issue_scoped(
@@ -1226,6 +1291,37 @@ fn navigate_inner(window: &Window, cx: &mut App, screen: Screen, origin: Pending
     nav.update(cx, |nav, cx| {
         nav.advance(screen, origin, fallback);
         cx.notify();
+    });
+}
+
+/// EXP-1170: [`navigate`] that REPLACES the current screen instead of
+/// stacking on it (the filed draft → its issue detail). The list beside the
+/// new screen derives from the back stack's top, the screen the replaced one
+/// was opened from.
+pub(crate) fn navigate_replace(window: &Window, cx: &mut App, screen: Screen) {
+    if forward_to_owner_shell(window, cx, &screen) {
+        return;
+    }
+    let Some(nav) = nav_for_window_readonly(window, cx) else {
+        return;
+    };
+    nav.update(cx, |nav, cx| {
+        nav.replace(screen, PendingOrigin::Derive);
+        cx.notify();
+    });
+}
+
+/// EXP-1170: the New issue page's board chip moved the draft to `board_id` —
+/// the screen follows (so [`active_board_id`] does), in place: no history
+/// entry, no origin change.
+pub(crate) fn set_draft_board(window: &Window, cx: &mut App, draft_id: &str, board_id: &str) {
+    let Some(nav) = nav_for_window_readonly(window, cx) else {
+        return;
+    };
+    nav.update(cx, |nav, cx| {
+        if nav.retarget_draft(draft_id, board_id) {
+            cx.notify();
+        }
     });
 }
 
@@ -1739,6 +1835,17 @@ pub fn init(cx: &mut App) {
         );
     });
     cx.on_action(|_: &OpenSettings, cx| navigate_active(cx, Screen::Settings));
+    // EXP-1170: "New issue" (the §3.6 unit action) opens the New issue PAGE
+    // on the window's active board — the create dialog is gone.
+    cx.on_action(|_: &NewIssue, cx| {
+        on_active_window(cx, |window, cx| {
+            let nav = nav_for_window(window, cx);
+            let Some(board_id) = active_board_id(&nav, cx) else {
+                return; // no board in scope — nothing to create into
+            };
+            crate::issue_draft_screen::open_new(window, cx, board_id, None);
+        });
+    });
     cx.on_action(|_: &OpenSourceControl, cx| navigate_active(cx, Screen::SourceControl));
     // Manual freshness sync (fetch + ff-only catch-up) on the trunk engine.
     cx.on_action(|_: &SyncNow, cx| {
@@ -1889,6 +1996,18 @@ pub fn active_board_id(nav: &Entity<Navigation>, cx: &App) -> Option<String> {
             return Some(board_id);
         }
     }
+    // EXP-1170: so does the New issue page (unless it is the sentinel).
+    if let Some(Screen::IssueDraft { board_id, .. }) = resolved_screen(nav, cx) {
+        if !board_id.is_empty()
+            && collections
+                .boards
+                .read(cx)
+                .get(&board_id)
+                .is_some_and(|board| board.team_id == team_id)
+        {
+            return Some(board_id);
+        }
+    }
     if let Some(Screen::IssueDetail { issue_id }) = resolved_screen(nav, cx) {
         if let Some(board_id) = collections
             .issues
@@ -1968,6 +2087,19 @@ mod tests {
         assert_eq!(parse_dev_screen("devices"), Some(Screen::Devices));
         // EXP-878: a capture run reaches the Drafts page.
         assert_eq!(parse_dev_screen("drafts"), Some(Screen::Drafts));
+        // EXP-1170: a fresh New issue page — a minted id, the active board.
+        match parse_dev_screen("draft") {
+            Some(Screen::IssueDraft {
+                draft_id,
+                board_id,
+                status_id,
+            }) => {
+                assert!(!draft_id.is_empty());
+                assert!(board_id.is_empty(), "the active-board sentinel");
+                assert_eq!(status_id, None);
+            }
+            other => panic!("draft parsed to {other:?}"),
+        }
         assert_eq!(parse_dev_screen("actions"), Some(Screen::Actions));
         // SLOP-2: the Automations screen is gone; an action has its page.
         assert_eq!(parse_dev_screen("automations"), None);
@@ -2185,9 +2317,109 @@ mod tests {
             Screen::Session {
                 session_id: "s1".into(),
             },
+            // EXP-1170: the New issue page carries a list, it is not one.
+            draft_screen("d1", "b1"),
         ] {
             assert!(screen.list_origin().is_none(), "{screen:?}");
         }
+    }
+
+    fn draft_screen(draft_id: &str, board_id: &str) -> Screen {
+        Screen::IssueDraft {
+            draft_id: draft_id.into(),
+            board_id: board_id.into(),
+            status_id: None,
+        }
+    }
+
+    /// EXP-1170: the New issue page is a tab-less centre view that carries
+    /// the list it was opened from — never a tab, never undocked.
+    #[test]
+    fn the_draft_page_carries_a_list_but_is_no_tab() {
+        let draft = draft_screen("d1", "b1");
+        assert!(draft.carries_list());
+        assert!(!draft.is_detail());
+        assert!(!draft.undockable());
+        assert!(!draft.is_dock_tab());
+    }
+
+    /// EXP-1170: a draft opened from a board keeps that board beside it; one
+    /// opened from the Drafts page (context-free) shows the rail; and the
+    /// issue that REPLACES a filed draft derives from the back stack's top.
+    #[test]
+    fn derive_origin_rows_for_the_draft_page() {
+        let board_screen = Screen::BoardIssues {
+            board_id: "b1".into(),
+        };
+        let board = board_screen.list_origin().unwrap();
+        let draft = draft_screen("d1", "b1");
+        assert_eq!(derive_origin(Some(&board_screen), None, &draft), Some(board.clone()));
+        assert_eq!(derive_origin(Some(&Screen::Drafts), None, &draft), None);
+        let issue = Screen::IssueDetail {
+            issue_id: "i1".into(),
+        };
+        let mut nav = Navigation::new();
+        nav.screen = None;
+        nav.back_stack.clear();
+        nav.forward_stack.clear();
+        nav.advance(board_screen.clone(), PendingOrigin::Derive, None);
+        nav.advance(draft.clone(), PendingOrigin::Derive, None);
+        nav.replace(issue.clone(), PendingOrigin::Derive);
+        assert_eq!(
+            derive_origin(nav.previous_screen(), None, &issue),
+            Some(board)
+        );
+    }
+
+    /// EXP-1170: the board chip retargets every entry of THAT draft (screen
+    /// and both stacks), and nothing else.
+    #[test]
+    fn retarget_draft_moves_only_that_drafts_entries() {
+        let mut nav = Navigation::new();
+        nav.screen = Some(draft_screen("d1", "b1"));
+        nav.back_stack = vec![draft_screen("d2", "b1"), draft_screen("d1", "")];
+        nav.forward_stack = vec![draft_screen("d1", "b1")];
+        assert!(nav.retarget_draft("d1", "b2"));
+        assert_eq!(nav.screen, Some(draft_screen("d1", "b2")));
+        assert_eq!(
+            nav.back_stack,
+            vec![draft_screen("d2", "b1"), draft_screen("d1", "b2")]
+        );
+        assert_eq!(nav.forward_stack, vec![draft_screen("d1", "b2")]);
+        assert!(!nav.retarget_draft("d1", "b2"), "already there");
+    }
+
+    /// EXP-1170: `replace` swaps the current screen without stacking it —
+    /// Back from the filed issue lands where the draft was opened from — and
+    /// forks history like any real navigation.
+    #[test]
+    fn replace_swaps_the_screen_without_stacking_it() {
+        let board = Screen::BoardIssues {
+            board_id: "b1".into(),
+        };
+        let draft = draft_screen("d1", "b1");
+        let issue = Screen::IssueDetail {
+            issue_id: "i1".into(),
+        };
+        let mut nav = Navigation::new();
+        nav.screen = None;
+        nav.back_stack.clear();
+        nav.forward_stack = vec![Screen::Devices];
+        nav.advance(board.clone(), PendingOrigin::Derive, None);
+        nav.advance(draft.clone(), PendingOrigin::Derive, None);
+        nav.replace(issue.clone(), PendingOrigin::Derive);
+        assert_eq!(nav.screen(), Some(&issue));
+        assert_eq!(nav.previous_screen(), Some(&board));
+        assert_eq!(nav.back_stack, vec![board.clone()]);
+        assert!(nav.forward_stack.is_empty());
+        assert!(matches!(nav.pending_origin, Some(PendingOrigin::Derive)));
+        // A purge of the draft id leaves nothing behind in either stack.
+        nav.forward_stack.push(draft.clone());
+        nav.purge_history(|screen| {
+            matches!(screen, Screen::IssueDraft { draft_id, .. } if draft_id == "d1")
+        });
+        assert!(nav.forward_stack.is_empty());
+        assert_eq!(nav.back_stack, vec![board]);
     }
 
     /// EXP-851: the breadcrumb rule, one row per navigation the product can
@@ -2467,6 +2699,8 @@ mod tests {
         cx.update(|cx| {
             assert_eq!(screen_title(&Screen::Devices, cx), "Devices");
             assert_eq!(screen_title(&Screen::Drafts, cx), "Drafts");
+            // EXP-1170: the New issue page names itself by the contract.
+            assert_eq!(screen_title(&draft_screen("d1", ""), cx), "New issue");
             assert_eq!(screen_title(&Screen::Actions, cx), "Actions");
             assert_eq!(screen_title(&Screen::Reviews, cx), "Reviews");
             assert_eq!(

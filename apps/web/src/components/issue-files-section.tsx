@@ -74,10 +74,6 @@ export function IssueFilesSection({
 
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [pendingDelete, setPendingDelete] = useState<Attachment | null>(null)
-  const [deleting, setDeleting] = useState(false)
-  // EXP-955: the `.md` row being previewed in the markdown dialog.
-  const [previewFile, setPreviewFile] = useState<Attachment | null>(null)
 
   const handleFiles = async (selected: File[]) => {
     setError(null)
@@ -126,26 +122,80 @@ export function IssueFilesSection({
     }
   }
 
+  const handleDelete = async (file: FilesSectionFile) => {
+    const { txId } = await trpc.attachments.delete.mutate({ id: file.id })
+    await attachmentCollection.utils.awaitTxId(txId)
+  }
+
+  return (
+    <FilesSectionView
+      files={files}
+      readOnly={readOnly}
+      onAttach={handleFiles}
+      onDelete={handleDelete}
+      uploading={uploading}
+      error={error}
+    />
+  )
+}
+
+/** One row of the Files section — every attachment list has these fields. */
+export interface FilesSectionFile {
+  id: string
+  filename: string
+  contentType: string
+  sizeBytes: number
+  url: string
+}
+
+/**
+ * EXP-1170: the Files section's PRESENTATION — the issue detail
+ * (`IssueFilesSection`, the synced shape) and the New issue page (a draft's
+ * server-only attachments) render the same rows, the same attach button and
+ * the same delete confirm. `onDelete` rejects with the message to show.
+ */
+export function FilesSectionView({
+  files,
+  readOnly = false,
+  onAttach,
+  onDelete,
+  uploading = false,
+  error = null,
+}: {
+  files: readonly FilesSectionFile[]
+  readOnly?: boolean
+  onAttach: (files: File[]) => void | Promise<void>
+  onDelete: (file: FilesSectionFile) => Promise<void>
+  uploading?: boolean
+  error?: string | null
+}) {
+  const [pendingDelete, setPendingDelete] = useState<FilesSectionFile | null>(
+    null
+  )
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  // EXP-955: the `.md` row being previewed in the markdown dialog.
+  const [previewFile, setPreviewFile] = useState<FilesSectionFile | null>(null)
+
   const handleConfirmDelete = async () => {
     if (!pendingDelete) return
     setDeleting(true)
-    setError(null)
+    setDeleteError(null)
     try {
-      const { txId } = await trpc.attachments.delete.mutate({
-        id: pendingDelete.id,
-      })
-      await attachmentCollection.utils.awaitTxId(txId)
+      await onDelete(pendingDelete)
       setPendingDelete(null)
-    } catch (deleteError) {
-      setError(
-        deleteError instanceof Error
-          ? deleteError.message
+    } catch (deleteFailure) {
+      setDeleteError(
+        deleteFailure instanceof Error
+          ? deleteFailure.message
           : `Failed to delete file`
       )
     } finally {
       setDeleting(false)
     }
   }
+
+  const shownError = deleteError ?? error
 
   // Nothing to show — stay out of the way entirely. Attaching the first file
   // happens through the description toolbar's attach button (EXP-335), so an
@@ -168,7 +218,7 @@ export function IssueFilesSection({
             <IssueEditorAttachmentButton
               accept="*/*"
               label="Attach file"
-              onFiles={handleFiles}
+              onFiles={(picked) => void onAttach(picked)}
               uploading={uploading}
             />
           )
@@ -259,7 +309,9 @@ export function IssueFilesSection({
           Uploading...
         </p>
       )}
-      {error && <p className="mt-1.5 text-xs text-destructive">{error}</p>}
+      {shownError && (
+        <p className="mt-1.5 text-xs text-destructive">{shownError}</p>
+      )}
 
       <AttachmentMarkdownPreviewDialog
         attachment={previewFile}

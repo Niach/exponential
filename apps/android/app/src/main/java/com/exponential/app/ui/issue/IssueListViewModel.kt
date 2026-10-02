@@ -3,14 +3,7 @@ package com.exponential.app.ui.issue
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.api.AttachmentsApi
-import com.exponential.app.data.api.CreateIssueInput
-import com.exponential.app.data.api.CreateLabelInput
-import com.exponential.app.data.api.IssueDraftAttachment
-import com.exponential.app.data.api.IssueDraftsApi
-import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
-import com.exponential.app.data.api.UpsertIssueDraftInput
 import com.exponential.app.data.api.LabelsApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
@@ -18,7 +11,6 @@ import com.exponential.app.data.api.UpdateIssueInput
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
-import com.exponential.app.data.db.IssueDraftEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueLabelEntity
 import com.exponential.app.data.db.IssueRelationEntity
@@ -32,33 +24,19 @@ import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.data.electric.elapsedTicker
 import com.exponential.app.data.electric.isCatchingUp
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.MAX_FILE_UPLOAD_BYTES
 import com.exponential.app.domain.IssueGraph
 import com.exponential.app.domain.IssueNesting
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.TeamPermissions
-import com.exponential.app.domain.canonicalContentType
-import com.exponential.app.domain.isInlineImage
-import com.exponential.app.domain.sanitizeFilename
 import com.exponential.app.domain.sortIssuesForCategory
-import com.exponential.app.ui.markdown.IssueRefTarget
-import com.exponential.app.ui.markdown.issueRefTarget
-import com.exponential.app.ui.markdown.markdownImageUrls
-import com.exponential.app.ui.markdown.removeMarkdownImagesByUrl
-import com.exponential.app.ui.markdown.markdownEmbedUrls
-import com.exponential.app.ui.markdown.replaceMarkdownImageUrls
-import com.exponential.app.domain.PreparedMedia
 import com.exponential.app.ui.steer.onlineStartTargets
 import com.exponential.app.ui.steer.steerDeviceFlow
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -119,7 +97,6 @@ data class IssueListState(
     // vocabulary. Falls back to the constructed builtins until the
     // issue_statuses shape has synced.
     val teamStatuses: List<ResolvedIssueStatus> = emptyList(),
-    val isCreating: Boolean = false,
     val isRefreshing: Boolean = false,
     val error: String? = null,
     // EXP-1115: true once the issues shape has reached up-to-date at least
@@ -138,17 +115,12 @@ class IssueListViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val issuesApi: IssuesApi,
     private val labelsApi: LabelsApi,
-    private val issueImagesApi: IssueImagesApi,
-    private val issueDraftsApi: IssueDraftsApi,
-    private val attachmentsApi: AttachmentsApi,
     private val steerApi: SteerApi,
     private val stats: SyncStats,
     private val syncManager: SyncManager,
-    @dagger.hilt.android.qualifiers.ApplicationContext
-    private val appContext: android.content.Context,
 ) : ViewModel() {
 
-    // Pushed mounts (`board/{boardId}`, `board/{boardId}/new`) seed the
+    // The pushed mount (`board/{boardId}`) seeds the
     // board from the nav args; the Issues tab root has no arg and re-points
     // the ViewModel via setBoard whenever its current-board resolution
     // (last-used → first) changes.
@@ -158,7 +130,6 @@ class IssueListViewModel @Inject constructor(
     // constructor-time DB snapshot, no key(activeAccountId) rebuild needed).
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
-    private val _busy = MutableStateFlow(false)
     private val _error = MutableStateFlow<String?>(null)
     private val _refreshing = MutableStateFlow(false)
     private val _board = MutableStateFlow<BoardEntity?>(null)
@@ -284,50 +255,6 @@ class IssueListViewModel @Inject constructor(
         dbFlow.scopedQuery(emptyList<IssueRelationEntity>()) { it.issueRelationDao().observeAll() }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /**
-     * The target board's team issues, newest-first — drives the create
-     * screen's `#IDENTIFIER` autocomplete (masterplan §5e). Same scoping as
-     * IssueDetailViewModel.issueRefCandidates / the web IssueRefProvider.
-     */
-    val issueRefCandidates: StateFlow<List<IssueRefTarget>> = combine(
-        allIssues,
-        dbFlow.scopedQuery(emptyList()) { it.boardDao().observeAll() },
-        _board,
-        statusesForTeam,
-    ) { issues, boards, board, statuses ->
-        if (board == null) {
-            emptyList()
-        } else {
-            val teamBoardIds = boards
-                .filter { it.teamId == board.teamId }
-                .map { it.id }
-                .toSet()
-            issues
-                .filter { it.boardId in teamBoardIds }
-                .sortedByDescending { it.createdAt }
-                // The create screen's editor renders display chips from this
-                // same handler, so the status glyph is precomputed here too
-                // (EXP-423) — detail-VM parity.
-                .map { issueRefTarget(it, statuses) }
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    /**
-     * EXP-892: the create screen's `#` menu server half — `issues.search`
-     * over the target board's team. Failures degrade to local-only.
-     */
-    suspend fun searchIssueRefs(query: String): List<IssueRefTarget> {
-        val accountId = auth.activeAccountId.value ?: return emptyList()
-        val teamId = _board.value?.teamId ?: return emptyList()
-        return try {
-            issuesApi.search(accountId, teamId, query).map(::issueRefTarget)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            emptyList()
-        }
-    }
-
     // The heavy group/sort pipeline. Recomputes only when one of its
     // *meaningful* data inputs changes (board, issues, labels, joins or
     // users). Transient UI flags (busy / error / refreshing) are
@@ -439,11 +366,10 @@ class IssueListViewModel @Inject constructor(
 
     val state: StateFlow<IssueListState> = combine(
         groupedState,
-        _busy,
         _refreshing,
         _error,
         issuesSynced,
-    ) { grouped, busy, refreshing, error, synced ->
+    ) { grouped, refreshing, error, synced ->
         IssueListState(
             board = grouped.board,
             groups = grouped.groups,
@@ -451,7 +377,6 @@ class IssueListViewModel @Inject constructor(
             users = grouped.users,
             teamUsers = grouped.teamUsers,
             teamStatuses = grouped.teamStatuses,
-            isCreating = busy,
             isRefreshing = refreshing,
             error = error,
             issuesSynced = synced,
@@ -641,552 +566,8 @@ class IssueListViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Create a team label from the create screen's picker sheet and return
-     * it (so the caller can pre-select it on the issue being drafted), or null
-     * on failure. Suspends — the create screen awaits it on its own scope.
-     */
-    suspend fun createLabel(name: String, color: String): LabelEntity? {
-        val teamId = _board.value?.teamId ?: return null
-        val accountId = auth.activeAccountId.value ?: return null
-        return runCatching {
-            labelsApi.create(accountId, CreateLabelInput(teamId, name.trim(), color))
-        }.onSuccess { created ->
-            // Optimistic local upsert so the label appears immediately instead of
-            // waiting for the labels shape's next poll (idempotent REPLACE;
-            // Electric re-delivers the same row, so this is only a head-start).
-            runCatching { holder.database(forAccountId = accountId).labelDao().upsert(created) }
-        }.onFailure { error ->
-            _error.value = trpcErrorMessage(error, "Failed to create label")
-        }.getOrNull()
-    }
-
-
-    // ── Issue drafts (EXP-878) ───────────────────────────────────────────────
-
-    /**
-     * The draft this create screen is editing, when it was opened from the
-     * Drafts list (`board/{boardId}/new?draft={id}`). Null on a fresh create —
-     * the screen still mints an id, but nothing is written until it closes with
-     * content in it.
-     */
-    val draftIdArg: String? = savedStateHandle.get<String>(DRAFT_ARG)?.takeIf { it.isNotBlank() }
-
-    /** The synced row behind [draftIdArg] — the create screen's seed. */
-    val draft: StateFlow<IssueDraftEntity?> = dbFlow
-        .flatMapLatest { db ->
-            if (db == null || draftIdArg == null) flowOf(null)
-            else db.issueDraftDao().observeById(draftIdArg)
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-
-    // The drafts this ViewModel has already materialised server-side. An eager
-    // upload needs a draft row to hang the attachment on, but the user may
-    // attach several files in a row — only the FIRST one pays for the upsert.
-    private val ensuredDrafts = mutableSetOf<String>()
-
-    /**
-     * Whether a draft row for this screen EXISTS server-side — it was opened
-     * from the Drafts list, or an eager upload materialised it. A blank,
-     * untouched create must write nothing at all on the way out, so the close
-     * path only issues a delete when this is true.
-     */
-    private val _draftMaterialized = MutableStateFlow(draftIdArg != null)
-    val draftMaterialized: StateFlow<Boolean> = _draftMaterialized
-
-    /**
-     * Make sure [draftId] exists server-side before an attachment is uploaded
-     * against it (EXP-878), writing the form as it stands right now. Idempotent
-     * per ViewModel: the row is upserted once, later edits ride the close-time
-     * [persistDraft]. Returns false when the draft could not be created — the
-     * caller then skips the upload rather than 404ing.
-     */
-    suspend fun ensureDraft(snapshot: IssueDraftSnapshot): Boolean {
-        if (snapshot.id in ensuredDrafts) return true
-        val accountId = auth.activeAccountId.value ?: return false
-        val teamId = _board.value?.teamId ?: return false
-        val boardId = boardIdFlow.value.takeIf { it.isNotBlank() } ?: return false
-        return runCatching { writeDraft(accountId, teamId, boardId, snapshot) }
-            .onSuccess {
-                ensuredDrafts += snapshot.id
-                _draftMaterialized.value = true
-            }
-            .onFailure { error ->
-                if (error is CancellationException) throw error
-                _error.value = trpcErrorMessage(error, "Couldn't save the draft")
-            }
-            .isSuccess
-    }
-
-    /**
-     * Save the form as a draft on the way out (EXP-878) — ONE write, fired
-     * from the close path, never while typing. Runs on a process-lifetime
-     * scope: navigation clears this ViewModel the moment the screen pops, and
-     * viewModelScope cancellation must not abort the final save (the same
-     * reason IssueDetailViewModel flushes its description off-scope).
-     */
-    fun persistDraft(snapshot: IssueDraftSnapshot) {
-        val accountId = auth.activeAccountId.value ?: return
-        val teamId = _board.value?.teamId ?: return
-        val boardId = boardIdFlow.value.takeIf { it.isNotBlank() } ?: return
-        _draftMaterialized.value = true
-        draftFlushScope.launch {
-            runCatching { writeDraft(accountId, teamId, boardId, snapshot) }
-                .onFailure { android.util.Log.w("IssueListViewModel", "Draft save failed", it) }
-        }
-    }
-
-    /**
-     * Drop the draft the screen was editing (EXP-878) — the user emptied it,
-     * so there is nothing left to come back to. Optimistic local delete first
-     * (the Drafts list reacts immediately), then the server; Electric delivers
-     * the same delete on its next poll.
-     */
-    fun discardDraft(draftId: String) {
-        val accountId = auth.activeAccountId.value ?: return
-        draftFlushScope.launch {
-            runCatching { holder.database(forAccountId = accountId).issueDraftDao().deleteById(draftId) }
-            runCatching { issueDraftsApi.delete(accountId, draftId) }
-                .onFailure { android.util.Log.w("IssueListViewModel", "Draft delete failed", it) }
-        }
-    }
-
-    /** The draft's own attachments (the Files section on re-open). */
-    suspend fun draftAttachments(draftId: String): List<IssueDraftAttachment> {
-        val accountId = auth.activeAccountId.value ?: return emptyList()
-        return runCatching { issueDraftsApi.listAttachments(accountId, draftId) }
-            .onFailure { error ->
-                if (error is CancellationException) throw error
-                android.util.Log.w("IssueListViewModel", "Draft attachments load failed", error)
-            }
-            .getOrDefault(emptyList())
-    }
-
-    /**
-     * EXP-878: upload a pasted/picked image against the DRAFT and hand the
-     * editor its final `/api/attachments/{id}` URL — the issue-detail paste
-     * model, so a draft's description never carries a `draft://` placeholder.
-     * Throws like the detail path so the editor row can show the real reason.
-     */
-    suspend fun uploadDraftImage(snapshot: IssueDraftSnapshot, uri: android.net.Uri): String? {
-        if (!ensureDraft(snapshot)) return null
-        val accountId = auth.activeAccountId.value ?: return null
-        val resolver = appContext.contentResolver
-        val bytes = runCatching {
-            resolver.openInputStream(uri)?.use { it.readBytes() }
-        }.getOrNull() ?: return null
-        val contentType = resolver.getType(uri) ?: "image/jpeg"
-        val filename = displayName(uri) ?: "image"
-        try {
-            return issueImagesApi.uploadDraft(accountId, snapshot.id, bytes, filename, contentType).url
-        } catch (cancel: CancellationException) {
-            throw cancel
-        } catch (error: Throwable) {
-            android.util.Log.w("IssueListViewModel", "Draft image upload failed", error)
-            throw error
-        }
-    }
-
-    /** EXP-878/824: the same eager path for a prepared video / audio pick. */
-    suspend fun uploadDraftMedia(snapshot: IssueDraftSnapshot, media: PreparedMedia): String? {
-        if (!ensureDraft(snapshot)) return null
-        val accountId = auth.activeAccountId.value ?: return null
-        try {
-            return issueImagesApi.uploadDraftMedia(accountId, snapshot.id, media).url
-        } catch (cancel: CancellationException) {
-            throw cancel
-        } catch (error: Throwable) {
-            android.util.Log.w("IssueListViewModel", "Draft media upload failed", error)
-            throw error
-        }
-    }
-
-    /**
-     * EXP-878: a FILE attachment on the draft path — uploaded right away (there
-     * is a draft to hang it on), so it survives leaving the screen. Returns the
-     * stored row, or null when it was skipped/rejected (reported through
-     * [_error], never silently dropped).
-     */
-    suspend fun uploadDraftFile(snapshot: IssueDraftSnapshot, uri: android.net.Uri): IssueDraftAttachment? {
-        if (!ensureDraft(snapshot)) return null
-        val accountId = auth.activeAccountId.value ?: return null
-        val resolver = appContext.contentResolver
-        val filename = sanitizeFilename(displayName(uri) ?: uri.lastPathSegment)
-        try {
-            val contentType = canonicalContentType(resolver.getType(uri))
-            // Inline-image types never belong in the Files section — the
-            // editor's attach menu routes those into the description.
-            if (isInlineImage(contentType)) return null
-            val bytes = resolver.openInputStream(uri)?.use { it.readBytes() }
-            if (bytes == null) {
-                _error.value = "Couldn't attach $filename."
-                return null
-            }
-            if (bytes.size > MAX_FILE_UPLOAD_BYTES) {
-                _error.value =
-                    "Couldn't attach $filename (over ${MAX_FILE_UPLOAD_BYTES / (1024 * 1024)} MB)."
-                return null
-            }
-            val uploaded = attachmentsApi.uploadDraft(accountId, snapshot.id, bytes, filename, contentType)
-            return IssueDraftAttachment(
-                id = uploaded.id,
-                filename = uploaded.filename,
-                contentType = uploaded.contentType,
-                sizeBytes = uploaded.sizeBytes,
-                url = uploaded.url,
-            )
-        } catch (cancel: CancellationException) {
-            throw cancel
-        } catch (error: Throwable) {
-            android.util.Log.w("IssueListViewModel", "Draft file upload failed", error)
-            _error.value = trpcErrorMessage(error, "Couldn't attach $filename.")
-            return null
-        }
-    }
-
-    /** Drop a file the user attached to the draft and then removed. */
-    fun deleteDraftAttachment(attachmentId: String) {
-        val accountId = auth.activeAccountId.value ?: return
-        draftFlushScope.launch {
-            runCatching { attachmentsApi.delete(accountId, attachmentId) }
-                .onFailure { android.util.Log.w("IssueListViewModel", "Draft attachment delete failed", it) }
-        }
-    }
-
-    // The one write behind ensureDraft / persistDraft: server first (it owns
-    // user_id + the timestamps), then a local upsert so the Drafts list shows
-    // the row before Electric's next poll delivers it.
-    private suspend fun writeDraft(
-        accountId: String,
-        teamId: String,
-        boardId: String,
-        snapshot: IssueDraftSnapshot,
-    ): IssueDraftEntity {
-        val saved = issueDraftsApi.upsert(
-            accountId,
-            UpsertIssueDraftInput(
-                id = snapshot.id,
-                teamId = teamId,
-                boardId = boardId,
-                title = snapshot.title,
-                description = snapshot.description,
-                statusId = snapshot.statusId,
-                priority = snapshot.priority,
-                assigneeId = snapshot.assigneeId,
-                // ALWAYS sent — an omitted list could never clear a selection.
-                labelIds = snapshot.labelIds,
-                dueDate = snapshot.dueDate,
-            ),
-        )
-        runCatching { holder.database(forAccountId = accountId).issueDraftDao().upsert(saved) }
-        return saved
-    }
-
-    private fun displayName(uri: android.net.Uri): String? = runCatching {
-        appContext.contentResolver
-            .query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
-            ?.use { cursor ->
-                val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                if (cursor.moveToFirst() && idx >= 0) cursor.getString(idx) else null
-            }
-    }.getOrNull() ?: uri.lastPathSegment
-
-    // Suspends until the issue (and any image upload/patch) is committed, then
-    // returns the new issue's id (null = the create failed) so the caller can
-    // land on it. The caller awaits this before navigating away — the create
-    // screen has its own ViewModel scope, so a fire-and-forget launch would be
-    // cancelled the moment the screen pops, dropping the write.
-    suspend fun createIssueAwait(
-        title: String,
-        status: ResolvedIssueStatus,
-        priority: IssuePriority,
-        description: String?,
-        dueDate: String?,
-        assigneeId: String? = null,
-        labelIds: List<String> = emptyList(),
-        pendingImages: Map<String, android.net.Uri> = emptyMap(),
-        // EXP-824: prepared video / audio picks keyed by their `draft://`
-        // media-link placeholder — same deferred lifecycle as the images.
-        pendingMedia: Map<String, PreparedMedia> = emptyMap(),
-        // Draft file attachments (EXP-327): uploaded once the issue exists,
-        // like the images above — attachments need an issue id.
-        pendingFiles: List<android.net.Uri> = emptyList(),
-        // EXP-878: the draft this create came from. On this path everything is
-        // ALREADY uploaded (eager draft uploads), so the pending maps are empty
-        // and the server reparents the draft's attachments + deletes the row in
-        // the create's own transaction.
-        draftId: String? = null,
-        // EXP-1097: the Sub-issues `+` — the new issue lands as a sub-issue
-        // of this one (`issues.create({parentId})`, one transaction).
-        parentId: String? = null,
-    ): String? {
-        if (title.isBlank()) return null
-        _busy.value = true
-        _error.value = null
-        return try {
-            val accountId = auth.activeAccountId.value ?: return null
-            val rawDescription = description?.takeIf { it.isNotBlank() }
-            // The create screen's pending map is add-only — deleting an image
-            // row in the editor removes its placeholder from the markdown but
-            // never from the map — so upload only the drafts the submitted
-            // description still references (REV-24).
-            val referencedImages = rawDescription
-                ?.let { md -> pendingImages.filterKeys { it in markdownImageUrls(md) } }
-                .orEmpty()
-            // EXP-824: media blocks are plain links, so their placeholders
-            // are looked up in the embed set (image + link forms).
-            val referencedMedia = rawDescription
-                ?.let { md -> pendingMedia.filterKeys { it in markdownEmbedUrls(md) } }
-                .orEmpty()
-            val strippedDescription = rawDescription
-                ?.let { removeMarkdownImagesByUrl(it, referencedImages.keys + referencedMedia.keys) }
-                ?.takeIf { it.isNotBlank() }
-
-            val created = issuesApi.create(
-                accountId,
-                CreateIssueInput(
-                    boardId = boardIdFlow.value,
-                    title = title.trim(),
-                    status = status.anchorWireOrNull(),
-                    statusId = status.rowId,
-                    priority = priority.wire,
-                    description = strippedDescription,
-                    assigneeId = assigneeId,
-                    dueDate = dueDate,
-                    labelIds = labelIds.takeIf { it.isNotEmpty() },
-                    draftId = draftId,
-                    parentId = parentId,
-                )
-            )
-            upsertCreatedLocally(accountId, created, labelIds, draftId)
-
-            if (rawDescription != null && (referencedImages.isNotEmpty() || referencedMedia.isNotEmpty())) {
-                val urlByPlaceholder = uploadPendingImages(accountId, created.id, referencedImages) +
-                    uploadPendingMedia(accountId, created.id, referencedMedia)
-                // A placeholder whose upload failed is stripped (never a
-                // `draft://` link in a stored body); the rest swap to their
-                // real attachment URLs in their own form.
-                val finalDescription = replaceMarkdownImageUrls(
-                    markdown = removeMarkdownImagesByUrl(
-                        rawDescription,
-                        (referencedImages.keys + referencedMedia.keys).minus(urlByPlaceholder.keys),
-                    ),
-                    replacements = urlByPlaceholder,
-                )
-                if (finalDescription != strippedDescription.orEmpty() && finalDescription.isNotBlank()) {
-                    val updated = issuesApi.update(
-                        accountId,
-                        UpdateIssueInput(id = created.id, description = finalDescription)
-                    )
-                    runCatching {
-                        holder.database(forAccountId = accountId).issueDao().upsert(updated)
-                    }
-                }
-            }
-
-            // Draft files last: the issue is already committed, so a failed
-            // attachment must never turn a successful create into a failure —
-            // it is skipped and reported through _error, never silently dropped.
-            if (pendingFiles.isNotEmpty()) {
-                uploadPendingFiles(accountId, created.id, pendingFiles)
-            }
-            created.id
-        } catch (error: Throwable) {
-            _error.value = trpcErrorMessage(error, "Failed to create issue")
-            null
-        } finally {
-            _busy.value = false
-        }
-    }
-
-    /**
-     * Mirror a freshly-created issue (and its label joins) into local Room
-     * immediately, instead of waiting for the Electric long-poll to deliver it.
-     * The share-intent path cold-starts the process, so its `issues` shape is
-     * usually still finishing its initial/catch-up sync when the issue is
-     * created and won't surface the new row until the next live poll (up to
-     * ~60s — the reported "shows up after a minute"). Electric re-delivers the
-     * same rows on its next cycle; every upsert here is idempotent (REPLACE),
-     * so this is purely a visibility head-start (EXP-19). Best-effort: a DB
-     * hiccup here must not fail the already-committed server create.
-     */
-    private suspend fun upsertCreatedLocally(
-        accountId: String,
-        issue: IssueEntity,
-        labelIds: List<String>,
-        draftId: String? = null,
-    ) {
-        runCatching {
-            val db = holder.database(forAccountId = accountId)
-            db.issueDao().upsert(issue)
-            // EXP-878: the server deleted the draft inside the create's
-            // transaction, so drop the local row now rather than leaving it in
-            // the Drafts list until Electric delivers the delete.
-            if (draftId != null) db.issueDraftDao().deleteById(draftId)
-            if (labelIds.isNotEmpty()) {
-                // issue_labels carries a denormalized team_id (Electric
-                // shape scoping). Resolve it from the board; skip the joins if
-                // we can't (Electric still delivers them on its next poll).
-                val teamId = db.boardDao().getActiveById(issue.boardId)?.teamId
-                    ?: _board.value?.teamId
-                if (teamId != null) {
-                    for (labelId in labelIds) {
-                        db.issueLabelDao().upsert(
-                            IssueLabelEntity(
-                                issueId = issue.id,
-                                labelId = labelId,
-                                teamId = teamId,
-                            )
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * EXP-824: upload the create screen's prepared media against the new
-     * issue. Best-effort per clip like the images: a rejected one is logged
-     * and its placeholder stripped from the description, and the user is told
-     * which (a clip the user attached must never disappear without a word).
-     */
-    private suspend fun uploadPendingMedia(
-        accountId: String,
-        issueId: String,
-        pending: Map<String, PreparedMedia>,
-    ): Map<String, String> {
-        val out = mutableMapOf<String, String>()
-        val failed = mutableListOf<String>()
-        for ((placeholder, media) in pending) {
-            try {
-                out[placeholder] = issueImagesApi.uploadMedia(accountId, issueId, media).url
-            } catch (cancel: kotlinx.coroutines.CancellationException) {
-                throw cancel
-            } catch (error: Throwable) {
-                android.util.Log.w("IssueListViewModel", "Pending media upload failed", error)
-                failed += media.filename
-            }
-        }
-        if (failed.isNotEmpty()) {
-            _error.value = "Couldn't attach ${failed.joinToString(", ")}. " +
-                "Add ${if (failed.size == 1) "it" else "them"} from the issue."
-        }
-        return out
-    }
-
-    private suspend fun uploadPendingImages(
-        accountId: String,
-        issueId: String,
-        pending: Map<String, android.net.Uri>,
-    ): Map<String, String> {
-        val out = mutableMapOf<String, String>()
-        val resolver = appContext.contentResolver
-        for ((placeholder, uri) in pending) {
-            try {
-                val bytes = resolver.openInputStream(uri)?.use { it.readBytes() } ?: continue
-                val contentType = resolver.getType(uri) ?: "image/jpeg"
-                val filename = run {
-                    resolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-                        val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                        if (cursor.moveToFirst() && idx >= 0) cursor.getString(idx) else null
-                    } ?: uri.lastPathSegment ?: "image"
-                }
-                val uploaded = issueImagesApi.upload(accountId, issueId, bytes, filename, contentType)
-                out[placeholder] = uploaded.url
-            } catch (cancel: kotlinx.coroutines.CancellationException) {
-                throw cancel
-            } catch (error: Throwable) {
-                // Skip this image; placeholder will be stripped from final
-                // description. Log the actual server rejection — silent drops
-                // made upload failures undiagnosable (EXP-61).
-                android.util.Log.w("IssueListViewModel", "Pending image upload failed", error)
-            }
-        }
-        return out
-    }
-
-    /**
-     * Upload the create screen's draft file attachments against the now-existing
-     * issue (EXP-327). Best-effort per file: the issue is already committed, so
-     * a rejected attachment is skipped rather than failing the create — but the
-     * skipped names are reported through [_error], because a file the user
-     * attached must never disappear without a word (the size cap did exactly
-     * that).
-     */
-    private suspend fun uploadPendingFiles(
-        accountId: String,
-        issueId: String,
-        files: List<android.net.Uri>,
-    ) {
-        val resolver = appContext.contentResolver
-        val failed = mutableListOf<String>()
-        for (uri in files) {
-            val filename = sanitizeFilename(
-                runCatching {
-                    resolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-                        val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                        if (cursor.moveToFirst() && idx >= 0) cursor.getString(idx) else null
-                    }
-                }.getOrNull() ?: uri.lastPathSegment
-            )
-            try {
-                val contentType = canonicalContentType(resolver.getType(uri))
-                // Inline-image types never belong in the Files section — the
-                // editor's attach menu already routes those into the
-                // description, so anything landing here is a real file.
-                if (isInlineImage(contentType)) continue
-                val bytes = resolver.openInputStream(uri)?.use { it.readBytes() }
-                if (bytes == null) {
-                    android.util.Log.w("IssueListViewModel", "Draft file could not be read, skipped")
-                    failed += filename
-                    continue
-                }
-                if (bytes.size > MAX_FILE_UPLOAD_BYTES) {
-                    android.util.Log.w("IssueListViewModel", "Draft file over the size cap, skipped")
-                    failed += "$filename (over ${MAX_FILE_UPLOAD_BYTES / (1024 * 1024)} MB)"
-                    continue
-                }
-                attachmentsApi.upload(accountId, issueId, bytes, filename, contentType)
-            } catch (cancel: kotlinx.coroutines.CancellationException) {
-                throw cancel
-            } catch (error: Throwable) {
-                android.util.Log.w("IssueListViewModel", "Draft file upload failed", error)
-                failed += filename
-            }
-        }
-        if (failed.isNotEmpty()) {
-            _error.value = "Couldn't attach ${failed.joinToString(", ")}. " +
-                "Add ${if (failed.size == 1) "it" else "them"} from the issue."
-        }
-    }
 }
 
-
-/**
- * The create form as a draft row (EXP-878) — everything `issueDrafts.upsert`
- * takes that the SCREEN owns. The board/team come from the ViewModel, the
- * user and timestamps from the server.
- */
-data class IssueDraftSnapshot(
-    /** Client-minted, stable for the life of the screen. */
-    val id: String,
-    val title: String,
-    val description: String,
-    /** Null = the team's Backlog builtin (a status with no synced row yet). */
-    val statusId: String?,
-    val priority: String,
-    val assigneeId: String?,
-    val labelIds: List<String>,
-    val dueDate: String?,
-)
-
-/** The create screen's `?draft=` route argument. */
-internal const val DRAFT_ARG = "draft"
-
-// Draft writes fired while leaving the create screen must outlive the
-// ViewModel — navigation clears it as the screen pops, which would abort the
-// save mid-request. Process-lifetime, mirroring descriptionFlushScope.
-private val draftFlushScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
 /**
  * EXP-980: run the shared nesting rule over the WHOLE list at once (the root

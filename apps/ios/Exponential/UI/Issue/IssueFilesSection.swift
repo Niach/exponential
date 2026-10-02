@@ -83,13 +83,7 @@ struct IssueFilesSection: View {
     }
 
     private var header: some View {
-        HStack {
-            Text("Files")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .accessibilityIdentifier("issue-files-header")
-            Spacer()
-        }
+        IssueFilesHeader()
     }
 
     // MARK: - Rows
@@ -182,29 +176,13 @@ struct IssueFilesSection: View {
         subtitleTint: Color = .white.opacity(TextOpacity.tertiary),
         @ViewBuilder trailing: () -> some View
     ) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: symbol)
-                .font(.system(size: 15))
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .frame(width: 20)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.callout)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text(subtitle)
-                    .font(.caption2)
-                    .foregroundStyle(subtitleTint)
-                    .lineLimit(2)
-            }
-            Spacer(minLength: 8)
-            trailing()
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .glassRow()
-        .contentShape(Rectangle())
+        IssueFileRow(
+            symbol: symbol,
+            title: title,
+            subtitle: subtitle,
+            subtitleTint: subtitleTint,
+            trailing: trailing()
+        )
     }
 
     // MARK: - Actions
@@ -230,5 +208,90 @@ struct IssueFilesSection: View {
 
     private func formatSize(_ bytes: Int) -> String {
         Int64(bytes).formatted(.byteCount(style: .file))
+    }
+}
+
+/// The Files section's header — the issue face's and the New issue page's
+/// (EXP-1170).
+struct IssueFilesHeader: View {
+    var body: some View {
+        HStack {
+            Text("Files")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .accessibilityIdentifier("issue-files-header")
+            Spacer()
+        }
+    }
+}
+
+/// ONE file row — the issue face's attachments and the New issue page's
+/// draft files (EXP-1170) draw the same glyph · name · size · trailing.
+struct IssueFileRow<Trailing: View>: View {
+    let symbol: String
+    let title: String
+    let subtitle: String
+    var subtitleTint: Color = .white.opacity(TextOpacity.tertiary)
+    let trailing: Trailing
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: symbol)
+                .font(.system(size: 15))
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .frame(width: 20)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.callout)
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundStyle(subtitleTint)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            trailing
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .glassRow()
+        .contentShape(Rectangle())
+    }
+}
+
+/// EXP-1170: the New issue page's Files — the draft's attachments (uploaded
+/// against the draft, or held in memory for a sub-issue) in the face's rows.
+/// Like the face's, it renders nothing while there are none: files are
+/// attached from the description editor's attach menu.
+struct DraftFilesSection: View {
+    let files: [IssueDraftFile]
+    let onRemove: (IssueDraftFile) -> Void
+
+    var body: some View {
+        if !files.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                IssueFilesHeader()
+                VStack(spacing: 6) {
+                    ForEach(files) { file in
+                        IssueFileRow(
+                            symbol: AttachmentFiles.sfSymbolName(forContentType: file.contentType),
+                            title: file.filename,
+                            subtitle: Int64(file.sizeBytes).formatted(.byteCount(style: .file)),
+                            trailing: GlassMenu {
+                                GlassMenuItem("Delete", icon: AppIcons.uiDelete, destructive: true) {
+                                    onRemove(file)
+                                }
+                            } label: {
+                                GhostIconLabel(AppIcons.uiMore)
+                            }
+                            .accessibilityLabel("File actions")
+                        )
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }

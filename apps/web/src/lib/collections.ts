@@ -241,8 +241,8 @@ export const pinCollection = createCollection(
   })
 )
 
-// EXP-878: the caller's issue drafts — what the create-issue dialog keeps
-// when it is closed with content in it. Per-USER shape (static
+// EXP-878: the caller's issue drafts — what the New issue page (EXP-1170)
+// autosaves while it holds content. Per-USER shape (static
 // `user_id = me`), so this collection only ever holds the caller's rows; the
 // surfaces narrow to the active team and drop a row whose board they cannot
 // resolve.

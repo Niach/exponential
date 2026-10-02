@@ -214,6 +214,7 @@ function InboxPage() {
           <DraftsList
             teamId={team?.id}
             teamSlug={teamSlug}
+            from="inbox:drafts"
             className="px-4 py-3"
           />
         ) : (

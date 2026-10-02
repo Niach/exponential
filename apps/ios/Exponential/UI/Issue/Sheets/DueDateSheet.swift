@@ -2,9 +2,8 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-/// Due-date sheet (EXP-240): graphical calendar (config lifted from
-/// DueDatePicker) plus a destructive "Clear due date" row. Due date is
-/// date-only — there is no time of day. Edits commit immediately; the sheet
+/// Due-date sheet (EXP-240): graphical calendar plus a destructive "Clear due
+/// date" row. Due date is date-only — there is no time of day. Edits commit immediately; the sheet
 /// stays open for follow-up tweaks.
 struct DueDateSheet: View {
     let date: Date?

@@ -224,7 +224,7 @@ class IssueDetailViewModel @AssistedInject constructor(
 
     // EXP-50: the team's lone member when it has exactly one — else null.
     // A solo team hides the assignee row in the detail editor (mirrors
-    // CreateIssueScreen).
+    // the New issue page, IssueDraftScreen).
     val soloMemberId: StateFlow<String?> = membersForTeam
         .map { members -> members.map { it.userId }.singleOrNull() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)

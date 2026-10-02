@@ -288,7 +288,7 @@ export function uploadIssueMediaFile(
 
 /**
  * EXP-878: the same multipart POST against an issue DRAFT's upload route. The
- * create dialog uploads clips eagerly too, so a draft description carries the
+ * New issue page uploads clips eagerly too, so a draft description carries the
  * final media block from the moment the clip lands.
  */
 export function uploadDraftMediaFile(

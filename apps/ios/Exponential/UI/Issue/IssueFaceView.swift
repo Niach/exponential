@@ -99,6 +99,7 @@ struct IssueFaceView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.toaster) private var toaster
+    @Environment(\.pushRoute) private var pushRoute
     @State private var activeSheet: IssueDetailSheet?
     /// A property picker opened straight from the chip box (no Properties
     /// sheet under it). Its own node, so it never collides with `activeSheet`.
@@ -192,35 +193,25 @@ struct IssueFaceView: View {
                         )
                     }
 
-                    // Title (editable)
-                    TextField("Title", text: Binding(
-                        get: { vm.editingTitle },
-                        set: { vm.editingTitle = $0 }
-                    ))
-                    .font(.title2.weight(.semibold))
-                    .textFieldStyle(.plain)
-                    .foregroundStyle(.white)
-                    .focused($titleFocused)
-                    .onSubmit { Task { await vm.saveTitle() } }
-                    .onChange(of: titleFocused) { _, focused in
-                        if !focused { Task { await vm.saveTitle() } }
-                    }
-                    // EXP-1162: the row the nav-bar title collapses against
-                    // — its bottom edge, up to the Work screen.
-                    .background {
-                        GeometryReader { row in
-                            Color.clear.preference(
-                                key: IssueTitleRowBottomKey.self,
-                                value: row.frame(in: .global).maxY
-                            )
-                        }
-                    }
+                    // Title (editable) — the shared field (EXP-1170); it
+                    // reports the row the nav-bar title collapses against
+                    // (EXP-1162) up to the Work screen.
+                    IssueTitleField(
+                        text: Binding(
+                            get: { vm.editingTitle },
+                            set: { vm.editingTitle = $0 }
+                        ),
+                        placeholder: "Title",
+                        focused: $titleFocused,
+                        onBlur: { Task { await vm.saveTitle() } },
+                        onSubmit: { Task { await vm.saveTitle() } }
+                    )
                 }
 
                 // Property chip box (EXP-240) — replaces the old
                 // properties / times / labels sections.
                 IssuePropertyChipsBox(
-                    issue: issue,
+                    subject: .init(issue),
                     status: vm.resolvedStatus,
                     assignee: vm.assignee(),
                     assignedLabels: vm.assignedLabels,
@@ -290,13 +281,17 @@ struct IssueFaceView: View {
                 IssueSubIssuesSection(
                     vm: vm,
                     subIssues: relations.subIssues,
-                    addRoute: vm.permissions.canCreate
-                        ? .createIssue(
-                            accountId: accountId,
-                            boardId: issue.boardId,
-                            draftId: nil,
-                            parentId: issue.id
-                        )
+                    onAdd: vm.permissions.canCreate
+                        ? {
+                            // EXP-1170: the New issue page in parent mode;
+                            // the id is minted HERE, at tap time.
+                            pushRoute(.issueDraft(
+                                accountId: accountId,
+                                draftId: UUID().uuidString.lowercased(),
+                                boardId: issue.boardId,
+                                parentId: issue.id
+                            ))
+                        }
                         : nil,
                     onOpen: openRelated
                 )
@@ -533,87 +528,22 @@ struct IssueFaceView: View {
 
     // MARK: - Property pickers (EXP-1021)
 
-    /// The per-property TYPED pickers (EXP-1021) — one shared sheet, plain
-    /// rows, highlight selection. The SAME builder feeds the chip box's direct
-    /// path and the ones Properties stacks over itself; only the binding
-    /// differs, which is why it takes one.
+    /// The per-property TYPED pickers (EXP-1021), shared with the New issue
+    /// page (`IssuePropertyPickers`, EXP-1170) — plus the face-only duplicate
+    /// hand-off. The SAME builder feeds the chip box's direct path and the
+    /// ones Properties stacks over itself; only the binding differs.
     @ViewBuilder
     private func propertyPickers(
         child: Binding<IssuePropertyChild?>,
         onDismiss: @escaping () -> Void
     ) -> some View {
         ZStack {
-            StatusPicker(
-                // The team's own statuses in render order — the ONE picker
-                // vocabulary (REV2-85, EXP-314).
-                statuses: vm.teamStatuses.map(StatusPickerStatus.init),
-                value: [vm.resolvedStatus.id],
-                onChange: { picked in
-                    guard let selected = vm.teamStatuses.first(where: { picked.contains($0.id) })
-                    else { return }
-                    // Duplicate CATEGORY = status interception (L27): picking
-                    // it opens the canonical-issue picker instead of writing
-                    // the status directly; markDuplicate sets duplicateOfId +
-                    // status='duplicate' atomically. Cancelling the picker
-                    // leaves the status untouched. The hand-off is promoted on
-                    // THIS picker's dismiss, never on a timer.
-                    if selected.category == .duplicate {
-                        pendingChild = .duplicateOf
-                    } else {
-                        Task { await vm.setStatus(selected) }
-                    }
-                },
-                open: issuePickerOpen(child, .status),
-                hideTrigger: true,
-                onDismiss: onDismiss,
-                trigger: { EmptyView() }
-            )
-
-            PriorityPicker(
-                options: IssuePriority.displayOrder.map(PriorityPickerOption.init),
-                value: [IssuePriority.from(issue.priority).id],
-                onChange: { picked in
-                    guard let selected = IssuePriority.displayOrder
-                        .first(where: { picked.contains($0.id) }) else { return }
-                    Task { await vm.setPriority(selected) }
-                },
-                open: issuePickerOpen(child, .priority),
-                hideTrigger: true,
-                onDismiss: onDismiss,
-                trigger: { EmptyView() }
-            )
-
-            AssigneePicker(
-                members: vm.teamUsers.map(AssigneePickerMember.init),
-                // An EMPTY set is unassigned; the picker offers the row that
-                // clears the pick and reports it back as nothing.
-                value: issue.assigneeId.map { [$0] } ?? [],
-                onChange: { picked in Task { await vm.setAssignee(picked.first) } },
-                open: issuePickerOpen(child, .assignee),
-                hideTrigger: true,
-                onDismiss: onDismiss,
-                trigger: { EmptyView() }
-            )
-
-            IssueLabelsPicker(
-                labels: vm.teamLabels,
-                assignedIds: vm.assignedLabelIds,
-                open: issuePickerOpen(child, .labels),
-                onDismiss: onDismiss,
-                onToggle: { labelId in Task { await vm.toggleLabel(labelId) } },
-                onCreate: { name in
-                    Task {
-                        await vm.createAndAssignLabel(name: name, color: autoLabelColor(for: name))
-                    }
-                }
-            )
-
-            MoveBoardPicker(
-                boards: vm.moveTargetBoards,
-                selectedId: issue.boardId,
-                open: issuePickerOpen(child, .moveBoard),
-                onDismiss: onDismiss,
-                onSelect: { target in pendingMoveTarget = target }
+            IssuePropertyPickers(
+                model: vm,
+                child: child,
+                onPickDuplicate: { pendingChild = .duplicateOf },
+                onSelectBoard: { target in pendingMoveTarget = target },
+                onDismiss: onDismiss
             )
 
             // The status picker's duplicate HAND-OFF lands here (L27).

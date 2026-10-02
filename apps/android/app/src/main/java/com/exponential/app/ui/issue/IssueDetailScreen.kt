@@ -467,7 +467,6 @@ fun IssueFace(
         }
 
         val status = IssueStatusResolver.resolve(issue, teamStatuses)
-        val priority = IssuePriority.fromWire(issue.priority)
 
         // The bar yields to the title/description keyboard (the markdown
         // toolbar owns that space); its own composer keeps it visible.
@@ -499,7 +498,6 @@ fun IssueFace(
         val layoutDirection = LocalLayoutDirection.current
         val topInset = padding.calculateTopPadding()
         val bottomInset = padding.calculateBottomPadding()
-        val titleCollapse = LocalTitleCollapse.current
         Box(
             modifier = Modifier
                 .padding(
@@ -635,37 +633,21 @@ fun IssueFace(
                 }
 
                 Spacer(Modifier.height(8.dp))
-                // Large title (borderless, save on focus-loss)
-                BasicTextField(
-                    value = titleSync.text,
-                    onValueChange = { titleSync.onUserEdit(it) },
+                // Large title (borderless, save on focus-loss) — the ONE
+                // title field the New issue page shares (EXP-1170).
+                IssueTitleField(
+                    text = titleSync.text,
+                    onChange = { titleSync.onUserEdit(it) },
+                    placeholder = "Title",
                     readOnly = !isModerator,
-                    textStyle = MaterialTheme.typography.headlineSmall.copy(
-                        color = MaterialTheme.colorScheme.onSurface,
-                    ),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.onSurface),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        // EXP-1162: the row the header's title collapse keys on.
-                        .reportsTitleRow(titleCollapse)
-                        .onFocusChanged { focus ->
-                            titleSync.setFocused(focus.isFocused)
-                            // Dirty is measured against the seed BASELINE, not the live
-                            // row: a remote rename the user never touched leaves the
-                            // field clean, so blur fires no save and the rename stands.
-                            if (isModerator && !focus.isFocused && titleSync.text.isNotBlank() && titleSync.isDirty) {
-                                viewModel.updateTitle(titleSync.text)
-                            }
-                        },
-                    decorationBox = { inner ->
-                        if (titleSync.text.isEmpty()) {
-                            Text(
-                                "Title",
-                                style = MaterialTheme.typography.headlineSmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                            )
+                    onFocusChanged = { focused ->
+                        titleSync.setFocused(focused)
+                        // Dirty is measured against the seed BASELINE, not the live
+                        // row: a remote rename the user never touched leaves the
+                        // field clean, so blur fires no save and the rename stands.
+                        if (isModerator && !focused && titleSync.text.isNotBlank() && titleSync.isDirty) {
+                            viewModel.updateTitle(titleSync.text)
                         }
-                        inner()
                     },
                 )
 
@@ -673,9 +655,8 @@ fun IssueFace(
                 // The top property chip box (EXP-240) — replaces the stacked
                 // property/times cards + labels section.
                 IssuePropertyChips(
-                    issue = issue,
+                    subject = IssuePropertySubject.fromIssue(issue),
                     status = status,
-                    priority = priority,
                     assignee = state.assignee,
                     issueLabels = state.issueLabels,
                     isModerator = isModerator,
@@ -1079,5 +1060,47 @@ private fun OriginChip(isAgent: Boolean) {
         size = PillSize.Sm,
         mode = PillMode.Readonly,
         icon = if (isAgent) ExpIcons.uiAgentSource else ExpIcons.uiWidget,
+    )
+}
+
+/**
+ * The issue's large borderless title — the Issue face's and the New issue
+ * page's ONE title field (EXP-1170). Reports itself as the header's
+ * title-collapse row ([reportsTitleRow]).
+ */
+@Composable
+fun IssueTitleField(
+    text: String,
+    onChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+    readOnly: Boolean = false,
+    /** Every focus transition; a blur is `false`. */
+    onFocusChanged: (Boolean) -> Unit = {},
+) {
+    val titleCollapse = LocalTitleCollapse.current
+    BasicTextField(
+        value = text,
+        onValueChange = onChange,
+        readOnly = readOnly,
+        textStyle = MaterialTheme.typography.headlineSmall.copy(
+            color = MaterialTheme.colorScheme.onSurface,
+        ),
+        cursorBrush = SolidColor(MaterialTheme.colorScheme.onSurface),
+        modifier = modifier
+            .fillMaxWidth()
+            // EXP-1162: the row the header's title collapse keys on.
+            .reportsTitleRow(titleCollapse)
+            .onFocusChanged { focus -> onFocusChanged(focus.isFocused) },
+        decorationBox = { inner ->
+            if (text.isEmpty()) {
+                Text(
+                    placeholder,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                )
+            }
+            inner()
+        },
     )
 }

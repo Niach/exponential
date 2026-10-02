@@ -84,13 +84,3 @@ struct LabelEditorSheet: View {
         )
     }
 }
-
-/// Create-flow alias kept for the create-issue sheet (create the team label,
-/// then add it to the local draft selection).
-struct CreateLabelSheet: View {
-    let onCreate: (String, String) -> Void
-
-    var body: some View {
-        LabelEditorSheet(onConfirm: onCreate)
-    }
-}

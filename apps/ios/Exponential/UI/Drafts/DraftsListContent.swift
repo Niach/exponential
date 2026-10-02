@@ -41,10 +41,10 @@ struct DraftsListContent: View {
     @ViewBuilder
     private func draftRow(_ row: IssueDraftRow) -> some View {
         HStack(spacing: 10) {
-            NavigationLink(value: AppRoute.createIssue(
+            NavigationLink(value: AppRoute.issueDraft(
                 accountId: accountId,
-                boardId: row.draft.boardId,
-                draftId: row.draft.id
+                draftId: row.draft.id,
+                boardId: row.draft.boardId
             )) {
                 HStack(spacing: 10) {
                     // The draft's status (NULL `status_id` = the team's
@@ -55,7 +55,7 @@ struct DraftsListContent: View {
 
                     VStack(alignment: .leading, spacing: 2) {
                         if row.draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            Text("Untitled draft")
+                            Text(IssueDraftPage.untitled)
                                 .font(.subheadline)
                                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                                 .lineLimit(1)

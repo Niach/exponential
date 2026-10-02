@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.DraftRow
+import com.exponential.app.domain.IssueDraftPage
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.relativeTime
@@ -52,7 +53,7 @@ fun DraftListRow(
         Column(modifier = Modifier.weight(1f)) {
             val hasTitle = row.draft.title.isNotBlank()
             Text(
-                if (hasTitle) row.draft.title else "Untitled draft",
+                if (hasTitle) row.draft.title else IssueDraftPage.UNTITLED,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface.copy(
                     alpha = if (hasTitle) TextEmphasis.Primary else TextEmphasis.Tertiary,

@@ -1,10 +1,11 @@
 import { Link, useMatchRoute, useParams } from "@tanstack/react-router"
-import { FAB_CHROME_CLASS, conceptIcon } from "@exp/ui"
+import { Button, FAB_CHROME_CLASS, conceptIcon } from "@exp/ui"
 import type { Board, Team } from "@/db/schema"
 import { cn } from "@/lib/utils"
 import { readLastVisited } from "@/lib/last-visited"
 import { useChromeHeightVar } from "@/hooks/use-chrome-height-var"
 import { useMobileChrome } from "@/hooks/use-mobile-chrome"
+import { useOpenNewDraft } from "@/hooks/use-open-new-draft"
 import { useSession } from "@/hooks/use-session"
 import {
   useUnreadNotificationCount,
@@ -66,6 +67,11 @@ export function useMobileChromeVisible(): boolean {
     to: `/t/$teamSlug/support/$threadId`,
     fuzzy: true,
   })
+  // EXP-1170: the New issue page is the issue detail in draft mode.
+  const onDraftPage = matchRoute({
+    to: `/t/$teamSlug/drafts/$draftId`,
+    fuzzy: true,
+  })
   // SLOP-2: one action's page is a detail with its own back header.
   const onActionDetail = matchRoute({
     to: `/t/$teamSlug/actions/$actionId`,
@@ -78,7 +84,8 @@ export function useMobileChromeVisible(): boolean {
     !onReviewDetail &&
     !onSessionDetail &&
     !onSupportThread &&
-    !onActionDetail
+    !onActionDetail &&
+    !onDraftPage
   )
 }
 
@@ -202,6 +209,7 @@ export function MobileTabBar({
 
   const boardTarget = resolveBoardTarget(teamSlug, boards, boardSlug)
   const showsReviews = useShowsReviews(team ?? undefined, boards)
+  const openNewDraft = useOpenNewDraft(teamSlug)
 
   const onBoard = Boolean(
     matchRoute({ to: `/t/$teamSlug/boards/$boardSlug`, fuzzy: true })
@@ -323,16 +331,16 @@ export function MobileTabBar({
         </Link>
         <span aria-hidden className="my-3 w-px shrink-0 bg-glass-stroke-card" />
         {composeEnabled ? (
-          <Link
-            to="/t/$teamSlug/boards/$boardSlug"
-            params={{ teamSlug, boardSlug: boardTarget.slug }}
-            search={{ new: 1 }}
+          // EXP-1170: a fresh draft id at TAP time, then the New issue page.
+          <Button
+            variant="ghost"
             aria-label="New issue"
             data-testid="compose-button"
-            className={FAB_ARM_CLASS}
+            className={cn(FAB_ARM_CLASS, `h-auto rounded-none px-0`)}
+            onClick={() => openNewDraft({ boardId: boardTarget.id })}
           >
             <NavCreateIssueIcon className="size-5" />
-          </Link>
+          </Button>
         ) : (
           <span
             role="button"

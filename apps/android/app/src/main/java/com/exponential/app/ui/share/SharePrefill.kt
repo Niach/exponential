@@ -5,10 +5,10 @@ import com.exponential.app.data.push.DeepLinkBus
 import com.exponential.app.ui.markdown.draftUrl
 
 /**
- * Initial values for the create-issue sheet, derived from shared content.
+ * Initial values for the New issue page in share mode, derived from shared content.
  * [pendingImages] maps a `draft://` placeholder (already embedded in
  * [description] as `![](placeholder)`) to its cached image Uri — exactly the
- * shape `IssueListViewModel.createIssue` consumes.
+ * shape `IssueDraftViewModel` holds until the create uploads it.
  */
 data class SharePrefill(
     val title: String,

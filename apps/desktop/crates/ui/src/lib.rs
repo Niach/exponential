@@ -2,7 +2,7 @@
 //!
 //! A 1:1 mirror of the web app built out of gpui-component widgets: `sidebar`,
 //! `issue_list` (virtualized), `issue_detail`, `markdown_editor` +
-//! `mention_popover`, `create_issue_dialog`,
+//! `mention_popover`, `issue_draft_screen` (the New issue page),
 //! `create_board`/`create_team`, `inbox`, `my_issues`, `settings/*`,
 //! `account`, `diff_view`, `actions_view`. Lands across Phases 1–5.
 //!
@@ -57,7 +57,6 @@ mod composer_images;
 mod commit_graph;
 mod context_layout;
 mod controls;
-mod create_issue_dialog;
 mod create_board_dialog;
 mod create_team_dialog;
 mod debug_board;
@@ -88,6 +87,8 @@ mod issue_rail;
 mod issue_chip;
 mod issue_composer;
 mod issue_draft;
+mod issue_draft_screen;
+mod draft_editor;
 mod issue_preview;
 mod issue_picker;
 mod issue_relations;
@@ -235,9 +236,9 @@ pub fn init(cx: &mut App) {
     // Bulk select: cmd-a/ctrl-a select-all +
     // escape clear, scoped to the issue list's key context.
     issue_list::init(cx);
-    // Create-flow dialog actions (§4.2): NewIssue (board view),
-    // NewBoard (sidebar `+`), CreateTeam (team picker).
-    create_issue_dialog::init(cx);
+    // Create-flow dialog actions (§4.2): NewBoard (sidebar `+`), CreateTeam
+    // (team picker). EXP-1170: NewIssue opens the New issue PAGE — its
+    // handler lives with the other navigations (`navigation::init`).
     create_board_dialog::init(cx);
     create_team_dialog::init(cx);
     // §4.2 accept-invite fallback: "Join team…" in the footer account
