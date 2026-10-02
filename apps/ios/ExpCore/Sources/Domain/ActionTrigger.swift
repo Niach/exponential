@@ -173,7 +173,7 @@ public enum ActionRunTitle {
         case "event": return "Event run"
         // A person started it.
         case nil, "": return "Manual run"
-        // Another run started it (`agent`, `workflow`, or a reason added later).
+        // Another run started it (`agent`, or a reason added later).
         default: return "Agent run"
         }
     }

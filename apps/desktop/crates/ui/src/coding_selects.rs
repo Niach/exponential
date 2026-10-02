@@ -65,9 +65,6 @@ pub const EFFORT_CHOICES: [(&str, &str); 6] = [
     ("Max", "max"),
 ];
 
-/// The agent tabs/select rows (EXP-201) — mirrors `CodingAgent::ALL` order.
-pub const AGENT_CHOICES: [(&str, &str); 2] = [("Claude Code", "claude"), ("Codex", "codex")];
-
 /// Codex `-m` slugs (the GPT-5.6 tiers); blank = codex's own default model.
 pub const CODEX_MODEL_CHOICES: [(&str, &str); 4] = [
     ("CLI default", ""),
@@ -93,21 +90,6 @@ pub fn model_choices_for(agent: coding::CodingAgent) -> &'static [(&'static str,
         coding::CodingAgent::Claude => &MODEL_CHOICES,
         coding::CodingAgent::Codex => &CODEX_MODEL_CHOICES,
     }
-}
-
-/// The WORKFLOW pair's choice list for `agent`: [`model_choices_for`] minus
-/// the blank "CLI default" row. The pair always names a model
-/// (`coding::settings::normalize_workflow_pair`), and the server drops the pair WHOLE
-/// when one half is invalid, so a blank pick from the plain codex list wiped
-/// the machine's stored pair.
-pub fn workflow_model_choices_for(
-    agent: coding::CodingAgent,
-) -> Vec<(&'static str, &'static str)> {
-    model_choices_for(agent)
-        .iter()
-        .copied()
-        .filter(|(_, value)| !value.is_empty())
-        .collect()
 }
 
 /// The effort/reasoning/thinking choice list for `agent`.
@@ -468,33 +450,6 @@ mod tests {
         assert_eq!(&SUBAGENT_MODEL_CHOICES[1..], &MODEL_CHOICES[..]);
     }
 
-    /// The workflow pair never holds a blank: its selects drop the
-    /// "CLI default" row and keep every real model, in the model list's
-    /// own order, so a workflow pick can never wipe the stored pair.
-    #[test]
-    fn workflow_model_choices_carry_no_blank_row() {
-        use super::{model_choices_for, workflow_model_choices_for};
-        for agent in coding::CodingAgent::ALL {
-            let choices = workflow_model_choices_for(agent);
-            assert!(!choices.is_empty(), "{agent:?} offers at least one model");
-            assert!(
-                choices.iter().all(|(_, value)| !value.is_empty()),
-                "{agent:?} has no blank row"
-            );
-            let named: Vec<_> = model_choices_for(agent)
-                .iter()
-                .copied()
-                .filter(|(_, value)| !value.is_empty())
-                .collect();
-            assert_eq!(choices, named, "{agent:?} keeps every real model in order");
-            assert_eq!(
-                choices.iter().map(|(_, v)| *v).collect::<Vec<_>>(),
-                agent.model_values(),
-                "{agent:?} mirrors the agent's closed model set"
-            );
-        }
-    }
-
     use super::*;
 
     // The `coding` crate deliberately does not depend on `domain` — this
@@ -522,10 +477,8 @@ mod tests {
     /// options they send must be values these desktop sets accept).
     #[test]
     fn agent_choice_sets_match_the_contract_and_the_agent_consts() {
-        let agents: Vec<&str> = AGENT_CHOICES.iter().map(|(_, value)| *value).collect();
-        assert_eq!(agents, domain::contract::CODING_AGENT_VALUES);
         let ids: Vec<&str> = coding::CodingAgent::ALL.iter().map(|a| a.id()).collect();
-        assert_eq!(agents, ids);
+        assert_eq!(ids, domain::contract::CODING_AGENT_VALUES);
 
         // Every codex list leads with the local-only blank "CLI default"
         // row; the contract carries only the real values.

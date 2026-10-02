@@ -665,7 +665,6 @@ fn prepared(session_id: &str, worktree: PathBuf) -> coding::PreparedLaunch {
         clone: worktree.clone(),
         repository_id: None,
         account_pick: None,
-        workflow: None,
         branch: "exp/EXP-746".to_string(),
         base_branch: None,
         base_ref: Some("origin/master".to_string()),
@@ -675,7 +674,6 @@ fn prepared(session_id: &str, worktree: PathBuf) -> coding::PreparedLaunch {
         acp: coding::AcpLaunch {
             prompt: None,
             options: coding::LaunchOptions {
-                workflow: None,
                 agent: coding::CodingAgent::Claude,
                 model: String::new(),
                 effort: String::new(),
@@ -709,9 +707,6 @@ fn prepared(session_id: &str, worktree: PathBuf) -> coding::PreparedLaunch {
             batch_issue_ids: Vec::new(),
             agent: None,
             agent_account: None,
-            workflow_id: None,
-            workflow_node_id: None,
-            workflow_role: None,
         },
         action_id: None,
         bypass_permissions: true,

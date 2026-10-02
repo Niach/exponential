@@ -75,9 +75,11 @@ data class ChangesMergeControl(
     val onConfirm: () -> Unit,
     val onFixConflicts: () -> Unit,
     /** EXP-1145: non-null = the merged PR is a stack member, so Merge asks first. */
-    val stackChoice: PrStack.StackMergeChoice?,
-    /** EXP-1145: the dialog's Merge stack, keyed by the stack's TOP member. */
-    val onMergeStack: (topIssueId: String) -> Unit,
+    val stackChoice: PrStack.StackMergeChoice? = null,
+    /** EXP-1145: the issue whose PR the plain merge lands (the stack dialog's "this one"). */
+    val stackIssueId: String? = null,
+    /** EXP-1145: merge the open stack bottom-up THROUGH the given issue. */
+    val onMergeStack: (throughIssueId: String) -> Unit = {},
 )
 
 @Composable
@@ -210,43 +212,39 @@ fun MergePrHeaderPill(merge: ChangesMergeControl, modifier: Modifier = Modifier)
 
 /**
  * EXP-498: merging always closes the session too, so the merge is
- * confirm-gated — same copy as Agents and Reviews. EXP-1145: a stack member
+ * confirm-gated, same copy as Agents and Reviews. EXP-1145: a stack member
  * asks which merge it means.
  */
 @Composable
 private fun MergeConfirmDialog(merge: ChangesMergeControl, onDismiss: () -> Unit) {
     val stackChoice = merge.stackChoice
-    if (stackChoice != null) {
+    val stackIssueId = merge.stackIssueId
+    if (stackChoice != null && stackIssueId != null) {
         StackMergeDialog(
             choice = stackChoice,
-            onMergeStack = {
-                onDismiss()
-                merge.onMergeStack(stackChoice.topIssueId)
-            },
-            onMergeThis = {
-                onDismiss()
-                merge.onConfirm()
-            },
+            issueId = stackIssueId,
+            onMergeStack = merge.onMergeStack,
+            onMergePlain = merge.onConfirm,
             onDismiss = onDismiss,
         )
-    } else {
-        AlertDialog(
-            onDismissRequest = onDismiss,
-            title = { Text("Merge pull request?") },
-            text = { Text(merge.confirmText) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        onDismiss()
-                        merge.onConfirm()
-                    },
-                ) { Text("Merge") }
-            },
-            dismissButton = {
-                TextButton(onClick = onDismiss) { Text("Cancel") }
-            },
-        )
+        return
     }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Merge pull request?") },
+        text = { Text(merge.confirmText) },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onDismiss()
+                    merge.onConfirm()
+                },
+            ) { Text("Merge") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
 }
 
 /**

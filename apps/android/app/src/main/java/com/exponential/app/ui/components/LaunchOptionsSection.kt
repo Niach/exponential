@@ -124,8 +124,8 @@ internal fun LaunchOptionsSection(
      */
     accountRow: (@Composable () -> Unit)? = null,
     /**
-     * EXP-1020: the card's LAST row(s), after the toggles — the device sheet's
-     * "Workflow settings" sub-shell row. Like [resumeSlot] it is a ROW of the
+     * EXP-1020: the card's LAST row(s), after the toggles (e.g. a sub-shell
+     * row). Like [resumeSlot] it is a ROW of the
      * one group (rendered after its own [GroupDivider]), never a card of its
      * own, so the agent defaults stay ONE card on all four clients (desktop
      * `LaunchOptions::trailing`).

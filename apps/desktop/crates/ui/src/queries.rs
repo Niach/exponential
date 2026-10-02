@@ -529,162 +529,6 @@ pub fn team_actions(cx: &App, team_id: &str) -> (Vec<api::actions::Action>, bool
     (out, collection.is_ready())
 }
 
-/// EXP-981: a team's synced `workflows` rows, NEWEST FIRST inside whatever
-/// band the caller groups them into (`domain::workflow_view::workflow_band`).
-/// The bool is the shape's readiness — an empty list before it is "still
-/// syncing", never "no workflows".
-pub fn team_workflows(cx: &App, team_id: &str) -> (Vec<domain::rows::WorkflowRow>, bool) {
-    let collections = Store::global(cx).collections();
-    let collection = collections.workflows.read(cx);
-    let mut out: Vec<domain::rows::WorkflowRow> = collection
-        .iter()
-        .filter(|row| row.team_id.as_deref() == Some(team_id))
-        .cloned()
-        .collect();
-    // ISO-8601 sorts lexicographically — newest first, id-tiebroken so the
-    // order is stable across repaints (the collection is a map).
-    out.sort_by(|a, b| {
-        b.created_at
-            .cmp(&a.created_at)
-            .then_with(|| b.id.cmp(&a.id))
-    });
-    (out, collection.is_ready())
-}
-
-/// EXP-996 — the [`domain::session_tree::session_tree`] CONTEXT: what the
-/// `coding_sessions` rows alone cannot say. Read ONCE, up front and owned,
-/// because the tree borrows it while the row build still holds the collection
-/// guards it joins.
-///
-/// Not team-scoped, like the rail's Running list itself (EXP-923): a live run
-/// of mine on another team's board still groups under its workflow.
-#[derive(Default)]
-pub(crate) struct SessionTreeInputs {
-    workflows: Vec<domain::session_tree::WorkflowFacts>,
-    workflow_nodes: Vec<domain::session_tree::WorkflowNodeFacts>,
-    /// The stack edges' input: the LISTED rows' own issues (plus the issues a
-    /// batch row covers), never the whole synced pool. ×4 with web
-    /// `useSessionTreeContext`, iOS `sessionTreeContext` and Android
-    /// `treeContext` — a wider pool lets `stack_chain` walk down to an issue
-    /// with no run on screen, which moves `root_issue_id` and with it the
-    /// collapse key `stack:<id>`, so the same stack would fold differently
-    /// here than on the other three clients.
-    issues: Vec<domain::rows::Issue>,
-}
-
-impl SessionTreeInputs {
-    pub(crate) fn context(&self) -> domain::session_tree::SessionTreeContext<'_> {
-        domain::session_tree::SessionTreeContext {
-            workflows: &self.workflows,
-            workflow_nodes: &self.workflow_nodes,
-            issues: &self.issues,
-        }
-    }
-}
-
-/// EXP-996 — every input the session tree's GROUPING needs (the workflow a run
-/// is a node of, the stack its pull request sits in). Empty before the shapes
-/// land, which is exactly "no groups yet", never a wrong group.
-///
-/// `sessions` are the rows about to be listed: the stack edges are scoped to
-/// THEIR issues, so the group a reader sees is made of runs the reader can
-/// see (the ×4 rule, see [`SessionTreeInputs::issues`]).
-pub(crate) fn session_tree_inputs(
-    cx: &App,
-    sessions: &[&domain::rows::CodingSession],
-) -> SessionTreeInputs {
-    let Some(store) = Store::try_global(cx) else {
-        return SessionTreeInputs::default();
-    };
-    let collections = store.collections();
-    let listed: std::collections::HashSet<String> = sessions
-        .iter()
-        .flat_map(|session| {
-            session
-                .issue_id
-                .iter()
-                .cloned()
-                .chain(domain::batch_run::parse_batch_issue_ids(
-                    session.batch_issue_ids.as_ref(),
-                ))
-        })
-        .collect();
-    SessionTreeInputs {
-        // Projected down to the group rows' facts, never cloned whole: the
-        // rail re-derives this on every paint.
-        workflows: collections
-            .workflows
-            .read(cx)
-            .iter()
-            .map(domain::session_tree::WorkflowFacts::from_row)
-            .collect(),
-        workflow_nodes: collections
-            .workflow_nodes
-            .read(cx)
-            .iter()
-            .filter_map(domain::session_tree::WorkflowNodeFacts::from_row)
-            .collect(),
-        issues: collections
-            .issues
-            .read(cx)
-            .iter()
-            .filter(|issue| listed.contains(&issue.id))
-            .cloned()
-            .collect(),
-    }
-}
-
-/// EXP-981: one workflow's nodes in the SERVER's layout order (wave, then
-/// lane) — no client lays a graph out.
-pub fn workflow_nodes(cx: &App, workflow_id: &str) -> Vec<domain::rows::WorkflowNodeRow> {
-    let collections = Store::global(cx).collections();
-    let mut out: Vec<domain::rows::WorkflowNodeRow> = collections
-        .workflow_nodes
-        .read(cx)
-        .iter()
-        .filter(|row| row.workflow_id.as_deref() == Some(workflow_id))
-        .cloned()
-        .collect();
-    out.sort_by(|a, b| {
-        a.wave_index()
-            .cmp(&b.wave_index())
-            .then_with(|| a.lane_index().cmp(&b.lane_index()))
-            .then_with(|| a.id.cmp(&b.id))
-    });
-    out
-}
-
-/// EXP-981: every input the workflow surfaces derive from — the two workflow
-/// shapes plus the issues and relations the graph joins.
-#[derive(PartialEq, Eq)]
-pub(crate) struct WorkflowDataKey {
-    team_id: Option<String>,
-    workflow_id: Option<String>,
-    workflows: u64,
-    workflow_nodes: u64,
-    issues: u64,
-    issue_relations: u64,
-    ready: bool,
-}
-
-pub(crate) fn workflow_data_key(
-    cx: &App,
-    team_id: Option<&str>,
-    workflow_id: Option<&str>,
-) -> WorkflowDataKey {
-    let collections = Store::global(cx).collections();
-    WorkflowDataKey {
-        team_id: team_id.map(str::to_string),
-        workflow_id: workflow_id.map(str::to_string),
-        workflows: collections.workflows.read(cx).revision(),
-        workflow_nodes: collections.workflow_nodes.read(cx).revision(),
-        issues: collections.issues.read(cx).revision(),
-        issue_relations: collections.issue_relations.read(cx).revision(),
-        ready: collections.workflows.read(cx).is_ready()
-            && collections.workflow_nodes.read(cx).is_ready(),
-    }
-}
-
 /// EXP-314: a team's `issue_statuses` rows in the canonical order (category
 /// display order, then `sort_order`, `created_at`, `id`). The ONE read every
 /// status surface goes through — pass the result straight to
@@ -1147,29 +991,13 @@ pub(crate) fn is_reviewable(issue: &domain::rows::Issue) -> bool {
 /// the shared `pr_number`/`branch` and is the merge/dismiss target.
 pub struct ReviewEntry {
     pub issues: Vec<domain::rows::Issue>,
-    /// EXP-897: how deep this pull request sits in its STACK — 0 for the
-    /// bottom (and for every unstacked PR), +1 per member above.
-    pub depth: usize,
-    /// The identifier(s) of the pull request directly BELOW this one, when it
-    /// is stacked on a PR that is also in this list. Renders as the row's
-    /// `on top of #EXP-11` caption.
-    pub stacked_on: Option<String>,
-    /// On a `depth == 0` entry that CARRIES a stack: the representative issue
-    /// id of the top of that chain. Its presence is what turns the row's
-    /// Merge into "Merge stack" (the call itself rides this row's OWN issue
-    /// id — the server resolves the top).
-    pub stack_top_issue_id: Option<String>,
 }
 
 /// EXP-917 — which issue REPRESENTS one pull request when several share it (a
 /// batch run lands N issues on ONE branch under ONE `pr_url`): the NEWEST by
 /// `created_at`, id ascending as the tiebreak so the answer never depends on
-/// collection iteration order. ONE rule, shared by the Reviews row
-/// ([`ReviewEntry::representative`]) and the run header's branch lookup
-/// ([`crate::changes_bar::open_pr_issue_on_branch`]): a merge failure is
-/// recorded in [`crate::pr_merge::MergeState`] under the issue id it was
-/// merged through, so two surfaces picking different siblings meant the
-/// conflict swap looked the failure up under an id that never failed.
+/// collection iteration order — the Reviews row's merge target
+/// ([`ReviewEntry::representative`]).
 pub(crate) fn representative_order(
     a: &domain::rows::Issue,
     b: &domain::rows::Issue,
@@ -1199,85 +1027,6 @@ impl ReviewEntry {
     pub fn is_batch(&self) -> bool {
         self.issues.len() > 1
     }
-
-    /// The pull request's head branch (shared by every issue on it).
-    fn head_branch(&self) -> Option<&str> {
-        self.representative()
-            .branch
-            .as_deref()
-            .map(str::trim)
-            .filter(|branch| !branch.is_empty())
-    }
-
-    /// The branch the pull request TARGETS — the stack edge (EXP-897).
-    fn base_branch(&self) -> Option<&str> {
-        self.representative()
-            .pr_base_branch
-            .as_deref()
-            .map(str::trim)
-            .filter(|branch| !branch.is_empty())
-    }
-
-    /// `EXP-11`, or `EXP-11, EXP-12` for a batch PR.
-    pub fn identifiers(&self) -> String {
-        self.issues
-            .iter()
-            .map(|issue| issue.identifier.as_str())
-            .collect::<Vec<_>>()
-            .join(", ")
-    }
-}
-
-/// EXP-897 — nest the Reviews entries into their PR STACKS: every entry
-/// follows the one it is based on (`pr_base_branch` == that PR's `branch`),
-/// one level deeper, and carries the caption + merge facts its row needs.
-/// Roots keep the caller's order; a base nobody in the list owns leaves the
-/// entry a root (a merged lower member simply un-nests — the server rewrites
-/// `pr_base_branch`, so no row ever reports a missing base); a cycle breaks
-/// where it first repeats. Pure — the rule is
-/// [`domain::pr_stack::nest_pr_stacks`], shared ×4.
-///
-/// EXP-1061: deliberately NOT the session tree. The review queue lists pull
-/// requests, not runs — an issue-less PR has no session and a PR outlives the
-/// run that opened it — so its one grouping is the PR stack, the same rule
-/// every client's Reviews uses.
-pub fn nest_review_entries(entries: Vec<ReviewEntry>) -> Vec<ReviewEntry> {
-    let nested = domain::pr_stack::nest_pr_stacks(
-        entries,
-        |entry: &ReviewEntry| entry.head_branch(),
-        |entry: &ReviewEntry| entry.base_branch(),
-    );
-    // One pass over the tree order fills in the two row facts: the caption
-    // names the row directly below (the parent at `depth - 1`), and every
-    // stack ROOT learns the issue id of the member at its very top.
-    let mut labels: Vec<String> = Vec::new();
-    let mut rows: Vec<ReviewEntry> = Vec::with_capacity(nested.len());
-    let mut root_of: Vec<Option<usize>> = Vec::with_capacity(nested.len());
-    let mut current_root: Option<usize> = None;
-    for row in nested {
-        let depth = row.depth;
-        labels.truncate(depth);
-        let mut entry = row.entry;
-        entry.depth = depth;
-        entry.stacked_on = depth.checked_sub(1).and_then(|below| labels.get(below).cloned());
-        labels.push(entry.identifiers());
-        if depth == 0 {
-            current_root = Some(rows.len());
-        }
-        root_of.push(current_root);
-        rows.push(entry);
-    }
-    // The TOP of each chain, walked back onto its root.
-    for index in 0..rows.len() {
-        if rows[index].depth == 0 {
-            continue;
-        }
-        if let Some(root) = root_of[index] {
-            let top = rows[index].representative().id.clone();
-            rows[root].stack_top_issue_id = Some(top);
-        }
-    }
-    rows
 }
 
 /// One Reviews page section: a board and its open-PR entries (the
@@ -1320,33 +1069,20 @@ pub fn review_groups(cx: &App, team_id: &str) -> Vec<ReviewGroup> {
     for key in pr_order {
         let mut issues = by_pr.remove(&key).unwrap_or_default();
         sort_pr_issues(&mut issues);
-        entries.push(ReviewEntry {
-            issues,
-            depth: 0,
-            stacked_on: None,
-            stack_top_issue_id: None,
-        });
+        entries.push(ReviewEntry { issues });
     }
-    // Newest entry first — by the representative's created_at. This is the
-    // ROOT order; nesting keeps it and threads each stack under its bottom.
+    // Newest entry first — by the representative's created_at.
     entries.sort_by(|a, b| {
         b.representative()
             .created_at
             .cmp(&a.representative().created_at)
     });
-    // EXP-897: stacks are nested across the WHOLE team before the grouping,
-    // then bucketed by the ROOT entry's board — a chain never splits across
-    // two board sections just because a member lives on another board.
+    // Bucketed by the representative's board: a pull request linking issues
+    // on two boards lists under its representative's board.
     let mut by_board: HashMap<String, Vec<ReviewEntry>> = HashMap::new();
     let mut board_order: Vec<String> = Vec::new();
-    let mut current_board: Option<String> = None;
-    for entry in nest_review_entries(entries) {
-        if entry.depth == 0 {
-            current_board = Some(entry.representative().board_id.clone());
-        }
-        let Some(board_id) = current_board.clone() else {
-            continue;
-        };
+    for entry in entries {
+        let board_id = entry.representative().board_id.clone();
         let bucket = by_board.entry(board_id.clone()).or_default();
         if bucket.is_empty() {
             board_order.push(board_id);
@@ -1379,32 +1115,45 @@ pub fn review_groups(cx: &App, team_id: &str) -> Vec<ReviewGroup> {
     groups
 }
 
-/// EXP-734: the Reviews page's "Agent runs" block — runs whose pull request
-/// links NO issue (an action or chat run's chore PR, opened through MCP
-/// `exponential_pr_open({repositoryId, head})`). Nothing else surfaces them:
-/// no issue row carries the PR, and `repositories.openPulls` deliberately
-/// excludes them server-side, so this synced read is the only listing.
+/// EXP-734: the Reviews page's "Agent runs" block — issue-less runs (a batch,
+/// chat or action run) with an open PR of their OWN, read off the run's synced
+/// row. A row whose `pr_url` some issue also carries (a batch run's combined
+/// PR) already lists in the board groups above, so it is left out here.
 pub fn review_runs(cx: &App, team_id: &str) -> Vec<domain::rows::CodingSession> {
+    let collections = Store::global(cx).collections();
+    let issue_pr_urls: HashSet<String> = collections
+        .issues
+        .read(cx)
+        .iter()
+        .filter_map(|issue| issue.pr_url.clone())
+        .collect();
     review_runs_from(
-        Store::global(cx).collections().coding_sessions.read(cx).iter(),
+        collections.coding_sessions.read(cx).iter(),
         team_id,
+        &issue_pr_urls,
     )
 }
 
 /// Pure core of [`review_runs`]: this team's issue-less runs with an OPEN PR
-/// of their own, deduped by `pr_url` (a resumed run can leave two rows on one
-/// PR — the NEWEST wins, like `review_groups`' representative), newest first.
+/// of their own that no issue links (`issue_pr_urls`), deduped by `pr_url` (a
+/// resumed run can leave two rows on one PR — the NEWEST wins, like
+/// `review_groups`' representative), newest first.
 pub(crate) fn review_runs_from<'a>(
     sessions: impl Iterator<Item = &'a domain::rows::CodingSession>,
     team_id: &str,
+    issue_pr_urls: &HashSet<String>,
 ) -> Vec<domain::rows::CodingSession> {
     let mut rows: Vec<domain::rows::CodingSession> = sessions
         .filter(|session| {
             session.team_id.as_deref() == Some(team_id)
-                // Issue-linked runs (single AND batch) merge through their
-                // issue(s) and already render in the board groups above.
+                // Issue-linked runs merge through their issue and already
+                // render in the board groups above.
                 && session.issue_id.is_none()
                 && session.has_open_pr()
+                && !session
+                    .pr_url
+                    .as_deref()
+                    .is_some_and(|url| issue_pr_urls.contains(url))
         })
         .cloned()
         .collect();
@@ -1419,109 +1168,16 @@ pub(crate) fn review_runs_from<'a>(
     rows
 }
 
-/// EXP-1072: the Reviews page's "Workflows" block — each workflow's ONE
-/// final pull request (integration branch → default branch) while it is
-/// open. It is the workflow's OWN linked PR, never an unlinked one: the
-/// server keeps it out of `repositories.openPulls`, and no issue row carries
-/// it, so this synced read is the only listing.
-pub fn review_workflows(cx: &App, team_id: &str) -> Vec<domain::rows::WorkflowRow> {
-    review_workflows_from(
-        Store::global(cx).collections().workflows.read(cx).iter(),
-        team_id,
-    )
-}
-
-/// EXP-1094: issue id -> the status of the workflow whose node covers it
-/// (the node's issue or a member issue; a live workflow wins), the Reviews
-/// row's `workflow_status` merge input. This team's synced rows only.
-pub(crate) fn review_workflow_status_by_issue(
-    cx: &App,
-    team_id: &str,
-) -> HashMap<String, String> {
-    let collections = Store::global(cx).collections();
-    let workflows: Vec<(String, String)> = collections
-        .workflows
-        .read(cx)
-        .iter()
-        .filter(|workflow| workflow.team_id.as_deref() == Some(team_id))
-        .map(|workflow| (workflow.id.clone(), workflow.status_wire().to_string()))
-        .collect();
-    let nodes: Vec<(String, String, Vec<String>)> = collections
-        .workflow_nodes
-        .read(cx)
-        .iter()
-        .filter_map(|node| {
-            Some((node.workflow_id.clone()?, node.issue_id.clone()?, node.member_ids()))
-        })
-        .collect();
-    domain::reviews_merge::workflow_status_by_issue(
-        workflows.iter().map(|(id, status)| (id.as_str(), status.as_str())),
-        nodes
-            .iter()
-            .map(|(workflow, issue, members)| (workflow.as_str(), issue.as_str(), members.clone())),
-    )
-}
-
-/// Pure core of [`review_workflows`]: this team's workflows whose final PR
-/// is `open` and has a url, newest `created_at` first (id-tiebroken so the
-/// order is stable across repaints — the collection is a map).
-pub(crate) fn review_workflows_from<'a>(
-    workflows: impl Iterator<Item = &'a domain::rows::WorkflowRow>,
-    team_id: &str,
-) -> Vec<domain::rows::WorkflowRow> {
-    let mut rows: Vec<domain::rows::WorkflowRow> = workflows
-        .filter(|workflow| {
-            workflow.team_id.as_deref() == Some(team_id)
-                && workflow.final_pr_state.as_deref() == Some("open")
-                && workflow
-                    .final_pr_url
-                    .as_deref()
-                    .is_some_and(|url| !url.is_empty())
-        })
-        .cloned()
-        .collect();
-    rows.sort_by(|a, b| {
-        b.created_at
-            .cmp(&a.created_at)
-            .then_with(|| b.id.cmp(&a.id))
-    });
-    rows
-}
-
-/// EXP-1072: every final-PR url of this team's workflows — the unlinked
-/// pulls below the synced blocks drop these (the server already excludes
-/// them; this is the client-side dedupe for an older server or a lagging
-/// cache).
-pub fn workflow_final_pr_urls(cx: &App, team_id: &str) -> HashSet<String> {
-    Store::global(cx)
-        .collections()
-        .workflows
-        .read(cx)
-        .iter()
-        .filter(|workflow| workflow.team_id.as_deref() == Some(team_id))
-        .filter_map(|workflow| workflow.final_pr_url.clone())
-        .filter(|url| !url.is_empty())
-        .collect()
-}
-
 /// The Reviews page's unlinked-PR sections: keep only repos that have
 /// open pulls (the server returns every team repo, unreachable ones with
-/// an empty list — an empty section is noise, web parity). EXP-1072: a pull
-/// whose url is a workflow's final PR (`workflow_pr_urls`) is the workflow's
-/// own and renders in the Workflows block instead — never here.
+/// an empty list — an empty section is noise, web parity).
 pub fn visible_pull_repos(
     repos: &[api::repositories::OpenPullsRepo],
-    workflow_pr_urls: &HashSet<String>,
 ) -> Vec<api::repositories::OpenPullsRepo> {
     repos
         .iter()
-        .map(|repo| {
-            let mut repo = repo.clone();
-            repo.pulls
-                .retain(|pull| !workflow_pr_urls.contains(&pull.url));
-            repo
-        })
         .filter(|repo| !repo.pulls.is_empty())
+        .cloned()
         .collect()
 }
 
@@ -2405,12 +2061,6 @@ pub(crate) struct LaunchDevice {
     pub(crate) is_own: bool,
     /// EXP-622: the caller's default machine (never a teammate's flag).
     pub(crate) is_default: bool,
-    /// EXP-897: the machine reads a start frame's `stack` payload
-    /// (`coding::doctor::STACKED_START_CAP`). An older build would run the
-    /// issue UNSTACKED while the server had already recorded a stack, so the
-    /// blocked-issue alert hides "Stacked PR" for it. Always true for this
-    /// IDE (the local launcher resolves the chain itself).
-    pub(crate) can_stack_start: bool,
 }
 
 /// The picker line for a candidate machine — web `launch-options-pane`
@@ -2511,10 +2161,6 @@ pub(crate) fn remote_launch_devices<'a>(
                 is_own: false,
                 // EXP-622: a teammate's flag is THEIR preference, never ours.
                 is_default: owned && row.is_default.unwrap_or(false),
-                can_stack_start: row
-                    .cap_ids()
-                    .iter()
-                    .any(|cap| cap == coding::doctor::STACKED_START_CAP),
                 device_id,
             })
         })
@@ -2772,7 +2418,6 @@ pub(crate) fn launch_devices(cx: &mut App) -> Vec<LaunchDevice> {
             .as_ref()
             .and_then(|row| row.is_default)
             .unwrap_or(false),
-        can_stack_start: true,
         device_id: own_device_id.clone(),
     };
     let me = active_account(cx).map(|account| account.user_id).unwrap_or_default();
@@ -3338,67 +2983,9 @@ mod tests {
     #[test]
     fn visible_pull_repos_hides_empty_repos() {
         let repos = vec![pull_repo("repo-1", &[1, 2]), pull_repo("repo-2", &[])];
-        let visible = visible_pull_repos(&repos, &HashSet::new());
+        let visible = visible_pull_repos(&repos);
         assert_eq!(visible.len(), 1);
         assert_eq!(visible[0].repository_id, "repo-1");
-    }
-
-    /// EXP-1072: a workflow's final PR is the workflow's own — it never
-    /// renders among the unlinked pulls, and a repo left empty by that drops.
-    #[test]
-    fn visible_pull_repos_drops_workflow_final_prs() {
-        let repos = vec![pull_repo("repo-1", &[1, 2]), pull_repo("repo-2", &[3])];
-        let urls: HashSet<String> = [
-            "https://github.com/acme/web/pull/2".to_string(),
-            "https://github.com/acme/web/pull/3".to_string(),
-        ]
-        .into_iter()
-        .collect();
-        let visible = visible_pull_repos(&repos, &urls);
-        assert_eq!(visible.len(), 1);
-        assert_eq!(visible[0].repository_id, "repo-1");
-        assert_eq!(
-            visible[0].pulls.iter().map(|p| p.number).collect::<Vec<_>>(),
-            [1]
-        );
-    }
-
-    /// EXP-1072: the "Workflows" block lists this team's workflows whose ONE
-    /// final PR is open, newest first.
-    #[test]
-    fn review_workflows_from_lists_only_this_teams_open_final_prs() {
-        let workflow = |id: &str,
-                        team: &str,
-                        url: Option<&str>,
-                        state: Option<&str>,
-                        created_at: &str|
-         -> domain::rows::WorkflowRow {
-            serde_json::from_value(json!({
-                "id": id, "team_id": team, "name": format!("wf {id}"),
-                "status": "running", "integration_branch": format!("exp/wf-{id}"),
-                "final_pr_url": url, "final_pr_number": "12", "final_pr_state": state,
-                "created_at": created_at,
-            }))
-            .unwrap()
-        };
-        let newest = workflow("wf-new", "t-1", Some("pr/1"), Some("open"), "2026-09-04T10:00:00Z");
-        let older = workflow("wf-old", "t-1", Some("pr/2"), Some("open"), "2026-09-01T10:00:00Z");
-        // Excluded: another team, a merged/closed final PR, none opened yet.
-        let other_team = workflow("wf-x", "t-2", Some("pr/9"), Some("open"), "2026-09-03T10:00:00Z");
-        let merged = workflow("wf-m", "t-1", Some("pr/3"), Some("merged"), "2026-09-03T10:00:00Z");
-        let closed = workflow("wf-c", "t-1", Some("pr/4"), Some("closed"), "2026-09-03T10:00:00Z");
-        let unopened = workflow("wf-u", "t-1", None, None, "2026-09-03T10:00:00Z");
-        let urlless = workflow("wf-e", "t-1", Some(""), Some("open"), "2026-09-03T10:00:00Z");
-
-        let rows = review_workflows_from(
-            [&older, &other_team, &newest, &merged, &closed, &unopened, &urlless].into_iter(),
-            "t-1",
-        );
-        assert_eq!(
-            rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
-            ["wf-new", "wf-old"]
-        );
-        assert_eq!(rows[0].final_pr_number, Some(12));
     }
 
     #[test]
@@ -3446,10 +3033,16 @@ mod tests {
         let issue_run = run("cs-i", "t-1", Some("i-1"), Some("pr/3"), Some("open"), "2026-09-03T10:00:00Z");
         let merged = run("cs-m", "t-1", None, Some("pr/4"), Some("merged"), "2026-09-03T10:00:00Z");
         let prless = run("cs-p", "t-1", None, None, None, "2026-09-03T10:00:00Z");
+        // A batch run's combined PR: an issue links it, so the board groups
+        // list it instead.
+        let batch = run("cs-b", "t-1", None, Some("pr/5"), Some("open"), "2026-09-05T10:00:00Z");
+        let issue_pr_urls: HashSet<String> = ["pr/5".to_string()].into_iter().collect();
 
         let rows = review_runs_from(
-            [&older, &second, &newest, &other_team, &issue_run, &merged, &prless].into_iter(),
+            [&older, &second, &newest, &other_team, &issue_run, &merged, &prless, &batch]
+                .into_iter(),
             "t-1",
+            &issue_pr_urls,
         );
         assert_eq!(
             rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
@@ -3816,28 +3409,6 @@ mod tests {
         assert!(devices[2].acp_agents.is_empty());
     }
 
-    /// EXP-897: a remote candidate's "Stacked PR" offer follows its
-    /// `stacked-start` cap; a NULL or capless row (a desktop/CLI below the
-    /// cap's build) is offered the plain start only.
-    #[test]
-    fn remote_launch_devices_read_the_stacked_start_cap() {
-        let mut stacker = launch_device_row("r-1", "dev-1", "Alpha", "me", &["claude"], -30);
-        stacker.caps = Some(json!(["acp", coding::doctor::STACKED_START_CAP]));
-        let mut older = launch_device_row("r-2", "dev-2", "Beta", "me", &["claude"], -30);
-        older.caps = Some(json!(["acp", "start-prompt"]));
-        let silent = launch_device_row("r-3", "dev-3", "Gamma", "me", &["claude"], -30);
-        let rows = vec![stacker, older, silent];
-        let owner = |_: &str| None;
-        let devices = remote_launch_devices(rows.iter(), NOW_MS, "me", "dev-own", &owner);
-
-        assert_eq!(devices[0].device_id, "dev-1");
-        assert!(devices[0].can_stack_start);
-        assert_eq!(devices[1].device_id, "dev-2");
-        assert!(!devices[1].can_stack_start);
-        assert_eq!(devices[2].device_id, "dev-3");
-        assert!(!devices[2].can_stack_start);
-    }
-
     #[test]
     fn remote_candidate_defaults_come_from_the_advertised_launch_defaults() {
         let mut row = launch_device_row("r-1", "dev-1", "Buildbox", "me", &["codex"], -30);
@@ -3924,7 +3495,6 @@ mod tests {
             defaults: coding::Settings::default(),
             is_own,
             is_default,
-            can_stack_start: true,
         }
     }
 
@@ -4750,103 +4320,5 @@ mod tests {
         ] {
             assert_eq!(session_dot_tone(facts, muted), muted.opacity(0.4));
         }
-    }
-}
-
-#[cfg(test)]
-mod review_stack_tests {
-    use super::*;
-
-    /// One Reviews entry for a pull request on `head`, based on `base`.
-    fn entry(identifier: &str, head: Option<&str>, base: Option<&str>) -> ReviewEntry {
-        ReviewEntry {
-            issues: vec![serde_json::from_value(serde_json::json!({
-                "id": format!("id-{identifier}"),
-                "board_id": "board-1",
-                "number": 1,
-                "identifier": identifier,
-                "title": identifier,
-                "status": "in_review",
-                "branch": head,
-                "pr_base_branch": base,
-                "pr_state": "open",
-            }))
-            .unwrap()],
-            depth: 0,
-            stacked_on: None,
-            stack_top_issue_id: None,
-        }
-    }
-
-    fn shape(rows: &[ReviewEntry]) -> Vec<String> {
-        rows.iter()
-            .map(|row| format!("{}@{}", row.identifiers(), row.depth))
-            .collect()
-    }
-
-    /// EXP-897: an entry whose PR targets another entry's branch nests under
-    /// it, carries the `on top of #…` caption, and hands the bottom row the
-    /// chain's top so it can offer "Merge stack".
-    #[test]
-    fn review_entries_nest_under_their_base_pr() {
-        let rows = nest_review_entries(vec![
-            entry("EXP-13", Some("exp/EXP-13"), Some("exp/EXP-12")),
-            entry("EXP-12", Some("exp/EXP-12"), Some("exp/EXP-11")),
-            entry("EXP-11", Some("exp/EXP-11"), Some("master")),
-        ]);
-        assert_eq!(shape(&rows), ["EXP-11@0", "EXP-12@1", "EXP-13@2"]);
-        assert_eq!(rows[0].stacked_on, None);
-        assert_eq!(rows[1].stacked_on.as_deref(), Some("EXP-11"));
-        assert_eq!(rows[2].stacked_on.as_deref(), Some("EXP-12"));
-        assert_eq!(
-            domain::pr_stack::on_top_of(rows[1].stacked_on.as_deref().unwrap()),
-            "on top of #EXP-11"
-        );
-        // Only the BOTTOM row offers the stack merge.
-        assert_eq!(rows[0].stack_top_issue_id.as_deref(), Some("id-EXP-13"));
-        assert_eq!(rows[1].stack_top_issue_id, None);
-        assert_eq!(rows[2].stack_top_issue_id, None);
-    }
-
-    /// A PR based on the repo's default branch (or on a merged PR the list no
-    /// longer holds) stays a ROOT — the list never renders a missing base.
-    #[test]
-    fn review_entries_stay_flat_without_a_base() {
-        let rows = nest_review_entries(vec![
-            entry("EXP-20", Some("exp/EXP-20"), Some("master")),
-            entry("EXP-21", Some("exp/EXP-21"), None),
-            // The base names a branch nobody in the list owns (it merged).
-            entry("EXP-22", Some("exp/EXP-22"), Some("exp/EXP-19")),
-        ]);
-        assert_eq!(shape(&rows), ["EXP-20@0", "EXP-21@0", "EXP-22@0"]);
-        assert!(rows.iter().all(|row| row.stacked_on.is_none()));
-        assert!(rows.iter().all(|row| row.stack_top_issue_id.is_none()));
-    }
-
-    /// Defensive: a base chain that loops keeps every row exactly once.
-    #[test]
-    fn review_entry_nesting_breaks_a_cycle() {
-        let rows = nest_review_entries(vec![
-            entry("EXP-40", Some("a"), Some("b")),
-            entry("EXP-41", Some("b"), Some("a")),
-        ]);
-        assert_eq!(shape(&rows), ["EXP-40@0", "EXP-41@1"]);
-        assert_eq!(rows[1].stacked_on.as_deref(), Some("EXP-40"));
-    }
-
-    /// A batch PR is ONE stack member: its identifiers read as a list and the
-    /// caption below it names the whole batch.
-    #[test]
-    fn a_batch_entry_is_one_stack_member() {
-        let mut batch = entry("EXP-30", Some("exp/batch-a1b2c3d4"), Some("master"));
-        let mut second = entry("EXP-31", Some("exp/batch-a1b2c3d4"), Some("master"));
-        batch.issues.push(second.issues.remove(0));
-        let rows = nest_review_entries(vec![
-            entry("EXP-32", Some("exp/EXP-32"), Some("exp/batch-a1b2c3d4")),
-            batch,
-        ]);
-        assert_eq!(shape(&rows), ["EXP-30, EXP-31@0", "EXP-32@1"]);
-        assert_eq!(rows[1].stacked_on.as_deref(), Some("EXP-30, EXP-31"));
-        assert!(rows[0].is_batch());
     }
 }

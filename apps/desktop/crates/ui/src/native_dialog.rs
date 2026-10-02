@@ -1076,12 +1076,12 @@ pub(crate) struct AlertSpec {
     cancel: bool,
     /// Extra block between the description and the footer.
     content: Option<AlertContentFn>,
-    /// EXP-897: a THIRD button between Cancel and OK — the second real
+    /// EXP-897: a THIRD button between Cancel and OK, the second real
     /// choice an alert sometimes has ("Start anyway" beside "Stacked PR").
     /// Outline-styled like Cancel, because the primary answer stays the OK.
     /// `None` (every alert before it) draws the two-button footer unchanged.
     secondary: Option<(SharedString, OnOkFn)>,
-    /// EXP-980: the OK button is SHOWN but not pressable — the answer stays
+    /// EXP-980: the OK button is SHOWN but not pressable: the answer stays
     /// visible (with a caption saying why it is off) instead of vanishing.
     ok_disabled: bool,
     /// Return `true` to close the window (a `false` keeps it open — the

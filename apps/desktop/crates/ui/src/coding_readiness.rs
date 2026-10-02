@@ -263,7 +263,7 @@ pub(crate) fn picker_rows(
 
 /// `[amber dot] Needs a repository [- - Start coding - -]`, one click target
 /// wrapped so `Popover::trigger` takes it (a `Selectable` painting nothing of
-/// its own — the `pr_graph` `ChipTrigger` recipe).
+/// its own).
 #[derive(IntoElement)]
 pub(crate) struct ReadinessTrigger {
     caption: Option<SharedString>,

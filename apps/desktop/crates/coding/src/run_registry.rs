@@ -127,15 +127,6 @@ pub enum RunKind {
     Team,
     Chat,
     CreateAction,
-    /// EXP-981: the hidden "Plan workflow" builtin — a scratch run like
-    /// [`Self::CreateAction`], so it owns no worktree either.
-    PlanWorkflow,
-    /// EXP-984: the hidden "Review node" builtin — the agent review of one
-    /// workflow node, in a throwaway worktree it owns and drops at the end.
-    ReviewNode,
-    /// EXP-1103: the hidden "Fix review findings" builtin — a review wave's
-    /// one fix run, in a worktree of its own on the wave's fix branch.
-    FixReviewFindings,
     FixConflicts,
     /// FEED-50: the "Tidy up" builtin — with a repo it owns an
     /// `exp/tidy-up-<id8>` worktree like a Team/Chat run, without one it is a
@@ -159,7 +150,7 @@ impl RunKind {
     /// fix-conflicts run works in the PR branch's shared worktree, and
     /// issue/batch worktrees survive their session by design.
     pub fn owns_run_worktree(self) -> bool {
-        matches!(self, Self::Team | Self::Chat | Self::TidyUp | Self::ReviewNode)
+        matches!(self, Self::Team | Self::Chat | Self::TidyUp)
     }
 }
 
@@ -390,97 +381,6 @@ pub fn account_extra(account: Option<&str>) -> BTreeMap<String, serde_json::Valu
     extra
 }
 
-/// EXP-897: the [`RunRecord::extra`] key carrying the STACK a run was started
-/// into ([`crate::launcher::StackLaunch`]) — the chain below it and the
-/// foundation its branch was cut from. A resume reads it to know that
-/// `base_branch` is a foundation branch rather than the board's own; the run
-/// screen reads it for the "2 of 3 · on top of #EXP-11" line. Absent on every
-/// ordinary run, so an unstacked record serializes exactly as before.
-pub const STACK_KEY: &str = "stack";
-
-impl RunRecord {
-    /// EXP-897: the recorded stack; `None` for an ordinary run (and for an
-    /// entry this build cannot parse — a stack is a hint, never a gate).
-    pub fn stack(&self) -> Option<crate::launcher::StackLaunch> {
-        let value = self.extra.get(STACK_KEY)?;
-        serde_json::from_value::<crate::launcher::StackLaunch>(value.clone())
-            .ok()
-            .filter(|stack| stack.lower.is_some() || !stack.chain.is_empty())
-    }
-
-    /// EXP-897: record (or, for `None`/an empty plan, clear) the stack.
-    pub fn set_stack(&mut self, stack: Option<&crate::launcher::StackLaunch>) {
-        self.extra.remove(STACK_KEY);
-        self.extra.extend(stack_extra(stack));
-    }
-}
-
-/// EXP-897: the `extra` entry a stacked launch writes — empty for an
-/// unstacked one (and for a degenerate plan with nothing below it).
-pub fn stack_extra(
-    stack: Option<&crate::launcher::StackLaunch>,
-) -> BTreeMap<String, serde_json::Value> {
-    let mut extra = BTreeMap::new();
-    if let Some(stack) = stack {
-        if stack.lower.is_some() || !stack.chain.is_empty() {
-            if let Ok(value) = serde_json::to_value(stack) {
-                extra.insert(STACK_KEY.to_string(), value);
-            }
-        }
-    }
-    extra
-}
-
-/// EXP-1083 (EXP-1068's finding): the [`RunRecord::extra`] keys carrying the
-/// run's WORKFLOW MEMBERSHIP (`workflow_id`, `workflow_node_id`,
-/// `workflow_role`, the `codingSessions.start` wire words). A resume rebuilds
-/// `LaunchOptions::workflow` from them, so its heartbeat echoes the
-/// membership and a swept resumed node or reviewer row resurrects INSIDE its
-/// workflow group instead of as a stray. They ride `extra` rather than
-/// declared fields so an older host round-trips them untouched.
-pub const WORKFLOW_ID_KEY: &str = "workflowId";
-pub const WORKFLOW_NODE_ID_KEY: &str = "workflowNodeId";
-pub const WORKFLOW_ROLE_KEY: &str = "workflowRole";
-
-impl RunRecord {
-    /// EXP-1083: the recorded workflow membership; `None` for a run outside
-    /// a workflow, or one recorded before the keys existed (its resume then
-    /// still inherits server-side, it only loses the heartbeat echo).
-    pub fn workflow_membership(&self) -> Option<crate::workflows::WorkflowMembership> {
-        let text = |key: &str| self.extra.get(key).and_then(|value| value.as_str());
-        crate::workflows::WorkflowMembership::from_wire(
-            text(WORKFLOW_ID_KEY),
-            text(WORKFLOW_NODE_ID_KEY),
-            text(WORKFLOW_ROLE_KEY),
-        )
-    }
-}
-
-/// EXP-1083: the `extra` entries a workflow launch writes — empty outside a
-/// workflow, so every other record stays byte-identical.
-pub fn workflow_extra(
-    membership: Option<&crate::workflows::WorkflowMembership>,
-) -> BTreeMap<String, serde_json::Value> {
-    let mut extra = BTreeMap::new();
-    if let Some(membership) = membership {
-        extra.insert(
-            WORKFLOW_ID_KEY.to_string(),
-            serde_json::Value::String(membership.workflow_id.clone()),
-        );
-        if let Some(node_id) = &membership.node_id {
-            extra.insert(
-                WORKFLOW_NODE_ID_KEY.to_string(),
-                serde_json::Value::String(node_id.clone()),
-            );
-        }
-        extra.insert(
-            WORKFLOW_ROLE_KEY.to_string(),
-            serde_json::Value::String(membership.role.as_str().to_string()),
-        );
-    }
-    extra
-}
-
 /// EXP-1051: the [`RunRecord::extra`] key carrying the run's MEASURED base
 /// context — `{"tokens": <u64>, "model": "<string>"}`, written by the engine
 /// once the agent reports its own count for the run's opening turn.
@@ -634,8 +534,20 @@ struct Registry {
 /// `externalAgent` (EXP-746) named a user-declared external ACP agent; those
 /// went with EXP-862, and every build that could still write the key is
 /// below the client floor, so a record nobody purged merely loses it (its
-/// declared env is where that agent's TOKEN sat).
-const DEAD_KEYS: &[&str] = &["skipPermissions", "externalAgent"];
+/// declared env is where that agent's TOKEN sat). SLOP-3: `stack` (EXP-897)
+/// and the EXP-1083 workflow membership (`workflowId`, `workflowNodeId`,
+/// `workflowRole`) went with stacked runs and workflows; an old record that
+/// carries them resumes as the plain issue or batch run it was. (An old
+/// `planWorkflow`/`reviewNode`/`fixReviewFindings` entry no longer parses at
+/// all and is carried verbatim as an unknown one until the retention prune.)
+const DEAD_KEYS: &[&str] = &[
+    "skipPermissions",
+    "externalAgent",
+    "stack",
+    "workflowId",
+    "workflowNodeId",
+    "workflowRole",
+];
 
 fn load_registry(data_dir: &Path) -> Registry {
     let Ok(raw) = std::fs::read_to_string(registry_path(data_dir)) else {
@@ -1560,6 +1472,57 @@ mod tests {
         assert!(entries
             .iter()
             .all(|entry| entry.get("skipPermissions").is_none()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// SLOP-3: a record an older build wrote for a STACKED issue run or a
+    /// WORKFLOW batch node still loads and resumes as the plain run it was
+    /// (the retired `stack` / workflow membership keys are dropped, never
+    /// carried), and an old workflow-only kind (`reviewNode`) neither breaks
+    /// its siblings nor vanishes on a rewrite.
+    #[test]
+    fn old_stack_and_workflow_records_decode_as_plain_runs() {
+        let dir = temp_dir("old-workflow-records");
+        let now = now_secs();
+        let json = format!(
+            r#"[{{
+                "sessionId":"sess-stacked","accountId":"acc-1","agent":"claude","kind":"issue",
+                "issueId":"issue-12","issueIdentifier":"EXP-12",
+                "cwd":"/repos/owner/name.worktrees/EXP-12","branch":"exp/EXP-12",
+                "baseBranch":"exp/EXP-11","recordedAt":{now},
+                "stack":{{"lower":{{"issueId":"issue-11","identifier":"EXP-11","branch":"exp/EXP-11","prState":"open"}},"chain":[]}}
+            }},{{
+                "sessionId":"sess-node","accountId":"acc-1","agent":"claude","kind":"batch",
+                "batchId":"1a2b3c4d","issues":[{{"issueId":"issue-1","identifier":"EXP-1"}}],
+                "cwd":"/repos/owner/name.worktrees/batch-1a2b3c4d","recordedAt":{now},
+                "startedReason":"workflow",
+                "workflowId":"wf-1","workflowNodeId":"node-1","workflowRole":"author"
+            }},{{
+                "sessionId":"sess-review","accountId":"acc-1","agent":"claude","kind":"reviewNode",
+                "actionId":"builtin:review-node","cwd":"/repos/owner/name.worktrees/review","recordedAt":{now}
+            }}]"#
+        );
+        std::fs::write(registry_path(&dir), json).unwrap();
+
+        let stacked = get(&dir, "sess-stacked").expect("a stacked issue record decodes");
+        assert_eq!(stacked.kind, RunKind::Issue);
+        assert_eq!(stacked.issue_identifier.as_deref(), Some("EXP-12"));
+        assert!(stacked.extra.get("stack").is_none());
+        let node = get(&dir, "sess-node").expect("a workflow batch node decodes");
+        assert_eq!(node.kind, RunKind::Batch);
+        assert_eq!(node.issues.len(), 1);
+        for key in ["workflowId", "workflowNodeId", "workflowRole"] {
+            assert!(node.extra.get(key).is_none(), "{key} is dropped");
+        }
+        assert_eq!(get(&dir, "sess-review"), None, "an old workflow kind is no run");
+        assert_eq!(load(&dir).len(), 2);
+
+        record(&dir, sample("sess-2"));
+        let entries: Vec<serde_json::Value> =
+            serde_json::from_str(&std::fs::read_to_string(registry_path(&dir)).unwrap()).unwrap();
+        assert_eq!(entries.len(), 4, "the old review entry rides the rewrite");
+        assert!(entries.iter().all(|entry| entry.get("stack").is_none()));
+        assert!(entries.iter().all(|entry| entry.get("workflowId").is_none()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

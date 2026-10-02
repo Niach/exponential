@@ -8,12 +8,11 @@ let mockRows: Array<{
   prNumber: number | null
   prState: string | null
   teamId: string
-  // EXP-897: the stack columns the pass re-reads the base for.
+  // The recorded base the pass re-reads.
   prBaseBranch: string | null
-  prStackNumber: number | null
 }> = []
 let capturedWhere: unknown = null
-// EXP-897: the `pr_base_branch` rewrites the pass issued.
+// The `pr_base_branch` rewrites the pass issued.
 let baseWrites: Array<Record<string, unknown>> = []
 // EXP-734: the second lane polls the chore PRs on coding_sessions rows
 // (a join-less select) — the stub answers it from mockSessionRows.
@@ -25,12 +24,10 @@ let mockSessionRows: Array<{
   teamId: string
 }> = []
 let capturedSessionWhere: unknown = null
-// EXP-982: the third lane's predicate (the workflows' final PRs).
-let capturedWorkflowWhere: unknown = null
 vi.mock(`@/db/connection`, () => ({
   db: {
     select: () => ({
-      from: (table: Record<symbol, unknown>) => ({
+      from: () => ({
         innerJoin: () => ({
           where: (clause: unknown) => {
             capturedWhere = clause
@@ -38,12 +35,6 @@ vi.mock(`@/db/connection`, () => ({
           },
         }),
         where: (clause: unknown) => {
-          // EXP-982: the THIRD lane (workflows' final PRs) is join-less too;
-          // told apart by the table the select reads. No workflow rows here.
-          if (table[Symbol.for(`drizzle:Name`)] === `workflows`) {
-            capturedWorkflowWhere = clause
-            return Promise.resolve([])
-          }
           capturedSessionWhere = clause
           return Promise.resolve(mockSessionRows)
         },
@@ -61,9 +52,6 @@ vi.mock(`@/db/connection`, () => ({
 vi.mock(`@/lib/integrations/github-pr`, () => ({
   fetchPullState: vi.fn(),
   resolveRepoToken: vi.fn(async () => `tok`),
-}))
-vi.mock(`@/lib/workflow-final-pr`, () => ({
-  applyWorkflowFinalPrState: vi.fn(),
 }))
 vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applyPrMergeState: vi.fn(),
@@ -96,7 +84,6 @@ function row(overrides: Partial<(typeof mockRows)[number]> = {}) {
     prState: `open` as string | null,
     teamId: `t1`,
     prBaseBranch: null as string | null,
-    prStackNumber: null as number | null,
     ...overrides,
   }
 }
@@ -176,19 +163,7 @@ describe(`runPrPollPass`, () => {
     mockSessionRows = []
     capturedWhere = null
     capturedSessionWhere = null
-    capturedWorkflowWhere = null
     baseWrites = []
-  })
-
-  // REV2-74 for the final PR lane too: a closed final PR is re-checked only
-  // within the window, never forever.
-  it(`polls workflow final PRs: open ones, and closed ones within the window`, async () => {
-    const now = new Date(`2026-09-04T12:00:00Z`)
-    await runPrPollPass(now)
-    const params = sqlParams(capturedWorkflowWhere)
-    expect(params).toContain(`open`)
-    expect(params).toContain(`closed`)
-    expect(params).toContainEqual(new Date(now.getTime() - CLOSED_PR_RECHECK_WINDOW_MS))
   })
 
   // EXP-734: the chore PR of an action/chat run lives on its session row.
@@ -306,19 +281,18 @@ describe(`runPrPollPass`, () => {
     expect(applyPrMergeState).not.toHaveBeenCalled()
     expect(applyPrClosedState).not.toHaveBeenCalled()
     expect(applyPrReopenedState).not.toHaveBeenCalled()
-    // An unstacked PR gets no base write.
+    // A PR without a recorded base gets no base write.
     expect(baseWrites).toEqual([])
   })
 
-  // EXP-897 (FEED-43 R1): the `edited` webhook that mirrors GitHub's retarget
-  // of a stack member never reaches a polling instance, so the pass takes the
-  // base of every open member off its ONE state read and writes it back when
-  // it moved.
-  it(`rewrites a stack member's base when GitHub moved it, once per PR`, async () => {
+  // The `edited` webhook that mirrors a retarget never reaches a polling
+  // instance, so the pass takes the base of every open PR with a recorded one
+  // off its ONE state read and writes it back when it moved.
+  it(`rewrites a PR's base when GitHub moved it, off the one state read`, async () => {
     mockRows = [
-      row({ issueId: `i1`, prBaseBranch: `exp/EXP-1`, prStackNumber: 3 }),
+      row({ issueId: `i1`, prBaseBranch: `exp/EXP-1` }),
       // A batch sibling on the same PR shares the read.
-      row({ issueId: `i2`, prBaseBranch: `exp/EXP-1`, prStackNumber: 3 }),
+      row({ issueId: `i2`, prBaseBranch: `exp/EXP-1` }),
     ]
     vi.mocked(fetchPullState).mockResolvedValue(openOnGitHub(`master`))
     await runPrPollPass()
@@ -332,7 +306,7 @@ describe(`runPrPollPass`, () => {
     expect(applyPrMergeState).not.toHaveBeenCalled()
   })
 
-  it(`leaves a stack member's base alone while GitHub still agrees, and skips closed PRs`, async () => {
+  it(`leaves a PR's base alone while GitHub still agrees, and skips closed PRs`, async () => {
     mockRows = [
       row({ issueId: `i1`, prBaseBranch: `exp/EXP-1` }),
       row({
@@ -348,7 +322,7 @@ describe(`runPrPollPass`, () => {
         state: `closed`,
         merged: false,
         mergedBy: null,
-      mergeCommitSha: null,
+        mergeCommitSha: null,
         // A closed PR's base is never mirrored, whatever it says.
         baseRef: `master`,
       })

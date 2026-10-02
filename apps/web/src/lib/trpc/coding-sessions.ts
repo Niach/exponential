@@ -6,7 +6,6 @@ import {
   CODING_SESSION_STALE_MS,
   codingSessionBlockedSchema,
   startedReasonValues,
-  wfSessionRoleValues,
   type CodingSessionBlocked,
   MAX_START_PROMPT_IMAGES,
 } from "@exp/db-schema/domain"
@@ -28,26 +27,14 @@ import {
   sessionAttachments,
   teams,
   users,
-  workflowNodes,
-  workflows,
 } from "@/db/schema"
-import { isWorkflowReviewBranch } from "@/lib/workflows"
 import { fireYoloTreeMerge } from "@/lib/sessions/yolo-tree-trigger"
-import {
-  JOINABLE_WORKFLOW_STATUSES,
-  resolveWorkflowMembership,
-  reviewStartClaim,
-  type WorkflowMembership,
-} from "@/lib/sessions/workflow-membership"
 import {
   assertTeamMember,
   getIssueTeamContext,
 } from "@/lib/team-membership"
 import {
   BUILTIN_CHAT_ID,
-  BUILTIN_PLAN_WORKFLOW_ID,
-  BUILTIN_REVIEW_NODE_ID,
-  BUILTIN_FIX_REVIEW_FINDINGS_ID,
   BUILTIN_CREATE_ACTION_ID,
   BUILTIN_FIX_CONFLICTS_ID,
   BUILTIN_TIDY_UP_ID,
@@ -67,9 +54,6 @@ const actionIdInput = z
   .or(z.literal(BUILTIN_CREATE_ACTION_ID))
   .or(z.literal(BUILTIN_FIX_CONFLICTS_ID))
   .or(z.literal(BUILTIN_CHAT_ID))
-  .or(z.literal(BUILTIN_PLAN_WORKFLOW_ID))
-  .or(z.literal(BUILTIN_REVIEW_NODE_ID))
-  .or(z.literal(BUILTIN_FIX_REVIEW_FINDINGS_ID))
   .or(z.literal(BUILTIN_TIDY_UP_ID))
 
 // EXP-432: a remote start on a teammate's SHARED server device is attributed
@@ -184,10 +168,10 @@ interface ResumedFrom {
   id: string
   parentSessionId: string | null
   startedReason: string | null
-  // EXP-1082: the predecessor's workflow membership rides a resume too.
-  workflowId: string | null
-  workflowNodeId: string | null
-  workflowRole: string | null
+  branch: string | null
+  prUrl: string | null
+  prNumber: number | null
+  prState: (typeof codingSessions.$inferSelect)[`prState`]
 }
 
 async function resolveResumedFrom(
@@ -203,9 +187,10 @@ async function resolveResumedFrom(
       hostUserId: codingSessions.hostUserId,
       parentSessionId: codingSessions.parentSessionId,
       startedReason: codingSessions.startedReason,
-      workflowId: codingSessions.workflowId,
-      workflowNodeId: codingSessions.workflowNodeId,
-      workflowRole: codingSessions.workflowRole,
+      branch: codingSessions.branch,
+      prUrl: codingSessions.prUrl,
+      prNumber: codingSessions.prNumber,
+      prState: codingSessions.prState,
     })
     .from(codingSessions)
     .where(eq(codingSessions.id, resumedFromId))
@@ -233,191 +218,48 @@ async function resolveResumedFrom(
     id: row.id,
     parentSessionId: row.parentSessionId ?? null,
     startedReason: row.startedReason ?? null,
-    workflowId: row.workflowId ?? null,
-    workflowNodeId: row.workflowNodeId ?? null,
-    workflowRole: row.workflowRole ?? null,
+    branch: row.branch ?? null,
+    prUrl: row.prUrl ?? null,
+    prNumber: row.prNumber ?? null,
+    prState: row.prState ?? null,
   }
 }
 
-/** EXP-1082 §1: the membership + tree fields every insert below writes,
- * through the ONE rule (`resolveWorkflowMembership`). This loads its inputs:
- * explicit `workflowId`/`workflowNodeId`/`workflowRole` count ONLY when the
- * start comes from the workflow's runner device (`workflows.device_id` =
- * the caller's own `deviceId`, the workflow in the run's team, the node in
- * the workflow) — anything else is ignored, never refused; and, for a fresh
- * run with an issue subject, the team's draft/running workflow nodes (ONE
- * join) for the EXP-1062 match. A resume keeps its predecessor's place
- * (EXP-906), never re-branded to `agent`. The parent rule (c) runs in MCP
- * `exponential_sessions_start`, the one path that knows the parent. */
-async function resolveStartMembership(
-  db: Context[`db`],
-  callerId: string,
-  input: {
-    workflowId?: string
-    workflowNodeId?: string
-    workflowRole?: string
-    deviceId?: string
-    startedReason?: string
-    actionId?: string
-    branch?: string
-  },
-  teamId: string,
-  issueIds: readonly string[],
+/** EXP-906: the tree fields every insert below writes. A resume keeps its
+ * predecessor's place (its parent and reason, never re-branded to `agent`);
+ * the frame fills only a gap. The parent of a fresh child is stamped by MCP
+ * `exponential_sessions_start`, the one path that knows it. */
+function startTree(
+  startedReason: string | undefined,
   predecessor: ResumedFrom | null
-): Promise<WorkflowMembership> {
-  let explicit: {
-    workflowId: string
-    workflowNodeId: string | null
-    workflowRole: string | null
-  } | null = null
-  if (input.workflowId && input.deviceId) {
-    const [host] = await db
-      .select({ id: workflows.id })
-      .from(workflows)
-      .innerJoin(devices, eq(devices.deviceId, workflows.deviceId))
-      .where(
-        and(
-          eq(workflows.id, input.workflowId),
-          eq(workflows.teamId, teamId),
-          eq(workflows.deviceId, input.deviceId),
-          eq(devices.userId, callerId)
-        )
-      )
-      .limit(1)
-    let nodeOk = !input.workflowNodeId
-    if (host && input.workflowNodeId) {
-      const [node] = await db
-        .select({ id: workflowNodes.id })
-        .from(workflowNodes)
-        .where(
-          and(
-            eq(workflowNodes.id, input.workflowNodeId),
-            eq(workflowNodes.workflowId, input.workflowId)
-          )
-        )
-        .limit(1)
-      nodeOk = Boolean(node)
-    }
-    if (host && nodeOk) {
-      explicit = {
-        workflowId: input.workflowId,
-        workflowNodeId: input.workflowNodeId ?? null,
-        workflowRole: input.workflowRole ?? null,
+): { startedReason: string | null; parentSessionId: string | null } {
+  const frameReason = startedReason ?? null
+  return predecessor
+    ? {
+        startedReason: predecessor.startedReason ?? frameReason,
+        parentSessionId: predecessor.parentSessionId ?? null,
       }
-    } else if (
-      !input.workflowNodeId &&
-      (input.workflowRole === `plan` || input.workflowRole === `replan`)
-    ) {
-      // A PLANNER run: a person plans a DRAFT from whichever machine the
-      // composer picked, before or beside the runner (`workflows.device_id`
-      // is chosen by the person and may still be NULL), so the runner gate
-      // above cannot apply. A node-less `plan`/`replan` role brands
-      // nothing — it only lets the session tree name the plan-only group —
-      // so any draft of the team takes it.
-      const [draft] = await db
-        .select({ id: workflows.id })
-        .from(workflows)
-        .where(
-          and(
-            eq(workflows.id, input.workflowId),
-            eq(workflows.teamId, teamId),
-            eq(workflows.status, `draft`)
-          )
-        )
-        .limit(1)
-      if (draft) {
-        explicit = {
-          workflowId: input.workflowId,
-          workflowNodeId: null,
-          workflowRole: input.workflowRole,
-        }
-      }
-    }
-  }
-  // EXP-1093: a review run the runner proof above did not vouch for still
-  // joins its node when the start names it (role + node, or its review
-  // branch) and the node is the run's team's.
-  const claim = explicit
-    ? null
-    : reviewStartClaim({
-        isReviewBuiltin: input.actionId === BUILTIN_REVIEW_NODE_ID,
-        workflowRole: input.workflowRole,
-        workflowNodeId: input.workflowNodeId,
-        branch: input.branch,
-      })
-  const reviewNode = claim
-    ? await resolveReviewNode(db, teamId, claim, input.branch ?? null, input.workflowId)
-    : null
-  const needsNodes =
-    !explicit && !reviewNode && !predecessor?.workflowId && issueIds.length > 0
-  const nodes = needsNodes
-    ? await db
-        .select({
-          workflowId: workflowNodes.workflowId,
-          nodeId: workflowNodes.id,
-          issueId: workflowNodes.issueId,
-          memberIssueIds: workflowNodes.memberIssueIds,
-          workflowStatus: workflows.status,
-          workflowCreatedAt: workflows.createdAt,
-        })
-        .from(workflowNodes)
-        .innerJoin(workflows, eq(workflows.id, workflowNodes.workflowId))
-        .where(
-          and(
-            eq(workflowNodes.teamId, teamId),
-            inArray(workflows.status, [...JOINABLE_WORKFLOW_STATUSES])
-          )
-        )
-    : []
-  return resolveWorkflowMembership({
-    explicit,
-    reviewNode,
-    predecessor,
-    startedReason: input.startedReason ?? null,
-    issueIds,
-    nodes,
-  })
+    : { startedReason: frameReason, parentSessionId: null }
 }
 
-/** EXP-1093: the node a review start claims, in the run's team only; a
- *  claim whose node id and branch disagree, or naming another workflow than
- *  the frame's, resolves to nothing (ignored, never refused). */
-async function resolveReviewNode(
-  db: Context[`db`],
-  teamId: string,
-  claim: NonNullable<ReturnType<typeof reviewStartClaim>>,
-  branch: string | null,
-  workflowId: string | undefined
-): Promise<{ workflowId: string; nodeId: string } | null> {
-  const rows = await db
-    .select({
-      nodeId: workflowNodes.id,
-      workflowId: workflowNodes.workflowId,
-      identifier: issues.identifier,
-    })
-    .from(workflowNodes)
-    .innerJoin(workflows, eq(workflows.id, workflowNodes.workflowId))
-    .innerJoin(issues, eq(issues.id, workflowNodes.issueId))
-    .where(
-      and(
-        eq(workflowNodes.teamId, teamId),
-        eq(workflows.teamId, teamId),
-        claim.nodeId
-          ? eq(workflowNodes.id, claim.nodeId)
-          : and(
-              eq(issues.identifier, claim.branch!.identifier),
-              sql`replace(${workflows.id}::text, '-', '') LIKE ${`${claim.branch!.workflowId8}%`}`
-            )
-      )
-    )
-    .limit(2)
-  if (rows.length !== 1) return null
-  const row = rows[0]!
-  if (workflowId && workflowId !== row.workflowId) return null
-  if (branch && claim.branch && !isWorkflowReviewBranch(row.workflowId, row.identifier, branch)) {
-    return null
+/** SLOP-3: a run owns its PR on its own row, so a resume (Resume, account
+ * rotation) carries the predecessor's PR forward — else the merge sweep,
+ * which reaches runs by `pr_url` alone, never ends the successor and
+ * `mergePr` finds no PR on it. The status stays `running` like every start;
+ * the sweep matches running and in_review alike. The frame's branch wins. */
+function inheritedPr(
+  predecessor: ResumedFrom | null,
+  frameBranch: string | undefined
+): Pick<
+  typeof codingSessions.$inferInsert,
+  `branch` | `prUrl` | `prNumber` | `prState`
+> {
+  return {
+    branch: frameBranch ?? predecessor?.branch ?? null,
+    prUrl: predecessor?.prUrl ?? null,
+    prNumber: predecessor?.prNumber ?? null,
+    prState: predecessor?.prState ?? null,
   }
-  return { workflowId: row.workflowId, nodeId: row.nodeId }
 }
 
 /** EXP-906: the predecessor's children now belong to the successor — the
@@ -448,31 +290,7 @@ async function restampChildren(
   }
 }
 
-// EXP-978: a workflow node points at the run working it (`session_id`). A
-// resume ends the predecessor and mints a new row, so without this the
-// engine keeps evaluating the ENDED predecessor and re-emits land/resume
-// actions against a run that is live under another id. Re-point every node
-// that named the predecessor at the successor, on every subject (a node run
-// is an issue or batch run, but the succession is the same everywhere).
-// Best-effort like `restampChildren`: a failed re-point is logged, never a
-// failed start — the next evaluation names the stale row and its owner can
-// resume again.
-async function repointWorkflowNodes(
-  db: Context[`db`],
-  predecessorId: string,
-  successorId: string
-): Promise<void> {
-  try {
-    await db
-      .update(workflowNodes)
-      .set({ sessionId: successorId })
-      .where(eq(workflowNodes.sessionId, predecessorId))
-  } catch (err) {
-    console.error(`[coding-sessions] workflow node re-point failed:`, err)
-  }
-}
-
-/** The two succession writes every resume performs, after the insert, and
+/** The succession write every resume performs, after the insert, and
  * the word to an agent parent that its child is live under the new id
  * (FEED-68; best-effort, never throws). */
 async function adoptPredecessor(
@@ -482,7 +300,6 @@ async function adoptPredecessor(
   successorTeamId: string
 ): Promise<void> {
   await restampChildren(db, predecessorId, successorId, successorTeamId)
-  await repointWorkflowNodes(db, predecessorId, successorId)
   await notifyParentOfChildResumed(db, predecessorId, successorId)
 }
 
@@ -734,11 +551,11 @@ export const codingSessionsRouter = router({
       return { session: session ?? null }
     }),
 
-  // EXP-734: squash-merge the chore PR a run opened for itself — the
-  // issue-less PR of an action or chat run, stamped on the row by the MCP
-  // pr_open chore path (`pr_url/pr_number/pr_state`). The symmetric
-  // counterpart of issues.mergePr for a PR that has no issue to merge
-  // through: member-gated via the run's team (every member reviews),
+  // EXP-734: squash-merge the PR a run opened for itself, stamped on the row
+  // by MCP pr_open on every form (`pr_url/pr_number/pr_state`): an action or
+  // chat run's chore PR, an issue run's PR, a multi-issue run's combined PR
+  // (the merge fans out to every issue linked by the exact url). Member-gated
+  // via the run's team (every member reviews),
   // idempotent for an already-merged PR (the webhook may beat the client),
   // and the GitHub call + session-state echo ride the helper
   // repositories.mergePull shares (`mergeRepositoryPull`). The repo is
@@ -757,7 +574,6 @@ export const codingSessionsRouter = router({
         .select({
           id: codingSessions.id,
           teamId: codingSessions.teamId,
-          issueId: codingSessions.issueId,
           prUrl: codingSessions.prUrl,
           prNumber: codingSessions.prNumber,
           prState: codingSessions.prState,
@@ -769,12 +585,6 @@ export const codingSessionsRouter = router({
         throw new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
       }
       await assertTeamMember(ctx.session.user.id, session.teamId)
-      if (session.issueId) {
-        throw new TRPCError({
-          code: `PRECONDITION_FAILED`,
-          message: `This run works on an issue. Merge its pull request through the issue.`,
-        })
-      }
       if (!session.prUrl || session.prNumber == null) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
@@ -821,48 +631,6 @@ export const codingSessionsRouter = router({
         viaAgent: ctx.viaMcp === true,
         endSessions: input.endSessions,
       })
-    }),
-
-  // EXP-897: the stack a run on this issue would be built on — the LOCAL
-  // start's half of `steer.startSession({stack: true})` (the desktop and the
-  // CLI launch without the relay, so they ask for the same plan the relay
-  // frame would have carried), and what the clients' "Stacked PR" dialog
-  // previews. Member-gated through the issue's team, like every issue read.
-  //
-  // `stackOnIssueId` names the foundation explicitly and WRITES the missing
-  // `blocks` relation — so a plan asked for is a plan the whole product agrees
-  // with from that moment on.
-  stackPlan: authedProcedure
-    .input(
-      z.object({
-        issueId: z.string().uuid(),
-        stackOnIssueId: z.string().uuid().optional(),
-      })
-    )
-    .query(async ({ ctx, input }) => {
-      const issueCtx = await getIssueTeamContext(input.issueId)
-      await assertTeamMember(ctx.session.user.id, issueCtx.teamId)
-      if (input.stackOnIssueId) {
-        const lowerCtx = await getIssueTeamContext(input.stackOnIssueId)
-        await assertTeamMember(ctx.session.user.id, lowerCtx.teamId)
-      }
-      const { resolveStackChain } = await import(`@/lib/stack-plan`)
-      try {
-        return await resolveStackChain(ctx.db, input.issueId, {
-          ...(input.stackOnIssueId
-            ? { stackOnIssueId: input.stackOnIssueId }
-            : {}),
-          actorUserId: ctx.session.user.id,
-        })
-      } catch (err) {
-        throw new TRPCError({
-          code: `PRECONDITION_FAILED`,
-          message:
-            err instanceof Error
-              ? err.message
-              : `Could not resolve the stack for this issue`,
-        })
-      }
     }),
 
   // EXP-403: the CLI daemon's REV2-24 one-session-per-issue probe — the
@@ -947,13 +715,6 @@ export const codingSessionsRouter = router({
           // client's usage readout names the run's own login; a resume that
           // switches accounts stamps the NEW one on its continuation row.
           agentAccount: z.string().min(1).max(64).optional(),
-          // EXP-1082 §1: the workflow host's own membership stamp (a node,
-          // review, base-merge or planner run). Honoured ONLY from the
-          // workflow's runner device (resolveStartMembership); ignored,
-          // never refused, from anyone else.
-          workflowId: z.string().uuid().optional(),
-          workflowNodeId: z.string().uuid().optional(),
-          workflowRole: z.enum(wfSessionRoleValues).optional(),
         })
         .refine((value) => !(value.branch && value.issueId), {
           message: `branch excludes issueId — an issue session's branch lives on the issue`,
@@ -995,8 +756,6 @@ export const codingSessionsRouter = router({
             // (FEED-50, the ONLY automatable builtin).
             value.startedReason === `agent` ||
             value.actionId === BUILTIN_TIDY_UP_ID ||
-            // EXP-982: a workflow node is an issue or a batch run.
-            value.startedReason === `workflow` ||
             (Boolean(value.actionId) && !isBuiltinActionId(value.actionId!)),
           {
             message: `startedReason requires a real actionId — only automations automate starts`,
@@ -1005,9 +764,7 @@ export const codingSessionsRouter = router({
         .refine(
           (value) =>
             !value.automationId ||
-            (Boolean(value.startedReason) &&
-              value.startedReason !== `agent` &&
-              value.startedReason !== `workflow`),
+            (Boolean(value.startedReason) && value.startedReason !== `agent`),
           {
             // EXP-679: automationId belongs to schedule/event alone — an
             // agent-started run is nobody's automation history.
@@ -1024,17 +781,8 @@ export const codingSessionsRouter = router({
         input.resumedFromId
       )
       const resumedFromId = predecessor?.id ?? null
-      // EXP-906 / EXP-1082: the run keeps its place in the session tree
-      // across a resume, and joins its workflow (resolveStartMembership).
-      const membership = (teamId: string, issueIds: readonly string[]) =>
-        resolveStartMembership(
-          ctx.db,
-          ctx.session.user.id,
-          input,
-          teamId,
-          issueIds,
-          predecessor
-        )
+      // EXP-906: the run keeps its place in the session tree across a resume.
+      const tree = startTree(input.startedReason, predecessor)
 
       if (input.actionId && isBuiltinActionId(input.actionId)) {
         await assertTeamMember(ctx.session.user.id, input.teamId!)
@@ -1049,7 +797,6 @@ export const codingSessionsRouter = router({
           ctx.session.user.id,
           input
         )
-        const tree = await membership(input.teamId!, [])
         const mcpServerIds = await resolveMcpServerIds(
           ctx.db,
           input.teamId!,
@@ -1082,7 +829,7 @@ export const codingSessionsRouter = router({
             ...device,
             agent: input.agent ?? null,
             agentAccount: input.agentAccount ?? null,
-            branch: input.branch ?? null,
+            ...inheritedPr(predecessor, input.branch),
             mcpServerIds,
             resumedFromId,
             status: `running`,
@@ -1127,7 +874,6 @@ export const codingSessionsRouter = router({
           ctx.session.user.id,
           input
         )
-        const tree = await membership(action.teamId, [])
         const mcpServerIds = await resolveMcpServerIds(
           ctx.db,
           action.teamId,
@@ -1155,7 +901,7 @@ export const codingSessionsRouter = router({
             ...device,
             agent: input.agent ?? null,
             agentAccount: input.agentAccount ?? null,
-            branch: input.branch ?? null,
+            ...inheritedPr(predecessor, input.branch),
             mcpServerIds,
             resumedFromId,
             status: `running`,
@@ -1183,7 +929,6 @@ export const codingSessionsRouter = router({
           ctx.session.user.id,
           input
         )
-        const tree = await membership(issueCtx.teamId, [input.issueId])
         const mcpServerIds = await resolveMcpServerIds(
           ctx.db,
           issueCtx.teamId,
@@ -1206,6 +951,8 @@ export const codingSessionsRouter = router({
             ...device,
             agent: input.agent ?? null,
             agentAccount: input.agentAccount ?? null,
+            // Issue rows never took the frame's branch; only a resume's.
+            ...inheritedPr(predecessor, undefined),
             mcpServerIds,
             resumedFromId,
             status: `running`,
@@ -1240,7 +987,6 @@ export const codingSessionsRouter = router({
         input.teamId!,
         input.batchIssueIds
       )
-      const tree = await membership(input.teamId!, batchIssueIds ?? [])
       const mcpServerIds = await resolveMcpServerIds(
         ctx.db,
         input.teamId!,
@@ -1262,7 +1008,7 @@ export const codingSessionsRouter = router({
           ...device,
           agent: input.agent ?? null,
           agentAccount: input.agentAccount ?? null,
-          branch: input.branch ?? null,
+          ...inheritedPr(predecessor, input.branch),
           batchIssueIds,
           mcpServerIds,
           resumedFromId,
@@ -1336,14 +1082,6 @@ export const codingSessionsRouter = router({
           // EXP-909: echoed so a resurrected row keeps naming the LOGIN it
           // spends (the usage readout would otherwise fall back to a guess).
           agentAccount: z.string().min(1).max(64).optional(),
-          // EXP-1068: the workflow membership, echoed like `agentAccount` so
-          // a swept workflow run resurrects INSIDE its group. Honoured only
-          // through the same runner-device gate `start` uses
-          // (`resolveStartMembership`); anyone else's keys are ignored and
-          // the re-created row falls back to the issue match (EXP-1062).
-          workflowId: z.string().uuid().optional(),
-          workflowNodeId: z.string().uuid().optional(),
-          workflowRole: z.enum(wfSessionRoleValues).optional(),
         })
         .refine((value) => !(value.branch && value.issueId), {
           message: `branch excludes issueId — an issue session's branch lives on the issue`,
@@ -1403,23 +1141,11 @@ export const codingSessionsRouter = router({
               ctx.session.user.id,
               input
             )
-            // EXP-1068: the membership a resurrected row keeps (or joins).
-            const membership = await resolveStartMembership(
-              ctx.db,
-              ctx.session.user.id,
-              input,
-              issueCtx.teamId,
-              [input.issueId],
-              null
-            )
             await ctx.db.insert(codingSessions).values({
               id: input.id,
               issueId: input.issueId,
               teamId: issueCtx.teamId,
               boardId: issueCtx.boardId,
-              workflowId: membership.workflowId,
-              workflowNodeId: membership.workflowNodeId,
-              workflowRole: membership.workflowRole,
               // EXP-679: an agent-started issue run echoes its reason so a
               // swept row resurrects unattended (schedule/event never reach
               // an issue subject — same rule as `start`).
@@ -1491,22 +1217,10 @@ export const codingSessionsRouter = router({
                   input.teamId!,
                   input.batchIssueIds
                 )
-            // EXP-1068: the membership a resurrected row keeps (or joins).
-            const membership = await resolveStartMembership(
-              ctx.db,
-              ctx.session.user.id,
-              input,
-              input.teamId!,
-              batchIssueIds ?? [],
-              null
-            )
             await ctx.db.insert(codingSessions).values({
               id: input.id,
               teamId: input.teamId!,
               actionId,
-              workflowId: membership.workflowId,
-              workflowNodeId: membership.workflowNodeId,
-              workflowRole: membership.workflowRole,
               actionName: builtin
                 ? builtinActionName(input.actionId!)
                 : input.actionId
@@ -1687,9 +1401,6 @@ export const codingSessionsRouter = router({
           hostUserId: codingSessions.hostUserId,
           status: codingSessions.status,
           pendingQuestion: codingSessions.pendingQuestion,
-          workflowId: codingSessions.workflowId,
-          workflowNodeId: codingSessions.workflowNodeId,
-          teamId: codingSessions.teamId,
         })
         .from(codingSessions)
         .where(eq(codingSessions.id, input.id))
@@ -1708,7 +1419,7 @@ export const codingSessionsRouter = router({
 
       // EXP-1065: the run's next turn IS the answer to its open question
       // (`exponential_sessions_ask_parent`): the question comes off the row
-      // with the flag, and a workflow run's answer lands in its event log.
+      // with the flag.
       const answered = !input.needsInput && existing.pendingQuestion != null
 
       // Status-conditioned like heartbeat: an ended row stays final and never
@@ -1728,10 +1439,6 @@ export const codingSessionsRouter = router({
         )
         .returning({ id: codingSessions.id })
 
-      if (answered && updated.length > 0) {
-        const { recordQuestionAnswered } = await import(`@/lib/sessions/answer-pending-question`)
-        await recordQuestionAnswered(ctx.db, input.id, existing)
-      }
 
       return { updated: updated.length > 0 }
     }),
@@ -1750,7 +1457,7 @@ export const codingSessionsRouter = router({
   // was ANSWERED — the person's answer travels composer → relay → device,
   // never through here, and the device's own needs_input flag never flipped
   // for a server-set question. So a `true` on a row with a question clears
-  // the question and the flag with it and logs `question_answered`.
+  // the question and the flag with it.
   setAgentBusy: authedProcedure
     .input(z.object({ id: z.string().uuid(), agentBusy: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
@@ -1760,9 +1467,6 @@ export const codingSessionsRouter = router({
           hostUserId: codingSessions.hostUserId,
           status: codingSessions.status,
           pendingQuestion: codingSessions.pendingQuestion,
-          workflowId: codingSessions.workflowId,
-          workflowNodeId: codingSessions.workflowNodeId,
-          teamId: codingSessions.teamId,
         })
         .from(codingSessions)
         .where(eq(codingSessions.id, input.id))
@@ -1794,10 +1498,6 @@ export const codingSessionsRouter = router({
         )
         .returning({ id: codingSessions.id })
 
-      if (answered && updated.length > 0) {
-        const { recordQuestionAnswered } = await import(`@/lib/sessions/answer-pending-question`)
-        await recordQuestionAnswered(ctx.db, input.id, existing)
-      }
       // EXP-1146: the turn-END edge is when a run's follow-up children exist
       // and its PR is open — the moment its yolo tree may be complete. Fire
       // and forget (the device's write never waits on GitHub); the module is

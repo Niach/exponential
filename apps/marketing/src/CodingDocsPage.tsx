@@ -337,6 +337,16 @@ export function CodingDocsPage() {
               A run takes <em>at most 30 issues</em>. Every checked issue adds
               to the prompt, so big batches are token-hungry.
             </DocsCallout>
+            <p>
+              <strong>A run starts runs for the follow-ups it files.</strong>{` `}
+              Work the agent finds out of scope becomes a new issue, and once
+              its own pull request is open it starts a run for each follow-up
+              it can verify on the same machine, built on its own branch. Those
+              runs nest under it in every sessions list. Merge such a tree root
+              first: the root&apos;s merge retargets its children onto the
+              default branch. Say <code>no follow-up runs</code> in the prompt
+              to turn it off.
+            </p>
           </DocsSection>
 
           {/* ── 06 Watch & steer ── */}

@@ -1,20 +1,15 @@
-// EXP-897: the PR STACK — a pull request whose base is another issue's branch
-// instead of the repository's default one. The edge is one synced column,
-// `issues.pr_base_branch`: an upper PR is stacked on the lower one exactly
-// when `upper.prBaseBranch === lower.branch` and that branch is non-empty.
+// The PR STACK edge, read-only: a pull request whose base is another issue's
+// branch instead of the repository's default one. The edge is one synced
+// column, `issues.pr_base_branch` (written by `pr_open{base}`): an upper PR is
+// stacked on the lower one exactly when `upper.prBaseBranch === lower.branch`
+// and that branch is non-empty. The "Related work" badge (`lib/pr-graph.ts`)
+// draws it, and `stackMergeChoice` below asks before a member merges.
 //
-// The rules are pure and mirrored ×4 (iOS `ExpCore/Sources/Domain/PrStack.swift`,
-// Android `domain/PrStack.kt`, desktop `queries::nest_review_entries`) with
-// the same five test names:
-//
-// 1. `numbers a member from the bottom of the chain`
-// 2. `stops at a base nobody in the list owns`
-// 3. `breaks a cycle where it first appears`
-// 4. `nests an upper entry under the one it is stacked on`
-// 5. `keeps the caller's root order`
+// Test names: `numbers a member from the bottom of the chain`, `stops at a
+// base nobody in the list owns`, `breaks a cycle where it first appears`.
 
 /** What a stack member must carry: its own branch and the branch its pull
- *  request is BASED on. Both are nullable — an issue with no run has neither. */
+ *  request is BASED on. Both are nullable: an issue with no run has neither. */
 export interface PrStackNode {
   id: string
   /** Ordering key for a fork (two PRs on the same base); falls back to `id`. */
@@ -89,119 +84,13 @@ export function stackChain<T extends PrStackNode>(
   return [...below, issue, ...above]
 }
 
-export interface StackPosition<T> {
-  /** 1-based, counted from the BOTTOM of the chain. */
-  position: number
-  size: number
-  /** The member directly below (the foundation), null at the bottom. */
-  below: T | null
-  /** The member directly above, null at the top. */
-  above: T | null
-}
-
-/** Where this issue sits in its stack — `null` when it is in none (a lone
- *  pull request, or no pull request at all). */
-export function stackPosition<T extends PrStackNode>(
-  issue: T,
-  issues: readonly T[]
-): StackPosition<T> | null {
-  const chain = stackChain(issue, issues)
-  if (chain.length < 2) return null
-  const index = chain.findIndex((member) => member.id === issue.id)
-  if (index < 0) return null
-  return {
-    position: index + 1,
-    size: chain.length,
-    below: chain[index - 1] ?? null,
-    above: chain[index + 1] ?? null,
-  }
-}
-
-export interface PrStackRow<T> {
-  entry: T
-  /** 0 for a root, +1 per stacked level. */
-  depth: number
-  /** Whether an upper entry is nested right below this one. */
-  hasChildren: boolean
-}
-
-/**
- * Flatten pull-request ENTRIES into nested list order — the Reviews queue's
- * shape. An entry is one pull request (a single issue, or a batch of issues
- * sharing one `prUrl`), represented by `entry.issue`.
- *
- * The caller's ROOT order is kept; an upper entry follows the entry it is
- * stacked on, children in caller order, recursively. A base nobody in the list
- * owns leaves the entry a root, and a cycle breaks where it first appears.
- */
-export function nestPrStacks<T extends { issue: PrStackNode }>(
-  entries: readonly T[]
-): PrStackRow<T>[] {
-  const byBranch = new Map<string, T>()
-  for (const entry of entries) {
-    const branch = owned(entry.issue.branch)
-    if (branch && !byBranch.has(branch)) byBranch.set(branch, entry)
-  }
-  const parentOf = new Map<string, T>()
-  const childrenOf = new Map<string, T[]>()
-  for (const entry of entries) {
-    const base = owned(entry.issue.prBaseBranch)
-    if (!base) continue
-    const parent = byBranch.get(base)
-    if (!parent || parent.issue.id === entry.issue.id) continue
-    parentOf.set(entry.issue.id, parent)
-    const list = childrenOf.get(parent.issue.id) ?? []
-    list.push(entry)
-    childrenOf.set(parent.issue.id, list)
-  }
-
-  const out: PrStackRow<T>[] = []
-  const placed = new Set<string>()
-  const visit = (entry: T, depth: number) => {
-    if (placed.has(entry.issue.id)) return
-    placed.add(entry.issue.id)
-    const children = (childrenOf.get(entry.issue.id) ?? []).filter(
-      (child) => !placed.has(child.issue.id)
-    )
-    out.push({ entry, depth, hasChildren: children.length > 0 })
-    for (const child of children) visit(child, depth + 1)
-  }
-  for (const entry of entries) {
-    if (!parentOf.has(entry.issue.id)) visit(entry, 0)
-  }
-  // Anything left is an entry whose ancestry cycled without a root — keep it,
-  // at depth 0, in caller order.
-  for (const entry of entries) visit(entry, 0)
-  return out
-}
-
-/** The caption an upper stack member wears: `on top of #ABC-12`. ×4. */
-export function stackedOnCaption(identifier: string): string {
-  return `on top of #${identifier}`
-}
-
-/** The run page's position line: `2 of 3 · on top of #ABC-12`. ×4. */
-export function stackPositionLine(
-  position: number,
-  size: number,
-  belowIdentifier: string | null
-): string {
-  const head = `${position} of ${size}`
-  return belowIdentifier ? `${head} · ${stackedOnCaption(belowIdentifier)}` : head
-}
-
-/** The Reviews queue's stack merge control + its confirmation. ×4. */
+/** The stack dialog's primary button. ×4. */
 export const MERGE_STACK_LABEL = `Merge stack`
-export const MERGE_STACK_TITLE = `Merge the whole stack?`
-export function mergeStackBody(count: number): string {
-  return `${count} pull requests, bottom-up.`
-}
 
-// EXP-1145: a PLAIN Merge control on a stack member asks first. The Reviews
-// queue already knows its stacks (EXP-1094); every other Merge (the Changes
-// face, the issue header, the run view) used to land a member as if it were
-// a lone pull request — and merging a member lands every open member BELOW
-// it. The decision and its copy are ONE pure function ×4 (desktop
+// EXP-1145: a Merge control on a member of an open PR stack asks first
+// (every one a person can press: the issue header, the Changes faces, the
+// review page, the Reviews rows, the run view). Merging a member lands every
+// open member BELOW it. The decision and its copy are ONE pure function ×4 (desktop
 // `pr_stack::stack_merge_choice`, iOS `PrStack.stackMergeChoice`, Android
 // `PrStack.stackMergeChoice`), locked by
 // `@exp/domain-contract/fixtures/stack-merge-choice.json`.
@@ -226,13 +115,13 @@ export interface StackMergeChoice {
   position: number
   /** The bottom member's issue id. */
   bottomIssueId: string
-  /** The top member's issue id — what `mergePr({ mergeStack: true })` takes. */
+  /** The top member's issue id: what `mergePr({ mergeStack: true })` takes. */
   topIssueId: string
   /** `EXP-1105 → EXP-1144 (this one) → EXP-1150`. */
   listing: string
   /** What Merge stack does. */
   stackSentence: string
-  /** What Merge this pull request does — the truth about a mid-stack merge. */
+  /** What Merge this pull request does: the truth about a mid-stack merge. */
   thisSentence: string
   /** The dialog's body: the listing, a blank line, the two sentences. */
   body: string
@@ -250,8 +139,8 @@ function joinIdentifiers(labels: readonly string[]): string {
  *
  * `null` = a plain merge: the issue has no open pull request, or its stack
  * has no OTHER open member (everything below already merged, nothing open
- * above). Only OPEN pull requests form the chain — a merged foundation or a
- * closed member is no longer part of what a merge lands — and the candidates
+ * above). Only OPEN pull requests form the chain: a merged foundation or a
+ * closed member is no longer part of what a merge lands: and the candidates
  * are read in identifier order so every client picks the same
  * representative for a fork or a batch.
  */

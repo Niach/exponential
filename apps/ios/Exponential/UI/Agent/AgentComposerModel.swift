@@ -46,10 +46,6 @@ final class AgentComposerModel {
     private(set) var checked: [String] = []
     /// The picked action (a team row or a builtin id); nil = issues or chat.
     private(set) var actionId: String?
-    /// EXP-981: the DRAFT workflow a `builtin:plan-workflow` subject plans —
-    /// seeded by that workflow's Plan button and sent as `workflowId`. Cleared
-    /// with the action, because the builtin is meaningless without it.
-    private(set) var workflowId: String?
     /// Typed input values keyed by the def's `key`; `""` = cleared. A key
     /// that was never touched resolves to its default (`value(for:)`).
     var inputValues: [String: String] = [:]
@@ -62,8 +58,8 @@ final class AgentComposerModel {
     var sending = false
     var error: String?
     /// EXP-897: the blocked-start prompt, up while the reader chooses between
-    /// a stacked PR, an ordinary run and cancelling. EXP-980: it asks for a
-    /// BATCH too (blockers outside the picked set), and never for a resume.
+    /// an ordinary run and cancelling. EXP-980: it asks for a BATCH too
+    /// (blockers outside the picked set), and never for a resume.
     var blockedPrompt: BlockedStartPrompt?
 
     /// The repo registry — one tRPC read; the chat picker and the `repo`
@@ -120,11 +116,6 @@ final class AgentComposerModel {
     func apply(_ seed: AgentComposerSeed) {
         if let actionId = seed.actionId {
             self.actionId = actionId
-            // EXP-981: rides ONLY with the Plan workflow builtin — the server
-            // refuses it beside any other subject.
-            workflowId = actionId == DomainContract.builtinPlanWorkflowId
-                ? seed.workflowId
-                : nil
             checked = []
             inputValues = [:]
         } else if !seed.effectiveIssueIds.isEmpty {
@@ -282,23 +273,6 @@ final class AgentComposerModel {
         )
     }
 
-    /// EXP-897: the target machine reads the frame's `stack` payload. An
-    /// older desktop/CLI has no `stack` field in its decoder and would run
-    /// UNSTACKED while the server had already recorded a stack, so the prompt
-    /// DISABLES "Stacked PR" for it (EXP-980: disabled, never hidden) and
-    /// `startStacked()` refuses to send one.
-    var canStackStart: Bool { device?.canStackStart == true }
-
-    /// Why the prompt's "Stacked PR" is off, or nil when it is on — the shared
-    /// rule over the picked count, the machine's capability and the graph.
-    func stackDisabledReason(_ prompt: BlockedStartPrompt) -> StackStart.StackDisabledReason? {
-        StackStart.stackDisabledReason(
-            pickedCount: prompt.issueIds.count,
-            canStack: canStackStart,
-            hasCycle: prompt.graph.hasCycle
-        )
-    }
-
     /// Every `blocks` row and the issues at either end. Armed once: the rule
     /// is keyed on the picked SET, which changes without any database change,
     /// so there is nothing per-subject to re-point.
@@ -349,11 +323,7 @@ final class AgentComposerModel {
 
     var selectedAction: ActionDto? {
         guard let actionId else { return nil }
-        if let picked = actions.first(where: { $0.id == actionId }) { return picked }
-        // EXP-981: the Plan workflow builtin is in NO pool — a workflow's Plan
-        // button seeds it directly, so it resolves here and nowhere else.
-        guard actionId == DomainContract.builtinPlanWorkflowId, let teamId else { return nil }
-        return ActionDto.builtinPlanWorkflowAction(teamId: teamId)
+        return actions.first(where: { $0.id == actionId })
     }
 
     var subject: AgentComposerPrompt.Subject {
@@ -394,7 +364,6 @@ final class AgentComposerModel {
         touched = true
         if actionId != nil {
             actionId = nil
-            workflowId = nil
             inputValues = [:]
         }
         if let index = checked.firstIndex(of: id) {
@@ -411,8 +380,6 @@ final class AgentComposerModel {
         guard action.id != actionId else { return }
         touched = true
         actionId = action.id
-        // Only a seed can name a workflow; picking another action drops it.
-        workflowId = nil
         checked = []
         inputValues = [:]
         refreshBlockers()
@@ -421,7 +388,6 @@ final class AgentComposerModel {
     func clearAction() {
         touched = true
         actionId = nil
-        workflowId = nil
         inputValues = [:]
         refreshBlockers()
     }
@@ -701,7 +667,7 @@ final class AgentComposerModel {
     // MARK: - Submit
 
     /// EXP-897/EXP-980: a start on BLOCKED work asks first — start anyway, or
-    /// build on the blocker's pull request. One issue and a batch both ask;
+    /// cancel. One issue and a batch both ask;
     /// an action run and a chat never do, and neither does a RESUME (it
     /// re-enters a run whose blockers were answered when it started, the
     /// desktop's rule since EXP-897).
@@ -711,36 +677,87 @@ final class AgentComposerModel {
             let blockers = openBlockers
             if !blockers.isEmpty {
                 let picked = effectiveChecked
+                let stack = stackPlan(picked: picked)
                 blockedPrompt = BlockedStartPrompt(
                     issueIds: picked,
                     identifiers: blockers.map { $0.identifier ?? "" },
                     graph: IssueGraph.blockGraph(
                         subjectIds: picked, relations: blockerRelations, issues: blockerIssues
                     ),
-                    issues: blockerIssues
+                    issues: blockerIssues,
+                    stack: stack.result,
+                    stackStartIssueId: stack.startIssueId
                 )
                 return
             }
         }
-        send(stack: nil)
+        send()
     }
 
     /// The reader chose an ordinary run despite the blockers — exactly what
     /// was picked, the whole batch for a batch.
     func startAnyway() {
         blockedPrompt = nil
-        send(stack: nil)
+        send()
     }
 
-    /// The reader chose a stacked pull request: the branch is cut from the
-    /// blocker's PR branch and the pull request is based on it. Never sent
-    /// while the shared rule disables the choice (a machine without
-    /// `stacked-start`, a batch, a cycle) — the button is disabled there, and
-    /// this guard keeps a stale tap from downgrading to a plain run.
+    /// SLOP-3: the SAME remote start as Start anyway, but of the line's
+    /// lowest unstarted issue (`StackPlan.run[0]`, not necessarily the picked
+    /// one), its `prompt` = `BlockedStart.stackedStartPrompt` around the typed
+    /// draft. Prompt text only: no new start input.
     func startStacked() {
-        guard let prompt = blockedPrompt, stackDisabledReason(prompt) == nil else { return }
+        guard let prompt = blockedPrompt, let plan = prompt.stack.plan,
+              let startIssueId = prompt.stackStartIssueId else { return }
         blockedPrompt = nil
-        send(stack: true)
+        send(stacked: (plan: plan, issueId: startIssueId))
+    }
+
+    /// The stack rule's view of the picked subject and the open-blocker line
+    /// below it (`BlockedStart.stackLine`): a line member's repository is its
+    /// BOARD's, the subject's the picked issue's; a member is `running` while
+    /// a live run works on it and its pull request is not open yet. Also
+    /// resolves `run[0]`, the issue a stacked start actually starts.
+    private func stackPlan(
+        picked: [String]
+    ) -> (result: BlockedStart.StackPlanResult, startIssueId: String?) {
+        let subjectOption = checkedOptions.first { $0.id == picked.first }
+        let subject = BlockedStart.Subject(
+            identifier: subjectOption?.identifier ?? "",
+            repositoryId: subjectOption?.repositoryId
+        )
+        guard picked.count == 1, let subjectId = picked.first else {
+            let result = BlockedStart.stackPlan(
+                pickedCount: picked.count, subject: subject, line: [], fork: nil, cycle: false
+            )
+            return (result, nil)
+        }
+        let walk = BlockedStart.stackLine(
+            subjectId: subjectId, relations: blockerRelations, issues: blockerIssues
+        )
+        let repoByBoard = Dictionary(
+            boards.map { ($0.id, $0.repositoryId) }, uniquingKeysWith: { a, _ in a }
+        )
+        let live = sessions.liveRunIssueIds()
+        let result = BlockedStart.stackPlan(
+            pickedCount: 1,
+            subject: subject,
+            line: walk.line.map {
+                BlockedStart.LineMember(
+                    identifier: $0.identifier ?? "",
+                    prState: $0.prState,
+                    branch: $0.branch,
+                    repositoryId: repoByBoard[$0.boardId] ?? nil,
+                    running: live.contains($0.id) && $0.prState != DomainContract.prStateOpen
+                )
+            },
+            fork: walk.fork.map { $0.identifier ?? "" },
+            cycle: walk.cycle
+        )
+        guard let first = result.plan?.run.first else { return (result, nil) }
+        let startId = first == subject.identifier
+            ? subjectId
+            : walk.line.first { $0.identifier == first }?.id
+        return (result, startId)
     }
 
     /// Upload the pending images (sequentially, stamping `uploadedId` so a
@@ -748,7 +765,7 @@ final class AgentComposerModel {
     /// compose the `prompt`, then dispatch chat / action / issue / batch.
     /// On success the composer clears and the watcher pushes the run once
     /// its row syncs; on failure the draft, the chips and the strip stay.
-    private func send(stack: Bool?) {
+    private func send(stacked: (plan: BlockedStart.StackPlan, issueId: String)? = nil) {
         guard canSubmit, let device, let teamId, !sending else { return }
         sending = true
         error = nil
@@ -772,13 +789,19 @@ final class AgentComposerModel {
                     return
                 }
             }
+            // SLOP-3: a stacked start's text is the line's prompt around the
+            // typed draft.
+            let text = stacked.map {
+                BlockedStart.stackedStartPrompt(plan: $0.plan, text: draftText)
+            } ?? draftText
             let prompt = AgentComposerPrompt.build(
-                text: draftText,
+                text: text,
                 attachmentIds: pendingImages.compactMap(\.uploadedId)
             )
             do {
                 let key = try await dispatch(
-                    device: device, teamId: teamId, prompt: prompt, stack: stack
+                    device: device, teamId: teamId, prompt: prompt,
+                    issueIds: stacked.map { [$0.issueId] }
                 )
                 startWatcher.begin(
                     key: key,
@@ -791,7 +814,6 @@ final class AgentComposerModel {
                 pendingImages = []
                 checked = []
                 actionId = nil
-                workflowId = nil
                 inputValues = [:]
                 pendingPrIssueId = nil
                 seededDraft = ""
@@ -805,9 +827,10 @@ final class AgentComposerModel {
     }
 
     /// One `steer.startSession` per subject. Returns the watch key that
-    /// recognises the desktop-inserted row (`StartedRunMatch`).
+    /// recognises the desktop-inserted row (`StartedRunMatch`). `issueIds`
+    /// overrides the picked issues (a stacked start starts `run[0]`).
     private func dispatch(
-        device: SteerDevice, teamId: String, prompt: String?, stack: Bool? = nil
+        device: SteerDevice, teamId: String, prompt: String?, issueIds: [String]? = nil
     ) async throws -> StartedRunKey {
         switch subject {
         case .none:
@@ -841,19 +864,13 @@ final class AgentComposerModel {
                 actionId: action.id,
                 deviceId: device.deviceId,
                 teamId: action.isBuiltin ? action.teamId : nil,
-                // EXP-981: the Plan workflow builtin names its DRAFT; the
-                // server writes the prompt's `Workflow: <uuid>` head itself
-                // and refuses the field beside any other action.
-                workflowId: action.id == DomainContract.builtinPlanWorkflowId
-                    ? workflowId
-                    : nil,
                 options: launch.buildOptions(),
                 inputs: values.isEmpty ? nil : values,
                 prompt: prompt
             )
             return .action(name: action.name)
         case .issues:
-            let ids = effectiveChecked
+            let ids = issueIds ?? effectiveChecked
             guard let key = StartedRunKey.forIssues(ids) else {
                 throw SteerStartError.rejected("Pick an issue.")
             }
@@ -872,11 +889,10 @@ final class AgentComposerModel {
                     accountId: accountId,
                     issueId: ids[0],
                     deviceId: device.deviceId,
-                    options: launch.buildOptions(resume: resumeActive ? true : nil),
-                    prompt: prompt,
-                    // EXP-897: single-issue only — the batch form above has no
-                    // such field, and the server refuses it there.
-                    stack: stack
+                    options: launch.buildOptions(
+                        resume: resumeActive && issueIds == nil ? true : nil
+                    ),
+                    prompt: prompt
                 )
             }
             return key
@@ -896,15 +912,27 @@ struct BlockedStartPrompt: Identifiable {
     let graph: IssueGraph.Graph
     /// The synced rows the graph names its nodes from.
     let issues: [IssueEntity]
+    /// SLOP-3: the stacked line's plan, or why Stacked PR is disabled.
+    let stack: BlockedStart.StackPlanResult
+    /// The issue behind `stack.plan.run[0]`, what Stacked PR starts.
+    let stackStartIssueId: String?
 
     var id: String { issueIds.joined(separator: ",") }
 
-    /// Two or more picked issues = a batch, which reads differently and can
-    /// never be stacked.
+    /// Two or more picked issues = a batch, which reads differently.
     var isBatch: Bool { issueIds.count > 1 }
 
-    /// Byte-identical ×4 (`StackStart`).
+    /// Byte-identical ×4 (`BlockedStart`).
     var title: String {
-        isBatch ? StackStart.blockedBatchTitle : StackStart.blockedStartTitle
+        isBatch ? BlockedStart.blockedBatchTitle : BlockedStart.blockedStartTitle
+    }
+
+    /// Stacked PR is enabled only with a plan and its first issue resolved.
+    var stackable: Bool { stack.plan != nil && stackStartIssueId != nil }
+
+    /// The note under Stacked PR: the disabled reason, or (enabled, 2+
+    /// issues to start) the plan note.
+    var stackNote: String? {
+        stack.note ?? stack.planNote
     }
 }

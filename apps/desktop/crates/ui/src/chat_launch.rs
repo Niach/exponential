@@ -137,122 +137,6 @@ pub(crate) fn chat_repo_input(
         .collect()
 }
 
-/// EXP-897 — the OPEN blockers of an issue: the issues that must land before
-/// it can, read off the synced `issue_relations` rows.
-///
-/// Only the INVERSE side of a canonical `blocks` row counts
-/// (`related_issue_id == me`, i.e. "the other issue blocks me"); a row whose
-/// other issue has not synced is skipped (the shape scopes rows by the SOURCE
-/// issue's board, so the pairing is not guaranteed), and an issue named by two
-/// rows appears once. Status is NOT filtered here — the caller decides which
-/// blockers still count as unfinished.
-pub(crate) fn blockers_of<'a>(
-    issue_id: &str,
-    relations: &[domain::rows::IssueRelation],
-    issue_of: impl Fn(&str) -> Option<&'a domain::rows::Issue>,
-) -> Vec<&'a domain::rows::Issue> {
-    let mut seen: HashSet<String> = HashSet::new();
-    let mut out = Vec::new();
-    for relation in relations {
-        if relation.kind.as_deref() != Some("blocks") || relation.related_issue_id != issue_id {
-            continue;
-        }
-        if !seen.insert(relation.issue_id.clone()) {
-            continue;
-        }
-        if let Some(issue) = issue_of(&relation.issue_id) {
-            out.push(issue);
-        }
-    }
-    out
-}
-
-/// EXP-897 — the stacked-start button, byte-identical ×4 (web/iOS/Android
-/// `STACKED_PR_LABEL`).
-pub(crate) fn stack_label() -> &'static str {
-    "Stacked PR"
-}
-
-/// EXP-897 — the "start it unstacked anyway" button, byte-identical ×4
-/// (web/iOS/Android `START_ANYWAY_LABEL`).
-pub(crate) fn start_anyway_label() -> &'static str {
-    "Start anyway"
-}
-
-/// EXP-897/EXP-980 — the blocked-start dialog's copy, byte-identical ×4 (web
-/// `lib/stack-start.ts`, iOS `StackStart.swift`, Android `StackStart.kt`).
-/// The title and body for ONE picked issue.
-pub(crate) fn blocked_start_title() -> &'static str {
-    "This issue is blocked"
-}
-const BLOCKED_START_BODY_PREFIX: &str = "This issue is blocked by ";
-const BLOCKED_START_BODY_SUFFIX: &str = ". Start anyway, or start a stacked PR?";
-
-/// The title when two or more issues were picked.
-pub(crate) fn blocked_batch_title() -> &'static str {
-    "Some of these issues are blocked"
-}
-
-/// The batch body, above the graph.
-pub(crate) fn blocked_batch_body() -> &'static str {
-    "Open issues outside this batch block it. Start anyway?"
-}
-
-/// The one-issue body sentence: the same prefix and suffix around plain
-/// `#IDENT` identifiers.
-pub(crate) fn blocked_start_body(identifiers: &[String]) -> String {
-    let names: Vec<String> = identifiers
-        .iter()
-        .map(|identifier| format!("#{identifier}"))
-        .collect();
-    format!(
-        "{BLOCKED_START_BODY_PREFIX}{}{BLOCKED_START_BODY_SUFFIX}",
-        names.join(", ")
-    )
-}
-
-/// EXP-980 — why "Stacked PR" is off. It is never HIDDEN any more: the
-/// dialog disables it and captions it with [`stack_disabled_note`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum StackDisabledReason {
-    /// These issues block each other — nothing can sit on top.
-    Cycle,
-    /// A batch was picked; a stacked PR starts one issue.
-    Batch,
-    /// The runner device lacks the `stacked-start` capability.
-    Cap,
-}
-
-/// One reason at a time, the most fundamental first: a cycle can never stack,
-/// a batch never does, a missing capability is fixed by an update. `None` =
-/// the stacked start is on.
-pub(crate) fn stack_disabled_reason(
-    picked_count: usize,
-    can_stack: bool,
-    has_cycle: bool,
-) -> Option<StackDisabledReason> {
-    if has_cycle {
-        return Some(StackDisabledReason::Cycle);
-    }
-    if picked_count > 1 {
-        return Some(StackDisabledReason::Batch);
-    }
-    if !can_stack {
-        return Some(StackDisabledReason::Cap);
-    }
-    None
-}
-
-pub(crate) fn stack_disabled_note(reason: StackDisabledReason) -> &'static str {
-    match reason {
-        StackDisabledReason::Cycle => {
-            "These issues block each other in a cycle. Remove one relation to stack them."
-        }
-        StackDisabledReason::Batch => "A stacked PR starts one issue at a time.",
-        StackDisabledReason::Cap => "Update Exponential on this device to start stacked PRs.",
-    }
-}
-
 /// The remote subject half of a [`api::steer::StartSessionInput`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum RemoteSubject<'a> {
@@ -263,10 +147,6 @@ pub(crate) enum RemoteSubject<'a> {
     Issue {
         issue_id: &'a str,
         resume: bool,
-        /// EXP-897: ask the server for a STACKED start — it resolves the
-        /// issue's blocker chain and cuts the run's branch from the issue
-        /// below it. Single-issue only; `false` keeps the wire byte-identical.
-        stack: bool,
     },
     Batch {
         issue_ids: Vec<String>,
@@ -275,11 +155,6 @@ pub(crate) enum RemoteSubject<'a> {
         action_id: &'a str,
         team_id: &'a str,
         inputs: &'a [ActionInputValue],
-        /// EXP-981: the DRAFT workflow a planner start plans. Only the
-        /// hidden `builtin:plan-workflow` ever carries one; the server
-        /// validates it and writes the prompt's `Workflow: <uuid>` first
-        /// line itself.
-        workflow_id: Option<&'a str>,
     },
 }
 
@@ -329,20 +204,12 @@ pub(crate) fn remote_start_input(
                 inputs
             });
         }
-        RemoteSubject::Issue {
-            issue_id,
-            resume,
-            stack,
-        } => {
+        RemoteSubject::Issue { issue_id, resume } => {
             input.issue_id = Some(issue_id.to_string());
             // EXP-481: `resume` is a single-issue flag — it continues the
             // machine's existing worktree.
             if resume {
                 input.resume = Some(true);
-            }
-            // EXP-897: likewise single-issue, and likewise omitted when off.
-            if stack {
-                input.stack = Some(true);
             }
         }
         RemoteSubject::Batch { issue_ids } => input.issue_ids = Some(issue_ids),
@@ -350,7 +217,6 @@ pub(crate) fn remote_start_input(
             action_id,
             team_id,
             inputs,
-            workflow_id,
         } => {
             let inputs: BTreeMap<String, String> = inputs
                 .iter()
@@ -360,26 +226,9 @@ pub(crate) fn remote_start_input(
                 api::actions::is_builtin_action_id(action_id).then(|| team_id.to_string());
             input.inputs = (!inputs.is_empty()).then_some(inputs);
             input.action_id = Some(action_id.to_string());
-            // EXP-981: the planner's subject. The server validates it and
-            // writes the prompt's `Workflow: <uuid>` first line itself.
-            input.workflow_id = workflow_id.map(str::to_string);
         }
     }
     input
-}
-
-/// EXP-981 — a LOCAL planner start's prompt: the `Workflow: <uuid>` line the
-/// server writes for a remote one, plus whatever the person typed. Byte-
-/// identical ×4 (web `planWorkflowPrompt`).
-pub(crate) fn plan_workflow_prompt(workflow_id: &str, instructions: Option<String>) -> String {
-    let extra = instructions.unwrap_or_default();
-    let extra = extra.trim();
-    let head = format!("{}{workflow_id}", coding::PLAN_WORKFLOW_PROMPT_PREFIX);
-    if extra.is_empty() {
-        head
-    } else {
-        format!("{head}\n\n{extra}")
-    }
 }
 
 /// One issue's `repositories.forIssue` probe state.
@@ -480,9 +329,6 @@ pub(crate) fn batch_request(
         origin: LaunchOrigin::Local,
         options,
         prompt,
-        // A composer batch is never a workflow node (EXP-982).
-        base_branch: None,
-        workflow: None,
     })
 }
 
@@ -493,7 +339,6 @@ mod tests {
 
     fn options() -> LaunchOptions {
         LaunchOptions {
-            workflow: None,
             agent: CodingAgent::Claude,
             model: "opus".to_string(),
             effort: String::new(),
@@ -598,177 +443,6 @@ mod tests {
         assert_eq!(inputs[0].display.as_deref(), Some("acme/web"));
     }
 
-    fn issue_row(id: &str, identifier: &str) -> domain::rows::Issue {
-        serde_json::from_value(serde_json::json!({
-            "id": id,
-            "board_id": "board-1",
-            "number": 1,
-            "identifier": identifier,
-            "title": identifier,
-            "status": "backlog",
-        }))
-        .expect("issue row")
-    }
-
-    fn relation(id: &str, issue_id: &str, related_issue_id: &str, kind: &str) -> domain::rows::IssueRelation {
-        domain::rows::IssueRelation {
-            id: id.to_string(),
-            issue_id: issue_id.to_string(),
-            related_issue_id: related_issue_id.to_string(),
-            kind: Some(kind.to_string()),
-            source: Some("user".to_string()),
-            team_id: None,
-            board_id: None,
-            created_at: None,
-            updated_at: None,
-        }
-    }
-
-    /// EXP-897: only the INVERSE side of a canonical `blocks` row is a
-    /// blocker — the forward side is what THIS issue blocks, and no other
-    /// relation type counts at all. Duplicates collapse.
-    #[test]
-    fn blockers_of_reads_only_the_inverse_side_of_blocks() {
-        let rows = vec![issue_row("i-11", "EXP-11"), issue_row("i-13", "EXP-13")];
-        let lookup = |id: &str| rows.iter().find(|issue| issue.id == id);
-        let relations = vec![
-            // EXP-11 blocks me — the one that counts.
-            relation("r-1", "i-11", "i-12", "blocks"),
-            // …named twice (two rows, one blocker).
-            relation("r-2", "i-11", "i-12", "blocks"),
-            // I block EXP-13 — the other side, not a blocker of mine.
-            relation("r-3", "i-12", "i-13", "blocks"),
-            // Related/parent never block.
-            relation("r-4", "i-13", "i-12", "related"),
-            relation("r-5", "i-13", "i-12", "parent"),
-        ];
-        let blockers = blockers_of("i-12", &relations, lookup);
-        assert_eq!(
-            blockers.iter().map(|issue| issue.identifier.as_str()).collect::<Vec<_>>(),
-            vec!["EXP-11"]
-        );
-        // Nothing blocks an issue with no inverse rows.
-        assert!(blockers_of("i-13", &relations, lookup).is_empty());
-    }
-
-    /// A blocker whose issue row has not synced (its board is trashed, or it
-    /// belongs to a team this device left) is skipped rather than rendered as
-    /// a dangling id.
-    #[test]
-    fn blockers_of_skips_an_unsynced_blocker() {
-        let rows = vec![issue_row("i-11", "EXP-11")];
-        let lookup = |id: &str| rows.iter().find(|issue| issue.id == id);
-        let relations = vec![
-            relation("r-1", "i-11", "i-12", "blocks"),
-            relation("r-2", "i-99", "i-12", "blocks"),
-        ];
-        let blockers = blockers_of("i-12", &relations, lookup);
-        assert_eq!(blockers.len(), 1);
-        assert_eq!(blockers[0].id, "i-11");
-    }
-
-    /// EXP-897: the two dialog buttons, byte for byte — the web, iOS and
-    /// Android constants say exactly this.
-    #[test]
-    fn the_blocked_start_labels_are_byte_locked() {
-        assert_eq!(stack_label(), "Stacked PR");
-        assert_eq!(start_anyway_label(), "Start anyway");
-    }
-
-    /// EXP-980: the dialog's titles and bodies, byte for byte — the web, iOS
-    /// and Android constants say exactly this.
-    #[test]
-    fn keeps_the_dialog_copy_byte_identical() {
-        assert_eq!(blocked_start_title(), "This issue is blocked");
-        assert_eq!(blocked_batch_title(), "Some of these issues are blocked");
-        assert_eq!(
-            blocked_batch_body(),
-            "Open issues outside this batch block it. Start anyway?"
-        );
-        assert_eq!(
-            blocked_start_body(&["ABC-12".to_string(), "ABC-13".to_string()]),
-            "This issue is blocked by #ABC-12, #ABC-13. Start anyway, or start a stacked PR?"
-        );
-    }
-
-    /// EXP-980 `stackDisabledReason` → `names one reason, the most
-    /// fundamental first`.
-    #[test]
-    fn names_one_reason_the_most_fundamental_first() {
-        assert_eq!(stack_disabled_reason(1, true, false), None);
-        assert_eq!(
-            stack_disabled_reason(1, false, false),
-            Some(StackDisabledReason::Cap)
-        );
-        assert_eq!(
-            stack_disabled_reason(2, false, false),
-            Some(StackDisabledReason::Batch)
-        );
-        assert_eq!(
-            stack_disabled_reason(2, true, true),
-            Some(StackDisabledReason::Cycle)
-        );
-    }
-
-    /// EXP-980 `stackDisabledReason` → `has a note for every reason`.
-    #[test]
-    fn has_a_note_for_every_reason() {
-        assert_eq!(
-            stack_disabled_note(StackDisabledReason::Cap),
-            "Update Exponential on this device to start stacked PRs."
-        );
-        assert_eq!(
-            stack_disabled_note(StackDisabledReason::Batch),
-            "A stacked PR starts one issue at a time."
-        );
-        assert_eq!(
-            stack_disabled_note(StackDisabledReason::Cycle),
-            "These issues block each other in a cycle. Remove one relation to stack them."
-        );
-    }
-
-    /// EXP-897: the stacked flag rides the SINGLE-ISSUE remote payload and
-    /// nothing else; `false` leaves the wire exactly as it was.
-    #[test]
-    fn remote_start_input_carries_the_stack_flag() {
-        let stacked = remote_start_input(
-            "dev-1",
-            &options(),
-            RemoteSubject::Issue {
-                issue_id: "i-12",
-                resume: false,
-                stack: true,
-            },
-            None,
-        );
-        assert_eq!(stacked.stack, Some(true));
-        assert_eq!(stacked.issue_id.as_deref(), Some("i-12"));
-        assert_eq!(stacked.resume, None);
-
-        let plain = remote_start_input(
-            "dev-1",
-            &options(),
-            RemoteSubject::Issue {
-                issue_id: "i-12",
-                resume: false,
-                stack: false,
-            },
-            None,
-        );
-        assert_eq!(plain.stack, None);
-
-        // A batch never stacks.
-        let batch = remote_start_input(
-            "dev-1",
-            &options(),
-            RemoteSubject::Batch {
-                issue_ids: vec!["a".into(), "b".into()],
-            },
-            None,
-        );
-        assert_eq!(batch.stack, None);
-    }
-
     /// EXP-825: the remote payload per subject — exactly one subject, the
     /// composer text as `prompt`, a builtin's `teamId`, blank picks omitted.
     #[test]
@@ -801,7 +475,6 @@ mod tests {
             RemoteSubject::Issue {
                 issue_id: "i-1",
                 resume: false,
-                stack: false,
             },
             None,
         );
@@ -824,7 +497,6 @@ mod tests {
             RemoteSubject::Issue {
                 issue_id: "i-1",
                 resume: true,
-                stack: false,
             },
             Some("mind the retry".into()),
         );
@@ -837,7 +509,6 @@ mod tests {
             RemoteSubject::Issue {
                 issue_id: "i-1",
                 resume: false,
-                stack: false,
             },
             None,
         );
@@ -867,7 +538,6 @@ mod tests {
                 action_id: api::actions::BUILTIN_FIX_CONFLICTS_ID,
                 team_id: "team-1",
                 inputs: &filled,
-                workflow_id: None,
             },
             None,
         );
@@ -880,48 +550,10 @@ mod tests {
                 action_id: "act-1",
                 team_id: "team-1",
                 inputs: &[],
-                workflow_id: None,
             },
             None,
         );
         assert_eq!(team_action.team_id, None, "a row action never sends teamId");
         assert_eq!(team_action.inputs, None);
-        assert_eq!(team_action.workflow_id, None);
-    }
-
-    /// EXP-981: a planner start names its workflow (the server writes the
-    /// prompt's first line), and the first line a LOCAL start writes is
-    /// byte-identical to it.
-    #[test]
-    fn the_planner_start_carries_its_workflow_and_prefix() {
-        let planner = remote_start_input(
-            "dev-1",
-            &options(),
-            RemoteSubject::Action {
-                action_id: api::actions::BUILTIN_PLAN_WORKFLOW_ID,
-                team_id: "team-1",
-                inputs: &[],
-                workflow_id: Some("wf-1"),
-            },
-            Some("Keep iOS out of scope.".to_string()),
-        );
-        assert_eq!(planner.workflow_id.as_deref(), Some("wf-1"));
-        assert_eq!(
-            planner.action_id.as_deref(),
-            Some(api::actions::BUILTIN_PLAN_WORKFLOW_ID)
-        );
-        // A builtin has no DB row to derive the team from.
-        assert_eq!(planner.team_id.as_deref(), Some("team-1"));
-
-        assert_eq!(plan_workflow_prompt("wf-1", None), "Workflow: wf-1");
-        assert_eq!(
-            plan_workflow_prompt("wf-1", Some("Keep iOS out of scope.".to_string())),
-            "Workflow: wf-1\n\nKeep iOS out of scope."
-        );
-        // Whitespace-only instructions are no instructions.
-        assert_eq!(
-            plan_workflow_prompt("wf-1", Some("   ".to_string())),
-            "Workflow: wf-1"
-        );
     }
 }

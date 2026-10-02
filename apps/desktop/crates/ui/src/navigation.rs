@@ -94,16 +94,6 @@ pub enum Screen {
     /// entry stays lit; context-free, so a run opened from its Runs shows the
     /// rail and its Back (the history) returns here.
     Action { action_id: String },
-    /// The Workflows page (EXP-981): this team's workflows in three bands
-    /// (Running / Draft / Done). Tab-less full-page mode like Actions,
-    /// opened from the rail's Workflows entry; it IS a list, so the detail a
-    /// row opens keeps it in the left column.
-    Workflows,
-    /// One workflow's detail (EXP-1069): the node strip as the picker over
-    /// the Issue · Runs · Changes · Results faces, one primary action in the
-    /// header. A DETAIL like an issue — it gets a tab chip and sits beside
-    /// the Workflows list it was opened from.
-    Workflow { workflow_id: String },
     /// The Chat page (EXP-772 — the web `t/$teamSlug/chat` page: one centred
     /// prompt box over a subtle row of launch pickers). Tab-less full-page
     /// mode like Devices; sending starts a chat run and navigates to its
@@ -195,8 +185,6 @@ impl Screen {
                 | Screen::SupportThread { .. }
                 | Screen::Session { .. }
                 | Screen::Terminal { .. }
-                // EXP-981: one workflow's graph is a detail like an issue.
-                | Screen::Workflow { .. }
         )
     }
 
@@ -222,7 +210,7 @@ impl Screen {
 
     /// EXP-851: which LIST this screen IS, expressed as the [`TabOrigin`] a
     /// detail opened from it inherits. The list screens are a board, the
-    /// Inbox, Support, Reviews and Workflows; everything else — Settings,
+    /// Inbox, Support and Reviews; everything else — Settings,
     /// Devices, Actions, an action's page, Getting started, Files, Source Control, a
     /// terminal, any detail — is CONTEXT-FREE and leaves the rail up.
     ///
@@ -248,9 +236,6 @@ impl Screen {
             }
             Screen::Support => ToolWindow::Support,
             Screen::Reviews => ToolWindow::Reviews,
-            // EXP-981: the Workflows page is a list like any other — the
-            // workflow a row opens keeps it in the left column.
-            Screen::Workflows => ToolWindow::Workflows,
             _ => return None,
         };
         Some(TabOrigin {
@@ -425,17 +410,6 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
             .and_then(|row| row.name.clone())
             .map(gpui::SharedString::from)
             .unwrap_or_else(|| "Action".into()),
-        Screen::Workflows => domain::workflow_view::WORKFLOWS_TITLE.into(),
-        // EXP-981: the synced name, or the generic word while the row has
-        // not landed yet.
-        Screen::Workflow { workflow_id } => Store::global(cx)
-            .collections()
-            .workflows
-            .read(cx)
-            .get(workflow_id)
-            .and_then(|row| row.name.clone())
-            .map(gpui::SharedString::from)
-            .unwrap_or_else(|| "Workflow".into()),
         Screen::Chat => "Chat".into(),
         Screen::Reviews => "Reviews".into(),
         Screen::GettingStarted { .. } => "Getting started".into(),
@@ -511,11 +485,6 @@ pub(crate) struct ChatSeed {
     pub(crate) text: Option<String>,
     /// A curated icon name seeding the Create-action builtin's `icon` pick.
     pub(crate) icon: Option<String>,
-    /// EXP-981: the DRAFT workflow a planner run plans. Set only beside the
-    /// hidden `builtin:plan-workflow` action — the run is meaningless
-    /// without it — and it rides the start as the prompt's first line
-    /// (`Workflow: <uuid>`, web `?workflow=<id>`).
-    pub(crate) workflow_id: Option<String>,
     /// FEED-50: the board a Tidy up start cleans — fills the Tidy up
     /// builtin's `board` input (the board list's quick-action button).
     pub(crate) board_id: Option<String>,
@@ -540,16 +509,6 @@ impl ChatSeed {
 
     /// The fix-conflicts builtin with its PR preselected (Reviews, the PR
     /// diff, the issue header).
-    /// EXP-981: the workflow detail's Plan button — the hidden planner
-    /// builtin as the composer's subject, plus the workflow it plans.
-    pub(crate) fn plan_workflow(workflow_id: impl Into<String>) -> Self {
-        Self {
-            action_id: Some(api::actions::BUILTIN_PLAN_WORKFLOW_ID.to_string()),
-            workflow_id: Some(workflow_id.into()),
-            ..Default::default()
-        }
-    }
-
     /// FEED-50: the board list's Tidy up button — the Tidy up builtin as the
     /// composer's subject with its `board` input set to that board.
     pub(crate) fn tidy_up(board_id: impl Into<String>) -> Self {
@@ -785,8 +744,6 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
         // EXP-878: the drafts list.
         "drafts" => Some(Screen::Drafts),
         "actions" => Some(Screen::Actions),
-        // EXP-981: the workflows list; one workflow is `workflow:<uuid>`.
-        "workflows" => Some(Screen::Workflows),
         // EXP-818: Usage folded into Devices (its Accounts section); the old
         // dev value lands there.
         "usage" => Some(Screen::Devices),
@@ -833,11 +790,6 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
                     session_id: id.to_string(),
                 });
             }
-            if let Some(id) = spec.strip_prefix("workflow:") {
-                return Some(Screen::Workflow {
-                    workflow_id: id.to_string(),
-                });
-            }
             // SLOP-2: one action's page (Prompt · Triggers · Runs).
             if let Some(id) = spec.strip_prefix("action:") {
                 return Some(Screen::Action {
@@ -882,8 +834,6 @@ fn parse_dev_chat_seed(spec: &str) -> Option<ChatSeed> {
             "device" => seed.device_id = Some(value.to_string()),
             "text" => seed.text = Some(value.to_string()),
             "icon" => seed.icon = Some(value.to_string()),
-            // EXP-981: `chat?action=builtin:plan-workflow&workflow=<uuid>`.
-            "workflow" => seed.workflow_id = Some(value.to_string()),
             // FEED-50: `chat?action=builtin:tidy-up&board=<uuid>`.
             "board" => seed.board_id = Some(value.to_string()),
             _ => {}
@@ -2003,7 +1953,6 @@ mod tests {
         assert!(!ChatSeed::issues(Vec::new()).has_subject());
         assert!(ChatSeed::action("act-1").has_subject());
         assert!(ChatSeed::fix_conflicts("issue-1").has_subject());
-        assert!(ChatSeed::plan_workflow("wf-1").has_subject());
         let tidy = ChatSeed::tidy_up("board-1");
         assert!(tidy.has_subject());
         assert_eq!(tidy.action_id.as_deref(), Some("builtin:tidy-up"));
@@ -2167,9 +2116,8 @@ mod tests {
         assert!(session.list_origin().is_none());
     }
 
-    /// EXP-851/EXP-862: exactly six screens are LISTS — a board, the Inbox,
-    /// Support, the Agent page, Reviews and (EXP-981) the Workflows page's
-    /// run log. Every other screen (and every detail) is context-free: a
+    /// EXP-851/EXP-862: the screens that are LISTS — a board, the Inbox,
+    /// Support and Reviews. Every other screen (and every detail) is context-free: a
     /// detail opened from it keeps the rail up.
     #[test]
     fn the_list_screens_are_the_six_the_left_column_can_show() {
@@ -2236,10 +2184,6 @@ mod tests {
             },
             Screen::Session {
                 session_id: "s1".into(),
-            },
-            // EXP-981: a workflow's graph is a DETAIL, never a list itself.
-            Screen::Workflow {
-                workflow_id: "wf1".into(),
             },
         ] {
             assert!(screen.list_origin().is_none(), "{screen:?}");
@@ -2555,7 +2499,6 @@ mod tests {
         assert_eq!(
             full,
             ChatSeed {
-                workflow_id: None,
                 board_id: None,
                 issue_ids: vec!["a".into(), "b".into()],
                 action_id: Some("builtin:fix-conflicts".into()),

@@ -16,14 +16,12 @@ import { cn } from "./cn"
 // SLOP-16: `orientation="vertical"` turns the grid (the blocks mini-graph):
 // waves are ROWS (top = the first blockers), lanes COLUMNS, and an edge runs
 // from the blocker's bottom-middle to the blocked box's top-middle, so a
-// chain grows downward and never scrolls sideways. The workflow graph keeps
-// the horizontal default.
+// chain grows downward and never scrolls sideways.
 //
 // EXP-983: every edge arrives with its STYLE rather than a flag per meaning —
 // grey solid, red on a cycle or a stale upstream, green out of a landed node,
-// grey DASHED while the dependent builds on work nobody landed yet. The app's
-// `lib/workflow-view.ts` decides which (`workflowEdgeStyle`) and re-exports
-// the type from here, so the drawing contract has ONE home.
+// grey DASHED while the dependent builds on work nobody landed yet. The caller
+// decides which.
 
 /** How an edge is drawn. Grey solid is the default; the others say something. */
 export type WorkflowEdgeStyle =

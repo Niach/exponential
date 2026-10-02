@@ -43,13 +43,6 @@ pub const DEFAULT_CLAUDE_SUBAGENT_MODEL: &str =
 /// The `--model` aliases the CLI accepts (and the ui selects offer) —
 /// [`Settings::load`] normalizes anything else back to the default.
 pub const MODEL_ALIASES: [&str; 3] = ["fable", "opus", "sonnet"];
-/// EXP-1029: the workflow model defaults a fresh install seeds new workflows
-/// from — contract `deviceAgentDefaults.workflowModel` (the cheap model:
-/// leaves + subagents) and `.workflowStrongModel` (contract, integration and
-/// `risk: high` nodes, every agent review).
-pub const DEFAULT_WORKFLOW_MODEL: &str = domain::contract::DEVICE_AGENT_DEFAULTS_WORKFLOW_MODEL;
-pub const DEFAULT_WORKFLOW_STRONG_MODEL: &str =
-    domain::contract::DEVICE_AGENT_DEFAULTS_WORKFLOW_STRONG_MODEL;
 /// The `--effort` levels the CLI accepts (blank = omit the flag) —
 /// [`Settings::load`] normalizes anything else back to blank.
 pub const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
@@ -75,11 +68,12 @@ pub const DEFAULT_CLAUDE_EFFORT: &str = "";
 /// one still loads, and the next save drops the key), and the EXP-872
 /// `defaultAccount` (EXP-1158: a launch naming no account runs on the login
 /// last used on this device, so there is no default to store;
-/// [`migrate_default_account`] seeds that pointer from it once).
+/// [`migrate_default_account`] seeds that pointer from it once), and the
+/// EXP-1029 workflow model pair (SLOP-3 removed workflows).
 /// Foreign top-level keys other subsystems own (`launchDefaultsSync`,
 /// `actionAutomations`) ride the merge-save untouched and must never enter
 /// this list.
-const DEAD_KEYS: [&str; 24] = [
+const DEAD_KEYS: [&str; 26] = [
     "usageWindow",
     "subagentModel",
     "subagentEffort",
@@ -106,6 +100,9 @@ const DEAD_KEYS: [&str; 24] = [
     // path now and no setting.
     "claudeKeepAlive",
     "defaultAccount",
+    // SLOP-3: the workflow model pair (EXP-1029) — workflows are gone.
+    "workflowModel",
+    "workflowStrongModel",
 ];
 
 /// The resolved coding settings. `repos_root` is stored in its raw
@@ -145,21 +142,6 @@ pub struct Settings {
     /// what a fresh install has); `load` normalizes anything else to blank.
     /// Claude-only: codex has no subagent model to pin.
     pub claude_subagent_model: String,
-    /// EXP-1029: the WORKFLOW model defaults new workflows are seeded from
-    /// (`DeviceWorkflowDefaults` on the synced devices row, `launch_defaults
-    /// .workflow`): the cheap model for leaves + subagents. The pair belongs
-    /// to the DEFAULT AGENT's vocabulary ([`Self::default_agent`]): one of
-    /// [`MODEL_ALIASES`] for claude, one of [`CODEX_MODELS`] for codex;
-    /// `load` normalizes anything else to that agent's contract
-    /// `workflowLaunch` default ([`DEFAULT_WORKFLOW_MODEL`] on claude).
-    /// Edited in the "Workflow settings" sub-shell (EXP-1020); read at
-    /// workflow creation (EXP-1014).
-    pub workflow_model: String,
-    /// EXP-1029: the strong workflow model — contract, integration and
-    /// `risk: high` nodes, and every agent review. Same vocabulary rule as
-    /// [`Self::workflow_model`]; the claude fallback is
-    /// [`DEFAULT_WORKFLOW_STRONG_MODEL`].
-    pub workflow_strong_model: String,
     /// Codex model slug (`-m`); one of [`CODEX_MODELS`] or blank (= omit the
     /// flag — Codex's own default model applies).
     pub codex_model: String,
@@ -177,7 +159,7 @@ pub struct Settings {
     /// Claude native plan-mode default — ON by default (Claude presents a
     /// plan for approval in the terminal before editing).
     pub claude_plan_mode: bool,
-    /// EXP-1082 (EXP-1005): let the workflow engine move an unattended run
+    /// EXP-1005: let the host move an unattended run
     /// to another signed-in profile when its usage window is spent — ON by
     /// default, a missing key reads TRUE (the manual [`Default`], locked by a
     /// test). Claude-only: it rides `launch_defaults.agents.claude`.
@@ -275,8 +257,6 @@ impl Default for Settings {
             claude_model: DEFAULT_CLAUDE_MODEL.to_string(),
             claude_effort: DEFAULT_CLAUDE_EFFORT.to_string(),
             claude_subagent_model: DEFAULT_CLAUDE_SUBAGENT_MODEL.to_string(),
-            workflow_model: DEFAULT_WORKFLOW_MODEL.to_string(),
-            workflow_strong_model: DEFAULT_WORKFLOW_STRONG_MODEL.to_string(),
             codex_model: String::new(),
             codex_effort: String::new(),
             claude_ultracode: false,
@@ -334,7 +314,6 @@ impl Settings {
             &MODEL_ALIASES,
             DEFAULT_CLAUDE_SUBAGENT_MODEL,
         );
-        normalize_workflow_pair(&mut settings);
         // Codex allows BLANK ("CLI default") — unknown values degrade to it.
         settings.codex_model = normalize_choice(&settings.codex_model, &CODEX_MODELS, "");
         settings.codex_effort = normalize_choice(&settings.codex_effort, &CODEX_EFFORTS, "");
@@ -457,34 +436,18 @@ impl Settings {
     }
 }
 
-/// EXP-1029: clamp the workflow pair so it always names a model (never
-/// blank), out of the DEFAULT AGENT's vocabulary: a codex-default machine
-/// keeps its codex names instead of having them rewritten to claude's; a
-/// foreign or blank half degrades to that agent's contract default. The one
-/// clamp [`Settings::load`] runs and a remote row's baseline re-runs after
-/// `apply_defaults_patch` (which never resets what a patch did not set).
-pub fn normalize_workflow_pair(settings: &mut Settings) {
-    let (workflow_models, workflow_defaults): (&[&str], (&str, &str)) =
-        match settings.default_agent {
-            CodingAgent::Claude => (
-                &MODEL_ALIASES,
-                (DEFAULT_WORKFLOW_MODEL, DEFAULT_WORKFLOW_STRONG_MODEL),
-            ),
-            CodingAgent::Codex => (
-                &CODEX_MODELS,
-                (
-                    domain::contract::WORKFLOW_LAUNCH_CODEX_MODEL,
-                    domain::contract::WORKFLOW_LAUNCH_CODEX_STRONG_MODEL,
-                ),
-            ),
-        };
-    settings.workflow_model =
-        normalize_choice(&settings.workflow_model, workflow_models, workflow_defaults.0);
-    settings.workflow_strong_model = normalize_choice(
-        &settings.workflow_strong_model,
-        workflow_models,
-        workflow_defaults.1,
-    );
+/// SLOP-3: the retired workflow engine kept its working state under
+/// `{data_dir}/workflows/`. Nothing reads it any more; every host (the CLI
+/// daemon, the desktop app) removes it ONCE at startup, best-effort.
+pub fn remove_legacy_workflow_state(data_dir: &Path) {
+    let dir = data_dir.join("workflows");
+    if !dir.exists() {
+        return;
+    }
+    match fs::remove_dir_all(&dir) {
+        Ok(()) => log::info!("removed the retired workflow state at {}", dir.display()),
+        Err(err) => log::warn!("could not remove {}: {err}", dir.display()),
+    }
 }
 
 /// Lowercase-trim `raw`; anything outside `allowed` (except blank, which
@@ -828,66 +791,18 @@ mod tests {
         assert_eq!(settings.claude_effort, "", "unknown effort → omit");
     }
 
-    /// EXP-1029: the workflow pair clamps to the DEFAULT AGENT's vocabulary —
-    /// codex names survive on a codex-default machine and degrade to the
-    /// codex contract defaults, claude names on a claude one.
+    /// SLOP-3: the retired `{data_dir}/workflows/` goes, everything beside it
+    /// stays, and a data dir without one is left alone.
     #[test]
-    fn the_workflow_pair_clamps_to_the_default_agents_vocabulary() {
-        let dir = TempDir::new("workflow-pair");
-        let path = dir.0.join("settings.json");
-        fs::write(
-            &path,
-            r#"{"defaultAgent":"codex","workflowModel":"gpt-5.6-sol","workflowStrongModel":"gpt-5.6-luna"}"#,
-        )
-        .unwrap();
-        let settings = Settings::load(&path);
-        assert_eq!(settings.workflow_model, "gpt-5.6-sol");
-        assert_eq!(settings.workflow_strong_model, "gpt-5.6-luna");
-
-        fs::write(&path, r#"{"defaultAgent":"codex","workflowModel":"opus","workflowStrongModel":"fable"}"#)
-            .unwrap();
-        let settings = Settings::load(&path);
-        assert_eq!(settings.workflow_model, "gpt-5.6-sol", "claude name on codex → codex default");
-        assert_eq!(settings.workflow_strong_model, "gpt-5.6-luna");
-
-        fs::write(&path, r#"{"workflowModel":"gpt-5.6-sol","workflowStrongModel":"haiku"}"#).unwrap();
-        let settings = Settings::load(&path);
-        assert_eq!(settings.workflow_model, "opus", "codex name on claude → claude default");
-        assert_eq!(settings.workflow_strong_model, "fable");
-    }
-
-    /// A remote row without a `workflow` key beside a codex default agent:
-    /// `apply_defaults_patch` leaves `Settings::default()`'s claude pair in
-    /// place (a patch never resets what it did not set), so the baseline
-    /// re-runs the load-time clamp and lands on codex's contract defaults.
-    #[test]
-    fn a_codex_default_row_without_a_workflow_key_normalizes_to_codex_defaults() {
-        let mut settings = Settings::default();
-        let patch = crate::remote_admin::DefaultsPatch {
-            default_agent: Some("codex".into()),
-            ..crate::remote_admin::DefaultsPatch::default()
-        };
-        crate::remote_admin::apply_defaults_patch(&mut settings, &patch);
-        assert_eq!(settings.default_agent, CodingAgent::Codex);
-        assert_eq!(settings.workflow_model, DEFAULT_WORKFLOW_MODEL, "the patch left claude's pair");
-        normalize_workflow_pair(&mut settings);
-        assert_eq!(
-            settings.workflow_model,
-            domain::contract::WORKFLOW_LAUNCH_CODEX_MODEL
-        );
-        assert_eq!(
-            settings.workflow_strong_model,
-            domain::contract::WORKFLOW_LAUNCH_CODEX_STRONG_MODEL
-        );
-
-        // A valid codex pair on the row survives the clamp untouched.
-        let mut settings = Settings::default();
-        settings.default_agent = CodingAgent::Codex;
-        settings.workflow_model = "gpt-5.6-sol".into();
-        settings.workflow_strong_model = "gpt-5.6-luna".into();
-        normalize_workflow_pair(&mut settings);
-        assert_eq!(settings.workflow_model, "gpt-5.6-sol");
-        assert_eq!(settings.workflow_strong_model, "gpt-5.6-luna");
+    fn remove_legacy_workflow_state_drops_only_the_workflows_dir() {
+        let dir = TempDir::new("legacy-workflows");
+        fs::create_dir_all(dir.0.join("workflows")).unwrap();
+        fs::write(dir.0.join("workflows").join("wf-1.json"), "{}").unwrap();
+        fs::write(dir.0.join("settings.json"), "{}").unwrap();
+        remove_legacy_workflow_state(&dir.0);
+        assert!(!dir.0.join("workflows").exists());
+        assert!(dir.0.join("settings.json").exists());
+        remove_legacy_workflow_state(&dir.0);
     }
 
     /// Per-agent run fields (EXP-206): MISSING keys must fill from the
@@ -959,9 +874,6 @@ mod tests {
             claude_model: "sonnet".to_string(),
             claude_effort: "xhigh".to_string(),
             claude_subagent_model: "sonnet".to_string(),
-            // A codex-default machine: the workflow pair in codex names.
-            workflow_model: "gpt-5.6-terra".to_string(),
-            workflow_strong_model: "gpt-5.6-luna".to_string(),
             codex_model: "gpt-5.6-terra".to_string(),
             codex_effort: "high".to_string(),
             claude_ultracode: true,

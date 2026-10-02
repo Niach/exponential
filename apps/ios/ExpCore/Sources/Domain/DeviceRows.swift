@@ -158,11 +158,7 @@ public extension SteerDevice {
         }
         return DeviceLaunchDefaults(
             defaultAgent: defaultAgent,
-            agents: decoded.agents?.filter { AgentUsagePresentation.isContractAgent($0.key) },
-            // EXP-1029: the workflow pair rides through untouched — it names
-            // MODELS, not agents, and `DeviceWorkflowSettings.resolve` is what
-            // clamps it to the last used agent's vocabulary at read time.
-            workflow: decoded.workflow
+            agents: decoded.agents?.filter { AgentUsagePresentation.isContractAgent($0.key) }
         )
     }
 

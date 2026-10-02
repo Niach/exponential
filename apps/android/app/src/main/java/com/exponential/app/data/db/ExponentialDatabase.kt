@@ -27,9 +27,6 @@ import androidx.room.TypeConverters
         DeviceWorktreeEntity::class,
         PinEntity::class,
         IssueDraftEntity::class,
-        WorkflowEntity::class,
-        WorkflowNodeEntity::class,
-        WorkflowEventEntity::class,
         ElectricOffsetEntity::class,
     ],
     // v2: added attachments.width / attachments.height (parity with iOS).
@@ -366,9 +363,14 @@ import androidx.room.TypeConverters
     //      carrying its triggers.
     //      Same bump: the dead workflows.gate column (EXP-1010 relic, the
     //      server dropped it in migration 0149) leaves the entity.
-    // No Migration object— DatabaseHolder uses destructive fallback + resync,
-    // so a shape column change just wipes and re-syncs from Electric.
-    version = 78,
+    // v79 (SLOP-3): the EXP-978 workflows feature and the EXP-897 stacks are
+    //      gone: the workflows / workflow_nodes / workflow_events tables and
+    //      their Electric offsets drop, and so do coding_sessions.workflow_id /
+    //      workflow_node_id / workflow_role. issues.pr_base_branch STAYS.
+    //      The FIRST explicit migration ([MIGRATION_78_79]): every other row
+    //      and every other shape's offset survives, no resync.
+    // Older versions still fall back to destructive + resync (DatabaseHolder).
+    version = 79,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)
@@ -394,8 +396,5 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun deviceWorktreeDao(): DeviceWorktreeDao
     abstract fun pinDao(): PinDao
     abstract fun issueDraftDao(): IssueDraftDao
-    abstract fun workflowDao(): WorkflowDao
-    abstract fun workflowNodeDao(): WorkflowNodeDao
-    abstract fun workflowEventDao(): WorkflowEventDao
     abstract fun electricOffsetDao(): ElectricOffsetDao
 }

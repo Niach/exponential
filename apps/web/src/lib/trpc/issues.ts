@@ -16,7 +16,7 @@ import {
   notifications,
   boards,
 } from "@/db/schema"
-import { and, eq, inArray, like, ne, sql } from "drizzle-orm"
+import { and, eq, inArray, sql } from "drizzle-orm"
 import {
   resolveTeamAccess,
   assertAssigneeInTeam,
@@ -33,25 +33,15 @@ import {
   closePullRequest,
   diagnoseUnmergeablePr,
   fetchPullFiles,
-  findStackForPull,
   getPullRequest,
   GitHubAsyncMergePending,
   GitHubMergeError,
-  membersAtOrBelowNumber,
   mergedByPerson,
   mergedByPersonNote,
   mergePullRequestSmart,
   resolvePrBaseState,
   retargetPullRequest,
 } from "@/lib/integrations/github-pr"
-import {
-  loadStackRows,
-  membersAtOrBelow,
-  orderStack,
-  prUrlPattern,
-  stackTopOpen,
-  type StackEntry,
-} from "@/lib/integrations/pr-stack"
 import {
   githubAppConfigured,
   resolveRepoDefaultBranchCached,
@@ -60,13 +50,11 @@ import {
 import { recordConversionEvent } from "@/lib/conversion/events"
 import { isInstallationLinkedToTeam } from "@/lib/trpc/integrations"
 import {
-  assertMergeOutsideWorkflow,
   boardBranchOverride,
   repoBranchOverride,
 } from "@/lib/trpc/repositories"
 import {
   isNotMergeable,
-  isStackedPrRefusal,
   prMergeFailureError,
 } from "@/lib/trpc/pr-merge-error"
 import {
@@ -84,7 +72,9 @@ import { applyStatusDerivations } from "@/lib/status-derivations"
 import {
   applyPrClosedState,
   applyPrMergeState,
+  applySessionPrState,
   endMergedPrSessions,
+  retargetChildrenOfMergedPr,
 } from "@/lib/integrations/pr-sync"
 import {
   CATEGORY_ANCHOR,
@@ -118,6 +108,12 @@ import {
 import { resolveMentions } from "@/lib/integrations/mentions"
 import { ensureSubscribed } from "@/lib/integrations/subscriptions"
 import { recordIssueEvent } from "@/lib/integrations/activity"
+import {
+  openStackThrough,
+  stackedOnMessage,
+  stackedOnOpenPr,
+  type StackMember,
+} from "@/lib/pr-merge-guard"
 import {
   canonicalizeRelation,
   insertRelationInTx,
@@ -344,7 +340,7 @@ async function finalizeIssueUpdateInTx(
   }
 }
 
-/** EXP-897: `queued` = GitHub's merge queue took it; `note` explains either. */
+/** `queued` = GitHub's merge queue took it; `note` explains either. */
 type MergePrResult = {
   /** False ONLY for an enqueued merge (FEED-43 R1): GitHub's merge queue
    * holds it and may still reject it, so nothing is merged yet; `queued`
@@ -353,491 +349,391 @@ type MergePrResult = {
   merged: boolean
   queued?: boolean
   note?: string
-  /** EXP-897: the PR urls a stack merge landed, so a caller merging several
-   * issues can tell which of them this call actually covered. Empty for an
-   * enqueued stack; see `queuedPrUrls`. */
-  mergedPrUrls?: string[]
-  /** The PR urls an enqueued stack merge covers once it lands. */
-  queuedPrUrls?: string[]
+  /** `mergeStack` only: the PRs this call landed, bottom first. */
+  stack?: StackMergedPr[]
 }
 
-/**
- * EXP-897: land the ISSUE side of a stacked merge. Merging a stack member
- * merges every unmerged member BELOW it in the same GitHub transaction, so
- * every one of their issues completes here — not just the clicked one's.
- *
- * Also mirrors GitHub's own auto-retarget on our side: the member directly
- * above the merged top now sits on the stack's base, so its `pr_base_branch`
- * is rewritten to it (the clients' nesting reads that column, and a stale edge
- * would keep drawing the merged PR as its foundation forever).
- *
- * Returns the completed issue ids.
- */
-async function completeStackCohort(opts: {
-  db: Context[`db`]
+type StackMergedPr = { identifier: string; prNumber: number }
+
+type MergeCtx = Pick<Context, `db` | `viaMcp`> & {
+  session: { user: { id: string } }
+}
+
+interface MergeOneInput {
+  issueId: string
   teamId: string
-  repoFullName: string
-  /** PR numbers at-or-below the merged one, bottom → top. */
-  memberNumbers: number[]
-  fallbackIssueId: string
-  actorUserId: string
-  actorViaAgent: boolean
-  endSessions?: boolean
-}): Promise<string[]> {
-  const urlOf = (prNumber: number) =>
-    `https://github.com/${opts.repoFullName}/pull/${prNumber}`
-  const urls = opts.memberNumbers.map(urlOf)
-  const rows =
-    urls.length > 0
-      ? await opts.db
-          .select({
-            id: issues.id,
-            prUrl: issues.prUrl,
-            branch: issues.branch,
-            prBaseBranch: issues.prBaseBranch,
-          })
-          .from(issues)
-          .where(and(eq(issues.teamId, opts.teamId), inArray(issues.prUrl, urls)))
-      : []
+  boardId: string
+  endSessions: boolean | undefined
+}
 
-  const ids = rows.some((row) => row.id === opts.fallbackIssueId)
-    ? rows.map((row) => row.id)
-    : [opts.fallbackIssueId, ...rows.map((row) => row.id)]
-  for (const row of rows) {
-    await applyPrMergeState({
-      issueId: row.id,
-      prUrl: row.prUrl ?? undefined,
-      mergedAt: new Date(),
-      actorUserId: opts.actorUserId,
-      actorViaAgent: opts.actorViaAgent,
-      endSessions: opts.endSessions,
+/** The single-PR merge (guards, claim, squash, status automation, session
+ *  ending). `issues.mergePr` runs it once; `mergeStack` once per member. */
+async function mergeOneIssuePr(
+  ctx: MergeCtx,
+  input: MergeOneInput
+): Promise<MergePrResult> {
+  const { teamId, boardId } = input
+  const [row] = await ctx.db
+    .select({
+      prNumber: issues.prNumber,
+      prUrl: issues.prUrl,
+      prState: issues.prState,
+      identifier: issues.identifier,
+      title: issues.title,
+      prBaseBranch: issues.prBaseBranch,
     })
-  }
-  if (rows.length === 0) {
-    await applyPrMergeState({
-      issueId: opts.fallbackIssueId,
-      mergedAt: new Date(),
-      actorUserId: opts.actorUserId,
-      actorViaAgent: opts.actorViaAgent,
-      endSessions: opts.endSessions,
-    })
-  }
-  await endMergedPrSessions(ids, opts.endSessions)
-
-  // The cohort's own base (the bottom member's) is where the member above the
-  // top now lands — GitHub retargets it, we mirror the column.
-  const bottomUrl = urls[0]
-  const topUrl = urls[urls.length - 1]
-  const stackBase = rows.find(
-    (row) => row.prUrl === bottomUrl && row.prBaseBranch
-  )?.prBaseBranch
-  const topBranch = rows.find((row) => row.prUrl === topUrl && row.branch)
-    ?.branch
-  if (stackBase && topBranch && stackBase !== topBranch) {
-    await opts.db
-      .update(issues)
-      .set({ prBaseBranch: stackBase })
-      .where(
-        and(
-          eq(issues.teamId, opts.teamId),
-          eq(issues.prBaseBranch, topBranch)
-        )
-      )
-  }
-  return ids
-}
-
-/**
- * FEED-43: the retarget refusal on a stack member. Byte-locked — agents read
- * it out of `exponential_pr_retarget` and act on it.
- */
-function stackedBaseMessage(
-  prNumber: number,
-  stackNumber: number | null,
-  repoFullName: string
-): string {
-  const stack = stackNumber != null ? ` #${stackNumber}` : ``
-  return `PR #${prNumber} is part of GitHub stack${stack} (${repoFullName}); merge the PR below it or merge it on GitHub; its base is managed by the stack.`
-}
-
-/** The "GitHub is still working on it" sentence, byte-shared by both paths. */
-function asyncMergePendingMessage(err: GitHubAsyncMergePending): string {
-  const stack = err.stackNumber != null ? ` (stack #${err.stackNumber})` : ``
-  return `GitHub is still merging PR #${err.prNumber}${stack}. It did not finish within 60s — check the PR on GitHub; the issue completes when the merge lands.`
-}
-
-/**
- * EXP-1145: what a SINGLE-PR merge of a stack member did to the rest of its
- * stack — the PRs it landed below itself and the ones it left open above
- * (retargeted onto the stack's base by GitHub). Null when it touched neither,
- * so a lone PR's result stays note-less.
- */
-function stackWalkNote(
-  prNumber: number,
-  landedBelow: readonly number[],
-  openAbove: readonly number[]
-): string | null {
-  if (landedBelow.length === 0 && openAbove.length === 0) return null
-  const list = (numbers: readonly number[]) =>
-    numbers.map((n) => `#${n}`).join(`, `)
-  const below =
-    landedBelow.length > 0
-      ? `Merging stacked PR #${prNumber} also merged every unmerged PR below it: ${list(landedBelow)}.`
-      : `Merging stacked PR #${prNumber} merged nothing below it.`
-  const above =
-    openAbove.length > 0
-      ? ` PRs above it stay open, retargeted onto the stack's base: ${list(openAbove)}.`
-      : ``
-  return `${below}${above}`
-}
-
-/** `EXP-12` / `EXP-12, EXP-13` (a batch PR carries several issues). */
-function stackEntryLabel(entry: StackEntry): string {
-  return entry.issues.map((issue) => issue.identifier).join(`, `)
-}
-
-/**
- * EXP-897 "Merge stack": land every open member of the chain `entryPrUrl`
- * belongs to, bottom-up.
- *
- * A REAL GitHub stack (`pr_stack_number` set) is merged in ONE call on the
- * topmost open member — GitHub lands it and everything below it atomically. A
- * candidate stack (base-branch edges only) has no such transaction, so it is
- * merged member by member from the bottom, retargeting each next member onto
- * the stack's own base first (its base branch was just squash-merged and left
- * behind) and re-reading its mergeability before touching it.
- *
- * Every refusal is a PRECONDITION_FAILED naming the offending PR: a stack is
- * merged as a unit, and "one of them is a draft" is the actionable fact.
- */
-/**
- * EXP-1145: the single-PR refusal on a candidate stack member. Byte-locked —
- * the merge dialog surfaces it as a toast and agents read it out of
- * `exponential_pr_merge`.
- */
-export function stackedOnMessage(lowerIdentifier: string): string {
-  return `This pull request is stacked on ${lowerIdentifier}; merge the stack or retarget it first`
-}
-
-/**
- * EXP-1145: the identifier of the team issue whose OPEN pull request (same
- * repository) this PR's base branch is the head of — i.e. the PR this one is
- * stacked on — or null when the base is nobody's PR branch (the default
- * branch, a merged/closed lower, a branch outside the team).
- */
-export async function stackedOnOpenPr(
-  db: Context[`db`],
-  opts: {
-    issueId: string
-    teamId: string
-    repoFullName: string
-    prBaseBranch: string | null
-  }
-): Promise<string | null> {
-  if (!opts.prBaseBranch) return null
-  const [lower] = await db
-    .select({ identifier: issues.identifier })
     .from(issues)
-    .where(
-      and(
-        eq(issues.teamId, opts.teamId),
-        ne(issues.id, opts.issueId),
-        eq(issues.branch, opts.prBaseBranch),
-        eq(issues.prState, `open`),
-        like(issues.prUrl, prUrlPattern(opts.repoFullName))
-      )
-    )
+    .where(eq(issues.id, input.issueId))
     .limit(1)
-  return lower?.identifier ?? null
-}
 
-async function mergeStackFromMember(opts: {
-  db: Context[`db`]
-  teamId: string
-  repoFullName: string
-  token: string
-  entryPrUrl: string
-  entryIssueId: string
-  actorUserId: string
-  actorViaAgent: boolean
-  endSessions?: boolean
-}): Promise<MergePrResult> {
-  const { db, teamId, repoFullName, token } = opts
-  const rows = await loadStackRows(db, { teamId, repoFullName })
-  const chain = orderStack(rows, opts.entryPrUrl)
-  const top = stackTopOpen(chain)
-  if (!top) {
-    // Nothing open left (the webhook beat us, or the caller re-clicked):
-    // idempotent, but merge always closes — sweep the sessions.
+  if (!row) {
+    throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })
+  }
+  if (!row.prNumber || !row.prUrl) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: `This issue has no linked pull request`,
+    })
+  }
+  if (row.prState === `merged`) {
+    // Already merged (e.g. the webhook beat us) — idempotent no-op for
+    // the PR itself, but merge always closes (EXP-498): sweep any live
+    // sessions the earlier writer missed.
+    const linked = await ctx.db
+      .select({ id: issues.id })
+      .from(issues)
+      .where(eq(issues.prUrl, row.prUrl))
     await endMergedPrSessions(
-      chain.flatMap((entry) => entry.issues.map((issue) => issue.id)),
-      opts.endSessions
+      linked.map((issue) => issue.id),
+      input.endSessions
     )
-    return { merged: true, mergedPrUrls: chain.map((entry) => entry.prUrl) }
+    return { merged: true }
   }
-  const members = membersAtOrBelow(chain, top.prUrl).filter(
-    (entry) => entry.prState === `open` && entry.prNumber != null
-  )
-
-  // EXP-1094: mergePr guarded the ENTRY issue only, but a stack lands as a
-  // unit, so a plain PR stacked on a live workflow node's PR would land the
-  // node PR beneath it. Every member gets the same refusal, named; the guard
-  // asks about every issue sharing a member's PR, so one issue per member
-  // is enough.
-  for (const member of members) {
-    const first = member.issues[0]
-    if (!first) continue
-    await assertMergeOutsideWorkflow(
-      db,
-      first.id,
-      member.prUrl,
-      stackEntryLabel(member)
-    )
-  }
-
-  // Pre-flight: a stack merges as a unit, so ONE unmergeable member refuses
-  // the whole operation before anything lands.
-  for (const member of members) {
-    const pull = await getPullRequest(repoFullName, member.prNumber!, token)
-    if (pull.draft) {
-      throw new TRPCError({
-        code: `PRECONDITION_FAILED`,
-        message: `Cannot merge the stack: PR #${member.prNumber} (${stackEntryLabel(member)}) is a draft`,
-      })
-    }
-    if (
-      pull.mergeableState === `blocked` ||
-      pull.mergeableState === `dirty`
-    ) {
-      throw new TRPCError({
-        code: `PRECONDITION_FAILED`,
-        message: `Cannot merge the stack: PR #${member.prNumber} (${stackEntryLabel(member)}) is ${pull.mergeableState} on GitHub`,
-      })
-    }
-  }
-
-  for (const member of members) {
-    claimPrMerge(repoFullName, member.prNumber!, {
-      userId: opts.actorUserId,
-      viaAgent: opts.actorViaAgent,
-      endSessions: opts.endSessions,
+  if (row.prState !== `open`) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: `The pull request is ${row.prState}. Only open pull requests can be merged.`,
     })
   }
-  const releaseAll = () => {
-    for (const member of members) {
-      releasePrMergeClaim(repoFullName, member.prNumber!)
-    }
-  }
 
-  const titleOf = (entry: StackEntry) => {
-    const first = entry.issues[0]!
-    return `${first.identifier}: ${first.title ?? ``} (#${entry.prNumber})`
-  }
-
-  // ── The real GitHub stack: one atomic merge on the top member ────────────
-  if (top.stackNumber != null) {
-    let smart: Awaited<ReturnType<typeof mergePullRequestSmart>>
-    try {
-      smart = await mergePullRequestSmart({
-        repo: repoFullName,
-        prNumber: top.prNumber!,
-        token,
-        commitTitle: titleOf(top),
-        knownStackNumber: top.stackNumber,
-      })
-    } catch (err) {
-      if (err instanceof GitHubAsyncMergePending) {
-        throw new TRPCError({
-          code: `PRECONDITION_FAILED`,
-          message: asyncMergePendingMessage(err),
-        })
-      }
-      releaseAll()
-      if (err instanceof GitHubMergeError) throw prMergeFailureError(err, null)
-      throw err
-    }
-    if (smart.queued) {
-      // FEED-43 R1: nothing has landed; the queue may still reject it. The
-      // claims stay (the landing merge's webhooks must stay attributed).
-      return {
-        merged: false,
-        queued: true,
-        mergedPrUrls: [],
-        queuedPrUrls: members.map((member) => member.prUrl),
-        note: `GitHub queued the stack merge of PR #${top.prNumber}. Nothing is merged yet; the issues complete when it lands.`,
-      }
-    }
-    // FEED-64: the merge call failed but the stack reads merged — by a
-    // person. Their merge, their attribution: the webhook does the
-    // bookkeeping off its own `merged_by`, so the claims go and the cohort
-    // is left alone.
-    if (mergedByPerson(smart.mergedBy)) {
-      releaseAll()
-      return {
-        merged: true,
-        mergedPrUrls: members.map((member) => member.prUrl),
-        note: mergedByPersonNote(top.prNumber!, smart.mergedBy),
-      }
-    }
-    await completeStackCohort({
-      db,
-      teamId,
-      repoFullName,
-      memberNumbers:
-        smart.stackMemberNumbers.length > 1
-          ? smart.stackMemberNumbers
-          : members.map((member) => member.prNumber!),
-      fallbackIssueId: opts.entryIssueId,
-      actorUserId: opts.actorUserId,
-      actorViaAgent: opts.actorViaAgent,
-      endSessions: opts.endSessions,
+  // Merge against the repo the PR actually lives in — derived from prUrl,
+  // never the board's CURRENT repository: after a board repo
+  // retarget, prNumber would otherwise address an unrelated PR in the
+  // new repo (same derivation as prFiles below).
+  const repoFullName = repoFromPrUrl(row.prUrl)
+  if (!repoFullName) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: `The linked pull request URL is not a GitHub PR URL`,
     })
+  }
+  // EXP-1145: a PR based on another OPEN PR's branch would squash INTO
+  // that branch; refused before any claim or GitHub call.
+  const parent = await stackedOnOpenPr(ctx.db, {
+    issueId: input.issueId,
+    teamId,
+    repoFullName,
+    prBaseBranch: row.prBaseBranch,
+  })
+  if (parent) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: stackedOnMessage(parent),
+    })
+  }
+  if (!githubAppConfigured()) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: `GitHub App is not configured on this instance`,
+    })
+  }
+  const resolved = await resolveRepoInstallationTokenInfo(repoFullName)
+  if (!resolved) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: `GitHub App is not installed on ${repoFullName}`,
+    })
+  }
+  // Link-gate (mirrors prFiles): the installation serving this repo must
+  // still be claimed by the issue's team — a deliberately severed
+  // GitHub connection must not keep authorizing PR writes through an old
+  // prUrl.
+  if (
+    !(await isInstallationLinkedToTeam(teamId, resolved.installationId))
+  ) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: `${repoFullName} resolves to a GitHub account that isn't connected to this team. Reconnect it in team settings → Repositories.`,
+    })
+  }
+
+  // EXP-494: record the initiator BEFORE the GitHub merge call — the
+  // `closed` webhook reliably beats the applyPrMergeState writes below,
+  // and without the claim its fan-out degrades to the session-owner
+  // fallback (or a fully anonymous broadcast that self-notifies the
+  // merger) whenever no coding_sessions row survived. viaAgent marks an
+  // MCP-driven merge (the shared-server daemon acts with its owner's
+  // key) so attribution can swap to the session's requester.
+  const claimActor = {
+    userId: ctx.session.user.id,
+    viaAgent: ctx.viaMcp === true,
+    // EXP-711: the webhook's sweep must honour the same override.
+    endSessions: input.endSessions,
+  }
+  claimPrMerge(repoFullName, row.prNumber, claimActor)
+  let smart: Awaited<ReturnType<typeof mergePullRequestSmart>>
+  try {
+    // FEED-43: a PR GitHub holds in a stack is refused by the legacy
+    // endpoint — `mergePullRequestSmart` finishes it through merge-async.
+    // Any PR that lands with it closes through its own webhook / the poller.
+    smart = await mergePullRequestSmart({
+      repo: repoFullName,
+      prNumber: row.prNumber,
+      token: resolved.token,
+      commitTitle: `${row.identifier}: ${row.title} (#${row.prNumber})`,
+    })
+  } catch (err) {
+    if (err instanceof GitHubAsyncMergePending) {
+      // NOT a failure: GitHub's job is still running, so the claim STAYS
+      // (the webhook echo of the landing merge must stay attributed).
+      throw new TRPCError({
+        code: `PRECONDITION_FAILED`,
+        message: asyncMergePendingMessage(err),
+      })
+    }
+    // The merge did not happen: drop the claim so it can't misattribute
+    // a later out-of-band merge of the same PR.
+    releasePrMergeClaim(repoFullName, row.prNumber)
+    if (err instanceof GitHubMergeError) {
+      // "Not mergeable" is actively misleading on a stacked PR whose base
+      // is stale (EXP-324): the real fix is a retarget, not another
+      // rebase. The diagnosis names the cause AND says whether this is a
+      // real content conflict, which decides the error code clients gate
+      // their recovery run on (EXP-533).
+      let diagnosis = null
+      if (isNotMergeable(err)) {
+        const defaultBranch =
+          (await boardBranchOverride(boardId, repoFullName)) ??
+          (await repoBranchOverride(teamId, repoFullName)) ??
+          (await resolveRepoDefaultBranchCached(repoFullName))
+        diagnosis = defaultBranch
+          ? await diagnoseUnmergeablePr({
+              repo: repoFullName,
+              prNumber: row.prNumber,
+              token: resolved.token,
+              defaultBranch,
+            })
+          : null
+      }
+      throw prMergeFailureError(err, diagnosis)
+    }
+    throw err
+  }
+
+  // EXP-897: a queued merge has not landed yet — the merge queue will run
+  // it. Nothing may be marked merged here; the webhook (or the poller)
+  // completes the issues when GitHub finishes.
+  if (smart.queued) {
+    // FEED-43 R1: `merged: false`, so an agent neither ends its run nor
+    // skips a retry on a merge the queue may still reject. The claim
+    // stays: the landing merge's webhook must stay attributed.
+    return {
+      merged: false,
+      queued: true,
+      note: `GitHub queued the merge of PR #${row.prNumber}. Nothing is merged yet; the issue completes when the merge lands.`,
+    }
+  }
+
+  // FEED-64: the merge call failed, the PR reads merged — by a PERSON on
+  // github.com. The merge is theirs: the claims go (or the webhook echo
+  // would credit this caller, EXP-617) and the state write is left to
+  // that webhook / the poller. Still `merged: true`: the PR IS in.
+  if (mergedByPerson(smart.mergedBy)) {
+    releasePrMergeClaim(repoFullName, row.prNumber)
     return {
       merged: true,
-      mergedPrUrls: members.map((member) => member.prUrl),
-      note: `Merged GitHub stack #${top.stackNumber}: ${members.length} pull request(s), bottom-up.`,
+      note: mergedByPersonNote(row.prNumber, smart.mergedBy),
     }
   }
 
-  // ── Candidate stack: merge bottom-up, retargeting as we go ───────────────
-  const stackBase = members[0]!.baseBranch
-  const mergedNumbers: number[] = []
-  const mergedUrls: string[] = []
-  for (const [index, member] of members.entries()) {
-    if (index > 0 && stackBase && member.baseBranch !== stackBase) {
-      try {
-        await retargetPullRequest({
-          repo: repoFullName,
-          prNumber: member.prNumber!,
-          base: stackBase,
-          token,
-        })
-        await db
-          .update(issues)
-          .set({ prBaseBranch: stackBase })
-          .where(eq(issues.prUrl, member.prUrl))
-      } catch (err) {
-        // 422 = already retargeted (GitHub, or a concurrent heal) — fine.
-        if (!(err instanceof GitHubMergeError && err.status === 422)) {
-          releaseAll()
-          throw err
-        }
-      }
-      // The base moved under it — re-read before merging.
-      const pull = await getPullRequest(repoFullName, member.prNumber!, token)
-      if (pull.mergeableState === `dirty` || pull.mergeableState === `blocked`) {
-        releaseAll()
-        throw new TRPCError({
-          code: `PRECONDITION_FAILED`,
-          message: `Merged ${mergedNumbers.map((n) => `#${n}`).join(`, `)}, but PR #${member.prNumber} (${stackEntryLabel(member)}) is ${pull.mergeableState} on its new base — rebase it and merge the rest.`,
-        })
-      }
-    }
-    let smart: Awaited<ReturnType<typeof mergePullRequestSmart>>
+  // Complete every issue the PR is linked to — not just the clicked one —
+  // so a batch PR's siblings don't wait on the webhook echo (self-hosted
+  // instances behind NAT may only have the slower polling cron).
+  const linked = await ctx.db
+    .select({ id: issues.id })
+    .from(issues)
+    .where(eq(issues.prUrl, row.prUrl))
+  const linkedIds = linked.some((issue) => issue.id === input.issueId)
+    ? linked.map((issue) => issue.id)
+    : [input.issueId, ...linked.map((issue) => issue.id)]
+  for (const issueId of linkedIds) {
+    await applyPrMergeState({
+      issueId,
+      prUrl: row.prUrl,
+      mergedAt: new Date(),
+      actorUserId: ctx.session.user.id,
+      actorViaAgent: ctx.viaMcp === true,
+      endSessions: input.endSessions,
+    })
+  }
+  // Merge closes by default (EXP-498, team-configurable since EXP-711):
+  // applyPrMergeState's claim winner ends sessions in-tx; this sweep
+  // backstops the race where the webhook won the claim before this
+  // mutation got here.
+  await endMergedPrSessions(linkedIds, input.endSessions)
+  // EXP-734: the runs that opened it carry the PR on their own rows too.
+  await applySessionPrState({
+    prUrl: row.prUrl,
+    state: `merged`,
+    ...(input.endSessions !== undefined ? { endSessions: input.endSessions } : {}),
+  })
+
+  return { merged: true }
+}
+
+/** GitHub computes mergeability lazily after a base move: `mergeable` reads
+ *  null for a moment (and the base ref may lag one read). ≈10 s in all. */
+const STACK_SETTLE_MS = [1_000, 2_000, 3_000, 4_000]
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+function stackPrName(pr: StackMergedPr): string {
+  return `${pr.identifier} (#${pr.prNumber})`
+}
+
+/** The stack failure sentence: what landed, which PR stopped it and why. */
+export function stackMergeFailureMessage(
+  merged: StackMergedPr[],
+  failed: StackMergedPr,
+  reason: string
+): string {
+  const landed = merged.length
+    ? `Merged ${merged.map(stackPrName).join(`, `)}.`
+    : `Merged nothing.`
+  return `${landed} ${stackPrName(failed)} did not merge: ${reason}`
+}
+
+/**
+ * After the member below landed and the EXP-324 heal ran: wait until GitHub
+ * reports this PR off the merged branch with its mergeability computed, and
+ * sync the recorded base when GitHub moved it (the merge guard reads it).
+ * Never squash INTO the merged branch: a base that stayed put refuses.
+ */
+async function awaitStackRebase(
+  db: MergeCtx[`db`],
+  member: StackMember,
+  below: StackMember
+): Promise<void> {
+  const repo = repoFromPrUrl(member.prUrl)
+  if (!repo || !below.branch) return
+  const resolved = await resolveRepoInstallationTokenInfo(repo)
+  // No token: the member's own merge names the cause.
+  if (!resolved) return
+  let pull: Awaited<ReturnType<typeof getPullRequest>> | null = null
+  for (const delay of [0, ...STACK_SETTLE_MS]) {
+    if (delay) await sleep(delay)
     try {
-      smart = await mergePullRequestSmart({
-        repo: repoFullName,
-        prNumber: member.prNumber!,
-        token,
-        commitTitle: titleOf(member),
+      pull = await getPullRequest(repo, member.prNumber, resolved.token)
+    } catch {
+      // Unreadable: the merge itself reports what GitHub says.
+      return
+    }
+    if (pull.baseRef !== below.branch && pull.mergeable !== null) break
+  }
+  if (!pull) return
+  if (pull.baseRef === below.branch) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: `It is still based on ${below.branch}; retarget it onto the default branch (exponential_pr_retarget) and merge again`,
+    })
+  }
+  if (pull.baseRef && pull.baseRef !== member.prBaseBranch) {
+    await db
+      .update(issues)
+      .set({ prBaseBranch: pull.baseRef })
+      .where(eq(issues.prUrl, member.prUrl))
+  }
+}
+
+/**
+ * SLOP-3 `mergePr({mergeStack: true})`: the open chain BELOW AND INCLUDING
+ * the issue, merged bottom-up one PR at a time through the single-PR path
+ * (same claim, squash, status automation, session ending). After each merge
+ * the EXP-324 heal is AWAITED so the next member sits on the default branch
+ * before its turn. Stops at the first failure: earlier merges stand and the
+ * error keeps the failing merge's code (CONFLICT still offers Fix merge
+ * conflicts) with a message naming what landed and which PR stopped. A PR in
+ * no stack is just the plain merge.
+ */
+async function mergeStackThrough(
+  ctx: MergeCtx,
+  input: MergeOneInput
+): Promise<MergePrResult> {
+  const chain = await openStackThrough(ctx.db, {
+    issueId: input.issueId,
+    teamId: input.teamId,
+  })
+  if (chain.length <= 1) return mergeOneIssuePr(ctx, input)
+
+  const merged: StackMergedPr[] = []
+  for (const [index, member] of chain.entries()) {
+    const name = { identifier: member.identifier, prNumber: member.prNumber }
+    let result: MergePrResult
+    try {
+      const below = chain[index - 1]
+      if (below) await awaitStackRebase(ctx.db, member, below)
+      // Same team by construction; the gate also yields the member's board.
+      const { teamId, boardId } = await assertIssueAccess(
+        ctx.session.user.id,
+        member.issueId,
+        `write`
+      )
+      result = await mergeOneIssuePr(ctx, {
+        issueId: member.issueId,
+        teamId,
+        boardId,
+        endSessions: input.endSessions,
       })
     } catch (err) {
-      if (!(err instanceof GitHubAsyncMergePending)) {
-        releasePrMergeClaim(repoFullName, member.prNumber!)
-      }
-      if (mergedNumbers.length === 0) {
-        if (err instanceof GitHubAsyncMergePending) {
-          throw new TRPCError({
-            code: `PRECONDITION_FAILED`,
-            message: asyncMergePendingMessage(err),
-          })
-        }
-        releaseAll()
-        if (err instanceof GitHubMergeError) throw prMergeFailureError(err, null)
-        throw err
-      }
-      // Partial success: say exactly what landed — a bare failure would send
-      // the caller back to re-merge PRs that are already in.
+      const reason = err instanceof Error ? err.message : String(err)
       throw new TRPCError({
-        code: `PRECONDITION_FAILED`,
-        message: `Merged ${mergedNumbers.map((n) => `#${n}`).join(`, `)}, then PR #${member.prNumber} (${stackEntryLabel(member)}) failed: ${err instanceof Error ? err.message : String(err)}`,
+        code: err instanceof TRPCError ? err.code : `INTERNAL_SERVER_ERROR`,
+        message: stackMergeFailureMessage(merged, name, reason),
       })
     }
-    // FEED-64: this member reads merged by a PERSON after our call failed —
-    // theirs to attribute (the webhook writes its state), so its claim goes
-    // and its issues are left to that; the walk continues upward.
-    if (mergedByPerson(smart.mergedBy)) {
-      releasePrMergeClaim(repoFullName, member.prNumber!)
-      mergedNumbers.push(member.prNumber!)
-      mergedUrls.push(member.prUrl)
-      continue
-    }
-    // A stack GitHub built behind our back (`pr_stack_number` still null —
-    // the webhook has not caught up): this one merge landed EVERY member
-    // at-or-below it. Finish the cohort from GitHub's answer and stop, or the
-    // next iteration would merge PRs that are already in and report them as
-    // failures.
-    if (smart.viaStack && smart.stackMemberNumbers.length > 1) {
-      const landed = new Set(smart.stackMemberNumbers)
-      await completeStackCohort({
-        db,
-        teamId,
-        repoFullName,
-        memberNumbers: smart.stackMemberNumbers,
-        fallbackIssueId: opts.entryIssueId,
-        actorUserId: opts.actorUserId,
-        actorViaAgent: opts.actorViaAgent,
-        endSessions: opts.endSessions,
-      })
-      const covered = members.filter(
-        (entry) => entry.prNumber != null && landed.has(entry.prNumber)
-      )
+    if (!result.merged) {
+      // Queued (FEED-43): nothing above may land on an unlanded base.
+      const above = chain.slice(index + 1).map((pr) => pr.identifier)
       return {
-        merged: true,
-        mergedPrUrls: [...mergedUrls, ...covered.map((entry) => entry.prUrl)],
-        note: `Merged GitHub stack${smart.stackNumber != null ? ` #${smart.stackNumber}` : ``}: ${smart.stackMemberNumbers.length} pull request(s), bottom-up.`,
+        ...result,
+        stack: merged,
+        note: [
+          result.note,
+          above.length ? `${above.join(`, `)} wait for it.` : null,
+        ]
+          .filter(Boolean)
+          .join(` `),
       }
     }
-    mergedNumbers.push(member.prNumber!)
-    mergedUrls.push(member.prUrl)
-    for (const issue of member.issues) {
-      await applyPrMergeState({
-        issueId: issue.id,
-        prUrl: member.prUrl,
-        mergedAt: new Date(),
-        actorUserId: opts.actorUserId,
-        actorViaAgent: opts.actorViaAgent,
-        endSessions: opts.endSessions,
-      })
+    merged.push(name)
+    if (index < chain.length - 1 && member.branch) {
+      try {
+        await retargetChildrenOfMergedPr({
+          prUrl: member.prUrl,
+          headBranch: member.branch,
+        })
+      } catch (err) {
+        // awaitStackRebase refuses a member left on the merged branch.
+        console.error(`stack merge retarget after ${member.identifier}:`, err)
+      }
     }
-    await endMergedPrSessions(
-      member.issues.map((issue) => issue.id),
-      opts.endSessions
-    )
   }
-  return {
-    merged: true,
-    mergedPrUrls: mergedUrls,
-    note: `Merged ${mergedNumbers.length} pull request(s) bottom-up: ${mergedNumbers.map((n) => `#${n}`).join(`, `)}.`,
-  }
+  return { merged: true, stack: merged }
 }
 
-/** EXP-1094: marks the workflow merge train's own `mergePr` call
- *  (`workflows.landNode`), the one caller allowed to merge a live node's PR.
- *  A symbol on the server-built context: no wire input can carry it. */
-export const WORKFLOW_LANDING = Symbol.for(`exp.workflowLanding`)
-
-function isWorkflowLanding(ctx: object): boolean {
-  return (ctx as { [WORKFLOW_LANDING]?: boolean })[WORKFLOW_LANDING] === true
+/** The "GitHub is still working on it" sentence. */
+function asyncMergePendingMessage(err: GitHubAsyncMergePending): string {
+  return `GitHub is still merging PR #${err.prNumber}. It did not finish within 60s — check the PR on GitHub; the issue completes when the merge lands.`
 }
-
-// EXP-1094: the guard itself lives in repositories.ts (the chore merge path
-// needs it too, and that module cannot import this one without a cycle);
-// re-exported so every hand-merge caller keeps one import site.
-export {
-  WORKFLOW_MERGE_REFUSAL,
-  assertMergeOutsideWorkflow,
-} from "@/lib/trpc/repositories"
 
 export const issuesRouter = router({
   create: authedProcedure
@@ -1940,10 +1836,8 @@ export const issuesRouter = router({
         // setting — false keeps every live session on the PR's issues
         // running, true ends them even when the team switched that off.
         endSessions: z.boolean().optional(),
-        // EXP-897: merge the WHOLE stack this issue's PR belongs to. `issueId`
-        // may then be ANY member — the server walks up the `pr_base_branch`
-        // edges to the topmost open one and merges from there (a real GitHub
-        // stack lands atomically; a candidate stack merges bottom-up).
+        // SLOP-3: also land the open PRs this one is stacked on, bottom-up
+        // (mergeStackThrough). Absent = the plain merge, guard included.
         mergeStack: z.boolean().optional(),
       })
     )
@@ -1955,330 +1849,20 @@ export const issuesRouter = router({
         input.issueId,
         `write`
       )
-
-      const [row] = await ctx.db
-        .select({
-          prNumber: issues.prNumber,
-          prUrl: issues.prUrl,
-          prState: issues.prState,
-          identifier: issues.identifier,
-          title: issues.title,
-          // EXP-897: the stack edge (synced) and GitHub's stack number
-          // (server-only) — what decides legacy merge vs merge-async.
-          branch: issues.branch,
-          prBaseBranch: issues.prBaseBranch,
-          prStackNumber: issues.prStackNumber,
-        })
-        .from(issues)
-        .where(eq(issues.id, input.issueId))
-        .limit(1)
-
-      if (!row) {
-        throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })
-      }
-      if (!row.prNumber || !row.prUrl) {
-        throw new TRPCError({
-          code: `PRECONDITION_FAILED`,
-          message: `This issue has no linked pull request`,
-        })
-      }
-      // EXP-897: with `mergeStack` the clicked issue is only an ENTRY into the
-      // chain — it may itself already be merged (the caller named the bottom
-      // member), so the open-state guards below belong to the single-PR path.
-      if (!input.mergeStack) {
-        if (row.prState === `merged`) {
-          // Already merged (e.g. the webhook beat us) — idempotent no-op for
-          // the PR itself, but merge always closes (EXP-498): sweep any live
-          // sessions the earlier writer missed.
-          const linked = await ctx.db
-            .select({ id: issues.id })
-            .from(issues)
-            .where(eq(issues.prUrl, row.prUrl))
-          await endMergedPrSessions(
-            linked.map((issue) => issue.id),
-            input.endSessions
-          )
-          return { merged: true }
-        }
-        if (row.prState !== `open`) {
-          throw new TRPCError({
-            code: `PRECONDITION_FAILED`,
-            message: `The pull request is ${row.prState}. Only open pull requests can be merged.`,
-          })
-        }
-      }
-
-      // EXP-1094: a node PR of a running/paused workflow lands through the
-      // workflow's merge train (`landNode`), never by hand. The train's own
-      // call carries WORKFLOW_LANDING on its context.
-      if (!isWorkflowLanding(ctx)) {
-        await assertMergeOutsideWorkflow(ctx.db, input.issueId, row.prUrl, row.identifier)
-      }
-
-      // Merge against the repo the PR actually lives in — derived from prUrl,
-      // never the board's CURRENT repository: after a board repo
-      // retarget, prNumber would otherwise address an unrelated PR in the
-      // new repo (same derivation as prFiles below).
-      const repoFullName = repoFromPrUrl(row.prUrl)
-      if (!repoFullName) {
-        throw new TRPCError({
-          code: `PRECONDITION_FAILED`,
-          message: `The linked pull request URL is not a GitHub PR URL`,
-        })
-      }
-      if (!githubAppConfigured()) {
-        throw new TRPCError({
-          code: `PRECONDITION_FAILED`,
-          message: `GitHub App is not configured on this instance`,
-        })
-      }
-      const resolved = await resolveRepoInstallationTokenInfo(repoFullName)
-      if (!resolved) {
-        throw new TRPCError({
-          code: `PRECONDITION_FAILED`,
-          message: `GitHub App is not installed on ${repoFullName}`,
-        })
-      }
-      // Link-gate (mirrors prFiles): the installation serving this repo must
-      // still be claimed by the issue's team — a deliberately severed
-      // GitHub connection must not keep authorizing PR writes through an old
-      // prUrl.
-      if (
-        !(await isInstallationLinkedToTeam(teamId, resolved.installationId))
-      ) {
-        throw new TRPCError({
-          code: `PRECONDITION_FAILED`,
-          message: `${repoFullName} resolves to a GitHub account that isn't connected to this team. Reconnect it in team settings → Repositories.`,
-        })
-      }
-
-      // EXP-1145: a CANDIDATE stack member (no GitHub stack number: the
-      // preview API 404'd or the edge came from a raw `base`) would go
-      // through the legacy `PUT /merge` below, which squashes it INTO its
-      // base = the lower PR's head branch: the diff never reaches the
-      // default branch while the issue flips to Done. A real member
-      // (`prStackNumber` set) lands through merge-async, which takes the
-      // PRs below it along; so only the candidate is refused here.
-      if (!input.mergeStack && row.prStackNumber == null) {
-        const lower = await stackedOnOpenPr(ctx.db, {
+      if (input.mergeStack) {
+        return mergeStackThrough(ctx, {
           issueId: input.issueId,
           teamId,
-          repoFullName,
-          prBaseBranch: row.prBaseBranch,
-        })
-        if (lower) {
-          throw new TRPCError({
-            code: `PRECONDITION_FAILED`,
-            message: stackedOnMessage(lower),
-          })
-        }
-      }
-
-      // EXP-897: merge the whole chain in one call. Resolved from OUR edges
-      // (`pr_base_branch`), so it works on a candidate stack too — GitHub's
-      // stack API is an accelerator here, never the prerequisite.
-      if (input.mergeStack) {
-        return mergeStackFromMember({
-          db: ctx.db,
-          teamId,
-          repoFullName,
-          token: resolved.token,
-          entryPrUrl: row.prUrl,
-          entryIssueId: input.issueId,
-          actorUserId: ctx.session.user.id,
-          actorViaAgent: ctx.viaMcp === true,
+          boardId,
           endSessions: input.endSessions,
         })
       }
-
-      // EXP-494: record the initiator BEFORE the GitHub merge call — the
-      // `closed` webhook reliably beats the applyPrMergeState writes below,
-      // and without the claim its fan-out degrades to the session-owner
-      // fallback (or a fully anonymous broadcast that self-notifies the
-      // merger) whenever no coding_sessions row survived. viaAgent marks an
-      // MCP-driven merge (the shared-server daemon acts with its owner's
-      // key) so attribution can swap to the session's requester.
-      const claimActor = {
-        userId: ctx.session.user.id,
-        viaAgent: ctx.viaMcp === true,
-        // EXP-711: the webhook's sweep must honour the same override.
+      return mergeOneIssuePr(ctx, {
+        issueId: input.issueId,
+        teamId,
+        boardId,
         endSessions: input.endSessions,
-      }
-      claimPrMerge(repoFullName, row.prNumber, claimActor)
-      // FEED-43 R1: merging a stack member lands every unmerged member BELOW
-      // it in the same GitHub transaction, and each of their `closed`
-      // webhooks looks for its OWN claim (without one the fan-out falls back
-      // to the App bot / session owner). A known stack is read and claimed
-      // BEFORE the call, since those webhooks may beat the merge-async poll;
-      // a stack GitHub only reveals through its refusal is claimed from the
-      // result afterwards, best effort. Attribution only: an unreachable
-      // stack read never blocks the merge.
-      const claimedNumbers = new Set<number>([row.prNumber])
-      const claimMembers = (numbers: number[]) => {
-        for (const prNumber of numbers) {
-          if (claimedNumbers.has(prNumber)) continue
-          claimedNumbers.add(prNumber)
-          claimPrMerge(repoFullName, prNumber, claimActor)
-        }
-      }
-      if (row.prStackNumber != null) {
-        try {
-          const stack = await findStackForPull(
-            repoFullName,
-            row.prNumber,
-            resolved.token
-          )
-          if (stack) claimMembers(membersAtOrBelowNumber(stack, row.prNumber))
-        } catch {
-          // ignored
-        }
-      }
-      let smart: Awaited<ReturnType<typeof mergePullRequestSmart>>
-      try {
-        // FEED-43: a stack member cannot be merged through the legacy
-        // endpoint — `mergePullRequestSmart` discovers that from GitHub's own
-        // refusal (or skips straight past it when the row knows its stack) and
-        // finishes through merge-async.
-        smart = await mergePullRequestSmart({
-          repo: repoFullName,
-          prNumber: row.prNumber,
-          token: resolved.token,
-          commitTitle: `${row.identifier}: ${row.title} (#${row.prNumber})`,
-          knownStackNumber: row.prStackNumber,
-        })
-      } catch (err) {
-        if (err instanceof GitHubAsyncMergePending) {
-          // NOT a failure: GitHub's job is still running, so the claim STAYS
-          // (the webhook echo of the landing merge must stay attributed).
-          throw new TRPCError({
-            code: `PRECONDITION_FAILED`,
-            message: asyncMergePendingMessage(err),
-          })
-        }
-        // The merge did not happen: drop the claims so they can't
-        // misattribute a later out-of-band merge of the same PRs.
-        for (const prNumber of claimedNumbers) {
-          releasePrMergeClaim(repoFullName, prNumber)
-        }
-        if (err instanceof GitHubMergeError) {
-          // "Not mergeable" is actively misleading on a stacked PR whose base
-          // is stale (EXP-324): the real fix is a retarget, not another
-          // rebase. The diagnosis names the cause AND says whether this is a
-          // real content conflict, which decides the error code clients gate
-          // their recovery run on (EXP-533).
-          let diagnosis = null
-          if (isNotMergeable(err)) {
-            const defaultBranch =
-              (await boardBranchOverride(boardId, repoFullName)) ??
-              (await repoBranchOverride(teamId, repoFullName)) ??
-              (await resolveRepoDefaultBranchCached(repoFullName))
-            diagnosis = defaultBranch
-              ? await diagnoseUnmergeablePr({
-                  repo: repoFullName,
-                  prNumber: row.prNumber,
-                  token: resolved.token,
-                  defaultBranch,
-                })
-              : null
-          }
-          throw prMergeFailureError(err, diagnosis)
-        }
-        throw err
-      }
-
-      // EXP-897: a queued merge has not landed yet — the merge queue will run
-      // it. Nothing may be marked merged here; the webhook (or the poller)
-      // completes the issues when GitHub finishes.
-      if (smart.queued) {
-        // FEED-43 R1: `merged: false`, so an agent neither ends its run nor
-        // skips a retry on a merge the queue may still reject. The claims
-        // stay: the landing merge's webhooks must stay attributed.
-        claimMembers(smart.stackMemberNumbers)
-        return {
-          merged: false,
-          queued: true,
-          note: `GitHub queued the merge of PR #${row.prNumber}. Nothing is merged yet; the issue completes when the merge lands.`,
-        }
-      }
-
-      // FEED-64: the merge call failed, the PR reads merged — by a PERSON on
-      // github.com. The merge is theirs: the claims go (or the webhook echo
-      // would credit this caller, EXP-617) and the state write is left to
-      // that webhook / the poller. Still `merged: true`: the PR IS in.
-      if (mergedByPerson(smart.mergedBy)) {
-        for (const prNumber of claimedNumbers) {
-          releasePrMergeClaim(repoFullName, prNumber)
-        }
-        return {
-          merged: true,
-          note: mergedByPersonNote(row.prNumber, smart.mergedBy),
-        }
-      }
-
-      // EXP-897: merging a stack member merged every unmerged member BELOW it
-      // in the same GitHub transaction — complete their issues too.
-      if (smart.viaStack) {
-        claimMembers(smart.stackMemberNumbers)
-        await completeStackCohort({
-          db: ctx.db,
-          teamId,
-          repoFullName,
-          memberNumbers: smart.stackMemberNumbers,
-          fallbackIssueId: input.issueId,
-          actorUserId: ctx.session.user.id,
-          actorViaAgent: ctx.viaMcp === true,
-          endSessions: input.endSessions,
-        })
-        // FEED-48: say so ONLY when the walk actually took PRs below with it
-        // (a caller would otherwise re-merge what is already in). The row's
-        // `prBaseBranch` is no signal: pr_open stamps it for every PR, the
-        // default branch included. EXP-1145: a member GitHub already listed
-        // as merged landed EARLIER, never "also" now; and the open members
-        // above stay open, retargeted onto the stack's base — the note names
-        // both, so an agent merging a mid-stack PR reads what it did.
-        const alreadyMerged = new Set(smart.alreadyMergedMemberNumbers ?? [])
-        const below = smart.stackMemberNumbers.filter(
-          (prNumber) => prNumber !== row.prNumber && !alreadyMerged.has(prNumber)
-        )
-        const above = smart.openMemberNumbersAbove ?? []
-        const mergedPrUrls = smart.stackMemberNumbers.map(
-          (prNumber) => `https://github.com/${repoFullName}/pull/${prNumber}`
-        )
-        const note = stackWalkNote(row.prNumber, below, above)
-        return {
-          merged: true,
-          mergedPrUrls,
-          ...(note ? { note } : {}),
-        }
-      }
-
-      // Complete every issue the PR is linked to — not just the clicked one —
-      // so a batch PR's siblings don't wait on the webhook echo (self-hosted
-      // instances behind NAT may only have the slower polling cron).
-      const linked = await ctx.db
-        .select({ id: issues.id })
-        .from(issues)
-        .where(eq(issues.prUrl, row.prUrl))
-      const linkedIds = linked.some((issue) => issue.id === input.issueId)
-        ? linked.map((issue) => issue.id)
-        : [input.issueId, ...linked.map((issue) => issue.id)]
-      for (const issueId of linkedIds) {
-        await applyPrMergeState({
-          issueId,
-          prUrl: row.prUrl,
-          mergedAt: new Date(),
-          actorUserId: ctx.session.user.id,
-          actorViaAgent: ctx.viaMcp === true,
-          endSessions: input.endSessions,
-        })
-      }
-      // Merge closes by default (EXP-498, team-configurable since EXP-711):
-      // applyPrMergeState's claim winner ends sessions in-tx; this sweep
-      // backstops the race where the webhook won the claim before this
-      // mutation got here.
-      await endMergedPrSessions(linkedIds, input.endSessions)
-
-      return { merged: true }
+      })
     }),
 
   // Close the issue's open PR WITHOUT merging (EXP-100: the Reviews "reject"
@@ -2564,9 +2148,8 @@ export const issuesRouter = router({
   // stacked-PR self-heal: after a parent PR is squash-merged its branch goes
   // stale, and GitHub only auto-retargets children when the base branch is
   // DELETED — we leave it in place. Omitting `base` targets the repo's live
-  // default branch (the right call after a squash-merge). Nothing is
-  // persisted locally — the DB carries no base column; GitHub stays the
-  // source of truth.
+  // default branch (the right call after a squash-merge). The new base is
+  // mirrored into the synced `pr_base_branch` of every issue on the PR.
   retargetPr: authedProcedure
     .input(
       z.object({
@@ -2587,9 +2170,6 @@ export const issuesRouter = router({
             prNumber: issues.prNumber,
             prUrl: issues.prUrl,
             prState: issues.prState,
-            // FEED-43: a GitHub stack OWNS its members' bases — the PATCH
-            // below is refused 422 on one.
-            prStackNumber: issues.prStackNumber,
           })
           .from(issues)
           .where(eq(issues.id, input.issueId))
@@ -2656,33 +2236,6 @@ export const issuesRouter = router({
           })
         }
 
-        // FEED-43: a member of a GitHub stack has no base of its own — GitHub
-        // manages it (and retargets the member above when the one below
-        // merges), so the PATCH is refused 422 and the old code turned that
-        // into the misleading "'master' is not a valid base branch". Say what
-        // is actually true, and heal the column while we know the answer.
-        const stackNumber =
-          row.prStackNumber ??
-          (await findStackForPull(repoFullName, row.prNumber, resolved.token)
-            .then((stack) => stack?.number ?? null)
-            .catch(() => null))
-        if (stackNumber != null) {
-          if (row.prStackNumber !== stackNumber) {
-            await ctx.db
-              .update(issues)
-              .set({ prStackNumber: stackNumber })
-              .where(eq(issues.prUrl, row.prUrl))
-          }
-          throw new TRPCError({
-            code: `PRECONDITION_FAILED`,
-            message: stackedBaseMessage(
-              row.prNumber,
-              stackNumber,
-              repoFullName
-            ),
-          })
-        }
-
         try {
           await retargetPullRequest({
             repo: repoFullName,
@@ -2692,18 +2245,6 @@ export const issuesRouter = router({
           })
         } catch (err) {
           if (err instanceof GitHubMergeError) {
-            // Safety net: the row knew of no stack (a stack created on
-            // github.com seconds ago), but GitHub's refusal names one.
-            if (isStackedPrRefusal(err)) {
-              throw new TRPCError({
-                code: `PRECONDITION_FAILED`,
-                message: stackedBaseMessage(
-                  row.prNumber,
-                  row.prStackNumber,
-                  repoFullName
-                ),
-              })
-            }
             if (err.status === 422) {
               throw new TRPCError({
                 code: `PRECONDITION_FAILED`,
@@ -2726,9 +2267,7 @@ export const issuesRouter = router({
           throw err
         }
 
-        // EXP-897: the base GitHub now reports is the stack edge every client
-        // nests on — persist it for every issue on this PR (a batch PR has
-        // several).
+        // Every issue on this PR (a batch PR has several).
         await ctx.db
           .update(issues)
           .set({ prBaseBranch: base })
@@ -2745,38 +2284,20 @@ export const issuesRouter = router({
   // to the default branch right here — deterministically, before the agent
   // spawns. Idempotent: once retargeted, a re-run classifies `default` and
   // no-ops.
-  // EXP-1072: `issueId` may also be a WORKFLOW id — its final pull request
-  // is a linked PR everywhere a PR is shown, the fix-conflicts run included;
-  // the workflow path resolves in `prepareWorkflowFinalPrConflictFix`.
   prepareConflictFix: authedProcedure
     .input(z.object({ issueId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      let access: { teamId: string; boardId: string }
-      try {
-        access = await assertIssueAccess(ctx.session.user.id, input.issueId, `write`)
-      } catch (err) {
-        if (err instanceof TRPCError && err.code === `NOT_FOUND`) {
-          const { prepareWorkflowFinalPrConflictFix } = await import(
-            `@/lib/workflow-final-pr`
-          )
-          return prepareWorkflowFinalPrConflictFix(
-            ctx.db,
-            input.issueId,
-            ctx.session.user.id
-          )
-        }
-        throw err
-      }
-      const { teamId, boardId } = access
+      const { teamId, boardId } = await assertIssueAccess(
+        ctx.session.user.id,
+        input.issueId,
+        `write`
+      )
 
       const [row] = await ctx.db
         .select({
           prNumber: issues.prNumber,
           prUrl: issues.prUrl,
           prState: issues.prState,
-          // EXP-897: a GitHub stack manages its members' bases — we must not
-          // PATCH one (422), only rebase onto what GitHub says.
-          prStackNumber: issues.prStackNumber,
         })
         .from(issues)
         .where(eq(issues.id, input.issueId))
@@ -2865,24 +2386,8 @@ export const issuesRouter = router({
         })
       }
 
-      // EXP-897: keep the synced stack edge in step with GitHub's live answer
-      // — opportunistic, never worth failing the launch over.
-      if (state.baseRef) {
-        try {
-          await ctx.db
-            .update(issues)
-            .set({ prBaseBranch: state.baseRef })
-            .where(eq(issues.prUrl, row.prUrl))
-        } catch {
-          // ignored
-        }
-      }
-
       let retargeted = false
-      // A stack member's base belongs to GitHub (it retargets the member above
-      // when the one below merges); PATCHing it is a 422. Rebase onto what
-      // GitHub reports instead.
-      if (state.retargetTo != null && row.prStackNumber == null) {
+      if (state.retargetTo != null) {
         try {
           await retargetPullRequest({
             repo: repoFullName,
@@ -2900,6 +2405,21 @@ export const issuesRouter = router({
               message: `GitHub retarget failed: ${err instanceof Error ? err.message : `unknown error`}`,
             })
           }
+        }
+      }
+
+      // Keep the synced `pr_base_branch` in step with GitHub's live answer
+      // (a 422'd heal means a concurrent one already moved it there);
+      // opportunistic, never worth failing the launch over.
+      const liveBase = state.retargetTo ?? state.baseRef
+      if (liveBase) {
+        try {
+          await ctx.db
+            .update(issues)
+            .set({ prBaseBranch: liveBase })
+            .where(eq(issues.prUrl, row.prUrl))
+        } catch {
+          // ignored
         }
       }
 
@@ -3104,14 +2624,6 @@ export const issuesRouter = router({
           ...(await collectIssueAttachmentStorageKeysInTx(tx, issueId))
         )
 
-        // EXP-981: a workflow covering this issue loses a node (FK cascade)
-        // or a compound member and must re-lay out; read which BEFORE the
-        // delete, nothing points back afterwards.
-        const { workflowIdsCoveringIssues, replanWorkflow } = await import(
-          `@/lib/workflows`
-        )
-        const coveringWorkflowIds = await workflowIdsCoveringIssues(tx, [issueId])
-
         const deleted = await tx
           .delete(issues)
           .where(eq(issues.id, issueId))
@@ -3122,10 +2634,6 @@ export const issuesRouter = router({
             code: `NOT_FOUND`,
             message: `Issue not found`,
           })
-        }
-
-        for (const workflowId of coveringWorkflowIds) {
-          await replanWorkflow(tx, workflowId)
         }
 
         return { txId, id: deleted[0].id }

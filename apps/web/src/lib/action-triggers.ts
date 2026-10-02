@@ -164,7 +164,7 @@ export function triggerBadges(triggers: readonly ActionTrigger[]): TriggerBadges
 export function actionRunTitle(startedReason: string | null | undefined): string {
   if (startedReason === `schedule`) return `Scheduled run`
   if (startedReason === `event`) return `Event run`
-  // Another run started it (`agent`, `workflow`, or a reason added later).
+  // Another run started it (`agent`, or a reason added later).
   if (startedReason) return `Agent run`
   return `Manual run`
 }

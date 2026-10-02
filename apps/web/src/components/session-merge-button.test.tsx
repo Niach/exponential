@@ -48,13 +48,13 @@ vi.mock(`@/lib/trpc-client`, () => ({
 
 // EXP-825: the conflict swap's "Fix conflicts" hands the ONE launcher a seed
 // (no device lookup here). EXP-1019: that seed names an action, so it opens
-// the start-coding dialog over this surface instead of navigating — the
+// the start-coding dialog over this surface instead of navigating: the
 // router stub stays, to prove nothing travels.
 vi.mock(`@tanstack/react-router`, () => ({
   useNavigate: () => mockState.navigate,
   useParams: () => ({ teamSlug: `acme` }),
   // EXP-851: `useOpenComposer` reads the current screen + its `?from=` so the
-  // launch carries the origin it was started from — a context-free page here,
+  // launch carries the origin it was started from: a context-free page here,
   // so the composer URL stays exactly the seed.
   useLocation: ({ select }: { select: (l: { pathname: string }) => unknown }) =>
     select({ pathname: `/t/acme/devices` }),
@@ -127,7 +127,7 @@ describe(`SessionMergeButton`, () => {
         { context: { skipErrorToast: true } }
       )
     )
-    // Resolved, but the row has not echoed yet — still "Merging…".
+    // Resolved, but the row has not echoed yet: still "Merging…".
     await waitFor(() =>
       expect(
         screen.getByRole<HTMLButtonElement>(`button`, { name: `Merging…` })
@@ -143,9 +143,9 @@ describe(`SessionMergeButton`, () => {
 
   // EXP-917: the swap gate takes only what a SYNCED issue row carries. The
   // `issues` shape drops `team_id`, so a gate on `teamId` (the pre-EXP-917
-  // rule) was dead on every issue-fed surface — the tray, the run header, the
+  // rule) was dead on every issue-fed surface: the tray, the run header, the
   // Changes faces, the review detail all toasted a real conflict instead.
-  it(`the swap rule needs a conflict, an issue, a branch and the relay — never a team id`, () => {
+  it(`the swap rule needs a conflict, an issue, a branch and the relay: never a team id`, () => {
     const conflict = { message: `conflict`, conflict: true }
     expect(
       canOfferFixConflicts({
@@ -194,9 +194,9 @@ describe(`SessionMergeButton`, () => {
   })
 
   // EXP-706: "Fix conflicts" REPLACES Merge in its own slot, never sits
-  // beside it — and only where the caller wired the recovery run. The props
+  // beside it: and only where the caller wired the recovery run. The props
   // here are EXACTLY what `mergeTargetProps` derives from a synced issue row
-  // (EXP-917: no team id — the shape never syncs one).
+  // (EXP-917: no team id: the shape never syncs one).
   it(`swaps to Fix conflicts when the merge is refused by a conflict`, async () => {
     mockState.mergeMutate.mockRejectedValue(conflictError())
     render(
@@ -266,7 +266,7 @@ describe(`SessionMergeButton`, () => {
     )
   })
 
-  // A refusal describes ONE snapshot of the PR — a re-synced issue row drops
+  // A refusal describes ONE snapshot of the PR: a re-synced issue row drops
   // it, so the plain Merge button comes back on its own.
   it(`drops a stale refusal when the issue row re-syncs`, async () => {
     mockState.mergeMutate.mockRejectedValue(conflictError())
@@ -349,7 +349,7 @@ describe(`SessionMergeButton`, () => {
     ).toBeNull()
   })
 
-  // EXP-895: the `pill` arm — the ONE merge control every Changes surface wears.
+  // EXP-895: the `pill` arm: the ONE merge control every Changes surface wears.
   // Same behaviour, a `Pill size="md" mode="action" primary` instead of a Button.
   it(`the pill arm is the primary Pill, with the same confirm`, async () => {
     render(<SessionMergePill prState="open" prNumber={7} issueId="i1" label="Merge PR" />)
@@ -358,7 +358,7 @@ describe(`SessionMergeButton`, () => {
     })
     expect(pill.dataset.slot).toBe(`pill`)
     expect(pill.textContent).toContain(`Merge PR`)
-    // The accent paint comes from `Pill`'s own `primary` flag — no hand-rolled
+    // The accent paint comes from `Pill`'s own `primary` flag: no hand-rolled
     // `bg-primary` class beside it any more.
     expect(pill.className).toContain(`bg-primary`)
     expect(pill.className).toContain(`h-8`)
@@ -375,7 +375,7 @@ describe(`SessionMergeButton`, () => {
   })
 
   // EXP-889: in the property tray / run header the merge pill stands in a row
-  // of `sm` pills (status, priority, Stop) — the same box, not a taller one.
+  // of `sm` pills (status, priority, Stop): the same box, not a taller one.
   it(`the tray pill takes the sm box of its siblings`, () => {
     render(
       <SessionMergePill
@@ -500,7 +500,28 @@ describe(`SessionMergeButton on a stack member`, () => {
     )
   })
 
-  it(`Merge this pull request takes the single-PR path`, async () => {
+  it(`Merge this pull request above the bottom lands the chain through this one`, async () => {
+    render(
+      <SessionMergeButton prState="open" prNumber={7} issueId="i1" label="Merge" />
+    )
+    fireEvent.click(screen.getByRole(`button`, { name: `Merge pull request` }))
+    fireEvent.click(
+      await screen.findByRole(`button`, { name: `Merge this pull request` })
+    )
+    await waitFor(() =>
+      expect(mockState.mergeMutate).toHaveBeenCalledWith(
+        { issueId: `i1`, mergeStack: true },
+        { context: { skipErrorToast: true } }
+      )
+    )
+  })
+
+  it(`Merge this pull request on the bottom member takes the single-PR path`, async () => {
+    mockState.stackChoice.mockImplementation((_issueId, enabled: boolean) =>
+      enabled
+        ? { ready: true, choice: { ...choice, position: 1 } }
+        : { ready: true, choice: null }
+    )
     render(
       <SessionMergeButton prState="open" prNumber={7} issueId="i1" label="Merge" />
     )

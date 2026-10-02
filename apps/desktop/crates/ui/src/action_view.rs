@@ -112,15 +112,8 @@ struct RunRow {
     key: String,
     depth: usize,
     has_children: bool,
-    kind: RunRowKind,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-enum RunRowKind {
     /// A run, titled by what started it ([`run_rows::action_run_title`]).
-    Run(run_rows::RunListFacts),
-    /// EXP-996: a workflow / stack band — a workflow opens, a stack only folds.
-    Group(run_rows::SessionGroupFacts),
+    facts: run_rows::RunListFacts,
 }
 
 impl ActionDerived {
@@ -160,8 +153,7 @@ impl ActionDerived {
         // every session list draws.
         let mut listed: Vec<&domain::rows::CodingSession> = runs.iter().collect();
         listed.truncate(RUNS_CAP);
-        let inputs = queries::session_tree_inputs(cx, &listed);
-        let runs = crate::sessions_section::flatten_session_tree(listed, inputs, |node| {
+        let runs = crate::sessions_section::flatten_session_tree(listed, |node| {
             let session: &domain::rows::CodingSession = node.session();
             // Every row here ran THIS action — the title says what started
             // it instead of repeating the action's name.
@@ -174,14 +166,7 @@ impl ActionDerived {
             key: row.key,
             depth: row.depth,
             has_children: row.has_children,
-            kind: match row.kind {
-                crate::sessions_section::SessionTreeRowKind::Run(facts) => {
-                    RunRowKind::Run(facts)
-                }
-                crate::sessions_section::SessionTreeRowKind::Group(facts) => {
-                    RunRowKind::Group(facts)
-                }
-            },
+            facts: row.run,
         })
         .collect();
 
@@ -847,37 +832,22 @@ impl ActionView {
                 cx,
             );
             let guides = guides.get(index).cloned().unwrap_or_default();
-            let element = match &row.kind {
-                RunRowKind::Group(facts) => run_rows::render_group_row(
-                    run_rows::GroupRowSpec {
-                        id_prefix: "action-run",
-                        index,
-                        guides,
-                        fold,
-                        facts: facts.clone(),
-                        on_open: crate::sessions_section::group_row_open(facts),
-                    },
-                    cx,
-                ),
-                RunRowKind::Run(facts) => {
-                    let open_id = facts.session_id().to_string();
-                    run_rows::render_run_list_row(
-                        "action-run",
-                        index,
-                        guides,
-                        fold,
-                        facts.clone(),
-                        false,
-                        // This page is context-free (no list to pin the run
-                        // beside), so the run opens over the rail and its
-                        // Back — the history — returns here.
-                        Box::new(move |_, window, cx| {
-                            crate::session_screen::open_session(&open_id, window, cx);
-                        }),
-                        cx,
-                    )
-                }
-            };
+            let open_id = row.facts.session_id().to_string();
+            let element = run_rows::render_run_list_row(
+                "action-run",
+                index,
+                guides,
+                fold,
+                row.facts.clone(),
+                false,
+                // This page is context-free (no list to pin the run beside),
+                // so the run opens over the rail and its Back — the history —
+                // returns here.
+                Box::new(move |_, window, cx| {
+                    crate::session_screen::open_session(&open_id, window, cx);
+                }),
+                cx,
+            );
             section = section.child(list_row(element, index));
         }
         section.into_any_element()

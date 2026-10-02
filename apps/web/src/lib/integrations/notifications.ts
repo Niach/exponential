@@ -57,7 +57,7 @@ interface IssueMeta {
   teamSlug: string
   boardSlug: string
   assigneeId: string | null
-  branch: string | null
+  prUrl: string | null
 }
 
 async function loadIssueMeta(issueId: string): Promise<IssueMeta | null> {
@@ -70,7 +70,7 @@ async function loadIssueMeta(issueId: string): Promise<IssueMeta | null> {
       teamSlug: teams.slug,
       boardSlug: boards.slug,
       assigneeId: issues.assigneeId,
-      branch: issues.branch,
+      prUrl: issues.prUrl,
     })
     .from(issues)
     .innerJoin(boards, eq(boards.id, issues.boardId))
@@ -516,16 +516,10 @@ export function fireAndForgetStatusChangeNotify(args: {
 // notification-only, and the in-app merge path passes the real actor.
 //
 // Batch runs are issue-less (issue XOR batch XOR action, EXP-479), so the
-// issue-scoped lookup misses a batch run's combined PR entirely. When the
-// linked branch is the launcher's hardcoded batch convention (`exp/batch-`,
-// deliberately independent of the user's branch prefix — see the desktop's
-// batch_branch_name), fall back to the team's most recent truly batch-shaped
-// session (issue_id AND action_id NULL — action runs are issue-less rows too
-// and must not win the recency sort). The schema has no batch↔PR linkage to
-// be more precise with, so like the MCP open_pr batch flip this is
-// deliberately loose: overlapping batch runs in one team attribute to the
-// most recent one's owner. Non-batch branches never take this path, so a
-// genuinely out-of-band PR with no session stays anonymous.
+// issue-scoped lookup misses a batch run's combined PR. Every run owns the PR
+// it opened (`pr_open` stamps the caller's row), so the second arm is the run
+// row carrying the issue's EXACT pr_url, in the issue's team. A genuinely
+// out-of-band PR with no session stays anonymous.
 // One query since EXP-617 (it used to be two, and the viaAgent path ran the
 // first one a second time). Ordered issue-scoped first, then most recent: the
 // HEAD is the naming candidate, and EVERY row contributes its owner AND its
@@ -541,12 +535,11 @@ async function loadPrSessionCandidates(
   issue: IssueMeta
 ): Promise<PrSessionCandidate[]> {
   const arms = [eq(codingSessions.issueId, issue.id)]
-  if (issue.branch?.startsWith(`exp/batch-`)) {
+  if (issue.prUrl) {
     arms.push(
       and(
         eq(codingSessions.teamId, issue.teamId),
-        isNull(codingSessions.issueId),
-        isNull(codingSessions.actionId)
+        eq(codingSessions.prUrl, issue.prUrl)
       )!
     )
   }
@@ -557,10 +550,9 @@ async function loadPrSessionCandidates(
     })
     .from(codingSessions)
     .where(arms.length === 1 ? arms[0] : or(...arms))
-    // Issue-scoped rows outrank the team-wide batch arm, exactly as the two
-    // sequential queries did.
+    // The issue's own runs outrank the runs that only share its PR.
     .orderBy(
-      sql`(${codingSessions.issueId} is not null) desc`,
+      sql`(${codingSessions.issueId} is not distinct from ${issue.id}) desc`,
       desc(codingSessions.startedAt)
     )
     .limit(PR_SESSION_CANDIDATE_LIMIT)

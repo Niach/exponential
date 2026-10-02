@@ -9,7 +9,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 // (the coding-session-kill.test.ts pattern).
 const h = vi.hoisted(() => ({
   updates: [] as { set: Record<string, unknown>; where: unknown }[],
-  returning: [] as { id: string }[],
+  returning: [] as { id: string; branch?: string | null }[],
+  // SLOP-3: per-call select results, consumed before `selectRows`.
+  selectQueue: [] as Record<string, string>[][],
+  githubAppConfigured: vi.fn(() => false),
   // What the ONE db-level select of a sweep resolves to: the issues whose
   // team still ends sessions on merge (EXP-711) for endMergedPrSessions.
   selectRows: [] as Record<string, string>[],
@@ -21,6 +24,14 @@ const h = vi.hoisted(() => ({
   notifyParentOfChildEnd: vi.fn(async () => ({ delivered: false })),
 }))
 
+function selectResult(where: unknown) {
+  h.selectWheres.push(where)
+  const rows = h.selectQueue.shift() ?? h.selectRows
+  return Object.assign(Promise.resolve(rows), {
+    limit: async () => rows,
+  })
+}
+
 function fakeTx() {
   return {
     // EXP-734: applySessionPrState reads the live rows to end INSIDE its
@@ -28,10 +39,7 @@ function fakeTx() {
     select: () => {
       const chain = {
         innerJoin: () => chain,
-        where: (where: unknown) => {
-          h.selectWheres.push(where)
-          return Promise.resolve(h.selectRows)
-        },
+        where: selectResult,
       }
       return { from: () => chain }
     },
@@ -64,6 +72,13 @@ vi.mock(`@/db/connection`, () => ({
   },
 }))
 vi.mock(`@/lib/trpc`, () => ({ generateTxId: async () => `1` }))
+// SLOP-3: the first step of `retargetChildrenOfMergedPr` — a spy that bails,
+// so a call proves the retarget fired without reaching GitHub.
+vi.mock(`@/lib/integrations/github-app`, () => ({
+  githubAppConfigured: h.githubAppConfigured,
+  resolveRepoDefaultBranchCached: vi.fn(),
+  resolveRepoInstallationTokenInfo: vi.fn(),
+}))
 vi.mock(`@/lib/steer`, () => ({
   getSteerRelayConfig: h.getSteerRelayConfig,
   relayPostKill: h.relayPostKill,
@@ -106,8 +121,10 @@ beforeEach(() => {
   h.updates.length = 0
   h.returning = []
   h.selectRows = []
+  h.selectQueue = []
   h.selectWheres.length = 0
   vi.clearAllMocks()
+  h.githubAppConfigured.mockReturnValue(false)
   h.getSteerRelayConfig.mockReturnValue({ url: `ws://relay`, secret: `s` })
   h.relayPostKill.mockResolvedValue({ delivered: true })
   h.notifyParentOfChildEnd.mockResolvedValue({ delivered: false })
@@ -260,7 +277,7 @@ describe(`endMergedPrSessions`, () => {
   })
 })
 
-// EXP-734: a run's own chore PR lives on its session row. The writer flips
+// EXP-734: a run's own PR lives on its session row. The writer flips
 // `pr_state` along the PR lifecycle and, on a merge, ends the live rows on
 // that PR the way every other merge path does.
 describe(`applySessionPrState`, () => {
@@ -274,13 +291,12 @@ describe(`applySessionPrState`, () => {
 
     expect(result).toEqual({ endedSessionIds: [`sess-1`] })
     expect(h.updates).toHaveLength(2)
-    // The state flip addresses only issue-less rows on the url and never
-    // re-applies a terminal merge.
+    // The state flip addresses every run row on the url (every run owns the
+    // PR it opened) and never re-applies a terminal merge.
     expect(h.updates[0]!.set).toMatchObject({ prState: `merged` })
     expect(whereShape(h.updates[0]!.where)).toEqual([
       `col:pr_url`,
       PR_URL,
-      `col:issue_id`,
       `col:pr_state`,
       `col:pr_state`,
       `merged`,
@@ -290,7 +306,6 @@ describe(`applySessionPrState`, () => {
     expect(whereShape(h.selectWheres[0])).toEqual([
       `col:pr_url`,
       PR_URL,
-      `col:issue_id`,
       `col:status`,
       `running`,
       `in_review`,
@@ -345,7 +360,6 @@ describe(`applySessionPrState`, () => {
     expect(whereShape(h.selectWheres[0])).toEqual([
       `col:pr_url`,
       PR_URL,
-      `col:issue_id`,
       `col:status`,
       `running`,
       `in_review`,
@@ -364,7 +378,6 @@ describe(`applySessionPrState`, () => {
     expect(whereShape(h.updates[0]!.where)).toEqual([
       `col:pr_url`,
       PR_URL,
-      `col:issue_id`,
       `col:pr_state`,
       `open`,
     ])
@@ -374,12 +387,37 @@ describe(`applySessionPrState`, () => {
     expect(whereShape(h.updates[1]!.where)).toEqual([
       `col:pr_url`,
       PR_URL,
-      `col:issue_id`,
       `col:pr_state`,
       `closed`,
     ])
     expect(h.selectWheres).toHaveLength(0)
     expect(h.relayPostKill).not.toHaveBeenCalled()
+  })
+
+  // SLOP-3: an issue-less PR has no applyPrMergeState to retarget its
+  // children, so the run row's merge flip does — once.
+  it(`retargets an issue-less PR's children from the row that flipped`, async () => {
+    h.returning = [{ id: `sess-1`, branch: `exp/chat-1a2b3c4d` }]
+    h.selectQueue = [[]] // no issue carries the PR
+    await applySessionPrState({ prUrl: PR_URL, state: `merged`, endSessions: false })
+    expect(whereShape(h.selectWheres[0])).toEqual([`col:pr_url`, PR_URL])
+    expect(h.githubAppConfigured).toHaveBeenCalledTimes(1)
+  })
+
+  it(`leaves the retarget to applyPrMergeState when an issue carries the PR`, async () => {
+    h.returning = [{ id: `sess-1`, branch: `exp/APP-1` }]
+    h.selectQueue = [[{ id: ISSUE }]]
+    await applySessionPrState({ prUrl: PR_URL, state: `merged`, endSessions: false })
+    expect(h.githubAppConfigured).not.toHaveBeenCalled()
+  })
+
+  it(`never retargets when nothing flipped (a racing duplicate) or not merged`, async () => {
+    h.returning = []
+    await applySessionPrState({ prUrl: PR_URL, state: `merged`, endSessions: false })
+    h.returning = [{ id: `sess-1`, branch: `exp/chat-1a2b3c4d` }]
+    await applySessionPrState({ prUrl: PR_URL, state: `closed` })
+    expect(h.selectWheres).toHaveLength(0)
+    expect(h.githubAppConfigured).not.toHaveBeenCalled()
   })
 
   it(`is a no-op for a blank url`, async () => {

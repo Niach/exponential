@@ -26,6 +26,8 @@ use crate::rows::{CodingSession, Issue};
 
 /// The one string a batch with no knowable issues shows. Byte-identical ×4.
 pub const BATCH_RUN_FALLBACK: &str = "Batch run";
+/// The bulk bar's play menu entry that starts the picked issues as one batch.
+pub const START_AS_BATCH_LABEL: &str = "Start as batch";
 
 /// Read `coding_sessions.batch_issue_ids`. Same tolerance as every other
 /// jsonb column here (`session_results`): the store hands it over as TEXT, the

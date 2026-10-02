@@ -1,8 +1,7 @@
 import SwiftUI
 
 // EXP-1029 contract, implemented by EXP-1020/EXP-1042 — sub-shell navigation
-// for the settings shell (`GlassSection` rows, EXP-994). The device settings
-// sheet's "Workflow settings" is its first caller.
+// for the settings shell (`GlassSection` rows, EXP-994).
 //
 // A `SubShell` is a ROW ENTRY inside a card. Opening it slides a child page
 // in place of the WHOLE card — not a nested card, not a pushed screen —
@@ -18,7 +17,7 @@ import SwiftUI
 // hands the rows below it one channel, the environment's `subShellOpen`. A
 // tapped row pushes its page BUILDER — never a rendered snapshot — so the
 // closure runs again on every render of the host and the page keeps seeing
-// live bindings (the workflow pickers write straight back into the sheet's
+// live bindings (a page's pickers write straight back into the sheet's
 // drafts). A page is drawn by the same host, which is what makes nesting
 // fall out for free: a sub-shell inside a page pushes one level deeper and
 // back returns ONE level, and only the TOP page is drawn — a deeper page

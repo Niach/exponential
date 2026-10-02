@@ -47,7 +47,7 @@ class SubShellBackTest {
                     ) {
                         SubShellHost {
                             OptionGroup {
-                                SubShell(label = "Workflow settings") {
+                                SubShell(label = "Advanced settings") {
                                     Text("Strong model")
                                 }
                             }
@@ -57,7 +57,7 @@ class SubShellBackTest {
             }
         }
 
-        rule.onNodeWithText("Workflow settings").performClick()
+        rule.onNodeWithText("Advanced settings").performClick()
         rule.waitForIdle()
         rule.onNodeWithText("Strong model").assertIsDisplayed()
 
@@ -66,7 +66,7 @@ class SubShellBackTest {
         rule.waitForIdle()
         assertFalse("system back dismissed the whole sheet", dismissed)
         rule.onNodeWithText("Strong model").assertDoesNotExist()
-        rule.onNodeWithText("Workflow settings").assertIsDisplayed()
+        rule.onNodeWithText("Advanced settings").assertIsDisplayed()
 
         // Back at the card, back is the sheet's own again.
         Espresso.pressBack()

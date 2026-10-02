@@ -1,7 +1,7 @@
 //! EXP-1005 / EXP-1067 — the ACCOUNT ROTATION decision, pure and headless.
 //!
-//! Every run on this device (person-started, automation, workflow node,
-//! reviewer) spends ONE signed-in account profile of its agent. Two moments
+//! Every run on this device (person-started, automation, agent-started)
+//! spends ONE signed-in account profile of its agent. Two moments
 //! decide which:
 //!
 //! * **At start** ([`pick_start_account`], applied by
@@ -11,7 +11,7 @@
 //!   cache ([`crate::agent_usage::profile_usage_snapshot`], no probe: the
 //!   cache is fresh enough to avoid an obviously walled login). EXP-1107: a
 //!   launch that NAMES its account (the composer's pick, the last used login,
-//!   an automation's or a workflow decision's account) keeps it unless that
+//!   an automation's account) keeps it unless that
 //!   login is WALLED; only an unpinned launch goes to the most headroom.
 //! * **At a wall** ([`pick_rotation_target`], driven by a host's
 //!   [`RotationTracker`] beat): a run whose `blocked.kind = rate_limit` is
@@ -19,8 +19,7 @@
 //!   FORCED usage read of every profile
 //!   ([`crate::agent_usage::collect_now`]), never off cached numbers — as a
 //!   RESUME naming the target (the same switch a person makes; the server
-//!   inherits `started_reason`, the parent and the workflow membership from
-//!   the predecessor, EXP-1082 §1). EXP-1107: ONE forced read per AGENT per
+//!   inherits `started_reason` and the parent from the predecessor). EXP-1107: ONE forced read per AGENT per
 //!   beat ([`RotationTracker::plan_beat`], [`InflightProbes`]), however many
 //!   of its runs are walled, and every one of them decided off that one
 //!   result ([`RotationTracker::decide_batch`]) — N per-run probes raced the
@@ -35,10 +34,7 @@
 //! restart does not reset them; never into a profile that hit the SAME
 //! window inside its own reset; the device toggle
 //! `Settings.auto_rotate_accounts` (default ON, Danny 2026-09-25) turns the
-//! whole thing off. The hop is SAID in the run ([`switch_prompt`]) and, for
-//! a workflow run, in the workflow's event trail ([`switch_event_message`],
-//! [`waiting_event_message`]) — the trail is a team shape, so it names the
-//! profile's LABEL, never the login's email.
+//! whole thing off. The hop is SAID in the run ([`switch_prompt`]).
 //!
 //! A START pick only: a resume (merge-upstream, review findings, a refused
 //! land, a conflict relaunch) keeps its RECORDED account (EXP-906) and never
@@ -128,8 +124,8 @@ pub struct ProfileUsage {
     pub health: Health,
     pub windows: UsageWindows,
     /// The profile's own label (`Default`, `Work`) — what the devices row
-    /// shows. Rides every message that leaves the device (the workflow
-    /// event trail, a team shape); never a decision input.
+    /// shows. Rides every message that leaves the device; never a decision
+    /// input.
     pub label: String,
     /// The login's email when the probe named one. Local only: the run's
     /// own switch note and this device's log lines.
@@ -388,7 +384,7 @@ pub fn weigh_live_runs(
     profiles
 }
 
-/// What the start pick changed, for the log line and the workflow event.
+/// What the start pick changed, for the log line and the run note.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StartPick {
     /// The profile the launch named (`system` for the ambient login).
@@ -396,9 +392,8 @@ pub struct StartPick {
     /// The profile it runs on instead.
     pub to: String,
     pub to_label: String,
-    /// One sentence: which account, why (the log line, the run note and
-    /// the `account_picked` event) — profile labels only, the event is a
-    /// team shape.
+    /// One sentence: which account, why (the log line and the run note) —
+    /// profile labels only.
     pub message: String,
 }
 
@@ -416,8 +411,8 @@ impl StartPick {
 /// eligible profile has more headroom, or the launch's account IS the pick.
 ///
 /// EXP-1107 (owner decision): a PINNED launch — `account` names a profile:
-/// the composer's pick, the last used login, an automation's or a workflow
-/// decision's account — keeps it unless that login is WALLED (spent on a
+/// the composer's pick, the last used login or an automation's account
+/// — keeps it unless that login is WALLED (spent on a
 /// window the run would draw on); "less headroom" never overrides a person's
 /// choice. Only an unpinned launch (`None`, or [`start_pick_from`] told so)
 /// goes to the most headroom. The
@@ -491,8 +486,7 @@ pub fn start_pick_from(
 /// Apply [`start_pick`] to a launch: rewrite `account` in place and hand
 /// back what changed. The ONE call `coding::prepare` makes for every fresh
 /// issue, batch and action launch on the device. An account the launch
-/// named explicitly (a composer, device-default, automation or workflow
-/// pick) is kept unless it is walled (EXP-1107, see [`start_pick`]);
+/// named explicitly (a composer, device-default or automation pick) is kept unless it is walled (EXP-1107, see [`start_pick`]);
 /// `named = false` leaves it unpinned.
 pub fn apply_start_pick(
     account: &mut Option<String>,
@@ -617,17 +611,15 @@ pub enum Step {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Decision {
     /// Resume the run on `target` (a profile id), with `prompt` as the
-    /// resume's own first message and `event_message` for a workflow's
-    /// audit trail.
+    /// resume's own first message.
     Switch {
         target: String,
         target_label: String,
         prompt: String,
-        event_message: String,
     },
     /// No profile has headroom on the window the run hit: stay walled until
     /// `until_ms` (the wall's reset, or the retry spacing).
-    Wait { until_ms: i64, event_message: String },
+    Wait { until_ms: i64 },
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -887,7 +879,6 @@ impl RotationTracker {
         let state = self.chains.entry(run.chain_key.clone()).or_default();
         state.last_live_ms = now_ms;
         let from = profiles.iter().find(|profile| profile.profile_id == run.account);
-        let from_label = from.map(|profile| profile.label.clone()).unwrap_or_else(|| run.account.clone());
         let from_name = from.map(|profile| profile.local_name().to_string()).unwrap_or_else(|| run.account.clone());
         match pick_rotation_target_spread(
             &run.account,
@@ -909,14 +900,7 @@ impl RotationTracker {
                 state.no_target_wall = None;
                 state.switch_retry_until = None;
                 Decision::Switch {
-                    // The run's own note may name the login; the event may not.
                     prompt: switch_prompt(&from_name, &target_name, &run.window, run.resets_at_ms),
-                    event_message: switch_event_message(
-                        &from_label,
-                        &target_label,
-                        &run.window,
-                        run.resets_at_ms,
-                    ),
                     target,
                     target_label,
                 }
@@ -929,10 +913,7 @@ impl RotationTracker {
                     .map_or(retry, |reset| reset.min(retry));
                 state.no_target_until = Some(until_ms);
                 state.no_target_wall = Some((run.account.clone(), run.window.clone()));
-                Decision::Wait {
-                    until_ms,
-                    event_message: waiting_event_message(&run.window, run.resets_at_ms),
-                }
+                Decision::Wait { until_ms }
             }
         }
     }
@@ -1048,29 +1029,6 @@ fn lock_probes(probes: &Mutex<InflightProbes>) -> std::sync::MutexGuard<'_, Infl
 pub fn switch_prompt(from: &str, to: &str, window: &str, resets_at_ms: Option<i64>) -> String {
     format!(
         "Exponential moved this run from {from} to {to}: the {} window hit its limit{}.",
-        window_label(window),
-        until_suffix(resets_at_ms)
-    )
-}
-
-/// The `account_switched` workflow event line.
-pub fn switch_event_message(
-    from: &str,
-    to: &str,
-    window: &str,
-    resets_at_ms: Option<i64>,
-) -> String {
-    format!(
-        "Moved from {from} to {to} after the {} window hit its limit{}",
-        window_label(window),
-        until_suffix(resets_at_ms)
-    )
-}
-
-/// The `waiting_reset` workflow event line.
-pub fn waiting_event_message(window: &str, resets_at_ms: Option<i64>) -> String {
-    format!(
-        "No account with headroom on the {} window — waiting for the reset{}",
         window_label(window),
         until_suffix(resets_at_ms)
     )
@@ -1322,7 +1280,7 @@ mod tests {
         let pick = start_pick(&walled, true, CodingAgent::Claude, None, None, NOW).unwrap();
         assert_eq!(pick.from, "system");
         assert_eq!(pick.to, "b");
-        // Labels, never emails: the message reaches the workflow's event trail.
+        // Labels, never emails.
         assert!(pick.run_note().starts_with("Note: Exponential moved this run to another account before it started — Starting on b"), "{}", pick.run_note());
         assert!(pick.message.starts_with("Starting on b — system hit its 5h limit"), "{}", pick.message);
         assert!(!pick.message.contains("@example.com"), "{}", pick.message);
@@ -1524,15 +1482,12 @@ mod tests {
         assert_eq!(tracker.step(&run, true, NOW), Step::Probe);
 
         let profiles = vec![profile("a", 100, 10), profile("b", 10, 10)];
-        let Decision::Switch { target, prompt, event_message, .. } = tracker.decide(&run, &profiles, NOW) else {
+        let Decision::Switch { target, prompt, .. } = tracker.decide(&run, &profiles, NOW) else {
             panic!("expected a switch");
         };
         assert_eq!(target, "b");
-        // The run's own note names the logins; the workflow event (a team
-        // shape) names the profiles' labels only.
+        // The run's own note names the logins.
         assert!(prompt.starts_with("Exponential moved this run from a@example.com to b@example.com: the 5h window hit its limit"), "{prompt}");
-        assert!(event_message.starts_with("Moved from a to b after the 5h window hit its limit"), "{event_message}");
-        assert!(!event_message.contains('@'), "{event_message}");
         // The chain keeps its state while its run is momentarily absent (the
         // switch ended the row, the resume has not registered yet) — only a
         // chain unseen past the grace is forgotten.
@@ -1571,12 +1526,11 @@ mod tests {
         let mut tracker = RotationTracker::new();
         let run = walled("a", "session", true);
         let spent = vec![profile("a", 100, 10), profile("b", 100, 10)];
-        let Decision::Wait { until_ms, event_message } = tracker.decide(&run, &spent, NOW) else {
+        let Decision::Wait { until_ms } = tracker.decide(&run, &spent, NOW) else {
             panic!("expected a wait");
         };
         // The wall resets in an hour; the retry spacing is shorter.
         assert_eq!(until_ms, NOW + NO_TARGET_RETRY_MS);
-        assert!(event_message.starts_with("No account with headroom on the 5h window"), "{event_message}");
         assert_eq!(
             tracker.step(&run, true, NOW + 1),
             Step::Hold(Hold::WaitingForReset { until_ms })
@@ -1595,11 +1549,8 @@ mod tests {
 
     #[test]
     fn the_messages_name_account_window_and_reset() {
-        assert_eq!(
-            switch_event_message("a@x", "b@x", "weekly", None),
-            "Moved from a@x to b@x after the weekly window hit its limit"
-        );
-        assert!(waiting_event_message("model", Some(NOW)).contains("(resets "));
+        assert!(switch_prompt("a@x", "b@x", "weekly", None).contains("the weekly window hit its limit"));
+        assert!(until_suffix(Some(NOW)).contains("(resets "));
         assert_eq!(window_label("session"), "5h");
         assert_eq!(until_suffix(None), "");
     }

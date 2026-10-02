@@ -242,20 +242,14 @@ final class SteerDeviceDecodingTests: XCTestCase {
         "caps":["actions","acp","resume-run"],"online":true,
         "launchDefaults":{"defaultAgent":"claude","startInTerminal":true}},
         {"deviceId":"d11","deviceLabel":"old-box","agents":["claude"],
-        "caps":["actions"],"online":true,"launchDefaults":{"defaultAgent":"claude"}},
-        {"deviceId":"d12","deviceLabel":"stacker","agents":["claude"],
-        "caps":["acp","stacked-start"],"online":true}]}
+        "caps":["actions"],"online":true,"launchDefaults":{"defaultAgent":"claude"}}]}
         """)
-        XCTAssertTrue(try XCTUnwrap(result.devices.last).canStackStart)
         let acp = try XCTUnwrap(result.devices.first)
         XCTAssertTrue(acp.supportsAcp)
         XCTAssertTrue(acp.canResumeRun)
         // EXP-849: honouring `account` on a LIVE run is its own cap — a
         // machine that only resumes must not be offered a mid-run switch.
         XCTAssertFalse(acp.canSwitchAccount)
-        // EXP-897: reading the frame's `stack` payload is its own cap too; a
-        // machine without it is never offered "Stacked PR".
-        XCTAssertFalse(acp.canStackStart)
         XCTAssertEqual(acp.launchDefaults?.defaultAgent, "claude")
 
         let old = try XCTUnwrap(result.devices.dropFirst().first)
@@ -327,51 +321,6 @@ final class SteerDeviceDecodingTests: XCTestCase {
         XCTAssertNil(device.launchDefaults)
         XCTAssertNil(device.defaultLaunchAgent)
         XCTAssertNil(device.agentDefaults(for: "claude"))
-    }
-
-    /// EXP-1029: the workflow pair must survive BOTH ways in — the tRPC/relay
-    /// payload above and the synced devices row's `launch_defaults` jsonb,
-    /// which `DeviceRows` re-builds field by field (dropping it there is how
-    /// the settings sheet would never see a stored pair at all).
-    func testTheWorkflowPairSurvivesTheDecodeAndTheRowMapping() throws {
-        let result = try decode("""
-        {"devices":[{"deviceId":"d13","deviceLabel":"macbook","agents":["claude"],
-        "caps":["actions"],"online":true,
-        "launchDefaults":{"defaultAgent":"claude",
-        "workflow":{"model":"sonnet","strongModel":"opus"}}}]}
-        """)
-        let device = try XCTUnwrap(result.devices.first)
-        XCTAssertEqual(device.launchDefaults?.workflow?.model, "sonnet")
-        XCTAssertEqual(device.launchDefaults?.workflow?.strongModel, "opus")
-
-        let mapped = SteerDevice(
-            entity: DeviceEntity(
-                id: "row-13",
-                userId: "u1",
-                deviceId: "d13",
-                label: "macbook",
-                agents: #"["claude"]"#,
-                launchDefaults: """
-                {"defaultAgent":"claude","workflow":{"model":"sonnet","strongModel":"opus"}}
-                """
-            ),
-            currentUserId: "u1"
-        )
-        XCTAssertEqual(mapped.launchDefaults?.workflow?.model, "sonnet")
-        XCTAssertEqual(mapped.launchDefaults?.workflow?.strongModel, "opus")
-        // A machine that predates the pair simply reports none.
-        XCTAssertNil(
-            SteerDevice(
-                entity: DeviceEntity(
-                    id: "row-14",
-                    userId: "u1",
-                    deviceId: "d14",
-                    label: "old-box",
-                    launchDefaults: #"{"defaultAgent":"claude"}"#
-                ),
-                currentUserId: "u1"
-            ).launchDefaults?.workflow
-        )
     }
 
     // MARK: - editableAgentIds (EXP-1042)

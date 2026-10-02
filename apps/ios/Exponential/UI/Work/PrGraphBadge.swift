@@ -3,9 +3,12 @@ import ExpUI
 import GRDB
 import SwiftUI
 
-/// EXP-897 Part 4 — the ONE badge that says a piece of work is entangled with
+/// EXP-897 Part 4, the ONE badge that says a piece of work is entangled with
 /// other work, and the ONE overlay behind it, ×4 (web `pr-graph-badge.tsx`,
 /// desktop `pr_graph.rs`, Android `PrGraphBadge.kt`).
+///
+/// SLOP-3: three bands off synced rows (blockers, batch, stack); no merge
+/// control lives here.
 ///
 /// SLOP-16 r2: the badge is a quiet ICON BUTTON in the header's `…` style
 /// (same glyph size, weight and muted ink, the bar's own capsule), not the
@@ -13,7 +16,7 @@ import SwiftUI
 /// SHAPE (`PrGraph.badgeShape`: a stack or batch, else open blockers), a
 /// small mono `+N` beside it; the tap opens the "Related work" sheet
 /// (`PrGraphSheet`, SLOP-16 r5): the relations card's bands and nothing else
-/// — the same layout and copy on every face and every platform.
+///, the same layout and copy on every face and every platform.
 struct PrGraphBadge: View {
     let shape: PrGraph.BadgeShape?
     /// How many other pieces of work ride with the subject (`chip.count`).
@@ -44,7 +47,7 @@ struct PrGraphBadge: View {
         .accessibilityIdentifier("pr-graph-badge")
     }
 
-    /// `+3` — who rides with the subject; nil when nobody does.
+    /// `+3`, who rides with the subject; nil when nobody does.
     private var countSuffix: String? {
         count > 0 ? "+\(count)" : nil
     }
@@ -71,7 +74,7 @@ struct PrGraphBadge: View {
 
 // MARK: - The overlay
 
-/// SLOP-16 r5: THE "Related work" view, one layout ×4 — the platform's
+/// SLOP-16 r5: THE "Related work" view, one layout ×4, the platform's
 /// standard sheet whose body is EXACTLY the relations card's bands
 /// (`IssueRelationBand`: foldable, counted, capped at 3 behind "Show N
 /// more"), in one order on every face: Blocked by (the direct open
@@ -79,7 +82,7 @@ struct PrGraphBadge: View {
 /// (the OTHER pull requests of the stack, bottom-up). Nothing else.
 struct PrGraphSheet: View {
     let graph: PrGraph.Graph
-    /// The subject issue (a run's issue on a run) — never its own partner.
+    /// The subject issue (a run's issue on a run), never its own partner.
     var subjectIssueId: String?
     /// The issue rows' assignee avatars and team-resolved status glyphs.
     var users: [UserEntity] = []
@@ -105,7 +108,7 @@ struct PrGraphSheet: View {
         graph.stack.map(\.entry).filter { $0.id != graph.entry?.id }
     }
 
-    /// The bands with rows to draw — a batch whose partners have not synced
+    /// The bands with rows to draw, a batch whose partners have not synced
     /// is left out, so a sheet left with nothing shows the empty note.
     private var sections: [PrGraph.OverlaySection] {
         PrGraph.overlaySections(graph).filter { count($0) > 0 }
@@ -313,57 +316,26 @@ private struct RelatedWorkEmptyRow: View {
     }
 }
 
-/// EXP-897 Part 4: the plain issue list a batch row's glyph opens (Reviews) —
-/// the same flat issue rows as the Related work sheet.
-struct PrGraphIssueSheet: View {
-    let title: String
-    let issues: [IssueEntity]
-    var users: [UserEntity] = []
-    let onOpenIssue: (String) -> Void
-
-    var body: some View {
-        GlassSheetChrome(title: title, height: .fitted) {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(issues.enumerated()), id: \.element.id) { index, issue in
-                    if index > 0 { GlassDivider() }
-                    RelatedIssueRow(issue: issue, users: users) { onOpenIssue(issue.id) }
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 16)
-        }
-        .accessibilityIdentifier("pr-graph-issue-sheet")
-    }
-}
-
 // MARK: - The rows the graph needs
 
-/// EXP-897 Part 4: the synced inputs of `PrGraph.build` — every pull request
-/// in the store (the stack and the batches), this issue's blockers, and the
-/// runs of the shown session's team (the tree). All three are narrow SQL
-/// reads; the pure model does the rest.
+/// EXP-897 Part 4: the synced inputs of `PrGraph.build`, every pull request
+/// in the store (the stack and the batches) and every `blocks` row with the
+/// issues at its ends. Narrow SQL reads; the pure model does the rest.
 @MainActor @Observable
 final class PrGraphModel {
     private(set) var prIssues: [IssueEntity] = []
     private(set) var blockers: [IssueEntity] = []
     private(set) var relations: [IssueRelationEntity] = []
-    private(set) var sessions: [CodingSessionEntity] = []
-    /// The issues the team's runs are bound to — a tree row's issue with no
-    /// pull request yet (and no blocker tie) is named off these rather than
-    /// falling through to "Untitled issue".
-    private(set) var sessionIssues: [IssueEntity] = []
-    /// SLOP-16 r3: every synced member — the overlay's issue rows (THE
+    /// SLOP-16 r3: every synced member, the overlay's issue rows (THE
     /// relation row) wear their assignee's avatar.
     private(set) var users: [UserEntity] = []
 
     private let accountId: String
     private let db: DatabaseManager
     private var issueId: String?
-    private var teamId: String?
 
     private var prTask: Task<Void, Never>?
     private var blockerTask: Task<Void, Never>?
-    private var sessionTask: Task<Void, Never>?
     private var userTask: Task<Void, Never>?
 
     init(accountId: String, db: DatabaseManager) {
@@ -372,49 +344,45 @@ final class PrGraphModel {
     }
 
     /// A synced issue row this model already holds (a pull request, or a
-    /// blocker) — the run screen's stack line resolves its own issue here
-    /// instead of opening a fourth observation.
+    /// blocker): the merge pill resolves a target issue here.
     func issue(id: String) -> IssueEntity? {
         prIssues.first { $0.id == id } ?? blockers.first { $0.id == id }
-            ?? sessionIssues.first { $0.id == id }
     }
 
     /// The graph for a subject, ready for the badge and the overlay.
     ///
     /// EXP-876: `batchIssues` are the covered issues of a BATCH run (the Work
     /// screen's `WorkSubjectModel` already observes them to name the run), so
-    /// the pill and its sheet work before any pull request exists — this
-    /// model's own reads are pull requests and blockers, which a batch that is
-    /// still coding is neither.
+    /// the badge and its sheet work before any pull request exists.
     func graph(
         issue: IssueEntity?,
         session: CodingSessionEntity?,
         batchIssues: [IssueEntity] = []
     ) -> PrGraph.Graph {
         var byId: [String: IssueEntity] = [:]
-        for row in prIssues + blockers + sessionIssues { byId[row.id] = row }
+        for row in prIssues + blockers { byId[row.id] = row }
         if let issue { byId[issue.id] = issue }
         // Deterministic order: the PR rows first (they carry the stack), then
-        // anything only a blocker brought in, then the runs' own issues.
+        // anything only a blocker brought in.
         var pool: [IssueEntity] = []
         var seen = Set<String>()
-        for row in prIssues + blockers + sessionIssues where !seen.contains(row.id) {
+        for row in prIssues + blockers where !seen.contains(row.id) {
             seen.insert(row.id)
             pool.append(byId[row.id] ?? row)
         }
-        if let issue, !seen.contains(issue.id) { pool.append(issue) }
+        if let issue, !seen.contains(issue.id) {
+            seen.insert(issue.id)
+            pool.append(issue)
+        }
         for row in batchIssues where !seen.contains(row.id) {
             seen.insert(row.id)
             pool.append(row)
         }
-        return PrGraph.build(
-            issue: issue, session: session, issues: pool,
-            sessions: sessions, relations: relations
-        )
+        return PrGraph.build(issue: issue, session: session, issues: pool, relations: relations)
     }
 
-    /// Re-armed on every appear; the subject's issue and team may resolve late.
-    func start(issueId: String?, teamId: String?) {
+    /// Re-armed on every appear; the subject's issue may resolve late.
+    func start(issueId: String?) {
         if self.issueId != issueId {
             self.issueId = issueId
             blockerTask?.cancel()
@@ -422,16 +390,8 @@ final class PrGraphModel {
             blockers = []
             relations = []
         }
-        if self.teamId != teamId {
-            self.teamId = teamId
-            sessionTask?.cancel()
-            sessionTask = nil
-            sessions = []
-            sessionIssues = []
-        }
         observePullRequests()
         observeBlockers()
-        observeSessions()
         observeUsers()
     }
 
@@ -440,8 +400,6 @@ final class PrGraphModel {
         prTask = nil
         blockerTask?.cancel()
         blockerTask = nil
-        sessionTask?.cancel()
-        sessionTask = nil
         userTask?.cancel()
         userTask = nil
     }
@@ -472,11 +430,9 @@ final class PrGraphModel {
         }
     }
 
-    /// EXP-980: every `blocks` row and the issues at BOTH its ends, in ONE
-    /// join. The Issue face draws the TRANSITIVE chain now, so the direct
-    /// inverse rows this used to read are no longer enough; `StackStart` and
-    /// `IssueGraph` apply the terminal-status and ordering rules on the way
-    /// out, and a wider pool changes neither's answer.
+    /// Every `blocks` row and the issues at BOTH its ends, in ONE join;
+    /// `IssueGraph.openBlockers` applies the terminal-status and ordering
+    /// rules on the way out.
     private func observeBlockers() {
         guard blockerTask == nil, issueId != nil else { return }
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
@@ -495,29 +451,6 @@ final class PrGraphModel {
                 for try await (issues, relations) in observation.values(in: pool) {
                     self?.blockers = issues
                     self?.relations = relations
-                }
-            } catch {}
-        }
-    }
-
-    /// The team's runs, and the issues they are bound to in the SAME tracked
-    /// read — one observation, so a tree row is named the moment its run (or
-    /// its issue) syncs.
-    private func observeSessions() {
-        guard sessionTask == nil, let teamId else { return }
-        guard let pool = try? db.pool(forAccountId: accountId) else { return }
-        let observation = ValueObservation.tracking { db -> ([CodingSessionEntity], [IssueEntity]) in
-            let sessions = try CodingSessionEntity.filter(Column("team_id") == teamId).fetchAll(db)
-            let ids = Array(Set(sessions.compactMap(\.issueId)))
-            guard !ids.isEmpty else { return (sessions, []) }
-            let issues = try IssueEntity.filter(ids.contains(Column("id"))).fetchAll(db)
-            return (sessions, issues)
-        }
-        sessionTask = Task { [weak self] in
-            do {
-                for try await (rows, issues) in observation.values(in: pool) {
-                    self?.sessions = rows
-                    self?.sessionIssues = issues
                 }
             } catch {}
         }

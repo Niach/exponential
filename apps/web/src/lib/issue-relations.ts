@@ -327,7 +327,6 @@ export async function insertRelationInTx(
     kind: `relation_added`,
     actorUserId,
   })
-  await replanForRelation(tx, inserted, true)
   return inserted
 }
 
@@ -372,28 +371,7 @@ export async function deleteRelationInTx(
     kind: `relation_removed`,
     actorUserId,
   })
-  await replanForRelation(tx, deleted)
   return deleted
-}
-
-/** EXP-981: a `blocks` row is a workflow EDGE and a `parent` row folds a
- *  compound node, so either moving re-derives the workflows covering its
- *  issues (one indexed probe when none does). Imported lazily: the workflow
- *  module sits above this one. */
-async function replanForRelation(
-  tx: Tx,
-  row: { type: string; issueId: string; relatedIssueId: string },
-  added = false
-): Promise<void> {
-  if (row.type !== `blocks` && row.type !== `parent`) return
-  const { replanWorkflowsForIssues, proposeNodesForRelation } = await import(
-    `@/lib/workflows`
-  )
-  // EXP-984: a follow-up filed mid-run joins the live workflow as a node
-  // (admitted when plainly additive, else proposed) BEFORE the replan lays
-  // it out.
-  if (added && row.type === `blocks`) await proposeNodesForRelation(tx, row)
-  await replanWorkflowsForIssues(tx, [row.issueId, row.relatedIssueId])
 }
 
 /**

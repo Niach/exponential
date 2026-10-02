@@ -41,16 +41,6 @@ interface Contract {
   commentSource: Section
   notificationType: Section
   prState: Section
-  wfStatus: Section
-  wfNodeState: Section
-  wfNodeKind: Section
-  wfRisk: Section
-  wfReviewVerdict: Section
-  // EXP-1082: session membership roles, the engine's event log kinds and the
-  // five node states a person sees.
-  wfSessionRole: Section
-  wfEventKind: Section
-  wfNodeDisplayState: Section
   codingSessionStatus: Section
   codingSessionEndedBy: Section
   codingSessionBlocked: { kinds: string[]; windows: string[] }
@@ -114,31 +104,12 @@ interface Contract {
     createActionId: string
     fixConflictsId: string
     chatId: string
-    planWorkflowId: string
     tidyUpId: string
-    reviewNodeId: string
-    fixReviewFindingsId: string
   }
-  workflow: {
-    maxParallelDefault: number
-    maxIssues: number
-    maxReviewRounds: number
-    eventsMax: number
-  }
-  // EXP-1029: the two-model workflow launch (cheap `model`, capable
-  // `strongModel`) per agent, and a device's agent defaults.
-  workflowLaunch: {
-    agents: string[]
-    claudeModel: string
-    claudeStrongModel: string
-    codexModel: string
-    codexStrongModel: string
-  }
+  // A device's agent defaults.
   deviceAgentDefaults: {
     model: string
     subagentModel: string
-    workflowModel: string
-    workflowStrongModel: string
   }
   actionInputs: { max: number; maxTextLength: number }
   startPrompt: { maxLength: number; maxImages: number }
@@ -477,14 +448,6 @@ ${swiftStringArray("commentKindValues", contract.commentKind.values)}
 ${swiftStringArray("commentSourceValues", contract.commentSource.values)}
 ${swiftStringArray("notificationTypeValues", contract.notificationType.values)}
 ${swiftStringArray("prStateValues", contract.prState.values)}
-${swiftStringArray("wfStatusValues", contract.wfStatus.values)}
-${swiftStringArray("wfNodeStateValues", contract.wfNodeState.values)}
-${swiftStringArray("wfNodeKindValues", contract.wfNodeKind.values)}
-${swiftStringArray("wfRiskValues", contract.wfRisk.values)}
-${swiftStringArray("wfReviewVerdictValues", contract.wfReviewVerdict.values)}
-${swiftStringArray("wfSessionRoleValues", contract.wfSessionRole.values)}
-${swiftStringArray("wfEventKindValues", contract.wfEventKind.values)}
-${swiftStringArray("wfNodeDisplayStateValues", contract.wfNodeDisplayState.values)}
 ${swiftStringArray("codingSessionStatusValues", contract.codingSessionStatus.values)}
 ${swiftStringArray("codingSessionEndedByValues", contract.codingSessionEndedBy.values)}
 ${swiftStringArray("codingSessionBlockedKinds", contract.codingSessionBlocked.kinds)}
@@ -558,23 +521,9 @@ ${swiftStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
     public static let builtinCreateActionId: String = "${contract.builtinAction.createActionId}"
     public static let builtinFixConflictsId: String = "${contract.builtinAction.fixConflictsId}"
     public static let builtinChatId: String = "${contract.builtinAction.chatId}"
-    public static let builtinPlanWorkflowId: String = "${contract.builtinAction.planWorkflowId}"
-    public static let builtinReviewNodeId: String = "${contract.builtinAction.reviewNodeId}"
-    public static let builtinFixReviewFindingsId: String = "${contract.builtinAction.fixReviewFindingsId}"
     public static let builtinTidyUpId: String = "${contract.builtinAction.tidyUpId}"
-    public static let workflowMaxReviewRounds: Int = ${contract.workflow.maxReviewRounds}
-    public static let workflowEventsMax: Int = ${contract.workflow.eventsMax}
-    public static let workflowMaxParallelDefault: Int = ${contract.workflow.maxParallelDefault}
-    public static let workflowMaxIssues: Int = ${contract.workflow.maxIssues}
-${swiftStringArray("workflowLaunchAgents", contract.workflowLaunch.agents)}
-    public static let workflowLaunchClaudeModel: String = "${contract.workflowLaunch.claudeModel}"
-    public static let workflowLaunchClaudeStrongModel: String = "${contract.workflowLaunch.claudeStrongModel}"
-    public static let workflowLaunchCodexModel: String = "${contract.workflowLaunch.codexModel}"
-    public static let workflowLaunchCodexStrongModel: String = "${contract.workflowLaunch.codexStrongModel}"
     public static let deviceAgentDefaultsModel: String = "${contract.deviceAgentDefaults.model}"
     public static let deviceAgentDefaultsSubagentModel: String = "${contract.deviceAgentDefaults.subagentModel}"
-    public static let deviceAgentDefaultsWorkflowModel: String = "${contract.deviceAgentDefaults.workflowModel}"
-    public static let deviceAgentDefaultsWorkflowStrongModel: String = "${contract.deviceAgentDefaults.workflowStrongModel}"
     public static let actionInputsMax: Int = ${contract.actionInputs.max}
     public static let actionInputTextMax: Int = ${contract.actionInputs.maxTextLength}
     public static let startPromptMaxLength: Int = ${contract.startPrompt.maxLength}
@@ -606,14 +555,6 @@ ${swiftNamedValues("commentKind", contract.commentKind.values)}
 ${swiftNamedValues("commentSource", contract.commentSource.values)}
 ${swiftNamedValues("notificationType", contract.notificationType.values)}
 ${swiftNamedValues("prState", contract.prState.values)}
-${swiftNamedValues("wfStatus", contract.wfStatus.values)}
-${swiftNamedValues("wfNodeState", contract.wfNodeState.values)}
-${swiftNamedValues("wfNodeKind", contract.wfNodeKind.values)}
-${swiftNamedValues("wfRisk", contract.wfRisk.values)}
-${swiftNamedValues("wfReviewVerdict", contract.wfReviewVerdict.values)}
-${swiftNamedValues("wfSessionRole", contract.wfSessionRole.values)}
-${swiftNamedValues("wfEventKind", contract.wfEventKind.values)}
-${swiftNamedValues("wfNodeDisplayState", contract.wfNodeDisplayState.values)}
 ${swiftNamedValues("codingSessionStatus", contract.codingSessionStatus.values)}
 ${swiftNamedValues("codingSessionEndedBy", contract.codingSessionEndedBy.values)}
 ${swiftNamedValues("subscriberSource", contract.subscriberSource.values)}
@@ -647,14 +588,6 @@ ${kotlinStringArray("commentKindValues", contract.commentKind.values)}
 ${kotlinStringArray("commentSourceValues", contract.commentSource.values)}
 ${kotlinStringArray("notificationTypeValues", contract.notificationType.values)}
 ${kotlinStringArray("prStateValues", contract.prState.values)}
-${kotlinStringArray("wfStatusValues", contract.wfStatus.values)}
-${kotlinStringArray("wfNodeStateValues", contract.wfNodeState.values)}
-${kotlinStringArray("wfNodeKindValues", contract.wfNodeKind.values)}
-${kotlinStringArray("wfRiskValues", contract.wfRisk.values)}
-${kotlinStringArray("wfReviewVerdictValues", contract.wfReviewVerdict.values)}
-${kotlinStringArray("wfSessionRoleValues", contract.wfSessionRole.values)}
-${kotlinStringArray("wfEventKindValues", contract.wfEventKind.values)}
-${kotlinStringArray("wfNodeDisplayStateValues", contract.wfNodeDisplayState.values)}
 ${kotlinStringArray("codingSessionStatusValues", contract.codingSessionStatus.values)}
 ${kotlinStringArray("codingSessionEndedByValues", contract.codingSessionEndedBy.values)}
 ${kotlinStringArray("codingSessionBlockedKinds", contract.codingSessionBlocked.kinds)}
@@ -728,23 +661,9 @@ ${kotlinStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
     const val builtinCreateActionId: String = "${contract.builtinAction.createActionId}"
     const val builtinFixConflictsId: String = "${contract.builtinAction.fixConflictsId}"
     const val builtinChatId: String = "${contract.builtinAction.chatId}"
-    const val builtinPlanWorkflowId: String = "${contract.builtinAction.planWorkflowId}"
-    const val builtinReviewNodeId: String = "${contract.builtinAction.reviewNodeId}"
-    const val builtinFixReviewFindingsId: String = "${contract.builtinAction.fixReviewFindingsId}"
     const val builtinTidyUpId: String = "${contract.builtinAction.tidyUpId}"
-    const val workflowMaxReviewRounds: Int = ${contract.workflow.maxReviewRounds}
-    const val workflowEventsMax: Int = ${contract.workflow.eventsMax}
-    const val workflowMaxParallelDefault: Int = ${contract.workflow.maxParallelDefault}
-    const val workflowMaxIssues: Int = ${contract.workflow.maxIssues}
-${kotlinStringArray("workflowLaunchAgents", contract.workflowLaunch.agents)}
-    const val workflowLaunchClaudeModel: String = "${contract.workflowLaunch.claudeModel}"
-    const val workflowLaunchClaudeStrongModel: String = "${contract.workflowLaunch.claudeStrongModel}"
-    const val workflowLaunchCodexModel: String = "${contract.workflowLaunch.codexModel}"
-    const val workflowLaunchCodexStrongModel: String = "${contract.workflowLaunch.codexStrongModel}"
     const val deviceAgentDefaultsModel: String = "${contract.deviceAgentDefaults.model}"
     const val deviceAgentDefaultsSubagentModel: String = "${contract.deviceAgentDefaults.subagentModel}"
-    const val deviceAgentDefaultsWorkflowModel: String = "${contract.deviceAgentDefaults.workflowModel}"
-    const val deviceAgentDefaultsWorkflowStrongModel: String = "${contract.deviceAgentDefaults.workflowStrongModel}"
     const val actionInputsMax: Int = ${contract.actionInputs.max}
     const val actionInputTextMax: Int = ${contract.actionInputs.maxTextLength}
     const val startPromptMaxLength: Int = ${contract.startPrompt.maxLength}
@@ -776,14 +695,6 @@ ${kotlinNamedValues("commentKind", contract.commentKind.values)}
 ${kotlinNamedValues("commentSource", contract.commentSource.values)}
 ${kotlinNamedValues("notificationType", contract.notificationType.values)}
 ${kotlinNamedValues("prState", contract.prState.values)}
-${kotlinNamedValues("wfStatus", contract.wfStatus.values)}
-${kotlinNamedValues("wfNodeState", contract.wfNodeState.values)}
-${kotlinNamedValues("wfNodeKind", contract.wfNodeKind.values)}
-${kotlinNamedValues("wfRisk", contract.wfRisk.values)}
-${kotlinNamedValues("wfReviewVerdict", contract.wfReviewVerdict.values)}
-${kotlinNamedValues("wfSessionRole", contract.wfSessionRole.values)}
-${kotlinNamedValues("wfEventKind", contract.wfEventKind.values)}
-${kotlinNamedValues("wfNodeDisplayState", contract.wfNodeDisplayState.values)}
 ${kotlinNamedValues("codingSessionStatus", contract.codingSessionStatus.values)}
 ${kotlinNamedValues("codingSessionEndedBy", contract.codingSessionEndedBy.values)}
 ${kotlinNamedValues("subscriberSource", contract.subscriberSource.values)}
@@ -819,14 +730,6 @@ ${rustStrSlice("commentKindValues", contract.commentKind.values)}
 ${rustStrSlice("commentSourceValues", contract.commentSource.values)}
 ${rustStrSlice("notificationTypeValues", contract.notificationType.values)}
 ${rustStrSlice("prStateValues", contract.prState.values)}
-${rustStrSlice("wfStatusValues", contract.wfStatus.values)}
-${rustStrSlice("wfNodeStateValues", contract.wfNodeState.values)}
-${rustStrSlice("wfNodeKindValues", contract.wfNodeKind.values)}
-${rustStrSlice("wfRiskValues", contract.wfRisk.values)}
-${rustStrSlice("wfReviewVerdictValues", contract.wfReviewVerdict.values)}
-${rustStrSlice("wfSessionRoleValues", contract.wfSessionRole.values)}
-${rustStrSlice("wfEventKindValues", contract.wfEventKind.values)}
-${rustStrSlice("wfNodeDisplayStateValues", contract.wfNodeDisplayState.values)}
 ${rustStrSlice("codingSessionStatusValues", contract.codingSessionStatus.values)}
 ${rustStrSlice("codingSessionEndedByValues", contract.codingSessionEndedBy.values)}
 ${rustStrSlice("codingSessionBlockedKinds", contract.codingSessionBlocked.kinds)}
@@ -903,23 +806,9 @@ pub const TEAM_AGENT_PROMPT_MAX_BYTES: usize = ${contract.team.agentPromptMaxByt
 pub const BUILTIN_CREATE_ACTION_ID: &str = "${contract.builtinAction.createActionId}";
 pub const BUILTIN_FIX_CONFLICTS_ID: &str = "${contract.builtinAction.fixConflictsId}";
 pub const BUILTIN_CHAT_ID: &str = "${contract.builtinAction.chatId}";
-pub const BUILTIN_PLAN_WORKFLOW_ID: &str = "${contract.builtinAction.planWorkflowId}";
-pub const BUILTIN_REVIEW_NODE_ID: &str = "${contract.builtinAction.reviewNodeId}";
-pub const BUILTIN_FIX_REVIEW_FINDINGS_ID: &str = "${contract.builtinAction.fixReviewFindingsId}";
 pub const BUILTIN_TIDY_UP_ID: &str = "${contract.builtinAction.tidyUpId}";
-pub const WORKFLOW_MAX_REVIEW_ROUNDS: usize = ${contract.workflow.maxReviewRounds};
-pub const WORKFLOW_EVENTS_MAX: usize = ${contract.workflow.eventsMax};
-pub const WORKFLOW_MAX_PARALLEL_DEFAULT: usize = ${contract.workflow.maxParallelDefault};
-pub const WORKFLOW_MAX_ISSUES: usize = ${contract.workflow.maxIssues};
-${rustStrSlice("workflowLaunchAgents", contract.workflowLaunch.agents)}
-pub const WORKFLOW_LAUNCH_CLAUDE_MODEL: &str = "${contract.workflowLaunch.claudeModel}";
-pub const WORKFLOW_LAUNCH_CLAUDE_STRONG_MODEL: &str = "${contract.workflowLaunch.claudeStrongModel}";
-pub const WORKFLOW_LAUNCH_CODEX_MODEL: &str = "${contract.workflowLaunch.codexModel}";
-pub const WORKFLOW_LAUNCH_CODEX_STRONG_MODEL: &str = "${contract.workflowLaunch.codexStrongModel}";
 pub const DEVICE_AGENT_DEFAULTS_MODEL: &str = "${contract.deviceAgentDefaults.model}";
 pub const DEVICE_AGENT_DEFAULTS_SUBAGENT_MODEL: &str = "${contract.deviceAgentDefaults.subagentModel}";
-pub const DEVICE_AGENT_DEFAULTS_WORKFLOW_MODEL: &str = "${contract.deviceAgentDefaults.workflowModel}";
-pub const DEVICE_AGENT_DEFAULTS_WORKFLOW_STRONG_MODEL: &str = "${contract.deviceAgentDefaults.workflowStrongModel}";
 pub const ACTION_INPUTS_MAX: usize = ${contract.actionInputs.max};
 pub const ACTION_INPUT_TEXT_MAX: usize = ${contract.actionInputs.maxTextLength};
 pub const START_PROMPT_MAX_LENGTH: usize = ${contract.startPrompt.maxLength};
@@ -951,14 +840,6 @@ ${rustNamedValues("commentKind", contract.commentKind.values)}
 ${rustNamedValues("commentSource", contract.commentSource.values)}
 ${rustNamedValues("notificationType", contract.notificationType.values)}
 ${rustNamedValues("prState", contract.prState.values)}
-${rustNamedValues("wfStatus", contract.wfStatus.values)}
-${rustNamedValues("wfNodeState", contract.wfNodeState.values)}
-${rustNamedValues("wfNodeKind", contract.wfNodeKind.values)}
-${rustNamedValues("wfRisk", contract.wfRisk.values)}
-${rustNamedValues("wfReviewVerdict", contract.wfReviewVerdict.values)}
-${rustNamedValues("wfSessionRole", contract.wfSessionRole.values)}
-${rustNamedValues("wfEventKind", contract.wfEventKind.values)}
-${rustNamedValues("wfNodeDisplayState", contract.wfNodeDisplayState.values)}
 ${rustNamedValues("codingSessionStatus", contract.codingSessionStatus.values)}
 ${rustNamedValues("codingSessionEndedBy", contract.codingSessionEndedBy.values)}
 ${rustNamedValues("subscriberSource", contract.subscriberSource.values)}

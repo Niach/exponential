@@ -370,10 +370,10 @@ pub struct MergeResult {
 /// enforces it unconditionally, and the desktop tears down off the resulting
 /// kill-watch echo (or its own local tab close).
 ///
-/// EXP-897: `merge_stack` merges the WHOLE stack the issue's PR belongs to,
-/// bottom-up. The server accepts any member's issue id and resolves the top
-/// itself; the clients pass the BOTTOM row's id — the row that offers "Merge
-/// stack". The flag is serialized LAST and only when set, so an ordinary
+/// EXP-1145: `merge_stack` merges the open `pr_base_branch` chain bottom-up
+/// THROUGH `issue_id` (the stack dialog passes the top member for "Merge
+/// stack", the merged member for "Merge this pull request" above the
+/// bottom). The flag is serialized LAST and only when set, so an ordinary
 /// merge's wire frame stays byte-identical.
 pub fn merge_pr(
     trpc: &TrpcClient,
@@ -1076,8 +1076,8 @@ mod tests {
         assert!(crate::trpc::tests::has_header(&request, "Authorization: Bearer tok-1"));
     }
 
-    /// EXP-897: `mergeStack` rides LAST and ONLY when set — an ordinary
-    /// merge's frame is byte-identical to the pre-stack one above.
+    /// EXP-1145: `mergeStack` rides LAST and ONLY when set, so an ordinary
+    /// merge's frame is byte-identical to the one above.
     #[test]
     fn merge_pr_with_merge_stack_posts_the_flag_last() {
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"merged":true}}}"#);

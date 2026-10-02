@@ -1,20 +1,21 @@
-//! EXP-897 §4 — the ONE graph behind the work header's stack/batch badge.
+//! EXP-897 §4: the ONE graph behind the work header's related-work badge
+//! (SLOP-3 keeps the badge and its overlay; Reviews no longer reads it).
 //!
 //! Three shapes of "this piece of work is not alone" are already synced, and
 //! before this module every client rendered each of them somewhere else:
 //!
-//! * a **stack** — pull requests chained through `pr_base_branch`
+//! * a **stack**: pull requests chained through `pr_base_branch`
 //!   ([`crate::pr_stack`]);
-//! * a **batch** — several issues sharing ONE `pr_url` (a batch run's combined
+//! * a **batch**: several issues sharing ONE `pr_url` (a batch run's combined
 //!   pull request);
-//! * a **session tree** — runs a run started ([`crate::session_tree`]).
+//! * a **session tree**: runs a run started ([`crate::session_tree`]).
 //!   SLOP-16 round 5: derived still, but it earns NO badge and NO band.
 //!
 //! EXP-1097 adds a fourth, the subject issue's OPEN BLOCKERS
 //! ([`PrGraph::blocked_by`], filled by the caller, which owns the relations).
 //!
 //! [`pr_graph`] derives the first three for one subject (an issue, or a run) so the
-//! badge, its overlay and the Reviews rows read from ONE model. A stack ENTRY
+//! badge and its overlay read from ONE model. A stack ENTRY
 //! is a pull request, never an issue, so a batch can itself be a stack member.
 //!
 //! Mirrored ×4 by name (web `lib/pr-graph.ts`, iOS `PrGraph.swift`, Android
@@ -49,7 +50,7 @@ impl PrEntry {
         non_empty(self.representative().branch.as_deref())
     }
 
-    /// The branch the PR TARGETS — the stack edge.
+    /// The branch the PR TARGETS: the stack edge.
     pub fn base_branch(&self) -> Option<&str> {
         non_empty(self.representative().pr_base_branch.as_deref())
     }
@@ -84,7 +85,7 @@ pub struct BatchEntry {
 }
 
 /// Everything around one subject. All three parts are EMPTY/`None` for a lone
-/// issue with no PR and no sibling run — [`badge_kind`] then reports nothing
+/// issue with no PR and no sibling run: [`badge_kind`] then reports nothing
 /// and the header shows no badge.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PrGraph {
@@ -97,17 +98,17 @@ pub struct PrGraph {
     pub stack: Vec<StackEntry>,
     /// The subject's own pull request, when it is a batch.
     pub batch: Option<BatchEntry>,
-    /// The subject run's tree — its root and every descendant, nested. Empty
+    /// The subject run's tree: its root and every descendant, nested. Empty
     /// when the subject has no run, or the run is alone.
     pub tree: Vec<TreeRow<CodingSession>>,
-    /// The subject PR's head branch — which [`StackEntry`] the badge is ON.
+    /// The subject PR's head branch: which [`StackEntry`] the badge is ON.
     pub subject_branch: Option<String>,
-    /// The subject ISSUE's id — the given issue, else the one the subject run
+    /// The subject ISSUE's id: the given issue, else the one the subject run
     /// works. `None` for an issue-less run.
     pub subject_issue_id: Option<String>,
     /// EXP-1097: the subject issue's OPEN blockers (web `blockedBy`), in the
-    /// ONE `openBlockers` order. [`pr_graph`] leaves it empty — it takes no
-    /// relations — and the caller fills it; empty for an issue-less subject.
+    /// ONE `openBlockers` order. [`pr_graph`] leaves it empty: it takes no
+    /// relations: and the caller fills it; empty for an issue-less subject.
     pub blocked_by: Vec<Issue>,
 }
 
@@ -131,11 +132,6 @@ impl PrGraph {
                 .get(index + 1)
                 .map(|upper| upper.entry.identifiers()),
         })
-    }
-
-    /// The BOTTOM member — the row that offers "Merge stack".
-    pub fn bottom(&self) -> Option<&PrEntry> {
-        self.stack.first().map(|member| &member.entry)
     }
 }
 
@@ -170,7 +166,7 @@ pub enum BadgeShape {
     Blocked,
 }
 
-/// The badge's shape rule — no face in it.
+/// The badge's shape rule: no face in it.
 pub fn badge_shape(graph: &PrGraph) -> Option<BadgeShape> {
     match badge_kind(graph) {
         Some(BadgeKind::Stack) => Some(BadgeShape::Stack),
@@ -232,7 +228,7 @@ pub enum OverlaySection {
 }
 
 /// SLOP-16 round 5 (web `overlaySections`): the dialog's bands, in ONE fixed
-/// order ×4 — Blocked by, Same pull request, Pull request stack — each only
+/// order ×4: Blocked by, Same pull request, Pull request stack: each only
 /// when it has rows ([`batch_partners`], [`stack_others`]).
 pub fn overlay_sections(graph: &PrGraph) -> Vec<OverlaySection> {
     use OverlaySection::{Batch, Blocked, Stack};
@@ -274,7 +270,7 @@ pub fn stack_others(graph: &PrGraph) -> Vec<&PrEntry> {
         .collect()
 }
 
-/// SLOP-16 — the "Related work" dialog's copy, byte-identical ×4 (web
+/// SLOP-16: the "Related work" dialog's copy, byte-identical ×4 (web
 /// `lib/pr-graph.ts`, iOS, Android): the title, one band label per
 /// [`OverlaySection`], the empty state.
 pub mod overlay_copy {
@@ -282,7 +278,7 @@ pub mod overlay_copy {
 
     /// The dialog's title (constant, whatever the badge's shape).
     pub const RELATED_WORK_TITLE: &str = "Related work";
-    /// The "Blocked by" band — the relations card's copy.
+    /// The "Blocked by" band: the relations card's copy.
     pub const BLOCKED_BY: &str = "Blocked by";
     /// The batch partners' band.
     pub const SAME_PULL_REQUEST: &str = "Same pull request";
@@ -329,14 +325,14 @@ pub fn pr_entries(issues: &[Issue]) -> Vec<PrEntry> {
 }
 
 /// EXP-876: a BATCH run's own entry. A batch links no issue and stamps no
-/// `pr_url` of its own, so before this it resolved nothing at all — the pill
+/// `pr_url` of its own, so before this it resolved nothing at all: the pill
 /// and its sheet, the one surface built to name work that spans several
 /// issues, never appeared on the very run that spans them. Its covered set
 /// (`batch_issue_ids`, the one source since EXP-972) IS the entry.
 ///
 /// The PR-grouped entry wins whenever there is one: it carries the branch and
 /// the base the stack chains on, so a batch PR stacked on another still reads
-/// `stack+batch` and still offers Merge stack. The synthesized entry is what a
+/// `stack+batch`. The synthesized entry is what a
 /// batch wears BEFORE its PR exists.
 fn batch_session_entry(
     session: &CodingSession,
@@ -360,7 +356,7 @@ fn batch_session_entry(
 /// `session` (issue-bound, batch or issue-less) contributes the run tree and,
 /// when no issue was given, resolves the subject issue itself.
 ///
-/// `issues` should be the team's (or board's) rows — the stack rule matches
+/// `issues` should be the team's (or board's) rows: the stack rule matches
 /// branch names, so the caller owns the scoping. `sessions` are the run rows
 /// the tree is nested from.
 pub fn pr_graph(
@@ -399,7 +395,7 @@ pub fn pr_graph(
                 })
                 .cloned()
         })
-        // EXP-876: a BATCH run's own entry — see [`batch_session_entry`].
+        // EXP-876: a BATCH run's own entry: see [`batch_session_entry`].
         .or_else(|| batch_session_entry(session?, issues, &entries));
 
     let batch = subject_entry
@@ -409,7 +405,7 @@ pub fn pr_graph(
             issues: entry.issues.clone(),
         });
 
-    // The stack: chain the subject PR bottom-up. Only a REAL chain counts —
+    // The stack: chain the subject PR bottom-up. Only a REAL chain counts -
     // a lone pull request is not a stack of one.
     let stack = subject_entry
         .as_ref()
@@ -435,7 +431,7 @@ pub fn pr_graph(
         })
         .unwrap_or_default();
 
-    // The run tree: the subject run's whole family, nested — or, for an
+    // The run tree: the subject run's whole family, nested: or, for an
     // issue subject with no run given (EXP-1097, web parity), every run on
     // the issue with its subtree. One run alone is no tree to show.
     let family = match (session, issue) {
@@ -525,7 +521,7 @@ fn session_family(session: &CodingSession, sessions: &[CodingSession]) -> Vec<Co
             }
         }
     }
-    // The root's own row first, then the rest in the caller's order — the
+    // The root's own row first, then the rest in the caller's order: the
     // nesting rule re-sorts children by start anyway.
     family
 }
@@ -566,7 +562,6 @@ mod tests {
         let position = graph.position().unwrap();
         assert_eq!((position.position, position.size), (2, 2));
         assert_eq!(position.below.as_deref(), Some("EXP-11"));
-        assert_eq!(graph.bottom().unwrap().identifiers(), "EXP-11");
         assert!(graph.batch.is_none());
     }
 
@@ -586,7 +581,7 @@ mod tests {
     }
 
     /// EXP-876: the pill and its sheet are the surface built to name work
-    /// that spans several issues — and a batch RUN, which spans them,
+    /// that spans several issues: and a batch RUN, which spans them,
     /// resolved nothing at all before this (it links no issue and stamps no
     /// `pr_url`). Mirrored ×4.
     #[test]
@@ -686,7 +681,7 @@ mod tests {
         assert_eq!(badge_kind(&pr_graph(Some(&bare[0]), None, &bare, &[])), None);
     }
 
-    /// EXP-1058 — mirrors the web's "names the representative issue and the
+    /// EXP-1058: mirrors the web's "names the representative issue and the
     /// count on the stacked chip" (`pr-graph.test.ts`).
     #[test]
     fn badge_chip_names_the_representative_issue_and_the_count() {
@@ -715,7 +710,7 @@ mod tests {
         assert_eq!(badge_chip(&lone), None);
     }
 
-    /// EXP-1097 / SLOP-16 r5 — the shape table: stack/batch first, then the
+    /// EXP-1097 / SLOP-16 r5: the shape table: stack/batch first, then the
     /// open blockers (front = the first blocker, `+N` = the rest); a run
     /// family earns nothing. Mirrors web `pr-graph.test.ts`.
     #[test]
@@ -753,7 +748,7 @@ mod tests {
         assert_eq!(badge_chip(&stack).unwrap().issue.unwrap().identifier, "EXP-12");
     }
 
-    /// SLOP-16 r5 — ONE band order ×4, each band only with rows: the stack
+    /// SLOP-16 r5: ONE band order ×4, each band only with rows: the stack
     /// band lists the OTHER pull requests bottom-up, the batch band the
     /// subject's partners.
     #[test]
@@ -828,7 +823,7 @@ mod tests {
         assert!(alone.tree.is_empty());
     }
 
-    /// SLOP-16 — the "Related work" copy is byte-identical ×4.
+    /// SLOP-16: the "Related work" copy is byte-identical ×4.
     #[test]
     fn the_related_work_copy_is_pinned() {
         use overlay_copy::*;

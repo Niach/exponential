@@ -1,28 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { PgDialect } from "drizzle-orm/pg-core"
 
-// EXP-1094 on the issue-LESS merge path: `repositories.mergePull` (MCP
-// `pr_merge({repositoryId, prNumber})`, Reviews' external group) takes a bare
-// PR number, so "no issue" is only the caller's claim. The number is resolved
-// to the team's issue rows first, and a PR a running/paused workflow covers
-// gets the same refusal issues.mergePr gives; every other PR merges as before.
+// EXP-1145 on the number-addressed merge path: `mergeRepositoryPull` backs
+// `repositories.mergePull` (MCP `pr_merge({repositoryId, prNumber})`) and
+// `codingSessions.mergePr` (MCP `pr_merge` with no subject, the run's own PR).
+// A PR an issue links records its base (`pr_base_branch`); when that base is
+// another OPEN PR's head it is refused before any claim or GitHub call. An
+// issue-less PR records no base and merges as before.
 
 const h = vi.hoisted(() => ({
   selectQueue: [] as unknown[][],
-  wheres: [] as unknown[],
-  liveWorkflowCoveringPr: vi.fn(
-    async (): Promise<{ workflowId: string; nodeId: string; issueId: string } | null> => null
-  ),
   mergePullRequestSmart: vi.fn(async () => ({
     merged: true,
     queued: false,
     sha: `abc`,
-    viaStack: false,
-    stackNumber: null,
-    stackMemberNumbers: [241],
+    mergedBy: null,
   })),
   applySessionPrState: vi.fn(async () => ({ endedSessionIds: [] })),
-  applyWorkflowFinalPrState: vi.fn(async () => {}),
+  applyPrMergeState: vi.fn(async () => {}),
 }))
 
 vi.mock(`@/db/connection`, () => ({
@@ -31,21 +25,16 @@ vi.mock(`@/db/connection`, () => ({
       const rows = h.selectQueue.shift() ?? []
       const builder = {
         from: () => builder,
-        where: (cond: unknown) => {
-          h.wheres.push(cond)
-          return builder
-        },
+        where: () => builder,
         limit: async () => rows,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        then: (res: any, rej: any) => Promise.resolve(rows).then(res, rej),
       }
       return builder
     },
   },
 }))
 vi.mock(`@/lib/auth`, () => ({ auth: {} }))
-vi.mock(`@/lib/workflows`, async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/workflows")>()),
-  liveWorkflowCoveringPr: h.liveWorkflowCoveringPr,
-}))
 vi.mock(`@/lib/integrations/github-app`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/integrations/github-app")>()),
   githubAppConfigured: () => true,
@@ -65,19 +54,14 @@ vi.mock(`@/lib/integrations/github-pr`, async (importOriginal) => ({
 }))
 vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applySessionPrState: h.applySessionPrState,
-}))
-vi.mock(`@/lib/workflow-final-pr`, () => ({
-  applyWorkflowFinalPrState: h.applyWorkflowFinalPrState,
+  applyPrMergeState: h.applyPrMergeState,
 }))
 vi.mock(`@/lib/team-membership`, () => ({
   assertTeamMember: vi.fn(),
   getIssueTeamContext: vi.fn(),
 }))
 
-import {
-  WORKFLOW_MERGE_REFUSAL,
-  mergeRepositoryPull,
-} from "@/lib/trpc/repositories"
+import { mergeRepositoryPull } from "@/lib/trpc/repositories"
 import {
   _clearPrActorClaims,
   takePrMergeClaim,
@@ -94,91 +78,62 @@ const repo = {
   sharedByUserId: null,
   archivedAt: null,
 }
-const PR_URL = `https://github.com/owner/repo/pull/241`
 
 beforeEach(() => {
   h.selectQueue.length = 0
-  h.wheres.length = 0
   vi.clearAllMocks()
-  h.liveWorkflowCoveringPr.mockResolvedValue(null)
   _clearPrActorClaims()
 })
 
-describe(`mergeRepositoryPull (EXP-1094: the chore path is no bypass)`, () => {
-  it(`refuses a live workflow node's PR handed in by number, before any claim or GitHub call`, async () => {
-    h.selectQueue.push([{ id: `issue-1`, identifier: `EXP-11` }])
-    h.liveWorkflowCoveringPr.mockResolvedValueOnce({
-      workflowId: `wf-1`,
-      nodeId: `n-1`,
-      issueId: `issue-1`,
-    })
+describe(`mergeRepositoryPull on a PR stacked on an open PR (EXP-1145)`, () => {
+  it(`refuses before any claim or GitHub call, naming the parent issue`, async () => {
+    h.selectQueue.push([{ id: `issue-12`, prBaseBranch: `exp/EXP-11` }])
+    h.selectQueue.push([{ identifier: `EXP-11` }])
 
     await expect(
-      mergeRepositoryPull({ repo, prNumber: 241, userId: `actor`, viaAgent: true })
+      mergeRepositoryPull({ repo, prNumber: 242, userId: `actor`, viaAgent: true })
     ).rejects.toMatchObject({
       code: `PRECONDITION_FAILED`,
-      message: `EXP-11's pull request ${WORKFLOW_MERGE_REFUSAL}`,
+      message: `This pull request is stacked on EXP-11; merge EXP-11 first`,
     })
-
-    expect(h.liveWorkflowCoveringPr).toHaveBeenCalledWith(
-      expect.anything(),
-      `issue-1`,
-      PR_URL
-    )
     expect(h.mergePullRequestSmart).not.toHaveBeenCalled()
-    expect(takePrMergeClaim(`owner/repo`, 241)).toBeNull()
+    expect(takePrMergeClaim(`owner/repo`, 242)).toBeNull()
   })
 
-  it(`resolves the number to the TEAM's issue rows by the derived pr_url`, async () => {
+  it(`names an issue-less parent run PR by number`, async () => {
+    h.selectQueue.push([{ id: `issue-12`, prBaseBranch: `exp/chat-1a2b3c4d` }])
     h.selectQueue.push([])
-
-    await mergeRepositoryPull({ repo, prNumber: 241, userId: `actor`, viaAgent: false })
-
-    const query = new PgDialect().sqlToQuery(h.wheres[0] as never)
-    expect(query.sql).toContain(`"pr_url" =`)
-    expect(query.sql).toContain(`"team_id" =`)
-    expect(query.params).toEqual([PR_URL, `ws-1`])
-    // No linked issue: nothing to ask the workflow about, the merge runs.
-    expect(h.liveWorkflowCoveringPr).not.toHaveBeenCalled()
-    expect(h.mergePullRequestSmart).toHaveBeenCalledWith({
-      repo: `owner/repo`,
-      prNumber: 241,
-      token: `tok`,
-    })
-  })
-
-  it(`prefers the caller's stored pr_url over the derived one`, async () => {
-    h.selectQueue.push([])
-    const stored = `https://github.com/old-owner/repo/pull/241`
-
-    await mergeRepositoryPull({
-      repo,
-      prNumber: 241,
-      prUrl: stored,
-      userId: `actor`,
-      viaAgent: false,
-    })
-
-    const query = new PgDialect().sqlToQuery(h.wheres[0] as never)
-    expect(query.params).toEqual([stored, `ws-1`])
-    expect(h.applySessionPrState).toHaveBeenCalledWith(
-      expect.objectContaining({ prUrl: stored, state: `merged` })
-    )
-  })
-
-  it(`merges an issue-linked PR no live workflow covers`, async () => {
-    h.selectQueue.push([{ id: `issue-1`, identifier: `EXP-11` }])
+    h.selectQueue.push([{ prNumber: 240 }])
 
     await expect(
-      mergeRepositoryPull({ repo, prNumber: 241, userId: `actor`, viaAgent: false })
-    ).resolves.toEqual({ merged: true })
+      mergeRepositoryPull({ repo, prNumber: 242, userId: `actor`, viaAgent: true })
+    ).rejects.toMatchObject({
+      message: `This pull request is stacked on #240; merge #240 first`,
+    })
+    expect(h.mergePullRequestSmart).not.toHaveBeenCalled()
+  })
 
-    expect(h.liveWorkflowCoveringPr).toHaveBeenCalledTimes(1)
+  it(`merges once the parent is no longer open`, async () => {
+    h.selectQueue.push([{ id: `issue-12`, prBaseBranch: `exp/EXP-11` }])
+    h.selectQueue.push([])
+    h.selectQueue.push([])
+    h.selectQueue.push([{ id: `issue-12` }])
+
+    await expect(
+      mergeRepositoryPull({ repo, prNumber: 242, userId: `actor`, viaAgent: true })
+    ).resolves.toEqual({ merged: true })
     expect(h.mergePullRequestSmart).toHaveBeenCalledTimes(1)
-    expect(h.applyWorkflowFinalPrState).toHaveBeenCalledWith(
-      expect.anything(),
-      PR_URL,
-      `merged`
-    )
+    expect(h.applyPrMergeState).toHaveBeenCalledTimes(1)
+  })
+
+  it(`merges an issue-less PR (no recorded base) without a parent lookup`, async () => {
+    h.selectQueue.push([])
+    h.selectQueue.push([])
+
+    await expect(
+      mergeRepositoryPull({ repo, prNumber: 300, userId: `actor`, viaAgent: true })
+    ).resolves.toEqual({ merged: true })
+    expect(h.mergePullRequestSmart).toHaveBeenCalledTimes(1)
+    expect(h.applySessionPrState).toHaveBeenCalledTimes(1)
   })
 })

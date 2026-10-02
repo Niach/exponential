@@ -13,35 +13,16 @@ final class LaunchDefaultsInputEncodingTests: XCTestCase {
 
     func testTheInputNeverEncodesTheLastUsedAgentNorAnAccount() throws {
         let object = try json(DeviceLaunchDefaultsInput(
-            agents: ["claude": AgentLaunchDefaultsInput(model: "opus")],
-            workflow: DeviceWorkflowDefaultsInput(model: "opus", strongModel: "fable")
+            agents: ["claude": AgentLaunchDefaultsInput(model: "opus")]
         ))
         XCTAssertNil(object.index(forKey: "defaultAgent"))
-        // Nor any account key: the two edited blocks are the whole payload.
-        XCTAssertEqual(Set(object.keys), ["agents", "workflow"])
+        // Nor any account key: the edited agents block is the whole payload.
+        XCTAssertEqual(Set(object.keys), ["agents"])
         // Every other field still rides only when set.
         let claude = try XCTUnwrap((object["agents"] as? [String: Any])?["claude"] as? [String: Any])
         XCTAssertEqual(claude["model"] as? String, "opus")
         XCTAssertNil(claude.index(forKey: "effort"))
         XCTAssertNil(claude.index(forKey: "subagentModel"))
-    }
-
-    /// EXP-1029: a whole-object save replaces the stored defaults, so an
-    /// editor of the workflow pair has to send it on EVERY write.
-    func testTheWorkflowPairRidesThePayload() throws {
-        let object = try json(DeviceLaunchDefaultsInput(
-            workflow: DeviceWorkflowDefaultsInput(model: "opus", strongModel: "fable")
-        ))
-        let workflow = try XCTUnwrap(object["workflow"] as? [String: Any])
-        XCTAssertEqual(workflow["model"] as? String, "opus")
-        XCTAssertEqual(workflow["strongModel"] as? String, "fable")
-    }
-
-    /// And a sender that knows nothing about it writes no key at all — an
-    /// absent `workflow` leaves the stored pair alone.
-    func testAnAbsentWorkflowPairWritesNoKey() throws {
-        let object = try json(DeviceLaunchDefaultsInput(agents: [:]))
-        XCTAssertNil(object.index(forKey: "workflow"))
     }
 
     /// EXP-1082 §6: the desktop-owned auto-rotate toggle is ECHOED, never

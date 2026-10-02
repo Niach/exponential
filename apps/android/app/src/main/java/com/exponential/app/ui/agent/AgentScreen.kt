@@ -61,16 +61,14 @@ import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.ChatSuggestions
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.StackStart
+import com.exponential.app.domain.BlockedStart
 import com.exponential.app.ui.issue.StaticDot
 import com.exponential.app.ui.theme.DesignTokens
-import com.exponential.app.domain.WorkflowView
 import com.exponential.app.domain.MAX_STEER_IMAGES
 import com.exponential.app.domain.resumeWorktreeFor
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.TopBarBackButton
-import com.exponential.app.data.api.builtinPlanWorkflowAction
 import com.exponential.app.ui.components.accountOptionsFor
 import com.exponential.app.ui.components.availableAgentsFor
 import com.exponential.app.ui.emoji.rememberEmojiData
@@ -96,7 +94,6 @@ import com.exponential.app.ui.steer.ActionRunState
 import com.exponential.app.ui.steer.SteerRunCaptionRow
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
-import com.exponential.app.ui.workflows.WorkflowsViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -123,20 +120,11 @@ fun AgentScreen(
     onBack: () -> Unit,
     onOpenSteer: (codingSessionId: String) -> Unit,
     onOpenIssue: (issueId: String) -> Unit,
-    // EXP-981: the phone has no sidebar, so the team's workflows hang off this
-    // page's top bar beside its history button (web/desktop put them in the
-    // sidebar).
-    onOpenWorkflows: () -> Unit = {},
-    // EXP-1050: a WORKFLOW group row in the sessions list leads to its
-    // workflow. The default is the list, for a preview or a test that names no
-    // route — a group row that leads nowhere is worse than one a tap away.
-    onOpenWorkflow: (workflowId: String) -> Unit = { onOpenWorkflows() },
     viewModel: AgentComposerViewModel = hiltViewModel(),
     dataViewModel: AgentLaunchDataViewModel = hiltViewModel(),
     // The sessions under the composer: the Devices tab's own model, reused
     // rather than mirrored (both read the same synced shapes).
     sessionsViewModel: AgentsViewModel = hiltViewModel(),
-    workflowsViewModel: WorkflowsViewModel = hiltViewModel(),
 ) {
     // ── Composer state ──────────────────────────────────────────────────────
     val teamId by viewModel.teamId.collectAsStateWithLifecycle()
@@ -149,10 +137,9 @@ fun AgentScreen(
     val deviceRequestNote by viewModel.deviceRequestNote.collectAsStateWithLifecycle()
     val launch by viewModel.launch.collectAsStateWithLifecycle()
     val subject by viewModel.subject.collectAsStateWithLifecycle()
-    // EXP-897/980: non-null while the blocked-start dialog is up — the picked
+    // EXP-980: non-null while the blocked-start dialog is up — the picked
     // subjects, their blockers and the chain it draws.
     val blockedPrompt by viewModel.blockedPrompt.collectAsStateWithLifecycle()
-    val canStackStart by viewModel.canStackStart.collectAsStateWithLifecycle()
     val draft by viewModel.draft.collectAsStateWithLifecycle()
     val images by viewModel.images.collectAsStateWithLifecycle()
     val imageError by viewModel.imageError.collectAsStateWithLifecycle()
@@ -188,14 +175,7 @@ fun AgentScreen(
     val actionSubject = subject as? ComposerSubject.Action
     val issueSubject = subject as? ComposerSubject.Issues
     val selectedAction = actionSubject?.let { picked ->
-        // EXP-981: the Plan workflow builtin is in NO list and NO picker — it
-        // is constructed here, the way the composer constructs Chat, because
-        // it is meaningless without the workflow the seed named.
-        if (picked.id == DomainContract.builtinPlanWorkflowId) {
-            teamId?.let(::builtinPlanWorkflowAction)
-        } else {
-            actionsState.actions?.firstOrNull { it.id == picked.id }
-        }
+        actionsState.actions?.firstOrNull { it.id == picked.id }
     }
     val selectedActionInputs = selectedAction?.inputs.orEmpty()
     // The checked issues' rows. A seeded id outside the codeable pool (a done
@@ -411,8 +391,7 @@ fun AgentScreen(
     var recentOpen by remember { mutableStateOf(false) }
     // EXP-897: which parents have their CHILD runs folded away — hoisted
     // because the list is a LazyListScope extension, not a composable.
-    // EXP-1050: keyed by the TREE node key, so a group folds the same way
-    // (`workflow:<id>` / `stack:<issueId>`, never a session id).
+    // Keyed by the TREE node key (`sessionTreeNodeKey`).
     var collapsedRunning by remember { mutableStateOf(emptySet<String>()) }
     // …and with nothing running, the composer column sits in the MIDDLE of the
     // page instead of hugging the top bar (web `justify-center`, desktop
@@ -428,34 +407,6 @@ fun AgentScreen(
                 // EXP-923: history, where history belongs — the finished runs
                 // are one tap away instead of a band under the composer.
                 actions = {
-                    // EXP-981: the team's workflows, one tap away — the
-                    // phone's stand-in for web's and the desktop's sidebar
-                    // entry.
-                    // EXP-1069: a red dot while any workflow of the team has an
-                    // open question — the one thing inside a run that waits
-                    // for a person.
-                    // Every run of the team's workflows (a shared runner's
-                    // too), not only the caller's live rows.
-                    val workflowNeedsYou by workflowsViewModel.needsYou.collectAsStateWithLifecycle()
-                    IconButton(
-                        onClick = onOpenWorkflows,
-                        modifier = Modifier.testTag("agent-workflows-button"),
-                    ) {
-                        Box {
-                            Icon(
-                                ExpIcons.navWorkflows,
-                                contentDescription = WorkflowView.WORKFLOWS_TITLE,
-                                modifier = Modifier.size(20.dp),
-                            )
-                            if (workflowNeedsYou) {
-                                Box(
-                                    Modifier
-                                        .align(Alignment.TopEnd)
-                                        .testTag("agent-workflows-needs-you"),
-                                ) { StaticDot(DesignTokens.Palette.Destructive, 6.dp) }
-                            }
-                        }
-                    }
                     IconButton(
                         onClick = { recentOpen = true },
                         modifier = Modifier.testTag("agent-history-button"),
@@ -707,7 +658,6 @@ fun AgentScreen(
             agentSessionsList(
                 rows = sessionsState.rows,
                 collapsedRunning = collapsedRunning,
-                treeContext = sessionsState.treeContext,
                 onToggleRunning = { id ->
                     collapsedRunning =
                         if (id in collapsedRunning) collapsedRunning - id else collapsedRunning + id
@@ -715,7 +665,6 @@ fun AgentScreen(
                 steerEnabled = steerEnabled == true,
                 onOpenSteer = onOpenSteer,
                 onOpenIssue = onOpenIssue,
-                onOpenWorkflow = onOpenWorkflow,
             )
         }
     }
@@ -724,9 +673,7 @@ fun AgentScreen(
         RecentRunsSheet(
             pastRuns = pastRuns,
             onOpenRun = onOpenSteer,
-            onOpenWorkflow = onOpenWorkflow,
             onDismiss = { recentOpen = false },
-            treeContext = sessionsState.treeContext,
         )
     }
     if (issuePickerOpen) {
@@ -756,16 +703,15 @@ fun AgentScreen(
         )
     }
 
-    // EXP-897/980: the picked work is still blocked — start it anyway, or
-    // stack its pull request on the blocker's. Same title, body, graph and
-    // button words on all four clients (`StackStart` / `IssueGraph`).
+    // EXP-980/SLOP-3: the picked work is still blocked: cancel, start it
+    // anyway, or start a stacked PR. Same title, body, graph and button words
+    // on all four clients (`BlockedStart`).
     blockedPrompt?.let { prompt ->
         BlockedStartDialog(
             prompt = prompt,
-            canStack = canStackStart,
             onOpenIssue = onOpenIssue,
-            onStacked = viewModel::submitStacked,
             onStartAnyway = viewModel::submitAnyway,
+            onStartStacked = viewModel::submitStacked,
             onDismiss = viewModel::dismissBlockedPrompt,
         )
     }
@@ -801,38 +747,29 @@ private fun ChatSuggestionChips(suggestions: List<String>, onPick: (String) -> U
 }
 
 /**
- * EXP-897/980: the blocked-start dialog — the launcher's third mode. It asks
- * for ONE picked issue (the blocker chips in the shared prefix/suffix
- * sentence) and for a BATCH alike (the batch body, blockers outside the
- * picked set), and under either the MINI-GRAPH of the transitive chain, so
- * the reader sees what the chain actually is before answering.
- *
- * The three answers are the shared words: `Stacked PR`, `Start anyway`,
- * Cancel. The stacked one is never hidden any more — when
- * [StackStart.stackDisabledReason] names a reason it is DISABLED and the
- * reason's note sits under the graph.
+ * EXP-980: the blocked-start dialog. It asks for ONE picked issue (the blocker
+ * chips in the shared prefix/suffix sentence) and for a BATCH alike (the batch
+ * body, blockers outside the picked set), and under either the MINI-GRAPH of
+ * the transitive chain, so the reader sees what the chain actually is before
+ * answering. SLOP-3: three answers, Cancel · Start anyway · Stacked PR
+ * (primary). Stacked PR is never hidden: disabled, the reason note says why;
+ * enabled over a line of 2+ issues, the plan note says what starts first.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun BlockedStartDialog(
-    prompt: AgentComposerViewModel.BlockedStart,
-    /** The machine advertises `stacked-start`. */
-    canStack: Boolean,
+    prompt: AgentComposerViewModel.BlockedPrompt,
     onOpenIssue: (String) -> Unit,
-    onStacked: () -> Unit,
     onStartAnyway: () -> Unit,
+    onStartStacked: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val isBatch = prompt.pickedIds.size > 1
-    val reason = StackStart.stackDisabledReason(
-        pickedCount = prompt.pickedIds.size,
-        canStack = canStack,
-        hasCycle = prompt.graph.hasCycle,
-    )
+    val stackable = prompt.stack.plan != null
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text(if (isBatch) StackStart.BLOCKED_BATCH_TITLE else StackStart.BLOCKED_START_TITLE)
+            Text(if (isBatch) BlockedStart.BATCH_TITLE else BlockedStart.TITLE)
         },
         text = {
             Column(
@@ -840,9 +777,9 @@ private fun BlockedStartDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (isBatch) {
-                    Text(StackStart.BLOCKED_BATCH_BODY)
+                    Text(BlockedStart.BATCH_BODY)
                 } else {
-                    Text(StackStart.BODY_PREFIX.trimEnd())
+                    Text(BlockedStart.BODY_PREFIX.trimEnd())
                     FlowRow(
                         modifier = Modifier.testTag("blocked-start-blockers"),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -856,7 +793,10 @@ private fun BlockedStartDialog(
                             )
                         }
                     }
-                    Text(StackStart.BODY_SUFFIX.removePrefix(".").trim())
+                    Text(
+                        (if (stackable) BlockedStart.BODY_SUFFIX_STACKABLE else BlockedStart.BODY_SUFFIX)
+                            .removePrefix(".").trim(),
+                    )
                 }
                 IssueGraphList(
                     graph = prompt.graph,
@@ -866,33 +806,41 @@ private fun BlockedStartDialog(
                         onOpenIssue(id)
                     },
                 )
-                // Why the stacked start is off — the shared note, never a
-                // hidden button (EXP-980).
-                reason?.let { why ->
-                    Text(
-                        StackStart.stackDisabledNote(why),
+                // SLOP-3: why the stacked start is off (the note under a
+                // disabled, never hidden button), else what it starts first.
+                val stackNote = prompt.stackNote
+                val planNote = prompt.planNote
+                when {
+                    stackNote != null -> Text(
+                        stackNote,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        modifier = Modifier.testTag("stack-disabled-note"),
+                        modifier = Modifier.testTag("start-stacked-note"),
+                    )
+                    planNote != null -> Text(
+                        planNote,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        modifier = Modifier.testTag("start-stacked-plan"),
                     )
                 }
             }
         },
         confirmButton = {
             TextButton(
-                onClick = onStacked,
-                enabled = reason == null,
+                onClick = onStartStacked,
+                enabled = stackable,
                 modifier = Modifier.testTag("start-stacked"),
             ) {
-                Text(StackStart.STACKED_PR_LABEL)
+                Text(BlockedStart.STACKED_PR)
             }
         },
         dismissButton = {
             Row {
-                TextButton(onClick = onStartAnyway, modifier = Modifier.testTag("start-anyway")) {
-                    Text(StackStart.START_ANYWAY_LABEL)
-                }
                 TextButton(onClick = onDismiss) { Text("Cancel") }
+                TextButton(onClick = onStartAnyway, modifier = Modifier.testTag("start-anyway")) {
+                    Text(BlockedStart.START_ANYWAY)
+                }
             }
         },
     )

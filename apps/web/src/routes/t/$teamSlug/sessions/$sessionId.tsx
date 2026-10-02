@@ -19,8 +19,7 @@ import { Button, PrGithubButton, useIsMobile, type SessionDotTone } from "@exp/u
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import type { WorkFace } from "@/components/team/work-face-toggle"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
-import { descendantIds, nestSessions } from "@/lib/session-tree"
-import { stackPosition, stackPositionLine } from "@/lib/pr-stack"
+import { sessionDescendantIds, sessionTree } from "@/lib/sessions/session-tree"
 import { originListNavigation, parseOrigin } from "@/lib/detail-origin"
 import { useOpenComposer } from "@/hooks/use-open-composer"
 import { useOpenSession } from "@/hooks/use-open-session"
@@ -289,12 +288,17 @@ function OwnSessionPage({
   )
 
   // EXP-893: the phone's Changes face without a live diff — the issue's PR
-  // files (a batch run's representative issue carries the PR). EXP-952: read
+  // files (a batch run's covered issue that shares the run's PR carries
+  // them). EXP-952: read
   // as soon as a phone has an OPEN PR to count, not only on the face — the
   // switcher's Changes row prints the same `+N −M` the face draws (a live
   // diff still outranks them in the view).
   const prIssue =
-    issue ?? (row.mergeTarget?.kind === `issue` ? row.mergeTarget.issue : null)
+    issue ??
+    row.batchIssues.find(
+      (covered) => covered.prUrl != null && covered.prUrl === session.prUrl
+    ) ??
+    null
   const { state: prFilesState } = useReviewFiles(prIssue, {
     enabled: isMobile && (face === `diff` || prIssue?.prState === `open`),
   })
@@ -374,8 +378,7 @@ function OwnSessionPage({
                Stop / Resume do. */
             face={shownFace}
             graphBadge={
-              /* EXP-897: the same stacked chip the md+ header wears — the face
-                 showing decides which section its sheet opens on. */
+              /* EXP-897: the same badge the md+ header wears. */
               <PrGraphBadge
                 teamId={team.id}
                 teamSlug={teamSlug}
@@ -423,16 +426,12 @@ function OwnSessionPage({
         identity={sessionIdentity(row)}
         mergeTarget={row.mergeTarget}
         banner={
-          <>
-            {/* EXP-897: where this run's pull request sits in its stack, and
-                what a run below it is asking the person. */}
-            {issue && <StackPositionBand issue={issue} teamSlug={teamSlug} />}
-            <EscalationBand
-              session={session}
-              teamId={team.id}
-              currentUserId={currentUserId}
-            />
-          </>
+          /* What a run below this one is asking the person. */
+          <EscalationBand
+            session={session}
+            teamId={team.id}
+            currentUserId={currentUserId}
+          />
         }
         face={face}
         onFace={onFace}
@@ -445,7 +444,7 @@ function OwnSessionPage({
         prUrl={prUrl}
         graphBadge={
           /* EXP-1079: the ONE node feeds the phone's bar and the md+ work
-             header (EXP-1058: the stacked issue chip in both). */
+             header. */
           <PrGraphBadge
             teamId={team.id}
             teamSlug={teamSlug}
@@ -473,60 +472,7 @@ function SessionStubHeader({
   return <MobileDetailHeader title={title} onBack={onBack} />
 }
 
-/** EXP-897: where this run's pull request sits in its STACK. One quiet line —
- *  `2 of 3 · on top of #ABC-12` — with the members below and above linking to
- *  their review pages. Absent when the issue is in no stack. Renders on the
- *  phone too: it rides the view's `banner`, not the md+ header. */
-function StackPositionBand({
-  issue,
-  teamSlug,
-}: {
-  issue: Issue
-  teamSlug: string
-}) {
-  const { data: issueRows } = useLiveQuery(
-    (query) =>
-      query
-        .from({ i: issueCollection })
-        .where(({ i }) => eq(i.teamId, issue.teamId)),
-    [issue.teamId]
-  )
-  const at = useMemo(
-    () => stackPosition(issue, (issueRows ?? []) as Issue[]),
-    [issue, issueRows]
-  )
-  if (!at) return null
-  return (
-    <div
-      className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-card/40 px-3 py-1.5 text-[11px] text-muted-foreground"
-      data-testid="stack-position-band"
-    >
-      <span>{stackPositionLine(at.position, at.size, at.below?.identifier ?? null)}</span>
-      {at.below && (
-        <Button variant="link" size="inline" asChild className="font-mono">
-          <Link
-            to="/t/$teamSlug/reviews/$issueIdentifier"
-            params={{ teamSlug, issueIdentifier: at.below.identifier }}
-          >
-            {`↓ #${at.below.identifier}`}
-          </Link>
-        </Button>
-      )}
-      {at.above && (
-        <Button variant="link" size="inline" asChild className="font-mono">
-          <Link
-            to="/t/$teamSlug/reviews/$issueIdentifier"
-            params={{ teamSlug, issueIdentifier: at.above.identifier }}
-          >
-            {`↑ #${at.above.identifier}`}
-          </Link>
-        </Button>
-      )}
-    </div>
-  )
-}
-
-/** EXP-897: a run deeper in the tree asked the PERSON a question
+/** A run deeper in the tree asked the PERSON a question
  *  (`exponential_sessions_ask_parent({ to: 'user' })` sets the child's
  *  `needs_input` + `agent_caption` and sends an `agent_message`). The ROOT run
  *  is where the person is watching, so the question surfaces there — one row
@@ -557,7 +503,7 @@ function EscalationBand({
     [sessionRows]
   )
   const waiting = useMemo(() => {
-    const ids = new Set(descendantIds(nestSessions(sessions), session.id))
+    const ids = new Set(sessionDescendantIds(sessionTree(sessions), session.id))
     return sessions.filter((row) => ids.has(row.id) && row.needsInput)
   }, [sessions, session.id])
   const askedIds = useMemo(

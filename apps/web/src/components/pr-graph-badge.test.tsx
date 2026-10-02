@@ -2,7 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { CodingSession, Issue } from "@/db/schema"
 
-// EXP-897 Part 4 / SLOP-16 r5: THE "Related work" view — the relations card's
+// EXP-897 Part 4 / SLOP-16 r5: THE "Related work" view: the relations card's
 // foldable bands (Blocked by · Same pull request · Pull request stack) over
 // its rows, nothing else. The model has its own tests (`lib/pr-graph.test.ts`).
 
@@ -32,7 +32,7 @@ vi.mock(`@tanstack/react-router`, () => ({
     </a>
   ),
 }))
-// The dialog is the ONE surface at every size — the phone flag only changes
+// The dialog is the ONE surface at every size: the phone flag only changes
 // the rows' density (the sheet arm is the dialog's own).
 vi.mock(`@exp/ui`, async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>
@@ -103,7 +103,7 @@ vi.mock(`@/hooks/use-team-issue-graph`, () => ({
 // The badge reads three collections through `useLiveQuery`, each query
 // aliasing its source (`i` issues, `r` relations, `b` boards). The stub runs
 // the builder against a probe that records the alias and answers with THAT
-// table's rows — empty unless a test fills it.
+// table's rows: empty unless a test fills it.
 const liveRows = vi.hoisted(() => ({
   tables: {} as Record<string, unknown[]>,
 }))
@@ -218,12 +218,12 @@ describe(`PrGraphOverlay`, () => {
     expect(within(blocked).getByTestId(`relation-row-BLOCKER`)).toBeTruthy()
     const batch = screen.getByTestId(`pr-graph-band-batch`)
     expect(within(batch).getByText(`Same pull request`)).toBeTruthy()
-    // The partners only — the subject itself is not listed.
+    // The partners only: the subject itself is not listed.
     expect(within(batch).getByTestId(`relation-row-PARTNER`)).toBeTruthy()
     expect(within(batch).queryByTestId(`relation-row-ME`)).toBeNull()
     const stack = screen.getByTestId(`pr-graph-band-stack`)
     expect(within(stack).getByText(`Pull request stack`)).toBeTruthy()
-    // The OTHER pull requests only — the subject's own is left out.
+    // The OTHER pull requests only: the subject's own is left out.
     expect(within(stack).getByTestId(`relation-row-LOWER`)).toBeTruthy()
     expect(within(stack).queryByTestId(`relation-row-ME`)).toBeNull()
   })
@@ -321,7 +321,7 @@ describe(`PrGraphBadge fallback (EXP-916)`, () => {
     expect(screen.getByTestId(`badge-fallback`)).toBeTruthy()
   })
 
-  it(`no fallback keeps the old behaviour — nothing at all`, () => {
+  it(`no fallback keeps the old behaviour: nothing at all`, () => {
     const { container } = render(
       <PrGraphBadge teamId="t1" teamSlug="acme" issue={issue(`lone`)} variant="glyph" />
     )
@@ -342,7 +342,7 @@ describe(`PrGraphBadge for a run`, () => {
   })
 })
 
-// SLOP-16: the header badge is a quiet ICON BUTTON — the glyph names the
+// SLOP-16: the header badge is a quiet ICON BUTTON: the glyph names the
 // shape, a muted `+N` counts the rest.
 describe(`PrGraphBadge as the header icon button (SLOP-16)`, () => {
   afterEach(() => {
@@ -389,7 +389,7 @@ describe(`PrGraphBadge as the header icon button (SLOP-16)`, () => {
     expect(within(badge).getByText(`+1`)).toBeTruthy()
   })
 
-  // ONE surface at every size — the standard dialog, titled "Related work"
+  // ONE surface at every size: the standard dialog, titled "Related work"
   // (a phone gets its bottom-sheet arm from the dialog itself).
   it.each([
     [`≥md`, false],

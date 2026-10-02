@@ -341,9 +341,8 @@ pub fn sessions_get(trpc: &TrpcClient, id: &str) -> Result<RemoteSession, ApiErr
 }
 
 /// `exponential_sessions_start` input: the `steer.startSession` payload the
-/// tool forwards (identifiers accepted for `issue_id`), minus the workflow
-/// membership keys only a run may name. Absent options = the target device's
-/// own launch defaults.
+/// tool forwards (identifiers accepted for `issue_id`). Absent options = the
+/// target device's own launch defaults.
 #[derive(Clone, Debug, Default, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteStartInput {

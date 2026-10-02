@@ -5,8 +5,8 @@ import SwiftUI
 /// EXP-1150: the Work screen's ONE Merge PR — a compact primary pill at the
 /// face tabs' height, trailing the tab row in the header band on EVERY face.
 /// It took over the Changes bar's pill (and the Run bar's circle): the same
-/// flow — the confirm alert, or the stack dialog for a stack member with other
-/// open members (EXP-1145) — and, after a merge the server refused on a REAL
+/// flow (the confirm alert, or the stack dialog for a member of an open PR
+/// stack, EXP-1145 `PrStack.stackMergeChoice`) and, after a merge the server refused on a REAL
 /// content conflict, the same "Fix conflicts" recovery run (EXP-706) in its
 /// place. The host resolves WHAT it merges (`target`): the run's own merge
 /// target while the run can merge, else the issue's open PR.
@@ -53,8 +53,8 @@ struct WorkMergePill: View {
             titleVisibility: .visible,
             presenting: stackChoice
         ) { choice in
-            Button(PrStack.mergeStackLabel) { mergeStack(topIssueId: choice.topIssueId) }
-            Button(PrStack.mergeThisPrLabel) { merge() }
+            Button(PrStack.mergeStackLabel) { mergeStack(issueId: choice.topIssueId) }
+            Button(PrStack.mergeThisPrLabel) { mergeThis(choice) }
             Button(PrStack.stackMergeCancelLabel, role: .cancel) {}
         } message: { choice in
             Text(choice.body)
@@ -107,6 +107,8 @@ struct WorkMergePill: View {
             && !(issue?.branch ?? "").isEmpty
     }
 
+    /// EXP-1145: a member of an open PR stack asks first; anything else
+    /// confirms the plain merge.
     private func requestMerge() {
         if case let .issue(issueId) = target,
            let row = issue?.id == issueId ? issue : prIssues.first(where: { $0.id == issueId }),
@@ -115,6 +117,16 @@ struct WorkMergePill: View {
         } else {
             showMergeConfirm = true
         }
+    }
+
+    /// "Merge this pull request": the bottom member merges plainly, any other
+    /// one lands the chain bottom-up THROUGH itself.
+    private func mergeThis(_ choice: PrStack.StackMergeChoice) {
+        guard choice.mergeThisUsesStack, case let .issue(issueId) = target else {
+            merge()
+            return
+        }
+        mergeStack(issueId: issueId)
     }
 
     /// No local surgery on success: the server ends the run and flips
@@ -140,14 +152,16 @@ struct WorkMergePill: View {
         }
     }
 
-    /// EXP-1145: "Merge stack" merges the whole stack through its TOP member.
-    private func mergeStack(topIssueId: String) {
+    /// EXP-1145: the stack merge through `issueId` (the top for Merge stack,
+    /// the member itself for Merge this); a refusal toasts the server's
+    /// message and keeps the conflict recovery offer.
+    private func mergeStack(issueId: String) {
         mergeFailure = nil
         merging = true
         Task {
             do {
                 try await deps.issuesApi.mergePr(
-                    accountId: accountId, issueId: topIssueId, mergeStack: true
+                    accountId: accountId, issueId: issueId, mergeStack: true
                 )
             } catch {
                 let failure = MergeFailure(error: error)

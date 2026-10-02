@@ -76,7 +76,7 @@ public extension DevicePickerDevice {
     /// teammate's shared server (EXP-432) as the muted line under it rather
     /// than folded into the name. A row with no label yet reads as its id.
     /// Every device picker (the composer's pill, the trigger form's
-    /// "Runs on", the workflow runner row) builds its rows here, so a machine
+    /// "Runs on") builds its rows here, so a machine
     /// cannot wear a glyph on one sheet and none on the next.
     init(_ device: SteerDevice) {
         self.init(

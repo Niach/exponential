@@ -3,7 +3,6 @@ package com.exponential.app.ui.session
 import com.exponential.app.data.api.AgentAccount
 import com.exponential.app.data.api.AgentLaunchDefaults
 import com.exponential.app.data.api.DeviceLaunchDefaults
-import com.exponential.app.data.api.DeviceWorkflowDefaults
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.setLaunchDefaultsInput
 import com.exponential.app.domain.DomainContract
@@ -178,70 +177,14 @@ class DeviceSettingsDefaultsTest {
         assertFalse(sent.getValue("agents").jsonObject.getValue("claude").jsonObject.containsValue(JsonNull))
     }
 
-    /**
-     * EXP-1043: the workflow pair is resolved for the LAST USED agent, and the
-     * two vocabularies do not overlap — a stored name belonging to the other
-     * agent is not something that agent can run, so it falls back.
-     */
+    /** SLOP-3: the save never carries a `workflow` pair any more. */
     @Test
-    fun `workflow defaults take a stored pair only in the agent's own vocabulary`() {
-        // Stored and valid: it wins.
-        assertEquals(
-            "sonnet" to "opus",
-            workflowDefaults(
-                "claude",
-                DeviceWorkflowDefaults(model = "sonnet", strongModel = "opus"),
-            ),
-        )
-        // Claude's names in a codex row: codex's contract pair instead.
-        assertEquals(
-            DomainContract.workflowLaunchCodexModel to
-                DomainContract.workflowLaunchCodexStrongModel,
-            workflowDefaults(
-                "codex",
-                DeviceWorkflowDefaults(model = "opus", strongModel = "fable"),
-            ),
-        )
-        // Nothing stored at all (a machine from before the pair).
-        assertEquals(
-            DomainContract.workflowLaunchClaudeModel to
-                DomainContract.workflowLaunchClaudeStrongModel,
-            workflowDefaults("claude", null),
-        )
-        // Half a stored pair: the valid half stands, the other falls back.
-        assertEquals(
-            "fable" to DomainContract.workflowLaunchClaudeStrongModel,
-            workflowDefaults("claude", DeviceWorkflowDefaults(model = "fable")),
-        )
-    }
-
-    /**
-     * EXP-1043: `setLaunchDefaults` REPLACES the stored object, so the sheet's
-     * save carries the workflow pair with it — and a caller with nothing to
-     * say about it writes no `workflow` key, which the server reads as an
-     * older client and keeps what is stored.
-     */
-    @Test
-    fun `the workflow pair rides the setLaunchDefaults payload`() {
-        val built = buildDefaults(
-            agents = listOf("claude"),
-            drafts = emptyMap(),
-            workflow = DeviceWorkflowDefaults(model = "opus", strongModel = "fable"),
-        )
-        val sent = setLaunchDefaultsInput(deviceId = "dev-1", defaults = built)
-            .getValue("launchDefaults").jsonObject
-        val workflow = sent.getValue("workflow").jsonObject
-        assertEquals(JsonPrimitive("opus"), workflow["model"])
-        assertEquals(JsonPrimitive("fable"), workflow["strongModel"])
-
-        val without = setLaunchDefaultsInput(
+    fun `the setLaunchDefaults payload carries no workflow pair`() {
+        val sent = setLaunchDefaultsInput(
             deviceId = "dev-1",
-            defaults = buildDefaults(
-                agents = listOf("claude"),
-                drafts = emptyMap(),
-            ),
+            defaults = buildDefaults(agents = listOf("claude"), drafts = emptyMap()),
         ).getValue("launchDefaults").jsonObject
-        assertFalse(without.containsKey("workflow"))
+        assertFalse(sent.containsKey("workflow"))
     }
 
     /**

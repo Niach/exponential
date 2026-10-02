@@ -22,7 +22,7 @@ const IDLE: StackMergeChoiceState = { ready: true, choice: null }
  * the client, REV2-5), so the team is reached through the issue's board, and
  * "the team's open pull requests" = the open-PR issues of the team's boards.
  * `enabled` false skips every query: a list of Merge buttons must not fan out
- * four live queries per row — the control arms this on the click and reads
+ * four live queries per row: the control arms this on the click and reads
  * the answer before it opens anything.
  */
 export function useStackMergeChoice(

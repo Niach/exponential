@@ -6,8 +6,6 @@ import {
   BUILTIN_CREATE_ACTION_ID,
   BUILTIN_FIX_CONFLICTS_ID,
   BUILTIN_TIDY_UP_ID,
-  BUILTIN_PLAN_WORKFLOW_ID,
-  BUILTIN_PLAN_WORKFLOW_NAME,
 } from "@/lib/builtin-actions"
 
 // EXP-825: the composer's model — swap rules, submit labels, the blocked
@@ -24,6 +22,8 @@ const mockState = vi.hoisted(() => ({
     w: [] as unknown[],
     r: [] as unknown[],
     bl: [] as unknown[],
+    tr: [] as unknown[],
+    li: [] as unknown[],
   } as Record<string, unknown[]>,
   boards: [] as unknown[],
   repos: null as { id: string; fullName: string }[] | null,
@@ -82,14 +82,14 @@ vi.mock(`sonner`, async (importOriginal) => ({
 
 import { useLaunchComposer, type LaunchSeed } from "@/hooks/use-launch-composer"
 import type { RemoteStart } from "@/hooks/use-remote-start"
+import { stackedStartPrompt } from "@/lib/blocked-start"
 
 const device: SteerDevice = {
   rowId: `row-1`,
   deviceId: `dev-1`,
   deviceLabel: `buildbox`,
   agents: [`claude`],
-  // EXP-897: reads the start frame's `stack` payload.
-  caps: [`stacked-start`],
+  caps: [],
   online: true,
   launchDefaults: {
     defaultAgent: `claude`,
@@ -158,6 +158,8 @@ beforeEach(() => {
   mockState.rows.w = []
   mockState.rows.r = []
   mockState.rows.bl = []
+  mockState.rows.tr = []
+  mockState.rows.li = []
   mockState.boards = [board(`b1`, `repo-1`), board(`b2`, `repo-1`)]
   mockState.repos = [{ id: `repo-1`, fullName: `acme/app` }]
   mockState.mcpServers = null
@@ -369,9 +371,7 @@ describe(`useLaunchComposer submit`, () => {
       device,
       expect.objectContaining({ agent: `claude`, planMode: true }),
       [`i1`, `i2`],
-      `Keep the API stable`,
-      // EXP-897: a batch never stacks.
-      undefined
+      `Keep the API stable`
     )
     expect(result.current.subject).toBeNull()
   })
@@ -631,8 +631,8 @@ describe(`useLaunchComposer seed`, () => {
   })
 })
 
-// EXP-897: starting a BLOCKED issue asks first — plain run, or a stacked PR
-// cut from the blocker's branch.
+// EXP-980: starting a BLOCKED issue asks first (SLOP-3: Cancel, Start
+// anyway or Stacked PR).
 describe(`useLaunchComposer blocked start`, () => {
   const blocks = (blocker: string, blocked: string) => ({
     type: `blocks`,
@@ -654,7 +654,7 @@ describe(`useLaunchComposer blocked start`, () => {
     expect(remote.startIssues).not.toHaveBeenCalled()
   })
 
-  it(`Start anyway starts without a stack`, async () => {
+  it(`Start anyway starts the run`, async () => {
     const { result, remote } = mount()
     act(() => result.current.toggleIssue(`i1`))
     await act(() => result.current.submit())
@@ -664,70 +664,24 @@ describe(`useLaunchComposer blocked start`, () => {
       device,
       expect.anything(),
       [`i1`],
-      undefined,
       undefined
     )
-  })
-
-  it(`Stacked PR starts with stack: true`, async () => {
-    const { result, remote } = mount()
-    act(() => result.current.toggleIssue(`i1`))
-    await act(() => result.current.submit())
-    await act(() => result.current.startStacked())
-    expect(remote.startIssues).toHaveBeenCalledWith(
-      device,
-      expect.anything(),
-      [`i1`],
-      undefined,
-      { stack: true }
-    )
-  })
-
-  // A machine below the `stacked-start` build has no `stack` field in its
-  // decoder: the dialog still asks, shows the stack DISABLED with the reason
-  // (EXP-980), and the model refuses to send one rather than downgrade it.
-  it(`refuses the stack for a device without the stacked-start cap`, async () => {
-    const oldDevice: SteerDevice = { ...device, caps: [`resume-run`] }
-    const { result, remote } = mount(null, makeRemote({ devices: [oldDevice] }))
-    act(() => result.current.toggleIssue(`i1`))
-    expect(result.current.canStack).toBe(false)
-    await act(() => result.current.submit())
-    expect(result.current.blockedOpen).toBe(true)
-    await act(() => result.current.startStacked())
-    expect(remote.startIssues).not.toHaveBeenCalled()
-    await act(() => result.current.startAnyway())
-    expect(remote.startIssues).toHaveBeenCalledWith(
-      oldDevice,
-      expect.anything(),
-      [`i1`],
-      undefined,
-      undefined
-    )
-  })
-
-  it(`offers the stack on a device that advertises the cap`, () => {
-    const { result } = mount()
-    act(() => result.current.toggleIssue(`i1`))
-    expect(result.current.canStack).toBe(true)
   })
 
   // EXP-980: a batch asks too — about what blocks it from OUTSIDE.
-  it(`asks for a batch that an outside issue blocks, and never stacks it`, async () => {
+  it(`asks for a batch that an outside issue blocks`, async () => {
     const { result, remote } = mount()
     act(() => result.current.toggleIssue(`i1`))
     act(() => result.current.toggleIssue(`i3`))
     expect(result.current.blockedStart.map((row) => row.id)).toEqual([`i2`])
     await act(() => result.current.submit())
     expect(result.current.blockedOpen).toBe(true)
-    // Stacking is a single-issue mode: refused, never downgraded.
-    await act(() => result.current.startStacked())
     expect(remote.startIssues).not.toHaveBeenCalled()
     await act(() => result.current.startAnyway())
     expect(remote.startIssues).toHaveBeenCalledWith(
       device,
       expect.anything(),
       [`i1`, `i3`],
-      undefined,
       undefined
     )
   })
@@ -758,6 +712,82 @@ describe(`useLaunchComposer blocked start`, () => {
     expect(remote.startIssues).toHaveBeenCalledTimes(1)
   })
 
+  // SLOP-3: the third button builds the dependency LINE bottom-up.
+  it(`disables Stacked PR while a line member is already running`, () => {
+    mockState.rows.s = [
+      { issueId: `i2`, status: `running`, teamId: `t1`, updatedAt: new Date() },
+    ]
+    const { result } = mount()
+    act(() => result.current.toggleIssue(`i1`))
+    expect(result.current.blockedStack).toMatchObject({
+      plan: null,
+      reason: `running`,
+      ident: `I2`,
+    })
+  })
+
+  it(`Stacked PR on an open blocker PR starts the picked issue with the base instruction`, async () => {
+    mockState.rows.bl = [
+      { ...issue(`i2`, `b2`, `in_progress`), prState: `open`, branch: `exp/I2` },
+    ]
+    const { result, remote } = mount()
+    act(() => result.current.toggleIssue(`i1`))
+    expect(result.current.blockedStack.reason).toBeNull()
+    expect(result.current.blockedStack.first?.id).toBe(`i1`)
+    act(() => result.current.setText(`keep it small`))
+    await act(() => result.current.submit())
+    await act(() => result.current.startStacked())
+    expect(result.current.blockedOpen).toBe(false)
+    expect(remote.startIssues).toHaveBeenCalledWith(
+      device,
+      expect.not.objectContaining({ resume: true }),
+      [`i1`],
+      stackedStartPrompt(
+        { base: { identifier: `I2`, branch: `exp/I2` }, run: [`I1`] },
+        `keep it small`
+      )
+    )
+  })
+
+  it(`Stacked PR on a line without PRs starts its BOTTOM issue`, async () => {
+    // i3 blocks i2 blocks i1: the line under i1 is [I3, I2].
+    mockState.rows.tr = [blocks(`i2`, `i1`), blocks(`i3`, `i2`)]
+    mockState.rows.li = [
+      issue(`i1`, `b1`),
+      issue(`i2`, `b1`, `in_progress`),
+      issue(`i3`, `b2`),
+    ]
+    const { result, remote } = mount()
+    act(() => result.current.toggleIssue(`i1`))
+    expect(result.current.blockedStack.plan).toEqual({
+      base: null,
+      run: [`I3`, `I2`, `I1`],
+    })
+    expect(result.current.blockedStack.first?.id).toBe(`i3`)
+    await act(() => result.current.submit())
+    await act(() => result.current.startStacked())
+    expect(remote.startIssues).toHaveBeenCalledWith(
+      device,
+      expect.anything(),
+      [`i3`],
+      stackedStartPrompt({ base: null, run: [`I3`, `I2`, `I1`] }, ``)
+    )
+  })
+
+  it(`disables Stacked PR for a line member in another repository`, () => {
+    mockState.boards = [board(`b1`, `repo-1`), board(`b2`, `repo-2`)]
+    mockState.rows.bl = [
+      { ...issue(`i2`, `b2`, `in_progress`), prState: `open`, branch: `exp/I2` },
+    ]
+    const { result } = mount()
+    act(() => result.current.toggleIssue(`i1`))
+    expect(result.current.blockedStack).toMatchObject({
+      plan: null,
+      reason: `repo`,
+      ident: `I2`,
+    })
+  })
+
   it(`never asks for a done blocker`, async () => {
     mockState.rows.bl = [issue(`i2`, `b1`, `done`)]
     const { result, remote } = mount()
@@ -766,57 +796,6 @@ describe(`useLaunchComposer blocked start`, () => {
     await act(() => result.current.submit())
     expect(result.current.blockedOpen).toBe(false)
     expect(remote.startIssues).toHaveBeenCalledTimes(1)
-  })
-})
-
-// EXP-981: the hidden plan-workflow builtin — the Plan button seeds it with
-// the workflow it plans, and that id rides the start beside the action.
-describe(`useLaunchComposer plan workflow`, () => {
-  const workflowId = `9f1d6b2a-0000-4000-8000-000000000001`
-
-  it(`resolves the hidden builtin without listing it in the picker`, () => {
-    const { result } = mount({ issueIds: [], actionId: BUILTIN_PLAN_WORKFLOW_ID })
-    expect(result.current.selectedAction?.name).toBe(BUILTIN_PLAN_WORKFLOW_NAME)
-    // Hidden like Chat: never appended to the picker's list.
-    expect(result.current.actions?.map((row) => row.id)).not.toContain(
-      BUILTIN_PLAN_WORKFLOW_ID
-    )
-  })
-
-  it(`sends the seeded workflow id with the run`, async () => {
-    const { result, remote } = mount({
-      issueIds: [],
-      actionId: BUILTIN_PLAN_WORKFLOW_ID,
-      workflowId,
-    })
-    expect(result.current.workflowId).toBe(workflowId)
-    // The free text is optional — the builtin has no required inputs.
-    expect(result.current.blocked).toBe(false)
-    await act(() => result.current.submit())
-    expect(remote.runAction).toHaveBeenCalledWith(
-      device,
-      {
-        id: BUILTIN_PLAN_WORKFLOW_ID,
-        name: BUILTIN_PLAN_WORKFLOW_NAME,
-        teamId: `t1`,
-        workflowId,
-      },
-      expect.objectContaining({ agent: `claude` }),
-      // No inputs: the workflow is named by the start, not by a pick.
-      undefined,
-      undefined
-    )
-    expect(result.current.workflowId).toBeUndefined()
-  })
-
-  it(`drops the workflow id the moment another subject is picked`, () => {
-    const { result } = mount({
-      issueIds: [],
-      actionId: BUILTIN_PLAN_WORKFLOW_ID,
-      workflowId,
-    })
-    act(() => result.current.toggleIssue(`i1`))
-    expect(result.current.workflowId).toBeUndefined()
   })
 })
 

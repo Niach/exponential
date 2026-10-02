@@ -9,8 +9,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context as _};
 use api::actions::{
-    BUILTIN_CHAT_ID, BUILTIN_CREATE_ACTION_ID, BUILTIN_FIX_CONFLICTS_ID,
-    BUILTIN_PLAN_WORKFLOW_ID, BUILTIN_TIDY_UP_ID,
+    BUILTIN_CHAT_ID, BUILTIN_CREATE_ACTION_ID, BUILTIN_FIX_CONFLICTS_ID, BUILTIN_TIDY_UP_ID,
 };
 use api::issues::FetchedIssue;
 use coding::{
@@ -138,15 +137,12 @@ pub fn issue_seed(issue: &FetchedIssue) -> IssueSeed {
 /// `--resume` flag yet).
 /// `prompt` (EXP-825): the composer's free text, the prompt's
 /// additional-instructions section.
-/// `stack` (EXP-897): the server-resolved chain this run's branch is cut
-/// into; `None` is an ordinary start.
 pub fn issue_launch_request(
     issue: &FetchedIssue,
     options: LaunchOptions,
     origin: LaunchOrigin,
     resume_prompt: bool,
     prompt: Option<String>,
-    stack: Option<coding::StackLaunch>,
 ) -> LaunchRequest {
     LaunchRequest {
         issue_id: issue.id.clone(),
@@ -159,11 +155,6 @@ pub fn issue_launch_request(
         options,
         resume_prompt,
         prompt,
-        stack,
-        // EXP-982: the workflow engine fills these in itself; every other
-        // start leaves the board base and the plain prompt alone.
-        base_branch: None,
-        workflow: None,
     }
 }
 
@@ -215,33 +206,9 @@ pub fn default_team_id(trpc: &api::trpc::TrpcClient) -> anyhow::Result<String> {
 struct FixTarget {
     identifier: String,
     branch: String,
-    /// The representative issue's UUID — or, for a workflow's final PR, the
-    /// WORKFLOW's (`issues.prepareConflictFix` accepts both).
+    /// The representative issue's UUID.
     issue_id: String,
     board_id: Option<String>,
-    /// EXP-1072: `Some` = the target is a WORKFLOW's final PR, carrying the
-    /// workflow's `repository_id` (itself `None` when the repo was unlinked).
-    workflow_repository_id: Option<Option<String>>,
-}
-
-/// EXP-1072: the fix-conflicts target of a WORKFLOW's ONE final PR — the
-/// integration branch, the workflow's own repository, no board.
-fn workflow_fix_target(workflow: api::workflows::Workflow) -> anyhow::Result<FixTarget> {
-    if workflow.final_pr_state.as_deref() != Some("open") {
-        bail!("That pull request is no longer open.");
-    }
-    let branch = workflow
-        .integration_branch
-        .clone()
-        .filter(|branch| !branch.is_empty())
-        .ok_or_else(|| anyhow!("That pull request has no recorded branch."))?;
-    Ok(FixTarget {
-        identifier: domain::workflow_final_pr::identifier(&workflow.name),
-        branch,
-        issue_id: workflow.id,
-        board_id: None,
-        workflow_repository_id: Some(workflow.repository_id),
-    })
 }
 
 /// How an action run's repo group arrives (ui `ActionRepo` twin).
@@ -283,9 +250,6 @@ pub fn resolve_action_request(
     // tools wired, OPTIONALLY anchored to a repo (EXP-739; desktop
     // `action_run.rs` parity).
     let chatting = action_id == BUILTIN_CHAT_ID;
-    // EXP-981: the hidden planner builtin — a scratch run that shapes ONE
-    // draft workflow through the MCP tools and writes no code.
-    let planning = action_id == BUILTIN_PLAN_WORKFLOW_ID;
     // FEED-50: the Tidy up builtin — its optional `repo` input resolves like
     // a chat's (none = the scratch dir).
     let tidying = action_id == BUILTIN_TIDY_UP_ID;
@@ -299,49 +263,35 @@ pub fn resolve_action_request(
             .map(|input| input.value.trim().to_string())
             .filter(|value| !value.is_empty())
             .ok_or_else(|| anyhow!("Pick a pull request to fix (--input pr=<issue>)."))?;
-        match api::issues::issues_get(&ctx.trpc, &value) {
-            Ok(fetched) => {
-                let issue = fetched.issue;
-                if issue.pr_state.as_deref() != Some("open") {
-                    bail!("That pull request is no longer open.");
-                }
-                let branch = issue
-                    .branch
-                    .clone()
-                    .filter(|branch| !branch.is_empty())
-                    .ok_or_else(|| anyhow!("That pull request has no recorded branch."))?;
-                Some(FixTarget {
-                    identifier: issue.identifier.clone(),
-                    branch,
-                    issue_id: issue.id.clone(),
-                    board_id: issue.board_id.clone(),
-                    workflow_repository_id: None,
-                })
-            }
-            // EXP-1072: no issue has that id — it may name a WORKFLOW, whose
-            // ONE final PR the builtin fixes (desktop `action_run.rs` parity).
-            Err(api::ApiError::Http { status: 404, .. }) => {
-                let workflow = api::workflows::get(&ctx.trpc, &value)
-                    .context("resolve the pull request's issue or workflow")?;
-                Some(workflow_fix_target(workflow)?)
-            }
-            Err(err) => {
-                return Err(anyhow::Error::from(err).context("resolve the pull request's issue"))
-            }
+        let issue = api::issues::issues_get(&ctx.trpc, &value)
+            .context("resolve the pull request's issue")?
+            .issue;
+        if issue.pr_state.as_deref() != Some("open") {
+            bail!("That pull request is no longer open.");
         }
+        let branch = issue
+            .branch
+            .clone()
+            .filter(|branch| !branch.is_empty())
+            .ok_or_else(|| anyhow!("That pull request has no recorded branch."))?;
+        Some(FixTarget {
+            identifier: issue.identifier.clone(),
+            branch,
+            issue_id: issue.id.clone(),
+            board_id: issue.board_id.clone(),
+        })
     } else {
         None
     };
 
     let (action, repo_group) = if builtin {
-        // EXP-981: named explicitly, never an `else` — an id this build does
+        // Named explicitly, never an `else` — an id this build does
         // not know must REFUSE, not fall through to the creator and author an
         // action nobody asked for (desktop `action_run.rs` parity).
         let mut action = match action_id {
             BUILTIN_FIX_CONFLICTS_ID => api::actions::builtin_fix_conflicts_action(team_id),
             BUILTIN_CHAT_ID => api::actions::builtin_chat_action(team_id),
             BUILTIN_TIDY_UP_ID => api::actions::builtin_tidy_up_action(team_id),
-            BUILTIN_PLAN_WORKFLOW_ID => api::actions::builtin_plan_workflow_action(team_id),
             BUILTIN_CREATE_ACTION_ID => api::actions::builtin_create_action(team_id),
             other => bail!(
                 "this app version does not know the builtin action `{other}`; update Exponential on this machine"
@@ -388,37 +338,16 @@ pub fn resolve_action_request(
                 ActionRepo::Provided(group) => group,
                 ActionRepo::Resolve => {
                     let fix = fix_target.as_ref().expect("fix target resolved above");
-                    // EXP-1072: a workflow's final PR lives in the WORKFLOW's
-                    // repository — no board, so `repositories.forIssue` does
-                    // not apply.
-                    if let Some(repository_id) = fix.workflow_repository_id.as_ref() {
-                        let repository_id = repository_id
-                            .as_deref()
-                            .ok_or_else(|| anyhow!("That workflow has no linked repository."))?;
-                        let rows = fetch_repositories(&ctx.trpc, &action.team_id)
-                            .context("resolve the repository")?;
-                        let row = rows
-                            .into_iter()
-                            .find(|row| row.id == repository_id)
-                            .ok_or_else(|| anyhow!("That repository is no longer connected."))?;
-                        Some(RepoGroup {
-                            repository_id: row.id,
-                            full_name: row.full_name,
-                            default_branch: row.default_branch.unwrap_or_default(),
-                        })
-                    } else {
-                        let issue_id = &fix.issue_id;
-                        let repository = api::repositories::for_issue(&ctx.trpc, issue_id)
-                            .context("resolve the pull request's repository")?
-                            .ok_or_else(|| {
-                                anyhow!("That pull request's board has no linked repository.")
-                            })?;
-                        Some(RepoGroup {
-                            repository_id: repository.repository_id,
-                            full_name: repository.full_name,
-                            default_branch: repository.default_branch,
-                        })
-                    }
+                    let repository = api::repositories::for_issue(&ctx.trpc, &fix.issue_id)
+                        .context("resolve the pull request's repository")?
+                        .ok_or_else(|| {
+                            anyhow!("That pull request's board has no linked repository.")
+                        })?;
+                    Some(RepoGroup {
+                        repository_id: repository.repository_id,
+                        full_name: repository.full_name,
+                        default_branch: repository.default_branch,
+                    })
                 }
             }
         } else {
@@ -457,7 +386,6 @@ pub fn resolve_action_request(
             branch,
             issue_id,
             board_id,
-            workflow_repository_id,
         }) => {
             let default_branch = repo_group
                 .as_ref()
@@ -477,15 +405,12 @@ pub fn resolve_action_request(
                 board_id,
                 identifier,
                 issue_id,
-                // EXP-1072: the `pr` input named a workflow — its final PR.
-                workflow_final_pr: workflow_repository_id.is_some(),
             }
         }
-        // EXP-615/EXP-981: the builtin kinds are id-dispatched (desktop
+        // EXP-615: the builtin kinds are id-dispatched (desktop
         // parity); the factory above already refused an unknown id.
         None if chatting => ActionRunKind::Chat,
         None if tidying => ActionRunKind::TidyUp,
-        None if planning => ActionRunKind::PlanWorkflow,
         None if builtin => ActionRunKind::CreateAction,
         None => ActionRunKind::Team,
     };

@@ -3,15 +3,15 @@
 // draws the same badge and the same three bands off this one function
 // (iOS `PrGraph.swift`, Android `PrGraph.kt`, desktop `pr_graph.rs`):
 //
-//   · BLOCKERS  — the subject issue's direct open blockers (`blocks` rows)
-//   · a BATCH   — issues sharing ONE pull request (`issues.pr_url`)
-//   · a STACK   — pull requests based on each other (`issues.pr_base_branch`)
+//   · BLOCKERS : the subject issue's direct open blockers (`blocks` rows)
+//   · a BATCH  : issues sharing ONE pull request (`issues.pr_url`)
+//   · a STACK  : pull requests based on each other (`issues.pr_base_branch`)
 //
 // SLOP-16 r5: a run FAMILY (`parent_session_id`) no longer earns a badge or a
-// band — the session tree has its own guides in every run list.
+// band: the session tree has its own guides in every run list.
 //
 // A stack MEMBER is a pull request, not an issue, so a batch PR can itself sit
-// in a stack — hence the entry type below. Nothing new is stored: every edge
+// in a stack: hence the entry type below. Nothing new is stored: every edge
 // is already synced.
 //
 // Test names, mirrored ×4: `reports a stack badge for a stacked pr`,
@@ -20,12 +20,12 @@
 
 import { stackChain, type PrStackNode } from "@/lib/pr-stack"
 import { RELATIONS_VIEW_COPY } from "@/lib/issue-relations-view"
-import { openBlockers, type StackStartRelation } from "@/lib/stack-start"
+import { openBlockers, type GraphRelation } from "@/lib/issue-graph"
 import { batchRunIssues, isBatchRun, type BatchRunIssue } from "@/lib/batch-run"
 
 export interface PrGraphIssue extends PrStackNode, BatchRunIssue {
   identifier: string
-  /** The dual-written ANCHOR enum — what `openBlockers` judges. */
+  /** The dual-written ANCHOR enum: what `openBlockers` judges. */
   status: string
   prUrl: string | null
 }
@@ -34,7 +34,7 @@ export interface PrGraphSession {
   id: string
   issueId: string | null
   prUrl?: string | null
-  /** EXP-876: a BATCH run's own subject — the issues it covers. Absent on a
+  /** EXP-876: a BATCH run's own subject: the issues it covers. Absent on a
    *  caller that does not carry them; such a run resolves no batch. */
   actionName?: string | null
   batchIssueIds?: string[] | null
@@ -44,14 +44,14 @@ export interface PrGraphSession {
 /** ONE pull request: a single issue, or every issue sharing its `prUrl`. */
 export interface PrGraphEntry<I> {
   key: string
-  /** The representative row — it carries the branch, base and PR fields. */
+  /** The representative row: it carries the branch, base and PR fields. */
   issue: I
   /** Every issue on this pull request, in caller order (length 1 = plain). */
   issues: I[]
 }
 
 export interface PrGraph<I> {
-  /** The subject issue — the given one, else the run's own issue. */
+  /** The subject issue: the given one, else the run's own issue. */
   subject: I | null
   /** The pull request the subject belongs to; null when it has none. */
   entry: PrGraphEntry<I> | null
@@ -60,7 +60,7 @@ export interface PrGraph<I> {
   stack: { entry: PrGraphEntry<I>; depth: number }[]
   /** The issues sharing the subject's pull request; null when it is not one. */
   batch: { issues: I[] } | null
-  /** The issue face's "Blocked by" section — open blockers of the subject. */
+  /** The issue face's "Blocked by" section: open blockers of the subject. */
   blockedBy: I[]
   /** 1-based position in `stack` (0 when not stacked) and the stack's size. */
   position: number
@@ -76,7 +76,7 @@ function groupEntries<I extends PrGraphIssue>(
   const byKey = new Map<string, PrGraphEntry<I>>()
   const byIssueId = new Map<string, PrGraphEntry<I>>()
   for (const issue of issues) {
-    // An issue with no pull request cannot collide — keyed by its own id.
+    // An issue with no pull request cannot collide: keyed by its own id.
     const key = issue.prUrl && issue.prUrl.length > 0 ? issue.prUrl : issue.id
     let entry = byKey.get(key)
     if (!entry) {
@@ -92,15 +92,15 @@ function groupEntries<I extends PrGraphIssue>(
 
 /**
  * EXP-876: a BATCH run's own entry. A batch links no issue and stamps no
- * `pr_url` of its own, so before this it resolved nothing at all — the pill
+ * `pr_url` of its own, so before this it resolved nothing at all: the pill
  * and its sheet, the one surface built to name work that spans several
  * issues, never appeared on the very run that spans them. Its covered set
  * (`batch_issue_ids`) IS the entry.
  *
  * The PR-grouped entry wins whenever there is one: it carries the branch and
  * the base the stack chains on, so a batch PR stacked on another still reads
- * `stack+batch` and still offers Merge stack. The synthesized entry is what a
- * batch wears BEFORE its PR exists — keyed by the run, since it has no url.
+ * `stack+batch`. The synthesized entry is what a
+ * batch wears BEFORE its PR exists: keyed by the run, since it has no url.
  */
 function batchSessionEntry<I extends PrGraphIssue, S extends PrGraphSession>(
   session: S | null,
@@ -126,7 +126,7 @@ function batchSessionEntry<I extends PrGraphIssue, S extends PrGraphSession>(
 }
 
 /**
- * Everything the badge and its overlay need for ONE subject — an issue, a run,
+ * Everything the badge and its overlay need for ONE subject: an issue, a run,
  * or both (a run's Issue face). Pure: every input is already synced.
  */
 export function prGraph<
@@ -136,7 +136,7 @@ export function prGraph<
   issue?: I | null
   session?: S | null
   issues: readonly I[]
-  relations?: readonly StackStartRelation[]
+  relations?: readonly GraphRelation[]
 }): PrGraph<I> {
   const { issues, relations = [] } = input
   const { entries, byIssueId } = groupEntries(issues)
@@ -193,7 +193,7 @@ export function prGraph<
   }
 }
 
-/** Which relation(s) the subject has — `null` = no chip at all. */
+/** Which relation(s) the subject has: `null` = no chip at all. */
 export function badgeKind<I>(graph: PrGraph<I>): BadgeKind {
   const stacked = graph.stack.length >= 2
   const batched = graph.batch !== null
@@ -203,11 +203,11 @@ export function badgeKind<I>(graph: PrGraph<I>): BadgeKind {
   return null
 }
 
-/** EXP-1079/EXP-1097: what the header badge DRAWS, the SAME on every face —
+/** EXP-1079/EXP-1097: what the header badge DRAWS, the SAME on every face -
  *  Issue, Run and Changes alike. First match wins:
  *
  *    1. a PR relation (`badgeKind`: stack, batch, stack+batch);
- *    2. `blocked` — the subject issue has OPEN blockers (`graph.blockedBy`);
+ *    2. `blocked`: the subject issue has OPEN blockers (`graph.blockedBy`);
  *    3. `null` = no badge. A run family alone earns none (SLOP-16 r5).
  *
  *  The same rule, byte for byte, in desktop `pr_graph.rs` (`badge_shape`),
@@ -221,13 +221,13 @@ export function badgeShape<I>(graph: PrGraph<I>): BadgeShape {
   return null
 }
 
-/** EXP-1058: what the header badge counts — the front issue and how many ride
+/** EXP-1058: what the header badge counts: the front issue and how many ride
  *  behind it (`+N`).
  *
- *  · stack / batch — `issue` = the subject's pull request's representative
+ *  · stack / batch: `issue` = the subject's pull request's representative
  *    row, `count` = every OTHER issue on the stack (all its entries' issues)
  *    or batch;
- *  · `blocked` (EXP-1097) — `issue` = the FIRST open blocker in `blockedBy`
+ *  · `blocked` (EXP-1097): `issue` = the FIRST open blocker in `blockedBy`
  *    order, `count` = the other open blockers.
  *
  *  `null` = no badge, exactly when `badgeShape` is null. Face-independent and
@@ -256,7 +256,7 @@ export type OverlaySection = `blocked` | `batch` | `stack`
 
 const OVERLAY_SECTION_ORDER: OverlaySection[] = [`blocked`, `batch`, `stack`]
 
-/** SLOP-16 r5: the batch PARTNERS — every issue sharing the subject's pull
+/** SLOP-16 r5: the batch PARTNERS: every issue sharing the subject's pull
  *  request but the subject itself (a batch run with no issue lists them all). */
 export function batchPartners<I extends { id: string }>(graph: PrGraph<I>): I[] {
   return (graph.batch?.issues ?? []).filter((row) => row.id !== graph.subject?.id)
@@ -272,7 +272,7 @@ export function stackOthers<I>(graph: PrGraph<I>): PrGraphEntry<I>[] {
 }
 
 /** SLOP-16 r5: the dialog's bands, the SAME on every face and in this fixed
- *  order — Blocked by · Same pull request · Pull request stack — each only
+ *  order: Blocked by · Same pull request · Pull request stack: each only
  *  when it has rows. */
 export function overlaySections<I extends { id: string }>(
   graph: PrGraph<I>
@@ -285,7 +285,7 @@ export function overlaySections<I extends { id: string }>(
   return OVERLAY_SECTION_ORDER.filter((section) => present[section])
 }
 
-/** SLOP-16 r3: THE "Related work" view's title — the platform's standard
+/** SLOP-16 r3: THE "Related work" view's title: the platform's standard
  *  modal (web `Dialog`, which drops to its sheet arm on phones). */
 export const RELATED_WORK_TITLE = `Related work`
 

@@ -220,10 +220,9 @@ public struct ClosePrInput: Encodable, Sendable {
 /// EXP-498: merge always ends the linked live coding sessions.
 public struct MergePrInput: Encodable, Sendable {
     public let issueId: String
-    /// EXP-897: merge the WHOLE stack this issue's pull request belongs to,
-    /// bottom-up. Pass the BOTTOM row's issue id — the server resolves the top
-    /// and merges every unmerged member below it. Absent (nil) = today's
-    /// single-PR merge; the key is omitted entirely, never sent as `false`.
+    /// EXP-1145: merge the open stack chain bottom-up THROUGH this issue's
+    /// pull request, one PR at a time (the stack merge dialog's buttons).
+    /// Absent (nil) = the single-PR merge; the key is omitted, never `false`.
     public let mergeStack: Bool?
 
     public init(issueId: String, mergeStack: Bool? = nil) {
@@ -472,9 +471,8 @@ public final class IssuesApi: Sendable {
     /// resolves a batch PR to every linked issue, so merging completes them all;
     /// the `prState`/`status` flips arrive through Electric sync.
     /// Merge always ends the linked coding sessions (EXP-498).
-    /// - Parameter mergeStack: EXP-897 — merge every unmerged pull request in
-    ///   this one's stack, bottom-up, in one call. `issueId` is the BOTTOM
-    ///   row's issue; the server resolves the top of the chain.
+    /// - Parameter mergeStack: EXP-1145, merge the open chain below this
+    ///   pull request bottom-up, then this one (`PrStack.stackMergeChoice`).
     public func mergePr(
         accountId: String, issueId: String, mergeStack: Bool? = nil
     ) async throws {

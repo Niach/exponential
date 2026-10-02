@@ -6,7 +6,7 @@ import type { StyleguideEntry } from "./types.ts"
 // REAL `@exp/ui` component, so it cannot disagree with the product.
 
 const noop = () => {}
-const WorkflowIcon = conceptIcon(`nav-workflows`)
+const SettingsIcon = conceptIcon(`nav-settings`)
 
 export const entry: StyleguideEntry = {
   id: `sub-shell`,
@@ -45,10 +45,10 @@ export const entry: StyleguideEntry = {
           checked
           onCheckedChange={noop}
         />
-        <SubShell label="Workflow settings" icon={WorkflowIcon} value="opus · fable">
+        <SubShell label="Agent settings" icon={SettingsIcon} value="opus · high">
           <GlassGroup>
             <GlassRow>Model</GlassRow>
-            <GlassRow>Strong model</GlassRow>
+            <GlassRow>Effort</GlassRow>
           </GlassGroup>
         </SubShell>
       </GlassGroup>

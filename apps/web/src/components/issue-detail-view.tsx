@@ -771,8 +771,8 @@ export function IssueDetailView({
         }
         trailing={
           <>
-            {/* EXP-897: what this issue is part of — its stack, its batch
-                (SLOP-16: an icon button per shape), its run family or its
+            {/* EXP-897: what this issue is part of: its stack, its batch
+                (SLOP-16: an icon button per shape) or its
                 open blockers (EXP-1097: the same badge on every face). */}
             <PrGraphBadge
               teamId={teamId}

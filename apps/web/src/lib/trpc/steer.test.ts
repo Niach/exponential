@@ -95,8 +95,6 @@ const h = vi.hoisted(() => {
     assertTeamMember: vi.fn(),
     getIssueTeamContext: vi.fn(),
     resolveBoardRepository: vi.fn(),
-    // EXP-897: the stacked start's chain resolver (dynamically imported).
-    resolveStackChain: vi.fn(),
     // FEED-57: the fresh start's live-run probe (codingSessions helper).
     findLiveRunForIssues: vi.fn(),
     // FEED-68: the resume's "already live under another id" probe.
@@ -123,9 +121,6 @@ vi.mock(`@/lib/trpc/repositories`, () => ({
     defaultBranch: string
     defaultBranchOverride: string | null
   }) => repo.defaultBranchOverride ?? repo.defaultBranch,
-}))
-vi.mock(`@/lib/stack-plan`, () => ({
-  resolveStackChain: h.resolveStackChain,
 }))
 vi.mock(`@/lib/trpc/coding-sessions`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/trpc/coding-sessions")>()),
@@ -241,197 +236,27 @@ beforeEach(() => {
     defaultBranch: `main`,
     installationId: 42,
   })
-  h.resolveStackChain.mockReset()
-  h.resolveStackChain.mockResolvedValue({
-    chain: [],
-    lower: null,
-    repositoryId: `repo-1`,
-    repoFullName: `acme/api`,
-    base: `main`,
-  })
   h.findLiveRunForIssues.mockReset()
   h.findLiveRunForIssues.mockResolvedValue(null)
   h.dbQueue.length = 0
 })
 
-// EXP-897: the third start mode. The chain rides the frame fat (the launcher
-// cuts the branch and writes the prompt without a lookup) and is ABSENT
-// whenever there is nothing to stack on — that keeps a plain start's frame
-// byte-identical to the pre-EXP-897 one.
-describe(`steer.startSession — stacked starts (EXP-897)`, () => {
-  const LOWER = {
-    issueId: ISSUE_B,
-    identifier: `EXP-11`,
-    title: `Lower`,
-    status: `in_review`,
-    branch: `exp/EXP-11`,
-    prUrl: `https://github.com/acme/api/pull/241`,
-    prNumber: 241,
-    prState: `open`,
-  }
-
-  it(`carries the chain bottom-up, excluding the started issue`, async () => {
-    h.resolveStackChain.mockResolvedValue({
-      chain: [LOWER],
-      lower: LOWER,
-      repositoryId: `repo-1`,
-      repoFullName: `acme/api`,
-      base: `exp/EXP-11`,
-    })
-    queueOwnDevice({ caps: [`stacked-start`] })
+// The shipped iOS build may still send the retired stack keys: they are
+// stripped and the start is a plain one.
+describe(`steer.startSession — retired stack keys`, () => {
+  it(`starts plainly when an old client sends stack: true`, async () => {
+    queueOwnDevice()
     await caller.startSession({
       issueId: ISSUE_A,
       deviceId: `dev-1`,
       stack: true,
-    })
-    expect(lastStartBody().stack).toEqual({
-      lower: {
-        issueId: ISSUE_B,
-        identifier: `EXP-11`,
-        branch: `exp/EXP-11`,
-        prState: `open`,
-      },
-      chain: [
-        {
-          issueId: ISSUE_B,
-          identifier: `EXP-11`,
-          branch: `exp/EXP-11`,
-          prState: `open`,
-        },
-      ],
-    })
-  })
-
-  it(`passes an explicit stackOn through to the resolver`, async () => {
-    queueOwnDevice({ caps: [`stacked-start`] })
-    await caller.startSession({
-      issueId: ISSUE_A,
-      deviceId: `dev-1`,
       stackOn: { issueId: ISSUE_B },
-    })
-    expect(h.resolveStackChain).toHaveBeenCalledWith(
-      expect.anything(),
-      ISSUE_A,
-      expect.objectContaining({ stackOnIssueId: ISSUE_B, actorUserId: `actor` })
-    )
-  })
-
-  it(`refuses a stackOn issue from another team`, async () => {
-    queueOwnDevice({ caps: [`stacked-start`] })
-    h.getIssueTeamContext.mockImplementation(async (id: string) => ({
-      issueId: id,
-      boardId: `proj-${id}`,
-      teamId: id === ISSUE_B ? `ws-2` : `ws-1`,
-    }))
-    await expect(
-      caller.startSession({
-        issueId: ISSUE_A,
-        deviceId: `dev-1`,
-        stackOn: { issueId: ISSUE_B },
-      })
-    ).rejects.toThrow(`The issue to stack on must be in the same team`)
-    expect(h.resolveStackChain).not.toHaveBeenCalled()
-  })
-
-  it(`omits the stack entirely when nothing blocks the issue`, async () => {
-    queueOwnDevice({ caps: [`stacked-start`] })
-    await caller.startSession({
-      issueId: ISSUE_A,
-      deviceId: `dev-1`,
-      stack: true,
-    })
-    expect(`stack` in lastStartBody()).toBe(false)
-  })
-
-  it(`never resolves a stack on an unstacked start`, async () => {
-    queueOwnDevice({ caps: [`stacked-start`] })
-    await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
-    expect(h.resolveStackChain).not.toHaveBeenCalled()
-    expect(`stack` in lastStartBody()).toBe(false)
-  })
-
-  it(`refuses stacking a BATCH start`, async () => {
-    const error = await rejectionOf(
-      caller.startSession({
-        issueIds: [ISSUE_A, ISSUE_B],
-        deviceId: `dev-1`,
-        stack: true,
-      })
-    )
-    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
-    expect(h.relayPostStart).not.toHaveBeenCalled()
-  })
-
-  it(`refuses stacking a RESUME`, async () => {
-    const error = await rejectionOf(
-      caller.startSession({
-        resumeSessionId: uuid(9),
-        deviceId: `dev-1`,
-        stack: true,
-      })
-    )
-    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
-    expect(h.relayPostStart).not.toHaveBeenCalled()
-  })
-
-  it(`surfaces a blocking cycle as PRECONDITION_FAILED, before waking the device`, async () => {
-    h.resolveStackChain.mockRejectedValue(
-      new Error(`Blocking cycle: A → B → A. Fix the relations before stacking.`)
-    )
-    queueOwnDevice({ caps: [`stacked-start`] })
-    const error = await rejectionOf(
-      caller.startSession({
-        issueId: ISSUE_A,
-        deviceId: `dev-1`,
-        stack: true,
-      })
-    )
-    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
-    expect((error as TRPCError).message).toContain(`Blocking cycle`)
-    expect(h.relayPostStart).not.toHaveBeenCalled()
-  })
-
-  // A device below the `stacked-start` build has no `stack` field in its
-  // decoder: it would run UNSTACKED while the server had already written the
-  // `blocks` relation. Refused BEFORE the chain resolver runs, so nothing is
-  // written and the machine never wakes.
-  it(`refuses a stacked start to a device without the stacked-start cap, before resolving the chain`, async () => {
-    queueOwnDevice({ caps: [`start-prompt`, `resume-run`] })
-    const error = await rejectionOf(
-      caller.startSession({
-        issueId: ISSUE_A,
-        deviceId: `dev-1`,
-        stack: true,
-      })
-    )
-    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
-    expect((error as TRPCError).message).toContain(
-      `older Exponential app that cannot start a stacked PR`
-    )
-    expect(h.resolveStackChain).not.toHaveBeenCalled()
-    expect(h.relayPostStart).not.toHaveBeenCalled()
-  })
-
-  it(`refuses an explicit stackOn to a device without the cap the same way`, async () => {
-    queueOwnDevice()
-    const error = await rejectionOf(
-      caller.startSession({
-        issueId: ISSUE_A,
-        deviceId: `dev-1`,
-        stackOn: { issueId: ISSUE_B },
-      })
-    )
-    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
-    expect(h.resolveStackChain).not.toHaveBeenCalled()
-    expect(h.relayPostStart).not.toHaveBeenCalled()
-  })
-
-  it(`never asks for the cap on a plain start`, async () => {
-    queueOwnDevice()
-    await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
+    } as never)
     expect(h.relayPostStart).toHaveBeenCalledTimes(1)
     expect(`stack` in lastStartBody()).toBe(false)
+    expect(`stackOn` in lastStartBody()).toBe(false)
   })
+
 })
 
 describe(`steer.startSession — subject XOR`, () => {
@@ -640,7 +465,7 @@ describe(`steer.startSession — live run on a target issue`, () => {
     id: `99999999-9999-4999-8999-999999999999`,
     deviceLabel: `studio`,
     userId: `actor`,
-    startedReason: `workflow`,
+    startedReason: `agent`,
     branch: `exp/batch-1a2b3c4d`,
     identifiers: [`EXP-2`],
   }
@@ -667,7 +492,7 @@ describe(`steer.startSession — live run on a target issue`, () => {
     )) as TRPCError
     expect(error.code).toBe(`CONFLICT`)
     expect(error.message).toBe(
-      `EXP-2 already has a live run on studio (session ${live.id}, started by workflow, branch exp/batch-1a2b3c4d). Stop it or let it end before starting another.`
+      `EXP-2 already has a live run on studio (session ${live.id}, started by agent, branch exp/batch-1a2b3c4d). Stop it or let it end before starting another.`
     )
     expect(h.findLiveRunForIssues).toHaveBeenCalledWith(expect.anything(), [ISSUE_A, ISSUE_B])
     expect(h.relayPostStart).not.toHaveBeenCalled()
@@ -2286,7 +2111,7 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
       id: uuid(9),
       deviceLabel: `studio`,
       userId: `someone-else`,
-      startedReason: `workflow`,
+      startedReason: `agent`,
       branch: `exp/batch-1a2b3c4d`,
       identifiers: [`EXP-1`],
       owner: { name: `Dana`, email: `dana@example.com` },
@@ -2298,7 +2123,7 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
 
     expect((error as TRPCError).code).toBe(`CONFLICT`)
     expect((error as TRPCError).message).toBe(
-      `EXP-1 already has a live run on studio (session ${uuid(9)}, started by workflow, branch exp/batch-1a2b3c4d). Dana (dana@example.com) owns it: only they can stop it, or let it end before starting another.`
+      `EXP-1 already has a live run on studio (session ${uuid(9)}, started by agent, branch exp/batch-1a2b3c4d). Dana (dana@example.com) owns it: only they can stop it, or let it end before starting another.`
     )
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
@@ -2606,7 +2431,7 @@ describe(`steer.startSession — MCP servers + account (EXP-792)`, () => {
 
   it(`keeps mcpServerIds for a device without the retired cap`, async () => {
     h.dbQueue.push([{ id: MCP_A, teamId: `ws-1` }])
-    queueOwnDevice({ caps: [`agent-start`, `start-prompt`, `stacked-start`] })
+    queueOwnDevice({ caps: [`agent-start`, `start-prompt`] })
     await caller.startSession({
       issueId: ISSUE_A,
       deviceId: `dev-1`,
@@ -2910,101 +2735,6 @@ describe(`steer.startSession — retired builtin text inputs`, () => {
     )
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
     expect((error as TRPCError).message).toContain(`Unknown input "prompt"`)
-  })
-})
-
-// EXP-1082 §1: the run's workflow membership rides the relay frame verbatim.
-describe(`steer.startSession — workflow membership (EXP-1082)`, () => {
-  const WF = `77777777-7777-4777-8777-777777777777`
-  const NODE = `88888888-8888-4888-8888-888888888888`
-
-  // Only a RUN (an MCP caller) is ever the workflow host; a browser or
-  // phone caller's keys are ignored, never refused.
-  const hostCaller = steerRouter.createCaller({
-    session: { user: { id: `actor`, name: `Actor`, email: `a@example.com` } },
-    db: ctxDb,
-    request: new Request(`http://localhost/`),
-    viaMcp: true,
-  } as never)
-
-  it(`forwards workflowId, workflowNodeId and workflowRole on the frame for a run`, async () => {
-    queueOwnDevice()
-    await hostCaller.startSession({
-      issueId: ISSUE_A,
-      deviceId: `dev-1`,
-      workflowId: WF,
-      workflowNodeId: NODE,
-      workflowRole: `author`,
-    })
-    expect(lastStartBody()).toMatchObject({
-      workflowId: WF,
-      workflowNodeId: NODE,
-      workflowRole: `author`,
-    })
-  })
-
-  it(`drops a person's membership keys from the frame`, async () => {
-    queueOwnDevice()
-    await caller.startSession({
-      issueId: ISSUE_A,
-      deviceId: `dev-1`,
-      workflowId: WF,
-      workflowNodeId: NODE,
-      workflowRole: `review`,
-    })
-    const body = lastStartBody()
-    expect(`workflowId` in body).toBe(false)
-    expect(`workflowNodeId` in body).toBe(false)
-    expect(`workflowRole` in body).toBe(false)
-  })
-
-  it(`carries a membership on an ordinary action start without treating it as a plan`, async () => {
-    queueAction({ name: `Code review` })
-    queueOwnDevice({ caps: [`actions`, `action-inputs`, `start-prompt`] })
-    await hostCaller.startSession({
-      actionId: ACTION_ID,
-      deviceId: `dev-1`,
-      prompt: `Look at the diff`,
-      workflowId: WF,
-      workflowNodeId: NODE,
-      workflowRole: `author`,
-    })
-    const body = lastStartBody()
-    expect(body).toMatchObject({
-      actionId: ACTION_ID,
-      workflowId: WF,
-      workflowNodeId: NODE,
-      workflowRole: `author`,
-    })
-    // The caller's prompt survives: no planner prompt, no workflows read.
-    expect(body.prompt).toBe(`Look at the diff`)
-    expect(h.dbQueue).toEqual([])
-  })
-
-  it(`keeps the keys off the wire when absent`, async () => {
-    queueOwnDevice()
-    await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
-    const body = lastStartBody()
-    expect(`workflowId` in body).toBe(false)
-    expect(`workflowNodeId` in body).toBe(false)
-    expect(`workflowRole` in body).toBe(false)
-  })
-
-  it(`refuses a node or role without a workflowId, and an off-contract role`, async () => {
-    const orphan = await rejectionOf(
-      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, workflowRole: `author` })
-    )
-    expect((orphan as TRPCError).code).toBe(`BAD_REQUEST`)
-    const bad = await rejectionOf(
-      caller.startSession({
-        issueId: ISSUE_A,
-        deviceId: `dev-1`,
-        workflowId: WF,
-        workflowRole: `boss` as never,
-      })
-    )
-    expect((bad as TRPCError).code).toBe(`BAD_REQUEST`)
-    expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 })
 

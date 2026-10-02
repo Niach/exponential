@@ -93,9 +93,6 @@ export interface RemoteStartAction {
   id: string
   name: string
   teamId: string
-  /** EXP-981: the draft workflow a `builtin:plan-workflow` run plans. The
-   * server writes the prompt's `Workflow: <uuid>` head itself. */
-  workflowId?: string
 }
 
 export interface RemoteStart {
@@ -114,11 +111,7 @@ export interface RemoteStart {
     device: SteerDevice,
     options: StartCodingOptions,
     issueIds: string[],
-    prompt?: string,
-    /** EXP-897: `stack` cuts the branch from the blocker's PR branch and bases
-     * the pull request on it. SINGLE-issue starts only (the server refuses it
-     * on a batch — a batch has no one blocker to build on). */
-    opts?: { stack?: boolean }
+    prompt?: string
   ) => Promise<void>
   /** Resolves on delivery, rejects on failure (toast already shown).
    * EXP-825: `prompt` is REQUIRED for the Chat and Create action builtins
@@ -269,8 +262,7 @@ export function useRemoteStart(
     device: SteerDevice,
     options: StartCodingOptions,
     issueIds: string[],
-    prompt?: string,
-    opts?: { stack?: boolean }
+    prompt?: string
   ) => {
     const key = startedRunKeyForIssues(issueIds)
     if (!key) return
@@ -289,15 +281,11 @@ export function useRemoteStart(
       await trpc.steer.startSession.mutate(
         // 1 issue → plain single-issue session; 2+ → one batch session on a
         // single pushed branch (the server contract owns the fan-out).
-        // EXP-897: `stack` rides the SINGLE-issue frame only, and only when
-        // asked for — an omitted key keeps the frame byte-identical for
-        // relays and desktops that predate it.
         issueIds.length === 1
           ? {
               issueId: issueIds[0],
               ...base,
               ...(resume ? { resume } : {}),
-              ...(opts?.stack ? { stack: true } : {}),
             }
           : { issueIds, ...base },
         { context: { skipErrorToast: true } }
@@ -334,7 +322,6 @@ export function useRemoteStart(
           // teamId is required iff the action is the virtual builtin (no DB
           // row to derive the team from) and forbidden otherwise.
           ...(isBuiltinActionId(action.id) ? { teamId: action.teamId } : {}),
-          ...(action.workflowId ? { workflowId: action.workflowId } : {}),
           ...(inputs ? { inputs } : {}),
           ...(prompt && prompt.trim() ? { prompt } : {}),
           ...rest,

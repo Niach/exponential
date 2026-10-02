@@ -162,14 +162,10 @@ describe(`entityRefRoute`, () => {
     })
   })
 
-  it(`sends a run, a workflow and a thread to their own pages`, () => {
+  it(`sends a run and a thread to their own pages`, () => {
     expect(route({ kind: `session`, id: `s-1` })).toEqual({
       to: `/t/$teamSlug/sessions/$sessionId`,
       params: { teamSlug: `acme`, sessionId: `s-1` },
-    })
-    expect(route({ kind: `workflow`, id: `w-1` })).toEqual({
-      to: `/t/$teamSlug/workflows/$workflowId`,
-      params: { teamSlug: `acme`, workflowId: `w-1` },
     })
     expect(route({ kind: `thread`, id: `th-1` })).toEqual({
       to: `/t/$teamSlug/support/$threadId`,

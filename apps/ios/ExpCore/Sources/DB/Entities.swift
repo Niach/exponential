@@ -244,7 +244,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
     public let prNumber: Int?
     public let prState: String?
     public let branch: String?
-    /// EXP-897: the branch this issue's PR is BASED on. The stack edge —
+    /// EXP-897: the branch this issue's PR is BASED on. The stack edge:
     /// `child.pr_base_branch == lower.branch` within one repository. NULL (or
     /// the repo's default branch) = not stacked on anything of ours.
     public let prBaseBranch: String?
@@ -475,17 +475,9 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
     // `exponential_sessions_start` (FK SET NULL); nil on a top-level run. The
     // session lists nest a child under its parent (SessionTree).
     public let parentSessionId: String?
-    // EXP-1082 (workflow contract): the run's WORKFLOW MEMBERSHIP, stamped by
-    // the server — the workflow and node it works for and its role there
-    // (contract `wfSessionRole`: author|review|base_merge|plan|replan). All
-    // three nil on a run outside any workflow. The session tree groups by
-    // these before any heuristic (EXP-1068 implements).
-    public let workflowId: String?
-    public let workflowNodeId: String?
-    public let workflowRole: String?
     // EXP-1082: the run's open question to a person (`{question, askedAt}`),
     // the raw jsonb TEXT off the wire like `blocked`; nil = none pending.
-    // Read by `WorkflowQuestions.open` (EXP-1065 implements).
+    // The session tree marks a run with one as needing you (`needsYou`).
     public let pendingQuestion: String?
     public let startedAt: String
     public let endedAt: String?
@@ -532,9 +524,6 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         endedBy: String? = nil,
         resumedFromId: String? = nil,
         parentSessionId: String? = nil,
-        workflowId: String? = nil,
-        workflowNodeId: String? = nil,
-        workflowRole: String? = nil,
         pendingQuestion: String? = nil,
         startedAt: String,
         endedAt: String?,
@@ -569,9 +558,6 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         self.endedBy = endedBy
         self.resumedFromId = resumedFromId
         self.parentSessionId = parentSessionId
-        self.workflowId = workflowId
-        self.workflowNodeId = workflowNodeId
-        self.workflowRole = workflowRole
         self.pendingQuestion = pendingQuestion
         self.startedAt = startedAt
         self.endedAt = endedAt
@@ -605,9 +591,6 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         case endedBy = "ended_by"
         case resumedFromId = "resumed_from_id"
         case parentSessionId = "parent_session_id"
-        case workflowId = "workflow_id"
-        case workflowNodeId = "workflow_node_id"
-        case workflowRole = "workflow_role"
         case pendingQuestion = "pending_question"
         case startedAt = "started_at"
         case endedAt = "ended_at"
@@ -671,9 +654,6 @@ extension CodingSessionEntity: Codable {
         parentSessionId = try c.decodeIfPresent(String.self, forKey: .parentSessionId)
         // EXP-1082: pre-EXP-1082 snapshots omit these — decode permissively;
         // `pending_question` is jsonb, same treatment as `blocked`.
-        workflowId = try c.decodeIfPresent(String.self, forKey: .workflowId)
-        workflowNodeId = try c.decodeIfPresent(String.self, forKey: .workflowNodeId)
-        workflowRole = try c.decodeIfPresent(String.self, forKey: .workflowRole)
         pendingQuestion = c.decodeWireJsonString(forKey: .pendingQuestion)
         startedAt = try c.decode(String.self, forKey: .startedAt)
         endedAt = try c.decodeIfPresent(String.self, forKey: .endedAt)
@@ -2049,361 +2029,6 @@ extension DeviceWorktreeEntity: Codable {
         reportedAt = try c.decodeIfPresent(String.self, forKey: .reportedAt)
         createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
         updatedAt = try c.decodeIfPresent(String.self, forKey: .updatedAt)
-    }
-}
-
-// MARK: - Workflow (EXP-981)
-
-// A WORKFLOW — a picked set of issues of ONE repository, planned as a DAG (the
-// `blocks` relations among them are the edges, never copied here) and, from the
-// engine on, run node by node on the bound device. Team-scoped like `actions`
-// (the 23rd Electric shape; board trash rules do NOT apply: a workflow spans
-// boards). `creator_id` stays behind the shape's allowlist and never reaches
-// this decoder. Mirrors packages/db-schema workflows.
-public struct WorkflowEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
-    public static let databaseTableName = "workflows"
-
-    public let id: String
-    public let teamId: String
-    /// ONE repository per workflow; NULL once the repo is unlinked (the
-    /// workflow stays readable and can no longer start).
-    public let repositoryId: String?
-    public let name: String
-    /// contract `wfStatus` (documented varchar).
-    public let status: String
-    /// `devices.device_id` of the runner; nil on a draft nobody bound yet.
-    public let deviceId: String?
-    /// The launch jsonb, stored as stringified JSON and tolerant-parsed lazily
-    /// via `WorkflowLaunch.parse` (the `actions.triggers` pattern).
-    public let launch: String?
-    /// `exp/wf-<id8>`, stamped at create.
-    public let integrationBranch: String
-    /// The ONE final PR integration → default branch.
-    public let finalPrUrl: String?
-    public let finalPrNumber: Int?
-    public let finalPrState: String?
-    /// Dated answers, appended; part of every node prompt.
-    public let decisions: String
-    /// The plan's shape jsonb (`WorkflowMetrics.parse`).
-    public let metrics: String?
-    public let startedAt: String?
-    public let endedAt: String?
-    public let createdAt: String
-    public let updatedAt: String
-
-    public init(
-        id: String,
-        teamId: String,
-        repositoryId: String? = nil,
-        name: String,
-        status: String = "draft",
-        deviceId: String? = nil,
-        launch: String? = nil,
-        integrationBranch: String = "",
-        finalPrUrl: String? = nil,
-        finalPrNumber: Int? = nil,
-        finalPrState: String? = nil,
-        decisions: String = "",
-        metrics: String? = nil,
-        startedAt: String? = nil,
-        endedAt: String? = nil,
-        createdAt: String,
-        updatedAt: String
-    ) {
-        self.id = id
-        self.teamId = teamId
-        self.repositoryId = repositoryId
-        self.name = name
-        self.status = status
-        self.deviceId = deviceId
-        self.launch = launch
-        self.integrationBranch = integrationBranch
-        self.finalPrUrl = finalPrUrl
-        self.finalPrNumber = finalPrNumber
-        self.finalPrState = finalPrState
-        self.decisions = decisions
-        self.metrics = metrics
-        self.startedAt = startedAt
-        self.endedAt = endedAt
-        self.createdAt = createdAt
-        self.updatedAt = updatedAt
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case id, name, status, launch, decisions, metrics
-        case teamId = "team_id"
-        case repositoryId = "repository_id"
-        case deviceId = "device_id"
-        case integrationBranch = "integration_branch"
-        case finalPrUrl = "final_pr_url"
-        case finalPrNumber = "final_pr_number"
-        case finalPrState = "final_pr_state"
-        case startedAt = "started_at"
-        case endedAt = "ended_at"
-        case createdAt = "created_at"
-        case updatedAt = "updated_at"
-    }
-
-    /// The parsed launch options — every field defaulted when the column is
-    /// absent or malformed.
-    public var parsedLaunch: WorkflowLaunch { WorkflowLaunch.parse(launch) }
-
-    /// The parsed plan shape — zeros when the column is absent or malformed.
-    public var parsedMetrics: WorkflowMetrics { WorkflowMetrics.parse(metrics) }
-}
-
-// Custom decode: the two jsonb columns follow the permissive jsonb pattern
-// (object off the Electric wire, pre-stringified from fixtures, null) and
-// `final_pr_number` goes through the type-aware wire helper. The documented
-// varchars carry their schema defaults so a row written by an older server
-// still renders.
-extension WorkflowEntity: Codable {
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(String.self, forKey: .id)
-        teamId = try c.decode(String.self, forKey: .teamId)
-        repositoryId = try c.decodeIfPresent(String.self, forKey: .repositoryId)
-        name = (try? c.decode(String.self, forKey: .name)) ?? ""
-        status = (try? c.decodeIfPresent(String.self, forKey: .status)) ?? "draft"
-        deviceId = try c.decodeIfPresent(String.self, forKey: .deviceId)
-        launch = c.decodeWireJsonString(forKey: .launch)
-        integrationBranch =
-            (try? c.decodeIfPresent(String.self, forKey: .integrationBranch)) ?? ""
-        finalPrUrl = try c.decodeIfPresent(String.self, forKey: .finalPrUrl)
-        finalPrNumber = try? c.decodeWireInt(forKey: .finalPrNumber)
-        finalPrState = try c.decodeIfPresent(String.self, forKey: .finalPrState)
-        decisions = (try? c.decodeIfPresent(String.self, forKey: .decisions)) ?? ""
-        metrics = c.decodeWireJsonString(forKey: .metrics)
-        startedAt = try c.decodeIfPresent(String.self, forKey: .startedAt)
-        endedAt = try c.decodeIfPresent(String.self, forKey: .endedAt)
-        createdAt = (try? c.decode(String.self, forKey: .createdAt)) ?? ""
-        updatedAt = (try? c.decode(String.self, forKey: .updatedAt)) ?? ""
-    }
-}
-
-// MARK: - WorkflowNode (EXP-981)
-
-// One NODE of a workflow: an issue, or a parent issue with its sub-issues (a
-// compound node, run as ONE batch session on one branch with one PR). The 24th
-// Electric shape, team-scoped through the denormalized `team_id`. `wave` /
-// `lane` / `on_cycle` ARE the server-computed layout — no client lays a graph
-// out. Mirrors packages/db-schema workflow_nodes.
-public struct WorkflowNodeEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
-    public static let databaseTableName = "workflow_nodes"
-
-    public let id: String
-    public let workflowId: String
-    public let teamId: String
-    /// The node's representative issue (a compound node's PARENT).
-    public let issueId: String
-    /// A compound node's sub-issues (`EXP-14 +3`); empty for a plain node.
-    public let memberIssueIds: [String]
-    /// contract `wfNodeKind` / `wfNodeState` / `wfRisk`.
-    public let kind: String
-    public let state: String
-    public let risk: String
-    /// The layout: column = wave, row = lane.
-    public let wave: Int
-    public let lane: Int
-    /// On a blocking cycle: drawn red, and the workflow cannot start.
-    public let onCycle: Bool
-    public let sessionId: String?
-    public let attempt: Int
-    public let baseBranch: String?
-    /// What the node expects to change (`text[]`).
-    public let touches: [String]
-    /// EXP-982: when a member cleared the node's PR for the merge train; nil
-    /// while it still waits (and on a node no gate asks about).
-    public let approvedAt: String?
-    /// EXP-983: when the node announced its contract
-    /// (`exponential_workflows_checkpoint`) — what a `contract` start waits
-    /// for; nil until it did.
-    public let checkpointAt: String?
-    /// EXP-983: the NODES this one merges in first — serialization edges the
-    /// engine wrote after two siblings' work collided.
-    public let afterNodeIds: [String]
-    /// EXP-984: how many agent-review rounds the node has been through
-    /// (`workflowMaxReviewRounds`, then it waits for a person).
-    public let reviewRound: Int
-    /// EXP-984: the latest submitted verdict (`WorkflowNodeReview.parse`),
-    /// stored as stringified JSON; nil until an agent reviewed the node.
-    public let review: String?
-    /// EXP-982: why the node is `failed` / `waiting`, in the engine's words.
-    /// EXP-984: also why a `proposed` node was not admitted at once.
-    public let note: String?
-    public let createdAt: String
-    public let updatedAt: String
-
-    public init(
-        id: String,
-        workflowId: String,
-        teamId: String,
-        issueId: String,
-        memberIssueIds: [String] = [],
-        kind: String = "leaf",
-        state: String = "blocked",
-        risk: String = "medium",
-        wave: Int = 0,
-        lane: Int = 0,
-        onCycle: Bool = false,
-        sessionId: String? = nil,
-        attempt: Int = 0,
-        baseBranch: String? = nil,
-        touches: [String] = [],
-        approvedAt: String? = nil,
-        checkpointAt: String? = nil,
-        afterNodeIds: [String] = [],
-        reviewRound: Int = 0,
-        review: String? = nil,
-        note: String? = nil,
-        createdAt: String,
-        updatedAt: String
-    ) {
-        self.id = id
-        self.workflowId = workflowId
-        self.teamId = teamId
-        self.issueId = issueId
-        self.memberIssueIds = memberIssueIds
-        self.kind = kind
-        self.state = state
-        self.risk = risk
-        self.wave = wave
-        self.lane = lane
-        self.onCycle = onCycle
-        self.sessionId = sessionId
-        self.attempt = attempt
-        self.baseBranch = baseBranch
-        self.touches = touches
-        self.approvedAt = approvedAt
-        self.checkpointAt = checkpointAt
-        self.afterNodeIds = afterNodeIds
-        self.reviewRound = reviewRound
-        self.review = review
-        self.note = note
-        self.createdAt = createdAt
-        self.updatedAt = updatedAt
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case id, kind, state, risk, wave, lane, attempt, touches, note, review
-        case workflowId = "workflow_id"
-        case teamId = "team_id"
-        case issueId = "issue_id"
-        case memberIssueIds = "member_issue_ids"
-        case onCycle = "on_cycle"
-        case sessionId = "session_id"
-        case baseBranch = "base_branch"
-        case approvedAt = "approved_at"
-        case checkpointAt = "checkpoint_at"
-        case afterNodeIds = "after_node_ids"
-        case reviewRound = "review_round"
-        case createdAt = "created_at"
-        case updatedAt = "updated_at"
-    }
-
-    /// The parsed review; nil until an agent reviewer submitted a verdict.
-    public var parsedReview: WorkflowNodeReview? { WorkflowNodeReview.parse(review) }
-
-    /// EXP-984: a follow-up filed mid-run that a member has yet to admit. It is
-    /// NOT part of the run — no merge train, no final-PR wait.
-    public var isProposed: Bool { state == DomainContract.wfNodeStateProposed }
-
-    /// The issues this node covers — its representative plus its members.
-    public var coveredIssueIds: [String] { [issueId] + memberIssueIds }
-}
-
-// Custom decode: `member_issue_ids` / `after_node_ids` (jsonb string[]) and
-// `touches` (text[]) all read through the list helper — a JSON array off the wire, the `{a,b}`
-// literal or the stored JSON text back out of GRDB — the layout integers
-// through the type-aware wire helper, and `on_cycle` as Postgres "t"/"f".
-extension WorkflowNodeEntity: Codable {
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(String.self, forKey: .id)
-        workflowId = try c.decode(String.self, forKey: .workflowId)
-        teamId = try c.decode(String.self, forKey: .teamId)
-        issueId = try c.decode(String.self, forKey: .issueId)
-        memberIssueIds = c.decodeWireStringList(forKey: .memberIssueIds)
-        kind = (try? c.decodeIfPresent(String.self, forKey: .kind)) ?? "leaf"
-        state = (try? c.decodeIfPresent(String.self, forKey: .state)) ?? "blocked"
-        risk = (try? c.decodeIfPresent(String.self, forKey: .risk)) ?? "medium"
-        wave = (try? c.decodeWireInt(forKey: .wave)) ?? 0
-        lane = (try? c.decodeWireInt(forKey: .lane)) ?? 0
-        onCycle = c.decodeWireBool(forKey: .onCycle, default: false)
-        sessionId = try c.decodeIfPresent(String.self, forKey: .sessionId)
-        attempt = (try? c.decodeWireInt(forKey: .attempt)) ?? 0
-        baseBranch = try c.decodeIfPresent(String.self, forKey: .baseBranch)
-        touches = c.decodeWireStringList(forKey: .touches)
-        approvedAt = try c.decodeIfPresent(String.self, forKey: .approvedAt)
-        checkpointAt = try c.decodeIfPresent(String.self, forKey: .checkpointAt)
-        afterNodeIds = c.decodeWireStringList(forKey: .afterNodeIds)
-        reviewRound = (try? c.decodeWireInt(forKey: .reviewRound)) ?? 0
-        review = c.decodeWireJsonString(forKey: .review)
-        note = try c.decodeIfPresent(String.self, forKey: .note)
-        createdAt = (try? c.decode(String.self, forKey: .createdAt)) ?? ""
-        updatedAt = (try? c.decode(String.self, forKey: .updatedAt)) ?? ""
-    }
-}
-
-// MARK: - WorkflowEvent
-
-/// EXP-1082: one line of a workflow's EVENT LOG (`workflow_events`, the 25th
-/// Electric shape `workflow-events`) — what happened to the run and when,
-/// optionally about one node and/or one session. `kind` = contract
-/// `wfEventKind`; `message` = the server's human sentence. Rendered by
-/// `WorkflowEventList` (EXP-1068 implements).
-public struct WorkflowEventEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
-    public static let databaseTableName = "workflow_events"
-
-    public let id: String
-    public let workflowId: String
-    public let teamId: String
-    public let nodeId: String?
-    public let sessionId: String?
-    public let at: String
-    public let kind: String
-    public let message: String
-
-    public init(
-        id: String,
-        workflowId: String,
-        teamId: String,
-        nodeId: String? = nil,
-        sessionId: String? = nil,
-        at: String,
-        kind: String,
-        message: String = ""
-    ) {
-        self.id = id
-        self.workflowId = workflowId
-        self.teamId = teamId
-        self.nodeId = nodeId
-        self.sessionId = sessionId
-        self.at = at
-        self.kind = kind
-        self.message = message
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case id, at, kind, message
-        case workflowId = "workflow_id"
-        case teamId = "team_id"
-        case nodeId = "node_id"
-        case sessionId = "session_id"
-    }
-}
-
-extension WorkflowEventEntity: Codable {
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(String.self, forKey: .id)
-        workflowId = try c.decode(String.self, forKey: .workflowId)
-        teamId = try c.decode(String.self, forKey: .teamId)
-        nodeId = try c.decodeIfPresent(String.self, forKey: .nodeId)
-        sessionId = try c.decodeIfPresent(String.self, forKey: .sessionId)
-        at = (try? c.decode(String.self, forKey: .at)) ?? ""
-        kind = (try? c.decodeIfPresent(String.self, forKey: .kind)) ?? ""
-        message = (try? c.decodeIfPresent(String.self, forKey: .message)) ?? ""
     }
 }
 

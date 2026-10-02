@@ -750,11 +750,10 @@ pub(crate) fn merge_pill_labeled(
     })
     .tooltip(target.tooltip())
     .on_click(move |_, window, cx| {
-        // EXP-1145: a stack member with another OPEN member asks first; a
-        // run's own chore PR (a Session target) is never a stack member.
+        // EXP-1145: a member of an open PR stack asks first; a run's own
+        // chore PR (a Session target) is never a stack member.
         if let MergeTarget::Issue { issue_id } = &target {
-            if let Some(choice) = stack_merge_choice_for(issue_id, cx) {
-                open_stack_merge_choice(issue_id.clone(), choice, window, cx);
+            if crate::pr_merge::ask_stack_merge(issue_id, window, cx) {
                 return;
             }
         }
@@ -764,67 +763,6 @@ pub(crate) fn merge_pill_labeled(
         button = button.disabled(true);
     }
     button.into_any_element()
-}
-
-/// EXP-1145: whether a plain Merge on `issue_id` needs the stack dialog.
-/// Reads the issue and its team's open-PR rows off the synced collections;
-/// `None` (a lone PR, or nothing synced) merges plainly.
-fn stack_merge_choice_for(
-    issue_id: &str,
-    cx: &App,
-) -> Option<domain::pr_stack::StackMergeChoice> {
-    let store = Store::try_global(cx)?;
-    let issue = store.collections().issues.read(cx).get(issue_id).cloned()?;
-    let team_id = crate::queries::issue_team_id(cx, issue_id)?;
-    let issues = crate::queries::review_issues(cx, &team_id);
-    domain::pr_stack::stack_merge_choice(&issue, &issues)
-}
-
-/// The stack dialog's window height: the listing, a blank line and two
-/// sentences (the second wraps) above the three-button footer.
-const STACK_MERGE_CHOICE_HEIGHT: f32 = 290.;
-
-/// EXP-1145: the stack merge dialog. The dialog IS the confirm, so both
-/// answers fire at once. Both ride THIS issue's id, like the Reviews row's
-/// "Merge stack" rides its own: the server resolves the whole chain from any
-/// member, and keying the op on this issue keeps the pill's spinner and
-/// failure caption on the pill that was clicked.
-fn open_stack_merge_choice(
-    issue_id: String,
-    choice: domain::pr_stack::StackMergeChoice,
-    window: &mut Window,
-    cx: &mut App,
-) {
-    use crate::pr_merge::{fire_confirmed, MergeOp};
-    use domain::pr_stack::{MERGE_STACK_LABEL, MERGE_THIS_PR_LABEL, STACK_MERGE_CHOICE_TITLE};
-    let this_id = issue_id.clone();
-    let spec = crate::native_dialog::AlertSpec::new(
-        STACK_MERGE_CHOICE_TITLE,
-        choice.body,
-        MERGE_STACK_LABEL,
-    )
-    .height(px(STACK_MERGE_CHOICE_HEIGHT))
-    .secondary(MERGE_THIS_PR_LABEL, move |_, cx| {
-        fire_confirmed(
-            MergeOp::MergeIssuePr {
-                issue_id: this_id.clone(),
-                merge_stack: false,
-            },
-            cx,
-        );
-        true
-    })
-    .on_ok(move |_, cx| {
-        fire_confirmed(
-            MergeOp::MergeIssuePr {
-                issue_id: issue_id.clone(),
-                merge_stack: true,
-            },
-            cx,
-        );
-        true
-    });
-    crate::native_dialog::open_alert(window, cx, spec);
 }
 
 /// The word the swapped slot's secondary Merge wears — the Reviews row's and
@@ -857,9 +795,6 @@ pub(crate) fn merge_slot_swapped(
 /// The issue header's own button always bailed on an unknown board; the
 /// shared slot keeps that guard (and tightens it to the team), so a click can
 /// never open the composer with an empty required input.
-///
-/// EXP-1072: the id may also name a WORKFLOW — its ONE final PR — resolved by
-/// the same rule through the synced `workflows` row's own team.
 pub(crate) fn fix_conflicts_target_resolves(issue_id: &str, window: &Window, cx: &mut App) -> bool {
     let issue_team = Store::try_global(cx).and_then(|store| {
         let collections = store.collections();
@@ -867,14 +802,7 @@ pub(crate) fn fix_conflicts_target_resolves(issue_id: &str, window: &Window, cx:
             .issues
             .read(cx)
             .get(issue_id)
-            .map(|issue| issue.board_id.clone());
-        let Some(board_id) = board_id else {
-            return collections
-                .workflows
-                .read(cx)
-                .get(issue_id)
-                .and_then(|workflow| workflow.team_id.clone());
-        };
+            .map(|issue| issue.board_id.clone())?;
         collections
             .boards
             .read(cx)

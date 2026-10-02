@@ -4,14 +4,6 @@ import { contract } from "@exp/domain-contract"
 import {
   actionInputsSchema,
   actionTriggersSchema,
-  WORKFLOW_MAX_ISSUES,
-  wfNodeKindSchema,
-  wfRiskSchema,
-  workflowReviewHeadSchema,
-  workflowReviewOracleSchema,
-  workflowTouchesSchema,
-  type WfReviewVerdict,
-  type WfSessionRole,
   CATEGORY_ANCHOR,
   customizableStatusCategoryValues,
   dateOnlySchema,
@@ -40,18 +32,16 @@ import {
   isNull,
   like,
   lte,
-  ne,
   notInArray,
   or,
   sql,
   type SQL,
 } from "drizzle-orm"
 import { db } from "@/db/connection"
+import { openStackThrough, type StackMember } from "@/lib/pr-merge-guard"
 import {
   actions,
   attachments,
-  workflowNodes,
-  workflows,
   codingSessions,
   comments,
   devices,
@@ -103,9 +93,7 @@ import {
   loadIssueRelations,
 } from "@/lib/issue-relations"
 import { findRelationCycle } from "@/lib/relation-cycles"
-import { liveWorkflowBaseForIssue } from "@/lib/workflows"
-import { appendDecisionLine } from "@/lib/trpc/workflows"
-import { resolveWorkflowMembership } from "@/lib/sessions/workflow-membership"
+import { escapeLikePattern } from "@/lib/like-pattern"
 import { takeStartFailure } from "@/lib/start-failures"
 import { resolveIssueReference, retiredIdentifiers } from "@/lib/issue-resolver"
 import {
@@ -148,17 +136,6 @@ import {
   type OpenPullByHead,
   PullAlreadyExistsError,
 } from "@/lib/integrations/github-pr"
-import {
-  attachToStack,
-  loadSessionStackContext,
-  loadStackRows,
-  membersAtOrBelow,
-  orderStack,
-  prUrlPattern,
-  resolveStackLower,
-  stackTopOpen,
-  type StackLower,
-} from "@/lib/integrations/pr-stack"
 import { resolveRepoInstallationTokenInfo } from "@/lib/integrations/github-app"
 import { isInstallationLinkedToTeam } from "@/lib/trpc/integrations"
 import { recordIssueEvent } from "@/lib/integrations/activity"
@@ -195,21 +172,16 @@ import { maybeMergeYoloTree } from "@/lib/yolo-tree-merge"
 import { getSteerRelayConfig, relayPostInput } from "@/lib/steer"
 import {
   formatChildQuestion,
-  formatDescendantQuestion,
   formatParentAnswer,
   formatStarterMessage,
   loadChildParentContext,
   resolveLiveParentSessionId,
-  loadSessionChain,
-  loadSessionDepths,
-  loadSubtreeSessionIds,
   notifyParentOfChildEnd,
-  oneLine,
   PARENT_LIVE_STATUSES,
 } from "@/lib/steer-child-messages"
 import { err, ok } from "./helpers"
 import { inlineImageForContext } from "./inline-image"
-// EXP-988: the workflow contract's handler files. The registry owns the
+// EXP-988: the per-tool handler files. The registry owns the
 // registration, the zod schema and the access checks; each file owns ONE
 // tool's behaviour and is filled by its leaf (EXP-979 / EXP-929 / EXP-936)
 // without touching this module.
@@ -280,30 +252,6 @@ function buildCtx(user: McpUser, request: Request): Context {
       },
     },
   } as unknown as Context
-}
-
-/**
- * EXP-897: `mergeStack` lands every open member at-or-below the chain's top,
- * and those members may sit on boards an OAuth grant never named. The tRPC
- * layer has no notion of MCP grants, so the confinement is enforced here, on
- * the same chain the server will merge, before anything reaches GitHub.
- */
-async function assertStackBoardsGranted(
-  access: McpAccess,
-  prUrl: string,
-  teamId: string
-): Promise<void> {
-  const repoFullName = repoFromPrUrl(prUrl)
-  if (!repoFullName) return
-  const rows = await loadStackRows(db, { teamId, repoFullName })
-  const chain = orderStack(rows, prUrl)
-  const top = stackTopOpen(chain)
-  const members = top ? membersAtOrBelow(chain, top.prUrl) : chain
-  for (const member of members) {
-    for (const issue of member.issues) {
-      if (issue.boardId) assertBoardGranted(access, issue.boardId, teamId)
-    }
-  }
 }
 
 function caller(user: McpUser, request: Request) {
@@ -384,87 +332,6 @@ async function getActionContext(id: string) {
   return row
 }
 
-/** The workflow node a session runs for (EXP-982), or null. */
-async function loadWorkflowNodeForSession(sessionId: string) {
-  const [row] = await db
-    .select({
-      nodeId: workflowNodes.id,
-      workflowId: workflowNodes.workflowId,
-      identifier: issues.identifier,
-    })
-    .from(workflowNodes)
-    .innerJoin(issues, eq(issues.id, workflowNodes.issueId))
-    .where(eq(workflowNodes.sessionId, sessionId))
-    .limit(1)
-  return row ?? null
-}
-
-/** EXP-1082/EXP-1065: the run's own workflow membership (author, review,
- *  plan …), off its row. `null` outside any workflow. */
-async function loadWorkflowMembershipForSession(
-  sessionId: string
-): Promise<{ workflowId: string; workflowNodeId: string | null; workflowRole: string | null } | null> {
-  const [row] = await db
-    .select({
-      workflowId: codingSessions.workflowId,
-      workflowNodeId: codingSessions.workflowNodeId,
-      workflowRole: codingSessions.workflowRole,
-    })
-    .from(codingSessions)
-    .where(eq(codingSessions.id, sessionId))
-    .limit(1)
-  return row?.workflowId
-    ? {
-        workflowId: row.workflowId,
-        workflowNodeId: row.workflowNodeId ?? null,
-        workflowRole: row.workflowRole ?? null,
-      }
-    : null
-}
-
-/** Another live run of the same workflow is parked on this very question. */
-async function siblingAlreadyAsked(
-  workflowId: string,
-  sessionId: string,
-  caption: string
-): Promise<boolean> {
-  const rows = await db
-    .select({ id: codingSessions.id })
-    .from(workflowNodes)
-    .innerJoin(codingSessions, eq(codingSessions.id, workflowNodes.sessionId))
-    .where(
-      and(
-        eq(workflowNodes.workflowId, workflowId),
-        ne(codingSessions.id, sessionId),
-        eq(codingSessions.needsInput, true),
-        eq(codingSessions.agentCaption, caption),
-        inArray(codingSessions.status, [`running`, `in_review`])
-      )
-    )
-    .limit(1)
-  return rows.length > 0
-}
-
-async function getWorkflowContext(id: string) {
-  const [row] = await db
-    .select({ teamId: workflows.teamId })
-    .from(workflows)
-    .where(eq(workflows.id, id))
-    .limit(1)
-  if (!row) throw new Error(`Workflow not found`)
-  return row
-}
-
-// exponential_workflows_update's `nodes[]` entry (declared loose on the wire).
-const workflowNodePatchSchema = z
-  .object({
-    issueId: z.string().min(1),
-    kind: wfNodeKindSchema.optional(),
-    risk: wfRiskSchema.optional(),
-    touches: workflowTouchesSchema.optional(),
-  })
-  .strict()
-
 // Support thread id → its team plus that team's helpdesk switch, in ONE
 // select (EXP-660). The helpdesk router deliberately never reads the flag
 // (REV2-23: disabling freezes threads rather than hiding them), so the MCP
@@ -490,8 +357,8 @@ function assertHelpdeskEnabled(enabled: boolean) {
 const REUSED_PR_NOTE = (head: string) =>
   `${head} already had an open PR: linked to it (its title, body and base are unchanged; exponential_pr_update rewrites the title or body).`
 
-// FEED-59: open the PR, or hand back the one already OPEN on `head` (a batch
-// run that implemented more issues on its branch) so the caller links the
+// FEED-59: open the PR, or hand back the one already OPEN on `head` (a
+// multi-issue run that implemented more issues on its branch) so the caller links the
 // given issues to it. `reusedBase` = that PR's real base, null for a new PR.
 // The lookup runs FIRST and ignores the base: GitHub's 422 only fires for the
 // same head AND base, so a different base would silently open a second PR
@@ -547,6 +414,11 @@ function repoFromPrUrl(prUrl: string): string | null {
   return match ? match[1] : null
 }
 
+/** The LIKE pattern matching every PR url of one repository. */
+function prUrlPattern(repoFullName: string): string {
+  return `https://github.com/${escapeLikePattern(repoFullName)}/pull/%`
+}
+
 const sessionColumns = {
   id: codingSessions.id,
   issueId: codingSessions.issueId,
@@ -587,75 +459,20 @@ const sessionColumns = {
 }
 
 /**
- * EXP-679 + EXP-1082 §1 rule (c): the device creates a child's row, so its
- * links are stamped after `exponential_sessions_start`'s poll: the parent
- * (when the row has none) and, when the row joined no workflow itself and
- * the calling run belongs to one, the parent's workflow + node through
- * `resolveWorkflowMembership` (role `author` for an issue or batch child,
- * else none). The membership is stamped only when the calling run is the
- * caller's own (owner or host) and the child is in the workflow's team: the
- * header names a run, it proves nothing. History only: the caller swallows
- * a failure.
+ * EXP-679: the device creates a child's row, so its parent link is stamped
+ * after `exponential_sessions_start`'s poll (when the row has none). History
+ * only: the caller swallows a failure.
  */
 async function stampChildOfRun(
   row: { id: unknown; parentSessionId?: unknown },
-  sessionId: string,
-  userId: string
+  sessionId: string
 ): Promise<void> {
-  const rowId = row.id as string
-  const patch: {
-    parentSessionId?: string
-    workflowId?: string | null
-    workflowNodeId?: string | null
-    workflowRole?: string | null
-  } = {}
-  if (!row.parentSessionId) patch.parentSessionId = sessionId
-  const [parent] = await db
-    .select({
-      workflowId: codingSessions.workflowId,
-      workflowNodeId: codingSessions.workflowNodeId,
-      userId: codingSessions.userId,
-      hostUserId: codingSessions.hostUserId,
-    })
-    .from(codingSessions)
-    .where(eq(codingSessions.id, sessionId))
-    .limit(1)
-  const parentIsMine =
-    !!parent && (parent.userId === userId || parent.hostUserId === userId)
-  const [child] =
-    parent?.workflowId && parentIsMine
-      ? await db
-          .select({
-            workflowId: codingSessions.workflowId,
-            issueId: codingSessions.issueId,
-            batchIssueIds: codingSessions.batchIssueIds,
-            startedReason: codingSessions.startedReason,
-            teamId: codingSessions.teamId,
-          })
-          .from(codingSessions)
-          .where(eq(codingSessions.id, rowId))
-          .limit(1)
-      : []
-  if (child && !child.workflowId && parent?.workflowId) {
-    const [workflow] = await db
-      .select({ teamId: workflows.teamId })
-      .from(workflows)
-      .where(eq(workflows.id, parent.workflowId))
-      .limit(1)
-    if (workflow && workflow.teamId === child.teamId) {
-      const membership = resolveWorkflowMembership({
-        parent,
-        startedReason: child.startedReason,
-        issueIds: child.issueId ? [child.issueId] : (child.batchIssueIds ?? []),
-      })
-      patch.workflowId = membership.workflowId
-      patch.workflowNodeId = membership.workflowNodeId
-      patch.workflowRole = membership.workflowRole
-    }
-  }
-  if (Object.keys(patch).length === 0) return
-  await db.update(codingSessions).set(patch).where(eq(codingSessions.id, rowId))
-  if (patch.parentSessionId) row.parentSessionId = sessionId
+  if (row.parentSessionId) return
+  await db
+    .update(codingSessions)
+    .set({ parentSessionId: sessionId })
+    .where(eq(codingSessions.id, row.id as string))
+  row.parentSessionId = sessionId
 }
 
 // How long exponential_sessions_start waits for the device to report the
@@ -981,53 +798,51 @@ export function registerExponentialTools(
     }
   }
 
-  // Park the run that just opened a PR in `in_review` and stamp the PR's head
-  // branch on it (EXP-545: the row↔PR linkage clients tie their Merge
-  // shortcut to). The EXP-637 session header names the EXACT row; a call
-  // without one parks NOTHING (EXP-710 removed the pre-EXP-637 heuristic
-  // over the caller's issue-less running rows — two concurrent batch runs by
-  // one user in one team were indistinguishable to it). `needsInput` resets
-  // with the flip like the per-issue path (EXP-531).
-  // EXP-734: the chore path also hands over the PR it just opened — the
-  // session row is the ONLY home for an issue-less PR, so `pr_url/pr_number/
-  // pr_state` land next to the branch; issue and batch callers pass nothing
-  // (their issue rows carry the PR). That stamp is ISSUE-LESS-ONLY, on the
-  // caller's row exactly as `applySessionPrState` (pr-sync.ts) reads it: an
-  // issue-scoped run may open a side chore PR too, and stamping it there
-  // would strand `pr_state` at `open` forever — every advancing path
-  // (pr-sync, the poller, `codingSessions.mergePr`) filters `issue_id IS
-  // NULL`. So an issue-scoped caller's row is left ALONE by the chore path
-  // (its branch is its issue branch), guarded both here and at the call
-  // site; the batch/issue paths pass no `pr` and are untouched.
+  // Park the run that just opened a PR in `in_review` and stamp the PR on it
+  // (EXP-545/734: the row↔PR linkage clients tie their Merge shortcut to).
+  // The EXP-637 session header names the EXACT row; a call without one parks
+  // NOTHING (EXP-710). EVERY pr_open form stamps `branch/pr_url/pr_number/
+  // pr_state` on the caller's live row, a reused open PR included, so the
+  // run owns its PR: `applySessionPrState` (pr-sync.ts), the poller and
+  // `codingSessions.mergePr` advance it off the exact url. Only a `running`
+  // row flips to `in_review`; `needsInput` resets with the flip (EXP-531).
+  // SLOP-3: only a run of the PR's own team — another team's PR on the row
+  // would let its merge end this run; a mismatch skips, the PR stays open.
   async function parkSessionInReview(
     tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
     opts: {
       callerSessionId: string | null
+      prTeamId: string
       headBranch: string
-      pr?: { url: string; number: number }
+      pr: { url: string; number: number }
     }
   ): Promise<void> {
     if (!opts.callerSessionId) return
+    const now = new Date()
+    await tx
+      .update(codingSessions)
+      .set({ status: `in_review` as const, needsInput: false, updatedAt: now })
+      .where(
+        and(
+          eq(codingSessions.id, opts.callerSessionId),
+          eq(codingSessions.teamId, opts.prTeamId),
+          eq(codingSessions.status, `running`)
+        )
+      )
     await tx
       .update(codingSessions)
       .set({
-        status: `in_review` as const,
         branch: opts.headBranch,
-        needsInput: false,
-        updatedAt: new Date(),
-        ...(opts.pr
-          ? {
-              prUrl: opts.pr.url,
-              prNumber: opts.pr.number,
-              prState: `open` as const,
-            }
-          : {}),
+        prUrl: opts.pr.url,
+        prNumber: opts.pr.number,
+        prState: `open` as const,
+        updatedAt: now,
       })
       .where(
         and(
           eq(codingSessions.id, opts.callerSessionId),
-          eq(codingSessions.status, `running`),
-          ...(opts.pr ? [isNull(codingSessions.issueId)] : [])
+          eq(codingSessions.teamId, opts.prTeamId),
+          inArray(codingSessions.status, [`running`, `in_review`])
         )
       )
   }
@@ -2431,8 +2246,7 @@ export function registerExponentialTools(
   // (the caller's own-PR spare, status automation and the session sweep all
   // apply). A refused merge (conflict, branch protection, required checks)
   // never fails the open: the PR stays open — so Reviews reappears on every
-  // client — and the result tells the agent to fix it. Workflow nodes land
-  // through their merge train only.
+  // client — and the result tells the agent to fix it.
   // EXP-1146: with a session header the PR belongs to a run that may still
   // spawn follow-up runs based on this very branch, so nothing merges while
   // that run is busy: `maybeMergeYoloTree` lands the run's whole PR tree once
@@ -2465,15 +2279,11 @@ export function registerExponentialTools(
         .where(eq(teams.id, teamId))
         .limit(1)
       if (!team?.yoloMode) return opened
-      if (ids.length > 0 && (await liveWorkflowBaseForIssue(db, ids[0]!))) {
-        return opened
-      }
       const pr = JSON.parse(opened.content[0]!.text) as { number: number }
       const callerSession = await loadCallerSession()
       if (callerSession) {
         const outcome = await maybeMergeYoloTree(callerSession.id)
-        // EXP-1146: no tree to merge (a workflow chore PR, a run outside yolo
-        // mode): nothing will ever auto-merge this PR, so no `deferred`
+        // EXP-1146: no tree to merge (a run outside yolo mode): nothing will ever auto-merge this PR, so no `deferred`
         // promise that "the tree merges when the last run ends".
         if (outcome.status === `not_yolo`) return opened
         const own =
@@ -2559,8 +2369,6 @@ export function registerExponentialTools(
     body: z.string().max(60_000).optional(),
     head: z.string().max(255).optional(),
     base: z.string().max(255).optional(),
-    // EXP-897: the issue whose OPEN PR this one is stacked on.
-    stackOnIssueId: z.string().min(1).optional(),
   })
   const prOpen = (
     async ({
@@ -2571,14 +2379,8 @@ export function registerExponentialTools(
       body,
       head,
       base,
-      stackOnIssueId,
     }: z.infer<typeof prOpenInput>) => {
       try {
-        if (stackOnIssueId && (base || repositoryId)) {
-          throw new Error(
-            `stackOnIssueId replaces 'base' and cannot be combined with repositoryId.`
-          )
-        }
         const subjects = [
           Boolean(issueId),
           Boolean(issueIds?.length),
@@ -2601,8 +2403,7 @@ export function registerExponentialTools(
         // against). The only side effect beyond the PR itself is parking the
         // CALLING session in `in_review` with the PR stamped on it (EXP-734:
         // the run IS the link — clients merge and review it off the row),
-        // and that needs the session header — there is no batch heuristic
-        // to fall back on here.
+        // and that needs the session header.
         if (repositoryId) {
           const repo = await loadRepositoryForTeam(repositoryId)
           assertTeamFullyGranted(access, repo.teamId)
@@ -2650,14 +2451,12 @@ export function registerExponentialTools(
             releasePrOpenClaim(repo.fullName, head!)
           }
 
-          // Only an ISSUE-LESS caller row takes the PR: an issue-scoped run
-          // opening a side chore PR keeps its issue branch and its issue's PR
-          // state (see parkSessionInReview).
           const callerSession = await loadCallerSession()
-          if (callerSession && !callerSession.issueId) {
+          if (callerSession) {
             await db.transaction(async (tx) => {
               await parkSessionInReview(tx, {
                 callerSessionId: callerSession.id,
+                prTeamId: repo.teamId,
                 headBranch: head!,
                 pr: { url: createdPr.url, number: createdPr.number },
               })
@@ -2673,7 +2472,7 @@ export function registerExponentialTools(
           })
         }
 
-        // Resolve + authorize every issue; a batch must land in ONE repo.
+        // Resolve + authorize every issue; a combined PR lands in ONE repo.
         const rawIds = issueIds ?? [issueId!]
         const ids: string[] = []
         for (const raw of rawIds) {
@@ -2703,14 +2502,14 @@ export function registerExponentialTools(
           }
           if (repo && repo.repositoryId !== issueRepo.repositoryId) {
             throw new Error(
-              `All issues in a batch PR must share one repository (${repo.fullName} vs ${issueRepo.fullName}).`
+              `All issues in a combined PR must share one repository (${repo.fullName} vs ${issueRepo.fullName}).`
             )
           }
           // EXP-712: boards on one repo may develop on different branches —
           // a combined PR has exactly one base.
           if (!base && repo && repo.defaultBranch !== issueRepo.defaultBranch) {
             throw new Error(
-              `All issues in a batch PR must share one base branch (${repo.defaultBranch} vs ${issueRepo.defaultBranch}). Pass 'base' to pick one.`
+              `All issues in a combined PR must share one base branch (${repo.defaultBranch} vs ${issueRepo.defaultBranch}). Pass 'base' to pick one.`
             )
           }
           repo = issueRepo
@@ -2731,24 +2530,10 @@ export function registerExponentialTools(
           headBranch = issue.branch ?? `exp/${issue.identifier}`
           if (!issue.branch) guessedFromIdentifier = issue.identifier
         }
-        // EXP-897: the stack edge. Explicit (`stackOnIssueId`) or implicit — a
-        // raw `base` that happens to be a same-team issue's PR branch IS a
-        // stack, and treating it as an opaque branch name is how a stacked PR
-        // ends up with no recorded foundation (no nesting, no "Merge stack",
-        // no retarget-on-merge).
-        let lower: StackLower | null = null
-        let lowerTeamId: string | null = null
-        if (stackOnIssueId) {
-          const lowerId = await resolveIssueId(stackOnIssueId, user.id, access)
-          const lowerCtx = await getIssueTeamContext(lowerId)
-          assertBoardGranted(access, lowerCtx.boardId, lowerCtx.teamId)
-          await resolveTeamAccess(user.id, lowerCtx.teamId)
-          lowerTeamId = lowerCtx.teamId
-          lower = await resolveStackLower(db, {
-            lowerIssueId: lowerId,
-            repoFullName: repo.fullName,
-          })
-        } else if (base && base !== repo.defaultBranch) {
+        // A follow-up run bases on its parent's branch: a `base` that is a
+        // same-team issue's OPEN PR branch makes that issue block this one.
+        let lower: { issueId: string; teamId: string } | null = null
+        if (base && base !== repo.defaultBranch) {
           const [candidate] = await db
             .select({
               id: issues.id,
@@ -2756,8 +2541,6 @@ export function registerExponentialTools(
               teamId: issues.teamId,
               prNumber: issues.prNumber,
               prState: issues.prState,
-              prStackNumber: issues.prStackNumber,
-              prUrl: issues.prUrl,
             })
             .from(issues)
             .where(
@@ -2773,30 +2556,11 @@ export function registerExponentialTools(
               `'${base}' is the branch of merged PR #${candidate.prNumber} (${candidate.identifier}). Rebase onto ${repo.defaultBranch} and pass no base.`
             )
           }
-          if (
-            candidate?.prState === `open` &&
-            candidate.prNumber != null &&
-            candidate.prUrl
-          ) {
-            lowerTeamId = candidate.teamId
-            lower = {
-              issueId: candidate.id,
-              identifier: candidate.identifier,
-              prUrl: candidate.prUrl,
-              prNumber: candidate.prNumber,
-              branch: base,
-              prStackNumber: candidate.prStackNumber,
-            }
+          if (candidate?.prState === `open` && !ids.includes(candidate.id)) {
+            lower = { issueId: candidate.id, teamId: candidate.teamId }
           }
         }
-        // EXP-982: a node of a LIVE workflow bases on its workflow branch
-        // (the node's own base, else the integration branch) — derived from
-        // membership, so the agent passes nothing new. Real GitHub stacks are
-        // linear and are never used by a workflow.
-        const workflowBase =
-          !lower && !base ? await liveWorkflowBaseForIssue(db, ids[0]!) : null
-        let baseBranch =
-          lower?.branch ?? base ?? workflowBase?.base ?? repo.defaultBranch
+        let baseBranch = base ?? repo.defaultBranch
 
         const resolved = await resolveRepoInstallationTokenInfo(repo.fullName)
         if (!resolved) {
@@ -2880,38 +2644,13 @@ export function registerExponentialTools(
           throw e
         }
         // FEED-59: linking to the PR already open on `head`. Nothing new
-        // exists on GitHub (no `opened` webhook to consume the claim), the
-        // edge is that PR's REAL base, and its stack identity is whatever
-        // its already-linked issues carry — never a second stack attach.
+        // exists on GitHub (no `opened` webhook to consume the claim) and the
+        // edge is that PR's REAL base.
         const reused = created.reusedBase != null
-        let reusedStackNumber: number | null = null
         if (reused) {
           releasePrOpenClaim(repo.fullName, headBranch)
+          if (created.reusedBase !== baseBranch) lower = null
           baseBranch = created.reusedBase!
-          if (lower && lower.branch !== baseBranch) lower = null
-          const [linked] = await db
-            .select({ prStackNumber: issues.prStackNumber })
-            .from(issues)
-            .where(eq(issues.prUrl, created.url))
-            .limit(1)
-          reusedStackNumber = linked?.prStackNumber ?? null
-        }
-
-        // EXP-897: put the new PR on top of the lower one on GitHub too. A
-        // repo without the stack preview (404) or a chain GitHub disagrees
-        // with (422) degrades SILENTLY to the plain base-branch PR we just
-        // created — our own edge below is what everything else reads.
-        let stackNumber: number | null = reusedStackNumber
-        let stackCreated = false
-        if (lower && !reused) {
-          const attached = await attachToStack({
-            repo: repo.fullName,
-            token,
-            lower: { prNumber: lower.prNumber, stackNumber: lower.prStackNumber },
-            upperPrNumber: created.number,
-          })
-          stackNumber = attached.stackNumber
-          stackCreated = attached.created
         }
 
         const callerSession = await loadCallerSession()
@@ -2945,9 +2684,9 @@ export function registerExponentialTools(
                 prNumber: created.number,
                 prState: `open`,
                 branch: headBranch,
-                // EXP-897: the synced stack edge + GitHub's stack identity.
+                // The synced base the PR was opened against (or, reused, its
+                // real one).
                 prBaseBranch: baseBranch,
-                prStackNumber: stackNumber,
               })
               .where(eq(issues.id, id))
             await recordIssueEvent(tx, {
@@ -2974,54 +2713,50 @@ export function registerExponentialTools(
             }
           }
 
-          // Batch sessions carry no issue linkage (issue_id NULL), so the
-          // per-issue session flip inside applyPrLifecycleStatusInTx misses
-          // them — park the CALLER's batch session instead (EXP-194), with
-          // the PR's head branch stamped on it (EXP-545: the row↔PR linkage
-          // clients tie their Merge shortcut to). The EXP-637 session header
-          // names the exact row; a headerless caller parks nothing.
-          if (issueIds?.length) {
-            await parkSessionInReview(tx, {
-              callerSessionId: callerSession?.id ?? null,
-              headBranch,
-            })
-          }
+          // The run owns its PR (EXP-734): the CALLER's row is parked and
+          // stamped on every form, a multi-issue run's combined PR included.
+          // One repo, one team: every linked issue's team is the PR's.
+          await parkSessionInReview(tx, {
+            callerSessionId: callerSession?.id ?? null,
+            prTeamId: teamIdByIssue.get(ids[0]!)!,
+            headBranch,
+            pr: { url: created.url, number: created.number },
+          })
 
           if (lower) {
-            // The stack IS a blocking relation: the lower PR must land first.
-            // Written here so the clients nest the pair from the moment the
-            // upper PR exists (idempotent — a re-open writes nothing new).
-            if (stackCreated && stackNumber != null) {
-              await tx
-                .update(issues)
-                .set({ prStackNumber: stackNumber })
-                .where(eq(issues.prUrl, lower.prUrl))
-            }
+            // The lower PR must land first (idempotent — a re-open writes
+            // nothing new).
             for (const id of ids) {
-              if (!lowerTeamId || teamIdByIssue.get(id) !== lowerTeamId) continue
-              // EXP-980: the PR is already open on GitHub, so a cycle is
-              // skipped rather than refused — never written.
-              const cycle = await findRelationCycle(tx, {
-                issueId: lower.issueId,
-                relatedIssueId: id,
-                type: `blocks`,
-              }).catch((err: unknown) => {
-                // A failed probe skips the edge like a cycle would (the PR is
-                // open either way), but says so: a silent skip hides a DB
-                // fault behind "there was a cycle".
-                console.warn(
-                  `[mcp] pr_open: blocks cycle check failed for ${lower.issueId} -> ${id}; skipping the stack relation`,
-                  err
-                )
-                return [id]
-              })
-              if (cycle) continue
-              await insertRelationInTx(tx, {
-                ...canonicalizeRelation(lower.issueId, id, `blocks`),
-                source: `user`,
-                teamId: lowerTeamId,
-                actorUserId: user.id,
-              })
+              if (teamIdByIssue.get(id) !== lower.teamId) continue
+              const edge = lower
+              // SLOP-3: in a SAVEPOINT — a SQL error aborts the transaction
+              // it runs in, and the outer one carries the issue link and the
+              // run's stamp for a PR already open on GitHub. A failure skips
+              // the edge (the PR is open either way), but says so: a silent
+              // skip hides a DB fault behind "there was a cycle".
+              await tx
+                .transaction(async (sp) => {
+                  // EXP-980: the PR is already open on GitHub, so a cycle is
+                  // skipped rather than refused — never written.
+                  const cycle = await findRelationCycle(sp, {
+                    issueId: edge.issueId,
+                    relatedIssueId: id,
+                    type: `blocks`,
+                  })
+                  if (cycle) return
+                  await insertRelationInTx(sp, {
+                    ...canonicalizeRelation(edge.issueId, id, `blocks`),
+                    source: `reference`,
+                    teamId: edge.teamId,
+                    actorUserId: user.id,
+                  })
+                })
+                .catch((err: unknown) => {
+                  console.warn(
+                    `[mcp] pr_open: blocks relation failed for ${edge.issueId} -> ${id}; skipping it`,
+                    err
+                  )
+                })
             }
           }
         })
@@ -3044,15 +2779,6 @@ export function registerExponentialTools(
           number: created.number,
           base: baseBranch,
           ...(reused ? { reused: true, note: REUSED_PR_NOTE(headBranch) } : {}),
-          ...(lower
-            ? {
-                stack: { number: stackNumber, onTopOf: lower.identifier },
-                note:
-                  stackNumber != null
-                    ? `Stacked on ${lower.identifier} (GitHub stack #${stackNumber}). When ${lower.identifier}'s PR merges, yours is retargeted for you.`
-                    : `Based on ${lower.identifier}'s branch ${lower.branch}. GitHub stacks are unavailable on this repository, so merge ${lower.identifier} first, then retarget with exponential_pr_retarget if a merge is refused for a stale base.`,
-              }
-            : {}),
         })
       } catch (e) {
         return err(e)
@@ -3063,7 +2789,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_open`,
     {
-      description: `Open a GitHub PR on the linked repository via the GitHub App (no 'gh' or token) and link it to the issue(s). Pass EXACTLY ONE of 'issueId', 'issueIds' (batch: ONE combined PR, same repo; 'head' then REQUIRED, e.g. 'exp/batch-<id>'), or 'repositoryId' + 'head' for an issue-less PR (nothing linked or moved). Single issue: 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>'; 'base' to the repo default branch. 'stackOnIssueId' (not with 'base') stacks your PR on that issue's open PR instead. A 'head' with an open PR links the issues to it. Linked issues record prUrl/prNumber/prState/branch and move to the team's PR-open status (default 'in_review'), on merge to its PR-merge status (default 'done'). Accepts UUIDs or identifiers ("MET-12").`,
+      description: `Open a GitHub PR on the linked repository via the GitHub App (no 'gh' or token) and link it to the issue(s). Pass EXACTLY ONE of 'issueId', 'issueIds' (batch: ONE combined PR, same repo; 'head' then REQUIRED, e.g. 'exp/batch-<id>'), or 'repositoryId' + 'head' for an issue-less PR (nothing linked or moved). Single issue: 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>'; 'base' to the repo default branch; a 'base' that is another issue's open PR branch marks that issue as blocking yours. A 'head' with an open PR links the issues to it. Linked issues record prUrl/prNumber/prState/branch and move to the team's PR-open status (default 'in_review'), on merge to its PR-merge status (default 'done'). Accepts UUIDs or identifiers ("MET-12").`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: prOpenInput,
     },
@@ -3076,7 +2802,6 @@ export function registerExponentialTools(
     repositoryId: uuidString.optional(),
     prNumber: z.number().int().positive().optional(),
     endSessions: z.boolean().optional(),
-    // EXP-897: merge every open PR of the stack, bottom-up.
     mergeStack: z.boolean().optional(),
   })
   const prMerge = (
@@ -3106,7 +2831,7 @@ export function registerExponentialTools(
         if (Boolean(repositoryId) !== (prNumber !== undefined)) {
           throw new Error(`repositoryId and prNumber must be passed together`)
         }
-        // EXP-897: a stack is a chain of ISSUE PRs; a chore PR has no chain.
+        // SLOP-3: a stack is a chain of ISSUE PRs; a chore PR records no base.
         if (mergeStack && repositoryId) {
           throw new Error(`mergeStack applies to issue PRs only`)
         }
@@ -3146,12 +2871,7 @@ export function registerExponentialTools(
           // test that cannot answer leaves the stamp off: being ended by a
           // merge is recoverable, a run that never ends is not.
           let ownChorePr = false
-          if (
-            stampable &&
-            !stampable.issueId &&
-            stampable.prUrl &&
-            stampable.prNumber != null
-          ) {
+          if (stampable && stampable.prUrl && stampable.prNumber != null) {
             try {
               const choreRepo = await loadRepositoryForTeam(repositoryId)
               await resolveTeamAccess(user.id, choreRepo.teamId)
@@ -3193,6 +2913,20 @@ export function registerExponentialTools(
           await resolveTeamAccess(user.id, issueCtx.teamId)
           teamIdByIssue.set(id, issueCtx.teamId)
         }
+        // SLOP-3: mergeStack also lands the open PRs below each target. They
+        // may sit on boards this token was never granted: refuse before
+        // GitHub sees anything.
+        const stackByIssue = new Map<string, StackMember[]>()
+        if (mergeStack) {
+          for (const id of ids) {
+            const teamId = teamIdByIssue.get(id)!
+            const chain = await openStackThrough(db, { issueId: id, teamId })
+            for (const member of chain) {
+              if (member.boardId) assertBoardGranted(access, member.boardId, teamId)
+            }
+            stackByIssue.set(id, chain)
+          }
+        }
 
         // One merge per distinct PR: issues sharing a batch prUrl collapse
         // onto the first listed issue (merging it completes the siblings).
@@ -3231,15 +2965,29 @@ export function registerExponentialTools(
           for (const row of rows) {
             const own =
               row.id === stampable.issueId ||
+              (stampable.prUrl !== null && row.prUrl === stampable.prUrl) ||
               (stampable.branch !== null && row.branch === stampable.branch)
             if (own && row.prUrl) ownPrUrls.add(row.prUrl)
+          }
+          // A stack merge lands the members below a target too.
+          for (const chain of stackByIssue.values()) {
+            for (const member of chain) {
+              const own =
+                member.issueId === stampable.issueId ||
+                (stampable.prUrl !== null && member.prUrl === stampable.prUrl) ||
+                (stampable.branch !== null && member.branch === stampable.branch)
+              if (own) ownPrUrls.add(member.prUrl)
+            }
           }
         }
         const ownTargetIds = new Set(
           targets
             .filter((target) => {
-              const prUrl = rowById.get(target.id)?.prUrl
-              return Boolean(prUrl && ownPrUrls.has(prUrl))
+              const urls = [
+                rowById.get(target.id)?.prUrl,
+                ...(stackByIssue.get(target.id) ?? []).map((m) => m.prUrl),
+              ]
+              return urls.some((url) => Boolean(url && ownPrUrls.has(url)))
             })
             .map((target) => target.id)
         )
@@ -3257,7 +3005,8 @@ export function registerExponentialTools(
           queued?: boolean
           error?: string
           note?: string
-          mergedVia?: string
+          // mergeStack: the PRs this target's call landed, bottom first.
+          stack?: string[]
         }[] = []
         // A queued merge is the run's own success in flight: the spare it
         // stamped stays, or the landing merge would end the run after all.
@@ -3267,85 +3016,12 @@ export function registerExponentialTools(
               (result.merged || result.queued) && ownTargetIds.has(result.issueId)
           )
 
-        // EXP-897: ONE call lands a whole chain (the server walks up to its
-        // topmost open member and merges from there). A later target whose PR
-        // that chain already carried reports that merge; a target on an
-        // UNRELATED PR gets its own stack merge — never a `merged: true` its
-        // PR did not earn.
-        if (mergeStack) {
-          // prUrl → the entry identifier whose stack merge covered it, and
-          // whether that merge landed or is still in GitHub's queue.
-          const landed = new Map<string, { via: string; queued: boolean }>()
-          for (const target of targets) {
-            const prUrl = rowById.get(target.id)?.prUrl ?? null
-            const covered = prUrl ? landed.get(prUrl) : undefined
-            if (covered) {
-              results.push({
-                issueId: target.id,
-                identifier: target.identifier,
-                merged: !covered.queued,
-                ...(covered.queued ? { queued: true } : {}),
-                mergedVia: covered.via,
-              })
-              continue
-            }
-            try {
-              // The chain may reach boards this token was never granted:
-              // refuse before GitHub sees anything.
-              if (prUrl) {
-                await assertStackBoardsGranted(
-                  access,
-                  prUrl,
-                  teamIdByIssue.get(target.id)!
-                )
-              }
-              const stackResult = await trpcCaller.issues.mergePr({
-                issueId: target.id,
-                mergeStack: true,
-                ...endSessionsInput,
-              })
-              // FEED-43 R1: an enqueued stack is NOT merged; every issue it
-              // covers reports `queued`, never a `merged: true` the queue may
-              // still take back.
-              const queued = stackResult.queued === true
-              const cover = { via: target.identifier, queued }
-              for (const url of stackResult.mergedPrUrls ?? []) {
-                landed.set(url, cover)
-              }
-              for (const url of stackResult.queuedPrUrls ?? []) {
-                landed.set(url, cover)
-              }
-              if (prUrl) landed.set(prUrl, cover)
-              results.push({
-                issueId: target.id,
-                identifier: target.identifier,
-                merged: !queued,
-                ...(queued ? { queued: true } : {}),
-                mergedVia: target.identifier,
-                ...(stackResult.note ? { note: stackResult.note } : {}),
-              })
-            } catch (e) {
-              const error = e instanceof Error ? e.message : String(e)
-              results.push({
-                issueId: target.id,
-                identifier: target.identifier,
-                merged: false,
-                mergedVia: target.identifier,
-                error,
-              })
-            }
-          }
-          if (ownTargetIds.size > 0 && !ownMergeEarned()) {
-            await revertMergedOwnPr()
-          }
-          return ok({ results })
-        }
-
         for (const target of targets) {
           try {
             const outcome = await trpcCaller.issues.mergePr({
               issueId: target.id,
               ...endSessionsInput,
+              ...(mergeStack ? { mergeStack: true } : {}),
             })
             // FEED-43 R1: an enqueued merge has not landed; say so instead of
             // a `merged: true` the queue may still take back.
@@ -3355,11 +3031,10 @@ export function registerExponentialTools(
               identifier: target.identifier,
               merged: !queued,
               ...(queued ? { queued: true } : {}),
-              // EXP-897: merging a stack member lands every unmerged PR below
-              // it too; the mutation says so when its walk actually did
-              // (FEED-48: `prBaseBranch` alone is no stack signal — pr_open
-              // stamps it for every PR, the default branch included).
               ...(outcome.note ? { note: outcome.note } : {}),
+              ...(outcome.stack
+                ? { stack: outcome.stack.map((pr) => pr.identifier) }
+                : {}),
             })
           } catch (e) {
             results.push({
@@ -3385,7 +3060,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_merge`,
     {
-      description: `Squash-merge open PRs via the GitHub App (no 'gh' or token). Pass EXACTLY ONE of 'issueId', 'issueIds' (one merge per distinct prUrl, so issues sharing a batch PR merge once), or 'repositoryId' + 'prNumber' for a PR with no issue. Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'); live coding sessions on them end unless the team's "end sessions on merge" setting is off; 'endSessions' overrides that setting for this call (false keeps them running), and YOUR OWN session always keeps running (it ends on its own exit or close-out). Each results[] element carries 'merged' + optional 'error' or 'queued' (in GitHub's merge queue; merged=false until it lands), plus issueId/identifier (issue path) or repositoryId/prNumber (chore path); one unmergeable PR never blocks the rest. 'mergeStack' merges the PR's whole stack, bottom-up, in one call. A merge rejected for a stale base: fix with exponential_pr_retarget first. Idempotent: an already-merged PR answers merged=true.`,
+      description: `Squash-merge open PRs via the GitHub App (no 'gh' or token). Pass EXACTLY ONE of 'issueId', 'issueIds' (one merge per distinct prUrl, so issues sharing a batch PR merge once), or 'repositoryId' + 'prNumber' for a PR with no issue. Linked issues flip to merged and the team's PR-merge status (default 'done'); their live sessions end unless the team's "end sessions on merge" setting is off; 'endSessions' overrides it (false keeps them running), and YOUR OWN session always keeps running. 'mergeStack' also lands the open PRs it is stacked on, bottom-up. Each results[] element carries 'merged' + optional 'error' or 'queued' (GitHub's merge queue; merged=false until it lands), plus issueId/identifier (issue path) or repositoryId/prNumber (chore path); one unmergeable PR never blocks the rest. A merge rejected for a stale base: fix with exponential_pr_retarget first. Idempotent: an already-merged PR answers merged=true.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: prMergeInput,
     },
@@ -3395,7 +3070,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_retarget`,
     {
-      description: `Change the base branch of an issue's open PR via the GitHub App. Use it when a merge is rejected because the base is stale (e.g. stacked on an already-merged parent PR). Omit 'base' for the repo's default branch. Then rebase onto the new base, push with --force-with-lease, and call exponential_pr_merge.`,
+      description: `Change the base branch of an issue's open PR via the GitHub App. Use it when a merge is rejected because the base is stale (e.g. based on an already-merged parent PR). Omit 'base' for the repo's default branch. Then rebase onto the new base, push with --force-with-lease, and call exponential_pr_merge.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         issueId: z.string().min(1),
@@ -3675,22 +3350,19 @@ export function registerExponentialTools(
   // CLIs time out long-held tool calls — so the answer arrives later as an
   // injected user message, the same rail a human steers with. EXP-1089:
   // registered for EVERY run of the caller's; `to: 'user'` works from any of
-  // them (a person's chat, a workflow's planner run), the starter targets
-  // still need a starter.
+  // them, the parent target still needs a starter.
   if (gates.askParent) {
     server.registerTool(
       `exponential_sessions_ask_parent`,
       {
-        description: `Ask a question only your starter or the person can answer. 'to': 'parent' (default; the run that started this one), 'root' (the top live run of your chain, when the whole plan is wrong) or 'user' (the person who owns this run, or the workflow's creator; works from any run, parks yours as needing input and notifies them). Non-blocking: on success STOP working and end your turn — the answer arrives later as a user message. If delivery fails, finish anyway and note the open question in your summary.`,
+        description: `Ask a question only your starter or the person can answer. 'to': 'parent' (default; the run that started this one) or 'user' (the person who owns this run; works from any run, parks yours as needing input and notifies them). Non-blocking: on success STOP working and end your turn — the answer arrives later as a user message. If delivery fails, finish anyway and note the open question in your summary.`,
         _meta: ALWAYS_LOAD_META,
         inputSchema: strictInput({
           question: z.string().min(1).max(4_000),
-          // EXP-897: escalate past a parent that cannot decide.
-          to: z.enum([`parent`, `root`, `user`]).default(`parent`),
+          to: z.enum([`parent`, `user`]).default(`parent`),
         }),
       },
-      async ({ question, to: requestedTo }) => {
-        let to = requestedTo
+      async ({ question, to }) => {
         const fallback = `Do not wait for an answer: finish your work, then call exponential_sessions_end and include the open question in your summary.`
         try {
           if (!sessionId) {
@@ -3708,58 +3380,13 @@ export function registerExponentialTools(
           ) {
             return err(new Error(`This run has no live starter to ask.`))
           }
-          // EXP-982 / EXP-1065: a workflow NODE has no parent run. Its
-          // question always goes to a person, must carry a proposal
-          // (answerable yes/no), and is asked ONCE per workflow: a sibling
-          // with the same open question parks silently and gets the recorded
-          // decision relayed. EXP-1089: a workflow's PLANNER run asks the
-          // person too (its batched question set needs no proposal line).
-          // The membership comes off the run's own row (the contract's
-          // columns).
-          const membership = await loadWorkflowMembershipForSession(sessionId)
-          // A node's OWN run has no parent, or is its author or reviewer; a
-          // child a node run started on a chat or action subject inherits
-          // the node id (rule c) but asks its parent like any child.
-          const isNodeRun =
-            !!membership?.workflowNodeId &&
-            (!child.parentSessionId ||
-              membership.workflowRole === `author` ||
-              membership.workflowRole === `review`)
-          const workflowNode: { workflowId: string; workflowNodeId: string } | null =
-            isNodeRun && membership?.workflowNodeId
-              ? { workflowId: membership.workflowId, workflowNodeId: membership.workflowNodeId }
-              : null
-          const planner =
-            !workflowNode &&
-            membership?.workflowId &&
-            (membership.workflowRole === `plan` || membership.workflowRole === `replan`)
-              ? membership
-              : null
-          if (workflowNode) {
-            if (!/^proposal:/im.test(question)) {
-              return err(
-                new Error(
-                  `A workflow run's question must carry a proposal the person can answer with yes or no. Add a line starting with "Proposal:" and ask again.`
-                )
-              )
-            }
-            to = `user`
-          } else if (planner) {
-            to = `user`
-          } else if (
-            to !== `user` &&
-            (child.startedReason !== `agent` || !child.parentSessionId)
-          ) {
-            return err(new Error(`This run has no live starter to ask.`))
-          }
 
-          // EXP-897: escalate to the PERSON. The run parks as needing input
-          // (every client surfaces that, and the caption IS the question),
-          // the question itself lands on the row (`pending_question`, the
-          // workflow page's badge and list), and the person gets the
-          // existing agent_message inbox row + push: the run's owner, or
-          // (EXP-1065) the workflow's creator for a workflow run. The answer
-          // comes back as a normal user message in THIS run's own composer.
+          // EXP-897: ask the PERSON. The run parks as needing input (every
+          // client surfaces that, and the caption IS the question), the
+          // question itself lands on the row (`pending_question`), and the
+          // run's owner gets the existing agent_message inbox row + push.
+          // The answer comes back as a normal user message in THIS run's own
+          // composer.
           if (to === `user`) {
             const caption = question.slice(0, 160)
             const askedAt = new Date()
@@ -3783,48 +3410,15 @@ export function registerExponentialTools(
             if (!row?.teamId) {
               return err(new Error(`This run has no team to notify in.`))
             }
-            const workflowId = workflowNode?.workflowId ?? planner?.workflowId ?? null
-            const duplicate =
-              workflowNode !== null &&
-              (await siblingAlreadyAsked(workflowNode.workflowId, sessionId, caption))
-            if (duplicate) {
-              return ok({
-                delivered: true,
-                to: `user`,
-                note: `A sibling run of this workflow already asked exactly this. Stop working NOW and end your turn; the decision arrives as a user message in this session.`,
-              })
-            }
-            let recipient = row.userId
-            let title = `${child.issueIdentifier ?? sessionId.slice(0, 8)} asks`
-            if (workflowId) {
-              const [wf] = await db
-                .select({ creatorId: workflows.creatorId, name: workflows.name })
-                .from(workflows)
-                .where(eq(workflows.id, workflowId))
-                .limit(1)
-              recipient = wf?.creatorId ?? row.userId
-              if (planner) title = `${wf?.name ?? `Workflow`} planner asks`
-            }
             await sendAgentMessage({
               teamId: row.teamId,
               senderUserId: row.userId,
-              // ONE person: the run's owner, or the workflow's creator — a
-              // run's question is not the team's inbox.
-              recipientIds: [recipient],
-              title,
+              // ONE person: the run's owner — a run's question is not the
+              // team's inbox.
+              recipientIds: [row.userId],
+              title: `${child.issueIdentifier ?? sessionId.slice(0, 8)} asks`,
               body: question,
             })
-            if (workflowId) {
-              const { recordWorkflowEvent } = await import(`@/lib/workflows/record-event`)
-              await recordWorkflowEvent(db, {
-                workflowId,
-                teamId: row.teamId,
-                nodeId: workflowNode?.workflowNodeId ?? null,
-                sessionId,
-                kind: `question_asked`,
-                message: `${child.issueIdentifier ?? `The planner`} asks: ${question}`,
-              })
-            }
             return ok({
               delivered: true,
               to: `user`,
@@ -3832,39 +3426,19 @@ export function registerExponentialTools(
             })
           }
 
-          if (!child.parentSessionId) {
+          if (child.startedReason !== `agent` || !child.parentSessionId) {
             return err(new Error(`This run has no live starter to ask.`))
           }
-          // EXP-897: `root` climbs past the immediate parent to the highest
-          // ancestor still alive — the run that owns the plan.
-          let targetSessionId: string = child.parentSessionId
-          let escalationDepth = 1
-          if (to === `root`) {
-            const chain = await loadSessionChain(db, sessionId)
-            if (!chain?.topLiveAncestorId) {
-              return err(
-                new Error(`No run above you is still live. ${fallback}`)
-              )
-            }
-            targetSessionId = chain.topLiveAncestorId
-            escalationDepth =
-              chain.ancestors.find((row) => row.id === targetSessionId)?.depth ??
-              1
-          }
-          // `root` already resolved a LIVE target above — only the direct ask
-          // depends on the immediate parent still being alive. EXP-906: a
-          // parent that resumed (account switch) under a new id is still
-          // listening there — its live successor takes the question.
-          if (targetSessionId === child.parentSessionId) {
-            const live = await resolveLiveParentSessionId(db, child).catch(
-              () => null
+          // EXP-906: a parent that resumed (account switch) under a new id is
+          // still listening there — its live successor takes the question.
+          const targetSessionId = await resolveLiveParentSessionId(
+            db,
+            child
+          ).catch(() => null)
+          if (!targetSessionId) {
+            return err(
+              new Error(`Your starter's session has ended. ${fallback}`)
             )
-            if (!live) {
-              return err(
-                new Error(`Your starter's session has ended. ${fallback}`)
-              )
-            }
-            targetSessionId = live
           }
           const config = getSteerRelayConfig()
           if (!config) {
@@ -3877,9 +3451,7 @@ export function registerExponentialTools(
           const { delivered } = await relayPostInput(
             config,
             targetSessionId,
-            escalationDepth > 1
-              ? formatDescendantQuestion(child, question, escalationDepth)
-              : formatChildQuestion(child, question)
+            formatChildQuestion(child, question)
           )
           if (!delivered) {
             return err(
@@ -4169,18 +3741,16 @@ export function registerExponentialTools(
     `exponential_sessions_list`,
     {
       annotations: READ_ONLY,
-      description: `List coding sessions (newest first) across your teams or one team: status (in_review = PR open, still live), agentBusy (working now), issue, action, branch, device, blocked (usage-wall refusal, see exponential_sessions_get), run-tree depth, endedBy. mine = runs you started or host; subtreeOf = one run and all it started.`,
+      description: `List coding sessions (newest first) across your teams or one team: status (in_review = PR open, still live), agentBusy (working now), issue, action, branch, device, blocked (usage-wall refusal, see exponential_sessions_get), parentSessionId (the run that started it), endedBy. mine = runs you started or host.`,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
         status: z.enum([`running`, `in_review`, `ended`]).optional(),
         mine: z.boolean().default(false),
-        // EXP-897: one run and its descendants.
-        subtreeOf: uuidString.optional(),
         limit: z.number().int().min(1).max(200).default(50),
         offset: z.number().int().min(0).default(0),
       }),
     },
-    async ({ teamId, status, mine, subtreeOf, limit, offset }) => {
+    async ({ teamId, status, mine, limit, offset }) => {
       try {
         let teamIds: string[]
         if (teamId) {
@@ -4204,13 +3774,6 @@ export function registerExponentialTools(
           userId: user.id,
         })
         if (grantFilter === GRANT_MATCHES_NOTHING) return ok([])
-        // EXP-897: the subtree narrows the candidate ids; the grant filter
-        // below still decides what the caller may actually see.
-        let subtreeIds: string[] | undefined
-        if (subtreeOf) {
-          subtreeIds = await loadSubtreeSessionIds(db, subtreeOf)
-          if (subtreeIds.length === 0) return ok([])
-        }
         const rows = await db
           .select(sessionColumns)
           .from(codingSessions)
@@ -4222,7 +3785,6 @@ export function registerExponentialTools(
               isNull(codingSessions.boardArchivedAt),
               grantFilter,
               status ? eq(codingSessions.status, status) : undefined,
-              subtreeIds ? inArray(codingSessions.id, subtreeIds) : undefined,
               mine
                 ? or(
                     eq(codingSessions.userId, user.id),
@@ -4234,16 +3796,7 @@ export function registerExponentialTools(
           .orderBy(desc(codingSessions.startedAt))
           .limit(limit)
           .offset(offset)
-        // EXP-897: every row carries how deep it sits in its run tree — ONE
-        // walk up for the whole page, so a list of nested runs reads as a tree
-        // without N lookups.
-        const depths = await loadSessionDepths(
-          db,
-          rows.map((row) => row.id)
-        )
-        return ok(
-          rows.map((row) => ({ ...row, depth: depths.get(row.id) ?? 0 }))
-        )
+        return ok(rows)
       } catch (e) {
         return err(e)
       }
@@ -4298,19 +3851,8 @@ export function registerExponentialTools(
           if (!row.teamId) throw new Error(`Session not found`)
           await resolveTeamAccess(user.id, row.teamId)
         }
-        // EXP-897: where this run sits in its tree, and where its issue's PR
-        // sits in its stack — the two questions a nested/stacked run's agent
-        // (and every client's run header) has to answer.
-        const chain = await loadSessionChain(db, id)
-        const stack = await loadSessionStackContext(db, {
-          issueId: row.issueId,
-          teamId: row.teamId,
-        })
         return ok({
           ...session,
-          depth: chain?.depth ?? 0,
-          rootSessionId: chain?.rootSessionId ?? row.id,
-          stack,
           // EXP-933: a topic's report text rides beside its pictures. A text
           // entry has no attachment, so it carries only `topic` + `text`, no
           // `label`/`url`/`attachmentId`; a picture's `label` is emitted
@@ -4457,7 +3999,7 @@ export function registerExponentialTools(
           )
         }
         // EXP-1065: a delivered message IS the answer to the run's open
-        // question (`ask_parent`): off the row, into the workflow's log.
+        // question (`ask_parent`): off the row.
         const { answerPendingQuestion } = await import(`@/lib/sessions/answer-pending-question`)
         await answerPendingQuestion(db, targetId)
         // FEED-60: `delivered` only means the relay found the run's device
@@ -4497,7 +4039,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_start`,
     {
-      description: `Start a coding session on an ONLINE device (exponential_devices_list); offline = refused. One subject: issueId (UUID/identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs) or resumeSessionId (ended run; + account = switch a live claude run's account). account = a profile id from agentAccounts.<agent>.profiles[]. prompt = free text (REQUIRED for builtin:chat / builtin:create-action). stackOnIssueId = stack on that issue's PR. Track it with exponential_sessions_get. A child started from a run is unattended: its question, finish or usage wall (wait it out) arrives as '[Exponential child run ...]' input; answer with exponential_sessions_message. Read its report before merging.`,
+      description: `Start a coding session on an ONLINE device (exponential_devices_list); offline = refused. One subject: issueId (UUID/identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs) or resumeSessionId (ended run; + account = switch a live claude run's account). account = a profile id from agentAccounts.<agent>.profiles[]. prompt = free text (REQUIRED for builtin:chat / builtin:create-action). A follow-up run bases on your branch: name it in \`prompt\`, the child opens with \`pr_open{base}\`. Track it with exponential_sessions_get. A child started from a run is unattended: its question, finish or usage wall (wait it out) arrives as '[Exponential child run ...]' input; answer with exponential_sessions_message. Read its report before merging.`,
       inputSchema: strictInput({
         deviceId: z.string().min(1).max(128),
         issueId: z.string().min(1).optional(),
@@ -4513,21 +4055,12 @@ export function registerExponentialTools(
         ultracode: z.boolean().optional(),
         allowRateLimited: z.boolean().optional(),
         prompt: z.string().max(MAX_START_PROMPT).optional(),
-        // EXP-897: build the new run on top of this issue's open PR.
-        stackOnIssueId: z.string().min(1).optional(),
         // EXP-906: the agent account profile on the target device — the
         // same field steer.startSession takes (absent = the machine's last
         // used login, `system` = the ambient one). Without it an orchestrator
         // whose last used profile is walled had to route around this tool
         // (and lose the parent link) to launch on another account.
         account: z.string().min(1).max(64).optional(),
-        // EXP-1082: workflow membership for the frame (honoured only from
-        // the workflow's runner device, see codingSessions.start).
-        workflowId: uuidString.optional(),
-        workflowNodeId: uuidString.optional(),
-        // Validated against contract `wfSessionRole` by steer.startSession
-        // (a plain string keeps this tool inside its context budget).
-        workflowRole: z.string().optional(),
       }),
     },
     async (input) => {
@@ -4599,62 +4132,10 @@ export function registerExponentialTools(
           )
         }
 
-        // EXP-897: flat on the wire (one string keeps this tool inside its
-        // context budget), nested in the router's input.
-        let stackOn: { issueId: string } | undefined
-        if (input.stackOnIssueId) {
-          const lowerId = await resolveIssueId(
-            input.stackOnIssueId,
-            user.id,
-            access
-          )
-          const lowerCtx = await getIssueTeamContext(lowerId)
-          assertBoardGranted(access, lowerCtx.boardId, lowerCtx.teamId)
-          stackOn = { issueId: lowerId }
-        }
-        // EXP-1082 §1: only the workflow HOST names a membership — the
-        // calling run must itself belong to that workflow and be the
-        // caller's own (owner or host: the header names a run, it proves
-        // nothing). Anyone else's keys are dropped silently (ignored, never
-        // refused).
-        const {
-          stackOnIssueId: _stackOnIssueId,
-          workflowRole,
-          workflowId,
-          workflowNodeId,
-          ...startInput
-        } = input
-        let membership: {
-          workflowId?: string
-          workflowNodeId?: string
-          workflowRole?: WfSessionRole
-        } = {}
-        if (workflowId && sessionId) {
-          const [me] = await db
-            .select({
-              workflowId: codingSessions.workflowId,
-              userId: codingSessions.userId,
-              hostUserId: codingSessions.hostUserId,
-            })
-            .from(codingSessions)
-            .where(eq(codingSessions.id, sessionId))
-            .limit(1)
-          const mine = !!me && (me.userId === user.id || me.hostUserId === user.id)
-          if (mine && me.workflowId === workflowId) {
-            membership = {
-              workflowId,
-              ...(workflowNodeId ? { workflowNodeId } : {}),
-              // The router validates the contract role (a plain string here).
-              ...(workflowRole ? { workflowRole: workflowRole as WfSessionRole } : {}),
-            }
-          }
-        }
         const started = await caller(user, request).steer.startSession({
-          ...startInput,
-          ...membership,
+          ...input,
           issueId,
           issueIds,
-          ...(stackOn ? { stackOn } : {}),
           // EXP-679: a run started from inside a run is that run's child.
           ...(sessionId ? { parentSessionId: sessionId } : {}),
         })
@@ -4685,7 +4166,7 @@ export function registerExponentialTools(
             // stamped here — history only, never worth failing the start.
             if (sessionId) {
               try {
-                await stampChildOfRun(row, sessionId, user.id)
+                await stampChildOfRun(row, sessionId)
               } catch {
                 // ignored
               }
@@ -5371,321 +4852,6 @@ export function registerExponentialTools(
         }
         await caller(user, request).actions.delete({ id })
         return ok({ ok: true, id })
-      } catch (e) {
-        return err(e)
-      }
-    }
-  )
-
-  // -----------------------------------------------------------------------
-  // Workflows (EXP-981): a picked set of issues planned and run as a DAG
-  // -----------------------------------------------------------------------
-
-  server.registerTool(
-    `exponential_workflows_list`,
-    {
-      annotations: READ_ONLY,
-      description: `List a team's workflows (issues of one repo run as a DAG): status, runner device, metrics {nodes,depth,width,cycles}.`,
-      inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
-    },
-    async ({ teamId, limit, offset }) => {
-      try {
-        if (!access.full) assertTeamFullyGranted(access, teamId)
-        const rows = await caller(user, request).workflows.list({ teamId })
-        return ok(page(rows, limit, offset))
-      } catch (e) {
-        return err(e)
-      }
-    }
-  )
-
-  server.registerTool(
-    `exponential_workflows_get`,
-    {
-      annotations: READ_ONLY,
-      description: `A workflow's graph: nodes (issue, kind, state, risk, touches, wave/lane) and edges = blocks relations between them. A parent with sub-issues is ONE node. metrics.cycles non-empty = it cannot start; keep depth small.`,
-      inputSchema: strictInput({ id: uuidString }),
-    },
-    async ({ id }) => {
-      try {
-        if (!access.full) {
-          assertTeamFullyGranted(access, (await getWorkflowContext(id)).teamId)
-        }
-        return ok(await caller(user, request).workflows.get({ id }))
-      } catch (e) {
-        return err(e)
-      }
-    }
-  )
-
-  server.registerTool(
-    `exponential_workflows_create`,
-    {
-      description: `Create a DRAFT workflow from backlog issues (UUIDs or identifiers) of ONE repository. Shape it with exponential_issue_relations_add (blocks = edge, parent = one batch node), then exponential_workflows_update. Models come from the runner device, never from here.`,
-      inputSchema: strictInput({
-        teamId: uuidString,
-        issueIds: z.array(z.string().min(1)).min(1).max(WORKFLOW_MAX_ISSUES),
-        name: z.string().min(1).max(255).optional(),
-      }),
-    },
-    async ({ teamId, issueIds, name }) => {
-      try {
-        if (!access.full) assertTeamFullyGranted(access, teamId)
-        const ids = await Promise.all(
-          issueIds.map((id) => resolveIssueId(id, user.id, access))
-        )
-        const result = await caller(user, request).workflows.create({
-          teamId,
-          issueIds: ids,
-          name,
-        })
-        return ok(result.workflow)
-      } catch (e) {
-        return err(e)
-      }
-    }
-  )
-
-  for (const verb of [`start`, `pause`, `cancel`] as const) {
-    server.registerTool(
-      `exponential_workflows_${verb}`,
-      {
-        description: {
-          start: `Start a draft workflow: its runner device's engine starts every unblocked node (max parallel at once), lands reviewed PRs into the integration branch in order, then opens ONE final PR. Needs a runner device and no cycle.`,
-          pause: `Pause a running workflow (nothing new starts or lands; live runs finish), or resume a paused one with resume:true.`,
-          cancel: `Cancel a started workflow: its live runs end and its integration branch is deleted. Nothing reached the default branch.`,
-        }[verb],
-        inputSchema: strictInput({
-          id: uuidString,
-          ...(verb === `pause` ? { resume: z.boolean().optional() } : {}),
-        }),
-      },
-      async (raw) => {
-        const input = raw as { id: string; resume?: boolean }
-        try {
-          if (!access.full) {
-            assertTeamFullyGranted(access, (await getWorkflowContext(input.id)).teamId)
-          }
-          const api = caller(user, request).workflows
-          if (verb === `start`) await api.start({ id: input.id })
-          else if (verb === `cancel`) await api.cancel({ id: input.id })
-          else if (input.resume) await api.resume({ id: input.id })
-          else await api.pause({ id: input.id })
-          return ok({ ok: true, id: input.id })
-        } catch (e) {
-          return err(e)
-        }
-      }
-    )
-  }
-
-  // EXP-983: the two tools a workflow NODE's own run uses. Both resolve the
-  // node from the calling session (`X-Exp-Session-Id`), so they take no ids an
-  // agent could get wrong.
-  server.registerTool(
-    `exponential_workflows_checkpoint`,
-    {
-      description: `Workflow node runs only: announce that your CONTRACT is pushed (the types, interfaces, stubs and tests others build against). Push first, then call this once; runs that depend on you may start now, so do not break what you announced.`,
-      inputSchema: strictInput({ summary: z.string().max(2000).optional() }),
-    },
-    async ({ summary }) => {
-      try {
-        const node = sessionId ? await loadWorkflowNodeForSession(sessionId) : null
-        if (!node) return err(new Error(`This run is not a workflow node.`))
-        await db.transaction(async (tx) => {
-          const stamped = await tx
-            .update(workflowNodes)
-            .set({ checkpointAt: new Date() })
-            .where(and(eq(workflowNodes.id, node.nodeId), isNull(workflowNodes.checkpointAt)))
-            .returning({ id: workflowNodes.id })
-          // The summary is what dependents build against, so it joins the
-          // log every node prompt carries. `note` stays the engine's (its
-          // failure and waiting reasons). Once: a repeat call stamps nothing.
-          if (stamped.length === 0 || !summary?.trim()) return
-          const [workflow] = await tx
-            .select({ decisions: workflows.decisions })
-            .from(workflows)
-            .where(eq(workflows.id, node.workflowId))
-            .limit(1)
-          if (!workflow) return
-          await tx
-            .update(workflows)
-            .set({
-              decisions: appendDecisionLine(
-                workflow.decisions,
-                `${node.identifier} contract: ${summary}`,
-                new Date()
-              ),
-            })
-            .where(eq(workflows.id, node.workflowId))
-        })
-        return ok({ ok: true })
-      } catch (e) {
-        return err(e)
-      }
-    }
-  )
-
-  server.registerTool(
-    `exponential_workflows_request_upstream`,
-    {
-      description: `Workflow node runs only: ask the run of an issue that BLOCKS yours to change what it gave you (a missing field, a wrong signature). It lands in that run's channel; go on with what you can. Your branch is FROZEN on the upstream tip you started from: nobody pushes a newer one into it while you run, so once the change is up, pull it yourself (git fetch origin && git merge origin/<the base branch of your prompt>). You may reject upstream work, but never settle an interface dispute between two runs: if it refuses or has ended, escalate with exponential_sessions_ask_parent.`,
-      inputSchema: strictInput({
-        issueId: z.string().min(1),
-        message: z.string().min(1).max(4_000),
-      }),
-    },
-    async ({ issueId: issueIdInput, message }) => {
-      try {
-        const node = sessionId ? await loadWorkflowNodeForSession(sessionId) : null
-        if (!node) return err(new Error(`This run is not a workflow node.`))
-        const upstreamIssueId = await resolveIssueId(issueIdInput, user.id, access)
-        const { loadWorkflowEdges } = await import(`@/lib/workflows`)
-        const graph = await loadWorkflowEdges(db, node.workflowId)
-        const upstream = graph.nodes.find(
-          (row) =>
-            row.issueId === upstreamIssueId ||
-            row.memberIssueIds.includes(upstreamIssueId)
-        )
-        const direct =
-          upstream &&
-          graph.edges.some(([from, to]) => from === upstream.id && to === node.nodeId)
-        if (!upstream || !direct) {
-          return err(new Error(`That issue does not directly block this node.`))
-        }
-        const escalate = `Its run is not live. Escalate with exponential_sessions_ask_parent (with a Proposal: line) or work around it and say so in your summary.`
-        const [target] = await db
-          .select({ sessionId: workflowNodes.sessionId, status: codingSessions.status })
-          .from(workflowNodes)
-          .leftJoin(codingSessions, eq(codingSessions.id, workflowNodes.sessionId))
-          .where(eq(workflowNodes.id, upstream.id))
-          .limit(1)
-        if (
-          !target?.sessionId ||
-          (target.status !== `running` && target.status !== `in_review`)
-        ) {
-          return ok({ delivered: false, note: escalate })
-        }
-        const config = getSteerRelayConfig()
-        if (!config) return ok({ delivered: false, note: escalate })
-        const from = (await loadChildParentContext(db, sessionId!))?.issueIdentifier
-        const result = await relayPostInput(
-          config,
-          target.sessionId,
-          oneLine(
-            `[Exponential workflow: request from the run of ${from ?? `a dependent node`}, which builds on your work] ${message}`
-          )
-        )
-        return ok(
-          result.delivered
-            ? { delivered: true, note: `Delivered. Go on with what you can; when the change is pushed, take it yourself with git fetch origin && git merge origin/<your base branch> — upstream is never merged into a running node's branch for it.` }
-            : { delivered: false, note: escalate }
-        )
-      } catch (e) {
-        return err(e)
-      }
-    }
-  )
-
-  server.registerTool(
-    `exponential_workflows_review_submit`,
-    {
-      description: `Workflow REVIEW runs only: your verdict on the node named in your prompt. verdict approve|request_changes; findings = what is wrong and where (the wave's fix run gets it verbatim); oracle = {command, passed} for the checks you actually RAN (the exact commands, up to 2000 chars); head = the commit sha you reviewed. Reviews happen in waves over landed work: every request of the wave goes to ONE fix run, then whatever stays open is carried to the final pull request.`,
-      inputSchema: strictInput({
-        nodeId: uuidString,
-        verdict: z.enum(contract.wfReviewVerdict.values as [string, ...string[]]),
-        findings: z.string().max(8000).optional(),
-        oracle: z.record(z.string(), z.unknown()).optional(),
-        model: z.string().max(64).optional(),
-        head: workflowReviewHeadSchema.optional(),
-      }),
-    },
-    async (input) => {
-      try {
-        // The verdict is bound to the calling RUN: the router checks it is the
-        // review run the engine started for this node, not the author's.
-        if (!sessionId) {
-          return err(
-            new Error(`Only a workflow review run may submit a verdict (no session header).`)
-          )
-        }
-        const result = await caller(user, request).workflows.submitReview({
-          nodeId: input.nodeId,
-          sessionId,
-          verdict: input.verdict as WfReviewVerdict,
-          findings: input.findings ?? ``,
-          oracle: input.oracle ? workflowReviewOracleSchema.parse(input.oracle) : null,
-          model: input.model ?? null,
-          head: input.head,
-        })
-        return ok(result)
-      } catch (e) {
-        return err(e)
-      }
-    }
-  )
-
-  server.registerTool(
-    `exponential_workflows_update`,
-    {
-      description: `Update a workflow; pass only what changes. Draft only: deviceId (the runner machine, your own or a server shared with the team; required before workflows_start — it also seeds the models every run uses), addIssueIds/removeIssueIds, nodes = [{issueId, kind?: contract|leaf|integration, risk?: low|medium|high, touches?: globs}]. Any time: name, decision = an answer worth keeping (appended, dated, to the log every node prompt carries). Returns the fresh metrics.`,
-      inputSchema: strictInput({
-        id: uuidString,
-        name: z.string().min(1).max(255).optional(),
-        // EXP-978 follow-up: a run (an automation, a parent session) that
-        // plans a workflow over MCP must be able to bind the runner, or the
-        // draft can never start — `workflows.update` is the only writer.
-        deviceId: z.string().min(1).max(128).optional(),
-        addIssueIds: z.array(z.string().min(1)).max(WORKFLOW_MAX_ISSUES).optional(),
-        removeIssueIds: z.array(z.string().min(1)).max(WORKFLOW_MAX_ISSUES).optional(),
-        nodes: z.array(z.record(z.string(), z.unknown())).max(WORKFLOW_MAX_ISSUES).optional(),
-        decision: z.string().min(1).max(2000).optional(),
-      }),
-    },
-    async (input) => {
-      try {
-        if (!access.full) {
-          assertTeamFullyGranted(access, (await getWorkflowContext(input.id)).teamId)
-        }
-        const api = caller(user, request).workflows
-        const resolve = (ids: string[] | undefined) =>
-          Promise.all((ids ?? []).map((id) => resolveIssueId(id, user.id, access)))
-        if (input.name || input.deviceId || input.decision) {
-          await api.update({
-            id: input.id,
-            name: input.name,
-            deviceId: input.deviceId,
-            decision: input.decision,
-          })
-        }
-        const [addIssueIds, removeIssueIds] = await Promise.all([
-          resolve(input.addIssueIds),
-          resolve(input.removeIssueIds),
-        ])
-        if (addIssueIds.length > 0 || removeIssueIds.length > 0) {
-          await api.setIssues({ id: input.id, addIssueIds, removeIssueIds })
-        }
-        // Declared loose to stay inside the MCP context budget; the strict
-        // shape validates here (and again in the router).
-        for (const raw of input.nodes ?? []) {
-          const node = workflowNodePatchSchema.parse(raw)
-          // An issueId-only entry patches nothing; the router would refuse it
-          // AFTER the writes above already landed.
-          if (
-            node.kind === undefined &&
-            node.risk === undefined &&
-            node.touches === undefined
-          ) {
-            continue
-          }
-          await api.updateNode({
-            workflowId: input.id,
-            ...node,
-            issueId: await resolveIssueId(node.issueId, user.id, access),
-          })
-        }
-        const { metrics } = await api.replan({ id: input.id })
-        return ok({ ok: true, id: input.id, metrics })
       } catch (e) {
         return err(e)
       }

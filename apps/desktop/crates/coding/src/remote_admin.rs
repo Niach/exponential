@@ -55,25 +55,6 @@ pub struct DefaultsPatch {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_agent: Option<String>,
     pub agents: BTreeMap<String, AgentDefaultsPatch>,
-    /// EXP-1029/EXP-1020: the WORKFLOW model pair new workflows started on
-    /// this machine are seeded from (`DeviceWorkflowDefaults`). Absent from
-    /// a machine that predates it — the server then carries its stored copy
-    /// forward rather than wiping it.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub workflow: Option<WorkflowDefaultsPatch>,
-}
-
-/// The `launch_defaults.workflow` object: the cheap model (leaf nodes and
-/// the subagents inside them) and the strong one (contract, integration and
-/// `risk: high` nodes, and every agent review). A HALF pair seeds nothing,
-/// so both names ride together or neither does.
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", default)]
-pub struct WorkflowDefaultsPatch {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub strong_model: Option<String>,
 }
 
 /// Apply `patch` onto `settings`, FIELD-wise and ignore-invalid: a value
@@ -101,29 +82,6 @@ pub fn apply_defaults_patch(settings: &mut Settings, patch: &DefaultsPatch) -> b
         if settings.default_agent != agent {
             settings.default_agent = agent;
             changed = true;
-        }
-    }
-    // EXP-1020: the workflow pair, each half clamped to the DEFAULT AGENT's
-    // vocabulary — the same rule `Settings::load` applies, and the same one
-    // web's `workflowDefaultsFor` applies. It runs AFTER `default_agent`
-    // above, so a patch that switches the agent and the pair together is
-    // judged against the new agent. Clamping against claude's aliases alone
-    // silently dropped a codex pair set on web, which the next
-    // `defaults_wire` push then overwrote with opus/fable.
-    if let Some(workflow) = &patch.workflow {
-        let vocabulary: &[&str] = match settings.default_agent {
-            CodingAgent::Claude => &crate::settings::MODEL_ALIASES,
-            CodingAgent::Codex => &crate::agent::CODEX_MODELS,
-        };
-        for (value, slot) in [
-            (&workflow.model, &mut settings.workflow_model),
-            (&workflow.strong_model, &mut settings.workflow_strong_model),
-        ] {
-            if let Some(value) = value {
-                if vocabulary.contains(&value.as_str()) {
-                    set_string(slot, value, &mut changed);
-                }
-            }
         }
     }
     for (agent_id, entry) in &patch.agents {
@@ -191,7 +149,7 @@ pub fn apply_defaults_patch(settings: &mut Settings, patch: &DefaultsPatch) -> b
 /// launch default is.
 ///
 /// It exists because the dialog hand-copied the list and a field added later
-/// (`claude_subagent_model`, the EXP-1029 workflow pair) was then saved
+/// (`claude_subagent_model`) was then saved
 /// everywhere EXCEPT on this machine's own row: the hub reseeded the selects
 /// from the stale file and `launch_defaults_sync`'s PushLocal later shipped
 /// the stale copy back over the server's. One function, one test
@@ -206,8 +164,6 @@ pub fn overlay_launch_defaults(onto: &mut Settings, from: &Settings) {
     onto.claude_model = from.claude_model.clone();
     onto.claude_effort = from.claude_effort.clone();
     onto.claude_subagent_model = from.claude_subagent_model.clone();
-    onto.workflow_model = from.workflow_model.clone();
-    onto.workflow_strong_model = from.workflow_strong_model.clone();
     onto.codex_model = from.codex_model.clone();
     onto.codex_effort = from.codex_effort.clone();
     onto.claude_ultracode = from.claude_ultracode;
@@ -244,10 +200,6 @@ pub fn defaults_wire(settings: &Settings) -> DefaultsPatch {
     DefaultsPatch {
         default_agent: Some(settings.default_agent.id().to_string()),
         agents,
-        workflow: Some(WorkflowDefaultsPatch {
-            model: Some(settings.workflow_model.clone()),
-            strong_model: Some(settings.workflow_strong_model.clone()),
-        }),
     }
 }
 
@@ -397,69 +349,6 @@ mod tests {
         assert!(!target.claude_plan_mode);
     }
 
-    // EXP-1020: the "Workflow settings" pair.
-    #[test]
-    fn the_workflow_pair_rides_the_wire_and_clamps_field_wise() {
-        let mut source = Settings::default();
-        source.workflow_model = "sonnet".into();
-        source.workflow_strong_model = "opus".into();
-        let wire = defaults_wire(&source);
-        let workflow = wire.workflow.as_ref().expect("the pair rides the wire");
-        assert_eq!(workflow.model.as_deref(), Some("sonnet"));
-        assert_eq!(workflow.strong_model.as_deref(), Some("opus"));
-
-        let mut target = Settings::default();
-        assert!(apply_defaults_patch(&mut target, &wire));
-        assert_eq!(target.workflow_model, "sonnet");
-        assert_eq!(target.workflow_strong_model, "opus");
-
-        // A name outside the DEFAULT AGENT's vocabulary is dropped WITHOUT
-        // resetting the field — the same rule every other patch value
-        // follows. `target` defaults to claude, so a codex name is foreign.
-        let patch = DefaultsPatch {
-            workflow: Some(WorkflowDefaultsPatch {
-                model: Some("gpt-5.6-sol".into()),
-                strong_model: None,
-            }),
-            ..DefaultsPatch::default()
-        };
-        assert!(!apply_defaults_patch(&mut target, &patch));
-        assert_eq!(target.workflow_model, "sonnet");
-        assert_eq!(target.workflow_strong_model, "opus");
-    }
-
-    /// EXP-1020: a CODEX pair set on web must survive the trip — clamping it
-    /// against claude's aliases dropped it, and the next `defaults_wire`
-    /// push then shipped opus/fable back over the user's choice.
-    #[test]
-    fn a_codex_workflow_pair_rides_when_codex_is_the_default_agent() {
-        let mut target = Settings::default();
-        let patch = DefaultsPatch {
-            default_agent: Some("codex".into()),
-            workflow: Some(WorkflowDefaultsPatch {
-                model: Some("gpt-5.6-sol".into()),
-                strong_model: Some("gpt-5.6-luna".into()),
-            }),
-            ..DefaultsPatch::default()
-        };
-        assert!(apply_defaults_patch(&mut target, &patch));
-        assert_eq!(target.default_agent, CodingAgent::Codex);
-        assert_eq!(target.workflow_model, "gpt-5.6-sol");
-        assert_eq!(target.workflow_strong_model, "gpt-5.6-luna");
-
-        // And the reverse: claude names are foreign once codex is default.
-        let patch = DefaultsPatch {
-            default_agent: Some("codex".into()),
-            workflow: Some(WorkflowDefaultsPatch {
-                model: Some("opus".into()),
-                strong_model: Some("fable".into()),
-            }),
-            ..DefaultsPatch::default()
-        };
-        assert!(!apply_defaults_patch(&mut target, &patch));
-        assert_eq!(target.workflow_model, "gpt-5.6-sol");
-    }
-
     /// EXP-1020: the overlay carries EVERY launch default and touches
     /// nothing else. `from` sets every field away from its default, so a
     /// launch field added later and forgotten in `overlay_launch_defaults`
@@ -475,8 +364,6 @@ mod tests {
             claude_model: "sonnet".into(),
             claude_effort: "xhigh".into(),
             claude_subagent_model: "sonnet".into(),
-            workflow_model: "gpt-5.6-terra".into(),
-            workflow_strong_model: "gpt-5.6-luna".into(),
             codex_model: "gpt-5.6-terra".into(),
             codex_effort: "high".into(),
             claude_ultracode: true,
@@ -509,9 +396,7 @@ mod tests {
             ..from.clone()
         };
         assert_eq!(onto, expected);
-        // The three the Device settings dialog used to drop on its own row.
+        // The one the Device settings dialog used to drop on its own row.
         assert_eq!(onto.claude_subagent_model, "sonnet");
-        assert_eq!(onto.workflow_model, "gpt-5.6-terra");
-        assert_eq!(onto.workflow_strong_model, "gpt-5.6-luna");
     }
 }

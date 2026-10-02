@@ -771,7 +771,7 @@ impl IssueHeader {
         cx: &mut gpui::Context<Self>,
     ) -> Vec<gpui::AnyElement> {
         let mut cluster = Vec::with_capacity(5);
-        // EXP-897 §4: the ONE stack/batch badge, shared by all three faces.
+        // EXP-897 §4: the ONE related-work badge, shared by all three faces.
         cluster.extend(self.pr_graph_badge(issue, cx));
         cluster.extend(leading);
         // EXP-916: the way out to GitHub for a subject with a pull request —
@@ -804,7 +804,7 @@ impl IssueHeader {
         cluster
     }
 
-    /// EXP-897 §4 / SLOP-16 — the related-work badge: an icon button
+    /// EXP-897 §4 / SLOP-16: the related-work badge, an icon button
     /// (`pr-stack` / `pr-batch` / `relation-blocked-by`, `+N`) opening the
     /// "Related work" dialog, the same on every face. Absent when there is
     /// nothing around this issue at all.

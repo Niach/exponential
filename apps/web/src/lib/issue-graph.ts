@@ -67,6 +67,8 @@ export const ISSUE_GRAPH_TRUNCATED_NOTE = `Showing the nearest ${ISSUE_GRAPH_MAX
 /** Under a graph that holds a cycle. Byte-identical ×4. */
 export const ISSUE_GRAPH_CYCLE_NOTE = `Red issues block each other in a cycle.`
 
+// The blocked-start dialog's copy lives in `lib/blocked-start.ts`.
+
 /** The badge's accessible label: `Blocked by 2`, `Blocking 1` or
  *  `Blocked by 2, blocking 1`. Byte-identical ×4. */
 export function blocksBadgeLabel(counts: BlockCounts): string {
@@ -133,6 +135,37 @@ export function blockCounts(
     at(to).blockedBy += 1
   }
   return counts
+}
+
+/**
+ * The issues that BLOCK `issueId` and are still open, ordered by identifier.
+ *
+ * Only `blocks` relations count, and only from the blocked side (the row's
+ * `related_issue_id` is this issue): a row this issue blocks is not in its
+ * way. A blocker whose row has not synced (another team's board, a trashed
+ * board) is dropped rather than rendered blank, and a blocker that is done,
+ * cancelled or a duplicate is no blocker at all.
+ */
+export function openBlockers<T extends GraphIssue>(
+  issueId: string,
+  relations: readonly GraphRelation[],
+  issues: readonly T[]
+): T[] {
+  const byId = new Map(issues.map((issue) => [issue.id, issue]))
+  const seen = new Set<string>()
+  const out: T[] = []
+  for (const relation of relations) {
+    if (relation.type !== `blocks`) continue
+    if (relation.relatedIssueId !== issueId) continue
+    const blockerId = relation.issueId
+    if (blockerId === issueId || seen.has(blockerId)) continue
+    seen.add(blockerId)
+    const blocker = byId.get(blockerId)
+    if (!blocker) continue
+    if (CLOSED_ANCHORS.has(blocker.status)) continue
+    out.push(blocker)
+  }
+  return out.sort((a, b) => byText(a.identifier, b.identifier))
 }
 
 /**

@@ -78,8 +78,7 @@ import {
 // `agent-usage-refresh` (EXP-747 C4), `update-now` (FEED-36: runs
 // `update_now`), `account-remove` (EXP-862: runs `agent_profile_remove`),
 // `account-sign-out` (EXP-1137: runs `agent_profile_sign_out` and removes its
-// ambient login) and `stacked-start` (EXP-897: reads a start frame's `stack`
-// payload). The daemon advertises 22 today (13 build + 9 action caps), so the
+// ambient login). The daemon advertises 22 today (13 build + 9 action caps), so the
 // ceiling sits at 24 with headroom, not AT the count.
 const agentsInput = z.array(z.string().min(1).max(32)).max(16)
 const capsInput = z.array(z.string().min(1).max(32)).max(24)
@@ -154,25 +153,6 @@ function clampLaunchDefaults(
       if (Object.keys(entry).length > 0) agents[agent] = entry
     }
     if (Object.keys(agents).length > 0) out.agents = agents
-  }
-  // EXP-1029: the workflow model defaults (`DeviceWorkflowDefaults`). Both
-  // names come out of the closed model vocabularies (the last used agent
-  // decides which; the clamp accepts either); an incomplete or unknown
-  // pair is dropped whole — a workflow is never seeded from half a pair.
-  if (input.workflow) {
-    const models: readonly string[] = [
-      ...contract.codingModel.values,
-      ...contract.codexModel.values,
-    ]
-    const { model, strongModel } = input.workflow
-    if (
-      typeof model === `string` &&
-      typeof strongModel === `string` &&
-      models.includes(model) &&
-      models.includes(strongModel)
-    ) {
-      out.workflow = { model, strongModel }
-    }
   }
   return out
 }

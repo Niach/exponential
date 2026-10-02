@@ -18,9 +18,8 @@
 //!
 //! The beat itself touches no disk and no network: a walled session's run
 //! record (its account, model and whether it is repo-backed) is read ONCE
-//! off the foreground into a small cache, the chains are persisted off the
-//! foreground, and the workflow event a decision owes goes out on the
-//! background executor.
+//! off the foreground into a small cache, and the chains are persisted off
+//! the foreground.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -29,7 +28,6 @@ use std::time::Duration;
 use coding::account_rotation::{
     Decision, Hold, InflightClaim, InflightProbes, ProbeBatch, RotationTracker, WalledRun,
 };
-use coding::workflows::events::{TrpcEventSink, WorkflowEventSink as _};
 use gpui::App;
 
 use crate::coding_flow::{CodingHub, LocalSessions};
@@ -139,16 +137,6 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     }
-}
-
-/// The workflow a synced run belongs to: `(workflow_id, node_id)`.
-fn session_workflow(session_id: &str, cx: &App) -> Option<(String, Option<String>)> {
-    let store = sync::Store::try_global(cx)?;
-    let sessions = store.collections().coding_sessions.read(cx);
-    sessions
-        .iter()
-        .find(|row| row.id == session_id)
-        .and_then(|row| Some((row.workflow_id.clone()?, row.workflow_node_id.clone())))
 }
 
 /// One walled session as the beat reads it off the engine, before its run
@@ -358,41 +346,19 @@ fn spawn_probe(
 /// Act on one decision. `false` = a switch the host could NOT make (the
 /// caller undoes its count); a wait, or a switch under way, is `true`.
 fn act(run: &WalledRun, decision: Decision, cx: &mut App) -> bool {
-    let workflow = session_workflow(&run.session_id, cx);
-    // The event sink is a blocking tRPC call: never on the foreground.
-    let record = |kind: &str, message: String, cx: &App| {
-        let Some((workflow_id, node_id)) = workflow.clone() else {
-            return;
-        };
-        let Some(trpc) = crate::queries::trpc_client(cx) else {
-            return;
-        };
-        let sink = TrpcEventSink::new(Arc::new(trpc));
-        let event = api::workflows::WorkflowEvent {
-            workflow_id,
-            node_id,
-            session_id: Some(run.session_id.clone()),
-            kind: kind.to_string(),
-            message,
-        };
-        cx.background_executor()
-            .spawn(async move { sink.record(event) })
-            .detach();
-    };
     match decision {
         Decision::Switch {
             target,
             target_label,
             prompt,
-            event_message,
         } => {
             log::info!(
                 "account rotation [{}]: switching {} -> {target} ({target_label})",
                 run.session_id,
                 run.account
             );
-            // The server inherits started_reason, the parent and the workflow
-            // membership from the predecessor (EXP-1082 §1). A refusal (a
+            // The server inherits started_reason and the parent from the
+            // predecessor (EXP-906). A refusal (a
             // turn started meanwhile) hands back `false`: the caller undoes
             // the rotation the tracker counted (EXP-1107). A resume that
             // fails LATER (the old run did not stop in time) is reported by
@@ -407,7 +373,6 @@ fn act(run: &WalledRun, decision: Decision, cx: &mut App) -> bool {
                 crate::steer_wiring::StartReport::none(),
                 cx,
             ) {
-                record("account_switched", event_message, cx);
                 true
             } else {
                 log::warn!(
@@ -417,15 +382,11 @@ fn act(run: &WalledRun, decision: Decision, cx: &mut App) -> bool {
                 false
             }
         }
-        Decision::Wait {
-            until_ms,
-            event_message,
-        } => {
+        Decision::Wait { until_ms } => {
             log::info!(
-                "account rotation [{}]: no profile has headroom — waiting until {until_ms}: {event_message}",
+                "account rotation [{}]: no profile has headroom — waiting until {until_ms}",
                 run.session_id
             );
-            record("waiting_reset", event_message, cx);
             true
         }
     }

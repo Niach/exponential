@@ -5,14 +5,11 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.CodingSessionsApi
 import com.exponential.app.data.api.IssuesApi
-import com.exponential.app.data.api.WorkflowsApi
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.BoardEntity
-import com.exponential.app.data.db.WorkflowEntity
-import com.exponential.app.data.db.WorkflowNodeEntity
 import com.exponential.app.data.db.IssueStatusEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
@@ -20,14 +17,7 @@ import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.CHAT_RUN_NAME
-import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeFailure
-import com.exponential.app.domain.PrStack
-import com.exponential.app.domain.ReviewMergeInput
-import com.exponential.app.domain.ReviewStackPosition
-import com.exponential.app.domain.ReviewsMerge
-import com.exponential.app.domain.coveredIssueIds
-import com.exponential.app.domain.WorkflowFinalPr
 import com.exponential.app.domain.chatRunSubject
 import com.exponential.app.domain.sortableTimestamp
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -86,14 +76,20 @@ data class RunReviewEntry(
 
 /**
  * The open-PR runs → review entries: collapsed by `pr_url` (a resumed run
- * continues the same PR) keeping the NEWEST row, newest first. Top-level and
- * pure so it can be tested without a database.
+ * continues the same PR) keeping the NEWEST row, newest first. Every run
+ * stamps its own PR on its row — a batch run's combined PR too — so a run
+ * whose `pr_url` an issue already carries ([issuePrUrls]) stays with that
+ * issue's entry instead. Top-level and pure so it can be tested without a
+ * database.
  */
-fun buildRunEntries(sessions: List<CodingSessionEntity>): List<RunReviewEntry> {
+fun buildRunEntries(
+    sessions: List<CodingSessionEntity>,
+    issuePrUrls: Set<String> = emptySet(),
+): List<RunReviewEntry> {
     val byPrUrl = LinkedHashMap<String, CodingSessionEntity>()
     for (session in sessions) {
         val prUrl = session.prUrl
-        if (prUrl.isNullOrEmpty()) continue
+        if (prUrl.isNullOrEmpty() || prUrl in issuePrUrls) continue
         val current = byPrUrl[prUrl]
         if (current == null ||
             sortableTimestamp(session.startedAt) > sortableTimestamp(current.startedAt)
@@ -116,155 +112,66 @@ fun buildRunEntries(sessions: List<CodingSessionEntity>): List<RunReviewEntry> {
 }
 
 /**
- * EXP-1072: a workflow's ONE final pull request (integration branch → the
- * default branch). The workflow row carries its url/number/state, so it is
- * the workflow's OWN PR here — never an unlinked one — and merges through
- * `workflows.mergeFinalPr`, which completes the workflow and its issues.
+ * The team's open-PR issues, boards and open-PR runs → the Reviews state.
+ * Issues group by `pr_url` so a batch PR (N issues, one url) is ONE entry;
+ * entries are newest first and grouped by the representative issue's board,
+ * boards in board order (sortOrder, name tiebreak). Pure so it can be tested
+ * without a database.
  */
-data class WorkflowReviewEntry(
-    val groupKey: String,
-    val workflow: WorkflowEntity,
-    val prUrl: String?,
-    val prNumber: Int?,
-    val branch: String?,
-    /** The workflow's name — the row's title. */
-    val title: String,
-)
-
-/**
- * The team's workflows → review entries: only an OPEN final pull request with
- * a url, newest workflow first. Pure so it can be tested without a database.
- */
-fun buildWorkflowEntries(workflows: List<WorkflowEntity>): List<WorkflowReviewEntry> =
-    workflows
-        .filter { it.finalPrState == DomainContract.prStateOpen && !it.finalPrUrl.isNullOrEmpty() }
-        .sortedByDescending { sortableTimestamp(it.createdAt) }
-        .map { workflow ->
-            WorkflowReviewEntry(
-                groupKey = WorkflowFinalPr.reviewKey(workflow.id),
-                workflow = workflow,
-                prUrl = workflow.finalPrUrl,
-                prNumber = workflow.finalPrNumber,
-                branch = workflow.integrationBranch.takeIf { it.isNotBlank() },
-                title = workflow.name,
+fun buildReviewsState(
+    issues: List<IssueEntity>,
+    boards: List<BoardEntity>,
+    runs: List<CodingSessionEntity>,
+): ReviewsState {
+    val boardsById = boards.associateBy { it.id }
+    // An issue without a url (defensive — the query only selects pr_state
+    // 'open', which normally implies a url) keys on its own id so it stays a
+    // distinct single-issue row.
+    val entries = issues
+        .filter { it.boardId in boardsById }
+        .groupBy { it.prUrl ?: "issue:${it.id}" }
+        .map { (groupKey, rows) ->
+            val ordered = rows.sortedByDescending { sortableTimestamp(it.createdAt) }
+            val representative = ordered.first()
+            ReviewEntry(
+                groupKey = groupKey,
+                prUrl = representative.prUrl,
+                prNumber = representative.prNumber,
+                branch = representative.branch,
+                boardId = representative.boardId,
+                issues = ordered,
             )
         }
-
-/**
- * EXP-897: one row of the Reviews list — a pull request and where it sits in
- * its STACK. The stack edge is synced (`pr_base_branch` → the lower entry's
- * `branch`), so the nesting is pure client work like the batch collapsing
- * above it.
- */
-data class ReviewRowEntry(
-    val entry: ReviewEntry,
-    /** 0 for the bottom of a stack (or a lone PR), +1 per level. */
-    val depth: Int,
-    /** Whether a stacked pull request is nested right below this row. */
-    val hasChildren: Boolean,
-    /** The identifier of the entry directly below — the `on top of #X` caption. */
-    val stackedOn: String?,
-    /** The board the ROOT of this row's stack belongs to — the group it lands in. */
-    val rootBoardId: String,
-    /**
-     * Non-null on the BOTTOM row of a real stack: the issue id `Merge stack`
-     * sends (the server resolves the chain's top from it) and how many pull
-     * requests that merge would take.
-     */
-    val mergeStackIssueId: String?,
-    val stackSize: Int,
-    /**
-     * EXP-1094: the status of the workflow whose node covers this PR's
-     * issues (a live one first), else null. A running or paused workflow
-     * merges its node PRs itself.
-     */
-    val workflowStatus: String? = null,
-) {
-    /** EXP-1094: the input of the ONE merge control this row carries. */
-    val mergeInput: ReviewMergeInput
-        get() = ReviewMergeInput(
-            stack = when {
-                mergeStackIssueId != null -> ReviewStackPosition.BOTTOM
-                depth > 0 -> ReviewStackPosition.UPPER
-                else -> ReviewStackPosition.NONE
-            },
-            workflowStatus = workflowStatus,
-        )
-}
-
-/**
- * The team's review entries → rows, nested by stack: the caller's order is
- * the ROOT order, a stacked pull request follows its foundation, and every
- * row records the board of its ROOT so a whole stack groups under one board
- * even when a member was moved.
- */
-fun buildReviewRows(
-    entries: List<ReviewEntry>,
-    /** EXP-1094: issue id → its covering workflow's status ([ReviewsMerge.workflowStatusByIssue]). */
-    workflowStatusByIssue: Map<String, String> = emptyMap(),
-): List<ReviewRowEntry> {
-    val nested = PrStack.nestPrStacks(
-        entries,
-        { it.branch },
-        { it.representative.prBaseBranch },
-    )
-    // The size of the stack each ROOT starts — the `N pull requests` count.
-    val sizeOfRootAt = HashMap<Int, Int>()
-    var rootIndex = -1
-    nested.forEachIndexed { index, row ->
-        if (row.depth == 0) rootIndex = index
-        sizeOfRootAt[rootIndex] = (sizeOfRootAt[rootIndex] ?: 0) + 1
-    }
-    val ancestors = ArrayList<ReviewEntry>()
-    var rootBoardId = ""
-    rootIndex = -1
-    return nested.mapIndexed { index, row ->
-        while (ancestors.size > row.depth) ancestors.removeAt(ancestors.size - 1)
-        val below = ancestors.lastOrNull()
-        if (row.depth == 0) {
-            rootIndex = index
-            rootBoardId = row.entry.boardId
+        .sortedByDescending { sortableTimestamp(it.representative.createdAt) }
+    val groups = entries
+        .groupBy { it.boardId }
+        .mapNotNull { (boardId, boardEntries) ->
+            val board = boardsById[boardId] ?: return@mapNotNull null
+            ReviewBoardGroup(board = board, entries = boardEntries)
         }
-        ancestors.add(row.entry)
-        ReviewRowEntry(
-            entry = row.entry,
-            depth = row.depth,
-            hasChildren = row.hasChildren,
-            stackedOn = below?.representative?.identifier,
-            rootBoardId = rootBoardId,
-            mergeStackIssueId = if (row.depth == 0 && row.hasChildren) {
-                row.entry.representative.id
-            } else {
-                null
-            },
-            stackSize = sizeOfRootAt[rootIndex] ?: 1,
-            workflowStatus = ReviewsMerge.reviewWorkflowStatus(
-                row.entry.issues.map { it.id },
-                workflowStatusByIssue,
-            ),
-        )
-    }
+        .sortedWith(compareBy({ it.board.sortOrder }, { it.board.name.lowercase() }))
+    val issuePrUrls = issues.mapNotNullTo(HashSet()) { it.prUrl?.takeIf(String::isNotEmpty) }
+    return ReviewsState(
+        groups = groups,
+        runs = buildRunEntries(runs, issuePrUrls),
+        loaded = true,
+    )
 }
 
 data class ReviewBoardGroup(
     val board: BoardEntity,
-    val rows: List<ReviewRowEntry>,
-) {
-    /** The flat pull requests of this board — counts and callers that ignore nesting. */
-    val entries: List<ReviewEntry> get() = rows.map { it.entry }
-}
+    /** One entry per open pull request, newest first — a FLAT list. */
+    val entries: List<ReviewEntry>,
+)
 
 data class ReviewsState(
     val groups: List<ReviewBoardGroup> = emptyList(),
     // EXP-734: issueless runs whose OWN pull request is open — listed under
     // their own header, after the board groups.
     val runs: List<RunReviewEntry> = emptyList(),
-    // EXP-1072: workflows whose FINAL pull request is open — listed under
-    // their own header, between the board groups and the runs.
-    val workflows: List<WorkflowReviewEntry> = emptyList(),
     val loaded: Boolean = false,
 ) {
-    val isEmpty: Boolean get() = groups.isEmpty() && runs.isEmpty() && workflows.isEmpty()
+    val isEmpty: Boolean get() = groups.isEmpty() && runs.isEmpty()
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -274,7 +181,6 @@ class ReviewsViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val issuesApi: IssuesApi,
     private val codingSessionsApi: CodingSessionsApi,
-    private val workflowsApi: WorkflowsApi,
     selection: TeamSelection,
 ) : ViewModel() {
 
@@ -290,75 +196,12 @@ class ReviewsViewModel @Inject constructor(
                         db.issueDao().observeOpenPrsByTeam(teamId),
                         db.boardDao().observeByTeam(teamId),
                         db.codingSessionDao().observeOpenPrRunsByTeam(teamId),
-                        db.workflowDao().observeByTeam(teamId),
-                        db.workflowNodeDao().observeByTeam(teamId),
-                    ) { issues, boards, runs, workflows, nodes ->
-                        buildState(issues, boards, runs, workflows, nodes)
+                    ) { issues, boards, runs ->
+                        buildReviewsState(issues, boards, runs)
                     }
                 }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ReviewsState())
-
-    private fun buildState(
-        issues: List<IssueEntity>,
-        boards: List<BoardEntity>,
-        runs: List<CodingSessionEntity>,
-        workflows: List<WorkflowEntity>,
-        nodes: List<WorkflowNodeEntity>,
-    ): ReviewsState {
-        val boardsById = boards.associateBy { it.id }
-
-        // Group by pr_url so a batch PR (N issues, one url) becomes ONE entry;
-        // an issue without a url (defensive — the query only selects pr_state
-        // 'open', which normally implies a url) keys on its own id so it stays
-        // a distinct single-issue row.
-        val entries = issues
-            .filter { it.boardId in boardsById }
-            .groupBy { it.prUrl ?: "issue:${it.id}" }
-            .map { (groupKey, rows) ->
-                val ordered = rows.sortedByDescending { sortableTimestamp(it.createdAt) }
-                val representative = ordered.first()
-                ReviewEntry(
-                    groupKey = groupKey,
-                    prUrl = representative.prUrl,
-                    prNumber = representative.prNumber,
-                    branch = representative.branch,
-                    boardId = representative.boardId,
-                    issues = ordered,
-                )
-            }
-
-        // Newest entry first, then nested by stack (EXP-897): roots keep that
-        // order, a stacked pull request follows its foundation. Grouped by the
-        // ROOT's board so a stack never splits across two bands, and the
-        // boards ordered by sortOrder (name tiebreak) — parity with
-        // web/iOS/desktop, which all walk boards in board order.
-        // EXP-1094: a node PR of a live workflow merges through the workflow.
-        val workflowStatusByIssue = ReviewsMerge.workflowStatusByIssue(
-            workflows.map { it.id to it.status },
-            nodes.map { it.workflowId to it.coveredIssueIds },
-        )
-        val rows = buildReviewRows(
-            entries.sortedByDescending { sortableTimestamp(it.representative.createdAt) },
-            workflowStatusByIssue,
-        )
-        val groups = rows
-            .groupBy { it.rootBoardId }
-            .mapNotNull { (boardId, boardRows) ->
-                val board = boardsById[boardId] ?: return@mapNotNull null
-                ReviewBoardGroup(board = board, rows = boardRows)
-            }
-            .sortedWith(
-                compareBy({ it.board.sortOrder }, { it.board.name.lowercase() })
-            )
-
-        return ReviewsState(
-            groups = groups,
-            runs = buildRunEntries(runs),
-            workflows = buildWorkflowEntries(workflows),
-            loaded = true,
-        )
-    }
 
     /**
      * Squash-merge a RUN's own pull request (EXP-734). No issue is linked, so
@@ -384,61 +227,19 @@ class ReviewsViewModel @Inject constructor(
     }
 
     /**
-     * EXP-1072: squash-merge a workflow's FINAL pull request via
-     * `workflows.mergeFinalPr`. The server completes the workflow and moves
-     * every landed issue to the team's PR-merge status; the synced row's
-     * `final_pr_state` leaving `open` drops the entry. Shares the merging /
-     * mergeErrors maps, keyed by [WorkflowReviewEntry.groupKey].
-     */
-    fun mergeWorkflow(entry: WorkflowReviewEntry) {
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            val key = entry.groupKey
-            _mergeErrors.value = _mergeErrors.value - key
-            _merging.value = _merging.value + key
-            runCatching { workflowsApi.mergeFinalPr(accountId, entry.workflow.id) }
-                .onFailure { t ->
-                    if (t is CancellationException) throw t
-                    _mergeErrors.value = _mergeErrors.value +
-                        (key to MergeFailure.from(t, "The pull request could not be merged"))
-                }
-            _merging.value = _merging.value - key
-        }
-    }
-
-    /**
      * Squash-merge a review's PR via the GitHub App (EXP-131). Pass the
      * entry's [groupKey] plus the representative issue id — for a batch PR the
      * server resolves it to ALL linked issues and completes them together; the
      * `done` flips arrive via Electric sync, dropping the entry off this list.
+     * EXP-1145: [mergeStack] merges the open stack bottom-up THROUGH [issueId];
+     * a failure captions the row with the server's message.
      */
-    /**
-     * EXP-897: merge the whole STACK this row starts, bottom-up. [issueId] is
-     * the BOTTOM row's representative issue — the server resolves the chain's
-     * top and merges every unmerged member below it, retargeting as it goes.
-     * Shares the merging / mergeErrors maps with the single merge.
-     */
-    fun mergeStack(groupKey: String, issueId: String) {
+    fun mergePr(groupKey: String, issueId: String, mergeStack: Boolean = false) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             _mergeErrors.value = _mergeErrors.value - groupKey
             _merging.value = _merging.value + groupKey
-            runCatching { issuesApi.mergePr(accountId, issueId, mergeStack = true) }
-                .onFailure { t ->
-                    if (t is CancellationException) throw t
-                    _mergeErrors.value = _mergeErrors.value +
-                        (groupKey to MergeFailure.from(t, "The stack could not be merged"))
-                }
-            _merging.value = _merging.value - groupKey
-        }
-    }
-
-    fun mergePr(groupKey: String, issueId: String) {
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            _mergeErrors.value = _mergeErrors.value - groupKey
-            _merging.value = _merging.value + groupKey
-            runCatching { issuesApi.mergePr(accountId, issueId) }
+            runCatching { issuesApi.mergePr(accountId, issueId, mergeStack = mergeStack) }
                 .onFailure { t ->
                     if (t is CancellationException) throw t
                     // Conflicts, branch protection and GitHub App errors are the
@@ -461,6 +262,14 @@ class ReviewsViewModel @Inject constructor(
     val issueStatuses: StateFlow<List<ResolvedIssueStatus>> =
         dbFlow.scopedQuery(emptyList<IssueStatusEntity>()) { it.issueStatusDao().observeAll() }
             .map { IssueStatusResolver.teamStatuses(it) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * EXP-1145: every synced issue, so a row's Merge on a PR-stack member
+     * asks first ([com.exponential.app.domain.PrStack.stackMergeChoice]).
+     */
+    val allIssues: StateFlow<List<IssueEntity>> =
+        dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** SLOP-16 r3: the batch sheet's assignee avatars. */

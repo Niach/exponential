@@ -355,9 +355,6 @@ pub struct LocalSessions {
     /// Action runs (EXP-253), keyed by SESSION row id (concurrent runs of
     /// one action are allowed — the action id is not unique per session).
     by_action: HashMap<String, LocalCodingSession>,
-    /// Keeps the per-session watchers (`TabClosed` + manager release) alive
-    /// (keyed by session id; dropped with the entry).
-    watchers: HashMap<String, Vec<Subscription>>,
 }
 
 struct LocalSessionsGlobal(Entity<LocalSessions>);
@@ -498,9 +495,6 @@ impl LocalSessions {
                 SessionSubject::Batch(id) => this.by_batch.remove(id),
                 SessionSubject::Action(id) => this.by_action.remove(id),
             };
-            if let Some(entry) = &entry {
-                this.watchers.remove(&entry.session_id);
-            }
             cx.notify();
             // FEED-53: what the OTHER live sessions hold, taken with the
             // finished one already out, so its cleanup never removes a dir
@@ -593,15 +587,7 @@ impl LocalSessions {
         }
     }
 
-    /// Track a freshly spawned session. Also watches the manager for a
-    /// manual `TabClosed` on our tab: closing a running Claude tab kills the
-    /// child without its exit hook ever firing (the tab's subscription dies
-    /// with it), so the watcher ends the row best-effort here — the synced
-    /// "coding now" badge must never ghost (§7.1 step 8's intent). The same
-    /// reasoning covers the manager entity's RELEASE (EXP-105): closing the
-    /// window while the app keeps running (macOS) tears the dock down with
-    /// no `TabClosed` and no exit hook — the PTY closing SIGHUPs the child,
-    /// so ending the row there is badge-only, never a kill of live work.
+    /// Track a freshly spawned session.
     fn insert(
         sessions: &Entity<LocalSessions>,
         session: LocalCodingSession,
@@ -620,72 +606,12 @@ impl LocalSessions {
             crate::session_registry::record(&auth.data_dir, &session.session_id, &account.id);
         }
         let subject = session.subject.clone();
-        let session_key = session.session_id.clone();
-        let mut watchers: Vec<Subscription> = Vec::new();
-        // EXP-498: merge always closes, but a batch session's row can't be
-        // ended server-side (issue_id NULL, no batch↔PR linkage) — so the
-        // desktop closes it itself when its branch's synced issues reach a
-        // MERGED PR (merged from web/mobile/GitHub; this tab's own merge
-        // button already closes locally before the sync echo). Closing the
-        // tab reuses the full teardown: the TabClosed watcher above ends the
-        // row and removes the entry, which drops this subscription — fire-
-        // once by construction. Issue sessions need none of this: their
-        // server-side →ended flip lands via the kill-watch.
-        //
-        // EXP-637 (decision 6): NOT when the session merged its own PR. The
-        // server flips such a row back to `running` instead of ending it
-        // (server-only `merged_own_pr`), so a live `running` row on a merged
-        // branch IS this session having merged it — and it goes on working
-        // until it calls `exponential_sessions_end`. An externally merged
-        // batch is parked `in_review` (its own `pr_open` put it there) or
-        // already `ended`, so the close still fires for it.
-        let batch_close = (matches!(subject, SessionSubject::Batch(_))
-            && !session.branch.is_empty())
-        .then(|| {
-            (
-                session.branch.clone(),
-                session.host.clone(),
-                session.session_id.clone(),
-            )
-        });
-        // EXP-711: NOR when the team switched merge-ends-sessions off — the
-        // server leaves issue sessions running then, and the batch tab
-        // must stay open the same way (synced `teams.end_sessions_on_merge`).
-        if let Some((branch, host, session_id)) = batch_close.clone() {
-            if let Some(store) = Store::try_global(cx) {
-                let issues = store.collections().issues.clone();
-                let sessions_collection = store.collections().coding_sessions.clone();
-                let teams_collection = store.collections().teams.clone();
-                watchers.push(cx.observe(&issues, move |issues, cx| {
-                    if !branch_pr_merged(&branch, issues.read(cx).iter()) {
-                        return;
-                    }
-                    if session_merged_its_own_pr(&sessions_collection, &session_id, cx) {
-                        return;
-                    }
-                    if !team_ends_sessions_on_merge(
-                        &sessions_collection,
-                        &teams_collection,
-                        &session_id,
-                        cx,
-                    ) {
-                        return;
-                    }
-                    // EXP-746: the PTY arm closes the tab (its watcher then
-                    // ends the row); the ACP arm kills the engine.
-                    host.stop(cx);
-                }));
-            }
-        }
         // EXP-481: a session registering changes the inventory's busy flags.
         crate::device_sync::report_soon(cx);
         // EXP-1158: and a person's start just moved the last used login +
         // agent (the launcher's stamp) — beat now so the row carries them.
         crate::device_sync::beat_soon(cx);
         sessions.update(cx, |this, cx| {
-            if !watchers.is_empty() {
-                this.watchers.insert(session_key, watchers);
-            }
             match &subject {
                 SessionSubject::Issue(id) => {
                     this.by_issue.insert(id.clone(), session);
@@ -699,72 +625,7 @@ impl LocalSessions {
             }
             cx.notify();
         });
-        // A batch registered late against an already-merged PR (resume onto
-        // a merged branch) never sees another issues notify — run the same
-        // check once, AFTER the entry exists so the close's teardown finds
-        // and removes it.
-        if let Some((branch, host, session_id)) = batch_close {
-            let merged = Store::try_global(cx).is_some_and(|store| {
-                branch_pr_merged(&branch, store.collections().issues.read(cx).iter())
-                    && !session_merged_its_own_pr(
-                        &store.collections().coding_sessions,
-                        &session_id,
-                        cx,
-                    )
-                    && team_ends_sessions_on_merge(
-                        &store.collections().coding_sessions,
-                        &store.collections().teams,
-                        &session_id,
-                        cx,
-                    )
-            });
-            if merged {
-                host.stop(cx);
-            }
-        }
     }
-}
-
-/// EXP-637 (decision 6): did THIS session merge the PR that just landed?
-/// A merge normally ends every live session on the PR — except the one that
-/// called `exponential_pr_merge` itself, which the server spares and flips
-/// back to `running`. So a still-`running` own row on a merged branch means
-/// "the agent merged its own PR and is still working"; anything else
-/// (`in_review`, `ended`, a row that never synced) means the merge came from
-/// somewhere else and the tab should close.
-fn session_merged_its_own_pr(
-    sessions: &Entity<sync::collections::Collection<domain::rows::CodingSession>>,
-    session_id: &str,
-    cx: &App,
-) -> bool {
-    sessions
-        .read(cx)
-        .get(session_id)
-        .and_then(|row| row.status.as_deref())
-        .is_some_and(|status| status == domain::contract::CODING_SESSION_STATUS_RUNNING)
-}
-
-/// EXP-711: does the session's team still end coding sessions on merge? The
-/// synced own row names the team; a row or team that has not synced yet
-/// reads as the server default (end), so the self-close never waits on a
-/// setting it cannot see.
-fn team_ends_sessions_on_merge(
-    sessions: &Entity<sync::collections::Collection<domain::rows::CodingSession>>,
-    teams: &Entity<sync::collections::Collection<domain::rows::Team>>,
-    session_id: &str,
-    cx: &App,
-) -> bool {
-    let Some(team_id) = sessions
-        .read(cx)
-        .get(session_id)
-        .and_then(|row| row.team_id.clone())
-    else {
-        return true;
-    };
-    teams
-        .read(cx)
-        .get(&team_id)
-        .is_none_or(|team| team.ends_sessions_on_merge())
 }
 
 /// Does a session's worktree sit on `branch`? An EMPTY branch never matches
@@ -779,22 +640,6 @@ fn holds_branch(session_branch: &str, branch: &str) -> bool {
 /// session's action id — `None` for issue/batch sessions.
 pub(crate) fn is_fix_conflicts_run(action_id: Option<&str>) -> bool {
     action_id == Some(api::actions::BUILTIN_FIX_CONFLICTS_ID)
-}
-
-/// Does any synced issue on `branch` carry a MERGED PR? The batch self-close
-/// predicate (EXP-498): a batch session's issues all share its branch, so one
-/// merged sibling means the batch PR merged and the session must end. An
-/// empty branch never matches (trunk/scratch runs record no branch), and an
-/// issue with no branch never matches either.
-fn branch_pr_merged<'a>(
-    branch: &str,
-    issues: impl Iterator<Item = &'a domain::rows::Issue>,
-) -> bool {
-    !branch.is_empty()
-        && issues.into_iter().any(|issue| {
-            issue.branch.as_deref() == Some(branch)
-                && issue.pr_state.as_deref() == Some("merged")
-        })
 }
 
 /// One live session's claim on a branch, reduced to what a fix-conflicts
@@ -1200,7 +1045,6 @@ pub fn build_launch(
     options: LaunchOptions,
     resume_prompt: bool,
     prompt: Option<String>,
-    stack: Option<coding::StackLaunch>,
     cx: &mut App,
 ) -> Option<(LaunchRequest, CodingDeps)> {
     let account = queries::active_account(cx)?;
@@ -1232,13 +1076,6 @@ pub fn build_launch(
         options,
         resume_prompt,
         prompt,
-        // EXP-897: the server-resolved stack (`codingSessions.stackPlan`),
-        // `None` for an ordinary start.
-        stack,
-        // EXP-982: the workflow host fills these in on the request it gets
-        // back; every other caller leaves an ordinary board-based start.
-        base_branch: None,
-        workflow: None,
     };
     let deps = CodingDeps {
         trpc,
@@ -1441,8 +1278,7 @@ impl engine::EngineHost for DesktopEngineHost {
 }
 
 /// Start a prepared launch on the in-process ACP engine and open its session
-/// screen — unless an agent or the workflow host started it
-/// ([`should_open_session`], EXP-1088).
+/// screen — unless an agent started it ([`should_open_session`], EXP-1088).
 ///
 /// The ORDER below is the whole function: every step is an invariant some
 /// earlier bug bought.
@@ -1617,8 +1453,8 @@ pub fn spawn_into_window(
 }
 
 /// EXP-1088: whether a freshly spawned run takes the window over. A run
-/// another coding session started (`agent`, MCP `sessions_start`) or the
-/// workflow orchestrator started (`workflow`) must NOT navigate: the person
+/// another coding session started (`agent`, MCP `sessions_start`) must NOT
+/// navigate: the person
 /// may be mid-edit elsewhere, and the run already appears in the sidebar via
 /// its synced row, nested under its parent. Everything a person asked for
 /// (the composer, a phone/web relay start, a chat, an automation) still
@@ -1627,13 +1463,10 @@ pub fn spawn_into_window(
 /// A person's LOCAL Resume never trips this even on an agent-started run:
 /// the launcher recomputes the reason from `LaunchOrigin::Local` (always
 /// `None`), and EXP-906's reason inheritance happens server-side, never in
-/// `prepared.heartbeat_scope`. Only a relay frame (`agent`) or the workflow
-/// host can put one of these reasons here.
+/// `prepared.heartbeat_scope`. Only a relay frame (`agent`) can put that
+/// reason here.
 pub(crate) fn should_open_session(started_reason: Option<&str>) -> bool {
-    !matches!(
-        started_reason,
-        Some("agent") | Some(coding::WORKFLOW_STARTED_REASON)
-    )
+    started_reason != Some("agent")
 }
 
 // ---------------------------------------------------------------------------
@@ -2496,7 +2329,7 @@ pub(crate) fn live_batch_device_for_issue(cx: &App, issue_id: &str, now_epoch: i
 mod tests {
     use super::*;
 
-    /// EXP-1088: agent- and workflow-started runs never steal the window;
+    /// EXP-1088: agent-started runs never steal the window;
     /// person-started ones (incl. automations and a local resume, whose
     /// reason is `None`) still open.
     #[test]
@@ -2505,7 +2338,6 @@ mod tests {
         assert!(should_open_session(Some("schedule")));
         assert!(should_open_session(Some("event")));
         assert!(!should_open_session(Some("agent")));
-        assert!(!should_open_session(Some("workflow")));
     }
 
     /// FEED-47/57: a live batch covering the issue holds it; an ended
@@ -2597,37 +2429,6 @@ mod tests {
         assert!(!holds_branch("", ""), "two scratch runs share no branch");
         assert!(!holds_branch("", "exp/EXP-1"));
         assert!(!holds_branch("exp/EXP-1", ""));
-    }
-
-    /// EXP-498: the batch self-close predicate — only a MERGED PR on the
-    /// session's own branch closes the batch tab.
-    #[test]
-    fn branch_pr_merged_matches_only_merged_prs_on_the_branch() {
-        let issue = |branch: Option<&str>, pr_state: Option<&str>| -> domain::rows::Issue {
-            serde_json::from_value(serde_json::json!({
-                "id": "i-1", "board_id": "b-1", "number": 1,
-                "identifier": "EXP-1", "title": "t", "status": "in_review",
-                "branch": branch, "pr_state": pr_state,
-            }))
-            .unwrap()
-        };
-        let merged = issue(Some("exp/batch-a1b2c3d4"), Some("merged"));
-        let open = issue(Some("exp/batch-a1b2c3d4"), Some("open"));
-        let other_branch = issue(Some("exp/EXP-1"), Some("merged"));
-        let branchless = issue(None, Some("merged"));
-        assert!(branch_pr_merged("exp/batch-a1b2c3d4", [&merged].into_iter()));
-        // One merged sibling suffices, whatever else shares the branch.
-        assert!(branch_pr_merged(
-            "exp/batch-a1b2c3d4",
-            [&open, &merged].into_iter()
-        ));
-        assert!(!branch_pr_merged("exp/batch-a1b2c3d4", [&open].into_iter()));
-        assert!(!branch_pr_merged(
-            "exp/batch-a1b2c3d4",
-            [&other_branch, &branchless].into_iter()
-        ));
-        // Trunk/scratch runs record no branch — never match anything.
-        assert!(!branch_pr_merged("", [&merged, &branchless].into_iter()));
     }
 
     /// EXP-662: a resumed run registers under its SUBJECT, so the header's

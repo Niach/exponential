@@ -1,6 +1,4 @@
-import { issueLandsInLiveWorkflow, stampNodeMergedInto } from "@/lib/workflows"
-import { and, eq, inArray, isNull, like, ne, or, sql } from "drizzle-orm"
-import { alias } from "drizzle-orm/pg-core"
+import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   codingSessions,
@@ -18,18 +16,16 @@ import {
 } from "@/lib/domain"
 import { applyStatusDerivations } from "@/lib/status-derivations"
 import { generateTxId } from "@/lib/trpc"
+import { escapeLikePattern } from "@/lib/like-pattern"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 import { syncDuplicateMirror } from "@/lib/issue-relations"
 import { fireAndForgetPrNotify } from "@/lib/integrations/notifications"
 import {
   getSteerRelayConfig,
-  relayPostInput,
   relayPostKill,
 } from "@/lib/steer"
 import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
-import { prUrlPattern } from "@/lib/integrations/pr-stack"
 import {
-  findStackForPull,
   listOpenPullsByBase,
   retargetPullRequest,
 } from "@/lib/integrations/github-pr"
@@ -46,6 +42,11 @@ import {
 export function repoFromPrUrl(prUrl: string): string | null {
   const match = prUrl.match(/github\.com\/([^/]+\/[^/]+)\/pull\/\d+/)
   return match ? match[1] : null
+}
+
+/** The LIKE pattern matching every PR url of one repository. */
+export function prUrlPattern(repoFullName: string): string {
+  return `https://github.com/${escapeLikePattern(repoFullName)}/pull/%`
 }
 
 // Parse a team issue identifier ("MET-12") out of a PR head-branch name.
@@ -425,10 +426,9 @@ export async function applyPrOpenedState(opts: {
   // app user. Notification-only — it never touches the PR linkage or the
   // status automation, whose actor stays the in-app one.
   githubActorUserId?: string | null
-  // EXP-897 (FEED-43 R1): the PR's base branch as GitHub reports it
-  // (`pull_request.base.ref`), the synced stack edge every client nests on.
-  // Written on every link, null included: a NEW PR on an issue whose earlier
-  // PR was stacked must never inherit that PR's edge.
+  // The PR's base branch as GitHub reports it (`pull_request.base.ref`),
+  // synced as `pr_base_branch`. Written on every link, null included: a NEW
+  // PR on an issue must never inherit an earlier PR's base.
   baseBranch?: string | null
 }): Promise<void> {
   const applied = await db.transaction(async (tx) => {
@@ -461,9 +461,6 @@ export async function applyPrOpenedState(opts: {
         prState: `open`,
         branch: opts.branch,
         prBaseBranch: opts.baseBranch ?? null,
-        // GitHub's stack identity is only ever learned from the `stacked`
-        // webhook or a stack read; a fresh link starts without one.
-        prStackNumber: null,
       })
       .where(and(eq(issues.id, opts.issueId), isNull(issues.prUrl)))
       .returning({ id: issues.id })
@@ -545,8 +542,6 @@ export async function applyPrMergeState(opts: {
       prUrl?: string | null
       headBranch?: string | null
       endedSessionIds?: string[]
-      stackNumber?: number | null
-      inLiveWorkflow?: boolean
     }> => {
       const txId = await generateTxId(tx)
       void txId
@@ -559,11 +554,6 @@ export async function applyPrMergeState(opts: {
           status: issues.status,
           teamId: boards.teamId,
           endSessionsOnMerge: teams.endSessionsOnMerge,
-          // EXP-897: a REAL GitHub stack retargets its own members — our
-          // child-retarget heal must keep its hands off it.
-          prStackNumber: issues.prStackNumber,
-          // EXP-1010: where the PR pointed, read BEFORE the write nulls it.
-          prBaseBranch: issues.prBaseBranch,
         })
         .from(issues)
         .innerJoin(boards, eq(boards.id, issues.boardId))
@@ -601,13 +591,9 @@ export async function applyPrMergeState(opts: {
         .set({
           prState: `merged`,
           prMergedAt: opts.mergedAt ?? new Date(),
-          // EXP-897 (FEED-43 R1): a landed PR is in no stack any more; the
-          // edge would otherwise outlive it and hang the next PR on this
-          // issue (or the server's stack walk) on a dead foundation. Read
-          // into `current` above BEFORE this write, so the post-commit heal
-          // still knows whether a real stack owned the retarget.
+          // A landed PR targets nothing any more; the edge would otherwise
+          // outlive it and read as "stacked" to the merge guard.
           prBaseBranch: null,
-          prStackNumber: null,
           ...backfill,
         })
         .where(
@@ -633,28 +619,13 @@ export async function applyPrMergeState(opts: {
       // The merged PR moves the issue to the team's PR-merge target
       // (EXP-120: default in_review → done; per-team configurable since
       // EXP-319, including "do nothing").
-      // EXP-982: a workflow NODE's PR lands on the workflow's integration
-      // branch, not on the default branch — the work is merged but not
-      // shipped. Its issue keeps its status until the workflow's ONE final PR
-      // merges (`completeWorkflowOnFinalMerge` moves every covered issue
-      // then). Everything else about the merge (the event, the ended run)
-      // still happens here.
-      const inLiveWorkflow = await issueLandsInLiveWorkflow(tx, opts.issueId)
-      // EXP-1010: a node PR merged into a BLOCKER's branch (a speculative
-      // start a person merged) is not in the integration branch yet;
-      // `landNode` keeps the topological wait for it.
-      if (inLiveWorkflow) {
-        await stampNodeMergedInto(tx, opts.issueId, current.prBaseBranch)
-      }
-      if (!inLiveWorkflow) {
-        await applyPrLifecycleStatusInTx(tx, {
-          issueId: opts.issueId,
-          teamId: current.teamId,
-          actorUserId: opts.actorUserId ?? null,
-          currentStatus: current.status,
-          event: `merged`,
-        })
-      }
+      await applyPrLifecycleStatusInTx(tx, {
+        issueId: opts.issueId,
+        teamId: current.teamId,
+        actorUserId: opts.actorUserId ?? null,
+        currentStatus: current.status,
+        event: `merged`,
+      })
 
       // EXP-498 (reversing EXP-358): the merge ENDS the issue's live coding
       // sessions on every path — webhook, poller, and mergePr all funnel
@@ -674,8 +645,6 @@ export async function applyPrMergeState(opts: {
         prUrl: opts.prUrl ?? current.prUrl,
         headBranch: current.branch ?? opts.headBranch ?? null,
         endedSessionIds,
-        stackNumber: current.prStackNumber,
-        inLiveWorkflow,
       }
     }
   )
@@ -697,22 +666,16 @@ export async function applyPrMergeState(opts: {
       actorViaAgent: opts.actorViaAgent,
       githubActorUserId: opts.githubActorUserId ?? null,
     })
-    // EXP-324: heal the stack — retarget open child PRs that were based on
-    // the just-merged head branch. GitHub only does this itself when the
-    // base branch is DELETED; we squash-merge and leave it, so the children
-    // would keep pointing at a dead branch (the EXP-320 incident).
-    // Fire-and-forget: never blocks the webhook response or the caller.
-    // EXP-983: a workflow NODE's PR merged into the integration branch; its
-    // dependents' bases belong to the merge train (`retargetReleasedDependents`
-    // moves them onto the integration branch once every blocker landed), not
-    // to a heal that would point them at the default branch.
-    if (result.prUrl && result.headBranch && !result.inLiveWorkflow) {
+    // EXP-324: retarget open child PRs that were based on the just-merged
+    // head branch — how a follow-up tree lands after its root merges. GitHub
+    // only does this itself when the base branch is DELETED; we squash-merge
+    // and leave it, so the children would keep pointing at a dead branch (the
+    // EXP-320 incident). Fire-and-forget: never blocks the webhook response
+    // or the caller.
+    if (result.prUrl && result.headBranch) {
       void retargetChildrenOfMergedPr({
         prUrl: result.prUrl,
         headBranch: result.headBranch,
-        // EXP-897: a real GitHub stack retargets its own members — our heal
-        // would race it (and be refused 422 anyway).
-        stackNumber: result.stackNumber ?? null,
       }).catch((err) => {
         console.error(`retargetChildrenOfMergedPr failed:`, err)
       })
@@ -875,14 +838,16 @@ export async function endMergedPrSessions(
 // to a no-op), and on a merge END the live runs sitting on the PR like every
 // other merge path does — the team's `endSessionsOnMerge` decides unless the
 // merger's per-call `endSessions` override (EXP-711) says otherwise, and the
-// `merged_own_pr` spare keeps the run that merged its own PR alive. Only
-// issue-less rows are addressed: an issue run's PR state is the issue's.
+// `merged_own_pr` spare keeps the run that merged its own PR alive. Every run
+// row carrying the PR is addressed: `pr_open` stamps the caller's row on every
+// form (issue, multi-issue and chore PRs alike).
 export async function applySessionPrState(opts: {
   prUrl: string
   state: `open` | `closed` | `merged`
   endSessions?: boolean
 }): Promise<{ endedSessionIds: string[] }> {
   if (!opts.prUrl) return { endedSessionIds: [] }
+  let retargetHead: string | null = null
   const endedSessionIds = await db.transaction(async (tx) => {
     const txId = await generateTxId(tx)
     void txId
@@ -891,17 +856,31 @@ export async function applySessionPrState(opts: {
       opts.state === `merged`
         ? or(isNull(codingSessions.prState), ne(codingSessions.prState, `merged`))
         : eq(codingSessions.prState, opts.state === `closed` ? `open` : `closed`)
-    await tx
+    const flipped = await tx
       .update(codingSessions)
       .set({ prState: opts.state, updatedAt: new Date() })
       .where(
         and(
           eq(codingSessions.prUrl, opts.prUrl),
-          isNull(codingSessions.issueId),
           fromState
         )
       )
-      .returning({ id: codingSessions.id })
+      .returning({ id: codingSessions.id, branch: codingSessions.branch })
+
+    // SLOP-3: an issue-less PR has no `applyPrMergeState` to retarget the
+    // PRs based on its head (EXP-324), so the run's row does it. Only the
+    // writer whose update flipped the row to merged (a racing duplicate
+    // flips none), and only when no issue carries the PR — an issue-linked
+    // merge already retargets from `applyPrMergeState`.
+    const head = flipped.find((row) => row.branch)?.branch ?? null
+    if (opts.state === `merged` && head) {
+      const [linked] = await tx
+        .select({ id: issues.id })
+        .from(issues)
+        .where(eq(issues.prUrl, opts.prUrl))
+        .limit(1)
+      if (!linked) retargetHead = head
+    }
 
     if (opts.state !== `merged` || opts.endSessions === false) return []
     const live = await tx
@@ -911,7 +890,6 @@ export async function applySessionPrState(opts: {
       .where(
         and(
           eq(codingSessions.prUrl, opts.prUrl),
-          isNull(codingSessions.issueId),
           // EXP-888: a stale-swept row is a merge target too. `ended_by =
           // 'stale'` only says the sweep gave up on a silent row — no client
           // acts on it — while a MERGE end is the one the desktop kill-watch
@@ -960,6 +938,14 @@ export async function applySessionPrState(opts: {
   })
 
   await tearDownEndedSessions(endedSessionIds)
+  if (retargetHead) {
+    void retargetChildrenOfMergedPr({
+      prUrl: opts.prUrl,
+      headBranch: retargetHead,
+    }).catch((err) => {
+      console.error(`retargetChildrenOfMergedPr failed:`, err)
+    })
+  }
   return { endedSessionIds }
 }
 
@@ -973,13 +959,9 @@ export async function applySessionPrState(opts: {
 export async function retargetChildrenOfMergedPr(opts: {
   prUrl: string
   headBranch: string
-  /** EXP-897: the merged PR's GitHub stack. Set ⇒ GitHub already retargeted
-   *  the member above it (and refuses our PATCH) — stay out of the way. */
-  stackNumber?: number | null
 }): Promise<void> {
   const repo = repoFromPrUrl(opts.prUrl)
   if (!repo || !opts.headBranch) return
-  if (opts.stackNumber != null) return
   if (!githubAppConfigured()) return
   // Override-first (EXP-462): children retarget onto the branch the team
   // actually develops on. The repo row is reached through the merged PR's
@@ -1036,39 +1018,7 @@ export async function retargetChildrenOfMergedPr(opts: {
     resolved.token
   )
   if (children.length === 0) return
-  // EXP-897: a child that is a REAL stack member is retargeted by GitHub
-  // itself; PATCHing its base is a 422. One query, by the child PR urls.
-  // EXP-983: a child that is a live WORKFLOW node's PR is the merge train's:
-  // its base moves to the workflow's integration branch when its blockers
-  // landed (`retargetReleasedDependents`), never to the default branch; a
-  // heal that won that race would have `landNode` merge it past the
-  // workflow's final PR.
-  const linkedChildren = await db
-    .select({
-      id: issues.id,
-      prUrl: issues.prUrl,
-      prStackNumber: issues.prStackNumber,
-    })
-    .from(issues)
-    .where(
-      inArray(
-        issues.prUrl,
-        children.map((child) => child.url)
-      )
-    )
-  const stacked = new Set(
-    linkedChildren
-      .filter((row) => row.prStackNumber != null)
-      .map((row) => row.prUrl)
-  )
-  const inWorkflow = new Set<string | null>()
-  for (const row of linkedChildren) {
-    if (row.prUrl && !stacked.has(row.prUrl) && (await issueLandsInLiveWorkflow(db, row.id))) {
-      inWorkflow.add(row.prUrl)
-    }
-  }
   for (const child of children) {
-    if (stacked.has(child.url) || inWorkflow.has(child.url)) continue
     try {
       await retargetPullRequest({
         repo,
@@ -1076,13 +1026,13 @@ export async function retargetChildrenOfMergedPr(opts: {
         base: defaultBranch,
         token: resolved.token,
       })
-      // EXP-897: the synced stack edge follows the base we just wrote.
+      // The synced base follows the one we just wrote.
       await db
         .update(issues)
         .set({ prBaseBranch: defaultBranch })
         .where(eq(issues.prUrl, child.url))
     } catch (err) {
-      // One unreachable child never blocks the rest.
+      // One unreachable (or 422-refused) child never blocks the rest.
       console.error(
         `retarget of ${repo}#${child.number} onto ${defaultBranch} failed:`,
         err
@@ -1100,12 +1050,9 @@ export async function applyPrClosedState(opts: {
   issueId: string
   prUrl?: string
 }): Promise<void> {
-  // EXP-897 (FEED-43 R1): a closed PR is in no stack; its edge and stack
-  // identity go with it, or the server's stack walk keeps hanging the chain
-  // on a dead member.
+  // A closed PR targets nothing; its base edge goes with it.
   await applyPrStateFlip(opts.issueId, opts.prUrl, `closed`, {
     prBaseBranch: null,
-    prStackNumber: null,
   })
 }
 
@@ -1115,8 +1062,8 @@ export async function applyPrClosedState(opts: {
 export async function applyPrReopenedState(opts: {
   issueId: string
   prUrl?: string
-  // EXP-897 (FEED-43 R1): the reopened PR's base as GitHub reports it (the
-  // close cleared the edge). Omitted = unknown, the edge stays cleared.
+  // The reopened PR's base as GitHub reports it (the close cleared the edge).
+  // Omitted = unknown, the edge stays cleared.
   baseBranch?: string | null
 }): Promise<void> {
   await applyPrStateFlip(
@@ -1131,10 +1078,7 @@ async function applyPrStateFlip(
   issueId: string,
   prUrl: string | undefined,
   to: `closed` | `open`,
-  extra: {
-    prBaseBranch?: string | null
-    prStackNumber?: number | null
-  } = {}
+  extra: { prBaseBranch?: string | null } = {}
 ): Promise<void> {
   await db.transaction(async (tx) => {
     const txId = await generateTxId(tx)
@@ -1161,129 +1105,17 @@ async function applyPrStateFlip(
   })
 }
 
-// ── PR stacks (EXP-897) ──────────────────────────────────────────────────────
-
 /**
- * Re-read a PR's stack identity from GitHub and write it onto every issue on
- * that PR: `pr_base_branch` (synced — the edge the clients nest on) and
- * `pr_stack_number` (server-only — what routes a merge through merge-async).
- *
- * Called from the webhook legs that change either (`edited` with a base
- * change, `stacked`, `unstacked`). Best-effort throughout: the base rides the
- * payload and is cheap, the stack number needs a GitHub read that may 404 on a
- * repo without the preview — the row then simply keeps behaving as a candidate
- * stack.
+ * A PR's base changed on GitHub (`edited` with `changes.base`): mirror it into
+ * the synced `pr_base_branch` of every issue on that PR.
  */
-export async function refreshPrStackState(opts: {
+export async function applyPrBaseBranchEdit(opts: {
   prUrl: string
-  repoFullName?: string
-  prNumber?: number
-  baseRef?: string | null
+  baseRef: string | null | undefined
 }): Promise<void> {
-  if (!opts.prUrl) return
-  if (opts.baseRef) {
-    await db
-      .update(issues)
-      .set({ prBaseBranch: opts.baseRef })
-      .where(eq(issues.prUrl, opts.prUrl))
-  }
-  const repo = opts.repoFullName ?? repoFromPrUrl(opts.prUrl)
-  if (!repo || opts.prNumber == null || !githubAppConfigured()) return
-  const resolved = await resolveRepoInstallationTokenInfo(repo)
-  if (!resolved) return
-  let stackNumber: number | null = null
-  try {
-    stackNumber =
-      (await findStackForPull(repo, opts.prNumber, resolved.token))?.number ??
-      null
-  } catch {
-    // An unreachable stack read leaves the recorded value alone: guessing
-    // "not stacked" would route the next merge through the endpoint GitHub
-    // refuses (FEED-43).
-    return
-  }
+  if (!opts.prUrl || !opts.baseRef) return
   await db
     .update(issues)
-    .set({ prStackNumber: stackNumber })
+    .set({ prBaseBranch: opts.baseRef })
     .where(eq(issues.prUrl, opts.prUrl))
-}
-
-/**
- * EXP-897: the foundation moved. A `synchronize` means new commits on a PR's
- * head branch — every LIVE run whose issue is stacked on that branch is now
- * building on an outdated base, and the only one who can fix that is the agent
- * inside that run. So tell it, on the same rail a human steers with.
- *
- * Deduped for 60s per (repo, branch, session): a force-push storm delivers one
- * `synchronize` per push, and three identical rebase orders in a row would
- * just derail the run.
- */
-const foundationNotices = new Map<string, number>()
-const FOUNDATION_NOTICE_DEDUPE_MS = 60_000
-
-export function foundationChangeMessage(
-  repoFullName: string,
-  prNumber: number,
-  headRef: string
-): string {
-  return `[Exponential] foundation changed — the PR you are stacked on (${repoFullName}#${prNumber}, branch ${headRef}) got new commits. Rebase onto origin/${headRef}, push with --force-with-lease, then continue.`
-}
-
-export async function notifyStackedChildrenOfFoundationChange(opts: {
-  repoFullName: string
-  headRef: string
-  prNumber: number
-  /** The synchronized PR's html URL — only a PR we track is a foundation. */
-  prUrl: string
-}): Promise<{ notified: string[] }> {
-  if (!opts.headRef || !opts.repoFullName || !opts.prUrl) {
-    return { notified: [] }
-  }
-  const config = getSteerRelayConfig()
-  if (!config) return { notified: [] }
-  // A child is an OPEN issue PR in the SAME repository and team whose base is
-  // the foundation's head, and the foundation itself must be an issue PR we
-  // track. Without the self-join and the repo pattern, a release PR whose head
-  // is the default branch (every plain PR records `pr_base_branch = master`) or
-  // a same-named branch in another team's repo would order every live run in
-  // sight to rebase — and a live run is steerable by its owner only (EXP-312).
-  const foundation = alias(issues, `foundation_issues`)
-  const rows = await db
-    .select({ id: codingSessions.id })
-    .from(codingSessions)
-    .innerJoin(issues, eq(issues.id, codingSessions.issueId))
-    .innerJoin(
-      foundation,
-      and(eq(foundation.prUrl, opts.prUrl), eq(foundation.teamId, issues.teamId))
-    )
-    .where(
-      and(
-        eq(issues.prBaseBranch, opts.headRef),
-        eq(issues.prState, `open`),
-        ne(issues.prUrl, opts.prUrl),
-        like(issues.prUrl, prUrlPattern(opts.repoFullName)),
-        inArray(codingSessions.status, [`running`, `in_review`])
-      )
-    )
-  const now = Date.now()
-  const notified: string[] = []
-  for (const row of rows) {
-    const key = `${opts.repoFullName}|${opts.headRef}|${row.id}`
-    const last = foundationNotices.get(key)
-    if (last != null && now - last < FOUNDATION_NOTICE_DEDUPE_MS) continue
-    foundationNotices.set(key, now)
-    const { delivered } = await relayPostInput(
-      config,
-      row.id,
-      foundationChangeMessage(opts.repoFullName, opts.prNumber, opts.headRef)
-    )
-    if (delivered) notified.push(row.id)
-  }
-  // Keep the map from growing without bound on a busy instance.
-  if (foundationNotices.size > 500) {
-    for (const [key, at] of foundationNotices) {
-      if (now - at >= FOUNDATION_NOTICE_DEDUPE_MS) foundationNotices.delete(key)
-    }
-  }
-  return { notified }
 }

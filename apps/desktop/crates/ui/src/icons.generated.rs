@@ -532,8 +532,6 @@ pub const NAV_SUPPORT: ExpIcon = ExpIcon::LifeBuoy;
 pub const NAV_TEAM_SWITCHER: ExpIcon = ExpIcon::ChevronsUpDown;
 /// Registry concept `nav-terminal` -> Lucide `square-terminal`.
 pub const NAV_TERMINAL: ExpIcon = ExpIcon::SquareTerminal;
-/// Registry concept `nav-workflows` -> Lucide `workflow`.
-pub const NAV_WORKFLOWS: ExpIcon = ExpIcon::Workflow;
 /// Registry concept `notification-agent-message` -> Lucide `bot`.
 pub const NOTIFICATION_AGENT_MESSAGE: ExpIcon = ExpIcon::Bot;
 /// Registry concept `notification-issue-assigned` -> Lucide `user-plus`.

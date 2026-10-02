@@ -12,9 +12,7 @@ sealed interface EntityTarget {
     data class Issue(val id: String) : EntityTarget
     data class Board(val id: String) : EntityTarget
     data class Session(val id: String) : EntityTarget
-    data class Workflow(val id: String) : EntityTarget
     data class SupportThread(val id: String) : EntityTarget
-    data object Workflows : EntityTarget
     /** SLOP-2: an action's own page (Prompt | Triggers | Runs). */
     data class Action(val id: String) : EntityTarget
     data object Actions : EntityTarget

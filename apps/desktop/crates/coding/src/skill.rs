@@ -172,59 +172,39 @@ run `bun test`.\n"
     }
 
     /// EXP-856: the one rule a run cannot learn from its own transcript.
-    /// Messaging a live workflow agent resumes a SECOND copy of it from that
+    /// Messaging a live subagent resumes a SECOND copy of it from that
     /// transcript, and both copies then edit the same files. Mirrored by the
     /// web gate in `context-budget.test.ts`.
     #[test]
-    fn the_playbook_forbids_messaging_a_running_workflow_agent() {
-        assert!(RUN_SKILL.contains("## Subagents and workflows"));
+    fn the_playbook_forbids_messaging_a_running_subagent() {
+        assert!(RUN_SKILL.contains("## Subagents"));
         assert!(RUN_SKILL.contains("never messaged"));
         assert!(RUN_SKILL.contains("SendMessage"));
     }
 
-    /// EXP-897: a stacked run's four rules. The playbook is the ONLY channel
-    /// that reaches a RESUME (which gets no seed prompt at all), so the
-    /// contract the `## Stacked work` prompt section spells out has to be
-    /// summarized here too.
+    /// SLOP-3: follow-up runs and root-first tree merges exist ONLY as
+    /// playbook text (no server machinery), so the wording is the contract.
     #[test]
-    fn the_playbook_teaches_the_stacked_run_contract() {
-        assert!(RUN_SKILL.contains("## Stacked runs"));
-        // 1. build the foundation, 3. open on top of it: both param names.
-        assert!(RUN_SKILL.contains("`stackOnIssueId`"));
+    fn the_playbook_teaches_follow_up_runs_and_root_first_merges() {
+        assert!(RUN_SKILL.contains("## Follow-ups and follow-up runs"));
+        assert!(RUN_SKILL.contains("base: \""));
+        assert!(RUN_SKILL.contains("follow-up depth"));
+        assert!(RUN_SKILL.contains("`no follow-up runs`"));
+        assert!(RUN_SKILL.contains("root first"));
+        assert!(RUN_SKILL.contains("Never merge a mid-tree PR alone"));
         assert!(RUN_SKILL.contains("`[Exponential child run ...]`"));
-        // 4. escalation goes UP, and the two targets it may name.
-        assert!(RUN_SKILL.contains("`to: 'root'`"));
-        assert!(RUN_SKILL.contains("never down the stack"));
-        // The trim that paid for the section: the reclaimed-worktree story is
-        // delivered per-case by `prompt::reclaimed_workspace_note`, which
-        // knows whether the branch is actually behind.
-        assert!(!RUN_SKILL.contains("worktree was reclaimed"));
+        assert!(!RUN_SKILL.contains("stackOnIssueId"));
+        assert!(!RUN_SKILL.contains("'root'"));
         let tools = mentioned_tools(RUN_SKILL);
         for name in [
             "exponential_sessions_start",
             "exponential_sessions_message",
             "exponential_pr_open",
+            "exponential_pr_merge",
+            "exponential_pr_retarget",
             "exponential_sessions_ask_parent",
         ] {
-            assert!(tools.contains(&name), "the stacked section never names {name}");
-        }
-    }
-
-    /// EXP-1065 / EXP-1089: the workflow rules a node run cannot learn from
-    /// its prompt alone — one human review at the final PR, a question the
-    /// only human touch, the planner asks first.
-    #[test]
-    fn the_playbook_teaches_the_workflow_rules() {
-        assert!(RUN_SKILL.contains("## Workflows"));
-        assert!(RUN_SKILL.contains("final PR"));
-        assert!(RUN_SKILL.contains("`Proposal:`"));
-        assert!(RUN_SKILL.contains("plan-workflow"));
-        let tools = mentioned_tools(RUN_SKILL);
-        for name in [
-            "exponential_sessions_ask_parent",
-            "exponential_workflows_update",
-        ] {
-            assert!(tools.contains(&name), "the workflows section never names {name}");
+            assert!(tools.contains(&name), "the playbook never names {name}");
         }
     }
 

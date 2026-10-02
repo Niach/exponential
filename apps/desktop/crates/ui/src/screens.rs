@@ -293,17 +293,6 @@ pub(crate) fn build_screen_content(
         Screen::Action { .. } => cx
             .new(|cx| crate::action_view::ActionView::new(window, cx))
             .into(),
-        Screen::Workflows => cx
-            .new(|cx| crate::workflows_view::WorkflowsView::new(window, cx))
-            .into(),
-        Screen::Workflow { workflow_id } => {
-            let view = cx.new(|cx| crate::workflow_view::WorkflowView::new(window, cx));
-            let workflow_id = workflow_id.clone();
-            view.update(cx, |detail, cx| {
-                detail.set_workflow(&workflow_id, window, cx)
-            });
-            view.into()
-        }
         Screen::Chat => cx
             .new(|cx| crate::chat_screen::ChatScreenView::new(window, cx))
             .into(),
@@ -1079,9 +1068,6 @@ pub struct ScreensPanel {
     /// One action's page (SLOP-2 — Prompt · Triggers · Runs). ONE shared
     /// view that re-points itself off the window's [`Screen::Action`].
     action: Entity<crate::action_view::ActionView>,
-    /// EXP-981: the Workflows list page and one workflow's detail.
-    workflows: Entity<crate::workflows_view::WorkflowsView>,
-    workflow: Entity<crate::workflow_view::WorkflowView>,
     /// The Chat page (EXP-772 — the centred prompt box; the same tab-less
     /// full-page mode).
     chat: Entity<crate::chat_screen::ChatScreenView>,
@@ -1199,8 +1185,6 @@ impl ScreensPanel {
         let drafts = cx.new(|cx| crate::drafts_view::DraftsView::new(window, cx));
         let actions = cx.new(|cx| crate::actions_view::ActionsView::new(window, cx));
         let action = cx.new(|cx| crate::action_view::ActionView::new(window, cx));
-        let workflows = cx.new(|cx| crate::workflows_view::WorkflowsView::new(window, cx));
-        let workflow = cx.new(|cx| crate::workflow_view::WorkflowView::new(window, cx));
         let chat = cx.new(|cx| crate::chat_screen::ChatScreenView::new(window, cx));
         let reviews = cx.new(|cx| crate::reviews_view::ReviewsView::new(window, cx));
         let getting_started =
@@ -1300,8 +1284,6 @@ impl ScreensPanel {
             drafts,
             actions,
             action,
-            workflows,
-            workflow,
             chat,
             reviews,
             getting_started,
@@ -1563,12 +1545,6 @@ impl ScreensPanel {
                 self.support_thread
                     .update(cx, |thread, cx| thread.set_thread(thread_id, window, cx));
             }
-            // EXP-981: one detail view, re-pointed like the issue detail.
-            Screen::Workflow { workflow_id } => {
-                self.workflow.update(cx, |detail, cx| {
-                    detail.set_workflow(workflow_id.as_str(), window, cx);
-                });
-            }
             Screen::Session { session_id } => {
                 // ENTRY-OR-INSERT, never a re-point: each session owns its
                 // feed, so re-pointing one view at another row would hand the
@@ -1610,7 +1586,6 @@ impl ScreensPanel {
             | Screen::Drafts
             | Screen::Actions
             | Screen::Action { .. }
-            | Screen::Workflows
             | Screen::Chat
             | Screen::Reviews
             | Screen::GettingStarted { .. }
@@ -3638,8 +3613,6 @@ impl Render for ScreensPanel {
             Some(Screen::Drafts) => self.drafts.clone().into_any_element(),
             Some(Screen::Actions) => self.actions.clone().into_any_element(),
             Some(Screen::Action { .. }) => self.action.clone().into_any_element(),
-            Some(Screen::Workflows) => self.workflows.clone().into_any_element(),
-            Some(Screen::Workflow { .. }) => self.workflow.clone().into_any_element(),
             Some(Screen::Chat) => self.chat.clone().into_any_element(),
             Some(Screen::Reviews) => self.reviews.clone().into_any_element(),
             Some(Screen::GettingStarted { .. }) => {

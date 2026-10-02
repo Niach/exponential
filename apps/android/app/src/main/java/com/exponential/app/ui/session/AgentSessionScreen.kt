@@ -202,7 +202,6 @@ import com.exponential.app.domain.renumberImageMarkers
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.QuestionOption
 import com.exponential.app.domain.SessionAccountOption
-import com.exponential.app.domain.PrStack
 import com.exponential.app.domain.SessionAccountSwitch
 import com.exponential.app.domain.SlashCommand
 import com.exponential.app.domain.SlashCommands
@@ -388,9 +387,6 @@ private fun RunFaceContent(
     // EXP-760: the run's team issues, newest-first — resolves the identifiers
     // the agent names in the feed (IssueFace's handler, same shape).
     val issueRefCandidates by viewModel.issueRefCandidates.collectAsStateWithLifecycle()
-    // EXP-897: where this run's issue sits in its PR stack (null when it is
-    // not stacked at all).
-    val stackPosition by viewModel.stackPosition.collectAsStateWithLifecycle()
     val currentOnOpenIssue by rememberUpdatedState(onOpenIssue)
     // EXP-920: the transcript's entity-preview sheets read the run's team
     // rows off the account DB (the viewer id scopes notifications).
@@ -711,35 +707,6 @@ private fun RunFaceContent(
             // EXP-893: nothing floats over its tail any more — the diff is the
             // Changes face, Merge lives there too, and the bar below is in
             // the flow, so the feed simply ends above it.
-            // EXP-897: this run's pull request is STACKED on another issue's —
-            // say where it sits and what it is built on, in the same words the
-            // Reviews list and the other three clients use.
-            stackPosition?.let { position ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .glassRow()
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                        .testTag("session-stack-position"),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Icon(
-                        ExpIcons.prStack,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    )
-                    Text(
-                        stackPositionNote(position),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Spacer(Modifier.height(6.dp))
-            }
             EndedRunHeader(
                 session = session,
                 hostLabel = hostDevice.displayLabel,
@@ -5434,14 +5401,4 @@ private fun CenteredState(content: @Composable androidx.compose.foundation.layou
         horizontalAlignment = Alignment.CenterHorizontally,
         content = content,
     )
-}
-
-/**
- * EXP-897: the run's stack position line — `2 of 3 · on top of #ABC-12`, the
- * bottom of a stack naming nothing it is built on. Byte-identical ×4.
- */
-internal fun stackPositionNote(position: PrStack.StackPosition): String {
-    val head = "${position.position} of ${position.size}"
-    val below = position.below?.identifier ?: return head
-    return "$head · on top of #$below"
 }

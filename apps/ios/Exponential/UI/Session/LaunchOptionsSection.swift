@@ -28,8 +28,7 @@ import SwiftUI
 //
 // EXP-694 (S3/S4): everything below the device picker is ONE grouped card —
 // the agent strip is its first row (embedded, no capsule of its own), then
-// Model + Effort, then the toggles the caller bound, and last whatever the
-// caller hangs on `trailing` (EXP-1020).
+// Model + Effort, then the toggles the caller bound.
 struct LaunchOptionsSection: View {
     enum Variant {
         case launch
@@ -76,14 +75,6 @@ struct LaunchOptionsSection: View {
     /// A sentence under the card (the device variant's offline notice). The
     /// resume note, when there is one, sits above it.
     var footerNote: String? = nil
-    /// EXP-1020: extra row(s) the caller hangs on the END of the card, after
-    /// the toggles — the device sheet's "Workflow settings" sub-shell row, so
-    /// it reads as the last entry of the agent-defaults card rather than a
-    /// second card below it. Mirrors the IDE's `AgentDefaultsGroup::trailing`.
-    /// Erased instead of a `Trailing: View` generic on purpose: Swift has no
-    /// default generic argument, so a generic would force every other call
-    /// site to spell the empty case.
-    var trailing: AnyView? = nil
 
     var body: some View {
         Group {
@@ -123,8 +114,7 @@ struct LaunchOptionsSection: View {
                 // EXP-1021: the shared `DevicePicker`; the row is its trigger.
                 // The rows come off the ONE bridge (`DevicePickerDevice(
                 // SteerDevice)`): the machine's glyph, its owner under the
-                // name — the same row the composer and the workflow runner
-                // draw. The trigger keeps the one-line caption.
+                // name — the same row the composer draws. The trigger keeps the one-line caption.
                 DevicePicker(
                     devices: devices.map(DevicePickerDevice.init),
                     value: deviceId,
@@ -280,10 +270,6 @@ struct LaunchOptionsSection: View {
             if let planMode, LaunchVocabulary.supportsPlanMode(agent),
                resumeRow?.active != true {
                 Toggle("Plan mode", isOn: planMode)
-            }
-            // The caller's own last row(s), inside this card's divider run.
-            if let trailing {
-                trailing
             }
         } footer: {
             optionsFooter

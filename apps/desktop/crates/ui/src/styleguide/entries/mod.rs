@@ -23,7 +23,6 @@ pub(crate) mod issue_context_menu;
 pub(crate) mod session_tree;
 pub(crate) mod pr_graph_badge;
 pub(crate) mod device_settings;
-pub(crate) mod workflow_graph;
 
 /// EXP-1030: whether `id`'s file is still the one-line placeholder rather
 /// than a demo. None is any more: EXP-1031 filled the last one (`toast`).
@@ -67,5 +66,4 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: session_tree::ID, owner: session_tree::OWNER, render: session_tree::render },
     Entry { id: pr_graph_badge::ID, owner: pr_graph_badge::OWNER, render: pr_graph_badge::render },
     Entry { id: device_settings::ID, owner: device_settings::OWNER, render: device_settings::render },
-    Entry { id: workflow_graph::ID, owner: workflow_graph::OWNER, render: workflow_graph::render },
 ];

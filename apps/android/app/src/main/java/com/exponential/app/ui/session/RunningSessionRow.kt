@@ -59,15 +59,11 @@ internal fun RunningSessionRow(
     expandable: Boolean = false,
     expanded: Boolean = true,
     onToggle: () -> Unit = {},
-    // EXP-1068: a workflow REVIEW row's own title (`Review r2 · approved`);
-    // null = the ordinary subject title.
+    // A caller's own title for the row; null = the ordinary subject title.
     titleOverride: String? = null,
-    // EXP-1068: glyphs drawn right after the state dot (the "needs you" red
-    // dot, the duplicate-live warning).
+    // EXP-1108: glyphs drawn right after the state dot (the "needs you" red
+    // dot).
     dotAccessory: (@Composable RowScope.() -> Unit)? = null,
-    // EXP-1068: the run's account when it is not the machine's last used for
-    // its agent — the byline then ends `· account <label>`.
-    accountLabel: String? = null,
 ) {
     // EXP-734: an issueless run carries its own PR state, so "in review with
     // a merged PR" reads as Done there too.
@@ -146,7 +142,7 @@ internal fun RunningSessionRow(
                             CodingSessionDisplayState.Running ->
                                 "$deviceName · started ${relativeTime(session.startedAt)}"
                         }
-                    } + (accountLabel?.let { " · account $it" } ?: ""),
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = when {
                         paused -> MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)

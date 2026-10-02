@@ -11,7 +11,7 @@ import {
   stackOthers,
 } from "./pr-graph"
 
-// EXP-897 Part 4 — the badge model. Every `it` name here is mirrored by iOS
+// EXP-897 Part 4: the badge model. Every `it` name here is mirrored by iOS
 // PrGraphTests, Android PrGraphTest and the desktop `pr_graph` tests.
 
 const issue = (
@@ -109,7 +109,7 @@ describe(`prGraph`, () => {
   })
 
   // EXP-876: the pill and its sheet are the surface built to name work that
-  // spans several issues — and a batch RUN, which spans them, resolved
+  // spans several issues: and a batch RUN, which spans them, resolved
   // nothing at all before this (it links no issue and stamps no pr_url).
   // Mirrored ×4.
   it(`reports a batch badge for a batch run before its pr`, () => {
@@ -120,7 +120,7 @@ describe(`prGraph`, () => {
     expect(badgeKind(graph)).toBe(`batch`)
     // The composer's order, so the sheet reads like the row that named it.
     expect(graph.batch?.issues.map((row) => row.id)).toEqual([`one`, `two`])
-    // No pull request yet, so no stack — a batch of two is not a stack of two.
+    // No pull request yet, so no stack: a batch of two is not a stack of two.
     expect(graph.stack).toEqual([])
   })
 
@@ -228,7 +228,7 @@ describe(`prGraph`, () => {
     ).toBe(`batch`)
   })
 
-  // EXP-1058: the badge's count — front issue + how many behind.
+  // EXP-1058: the badge's count: front issue + how many behind.
   // Mirrored ×4 (`badge_chip_*` desktop, PrGraphTests, PrGraphTest).
   it(`names the representative issue and the count on the stacked chip`, () => {
     const url = `https://github.com/acme/app/pull/9`
@@ -256,7 +256,7 @@ describe(`prGraph`, () => {
     expect(badgeChip(prGraph({ issue: lone, issues: [lone] }))).toBeNull()
   })
 
-  // SLOP-16 r5: ONE body on every face — Blocked by · Same pull request ·
+  // SLOP-16 r5: ONE body on every face: Blocked by · Same pull request ·
   // Pull request stack, each only when it has rows.
   it(`lists the related work bands in one order`, () => {
     const url = `https://github.com/acme/app/pull/9`

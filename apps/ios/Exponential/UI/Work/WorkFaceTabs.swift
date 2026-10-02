@@ -115,31 +115,6 @@ struct WorkFaceTabs<Trailing: View>: View {
     }
 }
 
-extension WorkFaceTabs where Trailing == EmptyView {
-    /// The strip alone (the workflow page's `All`).
-    init(
-        faces: [WorkFaceKind],
-        shown: WorkFaceKind,
-        multipleRuns: Bool,
-        changesCounts: WorkFaces.ChangesFaceCounts? = nil,
-        runsAnchor: Binding<CGRect>,
-        onSelect: @escaping (WorkFaceKind) -> Void,
-        onReselectRuns: @escaping () -> Void = {}
-    ) {
-        self.init(
-            faces: faces,
-            shown: shown,
-            multipleRuns: multipleRuns,
-            changesCounts: changesCounts,
-            runsAnchor: runsAnchor,
-            onSelect: onSelect,
-            onReselectRuns: onReselectRuns,
-            showsTrailing: false,
-            trailing: { EmptyView() }
-        )
-    }
-}
-
 extension View {
     /// EXP-1150: the Work screen's HEADER BAND — the tabs ride the top safe
     /// area under the nav bar's title row, and the bar's material runs up

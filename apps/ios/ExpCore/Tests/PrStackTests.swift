@@ -2,9 +2,9 @@ import Foundation
 import XCTest
 @testable import ExpCore
 
-// EXP-897 — the PR stack's three rules, the same three web
+// EXP-897, the PR stack chain's three rules, the same three web
 // (`pr-stack.test.ts`), Android (`PrStackTest`) and the desktop
-// (`nest_review_entries_*`) run.
+// (`domain::pr_stack`) run.
 final class PrStackTests: XCTestCase {
     private struct Entry {
         let id: String
@@ -25,12 +25,6 @@ final class PrStackTests: XCTestCase {
         return "\(spot.position)/\(spot.size) below=\(spot.below?.id ?? "-") above=\(spot.above?.id ?? "-")"
     }
 
-    private func nested(_ entries: [Entry]) -> [String] {
-        PrStack.nestPrStacks(
-            entries, id: { $0.id }, branch: { $0.branch }, base: { $0.base }
-        ).map { "\($0.entry.id)@\($0.depth)\($0.hasChildren ? "+" : "")" }
-    }
-
     // A member knows its rung from the BOTTOM of the chain, whatever order the
     // caller hands the rows in.
     func testNumbersAMemberFromTheBottomOfTheChain() {
@@ -42,8 +36,6 @@ final class PrStackTests: XCTestCase {
         XCTAssertEqual(position(a, entries), "1/3 below=- above=b")
         XCTAssertEqual(position(b, entries), "2/3 below=a above=c")
         XCTAssertEqual(position(c, entries), "3/3 below=b above=-")
-        // Roots keep the caller's order; children follow their parent.
-        XCTAssertEqual(nested(entries), ["a@0+", "b@1+", "c@2"])
     }
 
     // `main` is nobody's branch here, so the walk stops: a PR based on it is a
@@ -58,10 +50,9 @@ final class PrStackTests: XCTestCase {
         XCTAssertEqual(chain(a, entries), ["a"])
         XCTAssertNil(position(a, entries))
         XCTAssertNil(position(orphan, entries))
-        XCTAssertEqual(nested(entries), ["a@0", "lone@0", "orphan@0", "blank@0"])
     }
 
-    // A cycle (defensive — GitHub cannot make one, a half-synced snapshot can)
+    // A cycle (defensive, GitHub cannot make one, a half-synced snapshot can)
     // breaks where it first repeats, and never loses a row.
     func testBreaksACycleWhereItFirstAppears() {
         let a = Entry(id: "a", branch: "exp/a", base: "exp/b")
@@ -69,6 +60,6 @@ final class PrStackTests: XCTestCase {
         let selfish = Entry(id: "self", branch: "exp/self", base: "exp/self")
         let entries = [a, b, selfish]
         XCTAssertEqual(chain(a, entries), ["b", "a"])
-        XCTAssertEqual(nested(entries), ["self@0", "a@0+", "b@1"])
+        XCTAssertEqual(chain(selfish, entries), ["self"])
     }
 }

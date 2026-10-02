@@ -355,7 +355,9 @@ it(`keeps the run playbook in budget and naming only registered tools`, () => {
   // SendMessage into the same files, is the failure this sentence prevents.
   expect(playbook).toContain(`never messaged`)
   expect(playbook).toContain(`SendMessage`)
-  // EXP-897: the stacked-run contract, whose param name is the whole rule.
-  expect(playbook).toContain(`stackOnIssueId`)
+  // SLOP-3: follow-up runs base on the parent's branch through pr_open's base.
+  expect(playbook).toContain(`base:`)
+  expect(playbook).toContain(`follow-up`)
+  expect(playbook).not.toContain(`stackOnIssueId`)
   expect(playbook).not.toContain(`\u2014`)
 })

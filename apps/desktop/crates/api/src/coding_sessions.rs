@@ -102,22 +102,6 @@ pub struct Attribution<'a> {
     pub device_id: Option<&'a str>,
 }
 
-/// EXP-1082 — a WORKFLOW run's membership, stamped onto its row at start
-/// (`workflowId` / `workflowNodeId` / `workflowRole`, contract
-/// `wfSessionRole`). The server honours it only from the workflow's runner
-/// device; every key is skipped when absent, so any other start's wire is
-/// byte-identical.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkflowStart<'a> {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub workflow_id: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub workflow_node_id: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub workflow_role: Option<&'a str>,
-}
-
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct StartInput<'a> {
@@ -164,9 +148,6 @@ struct StartInput<'a> {
     /// Skipped when empty so a pick-less start's wire is byte-identical.
     #[serde(skip_serializing_if = "<[String]>::is_empty")]
     mcp_server_ids: &'a [String],
-    /// EXP-1082 — [`WorkflowStart`], flattened.
-    #[serde(flatten)]
-    workflow: WorkflowStart<'a>,
 }
 
 #[derive(Serialize)]
@@ -206,9 +187,6 @@ struct StartBatchInput<'a> {
     /// EXP-1140 — same as [`StartInput::mcp_server_ids`], on the batch branch.
     #[serde(skip_serializing_if = "<[String]>::is_empty")]
     mcp_server_ids: &'a [String],
-    /// EXP-1082 — [`WorkflowStart`], flattened.
-    #[serde(flatten)]
-    workflow: WorkflowStart<'a>,
 }
 
 #[derive(Serialize)]
@@ -257,9 +235,6 @@ struct StartActionInput<'a> {
     /// EXP-1140 — same as [`StartInput::mcp_server_ids`], on the action branch.
     #[serde(skip_serializing_if = "<[String]>::is_empty")]
     mcp_server_ids: &'a [String],
-    /// EXP-1082 — [`WorkflowStart`], flattened.
-    #[serde(flatten)]
-    workflow: WorkflowStart<'a>,
 }
 
 #[derive(Serialize)]
@@ -317,13 +292,6 @@ pub struct HeartbeatScope {
     /// lose which account its usage numbers belong to, and an absent value
     /// reads as UNKNOWN on every client, never as the ambient login.
     pub agent_account: Option<String>,
-    /// EXP-1068: the run's workflow membership (`LaunchOptions::workflow`),
-    /// echoed so a swept workflow run resurrects INSIDE its group. The server
-    /// honours it through the same runner-device gate `start` uses; all
-    /// `None` on every other run, so their wire is byte-identical.
-    pub workflow_id: Option<String>,
-    pub workflow_node_id: Option<String>,
-    pub workflow_role: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -358,13 +326,6 @@ struct HeartbeatInput<'a> {
     /// so an older server sees the wire it always did.
     #[serde(skip_serializing_if = "Option::is_none")]
     agent_account: Option<&'a str>,
-    /// EXP-1068 — the workflow membership, echoed like `agent_account`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    workflow_id: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    workflow_node_id: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    workflow_role: Option<&'a str>,
 }
 
 #[derive(Deserialize)]
@@ -452,7 +413,6 @@ pub fn start(
     agent_account: Option<&str>,
     attachment_ids: &[String],
     mcp_server_ids: &[String],
-    workflow: WorkflowStart<'_>,
 ) -> Result<CodingSession, ApiError> {
     let envelope: SessionEnvelope = trpc.mutation(
         "codingSessions.start",
@@ -467,7 +427,6 @@ pub fn start(
             agent_account,
             attachment_ids,
             mcp_server_ids,
-            workflow,
         },
     )?;
     Ok(envelope.session)
@@ -490,7 +449,6 @@ pub fn start_batch(
     attachment_ids: &[String],
     batch_issue_ids: &[String],
     mcp_server_ids: &[String],
-    workflow: WorkflowStart<'_>,
 ) -> Result<CodingSession, ApiError> {
     let envelope: SessionEnvelope = trpc.mutation(
         "codingSessions.start",
@@ -506,7 +464,6 @@ pub fn start_batch(
             attachment_ids,
             batch_issue_ids,
             mcp_server_ids,
-            workflow,
         },
     )?;
     Ok(envelope.session)
@@ -546,8 +503,6 @@ pub struct ActionStart<'a> {
     pub attachment_ids: &'a [String],
     /// EXP-1140: the run's team MCP server pick; empty = key omitted.
     pub mcp_server_ids: &'a [String],
-    /// EXP-1082: the workflow membership of a review run; default = none.
-    pub workflow: WorkflowStart<'a>,
 }
 
 pub fn start_action(
@@ -570,7 +525,6 @@ pub fn start_action(
             agent_account: start.agent_account,
             attachment_ids: start.attachment_ids,
             mcp_server_ids: start.mcp_server_ids,
-            workflow: start.workflow,
         },
     )?;
     Ok(envelope.session)
@@ -596,69 +550,6 @@ pub fn merge_pr(
         session_id: &'a str,
     }
     trpc.mutation("codingSessions.mergePr", &Input { session_id })
-}
-
-/// EXP-897 — ONE issue of a stack plan (`codingSessions.stackPlan`). The
-/// server resolves the chain; the launcher only reads `branch`/`pr_state` to
-/// tell a foundation that exists on origin from one still to be built.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct StackPlanLink {
-    #[serde(default)]
-    pub issue_id: String,
-    #[serde(default)]
-    pub identifier: String,
-    #[serde(default)]
-    pub title: Option<String>,
-    #[serde(default)]
-    pub status: Option<String>,
-    #[serde(default)]
-    pub branch: Option<String>,
-    #[serde(default)]
-    pub pr_url: Option<String>,
-    #[serde(default)]
-    pub pr_number: Option<i64>,
-    #[serde(default)]
-    pub pr_state: Option<String>,
-}
-
-/// EXP-897 — `codingSessions.stackPlan` output: the blocker chain below an
-/// issue (bottom first, the issue itself excluded), the `lower` it would be
-/// cut from, and the repository the whole stack has to share.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct StackPlan {
-    #[serde(default)]
-    pub chain: Vec<StackPlanLink>,
-    #[serde(default)]
-    pub lower: Option<StackPlanLink>,
-    #[serde(default)]
-    pub repository_id: Option<String>,
-    #[serde(default)]
-    pub repo_full_name: Option<String>,
-    #[serde(default)]
-    pub base: Option<String>,
-}
-
-/// `codingSessions.stackPlan` — query (EXP-897). The ONE place a blocking
-/// CYCLE, a cross-repository blocker or a finished blocker is resolved, so
-/// clients never derive a stack themselves.
-///
-/// `Ok(None)` = an OLD server without the procedure (404): the caller starts
-/// the run UNSTACKED rather than failing it. Every other error is the
-/// server's own refusal and belongs in the composer's error slot. Blocking;
-/// background executor only (§3.5).
-pub fn stack_plan(trpc: &TrpcClient, issue_id: &str) -> Result<Option<StackPlan>, ApiError> {
-    #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Input<'a> {
-        issue_id: &'a str,
-    }
-    match trpc.query_with_input("codingSessions.stackPlan", &Input { issue_id }) {
-        Ok(plan) => Ok(Some(plan)),
-        Err(ApiError::Http { status: 404, .. }) => Ok(None),
-        Err(err) => Err(err),
-    }
 }
 
 /// EXP-1051 — how big the Exponential MCP surface is for ONE run: the
@@ -914,9 +805,6 @@ pub fn heartbeat(
                 .unwrap_or_default(),
             agent: scope.and_then(|scope| scope.agent.as_deref()),
             agent_account: scope.and_then(|scope| scope.agent_account.as_deref()),
-            workflow_id: scope.and_then(|scope| scope.workflow_id.as_deref()),
-            workflow_node_id: scope.and_then(|scope| scope.workflow_node_id.as_deref()),
-            workflow_role: scope.and_then(|scope| scope.workflow_role.as_deref()),
         },
     )?;
     Ok(envelope.alive)
@@ -943,7 +831,7 @@ mod tests {
     #[test]
     fn start_decodes_session_envelope_and_posts_device_label() {
         let (base, captured) = one_shot_server(200, SESSION_BODY);
-        let session = start(&client(&base), "issue-1", Some("testbox"), Attribution::default(), None, None, None, None, &[], &[], WorkflowStart::default()).unwrap();
+        let session = start(&client(&base), "issue-1", Some("testbox"), Attribution::default(), None, None, None, None, &[], &[]).unwrap();
         assert_eq!(session.id, "sess-1");
         assert_eq!(session.status.as_deref(), Some("running"));
         assert_eq!(session.device_label.as_deref(), Some("testbox"));
@@ -951,45 +839,6 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/codingSessions.start HTTP/1.1"));
         assert!(request.ends_with(r#"{"issueId":"issue-1","deviceLabel":"testbox"}"#));
-    }
-
-    /// EXP-897: `stackPlan` is a QUERY, decodes the chain bottom-first, and
-    /// an OLD server without the procedure answers 404 — which is `None`, not
-    /// an error: the composer starts the run unstacked instead of failing it.
-    #[test]
-    fn stack_plan_decodes_the_chain_and_degrades_on_an_old_server() {
-        let (base, captured) = one_shot_server(
-            200,
-            r#"{"result":{"data":{
-                "chain":[
-                  {"issueId":"issue-10","identifier":"EXP-10","title":"Foundation","status":"backlog","branch":null,"prUrl":null,"prNumber":null,"prState":null},
-                  {"issueId":"issue-11","identifier":"EXP-11","title":"Middle","status":"in_review","branch":"exp/EXP-11","prUrl":"https://github.com/acme/web/pull/4","prNumber":4,"prState":"open"}
-                ],
-                "lower":{"issueId":"issue-11","identifier":"EXP-11","title":"Middle","status":"in_review","branch":"exp/EXP-11","prUrl":"https://github.com/acme/web/pull/4","prNumber":4,"prState":"open"},
-                "repositoryId":"repo-1","repoFullName":"acme/web","base":"main"}}}"#,
-        );
-        let plan = stack_plan(&client(&base), "issue-12").unwrap().expect("a plan");
-        assert_eq!(plan.chain.len(), 2);
-        assert_eq!(plan.chain[0].identifier, "EXP-10");
-        assert_eq!(plan.chain[0].pr_state, None);
-        assert_eq!(plan.chain[1].branch.as_deref(), Some("exp/EXP-11"));
-        assert_eq!(plan.chain[1].pr_number, Some(4));
-        assert_eq!(plan.lower.as_ref().map(|l| l.identifier.as_str()), Some("EXP-11"));
-        assert_eq!(plan.repo_full_name.as_deref(), Some("acme/web"));
-        assert_eq!(plan.base.as_deref(), Some("main"));
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(
-            request.starts_with(
-                "GET /api/trpc/codingSessions.stackPlan?input=%7B%22issueId%22%3A%22issue-12%22%7D"
-            ),
-            "{request}"
-        );
-
-        let (base, _captured) = one_shot_server(
-            404,
-            r#"{"error":{"message":"No procedure found on path codingSessions.stackPlan","code":-32004,"data":{"code":"NOT_FOUND","httpStatus":404}}}"#,
-        );
-        assert_eq!(stack_plan(&client(&base), "issue-12").unwrap(), None);
     }
 
     /// EXP-445: the tRPC row's `hostUserId` (shared-device runs) decodes —
@@ -1009,7 +858,7 @@ mod tests {
     #[test]
     fn start_omits_absent_device_label() {
         let (base, captured) = one_shot_server(200, SESSION_BODY);
-        let _ = start(&client(&base), "issue-1", None, Attribution::default(), None, None, None, None, &[], &[], WorkflowStart::default()).unwrap();
+        let _ = start(&client(&base), "issue-1", None, Attribution::default(), None, None, None, None, &[], &[]).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(r#"{"issueId":"issue-1"}"#));
     }
@@ -1022,7 +871,7 @@ mod tests {
                 "id":"sess-b","issueId":null,"teamId":"ws-1",
                 "userId":"user-1","deviceLabel":"testbox","status":"running"}}}}"#,
         );
-        let session = start_batch(&client(&base), "ws-1", Some("testbox"), Attribution::default(), None, None, None, None, &[], &[], &[], WorkflowStart::default()).unwrap();
+        let session = start_batch(&client(&base), "ws-1", Some("testbox"), Attribution::default(), None, None, None, None, &[], &[], &[]).unwrap();
         assert_eq!(session.id, "sess-b");
         assert_eq!(session.team_id.as_deref(), Some("ws-1"));
         assert_eq!(session.issue_id, None);
@@ -1048,44 +897,11 @@ mod tests {
             Some("prof-9"),
             &[],
             &[],
-            WorkflowStart::default(),
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(
             request.ends_with(r#"{"issueId":"issue-1","agent":"claude","agentAccount":"prof-9"}"#),
-            "{request}"
-        );
-    }
-
-    #[test]
-    fn start_posts_the_workflow_membership() {
-        // EXP-1082: a workflow run names its workflow, node and role; the
-        // keys are skipped when absent (the tests above lock that wire).
-        let (base, captured) = one_shot_server(200, SESSION_BODY);
-        let _ = start(
-            &client(&base),
-            "issue-1",
-            None,
-            Attribution::default(),
-            None,
-            None,
-            None,
-            None,
-            &[],
-            &[],
-            WorkflowStart {
-                workflow_id: Some("wf-1"),
-                workflow_node_id: Some("node-1"),
-                workflow_role: Some("author"),
-            },
-        )
-        .unwrap();
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(
-            request.ends_with(
-                r#"{"issueId":"issue-1","workflowId":"wf-1","workflowNodeId":"node-1","workflowRole":"author"}"#
-            ),
             "{request}"
         );
     }
@@ -1107,46 +923,12 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: Some("claude".to_string()),
             agent_account: Some("system".to_string()),
-            workflow_id: None,
-            workflow_node_id: None,
-            workflow_role: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(
             request.ends_with(
                 r#"{"id":"sess-1","issueId":"issue-1","agent":"claude","agentAccount":"system"}"#
-            ),
-            "{request}"
-        );
-    }
-
-    #[test]
-    fn heartbeat_echoes_the_workflow_membership() {
-        // EXP-1068: a resurrected workflow run must land back in its group.
-        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"alive":true}}}"#);
-        let scope = HeartbeatScope {
-            issue_id: Some("issue-1".to_string()),
-            team_id: None,
-            action_id: None,
-            action_name: None,
-            started_by_id: None,
-            device_id: Some("dev-1".to_string()),
-            started_reason: Some("workflow".to_string()),
-            automation_id: None,
-            branch: None,
-            batch_issue_ids: Vec::new(),
-            agent: None,
-            agent_account: None,
-            workflow_id: Some("wf-1".to_string()),
-            workflow_node_id: Some("node-1".to_string()),
-            workflow_role: Some("author".to_string()),
-        };
-        assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(
-            request.ends_with(
-                r#""deviceId":"dev-1","startedReason":"workflow","workflowId":"wf-1","workflowNodeId":"node-1","workflowRole":"author"}"#
             ),
             "{request}"
         );
@@ -1169,7 +951,6 @@ mod tests {
             None,
             &[],
             &[],
-            WorkflowStart::default(),
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1198,7 +979,6 @@ mod tests {
             &[],
             &[],
             &[],
-            WorkflowStart::default(),
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1216,7 +996,7 @@ mod tests {
             started_by_id: Some("user-2"),
             device_id: Some("dev-1"),
         };
-        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None, None, None, &[], &[], WorkflowStart::default()).unwrap();
+        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None, None, None, &[], &[]).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(
             r#"{"issueId":"issue-1","deviceLabel":"testbox","startedById":"user-2","deviceId":"dev-1"}"#
@@ -1234,7 +1014,7 @@ mod tests {
             started_by_id: None,
             device_id: Some("dev-1"),
         };
-        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None, None, None, &[], &[], WorkflowStart::default()).unwrap();
+        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None, None, None, &[], &[]).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request
             .ends_with(r#"{"issueId":"issue-1","deviceLabel":"testbox","deviceId":"dev-1"}"#));
@@ -1258,9 +1038,6 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: None,
             agent_account: None,
-            workflow_id: None,
-            workflow_node_id: None,
-            workflow_role: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1292,7 +1069,6 @@ mod tests {
             &[],
             &ids,
             &[],
-            WorkflowStart::default(),
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1315,9 +1091,6 @@ mod tests {
             batch_issue_ids: vec!["i-1".to_string()],
             agent: None,
             agent_account: None,
-            workflow_id: None,
-            workflow_node_id: None,
-            workflow_role: None,
         };
         assert!(heartbeat(&client(&base), "sess-b", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1330,7 +1103,7 @@ mod tests {
             412,
             r#"{"error":{"message":"Concurrent coding session limit reached — upgrade to run more.","code":-32012,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
         );
-        match start(&client(&base), "issue-1", None, Attribution::default(), None, None, None, None, &[], &[], WorkflowStart::default()) {
+        match start(&client(&base), "issue-1", None, Attribution::default(), None, None, None, None, &[], &[]) {
             Err(ApiError::Http { status, message }) => {
                 assert_eq!(status, 412);
                 assert!(message.contains("limit"));
@@ -1365,9 +1138,6 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: None,
             agent_account: None,
-            workflow_id: None,
-            workflow_node_id: None,
-            workflow_role: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1392,9 +1162,6 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: None,
             agent_account: None,
-            workflow_id: None,
-            workflow_node_id: None,
-            workflow_role: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1478,7 +1245,6 @@ mod tests {
             None,
             &[],
             &[],
-            WorkflowStart::default(),
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1508,7 +1274,6 @@ mod tests {
             &[],
             &[],
             &[],
-            WorkflowStart::default(),
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1565,9 +1330,6 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: None,
             agent_account: None,
-            workflow_id: None,
-            workflow_node_id: None,
-            workflow_role: None,
         };
         assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1596,9 +1358,6 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: None,
             agent_account: None,
-            workflow_id: None,
-            workflow_node_id: None,
-            workflow_role: None,
         };
         assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1654,9 +1413,6 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: None,
             agent_account: None,
-            workflow_id: None,
-            workflow_node_id: None,
-            workflow_role: None,
         };
         assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1682,7 +1438,6 @@ mod tests {
             None,
             &[],
             &[],
-            WorkflowStart::default(),
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1705,7 +1460,6 @@ mod tests {
             &[],
             &[],
             &[],
-            WorkflowStart::default(),
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1746,7 +1500,6 @@ mod tests {
             None,
             &ids,
             &[],
-            WorkflowStart::default(),
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1771,7 +1524,6 @@ mod tests {
             &ids,
             &[],
             &[],
-            WorkflowStart::default(),
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1812,9 +1564,6 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: Some("codex".to_string()),
             agent_account: None,
-            workflow_id: None,
-            workflow_node_id: None,
-            workflow_role: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();

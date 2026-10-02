@@ -1,4 +1,4 @@
-//! The 24 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
+//! The 21 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
 //! iterates and the store builds its schema from. gpui-free.
 //!
 //! Each [`ShapeSpec`] carries the SQLite table name, the kebab-case proxy URL
@@ -80,11 +80,11 @@ impl ShapeSpec {
     }
 }
 
-/// The 24 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
+/// The 21 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
 /// (minus the §5.4 exclusions: no `email` on `issue_subscribers`, web-only
 /// billing fields dropped from `users`, no `body` on `actions`, no scoping
-/// mirrors on `device_worktrees`, and no `creator_id` on `workflows`).
-pub const SHAPES: [ShapeSpec; 24] = [
+/// mirrors on `device_worktrees`).
+pub const SHAPES: [ShapeSpec; 21] = [
     ShapeSpec {
         name: "teams",
         path: "/api/shapes/teams",
@@ -189,9 +189,9 @@ pub const SHAPES: [ShapeSpec; 24] = [
             "pr_state",
             "branch",
             "pr_merged_at",
-            // EXP-897: the SYNCED stack edge — the branch this issue's pull
-            // request targets. `heal_missing_columns` ALTERs it onto existing
-            // store tables and the shape-identity rotation's refetch fills it.
+            // SLOP-3: the SYNCED stack edge, the branch this issue's pull
+            // request targets (the related-work badge's stack band).
+            // `heal_missing_columns` ALTERs it onto existing store tables.
             "pr_base_branch",
             // EXP-630: story points (always a point number; the team's
             // `estimation_type` decides how it reads). `heal_missing_columns`
@@ -470,12 +470,8 @@ pub const SHAPES: [ShapeSpec; 24] = [
             // EXP-818: the run that spawned this one (`sessions_start`) —
             // the session lists nest a child under its parent.
             "parent_session_id",
-            // EXP-1082: the workflow membership (workflow, node, role) and
-            // the question the run is parked on (jsonb). Heal onto existing
-            // store tables like the rest.
-            "workflow_id",
-            "workflow_node_id",
-            "workflow_role",
+            // EXP-1082: the question the run is parked on (jsonb). Heal onto
+            // existing store tables like the rest.
             "pending_question",
             "started_at",
             "ended_at",
@@ -678,95 +674,6 @@ pub const SHAPES: [ShapeSpec; 24] = [
         ],
         pk: PkKind::Id,
     },
-    ShapeSpec {
-        name: "workflows",
-        path: "/api/shapes/workflows",
-        // EXP-981: team-scoped like `actions` — a workflow spans boards, so
-        // the board trash rules do NOT apply. Byte-matches the proxy's
-        // allowlist (apps/web routes/api/shapes/workflows.ts); the
-        // server-only `creator_id` stays BEHIND it.
-        columns: &[
-            "id",
-            "team_id",
-            "repository_id",
-            "name",
-            "status",
-            // The runner device's steer id — the engine's SINGLE writer.
-            "device_id",
-            "launch",
-            "integration_branch",
-            "final_pr_url",
-            "final_pr_number",
-            "final_pr_state",
-            "decisions",
-            // The server-computed plan shape: the list's second line and the
-            // header's cycle note read nothing else.
-            "metrics",
-            "started_at",
-            "ended_at",
-            "created_at",
-            "updated_at",
-        ],
-        pk: PkKind::Id,
-    },
-    ShapeSpec {
-        name: "workflow_nodes",
-        path: "/api/shapes/workflow-nodes",
-        // EXP-981: the nodes of every workflow of the member's teams.
-        // `team_id` is denormalized onto the row for exactly that clause.
-        // The full row is client-relevant: `wave`/`lane`/`on_cycle` ARE the
-        // server-computed layout — no client lays a graph out.
-        columns: &[
-            "id",
-            "workflow_id",
-            "team_id",
-            "issue_id",
-            "member_issue_ids",
-            "kind",
-            "state",
-            "risk",
-            "wave",
-            "lane",
-            "on_cycle",
-            "session_id",
-            "attempt",
-            "base_branch",
-            // EXP-982: the human gate's stamp and the one-sentence reason a
-            // node is failed/waiting.
-            "approved_at",
-            // EXP-983: the contract announcement dependents start on, and the
-            // engine's serialization edges.
-            "checkpoint_at",
-            "after_node_ids",
-            // EXP-984: the agent review gate — how many rounds were
-            // submitted, and the latest verdict.
-            "review_round",
-            "review",
-            "note",
-            "touches",
-            "created_at",
-            "updated_at",
-        ],
-        pk: PkKind::Id,
-    },
-    ShapeSpec {
-        name: "workflow_events",
-        path: "/api/shapes/workflow-events",
-        // EXP-1082: the audit trail of every workflow of the member's teams,
-        // appended by the runner device (`workflows.appendEvent`). Byte-equal
-        // to the server allowlist (apps/web routes/api/shapes/).
-        columns: &[
-            "id",
-            "workflow_id",
-            "team_id",
-            "node_id",
-            "session_id",
-            "at",
-            "kind",
-            "message",
-        ],
-        pk: PkKind::Id,
-    },
 ];
 
 /// Look a shape up by its table name.
@@ -779,8 +686,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_24_shapes_with_kebab_paths() {
-        assert_eq!(SHAPES.len(), 24);
+    fn registry_has_21_shapes_with_kebab_paths() {
+        assert_eq!(SHAPES.len(), 21);
         for spec in &SHAPES {
             assert!(spec.path.starts_with("/api/shapes/"), "{}", spec.name);
             assert!(!spec.path.contains('_'), "paths are kebab-case: {}", spec.path);
@@ -888,9 +795,8 @@ mod tests {
 
     #[test]
     fn issues_sync_the_pr_stack_edge() {
-        // EXP-897: `pr_base_branch` IS the stack — without it every client
-        // renders a stack as a flat list of unrelated pull requests.
-        // `pr_stack_number` is SERVER-ONLY and must never be requested.
+        // SLOP-3: `pr_base_branch` is the related-work badge's stack band;
+        // `pr_stack_number` is gone server-side and must never be requested.
         let spec = shape_by_name("issues").unwrap();
         assert!(spec.columns.contains(&"pr_base_branch"));
         assert!(spec.columns.contains(&"branch"), "the other half of the edge");
@@ -939,39 +845,14 @@ mod tests {
         assert!(spec.columns.contains(&"agent_title"));
     }
 
-    /// EXP-1082: the workflow membership and the open question. Dropping
-    /// any of them silently unhooks this client's runs from their workflow.
+    /// EXP-1082: the open question the needs-you mark reads.
     #[test]
-    fn coding_sessions_syncs_the_workflow_membership() {
+    fn coding_sessions_syncs_the_pending_question() {
         let spec = shape_by_name("coding_sessions").unwrap();
-        for column in [
-            "workflow_id",
-            "workflow_node_id",
-            "workflow_role",
-            "pending_question",
-        ] {
-            assert!(spec.columns.contains(&column), "coding_sessions needs {column}");
+        assert!(spec.columns.contains(&"pending_question"));
+        for gone in ["workflow_id", "workflow_node_id", "workflow_role"] {
+            assert!(!spec.columns.contains(&gone), "{gone} is gone");
         }
-    }
-
-    /// EXP-1082: the audit trail syncs exactly the server's allowlist.
-    #[test]
-    fn workflow_events_sync_the_server_allowlist() {
-        let spec = shape_by_name("workflow_events").unwrap();
-        assert_eq!(spec.path, "/api/shapes/workflow-events");
-        assert_eq!(
-            spec.columns,
-            &[
-                "id",
-                "workflow_id",
-                "team_id",
-                "node_id",
-                "session_id",
-                "at",
-                "kind",
-                "message"
-            ]
-        );
     }
 
     #[test]
@@ -1202,53 +1083,12 @@ mod tests {
         assert!(!spec.columns.contains(&"board_deleted_at"));
     }
 
-    /// EXP-981: the plan's shape and its runner binding. `metrics` is the
-    /// ONLY input to the list's second line and the header's cycle note;
-    /// `creator_id` is server-only and must never be requested.
+    /// SLOP-3: the workflow shapes are gone from the registry.
     #[test]
-    fn workflows_sync_the_plan_shape_and_its_binding() {
-        let spec = shape_by_name("workflows").unwrap();
-        for column in ["team_id", "repository_id", "status", "device_id", "launch", "metrics"] {
-            assert!(spec.columns.contains(&column), "workflows needs {column}");
+    fn no_workflow_shapes() {
+        for gone in ["workflows", "workflow_nodes", "workflow_events"] {
+            assert!(shape_by_name(gone).is_none(), "{gone} is gone");
         }
-        // EXP-1090 / compat round 26: `start_on` and `gate` are gone for good.
-        assert!(!spec.columns.contains(&"start_on"));
-        assert!(!spec.columns.contains(&"gate"));
-        assert!(!spec.columns.contains(&"creator_id"), "server-only");
-    }
-
-    /// EXP-981: `wave`/`lane`/`on_cycle` ARE the server-computed layout —
-    /// dropping any of them leaves this client unable to draw the graph at
-    /// all (no client lays one out).
-    #[test]
-    fn workflow_nodes_sync_the_server_layout() {
-        let spec = shape_by_name("workflow_nodes").unwrap();
-        for column in [
-            "workflow_id",
-            "team_id",
-            "issue_id",
-            "member_issue_ids",
-            "kind",
-            "state",
-            "risk",
-            "wave",
-            "lane",
-            "on_cycle",
-            "touches",
-            // EXP-982: the gate stamp and the failure/waiting note.
-            "approved_at",
-            "note",
-            // EXP-983: speculative starts read both.
-            "checkpoint_at",
-            "after_node_ids",
-            // EXP-984: the agent review gate.
-            "review_round",
-            "review",
-        ] {
-            assert!(spec.columns.contains(&column), "workflow_nodes needs {column}");
-        }
-        // Team-scoped like `actions`: no board-trash mirror to filter on.
-        assert!(!spec.columns.contains(&"board_deleted_at"));
     }
 
     #[test]

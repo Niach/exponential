@@ -10,16 +10,13 @@ import SwiftUI
 /// No fold of its own: the sheet is not a disclosure. EXP-1061: the rows are
 /// the `SessionTree.sessionTree` SELECTOR drawn, exactly like the Running band
 /// (and web's Recent panel): a resume succession is ONE row, a child nests
-/// under its parent, a workflow's or a stack's runs sit under one group row,
-/// every parent folds, top level newest ACTIVITY first (rule 5). Each run row
+/// under its parent, every parent folds, top level newest ACTIVITY first. Each run row
 /// is the `EndedRunRow` the band used to draw, each tap opening that run's
 /// Work screen.
 struct RecentRunsSheet: View {
     let vm: AgentsViewModel
     /// The picked run — the page dismisses this sheet and pushes it.
     let onOpen: (String) -> Void
-    /// A workflow group row's tap — the page dismisses and routes there.
-    let onOpenWorkflow: (String) -> Void
 
     /// The nodes folded shut, keyed by `SessionTree.nodeKey` (the ×4 rule).
     @State private var collapsed: Set<String> = []
@@ -47,37 +44,17 @@ struct RecentRunsSheet: View {
         .accessibilityIdentifier("recent-runs-sheet")
     }
 
-    /// One drawn row: a run, or the group row its runs hang off.
+    /// One drawn row.
     @ViewBuilder
     private func treeRow(
         _ entry: SessionTree.FlatRow, rows: [String: AgentsViewModel.PastRow]
     ) -> some View {
-        let expanded = !collapsed.contains(entry.key)
-        let onToggle = { toggle(entry.key) }
-        switch entry.node {
-        case let .session(node):
-            if let past = rows[node.session.id] {
-                row(past, expandable: entry.hasChildren, expanded: expanded, onToggle: onToggle)
-            }
-        case let .workflow(group):
-            SessionGroupRow(
-                glyph: AppIcons.navWorkflows,
-                title: group.name,
-                count: group.children.count,
-                open: .action({ onOpenWorkflow(group.workflowId) }),
-                key: entry.key,
-                expanded: expanded,
-                onToggle: onToggle
-            )
-        case let .stack(group):
-            SessionGroupRow(
-                glyph: AppIcons.prStack,
-                title: SessionTree.stackGroupLabel,
-                count: group.children.count,
-                open: .none,
-                key: entry.key,
-                expanded: expanded,
-                onToggle: onToggle
+        if let past = rows[entry.node.session.id] {
+            row(
+                past,
+                expandable: entry.hasChildren,
+                expanded: !collapsed.contains(entry.key),
+                onToggle: { toggle(entry.key) }
             )
         }
     }
@@ -125,10 +102,10 @@ struct RecentRunsSheet: View {
 
     /// EXP-1061: history is the same tree as the Running band — the cap
     /// (`PastRuns.cap`) applies to the ROWS first, so a child whose parent fell
-    /// off it is a top-level orphan (rule 6).
+    /// off it is a top-level orphan.
     private var pastRows: [SessionTree.FlatRow] {
         SessionTree.visibleRows(
-            SessionTree.sessionTree(vm.pastRows.map(\.session), context: vm.pastTreeContext),
+            SessionTree.sessionTree(vm.pastRows.map(\.session)),
             collapsed: collapsed
         )
     }

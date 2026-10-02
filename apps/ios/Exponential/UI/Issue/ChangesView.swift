@@ -178,9 +178,11 @@ final class ChangesViewModel {
         }
     }
 
-    /// EXP-1145: "Merge stack" from the stack dialog: merges the whole stack
-    /// through its TOP member, bottom-up (same loading/failure handling).
-    func mergeStack(topIssueId: String) {
+    /// EXP-1145: the stack dialog's merges, bottom-up THROUGH `issueId`
+    /// (the top for Merge stack, this issue for Merge this pull request on a
+    /// member above the bottom). Same loading/failure handling; a refusal
+    /// captions the server's message and keeps the Fix conflicts offer.
+    func mergeStack(issueId: String) {
         guard !merging else { return }
         merging = true
         actionError = nil
@@ -188,7 +190,7 @@ final class ChangesViewModel {
         actionErrorIsConflict = false
         Task {
             do {
-                try await issuesApi.mergePr(accountId: accountId, issueId: topIssueId, mergeStack: true)
+                try await issuesApi.mergePr(accountId: accountId, issueId: issueId, mergeStack: true)
             } catch {
                 actionError = error.userFacingMessage
                 actionErrorFrom = .merge

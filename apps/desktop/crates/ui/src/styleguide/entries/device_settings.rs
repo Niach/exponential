@@ -8,15 +8,14 @@
 //! cleans them.
 //!
 //! EXP-1063: the demo is drawn by the dialog's OWN parts, in the dialog's
-//! order — the glass rows, `AgentDefaultsGroup` with real selects, the "Workflow
-//! settings" `sub_shell_row` opening `device_settings::render_workflow_page`
-//! inside a `SubShellHost`, then Update and the Remove row. The dialog view
+//! order — the glass rows, `AgentDefaultsGroup` with real selects, then
+//! Update and the Remove row. The dialog view
 //! itself is bound to a synced device row and the store, so the entry owns a
 //! small demo view holding the same entities instead; nothing it draws is a
 //! copy of a recipe.
 
 use gpui::{
-    div, px, App, AppContext as _, Context, Div, Entity, FocusHandle, IntoElement,
+    div, px, App, AppContext as _, Context, Div, Entity, IntoElement,
     ParentElement as _, Render, SharedString, Styled as _, Window,
 };
 use gpui_component::{
@@ -29,22 +28,16 @@ use gpui_component::{
 use coding::CodingAgent;
 
 use crate::coding_selects::{
-    agent_icon, choice_select, effort_choices_for, model_choices_for, workflow_model_choices_for,
-    ChoiceSelect, SUBAGENT_MODEL_CHOICES,
+    agent_icon, choice_select, effort_choices_for, model_choices_for, ChoiceSelect,
+    SUBAGENT_MODEL_CHOICES,
 };
 use crate::controls::{glass_input, WebControl as _};
-use crate::device_settings::{choice_label, render_workflow_page, workflow_defaults_for};
 use crate::icons::registry;
 use crate::launch_options::{AgentDefaultsGroup, AgentPill, DefaultsToggle};
-use crate::sub_shell::{
-    focus_back_on_open, sub_shell_row, SubShellHost, SubShellNav, SubShellPage, SubShellProps,
-};
 use crate::surface;
 
 pub(crate) const ID: &str = "device-settings";
 pub(crate) const OWNER: &str = "EXP-1020";
-
-const WORKFLOW_SETTINGS: &str = "Workflow settings";
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let demo = window.use_keyed_state("sg-device-settings", cx, DeviceSettingsDemo::new);
@@ -56,18 +49,13 @@ struct DeviceSettingsDemo {
     name_input: Entity<InputState>,
     is_default: bool,
     agent_tab: CodingAgent,
-    default_agent: CodingAgent,
     model: ChoiceSelect,
     effort: ChoiceSelect,
     codex_model: ChoiceSelect,
     codex_effort: ChoiceSelect,
     subagent_model: ChoiceSelect,
-    workflow_model: ChoiceSelect,
-    workflow_strong_model: ChoiceSelect,
     ultracode: bool,
     plan_mode: bool,
-    nav: SubShellNav,
-    back_focus: FocusHandle,
 }
 
 impl DeviceSettingsDemo {
@@ -78,13 +66,10 @@ impl DeviceSettingsDemo {
             state.set_value("Studio Mac", window, cx);
             state
         });
-        let (workflow, workflow_strong) = workflow_defaults_for(settings.default_agent);
-        let workflow_choices = workflow_model_choices_for(settings.default_agent);
         Self {
             name_input,
             is_default: true,
             agent_tab: settings.default_agent,
-            default_agent: settings.default_agent,
             model: choice_select(
                 model_choices_for(CodingAgent::Claude),
                 &settings.claude_model,
@@ -115,12 +100,8 @@ impl DeviceSettingsDemo {
                 window,
                 cx,
             ),
-            workflow_model: choice_select(&workflow_choices, &workflow, window, cx),
-            workflow_strong_model: choice_select(&workflow_choices, &workflow_strong, window, cx),
             ultracode: settings.claude_ultracode,
             plan_mode: settings.claude_plan_mode,
-            nav: SubShellNav::new(),
-            back_focus: cx.focus_handle(),
         }
     }
 
@@ -140,13 +121,6 @@ impl DeviceSettingsDemo {
             CodingAgent::Claude => (self.model.clone(), self.effort.clone()),
             CodingAgent::Codex => (self.codex_model.clone(), self.codex_effort.clone()),
         };
-        let (workflow, workflow_strong) = workflow_defaults_for(self.default_agent);
-        let choices = model_choices_for(self.default_agent);
-        let summary = SharedString::from(format!(
-            "{} · {}",
-            choice_label(choices, &workflow),
-            choice_label(choices, &workflow_strong),
-        ));
         let mut group = AgentDefaultsGroup::new(
             "sg-device-defaults",
             self.agent_tab,
@@ -161,18 +135,7 @@ impl DeviceSettingsDemo {
             model,
             effort,
         )
-        .effort_disabled(self.agent_tab == CodingAgent::Claude && self.ultracode)
-        .trailing(vec![sub_shell_row(
-            SubShellProps::new("sg-device-workflow-settings", WORKFLOW_SETTINGS)
-                .icon(Icon::new(registry::NAV_WORKFLOWS))
-                .value(summary),
-            cx.listener(|this: &mut Self, _, window, cx| {
-                this.nav.open(WORKFLOW_SETTINGS);
-                focus_back_on_open(&this.back_focus, window, cx);
-                cx.notify();
-            }),
-            cx,
-        )]);
+        .effort_disabled(self.agent_tab == CodingAgent::Claude && self.ultracode);
         if self.agent_tab.supports_subagent_model() {
             group = group.subagent(self.subagent_model.clone());
         }
@@ -264,18 +227,6 @@ impl Render for DeviceSettingsDemo {
             .child(self.defaults_group(cx))
             .child(self.update_section(cx))
             .child(self.remove_row());
-        let mut host = SubShellHost::new(body);
-        if self.nav.is_open() {
-            let page = render_workflow_page(&self.workflow_model, &self.workflow_strong_model, cx);
-            host = host.open(
-                SubShellPage::new(WORKFLOW_SETTINGS, page),
-                &self.back_focus,
-                cx.listener(|this: &mut Self, _, _, cx| {
-                    this.nav.back();
-                    cx.notify();
-                }),
-            );
-        }
-        div().w_full().child(host.render(window, cx))
+        div().w_full().child(body)
     }
 }

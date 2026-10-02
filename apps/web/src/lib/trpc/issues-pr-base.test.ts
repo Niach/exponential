@@ -10,6 +10,8 @@ import { TRPCError } from "@trpc/server"
 const h = vi.hoisted(() => ({
   // Each ctx.db.select() call consumes the next result set, in call order.
   selectQueue: [] as unknown[][],
+  // The `pr_base_branch` writes the router issued (set values, in order).
+  updates: [] as Array<Record<string, unknown>>,
   assertIssueAccess: vi.fn(async () => ({
     issueId: `issue-1`,
     boardId: `board-1`,
@@ -27,7 +29,6 @@ const h = vi.hoisted(() => ({
   diagnoseUnmergeablePr: vi.fn(
     async (): Promise<{ message: string; conflict: boolean } | null> => null
   ),
-  // EXP-897: the router merges through the stack-aware entry point.
   mergePullRequestSmart: vi.fn(
     async (
       _opts: Record<string, unknown>
@@ -35,22 +36,8 @@ const h = vi.hoisted(() => ({
       merged: boolean
       queued: boolean
       sha: string | null
-      viaStack: boolean
-      stackNumber: number | null
-      stackMemberNumbers: number[]
-      alreadyMergedMemberNumbers?: number[]
-      openMemberNumbersAbove?: number[]
-    }> => ({
-      merged: true,
-      queued: false,
-      sha: `abc`,
-      viaStack: false,
-      stackNumber: null,
-      stackMemberNumbers: [241],
-    })
-  ),
-  findStackForPull: vi.fn(
-    async (): Promise<{ number: number } | null> => null
+      mergedBy: null
+    }> => ({ merged: true, queued: false, sha: `abc`, mergedBy: null })
   ),
   getPullRequest: vi.fn(async () => ({
     state: `open` as const,
@@ -88,13 +75,6 @@ vi.mock(`@/db/connection`, () => {
 
 vi.mock(`@/lib/auth`, () => ({ auth: {} }))
 
-// EXP-1094: none of these PRs is a live workflow node's (the guard itself is
-// covered in issues-merge-guard.test.ts).
-vi.mock(`@/lib/workflows`, async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/workflows")>()),
-  liveWorkflowCoveringPr: async () => null,
-}))
-
 vi.mock(`@/lib/team-membership`, async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/team-membership")>()
   return {
@@ -115,7 +95,6 @@ vi.mock(`@/lib/integrations/github-pr`, async (importOriginal) => {
     ...actual,
     fetchPullFiles: vi.fn(),
     mergePullRequestSmart: h.mergePullRequestSmart,
-    findStackForPull: h.findStackForPull,
     getPullRequest: h.getPullRequest,
     closePullRequest: vi.fn(),
     resolvePrBaseState: h.resolvePrBaseState,
@@ -135,6 +114,7 @@ vi.mock(`@/lib/trpc/integrations`, () => ({
 vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applyPrClosedState: vi.fn(),
   applyPrMergeState: h.applyPrMergeState,
+  applySessionPrState: vi.fn(async () => ({ endedSessionIds: [] })),
   endMergedPrSessions: h.endMergedPrSessions,
 }))
 vi.mock(`@/lib/storage/issue-attachments`, () => ({
@@ -160,6 +140,7 @@ vi.mock(`@/lib/integrations/activity`, () => ({
 }))
 
 import { issuesRouter } from "@/lib/trpc/issues"
+import { stackedOnMessage, stackedOnOpenPr } from "@/lib/pr-merge-guard"
 import {
   classifyPrBase,
   GitHubAsyncMergePending,
@@ -174,8 +155,13 @@ const ISSUE_ID = `22222222-2222-4222-8222-222222222222`
 const PR_URL = `https://github.com/owner/repo/pull/241`
 
 const db = {
-  // EXP-897: the router persists `pr_base_branch` / `pr_stack_number`.
-  update: vi.fn(() => ({ set: () => ({ where: async () => undefined }) })),
+  update: vi.fn(() => ({
+    set: (values: Record<string, unknown>) => ({
+      where: async () => {
+        h.updates.push(values)
+      },
+    }),
+  })),
   select: vi.fn(() => {
     const rows = h.selectQueue.shift() ?? []
     const builder = {
@@ -215,6 +201,7 @@ function mockExp320BaseState() {
 
 beforeEach(() => {
   h.selectQueue.length = 0
+  h.updates.length = 0
   vi.clearAllMocks()
   h.assertIssueAccess.mockResolvedValue({
     issueId: ISSUE_ID,
@@ -255,9 +242,11 @@ describe(`issues.prepareConflictFix (EXP-324)`, () => {
       retargeted: true,
       defaultBranch: `master`,
     })
+    // The synced base follows the heal.
+    expect(h.updates).toEqual([{ prBaseBranch: `master` }])
   })
 
-  it(`returns the live parent branch as the rebase target for an open stack — no retarget`, async () => {
+  it(`returns the live parent branch as the rebase target for an open parent — no retarget`, async () => {
     h.selectQueue.push([
       { prNumber: 241, prUrl: PR_URL, prState: `open` },
     ])
@@ -282,6 +271,8 @@ describe(`issues.prepareConflictFix (EXP-324)`, () => {
       rebaseOnto: `exp/EXP-314`,
       retargeted: false,
     })
+    // GitHub's live base is mirrored opportunistically.
+    expect(h.updates).toEqual([{ prBaseBranch: `exp/EXP-314` }])
   })
 
   it(`tolerates a 422 on the heal (concurrent retarget won the race)`, async () => {
@@ -295,6 +286,7 @@ describe(`issues.prepareConflictFix (EXP-324)`, () => {
 
     const result = await caller.prepareConflictFix({ issueId: ISSUE_ID })
     expect(result).toMatchObject({ rebaseOnto: `master`, retargeted: false })
+    expect(h.updates).toEqual([{ prBaseBranch: `master` }])
   })
 
   it(`surfaces a GitHub read failure as BAD_GATEWAY`, async () => {
@@ -331,6 +323,8 @@ describe(`issues.retargetPr (EXP-324)`, () => {
       token: `tok`,
     })
     expect(result).toEqual({ retargeted: true, base: `master` })
+    // Persisted for every issue on the PR.
+    expect(h.updates).toEqual([{ prBaseBranch: `master` }])
   })
 
   it(`passes an explicit base through and maps GitHub's 422 onto a named error`, async () => {
@@ -346,6 +340,7 @@ describe(`issues.retargetPr (EXP-324)`, () => {
       code: `PRECONDITION_FAILED`,
       message: `'nope' is not a valid base branch on owner/repo: Proposed base branch 'nope' was not found`,
     })
+    expect(h.updates).toEqual([])
   })
 
   it(`refuses a non-open PR`, async () => {
@@ -622,217 +617,25 @@ describe(`issues.mergePr always ends sessions (EXP-498)`, () => {
   })
 })
 
-// EXP-897 / FEED-43: the stack-aware merge and retarget paths.
-describe(`issues.mergePr on a stack (EXP-897)`, () => {
-  const UPPER_ISSUE = `44444444-4444-4444-8444-444444444444`
-  const UPPER_PR_URL = `https://github.com/owner/repo/pull/242`
+// FEED-43: the merge-async fallback (the stack merge: issues-merge-stack.test.ts).
+describe(`issues.mergePr merge-async outcomes`, () => {
   const entryRow = {
     prNumber: 241,
     prUrl: PR_URL,
     prState: `open`,
     identifier: `EXP-11`,
     title: `Lower`,
-    branch: `exp/EXP-11`,
-    prBaseBranch: `master`,
-    prStackNumber: null as number | null,
   }
-  const stackRows = (stackNumber: number | null) => [
-    {
-      id: ISSUE_ID,
-      identifier: `EXP-11`,
-      title: `Lower`,
-      status: `in_review`,
-      branch: `exp/EXP-11`,
-      prUrl: PR_URL,
-      prNumber: 241,
-      prState: `open`,
-      prBaseBranch: `master`,
-      prStackNumber: stackNumber,
-    },
-    {
-      id: UPPER_ISSUE,
-      identifier: `EXP-12`,
-      title: `Upper`,
-      status: `in_review`,
-      branch: `exp/EXP-12`,
-      prUrl: UPPER_PR_URL,
-      prNumber: 242,
-      prState: `open`,
-      prBaseBranch: `exp/EXP-11`,
-      prStackNumber: stackNumber,
-    },
-  ]
-  const cohortRows = [
-    { id: ISSUE_ID, prUrl: PR_URL, branch: `exp/EXP-11`, prBaseBranch: `master` },
-    {
-      id: UPPER_ISSUE,
-      prUrl: UPPER_PR_URL,
-      branch: `exp/EXP-12`,
-      prBaseBranch: `exp/EXP-11`,
-    },
-  ]
-
-  it(`merges a REAL GitHub stack in one call on its topmost open member`, async () => {
-    h.selectQueue.push([{ ...entryRow, prStackNumber: 7 }])
-    h.selectQueue.push(stackRows(7))
-    h.selectQueue.push(cohortRows)
-    h.mergePullRequestSmart.mockResolvedValueOnce({
-      merged: true,
-      queued: false,
-      sha: `abc`,
-      viaStack: true,
-      stackNumber: 7,
-      stackMemberNumbers: [241, 242],
-    })
-
-    const result = await caller.mergePr({
-      issueId: ISSUE_ID,
-      mergeStack: true,
-    })
-
-    expect(h.mergePullRequestSmart).toHaveBeenCalledTimes(1)
-    expect(h.mergePullRequestSmart).toHaveBeenCalledWith(
-      expect.objectContaining({ prNumber: 242, knownStackNumber: 7 })
-    )
-    // Merging the top merged everything below it — both issues complete.
-    expect(h.applyPrMergeState).toHaveBeenCalledTimes(2)
-    expect(h.endMergedPrSessions).toHaveBeenCalledWith(
-      [ISSUE_ID, UPPER_ISSUE],
-      undefined
-    )
-    expect(result.merged).toBe(true)
-  })
-
-  it(`refuses the whole stack when one member is a draft`, async () => {
-    h.selectQueue.push([{ ...entryRow, prStackNumber: 7 }])
-    h.selectQueue.push(stackRows(7))
-    h.getPullRequest.mockResolvedValueOnce({
-      state: `open` as const,
-      merged: false,
-      draft: true,
-      headRef: `exp/EXP-11`,
-      baseRef: `master`,
-      mergeable: true,
-      mergeableState: `clean`,
-    })
-
-    await expect(
-      caller.mergePr({ issueId: ISSUE_ID, mergeStack: true })
-    ).rejects.toMatchObject({
-      code: `PRECONDITION_FAILED`,
-      message: `Cannot merge the stack: PR #241 (EXP-11) is a draft`,
-    })
-    expect(h.mergePullRequestSmart).not.toHaveBeenCalled()
-  })
-
-  it(`refuses a member GitHub reports as blocked`, async () => {
-    h.selectQueue.push([{ ...entryRow, prStackNumber: 7 }])
-    h.selectQueue.push(stackRows(7))
-    h.getPullRequest.mockResolvedValueOnce({
-      state: `open` as const,
-      merged: false,
-      draft: false,
-      headRef: `exp/EXP-11`,
-      baseRef: `master`,
-      mergeable: false,
-      mergeableState: `blocked`,
-    })
-
-    await expect(
-      caller.mergePr({ issueId: ISSUE_ID, mergeStack: true })
-    ).rejects.toMatchObject({
-      message: `Cannot merge the stack: PR #241 (EXP-11) is blocked on GitHub`,
-    })
-  })
-
-  // No GitHub stack (preview off / built by us alone): merge bottom-up,
-  // retargeting each next member onto the stack base first.
-  it(`merges a candidate stack bottom-up and retargets as it goes`, async () => {
-    h.selectQueue.push([entryRow])
-    h.selectQueue.push(stackRows(null))
-
-    await expect(
-      caller.mergePr({ issueId: ISSUE_ID, mergeStack: true })
-    ).resolves.toMatchObject({
-      merged: true,
-      note: `Merged 2 pull request(s) bottom-up: #241, #242.`,
-    })
-
-    expect(h.mergePullRequestSmart).toHaveBeenCalledTimes(2)
-    expect(h.mergePullRequestSmart.mock.calls[0]![0]).toMatchObject({
-      prNumber: 241,
-    })
-    expect(h.mergePullRequestSmart.mock.calls[1]![0]).toMatchObject({
-      prNumber: 242,
-    })
-    // The upper PR's base was just squash-merged — retarget before merging it.
-    expect(h.retargetPullRequest).toHaveBeenCalledWith({
-      repo: `owner/repo`,
-      prNumber: 242,
-      base: `master`,
-      token: `tok`,
-    })
-  })
-
-  it(`stops after the first member when GitHub reveals it merged the whole stack`, async () => {
-    // pr_stack_number is still null (the stack was built on github.com and the
-    // webhook has not caught up), so the candidate path runs — but the FIRST
-    // merge answers viaStack for both members. No second merge, no retarget.
-    h.selectQueue.push([entryRow])
-    h.selectQueue.push(stackRows(null))
-    h.selectQueue.push(cohortRows)
-    h.mergePullRequestSmart.mockResolvedValueOnce({
-      merged: true,
-      queued: false,
-      sha: `abc`,
-      viaStack: true,
-      stackNumber: 7,
-      stackMemberNumbers: [241, 242],
-    })
-
-    await expect(
-      caller.mergePr({ issueId: ISSUE_ID, mergeStack: true })
-    ).resolves.toMatchObject({
-      merged: true,
-      mergedPrUrls: [PR_URL, UPPER_PR_URL],
-      note: `Merged GitHub stack #7: 2 pull request(s), bottom-up.`,
-    })
-    expect(h.mergePullRequestSmart).toHaveBeenCalledTimes(1)
-    expect(h.retargetPullRequest).not.toHaveBeenCalled()
-    expect(h.applyPrMergeState).toHaveBeenCalledTimes(2)
-  })
-
-  it(`is idempotent once every member is merged`, async () => {
-    h.selectQueue.push([{ ...entryRow, prState: `merged` }])
-    h.selectQueue.push(
-      stackRows(null).map((row) => ({ ...row, prState: `merged` }))
-    )
-
-    await expect(
-      caller.mergePr({ issueId: ISSUE_ID, mergeStack: true })
-    ).resolves.toEqual({
-      merged: true,
-      mergedPrUrls: [
-        `https://github.com/owner/repo/pull/241`,
-        `https://github.com/owner/repo/pull/242`,
-      ],
-    })
-    expect(h.mergePullRequestSmart).not.toHaveBeenCalled()
-    expect(h.endMergedPrSessions).toHaveBeenCalledWith(
-      [ISSUE_ID, UPPER_ISSUE],
-      undefined
-    )
-  })
 
   it(`reports a still-running merge-async job without failing the issue`, async () => {
     h.selectQueue.push([entryRow])
     h.mergePullRequestSmart.mockRejectedValueOnce(
-      new GitHubAsyncMergePending(241, 7, `u-1`)
+      new GitHubAsyncMergePending(241, `u-1`)
     )
 
     await expect(caller.mergePr({ issueId: ISSUE_ID })).rejects.toMatchObject({
       code: `PRECONDITION_FAILED`,
-      message: `GitHub is still merging PR #241 (stack #7). It did not finish within 60s — check the PR on GitHub; the issue completes when the merge lands.`,
+      message: `GitHub is still merging PR #241. It did not finish within 60s — check the PR on GitHub; the issue completes when the merge lands.`,
     })
   })
 
@@ -842,9 +645,7 @@ describe(`issues.mergePr on a stack (EXP-897)`, () => {
       merged: true,
       queued: true,
       sha: null,
-      viaStack: true,
-      stackNumber: 7,
-      stackMemberNumbers: [241],
+      mergedBy: null,
     })
 
     // FEED-43 R1: the queue may still reject it, so an agent reading
@@ -856,159 +657,9 @@ describe(`issues.mergePr on a stack (EXP-897)`, () => {
     expect(h.applyPrMergeState).not.toHaveBeenCalled()
   })
 
-  // FEED-43 R1: merging a stack member lands every member below it in the
-  // same GitHub transaction, and each of their `closed` webhooks looks for
-  // its OWN claim; the single-PR path used to claim only the clicked PR.
-  it(`claims every member of a known stack before the merge`, async () => {
-    _clearPrActorClaims()
-    h.selectQueue.push([{ ...entryRow, prStackNumber: 7 }])
-    h.selectQueue.push([]) // completeStackCohort's member rows
-    h.findStackForPull.mockResolvedValueOnce({
-      number: 7,
-      members: [{ number: 240 }, { number: 241 }, { number: 242 }],
-    } as never)
-    h.mergePullRequestSmart.mockImplementationOnce(async () => {
-      // The claims are in place BEFORE GitHub is asked to merge.
-      expect(takePrMergeClaim(`owner/repo`, 240)).toMatchObject({
-        userId: `actor`,
-      })
-      // 242 sits ABOVE the merged member: it does not land, so no claim.
-      expect(takePrMergeClaim(`owner/repo`, 242)).toBeNull()
-      return {
-        merged: true,
-        queued: false,
-        sha: `abc`,
-        viaStack: true,
-        stackNumber: 7,
-        stackMemberNumbers: [240, 241],
-      }
-    })
-
-    await expect(caller.mergePr({ issueId: ISSUE_ID })).resolves.toMatchObject({
-      merged: true,
-    })
-    expect(h.findStackForPull).toHaveBeenCalledWith(`owner/repo`, 241, `tok`)
-    expect(takePrMergeClaim(`owner/repo`, 241)).toMatchObject({ userId: `actor` })
-  })
-
-  // FEED-48: the stack note belongs to a merge that actually took PRs below
-  // with it — never to a plain PR whose `prBaseBranch` is just the default.
-  it(`notes the PRs below only when the stack walk merged them`, async () => {
-    _clearPrActorClaims()
-    h.selectQueue.push([{ ...entryRow, prStackNumber: 7 }])
-    h.selectQueue.push([]) // completeStackCohort's member rows
-    h.findStackForPull.mockResolvedValueOnce({
-      number: 7,
-      members: [{ number: 240 }, { number: 241 }],
-    } as never)
-    h.mergePullRequestSmart.mockResolvedValueOnce({
-      merged: true,
-      queued: false,
-      sha: `abc`,
-      viaStack: true,
-      stackNumber: 7,
-      stackMemberNumbers: [240, 241],
-    })
-
-    await expect(caller.mergePr({ issueId: ISSUE_ID })).resolves.toEqual({
-      merged: true,
-      mergedPrUrls: [
-        `https://github.com/owner/repo/pull/240`,
-        `https://github.com/owner/repo/pull/241`,
-      ],
-      note: `Merging stacked PR #241 also merged every unmerged PR below it: #240.`,
-    })
-  })
-
-  it(`keeps the stack note off a stack walk that merged nothing below`, async () => {
+  it(`releases the claim when the merge fails`, async () => {
     _clearPrActorClaims()
     h.selectQueue.push([entryRow])
-    h.selectQueue.push([]) // completeStackCohort's member rows
-    h.mergePullRequestSmart.mockResolvedValueOnce({
-      merged: true,
-      queued: false,
-      sha: `abc`,
-      viaStack: true,
-      stackNumber: null,
-      stackMemberNumbers: [241],
-    })
-
-    await expect(caller.mergePr({ issueId: ISSUE_ID })).resolves.toEqual({
-      merged: true,
-      mergedPrUrls: [`https://github.com/owner/repo/pull/241`],
-    })
-  })
-
-  // EXP-1145: the note is the agent's only account of what a mid-stack merge
-  // did. A member GitHub already listed as merged landed EARLIER (PR #886 was
-  // once reported "also merged" a train after it had), and the open members
-  // above stay open on the stack's base — both halves are named.
-  it(`never counts an already-merged member as also merged, and names the members left open`, async () => {
-    _clearPrActorClaims()
-    h.selectQueue.push([{ ...entryRow, prStackNumber: 7 }])
-    h.selectQueue.push([]) // completeStackCohort's member rows
-    h.findStackForPull.mockResolvedValueOnce({
-      number: 7,
-      members: [{ number: 239 }, { number: 240 }, { number: 241 }, { number: 242 }],
-    } as never)
-    h.mergePullRequestSmart.mockResolvedValueOnce({
-      merged: true,
-      queued: false,
-      sha: `abc`,
-      viaStack: true,
-      stackNumber: 7,
-      stackMemberNumbers: [239, 240, 241],
-      alreadyMergedMemberNumbers: [239],
-      openMemberNumbersAbove: [242],
-    })
-
-    await expect(caller.mergePr({ issueId: ISSUE_ID })).resolves.toMatchObject({
-      merged: true,
-      note: `Merging stacked PR #241 also merged every unmerged PR below it: #240. PRs above it stay open, retargeted onto the stack's base: #242.`,
-    })
-  })
-
-  it(`a bottom member's merge names only what it left open above`, async () => {
-    _clearPrActorClaims()
-    h.selectQueue.push([{ ...entryRow, prStackNumber: 7 }])
-    h.selectQueue.push([]) // completeStackCohort's member rows
-    h.findStackForPull.mockResolvedValueOnce({
-      number: 7,
-      members: [{ number: 241 }, { number: 242 }],
-    } as never)
-    h.mergePullRequestSmart.mockResolvedValueOnce({
-      merged: true,
-      queued: false,
-      sha: `abc`,
-      viaStack: true,
-      stackNumber: 7,
-      stackMemberNumbers: [241],
-      alreadyMergedMemberNumbers: [],
-      openMemberNumbersAbove: [242],
-    })
-
-    await expect(caller.mergePr({ issueId: ISSUE_ID })).resolves.toMatchObject({
-      merged: true,
-      note: `Merging stacked PR #241 merged nothing below it. PRs above it stay open, retargeted onto the stack's base: #242.`,
-    })
-  })
-
-  it(`sends no stack note for a plain merge of a PR based on the default branch`, async () => {
-    h.selectQueue.push([{ ...entryRow, prBaseBranch: `master` }])
-    h.selectQueue.push([{ id: ISSUE_ID }]) // the PR's linked issues
-
-    await expect(caller.mergePr({ issueId: ISSUE_ID })).resolves.toEqual({
-      merged: true,
-    })
-  })
-
-  it(`releases every member claim when the merge fails`, async () => {
-    _clearPrActorClaims()
-    h.selectQueue.push([{ ...entryRow, prStackNumber: 7 }])
-    h.findStackForPull.mockResolvedValueOnce({
-      number: 7,
-      members: [{ number: 240 }, { number: 241 }],
-    } as never)
     h.mergePullRequestSmart.mockRejectedValueOnce(
       new GitHubMergeError(405, `Squash merges are not allowed on this repository`)
     )
@@ -1016,48 +667,175 @@ describe(`issues.mergePr on a stack (EXP-897)`, () => {
     await expect(caller.mergePr({ issueId: ISSUE_ID })).rejects.toMatchObject({
       code: `PRECONDITION_FAILED`,
     })
-    expect(takePrMergeClaim(`owner/repo`, 240)).toBeNull()
     expect(takePrMergeClaim(`owner/repo`, 241)).toBeNull()
   })
 })
 
-describe(`issues.retargetPr on a stack member (FEED-43)`, () => {
-  it(`says the stack owns the base instead of "not a valid base branch"`, async () => {
-    h.selectQueue.push([
-      { prNumber: 241, prUrl: PR_URL, prState: `open`, prStackNumber: 7 },
-    ])
+// EXP-1145: a PR whose recorded base is another OPEN PR's head would squash
+// INTO that branch: the diff never reaches the default branch while the issue
+// flips to Done. Refused before any claim or GitHub call, evaluated per merge
+// so a parent-then-child sequence (MCP `pr_merge({issueIds: [root, child]})`,
+// the yolo tree merge) passes once the parent landed.
+describe(`issues.mergePr on a PR stacked on an open PR (EXP-1145)`, () => {
+  const UPPER_ISSUE = `44444444-4444-4444-8444-444444444444`
+  const childRow = {
+    prNumber: 242,
+    prUrl: `https://github.com/owner/repo/pull/242`,
+    prState: `open`,
+    identifier: `EXP-12`,
+    title: `Upper`,
+    prBaseBranch: `exp/EXP-11`,
+  }
 
-    await expect(
-      caller.retargetPr({ issueId: ISSUE_ID })
-    ).rejects.toMatchObject({
+  beforeEach(() => {
+    _clearPrActorClaims()
+    h.assertIssueAccess.mockResolvedValue({
+      issueId: UPPER_ISSUE,
+      boardId: `board-1`,
+      teamId: `ws-1`,
+    })
+  })
+
+  it(`refuses the merge, naming the parent, before any claim or GitHub call`, async () => {
+    h.selectQueue.push([childRow])
+    h.selectQueue.push([{ identifier: `EXP-11` }])
+
+    await expect(caller.mergePr({ issueId: UPPER_ISSUE })).rejects.toMatchObject({
       code: `PRECONDITION_FAILED`,
-      message: `PR #241 is part of GitHub stack #7 (owner/repo); merge the PR below it or merge it on GitHub; its base is managed by the stack.`,
+      message: `This pull request is stacked on EXP-11; merge EXP-11 first`,
     })
-    expect(h.retargetPullRequest).not.toHaveBeenCalled()
+    expect(stackedOnMessage(`EXP-11`)).toBe(
+      `This pull request is stacked on EXP-11; merge EXP-11 first`
+    )
+    expect(h.resolveRepoInstallationTokenInfo).not.toHaveBeenCalled()
+    expect(h.mergePullRequestSmart).not.toHaveBeenCalled()
+    expect(takePrMergeClaim(`owner/repo`, 242)).toBeNull()
   })
 
-  it(`heals an unrecorded stack from GitHub before refusing`, async () => {
-    h.selectQueue.push([
-      { prNumber: 241, prUrl: PR_URL, prState: `open`, prStackNumber: null },
-    ])
-    h.findStackForPull.mockResolvedValueOnce({ number: 9 })
+  it(`names an issue-less parent run PR by its number`, async () => {
+    h.selectQueue.push([{ ...childRow, prBaseBranch: `exp/chat-1a2b3c4d` }])
+    h.selectQueue.push([])
+    h.selectQueue.push([{ prNumber: 240 }])
 
+    await expect(caller.mergePr({ issueId: UPPER_ISSUE })).rejects.toMatchObject({
+      message: `This pull request is stacked on #240; merge #240 first`,
+    })
+    expect(h.mergePullRequestSmart).not.toHaveBeenCalled()
+  })
+
+  it(`merges once the parent is no longer open (root first, then the child)`, async () => {
+    h.selectQueue.push([childRow])
+    // Neither an issue nor a run holds an OPEN PR on the base any more.
+    h.selectQueue.push([])
+    h.selectQueue.push([])
+    h.selectQueue.push([{ id: UPPER_ISSUE }])
+
+    await expect(caller.mergePr({ issueId: UPPER_ISSUE })).resolves.toEqual({
+      merged: true,
+    })
+    expect(h.mergePullRequestSmart).toHaveBeenCalledTimes(1)
+    expect(h.applyPrMergeState).toHaveBeenCalledTimes(1)
+  })
+
+  it(`never looks up a parent for a PR without a recorded base`, async () => {
+    h.selectQueue.push([{ ...childRow, prBaseBranch: null }])
+    h.selectQueue.push([{ id: UPPER_ISSUE }])
+
+    await expect(caller.mergePr({ issueId: UPPER_ISSUE })).resolves.toEqual({
+      merged: true,
+    })
+    expect(db.select).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe(`stackedOnOpenPr (EXP-1145)`, () => {
+  function recordingDb(answers: unknown[][]) {
+    const wheres: unknown[] = []
+    const select = vi.fn(() => {
+      const rows = answers.shift() ?? []
+      const p = Promise.resolve(rows) as Promise<unknown[]> &
+        Record<string, (arg?: unknown) => unknown>
+      for (const m of [`from`, `limit`]) p[m] = () => p
+      p.where = (cond?: unknown) => {
+        wheres.push(cond)
+        return p
+      }
+      return p
+    })
+    return { db: { select } as never, select, wheres }
+  }
+
+  it(`asks for the team issue whose OPEN PR head, in the same repo, is this PR's base`, async () => {
+    const { db: fake, wheres } = recordingDb([[{ identifier: `EXP-11` }]])
     await expect(
-      caller.retargetPr({ issueId: ISSUE_ID })
-    ).rejects.toMatchObject({
-      message: `PR #241 is part of GitHub stack #9 (owner/repo); merge the PR below it or merge it on GitHub; its base is managed by the stack.`,
-    })
-    expect(db.update).toHaveBeenCalled()
+      stackedOnOpenPr(fake, {
+        issueId: ISSUE_ID,
+        teamId: `ws-1`,
+        repoFullName: `owner/repo`,
+        prBaseBranch: `exp/EXP-11`,
+      })
+    ).resolves.toBe(`EXP-11`)
+    expect(wheres).toHaveLength(1)
+    const { PgDialect } = await import(`drizzle-orm/pg-core`)
+    const query = new PgDialect().sqlToQuery(wheres[0] as never)
+    expect(query.sql).toContain(`"team_id" =`)
+    expect(query.sql).toContain(`"id" <>`)
+    expect(query.sql).toContain(`"branch" =`)
+    expect(query.sql).toContain(`"pr_state" =`)
+    expect(query.sql).toContain(`"pr_url" like`)
+    expect(query.params).toEqual([
+      `ws-1`,
+      ISSUE_ID,
+      `exp/EXP-11`,
+      `open`,
+      `https://github.com/owner/repo/pull/%`,
+    ])
   })
 
-  it(`still retargets a PR that is in no stack`, async () => {
-    h.selectQueue.push([
-      { prNumber: 241, prUrl: PR_URL, prState: `open`, prStackNumber: null },
+  it(`falls back to an issue-less run's open PR on that branch`, async () => {
+    const { db: fake, wheres } = recordingDb([[], [{ prNumber: 240 }]])
+    await expect(
+      stackedOnOpenPr(fake, {
+        issueId: ISSUE_ID,
+        teamId: `ws-1`,
+        repoFullName: `owner/repo`,
+        prBaseBranch: `exp/chat-1a2b3c4d`,
+      })
+    ).resolves.toBe(`#240`)
+    const { PgDialect } = await import(`drizzle-orm/pg-core`)
+    const query = new PgDialect().sqlToQuery(wheres[1] as never)
+    expect(query.sql).toContain(`"coding_sessions"."branch" =`)
+    expect(query.params).toEqual([
+      `ws-1`,
+      `exp/chat-1a2b3c4d`,
+      `open`,
+      `https://github.com/owner/repo/pull/%`,
     ])
-    await expect(caller.retargetPr({ issueId: ISSUE_ID })).resolves.toEqual({
-      retargeted: true,
-      base: `master`,
-    })
+  })
+
+  it(`answers null when nobody's open PR has that head`, async () => {
+    const { db: fake } = recordingDb([[], []])
+    await expect(
+      stackedOnOpenPr(fake, {
+        issueId: ISSUE_ID,
+        teamId: `ws-1`,
+        repoFullName: `owner/repo`,
+        prBaseBranch: `master`,
+      })
+    ).resolves.toBeNull()
+  })
+
+  it(`never queries for a PR without a recorded base`, async () => {
+    const { db: fake, select } = recordingDb([])
+    await expect(
+      stackedOnOpenPr(fake, {
+        issueId: ISSUE_ID,
+        teamId: `ws-1`,
+        repoFullName: `owner/repo`,
+        prBaseBranch: null,
+      })
+    ).resolves.toBeNull()
+    expect(select).not.toHaveBeenCalled()
   })
 })
 

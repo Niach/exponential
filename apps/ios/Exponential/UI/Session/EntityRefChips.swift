@@ -22,7 +22,6 @@ enum EntityNavigation: Equatable {
     case issue(String)
     case board(String)
     case session(String)
-    case workflow(String)
     case thread(String)
     /// SLOP-2: one action's page.
     case action(String)
@@ -80,8 +79,6 @@ struct EntityRefChips: View {
             pushRoute(.board(accountId: accountId, id: id))
         case let .session(id):
             pushRoute(.agentSession(accountId: accountId, sessionId: id))
-        case let .workflow(id):
-            pushRoute(.workflow(accountId: accountId, id: id))
         case let .thread(id):
             pushRoute(.supportThread(accountId: accountId, threadId: id))
         case let .action(id):
@@ -265,7 +262,6 @@ enum EntityRefResolver {
             case "session": try sessionModel(ref, db: db)
             case "label": try labelModel(ref, db: db)
             case "status": try statusModel(ref, db: db)
-            case "workflow": try workflowModel(ref, db: db)
             case "device": try deviceModel(ref, db: db)
             case "member": try memberModel(ref, db: db, teamId: teamId)
             case "team": try teamModel(ref, db: db)
@@ -486,19 +482,6 @@ enum EntityRefResolver {
         )
     }
 
-    private static func workflowModel(_ ref: EntityRef, db: Database) throws -> EntityPreviewModel? {
-        guard let workflow = try WorkflowEntity.fetchOne(db, key: ref.id) else { return nil }
-        let nodes = try WorkflowNodeEntity.filter(Column("workflow_id") == workflow.id).fetchCount(db)
-        return EntityPreviewModel(
-            icon: .glyph(AppIcons.navWorkflows, nil),
-            eyebrow: "Workflow",
-            title: workflow.name,
-            subtitle: workflow.status.capitalized,
-            facts: [.init(id: "nodes", label: "\(nodes) \(nodes == 1 ? "node" : "nodes")")],
-            open: .workflow(workflow.id)
-        )
-    }
-
     private static func deviceModel(_ ref: EntityRef, db: Database) throws -> EntityPreviewModel? {
         guard let device = try DeviceEntity
             .filter(Column("id") == ref.id || Column("device_id") == ref.id)
@@ -667,7 +650,6 @@ enum EntityRefResolver {
         case "issue": .issue(ref.id)
         case "board": .board(ref.id)
         case "session": .session(ref.id)
-        case "workflow": .workflow(ref.id)
         case "comment", "attachment": nil
         default: slimOpen(ref)
         }

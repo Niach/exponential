@@ -59,10 +59,8 @@ pub fn run(args: &[String]) -> CommandResult {
     let issue = fetched.issue;
     println!("Starting {} — {}", issue.identifier, issue.title);
 
-    // EXP-897: a local `exponential code` start is never stacked (the
-    // stacked path is the composer's, through `steer.startSession`).
     let request =
-        launch::issue_launch_request(&issue, options, coding::LaunchOrigin::Local, false, None, None);
+        launch::issue_launch_request(&issue, options, coding::LaunchOrigin::Local, false, None);
     let mut seeds = HashMap::new();
     seeds.insert(issue.id.clone(), launch::issue_seed(&issue));
     // EXP-746: the runtime is resolved BEFORE `prepare` — it decides the

@@ -178,6 +178,8 @@ fn main() {
         // once its `codingSessions.end` resolved — installed before any
         // session can launch.
         ui::install_session_end_observer(data_dir.clone());
+        // SLOP-3: the retired workflow engine's state documents.
+        coding::remove_legacy_workflow_state(&data_dir);
         cx.set_global(ui::AuthContext {
             auth,
             client: std::sync::Arc::new(api::AuthClient::new()),

@@ -98,11 +98,6 @@ export function entityRefRoute(
       return { to: `/t/$teamSlug/settings/labels`, params: { teamSlug } }
     case `status`:
       return { to: `/t/$teamSlug/settings/statuses`, params: { teamSlug } }
-    case `workflow`:
-      return {
-        to: `/t/$teamSlug/workflows/$workflowId`,
-        params: { teamSlug, workflowId: ref.id },
-      }
     case `device`:
       return { to: `/t/$teamSlug/devices`, params: { teamSlug } }
     case `member`:

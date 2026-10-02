@@ -1,19 +1,15 @@
 import {
   useEffect,
-  useMemo,
   useState,
   type CSSProperties,
   type ReactNode,
 } from "react"
-import { eq, useLiveQuery } from "@tanstack/react-db"
 import { Link } from "@tanstack/react-router"
 import { ChevronRight, GitBranch, GitPullRequest } from "lucide-react"
 import { conceptIcon, FabButton, Pill, GlassRow, LiveDot } from "@exp/ui"
 import type { CodingSession, Issue, Board } from "@/db/schema"
 import { useNow } from "@/hooks/use-now"
 import { blockedBadgeLabel } from "@/lib/agent-usage"
-import { issueCollection } from "@/lib/collections"
-import { stackChain } from "@/lib/pr-stack"
 import { trpc } from "@/lib/trpc-client"
 import { cn } from "@/lib/utils"
 import { useOpenComposer } from "@/hooks/use-open-composer"
@@ -30,8 +26,6 @@ import {
 
 // The phone bar's start button — the same glyph the Actions surfaces run with.
 const ActionRunIcon = conceptIcon(`action-run`)
-// EXP-897: the PR stack's glyph — a concept, never a raw lucide import.
-const StackIcon = conceptIcon(`pr-stack`)
 
 // EXP-568: the floating mobile bar's 52px circle is `FabButton` (EXP-962);
 // issue-detail-mobile-bar.tsx owns the bar itself, the coding circle's gating
@@ -446,7 +440,6 @@ function PrRow({
             <ChevronRight className="ml-auto size-4 shrink-0 text-muted-foreground" />
           </Link>
         </GlassRow>
-        <StackChainLine issue={issue} teamSlug={teamSlug} />
       </CodingRowStack>
     )
   }
@@ -472,55 +465,4 @@ function PrRow({
   }
 
   return null
-}
-
-/** EXP-897 §6: the issue's PR STACK, bottom-up, under its PR row. One quiet
- *  line of `#IDENT · <state>` — this issue in bold, every other member a link
- *  to its own review page. Absent when the pull request is in no stack. */
-function StackChainLine({
-  issue,
-  teamSlug,
-}: {
-  issue: Issue
-  teamSlug: string
-}) {
-  const { data: issueRows } = useLiveQuery(
-    (query) =>
-      query
-        .from({ i: issueCollection })
-        .where(({ i }) => eq(i.teamId, issue.teamId)),
-    [issue.teamId]
-  )
-  const chain = useMemo(
-    () => stackChain(issue, (issueRows ?? []) as Issue[]),
-    [issue, issueRows]
-  )
-  if (chain.length < 2) return null
-  return (
-    <div
-      className="flex flex-wrap items-center gap-x-2 gap-y-1 px-1 py-1 text-xs text-muted-foreground"
-      data-testid="pr-stack-chain"
-    >
-      <StackIcon className="size-3 shrink-0" />
-      {chain.map((member, index) => (
-        <span key={member.id} className="flex items-center gap-1">
-          {index > 0 && <span aria-hidden>→</span>}
-          {member.id === issue.id ? (
-            <span className="font-mono font-semibold text-foreground">
-              {`#${member.identifier}`}
-            </span>
-          ) : (
-            <Link
-              to="/t/$teamSlug/reviews/$issueIdentifier"
-              params={{ teamSlug, issueIdentifier: member.identifier }}
-              className="font-mono underline-offset-2 hover:underline"
-            >
-              {`#${member.identifier}`}
-            </Link>
-          )}
-          <PrStateBadge state={member.prState} />
-        </span>
-      ))}
-    </div>
-  )
 }

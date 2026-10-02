@@ -250,8 +250,11 @@ class ChangesViewModel @AssistedInject constructor(
     /** Squash-merge the issue's open PR via the GitHub App (batch PRs complete all linked issues). */
     fun mergePr() = merge(issueId, mergeStack = false)
 
-    /** EXP-1145: merge the whole stack [topIssueId] tops, bottom-up. */
-    fun mergeStack(topIssueId: String) = merge(topIssueId, mergeStack = true)
+    /**
+     * EXP-1145: merge the open stack bottom-up THROUGH [targetIssueId]
+     * (the top member = the whole stack, this issue = it and those below).
+     */
+    fun mergeStack(targetIssueId: String) = merge(targetIssueId, mergeStack = true)
 
     private fun merge(targetIssueId: String, mergeStack: Boolean) {
         if (_merging.value || _closing.value) return
@@ -298,13 +301,17 @@ class ChangesViewModel @AssistedInject constructor(
 /**
  * EXP-1145: the stack merge dialog every plain Merge control on a PR-stack
  * member opens instead of "Merge pull request?". Copy = [PrStack.stackMergeChoice],
- * byte-identical x4 (fixture `stack-merge-choice.json`).
+ * byte-identical x4 (fixture `stack-merge-choice.json`). [onMergeStack] takes
+ * the issue the server merges the chain THROUGH: the top member for Merge
+ * stack, the merged issue for Merge this pull request above the bottom; the
+ * bottom member's Merge this pull request is the plain [onMergePlain].
  */
 @Composable
 fun StackMergeDialog(
     choice: PrStack.StackMergeChoice,
-    onMergeStack: () -> Unit,
-    onMergeThis: () -> Unit,
+    issueId: String,
+    onMergeStack: (throughIssueId: String) -> Unit,
+    onMergePlain: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
@@ -312,15 +319,23 @@ fun StackMergeDialog(
         title = { Text(PrStack.STACK_MERGE_CHOICE_TITLE) },
         text = { Text(choice.body) },
         confirmButton = {
-            TextButton(onClick = onMergeStack, modifier = Modifier.testTag("merge-stack")) {
-                Text(PrStack.MERGE_STACK_LABEL)
-            }
+            TextButton(
+                onClick = {
+                    onDismiss()
+                    onMergeStack(choice.topIssueId)
+                },
+                modifier = Modifier.testTag("merge-stack"),
+            ) { Text(PrStack.MERGE_STACK_LABEL) }
         },
         dismissButton = {
             Row {
-                TextButton(onClick = onMergeThis, modifier = Modifier.testTag("merge-this-pr")) {
-                    Text(PrStack.MERGE_THIS_PR_LABEL)
-                }
+                TextButton(
+                    onClick = {
+                        onDismiss()
+                        if (choice.position > 1) onMergeStack(issueId) else onMergePlain()
+                    },
+                    modifier = Modifier.testTag("merge-this-pr"),
+                ) { Text(PrStack.MERGE_THIS_PR_LABEL) }
                 TextButton(onClick = onDismiss) { Text(PrStack.STACK_MERGE_CANCEL_LABEL) }
             }
         },
@@ -479,14 +494,9 @@ fun ChangesScreen(
             // EXP-1145: a stack member asks which merge it means.
             StackMergeDialog(
                 choice = stackChoice,
-                onMergeStack = {
-                    mergeConfirmOpen = false
-                    viewModel.mergeStack(stackChoice.topIssueId)
-                },
-                onMergeThis = {
-                    mergeConfirmOpen = false
-                    viewModel.mergePr()
-                },
+                issueId = issueId,
+                onMergeStack = { through -> viewModel.mergeStack(through) },
+                onMergePlain = { viewModel.mergePr() },
                 onDismiss = { mergeConfirmOpen = false },
             )
         } else if (mergeConfirmOpen) {

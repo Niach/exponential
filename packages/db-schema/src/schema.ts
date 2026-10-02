@@ -26,10 +26,6 @@ import {
   actionInputsSchema,
   type ActionTrigger,
   type AutomationTrigger,
-  type WorkflowLaunchStored,
-  type DeviceWorkflowDefaults,
-  type WorkflowMetricsJson,
-  type WorkflowNodeReview,
   type CodingSessionBlocked,
   type CodingSessionPendingQuestion,
   type CodingSessionResult,
@@ -509,16 +505,10 @@ export const issues = pgTable(
     branch: text(`branch`),
     prMergedAt: timestamp(`pr_merged_at`, { withTimezone: true }),
     // EXP-897: the PR's base ref as GitHub last reported it (written by
-    // `pr_open`, retarget, the merge cohort rewrite and the `edited`/`stacked`
-    // webhook legs). SYNCED: the stack edge every client derives is
-    // `child.pr_base_branch == lower.branch` within one repository. NULL =
-    // the board's default branch / no PR.
+    // `pr_open`, retarget and the `edited` webhook leg). SYNCED: the stack
+    // edge every client derives is `child.pr_base_branch == lower.branch`
+    // within one repository. NULL = the board's default branch / no PR.
     prBaseBranch: text(`pr_base_branch`),
-    // EXP-897: GitHub's stack `number` when this PR is a member of a REAL
-    // GitHub stack (the path segment of `/stacks/{n}/add|unstack`). NULL = a
-    // candidate stack (base-branch only) or no stack. SERVER-ONLY — behind
-    // the issues shape allowlist; a stack member merges only via merge-async.
-    prStackNumber: integer(`pr_stack_number`),
     ...timestamps,
   },
   (table) => [
@@ -533,8 +523,7 @@ export const issues = pgTable(
     index(`idx_issues_pr_url`)
       .on(table.prUrl)
       .where(sql`pr_url IS NOT NULL`),
-    // EXP-897: "who is stacked on my branch?" — walked on every merge, on
-    // the `synchronize` webhook leg and by `sessions_get`. Partial like above.
+    // EXP-897: "who is stacked on my branch?", asked by the merge guard.
     index(`idx_issues_pr_base_branch`)
       .on(table.prBaseBranch)
       .where(sql`pr_base_branch IS NOT NULL`),
@@ -844,26 +833,8 @@ export const codingSessions = pgTable(
       (): AnyPgColumn => codingSessions.id,
       { onDelete: `set null` }
     ),
-    // EXP-1082: workflow MEMBERSHIP, synced. Which workflow and node this
-    // run belongs to and as what (`wfSessionRole`: author | review |
-    // base_merge | plan | replan). Stamped ONCE by the server on every start
-    // path through `resolveWorkflowMembership`: explicit values only from the
-    // workflow's runner device, a resume inherits its predecessor's, a child
-    // inherits its parent's, and a person's fresh run on a node's issue (or
-    // a member issue of a compound node) of a draft/running workflow joins
-    // that node as `author` (EXP-1062). SET NULL: history outlives a deleted
-    // workflow. The session tree groups by `workflow_id` FIRST (EXP-1068).
-    workflowId: uuid(`workflow_id`).references((): AnyPgColumn => workflows.id, {
-      onDelete: `set null`,
-    }),
-    workflowNodeId: uuid(`workflow_node_id`).references(
-      (): AnyPgColumn => workflowNodes.id,
-      { onDelete: `set null` }
-    ),
-    workflowRole: varchar(`workflow_role`, { length: 16 }),
     // EXP-1082 §4: the question this run parked on (`ask_parent` → user),
-    // the durable copy beside `needs_input` + `agent_caption`. Synced;
-    // written/cleared by EXP-1065, read by `workflowOpenQuestions` ×4.
+    // the durable copy beside `needs_input` + `agent_caption`. Synced.
     pendingQuestion: jsonb(`pending_question`).$type<CodingSessionPendingQuestion>(),
     // The real user driving the session under their own auth — NOT a synthetic
     // agent identity. For a start on a teammate's shared server device
@@ -1035,10 +1006,7 @@ export const codingSessions = pgTable(
     index(`idx_coding_sessions_board`).on(table.boardId),
     index(`idx_coding_sessions_user`).on(table.userId),
     index(`idx_coding_sessions_action`).on(table.actionId),
-    index(`idx_coding_sessions_workflow`)
-      .on(table.workflowId)
-      .where(sql`workflow_id IS NOT NULL`),
-    // EXP-897: the session-tree CTEs (depth, subtree, root walk) run on it.
+    // The session-tree parent walks run on it.
     index(`idx_coding_sessions_parent`).on(table.parentSessionId),
   ]
 )
@@ -1231,10 +1199,6 @@ export interface DeviceLaunchDefaults {
    * `agent_accounts`. */
   defaultAgent?: string
   agents?: Record<string, DeviceAgentLaunchDefaults>
-  /** EXP-1029: the workflow model defaults new workflows are seeded from
-   * (`DeviceWorkflowDefaults`). Absent on a device that predates them:
-   * readers fall back to contract `deviceAgentDefaults`. */
-  workflow?: DeviceWorkflowDefaults
 }
 // Every field is `.nullish()`, not `.optional()`: 0.14.10 native builds
 // (EXP-495) serialized capability-masked toggles as explicit `null` and a
@@ -1261,13 +1225,6 @@ export const deviceLaunchDefaultsSchema = z.object({
       })
     )
     .refine((agents) => Object.keys(agents).length <= 16)
-    .nullish(),
-  // EXP-1029: the workflow model defaults (`DeviceWorkflowDefaults`).
-  workflow: z
-    .object({
-      model: z.string().max(64).nullish(),
-      strongModel: z.string().max(64).nullish(),
-    })
     .nullish(),
 })
 
@@ -2429,174 +2386,6 @@ export const automations = pgTable(
   ]
 )
 
-// EXP-978/981: a WORKFLOW — a picked set of issues of ONE repository, run as a
-// DAG by a deterministic engine on the runner device (no server scheduler, no
-// agents spawning agents). Team-scoped and synced like `actions` (its own
-// shape; board trash rules do NOT apply: a workflow spans boards).
-//
-// The `blocks` relations among the covered issues are the edges; they are
-// never copied here. `wave`/`lane` on the nodes are the server-computed layout
-// (`lib/workflow-layout.ts`): clients draw a grid, none of them lays out.
-export const workflows = pgTable(
-  `workflows`,
-  {
-    id: uuidPk(),
-    teamId: uuid(`team_id`)
-      .notNull()
-      .references(() => teams.id, { onDelete: `cascade` }),
-    // ONE repository per workflow (the integration branch lives in it).
-    // SET NULL keeps the row readable when the repo is unlinked; it can no
-    // longer start.
-    repositoryId: uuid(`repository_id`).references(() => repositories.id, {
-      onDelete: `set null`,
-    }),
-    creatorId: text(`creator_id`).references(() => users.id, {
-      onDelete: `set null`,
-    }),
-    name: varchar({ length: 255 }).notNull(),
-    // contract `wfStatus` (documented varchar).
-    status: varchar({ length: 16 }).notNull().default(`draft`),
-    // devices.device_id of the runner: the engine's SINGLE writer. NULL on a
-    // draft nobody bound yet.
-    deviceId: varchar(`device_id`, { length: 128 }),
-    launch: jsonb().$type<WorkflowLaunchStored>().notNull().default(sql`'{}'::jsonb`),
-    // `exp/wf-<id8>`, stamped at create.
-    integrationBranch: varchar(`integration_branch`, { length: 255 }).notNull(),
-    // The ONE final PR integration → default branch.
-    finalPrUrl: text(`final_pr_url`),
-    finalPrNumber: integer(`final_pr_number`),
-    finalPrState: prStateEnum(`final_pr_state`),
-    // Dated answers, appended; part of every node prompt (≤64KB).
-    decisions: text().notNull().default(``),
-    metrics: jsonb()
-      .$type<WorkflowMetricsJson>()
-      .notNull()
-      .default(sql`'{"nodes":0,"edges":0,"depth":0,"width":0,"cycles":[]}'::jsonb`),
-    startedAt: timestamp(`started_at`, { withTimezone: true }),
-    endedAt: timestamp(`ended_at`, { withTimezone: true }),
-    ...timestamps,
-  },
-  (table) => [
-    index(`idx_workflows_team`).on(table.teamId),
-    index(`idx_workflows_repository`).on(table.repositoryId),
-  ]
-)
-
-// One NODE of a workflow: an issue, or a parent issue with its sub-issues (a
-// compound node, run as ONE batch session on one branch with one PR).
-// `team_id` is denormalized (app-written) for the shape's team scoping.
-export const workflowNodes = pgTable(
-  `workflow_nodes`,
-  {
-    id: uuidPk(),
-    workflowId: uuid(`workflow_id`)
-      .notNull()
-      .references(() => workflows.id, { onDelete: `cascade` }),
-    teamId: uuid(`team_id`)
-      .notNull()
-      .references(() => teams.id, { onDelete: `cascade` }),
-    // The node's representative issue (a compound node's PARENT).
-    issueId: uuid(`issue_id`)
-      .notNull()
-      .references(() => issues.id, { onDelete: `cascade` }),
-    // A compound node's sub-issues (`EXP-14 +3`); empty for a plain node.
-    memberIssueIds: jsonb(`member_issue_ids`)
-      .$type<string[]>()
-      .notNull()
-      .default(sql`'[]'::jsonb`),
-    // contract `wfNodeKind` / `wfNodeState` / `wfRisk`.
-    kind: varchar({ length: 16 }).notNull().default(`leaf`),
-    state: varchar({ length: 16 }).notNull().default(`blocked`),
-    risk: varchar({ length: 8 }).notNull().default(`medium`),
-    wave: integer().notNull().default(0),
-    lane: integer().notNull().default(0),
-    // On a blocking cycle (server layout): drawn red, the workflow cannot start.
-    onCycle: boolean(`on_cycle`).notNull().default(false),
-    sessionId: uuid(`session_id`).references(() => codingSessions.id, {
-      onDelete: `set null`,
-    }),
-    attempt: integer().notNull().default(0),
-    baseBranch: varchar(`base_branch`, { length: 255 }),
-    // The node's PR is cleared for the merge train: stamped by an approving
-    // agent review (EXP-1010: the only gate), or by a person who approves it
-    // by hand. The engine lands only approved nodes.
-    approvedAt: timestamp(`approved_at`, { withTimezone: true }),
-    // EXP-1010, SERVER-ONLY (behind the shape allowlist). `merged_into` = the
-    // base the node's PR had when it merged (`applyPrMergeState` stamps it
-    // before `issues.pr_base_branch` is nulled): a merge into a blocker's
-    // branch lands only once that blocker did. `retried_at` = the last
-    // `resolveNode retry`; a merge older than it (or than the workflow's
-    // start) belongs to an earlier attempt and lands nothing.
-    mergedInto: varchar(`merged_into`, { length: 255 }),
-    retriedAt: timestamp(`retried_at`, { withTimezone: true }),
-    // EXP-983: the node announced its CONTRACT (its first push: the types,
-    // stubs and tests its dependents build against) with
-    // `exponential_workflows_checkpoint`. Its dependents start as soon as
-    // every blocker has one.
-    checkpointAt: timestamp(`checkpoint_at`, { withTimezone: true }),
-    // Engine-written SERIALIZATION edges: nodes this one must merge in first
-    // because their work collided with its own (`git merge-tree`). Drawn
-    // dashed; never a real `blocks` relation.
-    afterNodeIds: jsonb(`after_node_ids`)
-      .$type<string[]>()
-      .notNull()
-      .default(sql`'[]'::jsonb`),
-    // EXP-984: the agent review gate. `review_round` counts submitted
-    // reviews (max 3, then the node waits for a person); `review` is the
-    // latest verdict.
-    reviewRound: integer(`review_round`).notNull().default(0),
-    review: jsonb().$type<WorkflowNodeReview>(),
-    // Why the node is `failed` (or the latest review note), one line,
-    // engine-written.
-    note: varchar({ length: 500 }),
-    touches: text().array().notNull().default(sql`'{}'::text[]`),
-    ...timestamps,
-  },
-  (table) => [
-    index(`idx_workflow_nodes_workflow`).on(table.workflowId),
-    index(`idx_workflow_nodes_team`).on(table.teamId),
-    index(`idx_workflow_nodes_issue`).on(table.issueId),
-    index(`idx_workflow_nodes_session`)
-      .on(table.sessionId)
-      .where(sql`session_id IS NOT NULL`),
-    uniqueIndex(`uniq_workflow_nodes_issue`).on(table.workflowId, table.issueId),
-  ]
-)
-
-// EXP-1082 §3: what the engine did to a workflow and why — one short line
-// per decision outcome (`wfEventKind`), trimmed to the newest
-// WORKFLOW_EVENTS_MAX per workflow by `workflows.appendEvent` (engine-gated).
-// `team_id` is denormalized (app-written) for the shape's team scoping like
-// `workflow_nodes`; `node_id` / `session_id` SET NULL so the line outlives a
-// retried node or a purged run. Synced through the `workflow-events` shape,
-// rendered by `WorkflowEventList` ×4.
-export const workflowEvents = pgTable(
-  `workflow_events`,
-  {
-    id: uuidPk(),
-    workflowId: uuid(`workflow_id`)
-      .notNull()
-      .references(() => workflows.id, { onDelete: `cascade` }),
-    teamId: uuid(`team_id`)
-      .notNull()
-      .references(() => teams.id, { onDelete: `cascade` }),
-    nodeId: uuid(`node_id`).references(() => workflowNodes.id, {
-      onDelete: `set null`,
-    }),
-    sessionId: uuid(`session_id`).references(() => codingSessions.id, {
-      onDelete: `set null`,
-    }),
-    at: timestamp({ withTimezone: true }).notNull().defaultNow(),
-    // contract `wfEventKind` (documented varchar).
-    kind: varchar({ length: 32 }).notNull(),
-    message: varchar({ length: 500 }).notNull().default(``),
-  },
-  (table) => [
-    index(`idx_workflow_events_workflow_at`).on(table.workflowId, table.at),
-    index(`idx_workflow_events_team`).on(table.teamId),
-  ]
-)
-
 // Per-user notification delivery prefs (SERVER-ONLY). Missing row = all
 // defaults (email on, daily digest). Email is a free delivery channel, never a
 // notification type and never plan-gated.
@@ -3203,15 +2992,6 @@ export const selectActionSchema = createSelectSchema(actions, {
   triggers: z.custom<ActionTrigger[]>((value) => Array.isArray(value)),
 })
 
-export const selectWorkflowSchema = createSelectSchema(workflows)
-// What the `workflows` shape delivers: `creator_id` stays server-only.
-export const selectSyncedWorkflowSchema = selectWorkflowSchema.omit({
-  creatorId: true,
-})
-export type SyncedWorkflow = z.infer<typeof selectSyncedWorkflowSchema>
-export const selectWorkflowNodeSchema = createSelectSchema(workflowNodes)
-export const selectWorkflowEventSchema = createSelectSchema(workflowEvents)
-
 // The shape-synced projection: the actions shape pins a columns allowlist
 // that EXCLUDES `body` (the ≤64KB prompt never rides sync — fetched via
 // tRPC `actions.get` on demand).
@@ -3285,9 +3065,6 @@ export type McpOauthFlow = InferSelectModel<typeof mcpOauthFlows>
 export type DeviceAgentProfile = z.infer<typeof deviceAgentProfileSchema>
 export type Action = InferSelectModel<typeof actions>
 export type Automation = InferSelectModel<typeof automations>
-export type Workflow = InferSelectModel<typeof workflows>
-export type WorkflowNode = InferSelectModel<typeof workflowNodes>
-export type WorkflowEvent = InferSelectModel<typeof workflowEvents>
 export type SyncedAction = Omit<Action, `body`>
 export type UserNotificationPrefs = InferSelectModel<
   typeof userNotificationPrefs

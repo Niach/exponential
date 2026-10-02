@@ -59,8 +59,6 @@ import {
   teamMembers,
   teams,
   widgetConfigs,
-  workflowNodes,
-  workflows,
 } from "@/db/schema"
 import type { ActionTrigger } from "@exp/db-schema/domain"
 import { auth } from "@/lib/auth"
@@ -70,8 +68,6 @@ import {
   buildAttachmentUrl,
 } from "@/lib/storage/issue-attachments"
 import { generateWidgetKey } from "@/lib/widget/key"
-import { launchFromDeviceDefaults } from "@/lib/trpc/workflows/shared"
-import { replanWorkflow, workflowIntegrationBranch } from "@/lib/workflows"
 import { assertDemoLiveSessions } from "./lib/demo-live-sessions"
 import { DEMO_CLOCK_ANCHOR } from "./lib/demo-reclock"
 import { parseFreezeNow } from "./lib/freeze-now"
@@ -97,7 +93,7 @@ import {
   DEMO_TRIGGER_IDS,
   DEMO_TIMEZONE,
   DEMO_USER_ID,
-  DEMO_WORKFLOW,
+  DEMO_BLOCKS,
   EMPTY_BOARD_SLUG,
   NEWCOMER_EMAIL,
   NEWCOMER_NAME,
@@ -534,6 +530,9 @@ async function main() {
     pr?: `open` | `merged`
     /** Link this issue to REVIEW_PR instead of a fictional acme PR. */
     realPr?: boolean
+    /** SLOP-3: this PR is based on APP-<n>'s open PR branch (a stacked PR),
+     *  so the Related work badge shows a stack on both. */
+    stackedOn?: number
   }> = [
     {
       title: `Ship onboarding flow v2`,
@@ -690,6 +689,7 @@ async function main() {
       labels: [`Feature`],
       createdDaysAgo: 1,
       pr: `open`,
+      stackedOn: 14,
     },
     {
       title: `Fix flaky scroll restore on the issue list`,
@@ -748,6 +748,9 @@ async function main() {
               prNumber: spec.realPr ? REVIEW_PR_NUMBER : 40 + i,
               prState: spec.pr,
               branch: `exp/APP-${i + 1}`,
+              prBaseBranch: spec.stackedOn
+                ? `exp/APP-${spec.stackedOn}`
+                : undefined,
               prMergedAt: spec.pr === `merged` ? daysAgo(1) : undefined,
             }
           : {}),
@@ -787,18 +790,14 @@ async function main() {
     .returning()
   inserted.push(duplicate)
 
-  // EXP-986: one DRAFT workflow for the `workflows-list` view, which otherwise
-  // photographs the empty state. Written the way `workflows.create` writes it
-  // (contract launch defaults, no runner, layout from `replanWorkflow`), plus
-  // the one `blocks` edge that gives the graph a second wave. The relation
-  // also puts a blocks rail/badge on two board rows, on purpose: every board
-  // view shows it now.
+  // The one `blocks` edge: it puts a blocks rail/badge on two board rows, on
+  // purpose — every board view shows it.
   const byTitle = (title: string) => {
     const row = inserted.find((issue) => issue.title === title)
     if (!row) throw new Error(`seed has no issue titled "${title}"`)
     return row
   }
-  const [blocker, blocked] = DEMO_WORKFLOW.blocks.map(byTitle)
+  const [blocker, blocked] = DEMO_BLOCKS.map(byTitle)
   await db.insert(issueRelations).values({
     issueId: blocker.id,
     relatedIssueId: blocked.id,
@@ -806,26 +805,6 @@ async function main() {
     teamId: ws.id,
     boardId: board.id,
     createdAt: daysAgo(6),
-  })
-  await db.transaction(async (tx) => {
-    await tx.insert(workflows).values({
-      id: DEMO_WORKFLOW.id,
-      teamId: ws.id,
-      repositoryId: repo.id,
-      creatorId: demoId,
-      name: DEMO_WORKFLOW.name,
-      launch: launchFromDeviceDefaults(null),
-      integrationBranch: workflowIntegrationBranch(DEMO_WORKFLOW.id),
-      createdAt: daysAgo(1),
-    })
-    await tx.insert(workflowNodes).values(
-      DEMO_WORKFLOW.nodes.map((title) => ({
-        workflowId: DEMO_WORKFLOW.id,
-        teamId: ws.id,
-        issueId: byTitle(title).id,
-      }))
-    )
-    await replanWorkflow(tx, DEMO_WORKFLOW.id)
   })
 
   // Showcase issue APP-5: comments + activity + subscribers for the

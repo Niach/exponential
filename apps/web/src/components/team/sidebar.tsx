@@ -62,8 +62,6 @@ import {
   TeamSidebarRail,
   UserAvatar,
   UserMenuItems,
-  WorkflowsQuestionBadge,
-  useWorkflowsAsking,
 } from "@/components/team/sidebar-rail"
 import { useDraftEntries } from "@/hooks/use-issue-drafts"
 import { useTeamLiveRuns } from "@/hooks/use-team-live-runs"
@@ -86,7 +84,6 @@ import {
   useSidebarWidths,
   type SidebarPanelKey,
 } from "@/lib/sidebar-widths"
-import { WORKFLOWS_TITLE } from "@/lib/workflow-view"
 import { FeedbackButton } from "@/components/feedback-button"
 import { GettingStartedButton } from "@/components/getting-started/getting-started-button"
 import {
@@ -101,7 +98,6 @@ import { resolveBoardTarget } from "@/components/team/mobile-tab-bar"
 // (packages/icons/icons.json) so web, desktop, iOS and Android agree.
 const NavActionsIcon = conceptIcon(`nav-actions`)
 const NavAgentIcon = conceptIcon(`action-chat`)
-const NavWorkflowsIcon = conceptIcon(`nav-workflows`)
 const NavBoardsIcon = conceptIcon(`nav-boards`)
 const NavCreateIssueIcon = conceptIcon(`nav-create-issue`)
 const NavDevicesIcon = conceptIcon(`nav-devices`)
@@ -171,9 +167,6 @@ export function TeamSidebar({
   const otherLive = otherTeamsLive(teamLive, team?.id)
   // EXP-878: the Drafts entry exists only while there IS a draft.
   const draftCount = useDraftEntries(team?.id).length
-  // EXP-1084: the Workflows entry's red dot, ONE live query for both the
-  // expanded row and the compact rail's icon.
-  const workflowsAsking = useWorkflowsAsking(team?.id)
   const showsReviews = useShowsReviews(team ?? undefined, boards)
   // The guarded /t/$teamSlug layout is the only render site, so a session is
   // guaranteed — the reactive useSession store may still be pending on cold
@@ -440,21 +433,6 @@ export function TeamSidebar({
                               </Link>
                             </SidebarMenuButton>
                           </SidebarMenuItem>
-                          {/* EXP-981: Workflows sits directly after Actions
-                              — a picked set of issues planned as one parallel
-                              run. */}
-                          <SidebarMenuItem>
-                            <SidebarMenuButton asChild density="compact">
-                              <Link
-                                to="/t/$teamSlug/workflows"
-                                params={{ teamSlug }}
-                              >
-                                <NavWorkflowsIcon className="h-4 w-4" />
-                                <span>{WORKFLOWS_TITLE}</span>
-                              </Link>
-                            </SidebarMenuButton>
-                            <WorkflowsQuestionBadge asking={workflowsAsking} placement="row" />
-                          </SidebarMenuItem>
                           {showsReviews && (
                             <SidebarMenuItem>
                               <SidebarMenuButton asChild density="compact">
@@ -643,7 +621,6 @@ export function TeamSidebar({
                   team={team}
                   boards={boards}
                   onWhatsNew={() => setWhatsNewOpen(true)}
-                  workflowsAsking={workflowsAsking}
                 />
               </div>
             </RailSlot>

@@ -19,11 +19,9 @@ import { verifySteerTicket, type SteerTicketClaims } from "@exp/steer-ticket"
 import { Hub, type RelaySocket, type StartSubject } from "./hub"
 import {
   CLOSE_UNAUTHORIZED,
-  startStackSchema,
   type StartInput,
   type StartRepoGroup,
   type StartSessionOptions,
-  type StartStack,
 } from "./protocol"
 
 const RELAY_SECRET = process.env.STEER_RELAY_SECRET
@@ -329,28 +327,6 @@ app.post(`/start`, async (c) => {
       return c.json({ error: `Bad request` }, 400)
     }
   }
-  // EXP-1082 §1: workflow membership, OPTIONAL on every subject (resume
-  // included) and forwarded verbatim; a PRESENT key must be a non-empty
-  // string within its cap (ids ≤128, role ≤16), else 400 — the startedBy
-  // stance.
-  const membership: {
-    workflowId?: string
-    workflowNodeId?: string
-    workflowRole?: string
-  } = {}
-  for (const [key, max] of [
-    [`workflowId`, 128],
-    [`workflowNodeId`, 128],
-    [`workflowRole`, 16],
-  ] as const) {
-    if (body && key in body) {
-      const value = asString(body[key])
-      if (!value || value.length > max) {
-        return c.json({ error: `Bad request` }, 400)
-      }
-      membership[key] = value
-    }
-  }
   // EXP-825: prompt is an OPTIONAL pass-through on the three subject forms
   // (never on a resume, which keeps its recorded first turn) — a PRESENT key
   // must be a non-empty string within the contract cap, else 400.
@@ -364,20 +340,6 @@ app.post(`/start`, async (c) => {
     ) {
       return c.json({ error: `Bad request` }, 400)
     }
-  }
-
-  // EXP-897: stack is an OPTIONAL pass-through on a SINGLE-ISSUE start only
-  // (a batch, action or resume start never carries one); a PRESENT key must
-  // parse against the wire schema, else 400 (the startedBy stance: a
-  // malformed stack would drop the frame desktop-side after /start already
-  // answered ok, and a silently dropped one launches an UNSTACKED run).
-  let stack: StartStack | undefined
-  if (body && `stack` in body) {
-    const parsed = startStackSchema.safeParse(body.stack)
-    if (hasResume || !hasIssueId || !parsed.success) {
-      return c.json({ error: `Bad request` }, 400)
-    }
-    stack = parsed.data
   }
 
   // FEED-63: startId is an OPTIONAL pass-through on every subject (resume
@@ -405,8 +367,6 @@ app.post(`/start`, async (c) => {
     ...(mcpServerIds ? { mcpServerIds } : {}),
     ...(account ? { account } : {}),
     ...(prompt ? { prompt } : {}),
-    ...(stack ? { stack } : {}),
-    ...membership,
     ...(startId ? { startId } : {}),
   }
   const result = hub.startSession(userId, deviceId, subject, options)

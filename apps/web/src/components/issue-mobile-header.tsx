@@ -75,7 +75,7 @@ export function IssueMobileHeader({
   /** The face's trailing control before the `…` (Stop / Resume). */
   action?: ReactNode
   /** EXP-897: the stack / batch pill (`PrGraphBadge`), the face's own overlay
-   *  as a SHEET. It LEADS the trailing cluster — it names what this work is
+   *  as a SHEET. It LEADS the trailing cluster: it names what this work is
    *  part of, before the controls that act on it, exactly like the md+ work
    *  header. Renders nothing when the issue is in no stack and no batch. */
   graphBadge?: ReactNode

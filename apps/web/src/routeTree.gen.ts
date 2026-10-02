@@ -88,13 +88,12 @@ import { Route as AuthenticatedAdminEmailRouteImport } from './routes/_authentic
 import { Route as AuthenticatedAdminConversionsRouteImport } from './routes/_authenticated/admin/conversions'
 import { Route as AuthenticatedAccountNotificationsRouteImport } from './routes/_authenticated/account/notifications'
 import { Route as TTeamSlugSettingsRouteRouteImport } from './routes/t/$teamSlug/settings/route'
-import { Route as TTeamSlugWorkflowsIndexRouteImport } from './routes/t/$teamSlug/workflows/index'
 import { Route as TTeamSlugSupportIndexRouteImport } from './routes/t/$teamSlug/support/index'
 import { Route as TTeamSlugSettingsIndexRouteImport } from './routes/t/$teamSlug/settings/index'
 import { Route as TTeamSlugReviewsIndexRouteImport } from './routes/t/$teamSlug/reviews/index'
 import { Route as TTeamSlugInboxIndexRouteImport } from './routes/t/$teamSlug/inbox/index'
 import { Route as TTeamSlugActionsIndexRouteImport } from './routes/t/$teamSlug/actions/index'
-import { Route as TTeamSlugWorkflowsWorkflowIdRouteImport } from './routes/t/$teamSlug/workflows/$workflowId'
+import { Route as TTeamSlugWorkflowsSplatRouteImport } from './routes/t/$teamSlug/workflows/$'
 import { Route as TTeamSlugSupportThreadIdRouteImport } from './routes/t/$teamSlug/support/$threadId'
 import { Route as TTeamSlugSettingsWidgetRouteImport } from './routes/t/$teamSlug/settings/widget'
 import { Route as TTeamSlugSettingsStorageRouteImport } from './routes/t/$teamSlug/settings/storage'
@@ -538,11 +537,6 @@ const TTeamSlugSettingsRouteRoute = TTeamSlugSettingsRouteRouteImport.update({
   path: '/settings',
   getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
-const TTeamSlugWorkflowsIndexRoute = TTeamSlugWorkflowsIndexRouteImport.update({
-  id: '/workflows/',
-  path: '/workflows/',
-  getParentRoute: () => TTeamSlugRouteRoute,
-} as any)
 const TTeamSlugSupportIndexRoute = TTeamSlugSupportIndexRouteImport.update({
   id: '/support/',
   path: '/support/',
@@ -568,12 +562,11 @@ const TTeamSlugActionsIndexRoute = TTeamSlugActionsIndexRouteImport.update({
   path: '/actions/',
   getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
-const TTeamSlugWorkflowsWorkflowIdRoute =
-  TTeamSlugWorkflowsWorkflowIdRouteImport.update({
-    id: '/workflows/$workflowId',
-    path: '/workflows/$workflowId',
-    getParentRoute: () => TTeamSlugRouteRoute,
-  } as any)
+const TTeamSlugWorkflowsSplatRoute = TTeamSlugWorkflowsSplatRouteImport.update({
+  id: '/workflows/$',
+  path: '/workflows/$',
+  getParentRoute: () => TTeamSlugRouteRoute,
+} as any)
 const TTeamSlugSupportThreadIdRoute =
   TTeamSlugSupportThreadIdRouteImport.update({
     id: '/support/$threadId',
@@ -896,13 +889,12 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
   '/t/$teamSlug/support/$threadId': typeof TTeamSlugSupportThreadIdRoute
-  '/t/$teamSlug/workflows/$workflowId': typeof TTeamSlugWorkflowsWorkflowIdRoute
+  '/t/$teamSlug/workflows/$': typeof TTeamSlugWorkflowsSplatRoute
   '/t/$teamSlug/actions/': typeof TTeamSlugActionsIndexRoute
   '/t/$teamSlug/inbox/': typeof TTeamSlugInboxIndexRoute
   '/t/$teamSlug/reviews/': typeof TTeamSlugReviewsIndexRoute
   '/t/$teamSlug/settings/': typeof TTeamSlugSettingsIndexRoute
   '/t/$teamSlug/support/': typeof TTeamSlugSupportIndexRoute
-  '/t/$teamSlug/workflows/': typeof TTeamSlugWorkflowsIndexRoute
   '/t/$teamSlug/settings/boards/$boardId': typeof TTeamSlugSettingsBoardsBoardIdRoute
   '/t/$teamSlug/settings/boards/archived': typeof TTeamSlugSettingsBoardsArchivedRoute
   '/t/$teamSlug/boards/$boardSlug/': typeof TTeamSlugBoardsBoardSlugIndexRoute
@@ -1016,13 +1008,12 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
   '/t/$teamSlug/support/$threadId': typeof TTeamSlugSupportThreadIdRoute
-  '/t/$teamSlug/workflows/$workflowId': typeof TTeamSlugWorkflowsWorkflowIdRoute
+  '/t/$teamSlug/workflows/$': typeof TTeamSlugWorkflowsSplatRoute
   '/t/$teamSlug/actions': typeof TTeamSlugActionsIndexRoute
   '/t/$teamSlug/inbox': typeof TTeamSlugInboxIndexRoute
   '/t/$teamSlug/reviews': typeof TTeamSlugReviewsIndexRoute
   '/t/$teamSlug/settings': typeof TTeamSlugSettingsIndexRoute
   '/t/$teamSlug/support': typeof TTeamSlugSupportIndexRoute
-  '/t/$teamSlug/workflows': typeof TTeamSlugWorkflowsIndexRoute
   '/t/$teamSlug/settings/boards/$boardId': typeof TTeamSlugSettingsBoardsBoardIdRoute
   '/t/$teamSlug/settings/boards/archived': typeof TTeamSlugSettingsBoardsArchivedRoute
   '/t/$teamSlug/boards/$boardSlug': typeof TTeamSlugBoardsBoardSlugIndexRoute
@@ -1141,13 +1132,12 @@ export interface FileRoutesById {
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
   '/t/$teamSlug/support/$threadId': typeof TTeamSlugSupportThreadIdRoute
-  '/t/$teamSlug/workflows/$workflowId': typeof TTeamSlugWorkflowsWorkflowIdRoute
+  '/t/$teamSlug/workflows/$': typeof TTeamSlugWorkflowsSplatRoute
   '/t/$teamSlug/actions/': typeof TTeamSlugActionsIndexRoute
   '/t/$teamSlug/inbox/': typeof TTeamSlugInboxIndexRoute
   '/t/$teamSlug/reviews/': typeof TTeamSlugReviewsIndexRoute
   '/t/$teamSlug/settings/': typeof TTeamSlugSettingsIndexRoute
   '/t/$teamSlug/support/': typeof TTeamSlugSupportIndexRoute
-  '/t/$teamSlug/workflows/': typeof TTeamSlugWorkflowsIndexRoute
   '/t/$teamSlug/settings/boards/$boardId': typeof TTeamSlugSettingsBoardsBoardIdRoute
   '/t/$teamSlug/settings/boards/archived': typeof TTeamSlugSettingsBoardsArchivedRoute
   '/t/$teamSlug/boards/$boardSlug/': typeof TTeamSlugBoardsBoardSlugIndexRoute
@@ -1266,13 +1256,12 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/storage'
     | '/t/$teamSlug/settings/widget'
     | '/t/$teamSlug/support/$threadId'
-    | '/t/$teamSlug/workflows/$workflowId'
+    | '/t/$teamSlug/workflows/$'
     | '/t/$teamSlug/actions/'
     | '/t/$teamSlug/inbox/'
     | '/t/$teamSlug/reviews/'
     | '/t/$teamSlug/settings/'
     | '/t/$teamSlug/support/'
-    | '/t/$teamSlug/workflows/'
     | '/t/$teamSlug/settings/boards/$boardId'
     | '/t/$teamSlug/settings/boards/archived'
     | '/t/$teamSlug/boards/$boardSlug/'
@@ -1386,13 +1375,12 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/storage'
     | '/t/$teamSlug/settings/widget'
     | '/t/$teamSlug/support/$threadId'
-    | '/t/$teamSlug/workflows/$workflowId'
+    | '/t/$teamSlug/workflows/$'
     | '/t/$teamSlug/actions'
     | '/t/$teamSlug/inbox'
     | '/t/$teamSlug/reviews'
     | '/t/$teamSlug/settings'
     | '/t/$teamSlug/support'
-    | '/t/$teamSlug/workflows'
     | '/t/$teamSlug/settings/boards/$boardId'
     | '/t/$teamSlug/settings/boards/archived'
     | '/t/$teamSlug/boards/$boardSlug'
@@ -1510,13 +1498,12 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/storage'
     | '/t/$teamSlug/settings/widget'
     | '/t/$teamSlug/support/$threadId'
-    | '/t/$teamSlug/workflows/$workflowId'
+    | '/t/$teamSlug/workflows/$'
     | '/t/$teamSlug/actions/'
     | '/t/$teamSlug/inbox/'
     | '/t/$teamSlug/reviews/'
     | '/t/$teamSlug/settings/'
     | '/t/$teamSlug/support/'
-    | '/t/$teamSlug/workflows/'
     | '/t/$teamSlug/settings/boards/$boardId'
     | '/t/$teamSlug/settings/boards/archived'
     | '/t/$teamSlug/boards/$boardSlug/'
@@ -2154,13 +2141,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugSettingsRouteRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
-    '/t/$teamSlug/workflows/': {
-      id: '/t/$teamSlug/workflows/'
-      path: '/workflows'
-      fullPath: '/t/$teamSlug/workflows/'
-      preLoaderRoute: typeof TTeamSlugWorkflowsIndexRouteImport
-      parentRoute: typeof TTeamSlugRouteRoute
-    }
     '/t/$teamSlug/support/': {
       id: '/t/$teamSlug/support/'
       path: '/support'
@@ -2196,11 +2176,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugActionsIndexRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
-    '/t/$teamSlug/workflows/$workflowId': {
-      id: '/t/$teamSlug/workflows/$workflowId'
-      path: '/workflows/$workflowId'
-      fullPath: '/t/$teamSlug/workflows/$workflowId'
-      preLoaderRoute: typeof TTeamSlugWorkflowsWorkflowIdRouteImport
+    '/t/$teamSlug/workflows/$': {
+      id: '/t/$teamSlug/workflows/$'
+      path: '/workflows/$'
+      fullPath: '/t/$teamSlug/workflows/$'
+      preLoaderRoute: typeof TTeamSlugWorkflowsSplatRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
     '/t/$teamSlug/support/$threadId': {
@@ -2571,12 +2551,11 @@ interface TTeamSlugRouteRouteChildren {
   TTeamSlugReviewsIssueIdentifierRoute: typeof TTeamSlugReviewsIssueIdentifierRoute
   TTeamSlugSessionsSessionIdRoute: typeof TTeamSlugSessionsSessionIdRoute
   TTeamSlugSupportThreadIdRoute: typeof TTeamSlugSupportThreadIdRoute
-  TTeamSlugWorkflowsWorkflowIdRoute: typeof TTeamSlugWorkflowsWorkflowIdRoute
+  TTeamSlugWorkflowsSplatRoute: typeof TTeamSlugWorkflowsSplatRoute
   TTeamSlugActionsIndexRoute: typeof TTeamSlugActionsIndexRoute
   TTeamSlugInboxIndexRoute: typeof TTeamSlugInboxIndexRoute
   TTeamSlugReviewsIndexRoute: typeof TTeamSlugReviewsIndexRoute
   TTeamSlugSupportIndexRoute: typeof TTeamSlugSupportIndexRoute
-  TTeamSlugWorkflowsIndexRoute: typeof TTeamSlugWorkflowsIndexRoute
   TTeamSlugBoardsBoardSlugIndexRoute: typeof TTeamSlugBoardsBoardSlugIndexRoute
   TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute: typeof TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute
 }
@@ -2591,12 +2570,11 @@ const TTeamSlugRouteRouteChildren: TTeamSlugRouteRouteChildren = {
   TTeamSlugReviewsIssueIdentifierRoute: TTeamSlugReviewsIssueIdentifierRoute,
   TTeamSlugSessionsSessionIdRoute: TTeamSlugSessionsSessionIdRoute,
   TTeamSlugSupportThreadIdRoute: TTeamSlugSupportThreadIdRoute,
-  TTeamSlugWorkflowsWorkflowIdRoute: TTeamSlugWorkflowsWorkflowIdRoute,
+  TTeamSlugWorkflowsSplatRoute: TTeamSlugWorkflowsSplatRoute,
   TTeamSlugActionsIndexRoute: TTeamSlugActionsIndexRoute,
   TTeamSlugInboxIndexRoute: TTeamSlugInboxIndexRoute,
   TTeamSlugReviewsIndexRoute: TTeamSlugReviewsIndexRoute,
   TTeamSlugSupportIndexRoute: TTeamSlugSupportIndexRoute,
-  TTeamSlugWorkflowsIndexRoute: TTeamSlugWorkflowsIndexRoute,
   TTeamSlugBoardsBoardSlugIndexRoute: TTeamSlugBoardsBoardSlugIndexRoute,
   TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute:
     TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute,

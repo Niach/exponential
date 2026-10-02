@@ -530,8 +530,6 @@ public enum AppIcons {
     public static let navTeamSwitcher: String = "chevrons-up-down"
     /// Concept `nav-terminal`.
     public static let navTerminal: String = "square-terminal"
-    /// Concept `nav-workflows`.
-    public static let navWorkflows: String = "workflow"
     /// Concept `notification-agent-message`.
     public static let notificationAgentMessage: String = "bot"
     /// Concept `notification-issue-assigned`.

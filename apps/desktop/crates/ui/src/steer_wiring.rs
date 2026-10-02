@@ -476,13 +476,9 @@ fn handle_remote_start(start: steer::RemoteStart, cx: &mut App) {
     // requester through `report`, when the frame named its `startId`.
     let report = StartReport::new(start.start_id.clone());
     match start.subject.clone() {
-        steer::RemoteStartSubject::Issue(issue_id) => remote_issue_start(
-            issue_id,
-            &start,
-            steer::stack_launch(start.stack.as_ref()),
-            report,
-            cx,
-        ),
+        steer::RemoteStartSubject::Issue(issue_id) => {
+            remote_issue_start(issue_id, &start, report, cx)
+        }
         steer::RemoteStartSubject::Batch {
             issue_ids,
             team_id,
@@ -695,9 +691,7 @@ fn remote_action_start(
     .with_mcp_servers(start.mcp_server_ids.clone())
     // EXP-981: the composer's claude-only subagent pick; absent leaves this
     // machine's own launch default in place.
-    .with_subagent_model(start.subagent_model.as_deref())
-    // EXP-1082: a workflow run's membership, stamped on its row.
-    .with_workflow(start.workflow.clone());
+    .with_subagent_model(start.subagent_model.as_deref());
     let repo_group = repo.map(|repo| RepoGroup {
         repository_id: repo.repository_id,
         full_name: repo.full_name,
@@ -787,7 +781,6 @@ pub(crate) fn find_team_window(cx: &mut App) -> Option<gpui::AnyWindowHandle> {
 fn remote_issue_start(
     issue_id: String,
     start: &steer::RemoteStart,
-    stack: Option<coding::StackLaunch>,
     report: StartReport,
     cx: &mut App,
 ) {
@@ -853,9 +846,7 @@ fn remote_issue_start(
     .with_mcp_servers(start.mcp_server_ids.clone())
     // EXP-981: the composer's claude-only subagent pick; absent leaves this
     // machine's own launch default in place.
-    .with_subagent_model(start.subagent_model.as_deref())
-    // EXP-1082: a workflow run's membership, stamped on its row.
-    .with_workflow(start.workflow.clone());
+    .with_subagent_model(start.subagent_model.as_deref());
     // EXP-481/EXP-662: honor the remote resume flag against the RUN REGISTRY
     // — the newest resumable record for this issue on this account relaunches
     // that exact transcript; with no record the flag degrades to a fresh
@@ -893,9 +884,6 @@ fn remote_issue_start(
             options,
             start.resume,
             start.prompt.clone(),
-            // EXP-897: the frame's stack plan. A resume ignores it (the arm
-            // above): the recorded run already names the base it was cut from.
-            stack,
             cx,
         )
         .map(|(request, deps)| (PrepareRequest::Issue(request), deps)),
@@ -913,14 +901,6 @@ fn remote_issue_start(
         report.fail(NO_WINDOW_REASON, cx);
         return;
     };
-    // FEED-49: a workflow node's run is held for the engine BEFORE the
-    // resume relaunches it (`action_run::resume_run`'s and the account
-    // switch's hold, mirrored on the relay's issue-resume arm): a pass
-    // between the recorded run's end and the resumed row would otherwise
-    // re-decide the node off the ended row. A fresh start holds nothing.
-    if let PrepareRequest::ResumeRun(request) = &prepare_request {
-        crate::workflow_host::hold_person_resume(&request.record.session_id, cx);
-    }
 
     cx.spawn(async move |cx| {
         let prepared = cx
@@ -1087,9 +1067,7 @@ fn remote_batch_start(
     .with_mcp_servers(start.mcp_server_ids.clone())
     // EXP-981: the composer's claude-only subagent pick; absent leaves this
     // machine's own launch default in place.
-    .with_subagent_model(start.subagent_model.as_deref())
-    // EXP-1082: a workflow run's membership, stamped on its row.
-    .with_workflow(start.workflow.clone());
+    .with_subagent_model(start.subagent_model.as_deref());
 
     // Same field construction the dialog's `batch_request` uses (device_label
     // from `coding::default_device_label()`, a fresh `coding::new_batch_id()`).
@@ -1108,9 +1086,6 @@ fn remote_batch_start(
         origin: relay_origin(cx, start.started_by.clone(), start.started_reason.clone()),
         options,
         prompt: start.prompt.clone(),
-        // A relay batch start is never a workflow node (EXP-982).
-        base_branch: None,
-        workflow: None,
     };
 
     let Some(deps) = coding_flow::build_batch_deps(cx) else {

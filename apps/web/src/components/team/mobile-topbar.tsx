@@ -27,7 +27,6 @@ import { RecentRunsList } from "@/components/team/recent-runs-nav"
 import { TeamLiveDot } from "@/components/team/sidebar-rail"
 import { useTeamLiveRuns } from "@/hooks/use-team-live-runs"
 import { otherTeamsLive } from "@/lib/sessions/team-live-runs"
-import { WORKFLOWS_TITLE } from "@/lib/workflow-view"
 import {
   resolveBoardTarget,
   useMobileChromeVisible,
@@ -44,9 +43,6 @@ const NavSignOutIcon = conceptIcon(`nav-sign-out`)
 const NavTeamSwitcherIcon = conceptIcon(`nav-team-switcher`)
 // EXP-923: the run-history glyph, the same concept the IDE's toggle wears.
 const RecentRunsIcon = conceptIcon(`settings-sessions`)
-// EXP-981: the phone's way into Workflows — the tab bar has no room for a
-// seventh entry, so the Agent page carries the button beside its history one.
-const NavWorkflowsIcon = conceptIcon(`nav-workflows`)
 
 interface TeamMobileTopbarProps {
   teamSlug: string
@@ -105,11 +101,9 @@ export function TeamMobileTopbar({
             ? `Reviews`
             : matchRoute({ to: `/t/$teamSlug/support`, fuzzy: true })
               ? `Support`
-              : matchRoute({ to: `/t/$teamSlug/workflows`, fuzzy: true })
-                ? WORKFLOWS_TITLE
-                : matchRoute({ to: `/t/$teamSlug/settings`, fuzzy: true })
-                  ? `Settings`
-                  : undefined
+              : matchRoute({ to: `/t/$teamSlug/settings`, fuzzy: true })
+                ? `Settings`
+                : undefined
 
   if (!visible) return null
 
@@ -148,30 +142,16 @@ export function TeamMobileTopbar({
 
       <div className="ml-auto flex items-center gap-2">
         {onAgent && (
-          <>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-9 text-muted-foreground"
-              aria-label={WORKFLOWS_TITLE}
-              data-testid="workflows-button"
-              onClick={() =>
-                navigate({ to: `/t/$teamSlug/workflows`, params: { teamSlug } })
-              }
-            >
-              <NavWorkflowsIcon className="size-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-9 text-muted-foreground"
-              aria-label="Recent runs"
-              data-testid="recent-runs-sheet-button"
-              onClick={() => setRecentOpen(true)}
-            >
-              <RecentRunsIcon className="size-4" />
-            </Button>
-          </>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-9 text-muted-foreground"
+            aria-label="Recent runs"
+            data-testid="recent-runs-sheet-button"
+            onClick={() => setRecentOpen(true)}
+          >
+            <RecentRunsIcon className="size-4" />
+          </Button>
         )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

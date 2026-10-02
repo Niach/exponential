@@ -1,24 +1,16 @@
 import { describe, expect, it } from "vitest"
 import stackMergeFixture from "@exp/domain-contract/fixtures/stack-merge-choice.json"
 import {
-  mergeStackBody,
   MERGE_STACK_LABEL,
-  MERGE_STACK_TITLE,
   MERGE_THIS_PR_LABEL,
-  nestPrStacks,
   STACK_MERGE_CANCEL_LABEL,
   STACK_MERGE_CHOICE_TITLE,
   stackChain,
-  stackedOnCaption,
   stackMergeChoice,
-  stackPosition,
-  stackPositionLine,
   type StackMergeNode,
 } from "./pr-stack"
 
-// EXP-897 — the PR stack rules. Every `it` name here is mirrored by iOS
-// PrStackTests, Android PrStackTest and the desktop `nest_review_entries`
-// tests; a change on one side without the others is a cross-client drift.
+// EXP-897: the PR stack edge the "Related work" badge draws.
 
 const member = (id: string, branch: string | null, base: string | null) => ({
   id,
@@ -33,29 +25,22 @@ const middle = member(`middle`, `exp/MIDDLE`, `exp/BOTTOM`)
 const top = member(`top`, `exp/TOP`, `exp/MIDDLE`)
 const chain = [top, bottom, middle]
 
-describe(`stackPosition`, () => {
+const ids = (rows: { id: string }[]) => rows.map((row) => row.id)
+
+describe(`stackChain`, () => {
   it(`numbers a member from the bottom of the chain`, () => {
-    expect(stackChain(middle, chain).map((row) => row.id)).toEqual([
-      `bottom`,
-      `middle`,
-      `top`,
-    ])
-    const at = stackPosition(middle, chain)!
-    expect(at.position).toBe(2)
-    expect(at.size).toBe(3)
-    expect(at.below?.id).toBe(`bottom`)
-    expect(at.above?.id).toBe(`top`)
-    expect(stackPosition(bottom, chain)!.position).toBe(1)
-    expect(stackPosition(top, chain)!.position).toBe(3)
+    expect(ids(stackChain(middle, chain))).toEqual([`bottom`, `middle`, `top`])
+    expect(ids(stackChain(bottom, chain))).toEqual([`bottom`, `middle`, `top`])
+    expect(ids(stackChain(top, chain))).toEqual([`bottom`, `middle`, `top`])
   })
 
   it(`stops at a base nobody in the list owns`, () => {
     // `main` is the repository's default branch, owned by no issue.
-    expect(stackPosition(bottom, [bottom])).toBeNull()
+    expect(ids(stackChain(bottom, [bottom]))).toEqual([`bottom`])
     // An empty branch is never an edge either.
     const blank = member(`blank`, ``, ``)
-    expect(stackPosition(blank, [blank, bottom])).toBeNull()
-    expect(stackChain(bottom, [bottom, middle]).map((row) => row.id)).toEqual([
+    expect(ids(stackChain(blank, [blank, bottom]))).toEqual([`blank`])
+    expect(ids(stackChain(bottom, [bottom, middle]))).toEqual([
       `bottom`,
       `middle`,
     ])
@@ -64,50 +49,20 @@ describe(`stackPosition`, () => {
   it(`breaks a cycle where it first appears`, () => {
     const a = member(`a`, `exp/A`, `exp/B`)
     const b = member(`b`, `exp/B`, `exp/A`)
-    expect(stackChain(a, [a, b]).map((row) => row.id)).toEqual([`b`, `a`])
-    expect(stackPosition(a, [a, b])!.size).toBe(2)
+    expect(ids(stackChain(a, [a, b]))).toEqual([`b`, `a`])
   })
 
-  it(`renders the position line and the merge copy`, () => {
-    expect(stackPositionLine(2, 3, `ABC-12`)).toBe(`2 of 3 · on top of #ABC-12`)
-    expect(stackPositionLine(1, 3, null)).toBe(`1 of 3`)
-    expect(stackedOnCaption(`ABC-12`)).toBe(`on top of #ABC-12`)
-    expect(MERGE_STACK_LABEL).toBe(`Merge stack`)
-    expect(MERGE_STACK_TITLE).toBe(`Merge the whole stack?`)
-    expect(mergeStackBody(3)).toBe(`3 pull requests, bottom-up.`)
-  })
-})
-
-describe(`nestPrStacks`, () => {
-  const entry = (issue: ReturnType<typeof member>) => ({ key: issue.id, issue })
-  const shape = (rows: ReturnType<typeof nestPrStacks>) =>
-    rows.map((row) => `${row.entry.issue.id}@${row.depth}${row.hasChildren ? `+` : ``}`)
-
-  it(`nests an upper entry under the one it is stacked on`, () => {
-    expect(shape(nestPrStacks([entry(top), entry(bottom), entry(middle)]))).toEqual(
-      [`bottom@0+`, `middle@1+`, `top@2`]
-    )
-  })
-
-  it(`keeps the caller's root order`, () => {
-    const lone = member(`lone`, `exp/LONE`, `main`)
-    const other = member(`other`, `exp/OTHER`, null)
-    expect(shape(nestPrStacks([entry(other), entry(lone), entry(bottom), entry(middle)]))).toEqual([
-      `other@0`,
-      `lone@0`,
-      `bottom@0+`,
-      `middle@1`,
+  it(`takes the first fork by identifier`, () => {
+    const left = member(`left`, `exp/LEFT`, `exp/BOTTOM`)
+    const right = member(`right`, `exp/RIGHT`, `exp/BOTTOM`)
+    expect(ids(stackChain(bottom, [right, bottom, left]))).toEqual([
+      `bottom`,
+      `left`,
     ])
   })
-
-  it(`breaks a cycle where it first appears`, () => {
-    const a = member(`a`, `exp/A`, `exp/B`)
-    const b = member(`b`, `exp/B`, `exp/A`)
-    expect(shape(nestPrStacks([entry(a), entry(b)]))).toEqual([`a@0+`, `b@1`])
-  })
 })
 
-// EXP-1145: a plain Merge on a stack member asks first. Replayed off the ONE
+// EXP-1145: a Merge on a stack member asks first. Replayed off the ONE
 // contract fixture ×4 (desktop `stack_merge_choice_matches_the_fixture`, iOS
 // `StackMergeChoiceTests`, Android `StackMergeChoiceTest`).
 describe(`stackMergeChoice (contract fixture)`, () => {

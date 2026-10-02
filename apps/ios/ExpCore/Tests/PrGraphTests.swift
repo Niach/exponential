@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import ExpCore
 
-// EXP-897 Part 4 — the ONE graph behind the Work header's badge and overlay.
+// EXP-897 Part 4, the ONE graph behind the Work header's badge and overlay.
 // The same four tests web (`pr-graph.test.ts`), Android (`PrGraphTest`) and
 // the desktop (`pr_graph::*`) run.
 final class PrGraphTests: XCTestCase {
@@ -25,12 +25,10 @@ final class PrGraphTests: XCTestCase {
     }
 
     private func graph(_ subject: IssueEntity, _ issues: [IssueEntity]) -> PrGraph.Graph {
-        PrGraph.build(
-            issue: subject, session: nil, issues: issues, sessions: [], relations: []
-        )
+        PrGraph.build(issue: subject, session: nil, issues: issues, relations: [])
     }
 
-    /// EXP-876: a BATCH run as its own subject — no issue, no `pr_url`.
+    /// EXP-876: a BATCH run as its own subject, no issue, no `pr_url`.
     private func batchRun(
         _ id: String = "run",
         batchIssueIds: String? = nil,
@@ -58,9 +56,7 @@ final class PrGraphTests: XCTestCase {
         _ session: CodingSessionEntity,
         _ issues: [IssueEntity]
     ) -> PrGraph.Graph {
-        PrGraph.build(
-            issue: nil, session: session, issues: issues, sessions: [session], relations: []
-        )
+        PrGraph.build(issue: nil, session: session, issues: issues, relations: [])
     }
 
     // One issue, one PR, stacked on another issue's branch: a STACK badge and
@@ -99,7 +95,7 @@ final class PrGraphTests: XCTestCase {
         XCTAssertEqual(result.entry?.isBatch, true)
     }
 
-    // A batch PR is an ENTRY like any other, so it can be a stack member —
+    // A batch PR is an ENTRY like any other, so it can be a stack member , 
     // then the badge carries both glyphs.
     func testReportsBothForABatchInsideAStack() {
         let low = issue(
@@ -124,7 +120,7 @@ final class PrGraphTests: XCTestCase {
     // A pull request of its own, based on the default branch: no badge, and
     // nothing for the overlay to say.
     // EXP-876: the pill and its sheet are the surface built to name work that
-    // spans several issues — and a batch RUN, which spans them, resolved
+    // spans several issues, and a batch RUN, which spans them, resolved
     // nothing at all before this (it links no issue and stamps no pr_url).
     // Mirrored ×4.
     func testReportsABatchBadgeForABatchRunBeforeItsPr() {
@@ -159,7 +155,7 @@ final class PrGraphTests: XCTestCase {
         XCTAssertEqual(result.batch?.issues.count, 2)
     }
 
-    // EXP-930 — mirrors web `lists the batch's issues on a batch run's run
+    // EXP-930, mirrors web `lists the batch's issues on a batch run's run
     // face`. The pill on a batch run says `2 issues`; behind it the run face
     // lists those two. A batch row links NO issue (`issue_id` is null), so
     // keying the overlay off `issueId` was what left it with nothing to show:
@@ -170,10 +166,8 @@ final class PrGraphTests: XCTestCase {
         let run = batchRun(batchIssueIds: #"["one","two"]"#, branch: "exp/batch-1")
         let stored = runGraph(run, [one, two])
         XCTAssertEqual(stored.batch?.issues.map(\.identifier), ["BATA", "BATB"])
-        // ...and the run tree is still there, under the issues it covers.
-        XCTAssertEqual(stored.tree.map(\.session.id), ["run"])
 
-        // EXP-972: no stored ids names nothing — the branch-mates are NOT a
+        // EXP-972: no stored ids names nothing, the branch-mates are NOT a
         // fallback any more (the server backfills `batch_issue_ids`).
         let older = issue("older", identifier: "BATA", branch: "exp/batch-1")
         let newer = issue(
@@ -213,7 +207,7 @@ final class PrGraphTests: XCTestCase {
         XCTAssertTrue(result.isEmpty)
     }
 
-    // EXP-1058: the stacked chip that replaced the pill — the subject PR's
+    // EXP-1058: the stacked chip that replaced the pill, the subject PR's
     // representative in front, every other issue of the stack/batch behind.
     func testNamesTheRepresentativeIssueAndTheCountOnTheStackedChip() {
         let url = "pr/9"
@@ -243,12 +237,9 @@ final class PrGraphTests: XCTestCase {
         )
         let batch = graph(oneAlone, [oneAlone, plainTwo])
         XCTAssertEqual(PrGraph.badgeChip(batch)?.count, 1)
-        // A run family with no issue earns no chip (SLOP-16 r5).
-        let root = treeRun("root", parent: nil)
+        // A run with no issue and no batch earns no chip (SLOP-16 r5).
         let child = treeRun("child", parent: "root")
-        let family = PrGraph.build(
-            issue: nil, session: child, issues: [], sessions: [child, root], relations: []
-        )
+        let family = PrGraph.build(issue: nil, session: child, issues: [], relations: [])
         XCTAssertNil(PrGraph.badgeChip(family))
         // No badge = no chip.
         let lone = issue("lone", identifier: "EXP-9")
@@ -256,30 +247,21 @@ final class PrGraphTests: XCTestCase {
     }
 
     // SLOP-16 r5: a run family alone earns NO badge on any face; a PR
-    // relation still does, whatever runs ride with it.
+    // relation still does, whatever run rides with it.
     func testShapesNoBadgeForARunFamilyAlone() {
-        let root = treeRun("root", parent: nil)
         let child = treeRun("child", parent: "root")
-        let family = PrGraph.build(
-            issue: nil, session: child, issues: [], sessions: [child, root], relations: []
-        )
+        let family = PrGraph.build(issue: nil, session: child, issues: [], relations: [])
         XCTAssertNil(PrGraph.badgeShape(family))
-        let alone = treeRun("alone", parent: nil)
-        let lonely = PrGraph.build(
-            issue: nil, session: alone, issues: [], sessions: [alone], relations: []
-        )
-        XCTAssertNil(PrGraph.badgeShape(lonely))
         let batchA = issue("bata", identifier: "EXP-1", prUrl: "pr/9")
         let batchB = issue("batb", identifier: "EXP-2", prUrl: "pr/9")
         let batched = PrGraph.build(
-            issue: batchA, session: child, issues: [batchA, batchB],
-            sessions: [child, root], relations: []
+            issue: batchA, session: child, issues: [batchA, batchB], relations: []
         )
         XCTAssertEqual(PrGraph.badgeShape(batched), .batch)
     }
 
-    // EXP-1097: open blockers alone earn the chip, behind the PR relations and
-    // the run family; the front chip is the first open blocker.
+    // EXP-1097: open blockers alone earn the chip, behind the PR relations;
+    // the front chip is the first open blocker.
     func testShapesABlockedBadgeForAnIssueWithOpenBlockers() {
         let me = issue("me", identifier: "EXP-10")
         let b1 = issue("b1", identifier: "EXP-1")
@@ -291,50 +273,43 @@ final class PrGraphTests: XCTestCase {
             relation("r3", from: "closed", to: "me"),
         ]
         let blocked = PrGraph.build(
-            issue: me, session: nil, issues: [me, b1, b2, closed], sessions: [],
-            relations: relations
+            issue: me, session: nil, issues: [me, b1, b2, closed], relations: relations
         )
         XCTAssertEqual(PrGraph.badgeShape(blocked), .blocked)
         XCTAssertEqual(PrGraph.badgeChip(blocked)?.issue?.id, "b1")
         XCTAssertEqual(PrGraph.badgeChip(blocked)?.count, 1)
         // Only closed blockers: no chip.
         let done = PrGraph.build(
-            issue: me, session: nil, issues: [me, closed], sessions: [], relations: relations
+            issue: me, session: nil, issues: [me, closed], relations: relations
         )
         XCTAssertNil(PrGraph.badgeShape(done))
-        // A run family does not change it: still blocked.
+        // A run of the issue does not change it: still blocked.
         let r1 = treeRun("r1", parent: nil, issueId: "me")
-        let r2 = treeRun("r2", parent: "r1")
         XCTAssertEqual(
             PrGraph.badgeShape(PrGraph.build(
-                issue: me, session: nil, issues: [me, b1], sessions: [r1, r2],
-                relations: relations
+                issue: nil, session: r1, issues: [me, b1], relations: relations
             )),
             .blocked
         )
-        // A batch wins over both.
+        // A batch wins over the blockers.
         let batchA = issue("me", identifier: "EXP-10", prUrl: "pr/9")
         let batchB = issue("batb", identifier: "EXP-11", prUrl: "pr/9")
         XCTAssertEqual(
             PrGraph.badgeShape(PrGraph.build(
-                issue: batchA, session: nil, issues: [batchA, batchB, b1],
-                sessions: [r1, r2], relations: relations
+                issue: batchA, session: nil, issues: [batchA, batchB, b1], relations: relations
             )),
             .batch
         )
     }
 
-    // SLOP-16 r5: ONE band order on every face — Blocked by, Same pull
-    // request, Pull request stack — each only when the subject has it; runs
-    // are never a band.
+    // SLOP-16 r5: ONE band order on every face, Blocked by, Same pull
+    // request, Pull request stack, each only when the subject has it.
     func testOrdersTheOverlaysSectionsTheSameEverywhere() {
         let me = issue("me", identifier: "EXP-10", prUrl: "pr/9")
         let partner = issue("partner", identifier: "EXP-11", prUrl: "pr/9")
         let blocker = issue("blocker", identifier: "EXP-1")
-        let r1 = treeRun("r1", parent: nil, issueId: "me")
-        let r2 = treeRun("r2", parent: "r1")
         let result = PrGraph.build(
-            issue: me, session: nil, issues: [me, partner, blocker], sessions: [r1, r2],
+            issue: me, session: nil, issues: [me, partner, blocker],
             relations: [relation("rel", from: "blocker", to: "me")]
         )
         XCTAssertEqual(PrGraph.overlaySections(result), [.blocked, .batch])

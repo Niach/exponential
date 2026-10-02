@@ -2,12 +2,11 @@
 //! entry, replaced by rename: `{dir}/<name>.json`.
 //!
 //! settings.json was the one per-install file eight subsystems across two
-//! processes merged their keys into; the workflow engine's working state
-//! rode in it too, and one torn write of that file cost a running workflow
-//! its host (workflow 2f353e88). Engine state therefore moves OUT of the
-//! preferences file into a directory of its own where every document has
-//! ONE writer (the host that evaluates that workflow) and losing a document
-//! costs a re-derivation, never a preference or an identity.
+//! processes merged their keys into, and one torn write of that file could
+//! cost a machine its identity. Engine state therefore lives OUT of the
+//! preferences file in a directory of its own where every document has ONE
+//! writer and losing a document costs a re-derivation, never a preference or
+//! an identity.
 //!
 //! Every read-modify-write takes the shared section of
 //! [`crate::settings_lock`] on a sibling `.lock` file in the directory, so a
@@ -137,7 +136,7 @@ mod tests {
     #[test]
     fn documents_round_trip_list_and_remove() {
         let dir = TempDir::new("roundtrip");
-        let store = JsonStore::new(dir.0.join("workflows"));
+        let store = JsonStore::new(dir.0.join("store"));
         assert_eq!(store.read("wf-1"), None, "missing reads as absent");
         assert!(store.names().is_empty());
         store.write("wf-1", &serde_json::json!({ "a": 1 })).unwrap();
@@ -159,7 +158,7 @@ mod tests {
         store.remove("wf-1").unwrap();
         assert_eq!(store.names(), ["wf-2", "wf-3"]);
         // The lock file lives beside the documents and is not one of them.
-        assert!(dir.0.join("workflows").join(".lock").exists());
+        assert!(dir.0.join("store").join(".lock").exists());
     }
 
     #[test]

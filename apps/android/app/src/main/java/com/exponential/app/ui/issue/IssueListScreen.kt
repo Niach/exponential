@@ -75,7 +75,6 @@ import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.IssueGraph
-import com.exponential.app.domain.WorkflowView
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.IssueStatusCategory
@@ -156,8 +155,6 @@ fun IssueListScreen(
     // EXP-825: the selection bar's Start coding navigates to the Agent page
     // composer with the checked issues chipped.
     onOpenAgent: (AgentComposerSeed) -> Unit = {},
-    // EXP-981: the bulk bar's "Create workflow…" lands on the new draft.
-    onOpenWorkflow: (workflowId: String) -> Unit = {},
     // EXP-686: search left the bottom bar and rides the board header
     // instead.
     onOpenSearch: () -> Unit = {},
@@ -219,16 +216,6 @@ fun IssueListScreen(
     val soloMemberId by viewModel.soloMemberId.collectAsStateWithLifecycle()
     val steerEnabled by viewModel.steerEnabled.collectAsStateWithLifecycle()
     val steerDevices by viewModel.devices.collectAsStateWithLifecycle()
-    // EXP-981: the bulk bar's Create workflow — in flight, then the one-shot
-    // id of the draft the server made.
-    val creatingWorkflow by viewModel.creatingWorkflow.collectAsStateWithLifecycle()
-    val createdWorkflowId by viewModel.createdWorkflowId.collectAsStateWithLifecycle()
-    LaunchedEffect(createdWorkflowId) {
-        val id = createdWorkflowId ?: return@LaunchedEffect
-        viewModel.consumeCreatedWorkflow()
-        selectedIds = emptySet()
-        onOpenWorkflow(id)
-    }
 
     // Selected rows resolved back to their entries — drives the selection
     // bar's shared status/priority glyphs and the bulk property sheets. A
@@ -523,11 +510,6 @@ fun IssueListScreen(
                         // moderates (permissions are membership-only).
                         showDelete = permissions.isModerator,
                         devicesLoading = steerDevices == null,
-                        // EXP-981: a stacked start is a chain of SINGLE-issue
-                        // runs, and only a blocked issue has anything to stack
-                        // on (`IssueGraph.blockCounts`, already on the row).
-                        canStartStack = (selectedEntries.singleOrNull()?.blocks?.blockedBy ?: 0) > 0,
-                        creatingWorkflow = creatingWorkflow,
                         onClear = { selectedIds = emptySet() },
                         onStatus = { bulkSheet = BulkSheet.Status },
                         onPriority = { bulkSheet = BulkSheet.Priority },
@@ -547,11 +529,6 @@ fun IssueListScreen(
                                     selectedIds = emptySet()
                                 }
                             }
-                        },
-                        onCreateWorkflow = {
-                            // Display order, the way the rows are checked off
-                            // the grouped list (web parity).
-                            viewModel.createWorkflow(selectedEntries.map { it.issue.id })
                         },
                         onDelete = { confirmBulkDelete = true },
                     )
@@ -1276,20 +1253,16 @@ private fun SelectionBar(
     showStartCoding: Boolean,
     showDelete: Boolean,
     devicesLoading: Boolean,
-    /** EXP-981: the stack item is live for ONE picked issue that is blocked. */
-    canStartStack: Boolean,
-    creatingWorkflow: Boolean,
     onClear: () -> Unit,
     onStatus: () -> Unit,
     onPriority: () -> Unit,
     onAssignee: () -> Unit,
     onLabels: () -> Unit,
     onStartCoding: () -> Unit,
-    onCreateWorkflow: () -> Unit,
     onDelete: () -> Unit,
 ) {
     val shape = RoundedCornerShape(percent = 50)
-    // Which of the three the play menu is showing (EXP-981).
+    // Whether the play menu is open (its one entry: Start as batch).
     var startMenuOpen by remember { mutableStateOf(false) }
     val neutral = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     // Suppress the 48dp minimum interactive inflation so the 32dp icon buttons
@@ -1407,46 +1380,20 @@ private fun SelectionBar(
                         maxLines = 1,
                     )
                 }
-                // EXP-981: the ONE primary action became a MENU — the batch
-                // start it always was, the stacked start the blocked-start
-                // dialog then offers, and a draft workflow over the picks.
+                // The ONE primary action opens a menu whose one entry starts
+                // the selection as a batch on the composer (web parity).
                 GlassDropdownMenu(
                     expanded = startMenuOpen,
                     onDismissRequest = { startMenuOpen = false },
                 ) {
                     GlassMenuItem(
-                        text = { Text(WorkflowView.START_AS_BATCH_LABEL) },
+                        text = { Text(START_AS_BATCH_LABEL) },
                         leadingIcon = {
                             Icon(ExpIcons.actionRun, contentDescription = null)
                         },
                         onClick = {
                             startMenuOpen = false
                             onStartCoding()
-                        },
-                    )
-                    GlassMenuItem(
-                        text = { Text(WorkflowView.START_AS_STACK_LABEL) },
-                        leadingIcon = {
-                            Icon(ExpIcons.prStack, contentDescription = null)
-                        },
-                        // Exactly ONE picked issue, and something open still
-                        // blocking it — the composer then offers the stack in
-                        // the EXP-980 blocked-start dialog.
-                        enabled = canStartStack,
-                        onClick = {
-                            startMenuOpen = false
-                            onStartCoding()
-                        },
-                    )
-                    GlassMenuItem(
-                        text = { Text(WorkflowView.CREATE_WORKFLOW_LABEL) },
-                        leadingIcon = {
-                            Icon(ExpIcons.navWorkflows, contentDescription = null)
-                        },
-                        enabled = !creatingWorkflow,
-                        onClick = {
-                            startMenuOpen = false
-                            onCreateWorkflow()
                         },
                     )
                 }
@@ -1553,3 +1500,6 @@ private fun BulkStatusPicker(
         onOpenChange = { open -> if (!open) onDismiss() },
     )
 }
+
+/** The bulk bar's play-menu entry: the picks start as ONE batch run. */
+internal const val START_AS_BATCH_LABEL = "Start as batch"

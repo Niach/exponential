@@ -110,10 +110,11 @@ data class IssueEntity(
     @ColumnInfo(name = "pr_number") @SerialName("pr_number") @JsonNames("prNumber") val prNumber: Int? = null,
     @ColumnInfo(name = "pr_state") @SerialName("pr_state") @JsonNames("prState") val prState: String? = null,
     val branch: String? = null,
-    // EXP-897: the branch this issue's pull request is BASED on — the stack
+    // EXP-897: the branch this issue's pull request is BASED on, the stack
     // edge (`child.pr_base_branch == lower.branch`). NULL on an ordinary PR
-    // cut from the board's default branch; the server's own `pr_stack_number`
-    // is not synced.
+    // cut from the board's default branch. SLOP-3 keeps it: the related-work
+    // badge and the stack merge dialog read it
+    // ([com.exponential.app.domain.PrStack]).
     @ColumnInfo(name = "pr_base_branch") @SerialName("pr_base_branch") @JsonNames("prBaseBranch") val prBaseBranch: String? = null,
     @ColumnInfo(name = "pr_merged_at") @SerialName("pr_merged_at") @JsonNames("prMergedAt") val prMergedAt: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") override val createdAt: String,
@@ -351,13 +352,6 @@ data class CodingSessionEntity(
     // (FK SET NULL); null on a top-level run. The session lists nest a child
     // under its parent (SessionTree).
     @ColumnInfo(name = "parent_session_id") @SerialName("parent_session_id") @JsonNames("parentSessionId") val parentSessionId: String? = null,
-    // EXP-1082: WORKFLOW MEMBERSHIP — the workflow (and node) a run works for,
-    // and its role there (contract `wfSessionRole`: author | review |
-    // base_merge | plan | replan). All NULL on a run outside any workflow;
-    // the session tree groups by `workflowId` before any heuristic.
-    @ColumnInfo(name = "workflow_id") @SerialName("workflow_id") @JsonNames("workflowId") val workflowId: String? = null,
-    @ColumnInfo(name = "workflow_node_id") @SerialName("workflow_node_id") @JsonNames("workflowNodeId") val workflowNodeId: String? = null,
-    @ColumnInfo(name = "workflow_role") @SerialName("workflow_role") @JsonNames("workflowRole") val workflowRole: String? = null,
     // Desktop-written attention flag (EXP-214): the agent is parked on a
     // plan-approval / AskUserQuestion picker and waits for a human.
     @ColumnInfo(name = "needs_input") @SerialName("needs_input") @JsonNames("needsInput") val needsInput: PgBool = false,
@@ -386,7 +380,7 @@ data class CodingSessionEntity(
     @Serializable(with = JsonAsStringSerializer::class) val blocked: String? = null,
     // EXP-1082: the question the run asked its starter and still waits on
     // (`{question, askedAt}`), raw jsonb TEXT like `blocked`; NULL = none open.
-    // Read by WorkflowQuestions (EXP-1065).
+    // Read by the needs-you mark (SessionTree.sessionNeedsYou).
     @ColumnInfo(name = "pending_question") @SerialName("pending_question") @JsonNames("pendingQuestion")
     @Serializable(with = JsonAsStringSerializer::class) val pendingQuestion: String? = null,
     // EXP-879: the run's published RESULTS — the screenshots the agent filed
@@ -421,13 +415,12 @@ data class CodingSessionEntity(
     // every user-started session. An action can carry several triggers, so
     // the action_id link alone does not identify which one ran.
     @ColumnInfo(name = "automation_id") @SerialName("automation_id") @JsonNames("automationId") val automationId: String? = null,
-    // EXP-734: the run's OWN pull request. Populated only when the PR links no
-    // issue — an action or chat run (issue_id NULL) that opened one via MCP
-    // `exponential_pr_open({repositoryId, head})`. Issue and batch runs keep
-    // their PR on the issue row(s), so these stay NULL there and the merge
-    // shortcut goes on resolving through the issue (MergeTarget). The server
-    // flips pr_state to `merged` after a merge, so a client settles one by
-    // watching this row rather than writing anything locally.
+    // EXP-734/SLOP-3: the run's OWN pull request — every run that opened a PR
+    // carries it here. An issue run still merges through its issue; an
+    // issue-less run (batch, chat, action) merges this PR through
+    // `codingSessions.mergePr` (MergeTarget). The server flips pr_state to
+    // `merged` after a merge, so a client settles one by watching this row
+    // rather than writing anything locally.
     @ColumnInfo(name = "pr_url") @SerialName("pr_url") @JsonNames("prUrl") val prUrl: String? = null,
     @ColumnInfo(name = "pr_number")
     @SerialName("pr_number")
@@ -475,120 +468,6 @@ data class ActionEntity(
     @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
-)
-
-// One workflow (EXP-981, the 23rd Electric shape): a picked set of backlog
-// issues of ONE repository, planned as a DAG and — from the engine on — run by
-// the bound device. Team-scoped like `actions` (a workflow spans boards,
-// so the board trash rules do not apply). The `blocks` relations among the
-// covered issues are the EDGES and are never copied here.
-//
-// `launch` and `metrics` are jsonb kept as their raw JSON text and parsed
-// tolerantly at the consumer ([WorkflowRows] — unknown keys ignored, missing
-// keys default), the way every other jsonb column on this shape family is.
-@Entity(
-    tableName = "workflows",
-    indices = [Index("team_id")],
-)
-@Serializable
-data class WorkflowEntity(
-    @PrimaryKey val id: String,
-    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String,
-    // SET NULL server-side: the row stays readable when the repo is unlinked.
-    @ColumnInfo(name = "repository_id") @SerialName("repository_id") @JsonNames("repositoryId") val repositoryId: String? = null,
-    val name: String = "",
-    // contract `wfStatus` (documented varchar). An unknown value reads as Done
-    // rather than vanishing (`WorkflowView.band`).
-    val status: String = DomainContract.wfStatusDraft,
-    // devices.device_id of the runner: the engine's SINGLE writer. NULL on a
-    // draft nobody bound yet.
-    @ColumnInfo(name = "device_id") @SerialName("device_id") @JsonNames("deviceId") val deviceId: String? = null,
-    @Serializable(with = JsonAsStringSerializer::class) val launch: String? = null,
-    @ColumnInfo(name = "integration_branch") @SerialName("integration_branch") @JsonNames("integrationBranch") val integrationBranch: String = "",
-    @ColumnInfo(name = "final_pr_url") @SerialName("final_pr_url") @JsonNames("finalPrUrl") val finalPrUrl: String? = null,
-    @ColumnInfo(name = "final_pr_number")
-    @SerialName("final_pr_number")
-    @JsonNames("finalPrNumber")
-    @Serializable(with = PgIntSerializer::class)
-    val finalPrNumber: Int? = null,
-    @ColumnInfo(name = "final_pr_state") @SerialName("final_pr_state") @JsonNames("finalPrState") val finalPrState: String? = null,
-    // Dated answers, appended; part of every node prompt (≤64KB).
-    val decisions: String = "",
-    @Serializable(with = JsonAsStringSerializer::class) val metrics: String? = null,
-    @ColumnInfo(name = "started_at") @SerialName("started_at") @JsonNames("startedAt") val startedAt: String? = null,
-    @ColumnInfo(name = "ended_at") @SerialName("ended_at") @JsonNames("endedAt") val endedAt: String? = null,
-    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
-    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
-)
-
-// One NODE of a workflow (EXP-981, the 24th Electric shape): an issue, or a
-// parent issue with its sub-issues (a compound node run as ONE batch on one
-// branch with one PR). `team_id` is denormalized server-side for the shape's
-// team scoping, exactly like the issue-child shapes.
-//
-// `wave` / `lane` / `on_cycle` ARE the server-computed layout — no client ever
-// lays a workflow out; they draw column = wave, row = lane.
-@Entity(
-    tableName = "workflow_nodes",
-    indices = [Index("workflow_id"), Index("team_id"), Index("issue_id")],
-)
-@Serializable
-data class WorkflowNodeEntity(
-    @PrimaryKey val id: String,
-    @ColumnInfo(name = "workflow_id") @SerialName("workflow_id") @JsonNames("workflowId") val workflowId: String,
-    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
-    // The node's representative issue (a compound node's PARENT).
-    @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String,
-    // A compound node's sub-issues (`EXP-14 +3`); empty for a plain node.
-    @ColumnInfo(name = "member_issue_ids")
-    @SerialName("member_issue_ids")
-    @JsonNames("memberIssueIds")
-    @Serializable(with = PgUuidArraySerializer::class)
-    val memberIssueIds: List<String> = emptyList(),
-    // contract `wfNodeKind` / `wfNodeState` / `wfRisk`.
-    val kind: String = DomainContract.wfNodeKindLeaf,
-    val state: String = DomainContract.wfNodeStateBlocked,
-    val risk: String = DomainContract.wfRiskMedium,
-    @Serializable(with = PgIntSerializer::class) val wave: Int? = 0,
-    @Serializable(with = PgIntSerializer::class) val lane: Int? = 0,
-    // On a blocking cycle (server layout): drawn red, and nothing can start.
-    @ColumnInfo(name = "on_cycle") @SerialName("on_cycle") @JsonNames("onCycle") val onCycle: PgBool = false,
-    @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId") val sessionId: String? = null,
-    @Serializable(with = PgIntSerializer::class) val attempt: Int? = 0,
-    @ColumnInfo(name = "base_branch") @SerialName("base_branch") @JsonNames("baseBranch") val baseBranch: String? = null,
-    // EXP-982: the human (or agent) gate's stamp — a node with an open PR only
-    // joins the merge train once this is set. NULL = still waiting on a person.
-    @ColumnInfo(name = "approved_at") @SerialName("approved_at") @JsonNames("approvedAt") val approvedAt: String? = null,
-    // EXP-983: when the node announced its contract. A dependent whose
-    // workflow starts `on contract` waits for exactly this stamp; NULL = the
-    // node has published nothing yet.
-    @ColumnInfo(name = "checkpoint_at") @SerialName("checkpoint_at") @JsonNames("checkpointAt") val checkpointAt: String? = null,
-    // EXP-983: the engine's SERIALIZATION edges — the nodes whose work this one
-    // merges in first after two siblings collided. A jsonb string[] read as
-    // tolerantly as every other id list (a native array, the Postgres literal
-    // or the JSON text); anything else is EMPTY rather than a dropped row.
-    @ColumnInfo(name = "after_node_ids")
-    @SerialName("after_node_ids")
-    @JsonNames("afterNodeIds")
-    @Serializable(with = PgUuidArraySerializer::class)
-    val afterNodeIds: List<String> = emptyList(),
-    // EXP-984: the agent review gate. `review_round` counts the rounds this
-    // node bounced back to its author (at most
-    // `DomainContract.workflowMaxReviewRounds`, then it waits for a person);
-    // `review` is the latest submitted verdict, a jsonb cell kept as its raw
-    // text and read tolerantly (`workflowNodeReview`) like every other one.
-    @ColumnInfo(name = "review_round")
-    @SerialName("review_round")
-    @JsonNames("reviewRound")
-    @Serializable(with = PgIntSerializer::class)
-    val reviewRound: Int? = 0,
-    @Serializable(with = JsonAsStringSerializer::class) val review: String? = null,
-    // EXP-982: why the node is `failed` / `waiting`, in the engine's own words.
-    val note: String? = null,
-    // A Postgres `text[]` of globs: what this node expects to change.
-    @Serializable(with = PgUuidArraySerializer::class) val touches: List<String> = emptyList(),
-    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
-    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 )
 
 @Entity(
@@ -889,24 +768,4 @@ data class ElectricOffsetEntity(
     // when this is set: the next poll requests offset=-1 and prepends the wipe
     // to its own batch, so the swap is one transaction and the UI never blanks.
     @ColumnInfo(name = "needs_refetch") val needsRefetch: Boolean = false,
-)
-
-// EXP-1082: one line of a workflow's EVENT LOG (the `workflow_events` shape):
-// what the orchestrator did and when (contract `wfEventKind`). `node_id` /
-// `session_id` are NULL on workflow-level events. `team_id` is denormalized
-// server-side for the shape's team scoping, like `workflow_nodes`.
-@Entity(
-    tableName = "workflow_events",
-    indices = [Index("workflow_id"), Index("team_id")],
-)
-@Serializable
-data class WorkflowEventEntity(
-    @PrimaryKey val id: String,
-    @ColumnInfo(name = "workflow_id") @SerialName("workflow_id") @JsonNames("workflowId") val workflowId: String,
-    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
-    @ColumnInfo(name = "node_id") @SerialName("node_id") @JsonNames("nodeId") val nodeId: String? = null,
-    @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId") val sessionId: String? = null,
-    val at: String = "",
-    val kind: String = "",
-    val message: String = "",
 )

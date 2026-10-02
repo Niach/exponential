@@ -31,9 +31,7 @@ export const MERGE_PR_LABEL = contract.diffUi.mergePr
 //              (`SEGMENTED_LIST`, h-9) and the 36px GitHub circle: the `md`
 //              Pill stretched to the toggle's own height.
 //
-// Nothing else may hand these pills a height. EXP-1079: the work header's
-// graph badge (`pr-graph-badge.tsx`) stands in the same cluster, so it reads
-// the SAME recipe — exported for it, never restated.
+// Nothing else may hand these pills a height.
 export type RunPillPlacement = `tray` | `header`
 
 export const PLACEMENT_SIZE: Record<RunPillPlacement, `sm` | `md`> = {

@@ -47,30 +47,8 @@ final class BuiltinActionsTests: XCTestCase {
         )
     }
 
-    // EXP-981: the Plan-workflow builtin — the planner run of ONE draft
-    // workflow, hidden like Chat. It takes NO inputs: the workflow it plans
-    // rides the start as `workflowId`, and the free text is optional extra
-    // instructions.
-    func testThePlanWorkflowBuiltinMatchesTheWebDefinition() {
-        let plan = ActionDto.builtinPlanWorkflowAction(teamId: "t-1")
-        XCTAssertEqual(plan.id, DomainContract.builtinPlanWorkflowId)
-        XCTAssertEqual(plan.id, "builtin:plan-workflow")
-        XCTAssertEqual(plan.name, "Plan workflow")
-        XCTAssertEqual(
-            plan.description,
-            "Let your agent turn a workflow's issues into a shallow, parallel plan"
-        )
-        XCTAssertEqual(plan.icon, "layers")
-        XCTAssertTrue(plan.isBuiltin)
-        XCTAssertNil(plan.repositoryId)
-        XCTAssertEqual(plan.body, "")
-        XCTAssertEqual(plan.sortOrder, 1e9 + 3)
-        XCTAssertEqual(plan.inputs ?? [], [])
-        XCTAssertEqual(plan.promptPlaceholder, "Anything the plan should respect (optional)…")
-    }
-
-    // The leakage guard: chat and the planner are in NO list constructor.
-    func testChatAndPlanWorkflowAreNeverListed() {
+    // The leakage guard: chat is in NO list constructor.
+    func testChatIsNeverListed() {
         let listed = ActionDto.builtinActions(teamId: "t-1")
         XCTAssertEqual(
             listed.map(\.id),
@@ -81,7 +59,6 @@ final class BuiltinActionsTests: XCTestCase {
             ]
         )
         XCTAssertFalse(listed.contains { $0.id == DomainContract.builtinChatId })
-        XCTAssertFalse(listed.contains { $0.id == DomainContract.builtinPlanWorkflowId })
     }
 
     // FEED-50: "Tidy up" — the third LISTED builtin. Pinned literals,
@@ -117,7 +94,6 @@ final class BuiltinActionsTests: XCTestCase {
     func testNoBuiltinCarriesTriggers() {
         let builtins = ActionDto.builtinActions(teamId: "t-1") + [
             ActionDto.builtinChatAction(teamId: "t-1"),
-            ActionDto.builtinPlanWorkflowAction(teamId: "t-1"),
         ]
         XCTAssertTrue(builtins.allSatisfy(\.triggers.isEmpty))
     }
@@ -186,13 +162,12 @@ final class BuiltinActionsTests: XCTestCase {
         )
     }
 
-    // EXP-825: Create action carries a composer hint (EXP-981: so does Plan
-    // workflow); the other two show the generic
-    // "Additional instructions (optional)…".
-    func testOnlyTheTwoAuthoringBuiltinsCarryAComposerHint() {
+    // EXP-825: Create action carries a composer hint; Fix and Chat show the
+    // generic "Additional instructions (optional)…".
+    func testBuiltinComposerHints() {
         XCTAssertNil(ActionDto.builtinFixConflictsAction(teamId: "t-1").promptPlaceholder)
         XCTAssertNil(ActionDto.builtinChatAction(teamId: "t-1").promptPlaceholder)
-        XCTAssertNotNil(ActionDto.builtinPlanWorkflowAction(teamId: "t-1").promptPlaceholder)
+        XCTAssertNotNil(ActionDto.builtinCreateAction(teamId: "t-1").promptPlaceholder)
     }
 
     func testTheFixConflictsBuiltinIsUnchanged() {

@@ -22,6 +22,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -42,20 +43,19 @@ import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.DoneBlue
 import com.exponential.app.ui.issue.RelationBandFrame
 import com.exponential.app.ui.issue.RelationIssueRow
-import com.exponential.app.ui.reviews.PrStatePill
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
 
 // EXP-897 part 4: ONE badge in the Work screen's top bar for everything this
-// pull request is entangled with — the stack it sits in, the batch it spans,
-// its open blockers — and ONE "Related work" sheet behind it (SLOP-16 r5: the
-// relations card's bands, nothing else). Same rows and the same words on all four clients
+// pull request is entangled with (the stack it sits in, the batch it spans,
+// its open blockers) and ONE "Related work" sheet behind it (SLOP-16 r5: the
+// relations card's bands, nothing else; SLOP-3: read-only, no merge). Same rows and the same words on all four clients
 // (`components/pr-graph-badge.tsx`, `PrGraphBadge.swift`, `pr_graph.rs`).
 
 /**
- * SLOP-16: the badge is a quiet ICON BUTTON beside the `…` — the same ghost
- * [CircleIconButton] the `…` wears — whose glyph names the SHAPE
+ * SLOP-16: the badge is a quiet ICON BUTTON beside the `…` (the same ghost
+ * [CircleIconButton] the `…` wears) whose glyph names the SHAPE
  * ([PrGraph.badgeShape]: stack, batch, blockers). The stacked
  * issue chip it replaced (EXP-1058/1097) only repeated the title. A small
  * muted `+N` beside it counts everything behind the subject
@@ -110,15 +110,15 @@ fun prGraphBadgeName(shape: PrGraph.BadgeShape) = when (shape) {
 }
 
 /**
- * SLOP-16 r5: THE "Related work" sheet — one layout ×4 (web
+ * SLOP-16 r5: THE "Related work" sheet: one layout ×4 (web
  * `PrGraphOverlay`, iOS `PrGraphBadge.swift`, desktop `pr_graph.rs`). The
  * platform's standard modal ([GlassSheet], content-sized) over EXACTLY the
  * relations card's bands ([RelationBandFrame]: foldable, counted, capped at
  * [IssueRelationsView.BAND_CAP] with "Show N more"), in
  * [PrGraph.overlaySections] order and nothing else:
- *  · Blocked by — the direct open blockers as [RelationIssueRow]s;
- *  · Same pull request — the batch partners as [RelationIssueRow]s;
- *  · Pull request stack — the OTHER pull requests, bottom-up ([PrRelationRow]).
+ *  · Blocked by: the direct open blockers as [RelationIssueRow]s;
+ *  · Same pull request: the batch partners as [RelationIssueRow]s;
+ *  · Pull request stack: the OTHER pull requests, bottom-up ([PrRelationRow]).
  */
 @Composable
 fun PrGraphSheet(
@@ -195,7 +195,7 @@ fun PrGraphSheet(
 
 /**
  * One band: open by default, [IssueRelationsView.BAND_CAP] rows then "Show N
- * more" / "Show less" — the relations card's rule, over any row.
+ * more" / "Show less": the relations card's rule, over any row.
  */
 @Composable
 private fun <T> CappedBand(
@@ -277,4 +277,27 @@ private fun PrRelationRow(pr: IssueEntity, onClick: () -> Unit) {
         Spacer(Modifier.width(12.dp))
         PrStatePill(pr.prState)
     }
+}
+
+/** The PR's state as one coloured word: open green, merged blue, else muted. */
+@Composable
+private fun PrStatePill(state: String?) {
+    val label = when (state) {
+        DomainContract.prStateOpen -> "Open"
+        DomainContract.prStateMerged -> "Merged"
+        DomainContract.prStateClosed -> "Closed"
+        DomainContract.prStateDraft -> "Draft"
+        else -> return
+    }
+    val tint: Color = when (state) {
+        DomainContract.prStateOpen -> DesignTokens.Semantic.Green
+        DomainContract.prStateMerged -> DoneBlue
+        else -> MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+    }
+    Text(
+        label,
+        style = MaterialTheme.typography.labelSmall,
+        color = tint,
+        maxLines = 1,
+    )
 }

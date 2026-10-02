@@ -19,7 +19,6 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
 }))
 vi.mock(`@/lib/integrations/notifications`, () => ({ sendAgentMessage: vi.fn() }))
 vi.mock(`@/lib/steer-child-messages`, () => ({
-  loadSessionChain: vi.fn(),
   MAX_SESSION_CHAIN_DEPTH: 20,
 }))
 vi.mock(`@/lib/sessions/merged-own-pr`, async (importOriginal) => ({
@@ -65,7 +64,6 @@ function row(overrides: Partial<YoloRunRow> & { id: string }): YoloRunRow {
     prUrl: null,
     prNumber: null,
     prState: null,
-    workflowId: null,
     issueIdentifier: null,
     issuePrUrl: null,
     issuePrNumber: null,

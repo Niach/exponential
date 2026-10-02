@@ -20,18 +20,18 @@ final class SubShellContractTests: XCTestCase {
         XCTAssertFalse(navigation.isOpen)
         XCTAssertNil(navigation.current)
 
-        navigation.push(page("workflow", "Workflow settings"))
+        navigation.push(page("defaults", "Agent defaults"))
 
         // The card is gone: the host draws THIS page instead of it.
         XCTAssertTrue(navigation.isOpen)
         XCTAssertEqual(navigation.depth, 1)
-        XCTAssertEqual(navigation.current?.id, "workflow")
-        XCTAssertEqual(navigation.current?.title, "Workflow settings")
+        XCTAssertEqual(navigation.current?.id, "defaults")
+        XCTAssertEqual(navigation.current?.title, "Agent defaults")
     }
 
     func testTheChildPageCarriesABackButtonOnTopThatReturnsToTheCard() {
         var navigation = SubShellNavigation()
-        navigation.push(page("workflow", "Workflow settings"))
+        navigation.push(page("defaults", "Agent defaults"))
 
         navigation.back()
 
@@ -45,7 +45,7 @@ final class SubShellContractTests: XCTestCase {
 
     func testASubShellInsideTheChildPageSlidesOneLevelDeeper() {
         var navigation = SubShellNavigation()
-        navigation.push(page("workflow", "Workflow settings"))
+        navigation.push(page("defaults", "Agent defaults"))
         navigation.push(page("models", "Models"))
 
         // Only the TOP page draws: a deeper page hides its parent's rows and
@@ -56,29 +56,29 @@ final class SubShellContractTests: XCTestCase {
         // And back returns ONE level, to the enclosing page.
         navigation.back()
         XCTAssertEqual(navigation.depth, 1)
-        XCTAssertEqual(navigation.current?.id, "workflow")
+        XCTAssertEqual(navigation.current?.id, "defaults")
     }
 
     func testADisabledRowNeverOpens() {
         var navigation = SubShellNavigation()
-        navigation.push(page("workflow", "Workflow settings"), disabled: true)
+        navigation.push(page("defaults", "Agent defaults"), disabled: true)
         XCTAssertFalse(navigation.isOpen)
 
         // Nor does it disturb a page that is already open.
-        navigation.push(page("workflow", "Workflow settings"))
+        navigation.push(page("defaults", "Agent defaults"))
         navigation.push(page("models", "Models"), disabled: true)
         XCTAssertEqual(navigation.depth, 1)
-        XCTAssertEqual(navigation.current?.id, "workflow")
+        XCTAssertEqual(navigation.current?.id, "defaults")
     }
 
     /// The page is pushed as a CLOSURE, never as a view snapshot frozen at
     /// tap time: the host re-invokes it on every render, so the bindings the
-    /// caller handed it (the workflow pickers' drafts) stay live.
+    /// caller handed it (a page's pickers' drafts) stay live.
     func testAnOpenPageFollowsItsLiveBindings() {
         var model = "opus"
         var rendered: [String] = []
         var navigation = SubShellNavigation()
-        navigation.push(SubShellPage(id: "workflow", title: "Workflow settings") {
+        navigation.push(SubShellPage(id: "defaults", title: "Agent defaults") {
             rendered.append(model)
             return Text(model)
         })

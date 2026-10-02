@@ -73,13 +73,8 @@ export const CODING_SESSION_COLUMNS = [
   `ended_by`,
   `resumed_from_id`,
   `parent_session_id`,
-  // EXP-1082: workflow membership (which workflow, node and role a run
-  // belongs to — the session tree groups on it) and the question a run
-  // parked on (the `needs you` badge's text and time). Both stamped by
-  // the server; a shape-identity rotation like every column above.
-  `workflow_id`,
-  `workflow_node_id`,
-  `workflow_role`,
+  // EXP-1082: the question a run parked on (the `needs you` badge's text
+  // and time), stamped by the server.
   `pending_question`,
   `needs_input`,
   `agent_busy`,

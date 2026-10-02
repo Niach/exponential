@@ -168,7 +168,6 @@ fun EntityRefPreviewSheet(
             "session" -> SessionCard(ref, open)
             "label" -> LabelCard(ref, open)
             "status" -> StatusCard(ref, open)
-            "workflow" -> WorkflowCard(ref, open)
             "device" -> DeviceCard(ref, open)
             "member" -> MemberCard(ref, open)
             "team" -> TeamCard(ref, open)
@@ -454,26 +453,6 @@ private fun StatusCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
 }
 
 @Composable
-private fun WorkflowCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
-    val workflow by observeScoped(ref.id, null) { it.workflowDao().observeById(ref.id) }
-    val row = workflow ?: run {
-        SlimCard(ref, onOpen = { open(EntityTarget.Workflow(ref.id)) })
-        return
-    }
-    val nodes by observeScoped(row.id, emptyList()) { it.workflowNodeDao().observeByWorkflow(row.id) }
-    EntityPreviewCard(
-        icon = { HeaderGlyph(ExpIcons.navWorkflows) },
-        eyebrow = "Workflow",
-        title = row.name.ifBlank { ref.title?.takeIf { it.isNotBlank() } ?: "Workflow" },
-        facts = {
-            GlassPill(row.status.replaceFirstChar { it.uppercase() }, size = PillSize.Sm, mode = PillMode.Readonly)
-            GlassPill("${nodes.size} " + if (nodes.size == 1) "node" else "nodes", size = PillSize.Sm, mode = PillMode.Readonly)
-        },
-        onOpen = { open(EntityTarget.Workflow(row.id)) },
-    )
-}
-
-@Composable
 private fun DeviceCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
     val devices by observeScoped(Unit, emptyList()) { it.deviceDao().observeAll() }
     val device = devices.firstOrNull { it.id == ref.id || it.deviceId == ref.id } ?: run {
@@ -640,7 +619,6 @@ private fun memberTarget(ref: EntityRef): EntityTarget? = when (ref.kind) {
     "issue" -> EntityTarget.Issue(ref.id)
     "board" -> EntityTarget.Board(ref.id)
     "session" -> EntityTarget.Session(ref.id)
-    "workflow" -> EntityTarget.Workflow(ref.id)
     "thread" -> EntityTarget.SupportThread(ref.id)
     "action" -> EntityTarget.Action(ref.id)
     "device" -> EntityTarget.Devices

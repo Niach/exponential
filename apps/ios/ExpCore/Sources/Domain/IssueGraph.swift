@@ -115,6 +115,28 @@ public enum IssueGraph {
         return counts
     }
 
+    /// The direct OPEN blockers of `issueId` (a terminal blocker blocks
+    /// nothing; an unsynced one cannot be named), deduped, by identifier.
+    /// Mirrors web `openBlockers`; the related-work badge reads it.
+    public static func openBlockers(
+        issueId: String,
+        relations: [IssueRelationEntity],
+        issues: [IssueEntity]
+    ) -> [IssueEntity] {
+        let byId = Dictionary(issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        var seen = Set<String>()
+        var out: [IssueEntity] = []
+        for relation in relations
+        where relation.type == IssueRelationType.blocks.rawValue
+            && relation.relatedIssueId == issueId {
+            let blockerId = relation.issueId
+            guard blockerId != issueId, seen.insert(blockerId).inserted else { continue }
+            guard let blocker = byId[blockerId], !isFinished(blocker) else { continue }
+            out.append(blocker)
+        }
+        return out.sorted { sortKey($0) < sortKey($1) }
+    }
+
     /// The open issues that block any of `ids` from OUTSIDE the set, by
     /// identifier: what a batch start has to ask about (a blocker picked into
     /// the same batch is not in its way).

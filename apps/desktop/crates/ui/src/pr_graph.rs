@@ -1,4 +1,4 @@
-//! EXP-897 §4 — the ONE stack/batch badge and its "Related work" dialog.
+//! EXP-897 §4: the ONE stack/batch badge and its "Related work" dialog.
 //!
 //! Every face of a top tab (Issue · Run · Changes) shares one work header, so
 //! it shares ONE badge. SLOP-16 round 2: the badge is a muted ICON BUTTON
@@ -19,10 +19,13 @@
 //! row, and for a pull request the same row shape (PR glyph · `#n` · title ·
 //! state chip). Nothing else. Copy: [`domain::pr_graph::overlay_copy`].
 //!
-//! Every click inside the dialog closes it and acts in the opener. The
-//! Reviews list keeps its batch popover ([`batch_glyph`]), the same rows.
+//! Every click inside the dialog closes it and acts in the opener.
 //!
-//! The model is [`domain::pr_graph`] — this module is presentation only.
+//! SLOP-3 kept this badge when the stack SYSTEM went: the three bands are
+//! read from synced data alone (`blocks` relations, a shared `pr_url`, and
+//! `pr_base_branch == lower.branch`); there is no merge-stack control.
+//!
+//! The model is [`domain::pr_graph`]: this module is presentation only.
 
 use gpui::{
     div, prelude::FluentBuilder as _, px, size, AnyElement, App, AppContext as _, ClickEvent,
@@ -36,7 +39,6 @@ use domain::rows::{CodingSession, Issue};
 
 use crate::icons::{registry, ExpIcon};
 use crate::issue_relations::{band_window, fold_band, FoldBand, IssueRowOpts};
-use crate::surface::{glass_pill_button, PillSize};
 
 /// Everything one badge draws: the graph, its `blocked_by` included
 /// (EXP-1097).
@@ -46,7 +48,7 @@ pub(crate) struct BadgeSpec {
 }
 
 impl BadgeSpec {
-    /// The badge's count source — [`pr_graph::badge_chip`], the SAME on
+    /// The badge's count source: [`pr_graph::badge_chip`], the SAME on
     /// every face (EXP-1097).
     pub(crate) fn chip(&self) -> Option<BadgeChip> {
         pr_graph::badge_chip(&self.graph)
@@ -57,7 +59,7 @@ impl BadgeSpec {
 // Reads
 // ---------------------------------------------------------------------------
 
-/// Every issue of the team `issue` belongs to — the scope the branch-matching
+/// Every issue of the team `issue` belongs to: the scope the branch-matching
 /// stack rule needs (the caller owns the scoping, exactly like the web twin).
 fn team_issues(issue: &Issue, cx: &App) -> Vec<Issue> {
     let Some(store) = sync::Store::try_global(cx) else {
@@ -81,7 +83,7 @@ fn team_issues(issue: &Issue, cx: &App) -> Vec<Issue> {
         .collect()
 }
 
-/// EXP-736 — the issues BLOCKING `issue_id`: canonical `blocks` rows whose
+/// EXP-736: the issues BLOCKING `issue_id`: canonical `blocks` rows whose
 /// `related_issue_id` is this issue (the inverse side, "blocked by"). Rows
 /// whose blocker has not synced are dropped; a blocker that is done,
 /// cancelled or a duplicate no longer blocks anything.
@@ -91,22 +93,45 @@ pub(crate) fn blocked_by(issue_id: &str, cx: &App) -> Vec<Issue> {
     };
     let collections = store.collections();
     let issues = collections.issues.read(cx);
-    // EXP-980: the ONE `openBlockers` rule (`chat_launch::blockers_of`), not
-    // a second copy of it — this used to re-derive the inverse-side filter.
     let relations = collections.relations_for_issue(issue_id, cx);
-    let mut blockers: Vec<Issue> =
-        crate::chat_launch::blockers_of(issue_id, &relations, |id| issues.get(id))
+    let mut blockers: Vec<Issue> = blockers_of(issue_id, &relations, |id| issues.get(id))
             .into_iter()
             .filter(|blocker| !status_is_closed(blocker))
             .cloned()
             .collect();
     // EXP-1097: plain identifier order, byte-for-byte web `openBlockers`
-    // (`lib/stack-start.ts`) and the natives' — the `blocked` chip's front
+    // (`lib/stack-start.ts`) and the natives': the `blocked` chip's front
     // issue is the FIRST blocker, so a natural sort here led with a
     // different issue than the other three clients.
     blockers.sort_by(|a, b| a.identifier.cmp(&b.identifier));
     blockers.dedup_by(|a, b| a.id == b.id);
     blockers
+}
+
+/// EXP-897: the blockers of an issue, read off the synced `issue_relations`
+/// rows. Only the INVERSE side of a canonical `blocks` row counts
+/// (`related_issue_id == me`); a row whose other issue has not synced is
+/// skipped, and an issue named by two rows appears once. Status is NOT
+/// filtered here.
+fn blockers_of<'a>(
+    issue_id: &str,
+    relations: &[domain::rows::IssueRelation],
+    issue_of: impl Fn(&str) -> Option<&'a Issue>,
+) -> Vec<&'a Issue> {
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for relation in relations {
+        if relation.kind.as_deref() != Some("blocks") || relation.related_issue_id != issue_id {
+            continue;
+        }
+        if !seen.insert(relation.issue_id.clone()) {
+            continue;
+        }
+        if let Some(issue) = issue_of(&relation.issue_id) {
+            out.push(issue);
+        }
+    }
+    out
 }
 
 /// A blocker that is done, cancelled or a duplicate blocks nothing any more
@@ -123,7 +148,7 @@ fn status_is_closed(issue: &Issue) -> bool {
 pub(crate) fn issue_spec(issue: &Issue, cx: &App) -> BadgeSpec {
     let issues = team_issues(issue, cx);
     let mut graph = pr_graph::pr_graph(Some(issue), None, &issues, &[]);
-    // EXP-1097: the open blockers ride the GRAPH (web `blockedBy`) — they
+    // EXP-1097: the open blockers ride the GRAPH (web `blockedBy`): they
     // earn the badge on every face, not just the Issue one.
     graph.blocked_by = blocked_by(&issue.id, cx);
     BadgeSpec { graph }
@@ -158,7 +183,7 @@ pub(crate) fn badge_name(shape: BadgeShape) -> &'static str {
     }
 }
 
-/// The badge's glyph per shape — a concept, never a raw glyph.
+/// The badge's glyph per shape: a concept, never a raw glyph.
 pub(crate) fn badge_icon(shape: BadgeShape) -> ExpIcon {
     match shape {
         BadgeShape::Stack | BadgeShape::StackAndBatch => registry::PR_STACK,
@@ -174,7 +199,7 @@ pub(crate) fn badge_face(spec: &BadgeSpec) -> Option<(BadgeShape, usize)> {
     Some((shape, spec.chip().map_or(0, |chip| chip.count)))
 }
 
-/// SLOP-16 round 2 — the header badge: a muted ICON BUTTON (the header `…`
+/// SLOP-16 round 2: the header badge: a muted ICON BUTTON (the header `…`
 /// button's box), the glyph naming the shape, a mono `+N` beside it; the
 /// name rides the tooltip. A click opens the graph DIALOG. `None` when there
 /// is nothing to show.
@@ -237,7 +262,7 @@ const BAND_H: f32 = 36.;
 const ROW_H: f32 = 30.;
 const SECTION_GAP: f32 = 12.;
 
-/// SLOP-16 round 3 — open "Related work": the platform's standard modal,
+/// SLOP-16 round 3: open "Related work": the platform's standard modal,
 /// 560 wide, as tall as its content (capped at 85% of the opener).
 fn open_graph_dialog(spec: BadgeSpec, window: &mut Window, cx: &mut App) {
     let viewport = window.viewport_size();
@@ -464,50 +489,6 @@ fn stack_row(entry: &PrEntry, cx: &mut App) -> AnyElement {
         .into_any_element()
 }
 
-/// The Reviews popover's width — issue rows, not a graph.
-const POPOVER_W: f32 = 360.;
-
-/// The Reviews list's batch glyph: the `pr-batch` concept with the batch's
-/// issues in a popover — the SAME issue rows the "Related work" dialog draws.
-pub(crate) fn batch_glyph(id: SharedString, issues: Vec<Issue>, cx: &App) -> AnyElement {
-    let count = issues.len();
-    let muted = cx.theme().muted_foreground;
-    let trigger = glass_pill_button(id.clone(), PillSize::Sm, cx)
-        .icon(
-            Icon::new(registry::PR_BATCH)
-                .with_size(px(PillSize::Sm.glyph()))
-                .text_color(muted),
-        )
-        .label(SharedString::from(format!("{count} issues")))
-        .tooltip(SharedString::from(format!(
-            "This pull request closes {count} issues"
-        )));
-    gpui_component::popover::Popover::new(SharedString::from(format!("{id}-batch")))
-        .p_1()
-        .trigger(trigger)
-        .content(move |_, _window, cx| {
-            let rows: Vec<AnyElement> = issues
-                .iter()
-                .map(|issue| {
-                    crate::issue_relations::issue_row(
-                        &format!("review-batch-issue-{}", issue.id),
-                        issue,
-                        IssueRowOpts {
-                            title: None,
-                            open: true,
-                            remove: None,
-                            guides: None,
-                            in_dialog: false,
-                        },
-                        cx,
-                    )
-                })
-                .collect();
-            v_flex().w(px(POPOVER_W)).min_w_0().children(rows)
-        })
-        .into_any_element()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -534,7 +515,7 @@ mod tests {
         }
     }
 
-    /// SLOP-16 — every shape names itself (the tooltip, byte-identical with
+    /// SLOP-16: every shape names itself (the tooltip, byte-identical with
     /// web) and wears its own concept glyph.
     #[test]
     fn every_shape_has_a_name_and_a_glyph() {
@@ -564,7 +545,7 @@ mod tests {
         assert_eq!(badge_face(&blocked), Some((BadgeShape::Blocked, 0)));
     }
 
-    /// EXP-1058 — `+N` counts every other issue on the stack; EXP-1097:
+    /// EXP-1058: `+N` counts every other issue on the stack; EXP-1097:
     /// blockers alone count all but the first.
     #[test]
     fn the_count_is_everything_but_the_front() {
@@ -579,7 +560,7 @@ mod tests {
         assert_eq!(badge_face(&blocked), Some((BadgeShape::Blocked, 1)));
     }
 
-    /// SLOP-16 round 5 — the dialog lists the stack's OTHER pull requests
+    /// SLOP-16 round 5: the dialog lists the stack's OTHER pull requests
     /// (`#n`, the identifier without a number) and sizes to the capped bands.
     #[test]
     fn the_stack_band_lists_the_other_pull_requests() {
@@ -602,5 +583,74 @@ mod tests {
             content_height(&blocked),
             2. * DIALOG_PAD + SECTION_GAP + BAND_H * 2. + ROW_H * 5.
         );
+    }
+
+    fn issue_row(id: &str, identifier: &str) -> domain::rows::Issue {
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "board_id": "board-1",
+            "number": 1,
+            "identifier": identifier,
+            "title": identifier,
+            "status": "backlog",
+        }))
+        .expect("issue row")
+    }
+
+    fn relation(id: &str, issue_id: &str, related_issue_id: &str, kind: &str) -> domain::rows::IssueRelation {
+        domain::rows::IssueRelation {
+            id: id.to_string(),
+            issue_id: issue_id.to_string(),
+            related_issue_id: related_issue_id.to_string(),
+            kind: Some(kind.to_string()),
+            source: Some("user".to_string()),
+            team_id: None,
+            board_id: None,
+            created_at: None,
+            updated_at: None,
+        }
+    }
+
+    /// EXP-897: only the INVERSE side of a canonical `blocks` row is a
+    /// blocker: the forward side is what THIS issue blocks, and no other
+    /// relation type counts at all. Duplicates collapse.
+    #[test]
+    fn blockers_of_reads_only_the_inverse_side_of_blocks() {
+        let rows = vec![issue_row("i-11", "EXP-11"), issue_row("i-13", "EXP-13")];
+        let lookup = |id: &str| rows.iter().find(|issue| issue.id == id);
+        let relations = vec![
+            // EXP-11 blocks me: the one that counts.
+            relation("r-1", "i-11", "i-12", "blocks"),
+            // …named twice (two rows, one blocker).
+            relation("r-2", "i-11", "i-12", "blocks"),
+            // I block EXP-13: the other side, not a blocker of mine.
+            relation("r-3", "i-12", "i-13", "blocks"),
+            // Related/parent never block.
+            relation("r-4", "i-13", "i-12", "related"),
+            relation("r-5", "i-13", "i-12", "parent"),
+        ];
+        let blockers = blockers_of("i-12", &relations, lookup);
+        assert_eq!(
+            blockers.iter().map(|issue| issue.identifier.as_str()).collect::<Vec<_>>(),
+            vec!["EXP-11"]
+        );
+        // Nothing blocks an issue with no inverse rows.
+        assert!(blockers_of("i-13", &relations, lookup).is_empty());
+    }
+
+    /// A blocker whose issue row has not synced (its board is trashed, or it
+    /// belongs to a team this device left) is skipped rather than rendered as
+    /// a dangling id.
+    #[test]
+    fn blockers_of_skips_an_unsynced_blocker() {
+        let rows = vec![issue_row("i-11", "EXP-11")];
+        let lookup = |id: &str| rows.iter().find(|issue| issue.id == id);
+        let relations = vec![
+            relation("r-1", "i-11", "i-12", "blocks"),
+            relation("r-2", "i-99", "i-12", "blocks"),
+        ];
+        let blockers = blockers_of("i-12", &relations, lookup);
+        assert_eq!(blockers.len(), 1);
+        assert_eq!(blockers[0].id, "i-11");
     }
 }

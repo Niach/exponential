@@ -1,12 +1,13 @@
 import Foundation
 
-/// EXP-897 — the PR STACK, derived from synced data alone and mirrored ×4
-/// (web `lib/pr-stack.ts`, desktop `queries::nest_review_entries`, Android
-/// `PrStack.kt`).
+/// EXP-897, the PR STACK, derived from synced data alone and mirrored ×4
+/// (web `lib/pr-stack.ts`, desktop `domain::pr_stack`, Android `PrStack.kt`).
+/// SLOP-3: the client CHAIN, read by the related-work badge (`PrGraph`) and
+/// the stack merge dialog (`stackMergeChoice`, EXP-1145); no list nesting.
 ///
 /// One edge, one rule: a pull request is stacked ON another when its
 /// `prBaseBranch` equals the lower one's `branch` (both non-empty). No stack
-/// table, no server round-trip — `issues.pr_base_branch` is synced and every
+/// table, no server round-trip, `issues.pr_base_branch` is synced and every
 /// client derives the same chain from it.
 ///
 /// Three guards the shared tests pin:
@@ -14,7 +15,7 @@ import Foundation
 ///   `main`, or on a branch outside this team's synced rows);
 /// - a cycle breaks where it FIRST repeats (defensive: GitHub cannot make
 ///   one, a half-synced snapshot can);
-/// - roots keep the CALLER's order, children follow their parent.
+/// - a fork follows the FIRST child in the caller's order.
 public enum PrStack {
 
     // MARK: - Position
@@ -110,15 +111,16 @@ public enum PrStack {
     // MARK: - Stack merge choice
 
     // EXP-1145: a PLAIN Merge control on a stack member asks first. Merging a
-    // member lands every open member BELOW it, so the Changes face and the run
-    // view offer Merge stack / Merge this pull request / Cancel. ONE pure
+    // member lands every open member BELOW it, so every merge control (the
+    // Work screen's pill, the Review screen, Reviews rows) offers Merge stack /
+    // Merge this pull request / Cancel. ONE pure
     // function mirrored ×4 (web `stackMergeChoice` in `lib/pr-stack.ts`,
     // desktop `pr_stack::stack_merge_choice`, Android
     // `PrStack.stackMergeChoice`), fixture-locked by
     // `packages/domain-contract/fixtures/stack-merge-choice.json`.
 
     public static let stackMergeChoiceTitle = "This pull request is part of a stack"
-    public static let mergeStackLabel = ReviewsMerge.mergeStackLabel
+    public static let mergeStackLabel = "Merge stack"
     public static let mergeThisPrLabel = "Merge this pull request"
     public static let stackMergeCancelLabel = "Cancel"
 
@@ -130,13 +132,19 @@ public enum PrStack {
         /// 1-based, from the bottom: where the pull request being merged sits.
         public let position: Int
         public let bottomIssueId: String
-        /// What `mergePr(mergeStack: true)` takes.
+        /// What Merge stack sends: `mergePr(issueId: top, mergeStack: true)`.
         public let topIssueId: String
         public let listing: String
         public let stackSentence: String
         public let thisSentence: String
         /// The listing, a blank line, the two sentences.
         public let body: String
+
+        /// Whether "Merge this pull request" goes through the stack merge:
+        /// the bottom member merges plainly, any other one sends
+        /// `mergePr(issueId: <itself>, mergeStack: true)` so the server lands
+        /// the chain bottom-up THROUGH it (`thisSentence`).
+        public var mergeThisUsesStack: Bool { position > 1 }
 
         public init(
             members: [String], position: Int, bottomIssueId: String, topIssueId: String,
@@ -215,77 +223,6 @@ public enum PrStack {
             stackSentence: stackSentence,
             thisSentence: thisSentence,
             body: "\(listing)\n\n\(stackSentence)\n\(thisSentence)"
-        )
-    }
-
-    // MARK: - Nesting
-
-    /// One row of a nested list: the entry, its depth, and whether anything
-    /// is nested right below it.
-    public struct Nested<T> {
-        public let entry: T
-        /// 0 for a root (a PR based on something nobody here owns), +1 per level.
-        public let depth: Int
-        public let hasChildren: Bool
-
-        public init(entry: T, depth: Int, hasChildren: Bool) {
-            self.entry = entry
-            self.depth = depth
-            self.hasChildren = hasChildren
-        }
-    }
-
-    /// Nest `entries` into their stacks: a root keeps the caller's order, and
-    /// every stacked entry follows the entry it is based on, one level deeper.
-    public static func nestPrStacks<T>(
-        _ entries: [T],
-        id: (T) -> String,
-        branch: (T) -> String?,
-        base: (T) -> String?
-    ) -> [Nested<T>] {
-        let byBranch = branchIndex(entries, branch: branch)
-        let ids = Dictionary(
-            entries.enumerated().map { (id($0.element), $0.offset) }, uniquingKeysWith: { a, _ in a }
-        )
-
-        func lowerIndex(_ index: Int) -> Int? {
-            let entry = entries[index]
-            guard let baseRef = nonEmpty(base(entry)), let lower = byBranch[baseRef] else {
-                return nil
-            }
-            guard let lowerIdx = ids[id(lower)], lowerIdx != index else { return nil }
-            return lowerIdx
-        }
-
-        // Children in caller order, keyed by the index of the entry below.
-        var childrenOf: [Int: [Int]] = [:]
-        var isChild = Array(repeating: false, count: entries.count)
-        for index in entries.indices {
-            guard let lower = lowerIndex(index) else { continue }
-            childrenOf[lower, default: []].append(index)
-            isChild[index] = true
-        }
-
-        var placed = Array(repeating: false, count: entries.count)
-        var out: [Nested<T>] = []
-        func visit(_ index: Int, depth: Int) {
-            if placed[index] { return }
-            placed[index] = true
-            let children = (childrenOf[index] ?? []).filter { !placed[$0] }
-            out.append(Nested(entry: entries[index], depth: depth, hasChildren: !children.isEmpty))
-            for child in children { visit(child, depth: depth + 1) }
-        }
-        for index in entries.indices where !isChild[index] { visit(index, depth: 0) }
-        // A cycle left members unplaced — keep them, at depth 0 (the
-        // `SessionTree` precedent: a list never silently loses a row).
-        for index in entries.indices { visit(index, depth: 0) }
-        return out
-    }
-
-    /// The synced-row convenience for a flat list of issues.
-    public static func nestPrStacks(_ issues: [IssueEntity]) -> [Nested<IssueEntity>] {
-        nestPrStacks(
-            issues, id: { $0.id }, branch: { $0.branch }, base: { $0.prBaseBranch }
         )
     }
 

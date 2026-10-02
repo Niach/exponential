@@ -106,8 +106,8 @@ struct PrChangesFace: View {
             titleVisibility: .visible,
             presenting: stackChoice
         ) { choice in
-            Button(PrStack.mergeStackLabel) { viewModel?.mergeStack(topIssueId: choice.topIssueId) }
-            Button(PrStack.mergeThisPrLabel) { viewModel?.mergePr() }
+            Button(PrStack.mergeStackLabel) { viewModel?.mergeStack(issueId: choice.topIssueId) }
+            Button(PrStack.mergeThisPrLabel) { mergeThis(choice) }
             Button(PrStack.stackMergeCancelLabel, role: .cancel) {}
         } message: { choice in
             Text(choice.body)
@@ -151,6 +151,16 @@ struct PrChangesFace: View {
         } else {
             mergeConfirm = true
         }
+    }
+
+    /// "Merge this pull request": the bottom member merges plainly, any other
+    /// one lands the chain bottom-up THROUGH itself.
+    private func mergeThis(_ choice: PrStack.StackMergeChoice) {
+        guard choice.mergeThisUsesStack, let issueId = viewModel?.issue?.id else {
+            viewModel?.mergePr()
+            return
+        }
+        viewModel?.mergeStack(issueId: issueId)
     }
 
     /// The merge alert message — carries the PR number when known.

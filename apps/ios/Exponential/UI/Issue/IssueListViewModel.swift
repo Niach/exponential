@@ -120,7 +120,7 @@ final class IssueListViewModel {
         // EXP-980: the relation rows the list nests (`parent`) and badges
         // (`blocks`) with, plus the issues at either end of a `blocks` row —
         // a blocker on ANOTHER board still counts, so the badge's pool is
-        // wider than this board's. One tracked read, like PrGraphModel's.
+        // wider than this board's. One tracked read.
         let relationObservation = ValueObservation.tracking {
             db -> ([IssueRelationEntity], [IssueEntity]) in
             let relations = try IssueRelationEntity.fetchAll(db)

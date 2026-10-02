@@ -21,17 +21,14 @@ import type { CodingSession, Device } from "@/db/schema"
 import { deviceCollection } from "@/lib/collections"
 import { sessionDisplayState } from "@/lib/coding-session-display"
 import { sessionIdentity } from "@/lib/session-identity"
-import type { SessionTreeNode } from "@/lib/sessions/session-tree"
 import { cn } from "@/lib/utils"
 import {
-  SessionGroupRow,
+  sessionNodeDecor,
   TreeFoldToggle,
   useCollapsedNodes,
-  useSessionRowDecor,
-  useSessionTreeContext,
   useSessionTreeRows,
 } from "@/components/session-tree"
-import { DuplicateRunGlyph, type SessionRowDecor } from "@/components/session-list-rows"
+import type { SessionRowDecor } from "@/components/session-list-rows"
 import { rowPrState, useSessionListRows, type SessionListRow } from "@/hooks/use-agents-data"
 import { useMyLiveRuns } from "@/hooks/use-my-live-runs"
 import { useOpenSession } from "@/hooks/use-open-session"
@@ -54,26 +51,17 @@ import { useOpenSession } from "@/hooks/use-open-session"
 // Clicking a row navigates with the `running` origin, which creates no work
 // tab (`lib/work-tabs.ts` `TABLESS_ORIGIN`) and keeps the main menu up.
 //
-// EXP-996: and the nesting is the whole `sessionTree` — a workflow's node runs
-// and a stack's runs each sit under ONE group row here too, so ten live nodes
-// read as one workflow instead of filling the menu.
+// EXP-996: and the nesting is the whole `sessionTree`, resumes collapsed.
 
 const EMPTY_COLLAPSED: ReadonlySet<string> = new Set<string>()
 
-/** One row of the section, nested: a live run, or the group row above a
- *  workflow's runs or a stack's. */
-export type RunningRow = RunningSessionEntry | RunningGroupEntry
-
-interface RunningEntryBase {
+/** One row of the section, nested: a live run. */
+export interface RunningSessionEntry {
   /** `sessionTreeNodeKey` — what the collapsed set holds. */
   key: string
   depth: number
   hasChildren: boolean
   guide: TreeGuide
-}
-
-export interface RunningSessionEntry extends RunningEntryBase {
-  kind: `session`
   row: SessionListRow
   /** The device row behind `session.device_id`, for its icon. */
   device: Pick<Device, `icon` | `kind`> | undefined
@@ -82,14 +70,8 @@ export interface RunningSessionEntry extends RunningEntryBase {
   needsInput: boolean
   identifier: string | null
   subject: string
-  /** EXP-1068: a workflow member's role on the row — a review's title, the
-   *  duplicate warning, the red needs-you dot. */
+  /** EXP-1068: the red needs-you dot of an open question. */
   decor: SessionRowDecor | undefined
-}
-
-export interface RunningGroupEntry extends RunningEntryBase {
-  kind: `group`
-  node: Extract<SessionTreeNode<CodingSession>, { kind: `workflow` | `stack` }>
 }
 
 /** My live runs in the team, joined and nested — the section's model, shared
@@ -98,12 +80,10 @@ export function useMyRunningRows(
   teamId: string | undefined,
   currentUserId: string | undefined,
   collapsed: ReadonlySet<string> = EMPTY_COLLAPSED
-): RunningRow[] {
+): RunningSessionEntry[] {
   const { runs } = useMyLiveRuns(teamId, currentUserId, 30_000)
   const rows = useSessionListRows(teamId, runs)
-  const context = useSessionTreeContext(teamId, rows)
-  const tree = useSessionTreeRows(rows, context, collapsed)
-  const decorOf = useSessionRowDecor(teamId)
+  const tree = useSessionTreeRows(rows, collapsed)
   const { data: deviceRows } = useLiveQuery(
     (query) => (teamId ? query.from({ d: deviceCollection }) : undefined),
     [teamId]
@@ -115,29 +95,20 @@ export function useMyRunningRows(
       const matches = devices.filter((d) => d.deviceId === session.deviceId)
       return matches.find((d) => d.userId === session.userId) ?? matches[0]
     }
-    return tree.flatMap(({ flat, row, guide }): RunningRow[] => {
-      const base = {
-        key: flat.key,
-        depth: flat.depth,
-        hasChildren: flat.hasChildren,
-        guide,
-      }
-      if (flat.node.kind !== `session`) {
-        return [
-          { ...base, kind: `group`, node: flat.node } satisfies RunningGroupEntry,
-        ]
-      }
+    return tree.flatMap(({ flat, row, guide }): RunningSessionEntry[] => {
       if (!row) return []
       const identity = sessionIdentity(row)
       const state = sessionDisplayState(
         row.session,
         rowPrState(row.session, row.issue)
       )
-      const decor = decorOf(flat.node)
+      const decor = sessionNodeDecor(flat.node)
       return [
         {
-          ...base,
-          kind: `session`,
+          key: flat.key,
+          depth: flat.depth,
+          hasChildren: flat.hasChildren,
+          guide,
           row,
           device: deviceOf(row.session),
           deviceName: row.device.label || row.session.deviceLabel || `Desktop`,
@@ -148,7 +119,7 @@ export function useMyRunningRows(
         } satisfies RunningSessionEntry,
       ]
     })
-  }, [tree, deviceRows, decorOf])
+  }, [tree, deviceRows])
 }
 
 /** Which run the app is SHOWING right now — a sidebar row lights up on either
@@ -220,7 +191,6 @@ export function SidebarRunningSection({
   const entries = useMyRunningRows(teamId, currentUserId, collapsed)
   const shown = useShownRun()
   const openSession = useOpenSession()
-  const { teamSlug } = useParams({ strict: false }) as { teamSlug?: string }
   if (entries.length === 0) return null
   return (
     <SidebarGroup data-testid="sidebar-running">
@@ -232,21 +202,6 @@ export function SidebarRunningSection({
         <div className="flex flex-col">
           {entries.map((entry) => {
             const expanded = !collapsed.has(entry.key)
-            // EXP-996: a workflow's or a stack's runs under one group row,
-            // drawn by the shared row so the menu and the lists agree.
-            if (entry.kind === `group`) {
-              return (
-                <SessionGroupRow
-                  key={entry.key}
-                  node={entry.node}
-                  depth={entry.depth}
-                  guide={entry.guide}
-                  expanded={expanded}
-                  onToggle={() => toggle(entry.key)}
-                  teamSlug={teamSlug}
-                />
-              )
-            }
             const session = entry.row.session
             const DeviceIcon = getDeviceIcon(entry.device ?? {})
             return (
@@ -284,9 +239,6 @@ export function SidebarRunningSection({
                   </span>
                 )}
                 <span className="min-w-0 flex-1 truncate">{entry.subject}</span>
-                {entry.decor?.warning && (
-                  <DuplicateRunGlyph warning={entry.decor.warning} />
-                )}
                 {/* Fixed, never truncated: WHERE the run is. */}
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -310,11 +262,7 @@ export function SidebarRunningSection({
 /** EXP-923: the compact rail's Running column — one 32px button per live run
  *  under the board icons, children straight under their parents (a 48px
  *  column has no room to indent). The rail owns the button chrome, so it
- *  hands one in, exactly like `SidebarPinnedIcons`.
- *
- *  EXP-996: the GROUP rows are dropped here — a 48px column cannot say "these
- *  eight belong to one workflow", and a row nobody can read is worse than the
- *  runs themselves, which are what the reader clicks. */
+ *  hands one in, exactly like `SidebarPinnedIcons`. */
 export function SidebarRunningIcons({
   teamId,
   currentUserId,
@@ -332,9 +280,7 @@ export function SidebarRunningIcons({
   }) => React.ReactNode
   separator?: React.ReactNode
 }) {
-  const entries = useMyRunningRows(teamId, currentUserId).filter(
-    (entry): entry is RunningSessionEntry => entry.kind === `session`
-  )
+  const entries = useMyRunningRows(teamId, currentUserId)
   const shown = useShownRun()
   const openSession = useOpenSession()
   if (entries.length === 0) return null

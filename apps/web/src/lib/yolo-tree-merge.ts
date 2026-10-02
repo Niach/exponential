@@ -52,10 +52,7 @@ import { TRPCError } from "@trpc/server"
 import { db } from "@/db/connection"
 import { codingSessions, repositories, teams, users } from "@/db/schema"
 import type { Context } from "@/lib/trpc"
-import {
-  loadSessionChain,
-  MAX_SESSION_CHAIN_DEPTH,
-} from "@/lib/steer-child-messages"
+import { MAX_SESSION_CHAIN_DEPTH } from "@/lib/steer-child-messages"
 import {
   repoFromPrUrl,
   retargetChildrenOfMergedPr,
@@ -92,7 +89,6 @@ export interface YoloRunRow {
   prUrl: string | null
   prNumber: number | null
   prState: string | null
-  workflowId: string | null
   /** The issue on `issue_id`. */
   issueIdentifier: string | null
   issuePrUrl: string | null
@@ -746,10 +742,31 @@ export async function maybeMergeYoloTree(
 // Real dependencies
 // ---------------------------------------------------------------------------
 
+/** The root of a run's tree: one recursive walk up `parent_session_id`. */
+async function loadRootSessionId(
+  database: Context[`db`],
+  sessionId: string
+): Promise<string | null> {
+  const result = await database.execute(sql`
+    with recursive chain as (
+      select cs.id, cs.parent_session_id, 0 as depth
+      from coding_sessions cs
+      where cs.id = ${sessionId}::uuid
+      union all
+      select p.id, p.parent_session_id, c.depth + 1
+      from coding_sessions p
+      join chain c on p.id = c.parent_session_id
+      where c.depth < ${MAX_SESSION_CHAIN_DEPTH}
+    )
+    select id from chain order by depth desc limit 1
+  `)
+  const top = (result.rows ?? [])[0]
+  return top ? (top.id as string) : null
+}
+
 /**
  * The tree the session belongs to, or null when there is nothing for yolo to
- * do: the team is not in yolo mode, the row is gone, or a run is a workflow
- * node (those land through the workflow's merge train, as EXP-1105 left it).
+ * do: the team is not in yolo mode or the row is gone.
  */
 export async function loadYoloTree(
   database: Context[`db`],
@@ -758,26 +775,25 @@ export async function loadYoloTree(
   const [row] = await database
     .select({
       teamId: codingSessions.teamId,
-      workflowId: codingSessions.workflowId,
       yoloMode: teams.yoloMode,
     })
     .from(codingSessions)
     .innerJoin(teams, eq(teams.id, codingSessions.teamId))
     .where(eq(codingSessions.id, sessionId))
     .limit(1)
-  if (!row || !row.yoloMode || row.workflowId) return null
+  if (!row || !row.yoloMode) return null
 
-  const chain = await loadSessionChain(database, sessionId)
-  if (!chain) return null
+  const rootSessionId = await loadRootSessionId(database, sessionId)
+  if (!rootSessionId) return null
 
-  // The root's resume succession, oldest first: the row `loadSessionChain`
+  // The root's resume succession, oldest first: the row the up-walk
   // stopped at may have been resumed since (its successor inherits the
   // parent, so the up-walk never passes through it).
   const succession = await database.execute(sql`
     with recursive succession as (
       select cs.id, 0 as hops
       from coding_sessions cs
-      where cs.id = ${chain.rootSessionId}::uuid
+      where cs.id = ${rootSessionId}::uuid
       union all
       select s.id, succession.hops + 1
       from coding_sessions s
@@ -806,7 +822,7 @@ export async function loadYoloTree(
     select cs.id, cs.parent_session_id, cs.resumed_from_id, cs.user_id, cs.status,
            cs.agent_busy, cs.needs_input, cs.issue_id, cs.batch_issue_ids,
            cs.action_name, cs.branch, cs.started_at, cs.pr_url, cs.pr_number,
-           cs.pr_state, cs.workflow_id,
+           cs.pr_state,
            i.identifier as issue_identifier, i.pr_url as issue_pr_url,
            i.pr_number as issue_pr_number, i.pr_state as issue_pr_state,
            i.branch as issue_branch,
@@ -842,7 +858,6 @@ export async function loadYoloTree(
     prUrl: (r.pr_url as string | null) ?? null,
     prNumber: (r.pr_number as number | null) ?? null,
     prState: (r.pr_state as string | null) ?? null,
-    workflowId: (r.workflow_id as string | null) ?? null,
     issueIdentifier: (r.issue_identifier as string | null) ?? null,
     issuePrUrl: (r.issue_pr_url as string | null) ?? null,
     issuePrNumber: (r.issue_pr_number as number | null) ?? null,
@@ -854,8 +869,6 @@ export async function loadYoloTree(
     batchPrNumber: (r.batch_pr_number as number | null) ?? null,
     batchPrState: (r.batch_pr_state as string | null) ?? null,
   }))
-  // A workflow node anywhere in the tree: the merge train owns it.
-  if (rows.some((r) => r.workflowId)) return null
   return assembleYoloTree(rows, rootIds, row.teamId)
 }
 

@@ -3,7 +3,6 @@ import {
   GlassGroup,
   GlassSectionHeader,
   GlassToggleRow,
-  SubShell,
   SubShellHost,
   conceptIcon,
 } from "@exp/ui"
@@ -16,7 +15,6 @@ import type { StyleguideEntry } from "./types.ts"
 // ORDER and the wording the four clients agreed on, not the plumbing.
 
 const noop = () => {}
-const WorkflowIcon = conceptIcon(`nav-workflows`)
 const RemoveIcon = conceptIcon(`ui-delete`)
 
 export const entry: StyleguideEntry = {
@@ -24,7 +22,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1020`,
   title: `Device settings`,
-  blurb: `One layout on all four clients (EXP-1020). Top to bottom: the identity row, the default-device toggle, sharing (server machines), then the agent-defaults card — agent tabs, model, subagent model (claude only), effort, ultracode, plan mode — ending in the "Workflow settings" SUB-SHELL row. Update comes last but one; "Remove device" is a plain row, not a section of its own. No worktrees: a machine's worktrees are the IDE's local Settings → Worktrees. A headline only appears where something else shares the page, which is why the agent card has none.`,
+  blurb: `One layout on all four clients (EXP-1020). Top to bottom: the identity row, the default-device toggle, sharing (server machines), then the agent-defaults card — agent tabs, model, subagent model (claude only), effort, ultracode, plan mode — and nothing after it. Update comes last but one; "Remove device" is a plain row, not a section of its own. No worktrees: a machine's worktrees are the IDE's local Settings → Worktrees. A headline only appears where something else shares the page, which is why the agent card has none.`,
   status: {
     web: {
       state: `ok`,
@@ -89,26 +87,6 @@ export const entry: StyleguideEntry = {
           checked={false}
           onCheckedChange={noop}
         />
-        <SubShell label="Workflow settings" icon={WorkflowIcon} value="opus · fable">
-          <GlassGroup>
-            <Combobox
-              triggerVariant="row"
-              searchable={false}
-              mobileTitle="Model"
-              value="opus"
-              onChange={noop}
-              options={[{ value: `opus`, label: `Opus` }]}
-            />
-            <Combobox
-              triggerVariant="row"
-              searchable={false}
-              mobileTitle="Strong model"
-              value="fable"
-              onChange={noop}
-              options={[{ value: `fable`, label: `Fable` }]}
-            />
-          </GlassGroup>
-        </SubShell>
       </GlassGroup>
       <GlassGroup>
         <div className="flex items-center gap-3 px-4 py-3 text-sm text-destructive">

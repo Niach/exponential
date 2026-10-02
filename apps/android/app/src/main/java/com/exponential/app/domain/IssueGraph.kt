@@ -17,6 +17,7 @@ import com.exponential.app.data.db.IssueRelationEntity
  * finished issue is blocked by nothing. A SUBJECT is always kept, open or not.
  */
 object IssueGraph {
+    // The blocked-start dialog's words live in [BlockedStart] (SLOP-3).
 
     /** The most nodes one graph draws; the rest is cut and `truncated` says so. */
     const val MAX_NODES = 60

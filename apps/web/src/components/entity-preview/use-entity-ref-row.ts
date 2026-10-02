@@ -12,7 +12,6 @@ import {
   teamCollection,
   teamInviteCollection,
   userCollection,
-  workflowCollection,
 } from "@/lib/collections"
 import { useIssueRefs, type ResolvedIssueRef } from "@/components/issue-ref-provider"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
@@ -51,8 +50,6 @@ function rowSource(
       return of(codingSessionCollection)
     case `label`:
       return of(labelCollection)
-    case `workflow`:
-      return of(workflowCollection)
     case `device`:
       return of(deviceCollection, `deviceId`)
     case `member`:

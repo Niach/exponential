@@ -28,10 +28,10 @@ import { batchRunIssues, isBatchRun } from "@/lib/batch-run"
 import { runChain } from "@/lib/sessions/run-chain"
 
 /** EXP-734: what a run's Merge control acts on. An issue-scoped run merges
- * through its issue; a batch run through the representative issue of its ONE
- * PR (EXP-535); an issue-LESS run (action or chat) that opened a chore PR
- * (EXP-626) merges through the SESSION row itself, which now carries
- * prUrl/prNumber/prState. */
+ * through its issue; every issue-LESS run (batch, action or chat) that opened
+ * a PR merges through the SESSION row itself, which carries
+ * prUrl/prNumber/prState (a batch run's combined PR too — the server fans the
+ * merge out to its linked issues). */
 export type SessionMergeTarget =
   | { kind: `issue`; issue: Issue }
   | { kind: `session`; session: CodingSession }
@@ -92,10 +92,9 @@ export interface AgentSessionRow {
   board: Board | undefined
   /** May be undefined while the user row is still syncing — render via displayUserName. */
   user: User | undefined
-  /** EXP-734: what the row's Merge control acts on — the linked issue, a
-   * batch run's resolved representative issue (EXP-535, matched by the
-   * stamped session branch EXP-545), or the run row itself once it stamped
-   * its own issue-less chore PR. Absent = no PR to merge. */
+  /** EXP-734: what the row's Merge control acts on — the linked issue, or
+   * the run row itself once it stamped its own PR (an issue-less run: batch,
+   * action or chat). Absent = no PR to merge. */
   mergeTarget: SessionMergeTarget | undefined
   /** EXP-549/550: the host machine as the synced devices row knows it (the
    * RENAMED label, live online-ness) — falls back to the row's snapshot. */
@@ -200,33 +199,6 @@ export function useAgentsData(
     [issueIds.join(`,`)]
   )
 
-  // EXP-535: batch sessions carry no issue linkage, so a batch row resolves
-  // its open PR client-side: the team's open-PR issues on an `exp/batch-`
-  // branch, collapsed by prUrl like Reviews, then matched to the branch the
-  // pr_open flip stamped on the row (EXP-545). Team scoping rides the board
-  // join below (the issues shape drops team_id). Queried only while an
-  // issueless, actionless in-review batch row actually needs it — this hook
-  // also backs the always-mounted dock.
-  const needsBatchPr = useMemo(
-    () =>
-      sessions.some(
-        (session) =>
-          !session.issueId &&
-          session.actionName == null &&
-          session.status === `in_review`
-      ),
-    [sessions]
-  )
-  const { data: openPrIssueRows } = useLiveQuery(
-    (query) =>
-      teamId && needsBatchPr
-        ? query
-            .from({ issues: issueCollection })
-            .where(({ issues }) => eq(issues.prState, `open`))
-        : undefined,
-    [teamId, needsBatchPr]
-  )
-
   // EXP-549/550: the caller's own + team-shared device rows (the devices
   // shape is already server-scoped) resolve each session's live label and
   // online-ness. Ticks every 30 s against the 90 s online window (the
@@ -254,49 +226,14 @@ export function useAgentsData(
     )
     const boardMap = new Map(boards.map((board) => [board.id, board]))
 
-    // The team's open batch PRs, one representative (newest) issue per
-    // distinct prUrl. A session resolves ITS OWN PR by the branch the
-    // pr_open batch flip stamped on the row (EXP-545) — matching by "the
-    // team's sole open batch PR" alone could target a teammate's PR once
-    // the session's own PR closed unmerged. Pre-stamp branchless rows have
-    // drained (EXP-546), so a NULL branch resolves nothing and shows no
-    // Merge shortcut — Reviews still lists every PR.
-    const batchPrByUrl = new Map<string, Issue>()
-    for (const issue of (openPrIssueRows ?? []) as Issue[]) {
-      if (!issue.prUrl || !issue.branch?.startsWith(`exp/batch-`)) continue
-      if (!boardMap.has(issue.boardId)) continue
-      const current = batchPrByUrl.get(issue.prUrl)
-      if (
-        !current ||
-        new Date(issue.createdAt).getTime() >
-          new Date(current.createdAt).getTime()
-      ) {
-        batchPrByUrl.set(issue.prUrl, issue)
-      }
-    }
-    const batchPrReps = [...batchPrByUrl.values()]
-    const resolveBatchPr = (sessionBranch: string | null): Issue | undefined => {
-      if (!sessionBranch) return undefined
-      const matches = batchPrReps.filter(
-        (issue) => issue.branch === sessionBranch
-      )
-      return matches.length === 1 ? matches[0] : undefined
-    }
-
-    // EXP-734: issue run → the issue; batch run in review → its resolved
-    // representative issue (EXP-535); anything else that stamped its OWN
-    // chore PR (action and chat runs, EXP-626) → the session row.
+    // EXP-734: issue run → the issue; any issue-less run that stamped its
+    // OWN PR (batch, action and chat runs) → the session row.
     const resolveMergeTarget = (
       session: CodingSession,
       issue: Issue | undefined
     ): SessionMergeTarget | undefined => {
       if (session.issueId) {
         return issue ? { kind: `issue`, issue } : undefined
-      }
-      const isBatch = session.actionName == null
-      if (isBatch && session.status === `in_review`) {
-        const batchIssue = resolveBatchPr(session.branch)
-        if (batchIssue) return { kind: `issue`, issue: batchIssue }
       }
       if (session.prUrl && session.prNumber != null) {
         return { kind: `session`, session }
@@ -349,7 +286,6 @@ export function useAgentsData(
   }, [
     sessions,
     issueRows,
-    openPrIssueRows,
     resolveBatchIssues,
     boards,
     userMap,

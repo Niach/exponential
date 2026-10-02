@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 import type { Issue, Board } from "@/db/schema"
 
 // EXP-897: the PHONE header of a Work face carries the same stack / batch
-// chip (EXP-1058: the stacked issue chip) the md+ work header wears — tapping it opens the overlay as a sheet.
+// chip (EXP-1058: the stacked issue chip) the md+ work header wears; tapping it opens the overlay as a sheet.
 // The pill is absent whenever the issue is part of nothing, so a lone issue's
 // header keeps the EXP-893 layout exactly as it was.
 
@@ -25,7 +25,7 @@ vi.mock(`@/components/issue-detail-mobile-menu`, () => ({
 vi.mock(`@/components/pin-toggle-button`, () => ({
   PinToggleButton: () => <button type="button">Pin</button>,
 }))
-// The badge's own dependencies — the model is what this test exercises, not
+// The badge's own dependencies: the model is what this test exercises, not
 // the rows it draws inside the overlay.
 vi.mock(`@/hooks/use-open-session`, () => ({ useOpenSession: () => vi.fn() }))
 vi.mock(`@/components/issue-chip`, () => ({ IssueChip: () => null }))
@@ -107,7 +107,7 @@ describe(`IssueMobileHeader`, () => {
     rows.value = [lower]
     renderHeader(lower)
     expect(screen.queryByTestId(`pr-graph-badge`)).toBeNull()
-    // The header itself is untouched — identifier centred, `…` on the right.
+    // The header itself is untouched: identifier centred, `…` on the right.
     expect(screen.getByText(`LOWER`)).toBeTruthy()
   })
 

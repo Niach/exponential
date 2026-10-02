@@ -74,7 +74,6 @@ struct AgentSessionView: View {
     var onStartCoding: () -> Void = {}
 
     @Environment(AppDependencies.self) private var deps
-    @Environment(\.pushRoute) private var pushRoute
     @Environment(\.openURL) private var openURL
     @Environment(\.toaster) private var toaster
     /// A cache of the SteerSessionStore lookup (EXP-621) — the model itself is
@@ -116,9 +115,6 @@ struct AgentSessionView: View {
     /// View state, not model state: it is a place in the card, and a fresh
     /// screen starts on the current step.
     @State private var editingSteps: [String: String] = [:]
-    /// EXP-897: the synced rows behind the stack position line — the run's
-    /// issue and every pull request around it.
-    @State private var stackModel: PrGraphModel?
     @Environment(\.motion) private var motion
 
     /// EXP-746: Usage opens on EITHER half — the machine's rate-limit report
@@ -158,8 +154,6 @@ struct AgentSessionView: View {
     private func runFace(_ model: AgentSessionModel) -> some View {
         // EXP-974: no continuation band any more — a resumed run and its
         // successor share ONE toggle, and the run menu picks between them.
-        // EXP-897: where this run's pull request sits in its stack.
-        stackPositionNote(model)
         // EXP-773: an ended run's close-out sits ABOVE its transcript.
         endedHeader(model)
         // EXP-1161: the band FLOATS over the feed instead of stacking under
@@ -245,16 +239,6 @@ struct AgentSessionView: View {
             .onChange(of: continuation.watcher.failure) { _, failure in
                 guard let failure, model?.sessionEnded != true else { return }
                 toaster.error(failure)
-            }
-            // EXP-897: the stack line's rows. Keyed on the issue, so a
-            // continuation that lands on another one re-arms.
-            .task(id: (model?.session ?? session).issueId) {
-                let stack = stackModel ?? PrGraphModel(accountId: accountId, db: deps.db)
-                stackModel = stack
-                stack.start(
-                    issueId: (model?.session ?? session).issueId,
-                    teamId: (model?.session ?? session).teamId
-                )
             }
             .photosPicker(
                 isPresented: $showPhotoPicker,
@@ -577,65 +561,6 @@ struct AgentSessionView: View {
                 continuation.failed(error.userFacingMessage)
             }
         }
-    }
-
-    // MARK: - Stack position (EXP-897)
-
-    /// The run's issue and the pull requests around it.
-    private var stackGraph: PrGraph.Graph? {
-        guard let stackModel,
-              let issueId = (model?.session ?? session).issueId,
-              let issue = stackModel.issue(id: issueId)
-        else { return nil }
-        return stackModel.graph(issue: issue, session: nil)
-    }
-
-    /// `2 of 3 · on top of #ABC-12` — where this run's pull request sits in
-    /// its stack, with a step down to its foundation and up to what is built
-    /// on it. The ×4 line; both steps open that pull request's Changes.
-    @ViewBuilder
-    private func stackPositionNote(_ sessionModel: AgentSessionModel) -> some View {
-        if let graph = stackGraph, let label = graph.positionLabel {
-            HStack(spacing: 6) {
-                AppIcon(AppIcons.prStack, size: AppIcon.Size.small)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                Text(stackPositionLine(label: label, below: graph.below))
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                if let below = graph.below {
-                    stackStep(AppIcons.uiChevronDown, label: "Open the pull request below", entry: below)
-                }
-                if let above = graph.above {
-                    stackStep(AppIcons.uiChevronUp, label: "Open the pull request above", entry: above)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .accessibilityIdentifier("run-stack-position")
-        }
-    }
-
-    private func stackPositionLine(label: String, below: PrGraph.Entry?) -> String {
-        guard let identifier = below?.representative.identifier, !identifier.isEmpty else {
-            return label
-        }
-        return "\(label) · on top of #\(identifier)"
-    }
-
-    @ViewBuilder
-    private func stackStep(_ glyph: String, label: String, entry: PrGraph.Entry) -> some View {
-        Button {
-            pushRoute(.changes(accountId: accountId, issueId: entry.representative.id))
-        } label: {
-            AppIcon(glyph, size: 12)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                .frame(width: 22, height: 22)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
     }
 
     // MARK: - Feed

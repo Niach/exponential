@@ -23,7 +23,6 @@ import { entry as issueContextMenu } from "./issue-context-menu.tsx"
 import { entry as sessionTree } from "./session-tree.tsx"
 import { entry as prGraphBadge } from "./pr-graph-badge.tsx"
 import { entry as deviceSettings } from "./device-settings.tsx"
-import { entry as workflowGraph } from "./workflow-graph.tsx"
 import type { StyleguideEntry } from "./types.ts"
 
 export type { StyleguideEntry } from "./types.ts"
@@ -49,7 +48,6 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   sessionTree,
   prGraphBadge,
   deviceSettings,
-  workflowGraph,
 ]
 
 export function entryById(id: string): StyleguideEntry | undefined {

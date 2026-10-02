@@ -18,7 +18,7 @@ import { IssueChip } from "@/components/issue-chip"
 import { cn } from "@/lib/utils"
 
 // EXP-980: THE blocks mini-graph. One component behind the list's blocks
-// badge, the PrGraphBadge overlay's Issue face and the blocked-start dialog.
+// badge, the issue rail's hover and the blocked-start dialog.
 //
 // No graph library: every node arrives with a `wave` (ROW) and a `lane`
 // (COLUMN) — derived here by `lib/issue-graph.ts` — so this is a grid of
@@ -31,14 +31,10 @@ import { cn } from "@/lib/utils"
 // (`IssueGraphList` on the natives); the web keeps the grid and scrolls it.
 //
 // EXP-981/EXP-1033: the drawing half is `WaveGraph`, and it lives in `@exp/ui`
-// (`packages/ui/src/wave-graph.tsx`) — the workflow graph feeds it nodes keyed
-// by NODE id with a chip renderer of its own (`@exp/ui` `WorkflowGraphView`),
-// the issue flavour below keeps feeding it issues.
+// (`packages/ui/src/wave-graph.tsx`); this file feeds it issues.
 //
-// EXP-983: every edge arrives with its STYLE (`lib/workflow-view.ts`
-// `workflowEdgeStyle`) rather than a flag per meaning — grey solid, red on a
-// cycle or a stale upstream, green out of a landed node, grey DASHED while the
-// dependent builds on work nobody landed yet.
+// EXP-983: every edge arrives with its STYLE rather than a flag per meaning —
+// grey solid, red on a blocking cycle.
 //
 // EXP-1057: the geometry is THE one of `issue-graph-geometry.json` (identical
 // ×4). The grid sits `inset` inside its scroll box, so the rings on the edge

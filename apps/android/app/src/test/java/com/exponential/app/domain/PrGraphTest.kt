@@ -4,14 +4,13 @@ import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueRelationEntity
 import com.exponential.app.domain.PrGraph.OverlaySection
-import com.exponential.app.ui.session.sessionRowTitle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-// EXP-897 part 4 — the badge's model, the same four tests web
-// (`pr-graph.test.ts`), iOS (`PrGraphTests`) and the desktop (`pr_graph`) run.
+// EXP-897 part 4 / SLOP-3: the related-work badge's model, mirrored by web
+// (`pr-graph.test.ts`), iOS (`PrGraphTests`) and the desktop (`pr_graph`).
 class PrGraphTest {
 
     private fun issue(
@@ -66,7 +65,7 @@ class PrGraphTest {
         session: CodingSessionEntity? = null,
         sessions: List<CodingSessionEntity> = emptyList(),
         relations: List<IssueRelationEntity> = emptyList(),
-    ) = PrGraph.build(issue, session, issues, sessions, relations)
+    ) = PrGraph.build(issue, session, issues, relations)
 
     private fun blocks(blocker: String, blocked: String) = IssueRelationEntity(
         id = "$blocker-blocks-$blocked",
@@ -234,8 +233,8 @@ class PrGraphTest {
         assertTrue(PrGraph.otherStackEntries(graph(lone, listOf(lone))).isEmpty())
     }
 
-    // SLOP-16 r5: a bare batch run has no subject issue — every covered issue
-    // is a partner.
+    // SLOP-16 r5: a bare batch run has no subject issue, so every covered
+    // issue is a partner.
     @Test
     fun `a bare batch run lists its whole batch`() {
         val url = "https://github.com/acme/app/pull/9"
@@ -256,10 +255,7 @@ class PrGraphTest {
         assertNull(built.batch)
     }
 
-    // EXP-876: the pill and its sheet are the surface built to name work that
-    // spans several issues — and a batch RUN, which spans them, resolved
-    // nothing at all before this (it links no issue and stamps no pr_url).
-    // Mirrored ×4.
+    // EXP-876: a batch RUN names the work it spans before its PR exists.
     @Test
     fun reportsABatchBadgeForABatchRunBeforeItsPr() {
         val one = issue("one")
@@ -308,72 +304,6 @@ class PrGraphTest {
         val actionGraph =
             graph(null, listOf(issue("one")), session = action, sessions = listOf(action))
         assertNull(actionGraph.batch)
-    }
-
-    // EXP-930: what the OVERLAY draws on a batch's Run face — the covered
-    // issues above the run tree, and every tree row named off the synced
-    // rows. The sheet used to join no issue at all, so a batch whose issues
-    // were already in the store still read `Issue syncing…`.
-    @Test
-    fun namesABatchRunsIssuesAndItsRunRows() {
-        val one = issue("one")
-        val two = issue("two")
-        val pool = listOf(one, two)
-        val batch = session("run", batchIssueIds = """["one","two"]""")
-        val child = session("child", parent = "run", issueId = "two")
-        val built = graph(null, pool, session = batch, sessions = listOf(batch, child))
-
-        // The `Issues` section the sheet now draws above `Runs`.
-        assertEquals(listOf("ONE", "TWO"), built.batch?.issues?.map { it.identifier })
-
-        // EXP-968: the graph NAMES its own rows — the sheet renders these.
-        assertEquals(listOf("Issue ONE", "Issue TWO"), built.tree.map { it.title })
-        assertEquals(listOf(null, "two"), built.tree.map { it.issue?.id })
-        // The bug itself: no joined issue, no name. ONE string ×4.
-        assertEquals(ISSUE_SYNCING_TITLE, sessionRowTitle(child, null))
-        assertEquals("Issue syncing…", ISSUE_SYNCING_TITLE)
-    }
-
-    // EXP-968: the Runs list of the stack overlay said "Issue not synced yet"
-    // about every row, because the labels were joined against a SECOND issue
-    // snapshot. A run tree whose issues are all synced names every row.
-    @Test
-    fun namesEveryRunRowFromTheGraphsOwnIssues() {
-        val one = issue("one")
-        val two = issue("two")
-        val root = session("root", issueId = "one")
-        val child = session("child", parent = "root", issueId = "two")
-        val orphan = session("orphan", parent = "root", issueId = "missing")
-        val built = graph(
-            one,
-            listOf(one, two),
-            session = root,
-            sessions = listOf(root, child, orphan),
-        )
-
-        assertEquals(listOf("root", "child", "orphan"), built.tree.map { it.session.id })
-        assertEquals(
-            listOf("Issue ONE", "Issue TWO", ISSUE_SYNCING_TITLE),
-            built.tree.map { it.title },
-        )
-        // Only the row whose issue is genuinely missing waits on the sync.
-        assertEquals(listOf("one", "two", null), built.tree.map { it.issue?.id })
-    }
-
-    @Test
-    fun nestsTheRunFamilyOfTheShownSession() {
-        val root = session("root")
-        val child = session("child", parent = "root")
-        val grand = session("grand", parent = "child")
-        val stranger = session("stranger")
-        val built = graph(
-            null,
-            emptyList(),
-            session = child,
-            sessions = listOf(stranger, grand, child, root),
-        )
-        assertEquals(listOf("root", "child", "grand"), built.tree.map { it.session.id })
-        assertEquals(listOf(0, 1, 2), built.tree.map { it.depth })
     }
 
     // SLOP-16 r5: THE "Related work" sheet's words, byte-identical ×4 (web

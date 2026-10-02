@@ -23,7 +23,6 @@ struct AgentPageView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(TeamState.self) private var teamState
-    @Environment(\.pushRoute) private var pushRoute
     @State private var sessions: AgentsViewModel?
     @State private var composer: AgentComposerModel?
     /// nil until the relay config resolves — the composer waits for it
@@ -33,14 +32,9 @@ struct AgentPageView: View {
     @State private var sessionTarget: StartedRunWatcher.StartedSession?
     /// EXP-923: the history sheet — the finished runs, off the toolbar glyph.
     @State private var showRecent = false
-    /// EXP-1086: the team's workflows, for the Workflows glyph's red dot
-    /// while one of them has an open question (the list rows' own rule).
-    @State private var workflowDots: WorkflowsViewModel?
     /// The run picked in that sheet, pushed once the sheet is gone (a push
     /// racing its own dismissal lands on nothing).
     @State private var pendingRecent: String?
-    /// EXP-1061: a workflow group row picked in the sheet, pushed the same way.
-    @State private var pendingRecentWorkflow: String?
     /// The seed's team has been made the active one (once per push).
     @State private var alignedSeedTeam = false
     /// EXP-820: the chips THIS mount shows — drawn once, never reshuffled
@@ -122,27 +116,6 @@ struct AgentPageView: View {
         // EXP-923: history is a TOOLBAR glyph, not a fold under the composer
         // (the ×4 rule) — the page lists what runs, the sheet what is over.
         .toolbar {
-            // EXP-981: a phone gets no Workflows tab (web and the IDE put the
-            // entry in their sidebars) — it sits beside the history glyph, on
-            // the page every run starts from.
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    pushRoute(.workflows(accountId: accountId))
-                } label: {
-                    AppIcon(AppIcons.navWorkflows, size: AppIcon.Size.medium)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .frame(width: 32, height: 32)
-                        .overlay(alignment: .topTrailing) {
-                            if workflowDots?.asking.isEmpty == false {
-                                FloatingBarBadgeDot(color: DesignTokens.Semantic.red)
-                                    .accessibilityLabel(WorkflowView.needsYouLabel)
-                            }
-                        }
-                        .contentShape(Circle())
-                }
-                .accessibilityLabel(WorkflowView.title)
-                .accessibilityIdentifier("agent-workflows-button")
-            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showRecent = true } label: {
                     AppIcon(AppIcons.settingsSessions, size: AppIcon.Size.medium)
@@ -160,10 +133,6 @@ struct AgentPageView: View {
                     vm: sessions,
                     onOpen: { sessionId in
                         pendingRecent = sessionId
-                        showRecent = false
-                    },
-                    onOpenWorkflow: { workflowId in
-                        pendingRecentWorkflow = workflowId
                         showRecent = false
                     }
                 )
@@ -196,14 +165,7 @@ struct AgentPageView: View {
                 )
             }
         }
-        .task(id: teamState.activeTeamId) {
-            if workflowDots == nil {
-                workflowDots = WorkflowsViewModel(accountId: accountId, db: deps.db)
-            }
-            workflowDots?.observe(teamId: teamState.activeTeamId)
-        }
         .onDisappear {
-            workflowDots?.stop()
             sessions?.stopObserving()
             composer?.startWatcher.stop()
         }
@@ -224,10 +186,9 @@ struct AgentPageView: View {
             WorkScreen(subject: .session(id: target.sessionId))
                 .environment(\.accountId, accountId)
         }
-        // EXP-897/EXP-980: starting on BLOCKED work asks first — a stacked
-        // pull request, an ordinary run, or nothing. A SHEET, not an alert:
-        // it carries the transitive chain under the sentence, and the stacked
-        // button is disabled-with-a-reason rather than hidden.
+        // EXP-897/EXP-980/SLOP-3: starting on BLOCKED work asks first: an
+        // ordinary run, a stacked PR, or nothing. A SHEET, not an alert: it carries the transitive
+        // chain under the sentence.
         .sheet(
             item: Binding(
                 get: { composer?.blockedPrompt },
@@ -236,7 +197,6 @@ struct AgentPageView: View {
         ) { prompt in
             BlockedStartSheet(
                 prompt: prompt,
-                disabledReason: composer?.stackDisabledReason(prompt),
                 onCancel: { composer?.blockedPrompt = nil },
                 onStartAnyway: { composer?.startAnyway() },
                 onStartStacked: { composer?.startStacked() },
@@ -251,11 +211,6 @@ struct AgentPageView: View {
     /// EXP-923: the sheet's pick, pushed once it has actually closed — the
     /// same destination its rows had while they lived on the page.
     private func pushPendingRecent() {
-        if let workflowId = pendingRecentWorkflow {
-            pendingRecentWorkflow = nil
-            pushRoute(.workflow(accountId: accountId, id: workflowId))
-            return
-        }
         guard let sessionId = pendingRecent else { return }
         pendingRecent = nil
         sessionTarget = .init(sessionId: sessionId)

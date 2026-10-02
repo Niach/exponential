@@ -1,6 +1,6 @@
 //! EXP-1029 contract, implemented by EXP-1020 — sub-shell navigation for the
-//! settings shell (`surface::glass_group` rows, EXP-994). The device settings
-//! dialog and the Agents pane use it for "Workflow settings".
+//! settings shell (`surface::glass_group` rows, EXP-994). The styleguide's
+//! `sub-shell` entry is its live demo.
 //!
 //! A sub-shell is a ROW ENTRY inside a card. Opening it slides a child page
 //! in place of the WHOLE card — not a nested card, not a dialog — with a
@@ -329,9 +329,9 @@ mod tests {
         let mut nav = SubShellNav::new();
         assert!(!nav.is_open());
         assert!(nav.showing(0), "the card is what shows at rest");
-        nav.open("Workflow settings");
+        nav.open("Agent defaults");
         assert!(nav.is_open());
-        assert_eq!(nav.current().map(|title| title.as_ref()), Some("Workflow settings"));
+        assert_eq!(nav.current().map(|title| title.as_ref()), Some("Agent defaults"));
         // The card is no longer what shows: the page replaced the WHOLE card.
         assert!(!nav.showing(0));
         assert!(nav.showing(1));
@@ -340,7 +340,7 @@ mod tests {
     #[test]
     fn the_child_page_carries_a_back_button_on_top_that_returns_to_the_card() {
         let mut nav = SubShellNav::new();
-        nav.open("Workflow settings");
+        nav.open("Agent defaults");
         nav.back();
         assert!(!nav.is_open());
         assert_eq!(nav.current(), None);
@@ -350,7 +350,7 @@ mod tests {
     #[test]
     fn a_sub_shell_inside_the_child_page_slides_one_level_deeper() {
         let mut nav = SubShellNav::new();
-        nav.open("Workflow settings");
+        nav.open("Agent defaults");
         nav.open("Advanced");
         assert_eq!(nav.depth(), 2);
         assert_eq!(nav.current().map(|title| title.as_ref()), Some("Advanced"));
@@ -360,7 +360,7 @@ mod tests {
         // Back returns exactly ONE level.
         nav.back();
         assert_eq!(nav.depth(), 1);
-        assert_eq!(nav.current().map(|title| title.as_ref()), Some("Workflow settings"));
+        assert_eq!(nav.current().map(|title| title.as_ref()), Some("Agent defaults"));
         nav.back();
         assert!(!nav.is_open());
     }
@@ -370,9 +370,9 @@ mod tests {
         // `opens()` IS the production predicate `sub_shell_row` gates its
         // click handler on, so this pins the real guard rather than the
         // test's own `if`.
-        let enabled = SubShellProps::new("row", "Workflow settings");
+        let enabled = SubShellProps::new("row", "Agent defaults");
         assert!(enabled.opens());
-        let disabled = SubShellProps::new("row", "Workflow settings").disabled(true);
+        let disabled = SubShellProps::new("row", "Agent defaults").disabled(true);
         assert!(!disabled.opens());
 
         // What the row does with it: no pointer, so the stack never moves.
@@ -385,14 +385,14 @@ mod tests {
         assert_eq!(nav.depth(), 1, "only the enabled row opened");
         assert_eq!(
             nav.current().map(|title| title.as_ref()),
-            Some("Workflow settings")
+            Some("Agent defaults")
         );
     }
 
     #[test]
     fn closing_the_dialog_returns_to_the_card_whatever_the_depth() {
         let mut nav = SubShellNav::new();
-        nav.open("Workflow settings");
+        nav.open("Agent defaults");
         nav.open("Advanced");
         nav.close();
         assert!(!nav.is_open());

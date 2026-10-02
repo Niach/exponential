@@ -392,7 +392,7 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertFalse(bare.hasOpenPr)
     }
 
-    // EXP-897: the stack edge rides the issues shape — a row off the wire must
+    // EXP-897: the stack edge rides the issues shape: a row off the wire must
     // round-trip `pr_base_branch` into the v40 column, and a pre-EXP-897
     // snapshot that omits the key decodes as nil rather than throwing (which
     // would brick the issues shape for every older client).

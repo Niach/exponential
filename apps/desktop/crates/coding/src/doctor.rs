@@ -115,12 +115,6 @@ pub const MIN_CODEX_ACP_VERSION: (u32, u32, u32) = (0, 144, 0);
 ///   (sign one login out here, keep its row) and takes `agent_profile_remove`
 ///   for the AMBIENT login (sign it out and hide its row until it signs in
 ///   again). Same reasoning: the server refuses both without the cap.
-/// - `stacked-start` (EXP-897): this build reads a `start_session` frame's
-///   `stack` payload and cuts the branch from the lower PR's branch. A build
-///   without it would run UNSTACKED while the server had already written the
-///   `blocks` relation and the UI claimed a stack, so the server refuses a
-///   `stack`/`stackOn` start against a device without the cap and the
-///   composers hide the "Stacked PR" choice for such a machine.
 /// - `stale-end` (EXP-888): this build's kill-watch ignores the staleness
 ///   sweep's `ended_by = stale` flip. The sweep ENDS a silent run only on a
 ///   device with this cap (keeping it listed with its on-device transcript)
@@ -128,8 +122,8 @@ pub const MIN_CODEX_ACP_VERSION: (u32, u32, u32) = (0, 144, 0);
 ///   as a kill of a possibly-live child.
 ///
 /// Ceiling check: `devices.register`'s caps input accepts 24 caps
-/// (`apps/web/src/lib/trpc/devices.ts`); this is 13 + 9 = 22.
-pub const DEVICE_CAPS: [&str; 13] = [
+/// (`apps/web/src/lib/trpc/devices.ts`); this is 12 + 7 = 19.
+pub const DEVICE_CAPS: [&str; 12] = [
     "resume",
     "worktrees",
     "launch-defaults",
@@ -141,18 +135,12 @@ pub const DEVICE_CAPS: [&str; 13] = [
     ACCOUNT_SIGN_OUT_CAP,
     "agent-usage-refresh",
     "update-now",
-    STACKED_START_CAP,
     STALE_END_CAP,
 ];
 
 /// EXP-888's stale-end cap, by name (mirrored by the server sweep's
 /// `STALE_END_CAP` in `apps/web/src/lib/coding-session-sweep.ts`).
 pub const STALE_END_CAP: &str = "stale-end";
-
-/// EXP-897's stacked-start cap, by name: the ONE place the literal lives, so
-/// a client deciding whether a machine can take a stacked start (the
-/// blocked-issue dialog's "Stacked PR") never repeats the string.
-pub const STACKED_START_CAP: &str = "stacked-start";
 
 /// EXP-849's account-switch cap, by name: the ONE place the literal lives, so
 /// a client deciding whether a machine can move a live run (or its default
@@ -178,12 +166,8 @@ pub const ACCOUNT_SIGN_OUT_CAP: &str = "account-sign-out";
 /// reads the `prompt` field of a `start_session` frame (the composer's free
 /// text): the server REFUSES a Chat or Create-action start to a device
 /// without it, since those two builtins carry their whole program there
-/// and an older build would spawn a promptless run. EXP-981's
-/// `plan-workflow` says the same about the workflow PLANNER builtin: an
-/// older build has no planner kind and would fall through to the
-/// Create-action prompt and author an action instead, so the server refuses
-/// a planner start to a device without it.
-pub const ACTION_CAPS: [&str; 9] = [
+/// and an older build would spawn a promptless run.
+pub const ACTION_CAPS: [&str; 7] = [
     "actions",
     "action-inputs",
     "fix-conflicts",
@@ -191,17 +175,7 @@ pub const ACTION_CAPS: [&str; 9] = [
     "chat",
     RESUME_RUN_CAP,
     START_PROMPT_CAP,
-    PLAN_WORKFLOW_CAP,
-    WORKFLOWS_CAP,
 ];
-
-/// EXP-981's planner cap, by name (see [`ACTION_CAPS`]).
-pub const PLAN_WORKFLOW_CAP: &str = api::actions::PLAN_WORKFLOW_CAP;
-
-/// EXP-982's engine cap, by name: this build runs a started workflow's nodes
-/// locally. An ACTION cap — the engine starts runs, so it needs a runnable
-/// agent, and `workflows.start` refuses a device without it.
-pub const WORKFLOWS_CAP: &str = api::workflows::WORKFLOWS_CAP;
 
 /// EXP-825's start-prompt cap, by name (see [`ACTION_CAPS`]).
 pub const START_PROMPT_CAP: &str = "start-prompt";
@@ -1874,20 +1848,6 @@ mod tests {
         assert_eq!(accounts.len(), 2);
     }
 
-    /// EXP-897: the server refuses a `stack`/`stackOn` start to a device
-    /// without `stacked-start`, a BUILD cap (reading the frame's `stack`
-    /// payload is a property of the binary), advertised while signed out
-    /// like `agent-start`, never an action cap.
-    #[test]
-    fn device_caps_advertise_stacked_start() {
-        assert_eq!(STACKED_START_CAP, "stacked-start");
-        assert!(DEVICE_CAPS.contains(&STACKED_START_CAP));
-        assert!(!ACTION_CAPS.contains(&STACKED_START_CAP));
-        assert!(device_caps(&advert(&[])).contains(&"stacked-start".to_string()));
-        assert!(device_caps(&advert(&["claude"])).contains(&"stacked-start".to_string()));
-        assert!(device_caps(&advert(&["claude"])).len() <= 24);
-    }
-
     /// EXP-825: the server gates Chat/Create-action starts on `start-prompt`
     /// — an ACTION cap (a promptless machine could not run them anyway),
     /// advertised only while an agent is runnable.
@@ -1915,33 +1875,6 @@ mod tests {
                 assert!(!message.contains("terminal"), "{message}");
             }
         }
-    }
-
-    /// EXP-981: the server gates a planner start on `plan-workflow` — an
-    /// ACTION cap (an agent-less machine could not plan anyway), and the
-    /// whole list stays inside `devices.register`'s 24-cap ceiling.
-    #[test]
-    fn action_caps_advertise_plan_workflow() {
-        assert_eq!(PLAN_WORKFLOW_CAP, "plan-workflow");
-        assert!(ACTION_CAPS.contains(&PLAN_WORKFLOW_CAP));
-        assert!(!DEVICE_CAPS.contains(&PLAN_WORKFLOW_CAP));
-        assert!(device_caps(&advert(&["claude"])).contains(&"plan-workflow".to_string()));
-        assert!(!device_caps(&advert(&[])).contains(&"plan-workflow".to_string()));
-        assert!(device_caps(&advert(&["claude"])).len() <= 24);
-    }
-
-    /// EXP-982: the server gates `workflows.start` on `workflows` — an
-    /// ACTION cap, because the engine STARTS runs (an agent-less machine
-    /// could mirror states but never move a node). The whole list stays
-    /// inside `devices.register`'s 24-cap ceiling.
-    #[test]
-    fn action_caps_advertise_workflows() {
-        assert_eq!(WORKFLOWS_CAP, "workflows");
-        assert!(ACTION_CAPS.contains(&WORKFLOWS_CAP));
-        assert!(!DEVICE_CAPS.contains(&WORKFLOWS_CAP));
-        assert!(device_caps(&advert(&["claude"])).contains(&"workflows".to_string()));
-        assert!(!device_caps(&advert(&[])).contains(&"workflows".to_string()));
-        assert!(device_caps(&advert(&["claude"])).len() <= 24);
     }
 
     /// EXP-679: `agent-start` asserts this build understands a start frame's

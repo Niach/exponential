@@ -2,7 +2,6 @@ import { createHmac, timingSafeEqual } from "node:crypto"
 import { createFileRoute } from "@tanstack/react-router"
 import { and, eq, inArray, isNull, or } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { applyWorkflowFinalPrState } from "@/lib/workflow-final-pr"
 import {
   githubInstallationLinks,
   githubInstallationRepoGrants,
@@ -17,10 +16,9 @@ import {
   applyPrMergeState,
   applyPrOpenedState,
   applyPrReopenedState,
+  applyPrBaseBranchEdit,
   applySessionPrState,
   findIssueIdByBranch,
-  notifyStackedChildrenOfFoundationChange,
-  refreshPrStackState,
 } from "@/lib/integrations/pr-sync"
 import {
   takePrMergeClaim,
@@ -364,7 +362,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         merged_at?: string | null
         draft?: boolean
         head?: { ref?: string }
-        // EXP-897: the stack edge GitHub reports on every delivery.
+        // The base GitHub reports on every delivery (`pr_base_branch`).
         base?: { ref?: string }
         // EXP-617: the GitHub identity behind the event. `user` is the PR
         // author, `merged_by` whoever pressed Merge; both are the App bot for
@@ -375,7 +373,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
       }
       repository?: { full_name?: string }
       sender?: GithubActorRef
-      // EXP-897: `edited` names what changed — a base change is a stack move.
+      // `edited` names what changed; a base change moves `pr_base_branch`.
       changes?: { base?: { from?: { ref?: string } } }
     }
 
@@ -417,20 +415,17 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
       // EXP-711: the claim also carries the merger's per-call `endSessions`
       // override, so the echo of an in-app merge honours it.
       const endSessions = claim?.endSessions
-      // EXP-637/EXP-626/EXP-734: an issue-LESS chore PR (opened with
-      // `exponential_pr_open({ repositoryId, head })`) resolves to no issue
-      // above — it lives on the coding_sessions row that opened it, so flip
-      // it to merged and end the run there (idempotent against the in-app
-      // merge helper that already did so), except the session that merged
-      // its own PR, which lives on until sessions_end.
+      // EXP-637/EXP-626/EXP-734: every run's PR also lives on the
+      // coding_sessions row that opened it (an issue-less chore PR resolves to
+      // no issue above), so flip it to merged and end the run there
+      // (idempotent against the in-app merge helper that already did so),
+      // except the session that merged its own PR, which lives on until
+      // sessions_end.
       await applySessionPrState({
         prUrl: htmlUrl,
         state: `merged`,
         ...(endSessions !== undefined ? { endSessions } : {}),
       })
-      // EXP-982: or it is a workflow's FINAL PR — its merge completes the
-      // workflow and only now moves the covered issues.
-      await applyWorkflowFinalPrState(db, htmlUrl, `merged`)
       for (const issueId of issueIds) {
         await applyPrMergeState({
           githubActorUserId,
@@ -462,7 +457,6 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         await applyPrClosedState({ issueId, prUrl: htmlUrl })
       }
       await applySessionPrState({ prUrl: htmlUrl, state: `closed` })
-      await applyWorkflowFinalPrState(db, htmlUrl, `closed`)
       return jsonResponse(200, { ok: true })
     }
 
@@ -477,13 +471,11 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         await applyPrReopenedState({
           issueId,
           prUrl: htmlUrl,
-          // EXP-897: the close cleared the stack edge; GitHub's payload
-          // carries the live base, so record it again.
+          // The close cleared the base edge; the payload carries the live one.
           baseBranch: pr.base?.ref ?? null,
         })
       }
       await applySessionPrState({ prUrl: htmlUrl, state: `open` })
-      await applyWorkflowFinalPrState(db, htmlUrl, `open`)
       return jsonResponse(200, { ok: true })
     }
 
@@ -513,8 +505,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
           prUrl: htmlUrl,
           prNumber: pr.number,
           branch: headRef,
-          // EXP-897 (FEED-43 R1): the stack edge, from the payload; a new
-          // PR must never inherit the edge of an earlier, closed one.
+          // A new PR never inherits the base of an earlier, closed one.
           baseBranch: pr.base?.ref ?? null,
           ...(claim
             ? { actorUserId: claim.userId, actorViaAgent: claim.viaAgent }
@@ -524,33 +515,11 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
       return jsonResponse(200, { ok: true })
     }
 
-    // EXP-897: the stack edge moved — `edited` with a base change, or GitHub's
-    // own stack actions. Re-read both columns from the payload + the stack API
-    // so nesting, "Merge stack" and the merge routing stay true even when the
-    // stack was built on github.com.
-    if (
-      (payload.action === `edited` && payload.changes?.base) ||
-      payload.action === `stacked` ||
-      payload.action === `unstacked`
-    ) {
-      await refreshPrStackState({
+    // The PR was retargeted (on github.com, or by our own retarget/heal).
+    if (payload.action === `edited` && payload.changes?.base) {
+      await applyPrBaseBranchEdit({
         prUrl: htmlUrl,
-        ...(repoFullName ? { repoFullName } : {}),
-        ...(pr.number != null ? { prNumber: pr.number } : {}),
         baseRef: pr.base?.ref ?? null,
-      })
-      return jsonResponse(200, { ok: true })
-    }
-
-    // EXP-897: new commits on a PR that other runs are stacked ON. Their
-    // branches now trail the foundation, and only the agents inside those runs
-    // can rebase — so push the fact into their live sessions.
-    if (payload.action === `synchronize` && repoFullName && headRef) {
-      await notifyStackedChildrenOfFoundationChange({
-        repoFullName,
-        headRef,
-        prNumber: pr.number ?? 0,
-        prUrl: htmlUrl,
       })
       return jsonResponse(200, { ok: true })
     }

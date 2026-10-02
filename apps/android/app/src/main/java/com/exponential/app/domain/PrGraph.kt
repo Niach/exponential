@@ -5,22 +5,23 @@ import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueRelationEntity
 
 /**
- * EXP-897 part 4: ONE model behind the Work screen's stack/batch badge and the
- * overlay it opens, so the Issue, Run and Changes faces read the same thing.
+ * EXP-897 part 4 / SLOP-3: ONE model behind the Work screen's related-work
+ * badge and the sheet it opens, so the Issue, Run and Changes faces read the
+ * same thing.
  *
  * A graph NODE is a pull request, which is either one issue or a BATCH of
- * issues sharing a `pr_url` — that is what lets a batch PR be a stack member.
- * The stack comes off `pr_base_branch`/`branch` ([PrStack]), the batch off the
- * shared `pr_url`, the tree off `parent_session_id` ([SessionTree]) and the
- * blockers off the `blocks` relations ([StackStart]). No new columns.
+ * issues sharing a `pr_url`, which is what lets a batch PR be a stack member.
+ * Three bands, all off synced rows: the blockers off the `blocks` relations
+ * ([IssueGraph.openBlockersOfSet]), the batch off the shared `pr_url`, the
+ * stack off `pr_base_branch`/`branch` ([PrStack]). No new columns.
  *
- * Mirrored ×4 by name (web `lib/pr-graph.ts`, iOS `PrGraph.swift`, desktop
- * `pr_graph.rs`) with the same four tests.
+ * Mirrored x4 by name (web `lib/pr-graph.ts`, iOS `PrGraph.swift`, desktop
+ * `pr_graph.rs`).
  */
 object PrGraph {
     /** One pull request: a single issue, or every issue sharing its `pr_url`. */
     data class Entry(val issues: List<IssueEntity>) {
-        /** The issue a merge / a navigation acts on. */
+        /** The issue a navigation acts on. */
         val representative: IssueEntity get() = issues.first()
         val isBatch: Boolean get() = issues.size > 1
         val identifiers: List<String> get() = issues.map { it.identifier }
@@ -29,55 +30,29 @@ object PrGraph {
     /** One stack member, bottom-first; [depth] is its level above the bottom. */
     data class StackEntry(val entry: Entry, val depth: Int)
 
-    /** The subject's own batch — the issues its ONE pull request spans. */
+    /** The subject's own batch: the issues its ONE pull request spans. */
     data class BatchEntry(val issues: List<IssueEntity>)
-
-    /**
-     * One run of the family, NAMED where it is resolved (EXP-968). The overlay
-     * used to join its rows against a second issue snapshot of its own, so a
-     * row could read "Issue syncing…" about an issue the very same graph had
-     * already resolved; the title now comes off the ONE pool `build` took.
-     */
-    data class RunRow(
-        val session: CodingSessionEntity,
-        /** 0 for the family's root, +1 per nesting level. */
-        val depth: Int,
-        /** Whether at least one child is nested right below. */
-        val hasChildren: Boolean,
-        /** The run's own issue, when it has one and it has synced. */
-        val issue: IssueEntity?,
-        /** EXP-876: the issues a BATCH run covers; empty for every other run. */
-        val batchIssues: List<IssueEntity>,
-        /** What the row is called — the ×4 rule ([pastRunTitle]). */
-        val title: String,
-    )
 
     data class Graph(
         /** The chain bottom-first; a lone pull request is a single entry. */
         val stack: List<StackEntry>,
         /** Null unless the subject's own PR spans more than one issue. */
         val batch: BatchEntry?,
-        /** The run family, nested and named — the root run and its children. */
-        val tree: List<RunRow>,
-        /**
-         * The issues that still block the subject (`StackStart.openBlockers`).
-         * Android/iOS extra over the pinned three fields: the overlay's Issue
-         * face lists them, and `build` already takes the relations.
-         */
+        /** The open issues that still block the subject issue. */
         val blockedBy: List<IssueEntity> = emptyList(),
-        /** The issue the graph was built for — what `subject` matches on. */
+        /** The issue the graph was built for, what `subject` matches on. */
         val subjectIssueId: String? = null,
         /**
-         * EXP-1058: the subject pull request's representative in POOL order —
+         * EXP-1058: the subject pull request's representative in POOL order,
          * the first synced issue on its `pr_url` (web's `entry.issue`), which
          * is not always the subject: [Entry.representative] leads with what
          * the reader opened. Null for a run with no issue at all.
          */
         val lead: IssueEntity? = null,
-        /** SLOP-16 r5: whether the graph was built for an ISSUE (not a bare run). */
+        /** Whether the graph was built for an ISSUE (not a bare run). */
         val subjectIsIssue: Boolean = false,
     ) {
-        /** The subject's own entry — the one the badge counts from. */
+        /** The subject's own entry, the one the badge counts from. */
         val subject: StackEntry?
             get() = stack.firstOrNull { row -> row.entry.issues.any { it.id == subjectIssueId } }
     }
@@ -86,21 +61,21 @@ object PrGraph {
 
     /**
      * Build the graph for a subject: an issue, an issue-less run (a batch or
-     * chore PR), or both. [issues] and [sessions] are the synced pools the
+     * chore PR), or both. [issues] and [relations] are the synced pools the
      * caller already has; nothing here reads the network.
      */
     fun build(
         issue: IssueEntity?,
         session: CodingSessionEntity?,
         issues: List<IssueEntity>,
-        sessions: List<CodingSessionEntity>,
         relations: List<IssueRelationEntity>,
     ): Graph {
         val subjectIssues = when {
             issue != null -> entryIssuesFor(issue, issues)
             else -> session?.prUrl?.takeIf { it.isNotEmpty() }
                 ?.let { url -> issues.filter { it.prUrl == url } }
-                // EXP-876: a BATCH run's own entry — see [batchSessionIssues].
+                ?.takeIf { it.isNotEmpty() }
+                // EXP-876: a BATCH run's own entry, see [batchSessionIssues].
                 ?: batchSessionIssues(session, issues)
         }
         val anchor = subjectIssues.firstOrNull()
@@ -114,8 +89,7 @@ object PrGraph {
         return Graph(
             stack = stack,
             batch = batch,
-            tree = runRows(familyOf(session, sessions), issues),
-            blockedBy = issue?.let { StackStart.openBlockers(it.id, relations, issues) }.orEmpty(),
+            blockedBy = issue?.let { IssueGraph.openBlockersOfSet(listOf(it.id), relations, issues) }.orEmpty(),
             subjectIssueId = anchor?.id,
             lead = anchor?.let { first ->
                 first.prUrl?.takeIf { it.isNotEmpty() }
@@ -127,8 +101,8 @@ object PrGraph {
     }
 
     /**
-     * What the badge wears, or null when there is nothing to say: a lone
-     * single-issue pull request draws no badge.
+     * What the badge wears off the PR relations, or null: a lone
+     * single-issue pull request draws no PR badge.
      */
     fun badgeKind(graph: Graph): BadgeKind? {
         val stacked = graph.stack.size > 1
@@ -142,15 +116,13 @@ object PrGraph {
     }
 
     /**
-     * EXP-1079/EXP-1097: what the header chip DRAWS, the SAME on every face —
-     * Issue, Run, Changes and Results alike. First match wins:
+     * EXP-1079/EXP-1097: what the header badge DRAWS, the SAME on every face.
+     * First match wins:
      *
      *  1. a PR relation ([badgeKind]: stack, batch, stack+batch);
-     *  2. [BadgeShape.BLOCKED] — the subject issue has OPEN blockers
+     *  2. [BadgeShape.BLOCKED]: the subject issue has OPEN blockers
      *     ([Graph.blockedBy]);
-     *  3. null = no chip. SLOP-16 r5: a run family alone earns NO badge.
-     *
-     * Web `badgeShape`, desktop `pr_graph::badge_shape`, iOS `PrGraph.swift`.
+     *  3. null = no badge. A run family alone earns NO badge.
      */
     enum class BadgeShape { STACK, BATCH, STACK_AND_BATCH, BLOCKED }
 
@@ -161,21 +133,17 @@ object PrGraph {
         null -> if (graph.blockedBy.isNotEmpty()) BadgeShape.BLOCKED else null
     }
 
-    /**
-     * EXP-1058: what the header's STACKED issue chip draws — the front chip's
-     * [issue] and how many ride behind it ([count], the `+N`).
-     */
+    /** EXP-1058: the badge's front [issue] and how many ride behind it ([count], the `+N`). */
     data class BadgeChip(val issue: IssueEntity?, val count: Int)
 
     /**
-     * EXP-1058/EXP-1097: the stacked chip, or null exactly when [badgeShape]
+     * EXP-1058/EXP-1097: the badge's count, or null exactly when [badgeShape]
      * is null. Face-independent.
-     *  · stack / batch — `issue` = the subject pull request's representative
+     *  - stack / batch: `issue` = the subject pull request's representative
      *    ([Graph.lead]), `count` = every OTHER issue on the stack (all its
      *    entries' issues) or batch;
-     *  · blocked — `issue` = the FIRST open blocker in [Graph.blockedBy]
+     *  - blocked: `issue` = the FIRST open blocker in [Graph.blockedBy]
      *    order, `count` = the other open blockers.
-     * Web `badgeChip`, byte-identical in meaning ×4.
      */
     fun badgeChip(graph: Graph): BadgeChip? {
         val shape = badgeShape(graph) ?: return null
@@ -193,7 +161,7 @@ object PrGraph {
     enum class OverlaySection { BLOCKED, BATCH, STACK }
 
     /**
-     * SLOP-16 r5: the batch partners — every issue sharing the subject's
+     * SLOP-16 r5: the batch partners, every issue sharing the subject's
      * `pr_url` but the subject itself. A bare batch run has no subject issue,
      * so its whole covered set is listed.
      */
@@ -212,10 +180,9 @@ object PrGraph {
     }
 
     /**
-     * SLOP-16 r5: the sheet's bands — the relations card's bands, in ONE
-     * fixed order (Blocked by · Same pull request · Pull request stack), each
-     * only when it has rows. No runs, no graph, no merge. Web
-     * `overlaySections`.
+     * SLOP-16 r5: the sheet's bands in ONE fixed order (Blocked by, Same pull
+     * request, Pull request stack), each only when it has rows. No runs, no
+     * graph, no merge.
      */
     fun overlaySections(graph: Graph): List<OverlaySection> = buildList {
         if (graph.blockedBy.isNotEmpty()) add(OverlaySection.BLOCKED)
@@ -223,11 +190,7 @@ object PrGraph {
         if (otherStackEntries(graph).isNotEmpty()) add(OverlaySection.STACK)
     }
 
-    /**
-     * SLOP-16 r5: THE "Related work" sheet's copy, byte-identical ×4 (web
-     * `PR_GRAPH_OVERLAY_COPY`, iOS `PrGraphBadge.swift`, desktop
-     * `pr_graph.rs`). [EMPTY] is the ONLY empty note.
-     */
+    /** SLOP-16 r5: THE "Related work" sheet's copy, byte-identical x4. [EMPTY] is the ONLY empty note. */
     object OverlayCopy {
         const val RELATED_WORK_TITLE = "Related work"
         const val BLOCKED = IssueRelationsView.Copy.BLOCKED_BY
@@ -237,16 +200,10 @@ object PrGraph {
     }
 
     /**
-     * EXP-876: a BATCH run's own entry. A batch links no issue and stamps no
-     * `pr_url` of its own, so before this it resolved nothing at all — the
-     * pill and its sheet, the one surface built to name work that spans
-     * several issues, never appeared on the very run that spans them. Its
-     * covered set (`batch_issue_ids`, else its branch's issues) IS the entry.
-     *
-     * The PR-grouped entry wins whenever there is one: it carries the branch
-     * and the base the stack chains on, so a batch PR stacked on another still
-     * reads `stack+batch` and still offers Merge stack. The synthesized entry
-     * is what a batch wears BEFORE its PR exists.
+     * EXP-876: a BATCH run's own entry. A batch links no issue, so its
+     * covered set (`batch_issue_ids`, else its branch's issues) IS the entry
+     * before its PR exists. The PR-grouped entry wins whenever there is one:
+     * it carries the branch and the base the stack chains on.
      */
     private fun batchSessionIssues(
         session: CodingSessionEntity?,
@@ -258,69 +215,12 @@ object PrGraph {
         return if (grouped.size > 1) grouped else covered
     }
 
-    /**
-     * EXP-968: the family, nested AND named in one pass. Resolving the rows
-     * here is what keeps a label and its row on the same snapshot: the sheet
-     * renders what `build` decided instead of re-joining a pool of its own.
-     */
-    private fun runRows(
-        family: List<CodingSessionEntity>,
-        issues: List<IssueEntity>,
-    ): List<RunRow> {
-        if (family.isEmpty()) return emptyList()
-        val byId = issues.associateBy { it.id }
-        return SessionTree.nest(family).map { row ->
-            val session = row.session
-            val issue = session.issueId?.let(byId::get)
-            val batchIssues = batchRunIssues(session, issues)
-            RunRow(
-                session = session,
-                depth = row.depth,
-                hasChildren = row.hasChildren,
-                issue = issue,
-                batchIssues = batchIssues,
-                title = pastRunTitle(session, issue, batchIssues),
-            )
-        }
-    }
-
-    /** Every issue on [issue]'s pull request — itself when it has none. */
+    /** Every issue on [issue]'s pull request, itself when it has none. */
     private fun entryIssuesFor(issue: IssueEntity, issues: List<IssueEntity>): List<IssueEntity> {
         val url = issue.prUrl?.takeIf { it.isNotEmpty() } ?: return listOf(issue)
         val shared = issues.filter { it.prUrl == url }
         // The subject always leads its own entry, so `representative` is what
         // the reader opened.
         return listOf(issue) + shared.filter { it.id != issue.id }
-    }
-
-    /** The run family: [session]'s root and everything under it. */
-    private fun familyOf(
-        session: CodingSessionEntity?,
-        sessions: List<CodingSessionEntity>,
-    ): List<CodingSessionEntity> {
-        if (session == null) return emptyList()
-        val byId = sessions.associateBy { it.id }
-        var root = byId[session.id] ?: session
-        val climbed = HashSet<String>()
-        climbed.add(root.id)
-        while (true) {
-            val parent = root.parentSessionId?.let { byId[it] } ?: break
-            // Defensive: a cycle stops the climb where it first repeats.
-            if (!climbed.add(parent.id)) break
-            root = parent
-        }
-        val family = ArrayList<CodingSessionEntity>()
-        val placed = HashSet<String>()
-        family.add(root)
-        placed.add(root.id)
-        var index = 0
-        while (index < family.size) {
-            val current = family[index]
-            for (row in sessions) {
-                if (row.parentSessionId == current.id && placed.add(row.id)) family.add(row)
-            }
-            index += 1
-        }
-        return family
     }
 }

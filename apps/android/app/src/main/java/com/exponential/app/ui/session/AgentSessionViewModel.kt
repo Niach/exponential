@@ -34,14 +34,15 @@ import com.exponential.app.domain.ContextSegment
 import com.exponential.app.domain.DeviceFreshness
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.batchRunIssues
 import com.exponential.app.domain.HistoryState
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.MergeTarget
 import com.exponential.app.domain.PendingAttachment
+import com.exponential.app.domain.PrStack
 import com.exponential.app.domain.RunResumeTarget
 import com.exponential.app.domain.SessionAccountOption
-import com.exponential.app.domain.PrStack
 import com.exponential.app.domain.SessionAccountSwitch
 import com.exponential.app.domain.SessionConfigState
 import com.exponential.app.domain.SessionDevicePresentation
@@ -276,17 +277,16 @@ class AgentSessionViewModel @AssistedInject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
-     * EXP-897: where this run's issue sits in its PR STACK — null unless its
-     * pull request is based on another issue's branch (or another one is
-     * based on its). Derived from the synced columns alone (`PrStack`), so the
-     * run screen's position line reads the same as Reviews' nesting.
+     * EXP-876: the issues the run covers when it is a BATCH, in naming order —
+     * what titles an issue-less run in the Work screen's header
+     * (`EXP-874 +2`) and what that title opens. Empty for every other run.
      */
-    val stackPosition: StateFlow<PrStack.StackPosition?> = combine(
-        issue,
+    val batchIssues: StateFlow<List<IssueEntity>> = combine(
+        session,
         dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() },
     ) { row, issues ->
-        row?.let { PrStack.stackPosition(it, issues) }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        row?.let { batchRunIssues(it, issues) } ?: emptyList()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * EXP-688: the host machine's sign-in for the SAME agent — the Usage
@@ -664,11 +664,8 @@ class AgentSessionViewModel @AssistedInject constructor(
 
     /**
      * EXP-678: the issue whose PR the Merge pill above the composer merges —
-     * this run's own issue, or, for an issueless batch run in review, the
-     * batch PR's representative issue resolved client-side (EXP-535: batch
-     * sessions carry no issue linkage, only the branch). An action or chat run
-     * has no issue at all — since EXP-734 it merges its OWN recorded PR
-     * instead, which [mergeTarget] resolves from the session row.
+     * this run's own issue. An issue-less run (batch, chat, action) has none:
+     * it merges the PR on its OWN row, which [mergeTarget] resolves.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     val mergeIssue: StateFlow<IssueEntity?> = session
@@ -677,34 +674,18 @@ class AgentSessionViewModel @AssistedInject constructor(
                 row == null -> flowOf(null)
                 row.issueId != null ->
                     dbFlow.scopedQuery(null) { it.issueDao().observeById(row.issueId) }
-                row.isBatchInReview -> combine(
-                    dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() },
-                    dbFlow.scopedQuery(emptyList<BoardEntity>()) { it.boardDao().observeAll() },
-                ) { issues, boards ->
-                    resolveBatchPrIssue(
-                        openBatchPrRepresentatives(issues, boards, row.teamId),
-                        row.branch,
-                    )
-                }
                 else -> flowOf(null)
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
-     * EXP-734: what the Merge pill actually merges — the run's issue (or a
-     * batch PR's representative), or the SESSION itself for an action / chat
-     * run that opened a PR of its own. Null = nothing to merge, and the pill
-     * stays hidden.
+     * EXP-734: what the Merge pill actually merges — the run's issue, or the
+     * SESSION itself for an issue-less run with a PR on its own row. Null =
+     * nothing to merge, and the pill stays hidden.
      */
     val mergeTarget: StateFlow<MergeTarget?> = combine(session, mergeIssue) { row, issue ->
-        row?.let {
-            resolveMergeTarget(
-                it,
-                issue = if (it.issueId != null) issue else null,
-                batchPrIssue = if (it.issueId == null) issue else null,
-            )
-        }
+        row?.let { resolveMergeTarget(it, issue = if (it.issueId != null) issue else null) }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
@@ -764,15 +745,16 @@ class AgentSessionViewModel @AssistedInject constructor(
     }
 
     /**
-     * EXP-1145: merge the whole stack [topIssueId] tops, bottom-up
+     * EXP-1145: merge the open stack bottom-up THROUGH [throughIssueId]
      * (`issues.mergePr({ mergeStack: true })`), with [merge]'s state handling.
+     * A failure shows the server's message, a conflict keeps Fix conflicts.
      */
-    fun mergeStack(topIssueId: String) {
+    fun mergeStack(throughIssueId: String) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             _mergeError.value = null
             _merging.value = true
-            runCatching { issuesApi.mergePr(accountId, topIssueId, mergeStack = true) }
+            runCatching { issuesApi.mergePr(accountId, throughIssueId, mergeStack = true) }
                 .onFailure { t ->
                     if (t is CancellationException) throw t
                     _mergeError.value =

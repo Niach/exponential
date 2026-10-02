@@ -48,24 +48,24 @@ import {
 import { cn } from "@/lib/utils"
 
 // EXP-897 Part 4: the ONE "Related work" badge. A piece of work can be related
-// to other work three ways — open BLOCKERS (`blocks` rows), a BATCH (issues
+// to other work three ways: open BLOCKERS (`blocks` rows), a BATCH (issues
 // sharing one `pr_url`), a PR STACK (`pr_base_branch`).
 //
 // SLOP-16: in the work header (the Issue, Run and Changes faces share
-// `WorkHeader`, EXP-877) it is a quiet ICON BUTTON — the glyph names the shape
+// `WorkHeader`, EXP-877) it is a quiet ICON BUTTON: the glyph names the shape
 // (`badgeShape`: stack, batch, open blockers; face-independent), a muted `+N`
 // counts the rest (`badgeChip`); in the Reviews queue, the glyph on a batch
 // row.
 //
-// SLOP-16 r5: click opens THE "Related work" view — the standard `Dialog`
+// SLOP-16 r5: click opens THE "Related work" view: the standard `Dialog`
 // (its bottom-sheet arm on phones) whose body is EXACTLY the relations card's
 // foldable bands (`RelationBandFrame`, 3 rows then "Show N more") over its
-// rows: Blocked by · Same pull request · Pull request stack. Nothing else —
-// no graph, no runs, no Merge stack (the Changes face's Merge pill asks).
+// rows: Blocked by · Same pull request · Pull request stack. Nothing else -
+// no graph, no runs, no merge control.
 // Same bands, same copy (`PR_GRAPH_OVERLAY_COPY`) on all four clients
 // (`pr_graph.rs`, `PrGraphBadge.swift`, `PrGraphBadge.kt`).
 //
-// Everything it draws is already synced — `lib/pr-graph.ts` is the pure model.
+// Everything it draws is already synced: `lib/pr-graph.ts` is the pure model.
 
 const StackIcon = conceptIcon(`pr-stack`)
 const BatchIcon = conceptIcon(`pr-batch`)
@@ -88,7 +88,7 @@ const BAND_ICON: Record<OverlaySection, typeof StackIcon> = {
   stack: StackIcon,
 }
 
-/** EXP-1097: the `blocked` shape's name — the relations band's own title. */
+/** EXP-1097: the `blocked` shape's name: the relations band's own title. */
 export const BLOCKED_BADGE_NAME = RELATIONS_VIEW_COPY.blockedBy
 
 export function PrGraphBadge({
@@ -129,8 +129,8 @@ export function PrGraphBadge({
         : undefined,
     [boardIds.join(`,`)]
   )
-  // The team's `blocks` rows — the subject's direct open blockers. EXP-1097:
-  // fetched for a run subject too — its issue's open blockers earn the badge.
+  // The team's `blocks` rows: the subject's direct open blockers. EXP-1097:
+  // fetched for a run subject too: its issue's open blockers earn the badge.
   const subjectIssueId = issue?.id ?? session?.issueId ?? null
   const { data: relationRows } = useLiveQuery(
     (query) =>
@@ -142,7 +142,7 @@ export function PrGraphBadge({
     [subjectIssueId, teamId]
   )
 
-  // EXP-930: a batch's issue rows are only useful if they OPEN — and an issue
+  // EXP-930: a batch's issue rows are only useful if they OPEN: and an issue
   // URL is board-scoped, so the badge resolves the team's board slugs once.
   const { data: boardRows } = useLiveQuery(
     (query) =>
@@ -181,7 +181,7 @@ export function PrGraphBadge({
         : kind === `stack`
           ? `Pull request stack`
           : `Batch pull request`
-  // SLOP-16: the header trigger is a quiet ICON BUTTON, not a chip — a chip
+  // SLOP-16: the header trigger is a quiet ICON BUTTON, not a chip: a chip
   // restated the title right beside it. The glyph names the SHAPE, `+N` the
   // rest of it; the name rides the tooltip.
   const Glyph = variant === `glyph` ? BatchIcon : BADGE_GLYPH[kind]
@@ -230,7 +230,7 @@ export function PrGraphBadge({
       </Button>
     )
 
-  // SLOP-16 r3: ONE surface at every size — the standard dialog, which drops
+  // SLOP-16 r3: ONE surface at every size: the standard dialog, which drops
   // to its bottom-sheet arm (16px gutter) on a phone by itself.
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -259,7 +259,7 @@ export function PrGraphBadge({
   )
 }
 
-/** THE "Related work" body — the relations card's foldable bands over its
+/** THE "Related work" body: the relations card's foldable bands over its
  *  rows, in `overlaySections` order. Exported for the component test. */
 export function PrGraphOverlay({
   graph,
@@ -269,10 +269,10 @@ export function PrGraphOverlay({
   onClose,
 }: {
   graph: ReturnType<typeof prGraph<Issue, CodingSession>>
-  /** EXP-930: board slug per board id — what turns an issue into a link.
+  /** EXP-930: board slug per board id: what turns an issue into a link.
    *  Absent (or missing the issue's board) = an inert row. */
   boardSlugById?: ReadonlyMap<string, string>
-  /** The team — the issue rows' assignees. */
+  /** The team: the issue rows' assignees. */
   teamId?: string
   teamSlug: string
   onClose: () => void
@@ -285,7 +285,7 @@ export function PrGraphOverlay({
   const flip = (list: OverlaySection[], key: OverlaySection) =>
     list.includes(key) ? list.filter((row) => row !== key) : [...list, key]
 
-  // EXP-930: EVERY issue the view lists opens — a real `<Link>`, so ⌘-click
+  // EXP-930: EVERY issue the view lists opens: a real `<Link>`, so ⌘-click
   // and middle-click work like anywhere else; the dialog closes behind it.
   const issueLink = (row: Issue) => {
     const boardSlug = boardSlugById?.get(row.boardId)

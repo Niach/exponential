@@ -5,11 +5,9 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -18,25 +16,14 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.exponential.app.data.db.CodingSessionEntity
-import com.exponential.app.data.db.DeviceEntity
-import com.exponential.app.data.db.WorkflowNodeEntity
-import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.SessionDevicePresentation
 import com.exponential.app.domain.SessionTree
-import com.exponential.app.domain.SessionTreeContext
 import com.exponential.app.domain.SessionTreeNode
 import com.exponential.app.domain.TreeGuides
-import com.exponential.app.domain.SessionMarkDevice
-import com.exponential.app.domain.SessionMarkRow
-import com.exponential.app.domain.WorkflowView
 import com.exponential.app.domain.sessionTree
 import com.exponential.app.domain.visibleSessionTreeRows
-import com.exponential.app.domain.workflowNodeReview
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.TreeGuidesRow
-import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.issue.StaticDot
 import com.exponential.app.ui.session.AgentRow
 import com.exponential.app.ui.session.RunningSessionRow
@@ -62,15 +49,8 @@ internal val AGENT_LIST_ROW_GAP = 6.dp
  * the page, so a rebuilt list never loses it.
  *
  * EXP-1050: the nesting is the NODE tree (`sessionTree`, the EXP-996 contract)
- * — resumes collapse into one row, children keep nesting under their parent,
- * and a workflow's or a stack's runs sit under one group row ([treeContext] is
- * what tells them apart). Every group folds by the same key.
- *
- * EXP-1068: a review run is titled by its round + verdict
- * ([SessionTree.reviewRowCaption]), a node with two live runs warns on its
- * author row, an open question adds a red "needs you" dot, and a run on a
- * login other than its machine's last used one says so in its byline
- * ([AgentRow.accountLabel]).
+ * — resumes collapse into one row and children keep nesting under their
+ * parent. An open question adds a red "needs you" dot (EXP-1108).
  */
 internal fun LazyListScope.agentSessionsList(
     rows: List<AgentRow>,
@@ -80,10 +60,6 @@ internal fun LazyListScope.agentSessionsList(
     steerEnabled: Boolean,
     onOpenSteer: (String) -> Unit,
     onOpenIssue: (String) -> Unit,
-    onOpenWorkflow: (String) -> Unit,
-    /** What the rows alone cannot say: the team's workflows and their nodes,
-     *  plus the issues the stack edges live on. */
-    treeContext: SessionTreeContext = SessionTreeContext(),
 ) {
     item(key = "__running_header__") { SectionHeader("Running") }
     if (rows.isEmpty()) {
@@ -100,15 +76,13 @@ internal fun LazyListScope.agentSessionsList(
             )
         }
     } else {
-        // EXP-818/EXP-996: a run started by another run nests under its parent,
-        // a resume succession is ONE row, and a workflow's or a stack's runs
-        // hang off a group row. EXP-897: everything with children folds.
+        // EXP-818/EXP-996: a run started by another run nests under its parent
+        // and a resume succession is ONE row. EXP-897: every parent folds.
         val tree = visibleSessionTreeRows(
-            sessionTree(rows.map { it.session }, treeContext),
+            sessionTree(rows.map { it.session }),
             collapsedRunning,
         )
         val rowsBySessionId = rows.associateBy { it.session.id }
-        val nodesById = treeContext.workflowNodes.associateBy { it.id }
         // EXP-965: the indent alone made a child read as a shifted stranger.
         val guides = TreeGuides.compute(tree.map { it.depth })
         itemsIndexed(tree, key = { _, entry -> entry.key }) { index, entry ->
@@ -146,34 +120,9 @@ internal fun LazyListScope.agentSessionsList(
                             expandable = entry.hasChildren,
                             expanded = entry.key !in collapsedRunning,
                             onToggle = { onToggleRunning(entry.key) },
-                            titleOverride = reviewRowTitle(node, nodesById),
-                            accountLabel = row?.accountLabel,
-                            dotAccessory = workflowRunDotAccessory(node),
+                            dotAccessory = runNeedsYouDotAccessory(node),
                         )
                     }
-                    // EXP-978: the workflow the runs below belong to — the row
-                    // LEADS to it, which is where the graph lives.
-                    is SessionTreeNode.Workflow -> SessionTreeGroupRow(
-                        icon = ExpIcons.navWorkflows,
-                        label = node.name,
-                        count = node.children.size,
-                        nodeKey = entry.key,
-                        expanded = entry.key !in collapsedRunning,
-                        onToggle = { onToggleRunning(entry.key) },
-                        onClick = { onOpenWorkflow(node.workflowId) },
-                        workflowStatus = node.status,
-                        caption = SessionTree.workflowGroupCaption(node.liveRuns, node.nodesDone, node.nodesTotal),
-                    )
-                    // EXP-897: the stack, lowest first. There is no stack
-                    // screen to open — its members are the rows below.
-                    is SessionTreeNode.Stack -> SessionTreeGroupRow(
-                        icon = ExpIcons.prStack,
-                        label = SessionTree.STACK_GROUP_LABEL,
-                        count = node.children.size,
-                        nodeKey = entry.key,
-                        expanded = entry.key !in collapsedRunning,
-                        onToggle = { onToggleRunning(entry.key) },
-                    )
                 }
             }
         }
@@ -181,72 +130,26 @@ internal fun LazyListScope.agentSessionsList(
 }
 
 /**
- * EXP-1068: the glyphs after a workflow run's state dot — the red "needs
- * you" dot of a pending question and the duplicate-live warning. Shared by
- * the Agent page's lists and the workflow page's Runs face (EXP-1083); null
- * when the row has neither, so a plain row draws nothing extra.
+ * EXP-1108: the red "needs you" dot after a run's state dot — the run is
+ * live and waits on an open question (`SessionTree.sessionNeedsYou`); null
+ * otherwise, so a plain row draws nothing extra.
  */
-internal fun workflowRunDotAccessory(
+internal fun runNeedsYouDotAccessory(
     node: SessionTreeNode.Session,
 ): (@Composable RowScope.() -> Unit)? {
-    // EXP-1108: the red dot = the shared rule (live AND an open question).
-    val needsYou = SessionTree.sessionNeedsYou(node.session.status, node.session.pendingQuestion != null)
-    if (!node.duplicateLive && !needsYou) return null
+    if (!SessionTree.sessionNeedsYou(node.session.status, node.session.pendingQuestion != null)) return null
     return {
-        if (needsYou) {
-            Spacer(Modifier.width(4.dp))
-            Box(
-                Modifier
-                    .semantics { contentDescription = WorkflowView.NEEDS_YOU_LABEL }
-                    .testTag("session-needs-you"),
-            ) { StaticDot(NeedsYouRed, size = 6.dp) }
-        }
-        if (node.duplicateLive) {
-            Spacer(Modifier.width(4.dp))
-            Icon(
-                ExpIcons.uiWarning,
-                contentDescription = DUPLICATE_LIVE_LABEL,
-                modifier = Modifier.size(12.dp).testTag("session-duplicate-live"),
-                tint = NeedsInputAmber,
-            )
-        }
+        Spacer(Modifier.width(4.dp))
+        Box(
+            Modifier
+                .semantics { contentDescription = NEEDS_YOU_LABEL }
+                .testTag("session-needs-you"),
+        ) { StaticDot(NeedsYouRed, size = 6.dp) }
     }
 }
 
-internal const val DUPLICATE_LIVE_LABEL = "Two live runs on this node"
+/** EXP-1108: the needs-you dot's spoken name. */
+internal const val NEEDS_YOU_LABEL = "needs you"
 
 /** EXP-1068: the "needs you" dot of a run with an open question. */
 private val NeedsYouRed = DesignTokens.Semantic.Red
-
-/** EXP-1068: a REVIEW chain's title (`Review r2 · approved`) off its node's
- *  `review_round` + latest `review` cell; null on every other row. */
-internal fun reviewRowTitle(
-    node: SessionTreeNode.Session,
-    nodesById: Map<String, WorkflowNodeEntity>,
-): String? {
-    val stamped = node.chain.lastOrNull { it.workflowId != null } ?: return null
-    if (stamped.workflowRole != DomainContract.wfSessionRoleReview) return null
-    val wfNode = stamped.workflowNodeId?.let(nodesById::get)
-    val review = workflowNodeReview(wfNode?.review)
-    val verdict = SessionTree.reviewRoundVerdict(
-        round = node.reviewRound,
-        nodeReviewRound = wfNode?.let { it.reviewRound ?: 0 },
-        latestRound = review?.round,
-        latestVerdict = review?.verdict,
-    )
-    return SessionTree.reviewRowCaption(
-        node.reviewRound,
-        verdict,
-        SessionTree.sessionRowIsLive(node.session.status),
-    )
-}
-
-/**
- * EXP-1068/EXP-1108: the account a WORKFLOW run spends, when it is NOT its
- * machine's last used one for the run's agent (the shared
- * [SessionTree.workflowRunAccountLabel]; the row prefixes `account `). Null
- * outside a workflow, when unset, when the machine is not synced, or on the
- * last used one.
- */
-internal fun runAccountLabel(session: CodingSessionEntity, devices: List<DeviceEntity>): String? =
-    SessionTree.workflowRunAccountLabel(SessionMarkRow.of(session), devices.map(SessionMarkDevice::of))

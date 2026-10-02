@@ -24,8 +24,8 @@ struct RunningSessionRow<Footer: View>: View {
     var expandable: Bool = false
     var expanded: Bool = true
     var onToggle: (() -> Void)?
-    /// EXP-1068: the workflow marks (needs-you dot, duplicate warning, an
-    /// account off the machine's last used one). Empty on every other surface.
+    /// EXP-1108: the row marks (the needs-you dot). Empty on every other
+    /// surface.
     var marks = RunningSessionRowMarks()
     @ViewBuilder let footer: () -> Footer
 
@@ -84,7 +84,7 @@ struct RunningSessionRow<Footer: View>: View {
         return HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    // EXP-1068: an open question to a person — red, beside
+                    // EXP-1108: an open question to a person — red, beside
                     // the state dot (the amber needs-input state stays).
                     if SessionTree.sessionNeedsYou(
                         status: session.status, hasPendingQuestion: marks.needsYou
@@ -102,11 +102,6 @@ struct RunningSessionRow<Footer: View>: View {
                         // EXP-848: the dot pulses on the device-written turn flag.
                         busy: session.agentBusy
                     )
-                    if marks.duplicateLive {
-                        AppIcon(AppIcons.uiWarning, size: 12)
-                            .foregroundStyle(DesignTokens.Semantic.yellow)
-                            .accessibilityLabel("Two live runs on this node")
-                    }
                 }
                 // EXP-850 §8: the device-written caption, only on a live row.
                 if state != .done, let caption = session.agentCaption, !caption.isEmpty {
@@ -121,7 +116,7 @@ struct RunningSessionRow<Footer: View>: View {
                     paused: paused,
                     device: device.displayLabel,
                     started: relativeWireDate(session.startedAt)
-                ) + (marks.account.map { " · \($0)" } ?? ""))
+                ))
                 .font(.caption)
                 .foregroundStyle(sessionStatusLineColor(state: state, paused: paused))
                 .lineLimit(1)
@@ -165,87 +160,11 @@ extension RunningSessionRow where Footer == EmptyView {
     }
 }
 
-/// EXP-1068: what a workflow member's row adds to the plain run row.
+/// EXP-1108: what a run row adds to the plain row.
 struct RunningSessionRowMarks {
     /// The run holds an open question to a person (`pendingQuestion`); the
     /// dot shows only while the run is live (`SessionTree.sessionNeedsYou`).
     var needsYou = false
-    /// Two live author (or review) runs on this node.
-    var duplicateLive = false
-    /// The `account <label>` caption, only on a workflow run off its
-    /// machine's last used login (`offLastUsedAccount`).
-    var account: String?
-}
-
-extension RunningSessionRowMarks {
-    /// EXP-1068: a REVIEW chain's title, `Review r2 · approved`, off its
-    /// node's synced `review_round` + latest `review`. Nil on every other
-    /// row. Shared by the Agent page's lists and the workflow page's Runs
-    /// face (EXP-1083), so both read the same caption.
-    ///
-    /// `nodeReviewRound` + `review` = the node row's synced `review_round` and
-    /// `review` json (the tree context's `WorkflowNode` or the entity).
-    static func reviewTitle(
-        _ node: SessionTree.SessionNode?, nodeReviewRound: Int?, review: String?
-    ) -> String? {
-        guard let node, node.session.workflowRole == DomainContract.wfSessionRoleReview else {
-            return nil
-        }
-        let latest = WorkflowNodeReview.parse(review)
-        let verdict = SessionTree.reviewRoundVerdict(
-            round: node.reviewRound,
-            nodeReviewRound: nodeReviewRound,
-            latestRound: latest?.round,
-            latestVerdict: latest?.verdict
-        )
-        return SessionTree.reviewRowCaption(
-            round: node.reviewRound,
-            verdict: verdict,
-            live: SessionTree.sessionRowIsLive(status: node.session.status)
-        )
-    }
-
-    /// EXP-1108: `account <label>` on a WORKFLOW run that does not spend its
-    /// host's last used login for its agent (the shared rule,
-    /// `SessionTree.workflowRunAccountCaption`). Nil on every other run, and
-    /// when the host is not synced to this phone.
-    ///
-    /// `currentUserId` = the signed-in user: the rule prefers the row whose
-    /// `userId` is the session owner's, and the caller's OWN device rows
-    /// carry no `owner`, so it is what names them (see `markDevice`).
-    static func offLastUsedAccount(
-        _ session: CodingSessionEntity, devices: [SteerDevice]?, currentUserId: String?
-    ) -> String? {
-        SessionTree.workflowRunAccountCaption(
-            session: SessionTree.MarkSession(
-                agent: session.agent,
-                agentAccount: session.agentAccount,
-                deviceId: session.deviceId,
-                userId: session.userId,
-                workflowId: session.workflowId
-            ),
-            devices: (devices ?? []).map { markDevice($0, currentUserId: currentUserId) }
-        )
-    }
-
-    /// A synced machine as the rule reads it. `userId` = the owner on a
-    /// teammate's shared row; the caller's own rows carry NO owner (the
-    /// `devices` shape sets it only on a teammate's shared row), so they are
-    /// stamped with the signed-in user. Without that, the "same device id
-    /// prefers the session owner's row" rule could never pick an own row and
-    /// fell to the first match, possibly a teammate's shared copy of the same
-    /// machine with other logins, giving a wrong or missing caption.
-    private static func markDevice(_ device: SteerDevice, currentUserId: String?) -> SessionTree.MarkDevice {
-        SessionTree.MarkDevice(
-            deviceId: device.deviceId,
-            userId: device.owner?.id ?? currentUserId,
-            agentAccounts: device.agentAccounts?.mapValues { account in
-                SessionTree.MarkAgentAccount(profiles: account.profiles?.map {
-                    SessionTree.MarkProfile(id: $0.id, label: $0.label, active: $0.active)
-                })
-            }
-        )
-    }
 }
 
 /// Where a `RunningSessionRow`'s primary tap goes.

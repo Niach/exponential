@@ -65,7 +65,6 @@ function makeIssue(overrides: Partial<Issue>): Issue {
     branch: null,
     prMergedAt: null,
     prBaseBranch: null,
-    prStackNumber: null,
     estimate: null,
     sortOrder: 0,
     status: `backlog`,

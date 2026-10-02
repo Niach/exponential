@@ -9,8 +9,8 @@ import {
 
 // EXP-1029 contract — the device picker: the machines a run may start on,
 // each by its device glyph (contract `deviceIcon`) + name, offline ones
-// rendered disabled with the reason as the description. The composer, the
-// automation editor and the workflow runner row pick one.
+// rendered disabled with the reason as the description. The composer and
+// an action trigger's runner row pick one.
 
 export interface DevicePickerDevice {
   id: string
@@ -20,7 +20,7 @@ export interface DevicePickerDevice {
   icon?: string | null
   /** Contract `deviceKind`, read only for that default. */
   kind?: string | null
-  /** A muted reason under the name (`Offline`, `Update to run workflows`). */
+  /** A muted reason under the name (`Offline`, `No agent signed in`). */
   description?: ReactNode
   disabled?: boolean
 }

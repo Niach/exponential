@@ -821,65 +821,11 @@ export interface StartSessionOptions {
    * steer-image-message shape. Pass-through (the web server validated it);
    * never on a resume. */
   prompt?: string
-  /** EXP-1082 §1: the run's workflow MEMBERSHIP (workflow id, node id,
-   * contract `wfSessionRole`), on every subject incl. a resume. Verbatim
-   * pass-through: the device hands them to `codingSessions.start`, which
-   * honours them only from the workflow's runner device. */
-  workflowId?: string
-  workflowNodeId?: string
-  workflowRole?: string
-  /** EXP-897: START STACKED, the server-resolved chain the run's branch is
-   * cut into. Single-issue starts only (a batch/action/resume start never
-   * carries one); ABSENT on an unstacked start, so that frame stays
-   * byte-identical to the pre-EXP-897 wire. Pass-through: the web server
-   * resolved the chain (`lib/stack-plan.ts`), the device cuts the branch. */
-  stack?: StartStack
   /** FEED-63: the web server's id for THIS start request, on every subject
    * incl. a resume. Verbatim pass-through: the device reports a failed start
    * back to the web server under it. Absent from older web builds. */
   startId?: string
 }
-
-/** EXP-897: one issue of the stack a stacked start builds on, exactly as the
- * web server posts it (`SteerStartStackIssue`) and the device decodes it
- * (`frames.rs` `StartStackIssue`). `branch`/`prState` are null for a
- * foundation that was never started. */
-export interface StartStackIssue {
-  issueId: string
-  identifier: string
-  branch: string | null
-  prState: string | null
-}
-
-/** EXP-897: the stack a `start_session` frame asks for: `chain` is BOTTOM
- * first and EXCLUDES the started issue; `lower` is the foundation directly
- * below (the web server sends `chain.at(-1)`, or null). */
-export interface StartStack {
-  lower: StartStackIssue | null
-  chain: StartStackIssue[]
-}
-
-/** A stack of 20 is already absurd; the web server's walk stops there too. */
-export const START_STACK_MAX_CHAIN = 20
-
-export const startStackIssueSchema = z
-  .object({
-    issueId: z.string().min(1).max(128),
-    identifier: z.string().min(1).max(128),
-    branch: z.string().max(255).nullable(),
-    prState: z.string().max(32).nullable(),
-  })
-  .strict()
-
-// Strict on purpose: the web server builds this frame field by field, so an
-// unknown key is a wire mismatch to surface as a 400, never a key to drop
-// silently (the relay dropping `stack` itself was the FEED-43 R1 bug).
-export const startStackSchema = z
-  .object({
-    lower: startStackIssueSchema.nullable(),
-    chain: z.array(startStackIssueSchema).min(1).max(START_STACK_MAX_CHAIN),
-  })
-  .strict()
 
 /** Server-resolved repo group for a BATCH or ACTION remote start — the
  * desktop syncs no repositories, so the frame carries everything the
@@ -946,10 +892,6 @@ export type ServerFrame =
        * option a resume carries (naming another profile is the mid-run
        * account switch). Pass-through. */
       account?: string
-      /** EXP-1082 §1: workflow membership, verbatim (see StartSessionOptions). */
-      workflowId?: string
-      workflowNodeId?: string
-      workflowRole?: string
       /** FEED-63: the start request's id, verbatim (see StartSessionOptions). */
       startId?: string
     }

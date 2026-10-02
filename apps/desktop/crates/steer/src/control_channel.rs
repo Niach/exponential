@@ -42,7 +42,7 @@ use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::frames::{
-    ClientFrame, ServerFrame, StartInput, StartRepoGroup, StartStack, StartStackIssue,
+    ClientFrame, ServerFrame, StartInput, StartRepoGroup,
 };
 use crate::{dial, Backoff, SteerRuntime, BACKOFF_RESET_AFTER};
 
@@ -174,28 +174,14 @@ pub struct RemoteStart {
     /// additional instructions, steer-shaped image embeds). Dropped on a
     /// resume subject — the server never sends one there.
     pub prompt: Option<String>,
-    /// EXP-897: START STACKED — the server-resolved chain the run's branch is
-    /// cut into. A SIBLING field rather than a shape of
-    /// [`RemoteStartSubject::Issue`]: only single-issue starts ever carry one
-    /// (the server refuses it elsewhere), and keeping the subject enum
-    /// unchanged keeps every other consumer untouched. Dropped on a resume
-    /// (the recorded run already knows its base).
-    pub stack: Option<StartStack>,
     /// EXP-981: the model claude's SUBAGENTS run on. Absent = this machine's
     /// own launch default; a BLANK string is the deliberate "the CLI's own
     /// default" pick. Dropped on a resume, like the other launch options.
     pub subagent_model: Option<String>,
-    /// EXP-1082: the frame's `workflowId` / `workflowNodeId` /
-    /// `workflowRole` — a workflow run started through the relay names its
-    /// node, and the launcher stamps it on the row. `None` unless the
-    /// workflow id and a known role arrived; the node may be absent (a
-    /// planner run, `WorkflowMembership::from_wire`). Never on a resume,
-    /// which inherits server-side.
-    pub workflow: Option<coding::workflows::WorkflowMembership>,
     /// FEED-63: the frame's `startId`, the server's id for this start
     /// attempt. When set, a machine that refuses or fails the start reports
     /// the reason with `steer.reportStartFailure`. Set after
-    /// [`remote_start_from_frame`] like `workflow`; `None` on pre-FEED-63
+    /// [`remote_start_from_frame`]; `None` on pre-FEED-63
     /// frames.
     pub start_id: Option<String>,
 }
@@ -247,25 +233,6 @@ pub fn report_start_failure(trpc: &api::TrpcClient, start_id: Option<&str>, reas
     }
 }
 
-/// EXP-897 — the launcher's view of an inbound [`StartStack`]: the same plan
-/// in `coding`'s own types, so the wire shape never leaks past this crate.
-/// `None` for an absent or EMPTY stack (nothing below the target), which is
-/// exactly an ordinary start.
-pub fn stack_launch(stack: Option<&StartStack>) -> Option<coding::StackLaunch> {
-    let stack = stack?;
-    let issue = |issue: &StartStackIssue| coding::StackIssue {
-        issue_id: issue.issue_id.clone(),
-        identifier: issue.identifier.clone(),
-        branch: issue.branch.clone(),
-        pr_state: issue.pr_state.clone(),
-    };
-    let launch = coding::StackLaunch {
-        lower: stack.lower.as_ref().map(&issue),
-        chain: stack.chain.iter().map(&issue).collect(),
-    };
-    (launch.lower.is_some() || !launch.chain.is_empty()).then_some(launch)
-}
-
 /// Build a [`RemoteStart`] from the raw `start_session` frame fields, enforcing
 /// the exactly-one-subject invariant. `None` — a malformed frame the caller
 /// logs and drops — when: more or fewer than one of
@@ -293,7 +260,6 @@ pub(crate) fn remote_start_from_frame(
     mcp_server_ids: Option<Vec<String>>,
     account: Option<String>,
     prompt: Option<String>,
-    stack: Option<StartStack>,
     subagent_model: Option<String>,
 ) -> Option<RemoteStart> {
     // EXP-637: a resume is its OWN subject — the recorded run supplies the
@@ -322,11 +288,7 @@ pub(crate) fn remote_start_from_frame(
             account,
             resume: false,
             prompt: None,
-            // EXP-897: a resume re-enters the worktree it recorded, base
-            // included — a stack on the frame would say nothing new.
-            stack: None,
             subagent_model: None,
-            workflow: None,
             start_id: None,
         });
     }
@@ -361,25 +323,9 @@ pub(crate) fn remote_start_from_frame(
         account,
         resume,
         prompt,
-        stack,
         subagent_model,
-        workflow: None,
         start_id: None,
     })
-}
-
-/// EXP-1082 — the membership a `start_session` frame names, decoded; a
-/// resume never takes one (the server makes a resume inherit it).
-pub(crate) fn with_workflow(
-    subject: &RemoteStartSubject,
-    workflow_id: Option<&str>,
-    workflow_node_id: Option<&str>,
-    workflow_role: Option<&str>,
-) -> Option<coding::workflows::WorkflowMembership> {
-    if matches!(subject, RemoteStartSubject::Resume { .. }) {
-        return None;
-    }
-    coding::workflows::WorkflowMembership::from_wire(workflow_id, workflow_node_id, workflow_role)
 }
 
 /// The launcher trigger (§8.3 #4): receives an inbound `start_session`.
@@ -751,25 +697,15 @@ async fn connect_and_listen(
                             mcp_server_ids,
                             account,
                             prompt,
-                            stack,
                             subagent_model,
-                            workflow_id,
-                            workflow_node_id,
-                            workflow_role,
                             start_id,
                         }) => match remote_start_from_frame(
                             issue_id, issue_ids, action_id, action_name, team_id, repo, inputs,
                             started_by, started_reason, agent, model, effort, ultracode,
                             plan_mode, resume, resume_session_id, mcp_server_ids, account, prompt,
-                            stack, subagent_model,
+                            subagent_model,
                         ) {
                             Some(mut start) => {
-                                start.workflow = with_workflow(
-                                    &start.subject,
-                                    workflow_id.as_deref(),
-                                    workflow_node_id.as_deref(),
-                                    workflow_role.as_deref(),
-                                );
                                 start.start_id = start_id;
                                 log::info!("steer control: remote start_session ({:?})", start.subject);
                                 on_start_session(start);
@@ -854,26 +790,6 @@ async fn sleep_action(
 mod tests {
     use super::*;
 
-    #[test]
-    fn a_frame_names_its_workflow_membership_except_on_a_resume() {
-        // EXP-1082: a workflow id + a role make a membership (the node is
-        // optional: the Plan-workflow frame has none); a resume inherits
-        // server-side and never takes one.
-        let issue = RemoteStartSubject::Issue("issue-1".to_string());
-        let membership = with_workflow(&issue, Some("wf"), Some("n"), Some("review")).unwrap();
-        assert_eq!(membership.workflow_id, "wf");
-        assert_eq!(membership.node_id.as_deref(), Some("n"));
-        assert_eq!(membership.role, coding::workflows::WfSessionRole::Review);
-        let plan = with_workflow(&issue, Some("wf"), None, Some("plan")).unwrap();
-        assert_eq!(plan.node_id, None);
-        assert_eq!(plan.role, coding::workflows::WfSessionRole::Plan);
-        assert_eq!(with_workflow(&issue, Some("wf"), Some("n"), None), None);
-        let resume = RemoteStartSubject::Resume {
-            session_id: "s".to_string(),
-        };
-        assert_eq!(with_workflow(&resume, Some("wf"), Some("n"), Some("author")), None);
-    }
-
     fn repo() -> StartRepoGroup {
         StartRepoGroup {
             repository_id: "repo-1".into(),
@@ -907,9 +823,7 @@ mod tests {
             None,
             None,
             None,
-            None,
-            None,
-        )
+            None)
         .expect("resume frame");
         assert_eq!(
             start.subject,
@@ -948,9 +862,7 @@ mod tests {
             None,
             Some("0a1b2c3d".into()),
             None,
-            None,
-            None,
-        )
+            None)
         .expect("switch frame");
         assert_eq!(switched.account.as_deref(), Some("0a1b2c3d"));
         assert_eq!(
@@ -987,9 +899,7 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
-                None,
-            )
+                None)
             .expect("hinted resume frame");
             assert_eq!(
                 start.subject,
@@ -1020,9 +930,7 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
-                None,
-            ),
+                None),
             None
         );
     }
@@ -1051,9 +959,7 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
-                None,
-            ),
+                None),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Issue("issue-9".into()),
                 started_by: None,
@@ -1067,9 +973,7 @@ mod tests {
                 account: None,
                 resume: false,
                 prompt: None,
-                stack: None,
                 subagent_model: None,
-                workflow: None,
                 start_id: None,
             })
         );
@@ -1096,9 +1000,7 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
-                None,
-            ),
+                None),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Batch {
                     issue_ids: vec!["a".into(), "b".into()],
@@ -1116,9 +1018,7 @@ mod tests {
                 account: None,
                 resume: false,
                 prompt: None,
-                stack: None,
                 subagent_model: None,
-                workflow: None,
                 start_id: None,
             })
         );
@@ -1153,7 +1053,6 @@ mod tests {
                 // EXP-825: the chat text rides the frame's `prompt`, no input.
                 Some("what does trunk_sync do?".into()),
                 None,
-                None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Action {
@@ -1174,127 +1073,10 @@ mod tests {
                 account: None,
                 resume: false,
                 prompt: Some("what does trunk_sync do?".into()),
-                stack: None,
                 subagent_model: None,
-                workflow: None,
                 start_id: None,
             })
         );
-    }
-
-    /// EXP-897: the stack rides a single-issue frame as a SIBLING of the
-    /// subject, is translated into the launcher's own types, and never
-    /// survives a resume (the recorded run already names its base).
-    #[test]
-    fn remote_start_from_frame_carries_the_stack_payload() {
-        let stack = StartStack {
-            lower: Some(StartStackIssue {
-                issue_id: "issue-11".into(),
-                identifier: "EXP-11".into(),
-                branch: Some("exp/EXP-11".into()),
-                pr_state: Some("open".into()),
-            }),
-            chain: vec![
-                StartStackIssue {
-                    issue_id: "issue-10".into(),
-                    identifier: "EXP-10".into(),
-                    branch: None,
-                    pr_state: None,
-                },
-                StartStackIssue {
-                    issue_id: "issue-11".into(),
-                    identifier: "EXP-11".into(),
-                    branch: Some("exp/EXP-11".into()),
-                    pr_state: Some("open".into()),
-                },
-            ],
-        };
-        let start = remote_start_from_frame(
-            Some("issue-12".into()),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            false,
-            None,
-            None,
-            None,
-            None,
-            Some(stack.clone()),
-            None,
-        )
-        .expect("stacked issue frame");
-        assert_eq!(start.subject, RemoteStartSubject::Issue("issue-12".into()));
-        let launch = stack_launch(start.stack.as_ref()).expect("a launch plan");
-        assert_eq!(launch.chain.len(), 2);
-        assert_eq!(launch.chain[0].identifier, "EXP-10");
-        assert_eq!(launch.chain[0].open_branch(), None);
-        assert_eq!(
-            launch.lower.as_ref().and_then(coding::StackIssue::open_branch),
-            Some("exp/EXP-11")
-        );
-
-        // A resume frame drops it.
-        let resumed = remote_start_from_frame(
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            false,
-            Some("sess-old".into()),
-            None,
-            None,
-            None,
-            Some(stack),
-            None,
-        )
-        .expect("resume frame");
-        assert_eq!(resumed.stack, None);
-    }
-
-    /// An ABSENT stack (every pre-EXP-897 sender) parses, and an EMPTY one is
-    /// the same thing as none: an ordinary start.
-    #[test]
-    fn start_session_without_a_stack_parses_and_launches_unstacked() {
-        let frame = ServerFrame::parse(
-            r#"{"t":"start_session","issueId":"issue-12","stack":{"chain":[],"lower":null}}"#,
-        )
-        .expect("frame");
-        match frame {
-            ServerFrame::StartSession { stack, .. } => {
-                assert_eq!(stack, Some(StartStack::default()));
-                assert_eq!(stack_launch(stack.as_ref()), None, "an empty plan is no plan");
-            }
-            other => panic!("expected StartSession, got {other:?}"),
-        }
-        let bare = ServerFrame::parse(r#"{"t":"start_session","issueId":"issue-12"}"#)
-            .expect("frame");
-        match bare {
-            ServerFrame::StartSession { stack, .. } => {
-                assert_eq!(stack, None);
-                assert_eq!(stack_launch(stack.as_ref()), None);
-            }
-            other => panic!("expected StartSession, got {other:?}"),
-        }
     }
 
     #[test]
@@ -1321,9 +1103,7 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
-                None,
-            ),
+                None),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Issue("issue-9".into()),
                 started_by: Some("user-2".into()),
@@ -1337,9 +1117,7 @@ mod tests {
                 account: None,
                 resume: false,
                 prompt: None,
-                stack: None,
                 subagent_model: None,
-                workflow: None,
                 start_id: None,
             })
         );
@@ -1370,9 +1148,7 @@ mod tests {
             None,
             None,
             None,
-            None,
-            None,
-        )
+            None)
         .expect("issue frame");
         assert_eq!(issue.started_reason.as_deref(), Some("agent"));
 
@@ -1396,9 +1172,7 @@ mod tests {
             None,
             None,
             None,
-            None,
-            None,
-        )
+            None)
         .expect("resume frame");
         assert_eq!(resumed.started_reason.as_deref(), Some("agent"));
     }
@@ -1427,9 +1201,7 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
-                None,
-            ),
+                None),
             None
         );
         // Neither subject set.
@@ -1439,9 +1211,7 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
-                None,
-            ),
+                None),
             None
         );
         // Empty batch id list.
@@ -1466,9 +1236,7 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
-                None,
-            ),
+                None),
             None
         );
         // Batch missing the repo.
@@ -1493,9 +1261,7 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
-                None,
-            ),
+                None),
             None
         );
         // Batch missing the team.
@@ -1520,9 +1286,7 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
-                None,
-            ),
+                None),
             None
         );
     }
@@ -1551,9 +1315,7 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
-                None,
-            ),
+                None),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Action {
                     action_id: "act-1".into(),
@@ -1573,9 +1335,7 @@ mod tests {
                 account: None,
                 resume: false,
                 prompt: None,
-                stack: None,
                 subagent_model: None,
-                workflow: None,
                 start_id: None,
             })
         );
@@ -1601,9 +1361,7 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
-                None,
-            )
+                None)
             .map(|start| start.subject),
             Some(RemoteStartSubject::Action {
                 action_id: "act-2".into(),
@@ -1656,9 +1414,7 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
-                None,
-            ),
+                None),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Action {
                     action_id: "act-1".into(),
@@ -1678,9 +1434,7 @@ mod tests {
                 account: None,
                 resume: false,
                 prompt: None,
-                stack: None,
                 subagent_model: None,
-                workflow: None,
                 start_id: None,
             })
         );
@@ -1710,9 +1464,7 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
-                None,
-            ),
+                None),
             None
         );
         // Action missing its name.
@@ -1737,9 +1489,7 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
-                None,
-            ),
+                None),
             None
         );
         // Action missing the team.
@@ -1764,9 +1514,7 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
-                None,
-            ),
+                None),
             None
         );
     }

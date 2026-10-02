@@ -1,21 +1,21 @@
-//! EXP-1079/EXP-1058/SLOP-16 — `pr-graph-badge` (Special components): the
+//! EXP-1079/EXP-1058/SLOP-16: `pr-graph-badge` (Special components): the
 //! work header's graph badge, the IDE half of the styleguide entry the web
 //! page draws.
 //!
 //! The badge (`crate::pr_graph::badge`) is a muted ICON BUTTON (SLOP-16
-//! round 2): the glyph names the shape — `pr-stack`, `pr-batch`,
-//! `relation-blocked-by` — with a mono `+N` beside it when others ride
+//! round 2): the glyph names the shape: `pr-stack`, `pr-batch`,
+//! `relation-blocked-by`: with a mono `+N` beside it when others ride
 //! along; the shape's name is its tooltip. A click opens the "Related work"
-//! dialog (round 5): EXACTLY the relations card's foldable bands — "Blocked
-//! by", "Same pull request", "Pull request stack" — over its issue rows (a
+//! dialog (round 5): EXACTLY the relations card's foldable bands: "Blocked
+//! by", "Same pull request", "Pull request stack": over its issue rows (a
 //! pull request in the same row shape), capped at three with "Show N more",
 //! the same layout and copy ×4. A run family earns no badge.
 //!
-//! EXP-1092: the demo draws the REAL badge — `crate::pr_graph::badge` over a
+//! EXP-1092: the demo draws the REAL badge: `crate::pr_graph::badge` over a
 //! `BadgeSpec` whose graph comes from `domain::pr_graph::pr_graph`, the header's
-//! own call — in each state it has (stack, batch, blocked-by alone), over
+//! own call: in each state it has (stack, batch, blocked-by alone), over
 //! static synced-shape rows, never live ones. A lone pull
-//! request with no relation — or a run family alone — draws NO badge
+//! request with no relation: or a run family alone: draws NO badge
 //! (`badge` answers `None`), which is a state too.
 
 use gpui::{div, App, Div, ParentElement as _, Styled as _, Window};

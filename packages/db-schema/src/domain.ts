@@ -393,15 +393,7 @@ export const codingSessionStatusValues = [
 // `exponential_sessions_start` — unattended like an automation, so its
 // close-out (`exponential_sessions_end`) ENDS it; unlike schedule/event it
 // rides every subject (issue, batch, action, builtin, resume).
-// `workflow` (EXP-982) = started by the workflow ENGINE on the runner device
-// for one node (an issue or a batch). Unattended like `agent`, but it has no
-// parent run: its questions go to a person (`sessions_ask_parent` → user).
-export const startedReasonValues = [
-  `schedule`,
-  `event`,
-  `agent`,
-  `workflow`,
-] as const
+export const startedReasonValues = [`schedule`, `event`, `agent`] as const
 
 // Who ended a coding session (coding_sessions.ended_by, documented varchar —
 // EXP-637). `agent` = the run closed itself via `exponential_sessions_end`
@@ -1118,293 +1110,28 @@ export function formatDateForMutation(date: Date | null | undefined) {
   return `${year}-${month}-${day}`
 }
 
-// ── Workflows (EXP-978/981) ─────────────────────────────────────────────────
-// A workflow = a picked set of issues of ONE repository, run as a DAG: the
-// `blocks` relations among them are the edges, a parent with its sub-issues is
-// ONE compound node (run as a batch), and each node's session + PR is its
-// state. The contract keys carry the `wf` prefix: `workflowStatus` was already
-// the agent feed's word for a Claude Code workflow TOOL run.
-//
-// All five are documented varchars (not pg enums): the node lifecycle grows
-// with the engine's phases, and an `ALTER TYPE` per phase buys nothing a zod
-// schema at the writers does not.
-export const wfStatusValues = [
-  `draft`,
-  `running`,
-  `paused`,
-  `done`,
-  `cancelled`,
-] as const
-export const wfNodeStateValues = [
-  // Filed mid-run by a session; not part of the graph until admitted.
-  `proposed`,
-  // Waiting on a blocker.
-  `blocked`,
-  // Every blocker announced its contract (or landed); the scheduler may start it.
-  `ready`,
-  // EXP-1065: every hold (a question, a rate limit) is `running` plus a
-  // note; `waiting` is gone (migration 0149, compat round 26).
-  `running`,
-  `in_review`,
-  // Merging a moved upstream in.
-  `updating`,
-  `landed`,
-  `failed`,
-  `skipped`,
-] as const
-export const wfNodeKindValues = [`contract`, `leaf`, `integration`] as const
-export const wfRiskValues = [`low`, `medium`, `high`] as const
-
-export type WfStatus = (typeof wfStatusValues)[number]
-export type WfNodeState = (typeof wfNodeStateValues)[number]
-export type WfNodeKind = (typeof wfNodeKindValues)[number]
-export type WfRisk = (typeof wfRiskValues)[number]
-
-export const wfStatusSchema = z.enum(wfStatusValues)
-export const wfNodeStateSchema = z.enum(wfNodeStateValues)
-export const wfNodeKindSchema = z.enum(wfNodeKindValues)
-export const wfRiskSchema = z.enum(wfRiskValues)
-
-/** `contract.workflow`, hand-mirrored (drift-tested). */
-export const WORKFLOW_MAX_PARALLEL_DEFAULT = 3
-export const WORKFLOW_MAX_ISSUES = 50
-export const WORKFLOW_MAX_PARALLEL_CAP = 8
-export const WORKFLOW_DECISIONS_MAX = 65536
-
-/** EXP-1029: the agents a workflow may run on (contract `workflowLaunch`). */
-export const workflowLaunchAgentValues = [`claude`, `codex`] as const
-export type WorkflowLaunchAgent = (typeof workflowLaunchAgentValues)[number]
-
-/**
- * EXP-1029: THE workflow launch — what every node run and every agent review
- * reads, once `normalizeWorkflowLaunch` (web `lib/workflow-launch.ts`,
- * desktop `coding::workflows::launch`) has folded the stored jsonb into it.
- *
- * Two models, no more: `model` is the CHEAP one (leaf nodes, and the `Task`
- * subagents inside every node run), `strongModel` the capable one (contract
- * nodes, integration nodes, `risk: high` nodes and EVERY agent review). The
- * gate choice is gone — the agent reviews every node and the one human
- * review is the final PR — and dependents start on the blockers' contract. A new
- * workflow takes both models from the creating device's agent defaults
- * (`DeviceWorkflowDefaults`); the workflow screen shows no settings panel.
- */
-export interface WorkflowLaunch {
-  agent: WorkflowLaunchAgent
-  /** An agent profile id on the runner device; absent = its active login. */
-  account?: string
-  model: string
-  strongModel: string
-}
-
-/** Contract `workflowLaunch` per-agent defaults, hand-mirrored (drift-tested):
- *  what `normalizeWorkflowLaunch` fills in when the stored row names none. */
-export const WORKFLOW_LAUNCH_DEFAULTS: Record<
-  WorkflowLaunchAgent,
-  Pick<WorkflowLaunch, `model` | `strongModel`>
-> = {
-  claude: { model: `opus`, strongModel: `fable` },
-  codex: { model: `gpt-5.6-sol`, strongModel: `gpt-5.6-luna` },
-}
-
-/**
- * `workflows.launch` AS STORED (jsonb): the four [`WorkflowLaunch`] keys,
- * every one optional so `normalizeWorkflowLaunch` can fill an absent one
- * from the contract defaults. The EXP-1002/EXP-1029 per-phase pins,
- * `subagentModel`, `reviewModel`, `effort` and `maxParallel` were rewritten
- * away by migration 0149 (compat round 26) and are ignored if they ever
- * reappear.
- */
-export interface WorkflowLaunchStored {
-  agent?: string | null
-  /** The cheap model (`WorkflowLaunch.model`). */
-  model?: string | null
-  /** The strong model (`WorkflowLaunch.strongModel`). */
-  strongModel?: string | null
-  /** An agent profile id on the runner device. */
-  account?: string | null
-}
-
-/** EXP-1029: a device's WORKFLOW model defaults — `launch_defaults.workflow`
- *  on the synced devices row, `workflowModel` / `workflowStrongModel` in the
- *  desktop's settings.json. What a new workflow's launch is seeded from
- *  (EXP-1014 reads it at creation; EXP-1020 owns the "Workflow settings"
- *  sub-shell that edits it). Model names belong to the last used
- *  agent's vocabulary. */
-export interface DeviceWorkflowDefaults {
-  model: string
-  strongModel: string
-}
-
 /** EXP-1029: a device's agent defaults as ONE flattened view — the shape the
- *  settings UI edits (EXP-1020) and the workflow creator reads (EXP-1014).
- *  `model` / `subagentModel` are the last used agent's launch defaults;
- *  `workflow` seeds new workflows. Stored across
- *  `DeviceLaunchDefaults.agents[agent]` and `.workflow`. */
+ *  settings UI edits (EXP-1020). `model` / `subagentModel` are the last used
+ *  agent's launch defaults, stored in `DeviceLaunchDefaults.agents[agent]`. */
 export interface DeviceAgentDefaults {
   model: string
   subagentModel: string
-  workflow: DeviceWorkflowDefaults
 }
 
 /** Contract `deviceAgentDefaults`, hand-mirrored (drift-tested): what a
  *  device that never set anything is read as — the desktop's own fresh-
  *  install defaults (`coding::settings`, wired to the SAME contract
- *  constants): `fable`, a BLANK subagent model (= the CLI's own default),
- *  and the workflow pair. The issue proposed `opus` / `opus` for the first
- *  two; that would change what every fresh device runs, so the contract
- *  names reality and the human review may overrule it here. */
+ *  constants): `fable` and a BLANK subagent model (= the CLI's own default). */
 export const DEVICE_AGENT_DEFAULTS: DeviceAgentDefaults = {
   model: `fable`,
   subagentModel: ``,
-  workflow: { model: `opus`, strongModel: `fable` },
-}
-
-/** `workflows.metrics`: the plan's LAYOUT facts, written by the server layout
- *  and nothing else (EXP-1066: the run counters are gone; the planner and the
- *  cycle gate read these, the page derives its caption from the node rows). */
-export interface WorkflowMetricsJson {
-  nodes: number
-  edges: number
-  depth: number
-  width: number
-  /** One entry per blocking cycle: its issue identifiers. Empty = startable. */
-  cycles: string[][]
-  /** `<fromNodeId>\n<toNodeId>` of every edge inside a cycle. */
-  cycleEdges?: string[]
-}
-
-/** A `touches` glob: what a node expects to change (pre-serialises obvious
- *  collisions). */
-export const workflowTouchesSchema = z.array(z.string().min(1).max(256)).max(64)
-
-// ── Agent review (EXP-984) ──────────────────────────────────────────────────
-export const wfReviewVerdictValues = [`approve`, `request_changes`] as const
-export type WfReviewVerdict = (typeof wfReviewVerdictValues)[number]
-export const wfReviewVerdictSchema = z.enum(wfReviewVerdictValues)
-
-/** Review rounds before a node stops bouncing and waits for a person. */
-export const WORKFLOW_MAX_REVIEW_ROUNDS = 3
-
-/** An executable check the reviewer RAN (contract tests on the trunk). An
- *  agent's opinion is advisory; a passing oracle is evidence. */
-export interface WorkflowReviewOracle {
-  command: string
-  passed: boolean
-}
-
-/** `workflow_nodes.review`: the latest submitted verdict. */
-export interface WorkflowNodeReview {
-  verdict: WfReviewVerdict
-  findings: string
-  oracle: WorkflowReviewOracle | null
-  /** The model that reviewed (a `risk: high` node: never its author's). */
-  model: string | null
-  round: number
-  at: string
-  /** The commit the reviewer reviewed (the PR head's sha, 7-40 lowercase
-   *  hex). The engine lands a node ONLY while its PR head still matches:
-   *  a push after the review means a fresh review. Absent on old rows. */
-  head?: string
-}
-
-// FEED-51: the review prompt asks for the EXACT commands run, and a
-// multi-platform oracle (web + desktop + a native suite) did not fit 500.
-export const WORKFLOW_REVIEW_ORACLE_COMMAND_MAX = 2000
-
-export const workflowReviewOracleSchema = z
-  .object({
-    command: z.string().min(1).max(WORKFLOW_REVIEW_ORACLE_COMMAND_MAX),
-    passed: z.boolean(),
-  })
-  .strict()
-
-/** `WorkflowNodeReview.head`: a git commit sha, abbreviated or full. */
-export const workflowReviewHeadSchema = z.string().regex(/^[0-9a-f]{7,40}$/)
-
-// ── EXP-1082: the workflow contract ─────────────────────────────────────────
-// Session MEMBERSHIP: which workflow and node a coding session belongs to
-// (`coding_sessions.workflow_id` / `workflow_node_id` / `workflow_role`,
-// synced). Stamped ONCE, on the server, by `resolveWorkflowMembership`
-// (`lib/sessions/workflow-membership.ts`) on every start path; the session
-// tree groups by `workflow_id` FIRST (EXP-1068) and never guesses again.
-// `author` = the node's own run (an issue or batch run), `review` = the
-// agent review of that node, `base_merge` = a synthetic-base build,
-// `plan` / `replan` = the planner runs of a draft.
-export const wfSessionRoleValues = [
-  `author`,
-  `review`,
-  `base_merge`,
-  `plan`,
-  `replan`,
-] as const
-export type WfSessionRole = (typeof wfSessionRoleValues)[number]
-export const wfSessionRoleSchema = z.enum(wfSessionRoleValues)
-
-// `workflow_events` (EXP-1082 §3): what the engine did and why, one short
-// line each, trimmed to the newest WORKFLOW_EVENTS_MAX per workflow at every
-// append. Synced (the `workflow-events` shape); rendered by `WorkflowEventList`
-// ×4 (EXP-1064 fills the host sink `workflows::events::event_for`).
-export const wfEventKindValues = [
-  `node_started`,
-  `review_started`,
-  `review_verdict`,
-  `review_no_verdict`,
-  `retrying`,
-  `gave_up`,
-  `following_resume`,
-  `adopting_run`,
-  `account_picked`,
-  `account_switched`,
-  `waiting_reset`,
-  `cleared_at_cap`,
-  `question_asked`,
-  `question_answered`,
-  `landed`,
-  `skipped`,
-  `failed`,
-  `final_pr_opened`,
-  `final_pr_reopened`,
-  `completed`,
-  `cancelled`,
-] as const
-export type WfEventKind = (typeof wfEventKindValues)[number]
-export const wfEventKindSchema = z.enum(wfEventKindValues)
-export const WORKFLOW_EVENTS_MAX = 50
-export const WORKFLOW_EVENT_MESSAGE_MAX = 500
-
-// Node states, KISS (EXP-1082 §4, Danny 2026-09-25): a person sees FIVE
-// states. The stored `wfNodeState` vocabulary stays the engine's INTERNAL
-// one (every hold is `running` with a note), and every client renders ONLY
-// these captions, through `workflowNodeDisplayState` ×4 (locked in
-// `fixtures/workflow-view.json` `displayStates`). An open question is a
-// `needs you` BADGE beside the chip, never a state.
-export const wfNodeDisplayStateValues = [
-  `queued`,
-  `running`,
-  `done`,
-  `failed`,
-  `skipped`,
-] as const
-export type WfNodeDisplayState = (typeof wfNodeDisplayStateValues)[number]
-export const WF_NODE_DISPLAY_STATE: Record<WfNodeState, WfNodeDisplayState> = {
-  proposed: `queued`,
-  blocked: `queued`,
-  ready: `queued`,
-  running: `running`,
-  in_review: `running`,
-  updating: `running`,
-  landed: `done`,
-  failed: `failed`,
-  skipped: `skipped`,
 }
 
 // EXP-1082 §4: the question a run parked on, as row state. Written by
 // `exponential_sessions_ask_parent({to: 'user'})` — today that path sets
 // `needs_input` + the 160-char `agent_caption`, which every heartbeat and the
 // next turn overwrite and which carries no time; this column is the durable
-// copy (`askedAt` ISO). SCHEMA + SHAPE ONLY in the contract: EXP-1065 writes
-// it from `ask_parent` and clears it when the answer lands; the
-// `workflowOpenQuestions` selector ×4 reads it.
+// copy (`askedAt` ISO), cleared when the answer lands.
 export interface CodingSessionPendingQuestion {
   question: string
   askedAt: string
