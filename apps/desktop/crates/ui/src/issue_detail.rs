@@ -444,6 +444,14 @@ pub struct IssueDetailView {
     /// offset and the title sits above the viewport ("the title vanishes",
     /// EXP-67).
     body_scroll: gpui::ScrollHandle,
+    /// EXP-1162: where the large title row's bottom edge sits in the body's
+    /// CONTENT (measured as it paints, scroll-independent), `None` until the
+    /// first paint — what [`domain::detail_chrome::is_title_collapsed`] reads
+    /// against the scroll offset to break the header into its compact title.
+    title_bottom: Rc<std::cell::Cell<Option<f32>>>,
+    /// EXP-1162: the floating bar's cluster width at rest — the large title
+    /// row keeps clear of it (measured as it paints, `None` until then).
+    cluster_w: Rc<std::cell::Cell<Option<f32>>>,
     title_input: Entity<TextareaState>,
     /// Last title pushed from sync — guards the echo loop (web's
     /// title-sync effect).
@@ -607,6 +615,8 @@ impl IssueDetailView {
             issue_id: None,
             focus_handle: cx.focus_handle(),
             body_scroll: gpui::ScrollHandle::new(),
+            title_bottom: Rc::new(std::cell::Cell::new(None)),
+            cluster_w: Rc::new(std::cell::Cell::new(None)),
             title_input,
             synced_title: String::new(),
             unechoed_titles: Rc::default(),
@@ -872,6 +882,8 @@ impl IssueDetailView {
         // without this the new issue opens mid-scroll with its title hidden.
         self.body_scroll
             .set_offset(gpui::point(gpui::px(0.), gpui::px(0.)));
+        // EXP-1162: the title row is re-measured on the incoming issue.
+        self.title_bottom.set(None);
         // Swap the title UNCONDITIONALLY on an issue switch. The focused-input
         // guard in `sync_from_issue` exists for remote echoes of the SAME
         // issue; across a switch it would leave the old issue's title in the
@@ -2069,9 +2081,10 @@ impl IssueDetailView {
 
     /// The borderless 2xl title block (web `titleField`). [`DETAIL_GUTTER`] =
     /// the one shared left edge for the detail body (title / description /
-    /// activity / composer all align on it — §8.3, EXP-282). It lives in the
-    /// FIXED header (EXP-417) but stays owned by this view: its Tab and
-    /// Shift+Enter captures target the description editor.
+    /// activity / composer all align on it — §8.3, EXP-282). EXP-1162: it is
+    /// the first row of the SCROLLING body again (the fixed bar carries the
+    /// compact title once it scrolls away); its Tab and Shift+Enter captures
+    /// target the description editor.
     ///
     /// EXP-1097: `under_parent_line` = the "Sub-issue of" line sits above it
     /// and already took the header's top inset, so the title drops its own.
@@ -2086,13 +2099,13 @@ impl IssueDetailView {
             crate::work_header::TITLE_PT - crate::work_header::TITLE_WIDGET_PY
         };
         div()
-            // EXP-877: the SAME block as `work_header::title_row`. The
+            // EXP-877: the `work_header::TITLE_*` block. The
             // multi-line widget insets its text box by `TITLE_WIDGET_PX` /
             // `TITLE_WIDGET_PY` underneath any refined style (no public size
             // knob on `Textarea`), so the wrapper gives that much back on the
             // sides and on top, and pulls the bottom in to `TITLE_PB` with a
             // negative margin: title at `DETAIL_GUTTER` / `TITLE_PT`,
-            // `TITLE_PB` under it, on BOTH faces.
+            // `TITLE_PB` under it.
             .px(px(DETAIL_GUTTER - crate::work_header::TITLE_WIDGET_PX))
             .pt(px(top))
             .pb(px(0.))
@@ -2205,17 +2218,22 @@ impl IssueDetailView {
         crate::issue_relations::SubIssueComposer { open, on_add }
     }
 
-    /// The SCROLLING body (EXP-417): description + files rail + timeline.
+    /// The SCROLLING body (EXP-417): EXP-1162's title rows (the large title +
+    /// the property tray, [`Self::render_header`]), then description + files
+    /// rail + timeline.
     fn render_body(
         &mut self,
         issue: &Issue,
+        title_rows: Option<AnyElement>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let column = v_flex()
-            // EXP-426: breathing room under the header's border — the
-            // embedded editor deliberately carries no insets of its own.
-            .pt_2()
+            .children(title_rows)
+            // EXP-426: breathing room under the tray (EXP-1162: the old
+            // header's `pb-3` + the body's `pt_2`) — the embedded editor
+            // deliberately carries no insets of its own.
+            .child(div().flex_shrink_0().h(px(20.)))
             .child(self.render_description(issue, window, cx))
             // EXP-760: relations moved BELOW the description (Linear/web
             // parity) — the description is what the reader came for.
@@ -2250,8 +2268,7 @@ impl IssueDetailView {
     /// The FIXED header (EXP-417/EXP-877): the shared `WorkHeader` — row 1 =
     /// the editable title with the face toggle · pin · `…` cluster on the
     /// same line, row 2 = the property tray trailing Merge PR + the ONE
-    /// coding action, then the merge-error caption. Only the body below it
-    /// scrolls, so a long description never scrolls the title away.
+    /// coding action, then the merge-error caption.
     ///
     /// EXP-889: the toggle's CHANGES item is offered whenever there is a
     /// diff to read — my run's worktree diff (which opens the run's Changes
@@ -2264,12 +2281,20 @@ impl IssueDetailView {
     /// The header entity's rows are built through `entity.update` from this
     /// render (the `render_tab_strip` precedent) — they must never call back
     /// into this view synchronously.
+    ///
+    /// EXP-1162: returns the compact bar and, on the Issue face
+    /// (`has_title_row`), the rows it hands to the scrolling body — the
+    /// large title (under its parent line) + the property tray + the merge
+    /// caption; there the bar is the FLOATING one, laid over the body
+    /// ([`crate::work_header::render_floating_bar`]). The Changes / Results
+    /// faces keep a fixed bar with the tray under it (`None`).
     fn render_header(
         &mut self,
         issue: &Issue,
+        has_title_row: bool,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
+    ) -> (AnyElement, Option<AnyElement>) {
         use crate::work_header::{Face, FaceToggle};
         let header = self.header.clone();
         // EXP-870/EXP-877: the tab's face state names the run the Run face
@@ -2431,39 +2456,133 @@ impl IssueDetailView {
             &mut self.resumable,
             cx,
         );
-        // EXP-1097: "Sub-issue of [parent]" rides ABOVE the title.
-        let parent_line = crate::issue_relations::render_parent_line(issue, cx);
-        let under_parent_line = parent_line.is_some();
-        let title = v_flex()
-            .w_full()
-            .min_w_0()
-            .children(parent_line)
-            .child(self.render_title(under_parent_line, cx))
-            .into_any_element();
+        // EXP-1162: on the Issue face the title row scrolls with the body,
+        // and the bar's compact title breaks in once it has gone under the
+        // bar (offset + the row's measured content bottom vs the FLOATING
+        // bar's bottom edge, `header_bottom = BAR_H` into the viewport). The
+        // Changes / Results faces have no title row: always collapsed, tray
+        // fixed.
+        let collapsed = !has_title_row
+            || domain::detail_chrome::is_title_collapsed(
+                true,
+                self.title_bottom
+                    .get()
+                    .map(|bottom| f64::from(bottom + f32::from(self.body_scroll.offset().y))),
+                f64::from(crate::work_header::BAR_H),
+            );
         let changes_open = self.changes_open;
         let (right, tray, extra) = header.update(cx, |header, cx| {
             // EXP-916: the Changes pane has no bar of its own any more, so
             // the tray keeps the ONE merge control on every face. (The
             // badge's overlay still follows the face.)
             header.set_merge_suppressed(false);
+            // EXP-1162: the tray scrolled away — its Merge / Stop / Resume
+            // ride the bar, so nothing is out of reach mid-scroll.
+            let bar_actions = if has_title_row && collapsed {
+                header.bar_actions(issue, action.clone(), cx)
+            } else {
+                Vec::new()
+            };
             // EXP-949: the GitHub link rides the Changes face alone.
-            let right = header.right_cluster(issue, toggle, changes_open, cx);
+            let right = header.right_cluster(issue, bar_actions, toggle, changes_open, cx);
             let actions = header.issue_actions(issue, action, cx);
             (
                 right,
-                Some(header.chip_row(issue, actions, cx)),
+                header.chip_row(issue, actions, cx),
                 header.agent_row(issue, cx),
             )
         });
-        crate::work_header::render_work_header(
-            crate::work_header::WorkHeader {
-                title,
-                right,
-                tray,
-                extra,
-            },
-            cx,
-        )
+        let compact = collapsed.then(|| {
+            crate::work_header::collapsed_title(
+                Some(SharedString::from(issue.identifier.clone())),
+                issue.title.clone(),
+                has_title_row.then(|| gpui::ElementId::from("issue-collapsed-title")),
+                cx,
+            )
+        });
+        if !has_title_row {
+            let header = crate::work_header::render_work_header(
+                crate::work_header::WorkHeader {
+                    title: compact,
+                    right,
+                    tray: Some(tray),
+                    extra,
+                },
+                cx,
+            );
+            return (header, None);
+        }
+        // EXP-1097: "Sub-issue of [parent]" rides ABOVE the title.
+        let parent_line = crate::issue_relations::render_parent_line(issue, cx);
+        let under_parent_line = parent_line.is_some();
+        // EXP-1162: the row's bottom edge, measured as it paints. The canvas
+        // reports it in content space for the next render and, when the
+        // break it implies differs from the one this frame was rendered
+        // with (a scroll offset restored before the first measure, a title
+        // that grew a line), asks for ONE repaint — the only notify.
+        let probe = {
+            let handle = self.body_scroll.clone();
+            let cell = self.title_bottom.clone();
+            let entity_id = cx.entity_id();
+            gpui::canvas(
+                move |bounds, _window, cx| {
+                    let viewport_top = handle.bounds().top();
+                    let bottom = bounds.bottom();
+                    cell.set(Some(f32::from(bottom - viewport_top - handle.offset().y)));
+                    let now = domain::detail_chrome::is_title_collapsed(
+                        true,
+                        Some(f64::from(f32::from(bottom))),
+                        f64::from(f32::from(viewport_top) + crate::work_header::BAR_H),
+                    );
+                    if now != collapsed {
+                        cx.defer(move |cx| cx.notify(entity_id));
+                    }
+                },
+                |_, _: (), _, _| {},
+            )
+            .absolute()
+            .size_full()
+        };
+        // EXP-1162 (web twin): the floating bar's cluster sits ON the title's
+        // first line — the row keeps clear of the cluster's measured width
+        // and shifts up so that line centres on the bar's (`TITLE_PT` + half
+        // a `TITLE_LINE` → `BAR_H / 2`). Shifted, the row's box would end
+        // ABOVE the bar's bottom edge and read collapsed at rest, so it keeps
+        // a `slack` pad that reaches `TITLE_PB` past the bar (the web row's
+        // own overhang) and hands it back with a negative margin: the tray
+        // does not move, the break comes after a few px of scroll.
+        let cluster_w = self
+            .cluster_w
+            .get()
+            .unwrap_or(crate::work_header::CLUSTER_W_FALLBACK);
+        let shift = crate::work_header::BAR_H / 2.
+            - crate::work_header::TITLE_PT
+            - crate::work_header::TITLE_LINE / 2.;
+        let slack = (crate::work_header::BAR_H
+            - (shift + crate::work_header::TITLE_PT + crate::work_header::TITLE_LINE))
+            .max(0.);
+        let title = v_flex()
+            .relative()
+            .w_full()
+            .min_w_0()
+            .mt(px(shift))
+            .pb(px(slack))
+            .mb(px(-slack))
+            .pr(px(cluster_w + crate::work_header::CLUSTER_GAP))
+            .children(parent_line)
+            .child(self.render_title(under_parent_line, cx))
+            .child(probe);
+        let rows = v_flex()
+            .w_full()
+            .min_w_0()
+            .child(title)
+            .child(tray)
+            .children(extra)
+            .into_any_element();
+        // At rest the cluster reports its width for the title row above.
+        let measure = (!collapsed).then(|| (self.cluster_w.clone(), cx.entity_id()));
+        let header = crate::work_header::render_floating_bar(compact, right, collapsed, measure);
+        (header, Some(rows))
     }
 }
 
@@ -2539,11 +2658,13 @@ impl Render for IssueDetailView {
         } else {
             None
         };
-        let header = self.render_header(&issue, window, cx);
+        // EXP-1162: only the Issue face has a title row of its own.
+        let has_title_row = results_face.is_none() && !self.changes_open;
+        let (header, title_rows) = self.render_header(&issue, has_title_row, window, cx);
         if let Some(results_face) = results_face {
             return view
                 .child(header)
-                .child(div().flex_1().min_h_0().w_full().child(results_face))
+                .child(crate::work_header::work_body(results_face, false))
                 .into_any_element();
         }
         // EXP-889: the CHANGES face — the issue's open PR read through the
@@ -2554,14 +2675,36 @@ impl Render for IssueDetailView {
             let changes = self.ensure_changes(&issue, window, cx);
             return view
                 .child(header)
-                .child(div().flex_1().min_h_0().w_full().child(changes))
+                .child(crate::work_header::work_body(
+                    div().flex_1().min_h_0().w_full().child(changes).into_any_element(),
+                    false,
+                ))
                 .into_any_element();
         }
-        let body = self.render_body(&issue, window, cx).into_any_element();
+        let body = self
+            .render_body(&issue, title_rows, window, cx)
+            .into_any_element();
         // EXP-791: the header stays; the body (or the run slid in over it)
         // takes the rest.
         let center = self.render_center(body, window, cx);
-        view.child(header).child(center).into_any_element()
+        // EXP-1162: the Issue face's bar FLOATS over its body (the last
+        // child, so its cluster paints and hit-tests above the content);
+        // its ground + top strip come with the collapse, the bottom strip
+        // stays.
+        view.child(
+            div()
+                .relative()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_h_0()
+                .min_w_0()
+                .w_full()
+                .child(center)
+                .child(crate::surface::edge_fade_bottom())
+                .child(header),
+        )
+        .into_any_element()
     }
 }
 

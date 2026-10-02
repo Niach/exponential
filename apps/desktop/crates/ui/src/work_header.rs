@@ -2,16 +2,20 @@
 //! the diff face of a top tab (issue detail + session screen), byte-identical
 //! with the web `WorkHeader`.
 //!
-//! Row 1: the title (the detail's editable input, a static [`title_row`]
-//! elsewhere) with the right cluster on the SAME line, top-aligned — the
-//! [`face_toggle`] (`Issue | Run | Changes | Results`, the changes item
-//! wearing `+N −M` once its counts are known), then, for an issue, its pin
-//! and `…` menu. Row 2 (issue-bound only): the property tray, trailing
-//! `[Merge PR] [the ONE coding action]` at its right edge. The coding action
-//! is derived from the run STATE ([`coding_action`]), never from the face on
-//! show: an own live run → Stop, an own ended resumable run → Resume, else
-//! Start coding. Fixed (never scrolls with the body); the column caps at
-//! [`WORK_COLUMN_W`], the same as the issue body, transcript and diff.
+//! EXP-1162 (contract `detail-chrome.json`): a compact FIXED bar — the
+//! [`collapsed_title`] on its left, on its right the [`face_toggle`]
+//! (`Issue | Run | Changes | Results`, the changes item wearing `+N −M` once
+//! its counts are known), then, for an issue, its pin and `…` menu. The
+//! issue face's large title (the editable input, [`TITLE_SIZE`]) and its
+//! property tray are the first rows of its SCROLLING body, and the bar's
+//! title appears only once that row has scrolled under it; the run faces
+//! have no title row, so they are always collapsed and keep the tray fixed
+//! under the bar. The tray trails `[Merge PR] [the ONE coding action]`. The
+//! coding action is derived from the run STATE ([`coding_action`]), never
+//! from the face on show: an own live run → Stop, an own ended resumable
+//! run → Resume, else Start coding. No hairline: the body wears the edge
+//! strips ([`work_body`]). The column caps at [`WORK_COLUMN_W`], the same as
+//! the issue body, transcript and diff.
 
 use std::rc::Rc;
 
@@ -980,14 +984,10 @@ pub(crate) fn merge_error_caption(target: &MergeTarget, cx: &mut App) -> Option<
 // The header frame
 // ---------------------------------------------------------------------------
 
-/// A READ-ONLY title at the detail's 2xl semibold rung, padded exactly like
-/// the editable title (`IssueDetailView::render_title`) so the baseline never
-/// moves between the issue face and the run face.
-/// The title block, issue field and run title alike — the web's
-/// `RUN_TITLE_CLASS` / title Textarea to the pixel: `pt-4 pb-1`, 24px
-/// semibold on a 32px line (NOT gpui's `text_2xl`, which is 21px on the
-/// 14px rem), so the two faces share one title box and the header stands
-/// symmetric around a one-line title.
+/// The issue face's LARGE title block (EXP-1162: the first row of its
+/// scrolling body; the run faces wear only the compact title): the web's
+/// title Textarea to the pixel, `pt-4 pb-1`, 24px semibold on a 32px line
+/// (NOT gpui's `text_2xl`, which is 21px on the 14px rem).
 pub(crate) const TITLE_PT: f32 = 16.;
 pub(crate) const TITLE_PB: f32 = 4.;
 pub(crate) const TITLE_SIZE: f32 = 24.;
@@ -997,39 +997,89 @@ pub(crate) const TITLE_LINE: f32 = 32.;
 /// wrapper gives them back so its text lands on the block above.
 pub(crate) const TITLE_WIDGET_PY: f32 = 8.;
 pub(crate) const TITLE_WIDGET_PX: f32 = 10.;
-/// Web `pb-3` under the header (tray or bare title).
+/// Web `pb-3` under a fixed tray.
 const HEADER_PB: f32 = 12.;
+/// EXP-1162: the compact bar's vertical inset around its 36px controls.
+pub(crate) const BAR_PY: f32 = 8.;
+/// The collapsed title's two lines: the mono identifier over the title.
+const COLLAPSED_ID_SIZE: f32 = 11.;
+const COLLAPSED_ID_LINE: f32 = 14.;
+const COLLAPSED_TITLE_SIZE: f32 = 14.;
+const COLLAPSED_TITLE_LINE: f32 = 20.;
 
-pub(crate) fn title_row(text: impl Into<SharedString>) -> AnyElement {
-    div()
+/// EXP-1162 — the COLLAPSED title, the compact bar's left side: the mono
+/// identifier (small, muted) over the title on ONE truncated line. `fade_in`
+/// = the issue face's break (contract `detail-chrome.json`): the element
+/// fades in over `collapseMs` while rising `collapseRise`, keyed by the id so
+/// it replays each time the title breaks again. Faces that are ALWAYS
+/// collapsed (Run, Changes, Results) pass `None` and never animate.
+pub(crate) fn collapsed_title(
+    identifier: Option<SharedString>,
+    title: impl Into<SharedString>,
+    fade_in: Option<gpui::ElementId>,
+    cx: &App,
+) -> AnyElement {
+    let theme = cx.theme();
+    let block = v_flex()
+        .relative()
         .w_full()
         .min_w_0()
-        .px(px(DETAIL_GUTTER))
-        // Web `pt-4 pb-1`: the SAME block the editable title uses, so the
-        // baseline never moves between the issue face and the run face.
-        .pt(px(TITLE_PT))
-        .pb(px(TITLE_PB))
-        .text_size(px(TITLE_SIZE))
-        .font_weight(gpui::FontWeight::SEMIBOLD)
-        .line_height(px(TITLE_LINE))
-        .child(text.into())
-        .into_any_element()
+        .children(identifier.map(|identifier| {
+            div()
+                .min_w_0()
+                .truncate()
+                .font_family(theme.mono_font_family.clone())
+                .text_size(px(COLLAPSED_ID_SIZE))
+                .line_height(px(COLLAPSED_ID_LINE))
+                .text_color(theme.muted_foreground)
+                .child(identifier)
+        }))
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .text_size(px(COLLAPSED_TITLE_SIZE))
+                .line_height(px(COLLAPSED_TITLE_LINE))
+                .font_weight(gpui::FontWeight::MEDIUM)
+                .child(title.into()),
+        );
+    match fade_in {
+        None => block.into_any_element(),
+        Some(id) => {
+            use gpui::AnimationExt as _;
+            let rise = domain::detail_chrome::COLLAPSE_RISE;
+            block
+                .with_animation(
+                    id,
+                    gpui::Animation::new(std::time::Duration::from_millis(
+                        domain::detail_chrome::COLLAPSE_MS,
+                    )),
+                    move |block, delta| block.opacity(delta).top(px(rise * (1. - delta))),
+                )
+                .into_any_element()
+        }
+    }
 }
 
 /// The pieces of one header.
 pub(crate) struct WorkHeader {
-    /// Row 1, left: the title block (it carries its own gutter + `pt_3`).
-    pub title: AnyElement,
-    /// Row 1, right, top-aligned with the title: `[toggle] [pin] [menu]`.
+    /// EXP-1162: the compact bar's left side — the [`collapsed_title`], or
+    /// `None` while the issue face's own large title row is on show.
+    pub title: Option<AnyElement>,
+    /// The compact bar's right: `[badge] [toggle] [pin] [menu]` (plus, on a
+    /// collapsed issue face or an issue-less run, Merge / Stop / Resume).
     pub right: Vec<AnyElement>,
-    /// Row 2: the property tray (issue-bound only).
+    /// A FIXED property tray under the bar — the run faces' (their transcript
+    /// is bottom-anchored, nothing to scroll it away with). The issue face
+    /// carries its tray in its scrolling body instead.
     pub tray: Option<AnyElement>,
     /// A slim extra row under the tray (the merge-error caption).
     pub extra: Option<AnyElement>,
 }
 
-/// The fixed header frame: a hairline under it, the content centered to
-/// [`WORK_COLUMN_W`].
+/// EXP-1162 — the fixed header frame: the compact bar, then the fixed tray
+/// (if any), centered to [`WORK_COLUMN_W`]. No hairline: the body under it
+/// wears [`work_body`]'s top edge strip instead.
 pub(crate) fn render_work_header(header: WorkHeader, _cx: &App) -> AnyElement {
     let WorkHeader {
         title,
@@ -1037,30 +1087,137 @@ pub(crate) fn render_work_header(header: WorkHeader, _cx: &App) -> AnyElement {
         tray,
         extra,
     } = header;
-    let row1 = h_flex()
+    let fixed_tray = tray.is_some();
+    let bar = h_flex()
         .w_full()
-        .items_start()
-        .child(div().flex_1().min_w_0().child(title))
+        .items_center()
+        .gap_3()
+        .py(px(BAR_PY))
+        .px(px(DETAIL_GUTTER))
+        // The bar keeps the toggle's height with or without a title.
+        .min_h(px(theme::tokens::size::CONTROL_LG + 2. * BAR_PY))
+        .child(div().flex_1().min_w_0().children(title))
         .child(
             h_flex()
                 .flex_shrink_0()
                 .items_center()
                 .gap_1()
-                // Web `pt-4 pr-4`: top-aligned with the title's own `pt-4`.
-                .pt(px(TITLE_PT))
-                .pr(px(DETAIL_GUTTER))
                 .children(right),
         );
     v_flex()
         .w_full()
         .flex_shrink_0()
-        // Web `pb-3`: the one bottom inset, whether a tray follows or not.
-        .pb(px(HEADER_PB))
-        .border_b_1()
-        .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+        .when(fixed_tray, |header| header.pb(px(HEADER_PB)))
         .child(centered_column(
-            v_flex().child(row1).children(tray).children(extra),
+            v_flex().child(bar).children(tray).children(extra),
         ))
+        .into_any_element()
+}
+
+/// EXP-1162 — the compact bar's height: one toggle-rung control + its inset.
+pub(crate) const BAR_H: f32 = theme::tokens::size::CONTROL_LG + 2. * BAR_PY;
+/// Until the cluster has been measured once, a floating title row keeps this
+/// far clear of it (toggle `Issue | Run` + pin + `…`, with room to spare).
+pub(crate) const CLUSTER_W_FALLBACK: f32 = 240.;
+/// The gap a floating title row keeps from the cluster beside it.
+pub(crate) const CLUSTER_GAP: f32 = 12.;
+
+/// The cluster measure a floating bar reports back to its view: the width
+/// cell and the view to repaint when it changes.
+pub(crate) type ClusterMeasure = (Rc<std::cell::Cell<Option<f32>>>, gpui::EntityId);
+
+/// EXP-1162 — the Issue face's FLOATING bar (web `WorkHeader floating`): it
+/// overlays the top of the scrolling body (the caller's wrapper is
+/// `relative()`, this is its LAST child) and takes no row of its own. At
+/// rest it paints nothing but its right cluster, on the large title's first
+/// line; the title row keeps clear of the cluster's width (`measure`, only
+/// passed at rest — the collapsed cluster grows Merge / Stop / Resume, and
+/// the title's wrap must not follow it). Collapsed, it shows the compact
+/// title and fades in its ground — the panel at `scrim` + the `edgeTop`
+/// strip under it — over `collapseMs`. Nothing but the cluster's buttons
+/// carries a hitbox, so the bar's empty left never blocks the title editor
+/// (or anything else) under it, nor the scroll wheel.
+pub(crate) fn render_floating_bar(
+    title: Option<AnyElement>,
+    right: Vec<AnyElement>,
+    collapsed: bool,
+    measure: Option<ClusterMeasure>,
+) -> AnyElement {
+    let cluster = h_flex()
+        .relative()
+        .flex_shrink_0()
+        .items_center()
+        .gap_1()
+        .children(right)
+        .when_some(measure, |cluster, (cell, entity_id)| {
+            cluster.child(
+                gpui::canvas(
+                    move |bounds, _, cx| {
+                        let width = f32::from(bounds.size.width);
+                        let known = cell.get();
+                        cell.set(Some(width));
+                        if known.is_none_or(|known| (known - width).abs() > 0.5) {
+                            cx.defer(move |cx| cx.notify(entity_id));
+                        }
+                    },
+                    |_, _: (), _, _| {},
+                )
+                .absolute()
+                .size_full(),
+            )
+        });
+    let ground = collapsed.then(|| {
+        use gpui::AnimationExt as _;
+        div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .right_0()
+            .h(px(BAR_H))
+            .bg(crate::surface::scrim_ground())
+            .child(crate::surface::edge_fade_top_scrim().top(px(BAR_H)))
+            .with_animation(
+                "work-bar-ground",
+                gpui::Animation::new(std::time::Duration::from_millis(
+                    domain::detail_chrome::COLLAPSE_MS,
+                )),
+                |ground, delta| ground.opacity(delta),
+            )
+    });
+    div()
+        .absolute()
+        .top_0()
+        .left_0()
+        .right_0()
+        .h(px(BAR_H))
+        .children(ground)
+        .child(centered_column(
+            h_flex()
+                .h(px(BAR_H))
+                .items_center()
+                .gap_3()
+                .px(px(DETAIL_GUTTER))
+                .child(div().flex_1().min_w_0().children(title))
+                .child(cluster),
+        ))
+        .into_any_element()
+}
+
+/// EXP-1162 — the area under the work header: `body` (a scroll container or
+/// a pane with its own) with the TOP edge strip overlaid on it, and the
+/// bottom one when `bottom_edge` (the body runs to the pane's end).
+pub(crate) fn work_body(body: AnyElement, bottom_edge: bool) -> AnyElement {
+    div()
+        .relative()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_h_0()
+        .min_w_0()
+        .w_full()
+        .child(body)
+        .child(crate::surface::edge_fade_top())
+        .when(bottom_edge, |body| body.child(crate::surface::edge_fade_bottom()))
         .into_any_element()
 }
 
@@ -1337,6 +1494,196 @@ mod tests {
             "EXP-926: the Stop pill matches the toggle: {} vs {expected}",
             stop.get()
         );
+    }
+
+    /// EXP-1162 — the header's new shape, drawn: the compact bar is ONE
+    /// control tall (the toggle's rung + its inset), whether its left side
+    /// is empty (the issue face at rest) or carries the collapsed title, and
+    /// that title is the identifier over ONE truncated line however long the
+    /// issue's title is. No tray = nothing under the bar.
+    #[gpui::test]
+    async fn the_compact_bar_is_one_control_tall_with_a_one_line_title(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        use std::cell::Cell;
+        use std::rc::Rc;
+
+        fn probe(out: Rc<Cell<f32>>, child: AnyElement) -> AnyElement {
+            div()
+                .relative()
+                .w_full()
+                .min_w_0()
+                .child(child)
+                .child(
+                    gpui::canvas(
+                        move |bounds, _, _| out.set(f32::from(bounds.size.height)),
+                        |_, _: (), _, _| {},
+                    )
+                    .absolute()
+                    .size_full(),
+                )
+                .into_any_element()
+        }
+
+        struct Bar {
+            with_title: bool,
+            header: Rc<Cell<f32>>,
+            title: Rc<Cell<f32>>,
+        }
+
+        impl gpui::Render for Bar {
+            fn render(
+                &mut self,
+                _window: &mut Window,
+                cx: &mut gpui::Context<Self>,
+            ) -> impl IntoElement {
+                let title = self.with_title.then(|| {
+                    probe(
+                        self.title.clone(),
+                        collapsed_title(
+                            Some("EXP-1162".into()),
+                            "A very long issue title that could never fit on one line of a \
+                             compact bar, not even on the widest monitor anybody owns today",
+                            None,
+                            cx,
+                        ),
+                    )
+                });
+                let stop = crate::session_screen::stop_session_pill(
+                    "work-stop",
+                    header_action_size(false),
+                    cx,
+                )
+                .into_any_element();
+                div().w(px(480.)).child(probe(
+                    self.header.clone(),
+                    render_work_header(
+                        WorkHeader {
+                            title,
+                            right: vec![stop],
+                            tray: None,
+                            extra: None,
+                        },
+                        cx,
+                    ),
+                ))
+            }
+        }
+
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+        });
+        let bar = theme::tokens::size::CONTROL_LG + 2. * BAR_PY;
+        for with_title in [false, true] {
+            let (header, title) = (Rc::new(Cell::new(0.)), Rc::new(Cell::new(0.)));
+            let (_view, cx) = cx.add_window_view(|_, _| Bar {
+                with_title,
+                header: header.clone(),
+                title: title.clone(),
+            });
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            assert!(
+                (header.get() - bar).abs() < 1.,
+                "the bar is one control tall (title: {with_title}): {} vs {bar}",
+                header.get()
+            );
+            if with_title {
+                let lines = COLLAPSED_ID_LINE + COLLAPSED_TITLE_LINE;
+                assert!(
+                    (title.get() - lines).abs() < 1.,
+                    "identifier over ONE title line: {} vs {lines}",
+                    title.get()
+                );
+                assert!(lines <= theme::tokens::size::CONTROL_LG);
+            }
+        }
+    }
+
+    /// EXP-1162 (web `floating` twin): the Issue face's bar takes NO row —
+    /// laid over a body it leaves that body's height alone, at rest and
+    /// collapsed — and it reports its cluster's width only when asked.
+    #[gpui::test]
+    async fn the_floating_bar_takes_no_row_and_measures_its_cluster(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        use std::cell::Cell;
+        use std::rc::Rc;
+
+        struct Face {
+            collapsed: bool,
+            cluster: Rc<Cell<Option<f32>>>,
+            height: Rc<Cell<f32>>,
+        }
+
+        impl gpui::Render for Face {
+            fn render(
+                &mut self,
+                _window: &mut Window,
+                cx: &mut gpui::Context<Self>,
+            ) -> impl IntoElement {
+                let height = self.height.clone();
+                let stop = crate::session_screen::stop_session_pill(
+                    "work-stop",
+                    header_action_size(false),
+                    cx,
+                )
+                .into_any_element();
+                let title = self.collapsed.then(|| {
+                    collapsed_title(Some("EXP-1162".into()), "Title", None, cx)
+                });
+                let measure = (!self.collapsed).then(|| (self.cluster.clone(), cx.entity_id()));
+                div().w(px(640.)).child(
+                    div()
+                        .relative()
+                        .w_full()
+                        .child(div().h(px(300.)))
+                        .child(render_floating_bar(title, vec![stop], self.collapsed, measure))
+                        .child(
+                            gpui::canvas(
+                                move |bounds, _, _| height.set(f32::from(bounds.size.height)),
+                                |_, _: (), _, _| {},
+                            )
+                            .absolute()
+                            .size_full(),
+                        ),
+                )
+            }
+        }
+
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+        });
+        assert_eq!(BAR_H, theme::tokens::size::CONTROL_LG + 2. * BAR_PY);
+        for collapsed in [false, true] {
+            let (cluster, height) = (Rc::new(Cell::new(None)), Rc::new(Cell::new(0.)));
+            let (_view, cx) = cx.add_window_view(|_, _| Face {
+                collapsed,
+                cluster: cluster.clone(),
+                height: height.clone(),
+            });
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            assert_eq!(height.get(), 300., "the bar adds no row (collapsed: {collapsed})");
+            match cluster.get() {
+                Some(width) => {
+                    assert!(!collapsed, "only a resting bar measures its cluster");
+                    let pill = header_action_size(false).height();
+                    assert!(width >= pill, "the cluster is at least its pill: {width}");
+                }
+                None => assert!(collapsed, "a resting bar measures its cluster"),
+            }
+        }
+    }
+
+    /// EXP-1162: the edge strips and the break's motion are the CONTRACT's
+    /// numbers, read through the domain mirror of `detail-chrome.json`.
+    #[test]
+    fn the_edge_strips_wear_the_contract_sizes() {
+        assert_eq!(domain::detail_chrome::EDGE_TOP, 24.);
+        assert_eq!(domain::detail_chrome::EDGE_BOTTOM, 32.);
+        assert_eq!(domain::detail_chrome::COLLAPSE_MS, 160);
+        assert_eq!(domain::detail_chrome::COLLAPSE_RISE, 4.);
     }
 
     /// EXP-895: the Diff face item prints the CONTRACT's labels through the

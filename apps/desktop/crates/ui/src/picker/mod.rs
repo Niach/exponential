@@ -927,7 +927,7 @@ fn row_fill(multi: bool, mark: PickerChecked, at_cursor: bool, cursor: Hsla) -> 
 /// `top` composited over `bottom`, source-over, ALPHAS included — gpui's own
 /// `Hsla::blend` keeps the base alpha, which is exactly what two translucent
 /// glass washes must not do (they would stay one wash deep).
-fn over(bottom: Hsla, top: Hsla) -> Hsla {
+pub(crate) fn over(bottom: Hsla, top: Hsla) -> Hsla {
     let alpha = top.a + bottom.a * (1. - top.a);
     if alpha <= 0. {
         return top;

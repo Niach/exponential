@@ -547,6 +547,83 @@ pub(crate) fn glass_bar(cx: &App) -> Div {
         .bg(cx.theme().popover)
 }
 
+/// EXP-1162 — where on the window ramp each edge strip samples the panel:
+/// the top strip sits under the tab strip and the work header, the bottom
+/// one just above the window's bottom edge. The ramp is a 12→17 grey step,
+/// so a sample a few rows off is invisible.
+const EDGE_TOP_RAMP_T: f32 = 0.15;
+const EDGE_BOTTOM_RAMP_T: f32 = 0.95;
+
+/// The cutout panel's colour as it paints at ramp fraction `t`: the window
+/// gradient under the `FILL_PANEL` wash, OPAQUE — the strip must hide the
+/// content it fades over, not tint it.
+fn panel_fill_at(t: f32) -> Hsla {
+    crate::picker::over(
+        theme::background_gradient_color_at(t),
+        t::glass::FILL_PANEL.to_hsla(),
+    )
+}
+
+/// EXP-1162 — the TOP edge strip (contract `detail-chrome.json` `edgeTop`):
+/// overlaid on the top of a scrolling body, directly under the work header,
+/// it fades from the panel's colour to nothing, so content slides away under
+/// the bar instead of being cut at a hairline. gpui cannot blur what is
+/// behind a view, so this is the scrim fade alone (the fixture's rule for a
+/// client without a backdrop blur). The caller's body wrapper must be
+/// `relative()`; the strip is paint-only (no hitbox), so clicks and the
+/// scroll wheel reach the content under it.
+pub(crate) fn edge_fade_top() -> Div {
+    edge_fade_top_from(1.)
+}
+
+/// EXP-1162 — the floating bar's GROUND once the issue face's title has
+/// scrolled under it: the panel colour, OPAQUE. Content really passes under
+/// that bar, and with no blur to soften it the contract's 0.72 `scrim` left
+/// the text readable behind the collapsed title — a client that cannot blur
+/// paints the band solid and keeps only the fade under it.
+pub(crate) fn scrim_ground() -> Hsla {
+    panel_fill_at(EDGE_TOP_RAMP_T)
+}
+
+/// The top strip hung under that ground: it starts at the ground's own
+/// opaque colour and fades to nothing, so the band has no lower edge.
+pub(crate) fn edge_fade_top_scrim() -> Div {
+    edge_fade_top_from(1.)
+}
+
+fn edge_fade_top_from(alpha: f32) -> Div {
+    let fill = panel_fill_at(EDGE_TOP_RAMP_T);
+    div()
+        .absolute()
+        .top_0()
+        .left_0()
+        .right_0()
+        .h(px(domain::detail_chrome::EDGE_TOP))
+        .bg(gpui::linear_gradient(
+            180.,
+            gpui::linear_color_stop(fill.opacity(alpha), 0.),
+            gpui::linear_color_stop(fill.opacity(0.), 1.),
+        ))
+}
+
+/// EXP-1162 — the BOTTOM edge strip (`edgeBottom`): the top strip mirrored,
+/// fading upwards from the pane's bottom edge (the run's composer band, or
+/// the issue face's end). Same contract as [`edge_fade_top`].
+pub(crate) fn edge_fade_bottom() -> Div {
+    let fill = panel_fill_at(EDGE_BOTTOM_RAMP_T);
+    div()
+        .absolute()
+        .bottom_0()
+        .left_0()
+        .right_0()
+        .h(px(domain::detail_chrome::EDGE_BOTTOM))
+        .bg(gpui::linear_gradient(
+            180.,
+            gpui::linear_color_stop(fill.opacity(0.), 0.),
+            gpui::linear_color_stop(fill, 1.),
+        ))
+}
+
 /// Shared markdown `TextView` style (EXP-282): code blocks get a glass
 /// section fill instead of the component default opaque `tokens.muted`
 /// panel. Everything else stays at the component defaults the call sites

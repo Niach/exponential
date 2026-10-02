@@ -763,16 +763,21 @@ impl IssueHeader {
     /// prev/next switcher.) `changes_open` = the Changes face is the one on
     /// show (the detail's PR files pane or a run's diff face), the ONE face
     /// that carries the GitHub link (EXP-949).
+    ///
+    /// EXP-1162: `actions` = the collapsed issue face's copies of Merge /
+    /// Stop / Resume ([`Self::bar_actions`]), placed BEFORE the toggle.
     pub(crate) fn right_cluster(
         &mut self,
         issue: &Issue,
+        actions: Vec<gpui::AnyElement>,
         leading: Option<gpui::AnyElement>,
         changes_open: bool,
         cx: &mut gpui::Context<Self>,
     ) -> Vec<gpui::AnyElement> {
-        let mut cluster = Vec::with_capacity(5);
+        let mut cluster = Vec::with_capacity(5 + actions.len());
         // EXP-897 §4: the ONE related-work badge, shared by all three faces.
         cluster.extend(self.pr_graph_badge(issue, cx));
+        cluster.extend(actions);
         cluster.extend(leading);
         // EXP-916: the way out to GitHub for a subject with a pull request —
         // the diff surfaces no longer carry one of their own. EXP-949: on
@@ -848,6 +853,41 @@ impl IssueHeader {
                 crate::work_header::header_action_size(true),
                 cx,
             )),
+        }
+        actions
+    }
+
+    /// EXP-1162: what the compact bar carries once the issue face's tray has
+    /// scrolled away — Merge PR and Stop / Resume at the TOGGLE's rung
+    /// (EXP-926: the placement decides the size), so scrolling never loses
+    /// them. Start coding stays in the tray: it is a launcher entity with a
+    /// readiness popover of its own, and one instance renders once.
+    pub(crate) fn bar_actions(
+        &mut self,
+        issue: &Issue,
+        action: crate::work_header::CodingAction,
+        cx: &mut gpui::Context<Self>,
+    ) -> Vec<gpui::AnyElement> {
+        let pr_open = issue.pr_state.as_deref() == Some("open");
+        let mut actions = Vec::with_capacity(2);
+        if pr_open && !self.merge_suppressed {
+            actions.push(crate::work_header::merge_slot(
+                "bar-merge-pr",
+                &crate::changes_bar::MergeTarget::Issue {
+                    issue_id: issue.id.clone(),
+                },
+                true,
+                crate::work_header::header_action_size(false),
+                cx,
+            ));
+        }
+        if !matches!(action, crate::work_header::CodingAction::Start) {
+            actions.extend(crate::work_header::coding_action_button(
+                action,
+                None,
+                crate::work_header::header_action_size(false),
+                cx,
+            ));
         }
         actions
     }

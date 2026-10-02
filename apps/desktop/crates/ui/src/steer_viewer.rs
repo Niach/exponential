@@ -6729,7 +6729,8 @@ impl SteerSessionView {
                     }
                 })),
         );
-        // EXP-877: the hairline and the background are PANE-wide, the card
+        // EXP-877: the background is PANE-wide (EXP-1162: no hairline, the
+        // transcript's bottom edge strip fades into the band), the card
         // and its footer sit in the same centred work column as the header
         // and the transcript (web `WORK_COLUMN_CLASS` around
         // `<SteerComposer/>`). A composer that ran edge to edge under a
@@ -6742,8 +6743,6 @@ impl SteerSessionView {
             .flex_col()
             .items_center()
             .p_2()
-            .border_t_1()
-            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
             .child(
                 v_flex()
                     .w_full()
@@ -7786,7 +7785,20 @@ impl Render for SteerSessionView {
                 .min_h_0()
                 .overflow_hidden()
                 .children(strip)
-                .child(feed)
+                // EXP-1162: the transcript fades out over the bottom edge
+                // strip into whatever sits under it (the composer band lost
+                // its hairline for it).
+                .child(
+                    div()
+                        .relative()
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .min_h_0()
+                        .min_w_0()
+                        .child(feed)
+                        .child(crate::surface::edge_fade_bottom()),
+                )
                 .children(banners)
                 .children(compacting)
                 .children(rate_limit)

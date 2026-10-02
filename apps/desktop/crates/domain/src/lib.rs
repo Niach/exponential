@@ -87,6 +87,8 @@ pub mod board;
 pub mod client_version;
 // EXP-1121: the Start coding readiness checklist, fixture-locked ×4.
 pub mod coding_readiness;
+// EXP-1162: the detail chrome (title collapse + edge strips), fixture-locked ×4.
+pub mod detail_chrome;
 pub mod diff;
 pub mod diff_tree;
 pub mod edit_card;
