@@ -1,14 +1,10 @@
-import type { ReactNode } from "react"
-import { forwardRef } from "react"
-import { eq, useLiveQuery } from "@tanstack/react-db"
-import type { Label as LabelRow, User } from "@/db/schema"
+import type { User } from "@/db/schema"
 import type { IssuePriority, IssueEstimation } from "@/lib/domain"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import {
   creatableStatusOptions,
   type StatusRowOption,
 } from "@/lib/team-statuses"
-import { labelCollection } from "@/lib/collections"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { displayUserName } from "@/lib/user-display"
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
@@ -28,12 +24,10 @@ import {
   Combobox,
   PriorityPicker,
   StatusPicker,
-  Button,
   conceptIcon,
   DatePicker,
   GlassGroup,
-  GlassSectionHeader,
-  Pill,
+  PropertyRow,
   UserAvatar,
   BoardGlyph,
 } from "@exp/ui"
@@ -45,36 +39,8 @@ import {
 
 const DueDateGlyph = conceptIcon(`ui-due-date`)
 const EstimateGlyph = conceptIcon(`ui-estimate`)
-const AddGlyph = conceptIcon(`ui-add`)
+const LabelsGlyph = conceptIcon(`settings-labels`)
 const UnassignedGlyph = conceptIcon(`ui-unassigned`)
-
-// Full-width tappable property row: label left, value right — the web
-// counterpart of the native create form's metadata card rows (EXP-247).
-// EXP-698 r4 matches Android exactly: the LABEL is the muted half and the
-// value the readable one, the value's glyph rides with it as one trailing
-// unit, and there is no chevron (the whole row is the target).
-const PropertyRow = forwardRef<
-  HTMLButtonElement,
-  Omit<React.ComponentProps<typeof Button>, `value`> & {
-    label: string
-    value: ReactNode
-  }
->(function PropertyRow({ label, value, ...props }, ref) {
-  return (
-    <Button
-      ref={ref}
-      type="button"
-      variant="ghost"
-      className="h-11 w-full justify-between rounded-none px-4 font-normal"
-      {...props}
-    >
-      <span className="text-sm text-muted-foreground">{label}</span>
-      <span className="flex min-w-0 items-center gap-1.5 text-sm text-foreground">
-        {value}
-      </span>
-    </Button>
-  )
-})
 
 export interface IssueEditorMobilePropertiesProps {
   status: StatusRowOption
@@ -151,21 +117,6 @@ export function IssueEditorMobileProperties({
   const assignee = assigneeId
     ? users.find((user) => user.id === assigneeId)
     : undefined
-
-  // The label chips render the WHOLE team list (Android parity) rather than a
-  // summary of the picks — the same rows the picker sheet lists, so tapping a
-  // chip and ticking it in the sheet are one state.
-  const { data: labelRows } = useLiveQuery(
-    (q) =>
-      teamId
-        ? q
-            .from({ labels: labelCollection })
-            .where(({ labels }) => eq(labels.teamId, teamId))
-            .orderBy(({ labels }) => labels.sortOrder)
-        : undefined,
-    [teamId]
-  )
-  const labels = (labelRows ?? []) as LabelRow[]
 
   // EXP-958: both rows draw the RESOLVED property this form holds, never the
   // picker's matched option — a duplicate-status issue is not in
@@ -271,6 +222,32 @@ export function IssueEditorMobileProperties({
           />
         )}
 
+        {/* EXP-1170: Labels is a ROW like every other property (×3 phones):
+            the picks joined in the team's sort order, tapping opens the
+            shared picker sheet. No cloud of toggle chips. */}
+        <LabelPicker
+          disabled={disabled}
+          teamId={teamId}
+          selectedLabelIds={selectedLabelIds}
+          onToggle={onToggleLabel}
+          renderTrigger={(selected) => (
+            <PropertyRow
+              label="Labels"
+              disabled={disabled}
+              value={
+                <>
+                  <LabelsGlyph className="size-3.5" />
+                  <span className="max-w-[8rem] truncate">
+                    {selected.length > 0
+                      ? selected.map((label) => label.name).join(`, `)
+                      : `None`}
+                  </span>
+                </>
+              }
+            />
+          )}
+        />
+
         {!hideDueDateChip && (
           <DatePicker
             value={dueDate}
@@ -345,44 +322,6 @@ export function IssueEditorMobileProperties({
           />
         )}
       </GlassGroup>
-
-      {/* EXP-698 r4: labels leave the row list. Every team label is a chip
-          that toggles on tap (Android parity), and the trailing "+ Label"
-          chip opens the picker sheet — both write the same selection. */}
-      <div className="flex flex-col gap-2">
-        <GlassSectionHeader label="Labels" className="px-4 pb-0" />
-        <div className="flex flex-wrap items-center gap-1.5 px-4">
-          {labels.map((label) => (
-            <Pill
-              key={label.id}
-              size="sm"
-              mode="select"
-              dot={label.color}
-              selected={selectedLabelIds.includes(label.id)}
-              disabled={disabled}
-              onClick={() => void onToggleLabel(label.id)}
-            >
-              {label.name}
-            </Pill>
-          ))}
-          <LabelPicker
-            disabled={disabled}
-            teamId={teamId}
-            selectedLabelIds={selectedLabelIds}
-            onToggle={onToggleLabel}
-            renderTrigger={() => (
-              <Pill
-                size="sm"
-                mode="action"
-                disabled={disabled}
-                leading={<AddGlyph />}
-              >
-                Label
-              </Pill>
-            )}
-          />
-        </div>
-      </div>
 
       {/* EXP-1097: the relation bands (Blocked by, Blocking, Duplicate
           of/by, Related) live HERE on phones, under a "Relations" heading

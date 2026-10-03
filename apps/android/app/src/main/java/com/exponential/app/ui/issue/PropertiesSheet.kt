@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -30,7 +29,6 @@ import com.exponential.app.domain.estimateLabel
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GroupDivider
-import com.exponential.app.ui.components.LabelsPickerBlock
 import com.exponential.app.ui.components.MetaRow
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PriorityIcon
@@ -42,16 +40,13 @@ import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.dueDateColor
 
 /**
- * The combined Properties sheet (EXP-240): Status / Priority / Assignee / Due
- * date / Estimate (EXP-630, only while the team's scale is not `none`) / Board
- * rows, then the team's labels as toggle pills.
+ * The combined Properties sheet (EXP-240): Status / Priority / Assignee /
+ * Labels / Due date / Estimate (EXP-630, only while the team's scale is not
+ * `none`) / Board rows in one [OptionGroup], then the relations.
  *
- * EXP-698 r5 made it the create-issue screen's rows exactly — the same
- * [MetaRow] in the same [OptionGroup], with the same value glyphs and the same
- * [LabelsPickerBlock] under it. Editing a property after the fact and setting
- * it while creating are the same act, and they used to be two different
- * screens: this one drew a chevron per row and only the labels already on the
- * issue, so removing one was possible and adding one meant a second sheet.
+ * EXP-1170: Labels is a [MetaRow] like the rest (the assigned names, or
+ * "None"); tapping it opens the shared multi picker sheet (`onOpenLabels`),
+ * which toggles labels itself and stays open. No inline chip cloud.
  */
 @Composable
 fun PropertiesSheet(
@@ -60,8 +55,7 @@ fun PropertiesSheet(
     priority: IssuePriority,
     assignee: UserEntity?,
     hideAssignee: Boolean,
-    /** Every label in the team — the pills are a SELECT, not a read-out of
-     *  what is already assigned. */
+    /** Every label in the team; orders the Labels row's value. */
     teamLabels: List<LabelEntity>,
     issueLabels: List<LabelEntity>,
     currentBoard: BoardEntity?,
@@ -75,7 +69,6 @@ fun PropertiesSheet(
     onOpenEstimate: () -> Unit,
     onOpenLabels: () -> Unit,
     onOpenMoveBoard: () -> Unit,
-    onToggleLabel: (labelId: String, assigned: Boolean) -> Unit,
     // EXP-736/EXP-1097: the relations OTHER than parent / sub-issues (those
     // live on the detail page) as foldable bands — where an edge is added or
     // dropped (long press) on mobile.
@@ -90,6 +83,11 @@ fun PropertiesSheet(
     onRemoveRelation: (IssueRelationsView.BandKey, String) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    // The assigned labels' names in the TEAM's label order.
+    val assignedLabelNames = remember(teamLabels, issueLabels) {
+        val assignedIds = issueLabels.map { it.id }.toSet()
+        teamLabels.filter { it.id in assignedIds }.map { it.name }
+    }
     GlassSheet(title = "Properties", onDismiss = onDismiss) {
         Column(
             modifier = Modifier
@@ -139,6 +137,31 @@ fun PropertiesSheet(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
+                }
+                // EXP-1170: labels are a ROW like every other property; the
+                // tap opens the shared multi picker (LabelPickerSheet), never
+                // an inline cloud of toggle chips.
+                GroupDivider()
+                MetaRow(label = "Labels", enabled = true, onClick = onOpenLabels) {
+                    val hasLabels = assignedLabelNames.isNotEmpty()
+                    Icon(
+                        ExpIcons.settingsLabels,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurface.copy(
+                            alpha = if (hasLabels) TextEmphasis.Secondary else TextEmphasis.Tertiary,
+                        ),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        if (hasLabels) assignedLabelNames.joinToString(", ") else "None",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(
+                            alpha = if (hasLabels) TextEmphasis.Primary else TextEmphasis.Tertiary,
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
                 GroupDivider()
                 MetaRow(label = "Due date", enabled = true, onClick = onOpenDueDate) {
@@ -210,17 +233,6 @@ fun PropertiesSheet(
                 }
             }
 
-            Spacer(Modifier.height(16.dp))
-            val assignedIds = remember(issueLabels) { issueLabels.map { it.id }.toSet() }
-            LabelsPickerBlock(
-                labels = teamLabels,
-                selectedIds = assignedIds,
-                onToggle = onToggleLabel,
-                onOpenPicker = onOpenLabels,
-                // 16dp group gutter + the group's own 4dp inset, so the
-                // heading sits under the rows' label column.
-                modifier = Modifier.padding(horizontal = 20.dp),
-            )
             Spacer(Modifier.height(16.dp))
             RelationsSection(
                 bands = relationBands,

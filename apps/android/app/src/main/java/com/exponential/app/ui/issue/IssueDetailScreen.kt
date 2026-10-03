@@ -846,7 +846,6 @@ fun IssueFace(
             onOpenEstimate = { controller.activeSheet = IssueSheet.Estimate },
             onOpenLabels = { controller.activeSheet = IssueSheet.Labels },
             onOpenMoveBoard = { controller.activeSheet = IssueSheet.MoveBoard },
-            onToggleLabel = { id, assigned -> viewModel.toggleLabel(id, assigned) },
             relationBands = relationsUi.view.bands,
             relationIssues = relationsUi.issuesById,
             users = state.users,

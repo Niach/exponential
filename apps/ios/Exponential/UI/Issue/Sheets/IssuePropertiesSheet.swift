@@ -5,13 +5,13 @@ import SwiftUI
 /// The combined Properties sheet (EXP-240): one glass sheet listing every
 /// editable property. EXP-698 r5 made it the New-issue page's own rows —
 /// `GlassMetaRow`s in one `.glassSection()` group (Status / Priority /
-/// Assignee / Due date / Board), each STACKING its per-property picker over
-/// this sheet (EXP-687 retired the dismiss-and-re-present hand-off; dismissing
-/// the child returns here, exactly like Android) — followed by the shared
-/// `IssueLabelsSelector`, whose pills toggle inline and whose add chip opens
-/// the searchable Labels sheet, and by `IssueRelationsSection` (EXP-736; the
-/// EXP-1097 foldable bands). The
-/// Board row hides when there is nowhere to move.
+/// Assignee / Labels / Due date / Estimate / Board), each STACKING its
+/// per-property picker over this sheet (EXP-687 retired the
+/// dismiss-and-re-present hand-off; dismissing the child returns here, exactly
+/// like Android) — followed by `IssueRelationsSection` (EXP-736; the EXP-1097
+/// foldable bands). EXP-1170: Labels is a row like the rest (no inline pill
+/// cloud), opening the searchable multi-select Labels sheet. The Board row
+/// hides when there is nowhere to move.
 struct IssuePropertiesSheet<Child: View, Pickers: View>: View {
     let issue: IssueEntity
     /// EXP-314: the issue's status resolved against its team's status rows.
@@ -30,7 +30,6 @@ struct IssuePropertiesSheet<Child: View, Pickers: View>: View {
     /// The issue's own board — the row draws its glyph + color (EXP-449).
     let board: BoardEntity?
     let hasMoveTargets: Bool
-    let onToggleLabel: (String) -> Void
     let onRemoveRelation: (IssueRelationRow) -> Void
     /// A relation row was tapped: the host dismisses and opens that issue.
     let onOpenRelation: (String) -> Void
@@ -47,6 +46,13 @@ struct IssuePropertiesSheet<Child: View, Pickers: View>: View {
     /// and read `activeChild` through their own bindings, so they ride as a
     /// second presentation node beside the `.sheet(item:)` below.
     @ViewBuilder let pickers: () -> Pickers
+
+    /// The Labels row's value: the assigned labels' names in the team's
+    /// label order, or "None".
+    private var assignedLabelsValue: String {
+        let names = labels.filter { assignedIds.contains($0.id) }.map(\.name)
+        return names.isEmpty ? "None" : names.joined(separator: ", ")
+    }
 
     var body: some View {
         let priority = IssuePriority.from(issue.priority)
@@ -89,6 +95,18 @@ struct IssuePropertiesSheet<Child: View, Pickers: View>: View {
 
                     GlassDivider()
 
+                    // EXP-1170: the assigned labels as one value line (team
+                    // label order); the row opens the searchable multi-select
+                    // sheet, which stays open across toggles.
+                    GlassMetaRow(
+                        label: "Labels",
+                        icon: AppIcons.settingsLabels,
+                        iconColor: .white.opacity(TextOpacity.secondary),
+                        value: assignedLabelsValue
+                    ) { activeChild = .labels }
+
+                    GlassDivider()
+
                     GlassMetaRow(
                         label: "Due date",
                         icon: AppIcons.uiDueDate,
@@ -126,19 +144,9 @@ struct IssuePropertiesSheet<Child: View, Pickers: View>: View {
                 }
                 .glassSection()
 
-                // Labels: every team label as a select pill (assigned ones
-                // read selected), the add chip hands off to the searchable
-                // sheet — the same block the New-issue page renders.
-                IssueLabelsSelector(
-                    labels: labels,
-                    selectedIds: assignedIds,
-                    onToggle: onToggleLabel,
-                    onAdd: { activeChild = .labels }
-                )
-
-                // EXP-736/EXP-1097: relations sit under the labels — the
-                // "Relations" heading with its Add, then one foldable band per
-                // side.
+                // EXP-736/EXP-1097: relations sit under the property rows —
+                // the "Relations" heading with its Add, then one foldable band
+                // per side.
                 IssueRelationsSection(
                     vm: relationsSource,
                     onAdd: { activeChild = .addRelation },

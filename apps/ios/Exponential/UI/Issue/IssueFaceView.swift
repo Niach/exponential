@@ -491,9 +491,6 @@ struct IssueFaceView: View {
                 estimationType: vm.estimationType,
                 board: vm.board,
                 hasMoveTargets: !vm.moveTargetBoards.isEmpty,
-                onToggleLabel: { labelId in
-                    Task { await vm.toggleLabel(labelId) }
-                },
                 onRemoveRelation: { relation in
                     Task { await vm.removeRelation(relation) }
                 },

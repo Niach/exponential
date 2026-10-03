@@ -21,8 +21,8 @@ struct IssueRelationsSection: View {
     var body: some View {
         let view = vm.relationsView
         VStack(alignment: .leading, spacing: 8) {
-            // Same plain heading as the Labels block above it (EXP-698 r4),
-            // the entry point on its trailing edge.
+            // A plain section heading under the property rows, the entry
+            // point on its trailing edge.
             GlassSectionHeader(IssueRelationsView.Copy.relations) {
                 GlassPill(
                     IssueRelationsView.Copy.add,

@@ -86,6 +86,8 @@ export * from "./pr-github-button"
 export * from "./progress"
 // EXP-1097: the sub-issue completion ring.
 export * from "./progress-ring"
+// EXP-1170: THE phone properties sheet row.
+export * from "./property-row"
 export * from "./rich-tab"
 export * from "./search-field"
 export * from "./resize-handle"
