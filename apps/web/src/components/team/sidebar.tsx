@@ -54,7 +54,6 @@ import { SidebarRunningSection } from "@/components/team/sidebar-running"
 import { RecentRunsSidebar } from "@/components/team/recent-runs-nav"
 import { mainPanelEdge } from "@/components/team/app-shell"
 import {
-  DraftsCountBadge,
   InboxUnreadBadge,
   ReviewsOpenBadge,
   TeamLiveDot,
@@ -62,8 +61,13 @@ import {
   UserAvatar,
   UserMenuItems,
 } from "@/components/team/sidebar-rail"
-import { useSidebarDraftCount } from "@/hooks/use-issue-drafts"
 import { useOpenNewDraft } from "@/hooks/use-open-new-draft"
+import {
+  MORE_LABEL,
+  MoreMenu,
+  NavMoreIcon,
+  useMoreActive,
+} from "@/components/team/sidebar-more"
 import { useTeamLiveRuns } from "@/hooks/use-team-live-runs"
 import { otherTeamsLive } from "@/lib/sessions/team-live-runs"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
@@ -96,12 +100,10 @@ import { resolveBoardTarget } from "@/components/team/mobile-tab-bar"
 
 // EXP-317: the cross-client nav glyphs come from the shared registry
 // (packages/icons/icons.json) so web, desktop, iOS and Android agree.
-const NavActionsIcon = conceptIcon(`nav-actions`)
 const NavAgentIcon = conceptIcon(`action-chat`)
 const NavBoardsIcon = conceptIcon(`nav-boards`)
 const NavCreateIssueIcon = conceptIcon(`nav-create-issue`)
 const NavDevicesIcon = conceptIcon(`nav-devices`)
-const NavDraftsIcon = conceptIcon(`nav-drafts`)
 const NavInboxIcon = conceptIcon(`nav-inbox`)
 const NavReviewsIcon = conceptIcon(`nav-reviews`)
 const NavSearchIcon = conceptIcon(`nav-search`)
@@ -165,10 +167,10 @@ export function TeamSidebar({
   // hint that a run of mine is alive in a team I am not looking at.
   const teamLive = useTeamLiveRuns(session?.user?.id)
   const otherLive = otherTeamsLive(teamLive, team?.id)
-  // EXP-878: the Drafts entry exists only while there IS a draft (EXP-1170:
-  // other than the one open on the New issue page).
-  const draftCount = useSidebarDraftCount(team?.id)
   const openNewDraft = useOpenNewDraft(teamSlug)
+  // SLOP-5: the More entry reads active while one of its destinations
+  // (Actions, Drafts) is up.
+  const moreActive = useMoreActive({ settings: false })
   const showsReviews = useShowsReviews(team ?? undefined, boards)
   // The guarded /t/$teamSlug layout is the only render site, so a session is
   // guaranteed — the reactive useSession store may still be pending on cold
@@ -372,8 +374,11 @@ export function TeamSidebar({
                   >
                     <SidebarGroup>
                       <SidebarGroupContent>
-                        {/* EXP-699: mobile order — Inbox, Support, Devices,
-                            Actions, Reviews. */}
+                        {/* SLOP-5 nav order ×4: Inbox, Devices,
+                            Reviews, Agent, More. The four nouns (People /
+                            Devices / Apps / Actions) plus Reviews and Inbox
+                            are the rows; everything advanced sits behind
+                            More. */}
                         <SidebarMenu>
                           <SidebarMenuItem>
                             <SidebarMenuButton asChild density="compact">
@@ -384,37 +389,11 @@ export function TeamSidebar({
                             </SidebarMenuButton>
                             <InboxUnreadBadge placement="row" />
                           </SidebarMenuItem>
-                          {/* EXP-878: Drafts sits directly after Inbox and
-                              exists only while the caller HAS a draft — a
-                              permanent entry for a surface that is empty
-                              almost always would be noise. */}
-                          {draftCount > 0 && (
-                            <SidebarMenuItem>
-                              <SidebarMenuButton asChild density="compact">
-                                <Link to="/t/$teamSlug/drafts" params={{ teamSlug }}>
-                                  <NavDraftsIcon className="h-4 w-4" />
-                                  <span>Drafts</span>
-                                </Link>
-                              </SidebarMenuButton>
-                              <DraftsCountBadge teamId={team?.id} placement="row" />
-                            </SidebarMenuItem>
-                          )}
-                          {/* EXP-686: Devices · Actions, the surfaces the old
-                              Agents entry bundled (SLOP-2: an action carries
-                              its triggers, so Automations is no entry). */}
                           <SidebarMenuItem>
                             <SidebarMenuButton asChild density="compact">
                               <Link to="/t/$teamSlug/devices" params={{ teamSlug }}>
                                 <NavDevicesIcon className="h-4 w-4" />
                                 <span>Devices</span>
-                              </Link>
-                            </SidebarMenuButton>
-                          </SidebarMenuItem>
-                          <SidebarMenuItem>
-                            <SidebarMenuButton asChild density="compact">
-                              <Link to="/t/$teamSlug/actions" params={{ teamSlug }}>
-                                <NavActionsIcon className="h-4 w-4" />
-                                <span>Actions</span>
                               </Link>
                             </SidebarMenuButton>
                           </SidebarMenuItem>
@@ -454,6 +433,29 @@ export function TeamSidebar({
                                 <span>Agent</span>
                               </Link>
                             </SidebarMenuButton>
+                          </SidebarMenuItem>
+                          {/* SLOP-5: More — Actions (authoring) and the
+                              Drafts pile (EXP-878, while any) behind one
+                              entry. The same rows on desktop, iOS and
+                              Android. */}
+                          <SidebarMenuItem>
+                            <MoreMenu
+                              teamSlug={teamSlug}
+                              teamId={team?.id}
+                              drafts
+                              settings={false}
+                              side="right"
+                            >
+                              <SidebarMenuButton
+                                density="compact"
+                                isActive={moreActive}
+                                aria-label={MORE_LABEL}
+                                data-testid="nav-more"
+                              >
+                                <NavMoreIcon className="h-4 w-4" />
+                                <span>{MORE_LABEL}</span>
+                              </SidebarMenuButton>
+                            </MoreMenu>
                           </SidebarMenuItem>
                         </SidebarMenu>
                       </SidebarGroupContent>

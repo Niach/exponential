@@ -921,7 +921,7 @@ final class AgentSessionModel {
     /// Shown when the session's row no longer exists — a swept row (or one
     /// that left this client's sync scope) is over as far as any client can
     /// tell, and nothing about it is retryable.
-    private static let sessionGoneDetail = "This session is no longer available."
+    private static let sessionGoneDetail = "This run is no longer available."
     /// Echo-FIFO bounds (EXP-78): a mid-turn steered message can take a while
     /// to hit the transcript, but an unmatched echo must not swallow an
     /// identical message sent much later.
@@ -1195,7 +1195,7 @@ final class AgentSessionModel {
     func sendSteerImages(_ text: String, images: [PendingSteerImage]) async -> [PendingSteerImage]? {
         let sessionId = codingSessionId
         guard connected else {
-            steerImageError = "Not connected. Wait for the session to reconnect."
+            steerImageError = "Not connected. Wait for the run to reconnect."
             return images
         }
         steerSending = true
@@ -1220,13 +1220,13 @@ final class AgentSessionModel {
         // The socket can drop across the uploads; sendMessage would silently
         // no-op and the composer would clear with nothing sent.
         guard connected else {
-            steerImageError = "Not connected. Wait for the session to reconnect."
+            steerImageError = "Not connected. Wait for the run to reconnect."
             return pending
         }
         guard sendMessage(SteerImageMessage.build(
             text: text, attachmentIds: pending.compactMap(\.uploadedId)
         )) else {
-            steerImageError = "Not connected. Wait for the session to reconnect."
+            steerImageError = "Not connected. Wait for the run to reconnect."
             return pending
         }
         return nil
@@ -1791,7 +1791,7 @@ final class AgentSessionModel {
         guard !ticket.isDisabled, let url = ticket.connectURL() else {
             // Config state, not a transient failure — retrying can't help.
             dialInFlight = false
-            phase = .closed(detail: "Live sessions are unavailable on this instance.", reconnecting: false)
+            phase = .closed(detail: "Live runs are unavailable on this instance.", reconnecting: false)
             return
         }
         logger.info("dial mint ok, opening socket")
@@ -2625,7 +2625,7 @@ final class AgentSessionModel {
             // The relay refused this viewer (4003). Backoff would just
             // re-refuse; the mint's own FORBIDDEN path is equally terminal.
             phase = .closed(
-                detail: "You're no longer authorized for this session.", reconnecting: false
+                detail: "You're no longer authorized for this run.", reconnecting: false
             )
         case .reconnectWithBackoff:
             // Never park on a dead socket behind a manual button (EXP-243) —

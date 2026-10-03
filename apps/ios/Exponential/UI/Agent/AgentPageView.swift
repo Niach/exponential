@@ -338,7 +338,7 @@ struct AgentPageView: View {
     private var relayOffNote: some View {
         HStack(spacing: 8) {
             AppIcon(AppIcons.uiDeviceOffline, size: AppIcon.Size.small)
-            Text("Remote start isn't available on this server. Start runs from the desktop app; live sessions show up below.")
+            Text("Remote start isn't available on this server. Start runs from the desktop app; live runs show up below.")
                 .font(.caption)
             Spacer(minLength: 0)
         }

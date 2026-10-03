@@ -46,7 +46,7 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    menu::{ContextMenuExt as _, DropdownMenu as _},
+    menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenuItem},
     spinner::Spinner,
     v_flex, v_virtual_list, ActiveTheme as _, Icon, Selectable as _, Sizable as _,
     VirtualListScrollHandle,
@@ -615,13 +615,9 @@ pub(crate) enum RailBadge {
     Dot(Hsla),
     Icon(ExpIcon, Hsla),
     Syncing,
-    /// EXP-963: a COUNT — the web rail's `Badge` (EXP-962): the Drafts
-    /// entry's pile, muted. Zero renders nothing (the badge's own rule).
-    Count(usize, crate::surface::BadgeTone),
 }
 
-/// One badge element at `glyph_px` (dots keep their fixed 6px regardless;
-/// a count is the 16px capsule).
+/// One badge element at `glyph_px` (dots keep their fixed 6px regardless).
 fn rail_badge_element(badge: RailBadge, glyph_px: f32, cx: &App) -> gpui::AnyElement {
     match badge {
         RailBadge::Dot(color) => div()
@@ -629,10 +625,6 @@ fn rail_badge_element(badge: RailBadge, glyph_px: f32, cx: &App) -> gpui::AnyEle
             .flex_shrink_0()
             .rounded_full()
             .bg(color)
-            .into_any_element(),
-        RailBadge::Count(count, tone) => div()
-            .flex_shrink_0()
-            .children(crate::surface::count_badge(count, tone, cx))
             .into_any_element(),
         RailBadge::Icon(icon, color) => Icon::from(icon)
             .with_size(px(glyph_px))
@@ -680,17 +672,13 @@ fn rail_compact_button(
         .hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
         .child(lead)
         .when_some(badge, |this, badge| {
-            // A count capsule overhangs the glyph's corner (web `-top-0.5
-            // -right-0.5`); the dots and glyphs sit inside it.
-            let (top, right) = match badge {
-                RailBadge::Count(..) => (-2., -2.),
-                _ => (3., 3.),
-            };
+            // The dots and glyphs sit inside the glyph's corner. (EXP-963's
+            // count capsule moved into the More menu's Drafts row, SLOP-5.)
             this.child(
                 div()
                     .absolute()
-                    .top(px(top))
-                    .right(px(right))
+                    .top(px(3.))
+                    .right(px(3.))
                     .child(rail_badge_element(badge, 10., cx)),
             )
         })
@@ -875,7 +863,7 @@ impl RailView {
         }
     }
 
-    /// EXP-791: a muted section label ("Boards", "Sessions", "This device").
+    /// EXP-791: a muted section label ("Boards", "Pinned", "Running").
     fn section_label(&self, text: &'static str, cx: &App) -> gpui::Div {
         h_flex()
             .w_full()
@@ -1418,22 +1406,151 @@ impl RailView {
         self.rail_screen_entry_active(id, icon, label, screen, badge, active, cx)
     }
 
-    /// The Actions entry. SLOP-2: it stays lit on ONE action's page too —
-    /// that page is reached through this list and has no entry of its own.
-    fn rail_actions_entry(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+    /// SLOP-5: the More entry — the ONE advanced entry of the navigation ×4
+    /// (web `sidebar-more.tsx`, the iOS / Android More tab): a dropdown on
+    /// the menu surface holding Actions (authoring — the composer's action
+    /// chip is the everyday way to RUN one), the Drafts pile while any
+    /// (EXP-878, with its muted count) and this device's Files and Source
+    /// Control (EXP-1105: yolo mode hides those two until a git failure
+    /// needs a person). Source Control's attention / error badge and its
+    /// reason ride the entry, so a trunk failure stays visible with the row
+    /// folded away. Lit while any of those screens is up (SLOP-2 kept it lit
+    /// on one action's page the same way).
+    fn rail_more_entry(
+        &self,
+        draft_count: usize,
+        files: bool,
+        source_control: bool,
+        sc_tooltip: SharedString,
+        sc_badge: Option<RailBadge>,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
         let active = matches!(
             resolved_screen(&self.nav, cx),
-            Some(Screen::Actions) | Some(Screen::Action { .. })
+            Some(Screen::Actions)
+                | Some(Screen::Action { .. })
+                | Some(Screen::Drafts)
+                | Some(Screen::Files)
+                | Some(Screen::SourceControl)
         );
-        self.rail_screen_entry_active(
-            "rail-actions",
-            Icon::from(icons::registry::NAV_ACTIONS),
-            "Actions",
-            Screen::Actions,
-            None,
-            active,
-            cx,
-        )
+        // Only a FAILURE rides the entry (the attention triangle / error
+        // cross); the syncing spinner stays on the menu row.
+        let entry_badge = sc_badge
+            .clone()
+            .filter(|badge| source_control && matches!(badge, RailBadge::Icon(..)));
+        let failing = entry_badge.is_some();
+        let tooltip: SharedString = if failing { sc_tooltip } else { "More".into() };
+        let menu_sc_badge = sc_badge.filter(|_| source_control);
+        let menu = move |mut menu: gpui_component::menu::PopupMenu,
+                         _window: &mut Window,
+                         _cx: &mut gpui::Context<gpui_component::menu::PopupMenu>| {
+            menu = menu.item(
+                PopupMenuItem::new("Actions")
+                    .icon(Icon::from(registry::NAV_ACTIONS))
+                    .on_click(|_, window, cx| {
+                        crate::navigation::navigate_from_rail(window, cx, Screen::Actions);
+                    }),
+            );
+            if draft_count > 0 {
+                menu = menu.item(
+                    PopupMenuItem::element(move |_, cx| {
+                        h_flex()
+                            .flex_1()
+                            .gap_2()
+                            .items_center()
+                            .child(div().flex_1().min_w_0().truncate().child("Drafts"))
+                            .children(crate::surface::count_badge(
+                                draft_count,
+                                crate::surface::BadgeTone::Muted,
+                                cx,
+                            ))
+                    })
+                    .icon(Icon::from(registry::NAV_DRAFTS))
+                    .on_click(|_, window, cx| {
+                        crate::navigation::navigate_from_rail(window, cx, Screen::Drafts);
+                    }),
+                );
+            }
+            if files {
+                menu = menu.item(
+                    PopupMenuItem::new("Files")
+                        .icon(Icon::new(registry::NAV_FILES))
+                        .on_click(|_, window, cx| activate_tool(window, cx, ToolWindow::Files)),
+                );
+            }
+            if source_control {
+                let badge = menu_sc_badge.clone();
+                menu = menu.item(
+                    PopupMenuItem::element(move |_, cx| {
+                        h_flex()
+                            .flex_1()
+                            .gap_2()
+                            .items_center()
+                            .child(div().flex_1().min_w_0().truncate().child("Source Control"))
+                            .children(badge.clone().map(|badge| rail_badge_element(badge, 12., cx)))
+                    })
+                    .icon(Icon::from(ExpIcon::GitMerge))
+                    .on_click(|_, window, cx| {
+                        activate_tool(window, cx, ToolWindow::SourceControl)
+                    }),
+                );
+            }
+            menu
+        };
+
+        if self.compact {
+            // The icon column's 32px square — the settings gear's shape —
+            // with the failure badge in its top-right corner.
+            let button = Button::new("rail-more")
+                .ghost()
+                .cursor_pointer()
+                .small()
+                .icon(registry::NAV_MORE)
+                .selected(active)
+                .tooltip(tooltip)
+                .dropdown_menu(menu);
+            return div()
+                .relative()
+                .flex_shrink_0()
+                .child(button)
+                .when_some(entry_badge, |this, badge| {
+                    this.child(
+                        div()
+                            .absolute()
+                            .top(px(3.))
+                            .right(px(3.))
+                            .child(rail_badge_element(badge, 10., cx)),
+                    )
+                })
+                .into_any_element();
+        }
+
+        // The expanded row — `rail_row_lead`'s geometry (28 tall, 8px
+        // sides, 8px gap) on a Button, since a dropdown needs one.
+        let row = h_flex()
+            .w_full()
+            .gap_2()
+            .items_center()
+            .child(
+                Icon::from(registry::NAV_MORE)
+                    .with_size(gpui_component::Size::Medium)
+                    .flex_shrink_0(),
+            )
+            .child(div().flex_1().min_w_0().truncate().text_sm().child("More"))
+            .children(entry_badge.map(|badge| rail_badge_element(badge, 12., cx)));
+        Button::new("rail-more")
+            .ghost()
+            .cursor_pointer()
+            .w_full()
+            .h(px(crate::surface::FLAT_ROW_COMPACT_H))
+            .px_2()
+            .selected(active)
+            .child(row)
+            // A tooltip only where the label cannot say it: the failure's
+            // reason (the old Source Control entry's rule).
+            .when(failing, |button| button.tooltip(tooltip))
+            .dropdown_menu(menu)
+            .into_any_element()
     }
 
     /// [`Self::rail_screen_entry`] with the highlight decided by the CALLER —
@@ -2109,14 +2226,10 @@ impl Render for RailView {
         // rows in the rail's Running section (EXP-923) right below, each
         // with its own state dot — a second signal on the entry above them
         // was noise. (It was the EXP-699 Devices dot, moved by EXP-818.)
-        // EXP-878: Drafts — a CONDITIONAL entry directly under Inbox, shown
-        // only while this user has drafts in the active team (or is standing
-        // on the page itself, so the rail never yanks the row out from under
-        // the screen you are looking at). EXP-963: it carries the pile's
-        // COUNT as the muted badge the web rail wears (EXP-962) — a count
-        // you parked, not an alert, which is what the muted tone says.
+        // EXP-878: the Drafts pile — SLOP-5 moved it off the rail into the
+        // More menu, where its muted count (EXP-963) still rides the row.
         // EXP-1170: the draft open on the New issue page is not "parked" —
-        // it neither counts nor alone keeps the entry up.
+        // it does not count.
         let open_draft = match resolved_screen(&self.nav, cx) {
             Some(Screen::IssueDraft { draft_id, .. }) => Some(draft_id),
             _ => None,
@@ -2129,20 +2242,6 @@ impl Render for RailView {
                     .count()
             })
             .unwrap_or(0);
-        let on_drafts = matches!(resolved_screen(&self.nav, cx), Some(Screen::Drafts));
-        let drafts_entry = (draft_count > 0 || on_drafts).then(|| {
-            self.rail_screen_entry(
-                "rail-drafts",
-                Icon::from(icons::registry::NAV_DRAFTS),
-                "Drafts",
-                Screen::Drafts,
-                Some(RailBadge::Count(
-                    draft_count,
-                    crate::surface::BadgeTone::Muted,
-                )),
-                cx,
-            )
-        });
         // Getting-started entry (EXP-470/548): pinned to the rail's bottom
         // (below), rendered until every checklist entry is done.
         let getting_started_icon = crate::getting_started::getting_started_visible(&self.nav, cx)
@@ -2290,38 +2389,23 @@ impl Render for RailView {
                 cx,
             )
         });
-        let files_entry = rail_gate.files.then(|| {
-            self.rail_tool_icon(
-                "rail-files",
-                Icon::new(registry::NAV_FILES),
-                ToolWindow::Files,
-                "Files",
-                None,
-                None,
-                cx,
-            )
-        });
-        let sc_entry = rail_gate.source_control.then(|| {
-            self.rail_tool_icon(
-                "rail-source-control",
-                Icon::from(ExpIcon::GitMerge),
-                ToolWindow::SourceControl,
-                "Source Control",
-                Some(sc_tooltip),
-                sc_badge,
-                cx,
-            )
-        });
-        // The "This device" block (rule + label) goes with its entries.
-        let show_device_section = files_entry.is_some() || sc_entry.is_some();
+        // SLOP-5: Actions, Drafts, Files and Source Control sit behind the
+        // ONE More entry (the web sidebar's, the phones' More tab).
+        let more_entry = self.rail_more_entry(
+            draft_count,
+            rail_gate.files,
+            rail_gate.source_control,
+            sc_tooltip,
+            sc_badge,
+            cx,
+        );
 
         if self.compact {
             // EXP-870: the ICON column. Same destinations in the same order
-            // as the expanded rail below (Inbox, the conditional Drafts entry,
-            // Devices, …), minus everything that needs a
-            // label to mean anything (section labels, the What's-new card,
-            // Getting started, the sync caption, Files/Source Control's
-            // "This device" heading); the footer stacks vertically.
+            // as the expanded rail below (Inbox, Devices, Reviews, Agent,
+            // More), minus everything that needs a label to mean anything
+            // (section labels, the What's-new card, Getting started, the
+            // sync caption); the footer stacks vertically.
             return v_flex()
                 .w(px(crate::shell::COMPACT_RAIL_WIDTH))
                 .flex_shrink_0()
@@ -2347,9 +2431,6 @@ impl Render for RailView {
                             inbox_badge,
                             cx,
                         ))
-                        // EXP-878: Drafts sits directly under Inbox — the
-                        // personal pile before the team surfaces.
-                        .children(drafts_entry)
                         .child(self.rail_screen_entry(
                             "rail-devices",
                             Icon::from(icons::registry::NAV_DEVICES),
@@ -2358,16 +2439,13 @@ impl Render for RailView {
                             None,
                             cx,
                         ))
-                        .child(self.rail_actions_entry(cx))
                         .children(reviews_entry)
                         .child(self.rail_agent_entry(active_chat_action.as_deref(), cx))
+                        .child(more_entry)
                         .children(pinned_section)
                         .child(self.divider(cx))
                         .children(board_icons)
-                        .children(running_section)
-                        .when(show_device_section, |rail| rail.child(self.divider(cx)))
-                        .children(files_entry)
-                        .children(sc_entry),
+                        .children(running_section),
                 ))
                 .child(self.render_account_button(cx))
                 .child(terminal_entry)
@@ -2417,12 +2495,12 @@ impl Render for RailView {
             // edge where it meets the content.
             .text_color(cx.theme().sidebar_foreground)
             // Middle zone — scrollable so many boards never push the pinned
-            // Settings/Account off small windows. Rail order (EXP-699, the
-            // mobile tab-bar order; EXP-791 added Agent and Sessions;
-            // EXP-878 the conditional Drafts entry under Inbox):
-            // [Inbox, Drafts?, Devices, Actions, Reviews, Agent]
-            // / Pinned (EXP-778) / boards + "+" / Running (EXP-923) / This
-            // device: [Files, Source Control].
+            // Settings/Account off small windows. Rail order (SLOP-5, the
+            // four nouns plus Reviews and Inbox, ×4 with the web sidebar and
+            // the phone tab bars): [Inbox, Devices, Reviews?, Agent, More]
+            // / Pinned (EXP-778) / boards + "+" / Running (EXP-923).
+            // Actions, Drafts, Files and Source Control are the More menu's
+            // rows.
             .child(crate::scroll_pane::sidebar_scroll_pane(
                 "rail-scroll",
                 &self.rail_scroll,
@@ -2442,11 +2520,7 @@ impl Render for RailView {
                         inbox_badge,
                         cx,
                     ))
-                    // EXP-878: Drafts sits directly under Inbox — the
-                    // personal pile before the team surfaces.
-                    .children(drafts_entry)
-                    // EXP-686: Devices · Actions, the surfaces the old
-                    // Agents entry bundled.
+                    // EXP-686: Devices, the machine list.
                     .child(self.rail_screen_entry(
                         "rail-devices",
                         Icon::from(icons::registry::NAV_DEVICES),
@@ -2455,7 +2529,6 @@ impl Render for RailView {
                         None,
                         cx,
                     ))
-                    .child(self.rail_actions_entry(cx))
                     // EXP-706: Reviews is a full-page screen like the three
                     // above it, not a tool window with a docked list.
                     // EXP-1105: absent in yolo mode unless a merge failed.
@@ -2465,23 +2538,17 @@ impl Render for RailView {
                     // list on the left, the Chat prompt in the center until a
                     // row is clicked (the master-detail shape).
                     .child(self.rail_agent_entry(active_chat_action.as_deref(), cx))
+                    // SLOP-5: More closes the nav entries.
+                    .child(more_entry)
                     // EXP-778: Pinned sits between the nav entries and the
-                    // boards (rail order: entries / Pinned / boards / Sessions).
+                    // boards (rail order: entries / Pinned / boards / Running).
                     .children(pinned_section)
                     .child(self.section_rule(cx))
                     .children(boards_header)
                     .children(board_icons)
                     // EXP-923: Running — MY live runs, the live half of the
                     // retired top-tab group.
-                    .children(running_section)
-                    // Repo tool windows — this machine's trunk clone. EXP-1105:
-                    // the rule + label vanish with both entries (yolo mode).
-                    .when(show_device_section, |rail| {
-                        rail.child(self.section_rule(cx))
-                            .child(self.section_label("This device", cx))
-                    })
-                    .children(files_entry)
-                    .children(sc_entry),
+                    .children(running_section),
             )
             // EXP-1022: the What's-new card, floating over the scroll area's
             // bottom edge in the column's gutter; the `sidebar_scroll_pane` shell

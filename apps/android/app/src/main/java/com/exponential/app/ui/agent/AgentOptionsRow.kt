@@ -174,7 +174,7 @@ internal fun AgentOptionsRow(
                 onClick = { onResumeChange(!resume) },
                 mode = PillMode.Select,
                 selected = resume,
-                contentDescription = "Resume previous session",
+                contentDescription = "Resume previous run",
             )
         }
         GlassPill(

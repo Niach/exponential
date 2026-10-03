@@ -133,7 +133,7 @@ struct ReviewsListContent: View {
             Button("Cancel", role: .cancel) { runMergeTarget = nil }
         } message: { entry in
             let pr = entry.prNumber.map { "#\($0)" } ?? "this pull request"
-            Text("Squash-merges PR \(pr) via the GitHub App. Any live coding session for it closes.")
+            Text("Squash-merges PR \(pr) via the GitHub App. Any live run for it ends.")
         }
         // EXP-897 Part 4: a batch row's issues are the overlay's content.
         .sheet(item: $batchTarget) { entry in
@@ -538,7 +538,7 @@ struct ReviewsListContent: View {
 
     private func mergeMessage(_ entry: ReviewEntry) -> String {
         let pr = entry.prNumber.map { "#\($0)" } ?? "this pull request"
-        var message = "Squash-merges PR \(pr) via the GitHub App. Any live coding session for it closes."
+        var message = "Squash-merges PR \(pr) via the GitHub App. Any live run for it ends."
         if entry.isBatch {
             message += " Completes all \(entry.issues.count) linked issues."
         }

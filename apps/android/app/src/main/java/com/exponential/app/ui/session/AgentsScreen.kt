@@ -1029,7 +1029,7 @@ private fun AgentsEmptyState() {
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
             )
             Text(
-                "Start runs from the desktop app. Live sessions show up on the Agent page.",
+                "Start runs from the desktop app. Live runs show up on the Agent page.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                 textAlign = TextAlign.Center,

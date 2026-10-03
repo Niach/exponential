@@ -215,7 +215,7 @@ private fun ReviewsListContent(
             text = {
                 Text(
                     "Squash-merges $prLabel via the GitHub App. " +
-                        "Any live coding session for it closes.",
+                        "Any live run for it ends.",
                 )
             },
             confirmButton = {
@@ -545,7 +545,7 @@ private fun MergeConfirmDialog(
 ) {
     val prLabel = entry.prNumber?.let { "PR #$it" } ?: "the pull request"
     val message = buildString {
-        append("Squash-merges $prLabel via the GitHub App. Any live coding session for it closes.")
+        append("Squash-merges $prLabel via the GitHub App. Any live run for it ends.")
         if (entry.isBatch) append(" Completes all ${entry.issues.size} linked issues.")
     }
     AlertDialog(

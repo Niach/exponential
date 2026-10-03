@@ -378,10 +378,10 @@ fun WorkScreen(
             error = mergeError?.message,
             confirmText = when (mergeTarget) {
                 is MergeTarget.Session ->
-                    "Merges this run's pull request and closes the coding session."
+                    "Merges this run's pull request and ends the run."
                 else ->
                     "Merges the pull request, completes every linked issue, " +
-                        "and closes the coding session."
+                        "and ends the run."
             },
             onConfirm = { sessionVm.merge() },
             stackChoice = if (fix) null else sessionStackChoice,
@@ -424,7 +424,7 @@ fun WorkScreen(
                 loading = changesMerging,
                 error = changesError,
                 confirmText = "Squash-merges PR #${issue.prNumber ?: ""} via the GitHub App. " +
-                    "Any live coding session for it closes.",
+                    "Any live run for it ends.",
                 onConfirm = { changesVm.mergePr() },
                 stackChoice = if (fix) null else changesStackChoice,
                 stackIssueId = issueId,
@@ -505,7 +505,7 @@ fun WorkScreen(
         // EXP-968: the joined issue when there is one — never a hard null
         // that would make the bar say "Issue syncing…" about a synced row.
         shownSession != null -> sessionRowTitle(shownSession!!, issue, batchIssues)
-        else -> "Coding session"
+        else -> "Run"
     }
     val canKill = ownShown && !sessionEnded && shownLive
     val verb = when {
@@ -767,11 +767,11 @@ fun WorkScreen(
         AlertDialog(
             onDismissRequest = { killDialogOpen = false },
             // EXP-818: ONE word for ending a run, wherever it is watched from.
-            title = { Text("Stop this coding session?") },
+            title = { Text("Stop this run?") },
             text = {
                 Text(
                     "This stops the agent on the desktop " +
-                        "and ends the session. It cannot be undone.",
+                        "and ends the run. It cannot be undone.",
                 )
             },
             confirmButton = {
@@ -779,7 +779,7 @@ fun WorkScreen(
                     killDialogOpen = false
                     sessionVm?.killSession()
                 }) {
-                    Text("Stop session", color = MaterialTheme.colorScheme.error)
+                    Text("Stop run", color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {

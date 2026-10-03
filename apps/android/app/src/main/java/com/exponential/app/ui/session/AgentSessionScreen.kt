@@ -987,7 +987,7 @@ private fun RunFaceContent(
                 when (val p = phase) {
                     is AgentPhase.Ended -> BannerRow {
                         Text(
-                            p.detail ?: "Session ended",
+                            p.detail ?: "Run ended",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                         )
@@ -1760,7 +1760,7 @@ internal fun sessionStatusLine(
                 if (label != null) "$prefix · $label" else prefix
             }
             AgentPhase.Connecting, AgentPhase.Starting, AgentPhase.Idle -> "Connecting…"
-            is AgentPhase.Ended -> "Session ended"
+            is AgentPhase.Ended -> "Run ended"
             is AgentPhase.Closed -> if (phase.reconnecting) "Reconnecting…" else "Disconnected"
         }
     }

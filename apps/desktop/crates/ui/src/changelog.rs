@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-03-nav-audit",
+    date: "2026-10-03",
+    title: "A shorter navigation",
+    summary: "The sidebar and the tab bar show Inbox, Devices, Reviews, Agent and your boards; Actions, Drafts and the desktop's Files and Source Control sit behind one More entry, and every client says run.",
+    body: r#"- **More**: Actions, the Drafts pile and (on the desktop app) Files and Source Control moved behind one More entry at the end of the main navigation on web, desktop, iOS and Android. On a phone, More also opens Settings.
+- **Inbox**: the iOS and Android tab called My Work is called Inbox, like the web and the desktop app.
+- **Settings**: Storage, Import and Archived boards sit in an Advanced group at the end of the settings navigation on web and desktop. The desktop's Sessions section is called Runs.
+- **One word**: a coding run is a run everywhere: Stop run, Resume previous run, Run ended, and the merge notes say the run ends."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_0: ChangelogEntry = ChangelogEntry {
     id: "2026-10-03-one-path-for-feedback",
     date: "2026-10-03",
     title: "One path for feedback",

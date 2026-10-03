@@ -85,7 +85,7 @@ const UpdateIcon = conceptIcon(`ui-update`)
 const agentUpdateKey = (agent: string) => `update ${agent}`
 const isAgentUpdateKey = (key: string) => key.startsWith(`update `)
 
-export const QUEUED_UPDATE_TOOLTIP = `Live sessions hold this update — the device restarts itself once every session ends or sits idle for 2 hours.`
+export const QUEUED_UPDATE_TOOLTIP = `Live runs hold this update — the device restarts itself once every run ends or sits idle for 2 hours.`
 
 // EXP-490 autosave cadence. Defaults debounce longer than the name: every
 // setLaunchDefaults call nudges the device over the relay, so coalescing a

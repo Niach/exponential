@@ -2,10 +2,11 @@ import ExpUI
 import SwiftUI
 
 /// Linear-style floating bottom navigation: a glass pill with the top-level
-/// destinations (Issues, My Work — with an unread dot — Devices — the
-/// machines surface — Actions — the team's actions surface, its own entry
-/// per EXP-686 — and Reviews — its own entry per EXP-147; base order per
-/// EXP-81; the Support tab left with the helpdesk (gone, SLOP-4)) plus a detached launcher on
+/// destinations (Issues, Inbox — with an unread dot — Devices — the
+/// machines surface — Reviews — its own entry per EXP-147 — and More —
+/// SLOP-5: the ONE advanced entry ×4, a glass menu holding Actions and
+/// Settings; base order per EXP-81; the Support tab left with the helpdesk,
+/// gone in SLOP-4) plus a detached launcher on
 /// the right: the SPLIT capsule (chat | new issue), on every bar-visible
 /// route since EXP-973 — the chat arm opens the Agent page (the sessions list
 /// lives there since EXP-825, so it wears the running-session dot the Devices
@@ -18,7 +19,8 @@ import SwiftUI
 struct MobileTabBar: View {
     let issuesActive: Bool
     let devicesActive: Bool
-    let actionsActive: Bool
+    /// SLOP-5: lit while one of More's destinations (Actions) is up.
+    let moreActive: Bool
     let myWorkActive: Bool
     let reviewsActive: Bool
     let unreadCount: Int
@@ -35,7 +37,11 @@ struct MobileTabBar: View {
     let composeEnabled: Bool
     let onIssues: () -> Void
     let onDevices: () -> Void
+    /// More → Actions.
     let onActions: () -> Void
+    /// More → Settings (the phone has no footer gear, so More is its
+    /// "More / settings" entry).
+    let onSettings: () -> Void
     let onMyWork: () -> Void
     let onReviews: () -> Void
     let onCompose: () -> Void
@@ -56,8 +62,8 @@ struct MobileTabBar: View {
         if issuesActive { return "issues" }
         if myWorkActive { return "mywork" }
         if devicesActive { return "devices" }
-        if actionsActive { return "actions" }
         if reviewsActive { return "reviews" }
+        if moreActive { return "more" }
         return "none"
     }
 
@@ -70,11 +76,12 @@ struct MobileTabBar: View {
             HStack(spacing: MobileTabBarMetrics.tabSpacing) {
                 tab(glyph: AppIcons.navIssues, label: "Issues", active: issuesActive, action: onIssues)
                     .accessibilityIdentifier("tab-issues")
-                // EXP-58: the Inbox tab became My Work (Inbox + My Issues
-                // merged) — same glyph, same unread dot.
+                // EXP-58: Inbox + My Issues merged behind this one tab (SLOP-5:
+                // called Inbox, like the web and desktop entry) — same glyph,
+                // same unread dot.
                 tab(
                     glyph: AppIcons.navInbox,
-                    label: "My Work",
+                    label: "Inbox",
                     active: myWorkActive,
                     badge: unreadCount > 0,
                     badgeColor: DesignTokens.Palette.primary,
@@ -91,16 +98,7 @@ struct MobileTabBar: View {
                     action: onDevices
                 )
                 .accessibilityIdentifier("tab-devices")
-                // Actions (EXP-686): actions / suggestions, no
-                // longer a push off the Devices toolbar.
-                tab(
-                    glyph: AppIcons.navActions,
-                    label: "Actions",
-                    active: actionsActive,
-                    action: onActions
-                )
-                .accessibilityIdentifier("tab-actions")
-                // Reviews sits last (EXP-147/EXP-152/EXP-686) — the same
+                // Reviews (EXP-147/EXP-152/EXP-686) — the same
                 // open-PR glyph the in_review status uses. Green dot while
                 // open PRs await review (EXP-214).
                 // EXP-1105: hidden in yolo mode unless a PR is open.
@@ -115,6 +113,22 @@ struct MobileTabBar: View {
                     )
                     .accessibilityIdentifier("tab-reviews")
                 }
+                // SLOP-5: More — the one advanced entry (×4 with the web
+                // sidebar's row, the desktop rail and Android). Actions
+                // (authoring; the composer's action chip runs one) and
+                // Settings on the glass menu surface (the touch density of
+                // the styleguide's menu). Drafts stay the Inbox's third
+                // segment (EXP-878).
+                GlassMenu {
+                    GlassMenuItem("Actions", icon: AppIcons.navActions, action: onActions)
+                        .accessibilityIdentifier("menu-actions")
+                    GlassMenuItem("Settings", icon: AppIcons.navSettings, action: onSettings)
+                        .accessibilityIdentifier("menu-settings")
+                } label: {
+                    tabLabel(glyph: AppIcons.navMore, active: moreActive)
+                }
+                .accessibilityLabel("More")
+                .accessibilityIdentifier("tab-more")
             }
             .animation(motion.standard, value: activeKey)
             .padding(MobileTabBarMetrics.pillPadding)
@@ -219,6 +233,21 @@ struct MobileTabBar: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
+            tabLabel(glyph: glyph, active: active, badge: badge, badgeColor: badgeColor)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    /// One tab's ink — the glyph in its slot, the travelling active circle and
+    /// the status dot — without the button, so the More menu's trigger can
+    /// wear exactly what a plain tab wears.
+    private func tabLabel(
+        glyph: String,
+        active: Bool,
+        badge: Bool = false,
+        badgeColor: Color = DesignTokens.Palette.primary
+    ) -> some View {
             AppIcon(glyph, size: AppIcon.Size.large)
                 .foregroundStyle(.white.opacity(active ? 1 : TextOpacity.secondary))
                 // 44pt square (the HIG minimum) — `MobileTabBarMetrics`
@@ -247,9 +276,6 @@ struct MobileTabBar: View {
                     }
                 }
                 .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
     }
 }
 
@@ -259,8 +285,7 @@ extension View {
     /// plus 16pt of breathing room. The bar is an ancestor OVERLAY (see
     /// MainNavigator) — ancestor safe-area insets don't reliably reach List
     /// content inside pushed destinations, so every bar-visible scrollable
-    /// (Issues list, Devices, Actions, My Work's inbox/my-issues,
-    /// Reviews) applies
+    /// (Issues list, Devices, Inbox's inbox/my-issues, Reviews) applies
     /// this ONE modifier directly. Detail screens (showsTabBar == false) must
     /// NOT reserve it — pass `false` when the same scrollable is reused on a
     /// bar-less surface.

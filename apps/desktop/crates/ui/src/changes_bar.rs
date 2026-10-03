@@ -113,10 +113,10 @@ impl MergeTarget {
     pub(crate) fn tooltip(&self) -> &'static str {
         match self {
             MergeTarget::Issue { .. } => {
-                "Merge: completes every linked issue and closes this coding session"
+                "Merge: completes every linked issue and ends this run"
             }
             MergeTarget::Session { .. } => {
-                "Merge: merges this run's pull request and closes the session"
+                "Merge: merges this run's pull request and ends the run"
             }
         }
     }

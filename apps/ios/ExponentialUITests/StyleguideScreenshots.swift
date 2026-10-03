@@ -335,12 +335,12 @@ final class StyleguideScreenshots: XCTestCase {
         snapshot("sg_search", settle: 2)
         goBack(app)
 
-        // ── sg_my-issues: My Work → the "My Issues" segment ──────────────────
+        // ── sg_my-issues: Inbox → the "My Issues" segment ────────────────────
         // The segment is a GlassSegmentedControl button carrying only an
         // accessibility LABEL. Its choice is persisted in @AppStorage, so the
         // tap is deliberately unconditional (it is idempotent).
         let myWorkTab = app.buttons["tab-mywork"]
-        XCTAssertTrue(myWorkTab.waitForExistence(timeout: 15), "My Work tab missing")
+        XCTAssertTrue(myWorkTab.waitForExistence(timeout: 15), "Inbox tab missing")
         myWorkTab.tap()
         let myIssuesSegment = app.buttons["My Issues"]
         XCTAssertTrue(myIssuesSegment.waitForExistence(timeout: 15), "My Issues segment missing")
@@ -463,11 +463,19 @@ final class StyleguideScreenshots: XCTestCase {
         _ = deviceSheet.waitForNonExistence(timeout: 10)
         settle(1)
 
-        // ── The Actions surface: five shots off one tab ──────────────────────
-        // EXP-686: Actions is a top-level tab of its own.
-        let actionsBarTab = app.buttons["tab-actions"]
-        XCTAssertTrue(actionsBarTab.waitForExistence(timeout: 15), "Actions tab missing")
-        actionsBarTab.tap()
+        // ── sg_more: the More menu (SLOP-5) — the one advanced entry ─────────
+        // Actions and Settings on the glass menu surface, opened off the bar's
+        // last tab. Photographed open, then its Actions row leads on.
+        let moreBarTab = app.buttons["tab-more"]
+        XCTAssertTrue(moreBarTab.waitForExistence(timeout: 15), "More tab missing")
+        moreBarTab.tap()
+        let moreActionsRow = app.buttons["menu-actions"]
+        XCTAssertTrue(moreActionsRow.waitForExistence(timeout: 15), "More menu's Actions row missing")
+        snapshot("sg_more", settle: 1)
+
+        // ── The Actions surface: five shots off one menu row ─────────────────
+        // SLOP-5: Actions is reached through More.
+        moreActionsRow.tap()
         XCTAssertTrue(
             app.navigationBars["Actions"].waitForExistence(timeout: 30),
             "Actions surface never appeared"

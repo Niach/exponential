@@ -198,13 +198,13 @@ struct AgentSessionView: View {
     /// The confirms: Kill, Merge, and a `/`-command's own.
     private func withAlerts(_ content: some View) -> some View {
         content
-            .alert("Kill this coding session?", isPresented: $showKillConfirm) {
-                Button("Kill session", role: .destructive) {
+            .alert("Stop this run?", isPresented: $showKillConfirm) {
+                Button("Stop run", role: .destructive) {
                     Task { await model?.killSession() }
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This stops the agent on the desktop and ends the session.")
+                Text("This stops the agent on the desktop and ends the run.")
             }
             // EXP-724: `/clear` discards the conversation, so confirm rows
             // confirm before the frames go out. Copy is byte-identical ×4.
@@ -233,7 +233,7 @@ struct AgentSessionView: View {
             // EXP-1031: the transient outcomes land as toasts.
             .onChange(of: model?.killError) { _, message in
                 guard let message else { return }
-                toaster.error("Couldn't kill the session.", description: message)
+                toaster.error("Couldn't stop the run.", description: message)
             }
             .onChange(of: continuation.watcher.sentCaption) { _, caption in
                 guard let caption, model?.sessionEnded != true else { return }
@@ -1200,7 +1200,7 @@ struct AgentSessionView: View {
         switch model.phase {
         case let .ended(detail):
             bannerRow {
-                Text(detail ?? "Session ended")
+                Text(detail ?? "Run ended")
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
             }

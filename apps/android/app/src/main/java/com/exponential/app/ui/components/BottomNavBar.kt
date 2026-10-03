@@ -20,9 +20,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -40,9 +42,10 @@ import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
 
 // Linear-style floating bottom navigation: a dark pill with the top-level
-// destinations (Issues, My Work — the merged Inbox + My Issues personal tab,
-// with an unread dot — Devices — the machines surface — Actions — the team's action prompts, its own entry since EXP-686
-// — and Reviews) plus a detached launcher on the right: the Chat circle that
+// destinations (Issues, Inbox — the merged Inbox + My Issues personal tab,
+// with an unread dot — Devices — the machines surface — Reviews — and More:
+// SLOP-5's ONE advanced entry ×4, a glass menu holding Actions and
+// Settings) plus a detached launcher on the right: the Chat circle that
 // opens the Agent page on EVERY top-level surface (the sessions list lives
 // there since EXP-825, so it carries the green live dot the Devices tab used
 // to wear), joined by New issue in one capsule — on every tab since EXP-973. Search left the
@@ -87,7 +90,8 @@ private val ReviewsGreen = DesignTokens.Semantic.Green
 fun BottomNavBar(
     issuesActive: Boolean,
     devicesActive: Boolean,
-    actionsActive: Boolean,
+    /** SLOP-5: lit while one of More's destinations (Actions) is up. */
+    moreActive: Boolean,
     personalActive: Boolean,
     reviewsActive: Boolean,
     unreadCount: Int,
@@ -98,7 +102,10 @@ fun BottomNavBar(
     composeEnabled: Boolean,
     onIssues: () -> Unit,
     onDevices: () -> Unit,
+    /** More → Actions. */
     onActions: () -> Unit,
+    /** More → Settings (no footer gear on a phone, so More is its settings entry). */
+    onSettings: () -> Unit,
     onPersonal: () -> Unit,
     onReviews: () -> Unit,
     onCompose: () -> Unit,
@@ -111,7 +118,7 @@ fun BottomNavBar(
      */
     showsReviews: Boolean = true,
 ) {
-    // Four fixed tabs (Issues, My Work, Devices, Actions) + Reviews.
+    // Four fixed tabs (Issues, Inbox, Devices, More) + Reviews.
     val tabCount = 4 + (if (showsReviews) 1 else 0)
     // Every count must still fit a 360dp screen beside the compose circle:
     // the outer padding pulls in with the count. The tab itself is the shared
@@ -141,9 +148,11 @@ fun BottomNavBar(
                 active = issuesActive,
                 onClick = onIssues,
             )
+            // EXP-58: Inbox + My Issues merged behind this one tab (SLOP-5:
+            // called Inbox, like the web and desktop entry).
             TabItem(
                 icon = ExpIcons.navInbox,
-                contentDescription = "My Work",
+                contentDescription = "Inbox",
                 testTag = "tab-mywork",
                 active = personalActive,
                 showDot = unreadCount > 0,
@@ -158,16 +167,7 @@ fun BottomNavBar(
                 active = devicesActive,
                 onClick = onDevices,
             )
-            // Actions (EXP-686): actions / suggestions, no longer
-            // a push off the Devices header.
-            TabItem(
-                icon = ExpIcons.navActions,
-                contentDescription = "Actions",
-                testTag = "tab-actions",
-                active = actionsActive,
-                onClick = onActions,
-            )
-            // Reviews sits last (EXP-147/EXP-152/EXP-686) — the same open-PR
+            // Reviews (EXP-147/EXP-152/EXP-686) — the same open-PR
             // glyph the Reviews rows use. Green dot while open PRs await
             // review (EXP-214). Hidden in yolo mode until a PR is open
             // (EXP-1105).
@@ -181,6 +181,42 @@ fun BottomNavBar(
                     dotColor = ReviewsGreen,
                     onClick = onReviews,
                 )
+            }
+            // SLOP-5: More — the one advanced entry (×4 with the web
+            // sidebar's row, the desktop rail and iOS). Actions (authoring;
+            // the composer's action chip runs one) and Settings on the glass
+            // menu surface — the touch density of the styleguide's menu,
+            // opening above the bar. Drafts stay the Inbox's third segment
+            // (EXP-878).
+            var moreOpen by remember { mutableStateOf(false) }
+            Box {
+                TabItem(
+                    icon = ExpIcons.navMore,
+                    contentDescription = "More",
+                    testTag = "tab-more",
+                    active = moreActive,
+                    onClick = { moreOpen = true },
+                )
+                GlassDropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
+                    GlassMenuItem(
+                        text = { Text("Actions") },
+                        leadingIcon = { Icon(ExpIcons.navActions, contentDescription = null) },
+                        modifier = Modifier.testTag("menu-actions"),
+                        onClick = {
+                            moreOpen = false
+                            onActions()
+                        },
+                    )
+                    GlassMenuItem(
+                        text = { Text("Settings") },
+                        leadingIcon = { Icon(ExpIcons.navSettings, contentDescription = null) },
+                        modifier = Modifier.testTag("menu-settings"),
+                        onClick = {
+                            moreOpen = false
+                            onSettings()
+                        },
+                    )
+                }
             }
         }
 

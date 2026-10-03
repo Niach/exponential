@@ -1090,7 +1090,7 @@ pub(crate) fn open_add_server_dialog(window: &mut Window, cx: &mut gpui::App) {
         Rc::new(RefCell::new(None));
     let spec = AlertSpec::new(
         "Add device",
-        "To run coding sessions, install the desktop app.",
+        "To start runs, install the desktop app.",
         "Done",
     )
     .without_cancel()

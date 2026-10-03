@@ -85,7 +85,7 @@ struct MyWorkView: View {
                 }
             }
         }
-        .navigationTitle("My Work")
+        .navigationTitle("Inbox")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .toolbar {

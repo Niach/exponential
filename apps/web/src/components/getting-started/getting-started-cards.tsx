@@ -66,10 +66,10 @@ const ENTRY_ICONS: Record<EntryKey, LucideIcon> = {
 // it (lockedBy from the model).
 function lockedHint(entry: EntryKey, lockedBy: EntryKey): string {
   if (entry === `coding` && lockedBy === `desktop`) {
-    return `Connect a machine first — coding sessions run on the desktop app or a registered server.`
+    return `Connect a machine first — runs happen on the desktop app or a registered server.`
   }
   if (entry === `coding` && lockedBy === `github`) {
-    return `Connect a GitHub repo first. Coding sessions need a repo-backed board.`
+    return `Connect a GitHub repo first. Runs need a repo-backed board.`
   }
   if (entry === `coding` && lockedBy === `board`) {
     return `Create a board with a repository first.`

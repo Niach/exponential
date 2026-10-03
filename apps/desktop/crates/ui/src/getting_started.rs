@@ -81,14 +81,14 @@ const MCP_DOCS_URL: &str = "https://exponential.at/docs/mcp/";
 /// action label — the desktop hands out the endpoint + docs instead.
 pub(crate) mod copy {
     pub const DESKTOP_TITLE: &str = "Get the desktop app";
-    pub const DESKTOP_DESCRIPTION: &str = "Runs coding sessions on your machine and registers it as one of your devices.";
+    pub const DESKTOP_DESCRIPTION: &str = "Runs agents on your machine and registers it as one of your devices.";
     /// The IDE's getting-started list has no desktop entry (it IS the
     /// desktop app); the Add device dialog's desktop card labels its
     /// download button with it (EXP-1169).
     pub const DESKTOP_ACTION: &str = "Download the desktop app";
 
     pub const GITHUB_TITLE: &str = "Connect a GitHub repo";
-    pub const GITHUB_DESCRIPTION: &str = "Boards attach repositories; pull requests and coding sessions flow back into issues.";
+    pub const GITHUB_DESCRIPTION: &str = "Boards attach repositories; pull requests and runs flow back into issues.";
     pub const GITHUB_ACTION: &str = "Connect GitHub";
 
     pub const INVITE_TITLE: &str = "Invite your team";
@@ -737,7 +737,7 @@ pub(crate) fn entry_card(
              registered server.",
         ),
         (EntryKey::Coding, Some(EntryKey::Github)) => {
-            Some("Connect a GitHub repo first. Coding sessions need a repo-backed board.")
+            Some("Connect a GitHub repo first. Runs need a repo-backed board.")
         }
         (EntryKey::Coding, Some(EntryKey::Board)) => {
             Some("Create a board with a repository first.")

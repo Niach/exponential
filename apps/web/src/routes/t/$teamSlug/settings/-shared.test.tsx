@@ -71,40 +71,54 @@ describe(`SETTINGS_NAV Issues entry`, () => {
   })
 })
 
-// EXP-630: Import (the tracker migration wizard) closes the Team group after
-// Storage and is owner-only — it creates boards, statuses and issues.
-describe(`SETTINGS_NAV Import entry (EXP-630)`, () => {
+// SLOP-5: the admin-ish, owner-only sections (Storage, Import, Archived
+// boards) close the nav as one Advanced group — after Personal, so the index
+// redirect keeps landing on a team section.
+describe(`SETTINGS_NAV Advanced group (SLOP-5)`, () => {
   const team: SettingsNavContext = { isCloud: false }
+  const advanced = SETTINGS_NAV.find((group) => group.group === `Advanced`)!
 
-  it(`follows Storage at the end of the Team group`, () => {
-    const teamGroup = SETTINGS_NAV.find((group) => group.group === `Team`)!
-    const storage = teamGroup.items.findIndex((item) => item.label === `Storage`)
-    const importIndex = teamGroup.items.findIndex(
-      (item) => item.label === `Import`
-    )
-    expect(importIndex).toBe(storage + 1)
-    expect(importIndex).toBe(teamGroup.items.length - 1)
-    expect(teamGroup.items[importIndex].to).toBe(`/t/$teamSlug/settings/import`)
+  it(`is the last group with Storage, Import and Archived boards`, () => {
+    expect(SETTINGS_NAV[SETTINGS_NAV.length - 1]).toBe(advanced)
+    expect(advanced.items.map((item) => [item.label, item.to])).toEqual([
+      [`Storage`, `/t/$teamSlug/settings/storage`],
+      [`Import`, `/t/$teamSlug/settings/import`],
+      [`Archived boards`, `/t/$teamSlug/settings/boards/archived`],
+    ])
+    // None of them is a Team or Boards entry any more.
+    for (const group of SETTINGS_NAV.filter((g) => g !== advanced)) {
+      expect(
+        group.items.some((item) =>
+          [`Storage`, `Import`, `Archived boards`].includes(item.label)
+        ),
+        group.group
+      ).toBe(false)
+    }
   })
 
   it(`is owner-only`, () => {
-    const entry = items.find((item) => item.label === `Import`)!
-    expect(entry.visible(permissionsFor(`owner`), team)).toBe(true)
-    expect(entry.visible(permissionsFor(`member`), team)).toBe(false)
+    for (const entry of advanced.items) {
+      expect(entry.visible(permissionsFor(`owner`), team)).toBe(true)
+      expect(entry.visible(permissionsFor(`member`), team)).toBe(false)
+    }
   })
 })
 
 // EXP-238: the Personal group merges account settings into the one settings
-// surface. Always visible, and LAST — the index redirect must keep landing
-// on a team section, never a personal one.
+// surface. Always visible, and after every team group — the index redirect
+// must keep landing on a team section, never a personal one (SLOP-5: only the
+// owner-only Advanced group follows it).
 describe(`SETTINGS_NAV Personal group`, () => {
   const team: SettingsNavContext = { isCloud: false }
   const personal = SETTINGS_NAV.find((group) => group.group === `Personal`)!
 
   // EXP-862: "API keys" became "Security" (keys + passkeys); /api-keys is a
   // redirect now, not a nav entry.
-  it(`is the last group with Account, Notifications, and Security`, () => {
-    expect(SETTINGS_NAV[SETTINGS_NAV.length - 1]).toBe(personal)
+  it(`follows every team group with Account, Notifications, and Security`, () => {
+    expect(SETTINGS_NAV[SETTINGS_NAV.length - 2]).toBe(personal)
+    expect(
+      SETTINGS_NAV.slice(0, SETTINGS_NAV.indexOf(personal)).map((g) => g.group)
+    ).toEqual([`Team`, `Boards`, `Features`])
     expect(personal.items.map((item) => item.label)).toEqual([
       `Account`,
       `Notifications`,
@@ -176,28 +190,16 @@ describe(`SETTINGS_NAV Features group (SLOP-4, EXP-792)`, () => {
 })
 
 // EXP-862: the Boards group FLATTENS like the desktop nav — the per-board
-// rows and "New board" are injected at render, so only the owner-gated
-// "Archived boards" entry and Repositories are static, in that order.
+// rows and "New board" are injected at render, so only Repositories is static
+// (SLOP-5 moved the owner-gated "Archived boards" entry to the Advanced group).
 describe(`SETTINGS_NAV Boards group (EXP-862)`, () => {
-  const team: SettingsNavContext = { isCloud: false }
   const boardsGroup = SETTINGS_NAV.find(
     (group) => group.group === `Boards`
   )!
 
-  it(`lists Archived boards then Repositories, and no Boards list page`, () => {
-    expect(boardsGroup.items.map((item) => item.label)).toEqual([
-      `Archived boards`,
-      `Repositories`,
-    ])
-    expect(boardsGroup.items[0].to).toBe(
-      `/t/$teamSlug/settings/boards/archived`
-    )
-  })
-
-  it(`keeps Archived boards owner-only`, () => {
-    const archived = boardsGroup.items[0]
-    expect(archived.visible(permissionsFor(`owner`), team)).toBe(true)
-    expect(archived.visible(permissionsFor(`member`), team)).toBe(false)
+  it(`lists Repositories alone, and no Boards list page`, () => {
+    expect(boardsGroup.items.map((item) => item.label)).toEqual([`Repositories`])
+    expect(boardsGroup.items[0].to).toBe(`/t/$teamSlug/settings/repositories`)
   })
 })
 

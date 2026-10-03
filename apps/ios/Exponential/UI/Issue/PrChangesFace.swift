@@ -166,9 +166,9 @@ struct PrChangesFace: View {
     /// The merge alert message — carries the PR number when known.
     private var mergeMessage: String {
         if let number = viewModel?.issue?.prNumber {
-            return "Squash-merges PR #\(number) via the GitHub App. Any live coding session for it closes."
+            return "Squash-merges PR #\(number) via the GitHub App. Any live run for it ends."
         }
-        return "Squash-merges this pull request via the GitHub App. Any live coding session for it closes."
+        return "Squash-merges this pull request via the GitHub App. Any live run for it ends."
     }
 
     /// The loaded files, or nil while the fetch is out / failed.

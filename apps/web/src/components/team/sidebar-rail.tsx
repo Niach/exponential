@@ -3,7 +3,6 @@ import { Link, useNavigate, useRouterState } from "@tanstack/react-router"
 import {
   conceptIcon,
   getBoardIcon,
-  Badge,
   Button,
   DropdownMenu,
   DropdownMenuContent,
@@ -23,9 +22,14 @@ import { useSession } from "@/hooks/use-session"
 import { useSignOut } from "@/hooks/use-sign-out"
 import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
 import { useReviewsOpenPrCount, useShowsReviews } from "@/hooks/use-nav-counts"
-import { useSidebarDraftCount } from "@/hooks/use-issue-drafts"
 import { SidebarPinnedIcons } from "@/components/team/sidebar-pinned"
 import { SidebarRunningIcons } from "@/components/team/sidebar-running"
+import {
+  MORE_LABEL,
+  MoreMenu,
+  NavMoreIcon,
+  useMoreActive,
+} from "@/components/team/sidebar-more"
 
 // EXP-870: the rail never leaves. Beside a list nav or the settings nav the
 // main menu MORPHS into this 48px icon column instead of sliding away —
@@ -39,11 +43,9 @@ import { SidebarRunningIcons } from "@/components/team/sidebar-running"
 
 const NavAboutIcon = conceptIcon(`settings-about`)
 const NavAdminIcon = conceptIcon(`nav-admin`)
-const NavActionsIcon = conceptIcon(`nav-actions`)
 const NavAgentIcon = conceptIcon(`action-chat`)
 const NavChangelogIcon = conceptIcon(`nav-changelog`)
 const NavDevicesIcon = conceptIcon(`nav-devices`)
-const NavDraftsIcon = conceptIcon(`nav-drafts`)
 const NavInboxIcon = conceptIcon(`nav-inbox`)
 const NavReviewsIcon = conceptIcon(`nav-reviews`)
 const NavSettingsIcon = conceptIcon(`nav-settings`)
@@ -115,33 +117,6 @@ export function InboxUnreadBadge({ placement }: { placement: BadgePlacement }) {
   const unread = useUnreadNotificationCount()
   if (unread === 0) return null
   return <NavDot className="bg-primary" placement={placement} />
-}
-
-/** EXP-878: how many drafts the caller is keeping in this team — a NEUTRAL
- *  count, not an alert: a draft is work you parked, not work waiting on you.
- *  Zero renders nothing, and the entry itself is hidden at zero. */
-export function DraftsCountBadge({
-  teamId,
-  placement,
-}: {
-  teamId?: string
-  placement: BadgePlacement
-}) {
-  const count = useSidebarDraftCount(teamId)
-  // EXP-962: `Badge` owns the shape, the zero and the 99+ cap; the rail owns
-  // only where it hangs.
-  return (
-    <Badge
-      count={count}
-      data-testid="drafts-count-badge"
-      className={cn(
-        `absolute`,
-        placement === `row`
-          ? `right-2 top-1/2 -translate-y-1/2`
-          : `-right-0.5 -top-0.5`
-      )}
-    />
-  )
 }
 
 /** Any open PR across the team's boards. */
@@ -258,22 +233,43 @@ function RailItem({
   )
 }
 
-/** The rail's Drafts button — present only while there IS a draft, directly
- *  after Inbox in both rail states. */
-function DraftsRailItem({
+/** SLOP-5: the rail's More button — the same menu the expanded row and the
+ *  phone tab open (Actions, the Drafts pile while any). Lit while one of
+ *  those is on screen. */
+function MoreRailItem({
+  teamSlug,
   teamId,
-  params,
 }: {
+  teamSlug: string
   teamId?: string
-  params: Record<string, string>
 }) {
-  const count = useSidebarDraftCount(teamId)
-  if (count === 0) return null
+  const active = useMoreActive({ settings: false })
   return (
-    <RailItem label="Drafts" link={{ to: `/t/$teamSlug/drafts`, params }}>
-      <NavDraftsIcon className="size-4" />
-      <DraftsCountBadge teamId={teamId} placement="icon" />
-    </RailItem>
+    <MoreMenu
+      teamSlug={teamSlug}
+      teamId={teamId}
+      drafts
+      settings={false}
+      side="right"
+    >
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              RAIL_BUTTON,
+              active && `bg-sidebar-accent text-sidebar-accent-foreground`
+            )}
+            aria-label={MORE_LABEL}
+            data-testid="nav-more"
+          >
+            <NavMoreIcon className="size-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="right">{MORE_LABEL}</TooltipContent>
+      </Tooltip>
+    </MoreMenu>
   )
 }
 
@@ -307,16 +303,13 @@ export function TeamSidebarRail({
   return (
     <div className="flex h-full w-12 flex-col" data-testid="sidebar-compact-rail">
       <div className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-x-hidden overflow-y-auto py-2 [scrollbar-width:none]">
+        {/* SLOP-5 order ×4: Inbox, Devices, Reviews, Agent, More. */}
         <RailItem label="Inbox" link={{ to: `/t/$teamSlug/inbox`, params }}>
           <NavInboxIcon className="size-4" />
           <InboxUnreadBadge placement="icon" />
         </RailItem>
-        <DraftsRailItem teamId={team?.id} params={params} />
         <RailItem label="Devices" link={{ to: `/t/$teamSlug/devices`, params }}>
           <NavDevicesIcon className="size-4" />
-        </RailItem>
-        <RailItem label="Actions" link={{ to: `/t/$teamSlug/actions`, params }}>
-          <NavActionsIcon className="size-4" />
         </RailItem>
         {showsReviews && (
           <RailItem label="Reviews" link={{ to: `/t/$teamSlug/reviews`, params }}>
@@ -334,6 +327,7 @@ export function TeamSidebarRail({
         >
           <NavAgentIcon className="size-4" />
         </RailItem>
+        <MoreRailItem teamSlug={teamSlug} teamId={team?.id} />
 
         {team && (
           <PinnedIconGroup teamId={team.id} teamSlug={teamSlug} />

@@ -445,7 +445,7 @@ struct DeviceSettingsSheet: View {
         } header: {
             GlassSectionHeader("Sharing")
         } footer: {
-            Text("Teammates of a shared team can start coding sessions on this server. Removing a team ends its running sessions on it.")
+            Text("Teammates of a shared team can start runs on this server. Removing a team ends its runs on it.")
         }
         .listRowBackground(glassFormRowFill)
     }
@@ -615,7 +615,7 @@ struct DeviceSettingsSheet: View {
             if isUpdateQueued(device) {
                 // EXP-411/FEED-36: parked behind the machine's live coding
                 // sessions — the daemon applies it once they close.
-                Text("Live coding sessions are holding the update. The device applies it once they end.")
+                Text("Live runs are holding the update. The device applies it once they end.")
             }
         }
         .listRowBackground(glassFormRowFill)

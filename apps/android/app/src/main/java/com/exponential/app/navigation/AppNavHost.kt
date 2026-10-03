@@ -573,8 +573,8 @@ private fun AuthenticatedNav(
             )
         }
         composable("personal") {
-            // "My Work" — Inbox + My Issues merged into one board-independent
-            // personal tab (EXP-58). Notification taps never land here directly
+            // "Inbox" (SLOP-5; "My Work" until then) — Inbox + My Issues
+            // merged into one board-independent personal tab (EXP-58). Notification taps never land here directly
             // (pushes deep-link straight to issue/{id}), so renaming the old
             // "inbox" route is safe.
             PersonalScreen(
@@ -839,7 +839,7 @@ private fun AuthenticatedNav(
         BottomNavBar(
             issuesActive = currentRoute == "home",
             devicesActive = currentRoute == "agents",
-            actionsActive = currentRoute == "actions",
+            moreActive = currentRoute == "actions",
             personalActive = currentRoute == "personal",
             reviewsActive = currentRoute == "reviews",
             unreadCount = unreadCount,
@@ -861,6 +861,9 @@ private fun AuthenticatedNav(
                     }
                 }
             },
+            // SLOP-5: both rows of the More menu. Actions is a bar-visible
+            // top-level route; Settings pushes bar-less, like the Issues
+            // header's gear.
             onActions = {
                 if (currentRoute != "actions") {
                     navController.navigate("actions") {
@@ -869,6 +872,7 @@ private fun AuthenticatedNav(
                     }
                 }
             },
+            onSettings = { navController.navigate("settings") },
             onPersonal = {
                 if (currentRoute != "personal") {
                     navController.navigate("personal") {

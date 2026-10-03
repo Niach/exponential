@@ -1245,7 +1245,7 @@ pub fn resume_blocker_for(
             .is_some_and(|session| session.session_id != record.session_id)
         {
             return Some(format!(
-                "Already coding {identifier}. Stop that session first."
+                "Already coding {identifier}. Stop that run first."
             ));
         }
         let except = continuation.then_some(record.session_id.as_str());
@@ -1253,7 +1253,7 @@ pub fn resume_blocker_for(
             queries::live_session_device_for_issue_except(cx, issue_id, now, except)
         {
             return Some(format!(
-                "{identifier} already has a live session on {device} (only one session per issue)."
+                "{identifier} already has a live run on {device} (one run per issue)."
             ));
         }
     }

@@ -151,7 +151,7 @@ struct AgentsView: View {
             Text("Remote start isn't available on this server")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            Text("Machines and remote starts need the steer relay. Live sessions still show up on the Agent page.")
+            Text("Machines and remote starts need the steer relay. Live runs still show up on the Agent page.")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 .multilineTextAlignment(.center)

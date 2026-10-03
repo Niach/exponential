@@ -65,7 +65,7 @@ export function effortLabel(value: string): string {
   return value === `xhigh` ? `XHigh` : modelLabel(value)
 }
 
-/** EXP-481: the "Resume previous session" row's inputs — rendered only when
+/** EXP-481: the "Resume previous run" row's inputs — rendered only when
  * the shell computed an eligible worktree for (device, issue, agent). */
 export interface ResumeRowProps {
   checked: boolean
@@ -249,7 +249,7 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
       {toggles?.resumeRow && (
         <GlassToggleRow
           id={`${idPrefix}-resume`}
-          label="Resume previous session"
+          label="Resume previous run"
           checked={toggles.resumeRow.checked}
           onCheckedChange={toggles.resumeRow.onChange}
           description={
