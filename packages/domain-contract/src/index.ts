@@ -46,6 +46,7 @@ export interface DomainContract {
   commentKind: { values: readonly string[] }
   /** EXP-741: who posted a comment — a person, or an agent over MCP. */
   commentSource: { values: readonly string[] }
+  commentAudience: { values: readonly string[] }
   notificationType: { values: readonly string[] }
   prState: { values: readonly string[] }
   /** A device's agent defaults. */

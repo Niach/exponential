@@ -142,8 +142,16 @@ pub(crate) fn relative_time_epoch(then: i64, now_epoch: i64) -> String {
 pub(crate) struct CommentCardProps<'a> {
     pub comment: &'a Comment,
     pub author: Option<&'a User>,
-    /// Author-only gate (web `canModify`) — shows the `…` Edit/Delete menu.
-    pub can_modify: bool,
+    /// SLOP-4: the issue's widget reporter — names a `source = reporter`
+    /// card (the submission's `reporterName`, else the contract's anonymous
+    /// name).
+    pub reporter_name: &'a str,
+    /// Author-only (web `canModify`) — the `…` menu's Edit row. Never on a
+    /// reporter's comment (SLOP-4).
+    pub can_edit: bool,
+    /// Author-only, or ANY member on a reporter's comment (moderation,
+    /// SLOP-4) — the `…` menu's Delete row.
+    pub can_delete: bool,
     /// `Some(editor)` while THIS comment is being edited (web `editing`) —
     /// the §4.6 mention-capable input.
     pub editing: Option<&'a Entity<MentionInput>>,
@@ -187,12 +195,42 @@ pub(crate) struct CommentRowProps<'a> {
     pub emoji_open: bool,
 }
 
-/// Display name for a comment's author (row present or not).
-fn comment_author_name(comment: &Comment, author: Option<&User>) -> String {
+/// Display name for a comment's author (row present or not). SLOP-4: a
+/// reporter's comment (no author) names the submission's reporter; any other
+/// author-less comment is a former member's; an author whose row has not
+/// synced keeps the `Member <LAST4>` fallback.
+fn comment_author_name(comment: &Comment, author: Option<&User>, reporter_name: &str) -> String {
+    if comment.is_from_reporter() {
+        return reporter_name.to_string();
+    }
     match comment.author_id.as_deref() {
         Some(id) => user_label(id, author),
-        None => author_label(author),
+        None => domain::reporter_reply::FORMER_MEMBER_NAME.to_string(),
     }
+}
+
+/// The caption after the time (web `comment-rows/regular.tsx`): an agent's
+/// MCP post, a reporter's words, or a member's words that left the team.
+fn comment_caption(comment: &Comment) -> Option<&'static str> {
+    if comment.is_from_reporter() {
+        return Some(domain::reporter_reply::REPORTER_CAPTION);
+    }
+    if comment.is_to_reporter() {
+        return Some(domain::reporter_reply::TO_REPORTER_CAPTION);
+    }
+    if comment.source.as_deref() == Some(domain::contract::COMMENT_SOURCE_MCP) {
+        return Some("via MCP");
+    }
+    None
+}
+
+/// The avatar's hue key: the author id, or the reporter's NAME for a
+/// reporter's comment (no id — the same visitor keeps one colour).
+fn avatar_key<'a>(comment: &'a Comment, name: &'a str) -> &'a str {
+    if comment.is_from_reporter() {
+        return name;
+    }
+    comment.author_id.as_deref().unwrap_or_default()
 }
 
 /// The header line + body/edit form + attachment strip of one comment (web
@@ -206,7 +244,7 @@ fn comment_card_content(
     emoji_open: bool,
     cx: &mut gpui::Context<IssueTimeline>,
 ) -> gpui::AnyElement {
-    let name = comment_author_name(card.comment, card.author);
+    let name = comment_author_name(card.comment, card.author, card.reporter_name);
     let comment_id = card.comment.id.clone();
     let created = card.comment.created_at.as_deref().unwrap_or("");
     let mut meta = relative_time(created, now_epoch);
@@ -214,9 +252,12 @@ fn comment_card_content(
         meta.push_str(" · edited");
     }
     // EXP-741: an agent posted it over MCP — the same caption on every
-    // client, so a bot's words never read as its key owner's.
-    if card.comment.source.as_deref() == Some(domain::contract::COMMENT_SOURCE_MCP) {
-        meta.push_str(" · via MCP");
+    // client, so a bot's words never read as its key owner's. SLOP-4: the
+    // same slot says `reporter` on a widget reporter's words and `to
+    // reporter` on a member's words that were emailed out.
+    if let Some(caption) = comment_caption(card.comment) {
+        meta.push_str(" · ");
+        meta.push_str(caption);
     }
 
     // EXP-723: the name reads at the body size (`text_sm`, medium) with the
@@ -239,54 +280,64 @@ fn comment_card_content(
                 .text_color(cx.theme().muted_foreground)
                 .child(SharedString::from(meta)),
         )
-        .when(card.can_modify && card.editing.is_none(), |row| {
-            let edit_id = comment_id.clone();
-            let delete_id = comment_id.clone();
-            row.child(div().flex_1()).child(
-                // EXP-698 round 5: BARE ⋮ on every client — the bubble is
-                // already a card, so a glass ring around its menu glyph reads
-                // as a second surface. Gate stays author-only.
-                Button::new(SharedString::from(format!("comment-menu-{comment_id}")))
-                    .ghost()
-                    .web_icon_xs()
-                    .icon(Icon::new(registry::UI_MORE_VERTICAL))
-                    .dropdown_menu({
-                        let timeline = cx.entity();
-                        move |menu, _, cx| {
-                            let timeline_edit = timeline.clone();
-                            let timeline_delete = timeline.clone();
-                            let edit_id = edit_id.clone();
-                            let delete_id = delete_id.clone();
-                            // EXP-956: Edit carries the pencil like the
-                            // Delete row carries its trash — the natives'
-                            // comment menu (`AppIcons.uiEdit` /
-                            // `ExpIcons.uiEdit`), never a bare label
-                            // beside an iconed one.
-                            menu.item(
-                                PopupMenuItem::new("Edit")
-                                    .icon(Icon::new(registry::UI_EDIT))
-                                    .on_click(move |_, window, cx| {
-                                        timeline_edit.update(cx, |timeline, cx| {
-                                            timeline.begin_edit(&edit_id, window, cx);
-                                        });
-                                    }),
-                            )
-                            .item(
-                                crate::controls::danger_menu_item(
-                                    "Delete",
-                                    Icon::new(registry::UI_DELETE),
-                                    cx,
-                                )
-                                .on_click(move |_, _, cx| {
-                                    timeline_delete.update(cx, |timeline, cx| {
-                                        timeline.delete_comment(&delete_id, cx);
-                                    });
-                                }),
-                            )
-                        }
-                    }),
-            )
-        });
+        .when(
+            (card.can_edit || card.can_delete) && card.editing.is_none(),
+            |row| {
+                let edit_id = comment_id.clone();
+                let delete_id = comment_id.clone();
+                let can_edit = card.can_edit;
+                let can_delete = card.can_delete;
+                row.child(div().flex_1()).child(
+                    // EXP-698 round 5: BARE ⋮ on every client — the bubble is
+                    // already a card, so a glass ring around its menu glyph
+                    // reads as a second surface. Edit stays author-only;
+                    // SLOP-4: a reporter's comment offers Delete alone.
+                    Button::new(SharedString::from(format!("comment-menu-{comment_id}")))
+                        .ghost()
+                        .web_icon_xs()
+                        .icon(Icon::new(registry::UI_MORE_VERTICAL))
+                        .dropdown_menu({
+                            let timeline = cx.entity();
+                            move |menu, _, cx| {
+                                let timeline_edit = timeline.clone();
+                                let timeline_delete = timeline.clone();
+                                let edit_id = edit_id.clone();
+                                let delete_id = delete_id.clone();
+                                // EXP-956: Edit carries the pencil like the
+                                // Delete row carries its trash — the natives'
+                                // comment menu (`AppIcons.uiEdit` /
+                                // `ExpIcons.uiEdit`), never a bare label
+                                // beside an iconed one.
+                                menu.when(can_edit, |menu| {
+                                    menu.item(
+                                        PopupMenuItem::new("Edit")
+                                            .icon(Icon::new(registry::UI_EDIT))
+                                            .on_click(move |_, window, cx| {
+                                                timeline_edit.update(cx, |timeline, cx| {
+                                                    timeline.begin_edit(&edit_id, window, cx);
+                                                });
+                                            }),
+                                    )
+                                })
+                                .when(can_delete, |menu| {
+                                    menu.item(
+                                        crate::controls::danger_menu_item(
+                                            "Delete",
+                                            Icon::new(registry::UI_DELETE),
+                                            cx,
+                                        )
+                                        .on_click(move |_, _, cx| {
+                                            timeline_delete.update(cx, |timeline, cx| {
+                                                timeline.delete_comment(&delete_id, cx);
+                                            });
+                                        }),
+                                    )
+                                })
+                            }
+                        }),
+                )
+            },
+        );
 
     let body: gpui::AnyElement = match card.editing {
         // EXP-698 round 5: the row's own bubble IS the card now — the edit
@@ -401,7 +452,11 @@ pub(crate) fn comment_row(
     props: CommentRowProps<'_>,
     cx: &mut gpui::Context<IssueTimeline>,
 ) -> impl IntoElement {
-    let name = comment_author_name(props.card.comment, props.card.author);
+    let name = comment_author_name(
+        props.card.comment,
+        props.card.author,
+        props.card.reporter_name,
+    );
     let comment_id = props.card.comment.id.clone();
 
     let content = comment_card_content(
@@ -424,9 +479,10 @@ pub(crate) fn comment_row(
     // EXP-547: picture + initials fallback (web `RegularCommentRow` renders
     // `AvatarImage`), so same-initials authors stay distinct. The 24px avatar
     // is the marker; it centres in the 28px gutter (gpui-component's `Size`
-    // ladder has no 28 rung).
+    // ladder has no 28 rung). SLOP-4: a reporter's card draws the initials
+    // of the reporter's name (no user row, no picture).
     let avatar = crate::user_avatar::user_avatar(
-        props.card.comment.author_id.as_deref().unwrap_or_default(),
+        avatar_key(props.card.comment, &name),
         &name,
         props.card.author.and_then(|user| user.image.as_deref()),
         gpui_component::Size::Small,
@@ -444,9 +500,9 @@ pub(crate) fn comment_row(
         .border_t_1()
         .border_color(stroke);
     for reply in &props.replies {
-        let reply_name = comment_author_name(reply.comment, reply.author);
+        let reply_name = comment_author_name(reply.comment, reply.author, reply.reporter_name);
         let reply_avatar = crate::user_avatar::user_avatar(
-            reply.comment.author_id.as_deref().unwrap_or_default(),
+            avatar_key(reply.comment, &reply_name),
             &reply_name,
             reply.author.and_then(|user| user.image.as_deref()),
             gpui_component::Size::Size(px(20.)),
@@ -472,6 +528,7 @@ pub(crate) fn comment_row(
         );
     }
     thread = thread.child(match props.reply.as_ref() {
+        // SLOP-4: replies are team-only — no "Reply to reporter" pill here.
         Some(reply) => composer_card(
             PendingScope::Reply,
             reply.input,
@@ -480,6 +537,7 @@ pub(crate) fn comment_row(
             reply.pending,
             props.emoji_picker,
             reply.emoji_open,
+            None,
             cx,
         )
         .into_any_element(),
@@ -560,6 +618,8 @@ fn edit_attachments_full(card: &CommentCardProps<'_>, cx: &gpui::App) -> bool {
 ///
 /// State (the `InputState` entity, the submitting flag, the pending picks, the
 /// PressEnter subscription) lives on [`IssueTimeline`]; this only lays it out.
+/// `reporter` (SLOP-4) = the "Reply to reporter" pill, present only on an
+/// issue whose widget submission has a reporter email.
 pub(crate) fn composer_row(
     input: &Entity<MentionInput>,
     submitting: bool,
@@ -567,6 +627,7 @@ pub(crate) fn composer_row(
     pending: &[PendingCommentAttachment],
     emoji_picker: &Entity<EmojiPicker>,
     emoji_open: bool,
+    reporter: Option<ReporterToggle<'_>>,
     cx: &mut gpui::Context<IssueTimeline>,
 ) -> impl IntoElement {
     div().w_full().mt_2().child(composer_card(
@@ -577,8 +638,50 @@ pub(crate) fn composer_row(
         pending,
         emoji_picker,
         emoji_open,
+        reporter,
         cx,
     ))
+}
+
+/// SLOP-4: the bottom composer's "Reply to reporter" pill — the contract
+/// fixture `reporter-reply.json`'s ONE toggle, in the composer card's leading
+/// row (where the helpdesk's Reply / Internal note pills sat). Never on a
+/// reply composer under a card.
+pub(crate) struct ReporterToggle<'a> {
+    /// The reporter's display name (the pill's tooltip names who gets mail).
+    pub name: &'a str,
+    /// Whether the next send goes to the reporter.
+    pub on: bool,
+}
+
+/// The pill itself: a `Select` glass pill with the mail glyph, lit while ON.
+fn reporter_toggle_pill(
+    toggle: &ReporterToggle<'_>,
+    cx: &mut gpui::Context<IssueTimeline>,
+) -> gpui::AnyElement {
+    let tooltip: SharedString = format!("Email your reply to {}", toggle.name).into();
+    h_flex()
+        .gap_1()
+        .items_center()
+        .child(
+            crate::surface::glass_pill(
+                "comment-reply-to-reporter",
+                crate::surface::PillSize::Sm,
+                crate::surface::PillMode::Select {
+                    selected: toggle.on,
+                },
+                cx,
+            )
+            .child(Icon::new(registry::UI_MAIL).size_3())
+            .child(domain::reporter_reply::TOGGLE_LABEL)
+            .tooltip(move |window, cx| {
+                gpui_component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
+            })
+            .on_click(cx.listener(|this, _, window, cx| {
+                this.toggle_reply_to_reporter(window, cx);
+            })),
+        )
+        .into_any_element()
 }
 
 /// The ONE composer card, for the thread's bottom composer AND the reply
@@ -593,6 +696,7 @@ fn composer_card(
     pending: &[PendingCommentAttachment],
     emoji_picker: &Entity<EmojiPicker>,
     emoji_open: bool,
+    reporter: Option<ReporterToggle<'_>>,
     cx: &mut gpui::Context<IssueTimeline>,
 ) -> Div {
     let full = pending.len() >= MAX_COMMENT_ATTACHMENTS;
@@ -621,8 +725,16 @@ fn composer_card(
             _ => send.into_any_element(),
         }
     };
+    // SLOP-4: the reporter pill belongs to the bottom composer alone.
+    let leading = reporter
+        .filter(|_| scope == PendingScope::Composer)
+        .map(|toggle| reporter_toggle_pill(&toggle, cx));
+    let mut composer = crate::composer::GlassComposer::new(input.clone().into_any_element());
+    if let Some(leading) = leading {
+        composer = composer.leading(leading);
+    }
     crate::composer::glass_composer(
-        crate::composer::GlassComposer::new(input.clone().into_any_element())
+        composer
             .strip(pending_attachments_strip(pending, scope, cx))
             .tool(
                 composer_tool(id("image"), registry::EDITOR_IMAGE, "Insert image", cx).on_click(
@@ -739,6 +851,50 @@ mod tests {
         assert_eq!(user_label("u-1", Some(&user)), "Ada Lovelace");
         // Missing row (un-synced co-member) → the Member fallback, not "Someone".
         assert_eq!(user_label("user_abc123ef", None), "Member 23EF");
+    }
+
+    /// SLOP-4 (`reporter-reply.json`): a reporter's comment names the
+    /// submission's reporter and wears the `reporter` caption; a member's
+    /// emailed comment wears `to reporter`; an author-less non-reporter
+    /// comment is a former member's; `via MCP` stays where it was.
+    #[test]
+    fn reporter_comments_name_the_reporter_and_caption_the_slot() {
+        let comment = |source: &str, audience: &str, author_id: Option<&str>| -> Comment {
+            serde_json::from_value(json!({
+                "id": "c-1", "issue_id": "i-1", "source": source,
+                "audience": audience, "author_id": author_id
+            }))
+            .unwrap()
+        };
+        let reporter = comment("reporter", "reporter", None);
+        assert_eq!(comment_author_name(&reporter, None, "Ada"), "Ada");
+        assert_eq!(
+            comment_author_name(&reporter, None, domain::reporter_reply::ANONYMOUS_NAME),
+            "Anonymous visitor"
+        );
+        assert_eq!(comment_caption(&reporter), Some("reporter"));
+        // The avatar keys on the name — no user row exists.
+        assert_eq!(avatar_key(&reporter, "Ada"), "Ada");
+
+        let to_reporter = comment("user", "reporter", Some("u-1"));
+        assert_eq!(comment_caption(&to_reporter), Some("to reporter"));
+        assert_eq!(avatar_key(&to_reporter, "Ada"), "u-1");
+
+        let former = comment("user", "team", None);
+        assert_eq!(comment_author_name(&former, None, "Ada"), "Former member");
+        assert_eq!(comment_caption(&former), None);
+
+        let mcp = comment("mcp", "team", Some("u-1"));
+        assert_eq!(comment_caption(&mcp), Some("via MCP"));
+        assert_eq!(comment_caption(&comment("user", "team", Some("u-1"))), None);
+
+        // Missing/NULL audience hydrates as `team`.
+        let legacy: Comment = serde_json::from_value(json!({
+            "id": "c-2", "issue_id": "i-1", "audience": null
+        }))
+        .unwrap();
+        assert_eq!(legacy.audience, "team");
+        assert!(!legacy.is_to_reporter());
     }
 
     #[test]

@@ -28,7 +28,7 @@ class TeamEntityDecodeTest {
           "id": "team-1",
           "name": "Acme",
           "slug": "acme",
-          "helpdesk_enabled": false$extra,
+          "icon_url": null$extra,
           "created_at": "2026-09-15 10:00:00+00",
           "updated_at": "2026-09-15 10:00:00+00"
         }

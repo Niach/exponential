@@ -1219,9 +1219,9 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     island: () => (
       <GlassGroup>
         <GlassToggleRow
-          id="demo-toggle-helpdesk"
-          label="Helpdesk"
-          description="Reporters can reply by email"
+          id="demo-toggle-merge-ends"
+          label="End runs on merge"
+          description="A merged pull request stops its run"
           checked
           onCheckedChange={noop}
         />
@@ -2011,7 +2011,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `page-header`,
     title: `Settings page header`,
     kind: `Surfaces`,
-    blurb: `Every settings page on web and desktop opens identically (EXP-771): the title Settings at 2xl bold, the subtitle "Manage {team name} and your account" at sm muted, then a hairline divider. All three ride a centred column capped at 56rem (896px at a 16px root; the desktop pins 896 outright) with 1.5rem padding, while the SCROLL region is the full width of the pane, so the scrollbar rides the viewport edge instead of the text column. The nav beside it lists every page: web gains Helpdesk as its own entry next to Feedback widget, and the desktop carries both under a Features group.`,
+    blurb: `Every settings page on web and desktop opens identically (EXP-771): the title Settings at 2xl bold, the subtitle "Manage {team name} and your account" at sm muted, then a hairline divider. All three ride a centred column capped at 56rem (896px at a 16px root; the desktop pins 896 outright) with 1.5rem padding, while the SCROLL region is the full width of the pane, so the scrollbar rides the viewport edge instead of the text column. The nav beside it lists every page: web and desktop both carry Widget and MCP servers under a Features group.`,
     status: {
       web: ok(`SettingsLayout`, `apps/web/src/routes/t/$teamSlug/settings/route.tsx`),
       desktop: ok(
@@ -2029,7 +2029,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `<div class="title">Settings</div>`,
         `<div class="desc">Manage Mobile Ltd and your account</div>`,
         `<div class="cmp-divider"></div>`,
-        group(pickerRow(`Team name`, `Mobile Ltd`), toggleRow(`Helpdesk`, undefined, true)),
+        group(pickerRow(`Team name`, `Mobile Ltd`), toggleRow(`End runs on merge`, undefined, true)),
         `</div>`,
         `</div>`,
       ].join(``),
@@ -2201,7 +2201,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `comment-card`,
     title: `Comment card`,
     kind: `Surfaces`,
-    blurb: `One comment in the activity feed: the avatar rides the timeline gutter, everything else lives in a radius-16 card of card fill under a card hairline. The header is the author at body size and medium weight, then a muted caption carrying the relative time and, when it applies, "edited" and "via MCP" for a comment an agent posted. Images attached to the comment are LARGE tiles stacked under the body — full width, capped at 480 tall, radius 12, hairline, reserving their probed aspect ratio — and any other file stays a read-only pill. The card is the thread: its replies sit under the body behind one hairline, each with a 20px avatar and the same header, and every top-level card closes with a muted "Leave a reply…" row — on web and desktop the composer opens in its place, on mobile it hands the docked composer a "Replying to" target.`,
+    blurb: `One comment in the activity feed: the avatar rides the timeline gutter, everything else lives in a radius-16 card of card fill under a card hairline. The header is the author at body size and medium weight, then a muted caption carrying the relative time and, when it applies, "edited", "via MCP" for a comment an agent posted, "reporter" for the widget reporter's words (signed with the name they gave, else Anonymous visitor) or "to reporter" for a member's reply that was emailed to them. Images attached to the comment are LARGE tiles stacked under the body — full width, capped at 480 tall, radius 12, hairline, reserving their probed aspect ratio — and any other file stays a read-only pill. The card is the thread: its replies sit under the body behind one hairline, each with a 20px avatar and the same header, and every top-level card closes with a muted "Leave a reply…" row — on web and desktop the composer opens in its place, on mobile it hands the docked composer a "Replying to" target.`,
     status: {
       web: ok(`RegularCommentRow`, `apps/web/src/components/comment-rows/regular.tsx`),
       desktop: ok(`comments::comment_row`, `apps/desktop/crates/ui/src/comments.rs`),
@@ -2229,6 +2229,13 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `<div class="reply-body">`,
         `<div class="header"><span class="name">Jonas Klein</span><span class="caption">1 day ago · via MCP</span></div>`,
         `<div class="text">Confirmed on the device farm, cold start is under target now.</div>`,
+        `</div>`,
+        `</div>`,
+        `<div class="reply">`,
+        avatar(`EF`, 1),
+        `<div class="reply-body">`,
+        `<div class="header"><span class="name">Emma Fischer</span><span class="caption">3 hours ago · reporter</span></div>`,
+        `<div class="text">Thanks, the update fixed it on my iPad too.</div>`,
         `</div>`,
         `</div>`,
         `<div class="reply-row">Leave a reply…</div>`,
@@ -2264,7 +2271,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `composer`,
     title: `Composer`,
     kind: `Surfaces`,
-    blurb: `ONE composer for comments, steering and support replies: a radius-16 card of card fill under a card hairline, holding an optional attachment strip, a borderless 36-min field and a tool row of 24px ghost glyph buttons with a right-aligned submit whose glyph is the primary tint. EXP-877's \`inline\` arm is the steer card — the round submit rides the field's own row instead of a tool row under it. The opaque variant swaps to the opaque card fill and the strong stroke — it floats over a feed on mobile, and an alpha fill there shows the conversation through it. EXP-961 moved it into @exp/ui: the card owns CHROME AND LAYOUT only, and every caller keeps its own field, upload and send.`,
+    blurb: `ONE composer for comments, steering and reporter replies: a radius-16 card of card fill under a card hairline, holding an optional attachment strip, a borderless 36-min field and a tool row of 24px ghost glyph buttons with a right-aligned submit whose glyph is the primary tint. EXP-877's \`inline\` arm is the steer card — the round submit rides the field's own row instead of a tool row under it. The opaque variant swaps to the opaque card fill and the strong stroke — it floats over a feed on mobile, and an alpha fill there shows the conversation through it. EXP-961 moved it into @exp/ui: the card owns CHROME AND LAYOUT only, and every caller keeps its own field, upload and send.`,
     status: {
       web: ok(`Composer / ComposerTool / ComposerSubmit`, `packages/ui/src/composer.tsx`),
       desktop: ok(`composer::glass_composer`, `apps/desktop/crates/ui/src/composer.rs`),

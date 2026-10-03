@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.AttachmentsApi
 import com.exponential.app.data.api.CommentsApi
+import com.exponential.app.data.api.CreateCommentResult
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
@@ -19,6 +20,7 @@ import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MARKDOWN_PREVIEW_MAX_BYTES
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.MAX_COMMENT_ATTACHMENTS
@@ -160,8 +162,26 @@ class CommentThreadViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CommentThreadState())
 
     fun bind(issueId: String) {
-        if (issueIdFlow.value != issueId) _replyTarget.value = null
+        if (issueIdFlow.value != issueId) {
+            _replyTarget.value = null
+            _reporterAudience.value = false
+        }
         issueIdFlow.value = issueId
+    }
+
+    // ── Reply to reporter (SLOP-4) ───────────────────────────────────────────
+
+    /**
+     * The docked composer's "Reply to reporter" pill: OFF by default, reset
+     * on a send, a collapse and an issue switch. The screen offers the pill
+     * only while the issue's submission has a reporter email; a reply under
+     * a card ignores it (replies are team-only).
+     */
+    private val _reporterAudience = MutableStateFlow(false)
+    val reporterAudience: StateFlow<Boolean> = _reporterAudience
+
+    fun setReporterAudience(on: Boolean) {
+        _reporterAudience.value = on
     }
 
     // ── Reply target (EXP-741) ───────────────────────────────────────────────
@@ -428,44 +448,61 @@ class CommentThreadViewModel @Inject constructor(
      * Post the current draft. Clears it and invokes [onSent] only when the
      * comment actually lands — a declined/failed send keeps the draft AND the
      * pending attachments (already-uploaded ones hold their id, so a retry
-     * uploads only what is left).
+     * uploads only what is left). [onSent] receives the server's
+     * `reporterEmailed` (SLOP-4): true/false = a reporter-audience reply the
+     * screen toasts, null = a team comment.
      */
-    fun send(onSent: () -> Unit = {}) {
+    fun send(onSent: (reporterEmailed: Boolean?) -> Unit = {}) {
         val text = _draft.value.trim()
         if ((text.isEmpty() && _pendingAttachments.value.isEmpty()) || _sending.value) return
         // EXP-741: a reply is an ordinary comment with parentId; the target
         // is read at send time and cleared with the draft.
         val parentId = _replyTarget.value?.parentId
+        // SLOP-4: the pill only ever applies to a TOP-LEVEL comment.
+        val audience = if (parentId == null && _reporterAudience.value) {
+            DomainContract.commentAudienceReporter
+        } else {
+            null
+        }
         viewModelScope.launch {
             _sending.value = true
-            if (createComment(text, parentId)) {
+            val result = createComment(text, parentId, audience)
+            if (result != null) {
                 _draft.value = ""
                 _pendingAttachments.value = emptyList()
                 _replyTarget.value = null
-                onSent()
+                _reporterAudience.value = false
+                onSent(result.reporterEmailed)
             }
             _sending.value = false
         }
     }
 
-    // Returns true only when the comment was actually posted, so the composer
-    // keeps the draft (and the pending attachments) when the send is declined
-    // (nothing to post) or an upload/the request fails.
-    suspend fun createComment(text: String, parentId: String? = null): Boolean {
-        val issueId = issueIdFlow.value ?: return false
-        val accountId = auth.activeAccountId.value ?: return false
+    // Returns the server's answer only when the comment was actually posted
+    // (null otherwise), so the composer keeps the draft (and the pending
+    // attachments) when the send is declined (nothing to post) or an
+    // upload/the request fails.
+    suspend fun createComment(
+        text: String,
+        parentId: String? = null,
+        audience: String? = null,
+    ): CreateCommentResult? {
+        val issueId = issueIdFlow.value ?: return null
+        val accountId = auth.activeAccountId.value ?: return null
         val body = text.trim()
         // Upload on send, sequentially — a comment is only created once every
         // attachment it links has a row.
         val attachmentIds = uploadPendingAttachments(accountId, issueId, _pendingAttachments)
-            ?: return false
+            ?: return null
         // Attachment-only comments are allowed; an empty one is not.
-        if (body.isEmpty() && attachmentIds.isEmpty()) return false
+        if (body.isEmpty() && attachmentIds.isEmpty()) return null
         return runCatching {
-            commentsApi.create(accountId, issueId, body, attachmentIds.ifEmpty { null }, parentId)
+            commentsApi.create(
+                accountId, issueId, body, attachmentIds.ifEmpty { null }, parentId, audience,
+            )
         }
             .onFailure { reportFailure(it, "The comment could not be posted") }
-            .isSuccess
+            .getOrNull()
     }
 
     /**

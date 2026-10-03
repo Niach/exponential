@@ -146,28 +146,26 @@ describe(`SETTINGS_NAV General visibility`, () => {
   })
 })
 
-// EXP-771: the helpdesk toggle got its own page next to Feedback widget, so
-// the Features group carries both and both stay owner-only. EXP-792 added
-// MCP servers to the same group — member-VISIBLE, because every member picks
-// servers for a run; only the write controls inside the page are owner-only.
-describe(`SETTINGS_NAV Features group (EXP-771, EXP-792)`, () => {
+// SLOP-4: the helpdesk is gone — the Features group carries the ONE widget
+// page (owner-only) and MCP servers (EXP-792: member-VISIBLE, because every
+// member picks servers for a run; only the write controls inside the page
+// are owner-only).
+describe(`SETTINGS_NAV Features group (SLOP-4, EXP-792)`, () => {
   const team: SettingsNavContext = { isCloud: false }
   const features = SETTINGS_NAV.find((group) => group.group === `Features`)!
 
-  it(`lists Feedback widget, Helpdesk and MCP servers`, () => {
+  it(`lists Widget and MCP servers`, () => {
     expect(features.items.map((item) => item.label)).toEqual([
-      `Feedback widget`,
-      `Helpdesk`,
+      `Widget`,
       `MCP servers`,
     ])
     expect(features.items.map((item) => item.to)).toEqual([
       `/t/$teamSlug/settings/widget`,
-      `/t/$teamSlug/settings/helpdesk`,
       `/t/$teamSlug/settings/mcp-servers`,
     ])
   })
 
-  it(`keeps the widget and helpdesk pages owner-only`, () => {
+  it(`keeps the widget page owner-only`, () => {
     for (const item of features.items) {
       expect(item.visible(permissionsFor(`owner`), team)).toBe(true)
       expect(item.visible(permissionsFor(`member`), team)).toBe(

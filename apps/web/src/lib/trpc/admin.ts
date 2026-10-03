@@ -94,6 +94,9 @@ function effectivePlanForAdmin(
 export const EMAIL_DELIVERY_KINDS = [
   `digest`,
   `team_invite`,
+  `reporter_reply`,
+  `reporter_confirmation`,
+  // Legacy kinds of the retired helpdesk (SLOP-4): old rows stay filterable.
   `support_reply`,
   `support_confirmation`,
   `widget_resolution`,

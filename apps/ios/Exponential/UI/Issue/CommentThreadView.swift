@@ -18,6 +18,12 @@ import UniformTypeIdentifiers
 // row closes every top-level card. Tapping it hands the bottom-bar composer a
 // reply target (`CommentReplyTarget`), which posts with `parentId`.
 //
+// SLOP-4: a widget reporter's reply is a comment with no member author
+// (`source` reporter) — its card names the submission's reporter, wears the
+// `reporter` caption where "via MCP" sits and offers Delete only; a member's
+// `audience == reporter` comment wears `to reporter` (the words left the
+// team). Pinned ×4 by `fixtures/reporter-reply.json`.
+//
 // EXP-900/EXP-468: the event rows are folded at READ time by the shared
 // `ExpCore.foldActivity` (this issue's comments ride along as barriers), so a
 // dev's A → B → A round trip vanishes instead of filling the timeline; the
@@ -47,6 +53,10 @@ struct CommentThreadView: View {
     /// Solo teams hide the comment editors' @ affordance (EXP-246) — same
     /// gate as the assignee chip, threaded from the detail view model.
     let singleMemberTeam: Bool
+    /// SLOP-4: the widget submission's `reporterName` (server-only row the
+    /// detail view model fetches), naming the reporter's comments; nil (no
+    /// submission, or none yet) reads as the anonymous visitor.
+    var reporterName: String? = nil
     /// The editor backing the comment currently being edited (re-seeded on each
     /// Edit tap; only one comment edits at a time). Owned by the DETAIL view,
     /// not by this timeline: its `@`/`#`/`:` menu is mounted screen-level, in
@@ -134,6 +144,8 @@ struct CommentThreadView: View {
             barriers: humanComments.map {
                 ActivityBarrier(
                     issueId: issue.id,
+                    // A reporter's reply (author NULL) is a barrier like any
+                    // other person's words.
                     actorUserId: $0.authorId,
                     createdAt: $0.createdAt
                 )
@@ -344,7 +356,7 @@ struct CommentThreadView: View {
             markerSize: 28,
             topPadding: 6,
             bottomPadding: 6,
-            marker: { avatar(author: users[comment.authorId], id: comment.authorId) }
+            marker: { commentAvatar(comment, size: 28) }
         ) {
             RegularCommentRow(
                 comment: comment,
@@ -352,6 +364,7 @@ struct CommentThreadView: View {
                 attachmentsByComment: attachmentsByComment,
                 issueId: issue.id,
                 users: users,
+                reporterName: reporterName,
                 currentUserId: deps.auth.userId,
                 editingCommentId: editingCommentId,
                 editEditor: editEditor,
@@ -368,11 +381,18 @@ struct CommentThreadView: View {
                 onReply: {
                     replyTarget = CommentReplyTarget(
                         parentId: comment.id,
-                        authorName: displayName(for: users[comment.authorId], id: comment.authorId)
+                        authorName: commentAuthorName(comment, users: users, reporterName: reporterName)
                     )
                 }
             )
         }
+    }
+
+    /// The timeline-gutter avatar of one comment (28pt): the author's picture
+    /// or initials chip; a reporter's reply wears the initials of the name its
+    /// card reads (SLOP-4), never a member's.
+    private func commentAvatar(_ comment: CommentEntity, size: CGFloat) -> some View {
+        commentAvatarView(comment, users: users, reporterName: reporterName, size: size)
     }
 
     /// One comment's edit/delete callbacks — the same for a top-level card and
@@ -654,6 +674,8 @@ private struct RegularCommentRow: View {
     let attachmentsByComment: [String: [AttachmentEntity]]
     let issueId: String
     let users: [String: UserEntity]
+    /// SLOP-4: the submission's reporter, named on `source == reporter` rows.
+    let reporterName: String?
     let currentUserId: String?
     let editingCommentId: String?
     let editEditor: IssueEditorModel
@@ -681,7 +703,7 @@ private struct RegularCommentRow: View {
                 .padding(.bottom, 4)
             ForEach(replies) { reply in
                 HStack(alignment: .top, spacing: 8) {
-                    UserAvatar(user: users[reply.authorId], id: reply.authorId, size: 20)
+                    commentAvatarView(reply, users: users, reporterName: reporterName, size: 20)
                         .padding(.top, 2)
                     content(for: reply)
                 }
@@ -713,9 +735,8 @@ private struct RegularCommentRow: View {
             comment: row,
             attachments: attachmentsByComment[row.id] ?? [],
             issueId: issueId,
-            author: users[row.authorId],
-            authorId: row.authorId,
-            isAuthor: row.authorId == currentUserId,
+            authorName: commentAuthorName(row, users: users, reporterName: reporterName),
+            isAuthor: row.authorId != nil && row.authorId == currentUserId,
             isEditing: editingCommentId == row.id,
             editEditor: editEditor,
             singleMemberTeam: singleMemberTeam,
@@ -744,10 +765,9 @@ private struct CommentCardContent: View {
     /// Uploads target the ISSUE (the attachment rows are issue-scoped; the
     /// comment link is stamped by `comments.create`/`update`).
     let issueId: String
-    let author: UserEntity?
-    // The author's user id, so a not-synced author still gets a stable pseudonym
-    // instead of the generic fallback.
-    let authorId: String
+    /// The card's title — resolved by `commentAuthorName` (member, pseudonym,
+    /// reporter or former member).
+    let authorName: String
     let isAuthor: Bool
     let isEditing: Bool
     let editEditor: IssueEditorModel
@@ -783,7 +803,10 @@ private struct CommentCardContent: View {
 
     // Author-only, no global-admin bypass (EXP-398) — the server refuses the
     // mutation for anyone else, so the menu would only ever be a dead end.
-    private var canModify: Bool { isAuthor }
+    private var canEdit: Bool { isAuthor }
+    // SLOP-4: a reporter's reply has no author; any member may delete it
+    // (moderation) and nobody edits it.
+    private var canDelete: Bool { isAuthor || comment.isFromReporter }
 
     private var keptAttachments: [AttachmentEntity] {
         attachments.filter { keptAttachmentIds.contains($0.id) }
@@ -797,6 +820,15 @@ private struct CommentCardContent: View {
         getCommentBodyText(comment.body)
     }
 
+    /// The caption after the time: `reporter` / `to reporter` (SLOP-4) /
+    /// `via MCP` (EXP-741), or none.
+    private var sourceCaption: String? {
+        if comment.isFromReporter { return ReporterReply.reporterCaption }
+        if comment.isToReporter { return ReporterReply.toReporterCaption }
+        if comment.isViaMcp { return "via MCP" }
+        return nil
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
@@ -804,7 +836,7 @@ private struct CommentCardContent: View {
                 // title (subheadline medium), the time + "edited" as one
                 // muted caption beside it — the same weights web, desktop and
                 // Android landed on.
-                Text(displayName(for: author, id: authorId))
+                Text(authorName)
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.white)
                 Text(relativeDate(comment.createdAt))
@@ -817,15 +849,19 @@ private struct CommentCardContent: View {
                 }
                 // EXP-741: an agent posted it over MCP — the same caption on
                 // every client, so a bot's words never read as its key owner's.
-                if comment.isViaMcp {
-                    Text("· via MCP")
+                // SLOP-4: the reporter's reply, or a member's words TO the
+                // reporter, wear their caption in the same slot.
+                if let caption = sourceCaption {
+                    Text("· \(caption)")
                         .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
                 Spacer()
-                if canModify && !isEditing {
+                if canDelete && !isEditing {
                     GlassMenu {
-                        GlassMenuItem("Edit", icon: AppIcons.uiEdit, action: actions.onEdit)
+                        if canEdit {
+                            GlassMenuItem("Edit", icon: AppIcons.uiEdit, action: actions.onEdit)
+                        }
                         GlassMenuItem("Delete", icon: AppIcons.uiDelete, destructive: true, action: actions.onDelete)
                     } label: {
                         // EXP-698 r5: a BARE vertical ellipsis — the glass ring
@@ -1084,15 +1120,33 @@ private struct CommentCardContent: View {
 
 // MARK: - Shared helpers
 
-// EXP-698 r4: the shared `UserAvatar` — a commenter's PICTURE when there is
-// one, and otherwise the hashed-hue initials chip every client paints. The 28pt
-// diameter is the timeline's marker size and stays.
-private func avatar(author: UserEntity?, id: String?) -> some View {
-    UserAvatar(user: author, id: id, size: 28)
+/// The name a comment card reads (SLOP-4, pinned ×4): a reporter's reply
+/// names the submission's reporter (else the anonymous visitor); a member
+/// row whose author is gone reads "Former member"; everyone else resolves
+/// through the shared member display rule (name, email, pseudonym).
+private func commentAuthorName(
+    _ comment: CommentEntity, users: [String: UserEntity], reporterName: String?
+) -> String {
+    if comment.isFromReporter { return ReporterReply.reporterName(reporterName) }
+    guard let authorId = comment.authorId else { return ReporterReply.formerMemberName }
+    return memberDisplayName(users[authorId], id: authorId)
 }
 
-private func displayName(for author: UserEntity?, id: String?, fallback: String = "Someone") -> String {
-    memberDisplayName(author, id: id, generic: fallback)
+// EXP-698 r4: the shared `UserAvatar` — a commenter's PICTURE when there is
+// one, and otherwise the hashed-hue initials chip every client paints. The 28pt
+// diameter is the timeline's marker size; replies wear 20. SLOP-4: a
+// reporter's reply (no author) and a former member's row paint the initials
+// of the name their card reads.
+@ViewBuilder
+private func commentAvatarView(
+    _ comment: CommentEntity, users: [String: UserEntity], reporterName: String?, size: CGFloat
+) -> some View {
+    if let authorId = comment.authorId, !comment.isFromReporter {
+        UserAvatar(user: users[authorId], id: authorId, size: size)
+    } else {
+        let name = commentAuthorName(comment, users: users, reporterName: reporterName)
+        UserAvatar(image: nil, initials: memberInitials(forDisplayName: name), hueKey: name, size: size)
+    }
 }
 
 private func relativeDate(_ s: String) -> String {

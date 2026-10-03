@@ -2,12 +2,24 @@ import { TRPCError } from "@trpc/server"
 import { z } from "zod"
 import { eq, inArray } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { attachments, comments } from "@/db/schema"
 import {
+  attachments,
+  comments,
+  emailDeliveries,
+  issues,
+  teams,
+  widgetSubmissions,
+} from "@/db/schema"
+import {
+  commentAudienceSchema,
   commentBodyWithAttachmentsSchema,
   getCommentBodyText,
   MAX_COMMENT_ATTACHMENTS,
 } from "@/lib/domain"
+import { deliveryStatus, sendReporterReplyEmail } from "@/lib/email"
+import { emailEnabled } from "@/lib/email-enabled"
+import { mintReporterToken } from "@/lib/reporter/token"
+import { reporterConversationUrl } from "@/lib/reporter/service"
 import { resolveTeamAccess, getIssueTeamContext } from "@/lib/team-membership"
 import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
 import { replaceAttachmentReferencesInTx } from "@/lib/storage/attachment-references"
@@ -178,6 +190,85 @@ async function syncCommentAttachmentsInTx(
   return { deletedStorageKeys: collectAttachmentStorageKeys(toRemove) }
 }
 
+// SLOP-4: who a reporter-audience comment reaches — the issue's widget
+// submission's email, plus what the email names (team + issue title).
+interface ReporterRecipient {
+  email: string
+  teamName: string
+  issueTitle: string
+}
+
+async function loadReporterRecipient(
+  // eslint-disable-next-line quotes -- esbuild rejects template literals inside typeof import()
+  db: typeof import("@/db/connection").db,
+  issueId: string
+): Promise<ReporterRecipient | null> {
+  const [row] = await db
+    .select({
+      email: widgetSubmissions.reporterEmail,
+      teamName: teams.name,
+      issueTitle: issues.title,
+    })
+    .from(widgetSubmissions)
+    .innerJoin(issues, eq(issues.id, widgetSubmissions.issueId))
+    .innerJoin(teams, eq(teams.id, issues.teamId))
+    .where(eq(widgetSubmissions.issueId, issueId))
+    .limit(1)
+  if (!row?.email) return null
+  return { email: row.email, teamName: row.teamName, issueTitle: row.issueTitle }
+}
+
+// Email a member's reporter-audience reply to the reporter and stamp the
+// ledger row on the comment (audit). Never throws — the comment is already
+// committed; the boolean is what the member's toast reports. With no mail
+// transport nothing is sent or recorded (the schema's NULL case).
+async function emailReporterReply(
+  // eslint-disable-next-line quotes -- esbuild rejects template literals inside typeof import()
+  db: typeof import("@/db/connection").db,
+  args: {
+    commentId: string
+    issueId: string
+    reporter: ReporterRecipient
+    replyText: string
+  }
+): Promise<boolean> {
+  if (!emailEnabled) return false
+  try {
+    // The conversation URL embeds the magic-link token (recomputed, never
+    // stored): the email carries it, the ledger row does not.
+    const sendResult = await sendReporterReplyEmail({
+      to: args.reporter.email,
+      teamName: args.reporter.teamName,
+      replyText: args.replyText,
+      conversationUrl: reporterConversationUrl(mintReporterToken(args.issueId)),
+    })
+    const [ledger] = await db
+      .insert(emailDeliveries)
+      .values({
+        userId: null,
+        toEmail: args.reporter.email,
+        issueId: args.issueId,
+        kind: `reporter_reply`,
+        status: deliveryStatus(sendResult),
+        provider: sendResult.provider,
+        providerMessageId: sendResult.messageId,
+        subject: sendResult.subject,
+        sentAt: sendResult.delivered ? new Date() : null,
+      })
+      .returning({ id: emailDeliveries.id })
+    if (ledger) {
+      await db
+        .update(comments)
+        .set({ emailDeliveryId: ledger.id })
+        .where(eq(comments.id, args.commentId))
+    }
+    return sendResult.delivered
+  } catch (error) {
+    console.error(`reporter reply email failed`, error)
+    return false
+  }
+}
+
 export const commentsRouter = router({
   create: authedProcedure
     .input(
@@ -191,6 +282,10 @@ export const commentsRouter = router({
             .default([]),
           // EXP-741: reply under this comment (see resolveReplyParent).
           parentId: z.string().uuid().optional(),
+          // SLOP-4: `reporter` = the words leave the team — shown on the
+          // reporter's magic-link page and emailed to them. Top-level only,
+          // and only on an issue whose widget submission has an email.
+          audience: commentAudienceSchema.default(`team`),
         })
         .superRefine((value, refineCtx) => {
           if (
@@ -202,6 +297,12 @@ export const commentsRouter = router({
               message: `Comment needs text or attachments`,
             })
           }
+          if (value.audience === `reporter` && value.parentId) {
+            refineCtx.addIssue({
+              code: `custom`,
+              message: `A reply to the reporter must be a top-level comment`,
+            })
+          }
         })
     )
     .mutation(async ({ ctx, input }) => {
@@ -211,6 +312,19 @@ export const commentsRouter = router({
         issueContext.teamId,
         `comment`
       )
+      // SLOP-4: a reporter-audience comment needs somebody to reach — the
+      // issue's widget submission with a reporter email. Resolved up front
+      // (outside the tx) so a plain team comment pays nothing for it.
+      const reporter =
+        input.audience === `reporter`
+          ? await loadReporterRecipient(ctx.db, input.issueId)
+          : null
+      if (input.audience === `reporter` && !reporter) {
+        throw new TRPCError({
+          code: `BAD_REQUEST`,
+          message: `This issue has no reporter email to reply to`,
+        })
+      }
       const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         const parentId = input.parentId
@@ -227,6 +341,7 @@ export const commentsRouter = router({
             // EXP-741: the MCP server's synthetic context is the ONLY thing
             // that marks a comment as agent-posted — never client input.
             source: ctx.viaMcp ? `mcp` : `user`,
+            audience: input.audience,
             body: input.body,
           })
           .returning()
@@ -292,7 +407,20 @@ export const commentsRouter = router({
         attachmentCount: input.attachmentIds.length,
       })
 
-      return result
+      // SLOP-4: the reporter-audience email, AFTER commit (the comment is
+      // saved either way — the toast tells the member whether it went out).
+      // `reporterEmailed` = null for team comments, true/false for reporter
+      // ones (false = no transport, suppressed or failed).
+      const reporterEmailed = reporter
+        ? await emailReporterReply(ctx.db, {
+            commentId: result.comment.id,
+            issueId: input.issueId,
+            reporter,
+            replyText: getCommentBodyText(input.body),
+          })
+        : null
+
+      return { ...result, reporterEmailed }
     }),
 
   update: authedProcedure
@@ -311,6 +439,15 @@ export const commentsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const existing = await loadCommentForMutation(ctx.db, input.id)
+      // SLOP-4: a reporter's words (author_id NULL) are edited by nobody —
+      // the check below would refuse them too, but the message should say
+      // why.
+      if (existing.authorId === null) {
+        throw new TRPCError({
+          code: `FORBIDDEN`,
+          message: `A reporter's comment cannot be edited`,
+        })
+      }
       if (existing.authorId !== ctx.session.user.id) {
         throw new TRPCError({
           code: `FORBIDDEN`,
@@ -434,7 +571,13 @@ export const commentsRouter = router({
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const existing = await loadCommentForMutation(ctx.db, input.id)
-      if (existing.authorId !== ctx.session.user.id) {
+      // SLOP-4: a reporter's comment (author_id NULL) has no author to own
+      // it — any member may remove it (moderation of an anonymous visitor's
+      // words). Everything else stays author-only.
+      if (
+        existing.authorId !== null &&
+        existing.authorId !== ctx.session.user.id
+      ) {
         throw new TRPCError({
           code: `FORBIDDEN`,
           message: `Only the author can delete this comment`,

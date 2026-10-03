@@ -99,7 +99,6 @@ public enum EntityPreview {
         "team": "ui-team",
         "invite": "ui-invite",
         "notification": "nav-notifications",
-        "thread": "nav-support",
         "attachment": "ui-attach",
         "list": "ui-checklist",
     ]
@@ -118,7 +117,6 @@ public enum EntityPreview {
         "team": ("team", "teams"),
         "invite": ("invite", "invites"),
         "notification": ("notification", "notifications"),
-        "thread": ("thread", "threads"),
         "attachment": ("attachment", "attachments"),
         "list": ("list", "lists"),
     ]

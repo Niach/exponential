@@ -7,8 +7,11 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 
 // Server-pinned column allowlist — excludes the `board_deleted_at` trash
 // mirror (REV2-5) and the `board_archived_at` archive mirror (EXP-500), both
-// server-only (the where clause filters on them). EXP-741 adds the reply
-// parent and the user|mcp source; every client's local schema carries both.
+// server-only (the where clause filters on them), and the SLOP-4
+// `email_delivery_id` audit stamp. EXP-741 adds the reply parent and the
+// user|mcp|reporter source; SLOP-4 the team|reporter audience (and a
+// NULLABLE author_id for reporter rows); every client's local schema
+// carries all of them.
 const COMMENT_COLUMNS = [
   `id`,
   `issue_id`,
@@ -17,6 +20,7 @@ const COMMENT_COLUMNS = [
   `author_id`,
   `parent_id`,
   `source`,
+  `audience`,
   `body`,
   `edited_at`,
   `created_at`,

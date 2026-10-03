@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-03-one-path-for-feedback`,
+    date: `2026-10-03`,
+    title: `One path for feedback`,
+    summary: `Every widget submission is an issue, you reply to the reporter from the comment composer, and their answers come back as comments and Inbox rows. The helpdesk and its Support inbox are gone.`,
+    body: `- **Widget submissions are issues**: whatever a visitor sends through the widget lands as an issue on the widget's board, with their screenshot, page context and contact attached. The widget has no modes any more.
+- **Reply to the reporter**: the comment composer on such an issue carries a Reply to reporter toggle. Switch it on and your comment is emailed to the reporter, marked "to reporter" in the thread.
+- **Reporter answers**: the reporter answers from the emailed link. Their reply shows up as a comment on the issue, marked "reporter", and reaches you as an Inbox row and a notification. A reply on a done issue reopens it.
+- **Helpdesk removed**: the helpdesk, its Support inbox and the Support entries in the sidebar are gone. Old conversations were moved to issues on a Support board so nothing is lost.`,
+  },
+  {
     id: `2026-10-03-new-issue-page`,
     date: `2026-10-03`,
     title: `New issue is a page`,

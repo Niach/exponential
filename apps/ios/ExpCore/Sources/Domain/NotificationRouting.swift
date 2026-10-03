@@ -11,8 +11,6 @@ public enum NotificationRouting {
 
     /// Where a push tap goes.
     public enum PushTarget: Equatable, Sendable {
-        /// A helpdesk ticket (EXP-180).
-        case supportThread(id: String)
         /// A blocked run (EXP-980).
         case session(id: String)
         /// My Work → Inbox (an issue-less agent message, or a blocked run
@@ -31,11 +29,9 @@ public enum NotificationRouting {
 
     /// The push payload (`userInfo`) → its destination.
     public static func pushTarget(_ userInfo: [AnyHashable: Any]) -> PushTarget {
+        // SLOP-4: a `reporter_reply` carries `issueId` like `issue_comment`
+        // and lands on the issue through the generic branch below.
         let type = userInfo["type"] as? String
-        if type == DomainContract.notificationTypeSupportReply,
-           let threadId = nonEmpty(userInfo["threadId"]) {
-            return .supportThread(id: threadId)
-        }
         if type == DomainContract.notificationTypeSessionBlocked {
             if let sessionId = nonEmpty(userInfo["sessionId"]) { return .session(id: sessionId) }
             return .inbox

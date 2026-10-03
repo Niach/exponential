@@ -39,7 +39,7 @@
     {
       "id": "support",
       "label": "Support",
-      "blurb": "The helpdesk thread list, one open conversation, and the magic-link page the reporter answers from.",
+      "blurb": "The reporter's magic-link page: the conversation a widget reporter keeps over the issue they filed, with no account and no team.",
       "order": 7
     },
     {
@@ -121,10 +121,6 @@
     {
       "route": "/t/$teamSlug/workflows/$",
       "reason": "SLOP-3: Workflows are gone; old links and native deep links redirect to /t/$teamSlug/agent."
-    },
-    {
-      "route": "/t/$teamSlug/support/$threadId",
-      "reason": "EXP-851: one helpdesk conversation on its own route. Captured by support-thread, whose openFirstThread recipe navigates here from /support; the id is whatever the seed minted, so the route is not addressable by the catalog."
     },
     {
       "route": "/admin",
@@ -1374,78 +1370,11 @@
       }
     },
     {
-      "id": "support-inbox",
-      "group": "support",
-      "title": "Support inbox",
-      "blurb": "The helpdesk queue: every reporter thread with its snippet, open conversation in the right pane.",
-      "order": 1,
-      "web": {
-        "route": "/t/$teamSlug/support",
-        "anchor": {
-          "text": "Emma Fischer",
-          "timeoutMs": 30000
-        },
-        "settleMs": 1200
-      },
-      "webMobile": "inherit",
-      "ios": {
-        "shot": "08_support",
-        "lane": "store"
-      },
-      "android": {
-        "shot": "8_support",
-        "lane": "store"
-      },
-      "desktop": {
-        "drive": {
-          "kind": "tool",
-          "value": "support"
-        }
-      },
-      "notes": {
-        "web": "Requires teams.helpdesk_enabled on the demo team; the rail/nav entry hides entirely when it is off."
-      }
-    },
-    {
-      "id": "support-thread",
-      "group": "support",
-      "title": "Support thread",
-      "blurb": "One conversation end to end: the reporter's messages, the team's replies, and the escalate-to-issue action.",
-      "order": 2,
-      "web": {
-        "route": "/t/$teamSlug/support",
-        "anchor": {
-          "text": "thank you for the quick turnaround",
-          "timeoutMs": 30000
-        },
-        "recipe": "openFirstThread",
-        "settleMs": 1000
-      },
-      "webMobile": "inherit",
-      "ios": {
-        "shot": "sg_support-thread",
-        "lane": "styleguide"
-      },
-      "android": {
-        "shot": "sg_support-thread",
-        "lane": "styleguide"
-      },
-      "desktop": {
-        "drive": {
-          "kind": "screen",
-          "value": "support:$thread"
-        }
-      },
-      "notes": {
-        "desktop": "Support data is server-only tRPC, so the thread id placeholder has to be resolved by the capturer at run time."
-      }
-    },
-    {
       "id": "support-reporter",
       "group": "support",
       "title": "Reporter's conversation",
-      "blurb": "What the person who filed the ticket sees: the magic-link page carrying their whole thread, with no account and no team.",
-      "order": 3,
+      "blurb": "What the person who filed the report sees: the magic-link page over their widget issue, with the report, their pictures, the team's replies and a reply box, with no account and no team.",
+      "order": 1,
       "web": {
         "route": "/support/$supportToken",
         "anchor": {
@@ -1642,13 +1571,13 @@
     {
       "id": "settings-widget",
       "group": "settings",
-      "title": "Settings · Feedback widget",
-      "blurb": "The embeddable widget: key, domain allowlist, modes, theme, and the live whole-panel preview. Owner-only.",
+      "title": "Settings · Widget",
+      "blurb": "The embeddable widget: key, domain allowlist, board, reporter contact, labels, theme, and the live whole-panel preview. Owner-only.",
       "order": 8,
       "web": {
         "route": "/t/$teamSlug/settings/widget",
         "anchor": {
-          "text": "Feedback widget",
+          "text": "Widget",
           "timeoutMs": 20000
         },
         "settleMs": 1000
@@ -1658,27 +1587,6 @@
         "desktop": "The IDE pane (SettingsSection::Widget, EXP-771) is a read-only list plus a Manage on the web button; configuration stays web-only, so the web shot is the reference.",
         "ios": "No native section: widget configuration is web-only.",
         "android": "No native section: widget configuration is web-only."
-      }
-    },
-    {
-      "id": "settings-helpdesk",
-      "group": "settings",
-      "title": "Settings · Helpdesk",
-      "blurb": "The team-level helpdesk switch and the way into the shared Support inbox. Owner-only.",
-      "order": 9,
-      "web": {
-        "route": "/t/$teamSlug/settings/helpdesk",
-        "anchor": {
-          "text": "Enable the helpdesk",
-          "timeoutMs": 20000
-        },
-        "settleMs": 600
-      },
-      "webMobile": "inherit",
-      "notes": {
-        "desktop": "No desktop capture: the IDE pane (SettingsSection::Helpdesk) is the same single toggle; the web shot is the reference.",
-        "ios": "No native section: helpdesk configuration is web-only.",
-        "android": "No native section: helpdesk configuration is web-only."
       }
     },
     {
@@ -1807,7 +1715,7 @@
       "id": "settings-widget-editor",
       "group": "settings",
       "title": "Settings · Widget editor",
-      "blurb": "One widget’s configuration over three tabs, ending on the Appearance tab where the whole embeddable panel previews live.",
+      "blurb": "One widget’s configuration over three tabs (board and domains, reporter contact and fields, appearance), ending on the Appearance tab where the whole embeddable panel previews live.",
       "order": 15,
       "web": {
         "route": "/t/$teamSlug/settings/widget",
@@ -1822,7 +1730,7 @@
         "web-mobile": "Widget configuration is web-only, and the editor is a wide three-column dialog.",
         "ios": "Widget configuration is web-only.",
         "android": "Widget configuration is web-only.",
-        "desktop": "Widget configuration is web-only; the IDE's Feedback widget pane only lists widgets."
+        "desktop": "Widget configuration is web-only; the IDE's Widget pane only lists widgets."
       }
     },
     {

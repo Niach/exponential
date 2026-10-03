@@ -170,9 +170,45 @@ describe(`CommentComposer draft memory`, () => {
       target: { value: `ship it` },
     })
     fireEvent.click(screen.getByLabelText(`Send comment`))
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(`ship it`, []))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(`ship it`, [], `team`))
     await waitFor(() =>
       expect(readTabMemory(draft.owner, draft.slot)).toBeUndefined()
+    )
+  })
+})
+
+// SLOP-4 (fixture `reporter-reply.json`): the "Reply to reporter" pill sits in
+// the composer's leading row only when the issue's submission carries a
+// reporter email, starts OFF, swaps the placeholder while ON and sends
+// `audience: 'reporter'`.
+describe(`CommentComposer reply-to-reporter toggle`, () => {
+  it(`offers no pill without a reporter`, () => {
+    renderComposer()
+    expect(screen.queryByText(`Reply to reporter`)).toBeNull()
+  })
+
+  it(`toggles the placeholder and the audience`, async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
+    render(
+      <CommentComposer
+        issueId="issue-1"
+        users={[]}
+        onSubmit={onSubmit}
+        reporter={{ name: `Emma Fischer` }}
+      />
+    )
+    const pill = screen.getByText(`Reply to reporter`).closest(`button`)!
+    expect(pill.getAttribute(`aria-pressed`)).toBe(`false`)
+    const field = screen.getByPlaceholderText(`Leave a reply…`)
+    fireEvent.click(pill)
+    expect(pill.getAttribute(`aria-pressed`)).toBe(`true`)
+    expect(field.getAttribute(`placeholder`)).toBe(
+      `Reply to Emma Fischer… (emailed to them)`
+    )
+    fireEvent.change(field, { target: { value: `on it` } })
+    fireEvent.click(screen.getByLabelText(`Send comment`))
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith(`on it`, [], `reporter`)
     )
   })
 })

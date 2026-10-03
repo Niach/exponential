@@ -2,15 +2,20 @@
 //! composer + author-or-admin edit/delete). Verified against
 //! `apps/web/src/lib/trpc/comments.ts`:
 //!
-//! - `comments.create({issueId, body, attachmentIds?, parentId?})` →
-//!   `{txId, comment, mentionedUserIds}` (`body` is GFM markdown; the SERVER
-//!   resolves `@email` mentions and auto-subscribes — the desktop only
-//!   produces the `@email` source text, §4.6; `parentId` makes it a reply
-//!   under that top-level comment, EXP-741)
+//! - `comments.create({issueId, body, attachmentIds?, parentId?, audience?})`
+//!   → `{txId, comment, mentionedUserIds, reporterEmailed}` (`body` is GFM
+//!   markdown; the SERVER resolves `@email` mentions and auto-subscribes —
+//!   the desktop only produces the `@email` source text, §4.6; `parentId`
+//!   makes it a reply under that top-level comment, EXP-741; SLOP-4
+//!   `audience: 'reporter'` emails the widget reporter — accepted ONLY on a
+//!   top-level comment of an issue whose submission has a reporter email,
+//!   else BAD_REQUEST — and `reporterEmailed` says whether that mail went
+//!   out: `true`/`false` on a reporter comment, `null` on a team one)
 //! - `comments.update({id, body, attachmentIds?})` → `{txId, comment}`
-//!   (author-or-admin)
-//! - `comments.delete({id})` → `{txId}` (author-or-admin; the server hard-
-//!   deletes the comment's linked attachments)
+//!   (author-only; a reporter's comment is edited by nobody)
+//! - `comments.delete({id})` → `{txId}` (author-only, or ANY member for a
+//!   reporter's comment — moderation; the server hard-deletes the comment's
+//!   linked attachments)
 //!
 //! EXP-554: `attachmentIds` links already-uploaded `attachments` rows to the
 //! comment (max 10, same issue, uploaded by the caller). OMITTING it on
@@ -37,6 +42,9 @@ pub struct CommentOut {
     pub parent_id: Option<String>,
     #[serde(default)]
     pub source: Option<String>,
+    /// SLOP-4: `team` | `reporter`.
+    #[serde(default)]
+    pub audience: Option<String>,
     #[serde(default)]
     pub body: Option<String>,
     #[serde(default)]
@@ -53,6 +61,12 @@ pub struct CommentsCreateOutput {
     pub mentioned_user_ids: Vec<String>,
     #[serde(default)]
     pub tx_id: Option<i64>,
+    /// SLOP-4: whether the reporter email was delivered — `Some(true)` =
+    /// sent, `Some(false)` = saved but no transport / delivery failed,
+    /// `None` = a team comment (nothing to send). Missing on an older
+    /// server reads as `None`.
+    #[serde(default)]
+    pub reporter_emailed: Option<bool>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -68,12 +82,15 @@ pub struct CommentsUpdateOutput {
 /// omits the field entirely, keeping the wire body byte-identical to the
 /// pre-EXP-554 one for plain text comments. `parent_id` (EXP-741) makes the
 /// comment a reply under that top-level comment; `None` omits it likewise.
+/// `audience` (SLOP-4) = `Some("reporter")` emails the widget reporter;
+/// `None` omits the field (the server default `team`).
 pub fn comments_create(
     trpc: &TrpcClient,
     issue_id: &str,
     body: &str,
     attachment_ids: Option<&[String]>,
     parent_id: Option<&str>,
+    audience: Option<&str>,
 ) -> Result<CommentsCreateOutput, ApiError> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -84,6 +101,8 @@ pub fn comments_create(
         attachment_ids: Option<&'a [String]>,
         #[serde(rename = "parentId", skip_serializing_if = "Option::is_none")]
         parent_id: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        audience: Option<&'a str>,
     }
     trpc.mutation(
         "comments.create",
@@ -92,6 +111,7 @@ pub fn comments_create(
             body,
             attachment_ids,
             parent_id,
+            audience,
         },
     )
 }
@@ -149,10 +169,13 @@ mod tests {
             200,
             r#"{"result":{"data":{"txId":21,"comment":{"id":"c-1","issueId":"i-1","authorId":"u-1","body":"ping @a@b.com"},"mentionedUserIds":["u-2"]}}}"#,
         );
-        let out = comments_create(&client(&base), "i-1", "ping @a@b.com", None, None).unwrap();
+        let out =
+            comments_create(&client(&base), "i-1", "ping @a@b.com", None, None, None).unwrap();
         assert_eq!(out.comment.body.as_deref(), Some("ping @a@b.com"));
         assert_eq!(out.mentioned_user_ids, vec!["u-2".to_string()]);
         assert_eq!(out.tx_id, Some(21));
+        // An older server without `reporterEmailed` reads as a team comment.
+        assert_eq!(out.reporter_emailed, None);
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/comments.create HTTP/1.1"));
         // No attachments → the field is omitted entirely (the pre-EXP-554
@@ -170,7 +193,7 @@ mod tests {
             r#"{"result":{"data":{"txId":24,"comment":{"id":"c-2","issueId":"i-1"},"mentionedUserIds":[]}}}"#,
         );
         let ids = vec!["att-1".to_string(), "att-2".to_string()];
-        comments_create(&client(&base), "i-1", "", Some(&ids), None).unwrap();
+        comments_create(&client(&base), "i-1", "", Some(&ids), None, None).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(
             r#"{"issueId":"i-1","body":"","attachmentIds":["att-1","att-2"]}"#
@@ -185,6 +208,32 @@ mod tests {
         comments_update(&client(&base), "c-2", "edited", Some(&[])).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(r#"{"id":"c-2","body":"edited","attachmentIds":[]}"#));
+    }
+
+    /// SLOP-4: the "Reply to reporter" send rides `audience: "reporter"` and
+    /// reads the delivery verdict back; a team comment omits the field and
+    /// gets `null`.
+    #[test]
+    fn create_sends_audience_and_reads_reporter_emailed() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"txId":26,"comment":{"id":"c-3","issueId":"i-1","audience":"reporter"},"mentionedUserIds":[],"reporterEmailed":true}}}"#,
+        );
+        let out = comments_create(&client(&base), "i-1", "On it.", None, None, Some("reporter"))
+            .unwrap();
+        assert_eq!(out.reporter_emailed, Some(true));
+        assert_eq!(out.comment.audience.as_deref(), Some("reporter"));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(r#"{"issueId":"i-1","body":"On it.","audience":"reporter"}"#));
+
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"txId":27,"comment":{"id":"c-4","issueId":"i-1"},"mentionedUserIds":[],"reporterEmailed":null}}}"#,
+        );
+        let out = comments_create(&client(&base), "i-1", "team only", None, None, None).unwrap();
+        assert_eq!(out.reporter_emailed, None);
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(r#"{"issueId":"i-1","body":"team only"}"#));
     }
 
     #[test]

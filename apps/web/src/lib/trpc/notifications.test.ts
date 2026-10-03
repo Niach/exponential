@@ -1,10 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { PgDialect } from "drizzle-orm/pg-core"
 
-// REV2-13: the Support entry's unread badge counts issue-less `support_reply`
-// rows, and NOTHING in the Support surface ever cleared them —
-// markReadByIssue can't (their issue_id is NULL by construction), so the
-// badge stayed lit no matter how many tickets a member answered.
 // EXP-774: emailPrefs no longer reports verification — the digest sweep does
 // not gate on it anymore.
 //
@@ -90,7 +86,7 @@ import { notificationsRouter } from "@/lib/trpc/notifications"
 import { usersRouter } from "@/lib/trpc/users"
 import { notifications } from "@/db/schema"
 
-const TEAM = `11111111-1111-4111-8111-111111111111`
+const ISSUE = `11111111-1111-4111-8111-111111111111`
 
 function caller(user: Record<string, unknown> = {}) {
   return notificationsRouter.createCaller({
@@ -115,9 +111,9 @@ beforeEach(() => {
   selectRows = []
 })
 
-describe(`notifications.markReadSupport (REV2-13)`, () => {
-  it(`clears the caller's unread issue-less support rows for one team`, async () => {
-    const result = await caller().markReadSupport({ teamId: TEAM })
+describe(`notifications.markReadByIssue`, () => {
+  it(`clears the caller's unread rows of one issue`, async () => {
+    const result = await caller().markReadByIssue({ issueId: ISSUE })
 
     expect(result).toEqual({ txId: 42 })
     expect(updates).toHaveLength(1)
@@ -125,11 +121,9 @@ describe(`notifications.markReadSupport (REV2-13)`, () => {
     expect(updates[0]!.values.readAt).toBeInstanceOf(Date)
 
     const { sql, params } = new PgDialect().sqlToQuery(capturedWhere as never)
-    // Self-scoped, team-scoped, support-only, issue-less, unread-only.
+    // Self-scoped, issue-scoped, unread-only.
     expect(params).toContain(`user-a`)
-    expect(params).toContain(`support_reply`)
-    expect(params).toContain(TEAM)
-    expect(sql).toContain(`"issue_id" is null`)
+    expect(params).toContain(ISSUE)
     expect(sql).toContain(`"read_at" is null`)
   })
 })

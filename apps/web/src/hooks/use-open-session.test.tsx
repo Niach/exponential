@@ -178,11 +178,11 @@ describe(`sessionNavigation`, () => {
       params: { teamSlug: `acme`, sessionId: `s1` },
     })
     expect(
-      sessionNavigation(`acme`, session, { kind: `support` })
+      sessionNavigation(`acme`, session, { kind: `reviews` })
     ).toEqual({
       to: SESSION_ROUTE,
       params: { teamSlug: `acme`, sessionId: `s1` },
-      search: { from: `support` },
+      search: { from: `reviews` },
     })
     expect(
       sessionNavigation(`acme`, session, { kind: `board`, boardSlug: `web` })

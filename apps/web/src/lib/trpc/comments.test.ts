@@ -19,6 +19,23 @@ const h = vi.hoisted(() => ({
   fireAndForgetIssueMentionNotify: vi.fn(),
   deleteStorageObjects: vi.fn(async (..._args: unknown[]) => undefined),
   syncReferenceRelations: vi.fn(async (..._args: unknown[]) => undefined),
+  // SLOP-4: the reporter-audience email.
+  sendReporterReplyEmail: vi.fn(
+    async (
+      ..._args: unknown[]
+    ): Promise<{
+      delivered: boolean
+      provider: string | null
+      messageId: string | null
+      subject: string
+    }> => ({
+      delivered: true,
+      provider: `smtp`,
+      messageId: `m-1`,
+      subject: `Acme replied to your report`,
+    })
+  ),
+  emailEnabled: { value: true },
 }))
 
 // lib/trpc.ts imports db/auth at module scope; runtime here only needs the
@@ -49,11 +66,30 @@ vi.mock(`@/lib/storage/issue-attachment-cleanup`, () => ({
 vi.mock(`@/lib/issue-relations`, () => ({
   syncReferenceRelations: h.syncReferenceRelations,
 }))
+// SLOP-4: the reporter email + its transport switch + the magic link.
+vi.mock(`@/lib/email`, () => ({
+  sendReporterReplyEmail: h.sendReporterReplyEmail,
+  deliveryStatus: (result: { delivered: boolean }) =>
+    result.delivered ? `sent` : `failed`,
+}))
+vi.mock(`@/lib/email-enabled`, () => ({
+  get emailEnabled() {
+    return h.emailEnabled.value
+  },
+}))
+vi.mock(`@/lib/reporter/token`, () => ({
+  mintReporterToken: (issueId: string) => `${issueId}.mac`,
+}))
+vi.mock(`@/lib/reporter/service`, () => ({
+  reporterConversationUrl: (token: string) => `http://localhost/support/${token}`,
+}))
 
 import {
   attachments as attachmentsTable,
   comments as commentsTable,
+  emailDeliveries as emailDeliveriesTable,
   issues as issuesTable,
+  widgetSubmissions as widgetSubmissionsTable,
 } from "@/db/schema"
 import { commentsRouter } from "@/lib/trpc/comments"
 import { extractMentionEmails } from "@/lib/mention-refs"
@@ -95,6 +131,12 @@ const state = {
   // Every `where` the tx saw, so a test can prove WHICH rows a delete names.
   selectWheres: [] as { table: unknown; condition: unknown }[],
   deleteWheres: [] as { table: unknown; condition: unknown }[],
+  // SLOP-4: the issue's widget submission as the reporter-recipient lookup
+  // sees it (null = no submission row at all).
+  reporter: null as { email: string | null; teamName: string; issueTitle: string } | null,
+  // SLOP-4: non-tx writes (the email ledger row + the comment's stamp).
+  dbInserts: [] as { table: unknown; values: Record<string, unknown> }[],
+  dbUpdates: [] as { table: unknown; values: Record<string, unknown> }[],
 }
 
 /**
@@ -203,23 +245,44 @@ const fakeTx = {
 
 const fakeDb = {
   // loadCommentForMutation's author/team lookup, plus the update path's
-  // existing-attachments probe (EXP-560) keyed by table.
-  select: () => ({
-    from: (table?: unknown) => ({
+  // existing-attachments probe (EXP-560) and the reporter-recipient lookup
+  // (SLOP-4, a joined select off widget_submissions), keyed by table.
+  select: () => {
+    const chain = (table?: unknown) => ({
+      innerJoin: () => chain(table),
       where: () => ({
-        limit: async () =>
-          table === attachmentsTable
-            ? state.dbAttachmentRows
-            : [
-                {
-                  id: COMMENT_ID,
-                  authorId: state.authorId,
-                  issueId: state.storedIssueId,
-                  teamId: `ws-1`,
-                  parentId: state.storedParentId,
-                },
-              ],
+        limit: async () => {
+          if (table === attachmentsTable) return state.dbAttachmentRows
+          if (table === widgetSubmissionsTable) {
+            return state.reporter ? [state.reporter] : []
+          }
+          return [
+            {
+              id: COMMENT_ID,
+              authorId: state.authorId,
+              issueId: state.storedIssueId,
+              teamId: `ws-1`,
+              parentId: state.storedParentId,
+            },
+          ]
+        },
       }),
+    })
+    return { from: (table?: unknown) => chain(table) }
+  },
+  insert: (table?: unknown) => ({
+    values: (values: Record<string, unknown>) => ({
+      returning: async () => {
+        state.dbInserts.push({ table, values })
+        return [{ id: `ledger-1`, ...values }]
+      },
+    }),
+  }),
+  update: (table?: unknown) => ({
+    set: (values: Record<string, unknown>) => ({
+      where: async () => {
+        state.dbUpdates.push({ table, values })
+      },
     }),
   }),
   transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(fakeTx),
@@ -369,6 +432,140 @@ describe(`comments are author-only`, () => {
     await caller.delete({ id: COMMENT_ID })
 
     expect(h.resolveTeamAccess).toHaveBeenCalledWith(`actor`, `ws-1`, `comment`)
+  })
+
+  // SLOP-4: a reporter's comment has no author row — nobody edits it, any
+  // member may remove it (moderation).
+  it(`a reporter comment is edited by nobody`, async () => {
+    state.authorId = null as unknown as string
+    await expect(
+      caller.update({ id: COMMENT_ID, body: `rewritten` })
+    ).rejects.toMatchObject({ code: `FORBIDDEN` })
+  })
+
+  it(`a reporter comment is deletable by any member`, async () => {
+    state.authorId = null as unknown as string
+    state.selectQueue = [[]]
+    await caller.delete({ id: COMMENT_ID })
+    expect(h.resolveTeamAccess).toHaveBeenCalledWith(`actor`, `ws-1`, `comment`)
+    expect(state.deleteWheres.some((w) => w.table === commentsTable)).toBe(true)
+  })
+})
+
+// SLOP-4: `audience: 'reporter'` = the words leave the team. Accepted only
+// top-level and only when the issue's widget submission has an email; the
+// server emails the reporter after commit, stamps the ledger row on the
+// comment and reports `reporterEmailed` for the member's toast.
+describe(`comments.create audience (SLOP-4)`, () => {
+  beforeEach(() => {
+    state.previousBody = ``
+    state.authorId = `actor`
+    state.selectQueue = []
+    state.storedParentId = null
+    state.storedIssueId = ISSUE_ID
+    state.parentMissing = false
+    state.reporter = {
+      email: `ada@example.com`,
+      teamName: `Acme`,
+      issueTitle: `Login broken`,
+    }
+    state.dbInserts = []
+    state.dbUpdates = []
+    resetMarkdownState()
+    h.resolveMentions.mockReset()
+    h.resolveMentions.mockImplementation(async () => [])
+    h.sendReporterReplyEmail.mockClear()
+    h.fireAndForgetCommentNotify.mockClear()
+    h.emailEnabled.value = true
+  })
+
+  it(`defaults to a team comment with reporterEmailed null`, async () => {
+    const result = await caller.create({ issueId: ISSUE_ID, body: `internal` })
+    expect(result.comment).toMatchObject({ audience: `team` })
+    expect(result.reporterEmailed).toBeNull()
+    expect(h.sendReporterReplyEmail).not.toHaveBeenCalled()
+  })
+
+  it(`emails the reporter, stamps the ledger and reports true`, async () => {
+    const result = await caller.create({
+      issueId: ISSUE_ID,
+      body: `We shipped a fix.`,
+      audience: `reporter`,
+    })
+    expect(result.comment).toMatchObject({ audience: `reporter`, source: `user` })
+    expect(result.reporterEmailed).toBe(true)
+    expect(h.sendReporterReplyEmail).toHaveBeenCalledWith({
+      to: `ada@example.com`,
+      teamName: `Acme`,
+      replyText: `We shipped a fix.`,
+      conversationUrl: `http://localhost/support/${ISSUE_ID}.mac`,
+    })
+    const ledger = state.dbInserts.find((i) => i.table === emailDeliveriesTable)
+    expect(ledger?.values).toMatchObject({
+      kind: `reporter_reply`,
+      toEmail: `ada@example.com`,
+      issueId: ISSUE_ID,
+      status: `sent`,
+    })
+    expect(state.dbUpdates).toContainEqual({
+      table: commentsTable,
+      values: { emailDeliveryId: `ledger-1` },
+    })
+    // The team fan-out still runs — members see the reply too.
+    expect(h.fireAndForgetCommentNotify).toHaveBeenCalledTimes(1)
+  })
+
+  it(`reports false (comment saved) when there is no mail transport`, async () => {
+    h.emailEnabled.value = false
+    const result = await caller.create({
+      issueId: ISSUE_ID,
+      body: `We shipped a fix.`,
+      audience: `reporter`,
+    })
+    expect(result.comment).toMatchObject({ audience: `reporter` })
+    expect(result.reporterEmailed).toBe(false)
+    expect(h.sendReporterReplyEmail).not.toHaveBeenCalled()
+    expect(state.dbInserts).toHaveLength(0)
+  })
+
+  it(`reports false when the send fails`, async () => {
+    h.sendReporterReplyEmail.mockResolvedValueOnce({
+      delivered: false,
+      provider: `smtp`,
+      messageId: null,
+      subject: `x`,
+    })
+    const result = await caller.create({
+      issueId: ISSUE_ID,
+      body: `hello`,
+      audience: `reporter`,
+    })
+    expect(result.reporterEmailed).toBe(false)
+    const ledger = state.dbInserts.find((i) => i.table === emailDeliveriesTable)
+    expect(ledger?.values).toMatchObject({ status: `failed`, sentAt: null })
+  })
+
+  it(`refuses a reporter audience without a reporter email`, async () => {
+    state.reporter = { email: null, teamName: `Acme`, issueTitle: `x` }
+    await expect(
+      caller.create({ issueId: ISSUE_ID, body: `hi`, audience: `reporter` })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    state.reporter = null
+    await expect(
+      caller.create({ issueId: ISSUE_ID, body: `hi`, audience: `reporter` })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    expect(h.sendReporterReplyEmail).not.toHaveBeenCalled()
+  })
+
+  it(`refuses a reporter audience on a reply`, async () => {
+    await expect(
+      caller.create({
+        issueId: ISSUE_ID,
+        body: `hi`,
+        audience: `reporter`,
+        parentId: COMMENT_ID,
+      })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
   })
 })
 

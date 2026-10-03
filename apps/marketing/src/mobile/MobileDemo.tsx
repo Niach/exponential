@@ -13,7 +13,6 @@ import {
   IcGitPr,
   IcHash,
   IcInbox,
-  IcLifeBuoy,
   IcListTodo,
   IcLucideCircleDashed,
   IcMessage,
@@ -203,9 +202,9 @@ const Avatar = ({
 )
 
 /* ─── Tabs / tour plumbing ───
-   The native MobileTabBar order: Issues · Inbox · Support · Devices ·
-   Actions · Reviews (icon-only) + the detached Agent circle (EXP-818/825);
-   Support, Devices, Actions and Reviews render for fidelity but stay inert —
+   The native MobileTabBar order: Issues · Inbox · Devices · Actions ·
+   Reviews (icon-only) + the detached Agent circle (EXP-818/825);
+   Devices, Actions and Reviews render for fidelity but stay inert —
    the demo keeps only the tabs that carry a full recreation. `steer` is a
    run pushed from the Agent page. */
 
@@ -296,9 +295,6 @@ const BottomBar = ({
         label={`Inbox`}
       >
         <IcInbox size={18} />
-      </DockBtn>
-      <DockBtn active={false} onClick={() => {}} label={`Support`}>
-        <IcLifeBuoy size={18} />
       </DockBtn>
       <DockBtn active={false} onClick={() => {}} label={`Devices`}>
         <IcMonitor size={18} />

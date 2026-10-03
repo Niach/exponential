@@ -38,8 +38,8 @@
  *   ios / android     BY NAME, like desktop. A Swift/Kotlin file's basename
  *                     minus its role suffix (`IssueDetailView` → `issue-detail`)
  *                     is matched against view ids and shot names, and its
- *                     DIRECTORY against a view family (`UI/Support` → the two
- *                     support views). `NATIVE_FAMILIES` names the shared code
+ *                     DIRECTORY against a view family (`UI/Settings` → the
+ *                     settings views). `NATIVE_FAMILIES` names the shared code
  *                     whose pixels all land in one family (the markdown editor
  *                     and renderer → the views that host a body), and
  *                     `NATIVE_SHARED` what can never narrow — ExpCore/ExpUI,
@@ -250,12 +250,11 @@ const BROAD: { test: RegExp; platforms: readonly Platform[]; why: string }[] = [
  * of the markdown editor/renderer family on every client (EXP-657). A generous
  * superset on purpose: `board`/`board-*`/`search` are in because issue rows
  * strip markdown for their preview line through the same helpers, `steering`
- * because the agent's question renders as markdown, and the support thread
- * and action editor because the web renders GFM there even where the natives
- * do not yet. Being too tight here silently commits a stale shot; being too
+ * because the agent's question renders as markdown, and the action editor
+ * because the web renders GFM there even where the natives do not yet. Being too tight here silently commits a stale shot; being too
  * wide costs a handful of extra captures.
  */
-const MARKDOWN_VIEWS = /^(issue-|board$|board-|search$|steering$|support-thread$|action-editor$|action-create$)/
+const MARKDOWN_VIEWS = /^(issue-|board$|board-|search$|steering$|action-editor$|action-create$)/
 
 /**
  * Desktop PATHS that narrow to a view family, in match order.
@@ -716,8 +715,8 @@ function desktopMatches(path: RepoPath): string[] {
 
 /**
  * Directory → the view FAMILY it draws, for the native files whose name matches
- * nothing. `UI/Support/SupportInboxListContent.swift` is not a view id, but
- * everything in that folder feeds the two support views and nothing else.
+ * nothing. `UI/Onboarding/OnboardingStep.swift` is not a view id, but
+ * everything in that folder feeds the onboarding views and nothing else.
  *
  * Families are deliberately GENEROUS supersets: over-capturing inside a family
  * costs one extra simulator shot, while a family that is too tight silently
@@ -732,7 +731,6 @@ const NATIVE_DIRS: { dir: string; views: RegExp }[] = [
   { dir: `myissues`, views: /^my-issues$/ },
   { dir: `mywork`, views: /^my-issues$/ },
   { dir: `personal`, views: /^(inbox|my-issues)$/ },
-  { dir: `support`, views: /^support-/ },
   { dir: `settings`, views: /^settings-/ },
   { dir: `actions`, views: /^(agents|actions-mobile|action-|trigger-)/ },
   // The coding family: the Agent composer, the agents surface, the machine

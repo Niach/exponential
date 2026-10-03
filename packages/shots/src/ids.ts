@@ -4,7 +4,7 @@
  * The catalog is written against the seed but never hardcodes a uuid, because a
  * uuid only exists after `seed:screenshots` has run and changes on every reseed.
  * Desktop drives therefore carry PLACEHOLDERS — `issue:$APP-5`, `pr:$APP-14`,
- * `support:$thread`, `session:$steeredSession`, `$emptyBoard`,
+ * `session:$steeredSession`, `$emptyBoard`,
  * `chat?issues=$issueA,$issueB` — and this module
  * is the lookup that turns them into the `EXP_DEV_*` values the app actually
  * parses.
@@ -33,12 +33,11 @@ export interface DemoIds {
   issueAId?: string
   issueBId?: string
   prIssueId?: string
-  supportThreadId?: string
-  supportReporterThreadId?: string
   /**
-   * The reporter's magic link — a CREDENTIAL, not an id. It rides this struct
-   * so the browser lane can address `/support/<token>`; nothing in the pipeline
-   * may print it, and it is absent whenever the host cannot mint one.
+   * The reporter's magic link for the seeded widget issue — a CREDENTIAL, not
+   * an id. It rides this struct so the browser lane can address
+   * `/support/<token>`; nothing in the pipeline may print it, and it is absent
+   * whenever the host cannot mint one.
    */
   supportToken?: string
   actionId?: string
@@ -57,7 +56,6 @@ export interface DemoIds {
  * Anything not in here is looked up as an issue identifier (`$APP-5`).
  */
 const NAMED: Record<string, (ids: DemoIds) => string | undefined> = {
-  thread: (ids) => ids.supportThreadId,
   action: (ids) => ids.actionId,
   device: (ids) => ids.deviceId,
   steeredSession: (ids) => ids.steeredSessionId,
@@ -91,8 +89,6 @@ export function parseDemoIds(stdout: string): DemoIds {
     issueAId: parsed.issueAId,
     issueBId: parsed.issueBId,
     prIssueId: parsed.prIssueId,
-    supportThreadId: parsed.supportThreadId,
-    supportReporterThreadId: parsed.supportReporterThreadId,
     supportToken: parsed.supportToken,
     actionId: parsed.actionId,
     deviceId: parsed.deviceId,

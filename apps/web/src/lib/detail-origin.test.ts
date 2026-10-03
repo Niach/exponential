@@ -35,7 +35,6 @@ describe(`screenFromPath`, () => {
       actionId: `a1`,
     })
     expect(screenFromPath(`/t/acme/actions`)).toEqual({ kind: `other` })
-    expect(screenFromPath(`/t/acme/support`)).toEqual({ kind: `support` })
     expect(screenFromPath(`/t/acme/reviews`)).toEqual({ kind: `reviews` })
     expect(screenFromPath(`/t/acme/sessions/s1`)).toEqual({ kind: `session` })
     expect(screenFromPath(`/t/acme/boards/web`)).toEqual({
@@ -63,7 +62,6 @@ describe(`screenFromPath`, () => {
       `/t/acme/inbox`,
       `/t/acme/agent`,
       `/t/acme/actions/a1`,
-      `/t/acme/support`,
       `/t/acme/reviews`,
       `/t/acme/sessions/s1`,
       `/t/acme/boards/web`,
@@ -141,9 +139,6 @@ describe(`capturedOrigin`, () => {
   it(`reads the origin in force on a screen`, () => {
     expect(capturedOrigin(screenFromPath(`/t/acme/inbox`))).toEqual(inbox)
     expect(capturedOrigin(screenFromPath(`/t/acme/boards/web`))).toEqual(board)
-    expect(capturedOrigin(screenFromPath(`/t/acme/support`))).toEqual({
-      kind: `support`,
-    })
     expect(capturedOrigin(screenFromPath(`/t/acme/reviews`))).toEqual({
       kind: `reviews`,
     })
@@ -193,7 +188,6 @@ describe(`formatOrigin / parseOrigin`, () => {
       { kind: `inbox`, tab: `my-issues` },
       { kind: `inbox`, tab: `drafts` },
       board,
-      { kind: `support` },
       { kind: `reviews` },
       { kind: `agent` },
       { kind: `action`, actionId: `a1` },
@@ -221,7 +215,6 @@ describe(`originLabel / originBoardSlug`, () => {
   it(`names the list the back row returns to`, () => {
     expect(originLabel(inbox)).toBe(`Inbox`)
     expect(originLabel({ kind: `inbox`, tab: `my-issues` })).toBe(`Inbox`)
-    expect(originLabel({ kind: `support` })).toBe(`Support`)
     expect(originLabel({ kind: `reviews` })).toBe(`Reviews`)
     expect(originLabel({ kind: `agent` })).toBe(`Agent`)
     expect(originLabel({ kind: `action`, actionId: `a1` }, `Triage`)).toBe(`Triage`)
@@ -253,7 +246,6 @@ describe(`sidebarOccupant`, () => {
     for (const path of [
       `/t/acme/boards/web/issues/MET-12`,
       `/t/acme/sessions/s1`,
-      `/t/acme/support/t1`,
     ]) {
       expect(sidebarOccupant(path, `inbox`), path).toEqual({
         kind: `list`,
@@ -342,7 +334,6 @@ describe(`sidebarOccupant`, () => {
       `/t/acme/inbox`,
       `/t/acme/agent`,
       `/t/acme/actions/a1`,
-      `/t/acme/support`,
       `/t/acme/reviews`,
       `/t/acme/devices`,
       `/t/acme/boards/web`,
@@ -381,7 +372,7 @@ describe(`originListNavigation`, () => {
       params: { teamSlug: `acme` },
       search: { tab: `my-issues` },
     })
-    for (const kind of [`support`, `reviews`, `agent`] as const) {
+    for (const kind of [`reviews`, `agent`] as const) {
       expect(originListNavigation(`acme`, { kind })).toEqual({
         to: `/t/$teamSlug/${kind}`,
         params: { teamSlug: `acme` },

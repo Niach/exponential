@@ -1,15 +1,15 @@
 //! EXP-698 — the ONE composer card.
 //!
-//! Three surfaces type into a message box: the issue timeline's comment
-//! composer (`comments::composer_row`), the steer viewer's reply composer
-//! (`steer_viewer::render_composer`) and the helpdesk thread's reply/note
-//! composer (`support_thread`). They used to be three hand-built cards with
-//! three different radii, paddings and submit affordances (the support one
-//! was a FILLED primary button). They are one recipe now:
+//! Two surfaces type into a message box: the issue timeline's comment
+//! composer (`comments::composer_row`) and the steer viewer's reply composer
+//! (`steer_viewer::render_composer`); the helpdesk thread's reply/note
+//! composer was the third until SLOP-4 (gone with the helpdesk). They used
+//! to be three hand-built cards with three different radii, paddings and
+//! submit affordances. They are one recipe now:
 //!
 //! ```text
 //! ┌───────────────────────────────────────────┐  radius XL, FILL_CARD
-//! │ [leading row]                             │  (support: Reply / Note)
+//! │ [leading row]                             │  (Reply to reporter pill)
 //! │ [strip]                                   │  attachment chips
 //! │ the field                                 │  borderless, auto-grow
 //! │ ⧉ ⌗ ☺                              ( ↑ )  │  tool row
@@ -24,8 +24,8 @@
 //! model and context controls sit in a footer UNDER the card
 //! (`steer_viewer::render_composer_footer`), so its card is the field and the
 //! round button, and the wrap-onto-a-second-line rule that used to flap while
-//! the diff pane was dragged is gone. The comment and helpdesk composers keep
-//! their in-card tool row.
+//! the diff pane was dragged is gone. The comment composer keeps its in-card
+//! tool row.
 //!
 //! Every slot is optional except the field; the caller owns all state and
 //! handlers, this only lays the card out.
@@ -86,8 +86,9 @@ impl GlassComposer {
         self
     }
 
-    /// A row INSIDE the card, above everything else — the helpdesk composer's
-    /// Reply / Internal note mode pills.
+    /// A row INSIDE the card, above everything else — the issue composer's
+    /// "Reply to reporter" pill (SLOP-4; the helpdesk's Reply / Internal
+    /// note pills sat here before).
     pub(crate) fn leading(mut self, leading: impl Into<AnyElement>) -> Self {
         self.leading = Some(leading.into());
         self
@@ -193,7 +194,7 @@ pub(crate) fn composer_tool(
 /// glyph, primary-tinted, never a filled button (the `ui-submit` glyph is
 /// itself a circled arrow, and a filled box would draw a second ring around
 /// it). `icon` differs by surface: `UI_SUBMIT` for comments, `UI_SEND` for
-/// steer and helpdesk replies — same shape, same tint, same 32px hit box.
+/// steer replies — same shape, same tint, same 32px hit box.
 pub(crate) fn composer_submit(
     id: impl Into<gpui::ElementId>,
     icon: crate::icons::ExpIcon,

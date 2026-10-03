@@ -1,7 +1,7 @@
 //! The ONE main view (masterplan-v3 §4.2, reworked — EXP-288/EXP-851): a
 //! TAB-BASED area whose tabs are DETAIL VIEWS ONLY (issue detail, PR diff,
-//! support thread, coding session, terminal). Everything else is a plain
-//! full-width screen: the five LIST screens (a board, the Inbox, Support,
+//! coding session, terminal). Everything else is a plain
+//! full-width screen: the LIST screens (a board, the Inbox,
 //! Files, Source Control), the rail's pages and Settings. Every detail tab
 //! REMEMBERS the LIST it was opened from ([`TabEntry::origin`]) — that is
 //! what the shell's left column renders as the `ListNav`, so a tab click, a
@@ -255,12 +255,6 @@ pub(crate) fn build_screen_content(
             view.update(cx, |detail, cx| detail.set_issue(issue_id, window, cx));
             view.into()
         }
-        Screen::SupportThread { thread_id } => {
-            let view = cx.new(|cx| crate::support_thread::SupportThreadView::new(window, cx));
-            let thread_id = thread_id.clone();
-            view.update(cx, |thread, cx| thread.set_thread(thread_id, window, cx));
-            view.into()
-        }
         Screen::PrDiff { issue_id } => {
             let view = cx.new(|cx| crate::pr_diff::PrDiffView::new(window, cx));
             let issue_id = issue_id.clone();
@@ -310,7 +304,6 @@ pub(crate) fn build_screen_content(
         // so this arm exists to keep the match total.
         Screen::BoardIssues { .. }
         | Screen::Inbox { .. }
-        | Screen::Support
         | Screen::Files
         | Screen::SourceControl => cx.new(|_| NeverUndocked).into(),
     }
@@ -1067,9 +1060,6 @@ pub struct ScreensPanel {
     settings: Entity<crate::settings::SettingsView>,
     source_control: Entity<crate::source_control::SourceControlView>,
     file_viewer: Entity<crate::file_viewer::FileViewerView>,
-    /// One shared support-thread view, re-pointed on tab switch (EXP-180 —
-    /// same single-instance model as the issue detail).
-    support_thread: Entity<crate::support_thread::SupportThreadView>,
     /// One shared PR diff view, re-pointed on tab switch (EXP-181 — the
     /// Reviews rows' target).
     pr_diff: Entity<crate::pr_diff::PrDiffView>,
@@ -1108,7 +1098,7 @@ pub struct ScreensPanel {
     /// PR diff (EXP-525 retired its tab). One slot: exactly one such view is
     /// up at a time, and it is replaced the moment another navigation lands.
     transient_origin: Option<(Screen, Option<TabOrigin>)>,
-    /// EXP-851: the LIST screens' view — a board, the Inbox and Support, full
+    /// EXP-851: the LIST screens' view — a board and the Inbox, full
     /// width. The same type the shell's `ListNav` mounts, in its Screen mode.
     list: Entity<ListPanel>,
     /// EXP-851: the Source Control screen's commit history (it lived on the
@@ -1197,8 +1187,6 @@ impl ScreensPanel {
         let settings = cx.new(|cx| crate::settings::SettingsView::new(window, cx));
         let source_control = cx.new(|cx| crate::source_control::SourceControlView::new(window, cx));
         let file_viewer = cx.new(|cx| crate::file_viewer::FileViewerView::new(window, cx));
-        let support_thread =
-            cx.new(|cx| crate::support_thread::SupportThreadView::new(window, cx));
         // EXP-916: the review header carries no undock button any more —
         // its cluster is reject / merge / GitHub, and nothing else.
         let pr_diff = cx.new(|cx| crate::pr_diff::PrDiffView::new(window, cx));
@@ -1304,7 +1292,6 @@ impl ScreensPanel {
             settings,
             source_control,
             file_viewer,
-            support_thread,
             pr_diff,
             devices,
             drafts,
@@ -1460,8 +1447,6 @@ impl ScreensPanel {
             // EXP-894: the per-tab drafts go with their tabs.
             self.issue_detail
                 .update(cx, |detail, _| detail.clear_tab_states());
-            self.support_thread
-                .update(cx, |thread, _| thread.clear_tab_states());
             // The sidebar selections are team-scoped too (trunk-relative
             // paths / commit hashes of the OLD team's clone).
             self.rail.update(cx, |rail, cx| {
@@ -1585,11 +1570,6 @@ impl ScreensPanel {
                     detail.set_issue(issue_id, window, cx);
                 });
             }
-            Screen::SupportThread { thread_id } => {
-                // Re-pointing also restarts the 15s poll on tab reactivation.
-                self.support_thread
-                    .update(cx, |thread, cx| thread.set_thread(thread_id, window, cx));
-            }
             Screen::Session { session_id } => {
                 // ENTRY-OR-INSERT, never a re-point: each session owns its
                 // feed, so re-pointing one view at another row would hand the
@@ -1624,7 +1604,6 @@ impl ScreensPanel {
             Screen::PrDiff { .. }
             | Screen::BoardIssues { .. }
             | Screen::Inbox { .. }
-            | Screen::Support
             | Screen::Files
             | Screen::SourceControl
             | Screen::Devices
@@ -2339,10 +2318,6 @@ impl ScreensPanel {
             self.issue_detail
                 .update(cx, |detail, _| detail.forget_tab_state(issue_id));
         }
-        if let Screen::SupportThread { thread_id } = &tab.screen {
-            self.support_thread
-                .update(cx, |thread, _| thread.forget_tab_state(thread_id));
-        }
         self.shutdown_session_view(&tab.screen, cx);
         if let Some(run_id) = &tab.run_id {
             self.shutdown_session_view(
@@ -2486,8 +2461,8 @@ impl ScreensPanel {
     ///
     /// EXP-923: a FLAT list of plain chips, in tab order. The agent clusters
     /// that led it (EXP-877) went with the live tabs — live runs are rail
-    /// rows now, so the strip holds only what you opened: issues, support
-    /// threads, ended-run transcripts.
+    /// rows now, so the strip holds only what you opened: issues,
+    /// ended-run transcripts.
     pub(crate) fn render_tab_strip(
         &mut self,
         available: gpui::Pixels,
@@ -3612,9 +3587,6 @@ impl Render for ScreensPanel {
         let content = match &screen {
             Some(Screen::IssueDetail { .. }) => self.issue_detail.clone().into_any_element(),
             Some(Screen::Settings) => self.settings.clone().into_any_element(),
-            Some(Screen::SupportThread { .. }) => {
-                self.support_thread.clone().into_any_element()
-            }
             Some(Screen::PrDiff { .. }) => self.pr_diff.clone().into_any_element(),
             // EXP-746: built by `sync_tabs` on activation — the fallback only
             // shows for the frame between a navigation and that observer.
@@ -3636,10 +3608,10 @@ impl Render for ScreensPanel {
                     None => self.render_syncing(cx),
                 }
             }
-            // EXP-851: the five LIST screens, full width.
-            Some(Screen::BoardIssues { .. })
-            | Some(Screen::Inbox { .. })
-            | Some(Screen::Support) => self.list.clone().into_any_element(),
+            // EXP-851: the LIST screens, full width.
+            Some(Screen::BoardIssues { .. }) | Some(Screen::Inbox { .. }) => {
+                self.list.clone().into_any_element()
+            }
             Some(Screen::Files) => self.render_files_screen(cx),
             Some(Screen::SourceControl) => self.render_source_control_screen(window, cx),
             Some(Screen::Devices) => self.devices.clone().into_any_element(),

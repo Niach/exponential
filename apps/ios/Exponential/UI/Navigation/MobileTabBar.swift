@@ -2,11 +2,10 @@ import ExpUI
 import SwiftUI
 
 /// Linear-style floating bottom navigation: a glass pill with the top-level
-/// destinations (Issues, My Work — with an unread dot — Support — the team
-/// helpdesk inbox, present only while the active team's helpdesk flag is on
-/// (EXP-180) — Devices — the machines surface — Actions — the team's
-/// actions surface, its own entry per EXP-686 — and Reviews — its
-/// own entry per EXP-147; base order per EXP-81) plus a detached launcher on
+/// destinations (Issues, My Work — with an unread dot — Devices — the
+/// machines surface — Actions — the team's actions surface, its own entry
+/// per EXP-686 — and Reviews — its own entry per EXP-147; base order per
+/// EXP-81; the Support tab left with the helpdesk (gone, SLOP-4)) plus a detached launcher on
 /// the right: the SPLIT capsule (chat | new issue), on every bar-visible
 /// route since EXP-973 — the chat arm opens the Agent page (the sessions list
 /// lives there since EXP-825, so it wears the running-session dot the Devices
@@ -22,17 +21,14 @@ struct MobileTabBar: View {
     let actionsActive: Bool
     let myWorkActive: Bool
     let reviewsActive: Bool
-    let supportActive: Bool
     let unreadCount: Int
     let agentsRunning: Bool
     let agentsNeedInput: Bool
     let reviewsOpen: Bool
-    let showsSupport: Bool
     /// EXP-1105: false while the active team runs in yolo mode (PRs
     /// auto-merge) and no PR is open. An open PR there means an auto-merge
     /// failed, so the navigator keeps the tab while one exists.
     var showsReviews: Bool = true
-    let supportUnread: Bool
     /// EXP-973: whether the New-issue arm can go anywhere. The split capsule
     /// itself rides EVERY bar-visible route now; only a team with no board at
     /// all leaves the arm dimmed and inert.
@@ -42,7 +38,6 @@ struct MobileTabBar: View {
     let onActions: () -> Void
     let onMyWork: () -> Void
     let onReviews: () -> Void
-    let onSupport: () -> Void
     let onCompose: () -> Void
     let onChat: () -> Void
 
@@ -60,25 +55,19 @@ struct MobileTabBar: View {
     private var activeKey: String {
         if issuesActive { return "issues" }
         if myWorkActive { return "mywork" }
-        if supportActive { return "support" }
         if devicesActive { return "devices" }
         if actionsActive { return "actions" }
         if reviewsActive { return "reviews" }
         return "none"
     }
 
-    /// Issues · My Work · (Support) · Devices · Actions · (Reviews).
-    private var tabCount: Int { 4 + (showsSupport ? 1 : 0) + (showsReviews ? 1 : 0) }
-
     var body: some View {
         HStack(spacing: MobileTabBarMetrics.launcherGap) {
-            // EXP-973: six tabs (helpdesk on) must still fit a 375pt screen
-            // (SE/mini) beside the 104pt SPLIT launcher, which now rides every
-            // route — so the crowded bar drops the inter-tab spacing, trims
-            // the tab slots to 40 wide (their 44pt height is untouched) and
-            // pulls the screen inset in. `MobileTabBarMetrics` holds the
-            // budget and its test does the arithmetic.
-            HStack(spacing: MobileTabBarMetrics.tabSpacing(tabs: tabCount)) {
+            // EXP-973: five tabs must fit a 375pt screen (SE/mini) beside the
+            // 104pt SPLIT launcher, which rides every route —
+            // `MobileTabBarMetrics` holds the budget and its test does the
+            // arithmetic.
+            HStack(spacing: MobileTabBarMetrics.tabSpacing) {
                 tab(glyph: AppIcons.navIssues, label: "Issues", active: issuesActive, action: onIssues)
                     .accessibilityIdentifier("tab-issues")
                 // EXP-58: the Inbox tab became My Work (Inbox + My Issues
@@ -92,20 +81,6 @@ struct MobileTabBar: View {
                     action: onMyWork
                 )
                 .accessibilityIdentifier("tab-mywork")
-                // Support (EXP-180): the team helpdesk inbox — the web
-                // sidebar's LifeBuoy entry. Present only while the active
-                // team's synced helpdesk flag is on.
-                if showsSupport {
-                    tab(
-                        glyph: AppIcons.navSupport,
-                        label: "Support",
-                        active: supportActive,
-                        badge: supportUnread,
-                        badgeColor: DesignTokens.Palette.primary,
-                        action: onSupport
-                    )
-                    .accessibilityIdentifier("tab-support")
-                }
                 // Devices (EXP-686, the renamed Agents surface): the machine
                 // list. Its live dot moved to the Agent launcher with the
                 // sessions list.
@@ -161,7 +136,7 @@ struct MobileTabBar: View {
             // route, not only a board — the capsule is the bar's ONE launcher.
             launcherCapsule
         }
-        .padding(.horizontal, MobileTabBarMetrics.inset(tabs: tabCount))
+        .padding(.horizontal, MobileTabBarMetrics.inset)
         .padding(.top, 8)
         .padding(.bottom, 4)
     }
@@ -246,12 +221,10 @@ struct MobileTabBar: View {
         Button(action: action) {
             AppIcon(glyph, size: AppIcon.Size.large)
                 .foregroundStyle(.white.opacity(active ? 1 : TextOpacity.secondary))
-                // 44pt tall (the HIG minimum) instead of the old 56pt; the
-                // crowded bar narrows the slot to 40 so six tabs and the
-                // split launcher fit a 375pt screen (SE/mini) —
-                // `MobileTabBarMetrics` owns the budget.
+                // 44pt square (the HIG minimum) — `MobileTabBarMetrics`
+                // owns the budget.
                 .frame(
-                    width: MobileTabBarMetrics.tabWidth(tabs: tabCount),
+                    width: MobileTabBarMetrics.tabWidth,
                     height: MobileTabBarMetrics.tabHeight
                 )
                 .overlay(alignment: .topTrailing) {

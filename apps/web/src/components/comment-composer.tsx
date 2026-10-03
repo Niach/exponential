@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import type { Attachment, User } from "@/db/schema"
+import type { CommentAudience } from "@exp/db-schema/domain"
 import { MAX_COMMENT_ATTACHMENTS } from "@/lib/domain"
 import {
   acceptedImageContentTypes,
@@ -41,6 +42,10 @@ import {
 import { EmojiPickerPopover } from "@/components/emoji-picker"
 import { issueRefInsertionText } from "@/components/issue-editor/formatting-rail"
 import { readTabMemory, writeTabMemory } from "@/lib/work-tab-memory"
+import {
+  REPORTER_REPLY_COPY,
+  reporterReplyPlaceholder,
+} from "@/components/reporter-reply-copy"
 
 // Multi-client surface (the natives mirror this row) — concept icons, never
 // raw lucide imports (EXP-317).
@@ -48,6 +53,7 @@ const EmojiIcon = conceptIcon(`editor-emoji`)
 const ImageIcon = conceptIcon(`editor-image`)
 const AttachIcon = conceptIcon(`ui-attach`)
 const IssueRefIcon = conceptIcon(`editor-issue-ref`)
+const ReporterReplyIcon = conceptIcon(`notification-reporter-reply`)
 
 /** A file picked into the composer, or (in edit mode) an already-linked row.
  *  `uploadedId` survives a failed send so a retry never re-uploads; `existing`
@@ -64,7 +70,14 @@ type PendingCommentAttachment = {
 interface CommentComposerProps {
   issueId: string
   users: User[]
-  onSubmit: (body: string, attachmentIds: string[]) => Promise<void>
+  /** `audience` is `reporter` while the "Reply to reporter" toggle is ON
+   *  (SLOP-4), `team` otherwise; edit and reply composers always send
+   *  `team`. */
+  onSubmit: (
+    body: string,
+    attachmentIds: string[],
+    audience: CommentAudience
+  ) => Promise<void>
   initialText?: string
   // Edit mode: the comment's currently linked attachments. Removing one and
   // saving DELETES it server-side (comments.update reconciles to the sent
@@ -85,6 +98,13 @@ interface CommentComposerProps {
    * a successful send and on Cancel. Absent (edit mode) = nothing kept.
    */
   draft?: { owner: string; slot: string }
+  /**
+   * SLOP-4 (fixture `reporter-reply.json`): the widget submission's reporter,
+   * when the issue has one WITH an email — offers the "Reply to reporter"
+   * pill in the leading row. OFF by default; ON swaps the placeholder and
+   * sends `audience: 'reporter'`. Never passed to reply/edit composers.
+   */
+  reporter?: { name: string } | null
 }
 
 /**
@@ -106,7 +126,11 @@ export function CommentComposer({
   autoFocus = false,
   onEmptyBlur,
   draft,
+  reporter = null,
 }: CommentComposerProps) {
+  const [toReporter, setToReporter] = useState(false)
+  const audience: CommentAudience =
+    reporter && toReporter ? `reporter` : `team`
   const [text, setTextState] = useState(
     () =>
       (draft ? readTabMemory<string>(draft.owner, draft.slot) : undefined) ??
@@ -245,7 +269,7 @@ export function CommentComposer({
         }
         if (items[i].uploadedId) ids.push(items[i].uploadedId!)
       }
-      await onSubmit(text.trim(), ids)
+      await onSubmit(text.trim(), ids, audience)
       setText(``)
       for (const item of items) {
         if (item.previewUrl) URL.revokeObjectURL(item.previewUrl)
@@ -405,6 +429,22 @@ export function CommentComposer({
 
   return (
     <Composer
+      // The leading row is the slot the helpdesk's Reply/Note pills used —
+      // one select pill now, in the same chrome.
+      leading={
+        reporter ? (
+          <Pill
+            size="sm"
+            mode="select"
+            selected={toReporter}
+            leading={<ReporterReplyIcon className="size-3" />}
+            disabled={submitting}
+            onClick={() => setToReporter((value) => !value)}
+          >
+            {REPORTER_REPLY_COPY.toggleLabel}
+          </Pill>
+        ) : undefined
+      }
       strip={strip}
       tools={tools}
       submit={
@@ -450,7 +490,11 @@ export function CommentComposer({
       <MentionTextarea
         ref={textareaRef}
         autoFocus={autoFocus}
-        placeholder={placeholder}
+        placeholder={
+          reporter && toReporter
+            ? reporterReplyPlaceholder(reporter.name)
+            : placeholder
+        }
         value={text}
         onValueChange={setText}
         users={users}

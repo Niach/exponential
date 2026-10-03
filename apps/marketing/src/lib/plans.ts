@@ -89,7 +89,6 @@ export const PLANS: Plan[] = [
       `Everything in Free`,
       `10 GB attachment storage`,
       `Unlimited feedback widgets`,
-      `Helpdesk & support inbox`,
       `Priority support`,
     ],
     cta: { label: `Start with Team`, href: LINKS.app.login },

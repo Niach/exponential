@@ -30,8 +30,8 @@ import com.exponential.app.ui.theme.TextEmphasis
  * faint white fill with a hairline stroke and 12dp corners, no Material
  * outline, underline or floating label. iOS describes every field with a
  * placeholder, so this takes a plain [placeholder] string instead of a `label`
- * slot. [containerColor] lets a caller tint the fill (the helpdesk internal-note
- * amber); the stroke stays the glass hairline and brightens on focus.
+ * slot. [containerColor] lets a caller tint the fill (an amber note field, say);
+ * the stroke stays the glass hairline and brightens on focus.
  *
  * EXP-694: [bordered] = false drops the fill AND the hairline for a field that
  * lives INSIDE a grouped card (`OptionGroup`) — the description / prompt

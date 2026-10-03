@@ -43,7 +43,6 @@ vi.mock(`@/hooks/use-mobile-chrome`, () => ({
 vi.mock(`@/hooks/use-session`, () => ({ useSession: () => ({ data: null }) }))
 vi.mock(`@/hooks/use-unread-notifications`, () => ({
   useUnreadNotificationCount: () => 0,
-  useUnreadSupportCount: () => 0,
 }))
 const openPrs = { current: 0 }
 vi.mock(`@/hooks/use-nav-counts`, () => ({
@@ -55,7 +54,7 @@ vi.mock(`@/hooks/use-nav-counts`, () => ({
 
 import { MobileTabBar } from "@/components/team/mobile-tab-bar"
 
-const team = { id: `t1`, name: `Acme`, helpdeskEnabled: false } as Team
+const team = { id: `t1`, name: `Acme` } as Team
 const boards = [{ id: `b1`, slug: `web`, name: `Web` }] as Board[]
 
 function renderBar(
@@ -81,7 +80,6 @@ describe(`MobileTabBar FAB (EXP-973)`, () => {
       `/t/$teamSlug/devices`,
       `/t/$teamSlug/actions`,
       `/t/$teamSlug/reviews`,
-      `/t/$teamSlug/support`,
     ]) {
       route.value = path
       const view = renderBar()

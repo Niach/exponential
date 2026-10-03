@@ -225,7 +225,6 @@ export function useGettingStartedProgress(
       ),
       hasCodingSession: (sessionRows ?? []).length > 0,
       hasAction: (actionRows ?? []).length > 0,
-      helpdeskEnabled: team?.helpdeskEnabled === true,
       hasWidget: hasWidget === true,
       mcpConnected: mcpConnected === true,
     }),
@@ -237,7 +236,6 @@ export function useGettingStartedProgress(
       liveBoards,
       sessionRows,
       actionRows,
-      team?.helpdeskEnabled,
       hasWidget,
       mcpConnected,
     ]

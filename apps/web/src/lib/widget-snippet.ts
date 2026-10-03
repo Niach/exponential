@@ -22,7 +22,7 @@ export function buildWidgetSnippet(publicKey: string, origin: string): string {
     d.head.appendChild(s);
   })(window, document, "${scriptUrl}");
   ExponentialWidget.init({ key: "${publicKey}" });
-  // Optional: attach your signed-in user for the helpdesk flow.
+  // Optional: attach your signed-in user so reports carry their contact.
   // ExponentialWidget.identify({ email: "user@example.com", name: "Jane" });
   // ExponentialWidget.setCustomData({ plan: "pro" });
   // Optional: follow your site's own dark/light toggle.

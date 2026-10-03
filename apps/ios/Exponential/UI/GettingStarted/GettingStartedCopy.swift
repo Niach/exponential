@@ -10,8 +10,8 @@ import Foundation
 /// literal below is a PLAIN double-quoted single-line string — no
 /// interpolation, no concatenation, no escapes.
 ///
-/// Mobile carries seven of the ten entries: the widget, helpdesk and MCP steps
-/// are web/IDE-only surfaces, so the phone neither shows them nor counts them.
+/// Mobile carries seven of the nine entries: the widget and MCP steps are
+/// web/IDE-only surfaces, so the phone neither shows them nor counts them.
 enum GettingStartedCopy {
     static let desktopTitle = "Get the desktop app"
     static let desktopDescription = "Runs coding sessions on your machine and registers it as one of your devices."
@@ -22,7 +22,7 @@ enum GettingStartedCopy {
     static let githubAction = "Connect GitHub"
 
     static let inviteTitle = "Invite your team"
-    static let inviteDescription = "Teammates share boards, reviews, and the support inbox."
+    static let inviteDescription = "Teammates share boards, reviews, and the inbox."
     static let inviteAction = "Invite in team settings"
 
     static let boardTitle = "Create a board"
@@ -50,7 +50,7 @@ enum GettingStartedCopy {
 }
 
 /// One checklist step. The order of the cases IS the display order, minus the
-/// three web-only entries (widget, helpdesk, mcp).
+/// two web-only entries (widget, mcp).
 enum GettingStartedEntryKey: String, CaseIterable, Identifiable {
     case desktop
     case github

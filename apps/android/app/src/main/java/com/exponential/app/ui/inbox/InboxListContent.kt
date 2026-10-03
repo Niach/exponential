@@ -49,9 +49,8 @@ import com.exponential.app.ui.theme.flatRow
 // the title verbatim — no composition, no actor avatar (the rows carry no
 // actor column; the leading element is a type-icon badge instead).
 //
-// Issue-less `support_reply` notifications (EXP-180 helpdesk) render as
-// synthetic Support groups — one per team — interleaved into the same stream
-// by latest activity, like web/iOS/desktop; tapping one opens the Support tab.
+// SLOP-4: a widget reporter's reply (`reporter_reply`) is issue-scoped, so it
+// rides its issue's group like any comment — there is no Support surface.
 //
 // Rendered as the Inbox segment of the "My Work" tab (PersonalScreen) since
 // EXP-58 — no longer a routed screen of its own; mark-all-read lives in the
@@ -60,7 +59,6 @@ import com.exponential.app.ui.theme.flatRow
 @Composable
 fun InboxListContent(
     onOpenIssue: (String) -> Unit,
-    onOpenSupport: () -> Unit,
     modifier: Modifier = Modifier,
     // EXP-980: a blocked-run row opens the run it is about.
     onOpenSession: (String) -> Unit = {},
@@ -85,12 +83,6 @@ fun InboxListContent(
         ) {
             items(state.entries, key = { it.key }) { entry ->
                 when (entry) {
-                    is InboxEntry.Support -> SupportInboxRow(entry.group) {
-                        // Selects the group's team (when known) + marks read;
-                        // the callback then lands on the Support tab.
-                        viewModel.openSupportGroup(entry.group)
-                        onOpenSupport()
-                    }
                     is InboxEntry.Issue -> InboxRow(entry.group) {
                         viewModel.markGroupRead(entry.group)
                         if (entry.group.opensResults) {
@@ -171,58 +163,6 @@ private fun InboxRow(group: InboxGroup, onClick: () -> Unit) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-        }
-        Spacer(Modifier.width(8.dp))
-        TrailingTimeAndDot(time = relativeTime(group.latest.createdAt), unread = group.unread)
-    }
-}
-
-/**
- * Synthetic Support group row (EXP-180): team name (fallback "Support"),
- * the latest notification's sentence, and its body preview (the reporter's
- * words) when present. Same unread styling as issue rows.
- */
-@Composable
-private fun SupportInboxRow(group: SupportGroup, onClick: () -> Unit) {
-    val read = group.unread == 0
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .testTag("notification-row")
-            .alpha(if (read) 0.6f else 1f)
-            .flatRow()
-            .clickable(onClick = onClick)
-            .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        TypeIconBadge(ExpIcons.navSupport)
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                group.teamName ?: "Support",
-                fontWeight = if (read) FontWeight.Normal else FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                group.latest.title,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            val body = group.latest.body
-            if (!body.isNullOrBlank()) {
-                Text(
-                    body,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
         }
         Spacer(Modifier.width(8.dp))
         TrailingTimeAndDot(time = relativeTime(group.latest.createdAt), unread = group.unread)
@@ -358,7 +298,9 @@ private fun notificationTypeIcon(type: String): ImageVector = when (type) {
     DomainContract.notificationTypeIssueCreated -> ExpIcons.notificationIssueCreated
     DomainContract.notificationTypePrOpened -> ExpIcons.notificationPrOpened
     DomainContract.notificationTypePrMerged -> ExpIcons.notificationPrMerged
-    DomainContract.notificationTypeSupportReply -> ExpIcons.notificationSupportReply
+    // SLOP-4: a widget reporter answered on the issue (`notificationLabel`
+    // "Reporter replied" is the row's sentence, written server-side).
+    DomainContract.notificationTypeReporterReply -> ExpIcons.notificationReporterReply
     DomainContract.notificationTypeAgentMessage -> ExpIcons.notificationAgentMessage
     DomainContract.notificationTypeSessionBlocked -> ExpIcons.notificationSessionBlocked
     else -> ExpIcons.navNotifications

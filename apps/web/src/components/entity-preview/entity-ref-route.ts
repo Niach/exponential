@@ -114,11 +114,6 @@ export function entityRefRoute(
       const viaIssue = issueId ? issueRoute(teamSlug, ctx.issueById(issueId)) : null
       return viaIssue ?? { to: `/t/$teamSlug/inbox`, params: { teamSlug } }
     }
-    case `thread`:
-      return {
-        to: `/t/$teamSlug/support/$threadId`,
-        params: { teamSlug, threadId: ref.id },
-      }
     case `attachment`: {
       const issueId = ctx.attachmentIssueId(ref.id)
       return issueId ? issueRoute(teamSlug, ctx.issueById(issueId)) : null

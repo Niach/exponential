@@ -5,7 +5,7 @@
 //! `team-invites.ts`:
 //!
 //! - `teams.create({name, iconUrl?})` → `{team, txId}`
-//! - `teams.update({teamId, name?, iconUrl?, helpdeskEnabled?, estimationType?, agentPrompt?, yoloMode?})` → `{team, txId}` (EXP-707, EXP-1025, EXP-1105)
+//! - `teams.update({teamId, name?, iconUrl?, estimationType?, agentPrompt?, yoloMode?})` → `{team, txId}` (EXP-707, EXP-1025, EXP-1105)
 //! - `teams.getAgentPrompt({teamId})` → `{agentPrompt, agentPromptUpdatedAt, maxBytes}` (query, EXP-1025)
 //! - `teams.delete({teamId})` → `{ok, txId}`
 //! - `teams.inviteCapacity({teamId})` → `{remaining}` (query, EXP-725)
@@ -82,13 +82,6 @@ pub struct TeamsUpdateInput {
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Patch::is_omit")]
     pub icon_url: Patch<String>,
-    /// EXP-771: the team's shared support inbox. Turning it ON is gated
-    /// server-side twice — a plan limit (PRECONDITION_FAILED with the "Your
-    /// plan allows" prefix) and REV2-10(c)'s mail-transport check (a plain
-    /// PRECONDITION_FAILED naming `AWS_SES_REGION`/`SMTP_HOST`) — so the
-    /// caller must tell the two apart, not swallow both.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub helpdesk_enabled: Option<bool>,
     /// EXP-630: the estimate scale (contract `issueEstimation`; `none` = off).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub estimation_type: Option<String>,
@@ -109,7 +102,6 @@ impl TeamsUpdateInput {
             team_id: id.into(),
             name: None,
             icon_url: Patch::Omit,
-            helpdesk_enabled: None,
             estimation_type: None,
             agent_prompt: None,
             yolo_mode: None,

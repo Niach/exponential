@@ -17,9 +17,6 @@ import com.exponential.app.data.auth.ServerAccount
  */
 object PushDeepLinks {
 
-    /** Push `type` of the issue-less helpdesk reply notifications (EXP-180). */
-    const val TYPE_SUPPORT_REPLY = "support_reply"
-
     /** Push `type` of an agent's message (EXP-801) — issue-less, lives in the inbox. */
     const val TYPE_AGENT_MESSAGE = "agent_message"
 
@@ -41,7 +38,6 @@ object PushDeepLinks {
         /** EXP-933: an `agent_message` about an issue — the issue's Work
          *  screen on its Results face, where the run's report lives. */
         data class IssueResults(val id: String) : Target
-        data class SupportThread(val id: String) : Target
 
         /** The coding run a `session_blocked` push is about (EXP-980). */
         data class Session(val id: String) : Target
@@ -51,22 +47,21 @@ object PushDeepLinks {
     }
 
     /**
-     * What a tapped push should open, or null when it carries no target. An
-     * `agent_message` naming an issue (EXP-933) opens that issue's Results; one
-     * without stays in the inbox. A
-     * `session_blocked` push routes to its run; without a run id (pruned since
-     * it was sent) it still lands in the inbox, where its row lives.
+     * What a tapped push should open, or null when it carries no target. Any
+     * push naming an issue opens it — a `reporter_reply` (SLOP-4) included,
+     * it is issue-scoped like `issue_comment`. An `agent_message` naming an
+     * issue (EXP-933) opens that issue's Results; one without stays in the
+     * inbox. A `session_blocked` push routes to its run; without a run id
+     * (pruned since it was sent) it still lands in the inbox, where its row
+     * lives.
      */
     fun target(
         type: String?,
         issueId: String?,
-        threadId: String?,
         sessionId: String? = null,
     ): Target? = when {
         type == TYPE_AGENT_MESSAGE && !issueId.isNullOrEmpty() -> Target.IssueResults(issueId)
         !issueId.isNullOrEmpty() -> Target.Issue(issueId)
-        type == TYPE_SUPPORT_REPLY && !threadId.isNullOrEmpty() ->
-            Target.SupportThread(threadId)
         type == TYPE_SESSION_BLOCKED && !sessionId.isNullOrEmpty() -> Target.Session(sessionId)
         type == TYPE_SESSION_BLOCKED -> Target.Inbox
         type == TYPE_AGENT_MESSAGE -> Target.Inbox
@@ -83,7 +78,6 @@ object PushDeepLinks {
         val base = when (target) {
             is Target.Issue -> "exponential://issue/${target.id}"
             is Target.IssueResults -> "exponential://issue/${target.id}?$PARAM_FACE=$FACE_RESULTS"
-            is Target.SupportThread -> "exponential://support/${target.id}"
             is Target.Session -> "exponential://session/${target.id}"
             Target.Inbox -> "exponential://inbox"
         }

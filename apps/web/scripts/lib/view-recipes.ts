@@ -341,7 +341,7 @@ async function recipeOpenBoardSwitcher(page: Page): Promise<void> {
     throw new Error(
       `no "Switch board" control in the mobile topbar — the topbar swaps the ` +
         `board name for a section title on inbox/devices/actions/reviews/` +
-        `support/settings, so capture this view on a board route`
+        `settings, so capture this view on a board route`
     )
   }
   await trigger.first().click()
@@ -384,27 +384,6 @@ async function recipeExpandFirstDiffFile(page: Page): Promise<void> {
   }
   await card
     .locator(`[data-diff-row="hunk"]`)
-    .first()
-    .waitFor({ timeout: 30_000 })
-}
-
-// ---------------------------------------------------------------- support
-
-/**
- * Open the freshest helpdesk conversation so the right pane isn't the empty
- * state. Anchors on the reporter's closing line, which only the opened thread
- * carries — the list row shows the thread title and a snippet.
- */
-async function recipeOpenFirstThread(page: Page): Promise<void> {
-  // Visible-filtered on both ends: the mobile layout keeps the thread list in
-  // the DOM under the pushed conversation, so an unfiltered `.first()` can pick
-  // a hidden copy of the text and wait on it forever.
-  const row = page.getByText(`Emma Fischer`).filter({ visible: true })
-  await row.first().waitFor({ timeout: 30_000 })
-  await row.first().click()
-  await page
-    .getByText(`thank you for the quick turnaround`)
-    .filter({ visible: true })
     .first()
     .waitFor({ timeout: 30_000 })
 }
@@ -602,7 +581,6 @@ export const RECIPES: Record<string, Recipe> = {
   openBoardSwitcher: recipeOpenBoardSwitcher,
   openIssuePropertiesMobile: recipeOpenIssuePropertiesMobile,
   expandFirstDiffFile: recipeExpandFirstDiffFile,
-  openFirstThread: recipeOpenFirstThread,
   openMachineSettings: recipeOpenMachineSettings,
   expandFirstDevice: recipeExpandFirstDevice,
   openAddServer: recipeOpenAddServer,

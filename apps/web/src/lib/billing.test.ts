@@ -79,8 +79,6 @@ import {
   getInviteCapacity,
   resolveInviteCapacity,
   assertCanCreateWidget,
-  assertCanUseHelpdesk,
-  assertHelpdeskUsable,
   assertWithinStorageLimit,
   type PlanTier,
 } from "./billing"
@@ -569,42 +567,6 @@ describe(`assertCanCreateWidget — server-side widget-count gate`, () => {
   it(`self-hosted skips the gate`, async () => {
     cloud.value = false
     await expect(assertCanCreateWidget(WS)).resolves.toBeUndefined()
-  })
-})
-
-describe(`assertCanUseHelpdesk — server-side paid gate`, () => {
-  function seedPlan(sub: unknown[], compTier: string | null = null) {
-    selectResults.push(sub) // getTeamPlan sub lookup
-    selectResults.push([{ compTier }]) // getTeamPlan comp-tier lookup
-  }
-
-  it(`pure gate: free throws the plan-limit error, paid tiers pass`, () => {
-    expect(() => assertHelpdeskUsable(`free`)).toThrow(/Team plan/)
-    expect(() => assertHelpdeskUsable(`free`)).toThrow(
-      new RegExp(PLAN_LIMIT_MESSAGE_PREFIX)
-    )
-    expect(() => assertHelpdeskUsable(`team`)).not.toThrow()
-    expect(() => assertHelpdeskUsable(`unlimited`)).not.toThrow()
-  })
-
-  it(`free team cannot use the helpdesk`, async () => {
-    seedPlan([])
-    await expect(assertCanUseHelpdesk(WS)).rejects.toThrow(/Team plan/)
-  })
-
-  it(`team-plan team can`, async () => {
-    seedPlan([{ productId: TEAM_ID, seats: 3 }])
-    await expect(assertCanUseHelpdesk(WS)).resolves.toBeUndefined()
-  })
-
-  it(`a team comp unlocks it`, async () => {
-    seedPlan([], `team`)
-    await expect(assertCanUseHelpdesk(WS)).resolves.toBeUndefined()
-  })
-
-  it(`self-hosted skips the gate`, async () => {
-    cloud.value = false
-    await expect(assertCanUseHelpdesk(WS)).resolves.toBeUndefined()
   })
 })
 

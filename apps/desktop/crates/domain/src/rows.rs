@@ -36,11 +36,6 @@ pub struct Team {
     pub slug: Option<String>,
     #[serde(default)]
     pub icon_url: Option<String>,
-    /// EXP-180 helpdesk gate: `Some(true)` unlocks the team's Support inbox
-    /// (standalone support tickets, every member handles them). `None` on
-    /// rows synced before the column existed — treated as disabled.
-    #[serde(default, deserialize_with = "tolerant_opt_bool")]
-    pub helpdesk_enabled: Option<bool>,
     /// EXP-319 PR-open automation target: `Some(id)` pins an
     /// `issue_statuses` row; `None` = the builtin In Review default.
     #[serde(default)]
@@ -97,7 +92,6 @@ impl Team {
             name: name.into(),
             slug,
             icon_url: None,
-            helpdesk_enabled: None,
             pr_opened_status_id: None,
             pr_opened_automation: None,
             pr_merged_status_id: None,
@@ -481,8 +475,16 @@ pub struct Comment {
     #[serde(default)]
     pub parent_id: Option<String>,
     /// EXP-741: `user` | `mcp` — an agent posted it over MCP ("via MCP").
+    /// SLOP-4: `reporter` — a widget reporter wrote it from the reporter
+    /// page (`author_id` NULL; the card names the submission's reporter).
     #[serde(default)]
     pub source: Option<String>,
+    /// SLOP-4: `team` | `reporter` (contract `commentAudience`) — whether
+    /// the comment left the team (emailed to the widget reporter, shown on
+    /// the reporter page). Missing/NULL (pre-column store rows) reads as
+    /// `team`, the server default.
+    #[serde(default = "default_comment_audience", deserialize_with = "comment_audience")]
+    pub audience: String,
     /// GFM markdown (the cross-client interchange contract).
     #[serde(default)]
     pub body: Option<String>,
@@ -492,6 +494,35 @@ pub struct Comment {
     pub created_at: Option<String>,
     #[serde(default)]
     pub updated_at: Option<String>,
+}
+
+fn default_comment_audience() -> String {
+    crate::contract::COMMENT_AUDIENCE_TEAM.to_string()
+}
+
+/// `audience` hydrates tolerantly: a missing key, an explicit `null` (a
+/// store row healed before its refetch landed) or an empty string all read
+/// as `team`.
+fn comment_audience<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value: Option<String> = Option::deserialize(deserializer)?;
+    Ok(value
+        .filter(|audience| !audience.is_empty())
+        .unwrap_or_else(default_comment_audience))
+}
+
+impl Comment {
+    /// SLOP-4: a widget reporter's own words (source `reporter`, no author).
+    pub fn is_from_reporter(&self) -> bool {
+        self.source.as_deref() == Some(crate::contract::COMMENT_SOURCE_REPORTER)
+    }
+
+    /// SLOP-4: a member's comment that was emailed to the reporter.
+    pub fn is_to_reporter(&self) -> bool {
+        self.audience == crate::contract::COMMENT_AUDIENCE_REPORTER
+    }
 }
 
 /// `attachments` shape row.
@@ -542,9 +573,11 @@ pub struct Notification {
     pub user_id: String,
     #[serde(default)]
     pub issue_id: Option<String>,
-    /// EXP-180: set on issue-less `support_reply` rows (the ticket's team) so
-    /// the inbox can group helpdesk activity per team; NULL on issue-anchored
-    /// rows (their team resolves via the issue) and on pre-column rows.
+    /// Set on issue-less `agent_message` (EXP-801) and `session_blocked`
+    /// (EXP-980) rows so the inbox row can name the team; NULL on
+    /// issue-anchored rows (their team resolves via the issue) and on
+    /// pre-column rows. SLOP-4: the helpdesk's `support_reply` rows are gone
+    /// — `reporter_reply` is issue-scoped like `issue_comment`.
     #[serde(default)]
     pub team_id: Option<String>,
     /// EXP-980: set on issue-less `session_blocked` rows (the run that hit a
@@ -1599,32 +1632,17 @@ mod tests {
     }
 
     #[test]
-    fn team_helpdesk_enabled_hydrates_tolerantly() {
-        // SQLite TEXT store form ("t"/"f") — the tolerant opt-bool path.
+    fn team_tolerates_a_dropped_helpdesk_column() {
+        // SLOP-4: `helpdesk_enabled` left the teams shape (the helpdesk is
+        // gone). A pre-SLOP-4 store row still carries the orphaned column —
+        // it must decode, the stale key simply ignored.
         let team: Team = serde_json::from_value(json!({
             "id": "w-1",
             "name": "Acme",
             "helpdesk_enabled": "t"
         }))
         .unwrap();
-        assert_eq!(team.helpdesk_enabled, Some(true));
-
-        // Bare wire bool works too.
-        let team: Team = serde_json::from_value(json!({
-            "id": "w-2",
-            "name": "Beta",
-            "helpdesk_enabled": false
-        }))
-        .unwrap();
-        assert_eq!(team.helpdesk_enabled, Some(false));
-
-        // Pre-column rows degrade to None (disabled), never a dropped row.
-        let team: Team = serde_json::from_value(json!({
-            "id": "w-3",
-            "name": "Legacy"
-        }))
-        .unwrap();
-        assert_eq!(team.helpdesk_enabled, None);
+        assert_eq!(team.name, "Acme");
     }
 
     #[test]
@@ -1707,20 +1725,20 @@ mod tests {
 
     #[test]
     fn notification_team_id_hydrates_and_degrades_to_none() {
-        // EXP-180: an issue-less support_reply row carries the ticket's team.
+        // EXP-801: an issue-less agent_message row carries its team.
         let n: Notification = serde_json::from_value(json!({
             "id": "n-1",
             "user_id": "u-1",
             "issue_id": null,
             "team_id": "w-1",
-            "type": "support_reply",
-            "title": "Reporter replied",
-            "body": "Thanks, that fixed it!"
+            "type": "agent_message",
+            "title": "Your agent",
+            "body": "Done with the batch."
         }))
         .unwrap();
         assert_eq!(n.issue_id, None);
         assert_eq!(n.team_id.as_deref(), Some("w-1"));
-        assert_eq!(n.kind.as_deref(), Some("support_reply"));
+        assert_eq!(n.kind.as_deref(), Some("agent_message"));
 
         // Issue-anchored / pre-column rows degrade to None, never a drop.
         let n: Notification = serde_json::from_value(json!({

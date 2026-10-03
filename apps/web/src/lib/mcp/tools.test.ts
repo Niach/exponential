@@ -13,7 +13,7 @@ import { PgDialect } from "drizzle-orm/pg-core"
 // factories below can reference it without TDZ errors.
 const h = vi.hoisted(() => {
   const caller = {
-    comments: { update: vi.fn(), delete: vi.fn() },
+    comments: { create: vi.fn(), update: vi.fn(), delete: vi.fn() },
     subscriptions: { subscribe: vi.fn(), unsubscribe: vi.fn() },
     notifications: { markRead: vi.fn(), markAllRead: vi.fn() },
     repositories: {
@@ -50,15 +50,6 @@ const h = vi.hoisted(() => {
     // EXP-660: the deferred families.
     statuses: { create: vi.fn(), update: vi.fn(), delete: vi.fn() },
     steer: { killSession: vi.fn(), startSession: vi.fn() },
-    helpdesk: {
-      listThreads: vi.fn(),
-      getThread: vi.fn(),
-      reply: vi.fn(),
-      note: vi.fn(),
-      close: vi.fn(),
-      reopen: vi.fn(),
-      escalate: vi.fn(),
-    },
   }
 
   // A chainable, thenable drizzle query stub. Every builder method returns the
@@ -425,10 +416,8 @@ const REPO = `44444444-4444-4444-4444-444444444444`
 const INV = `55555555-5555-5555-5555-555555555555`
 // EXP-660 fixtures.
 const STATUS = `77777777-7777-7777-7777-777777777777`
-const THREAD = `88888888-8888-8888-8888-888888888888`
 const AUTO = `99999999-9999-9999-9999-999999999999`
 const RUN = `66666666-6666-6666-6666-666666666666`
-const HELPDESK_ROWS = [{ teamId: WS, helpdeskEnabled: true }]
 
 const forbidden = () =>
   new TRPCError({ code: `FORBIDDEN`, message: `not allowed here` })
@@ -475,6 +464,25 @@ type Descriptor = {
 }
 
 const descriptors: Array<Descriptor> = [
+  // SLOP-4: `audience` rides through to the router; the result carries the
+  // comment plus `reporterEmailed` (null = a team comment).
+  {
+    tool: `exponential_comments_create`,
+    pick: () => caller.comments.create,
+    args: { issueId: UUID, body: `We shipped a fix.`, audience: `reporter` },
+    resolved: {
+      comment: { id: UUID, body: `We shipped a fix.`, audience: `reporter` },
+      reporterEmailed: true,
+      txId: 1,
+    },
+    expected: {
+      id: UUID,
+      body: `We shipped a fix.`,
+      audience: `reporter`,
+      reporterEmailed: true,
+    },
+    calledWith: { issueId: UUID, body: `We shipped a fix.`, audience: `reporter` },
+  },
   {
     tool: `exponential_comments_update`,
     pick: () => caller.comments.update,
@@ -708,80 +716,6 @@ const descriptors: Array<Descriptor> = [
     },
     expected: { ok: true, id: RUN, status: `ended`, endedAt: null },
     calledWith: { sessionId: RUN },
-  },
-  // ── EXP-660: helpdesk (registered under the default gates) ──
-  {
-    tool: `exponential_helpdesk_threads_list`,
-    pick: () => caller.helpdesk.listThreads,
-    rows: [{ helpdeskEnabled: true }],
-    args: { teamId: WS, filter: `open`, limit: 50 },
-    resolved: [{ id: THREAD, title: `Login broken` }],
-    expected: [{ id: THREAD, title: `Login broken` }],
-    calledWith: { teamId: WS, filter: `open`, limit: 50 },
-  },
-  {
-    tool: `exponential_helpdesk_threads_get`,
-    pick: () => caller.helpdesk.getThread,
-    rows: HELPDESK_ROWS,
-    args: { id: THREAD },
-    resolved: { thread: { id: THREAD }, messages: [], linkedIssue: null },
-    expected: { thread: { id: THREAD }, messages: [], linkedIssue: null },
-    calledWith: { threadId: THREAD },
-  },
-  {
-    tool: `exponential_helpdesk_reply`,
-    pick: () => caller.helpdesk.reply,
-    rows: HELPDESK_ROWS,
-    args: { id: THREAD, body: `On it.` },
-    resolved: {
-      message: { id: UUID },
-      reporterEmailed: true,
-      reporterViewing: false,
-      reopened: false,
-    },
-    expected: {
-      message: { id: UUID },
-      reporterEmailed: true,
-      reporterViewing: false,
-      reopened: false,
-    },
-    calledWith: { threadId: THREAD, body: `On it.` },
-  },
-  {
-    tool: `exponential_helpdesk_note`,
-    pick: () => caller.helpdesk.note,
-    rows: HELPDESK_ROWS,
-    args: { id: THREAD, body: `internal` },
-    resolved: { message: { id: UUID, visibility: `internal` } },
-    expected: { id: UUID, visibility: `internal` },
-    calledWith: { threadId: THREAD, body: `internal` },
-  },
-  {
-    tool: `exponential_helpdesk_close`,
-    pick: () => caller.helpdesk.close,
-    rows: HELPDESK_ROWS,
-    args: { id: THREAD },
-    resolved: { ok: true },
-    expected: { ok: true, id: THREAD },
-    calledWith: { threadId: THREAD },
-  },
-  {
-    tool: `exponential_helpdesk_reopen`,
-    pick: () => caller.helpdesk.reopen,
-    rows: HELPDESK_ROWS,
-    args: { id: THREAD },
-    resolved: { ok: true },
-    expected: { ok: true, id: THREAD },
-    calledWith: { threadId: THREAD },
-  },
-  {
-    tool: `exponential_helpdesk_escalate`,
-    pick: () => caller.helpdesk.escalate,
-    rows: HELPDESK_ROWS,
-    args: { id: THREAD, boardId: PROJ, title: `Login broken` },
-    resolved: { issue: { id: UUID, identifier: `EXP-9` }, txId: 1 },
-    expected: { id: UUID, identifier: `EXP-9` },
-    calledWith: { threadId: THREAD, boardId: PROJ, title: `Login broken` },
   },
 ]
 
@@ -1318,7 +1252,6 @@ describe(`exponential_teams_get`, () => {
       `createdAt`,
       `endSessionsOnMerge`,
       `estimationType`,
-      `helpdeskEnabled`,
       `iconUrl`,
       `id`,
       `name`,
@@ -1904,6 +1837,14 @@ describe(`exponential_issues_list filters (EXP-684)`, () => {
     expect(sql).toMatch(
       /not exists \(select 1 from "issue_labels" where "issue_labels"\."issue_id" = "issues"\."id"\)/
     )
+  })
+
+  // SLOP-4: widget-filed reports vs member-created issues.
+  it(`filters by source`, async () => {
+    await list({ boardId: PROJ, source: `widget` })
+    const { sql, params } = whereSql()
+    expect(sql).toContain(`"source" = `)
+    expect(params).toContain(`widget`)
   })
 
   it(`filters custom statuses by row id and by category`, async () => {
@@ -2540,7 +2481,7 @@ const SESSION = `66666666-6666-4666-8666-666666666666`
 describe(`exponential_sessions_end`, () => {
   // EXP-679: the tool only registers for an unattended run, so these cases
   // hand in the gate the route would have resolved for one.
-  const UNATTENDED = { helpdesk: true, sessionsEnd: true, askParent: false, sessionResults: true }
+  const UNATTENDED = { sessionsEnd: true, askParent: false, sessionResults: true }
 
   it(`refuses outside a launched session, naming the missing header`, async () => {
     const result = await collectTools(USER, null, UNATTENDED).get(
@@ -2616,7 +2557,6 @@ describe(`exponential_sessions_end`, () => {
   // there, and a close-out would end a conversation they are still having.
   it(`is not registered for a person-started session`, async () => {
     const tools = collectTools(USER, SESSION, {
-      helpdesk: true,
       sessionsEnd: false,
       askParent: false,
       sessionResults: true,
@@ -2639,7 +2579,7 @@ describe(`exponential_sessions_end`, () => {
 // ── EXP-700: the child's ask rail ────────────────────────────────────────────
 describe(`exponential_sessions_ask_parent`, () => {
   const PARENT = `77777777-7777-4777-8777-777777777777`
-  const AGENT_CHILD = { helpdesk: true, sessionsEnd: true, askParent: true, sessionResults: true }
+  const AGENT_CHILD = { sessionsEnd: true, askParent: true, sessionResults: true }
   const RELAY = { url: `https://relay.test`, secret: `s` }
 
   // The row loadChildParentContext's one select serves: the child, its issue
@@ -2658,7 +2598,6 @@ describe(`exponential_sessions_ask_parent`, () => {
 
   it(`is not registered without its gate`, () => {
     const tools = collectTools(USER, SESSION, {
-      helpdesk: true,
       sessionsEnd: true,
       askParent: false,
       sessionResults: true,
@@ -2748,7 +2687,7 @@ describe(`exponential_sessions_ask_parent`, () => {
 
 // ── EXP-1089 / EXP-1065: `to: 'user'` from any run, the question on the row ──
 describe(`exponential_sessions_ask_parent — to: 'user' (EXP-1089)`, () => {
-  const OWN_RUN = { helpdesk: true, sessionsEnd: false, askParent: true, sessionResults: true }
+  const OWN_RUN = { sessionsEnd: false, askParent: true, sessionResults: true }
 
   const childRow = (over: Record<string, unknown> = {}) => ({
     id: SESSION,
@@ -2828,7 +2767,6 @@ describe(`exponential_sessions_results`, () => {
   // Any run of the caller's gets the tool — attended included, unlike the
   // close-out.
   const OWN_RUN = {
-    helpdesk: true,
     sessionsEnd: false,
     askParent: false,
     sessionResults: true,
@@ -2882,7 +2820,6 @@ describe(`exponential_sessions_results`, () => {
   it(`is not registered without its gate`, () => {
     expect(
       collectTools(USER, SESSION, {
-        helpdesk: true,
         sessionsEnd: true,
         askParent: true,
         sessionResults: false,
@@ -5236,69 +5173,6 @@ describe(`exponential_actions_update triggers`, () => {
   })
 })
 
-describe(`exponential_helpdesk_* gating`, () => {
-  const HELPDESK_TOOLS = [
-    `exponential_helpdesk_threads_list`,
-    `exponential_helpdesk_threads_get`,
-    `exponential_helpdesk_reply`,
-    `exponential_helpdesk_note`,
-    `exponential_helpdesk_close`,
-    `exponential_helpdesk_reopen`,
-    `exponential_helpdesk_escalate`,
-  ]
-
-  it(`registers the whole family under the default gates and none when off`, () => {
-    for (const name of HELPDESK_TOOLS) expect(tools.has(name)).toBe(true)
-    const off = collectTools(USER, null, {
-      helpdesk: false,
-      sessionsEnd: false,
-      askParent: false,
-      sessionResults: true,
-    })
-    for (const name of [...off.keys()]) {
-      expect(name.startsWith(`exponential_helpdesk_`)).toBe(false)
-    }
-    // Everything else is untouched by the gate.
-    expect(off.has(`exponential_sessions_start`)).toBe(true)
-  })
-
-  it(`refuses a thread of a team with helpdesk switched off`, async () => {
-    dbRows.current = [{ teamId: WS, helpdeskEnabled: false }]
-    const result = await tool(`exponential_helpdesk_reply`)({ id: THREAD, body: `hi` })
-    expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain(`not enabled`)
-    expect(caller.helpdesk.reply).not.toHaveBeenCalled()
-  })
-
-  it(`refuses listing for a team with helpdesk switched off`, async () => {
-    dbRows.current = [{ helpdeskEnabled: false }]
-    const result = await tool(`exponential_helpdesk_threads_list`)({
-      teamId: WS,
-      filter: `open`,
-      limit: 50,
-    })
-    expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain(`not enabled`)
-    expect(caller.helpdesk.listThreads).not.toHaveBeenCalled()
-  })
-
-  it(`reports an unknown thread as not found`, async () => {
-    dbRows.current = []
-    const result = await tool(`exponential_helpdesk_close`)({ id: THREAD })
-    expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain(`Thread not found`)
-  })
-
-  it(`requires a FULL grant on the thread's team even for reads`, async () => {
-    dbRows.current = [{ teamId: PROJ, helpdeskEnabled: true }]
-    const result = await collectTools(USER, null, ALL_MCP_TOOL_GATES, SCOPED_TO_WS).get(
-      `exponential_helpdesk_threads_get`
-    )!({ threadId: THREAD })
-    expect(result.isError).toBe(true)
-    expect(caller.helpdesk.getThread).not.toHaveBeenCalled()
-  })
-})
-
 // EXP-846: the drift gate between the REGISTERED tool surface and the
 // contract's display rows. A feed row captions an Exponential tool call from
 // `expToolDisplay` (`lib/agent-feed.ts` + the three native mirrors), so a tool
@@ -5537,7 +5411,7 @@ describe(`exponential_pr_open — a follow-up run based on its parent's branch`,
 })
 
 describe(`exponential_sessions_ask_parent — targets`, () => {
-  const AGENT_CHILD = { helpdesk: true, sessionsEnd: true, askParent: true, sessionResults: true }
+  const AGENT_CHILD = { sessionsEnd: true, askParent: true, sessionResults: true }
   const RELAY = { url: `https://relay.test`, secret: `s` }
   const PARENT = `77777777-7777-4777-8777-777777777777`
 

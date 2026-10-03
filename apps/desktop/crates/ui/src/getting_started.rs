@@ -8,13 +8,13 @@
 //! Same entries, same order, same role gating, same lock chain and the same
 //! titles/descriptions as the web (`getting-started-model.ts` +
 //! `getting-started-cards.tsx`): desktop → github → invite → board → coding →
-//! action → server → widget → helpdesk → mcp. Only the CTAs differ where the
+//! action → server → widget → mcp. Only the CTAs differ where the
 //! platform must (a dialog instead of a route; owner-only web settings pages
 //! open in the browser). `derive_entries` is the byte-for-byte mirror of the
 //! web `deriveEntryStates` — change both together.
 //!
-//! Signals: boards / coding sessions / actions / members / invites / the
-//! team's helpdesk flag are live synced collections; the GitHub install
+//! Signals: boards / coding sessions / actions / members / invites are live
+//! synced collections; the GitHub install
 //! state, the device registry, the owner-only widget list and the MCP
 //! grant/key pair are tRPC one-shots. They live in ONE app-global
 //! [`GettingStartedProgress`] entity shared by the rail entry and the page,
@@ -92,7 +92,7 @@ pub(crate) mod copy {
     pub const GITHUB_ACTION: &str = "Connect GitHub";
 
     pub const INVITE_TITLE: &str = "Invite your team";
-    pub const INVITE_DESCRIPTION: &str = "Teammates share boards, reviews, and the support inbox.";
+    pub const INVITE_DESCRIPTION: &str = "Teammates share boards, reviews, and the inbox.";
     pub const INVITE_ACTION: &str = "Invite in team settings";
 
     pub const BOARD_TITLE: &str = "Create a board";
@@ -115,10 +115,6 @@ pub(crate) mod copy {
     pub const WIDGET_DESCRIPTION: &str = "Visitors report bugs with an annotated screenshot; each lands here as an issue.";
     pub const WIDGET_ACTION: &str = "Set up in team settings";
 
-    pub const HELPDESK_TITLE: &str = "Enable the helpdesk";
-    pub const HELPDESK_DESCRIPTION: &str = "Support tickets from the widget land in a shared Support inbox.";
-    pub const HELPDESK_ACTION: &str = "Enable in team settings";
-
     pub const MCP_TITLE: &str = "Connect your tools via MCP";
     pub const MCP_DESCRIPTION: &str = "Work with issues, boards, and comments from Claude, Cursor, or any MCP client.";
 }
@@ -137,7 +133,6 @@ pub(crate) enum EntryKey {
     Action,
     Server,
     Widget,
-    Helpdesk,
     Mcp,
 }
 
@@ -166,8 +161,6 @@ pub(crate) struct Signals {
     pub has_coding_session: bool,
     /// Any synced `actions` row in the team (the builtins are not rows).
     pub has_action: bool,
-    /// The team row's helpdesk switch.
-    pub helpdesk_enabled: bool,
     /// widgets.list non-empty (owner-only signal).
     pub has_widget: bool,
     /// An MCP OAuth grant exists OR the user holds a personal API key.
@@ -203,11 +196,11 @@ pub(crate) struct Entry {
 }
 
 /// Web `deriveEntryStates`, statement for statement. Static order desktop →
-/// github → invite → board → coding → action → server → widget → helpdesk →
-/// mcp; completion always wins over locking (a signal that exists proves the
-/// prereq was satisfiable); invite is for `can_manage_members`, action +
-/// helpdesk for owners, widget for `can_manage_widgets` — the others neither
-/// see those entries nor count them in the total.
+/// github → invite → board → coding → action → server → widget → mcp;
+/// completion always wins over locking (a signal that exists proves the
+/// prereq was satisfiable); invite is for `can_manage_members`, action for
+/// owners, widget for `can_manage_widgets` — the others neither see those
+/// entries nor count them in the total. (SLOP-4: the helpdesk step is gone.)
 pub(crate) fn derive_entries(signals: &Signals, gates: Gates) -> Vec<Entry> {
     let simple = |key, done| Entry {
         key,
@@ -218,7 +211,7 @@ pub(crate) fn derive_entries(signals: &Signals, gates: Gates) -> Vec<Entry> {
         },
         locked_by: None,
     };
-    let mut entries = Vec::with_capacity(10);
+    let mut entries = Vec::with_capacity(9);
 
     entries.push(simple(EntryKey::Desktop, signals.has_desktop_device));
     entries.push(simple(EntryKey::Github, signals.github_installed));
@@ -278,10 +271,6 @@ pub(crate) fn derive_entries(signals: &Signals, gates: Gates) -> Vec<Entry> {
                 locked_by: Some(EntryKey::Board),
             }
         });
-    }
-
-    if gates.is_owner {
-        entries.push(simple(EntryKey::Helpdesk, signals.helpdesk_enabled));
     }
 
     entries.push(simple(EntryKey::Mcp, signals.mcp_connected));
@@ -573,12 +562,6 @@ impl GettingStartedProgress {
             .read(cx)
             .iter()
             .any(|invite| invite.team_id == team_id);
-        let helpdesk_enabled = collections
-            .teams
-            .read(cx)
-            .get(team_id)
-            .and_then(|team| team.helpdesk_enabled)
-            == Some(true);
         let answers = self.teams.get(team_id);
         let (has_desktop_device, has_server_device) =
             Self::device_kinds(cx).unwrap_or((false, false));
@@ -591,7 +574,6 @@ impl GettingStartedProgress {
             has_repo_board: boards.iter().any(|board| board.repository_id.is_some()),
             has_coding_session,
             has_action,
-            helpdesk_enabled,
             has_widget: answers.and_then(|a| a.has_widget) == Some(true),
             mcp_connected: self.mcp_connected == Some(true),
         }
@@ -744,11 +726,6 @@ pub(crate) fn entry_card(
             copy::WIDGET_TITLE,
             copy::WIDGET_DESCRIPTION,
         ),
-        EntryKey::Helpdesk => (
-            registry::NAV_SUPPORT,
-            copy::HELPDESK_TITLE,
-            copy::HELPDESK_DESCRIPTION,
-        ),
         EntryKey::Mcp => (registry::UI_MCP, copy::MCP_TITLE, copy::MCP_DESCRIPTION),
     };
     let locked = !loading && entry.state == EntryState::Locked;
@@ -841,7 +818,7 @@ pub(crate) fn entry_card(
 
 /// The per-entry call to action. Where the web links a route, the desktop
 /// opens the matching dialog/settings section; the owner-only web-only
-/// settings pages (widget, helpdesk) open in the browser. Labels are the
+/// settings page (widget) opens in the browser. Labels are the
 /// shared [`copy`] contract.
 fn entry_cta(
     index: usize,
@@ -953,22 +930,6 @@ fn entry_cta(
                     window,
                     cx,
                     crate::settings::SettingsSection::Widget,
-                );
-            })
-            .into_any_element(),
-        EntryKey::Helpdesk => Button::new(("gs-cta-helpdesk", index))
-            .primary().web_sm()
-            .label(copy::HELPDESK_ACTION)
-            .on_click(|_, window, cx| {
-                crate::navigation::navigate(
-                    window,
-                    cx,
-                    crate::navigation::Screen::Settings,
-                );
-                crate::sidebar::select_settings_section(
-                    window,
-                    cx,
-                    crate::settings::SettingsSection::Helpdesk,
                 );
             })
             .into_any_element(),
@@ -1433,7 +1394,6 @@ mod tests {
             has_repo_board: true,
             has_coding_session: true,
             has_action: true,
-            helpdesk_enabled: true,
             has_widget: true,
             mcp_connected: true,
         }
@@ -1469,9 +1429,6 @@ mod tests {
         ("WIDGET_TITLE", copy::WIDGET_TITLE),
         ("WIDGET_DESCRIPTION", copy::WIDGET_DESCRIPTION),
         ("WIDGET_ACTION", copy::WIDGET_ACTION),
-        ("HELPDESK_TITLE", copy::HELPDESK_TITLE),
-        ("HELPDESK_DESCRIPTION", copy::HELPDESK_DESCRIPTION),
-        ("HELPDESK_ACTION", copy::HELPDESK_ACTION),
         ("MCP_TITLE", copy::MCP_TITLE),
         ("MCP_DESCRIPTION", copy::MCP_DESCRIPTION),
     ];
@@ -1526,7 +1483,7 @@ mod tests {
             .collect();
         assert_eq!(keys.first(), Some(&EntryKey::Github));
         assert!(!keys.contains(&EntryKey::Desktop));
-        assert_eq!(keys.len(), 9);
+        assert_eq!(keys.len(), 8);
         let mut done = all_done();
         done.has_desktop_device = false;
         assert!(is_complete(&ide_entries(derive_entries(&done, OWNER))));
@@ -1549,7 +1506,6 @@ mod tests {
                 EntryKey::Action,
                 EntryKey::Server,
                 EntryKey::Widget,
-                EntryKey::Helpdesk,
                 EntryKey::Mcp,
             ]
         );
@@ -1578,7 +1534,7 @@ mod tests {
     fn everything_starts_undone_with_the_web_locks() {
         let none = Signals::default();
         let entries = derive_entries(&none, OWNER);
-        assert_eq!(entries.len(), 10);
+        assert_eq!(entries.len(), 9);
         assert!(entries.iter().all(|entry| entry.state != EntryState::Done));
         let coding = entry(&none, OWNER, EntryKey::Coding).unwrap();
         assert_eq!((coding.state, coding.locked_by), (EntryState::Locked, Some(EntryKey::Desktop)));
@@ -1586,7 +1542,7 @@ mod tests {
         assert_eq!((action.state, action.locked_by), (EntryState::Locked, Some(EntryKey::Desktop)));
         let widget = entry(&none, OWNER, EntryKey::Widget).unwrap();
         assert_eq!((widget.state, widget.locked_by), (EntryState::Locked, Some(EntryKey::Board)));
-        assert_eq!(entry(&none, OWNER, EntryKey::Helpdesk).unwrap().state, EntryState::Available);
+        assert_eq!(entry(&none, OWNER, EntryKey::Mcp).unwrap().state, EntryState::Available);
     }
 
     #[test]
@@ -1676,7 +1632,6 @@ mod tests {
             has_board: true,
             has_repo_board: true,
             has_coding_session: true,
-            helpdesk_enabled: true,
             mcp_connected: true,
             ..Signals::default()
         };
@@ -1687,8 +1642,8 @@ mod tests {
                 entries.len(),
             )
         };
-        // Owner: action + server + widget open → 7/10; member: server open → 5/6.
-        assert_eq!(count(OWNER), (7, 10));
+        // Owner: action + server + widget open → 6/9; member: server open → 5/6.
+        assert_eq!(count(OWNER), (6, 9));
         assert_eq!(count(MEMBER), (5, 6));
     }
 

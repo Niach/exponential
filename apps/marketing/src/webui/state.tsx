@@ -6,12 +6,12 @@ import type { Issue } from "../ide/data"
 import type { DemoAgent } from "./data"
 
 /* Embedding views the docs can request. */
-export type WebView = `board` | `issue` | `run` | `inbox` | `support` | `agent`
+export type WebView = `board` | `issue` | `run` | `inbox` | `agent`
 
 /* Sidebar nav targets that actually switch the main pane. Devices, Actions
    and Reviews render for fidelity but stay inert — the demo keeps
    only the panes that carry a full recreation. */
-export type WebNav = `board` | `inbox` | `support` | `agent`
+export type WebNav = `board` | `inbox` | `agent`
 
 /* My Issues is a TAB of the Inbox page (EXP-186, `?tab=my-issues`), never a
    route or a sidebar entry. */
@@ -60,12 +60,6 @@ export type WebApi = {
   inboxRead: Set<string>
   markInboxRead: (id: string) => void
   markAllInboxRead: () => void
-
-  selectedThreadId: string | null
-  selectThread: (id: string) => void
-  threadFilter: `open` | `resolved`
-  setThreadFilter: (filter: `open` | `resolved`) => void
-  threadRead: Set<string>
 }
 
 export const WebContext = createContext<WebApi | null>(null)

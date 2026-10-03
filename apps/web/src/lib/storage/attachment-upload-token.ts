@@ -16,7 +16,7 @@ import crypto from "node:crypto"
 // token just expires.
 //
 // Same HMAC construction as the app's other BETTER_AUTH_SECRET users, with its
-// own domain-separation context (helpdesk/token.ts documents the family).
+// own domain-separation context (reporter/token.ts documents the family).
 const CONTEXT = `exp-attachment-upload:v1:`
 
 export const ATTACHMENT_UPLOAD_TOKEN_TTL_MS = 10 * 60 * 1000

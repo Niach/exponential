@@ -42,9 +42,6 @@ public struct TeamEntity: FetchableRecord, PersistableRecord, Identifiable, Send
     public let name: String
     public let slug: String
     public let iconUrl: String?
-    // Team-level helpdesk switch (EXP-180): when true, every member sees the
-    // Support inbox (standalone tickets via the helpdesk tRPC router).
-    public let helpdeskEnabled: Bool
     /// EXP-1105 yolo mode: PRs auto-merge, so the Reviews tab hides unless
     /// an open PR (= a failed auto-merge) is waiting.
     public let yoloMode: Bool
@@ -59,7 +56,6 @@ public struct TeamEntity: FetchableRecord, PersistableRecord, Identifiable, Send
         name: String,
         slug: String,
         iconUrl: String?,
-        helpdeskEnabled: Bool = false,
         yoloMode: Bool = false,
         estimationType: String? = nil,
         createdAt: String,
@@ -69,7 +65,6 @@ public struct TeamEntity: FetchableRecord, PersistableRecord, Identifiable, Send
         self.name = name
         self.slug = slug
         self.iconUrl = iconUrl
-        self.helpdeskEnabled = helpdeskEnabled
         self.yoloMode = yoloMode
         self.estimationType = estimationType
         self.createdAt = createdAt
@@ -83,7 +78,6 @@ public struct TeamEntity: FetchableRecord, PersistableRecord, Identifiable, Send
     enum CodingKeys: String, CodingKey {
         case id, name, slug
         case iconUrl = "icon_url"
-        case helpdeskEnabled = "helpdesk_enabled"
         case yoloMode = "yolo_mode"
         case estimationType = "estimation_type"
         case createdAt = "created_at"
@@ -91,8 +85,8 @@ public struct TeamEntity: FetchableRecord, PersistableRecord, Identifiable, Send
     }
 }
 
-// Custom decode: `helpdesk_enabled` arrives as Postgres text off the Electric
-// wire ("t"/"true"/…) but as a native scalar from tRPC/fixtures, and a
+// Custom decode: `yolo_mode` arrives as Postgres text off the Electric wire
+// ("t"/"true"/…) but as a native scalar from tRPC/fixtures, and a
 // pre-rotation snapshot may omit it — decode permissively with the schema
 // default (the BoardEntity wire-bool precedent).
 extension TeamEntity: Codable {
@@ -102,7 +96,6 @@ extension TeamEntity: Codable {
         name = try c.decode(String.self, forKey: .name)
         slug = try c.decode(String.self, forKey: .slug)
         iconUrl = try c.decodeIfPresent(String.self, forKey: .iconUrl)
-        helpdeskEnabled = c.decodeWireBool(forKey: .helpdeskEnabled, default: false)
         yoloMode = c.decodeWireBool(forKey: .yoloMode, default: false)
         estimationType = try c.decodeIfPresent(String.self, forKey: .estimationType)
         createdAt = try c.decode(String.self, forKey: .createdAt)
@@ -605,7 +598,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
 // Custom decode: `needs_input` arrives as Postgres text off the Electric wire
 // ("t"/"f") but as a native scalar from fixtures, and a pre-rotation snapshot
 // may omit it — decode permissively with the schema default (the TeamEntity
-// `helpdesk_enabled` precedent).
+// `yolo_mode` precedent).
 extension CodingSessionEntity: Codable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -1358,7 +1351,9 @@ public struct CommentEntity: FetchableRecord, PersistableRecord, Identifiable, S
     public let id: String
     public let issueId: String
     public let teamId: String
-    public let authorId: String
+    /// NULLABLE (SLOP-4): a widget reporter's reply (`source` reporter) has
+    /// no member author, and the FK is SET NULL on account deletion.
+    public let authorId: String?
     // Plain GFM markdown (was jsonb `{ text }`) — stored and rendered verbatim.
     public let body: String?
     public let kind: String
@@ -1368,24 +1363,35 @@ public struct CommentEntity: FetchableRecord, PersistableRecord, Identifiable, S
     /// EXP-741: the top-level comment this one replies to (one level deep);
     /// nil = a top-level card.
     public let parentId: String?
-    /// EXP-741: `user` | `mcp` — an agent posted it over MCP ("via MCP").
+    /// EXP-741: `user` | `mcp` — an agent posted it over MCP ("via MCP");
+    /// SLOP-4: `reporter` — the widget reporter answered from their page.
     public let source: String?
+    /// SLOP-4: `team` | `reporter` — who the words were for. A member's
+    /// `reporter` comment was emailed to the reporter ("to reporter").
+    public let audience: String
 
     public var commentKind: CommentKind { CommentKind(rawString: kind) }
     public var isViaMcp: Bool { source == DomainContract.commentSourceMcp }
+    /// The reporter wrote it (author NULL, named after the submission).
+    public var isFromReporter: Bool { source == DomainContract.commentSourceReporter }
+    /// A member wrote it FOR the reporter (the words left the team).
+    public var isToReporter: Bool {
+        !isFromReporter && audience == DomainContract.commentAudienceReporter
+    }
 
     public init(
         id: String,
         issueId: String,
         teamId: String,
-        authorId: String,
+        authorId: String?,
         body: String?,
         kind: String,
         editedAt: String?,
         createdAt: String,
         updatedAt: String,
         parentId: String? = nil,
-        source: String? = nil
+        source: String? = nil,
+        audience: String = DomainContract.commentAudienceTeam
     ) {
         self.id = id
         self.issueId = issueId
@@ -1398,10 +1404,11 @@ public struct CommentEntity: FetchableRecord, PersistableRecord, Identifiable, S
         self.updatedAt = updatedAt
         self.parentId = parentId
         self.source = source
+        self.audience = audience
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, body, kind, source
+        case id, body, kind, source, audience
         case parentId = "parent_id"
         case issueId = "issue_id"
         case teamId = "team_id"
@@ -1421,7 +1428,7 @@ extension CommentEntity: Codable {
         id = try container.decode(String.self, forKey: .id)
         issueId = try container.decode(String.self, forKey: .issueId)
         teamId = try container.decode(String.self, forKey: .teamId)
-        authorId = try container.decode(String.self, forKey: .authorId)
+        authorId = try container.decodeIfPresent(String.self, forKey: .authorId)
         body = try container.decodeIfPresent(String.self, forKey: .body)
         kind = (try? container.decodeIfPresent(String.self, forKey: .kind)) ?? "regular"
         editedAt = try container.decodeIfPresent(String.self, forKey: .editedAt)
@@ -1431,6 +1438,9 @@ extension CommentEntity: Codable {
         // them is a top-level, person-written comment.
         parentId = try? container.decodeIfPresent(String.self, forKey: .parentId)
         source = try? container.decodeIfPresent(String.self, forKey: .source)
+        // SLOP-4: absent from a pre-rotation snapshot — a team comment.
+        audience = (try? container.decodeIfPresent(String.self, forKey: .audience))
+            ?? DomainContract.commentAudienceTeam
     }
 }
 
@@ -1559,16 +1569,16 @@ public struct NotificationEntity: Codable, FetchableRecord, PersistableRecord, I
     public let id: String
     public let userId: String
     public let issueId: String?
-    // Set on issue-less support_reply / session_blocked rows (the ticket's
+    // Set on issue-less agent_message / session_blocked rows (the message's
     // resp. the run's team); NULL on issue-anchored rows (their team resolves
-    // through the issue).
+    // through the issue). SLOP-4: a reporter_reply is issue-anchored.
     public let teamId: String?
     /// EXP-980: the run a `session_blocked` row is about — the inbox row's tap
     /// target. NULL once the run has been pruned (the row still renders).
     public let sessionId: String?
     // notification_type: issue_assigned|issue_comment|issue_status_changed|
     //                    issue_mention|issue_created|pr_opened|pr_merged|
-    //                    support_reply|agent_message|session_blocked
+    //                    reporter_reply|agent_message|session_blocked
     public let type: String
     public let title: String
     public let body: String?

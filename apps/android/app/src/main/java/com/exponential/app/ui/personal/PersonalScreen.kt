@@ -50,7 +50,6 @@ private const val SECTION_DRAFTS = "drafts"
 @Composable
 fun PersonalScreen(
     onOpenIssue: (String) -> Unit,
-    onOpenSupport: () -> Unit,
     // EXP-878: a draft row resumes the create screen on the draft's own board.
     onOpenDraft: (boardId: String, draftId: String) -> Unit = { _, _ -> },
     // EXP-980: a blocked-run inbox row opens the run it is about.
@@ -125,7 +124,6 @@ fun PersonalScreen(
                 )
                 else -> InboxListContent(
                     onOpenIssue = onOpenIssue,
-                    onOpenSupport = onOpenSupport,
                     onOpenSession = onOpenSession,
                     onOpenIssueResults = onOpenIssueResults,
                     viewModel = inboxViewModel,

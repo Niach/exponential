@@ -21,7 +21,7 @@ import XCTest
 ///   sg_chat · sg_chat-issues · sg_chat-action ·
 ///   sg_machine-settings · sg_action-create · sg_action-triggers ·
 ///   sg_trigger-editor · sg_action-runs · sg_action-suggestions · sg_reviews ·
-///   sg_support-thread · sg_settings-root · sg_settings-team ·
+///   sg_settings-root · sg_settings-team ·
 ///   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
 ///   sg_onboarding-devices
 ///
@@ -54,7 +54,7 @@ import XCTest
 /// Prerequisites — a seeded dev server (`apps/web/scripts/seed-screenshots.ts`:
 /// demo@exponential.at / screenshots-demo, team "Acme", boards "Mobile App" +
 /// the empty "Launch Marketing", showcase issue APP-5, open PRs, actions with
-/// their triggers and runs, helpdesk threads) PLUS, since EXP-642, the relay stub:
+/// their triggers and runs) PLUS, since EXP-642, the relay stub:
 /// `bun run screenshots:desktop` (apps/web) registers the demo user's OWN
 /// device row, which is what `sg_machine-settings` (gated `isMine &&
 /// registered`) and the three `sg_chat*` shots photograph. No steer
@@ -90,11 +90,6 @@ final class StyleguideScreenshots: XCTestCase {
     /// One of the four seeded open PRs on the Reviews queue.
     private static let reviewTitle = "Batch-edit labels from the board"
     private static let searchQuery = "cold start"
-    /// The seeded helpdesk thread from Emma Fischer, and the last inbound
-    /// message on it — proof the thread body actually loaded over tRPC.
-    private static let supportThreadTitle = "Can't sign in on the iPad app"
-    private static let supportReporter = "Emma Fischer"
-    private static let supportReplyFragment = "thank you for the quick turnaround"
     /// A seeded board — the anchor that says we are on TEAM settings rather
     /// than the outer Settings screen (both carry the nav title "Settings").
     private static let seededBoardName = "Mobile App"
@@ -613,36 +608,6 @@ final class StyleguideScreenshots: XCTestCase {
             "Reviews tab never showed the seeded open PRs"
         )
         snapshot("sg_reviews", settle: 2)
-
-        // ── sg_support-thread: the Emma Fischer helpdesk thread ─────────────
-        // The tab exists only because the seed flips the team's
-        // helpdesk_enabled on; threads come from tRPC polling, not Electric.
-        let supportTab = app.buttons["tab-support"]
-        XCTAssertTrue(
-            supportTab.waitForExistence(timeout: 15),
-            "Support tab missing — did the seed enable the team helpdesk?"
-        )
-        supportTab.tap()
-        XCTAssertTrue(
-            anyElement(app, identified: "support-thread-row").waitForExistence(timeout: 30),
-            "Support inbox never showed the seeded threads"
-        )
-        // Rows carry the identifier but the reporter/title are plain text
-        // inside the NavigationLink — tap the title, which activates the link.
-        let supportRowTitle = app.staticTexts[Self.supportThreadTitle].firstMatch
-        XCTAssertTrue(
-            supportRowTitle.waitForExistence(timeout: 30),
-            "The \(Self.supportReporter) thread is missing from the support inbox"
-        )
-        supportRowTitle.tap()
-        // The thread detail has no identifiers at all; the last inbound message
-        // is the only proof the conversation actually loaded.
-        XCTAssertTrue(
-            anyElement(app, containing: Self.supportReplyFragment).waitForExistence(timeout: 60),
-            "The support thread body never loaded"
-        )
-        snapshot("sg_support-thread", settle: 2)
-        goBack(app)
 
         // ── sg_settings-root: the top-level settings list ────────────────────
         // The gear only lives on the issues tab's nav bar. The root is the

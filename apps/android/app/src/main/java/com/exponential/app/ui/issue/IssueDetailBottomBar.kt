@@ -32,7 +32,9 @@ import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -67,6 +69,10 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.exponential.app.domain.MAX_COMMENT_ATTACHMENTS
 import com.exponential.app.domain.PendingAttachment
+import com.exponential.app.domain.ReporterReply
+import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.PillMode
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.BarCapsule
 import com.exponential.app.ui.components.BarCircle
 import com.exponential.app.ui.components.ComposerSubmitButton
@@ -113,6 +119,17 @@ sealed interface StartButtonUi {
 
 /** Test tag of a READY Start coding circle (the store-screenshot flow waits on it). */
 const val START_CODING_READY_TAG = "start-coding-ready"
+
+/**
+ * SLOP-4: the composer's "Reply to reporter" pill — the host builds one ONLY
+ * when the issue's submission has a reporter email (null hides the pill).
+ * [reporterName] = the resolved display name the ON placeholder addresses.
+ */
+data class ReporterToggle(
+    val reporterName: String,
+    val on: Boolean,
+    val onToggle: (Boolean) -> Unit,
+)
 
 /** The dashed ring + amber badge a not-ready Start coding wears (EXP-1121). */
 internal object StartReadinessStyle {
@@ -264,6 +281,10 @@ fun IssueDetailBottomBar(
     // row, `parentId` on send). The ✕ clears it; so does a collapse.
     replyTarget: CommentReplyTarget? = null,
     onClearReply: () -> Unit = {},
+    // SLOP-4: the "Reply to reporter" pill, in the leading row the reply
+    // target otherwise takes (a reply under a card is team-only, so the pill
+    // never shows beside "Replying to …").
+    reporterToggle: ReporterToggle? = null,
     modifier: Modifier = Modifier,
 ) {
     // The composer's editor model lives at bar level so the block document
@@ -376,6 +397,7 @@ fun IssueDetailBottomBar(
                 onCollapse = { onExpandedChange(false) },
                 replyTarget = replyTarget,
                 onClearReply = onClearReply,
+                reporterToggle = reporterToggle,
             )
         } else {
             CollapsedBar(
@@ -445,6 +467,7 @@ private fun ExpandedCommentComposer(
     onCollapse: () -> Unit,
     replyTarget: CommentReplyTarget?,
     onClearReply: () -> Unit,
+    reporterToggle: ReporterToggle?,
 ) {
     BackHandler(onBack = onCollapse)
     // The composer owns its own pickers (the shared toolbar controller's
@@ -458,19 +481,18 @@ private fun ExpandedCommentComposer(
     ) { uri: Uri? -> uri?.let(onAddAttachment) }
 
     val canSend = draft.isNotBlank() || pendingAttachments.isNotEmpty()
-    GlassComposer(
-        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-        // The composer floats over the issue's own scrolling content.
-        opaque = true,
-        // EXP-741: the reply target rides the composer's leading row.
-        leading = replyTarget?.let { target ->
+    // EXP-741: the reply target rides the composer's leading row; SLOP-4: so
+    // does the "Reply to reporter" pill, on a top-level comment (never beside
+    // "Replying to …" — a reply under a card is team-only).
+    val leading: (@Composable ColumnScope.() -> Unit)? = when {
+        replyTarget != null -> {
             {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        "Replying to ${target.authorName}",
+                        "Replying to ${replyTarget.authorName}",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.White.copy(alpha = TextEmphasis.Secondary),
                         maxLines = 1,
@@ -491,7 +513,33 @@ private fun ExpandedCommentComposer(
                     }
                 }
             }
-        },
+        }
+        reporterToggle != null -> {
+            {
+                // The ONE select pill (the slot the old ticket composer's
+                // Reply / Internal-note pair used), OFF by default.
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(bottom = 8.dp),
+                ) {
+                    GlassPill(
+                        ReporterReply.TOGGLE_LABEL,
+                        size = PillSize.Sm,
+                        mode = PillMode.Select,
+                        selected = reporterToggle.on,
+                        onClick = { reporterToggle.onToggle(!reporterToggle.on) },
+                        modifier = Modifier.testTag("reply-to-reporter"),
+                    )
+                }
+            }
+        }
+        else -> null
+    }
+    GlassComposer(
+        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        // The composer floats over the issue's own scrolling content.
+        opaque = true,
+        leading = leading,
         strip = {
             PendingAttachmentStrip(
                 items = pendingAttachments,
@@ -556,7 +604,13 @@ private fun ExpandedCommentComposer(
                 // No uploader: an image pasted or picked into a COMMENT is an
                 // attachment, not an inline markdown block (EXP-554).
                 onUploadImage = null,
-                placeholder = if (replyTarget == null) "Write a comment…" else "Leave a reply…",
+                placeholder = when {
+                    replyTarget != null -> "Leave a reply…"
+                    // SLOP-4: the ON placeholder names the reporter (and says
+                    // the words leave the team).
+                    reporterToggle?.on == true -> ReporterReply.placeholderOn(reporterToggle.reporterName)
+                    else -> "Write a comment…"
+                },
                 minHeight = 40.dp,
                 mentionMembers = mentionMembers,
                 // The composer carries its own image/@/# row below — the

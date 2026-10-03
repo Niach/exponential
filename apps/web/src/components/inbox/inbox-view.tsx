@@ -5,8 +5,6 @@ import { Bell, CircleCheck } from "lucide-react"
 import { Button, conceptIcon, EmptyState, ListRow, LiveDot } from "@exp/ui"
 import type { NotificationType } from "@exp/db-schema/domain"
 import { notificationTypeValues } from "@exp/db-schema/domain"
-
-const SupportIcon = conceptIcon(`nav-support`)
 import type { Issue, Notification, Board, Team } from "@/db/schema"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { trpc } from "@/lib/trpc-client"
@@ -76,20 +74,9 @@ type IssueGroup = {
   unread: number
 }
 
-// Issue-less support_reply notifications (EXP-180: support threads are
-// standalone; legacy issue-anchored rows keep flowing through the issue
-// grouping above). One synthetic group PER TEAM, each linking to that
-// team's Support inbox — the rows carry a synced team_id for exactly this
-// (rows from before the column existed fall into one null-team group that
-// links to the current team's inbox).
-type SupportGroup = {
-  kind: `support`
-  teamId: string | null
-  teamSlug: string | null
-  teamName: string | null
-  items: Notification[]
-  unread: number
-}
+// SLOP-4: a widget reporter's answer (`reporter_reply`) is ISSUE-scoped like
+// `issue_comment`, so it groups under its issue above — the helpdesk's
+// per-team Support groups are gone with the helpdesk.
 
 // EXP-801: an agent's message (`agent_message`, issue-less, team-scoped) is
 // its own entry (EXP-933: one WITH an issue joins that issue's group and
@@ -109,7 +96,7 @@ type MessageGroup = {
   unread: number
 }
 
-type Group = IssueGroup | SupportGroup | MessageGroup
+type Group = IssueGroup | MessageGroup
 
 // REV-46: the notifications shape syncs every delivered row, so a long-lived
 // account can group into thousands of rows — cap + expand like the board's
@@ -123,12 +110,10 @@ const GROUP_CHUNK = 200
 // dedicated Reviews page. Rendered as the "Inbox" tab of the Inbox page
 // (EXP-186), whose header owns the tab switcher + "Mark all read".
 export function InboxView({
-  teamSlug,
   compact = false,
   activeIssueIdentifier = null,
   from,
 }: {
-  teamSlug: string
   /** EXP-851: the SIDEBAR's list nav — the same rows in the 17rem slot, no
    *  reading column, no empty-state illustration. */
   compact?: boolean
@@ -188,13 +173,11 @@ export function InboxView({
     [teams]
   )
 
-  // Group notifications by issue (newest first, tracking unread count), plus
-  // synthetic per-team Support groups for issue-less support_reply rows.
+  // Group notifications by issue (newest first, tracking unread count).
   // Each group links into its OWN team — linking with the current route's
-  // slug would dead-end for issues/tickets from other teams.
+  // slug would dead-end for issues from other teams.
   const groups = useMemo<Group[]>(() => {
     const byIssue = new Map<string, IssueGroup>()
-    const supportByTeam = new Map<string | null, SupportGroup>()
     const messages: MessageGroup[] = []
     for (const n of (notifications ?? []) as Notification[]) {
       if (!n.issueId) {
@@ -211,23 +194,6 @@ export function InboxView({
             items: [n],
             unread: n.readAt ? 0 : 1,
           })
-        } else if (n.type === `support_reply`) {
-          const team = n.teamId ? teamMap.get(n.teamId) : undefined
-          const key = team?.id ?? null
-          let g = supportByTeam.get(key)
-          if (!g) {
-            g = {
-              kind: `support`,
-              teamId: key,
-              teamSlug: team?.slug ?? null,
-              teamName: team?.name ?? null,
-              items: [],
-              unread: 0,
-            }
-            supportByTeam.set(key, g)
-          }
-          g.items.push(n)
-          if (!n.readAt) g.unread += 1
         }
         continue
       }
@@ -252,11 +218,7 @@ export function InboxView({
       g.items.push(n)
       if (!n.readAt) g.unread += 1
     }
-    const all: Group[] = [
-      ...byIssue.values(),
-      ...supportByTeam.values(),
-      ...messages,
-    ]
+    const all: Group[] = [...byIssue.values(), ...messages]
     return all.sort(
       (a, b) =>
         new Date(b.items[0].createdAt).getTime() -
@@ -270,18 +232,12 @@ export function InboxView({
   const hiddenCount = groups.length - visibleGroups.length
 
   // One mutation per group, not one per row (REV-48): the server-side
-  // by-issue/by-team clears also catch rows the client hasn't synced yet.
-  // Only the legacy null-team support group (rows from before team_id
-  // existed) still clears row-by-row — markReadSupport needs a team.
+  // by-issue clear also catches rows the client hasn't synced yet.
   const navigate = useNavigate()
   const markGroupRead = async (g: Group) => {
     if (g.unread === 0) return
     if (g.kind === `issue`) {
       await trpc.notifications.markReadByIssue.mutate({ issueId: g.issue.id })
-      return
-    }
-    if (g.kind === `support` && g.teamId) {
-      await trpc.notifications.markReadSupport.mutate({ teamId: g.teamId })
       return
     }
     await Promise.all(
@@ -376,64 +332,6 @@ export function InboxView({
                       </div>
                     )}
                   </div>
-                </ListRow>
-              )
-            }
-            if (g.kind === `support`) {
-              return (
-                <ListRow
-                  key={`support:${g.teamId ?? `unknown`}`}
-                  asChild
-                  interactive
-                  density={compact ? `compact` : `list`}
-                  className={cn(
-                    !compact && PAGE_READING_ROW,
-                    g.unread === 0 && `opacity-60`
-                  )}
-                >
-                  <Link
-                    to="/t/$teamSlug/support"
-                    params={{ teamSlug: g.teamSlug ?? teamSlug }}
-                    onClick={() => void markGroupRead(g)}
-                  >
-                    <RowGlyph icon={SupportIcon} compact={compact} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={cn(
-                            `truncate text-sm`,
-                            g.unread > 0 && `font-medium`
-                          )}
-                        >
-                          Support
-                        </span>
-                        {g.teamName != null && teamMap.size > 1 && (
-                          <span className="truncate text-xs text-muted-foreground">
-                            {g.teamName}
-                          </span>
-                        )}
-                        {/* EXP-698: fixed trailing columns — the stamp is
-                            right-aligned in its own 4rem slot and the unread
-                            dot keeps its 8px slot whether or not it is lit, so
-                            read and unread rows line up exactly. */}
-                        {!compact && (
-                          <span className="ml-auto w-16 shrink-0 text-right text-xs text-muted-foreground">
-                            {relativeTime(latest.createdAt)}
-                          </span>
-                        )}
-                        <span className={cn(`w-2 shrink-0`, compact && `ml-auto`)} aria-hidden>
-                          {g.unread > 0 && (
-                            <LiveDot tone="unread" className="block" />
-                          )}
-                        </span>
-                      </div>
-                      {!compact && (
-                        <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                          {latest.title}
-                        </div>
-                      )}
-                    </div>
-                  </Link>
                 </ListRow>
               )
             }

@@ -28,9 +28,10 @@ final class NotificationRoutingTests: XCTestCase {
     }
 
     func testKeepsTheOtherPushKinds() {
+        // SLOP-4: a reporter's reply is issue-scoped, like a comment.
         XCTAssertEqual(
-            NotificationRouting.pushTarget(["type": "support_reply", "threadId": "th"]),
-            .supportThread(id: "th")
+            NotificationRouting.pushTarget(["type": "reporter_reply", "issueId": "i1"]),
+            .issue(id: "i1", face: .issue)
         )
         XCTAssertEqual(
             NotificationRouting.pushTarget(["type": "session_blocked", "sessionId": "s1"]),

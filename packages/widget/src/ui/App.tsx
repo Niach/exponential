@@ -1,9 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "preact/hooks"
-import type {
-  WidgetMode,
-  WidgetRemoteConfig,
-  WidgetRuntimeState,
-} from "../types"
+import type { WidgetRuntimeState } from "../types"
 import type { AnnotationShape, NormalizedRect } from "../annotate/shapes"
 import { flattenAnnotations } from "../annotate/flatten"
 import { captureScreenshot } from "../capture/engine"
@@ -14,7 +10,7 @@ import {
   isDisplayCaptureSupported,
 } from "../capture/display-media-engine"
 import { collectEnvMeta } from "../env-meta"
-import { submitFeedback, submitSupportRequest } from "../api-client"
+import { submitFeedback } from "../api-client"
 import {
   megaphoneIconSvg,
   paletteFor,
@@ -34,7 +30,6 @@ import {
 import { Annotator } from "./Annotator"
 import { ownCustomValue } from "./custom-values"
 import { Panel, captureDelayCycle, type CaptureDelay } from "./Panel"
-import type { PanelView } from "./Panel"
 import {
   isAcceptedUploadImageType,
   maxUploadedImageBytes,
@@ -49,23 +44,12 @@ type UiPhase =
   | { kind: `submitting` }
   | {
       kind: `success`
-      flavor: WidgetMode
       identifier: string | null
       url: string | null
-      // Support mode: whether the magic-link confirmation email went out
-      // (null = not applicable / not reported).
+      // Whether the magic-link confirmation email went out (null = the
+      // reporter left no email, or an older server did not report it).
       emailDelivered: boolean | null
     }
-
-// The panel's entry points, from the remote config. Absent / unknown values
-// (older servers, cache skew) degrade to feedback-only — today's behavior.
-function effectiveModes(config: WidgetRemoteConfig | null): WidgetMode[] {
-  const modes =
-    config?.modes?.filter(
-      (mode) => mode === `feedback` || mode === `support`
-    ) ?? []
-  return modes.length > 0 ? modes : [`feedback`]
-}
 
 export interface Screenshot {
   blob: Blob
@@ -108,9 +92,6 @@ function isEmailFailure(result: {
 
 export function App({ state }: { state: WidgetRuntimeState }) {
   const [phase, setPhase] = useState<UiPhase>({ kind: `closed` })
-  // Which pane the panel shows: the card home (both modes), or one form
-  // directly (single mode) — set at open time from the resolved config.
-  const [view, setView] = useState<PanelView>(`feedback`)
   // `base` is the pristine capture annotations are drawn over; `annotated`
   // is the flattened result (what the preview shows and submit sends).
   // Shapes are kept so reopening the editor stays non-destructive.
@@ -327,12 +308,8 @@ export function App({ state }: { state: WidgetRuntimeState }) {
     // config disabled the widget before the bundle finished loading.
     if (state.disabled) return
     if (phaseRef.current.kind !== `closed`) return
-    // Both modes enabled → the card home; a single mode skips it and opens
-    // that form directly (feedback-only configs behave exactly like before).
-    const modes = effectiveModes(state.config)
-    setView(modes.length > 1 ? `home` : modes[0])
-    // Screenshots are on demand: the feedback form opens plain and capturing
-    // only happens when the reporter asks for it.
+    // Screenshots are on demand: the form opens plain and capturing only
+    // happens when the reporter asks for it.
     setCaptureFailed(false)
     setPhase({ kind: `open` })
   }, [state])
@@ -558,8 +535,7 @@ export function App({ state }: { state: WidgetRuntimeState }) {
 
   const submit = useCallback(
     async (form: {
-      title: string
-      description: string
+      message: string
       email: string
       name: string
       customValues: Record<string, string>
@@ -589,8 +565,7 @@ export function App({ state }: { state: WidgetRuntimeState }) {
       const usedIdentityEmail = !form.email && identityEmail !== null
       const result = await submitFeedback({
         state,
-        title: form.title,
-        description: form.description,
+        message: form.message,
         email: form.email || identityEmail,
         name: form.name || identityName,
         customData: mergedCustomData,
@@ -607,22 +582,27 @@ export function App({ state }: { state: WidgetRuntimeState }) {
         replaceBase(null)
         clearUploads()
         setCaptureFailed(false)
+        const emailDelivered = result.emailDelivered ?? null
         setPhase({
           kind: `success`,
-          flavor: `feedback`,
           identifier: result.identifier,
           url: result.url,
-          emailDelivered: null,
+          emailDelivered,
         })
-        // Leave the success card up longer when it carries a link to the
-        // public issue, so the reporter has a chance to click through.
+        // Leave the success card up longer when it has more to say: that the
+        // confirmation email did NOT arrive (longest), that one is on its way
+        // with the conversation link, or a link to a public issue.
         window.setTimeout(
           () => {
             setPhase((current) =>
               current.kind === `success` ? { kind: `closed` } : current
             )
           },
-          result.url ? 6_000 : 2_500
+          emailDelivered === false
+            ? 10_000
+            : emailDelivered || result.url
+              ? 6_000
+              : 2_500
         )
         return null
       }
@@ -653,63 +633,6 @@ export function App({ state }: { state: WidgetRuntimeState }) {
     ]
   )
 
-  const submitSupport = useCallback(
-    async (form: {
-      message: string
-      email: string
-      name: string
-      website: string
-    }) => {
-      setPhase({ kind: `submitting` })
-      // Panel resolves email to identityEmail when hidden, else the typed
-      // value — so a match (or empty) means the identity address was used.
-      const usedIdentityEmail =
-        identityEmail !== null &&
-        (form.email === identityEmail || !form.email)
-      const result = await submitSupportRequest({
-        state,
-        message: form.message,
-        email: form.email || identityEmail || ``,
-        name: form.name || identityName,
-        website: form.website,
-        meta: collectEnvMeta(),
-      })
-      if (result.ok) {
-        setPhase({
-          kind: `success`,
-          flavor: `support`,
-          identifier: null,
-          url: null,
-          emailDelivered: result.emailDelivered ?? null,
-        })
-        // Longer than the feedback flash: the card tells the reporter to
-        // check their email for the conversation link — longer still when it
-        // has to explain that the email did NOT arrive.
-        window.setTimeout(
-          () => {
-            setPhase((current) =>
-              current.kind === `success` ? { kind: `closed` } : current
-            )
-          },
-          result.emailDelivered === false ? 10_000 : 6_000
-        )
-        return null
-      }
-      if (usedIdentityEmail && isEmailFailure(result)) {
-        setFailedIdentityEmail(identityEmail)
-      }
-      setPhase({ kind: `open` })
-      return result.code === `invalid_email`
-        ? `Please enter a valid email address.`
-        : result.code === `email_required`
-          ? `Your email is required.`
-          : result.code === `name_required`
-            ? `Your name is required.`
-            : result.message
-    },
-    [state, identityEmail, identityName]
-  )
-
   // Hidden while capturing too (EXP-435): a display-media frame can't
   // exclude the FAB by selector the way the snapDOM clone does.
   // setLauncherHidden() (EXP-642) only takes the button away — the panel
@@ -726,7 +649,7 @@ export function App({ state }: { state: WidgetRuntimeState }) {
     phase.kind === `submitting` ||
     phase.kind === `success`
   // Keep the Panel mounted (display:none) while annotating and capturing so
-  // the typed title/description survive the round-trip into the editor and
+  // the typed message survives the round-trip into the editor and
   // a delayed capture's multi-second hold (FEED-18).
   const panelHidden =
     phase.kind === `annotating` || phase.kind === `capturing`
@@ -841,11 +764,6 @@ export function App({ state }: { state: WidgetRuntimeState }) {
           hidden={panelHidden}
           captureDelay={captureDelay}
           onCycleCaptureDelay={cycleCaptureDelay}
-          view={view}
-          canGoBack={effectiveModes(state.config).length > 1}
-          onPickMode={(mode) => setView(mode)}
-          onBack={() => setView(`home`)}
-          successFlavor={phase.kind === `success` ? phase.flavor : `feedback`}
           successIdentifier={phase.kind === `success` ? phase.identifier : null}
           successUrl={phase.kind === `success` ? phase.url : null}
           successEmailDelivered={
@@ -873,7 +791,6 @@ export function App({ state }: { state: WidgetRuntimeState }) {
           onAddImages={addImages}
           onRemoveUpload={removeUpload}
           onSubmit={submit}
-          onSubmitSupport={submitSupport}
         />
       )}
 

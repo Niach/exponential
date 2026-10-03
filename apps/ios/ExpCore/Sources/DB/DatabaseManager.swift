@@ -189,9 +189,6 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("name", .text).notNull()
                 t.column("slug", .text).notNull()
                 t.column("icon_url", .text)
-                // Team-level helpdesk switch (EXP-180): gates the Support
-                // inbox on every client. Synced on the teams shape.
-                t.column("helpdesk_enabled", .boolean).notNull().defaults(to: false)
                 // EXP-1105: yolo mode (auto-merge; hides Reviews unless a
                 // PR is open). Synced on the teams shape.
                 t.column("yolo_mode", .boolean).notNull().defaults(to: false)
@@ -320,7 +317,9 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.primaryKey("id", .text)
                 t.column("issue_id", .text).notNull().indexed()
                 t.column("team_id", .text).notNull().indexed()
-                t.column("author_id", .text).notNull()
+                // Nullable (SLOP-4, v61 heals older stores): a reporter's
+                // reply has no member author.
+                t.column("author_id", .text)
                 t.column("body", .text)
                 t.column("kind", .text).notNull().defaults(to: "regular")
                 t.column("edited_at", .text)
@@ -329,6 +328,8 @@ public final class DatabaseManager: @unchecked Sendable {
                 // EXP-741 (v28 heals older stores): reply parent + user|mcp.
                 t.column("parent_id", .text).indexed()
                 t.column("source", .text)
+                // SLOP-4 (v61 heals older stores): team | reporter.
+                t.column("audience", .text).notNull().defaults(to: "team")
             }
 
             try db.create(table: "attachments", ifNotExists: true) { t in
@@ -358,8 +359,8 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.primaryKey("id", .text)
                 t.column("user_id", .text).notNull()
                 t.column("issue_id", .text)
-                // Set on issue-less support_reply rows (the ticket's team);
-                // NULL on issue-anchored rows. Rides the notifications shape.
+                // Set on issue-less agent_message / session_blocked rows (their
+                // team); NULL on issue-anchored rows. Rides the notifications shape.
                 t.column("team_id", .text)
                 t.column("type", .text).notNull()
                 t.column("title", .text).notNull()
@@ -483,9 +484,9 @@ public final class DatabaseManager: @unchecked Sendable {
             // gets it there too.
         }
 
-        // v2 (EXP-180 helpdesk follow-up): `notifications.team_id` rides along
-        // on the notifications shape — set on issue-less support_reply rows,
-        // NULL otherwise. Additive ALTER for `-v5` stores created before the
+        // v2 (EXP-180, for the helpdesk (gone, SLOP-4)): `notifications.team_id`
+        // rides along on the notifications shape — set on issue-less
+        // agent_message / session_blocked rows, NULL otherwise. Additive ALTER for `-v5` stores created before the
         // column existed; guarded on column presence so fresh installs (which
         // get it from the v1 create above) converge on the same schema. Never
         // bump the `-v5` file suffix for an additive column (that would wipe
@@ -2162,6 +2163,68 @@ public final class DatabaseManager: @unchecked Sendable {
                 where existing.contains(column) {
                     try db.alter(table: "coding_sessions") { t in
                         t.drop(column: column)
+                    }
+                }
+            }
+        }
+
+        // v61 (SLOP-4 one path): a widget submission IS an issue and the
+        // conversation with its reporter is COMMENTS. `comments.author_id`
+        // went nullable server-side (a reporter's reply has no member) and
+        // `comments.audience` (team | reporter) joined the comments shape;
+        // SQLite can't relax a NOT NULL via ALTER, so an older store rebuilds
+        // the table (the v6/v15 precedent) and resets the comments offset so
+        // every synced row re-arrives carrying `audience`. The team's
+        // helpdesk (gone, SLOP-4) flag left the teams shape, so the local
+        // column goes (the v7 precedent). Guarded so fresh installs
+        // (the v1 create above) and re-runs converge.
+        migrator.registerMigration("v61_one_path") { db in
+            if try db.tableExists("comments") {
+                let cols = try db.columns(in: "comments")
+                let authorNotNull = cols.first { $0.name == "author_id" }?.isNotNull ?? false
+                let hasAudience = cols.contains { $0.name == "audience" }
+                if authorNotNull || !hasAudience {
+                    try db.create(table: "comments_new") { t in
+                        t.primaryKey("id", .text)
+                        t.column("issue_id", .text).notNull().indexed()
+                        t.column("team_id", .text).notNull().indexed()
+                        t.column("author_id", .text)
+                        t.column("body", .text)
+                        t.column("kind", .text).notNull().defaults(to: "regular")
+                        t.column("edited_at", .text)
+                        t.column("created_at", .text).notNull()
+                        t.column("updated_at", .text).notNull()
+                        t.column("parent_id", .text).indexed()
+                        t.column("source", .text)
+                        t.column("audience", .text).notNull().defaults(to: "team")
+                    }
+                    // Copy the shared columns (audience is new → the default).
+                    try db.execute(sql: """
+                        INSERT INTO "comments_new" (
+                            "id", "issue_id", "team_id", "author_id", "body", "kind",
+                            "edited_at", "created_at", "updated_at", "parent_id", "source"
+                        )
+                        SELECT
+                            "id", "issue_id", "team_id", "author_id", "body", "kind",
+                            "edited_at", "created_at", "updated_at", "parent_id", "source"
+                        FROM "comments"
+                        """)
+                    try db.drop(table: "comments")
+                    try db.rename(table: "comments_new", to: "comments")
+                    if try db.tableExists("electric_offsets") {
+                        try db.execute(sql: """
+                            UPDATE "electric_offsets"
+                            SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                            WHERE "shape" = 'comments'
+                            """)
+                    }
+                }
+            }
+            if try db.tableExists("teams") {
+                let existing = Set(try db.columns(in: "teams").map(\.name))
+                if existing.contains("helpdesk_enabled") {
+                    try db.alter(table: "teams") { t in
+                        t.drop(column: "helpdesk_enabled")
                     }
                 }
             }

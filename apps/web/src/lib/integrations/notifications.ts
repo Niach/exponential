@@ -12,13 +12,12 @@ import {
 import { db } from "@/db/connection"
 import {
   codingSessions,
+  comments,
   emailDeliveries,
   issueSubscribers,
   issues,
   boards,
   notifications,
-  supportMessages,
-  supportThreads,
   users,
   widgetSubmissions,
   teamMembers,
@@ -725,13 +724,13 @@ export function fireAndForgetPrNotify(args: {
 }
 
 // Issue-less sibling of deliver(): the fan-out for events that have no
-// backing issue (standalone helpdesk tickets). Same dedupe-insert shape with
-// `issue_id IS NULL` (the trigger-denormalized board_id stays NULL too, so
-// the notifications shape's `board_id IS NULL` arm keeps these rows synced)
-// and the same push-first delivery; the push payload carries no issue keys —
-// natives route on `type` alone. The row DOES carry the team id (synced) so
-// every client's inbox can route the notification to the right team's
-// Support surface.
+// backing issue (`agent_message`, `session_blocked`). Same dedupe-insert
+// shape with `issue_id IS NULL` (the trigger-denormalized board_id stays
+// NULL too, so the notifications shape's `board_id IS NULL` arm keeps these
+// rows synced) and the same push-first delivery; the push payload carries no
+// issue keys — natives route on `type` alone. The row DOES carry the team id
+// (synced) so every client's inbox can route the notification to the right
+// team.
 async function deliverToTeam(args: {
   teamId: string
   recipientIds: string[]
@@ -836,7 +835,7 @@ export interface AgentMessageOutcome {
  * EXP-801: an agent messages team members (or its own user) over MCP —
  * `exponential_notifications_send`. Synchronous, unlike the fire-and-forget
  * fan-outs: the agent gets told who received it. An inbox row
- * (`agent_message`, team-scoped like support_reply; EXP-933: with `issueId`
+ * (`agent_message`, team-scoped; EXP-933: with `issueId`
  * it rides that issue and opens its Results face ×4) + the usual push-first
  * delivery (per-type prefs still mute push; email follows via the digest).
  * The recipient's `allow_agent_messages` pref is a BLOCK, not a mute: a
@@ -1031,76 +1030,64 @@ export async function notifySessionBlocked(
 }
 
 /**
- * Helpdesk: a new ticket arrived or the external reporter replied. Broadcast
- * to every human team member (the support inbox is a shared surface and
- * there is no actor to exclude). The preview is reporter-authored UNTRUSTED
- * text: it is written as a plain string and the digest email escapes bodies,
- * so no extra sanitizing is needed here beyond truncation.
+ * SLOP-4: the widget reporter of an issue answered through their magic-link
+ * page (a comment with source `reporter`, audience `reporter`). ISSUE-scoped
+ * like `issue_comment` — subscribers + the assignee get a `reporter_reply`
+ * row + push routed to the issue; there is no actor to exclude. The preview
+ * is reporter-authored UNTRUSTED text, server-escaped GFM: it is written as
+ * a plain string and the digest email escapes bodies, so no extra sanitizing
+ * is needed here beyond truncation.
  */
-export function fireAndForgetSupportThreadNotify(args: {
-  threadId: string
-  kind: `created` | `reply`
+export function fireAndForgetReporterReplyNotify(args: {
+  issueId: string
+  commentId: string
 }): void {
   void (async () => {
     try {
-      const [thread] = await db
-        .select({
-          id: supportThreads.id,
-          teamId: supportThreads.teamId,
-          title: supportThreads.title,
-          reporterName: supportThreads.reporterName,
-          reporterEmail: supportThreads.reporterEmail,
-        })
-        .from(supportThreads)
-        .where(eq(supportThreads.id, args.threadId))
-        .limit(1)
-      if (!thread) return
+      const issue = await loadIssueMeta(args.issueId)
+      if (!issue) return
 
-      const memberRows = await db
-        .select({ userId: teamMembers.userId })
-        .from(teamMembers)
-        .where(eq(teamMembers.teamId, thread.teamId))
-      if (memberRows.length === 0) return
-
-      // Preview: the latest public inbound message (the reporter's words).
-      const [latest] = await db
-        .select({ body: supportMessages.body })
-        .from(supportMessages)
-        .where(
-          and(
-            eq(supportMessages.threadId, thread.id),
-            eq(supportMessages.direction, `inbound`),
-            eq(supportMessages.visibility, `public`)
-          )
-        )
-        .orderBy(desc(supportMessages.createdAt))
+      const [comment] = await db
+        .select({ body: comments.body })
+        .from(comments)
+        .where(eq(comments.id, args.commentId))
         .limit(1)
-      const previewSource = (latest?.body ?? thread.title).trim()
+      if (!comment) return
+
+      const [submission] = await db
+        .select({ reporterName: widgetSubmissions.reporterName })
+        .from(widgetSubmissions)
+        .where(eq(widgetSubmissions.issueId, args.issueId))
+        .limit(1)
+
+      const recipients = new Set(
+        await subscriberRecipients(args.issueId, EMPTY_EXCLUSION)
+      )
+      if (issue.assigneeId) recipients.add(issue.assigneeId)
+      if (recipients.size === 0) return
+
+      const previewSource = comment.body.trim()
       const preview =
         previewSource.length > 140
           ? `${previewSource.slice(0, 139)}…`
           : previewSource
-
-      const who = thread.reporterName || thread.reporterEmail
-      await deliverToTeam({
-        teamId: thread.teamId,
-        recipientIds: memberRows.map((row) => row.userId),
-        type: `support_reply`,
-        title:
-          args.kind === `created`
-            ? `New support ticket from ${who}`
-            : `${who} replied on a support ticket`,
-        body: preview || thread.title,
-        pushData: { threadId: thread.id },
+      const who = submission?.reporterName?.trim() || `Anonymous visitor`
+      await deliver({
+        issue,
+        recipientIds: [...recipients],
+        type: `reporter_reply`,
+        pushType: `reporter_reply`,
+        title: `${who} replied on ${issue.identifier}`,
+        body: preview || issue.title,
       })
     } catch (err) {
-      console.error(`[notify] support ${args.kind} failed:`, err)
+      console.error(`[notify] reporter reply failed:`, err)
     }
   })()
 }
 
 /**
- * One-way helpdesk (§6.4): when a widget-reported issue is closed
+ * One-way resolution notice (§6.4): when a widget-reported issue is closed
  * (done/cancelled), email the external reporter(s) a CLEAN resolution notice —
  * no internal metadata, no in-app/push rows (reporters have no account).
  *

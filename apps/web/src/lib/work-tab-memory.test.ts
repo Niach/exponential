@@ -81,9 +81,6 @@ describe(`tabMemoryOwners`, () => {
       runMemoryOwner(`r1`),
     ])
     expect(tabMemoryOwners(runTab(`r2`))).toEqual([`run:r2`])
-    expect(
-      tabMemoryOwners({ kind: `support`, threadId: `t1`, from: null })
-    ).toEqual([])
   })
 })
 

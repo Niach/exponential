@@ -111,6 +111,7 @@ pub mod pr_stack;
 pub mod relations;
 // EXP-1097: the issue detail's relations view (parent line, sub-issues, bands).
 pub mod relations_view;
+pub mod reporter_reply;
 pub mod rows;
 pub mod session_results;
 pub mod session_tree;

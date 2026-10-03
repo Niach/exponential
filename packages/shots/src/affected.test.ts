@@ -217,10 +217,10 @@ describe(`native attribution`, () => {
   })
 
   test(`an unnamed file falls back to its directory's view family`, () => {
-    // `SupportInboxListContent` is nobody's view id, but nothing in UI/Support
-    // draws anything except the two support views.
-    const result = nativeScope(`apps/ios/Exponential/UI/Support/SupportInboxListContent.swift`)
-    expect(nativeViews(result, `ios`).sort()).toEqual([`support-inbox`, `support-thread`])
+    // `InboxRowContent` is nobody's view id, but nothing in UI/Inbox draws
+    // anything except the inbox view.
+    const result = nativeScope(`apps/ios/Exponential/UI/Inbox/InboxRowContent.swift`)
+    expect(nativeViews(result, `ios`).sort()).toEqual([`inbox`])
     expect(nativeViews(result, `ios`)).not.toContain(`board`)
   })
 

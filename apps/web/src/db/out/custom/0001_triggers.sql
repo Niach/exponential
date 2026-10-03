@@ -311,7 +311,7 @@ CREATE OR REPLACE TRIGGER populate_coding_session_team_id
 --    issue_id like the team_id populate: batch-scoped coding_sessions rows
 --    (issue_id NULL) keep board_id + board_deleted_at NULL — they span
 --    boards and always sync. notifications also carries this trigger
---    (REV-109): issue-less rows — e.g. helpdesk support_reply — keep both
+--    (REV-109): issue-less rows — agent_message, session_blocked — keep both
 --    NULL and always sync.
 CREATE OR REPLACE FUNCTION populate_issue_child_board_id()
 RETURNS TRIGGER AS $$

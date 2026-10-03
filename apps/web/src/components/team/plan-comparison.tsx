@@ -17,8 +17,8 @@ import {
 import { cn } from "@/lib/utils"
 
 // Per-seat model (EXP-286 rebrand). The cards list the monetized axes —
-// seats (team size), storage per team, the feedback widget, the helpdesk,
-// priority support — plus mobile push, called out per-card since EXP-338
+// seats (team size), storage per team, the feedback widget, priority
+// support — plus mobile push, called out per-card since EXP-338
 // because the marketing grid now carries a self-host card that does NOT get
 // it (EXP-176 unified the copy across the marketing frontpage, /pricing and
 // this grid — canonical copy lives in apps/marketing/src/lib/plans.ts; keep
@@ -70,7 +70,6 @@ const TIERS: TierInfo[] = [
       `As many seats as you buy`,
       `10 GB attachment storage`,
       `Unlimited feedback widgets`,
-      `Helpdesk & support inbox`,
       `Priority support`,
     ],
   },

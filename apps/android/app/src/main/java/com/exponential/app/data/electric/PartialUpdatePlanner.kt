@@ -84,9 +84,9 @@ internal fun parseKeyComponents(key: String): List<String> {
 /** Bind a wire JSON value to a SQLite arg: null for JSON null, the serialized
  *  form for objects/arrays, and for scalars the raw content — except booleans,
  *  which must bind as 1L/0L. Room's Boolean columns are INTEGER-affinity, so a
- *  "true"/"t" TEXT would read back as false (that's how the Support tab went
- *  missing: the server's `helpdesk_enabled` flip arrives as a partial update
- *  carrying the Postgres text form "t", EXP-185). An unquoted JSON boolean
+ *  "true"/"t" TEXT would read back as false (that's how a synced team switch
+ *  went missing once: the server's flip arrives as a partial update carrying
+ *  the Postgres text form "t", EXP-185; `yolo_mode` takes the same path). An unquoted JSON boolean
  *  converts unconditionally; the quoted Postgres text forms (t/true/1 —
  *  PgBoolSerializer's vocabulary, iOS `sqlValue` parity) convert only when the
  *  target column is INTEGER-affinity — a TEXT column's literal "true" must

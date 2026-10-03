@@ -26,7 +26,6 @@ import {
   ChevronsUpDown,
   CircleCheck,
   CircleDashed,
-  CircleDot,
   CircleArrowUp,
   CircleUser,
   Code,
@@ -37,11 +36,9 @@ import {
   Hash,
   Image as ImageIcon,
   Inbox,
-  LifeBuoy,
   Link2,
   ListFilter,
   Lock,
-  Mail,
   Ellipsis,
   Megaphone,
   MessageCircle,
@@ -52,7 +49,6 @@ import {
   Plus,
   RotateCcw,
   Search,
-  Send,
   Settings,
   SignalHigh,
   SignalLow,
@@ -61,7 +57,6 @@ import {
   Sparkles,
   SquareKanban,
   SquarePen,
-  StickyNote,
   Tag,
   Trash2,
   TriangleAlert,
@@ -99,7 +94,6 @@ export const IcInbox = wrap(Inbox) // nav-inbox
 export const IcReviews = wrap(GitPullRequest) // nav-reviews
 export const IcDevices = wrap(Monitor) // nav-devices
 export const IcActions = wrap(Bot) // nav-actions
-export const IcSupport = wrap(LifeBuoy) // nav-support
 export const IcSparkles = wrap(Sparkles) // nav-getting-started
 export const IcSettings = wrap(Settings) // nav-settings
 export const IcPlus = wrap(Plus) // ui-add
@@ -161,13 +155,6 @@ export const IcMerged = wrap(GitMerge) // nav-source-control
 export const IcStatusChanged = wrap(CircleCheck) // notification-issue-status-changed
 export const IcAssignee = wrap(CircleUser) // ui-assignee
 
-/* Support */
-export const IcSupportOpen = wrap(CircleDot) // support-open
-export const IcSupportResolved = wrap(CircleCheck) // support-resolved
-export const IcLifeBuoy = wrap(LifeBuoy)
-export const IcMail = wrap(Mail)
-export const IcStickyNote = wrap(StickyNote)
-export const IcSend = wrap(Send) // ui-send
 export const IcExternalLink = wrap(ExternalLink) // ui-external-link
 export const IcLock = wrap(Lock) // ui-private
 

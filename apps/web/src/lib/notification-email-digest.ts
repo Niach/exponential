@@ -42,7 +42,8 @@ import {
 } from "@/lib/notification-email-policy"
 
 // The row's OWN team (notifications.team_id), distinct from the team reached
-// through its board — issue-less helpdesk rows only have the former.
+// through its board — issue-less rows (`agent_message`, `session_blocked`)
+// only have the former.
 const notificationTeams = alias(teams, `notification_teams`)
 
 // Sweep cadence. Every sweep re-evaluates the pending set; the per-user
@@ -96,16 +97,16 @@ export async function runEmailDigestSweep(
       issueIdentifier: issues.identifier,
       teamSlug: teams.slug,
       boardSlug: boards.slug,
-      // REV2-51: issue-less helpdesk rows carry their own team_id — the
-      // column that exists so they can be routed to the team's Support
-      // surface. Without it they rendered as unlinked text.
+      // REV2-51: issue-less rows carry their own team_id — the column that
+      // exists so they can be routed to the right team. Without it they
+      // rendered as unlinked text.
       notificationTeamSlug: notificationTeams.slug,
       // EXP-980: the run a `session_blocked` row links to.
       sessionId: notifications.sessionId,
       // REV2-14: mirror of the notifications shape's membership scoping —
       // the recipient must still be a member of the row's team (boards.team_id
       // for issue-anchored rows, the app-written notifications.team_id for
-      // issue-less helpdesk support_reply rows). A row with no team identity
+      // issue-less rows). A row with no team identity
       // at all passes, matching the shape's defensive "board_id IS NULL" arm.
       isMember: sql<boolean>`(coalesce(${boards.teamId}, ${notifications.teamId}) is null or exists (select 1 from ${teamMembers} where ${teamMembers.userId} = ${notifications.userId} and ${teamMembers.teamId} = coalesce(${boards.teamId}, ${notifications.teamId})))`,
     })

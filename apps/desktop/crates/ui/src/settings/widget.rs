@@ -1,11 +1,12 @@
-//! Settings → Feedback widget (EXP-771).
+//! Settings → Widget (EXP-771; SLOP-4 renamed the page from "Feedback
+//! widget" — the one path: a submission IS an issue).
 //!
 //! Web parity: the first card of `components/team/widget-section.tsx` — the
 //! "Exponential widget" heading, its description, and one row per
 //! `widget_configs` row of the team.
 //!
 //! READ-ONLY on purpose. Authoring a widget is the web's job: it needs the
-//! embed snippet, the domain allowlist, the mode/label pickers and the theme
+//! embed snippet, the domain allowlist, the label pickers and the theme
 //! editor, none of which mean anything in an IDE. What the desktop owes an
 //! owner is the ANSWER to "is my widget live and is anything arriving", plus
 //! one click to the page that changes it — the same read-only + hand-off

@@ -209,7 +209,7 @@ function InboxPage() {
 
       <div className="min-h-0 flex-1">
         {tab === `inbox` ? (
-          <InboxView teamSlug={teamSlug} from="inbox" />
+          <InboxView from="inbox" />
         ) : tab === `drafts` ? (
           <DraftsList
             teamId={team?.id}

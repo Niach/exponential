@@ -25,8 +25,8 @@ const NEXT_CARDS: { path: string; label: string; desc: string }[] = [
   },
   {
     path: `/docs/feedback/`,
-    label: `Feedback & helpdesk`,
-    desc: `Collect reports with the widget and answer reporters by email.`,
+    label: `Feedback & reporters`,
+    desc: `Collect reports with the widget and answer reporters from the issue.`,
   },
   {
     path: `/docs/widget/`,
@@ -218,8 +218,7 @@ export function GettingStartedDocsPage() {
               <li>
                 Every tier includes the{` `}
                 <a href="/docs/widget/">feedback widget</a>. Free comes with
-                one, Team with unlimited widgets and the{` `}
-                <a href="/docs/feedback/">helpdesk</a>.
+                one, Team with unlimited widgets.
               </li>
               <li>
                 <strong>Self-hosting is free for everyone.</strong> It&apos;s
@@ -242,7 +241,7 @@ export function GettingStartedDocsPage() {
               the same ground — get the desktop app, connect a GitHub repo,
               invite your team, create a board, start coding with an agent,
               create an action, set up a server, set up the feedback widget,
-              enable the helpdesk, connect your tools via MCP — and each entry
+              connect your tools via MCP — and each entry
               disappears on its own once it is done, with the whole checklist
               going away when it is complete. There is nothing to dismiss.
             </p>

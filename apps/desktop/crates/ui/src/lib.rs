@@ -165,7 +165,6 @@ mod sub_shell;
 // its OWN app (`apps/styleguide`, styleguide.exponential.at); this module
 // renders nothing and is reachable from no menu in the IDE.
 mod styleguide;
-mod support_thread;
 // EXP-837: the window-level disarm for a stuck text-selection drag.
 mod text_selection_guard;
 mod worktree_prune;

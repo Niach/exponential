@@ -10,8 +10,8 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // Trash-awareness rides the trigger-maintained board_deleted_at mirror
 // (REV-109 semantics, REV2-5 mechanism): notifications of a soft-deleted
 // board hide for the 48h trash window along with the board itself (and
-// return on restore). Issue-less rows (helpdesk support_reply) carry a NULL
-// board_deleted_at and always sync — nothing issue-less is ever silently
+// return on restore). Issue-less rows (`agent_message`, `session_blocked`)
+// carry a NULL board_deleted_at and always sync — nothing issue-less is ever silently
 // dropped.
 //
 // Deliberately NOT membership-scoped: rows are written exclusively for this
@@ -24,10 +24,10 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // `board_id`, `board_deleted_at` and `board_archived_at` (trash/archive
 // scoping bookkeeping, filtered on
 // above) are deliberately excluded via the columns allowlist — none is inbox
-// state. `team_id` IS synced: issue-less rows (helpdesk support_reply) carry
-// it so clients can route the notification to the right team's Support
-// inbox; issue-anchored rows leave it NULL (their team comes from the
-// issue).
+// state. `team_id` IS synced: issue-less rows (`agent_message`,
+// `session_blocked`) carry it so clients can route the notification to the
+// right team; issue-anchored rows (SLOP-4: `reporter_reply` included) leave
+// it NULL (their team comes from the issue).
 export const Route = createFileRoute(`/api/shapes/notifications`)({
   server: {
     handlers: {

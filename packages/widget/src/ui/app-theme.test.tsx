@@ -13,7 +13,6 @@ vi.mock(`../capture/snapdom-engine`, () => ({ snapdomEngine: {} }))
 vi.mock(`./Annotator`, () => ({ Annotator: () => null }))
 vi.mock(`../api-client`, () => ({
   submitFeedback: vi.fn(),
-  submitSupportRequest: vi.fn(),
 }))
 
 import { App } from "./App"

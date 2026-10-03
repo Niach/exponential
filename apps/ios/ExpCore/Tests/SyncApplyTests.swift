@@ -469,7 +469,7 @@ final class SyncApplyTests: XCTestCase {
     func testTeamInsertPersistsEstimationType() async throws {
         let json = """
             {"id":"t-est","name":"Acme","slug":"acme","icon_url":null,
-             "helpdesk_enabled":"f","estimation_type":"tshirt",
+             "estimation_type":"tshirt",
              "created_at":"2026-09-24T09:00:00Z","updated_at":"2026-09-24T09:00:00Z"}
             """
         let team = try JSONDecoder().decode(TeamEntity.self, from: Data(json.utf8))
@@ -483,7 +483,7 @@ final class SyncApplyTests: XCTestCase {
     func testTeamInsertPersistsYoloMode() async throws {
         let json = """
             {"id":"t-yolo","name":"Acme","slug":"acme","icon_url":null,
-             "helpdesk_enabled":"f","yolo_mode":"t","estimation_type":null,
+             "yolo_mode":"t","estimation_type":null,
              "created_at":"2026-09-29T09:00:00Z","updated_at":"2026-09-29T09:00:00Z"}
             """
         let team = try JSONDecoder().decode(TeamEntity.self, from: Data(json.utf8))
@@ -703,14 +703,15 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertEqual(orphan?.title, "Orphan")
     }
 
-    func testSupportReplyNotificationInsertPersistsTeamId() async throws {
-        // The notifications shape now carries team_id — set on issue-less
-        // support_reply rows (the helpdesk ticket's team). An inserted row must
-        // round-trip both the NULL issue_id and the team_id into the v2 column.
+    func testIssuelessNotificationInsertPersistsTeamId() async throws {
+        // The notifications shape carries team_id — set on issue-less
+        // agent_message / session_blocked rows (the helpdesk (gone, SLOP-4)
+        // had its own kind here). An inserted row must round-trip both the
+        // NULL issue_id and the team_id into the v2 column.
         let notification = NotificationEntity(
             id: "n1", userId: "u1", issueId: nil, teamId: "ws1",
-            type: "support_reply", title: "New reply on ticket",
-            body: "A customer replied", readAt: nil, pushedAt: nil,
+            type: "agent_message", title: "Ada's agent: Build finished",
+            body: "All green", readAt: nil, pushedAt: nil,
             createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z"
         )
         let message = ShapeMessage<NotificationEntity>.insert(
@@ -720,7 +721,26 @@ final class SyncApplyTests: XCTestCase {
         let stored = try await pool.read { try NotificationEntity.fetchOne($0, key: "n1") }
         XCTAssertNil(stored?.issueId)
         XCTAssertEqual(stored?.teamId, "ws1")
-        XCTAssertEqual(stored?.type, "support_reply")
+        XCTAssertEqual(stored?.type, "agent_message")
+    }
+
+    // SLOP-4: a reporter's reply (author NULL, source reporter, audience
+    // reporter) must persist — the v61 rebuild relaxed `author_id` and added
+    // `audience` — and read back through the entity's flags.
+    func testReporterCommentInsertPersistsNullAuthorAndAudience() async throws {
+        let json = #"""
+            {"id":"c-rep","issue_id":"i1","team_id":"ws1","author_id":null,
+             "body":"Still broken on 17.4","kind":"regular","edited_at":null,
+             "parent_id":null,"source":"reporter","audience":"reporter",
+             "created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}
+            """#
+        let comment = try JSONDecoder().decode(CommentEntity.self, from: Data(json.utf8))
+        let message = ShapeMessage<CommentEntity>.insert(key: #""public"."comments"/"c-rep""#, value: comment)
+        try await applyBatch(messages: [message], name: "comments", table: "comments", pool: pool)
+        let stored = try await pool.read { try CommentEntity.fetchOne($0, key: "c-rep") }
+        XCTAssertNil(stored?.authorId)
+        XCTAssertEqual(stored?.isFromReporter, true)
+        XCTAssertEqual(stored?.audience, "reporter")
     }
 
     func testPoisonedPartialDoesNotAbortBatch() async throws {

@@ -22,9 +22,8 @@ data class TeamEntity(
     val name: String,
     val slug: String,
     @ColumnInfo(name = "icon_url") @SerialName("icon_url") @JsonNames("iconUrl") val iconUrl: String? = null,
-    // Team-level helpdesk switch (EXP-180): when on, every member gets the
-    // "Support" inbox (standalone tickets with external reporters — not issues).
-    @ColumnInfo(name = "helpdesk_enabled") @SerialName("helpdesk_enabled") @JsonNames("helpdeskEnabled") val helpdeskEnabled: PgBool = false,
+    // (SLOP-4: the team-level support switch is gone — a widget submission
+    // IS an issue, and the reporter conversation is its comments.)
     // EXP-1105: yolo mode — the team's agents merge their own PRs, so the
     // Reviews tab hides unless an open PR (= a failed auto-merge) is waiting.
     // Toggled on web + desktop only; an older server without the column = off.
@@ -277,12 +276,19 @@ data class CommentEntity(
     @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String,
     // Denormalized issue→board id (v7 server trigger).
     @ColumnInfo(name = "board_id") @SerialName("board_id") @JsonNames("boardId") val boardId: String? = null,
-    @ColumnInfo(name = "author_id") @SerialName("author_id") @JsonNames("authorId") val authorId: String,
+    // SLOP-4: NULL for a widget reporter's comment (source `reporter`) — the
+    // card names the submission's reporter instead of a users row.
+    @ColumnInfo(name = "author_id") @SerialName("author_id") @JsonNames("authorId") val authorId: String? = null,
     // EXP-741: the top-level comment this one replies to (one level deep);
     // null = a top-level card.
     @ColumnInfo(name = "parent_id") @SerialName("parent_id") @JsonNames("parentId") val parentId: String? = null,
-    // EXP-741: `user` | `mcp` — an agent posted it over MCP ("via MCP").
+    // EXP-741: `user` | `mcp` — an agent posted it over MCP ("via MCP");
+    // SLOP-4: `reporter` — the widget reporter wrote it from their page.
     val source: String? = null,
+    // SLOP-4: `team` | `reporter` — a member reply the server emailed to the
+    // reporter carries `reporter` (the "to reporter" caption). Older servers
+    // omit the column: every row then reads as a team comment.
+    val audience: String = com.exponential.app.domain.DomainContract.commentAudienceTeam,
     @Serializable(with = JsonAsStringSerializer::class) val body: String? = null,
     val kind: String = "regular",
     @ColumnInfo(name = "edited_at") @SerialName("edited_at") @JsonNames("editedAt") val editedAt: String? = null,
@@ -295,6 +301,15 @@ enum class CommentKind { Regular }
 /** EXP-741: an agent posted this comment over MCP (the "via MCP" caption). */
 val CommentEntity.isViaMcp: Boolean
     get() = source == com.exponential.app.domain.DomainContract.commentSourceMcp
+
+/** SLOP-4: the widget reporter wrote it (the "reporter" caption, no author row). */
+val CommentEntity.isFromReporter: Boolean
+    get() = source == com.exponential.app.domain.DomainContract.commentSourceReporter
+
+/** SLOP-4: a member's reply the server emailed to the reporter ("to reporter"). */
+val CommentEntity.isToReporter: Boolean
+    get() = !isFromReporter &&
+        audience == com.exponential.app.domain.DomainContract.commentAudienceReporter
 
 // Comment kinds collapsed to regular-only (contract commentKindValues = ["regular"]);
 // tolerant decode maps any legacy value to Regular.
@@ -520,8 +535,8 @@ data class NotificationEntity(
     @PrimaryKey val id: String,
     @ColumnInfo(name = "user_id") @SerialName("user_id") @JsonNames("userId") val userId: String,
     @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String? = null,
-    // Set on issue-less support_reply / agent_message / session_blocked rows (the
-    // team they belong to); NULL on issue-anchored rows.
+    // Set on issue-less agent_message / session_blocked rows (the team they
+    // belong to); NULL on issue-anchored rows (a reporter_reply too, SLOP-4).
     @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String? = null,
     // EXP-980: the coding run a `session_blocked` row is about — the inbox row
     // and its push both route to it. NULL on every other type, and on a row

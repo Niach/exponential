@@ -28,8 +28,6 @@ final class AppDependencies: @unchecked Sendable {
     let labelsApi: LabelsApi
     let teamsApi: TeamsApi
     let boardsApi: BoardsApi
-    // Standalone support tickets (EXP-180 helpdesk) — polled tRPC, not synced.
-    let helpdeskApi: HelpdeskApi
     let teamMembersApi: TeamMembersApi
     let teamInvitesApi: TeamInvitesApi
     let pushTokensApi: PushTokensApi
@@ -151,7 +149,6 @@ final class AppDependencies: @unchecked Sendable {
         self.labelsApi = LabelsApi(trpc: trpc)
         self.teamsApi = TeamsApi(trpc: trpc)
         self.boardsApi = BoardsApi(trpc: trpc)
-        self.helpdeskApi = HelpdeskApi(trpc: trpc)
         self.teamMembersApi = TeamMembersApi(trpc: trpc)
         self.teamInvitesApi = TeamInvitesApi(trpc: trpc)
         self.pushTokensApi = PushTokensApi(trpc: trpc)

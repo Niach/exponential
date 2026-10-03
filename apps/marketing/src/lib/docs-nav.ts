@@ -35,8 +35,8 @@ export const DOCS_NAV: DocsNavEntry[] = [
   },
   {
     path: `/docs/feedback/`,
-    label: `Feedback & helpdesk`,
-    blurb: `The feedback widget, the team helpdesk, and the shared support inbox.`,
+    label: `Feedback & reporters`,
+    blurb: `The feedback widget, the conversation with each reporter, and triage.`,
   },
   {
     path: `/docs/widget/`,

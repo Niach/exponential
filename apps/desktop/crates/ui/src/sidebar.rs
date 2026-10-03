@@ -10,7 +10,7 @@
 //!   toggle, no logo). Top: the team switcher + Search + New issue header
 //!   ([`render_left_column_header`], rendered FIXED by the `Shell` since
 //!   EXP-863). Middle (scrolling): the tool-window
-//!   selectors — **Inbox / Support / Devices / Actions /
+//!   selectors — **Inbox / Devices / Actions /
 //!   Reviews / Agent**, the team's boards, the **Sessions** section (EXP-791:
 //!   one row per open session tab or live run of the caller's — the rail is
 //!   the ONE navigation for coding sessions; hidden while empty), then
@@ -24,12 +24,12 @@
 //!   and the settings gear on its right. The account dropdown is the web's
 //!   exactly: What's new, About, Sign out (team switching lives in the
 //!   header).
-//! - [`ListPanel`] — the team's LIST surfaces (a board, the Inbox, Support).
+//! - [`ListPanel`] — the team's LIST surfaces (a board, the Inbox).
 //!   EXP-851: it renders EITHER as the full-width main view
 //!   ([`ListMode::Screen`], the list screen a rail entry navigates to) or as
 //!   the `ListNav` in the left column ([`ListMode::Nav`], the
 //!   simplified list beside an open detail). One type either way, so the
-//!   Support poll, the board query and the inbox grouping exist once.
+//!   board query and the inbox grouping exist once.
 //!
 //! Every affordance dispatches a typed action (§3.6) or navigates directly;
 //! menus render in the Root overlay, outside this element tree.
@@ -82,7 +82,7 @@ use crate::queries;
 /// It used to name the rail's active TOOL WINDOW (a docked column beside the
 /// centre). There is no tool column anymore: every one of these is a
 /// full-width SCREEN ([`Screen::BoardIssues`], [`Screen::Inbox`],
-/// [`Screen::Support`], [`Screen::Files`], [`Screen::SourceControl`],
+/// [`Screen::Files`], [`Screen::SourceControl`],
 /// [`Screen::Chat`], [`Screen::Reviews`]), and the enum survives only as the
 /// origin vocabulary — `origin_screen` maps each back to its screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -95,10 +95,6 @@ pub(crate) enum ToolWindow {
     /// The active board's issue list (mini list) — the default tool.
     /// Selected via the rail's Projects board icons (no icon of its own).
     BoardIssues,
-    /// Support tickets of the active team (EXP-180 — server-only tRPC data,
-    /// polled). The rail icon renders only while the active team's synced
-    /// `helpdesk_enabled` flag is on.
-    Support,
     /// The trunk file tree at full panel height.
     Files,
     /// The trunk's local branches; activating also opens the changes screen.
@@ -122,7 +118,6 @@ impl ToolWindow {
             ToolWindow::BoardIssues => Screen::BoardIssues {
                 board_id: board.unwrap_or_default(),
             },
-            ToolWindow::Support => Screen::Support,
             ToolWindow::Files => Screen::Files,
             ToolWindow::SourceControl => Screen::SourceControl,
             ToolWindow::Reviews => Screen::Reviews,
@@ -136,7 +131,6 @@ impl ToolWindow {
         match self {
             ToolWindow::Inbox => "Inbox",
             ToolWindow::BoardIssues => "Board",
-            ToolWindow::Support => "Support",
             ToolWindow::Files => "Files",
             ToolWindow::SourceControl => "Source Control",
             ToolWindow::Reviews => "Reviews",
@@ -391,15 +385,12 @@ pub(crate) fn rail_tool_for_window_id(
 }
 
 /// EXP-851: [`rail_tool_for_window_id`]'s pure rule — which LIST a screen
-/// reads as. A list screen is itself; a support thread reads as Support (its
-/// rows are the tickets); everything else falls back to the board list, which
-/// is the redundancy check's "shows no notification stream" answer.
+/// reads as. A list screen is itself; everything else falls back to the
+/// board list, which is the redundancy check's "shows no notification
+/// stream" answer.
 pub(crate) fn focused_list(screen: Option<&Screen>) -> (ToolWindow, InboxTab) {
     match screen {
         Some(Screen::Inbox { tab }) => (ToolWindow::Inbox, *tab),
-        Some(Screen::Support) | Some(Screen::SupportThread { .. }) => {
-            (ToolWindow::Support, InboxTab::Inbox)
-        }
         Some(Screen::Files) => (ToolWindow::Files, InboxTab::Inbox),
         Some(Screen::SourceControl) => (ToolWindow::SourceControl, InboxTab::Inbox),
         Some(Screen::Reviews) => (ToolWindow::Reviews, InboxTab::Inbox),
@@ -445,8 +436,8 @@ pub fn remove_window(window_id: WindowId, cx: &mut App) {
 
 /// EXP-851: open the list `tool` names — the legacy `activate_tool` seam,
 /// kept because half a dozen surfaces (the create-board dialog, Source
-/// Control's own buttons, an OS notification, the search palette, the
-/// helpdesk settings pane) speak this vocabulary. A board list takes the
+/// Control's own buttons, an OS notification, the search palette) speak
+/// this vocabulary. A board list takes the
 /// window's active board.
 pub(crate) fn activate_tool(window: &mut Window, cx: &mut App, tool: ToolWindow) {
     let board = (tool == ToolWindow::BoardIssues)
@@ -475,22 +466,6 @@ pub(crate) fn apply_origin(window: &Window, cx: &mut App, origin: &crate::naviga
     if let Some(board_id) = origin.board_id.clone() {
         crate::navigation::set_active_board(window, cx, board_id);
     }
-}
-
-/// Whether the ACTIVE team's synced row has the helpdesk flag on — the gate
-/// for the Support rail icon + tool window (EXP-180). Rows synced before the
-/// column existed hydrate `None` → disabled.
-fn helpdesk_enabled(nav: &Entity<Navigation>, cx: &App) -> bool {
-    active_team_id(nav, cx)
-        .and_then(|id| {
-            Store::global(cx)
-                .collections()
-                .teams
-                .read(cx)
-                .get(&id)
-                .and_then(|team| team.helpdesk_enabled)
-        })
-        == Some(true)
 }
 
 /// EXP-1105: whether the ACTIVE team runs in yolo mode — Reviews, Files and
@@ -535,27 +510,6 @@ fn yolo_rail(yolo: bool, has_reviews: bool, sc_failing: bool) -> YoloRail {
         source_control: sc_failing,
     }
 }
-
-/// The Support tool window's open/resolved filter (the server's
-/// `helpdesk.listThreads` filter enum).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SupportFilter {
-    Open,
-    Resolved,
-}
-
-impl SupportFilter {
-    fn as_str(self) -> &'static str {
-        match self {
-            SupportFilter::Open => "open",
-            SupportFilter::Resolved => "resolved",
-        }
-    }
-}
-
-/// The fetch key of one Support list: `(team_id, filter)`.
-type SupportKey = (String, SupportFilter);
-
 
 /// FEED-3: hover-reveal group name for the expanded rail's board rows — the
 /// gear that jumps to the board's settings page shows only under the cursor.
@@ -652,7 +606,7 @@ struct NavBoardKey {
 const SYNCING_LABEL: &str = "Syncing\u{2026}";
 
 /// A rail entry's status badge (EXP-509 — the Source Control entry outgrew
-/// the plain dot): the classic colored dot (EXP-699: Inbox/Support primary,
+/// the plain dot): the classic colored dot (EXP-699: Inbox primary,
 /// Reviews green, Devices green/amber — the mobile tab-bar palette), a
 /// small status ICON (SC attention triangle / error cross), or the spinning
 /// refresh glyph while a sync is pulling.
@@ -875,9 +829,9 @@ impl RailView {
             cx.observe(&collections.issues, |_, _, cx| cx.notify()),
             // Board icons + the Reviews dot follow the boards collection.
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
-            // The Support icon gates on the team row's helpdesk_enabled flag.
+            // The team picker's rows follow the teams collection.
             cx.observe(&collections.teams, |_, _, cx| cx.notify()),
-            // The Inbox and Support dots are live reads over unread rows.
+            // The Inbox dot is a live read over unread rows.
             cx.observe(&collections.notifications, |_, _, cx| cx.notify()),
             // EXP-778: the Pinned section — its rows, and the action names
             // it resolves (issues/sessions are observed already).
@@ -2155,26 +2109,6 @@ impl Render for RailView {
         // rows in the rail's Running section (EXP-923) right below, each
         // with its own state dot — a second signal on the entry above them
         // was noise. (It was the EXP-699 Devices dot, moved by EXP-818.)
-        // Support tool (EXP-180): rendered ONLY while the active team's
-        // synced row carries helpdesk_enabled = true. The badge lights on
-        // unread helpdesk activity in that team (EXP-182); primary dot like
-        // Inbox (EXP-699 — unread, not a warning).
-        let support_icon = helpdesk_enabled(&self.nav, cx).then(|| {
-            let support_unread = active_team_id(&self.nav, cx)
-                .map(|id| queries::support_unread(cx, &id))
-                .unwrap_or(false);
-            let support_badge =
-                support_unread.then(|| RailBadge::Dot(theme::tokens::PRIMARY.to_hsla()));
-            self.rail_tool_icon(
-                "rail-support",
-                Icon::from(icons::registry::NAV_SUPPORT),
-                ToolWindow::Support,
-                "Support",
-                None,
-                support_badge,
-                cx,
-            )
-        });
         // EXP-878: Drafts — a CONDITIONAL entry directly under Inbox, shown
         // only while this user has drafts in the active team (or is standing
         // on the page itself, so the rail never yanks the row out from under
@@ -2384,7 +2318,7 @@ impl Render for RailView {
         if self.compact {
             // EXP-870: the ICON column. Same destinations in the same order
             // as the expanded rail below (Inbox, the conditional Drafts entry,
-            // Support, …), minus everything that needs a
+            // Devices, …), minus everything that needs a
             // label to mean anything (section labels, the What's-new card,
             // Getting started, the sync caption, Files/Source Control's
             // "This device" heading); the footer stacks vertically.
@@ -2416,7 +2350,6 @@ impl Render for RailView {
                         // EXP-878: Drafts sits directly under Inbox — the
                         // personal pile before the team surfaces.
                         .children(drafts_entry)
-                        .children(support_icon)
                         .child(self.rail_screen_entry(
                             "rail-devices",
                             Icon::from(icons::registry::NAV_DEVICES),
@@ -2487,7 +2420,7 @@ impl Render for RailView {
             // Settings/Account off small windows. Rail order (EXP-699, the
             // mobile tab-bar order; EXP-791 added Agent and Sessions;
             // EXP-878 the conditional Drafts entry under Inbox):
-            // [Inbox, Drafts?, Support, Devices, Actions, Reviews, Agent]
+            // [Inbox, Drafts?, Devices, Actions, Reviews, Agent]
             // / Pinned (EXP-778) / boards + "+" / Running (EXP-923) / This
             // device: [Files, Source Control].
             .child(crate::scroll_pane::sidebar_scroll_pane(
@@ -2512,7 +2445,6 @@ impl Render for RailView {
                     // EXP-878: Drafts sits directly under Inbox — the
                     // personal pile before the team surfaces.
                     .children(drafts_entry)
-                    .children(support_icon)
                     // EXP-686: Devices · Actions, the surfaces the old
                     // Agents entry bundled.
                     .child(self.rail_screen_entry(
@@ -2531,7 +2463,7 @@ impl Render for RailView {
                     // EXP-791: "Agent", the web sidebar's word for the Chat
                     // page (EXP-772). EXP-818: it is a TOOL now — the sessions
                     // list on the left, the Chat prompt in the center until a
-                    // row is clicked (the Support master-detail shape).
+                    // row is clicked (the master-detail shape).
                     .child(self.rail_agent_entry(active_chat_action.as_deref(), cx))
                     // EXP-778: Pinned sits between the nav entries and the
                     // boards (rail order: entries / Pinned / boards / Sessions).
@@ -2605,7 +2537,7 @@ impl Render for RailView {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ListMode {
     /// The main view — the full list screen (`Screen::BoardIssues` /
-    /// `Screen::Inbox` / `Screen::Support`) with its filter bar and tab strip.
+    /// `Screen::Inbox`) with its filter bar and tab strip.
     Screen,
     /// The left column's `ListNav` — a back row over the SIMPLIFIED list the
     /// open detail was picked from.
@@ -2616,8 +2548,8 @@ pub(crate) enum ListMode {
 /// `SidebarPanel` tool column beside the centre; the centre split is gone,
 /// so the same rows render EITHER as the full-width main view
 /// ([`ListMode::Screen`]) or as the `ListNav` beside an open detail
-/// ([`ListMode::Nav`]). One type, so the Support poll, the board query and
-/// the inbox grouping exist once.
+/// ([`ListMode::Nav`]). One type, so the board query and the inbox grouping
+/// exist once.
 pub struct ListPanel {
     mode: ListMode,
     nav: Entity<Navigation>,
@@ -2637,19 +2569,6 @@ pub struct ListPanel {
     /// The "My Issues" tool window — same board pinned to assignee == me
     /// (also shared via [`RailShared`]).
     board_my: Entity<BoardView>,
-    /// The Support tool window's open/resolved filter (EXP-180).
-    support_filter: SupportFilter,
-    /// Fetched `helpdesk.listThreads` result, tagged with its
-    /// `(team_id, filter)` key so another team's/filter's rows never render.
-    support_threads: Option<(SupportKey, Vec<api::helpdesk::SupportThreadSummary>)>,
-    /// The key the current fetch + 30s poll belong to. Cleared whenever the
-    /// Support tool window is inactive (like `open_pulls_key`), which also
-    /// ends the poll loop on its next tick.
-    support_key: Option<SupportKey>,
-    /// Bumped per list fetch — a stale response checks it before landing.
-    support_seq: u64,
-    /// Bumped per poll spawn — at most ONE Support poll loop is ever live.
-    support_poll_seq: u64,
     /// [`ListMode::Nav`] only (EXP-862): the status groups folded away in the
     /// issue lists, by `group_key` — the big list's own `collapsed` set. Per
     /// panel, never persisted.
@@ -2747,9 +2666,10 @@ fn notification_type_icon(kind: Option<&str>) -> Icon {
         }
         Some(domain::contract::NOTIFICATION_TYPE_PR_OPENED) => Icon::from(ExpIcon::GitPullRequest),
         Some(domain::contract::NOTIFICATION_TYPE_PR_MERGED) => Icon::from(ExpIcon::GitMerge),
-        // EXP-180: the helpdesk fan-out — the Support rail tool's glyph.
-        Some(domain::contract::NOTIFICATION_TYPE_SUPPORT_REPLY) => {
-            Icon::from(ExpIcon::MessageSquare)
+        // SLOP-4: a widget reporter answered on an issue — the registry's
+        // reply glyph (`notification-reporter-reply` ×4).
+        Some(domain::contract::NOTIFICATION_TYPE_REPORTER_REPLY) => {
+            Icon::new(registry::NOTIFICATION_REPORTER_REPLY)
         }
         // EXP-801: an agent's message — the registry's bot glyph.
         Some(domain::contract::NOTIFICATION_TYPE_AGENT_MESSAGE) => {
@@ -2808,11 +2728,6 @@ impl ListPanel {
             last_origin: None,
             board_active,
             board_my,
-            support_filter: SupportFilter::Open,
-            support_threads: None,
-            support_key: None,
-            support_seq: 0,
-            support_poll_seq: 0,
             nav_collapsed: HashSet::new(),
             nav_selected: HashSet::new(),
             nav_select_anchor: None,
@@ -2836,8 +2751,8 @@ impl ListPanel {
     // -- shared chrome -------------------------------------------------------
 
     /// EXP-282: the icon-tab strip that REPLACED the icon+title header on the
-    /// two tabbed tool windows (Inbox, Support). EXP-525: chips sit LEFT
-    /// (web parity — the inbox/support pills are left-aligned rows there);
+    /// tabbed Inbox tool window. EXP-525: chips sit LEFT
+    /// (web parity — the inbox pills are left-aligned rows there);
     /// trailing controls ride the strip's right edge absolutely. Same height
     /// as [`Self::tool_header`] so the lists below don't shift between tools.
     /// EXP-818: the strip is the SEGMENTED capsule the start-coding dialog's
@@ -2928,9 +2843,8 @@ impl ListPanel {
 
     /// *Inbox* tool window (EXP-186): the merged personal surface — an Inbox
     /// tab (notification stream) + a My Issues tab (the full board pinned to
-    /// assignee == me across the team), switched by header tab buttons (the
-    /// Support Open/Resolved pattern), mirroring mobile's segmented My Work
-    /// screen.
+    /// assignee == me across the team), switched by header tab buttons,
+    /// mirroring mobile's segmented My Work screen.
     fn render_inbox_tool(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let tab = self.inbox_tab(cx);
         // EXP-282: centered icon tabs instead of the icon+title header.
@@ -3020,7 +2934,6 @@ impl ListPanel {
                 .iter()
                 .map(|entry| match entry {
                     queries::InboxEntry::Issue(group) => self.inbox_issue_row(group, cx),
-                    queries::InboxEntry::Support(group) => self.inbox_support_row(group, cx),
                     queries::InboxEntry::Message(entry) => self.inbox_message_row(entry, cx),
                     queries::InboxEntry::Session(entry) => self.inbox_session_row(entry, cx),
                 })
@@ -3190,147 +3103,6 @@ impl ListPanel {
                                 ),
                         )
                         .into_any_element()
-    }
-
-    /// One synthetic Support inbox row (EXP-180): the group's latest
-    /// `support_reply` sentence under a plain "Support" label (+ the team
-    /// name when the ticket team is synced — web parity). Click marks the
-    /// group read and opens that team's Support tool, switching the active
-    /// team first when it differs; the generic NULL-team group opens
-    /// Support for the current team.
-    fn inbox_support_row(
-        &self,
-        group: &queries::SupportInboxGroup,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let theme = cx.theme();
-        let theme_radius = theme.radius;
-        let unread = group.unread > 0;
-        let unread_ids: Vec<String> = group
-            .items
-            .iter()
-            .filter(|n| n.read_at.is_none())
-            .map(|n| n.id.clone())
-            .collect();
-        // Items are newest first — `first()` IS the latest.
-        let latest = group.items.first();
-        let time: SharedString = latest
-            .and_then(|n| n.created_at.as_deref())
-            .map(crate::inbox::relative_time)
-            .unwrap_or_default()
-            .into();
-        // Notification titles are full human sentences ("A reporter replied
-        // to …") — shown verbatim.
-        let sentence: SharedString = latest
-            .and_then(|n| n.title.clone())
-            .unwrap_or_default()
-            .into();
-        let team_name: Option<SharedString> = group.team_name.clone().map(Into::into);
-        let target_team = group.team_id.clone();
-        let type_icon =
-            notification_type_icon(Some(domain::contract::NOTIFICATION_TYPE_SUPPORT_REPLY));
-        h_flex()
-            .id(SharedString::from(format!(
-                "mini-inbox-support-{}",
-                group.team_id.as_deref().unwrap_or("unknown")
-            )))
-            .w_full()
-            .items_start()
-            .gap_2()
-            .px_2()
-            .py_1p5()
-            .rounded(theme_radius)
-            .hover(|this| this.bg(theme.list_hover))
-            .cursor_pointer()
-            .on_click(cx.listener(move |this, _, window, cx| {
-                // Web `markGroupRead`, then open the ticket team's Support
-                // inbox (a cross-team group switches the window's team; the
-                // NULL-team legacy group stays on the current one).
-                mark_group_read(&unread_ids, cx);
-                if let Some(team_id) = target_team.clone() {
-                    if active_team_id(&this.nav, cx).as_deref() != Some(team_id.as_str()) {
-                        switch_team(window, cx, team_id);
-                    }
-                }
-                activate_tool(window, cx, ToolWindow::Support);
-            }))
-            // Leading circular type badge — the Support glyph.
-            .child(
-                h_flex()
-                    .size_6()
-                    .flex_shrink_0()
-                    .items_center()
-                    .justify_center()
-                    .rounded_full()
-                    .bg(theme.muted)
-                    .child(type_icon.xsmall().text_color(theme.muted_foreground)),
-            )
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .items_center()
-                            .gap_1p5()
-                            .child(
-                                div()
-                                    .flex_shrink_0()
-                                    .text_xs()
-                                    .when(unread, |this| {
-                                        this.font_weight(FontWeight::MEDIUM)
-                                    })
-                                    // Read groups render dimmed.
-                                    .text_color(if unread {
-                                        theme.foreground
-                                    } else {
-                                        theme.muted_foreground
-                                    })
-                                    .child("Support"),
-                            )
-                            .when_some(team_name, |this, name| {
-                                this.child(
-                                    div()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .text_xs()
-                                        .truncate()
-                                        .text_color(theme.muted_foreground)
-                                        .child(name),
-                                )
-                            }),
-                    )
-                    .child(
-                        div()
-                            .w_full()
-                            .text_xs()
-                            .truncate()
-                            .text_color(theme.muted_foreground)
-                            .child(sentence),
-                    ),
-            )
-            .child(
-                h_flex()
-                    .flex_shrink_0()
-                    .items_center()
-                    .gap_1p5()
-                    .pt_0p5()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .child(time),
-                    )
-                    .child(
-                        div()
-                            .size_2()
-                            .flex_shrink_0()
-                            .rounded_full()
-                            .when(unread, |this| this.bg(theme.primary)),
-                    ),
-            )
-            .into_any_element()
     }
 
     /// One agent message row (EXP-801): the bot badge, the sentence ("Ada's
@@ -3505,8 +3277,8 @@ impl ListPanel {
             .cursor_pointer()
             .on_click(cx.listener(move |this, _, window, cx| {
                 // Web `markGroupRead`, then open the run itself (a
-                // cross-team row switches the window's team first, like the
-                // Support group). A pruned run leads nowhere.
+                // cross-team row switches the window's team first). A pruned
+                // run leads nowhere.
                 mark_group_read(&unread_ids, cx);
                 let Some(session_id) = session_id.clone() else {
                     return;
@@ -3660,332 +3432,6 @@ impl ListPanel {
             .min_w_0()
             .child(self.board_active.clone())
             .into_any_element()
-    }
-
-    // -- Support tool window ----------------------------------------------------
-
-    /// *Support* tool window (EXP-180): the active team's support tickets,
-    /// filtered open/resolved. Threads are server-only tRPC data — a
-    /// seq-guarded background fetch keyed on `(team_id, filter)` (the
-    /// `reviews_view::ReviewsView::ensure_open_pulls` pattern) plus a 30s poll
-    /// that lives only while
-    /// this tool window is active (`support_key` clears on tool switch, which
-    /// ends the loop). Rows open the thread's center tab.
-    fn render_support_tool(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        let team_id = active_team_id(&self.nav, cx);
-        let enabled = helpdesk_enabled(&self.nav, cx);
-        if enabled {
-            if let Some(id) = team_id.as_deref() {
-                self.ensure_support_threads(id, cx);
-            }
-        }
-        let filter = self.support_filter;
-
-        // EXP-282: the open/resolved filter IS the header now — icon tabs
-        // (same strip as the Inbox tool), no icon+title line. EXP-525: the
-        // glyphs ride the shared support-open/support-resolved concepts.
-        let open_tab = self
-            .tool_tab(
-                "support-filter-open",
-                Icon::new(registry::SUPPORT_OPEN),
-                "Open",
-                filter == SupportFilter::Open,
-                cx,
-            )
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.set_support_filter(SupportFilter::Open, cx);
-            }))
-            .into_any_element();
-        let resolved_tab = self
-            .tool_tab(
-                "support-filter-resolved",
-                Icon::new(registry::SUPPORT_RESOLVED),
-                "Resolved",
-                filter == SupportFilter::Resolved,
-                cx,
-            )
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.set_support_filter(SupportFilter::Resolved, cx);
-            }))
-            .into_any_element();
-        let header = self.tool_tab_strip(vec![open_tab, resolved_tab], None, cx);
-
-        let key = team_id.map(|id| (id, filter));
-        let threads: Option<Vec<api::helpdesk::SupportThreadSummary>> = self
-            .support_threads
-            .as_ref()
-            .filter(|(tagged, _)| Some(tagged) == key.as_ref())
-            .map(|(_, threads)| threads.clone());
-
-        let body: gpui::AnyElement = if !enabled {
-            // The rail icon is gated on the flag, but the tool can stay
-            // active across a team switch — degrade instead of a dead panel.
-            self.list_note("Support is not enabled for this team.", cx)
-        } else {
-            match threads {
-                None => self.list_skeleton(cx),
-                Some(threads) if threads.is_empty() => {
-                    // EXP-525: the web list empty state (LifeBuoy + wording).
-                    v_flex()
-                        .items_center()
-                        .gap_2()
-                        .px_4()
-                        .py_10()
-                        .text_center()
-                        .child(
-                            Icon::from(ExpIcon::LifeBuoy)
-                                .size_6()
-                                .text_color(cx.theme().muted_foreground),
-                        )
-                        .child(
-                            div()
-                                .text_sm()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(match filter {
-                                    SupportFilter::Open => "No open conversations.",
-                                    SupportFilter::Resolved => "No resolved conversations yet.",
-                                }),
-                        )
-                        .into_any_element()
-                }
-                Some(threads) => {
-                    let rows: Vec<gpui::AnyElement> = threads
-                        .iter()
-                        .map(|thread| self.support_row(thread, cx))
-                        .collect();
-                    // EXP-818: flat rows, no gap (web `ListRow` parity).
-                    crate::scroll_pane::SidebarScrollArea::new(
-                        "support-scroll",
-                        v_flex().p_2().children(rows),
-                    )
-                    .into_any_element()
-                }
-            }
-        };
-
-        v_flex()
-            .flex_1()
-            .min_h_0()
-            .min_w_0()
-            .child(header)
-            .child(body)
-            .into_any_element()
-    }
-
-    /// One Support row (EXP-715): the ticket SUBJECT leads (the iOS/Android
-    /// row), reporter + latest-message preview under, relative time and an
-    /// unread dot on the subject line. Click opens the thread screen.
-    fn support_row(
-        &self,
-        thread: &api::helpdesk::SupportThreadSummary,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let theme = cx.theme();
-        let fg = theme.foreground;
-        let muted = theme.muted_foreground;
-        // EXP-277/642: rows use the glass list fills (EXP-269 list_* tokens);
-        // hover is the web `GlassRow`'s `hover:bg-glass-active/50`.
-        let row_active = theme.list_active;
-        let row_hover = row_active.opacity(0.5);
-        // The unread dot is the white primary (web `bg-primary`).
-        let unread_dot = theme::tokens::PRIMARY.to_hsla();
-
-        let selected = matches!(
-            resolved_screen(&self.nav, cx),
-            Some(Screen::SupportThread { thread_id }) if thread_id == thread.id
-        );
-        let unread = thread.unread;
-        let title: SharedString = thread.title.clone().into();
-        let reporter: String = thread
-            .reporter_name
-            .clone()
-            .filter(|name| !name.trim().is_empty())
-            .or_else(|| thread.reporter_email.clone())
-            .unwrap_or_else(|| "Reporter".to_string());
-        let time: SharedString = thread
-            .updated_at
-            .as_deref()
-            .map(crate::inbox::relative_time)
-            .unwrap_or_default()
-            .into();
-        // One-line latest-PUBLIC-message preview, prefixed by the reporter
-        // (the Android `reporter · body` line); newlines collapse so
-        // `truncate` sees a single line. A blank body leaves the reporter
-        // alone — the subject already sits on line one.
-        let preview: SharedString = thread
-            .last_message
-            .as_ref()
-            .and_then(|message| message.body.as_deref())
-            .map(|body| body.split_whitespace().collect::<Vec<_>>().join(" "))
-            .filter(|body| !body.is_empty())
-            .map(|body| format!("{reporter} · {body}"))
-            .unwrap_or(reporter)
-            .into();
-        let nav_id = thread.id.clone();
-        let nav_title = thread.title.clone();
-
-        crate::surface::flat_row()
-            .id(SharedString::from(format!("support-{}", thread.id)))
-            .flex()
-            .flex_col()
-            .w_full()
-            .px_3()
-            .py_2p5()
-            .gap_0p5()
-            .when(selected, |this| this.bg(row_active))
-            .hover(move |this| this.bg(row_hover))
-            .cursor_pointer()
-            .on_click(cx.listener(move |this, _, window, cx| {
-                // Seed the tab label — thread titles are tRPC-only.
-                crate::support_thread::remember_title(cx, &nav_id, &nav_title);
-                this.open_from_list(
-                    Screen::SupportThread {
-                        thread_id: nav_id.clone(),
-                    },
-                    window,
-                    cx,
-                );
-            }))
-            .child(
-                h_flex()
-                    .w_full()
-                    .items_center()
-                    .gap_1p5()
-                    // `flex_1` + `min_w_0` — without the flex basis the
-                    // truncating div collapses and renders ONLY the "…"
-                    // (the EXP-175 definite-width chain, again).
-                    // The subject keeps full contrast whether read or not
-                    // (iOS); unread adds weight, like the mobile rows.
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_sm()
-                            .truncate()
-                            .when(unread, |this| this.font_weight(FontWeight::MEDIUM))
-                            .text_color(fg)
-                            .child(title),
-                    )
-                    .child(
-                        div()
-                            .flex_shrink_0()
-                            .text_xs()
-                            .text_color(muted)
-                            .child(time),
-                    )
-                    .when(unread, |this| {
-                        this.child(div().size_2().flex_shrink_0().rounded_full().bg(unread_dot))
-                    }),
-            )
-            .child(
-                div()
-                    .w_full()
-                    .text_xs()
-                    .truncate()
-                    .text_color(muted)
-                    .child(preview),
-            )
-            .into_any_element()
-    }
-
-    /// Flip the open/resolved filter — drops the fetch key so the next
-    /// render refetches (and the stale-filter rows never show: the rendered
-    /// list is key-tagged).
-    fn set_support_filter(&mut self, filter: SupportFilter, cx: &mut gpui::Context<Self>) {
-        if self.support_filter == filter {
-            return;
-        }
-        self.support_filter = filter;
-        self.support_key = None;
-        cx.notify();
-    }
-
-    /// Kick the `helpdesk.listThreads` fetch when the Support tool window is
-    /// shown or the team/filter changes, and start the 30s poll for that key
-    /// (the `ensure_open_pulls` pattern plus polling — tickets arrive
-    /// server-side with no Electric echo).
-    fn ensure_support_threads(&mut self, team_id: &str, cx: &mut gpui::Context<Self>) {
-        let key: SupportKey = (team_id.to_string(), self.support_filter);
-        if self.support_key.as_ref() == Some(&key) {
-            return;
-        }
-        self.support_key = Some(key.clone());
-        // Rows from another key are dropped immediately; a re-open on the
-        // same key keeps rendering the previous result while refreshing.
-        if self
-            .support_threads
-            .as_ref()
-            .is_some_and(|(tagged, _)| *tagged != key)
-        {
-            self.support_threads = None;
-        }
-        self.fetch_support_threads(cx);
-        self.spawn_support_poll(key, cx);
-    }
-
-    /// One seq-guarded list fetch for the CURRENT `support_key`.
-    fn fetch_support_threads(&mut self, cx: &mut gpui::Context<Self>) {
-        let Some(key) = self.support_key.clone() else {
-            return;
-        };
-        let Some(trpc) = queries::trpc_client(cx) else {
-            return;
-        };
-        self.support_seq += 1;
-        let seq = self.support_seq;
-        cx.spawn(async move |this, cx| {
-            let (team_id, filter) = key.clone();
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    api::helpdesk::helpdesk_list_threads(&trpc, &team_id, filter.as_str())
-                })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if this.support_seq != seq || this.support_key.as_ref() != Some(&key) {
-                    return;
-                }
-                match result {
-                    Ok(threads) => {
-                        this.support_threads = Some((key, threads));
-                        cx.notify();
-                    }
-                    Err(err) => {
-                        // Keep whatever rendered; the next poll retries.
-                        log::warn!("[ui] helpdesk.listThreads failed: {err}");
-                    }
-                }
-            });
-        })
-        .detach();
-    }
-
-    /// The 30s Support poll: entity-weak, superseded by `support_poll_seq`
-    /// (at most one loop live), and self-terminating once `support_key` no
-    /// longer matches — i.e. the tool window was left or re-keyed.
-    fn spawn_support_poll(&mut self, key: SupportKey, cx: &mut gpui::Context<Self>) {
-        self.support_poll_seq += 1;
-        let generation = self.support_poll_seq;
-        cx.spawn(async move |this, cx| {
-            loop {
-                cx.background_executor()
-                    .timer(std::time::Duration::from_secs(30))
-                    .await;
-                let keep_going = this.update(cx, |this, cx| {
-                    if this.support_poll_seq != generation
-                        || this.support_key.as_ref() != Some(&key)
-                    {
-                        return false;
-                    }
-                    this.fetch_support_threads(cx);
-                    true
-                });
-                if !matches!(keep_going, Ok(true)) {
-                    break;
-                }
-            }
-        })
-        .detach();
     }
 
     // -- ListNav bulk selection (EXP-863) -------------------------------------
@@ -4605,7 +4051,6 @@ impl ListPanel {
             // Strip + rows for both tabs (`render_inbox_tool` picks the
             // simplified body in Nav mode).
             ToolWindow::Inbox => self.render_inbox_tool(cx),
-            ToolWindow::Support => self.render_support_tool(cx),
             ToolWindow::Reviews => self.render_reviews_nav(cx),
             // Files / Source Control are not list ORIGINS (`Screen::list_origin`).
             ToolWindow::Files | ToolWindow::SourceControl => div().into_any_element(),
@@ -4616,18 +4061,6 @@ impl ListPanel {
 impl Render for ListPanel {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let screen = resolved_screen(&self.nav, cx);
-        // Leaving the Support list drops its fetch key — the next open
-        // refetches, and the 30s poll loop dies on its next tick.
-        let shows_support = match self.mode {
-            ListMode::Screen => matches!(screen, Some(Screen::Support)),
-            ListMode::Nav => matches!(
-                crate::shell::list_nav_origin(window, cx).map(|origin| origin.tool),
-                Some(ToolWindow::Support)
-            ),
-        };
-        if !shows_support {
-            self.support_key = None;
-        }
         let body = match self.mode {
             ListMode::Screen => match screen {
                 // The tab strip lives inside the view; it reads the screen.
@@ -4638,8 +4071,7 @@ impl Render for ListPanel {
                         .or_else(|| active_board_id(&self.nav, cx));
                     self.render_board_issues_tool(board_id, cx)
                 }
-                Some(Screen::Support) => self.render_support_tool(cx),
-                // The panel is only mounted for the three list screens.
+                // The panel is only mounted for the two list screens.
                 _ => div().into_any_element(),
             },
             ListMode::Nav => {
@@ -4788,7 +4220,6 @@ mod tests {
                 tab: InboxTab::Inbox
             }
         );
-        assert_eq!(ToolWindow::Support.origin_screen(None), Screen::Support);
         assert_eq!(ToolWindow::Files.origin_screen(None), Screen::Files);
         assert_eq!(
             ToolWindow::SourceControl.origin_screen(None),
@@ -4797,7 +4228,6 @@ mod tests {
         assert_eq!(ToolWindow::Reviews.origin_screen(None), Screen::Reviews);
         // The back row's words — a board overrides with its own name.
         assert_eq!(ToolWindow::Inbox.list_label(), "Inbox");
-        assert_eq!(ToolWindow::Support.list_label(), "Support");
         assert_eq!(ToolWindow::Reviews.list_label(), "Reviews");
     }
 
@@ -4834,9 +4264,9 @@ mod tests {
             Some(board)
         );
         assert_eq!(
-            row_origin_for(ListMode::Screen, None, Some(&Screen::Support))
+            row_origin_for(ListMode::Screen, None, Some(&Screen::Reviews))
                 .map(|origin| origin.tool),
-            Some(ToolWindow::Support)
+            Some(ToolWindow::Reviews)
         );
         // A screen that is no list pins nothing (the panel is only mounted
         // for the list screens, so this is the defensive arm).
@@ -4845,9 +4275,9 @@ mod tests {
     }
 
     /// EXP-851: what a window READS as, for the OS-notification redundancy
-    /// check — the list screens are themselves, a ticket reads as Support,
-    /// a session as the Agent page, and everything else falls back to the
-    /// board list (which is "not the notification stream").
+    /// check — the list screens are themselves, and everything else (a
+    /// session included) falls back to the board list (which is "not the
+    /// notification stream").
     #[test]
     fn the_focused_list_follows_the_screen() {
         assert_eq!(
@@ -4856,17 +4286,7 @@ mod tests {
             })),
             (ToolWindow::Inbox, InboxTab::MyIssues)
         );
-        assert_eq!(
-            focused_list(Some(&Screen::Support)).0,
-            ToolWindow::Support
-        );
-        assert_eq!(
-            focused_list(Some(&Screen::SupportThread {
-                thread_id: "t1".into()
-            }))
-            .0,
-            ToolWindow::Support
-        );
+        assert_eq!(focused_list(Some(&Screen::Reviews)).0, ToolWindow::Reviews);
         // EXP-923: a run is no longer "the Agent list" — nothing lists it,
         // so the redundancy check falls back to the board list.
         assert_eq!(

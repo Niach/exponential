@@ -52,7 +52,6 @@ pub const ENTITY_REF_ICON: &[(&str, &str)] = &[
     ("team", "ui-team"),
     ("invite", "ui-invite"),
     ("notification", "nav-notifications"),
-    ("thread", "nav-support"),
     ("attachment", "ui-attach"),
     ("list", "ui-checklist"),
 ];
@@ -71,7 +70,6 @@ const NOUNS: &[(&str, &str, &str)] = &[
     ("team", "team", "teams"),
     ("invite", "invite", "invites"),
     ("notification", "notification", "notifications"),
-    ("thread", "thread", "threads"),
     ("attachment", "attachment", "attachments"),
     ("list", "list", "lists"),
 ];

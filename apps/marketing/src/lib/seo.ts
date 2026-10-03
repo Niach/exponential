@@ -116,7 +116,6 @@ export const PAGES: PageSeo[] = [
       `src/components/PlanCards.tsx`,
       `src/components/SocialProof.tsx`,
       `src/lib/plans.ts`,
-      `src/webui/HelpdeskChatDemo.tsx`,
     ],
     title: `Exponential · The next generation dev platform for teams`,
     description: `The next generation dev platform for teams. Issues, customer feedback and coding agents in one realtime tracker. Agents run on your hardware, on your subscription, no cloud agents. Native on web, iOS, Android, macOS, Windows and Linux. Free for teams of three, open source and free to self-host.`,
@@ -149,7 +148,7 @@ export const PAGES: PageSeo[] = [
     htmlFile: `docs/index.html`,
     sources: [`src/DocsPage.tsx`, `../../shots/board`],
     title: `Docs · Exponential`,
-    description: `Everything about Exponential: quickstart plus guides for issues and boards, coding agents, actions, the CLI and daemon, feedback and the helpdesk, the embeddable widget, MCP, the apps, and self-hosting.`,
+    description: `Everything about Exponential: quickstart plus guides for issues and boards, coding agents, actions, the CLI and daemon, user feedback, the embeddable widget, MCP, the apps, and self-hosting.`,
     ogImage: `/og/og-docs.png`,
     jsonLd: breadcrumb([
       { name: `Home`, path: `/` },
@@ -234,14 +233,14 @@ export const PAGES: PageSeo[] = [
   {
     path: `/docs/feedback/`,
     htmlFile: `docs/feedback/index.html`,
-    sources: [`src/FeedbackDocsPage.tsx`, `../../shots/support-inbox`],
-    title: `Feedback & helpdesk · Exponential docs`,
-    description: `Collect feedback with the embeddable widget and run the team helpdesk: email conversations with reporters, answered from a shared support inbox and escalated to issues in one click.`,
+    sources: [`src/FeedbackDocsPage.tsx`],
+    title: `Feedback & reporters · Exponential docs`,
+    description: `Collect feedback with the embeddable widget: every report is an issue on your board, you reply to the reporter from its comments, and their answers come back as comments. Triage with the workflow you already know.`,
     ogImage: `/og/og-docs.png`,
     jsonLd: breadcrumb([
       { name: `Home`, path: `/` },
       { name: `Docs`, path: `/docs/` },
-      { name: `Feedback & helpdesk`, path: `/docs/feedback/` },
+      { name: `Feedback & reporters`, path: `/docs/feedback/` },
     ]),
   },
   {
@@ -249,7 +248,7 @@ export const PAGES: PageSeo[] = [
     htmlFile: `docs/widget/index.html`,
     sources: [`src/WidgetDocsPage.tsx`],
     title: `Feedback widget · Exponential docs`,
-    description: `Embed the feedback widget on any site: the snippet, feedback and support modes, the JS API (identify, custom data, theming), label chips, annotated screenshots, and what lands in your tracker.`,
+    description: `Embed the feedback widget on any site: the snippet, the one form, the JS API (identify, custom data, theming, headless submit), label chips, annotated screenshots, and what lands in your tracker.`,
     ogImage: `/og/og-docs.png`,
     jsonLd: breadcrumb([
       { name: `Home`, path: `/` },

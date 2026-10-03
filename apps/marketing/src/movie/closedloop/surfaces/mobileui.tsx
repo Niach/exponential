@@ -123,8 +123,7 @@ export const MPriorityIcon: React.FC<{
 
 // ── The floating glass tab bar (icon-only) + detached compose circle ─────────
 // Real MobileTabBar (EXP-686/699 order): Issues (list) · My Work (inbox) ·
-// Support (life-buoy, helpdesk teams) · Devices (monitor) · Actions (bot) ·
-// Reviews (git-pull-request). Search is NOT a tab (EXP-686 moved it into the
+// Devices (monitor) · Actions (bot) · Reviews (git-pull-request). Search is NOT a tab (EXP-686 moved it into the
 // board nav bar). No text labels; active = white glyph on a white-12% circle;
 // the square-pen compose circle floats detached right.
 const TAB_ICONS: { id: string; node: React.ReactNode }[] = [
@@ -147,19 +146,6 @@ const TAB_ICONS: { id: string; node: React.ReactNode }[] = [
       <Glyph size={15}>
         <path d="M22 12h-6l-2 3h-4l-2-3H2" />
         <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
-      </Glyph>
-    ),
-  },
-  {
-    id: "support",
-    node: (
-      <Glyph size={15}>
-        <circle cx="12" cy="12" r="10" />
-        <circle cx="12" cy="12" r="4" />
-        <path d="m4.93 4.93 4.24 4.24" />
-        <path d="m14.83 14.83 4.24 4.24" />
-        <path d="m14.83 9.17 4.24-4.24" />
-        <path d="m4.93 19.07 4.24-4.24" />
       </Glyph>
     ),
   },

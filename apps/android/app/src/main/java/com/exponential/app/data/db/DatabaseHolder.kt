@@ -32,10 +32,10 @@ class DatabaseHolder @Inject constructor(
                 ExponentialDatabase::class.java,
                 "exponential-$accountId-v2.db",
             )
-                // SLOP-3: 78 → 79 migrates in place (rows and the other
-                // shapes' offsets survive). Any OLDER schema still wipes and
-                // lets Electric resync.
-                .addMigrations(MIGRATION_78_79)
+                // SLOP-3: 78 → 79 and SLOP-4: 79 → 80 migrate in place (rows
+                // and every shape's offset survive). Any OLDER schema still
+                // wipes and lets Electric resync.
+                .addMigrations(MIGRATION_78_79, MIGRATION_79_80)
                 .fallbackToDestructiveMigration(dropAllTables = true)
                 .build()
             instances[accountId] = db

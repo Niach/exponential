@@ -64,7 +64,6 @@ pub mod billing;
 pub mod coding_sessions;
 pub mod comments;
 pub mod error;
-pub mod helpdesk;
 pub mod http;
 pub mod issue_drafts;
 pub mod issues;

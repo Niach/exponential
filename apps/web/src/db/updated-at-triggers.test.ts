@@ -31,12 +31,6 @@ const APP_STAMPED: Record<string, string> = {
   oauth_applications: `better-auth adapter stamps it`,
   oauth_access_tokens: `better-auth adapter stamps it`,
   oauth_consents: `better-auth adapter stamps it`,
-  // The support tables stamp updated_at SELECTIVELY: the member inbox sorts by
-  // it, and the reporter's read-receipt / poll heartbeat writes
-  // (routes/api/support/thread.ts, poll.ts) must not reorder that list. A
-  // blanket trigger would bump the thread on every poll.
-  support_threads: `stamped selectively — reporter read receipts must not bump`,
-  support_messages: `thread bump is the ordering signal, not the message row`,
   // Single writer (the SES webhook), which stamps updatedAt on both the upsert
   // and the auto-suppress write.
   email_bounces: `ses webhook stamps it on every write`,

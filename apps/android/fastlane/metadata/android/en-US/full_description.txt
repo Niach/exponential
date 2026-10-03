@@ -1,6 +1,6 @@
 Vibecode together.
 
-Exponential is a realtime issue tracker for teams that build with AI. Issues, customer support and coding agents in one workspace, in sync on every device.
+Exponential is a realtime issue tracker for teams that build with AI. Issues, user feedback and coding agents in one workspace, in sync on every device.
 
 Track work with your team:
 • Issues with priorities, labels, due dates and custom statuses

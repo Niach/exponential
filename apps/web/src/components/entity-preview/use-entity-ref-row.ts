@@ -20,7 +20,7 @@ import type { EntityRef } from "@/lib/mcp/preview"
 
 // EXP-920: the synced row behind a tool-row chip, by kind — ONE live query
 // per chip over the kind's own collection (skipped for the kinds that keep
-// no row: a `list`, and the server-only `repository` and `thread`). An issue
+// no row: a `list`, and the server-only `repository`). An issue
 // resolves through `IssueRefProvider` and a status through the team's rows,
 // both already in context, so neither costs a query.
 //
@@ -112,7 +112,6 @@ export function useEntityRefRow(ref: EntityRef): EntityRefRow {
       }
       case `list`:
       case `repository`:
-      case `thread`:
         return { row: null, synced: true }
       default: {
         const row = (data as unknown[] | undefined)?.[0] ?? null

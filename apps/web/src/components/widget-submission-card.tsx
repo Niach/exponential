@@ -1,51 +1,32 @@
-import { useEffect, useState } from "react"
 import { Megaphone } from "lucide-react"
-import { trpc } from "@/lib/trpc-client"
 import { conceptIcon } from "@exp/ui"
-
-type SubmissionRow = Awaited<
-  ReturnType<typeof trpc.widgets.submissionForIssue.query>
->
+import type { WidgetSubmission } from "@/hooks/use-widget-submission"
+import { relativeTime } from "@/components/comment-rows/format"
+import { reporterDisplayName } from "@/components/reporter-reply-copy"
 
 const AgentSourceIcon = conceptIcon(`ui-agent-source`)
 
 // EXP-42b: compact members-only card surfacing the reporter/page/env metadata
 // that no longer lives in widget-issue descriptions (it's PII on public
-// boards). Backed by widgets.submissionForIssue (member-gated); renders
-// nothing while loading, on error (non-member), or for non-widget issues.
+// boards). SLOP-4: fed by the detail's ONE `useWidgetSubmission` fetch (the
+// timeline and the composer read the same row); the detail renders it only
+// when the row exists, so a non-widget issue draws nothing.
 // EXP-496: agent-filed bug reports carry the same submission row — the header
 // keys off the issue's source.
 export function WidgetSubmissionCard({
-  issueId,
+  submission,
   source,
 }: {
-  issueId: string
+  submission: WidgetSubmission
   source: string
 }) {
-  const [submission, setSubmission] = useState<SubmissionRow | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    setSubmission(null)
-    trpc.widgets.submissionForIssue.query({ issueId }).then(
-      (row) => {
-        if (!cancelled) setSubmission(row)
-      },
-      () => {
-        // Non-member / stale issue — the card simply doesn't render.
-      }
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [issueId])
-
-  if (!submission) return null
-
-  const reporter =
-    submission.reporterName && submission.reporterEmail
-      ? `${submission.reporterName} <${submission.reporterEmail}>`
-      : (submission.reporterName ?? submission.reporterEmail ?? `Anonymous`)
+  // The reporter line: the name they gave (else the anonymous label) with
+  // their address beside it when they left one — the address is what the
+  // composer's "Reply to reporter" toggle emails.
+  const reporterName = reporterDisplayName(submission.reporterName)
+  const reporter = submission.reporterEmail
+    ? `${reporterName} <${submission.reporterEmail}>`
+    : reporterName
 
   const viewport =
     submission.viewportWidth && submission.viewportHeight
@@ -109,6 +90,13 @@ export function WidgetSubmissionCard({
           </div>
         )}
       </dl>
+      {/* SLOP-4: the reporter page stamps `last_reporter_seen_at` on every
+          open — the one signal that the emailed link is being read. */}
+      {submission.lastReporterSeenAt && (
+        <p className="mt-2 text-muted-foreground">
+          Last opened the conversation {relativeTime(submission.lastReporterSeenAt)}
+        </p>
+      )}
     </div>
   )
 }

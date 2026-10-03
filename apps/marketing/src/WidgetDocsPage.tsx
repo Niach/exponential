@@ -59,13 +59,13 @@ export function WidgetDocsPage() {
           <DocsSection id="install" num="01" label="Install">
             <h2>Install</h2>
             <p>
-              Create a widget in <strong>Team settings → Feedback widget</strong>{` `}
+              Create a widget in <strong>Team settings → Widget</strong>{` `}
               (team owners only; every plan includes at least one). Each
               config gets a public <code>expw_</code> key, a{` `}
               <strong>domain allowlist</strong> (submissions are only accepted
-              from pages on domains you list), a{` `}
-              <strong>mode</strong> (feedback, support, or both), and for
-              feedback a <strong>target board</strong> where reports land.
+              from pages on domains you list), and the{` `}
+              <strong>board</strong> its reports land on. Every submission
+              becomes an issue there.
             </p>
             <p>
               Then paste the snippet before <code>&lt;/head&gt;</code> on your
@@ -128,7 +128,7 @@ ExponentialWidget.init({
 });
 
 // Attach your signed-in user, so reports arrive with a
-// real reporter (and helpdesk replies reach their inbox).
+// real reporter (and your replies to them reach their inbox).
 ExponentialWidget.identify({
   email: "ada@example.com",
   name: "Ada Lovelace",
@@ -157,7 +157,7 @@ ExponentialWidget.open();
 ExponentialWidget.close();
 
 // Submit without the panel. See Headless mode below.
-ExponentialWidget.submit({ title: "Broken button" });
+ExponentialWidget.submit({ message: "The Save button does nothing." });
 `}</DocsCode>
             <p>
               All calls are safe to make before the script has loaded. The
@@ -178,15 +178,19 @@ ExponentialWidget.submit({ title: "Broken button" });
           <DocsSection id="form-fields" num="03" label="Form fields">
             <h2>Form fields</h2>
             <p>
-              The feedback form always asks for a title and details. Everything
-              else is configured per widget in{` `}
-              <strong>Team settings → Feedback widget</strong>:
+              The form asks one thing: <strong>what happened?</strong> The
+              first line of the answer becomes the issue&apos;s title.
+              Everything else is configured per widget in{` `}
+              <strong>Team settings → Widget</strong>:
             </p>
             <ul>
               <li>
                 <strong>Email</strong>: shown by default and optional; make it
                 required, or hide it entirely for internal tools where nobody
-                wants resolution emails.
+                wants follow-up emails. With an email, the reporter gets a
+                private link to their report and you can{` `}
+                <a href="/docs/feedback/#conversation">reply to them</a>{` `}
+                from the issue.
               </li>
               <li>
                 <strong>Name</strong>: off by default. Turn it on (optionally
@@ -229,8 +233,10 @@ ExponentialWidget.submit({ title: "Broken button" });
             </p>
             <p>
               Visitors attached via <code>identify()</code> skip the email and
-              name fields. Their identity rides along invisibly. Support mode
-              always asks for an email: it&apos;s the reply channel.
+              name fields. Their identity rides along invisibly. The email is
+              how you reach the reporter: a report without one lands on the
+              board like any other, but a reply to the reporter has nowhere
+              to go.
             </p>
           </DocsSection>
 
@@ -248,8 +254,8 @@ ExponentialWidget.identify({ email: "ada@example.com", name: "Ada" });
 
 // Later, from your own form's submit handler:
 const result = await ExponentialWidget.submit({
-  title: "Broken button",           // required by the server
-  description: "Steps to reproduce…",
+  message: "The upload spinner runs forever when I attach a screenshot.",
+  title: "Upload never finishes",   // optional: defaults to the message's first line
   name: "dani",                     // overrides identify()
   customData: { page: "checkout" }, // merged over setCustomData()
   screenshot: myBlob,               // optional: you capture it
@@ -263,21 +269,25 @@ if (result.ok) {
   console.error(result.error, result.code);
 }
 
-// Support mode works too (requires the helpdesk):
-await ExponentialWidget.submit({
-  mode: "support",
-  message: "I can't log in",
-  email: "ada@example.com", // required: it's the reply channel
+// Leave an email and the reporter gets a link to follow the conversation:
+const sent = await ExponentialWidget.submit({
+  message: "I can't log in. The form loops back after I press Sign in.",
+  email: "ada@example.com",
 });
+sent.emailDelivered; // true, false (the mail failed), or null (no email given)
 `}</DocsCode>
             <p>
               <code>submit()</code> resolves with{` `}
-              <code>{`{ ok, identifier, url }`}</code> on success and{` `}
-              <code>{`{ ok: false, error, code }`}</code> on failure. It never
-              throws. Screenshots are yours to capture in headless mode; pass a{` `}
-              <code>Blob</code> (PNG, JPEG, or WebP) and it&apos;s attached
-              like a panel screenshot. Server-side validation (required fields,
-              modes, rate limits) applies exactly as it does to the panel.
+              <code>{`{ ok, identifier, url, emailDelivered }`}</code> on
+              success and <code>{`{ ok: false, error, code }`}</code> on
+              failure. It never throws. Hosts written before the one-form
+              widget keep working: <code>description</code> is read as the
+              message when <code>message</code> is absent, and a{` `}
+              <code>mode</code> is ignored. Screenshots are yours to capture
+              in headless mode; pass a <code>Blob</code> (PNG, JPEG, or WebP)
+              and it&apos;s attached like a panel screenshot. Server-side
+              validation (required fields, rate limits) applies exactly as it
+              does to the panel.
             </p>
             <p>
               Not going fully headless? <code>setLauncherHidden(true)</code>{` `}
@@ -340,15 +350,16 @@ await ExponentialWidget.submit({
             label="What lands in Exponential"
           >
             <h2>What lands in Exponential</h2>
-            <p>Each feedback submission becomes, atomically:</p>
+            <p>Each submission becomes, atomically:</p>
             <ul>
               <li>
-                An <strong>issue</strong> on the configured board, with the
-                visitor&apos;s message as the description.
+                An <strong>issue</strong> on the widget&apos;s board, titled
+                from the first line of the message, with the message as the
+                description and the reporter&apos;s label picks applied.
               </li>
               <li>
-                The <strong>screenshot as an attachment</strong>, embedded in
-                the issue.
+                The <strong>screenshot and pictures as attachments</strong>,
+                embedded in the issue.
               </li>
               <li>
                 A metadata block: <strong>reporter email</strong> (from{` `}
@@ -362,13 +373,13 @@ await ExponentialWidget.submit({
               Resolve it and they&apos;re notified.
             </p>
             <p>
-              <strong>Support requests are different</strong>: with the{` `}
-              <a href="/docs/feedback/#helpdesk">helpdesk</a> enabled (Team
-              plan), they skip the board entirely and open a{` `}
-              <strong>ticket in your team&apos;s Support inbox</strong>. That
-              ticket is an email conversation with the reporter that any member
-              can answer, and escalate into an issue on any board when it turns
-              out to be a bug.
+              If the reporter left an email, they also get a confirmation with
+              a <strong>private link to their report</strong>, and the
+              issue&apos;s comment composer grows a{` `}
+              <strong>Reply to reporter</strong> toggle. How that conversation
+              runs is on the{` `}
+              <a href="/docs/feedback/#conversation">Feedback &amp; reporters</a>
+              {` `}page.
             </p>
           </DocsSection>
 

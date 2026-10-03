@@ -11,6 +11,8 @@ vi.mock(`@/lib/trpc-client`, () => ({
     issues: { update: { mutate: updateMutate } },
     notifications: { markReadByIssue: { mutate: vi.fn(async () => ({})) } },
     comments: { create: { mutate: vi.fn(async () => ({})) } },
+    // SLOP-4: the detail fetches the widget submission once (none here).
+    widgets: { submissionForIssue: { query: vi.fn(async () => null) } },
   },
 }))
 // Importing the real collections module opens Electric shapes.

@@ -16,7 +16,6 @@ const submitFeedback = vi.fn(
 )
 vi.mock(`../api-client`, () => ({
   submitFeedback: (args: Record<string, unknown>) => submitFeedback(args),
-  submitSupportRequest: vi.fn(),
 }))
 
 import { App } from "./App"
@@ -86,7 +85,7 @@ describe(`EXP-435 reporter labels`, () => {
     chips().find((el) => el.textContent?.includes(name))!
 
   const submitForm = async () => {
-    const title = container.querySelector<HTMLInputElement>(`#exp-title`)!
+    const title = container.querySelector<HTMLTextAreaElement>(`#exp-message`)!
     title.value = `Broken button`
     title.dispatchEvent(new Event(`input`, { bubbles: true }))
     await flush()

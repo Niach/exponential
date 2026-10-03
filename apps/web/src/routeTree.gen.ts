@@ -47,7 +47,7 @@ import { Route as ApiWebhooksGithubRouteImport } from './routes/api/webhooks/git
 import { Route as ApiTrpcSplatRouteImport } from './routes/api/trpc/$'
 import { Route as ApiSupportThreadRouteImport } from './routes/api/support/thread'
 import { Route as ApiSupportReplyRouteImport } from './routes/api/support/reply'
-import { Route as ApiSupportPollRouteImport } from './routes/api/support/poll'
+import { Route as ApiSupportAttachmentRouteImport } from './routes/api/support/attachment'
 import { Route as ApiShapesWorkflowsRouteImport } from './routes/api/shapes/workflows'
 import { Route as ApiShapesWorkflowNodesRouteImport } from './routes/api/shapes/workflow-nodes'
 import { Route as ApiShapesWorkflowEventsRouteImport } from './routes/api/shapes/workflow-events'
@@ -87,14 +87,12 @@ import { Route as AuthenticatedAdminEmailRouteImport } from './routes/_authentic
 import { Route as AuthenticatedAdminConversionsRouteImport } from './routes/_authenticated/admin/conversions'
 import { Route as AuthenticatedAccountNotificationsRouteImport } from './routes/_authenticated/account/notifications'
 import { Route as TTeamSlugSettingsRouteRouteImport } from './routes/t/$teamSlug/settings/route'
-import { Route as TTeamSlugSupportIndexRouteImport } from './routes/t/$teamSlug/support/index'
 import { Route as TTeamSlugSettingsIndexRouteImport } from './routes/t/$teamSlug/settings/index'
 import { Route as TTeamSlugReviewsIndexRouteImport } from './routes/t/$teamSlug/reviews/index'
 import { Route as TTeamSlugInboxIndexRouteImport } from './routes/t/$teamSlug/inbox/index'
 import { Route as TTeamSlugDraftsIndexRouteImport } from './routes/t/$teamSlug/drafts/index'
 import { Route as TTeamSlugActionsIndexRouteImport } from './routes/t/$teamSlug/actions/index'
 import { Route as TTeamSlugWorkflowsSplatRouteImport } from './routes/t/$teamSlug/workflows/$'
-import { Route as TTeamSlugSupportThreadIdRouteImport } from './routes/t/$teamSlug/support/$threadId'
 import { Route as TTeamSlugSettingsWidgetRouteImport } from './routes/t/$teamSlug/settings/widget'
 import { Route as TTeamSlugSettingsStorageRouteImport } from './routes/t/$teamSlug/settings/storage'
 import { Route as TTeamSlugSettingsStatusesRouteImport } from './routes/t/$teamSlug/settings/statuses'
@@ -106,7 +104,6 @@ import { Route as TTeamSlugSettingsMcpServersRouteImport } from './routes/t/$tea
 import { Route as TTeamSlugSettingsLabelsRouteImport } from './routes/t/$teamSlug/settings/labels'
 import { Route as TTeamSlugSettingsIssuesRouteImport } from './routes/t/$teamSlug/settings/issues'
 import { Route as TTeamSlugSettingsImportRouteImport } from './routes/t/$teamSlug/settings/import'
-import { Route as TTeamSlugSettingsHelpdeskRouteImport } from './routes/t/$teamSlug/settings/helpdesk'
 import { Route as TTeamSlugSettingsGeneralRouteImport } from './routes/t/$teamSlug/settings/general'
 import { Route as TTeamSlugSettingsBillingRouteImport } from './routes/t/$teamSlug/settings/billing'
 import { Route as TTeamSlugSettingsApiKeysRouteImport } from './routes/t/$teamSlug/settings/api-keys'
@@ -325,9 +322,9 @@ const ApiSupportReplyRoute = ApiSupportReplyRouteImport.update({
   path: '/api/support/reply',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiSupportPollRoute = ApiSupportPollRouteImport.update({
-  id: '/api/support/poll',
-  path: '/api/support/poll',
+const ApiSupportAttachmentRoute = ApiSupportAttachmentRouteImport.update({
+  id: '/api/support/attachment',
+  path: '/api/support/attachment',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiShapesWorkflowsRoute = ApiShapesWorkflowsRouteImport.update({
@@ -533,11 +530,6 @@ const TTeamSlugSettingsRouteRoute = TTeamSlugSettingsRouteRouteImport.update({
   path: '/settings',
   getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
-const TTeamSlugSupportIndexRoute = TTeamSlugSupportIndexRouteImport.update({
-  id: '/support/',
-  path: '/support/',
-  getParentRoute: () => TTeamSlugRouteRoute,
-} as any)
 const TTeamSlugSettingsIndexRoute = TTeamSlugSettingsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -568,12 +560,6 @@ const TTeamSlugWorkflowsSplatRoute = TTeamSlugWorkflowsSplatRouteImport.update({
   path: '/workflows/$',
   getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
-const TTeamSlugSupportThreadIdRoute =
-  TTeamSlugSupportThreadIdRouteImport.update({
-    id: '/support/$threadId',
-    path: '/support/$threadId',
-    getParentRoute: () => TTeamSlugRouteRoute,
-  } as any)
 const TTeamSlugSettingsWidgetRoute = TTeamSlugSettingsWidgetRouteImport.update({
   id: '/widget',
   path: '/widget',
@@ -636,12 +622,6 @@ const TTeamSlugSettingsImportRoute = TTeamSlugSettingsImportRouteImport.update({
   path: '/import',
   getParentRoute: () => TTeamSlugSettingsRouteRoute,
 } as any)
-const TTeamSlugSettingsHelpdeskRoute =
-  TTeamSlugSettingsHelpdeskRouteImport.update({
-    id: '/helpdesk',
-    path: '/helpdesk',
-    getParentRoute: () => TTeamSlugSettingsRouteRoute,
-  } as any)
 const TTeamSlugSettingsGeneralRoute =
   TTeamSlugSettingsGeneralRouteImport.update({
     id: '/general',
@@ -851,7 +831,7 @@ export interface FileRoutesByFullPath {
   '/api/shapes/workflow-events': typeof ApiShapesWorkflowEventsRoute
   '/api/shapes/workflow-nodes': typeof ApiShapesWorkflowNodesRoute
   '/api/shapes/workflows': typeof ApiShapesWorkflowsRoute
-  '/api/support/poll': typeof ApiSupportPollRoute
+  '/api/support/attachment': typeof ApiSupportAttachmentRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
   '/api/support/thread': typeof ApiSupportThreadRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
@@ -882,7 +862,6 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/settings/api-keys': typeof TTeamSlugSettingsApiKeysRoute
   '/t/$teamSlug/settings/billing': typeof TTeamSlugSettingsBillingRoute
   '/t/$teamSlug/settings/general': typeof TTeamSlugSettingsGeneralRoute
-  '/t/$teamSlug/settings/helpdesk': typeof TTeamSlugSettingsHelpdeskRoute
   '/t/$teamSlug/settings/import': typeof TTeamSlugSettingsImportRoute
   '/t/$teamSlug/settings/issues': typeof TTeamSlugSettingsIssuesRoute
   '/t/$teamSlug/settings/labels': typeof TTeamSlugSettingsLabelsRoute
@@ -894,14 +873,12 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/settings/statuses': typeof TTeamSlugSettingsStatusesRoute
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
-  '/t/$teamSlug/support/$threadId': typeof TTeamSlugSupportThreadIdRoute
   '/t/$teamSlug/workflows/$': typeof TTeamSlugWorkflowsSplatRoute
   '/t/$teamSlug/actions/': typeof TTeamSlugActionsIndexRoute
   '/t/$teamSlug/drafts/': typeof TTeamSlugDraftsIndexRoute
   '/t/$teamSlug/inbox/': typeof TTeamSlugInboxIndexRoute
   '/t/$teamSlug/reviews/': typeof TTeamSlugReviewsIndexRoute
   '/t/$teamSlug/settings/': typeof TTeamSlugSettingsIndexRoute
-  '/t/$teamSlug/support/': typeof TTeamSlugSupportIndexRoute
   '/t/$teamSlug/settings/boards/$boardId': typeof TTeamSlugSettingsBoardsBoardIdRoute
   '/t/$teamSlug/settings/boards/archived': typeof TTeamSlugSettingsBoardsArchivedRoute
   '/t/$teamSlug/boards/$boardSlug/': typeof TTeamSlugBoardsBoardSlugIndexRoute
@@ -971,7 +948,7 @@ export interface FileRoutesByTo {
   '/api/shapes/workflow-events': typeof ApiShapesWorkflowEventsRoute
   '/api/shapes/workflow-nodes': typeof ApiShapesWorkflowNodesRoute
   '/api/shapes/workflows': typeof ApiShapesWorkflowsRoute
-  '/api/support/poll': typeof ApiSupportPollRoute
+  '/api/support/attachment': typeof ApiSupportAttachmentRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
   '/api/support/thread': typeof ApiSupportThreadRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
@@ -1002,7 +979,6 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/settings/api-keys': typeof TTeamSlugSettingsApiKeysRoute
   '/t/$teamSlug/settings/billing': typeof TTeamSlugSettingsBillingRoute
   '/t/$teamSlug/settings/general': typeof TTeamSlugSettingsGeneralRoute
-  '/t/$teamSlug/settings/helpdesk': typeof TTeamSlugSettingsHelpdeskRoute
   '/t/$teamSlug/settings/import': typeof TTeamSlugSettingsImportRoute
   '/t/$teamSlug/settings/issues': typeof TTeamSlugSettingsIssuesRoute
   '/t/$teamSlug/settings/labels': typeof TTeamSlugSettingsLabelsRoute
@@ -1014,14 +990,12 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/settings/statuses': typeof TTeamSlugSettingsStatusesRoute
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
-  '/t/$teamSlug/support/$threadId': typeof TTeamSlugSupportThreadIdRoute
   '/t/$teamSlug/workflows/$': typeof TTeamSlugWorkflowsSplatRoute
   '/t/$teamSlug/actions': typeof TTeamSlugActionsIndexRoute
   '/t/$teamSlug/drafts': typeof TTeamSlugDraftsIndexRoute
   '/t/$teamSlug/inbox': typeof TTeamSlugInboxIndexRoute
   '/t/$teamSlug/reviews': typeof TTeamSlugReviewsIndexRoute
   '/t/$teamSlug/settings': typeof TTeamSlugSettingsIndexRoute
-  '/t/$teamSlug/support': typeof TTeamSlugSupportIndexRoute
   '/t/$teamSlug/settings/boards/$boardId': typeof TTeamSlugSettingsBoardsBoardIdRoute
   '/t/$teamSlug/settings/boards/archived': typeof TTeamSlugSettingsBoardsArchivedRoute
   '/t/$teamSlug/boards/$boardSlug': typeof TTeamSlugBoardsBoardSlugIndexRoute
@@ -1096,7 +1070,7 @@ export interface FileRoutesById {
   '/api/shapes/workflow-events': typeof ApiShapesWorkflowEventsRoute
   '/api/shapes/workflow-nodes': typeof ApiShapesWorkflowNodesRoute
   '/api/shapes/workflows': typeof ApiShapesWorkflowsRoute
-  '/api/support/poll': typeof ApiSupportPollRoute
+  '/api/support/attachment': typeof ApiSupportAttachmentRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
   '/api/support/thread': typeof ApiSupportThreadRoute
   '/api/trpc/$': typeof ApiTrpcSplatRoute
@@ -1127,7 +1101,6 @@ export interface FileRoutesById {
   '/t/$teamSlug/settings/api-keys': typeof TTeamSlugSettingsApiKeysRoute
   '/t/$teamSlug/settings/billing': typeof TTeamSlugSettingsBillingRoute
   '/t/$teamSlug/settings/general': typeof TTeamSlugSettingsGeneralRoute
-  '/t/$teamSlug/settings/helpdesk': typeof TTeamSlugSettingsHelpdeskRoute
   '/t/$teamSlug/settings/import': typeof TTeamSlugSettingsImportRoute
   '/t/$teamSlug/settings/issues': typeof TTeamSlugSettingsIssuesRoute
   '/t/$teamSlug/settings/labels': typeof TTeamSlugSettingsLabelsRoute
@@ -1139,14 +1112,12 @@ export interface FileRoutesById {
   '/t/$teamSlug/settings/statuses': typeof TTeamSlugSettingsStatusesRoute
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
-  '/t/$teamSlug/support/$threadId': typeof TTeamSlugSupportThreadIdRoute
   '/t/$teamSlug/workflows/$': typeof TTeamSlugWorkflowsSplatRoute
   '/t/$teamSlug/actions/': typeof TTeamSlugActionsIndexRoute
   '/t/$teamSlug/drafts/': typeof TTeamSlugDraftsIndexRoute
   '/t/$teamSlug/inbox/': typeof TTeamSlugInboxIndexRoute
   '/t/$teamSlug/reviews/': typeof TTeamSlugReviewsIndexRoute
   '/t/$teamSlug/settings/': typeof TTeamSlugSettingsIndexRoute
-  '/t/$teamSlug/support/': typeof TTeamSlugSupportIndexRoute
   '/t/$teamSlug/settings/boards/$boardId': typeof TTeamSlugSettingsBoardsBoardIdRoute
   '/t/$teamSlug/settings/boards/archived': typeof TTeamSlugSettingsBoardsArchivedRoute
   '/t/$teamSlug/boards/$boardSlug/': typeof TTeamSlugBoardsBoardSlugIndexRoute
@@ -1221,7 +1192,7 @@ export interface FileRouteTypes {
     | '/api/shapes/workflow-events'
     | '/api/shapes/workflow-nodes'
     | '/api/shapes/workflows'
-    | '/api/support/poll'
+    | '/api/support/attachment'
     | '/api/support/reply'
     | '/api/support/thread'
     | '/api/trpc/$'
@@ -1252,7 +1223,6 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/api-keys'
     | '/t/$teamSlug/settings/billing'
     | '/t/$teamSlug/settings/general'
-    | '/t/$teamSlug/settings/helpdesk'
     | '/t/$teamSlug/settings/import'
     | '/t/$teamSlug/settings/issues'
     | '/t/$teamSlug/settings/labels'
@@ -1264,14 +1234,12 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/statuses'
     | '/t/$teamSlug/settings/storage'
     | '/t/$teamSlug/settings/widget'
-    | '/t/$teamSlug/support/$threadId'
     | '/t/$teamSlug/workflows/$'
     | '/t/$teamSlug/actions/'
     | '/t/$teamSlug/drafts/'
     | '/t/$teamSlug/inbox/'
     | '/t/$teamSlug/reviews/'
     | '/t/$teamSlug/settings/'
-    | '/t/$teamSlug/support/'
     | '/t/$teamSlug/settings/boards/$boardId'
     | '/t/$teamSlug/settings/boards/archived'
     | '/t/$teamSlug/boards/$boardSlug/'
@@ -1341,7 +1309,7 @@ export interface FileRouteTypes {
     | '/api/shapes/workflow-events'
     | '/api/shapes/workflow-nodes'
     | '/api/shapes/workflows'
-    | '/api/support/poll'
+    | '/api/support/attachment'
     | '/api/support/reply'
     | '/api/support/thread'
     | '/api/trpc/$'
@@ -1372,7 +1340,6 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/api-keys'
     | '/t/$teamSlug/settings/billing'
     | '/t/$teamSlug/settings/general'
-    | '/t/$teamSlug/settings/helpdesk'
     | '/t/$teamSlug/settings/import'
     | '/t/$teamSlug/settings/issues'
     | '/t/$teamSlug/settings/labels'
@@ -1384,14 +1351,12 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/statuses'
     | '/t/$teamSlug/settings/storage'
     | '/t/$teamSlug/settings/widget'
-    | '/t/$teamSlug/support/$threadId'
     | '/t/$teamSlug/workflows/$'
     | '/t/$teamSlug/actions'
     | '/t/$teamSlug/drafts'
     | '/t/$teamSlug/inbox'
     | '/t/$teamSlug/reviews'
     | '/t/$teamSlug/settings'
-    | '/t/$teamSlug/support'
     | '/t/$teamSlug/settings/boards/$boardId'
     | '/t/$teamSlug/settings/boards/archived'
     | '/t/$teamSlug/boards/$boardSlug'
@@ -1465,7 +1430,7 @@ export interface FileRouteTypes {
     | '/api/shapes/workflow-events'
     | '/api/shapes/workflow-nodes'
     | '/api/shapes/workflows'
-    | '/api/support/poll'
+    | '/api/support/attachment'
     | '/api/support/reply'
     | '/api/support/thread'
     | '/api/trpc/$'
@@ -1496,7 +1461,6 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/api-keys'
     | '/t/$teamSlug/settings/billing'
     | '/t/$teamSlug/settings/general'
-    | '/t/$teamSlug/settings/helpdesk'
     | '/t/$teamSlug/settings/import'
     | '/t/$teamSlug/settings/issues'
     | '/t/$teamSlug/settings/labels'
@@ -1508,14 +1472,12 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/statuses'
     | '/t/$teamSlug/settings/storage'
     | '/t/$teamSlug/settings/widget'
-    | '/t/$teamSlug/support/$threadId'
     | '/t/$teamSlug/workflows/$'
     | '/t/$teamSlug/actions/'
     | '/t/$teamSlug/drafts/'
     | '/t/$teamSlug/inbox/'
     | '/t/$teamSlug/reviews/'
     | '/t/$teamSlug/settings/'
-    | '/t/$teamSlug/support/'
     | '/t/$teamSlug/settings/boards/$boardId'
     | '/t/$teamSlug/settings/boards/archived'
     | '/t/$teamSlug/boards/$boardSlug/'
@@ -1581,7 +1543,7 @@ export interface RootRouteChildren {
   ApiShapesWorkflowEventsRoute: typeof ApiShapesWorkflowEventsRoute
   ApiShapesWorkflowNodesRoute: typeof ApiShapesWorkflowNodesRoute
   ApiShapesWorkflowsRoute: typeof ApiShapesWorkflowsRoute
-  ApiSupportPollRoute: typeof ApiSupportPollRoute
+  ApiSupportAttachmentRoute: typeof ApiSupportAttachmentRoute
   ApiSupportReplyRoute: typeof ApiSupportReplyRoute
   ApiSupportThreadRoute: typeof ApiSupportThreadRoute
   ApiTrpcSplatRoute: typeof ApiTrpcSplatRoute
@@ -1866,11 +1828,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSupportReplyRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/support/poll': {
-      id: '/api/support/poll'
-      path: '/api/support/poll'
-      fullPath: '/api/support/poll'
-      preLoaderRoute: typeof ApiSupportPollRouteImport
+    '/api/support/attachment': {
+      id: '/api/support/attachment'
+      path: '/api/support/attachment'
+      fullPath: '/api/support/attachment'
+      preLoaderRoute: typeof ApiSupportAttachmentRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/shapes/workflows': {
@@ -2146,13 +2108,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugSettingsRouteRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
-    '/t/$teamSlug/support/': {
-      id: '/t/$teamSlug/support/'
-      path: '/support'
-      fullPath: '/t/$teamSlug/support/'
-      preLoaderRoute: typeof TTeamSlugSupportIndexRouteImport
-      parentRoute: typeof TTeamSlugRouteRoute
-    }
     '/t/$teamSlug/settings/': {
       id: '/t/$teamSlug/settings/'
       path: '/'
@@ -2193,13 +2148,6 @@ declare module '@tanstack/react-router' {
       path: '/workflows/$'
       fullPath: '/t/$teamSlug/workflows/$'
       preLoaderRoute: typeof TTeamSlugWorkflowsSplatRouteImport
-      parentRoute: typeof TTeamSlugRouteRoute
-    }
-    '/t/$teamSlug/support/$threadId': {
-      id: '/t/$teamSlug/support/$threadId'
-      path: '/support/$threadId'
-      fullPath: '/t/$teamSlug/support/$threadId'
-      preLoaderRoute: typeof TTeamSlugSupportThreadIdRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
     '/t/$teamSlug/settings/widget': {
@@ -2277,13 +2225,6 @@ declare module '@tanstack/react-router' {
       path: '/import'
       fullPath: '/t/$teamSlug/settings/import'
       preLoaderRoute: typeof TTeamSlugSettingsImportRouteImport
-      parentRoute: typeof TTeamSlugSettingsRouteRoute
-    }
-    '/t/$teamSlug/settings/helpdesk': {
-      id: '/t/$teamSlug/settings/helpdesk'
-      path: '/helpdesk'
-      fullPath: '/t/$teamSlug/settings/helpdesk'
-      preLoaderRoute: typeof TTeamSlugSettingsHelpdeskRouteImport
       parentRoute: typeof TTeamSlugSettingsRouteRoute
     }
     '/t/$teamSlug/settings/general': {
@@ -2513,7 +2454,6 @@ interface TTeamSlugSettingsRouteRouteChildren {
   TTeamSlugSettingsApiKeysRoute: typeof TTeamSlugSettingsApiKeysRoute
   TTeamSlugSettingsBillingRoute: typeof TTeamSlugSettingsBillingRoute
   TTeamSlugSettingsGeneralRoute: typeof TTeamSlugSettingsGeneralRoute
-  TTeamSlugSettingsHelpdeskRoute: typeof TTeamSlugSettingsHelpdeskRoute
   TTeamSlugSettingsImportRoute: typeof TTeamSlugSettingsImportRoute
   TTeamSlugSettingsIssuesRoute: typeof TTeamSlugSettingsIssuesRoute
   TTeamSlugSettingsLabelsRoute: typeof TTeamSlugSettingsLabelsRoute
@@ -2537,7 +2477,6 @@ const TTeamSlugSettingsRouteRouteChildren: TTeamSlugSettingsRouteRouteChildren =
     TTeamSlugSettingsApiKeysRoute: TTeamSlugSettingsApiKeysRoute,
     TTeamSlugSettingsBillingRoute: TTeamSlugSettingsBillingRoute,
     TTeamSlugSettingsGeneralRoute: TTeamSlugSettingsGeneralRoute,
-    TTeamSlugSettingsHelpdeskRoute: TTeamSlugSettingsHelpdeskRoute,
     TTeamSlugSettingsImportRoute: TTeamSlugSettingsImportRoute,
     TTeamSlugSettingsIssuesRoute: TTeamSlugSettingsIssuesRoute,
     TTeamSlugSettingsLabelsRoute: TTeamSlugSettingsLabelsRoute,
@@ -2569,13 +2508,11 @@ interface TTeamSlugRouteRouteChildren {
   TTeamSlugDraftsDraftIdRoute: typeof TTeamSlugDraftsDraftIdRoute
   TTeamSlugReviewsIssueIdentifierRoute: typeof TTeamSlugReviewsIssueIdentifierRoute
   TTeamSlugSessionsSessionIdRoute: typeof TTeamSlugSessionsSessionIdRoute
-  TTeamSlugSupportThreadIdRoute: typeof TTeamSlugSupportThreadIdRoute
   TTeamSlugWorkflowsSplatRoute: typeof TTeamSlugWorkflowsSplatRoute
   TTeamSlugActionsIndexRoute: typeof TTeamSlugActionsIndexRoute
   TTeamSlugDraftsIndexRoute: typeof TTeamSlugDraftsIndexRoute
   TTeamSlugInboxIndexRoute: typeof TTeamSlugInboxIndexRoute
   TTeamSlugReviewsIndexRoute: typeof TTeamSlugReviewsIndexRoute
-  TTeamSlugSupportIndexRoute: typeof TTeamSlugSupportIndexRoute
   TTeamSlugBoardsBoardSlugIndexRoute: typeof TTeamSlugBoardsBoardSlugIndexRoute
   TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute: typeof TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute
 }
@@ -2589,13 +2526,11 @@ const TTeamSlugRouteRouteChildren: TTeamSlugRouteRouteChildren = {
   TTeamSlugDraftsDraftIdRoute: TTeamSlugDraftsDraftIdRoute,
   TTeamSlugReviewsIssueIdentifierRoute: TTeamSlugReviewsIssueIdentifierRoute,
   TTeamSlugSessionsSessionIdRoute: TTeamSlugSessionsSessionIdRoute,
-  TTeamSlugSupportThreadIdRoute: TTeamSlugSupportThreadIdRoute,
   TTeamSlugWorkflowsSplatRoute: TTeamSlugWorkflowsSplatRoute,
   TTeamSlugActionsIndexRoute: TTeamSlugActionsIndexRoute,
   TTeamSlugDraftsIndexRoute: TTeamSlugDraftsIndexRoute,
   TTeamSlugInboxIndexRoute: TTeamSlugInboxIndexRoute,
   TTeamSlugReviewsIndexRoute: TTeamSlugReviewsIndexRoute,
-  TTeamSlugSupportIndexRoute: TTeamSlugSupportIndexRoute,
   TTeamSlugBoardsBoardSlugIndexRoute: TTeamSlugBoardsBoardSlugIndexRoute,
   TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute:
     TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute,
@@ -2667,7 +2602,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesWorkflowEventsRoute: ApiShapesWorkflowEventsRoute,
   ApiShapesWorkflowNodesRoute: ApiShapesWorkflowNodesRoute,
   ApiShapesWorkflowsRoute: ApiShapesWorkflowsRoute,
-  ApiSupportPollRoute: ApiSupportPollRoute,
+  ApiSupportAttachmentRoute: ApiSupportAttachmentRoute,
   ApiSupportReplyRoute: ApiSupportReplyRoute,
   ApiSupportThreadRoute: ApiSupportThreadRoute,
   ApiTrpcSplatRoute: ApiTrpcSplatRoute,
@@ -2684,6 +2619,9 @@ const rootRouteChildren: RootRouteChildren = {
   ApiTeamsTeamIdSessionFilesRoute: ApiTeamsTeamIdSessionFilesRoute,
 }
 export const routeTree = rootRouteImport
+  ._addFileChildren(rootRouteChildren)
+  ._addFileTypes<FileRouteTypes>()
+
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
 

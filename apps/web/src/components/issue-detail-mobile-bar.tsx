@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react"
 import type { User } from "@/db/schema"
+import type { CommentAudience } from "@exp/db-schema/domain"
 import {
   conceptIcon,
   FabButton,
@@ -31,6 +32,7 @@ export function IssueDetailMobileBar({
   trailingNode,
   onSubmitComment,
   hidden = false,
+  reporter = null,
 }: {
   issueId: string
   users: User[]
@@ -39,7 +41,13 @@ export function IssueDetailMobileBar({
   /** The right circle: the Start coding circle or the face switcher, or
    *  null. */
   trailingNode: ReactNode
-  onSubmitComment: (body: string, attachmentIds: string[]) => Promise<void>
+  onSubmitComment: (
+    body: string,
+    attachmentIds: string[],
+    audience: CommentAudience
+  ) => Promise<void>
+  /** SLOP-4: the reporter the composer may reply to (see `CommentComposer`). */
+  reporter?: { name: string } | null
   /** Hidden while the description editor is focused — the keyboard rail owns
    *  the bottom edge then. */
   hidden?: boolean
@@ -80,8 +88,9 @@ export function IssueDetailMobileBar({
               issueId={issueId}
               users={users}
               draft={{ owner: issueMemoryOwner(issueId), slot: `comment` }}
-              onSubmit={async (body, attachmentIds) => {
-                await onSubmitComment(body, attachmentIds)
+              reporter={reporter}
+              onSubmit={async (body, attachmentIds, audience) => {
+                await onSubmitComment(body, attachmentIds, audience)
                 setComposing(false)
               }}
               onEmptyBlur={() => setComposing(false)}

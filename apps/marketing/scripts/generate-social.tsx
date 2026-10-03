@@ -146,12 +146,6 @@ const CARDS: Card[] = [
     headline: `A calm inbox`,
     sub: `Assignments, mentions and merged PRs in one place`,
   },
-  {
-    shot: `support`,
-    file: `card-support.png`,
-    headline: `Support built in`,
-    sub: `Customer tickets land next to the code — escalate to an issue in a click`,
-  },
 ]
 
 function CardPanel({ copy, shot, mark }: { copy: Card; shot: string; mark: string }) {

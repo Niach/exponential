@@ -25,8 +25,8 @@
 //!   within seconds; rows arriving inside [`COALESCE_WINDOW`] collapse into
 //!   ONE toast ("3 new notifications" + the first titles) routed to the Inbox.
 //! - **Redundancy-suppressed.** With the app focused and the row's issue open
-//!   in the active window, or the Inbox tab up, or the ticket team's Support
-//!   tool up, nothing is raised — the user is already looking at it.
+//!   in the active window, or the Inbox tab up, nothing is raised — the user
+//!   is already looking at it.
 //! - **Honours the per-type prefs.** The server writes the inbox row for
 //!   EVERY type and applies `user_notification_prefs.type_prefs` only at
 //!   push/email delivery (`notificationTypeAllowed`), so a muted type still
@@ -39,8 +39,9 @@
 //!
 //! Click routing reuses the rail Inbox's own paths: an issue-anchored row
 //! opens the issue detail fully scoped on its board (switching the window's
-//! team when needed), an issue-less `support_reply` row opens that team's
-//! Support tool, a bundle opens the Inbox tab. With every shell window closed
+//! team when needed; SLOP-4: a `reporter_reply` row is one of those), an
+//! issue-less `session_blocked` row opens its run, a bundle opens the Inbox
+//! tab. With every shell window closed
 //! (macOS dock-resident app) the host's open-window hook is asked for one
 //! first. Mark-read stays what it is — the rail rows mark on click; a toast
 //! click lands on the surface that does.
@@ -56,10 +57,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, FixedOffset};
-use domain::contract::{
-    NOTIFICATION_TYPE_AGENT_MESSAGE, NOTIFICATION_TYPE_SESSION_BLOCKED,
-    NOTIFICATION_TYPE_SUPPORT_REPLY,
-};
+use domain::contract::{NOTIFICATION_TYPE_AGENT_MESSAGE, NOTIFICATION_TYPE_SESSION_BLOCKED};
 use domain::rows::Notification;
 use gpui::{
     AnyWindowHandle, App, AppContext as _, Context, Entity, Global, SharedString,
@@ -180,9 +178,6 @@ enum Route {
     /// EXP-933: an agent's message about an issue — that issue's RESULTS
     /// (`work_header::open_issue_results`), scoped like [`Route::Issue`].
     IssueResults { issue_id: String },
-    /// The ticket team's Support tool (`None` = the legacy team-less row —
-    /// the current team's Support, like the generic rail group).
-    Support { team_id: Option<String> },
     /// The Inbox tab (bundles, and rows whose issue is not synced).
     Inbox,
     /// EXP-856: a session-level alert (the duplicate-agent warning) — opens
@@ -199,11 +194,6 @@ fn route_for(row: &Notification) -> Route {
         }
         return Route::Issue {
             issue_id: issue_id.clone(),
-        };
-    }
-    if row.kind.as_deref() == Some(NOTIFICATION_TYPE_SUPPORT_REPLY) {
-        return Route::Support {
-            team_id: row.team_id.clone(),
         };
     }
     // EXP-980: a blocked run opens the run it is about; a row whose run has
@@ -280,7 +270,6 @@ struct FocusedSurface {
     screen: Option<Screen>,
     tool: ToolWindow,
     inbox_tab: InboxTab,
-    team_id: Option<String>,
 }
 
 /// Whether raising `row` would only repeat what the user is looking at.
@@ -293,12 +282,6 @@ fn is_redundant(row: &Notification, focus: &FocusedSurface) -> bool {
     }
     if focus.tool == ToolWindow::Inbox && focus.inbox_tab == InboxTab::Inbox {
         return true;
-    }
-    if row.issue_id.is_none()
-        && row.kind.as_deref() == Some(NOTIFICATION_TYPE_SUPPORT_REPLY)
-        && focus.tool == ToolWindow::Support
-    {
-        return row.team_id.is_none() || row.team_id == focus.team_id;
     }
     false
 }
@@ -559,7 +542,6 @@ fn focused_surface(cx: &mut App) -> Option<FocusedSurface> {
         screen: navigation::resolved_screen(&nav, cx),
         tool,
         inbox_tab,
-        team_id: navigation::active_team_id(&nav, cx),
     })
 }
 
@@ -616,10 +598,6 @@ fn land(route: Route, window: &mut Window, cx: &mut App) {
     match route {
         Route::Issue { issue_id } => land_issue(issue_id, false, window, cx),
         Route::IssueResults { issue_id } => land_issue(issue_id, true, window, cx),
-        Route::Support { team_id } => {
-            switch_team_if_needed(team_id, window, cx);
-            sidebar::activate_tool(window, cx, ToolWindow::Support);
-        }
         Route::Inbox => sidebar::open_inbox_tab(window, cx, InboxTab::Inbox),
         Route::Session { session_id } => {
             // EXP-1075: a live run belongs to ONE team's rail now, so land in
@@ -702,8 +680,8 @@ pub(crate) fn raise_duplicate_agent(session_id: &str, detail: &str, cx: &mut App
 /// The duplicate toast's title (the body is the wire's own sentence).
 pub(crate) const DUPLICATE_AGENT_TITLE: &str = "Duplicate agent";
 
-/// The `OpenBoard` / Support-row cross-team rule: a target in another team
-/// switches the window's team first (screen + back stack reset).
+/// The `OpenBoard` cross-team rule: a target in another team switches the
+/// window's team first (screen + back stack reset).
 fn switch_team_if_needed(team_id: Option<String>, window: &mut Window, cx: &mut App) {
     let Some(team_id) = team_id else {
         return;
@@ -735,11 +713,10 @@ mod tests {
         }
     }
 
-    fn support_row(id: &str, team_id: Option<&str>) -> Notification {
+    /// SLOP-4: a widget reporter's reply — issue-scoped like a comment.
+    fn reporter_row(id: &str) -> Notification {
         Notification {
-            issue_id: None,
-            team_id: team_id.map(str::to_string),
-            kind: Some(NOTIFICATION_TYPE_SUPPORT_REPLY.to_string()),
+            kind: Some(domain::contract::NOTIFICATION_TYPE_REPORTER_REPLY.to_string()),
             ..row(id, "2026-08-27T10:00:00+00:00")
         }
     }
@@ -760,7 +737,6 @@ mod tests {
             screen,
             tool,
             inbox_tab,
-            team_id: Some("team-a".to_string()),
         }
     }
 
@@ -865,11 +841,12 @@ mod tests {
                 },
             }
         );
-        let support = compose(&[support_row("s", Some("team-b"))]).unwrap();
+        // SLOP-4: a reporter's reply opens its issue, like a comment.
+        let reporter = compose(&[reporter_row("r")]).unwrap();
         assert_eq!(
-            support.route,
-            Route::Support {
-                team_id: Some("team-b".to_string())
+            reporter.route,
+            Route::Issue {
+                issue_id: "issue-r".to_string()
             }
         );
         // EXP-980: a blocked run opens the run; a pruned one falls back to
@@ -938,15 +915,9 @@ mod tests {
             &comment,
             &focus(ToolWindow::Inbox, InboxTab::MyIssues, None)
         ));
-        // Support rows: the ticket team's Support tool, or the legacy team-less row.
-        let support = focus(ToolWindow::Support, InboxTab::MyIssues, None);
-        assert!(is_redundant(&support_row("s", Some("team-a")), &support));
-        assert!(!is_redundant(&support_row("s", Some("team-b")), &support));
-        assert!(is_redundant(&support_row("s", None), &support));
-        assert!(!is_redundant(
-            &support_row("s", Some("team-a")),
-            &showing_other
-        ));
+        // SLOP-4: a reporter's reply is redundant exactly where a comment is
+        // — with ITS issue up, never on another one.
+        assert!(!is_redundant(&reporter_row("r"), &showing_other));
     }
 
     #[test]

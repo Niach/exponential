@@ -8,9 +8,9 @@ package com.exponential.app.ui.gettingstarted
  * appears here verbatim — so each value must stay a plain, single-line,
  * double-quoted literal with no escapes and no non-ASCII punctuation.
  *
- * Mobile carries seven of the ten entries: the widget, helpdesk and MCP steps
- * are set up on web or the IDE, and pointing a phone at them would be a step
- * nobody can finish where they are standing.
+ * Mobile carries seven of the nine entries: the widget and MCP steps are set
+ * up on web or the IDE, and pointing a phone at them would be a step nobody
+ * can finish where they are standing.
  */
 object GettingStartedCopy {
     const val DESKTOP_TITLE = "Get the desktop app"
@@ -22,7 +22,7 @@ object GettingStartedCopy {
     const val GITHUB_ACTION = "Connect GitHub"
 
     const val INVITE_TITLE = "Invite your team"
-    const val INVITE_DESCRIPTION = "Teammates share boards, reviews, and the support inbox."
+    const val INVITE_DESCRIPTION = "Teammates share boards, reviews, and the inbox."
     const val INVITE_ACTION = "Invite in team settings"
 
     const val BOARD_TITLE = "Create a board"

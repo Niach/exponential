@@ -57,7 +57,6 @@ import {
   DraftsCountBadge,
   InboxUnreadBadge,
   ReviewsOpenBadge,
-  SupportUnreadBadge,
   TeamLiveDot,
   TeamSidebarRail,
   UserAvatar,
@@ -107,7 +106,6 @@ const NavInboxIcon = conceptIcon(`nav-inbox`)
 const NavReviewsIcon = conceptIcon(`nav-reviews`)
 const NavSearchIcon = conceptIcon(`nav-search`)
 const NavSettingsIcon = conceptIcon(`nav-settings`)
-const NavSupportIcon = conceptIcon(`nav-support`)
 const NavTeamSwitcherIcon = conceptIcon(`nav-team-switcher`)
 const UiAddIcon = conceptIcon(`ui-add`)
 const UiCheckIcon = conceptIcon(`ui-check`)
@@ -399,17 +397,6 @@ export function TeamSidebar({
                                 </Link>
                               </SidebarMenuButton>
                               <DraftsCountBadge teamId={team?.id} placement="row" />
-                            </SidebarMenuItem>
-                          )}
-                          {team?.helpdeskEnabled === true && (
-                            <SidebarMenuItem>
-                              <SidebarMenuButton asChild density="compact">
-                                <Link to="/t/$teamSlug/support" params={{ teamSlug }}>
-                                  <NavSupportIcon className="h-4 w-4" />
-                                  <span>Support</span>
-                                </Link>
-                              </SidebarMenuButton>
-                              <SupportUnreadBadge teamId={team?.id} placement="row" />
                             </SidebarMenuItem>
                           )}
                           {/* EXP-686: Devices · Actions, the surfaces the old

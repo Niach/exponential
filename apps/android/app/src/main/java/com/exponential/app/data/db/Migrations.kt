@@ -39,18 +39,47 @@ val MIGRATION_78_79: Migration = object : Migration(78, 79) {
 /** The tables (and Electric shape names) v79 no longer has. */
 internal val DROPPED_WORKFLOW_TABLES = listOf("workflows", "workflow_nodes", "workflow_events")
 
+/**
+ * SLOP-4: a widget submission IS an issue and its reporter conversation is
+ * comments, so the local comment row changes shape and the team row sheds the
+ * Support switch:
+ *  - `comments.author_id` goes NULLABLE (a reporter's comment, source
+ *    `reporter`, has no users row) and `comments.audience` arrives
+ *    (`team` | `reporter`, NOT NULL; every existing row is a team comment);
+ *  - the EXP-180 team support switch column drops from `teams`.
+ * SQLite cannot relax a NOT NULL constraint in place, so `comments` is REBUILT
+ * exactly like v79 rebuilt `coding_sessions` (Room validates the table against
+ * the entity after an explicit migration); `teams` takes the same route for
+ * the dropped column. Every row survives, and so does every Electric offset —
+ * the comments and teams shapes resume where they were.
+ */
+val MIGRATION_79_80: Migration = object : Migration(79, 80) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        rebuild(
+            db, "comments", COMMENTS_V80, COMMENT_COLUMNS_V80, COMMENT_INDICES_V80,
+            // The new NOT NULL column has no source column: select the default.
+            selectOverrides = mapOf("audience" to "'team'"),
+        )
+        rebuild(db, "teams", TEAMS_V80, TEAM_COLUMNS_V80, emptyList())
+    }
+}
+
 private fun rebuild(
     db: SupportSQLiteDatabase,
     table: String,
     create: String,
     columns: List<String>,
     indices: List<String>,
+    /** Column → SQL expression to select INSTEAD of the old table's column of
+     *  that name (a brand-new NOT NULL column has nothing to copy from). */
+    selectOverrides: Map<String, String> = emptyMap(),
 ) {
     val tmp = "${table}_slop3"
     db.execSQL("DROP TABLE IF EXISTS `$tmp`")
     db.execSQL(create.replace("CREATE TABLE IF NOT EXISTS `$table`", "CREATE TABLE `$tmp`"))
     val list = columns.joinToString(", ") { "`$it`" }
-    db.execSQL("INSERT INTO `$tmp` ($list) SELECT $list FROM `$table`")
+    val select = columns.joinToString(", ") { selectOverrides[it] ?: "`$it`" }
+    db.execSQL("INSERT INTO `$tmp` ($list) SELECT $select FROM `$table`")
     db.execSQL("DROP TABLE `$table`")
     db.execSQL("ALTER TABLE `$tmp` RENAME TO `$table`")
     for (index in indices) db.execSQL(index)
@@ -81,4 +110,34 @@ private val CODING_SESSION_COLUMNS_V79 = listOf(
 private val CODING_SESSION_INDICES_V79 = listOf(
     "CREATE INDEX IF NOT EXISTS `index_coding_sessions_issue_id` ON `coding_sessions` (`issue_id`)",
     "CREATE INDEX IF NOT EXISTS `index_coding_sessions_team_id` ON `coding_sessions` (`team_id`)",
+)
+
+// ── v80 schema, verbatim from the generated ExponentialDatabase_Impl ────────
+
+private const val COMMENTS_V80 =
+    "CREATE TABLE IF NOT EXISTS `comments` (`id` TEXT NOT NULL, `issue_id` TEXT NOT NULL, " +
+        "`team_id` TEXT NOT NULL, `board_id` TEXT, `author_id` TEXT, `parent_id` TEXT, " +
+        "`source` TEXT, `audience` TEXT NOT NULL, `body` TEXT, `kind` TEXT NOT NULL, " +
+        "`edited_at` TEXT, `created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL, " +
+        "PRIMARY KEY(`id`))"
+
+private val COMMENT_COLUMNS_V80 = listOf(
+    "id", "issue_id", "team_id", "board_id", "author_id", "parent_id", "source", "audience",
+    "body", "kind", "edited_at", "created_at", "updated_at",
+)
+
+private val COMMENT_INDICES_V80 = listOf(
+    "CREATE INDEX IF NOT EXISTS `index_comments_issue_id` ON `comments` (`issue_id`)",
+    "CREATE INDEX IF NOT EXISTS `index_comments_team_id` ON `comments` (`team_id`)",
+    "CREATE INDEX IF NOT EXISTS `index_comments_parent_id` ON `comments` (`parent_id`)",
+)
+
+private const val TEAMS_V80 =
+    "CREATE TABLE IF NOT EXISTS `teams` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, " +
+        "`slug` TEXT NOT NULL, `icon_url` TEXT, `yolo_mode` INTEGER NOT NULL, " +
+        "`estimation_type` TEXT, `created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL, " +
+        "PRIMARY KEY(`id`))"
+
+private val TEAM_COLUMNS_V80 = listOf(
+    "id", "name", "slug", "icon_url", "yolo_mode", "estimation_type", "created_at", "updated_at",
 )

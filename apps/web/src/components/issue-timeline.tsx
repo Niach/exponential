@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
+import type { CommentAudience } from "@exp/db-schema/domain"
 import type {
   Attachment,
   Comment,
@@ -35,6 +36,11 @@ import { TimelineRow } from "@/components/comment-rows/timeline-row"
 import { relativeTime } from "@/components/comment-rows/format"
 import { displayUserName } from "@/lib/user-display"
 import { getCommentBodyText } from "@/lib/domain"
+import type { WidgetSubmission } from "@/hooks/use-widget-submission"
+import {
+  reporterDisplayName,
+  toastReporterReply,
+} from "@/components/reporter-reply-copy"
 
 interface IssueTimelineProps {
   issue: Issue
@@ -43,6 +49,10 @@ interface IssueTimelineProps {
   /** EXP-568: on phones the composer lives in the floating bottom bar, so the
    *  timeline must not render a second one at the end of the thread. */
   hideComposer?: boolean
+  /** SLOP-4: the widget submission behind this issue (`useWidgetSubmission`,
+   *  fetched once by the detail) — names reporter comments and, when it
+   *  carries an email, offers the composer's "Reply to reporter" toggle. */
+  submission?: WidgetSubmission | null
 }
 
 // The comment thread + activity events (status/assignee/label/PR), rendered as
@@ -55,6 +65,7 @@ export function IssueTimeline({
   currentUserId,
   users,
   hideComposer = false,
+  submission = null,
 }: IssueTimelineProps) {
   const { data: comments } = useLiveQuery(
     (query) =>
@@ -194,12 +205,18 @@ export function IssueTimeline({
   const activityCount =
     merged.length - threads.topLevel.length + countThreadedComments(threads)
 
-  const handleSubmit = async (body: string, attachmentIds: string[]) => {
-    await trpc.comments.create.mutate({
+  const handleSubmit = async (
+    body: string,
+    attachmentIds: string[],
+    audience: CommentAudience
+  ) => {
+    const result = await trpc.comments.create.mutate({
       issueId: issue.id,
       body,
       attachmentIds,
+      audience,
     })
+    toastReporterReply(result.reporterEmailed)
   }
 
   // EXP-741: a reply is an ordinary comment with `parentId`; the composer
@@ -248,11 +265,18 @@ export function IssueTimeline({
   // reply under it (EXP-741), so replies edit and delete like their parent.
   // Author-only, no global-admin bypass (EXP-398): the server refuses the
   // mutation for anyone else, so offering the menu would only ever be a lie.
+  // SLOP-4: a reporter comment (no author) edits for nobody and deletes for
+  // any member — moderation of a stranger's words.
+  const reporterName = submission?.reporterName ?? null
   const cardProps = (comment: Comment): CommentCardProps => ({
-    author: userMap.get(comment.authorId),
+    author: comment.authorId ? userMap.get(comment.authorId) : undefined,
     comment,
     attachments: commentAttachmentMap.get(comment.id) ?? [],
-    canModify: comment.authorId === currentUserId,
+    canEdit: comment.authorId !== null && comment.authorId === currentUserId,
+    canDelete:
+      comment.source === `reporter` ||
+      (comment.authorId !== null && comment.authorId === currentUserId),
+    reporterName,
     editing: editingCommentId === comment.id,
     users,
     onCancelEdit: () => setEditingCommentId(null),
@@ -365,6 +389,11 @@ export function IssueTimeline({
             users={users}
             onSubmit={handleSubmit}
             draft={{ owner: memoryOwner, slot: `comment` }}
+            reporter={
+              submission?.reporterEmail
+                ? { name: reporterDisplayName(submission.reporterName) }
+                : null
+            }
           />
         </div>
       )}

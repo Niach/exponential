@@ -8,7 +8,7 @@ import { pageTitle } from "@/lib/page-title"
 
 export const Route = createFileRoute(`/t/$teamSlug/settings/widget`)({
   head: () => ({
-    meta: [{ title: pageTitle(`Feedback widget`, `Settings`) }],
+    meta: [{ title: pageTitle(`Widget`, `Settings`) }],
   }),
   component: SettingsWidget,
 })

@@ -45,6 +45,7 @@ import com.exponential.app.domain.ActivityFold
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.isMarkdownAttachment
 import com.exponential.app.ui.components.AttachmentMarkdownPreviewSheet
+import com.exponential.app.ui.components.commentAuthorName
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.PillSize
@@ -90,6 +91,13 @@ fun CommentThread(
     // Horizontal padding of the hosting column, escaped by the top rule so the
     // line runs edge to edge (EXP-327). Compose has no negative padding.
     hostPadding: Dp = 20.dp,
+    // SLOP-4: the submission's `reporterName` (`widgets.submissionForIssue`,
+    // loaded once by the issue screen's ViewModel and shared with the thread)
+    // — the name a reporter's comment carries; null = "Anonymous visitor".
+    reporterName: String? = null,
+    // SLOP-4: a member may delete a reporter's comment (moderation); nobody
+    // edits one.
+    canModerate: Boolean = false,
 ) {
     LaunchedEffect(issueId) { viewModel.bind(issueId) }
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -281,13 +289,16 @@ fun CommentThread(
                                     viewModel.setReplyTarget(
                                         CommentReplyTarget(
                                             parentId = comment.id,
-                                            authorName = userDisplayName(
-                                                state.usersById[comment.authorId],
-                                                comment.authorId,
+                                            authorName = commentAuthorName(
+                                                comment,
+                                                comment.authorId?.let { state.usersById[it] },
+                                                reporterName,
                                             ),
                                         ),
                                     )
                                 },
+                                reporterName = reporterName,
+                                canModerate = canModerate,
                                 attachmentsByComment = attachmentsByComment,
                                 onOpenAttachment = { attachment ->
                                     if (isMarkdownAttachment(

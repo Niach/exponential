@@ -2,24 +2,32 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import { LifeBuoy, LoaderCircle } from "lucide-react"
-import { Button, Textarea, conceptIcon, Composer, ComposerSubmit } from "@exp/ui"
+import {
+  Button,
+  Pill,
+  Textarea,
+  conceptIcon,
+  Composer,
+  ComposerSubmit,
+} from "@exp/ui"
 import { PoweredByFooter } from "@/components/team/powered-by-footer"
 import { relativeTime } from "@/components/comment-rows/format"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
+import { unescapeReporterText } from "@/lib/reporter/report-text"
 
-// The reporter's magic-link conversation page (EXP-128). No login — the
+// The reporter's magic-link conversation page (EXP-128, SLOP-4: the
+// conversation IS the issue's reporter-audience comments). No login — the
 // /support/<token> URL from the email IS the credential, so the page is
 // mobile-first (opened from mail apps), noindex by the root default, and
 // never leaks the URL onward: server-bun.ts answers /support/* with
 // Referrer-Policy: no-referrer, and the meta tag below covers SPA-side
 // navigations in dev.
 //
-// The page is LIVE (EXP-237): while the tab is visible it polls
-// /api/support/poll every few seconds with a createdAt cursor, so member
-// replies appear without a reload — and each poll heartbeats
-// last_reporter_seen_at, which is what lets the server skip the "new reply"
-// email while the reporter is watching. Hiding the tab pauses the poll, the
-// heartbeat lapses, and emails resume.
+// The page loads once and reloads after a send (SLOP-4 retired the live
+// poll); every member reply reaches the reporter by email with this link.
+// What it shows is PLAIN TEXT: the server stored the reporter's words as
+// backslash-escaped GFM for the member clients, and this page unescapes them
+// back — member replies are shown as typed.
 // EXP-317: the send glyph resolves through the shared registry.
 const SendIcon = conceptIcon(`ui-send`)
 
@@ -41,12 +49,21 @@ interface ThreadMessage {
   createdAt: string
 }
 
+interface ReportAttachment {
+  id: string
+  filename: string
+  contentType: string
+  width: number | null
+  height: number | null
+}
+
 interface ThreadData {
   subject: string
-  boardName: string | null
   teamName: string | null
-  closed: boolean
+  status: `open` | `resolved`
   reporterName: string | null
+  report: { title: string; description: string; createdAt: string }
+  attachments: ReportAttachment[]
   messages: ThreadMessage[]
 }
 
@@ -57,8 +74,6 @@ type LoadState =
   | { kind: `throttled`; retryIn: number }
   | { kind: `ready`; thread: ThreadData }
 
-const POLL_INTERVAL_MS = 5_000
-const POLL_MAX_BACKOFF_MS = 60_000
 const RETRY_AFTER_FALLBACK_S = 5
 const RETRY_AFTER_MAX_S = 60
 
@@ -87,8 +102,7 @@ export function SupportConversationView({ token }: { token: string }) {
   const bottomRef = useRef<HTMLDivElement | null>(null)
 
   // `refresh` = a transcript is already on screen (the post-send reload): a
-  // failed refresh must never replace it with an error page — the live poll
-  // keeps the page current either way.
+  // failed refresh must never replace it with an error page.
   const load = useCallback(
     async ({ refresh = false }: { refresh?: boolean } = {}) => {
       try {
@@ -134,90 +148,6 @@ export function SupportConversationView({ token }: { token: string }) {
     void load()
   }, [load])
 
-  // Live updates (EXP-237): a self-rescheduling timeout chain (not
-  // setInterval, so failures can back off) polling /api/support/poll with the
-  // newest createdAt as cursor. Hiding the tab clears the timer entirely —
-  // zero requests, and the server-side presence heartbeat lapses so reply
-  // emails resume. Poll failures never touch the UI; the page keeps its
-  // last-good transcript.
-  useEffect(() => {
-    if (state.kind !== `ready`) return
-    let cancelled = false
-    let timer: ReturnType<typeof setTimeout> | null = null
-    let failures = 0
-
-    const schedule = (delay: number) => {
-      if (cancelled) return
-      if (timer) clearTimeout(timer)
-      timer = setTimeout(() => void tick(), delay)
-    }
-
-    const tick = async () => {
-      if (cancelled || document.visibilityState !== `visible`) return
-      const current = stateRef.current
-      if (current.kind !== `ready`) return
-      const messages = current.thread.messages
-      const since = messages[messages.length - 1]?.createdAt
-      try {
-        const res = await fetch(`/api/support/poll`, {
-          method: `POST`,
-          headers: { "content-type": `application/json` },
-          body: JSON.stringify({ token, since }),
-        })
-        // Thread gone — stop polling for good.
-        if (res.status === 404) return
-        if (!res.ok) throw new Error(`poll failed`)
-        const data = (await res.json()) as {
-          closed: boolean
-          messages: ThreadMessage[]
-        }
-        failures = 0
-        if (!cancelled) {
-          setState((prev) => {
-            if (prev.kind !== `ready`) return prev
-            // The gte cursor overlaps by design — dedupe by id.
-            const seen = new Set(prev.thread.messages.map((m) => m.id))
-            const fresh = data.messages.filter((m) => !seen.has(m.id))
-            if (fresh.length === 0 && data.closed === prev.thread.closed) {
-              return prev
-            }
-            return {
-              kind: `ready`,
-              thread: {
-                ...prev.thread,
-                closed: data.closed,
-                messages: [...prev.thread.messages, ...fresh],
-              },
-            }
-          })
-        }
-        schedule(POLL_INTERVAL_MS)
-      } catch {
-        failures += 1
-        schedule(
-          Math.min(POLL_INTERVAL_MS * 2 ** failures, POLL_MAX_BACKOFF_MS)
-        )
-      }
-    }
-
-    const onVisibility = () => {
-      if (document.visibilityState === `visible`) {
-        void tick()
-      } else if (timer) {
-        clearTimeout(timer)
-        timer = null
-      }
-    }
-
-    document.addEventListener(`visibilitychange`, onVisibility)
-    schedule(POLL_INTERVAL_MS)
-    return () => {
-      cancelled = true
-      if (timer) clearTimeout(timer)
-      document.removeEventListener(`visibilitychange`, onVisibility)
-    }
-  }, [state.kind, token])
-
   // A throttled load is a shared-IP hiccup, not a broken page: count the
   // server's Retry-After down on screen and reload when it lapses (the
   // "Try again" button is the impatient path).
@@ -237,8 +167,8 @@ export function SupportConversationView({ token }: { token: string }) {
     return () => clearTimeout(timer)
   }, [state, load])
 
-  // Keyed on the message count (not the whole state) so the 5s poll doesn't
-  // yank the scroll position when nothing new arrived.
+  // Keyed on the message count (not the whole state) so a refresh that
+  // brought nothing new doesn't yank the scroll position.
   const messageCount =
     state.kind === `ready` ? state.thread.messages.length : 0
   useEffect(() => {
@@ -259,11 +189,8 @@ export function SupportConversationView({ token }: { token: string }) {
       if (res.ok) {
         setDraft(``)
         await load({ refresh: true })
-      } else if (res.status === 409) {
-        setSendError(`This conversation has been closed.`)
-        await load({ refresh: true })
       } else if (res.status === 404) {
-        setSendError(`This conversation no longer exists.`)
+        setSendError(`This conversation moved.`)
       } else if (res.status === 429) {
         setSendError(`Too many messages. Please wait a moment and try again.`)
       } else {
@@ -287,8 +214,8 @@ export function SupportConversationView({ token }: { token: string }) {
   if (state.kind === `notFound`) {
     return (
       <StatusScreen
-        title="Conversation not found"
-        body="This link doesn't match any conversation. Check that the URL from your email was copied completely."
+        title="This conversation moved"
+        body="This conversation moved. Please write to us again from where you first reached out."
       />
     )
   }
@@ -296,7 +223,7 @@ export function SupportConversationView({ token }: { token: string }) {
   if (state.kind === `throttled`) {
     return (
       <StatusScreen
-        title="Support is busy right now"
+        title="We're busy right now"
         body={
           state.retryIn > 0
             ? `Too many requests came from your network. Retrying in ${state.retryIn}s…`
@@ -331,16 +258,29 @@ export function SupportConversationView({ token }: { token: string }) {
       <header className="border-b px-4 py-3">
         <div className="mx-auto flex w-full max-w-lg items-center gap-2">
           <LifeBuoy className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <div className="min-w-0">
-            <h1 className="truncate text-sm font-semibold">{thread.subject}</h1>
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-sm font-semibold">
+              {unescapeReporterText(thread.subject)}
+            </h1>
             <p className="truncate text-xs text-muted-foreground">
-              {thread.boardName ?? thread.teamName ?? `Support`} support
+              Your report to {thread.teamName ?? `the team`}
             </p>
           </div>
+          <Pill
+            dot={thread.status === `resolved` ? `#22c55e` : `#a1a1aa`}
+            data-testid="report-status"
+          >
+            {thread.status === `resolved` ? `Resolved` : `Open`}
+          </Pill>
         </div>
       </header>
 
       <main className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-3 px-4 py-4">
+        <ReportBlock
+          token={token}
+          report={thread.report}
+          attachments={thread.attachments}
+        />
         {thread.messages.map((message) => (
           <div
             key={message.id}
@@ -350,7 +290,11 @@ export function SupportConversationView({ token }: { token: string }) {
                 : `max-w-[85%] self-start rounded-2xl rounded-bl-sm bg-muted px-3.5 py-2.5 text-sm`
             }
           >
-            <p className="whitespace-pre-wrap break-words">{message.body}</p>
+            <p className="whitespace-pre-wrap break-words">
+              {message.direction === `inbound`
+                ? unescapeReporterText(message.body)
+                : message.body}
+            </p>
             {/* EXP-698: the reporter's own (outgoing) bubble is filled with
                 `primary`, which is near-WHITE — the meta line has to be dark
                 on it, not another light tint. */}
@@ -363,7 +307,7 @@ export function SupportConversationView({ token }: { token: string }) {
             >
               {message.direction === `inbound`
                 ? (thread.reporterName ?? `You`)
-                : `Support`}{` `}
+                : (thread.teamName ?? `Support`)}{` `}
               · {relativeTime(message.createdAt)}
             </p>
           </div>
@@ -380,15 +324,16 @@ export function SupportConversationView({ token }: { token: string }) {
           the input. Opaque at the bottom endpoint is the seamless one. */}
       <div className="sticky bottom-0 border-t bg-[var(--glass-background-bottom)] px-4 py-3">
         <div className="mx-auto w-full max-w-lg">
-          {thread.closed ? (
-            <p className="py-1 text-center text-sm text-muted-foreground">
-              This conversation is closed. Need anything else? Open a new
-              request from where you first reached out.
+          {thread.status === `resolved` && (
+            <p className="pb-2 text-center text-xs text-muted-foreground">
+              This report was resolved. Replying reopens it.
             </p>
-          ) : (
-            // EXP-698: the ONE composer card, shared with comments, steering
-            // and the member-side support reply box. `opaque` because it
-            // floats on the page's own bottom-endpoint bar.
+          )}
+          {
+            // EXP-698: the ONE composer card, shared with comments and
+            // steering. `opaque` because it floats on the page's own
+            // bottom-endpoint bar. Always shown: a reply reopens a resolved
+            // report (SLOP-4).
             <Composer
               opaque
               submit={
@@ -429,7 +374,7 @@ export function SupportConversationView({ token }: { token: string }) {
                 className="min-h-16 border-none bg-transparent text-sm shadow-none focus-visible:border-transparent dark:bg-transparent"
               />
             </Composer>
-          )}
+          }
           {sendError && (
             <p className="mt-2 text-xs text-destructive">{sendError}</p>
           )}
@@ -438,6 +383,105 @@ export function SupportConversationView({ token }: { token: string }) {
 
       <PoweredByFooter />
     </div>
+  )
+}
+
+// The report itself: title, the reporter's text (image embeds stripped
+// server-side, escapes dropped here) and their pictures. Pictures load
+// through POST /api/support/attachment (token in the body, never in a URL)
+// into object URLs, revoked on unmount.
+function ReportBlock({
+  token,
+  report,
+  attachments,
+}: {
+  token: string
+  report: ThreadData[`report`]
+  attachments: ReportAttachment[]
+}) {
+  const description = unescapeReporterText(report.description)
+  return (
+    <section className="rounded-2xl border bg-muted/40 px-3.5 py-3 text-sm">
+      <p className="text-[0.65rem] text-muted-foreground">
+        Your report · {relativeTime(report.createdAt)}
+      </p>
+      <h2 className="mt-1 font-semibold">{unescapeReporterText(report.title)}</h2>
+      {description && (
+        <p className="mt-1 whitespace-pre-wrap break-words">{description}</p>
+      )}
+      {attachments.length > 0 && (
+        <div className="mt-3 flex gap-2 overflow-x-auto" data-testid="pictures">
+          {attachments.map((attachment) => (
+            <ReportPicture
+              key={attachment.id}
+              token={token}
+              attachment={attachment}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function ReportPicture({
+  token,
+  attachment,
+}: {
+  token: string
+  attachment: ReportAttachment
+}) {
+  const [url, setUrl] = useState<string | null>(null)
+  useEffect(() => {
+    let objectUrl: string | null = null
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await fetch(`/api/support/attachment`, {
+          method: `POST`,
+          headers: { "content-type": `application/json` },
+          body: JSON.stringify({ token, id: attachment.id }),
+        })
+        if (!res.ok || cancelled) return
+        objectUrl = URL.createObjectURL(await res.blob())
+        if (cancelled) {
+          URL.revokeObjectURL(objectUrl)
+          return
+        }
+        setUrl(objectUrl)
+      } catch {
+        // A missing picture leaves its slot empty; the report text stands.
+      }
+    })()
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [token, attachment.id])
+  const aspect =
+    attachment.width && attachment.height
+      ? `${attachment.width} / ${attachment.height}`
+      : undefined
+  return (
+    <a
+      href={url ?? undefined}
+      target="_blank"
+      rel="noreferrer"
+      className="block h-28 shrink-0 overflow-hidden rounded-lg border bg-muted"
+      style={{ aspectRatio: aspect }}
+    >
+      {url ? (
+        <img
+          src={url}
+          alt={attachment.filename}
+          className="h-full w-full object-cover"
+        />
+      ) : (
+        <div className="flex h-full w-28 items-center justify-center">
+          <LoaderCircle className="h-4 w-4 animate-spin text-muted-foreground" />
+        </div>
+      )}
+    </a>
   )
 }
 

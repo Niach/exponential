@@ -18,7 +18,6 @@ import com.exponential.app.data.steer.SteerConnectionStore
 import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.codingSessionDisplayState
-import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.defaultTeamId
 import com.exponential.app.domain.TeamLiveRuns
 import com.exponential.app.domain.liveRunsByTeam
@@ -235,28 +234,6 @@ class AppViewModel @Inject constructor(
         else db.notificationDao().observeUnreadCount(userId)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
-    // Unread helpdesk activity in the selected team — drives the bottom bar's
-    // Support dot (EXP-182): issue-less support_reply rows carry a synced
-    // team_id, the same rule the inbox's per-team Support groups use.
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val supportUnread: StateFlow<Boolean> = combine(
-        accountDatabaseFlow(auth, databaseHolder),
-        auth.activeAccountId,
-        auth.accounts,
-        teamSelection.selectedId,
-    ) { db, activeId, accounts, teamId ->
-        Triple(db, accounts.firstOrNull { it.id == activeId }?.userId, teamId)
-    }.flatMapLatest { (db, userId, teamId) ->
-        if (db == null || userId == null || teamId == null) flowOf(false)
-        else db.notificationDao()
-            .observeUnreadSupportCount(
-                userId,
-                teamId,
-                DomainContract.notificationTypeSupportReply,
-            )
-            .map { it > 0 }
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
-
     // True while at least one coding session is live in the SELECTED team on
     // the active account — drives the bottom bar's Agents dot. A live session
     // is `running` or the `in_review` PR-open parking spot (EXP-194 — the dot
@@ -354,20 +331,6 @@ class AppViewModel @Inject constructor(
                     db.codingSessionDao().observeOpenPrRunsByTeam(teamId),
                 ) { issues, runs -> issues.isNotEmpty() || runs.isNotEmpty() }
             }
-        }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
-
-    // The active team's synced `helpdesk_enabled` flag — gates the bottom
-    // bar's Support tab (EXP-180). Room-observing only (the teams shape syncs
-    // the column); the ticket poll starts when the Support screen mounts.
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val helpdeskEnabled: StateFlow<Boolean> = combine(
-        accountDatabaseFlow(auth, databaseHolder),
-        teamSelection.selectedId,
-    ) { db, teamId -> db to teamId }
-        .flatMapLatest { (db, teamId) ->
-            if (db == null || teamId == null) flowOf(false)
-            else db.teamDao().observeById(teamId).map { it?.helpdeskEnabled == true }
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 

@@ -91,18 +91,17 @@ pub const SHAPES: [ShapeSpec; 21] = [
         // Teams are always private — no is_public/public_write_policy.
         // A pre-fix install keeps those as orphaned local TEXT columns
         // (heal_missing_columns is additive-only); the allowlist drops the
-        // keys on upsert. `helpdesk_enabled` (EXP-180) gates the Support
-        // inbox — heal_missing_columns ALTERs it onto existing store tables
-        // and stamps a refetch so old rows get real values, not NULLs. The
+        // keys on upsert — the same fate as `helpdesk_enabled` since SLOP-4
+        // (the helpdesk is gone; the server shape dropped the column). The
         // EXP-319 pr_* columns (PR automation targets: NULL status id =
-        // builtin default, automation=false = "do nothing") heal the same
-        // way.
+        // builtin default, automation=false = "do nothing") heal via
+        // heal_missing_columns, which ALTERs them onto existing store tables
+        // and stamps a refetch so old rows get real values, not NULLs.
         columns: &[
             "id",
             "name",
             "slug",
             "icon_url",
-            "helpdesk_enabled",
             "pr_opened_status_id",
             "pr_opened_automation",
             "pr_merged_status_id",
@@ -288,9 +287,15 @@ pub const SHAPES: [ShapeSpec; 21] = [
             "id",
             "issue_id",
             "team_id",
+            // SLOP-4: NULL on a widget reporter's own comment (source
+            // `reporter`).
             "author_id",
             "parent_id",
             "source",
+            // SLOP-4: `team` | `reporter` — a member comment emailed to the
+            // reporter. `heal_missing_columns` ALTERs it onto existing store
+            // tables and stamps a refetch (like EXP-741's `source`).
+            "audience",
             "body",
             "edited_at",
             "created_at",
@@ -329,9 +334,10 @@ pub const SHAPES: [ShapeSpec; 21] = [
             "id",
             "user_id",
             "issue_id",
-            // EXP-180: nullable — set on issue-less `support_reply` rows (the
-            // ticket's team) so the inbox can group helpdesk activity per
-            // team; NULL on issue-anchored rows. `heal_missing_columns`
+            // Nullable — set on issue-less `agent_message` / `session_blocked`
+            // rows so the inbox row can name the team; NULL on issue-anchored
+            // rows (SLOP-4: `reporter_reply` is issue-scoped, the helpdesk's
+            // issue-less `support_reply` rows are gone). `heal_missing_columns`
             // ALTERs it onto existing store tables and stamps a refetch so
             // old rows get real values, not NULLs.
             "team_id",
@@ -753,11 +759,26 @@ mod tests {
     }
 
     #[test]
-    fn notifications_model_team_id_for_support_grouping() {
-        // EXP-180: issue-less `support_reply` rows carry the ticket's team —
-        // the inbox's only handle on which Support inbox to open.
+    fn notifications_model_team_id_for_issueless_rows() {
+        // EXP-801/EXP-980: issue-less `agent_message` / `session_blocked`
+        // rows carry their team — the inbox row's only handle on its name.
         let spec = shape_by_name("notifications").unwrap();
         assert!(spec.columns.contains(&"team_id"));
+    }
+
+    #[test]
+    fn teams_never_model_the_helpdesk_flag() {
+        // SLOP-4: the helpdesk is gone; the server shape dropped the column.
+        let spec = shape_by_name("teams").unwrap();
+        assert!(!spec.columns.contains(&"helpdesk_enabled"));
+    }
+
+    #[test]
+    fn comments_model_source_and_audience() {
+        // EXP-741 `source` (`via MCP`) + SLOP-4 `audience` (`to reporter`).
+        let spec = shape_by_name("comments").unwrap();
+        assert!(spec.columns.contains(&"source"));
+        assert!(spec.columns.contains(&"audience"));
     }
 
     #[test]

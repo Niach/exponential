@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 //             user a 22h backoff (which, for rows already ≥2h old, meant the
 //             digest was never sent at all).
 //   EXP-774 — verification is no gate; unmailable rows are claimed outright.
-//   REV2-51 — issue-less support_reply items link to the team Support inbox.
+//   REV2-51 — issue-less items link through their own team_id.
 //
 // The fake db is chainable and thenable: every builder method returns the
 // chain, awaiting it resolves the next queued result, and each terminal
@@ -234,11 +234,11 @@ describe(`daily send point (EXP-369)`, () => {
 })
 
 describe(`digest deep links (REV2-51)`, () => {
-  it(`links issue-less support_reply items to the team Support inbox`, async () => {
+  it(`links issue-less agent_message items to the team inbox`, async () => {
     seed([
       row({
-        notificationId: `n-support`,
-        type: `support_reply`,
+        notificationId: `n-agent`,
+        type: `agent_message`,
         issueIdentifier: null,
         teamSlug: null,
         boardSlug: null,
@@ -251,7 +251,7 @@ describe(`digest deep links (REV2-51)`, () => {
     const args = sendNotificationDigestEmail.mock.calls[0][0] as {
       items: Array<{ url: string | null }>
     }
-    expect(args.items[0].url).toMatch(/\/t\/acme\/support$/)
+    expect(args.items[0].url).toMatch(/\/t\/acme\/inbox$/)
   })
 
   it(`still prefers the issue deep link when the row has one`, async () => {

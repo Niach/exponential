@@ -46,7 +46,7 @@ import com.exponential.app.data.api.getCommentBodyText
 import com.exponential.app.data.db.AttachmentEntity
 import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.UserEntity
-import com.exponential.app.data.db.isViaMcp
+import com.exponential.app.data.db.isFromReporter
 import com.exponential.app.domain.MAX_COMMENT_ATTACHMENTS
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.ui.components.CommentAttachmentsStrip
@@ -55,7 +55,8 @@ import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.LargeCommentAttachments
 import com.exponential.app.ui.components.PendingAttachmentStrip
 import com.exponential.app.ui.components.UserAvatar
-import com.exponential.app.ui.components.userDisplayName
+import com.exponential.app.ui.components.commentAuthorName
+import com.exponential.app.ui.components.commentCaption
 import com.exponential.app.ui.emoji.EmojiPickerSheet
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.EditorModel
@@ -81,7 +82,13 @@ internal data class CommentCardActions(
 // time + markdown body) with the avatar sitting in the timeline gutter
 // (EXP-240), rail segments above/below keeping the line continuous like the
 // event rows. The edit/delete overflow is AUTHOR-ONLY (EXP-398) — matching the
-// server, which no longer lets a global admin touch someone else's comment.
+// server, which no longer lets a global admin touch someone else's comment —
+// except a widget reporter's comment (SLOP-4, no author row): any member may
+// delete it, nobody edits it.
+//
+// SLOP-4 (fixture `reporter-reply.json`): a `reporter` comment names the
+// submission's reporter with an initials avatar and the "reporter" caption
+// where "via MCP" sits; a member reply emailed out carries "to reporter".
 //
 // EXP-741: the card is the THREAD — its replies sit indented under the body
 // behind one hairline, each with a 20dp avatar, and the "Leave a reply…" row
@@ -106,8 +113,11 @@ internal fun RegularCommentRow(
     onAddEditAttachment: (Uri, Int) -> Unit,
     onRemoveEditAttachment: (Int) -> Unit,
     mentionMembers: List<MentionMember>,
+    reporterName: String? = null,
+    canModerate: Boolean = false,
 ) {
-    val author = usersById[comment.authorId]
+    val author = comment.authorId?.let { usersById[it] }
+    val authorName = commentAuthorName(comment, author, reporterName)
     Row(
         modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
         verticalAlignment = Alignment.Top,
@@ -130,7 +140,7 @@ internal fun RegularCommentRow(
             // surface draws, not a comment-only glass chip.
             UserAvatar(
                 user = author,
-                nameOrEmail = userDisplayName(author, comment.authorId),
+                nameOrEmail = authorName,
                 size = 26.dp,
                 // The author row may not have synced (or may have left the
                 // team); the comment still carries the id web/iOS hash, so the
@@ -156,8 +166,9 @@ internal fun RegularCommentRow(
         ) {
             CommentCardContent(
                 comment = comment,
-                author = author,
+                authorName = authorName,
                 isAuthor = currentUserId != null && comment.authorId == currentUserId,
+                canModerate = canModerate,
                 isEditing = editingId == comment.id,
                 actions = actions(comment),
                 attachments = attachmentsByComment[comment.id].orEmpty(),
@@ -176,14 +187,15 @@ internal fun RegularCommentRow(
             )
             replies.forEach { reply ->
                 key(reply.id) {
-                    val replyAuthor = usersById[reply.authorId]
+                    val replyAuthor = reply.authorId?.let { usersById[it] }
+                    val replyAuthorName = commentAuthorName(reply, replyAuthor, reporterName)
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
                         verticalAlignment = Alignment.Top,
                     ) {
                         UserAvatar(
                             user = replyAuthor,
-                            nameOrEmail = userDisplayName(replyAuthor, reply.authorId),
+                            nameOrEmail = replyAuthorName,
                             size = 20.dp,
                             userId = reply.authorId,
                             modifier = Modifier.padding(top = 2.dp),
@@ -192,8 +204,9 @@ internal fun RegularCommentRow(
                         Column(modifier = Modifier.weight(1f)) {
                             CommentCardContent(
                                 comment = reply,
-                                author = replyAuthor,
+                                authorName = replyAuthorName,
                                 isAuthor = currentUserId != null && reply.authorId == currentUserId,
+                                canModerate = canModerate,
                                 isEditing = editingId == reply.id,
                                 actions = actions(reply),
                                 attachments = attachmentsByComment[reply.id].orEmpty(),
@@ -226,8 +239,9 @@ internal fun RegularCommentRow(
 @Composable
 private fun CommentCardContent(
     comment: CommentEntity,
-    author: UserEntity?,
+    authorName: String,
     isAuthor: Boolean,
+    canModerate: Boolean,
     isEditing: Boolean,
     actions: CommentCardActions,
     attachments: List<AttachmentEntity>,
@@ -267,10 +281,14 @@ private fun CommentCardContent(
         )
     }
 
+    // SLOP-4: a reporter's comment is never editable; any member may delete
+    // it (moderation). A member's own comment keeps the author-only rule.
+    val canEdit = isAuthor && !comment.isFromReporter
+    val canDelete = isAuthor || (canModerate && comment.isFromReporter)
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                userDisplayName(author, comment.authorId),
+                authorName,
                 // EXP-723: the author's name is the card's title — a
                 // notch larger and medium-weight, over a muted time.
                 style = MaterialTheme.typography.titleSmall.copy(
@@ -282,16 +300,17 @@ private fun CommentCardContent(
                 modifier = Modifier.weight(1f, fill = false),
             )
             Spacer(Modifier.width(6.dp))
-            // EXP-741: "via MCP" — an agent posted it over MCP, the same
-            // caption on every client.
+            // EXP-741: "via MCP" — an agent posted it over MCP; SLOP-4:
+            // "reporter" / "to reporter" in the same slot — the same captions
+            // on every client (`commentCaption`).
             Text(
                 relativeTime(comment.createdAt) +
                     (if (comment.editedAt != null) " · edited" else "") +
-                    (if (comment.isViaMcp) " · via MCP" else ""),
+                    (commentCaption(comment)?.let { " · $it" } ?: ""),
                 style = MaterialTheme.typography.bodySmall,
                 color = CommentMeta,
             )
-            if (isAuthor && !isEditing) {
+            if ((canEdit || canDelete) && !isEditing) {
                 Spacer(Modifier.weight(1f))
                 Box {
                     // EXP-698 r5: a BARE vertical ⋮ on every client — a
@@ -315,17 +334,21 @@ private fun CommentCardContent(
                         }
                     }
                     GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        GlassMenuItem(
-                            leadingIcon = { Icon(ExpIcons.uiEdit, contentDescription = null) },
-                            text = { Text("Edit") },
-                            onClick = { menuOpen = false; actions.onEdit() },
-                        )
-                        GlassMenuItem(
-                            leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
-                            text = { Text("Delete") },
-                            destructive = true,
-                            onClick = { menuOpen = false; actions.onDelete() },
-                        )
+                        if (canEdit) {
+                            GlassMenuItem(
+                                leadingIcon = { Icon(ExpIcons.uiEdit, contentDescription = null) },
+                                text = { Text("Edit") },
+                                onClick = { menuOpen = false; actions.onEdit() },
+                            )
+                        }
+                        if (canDelete) {
+                            GlassMenuItem(
+                                leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
+                                text = { Text("Delete") },
+                                destructive = true,
+                                onClick = { menuOpen = false; actions.onDelete() },
+                            )
+                        }
                     }
                 }
             }

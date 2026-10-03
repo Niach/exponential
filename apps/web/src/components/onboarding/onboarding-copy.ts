@@ -23,7 +23,7 @@ export const ONBOARDING_COPY = {
   },
   invite: {
     title: `Invite your teammates`,
-    subtitle: `Teammates share boards, reviews and the support inbox. You can also invite people later from team settings.`,
+    subtitle: `Teammates share boards, reviews and the inbox. You can also invite people later from team settings.`,
     generate: `Generate invite link`,
     copy: `Copy link`,
     copied: `Copied`,

@@ -301,15 +301,38 @@ pub struct IssueTimeline {
     /// EXP-554: files picked for the NEXT comment, uploaded on send.
     pending_attachments: Vec<PendingCommentAttachment>,
     next_pending_key: u64,
+    /// SLOP-4: the issue's widget reporter (`widgets.submissionForIssue`,
+    /// pushed in by the detail view once its fetch lands; `None` for a
+    /// non-widget issue or while loading). Names `source = reporter` cards
+    /// and, with an email, offers the "Reply to reporter" pill.
+    reporter: Option<ReporterContact>,
+    /// SLOP-4: the "Reply to reporter" pill — OFF by default, per composer
+    /// (the bottom one only; replies under a card are team-only), reset on
+    /// every issue switch. ON = the send carries `audience: reporter`.
+    reply_to_reporter: bool,
     _subscriptions: Vec<Subscription>,
 }
+
+/// SLOP-4: what the timeline knows about the issue's widget reporter.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ReporterContact {
+    /// The submission's `reporterName`, else the contract's anonymous name.
+    pub name: String,
+    /// Whether the submission carries a `reporterEmail` — the gate for the
+    /// "Reply to reporter" pill (nothing to email otherwise).
+    pub has_email: bool,
+}
+
+/// The bottom composer's placeholder while the pill is OFF (and on every
+/// reply composer).
+const COMPOSER_PLACEHOLDER: &str = "Leave a reply…";
 
 impl IssueTimeline {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let composer = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(2, 8)
-                .placeholder("Leave a reply…")
+                .placeholder(COMPOSER_PLACEHOLDER)
         });
         let composer_mention = cx.new(|cx| {
             let mut mention = MentionInput::new(composer.clone(), cx);
@@ -386,8 +409,64 @@ impl IssueTimeline {
             show_all_activity: false,
             pending_attachments: Vec::new(),
             next_pending_key: 0,
+            reporter: None,
+            reply_to_reporter: false,
             _subscriptions: subscriptions,
         }
+    }
+
+    /// SLOP-4: the detail view's `widgets.submissionForIssue` answer. A
+    /// reporter without an email keeps the pill away (and switches it off if
+    /// it was on); the name reaches the reporter cards either way.
+    pub fn set_reporter(
+        &mut self,
+        reporter: Option<ReporterContact>,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if self.reporter == reporter {
+            return;
+        }
+        self.reporter = reporter;
+        if !self.offers_reporter_reply() {
+            self.reply_to_reporter = false;
+        }
+        self.sync_composer_placeholder(window, cx);
+        cx.notify();
+    }
+
+    /// Whether the bottom composer shows the "Reply to reporter" pill: the
+    /// issue's submission has a reporter email.
+    fn offers_reporter_reply(&self) -> bool {
+        self.reporter.as_ref().is_some_and(|reporter| reporter.has_email)
+    }
+
+    /// SLOP-4: flip the "Reply to reporter" pill (the bottom composer only).
+    pub(crate) fn toggle_reply_to_reporter(
+        &mut self,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if !self.offers_reporter_reply() {
+            return;
+        }
+        self.reply_to_reporter = !self.reply_to_reporter;
+        self.sync_composer_placeholder(window, cx);
+        cx.notify();
+    }
+
+    /// The bottom composer's placeholder follows the pill: the contract's
+    /// `placeholderOn` with the reporter's name while ON, the plain one
+    /// otherwise.
+    fn sync_composer_placeholder(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let placeholder = match self.reporter.as_ref() {
+            Some(reporter) if self.reply_to_reporter => {
+                domain::reporter_reply::placeholder_on(&reporter.name)
+            }
+            _ => COMPOSER_PLACEHOLDER.to_string(),
+        };
+        self.composer
+            .update(cx, |input, cx| input.set_placeholder(placeholder, window, cx));
     }
 
     /// Point the timeline at another issue. Draft + edit state reset (they are
@@ -406,6 +485,11 @@ impl IssueTimeline {
         self.editing = None;
         self.reply = None;
         self.submitting = false;
+        // SLOP-4: the reporter is per issue (the detail view pushes the next
+        // one in once its fetch lands), and the pill starts OFF.
+        self.reporter = None;
+        self.reply_to_reporter = false;
+        self.sync_composer_placeholder(window, cx);
         // EXP-468: the fold comes back on for the next issue.
         self.show_all_activity = false;
         // Pending picks are per-issue local state, like the draft: an upload
@@ -686,6 +770,11 @@ impl IssueTimeline {
 
         let body = draft;
         let what = if parent_id.is_some() { "reply" } else { "comment" };
+        // SLOP-4: only the bottom composer can address the reporter (replies
+        // under a card are team-only, and the server refuses a reporter
+        // reply with a `parentId` anyway).
+        let audience = (scope == PendingScope::Composer && self.reply_to_reporter)
+            .then_some(domain::contract::COMMENT_AUDIENCE_REPORTER);
         cx.spawn_in(window, async move |this, cx| {
             let upload_issue = issue_id.clone();
             let (stamped, result) = cx
@@ -710,8 +799,9 @@ impl IssueTimeline {
                         &body,
                         (!ids.is_empty()).then_some(ids.as_slice()),
                         parent_id.as_deref(),
+                        audience,
                     )
-                    .map(|_| ())
+                    .map(|out| out.reporter_emailed)
                     .map_err(|error| error.to_string());
                     (stamped, result)
                 })
@@ -720,15 +810,33 @@ impl IssueTimeline {
                 this.set_submitting(scope, false);
                 this.stamp_uploaded(scope, &stamped);
                 match result {
-                    Ok(()) => match scope {
-                        PendingScope::Composer => {
-                            this.composer
-                                .update(cx, |input, cx| input.set_value("", window, cx));
-                            this.pending_attachments.clear();
+                    Ok(reporter_emailed) => {
+                        match scope {
+                            PendingScope::Composer => {
+                                this.composer
+                                    .update(cx, |input, cx| input.set_value("", window, cx));
+                                this.pending_attachments.clear();
+                            }
+                            PendingScope::Reply => this.reply = None,
+                            PendingScope::Edit => {}
                         }
-                        PendingScope::Reply => this.reply = None,
-                        PendingScope::Edit => {}
-                    },
+                        // SLOP-4: the contract's delivery toasts — `true`
+                        // sent, `false` saved without a mail transport, `None`
+                        // a team comment (nothing to say).
+                        match reporter_emailed {
+                            Some(true) => crate::toast::success(
+                                domain::reporter_reply::SENT_TOAST,
+                                window,
+                                cx,
+                            ),
+                            Some(false) => crate::toast::warning(
+                                domain::reporter_reply::NOT_SENT_TOAST,
+                                window,
+                                cx,
+                            ),
+                            None => {}
+                        }
+                    }
                     Err(error) => {
                         log::warn!("[ui] comments.create failed: {error}");
                         this.note_attachment_failure(scope, &error);
@@ -1209,7 +1317,8 @@ impl IssueTimeline {
     /// One comment's card props — the same for a top-level card and for each
     /// reply under it (EXP-741), so replies edit and delete like their parent.
     /// Author-only, no global-admin bypass (EXP-398) — the server refuses the
-    /// mutation for anyone else.
+    /// mutation for anyone else. SLOP-4: a widget reporter's comment has no
+    /// author — nobody edits it, any member deletes it (moderation).
     fn card_props<'a>(
         &'a self,
         comment: &'a Comment,
@@ -1220,8 +1329,13 @@ impl IssueTimeline {
             .author_id
             .as_deref()
             .and_then(|id| user_map.get(id));
-        let can_modify =
+        let is_author =
             current_user_id.is_some() && comment.author_id.as_deref() == current_user_id;
+        let (can_edit, can_delete) = if comment.is_from_reporter() {
+            (false, current_user_id.is_some())
+        } else {
+            (is_author, is_author)
+        };
         let edit = self
             .editing
             .as_ref()
@@ -1229,7 +1343,13 @@ impl IssueTimeline {
         CommentCardProps {
             comment,
             author,
-            can_modify,
+            reporter_name: self
+                .reporter
+                .as_ref()
+                .map(|reporter| reporter.name.as_str())
+                .unwrap_or(domain::reporter_reply::ANONYMOUS_NAME),
+            can_edit,
+            can_delete,
             editing: edit.map(|edit| &edit.mention),
             saving: edit.is_some_and(|edit| edit.saving),
             // EXP-554: the edit strip hides what the user staged for removal
@@ -1573,6 +1693,16 @@ impl Render for IssueTimeline {
         // EXP-554: attachments alone are enough to send.
         let has_draft = !self.composer.read(cx).value().trim().is_empty()
             || !self.pending_attachments.is_empty();
+        // SLOP-4: the "Reply to reporter" pill, only while the submission
+        // has someone to email.
+        let reporter_toggle = self
+            .reporter
+            .as_ref()
+            .filter(|reporter| reporter.has_email)
+            .map(|reporter| comments::ReporterToggle {
+                name: reporter.name.as_str(),
+                on: self.reply_to_reporter,
+            });
         let composer = comments::composer_row(
             &self.composer_mention,
             self.submitting,
@@ -1580,6 +1710,7 @@ impl Render for IssueTimeline {
             &self.pending_attachments,
             &self.emoji_picker,
             self.emoji_open(PendingScope::Composer),
+            reporter_toggle,
             cx,
         );
         // The hairline separating the activity section from the description

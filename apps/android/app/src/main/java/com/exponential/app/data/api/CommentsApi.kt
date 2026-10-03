@@ -16,6 +16,21 @@ data class CreateCommentInput(
     // EXP-741: the top-level comment this one replies to. Omitted when null,
     // exactly like attachmentIds.
     @SerialName("parentId") val parentId: String? = null,
+    // SLOP-4: `reporter` = the server emails the comment to the widget
+    // reporter (accepted only top-level, on an issue whose submission has a
+    // reporter email). Omitted when null — a plain team comment, which older
+    // servers without the field parse unchanged.
+    @SerialName("audience") val audience: String? = null,
+)
+
+/**
+ * SLOP-4: what `comments.create` answers beyond the row. [reporterEmailed] =
+ * true (mailed), false (saved, no transport / failed), null (a team comment,
+ * or an older server without the field — nothing to toast).
+ */
+@Serializable
+data class CreateCommentResult(
+    @SerialName("reporterEmailed") val reporterEmailed: Boolean? = null,
 )
 
 @Serializable
@@ -39,14 +54,15 @@ class CommentsApi @Inject constructor(private val trpc: TrpcClient) {
         text: String,
         attachmentIds: List<String>? = null,
         parentId: String? = null,
-    ) {
-        trpc.mutationUnit(
+        audience: String? = null,
+    ): CreateCommentResult =
+        trpc.mutation(
             accountId,
             path = "comments.create",
-            input = CreateCommentInput(issueId, text, attachmentIds, parentId),
+            input = CreateCommentInput(issueId, text, attachmentIds, parentId, audience),
             inputSerializer = CreateCommentInput.serializer(),
+            outputSerializer = CreateCommentResult.serializer(),
         )
-    }
 
     suspend fun update(
         accountId: String,

@@ -50,7 +50,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_chat · sg_chat-issues · sg_chat-action ·
  *   sg_machine-settings · sg_action-create · sg_action-triggers ·
  *   sg_trigger-editor · sg_action-runs · sg_action-suggestions · sg_reviews ·
- *   sg_support-thread · sg_settings-root · sg_settings-team ·
+ *   sg_settings-root · sg_settings-team ·
  *   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
  *   sg_onboarding-devices
  *
@@ -109,11 +109,6 @@ class StyleguideScreenshotsTest {
 
         // APP-15: an open PR in the Reviews queue.
         private const val REVIEW_ISSUE_TITLE = "Batch-edit labels from the board"
-
-        // The most recently updated seeded support thread, and the last line of
-        // its conversation.
-        private const val SUPPORT_REPORTER = "Emma Fischer"
-        private const val SUPPORT_MESSAGE_FRAGMENT = "thank you for the quick turnaround"
 
         private const val TEAM_NAME = "Acme"
         private const val TEAM_BOARD_NAME = "Mobile App"
@@ -510,26 +505,6 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasText(REVIEW_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_reviews")
-
-        // --- Support thread: the tab only exists because the seed flips the
-        // team's helpdesk_enabled on. Rows carry "<reporter> · <last message>"
-        // as their subtitle, so the reporter name addresses Emma's thread
-        // directly; fall back to the newest row (hers) if the subtitle is
-        // elided on a narrow screen.
-        composeRule.onNode(hasContentDescription("Support")).performClick()
-        flow.waitFor(hasTestTag("support-thread-row"), SYNC_TIMEOUT)
-        val reporterRow = hasText(SUPPORT_REPORTER, substring = true)
-        if (flow.exists(reporterRow)) {
-            composeRule.onAllNodes(reporterRow).onFirst().performClick()
-        } else {
-            composeRule.onAllNodes(hasTestTag("support-thread-row")).onFirst().performClick()
-        }
-        flow.waitFor(hasContentDescription("Ticket actions"), NAV_TIMEOUT)
-        flow.waitFor(hasText(SUPPORT_MESSAGE_FRAGMENT, substring = true), SYNC_TIMEOUT)
-        flow.settle()
-        flow.screenshot("sg_support-thread")
-        composeRule.onNode(hasContentDescription("Back")).performClick()
-        flow.settle()
 
         // --- Settings root: the gear lives on the board root, not on a profile
         // menu. Header matches keep ignoreCase so they hold whichever case

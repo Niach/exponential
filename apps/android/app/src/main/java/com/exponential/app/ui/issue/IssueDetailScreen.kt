@@ -56,6 +56,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.ReporterReply
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueRelationType
 import com.exponential.app.domain.IssueStatusCategory
@@ -320,6 +321,19 @@ fun IssueFace(
     LaunchedEffect(commentReplyTarget) {
         if (commentReplyTarget != null) composerExpanded = true
     }
+    // SLOP-4: the "Reply to reporter" pill exists only while the submission
+    // (loaded once by this screen's ViewModel, shared with the thread) has a
+    // reporter email; its ON state lives on the comment ViewModel.
+    val reporterAudience by commentViewModel.reporterAudience.collectAsStateWithLifecycle()
+    val reporterToggle = widgetSubmission
+        ?.takeIf { !it.reporterEmail.isNullOrBlank() }
+        ?.let { submission ->
+            ReporterToggle(
+                reporterName = ReporterReply.displayName(submission.reporterName),
+                on = reporterAudience,
+                onToggle = commentViewModel::setReporterAudience,
+            )
+        }
 
     // Own-save echo recognition (EXP-689): declared BEFORE the remote sync
     // effects so, within one composition, the save is on record by the time
@@ -765,6 +779,10 @@ fun IssueFace(
                 CommentThread(
                     issueId = issue.id,
                     viewModel = commentViewModel,
+                    // SLOP-4: a reporter's comment names the submission's
+                    // reporter; members moderate (delete) those comments.
+                    reporterName = widgetSubmission?.reporterName,
+                    canModerate = permissions.isMember,
                 )
 
                 // Clearance so the last timeline row scrolls out from under the
@@ -800,8 +818,13 @@ fun IssueFace(
                         expanded = composerExpanded,
                         onExpandedChange = {
                             composerExpanded = it
-                            // A folded composer replies to nothing (EXP-741).
-                            if (!it) commentViewModel.setReplyTarget(null)
+                            // A folded composer replies to nothing (EXP-741)
+                            // and to no reporter (SLOP-4: the pill is per
+                            // composer, OFF by default).
+                            if (!it) {
+                                commentViewModel.setReplyTarget(null)
+                                commentViewModel.setReporterAudience(false)
+                            }
                         },
                         showProperties = isModerator,
                         onOpenProperties = { controller.propertiesOpen = true },
@@ -809,7 +832,19 @@ fun IssueFace(
                         draft = commentDraft,
                         onDraftChange = commentViewModel::updateDraft,
                         sending = commentSending,
-                        onSend = { commentViewModel.send { composerExpanded = false } },
+                        onSend = {
+                            commentViewModel.send { reporterEmailed ->
+                                composerExpanded = false
+                                // SLOP-4: the reporter-audience result, via
+                                // the shared toast stack (null = a team
+                                // comment, nothing to say).
+                                when (reporterEmailed) {
+                                    true -> toaster.success(ReporterReply.SENT_TOAST)
+                                    false -> toaster.info(ReporterReply.NOT_SENT_TOAST)
+                                    null -> {}
+                                }
+                            }
+                        },
                         pendingAttachments = commentAttachments,
                         onAddAttachment = commentViewModel::addPendingAttachment,
                         onRemoveAttachment = commentViewModel::removePendingAttachment,
@@ -818,6 +853,7 @@ fun IssueFace(
                         otherEditorFocused = otherEditorFocused,
                         replyTarget = commentReplyTarget,
                         onClearReply = { commentViewModel.setReplyTarget(null) },
+                        reporterToggle = reporterToggle,
                     )
                 }
             }

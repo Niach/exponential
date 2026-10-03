@@ -21,10 +21,7 @@ import { cn } from "@/lib/utils"
 import type { Board, Team } from "@/db/schema"
 import { useSession } from "@/hooks/use-session"
 import { useSignOut } from "@/hooks/use-sign-out"
-import {
-  useUnreadNotificationCount,
-  useUnreadSupportCount,
-} from "@/hooks/use-unread-notifications"
+import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
 import { useReviewsOpenPrCount, useShowsReviews } from "@/hooks/use-nav-counts"
 import { useSidebarDraftCount } from "@/hooks/use-issue-drafts"
 import { SidebarPinnedIcons } from "@/components/team/sidebar-pinned"
@@ -51,7 +48,6 @@ const NavInboxIcon = conceptIcon(`nav-inbox`)
 const NavReviewsIcon = conceptIcon(`nav-reviews`)
 const NavSettingsIcon = conceptIcon(`nav-settings`)
 const NavSignOutIcon = conceptIcon(`nav-sign-out`)
-const NavSupportIcon = conceptIcon(`nav-support`)
 
 export type BadgePlacement = `row` | `icon`
 
@@ -146,19 +142,6 @@ export function DraftsCountBadge({
       )}
     />
   )
-}
-
-/** Unread helpdesk activity in THIS team, for the Support entry. */
-export function SupportUnreadBadge({
-  teamId,
-  placement,
-}: {
-  teamId?: string
-  placement: BadgePlacement
-}) {
-  const unread = useUnreadSupportCount(teamId)
-  if (unread === 0) return null
-  return <NavDot className="bg-primary" placement={placement} />
 }
 
 /** Any open PR across the team's boards. */
@@ -329,12 +312,6 @@ export function TeamSidebarRail({
           <InboxUnreadBadge placement="icon" />
         </RailItem>
         <DraftsRailItem teamId={team?.id} params={params} />
-        {team?.helpdeskEnabled === true && (
-          <RailItem label="Support" link={{ to: `/t/$teamSlug/support`, params }}>
-            <NavSupportIcon className="size-4" />
-            <SupportUnreadBadge teamId={team.id} placement="icon" />
-          </RailItem>
-        )}
         <RailItem label="Devices" link={{ to: `/t/$teamSlug/devices`, params }}>
           <NavDevicesIcon className="size-4" />
         </RailItem>

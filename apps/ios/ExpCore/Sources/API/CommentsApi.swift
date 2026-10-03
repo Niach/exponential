@@ -13,12 +13,35 @@ public struct CreateCommentInput: Encodable, Sendable {
     /// EXP-741 — the top-level comment this one replies to. Optional on the
     /// wire like `attachmentIds`: nil never appears in the JSON body.
     public let parentId: String?
+    /// SLOP-4 — `team` (the default, omitted) | `reporter`: the comment is
+    /// emailed to the widget reporter. The server accepts `reporter` only on
+    /// a top-level comment of an issue whose submission has a reporter email.
+    public let audience: String?
 
-    public init(issueId: String, body: String, attachmentIds: [String]? = nil, parentId: String? = nil) {
+    public init(
+        issueId: String,
+        body: String,
+        attachmentIds: [String]? = nil,
+        parentId: String? = nil,
+        audience: String? = nil
+    ) {
         self.issueId = issueId
         self.body = body
         self.attachmentIds = attachmentIds
         self.parentId = parentId
+        self.audience = audience
+    }
+}
+
+/// `comments.create` → what the composer reads back (SLOP-4): `reporterEmailed`
+/// is true/false on a reporter-audience comment (the email went / was saved
+/// without a transport), null on a team comment. `txId`, the row and the
+/// mentioned ids ride along and are ignored — Electric delivers the row.
+public struct CreateCommentResult: Decodable, Sendable {
+    public let reporterEmailed: Bool?
+
+    public init(reporterEmailed: Bool?) {
+        self.reporterEmailed = reporterEmailed
     }
 }
 
@@ -45,9 +68,10 @@ public struct DeleteCommentInput: Encodable, Sendable {
     }
 }
 
-// The web tRPC handlers return { txId, comment } on create/update and { txId }
-// on delete. We don't read txId on iOS — Electric eventually delivers the
-// canonical row — so we accept any decodable response shape.
+// The web tRPC handlers return { txId, comment, … } on create/update and
+// { txId } on delete. We don't read txId on iOS — Electric eventually delivers
+// the canonical row — so update accepts any decodable response shape; create
+// reads only `reporterEmailed` (SLOP-4).
 private struct EmptyResult: Decodable {}
 
 public final class CommentsApi: Sendable {
@@ -57,21 +81,24 @@ public final class CommentsApi: Sendable {
         self.trpc = trpc
     }
 
+    @discardableResult
     public func create(
         accountId: String,
         issueId: String,
         text: String,
         attachmentIds: [String]? = nil,
-        parentId: String? = nil
-    ) async throws {
-        let _: EmptyResult = try await trpc.mutation(
+        parentId: String? = nil,
+        audience: String? = nil
+    ) async throws -> CreateCommentResult {
+        try await trpc.mutation(
             accountId: accountId,
             path: "comments.create",
             input: CreateCommentInput(
                 issueId: issueId,
                 body: text,
                 attachmentIds: attachmentIds,
-                parentId: parentId
+                parentId: parentId,
+                audience: audience
             )
         )
     }

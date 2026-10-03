@@ -78,10 +78,6 @@ const launcherPositionGrid: WidgetLauncherPosition[] = [
   `bottom-left`,
   `bottom-right`,
 ]
-// The settings-facing shape of formConfig.modes: a single pick instead of a
-// multi-select (there are only three valid combinations).
-type WidgetModeChoice = `feedback` | `support` | `both`
-
 // Editor rows for the owner-defined custom fields (EXP-244). `key` is null
 // for a not-yet-saved row — it's derived from the label at save time and
 // then stays STABLE across renames (submitted values live under it in the
@@ -144,20 +140,19 @@ function readLauncher(raw: Record<string, unknown> | null): {
 function readFormConfig(raw: Record<string, unknown> | null): {
   buttonLabel: string
   accentColor: string
-  launcher: { desktop: WidgetLauncherPlacement; mobile: WidgetLauncherPlacement }
+  launcher: {
+    desktop: WidgetLauncherPlacement
+    mobile: WidgetLauncherPlacement
+  }
   icon: PickableIcon | ``
   emailRequired: boolean
   collectEmail: boolean
   collectName: boolean
   nameRequired: boolean
   customFields: CustomFieldRow[]
-  mode: WidgetModeChoice
   labelIds: string[]
   theme: WidgetThemeChoice
 } {
-  const modes = Array.isArray(raw?.modes) ? raw.modes : []
-  const hasSupport = modes.includes(`support`)
-  const hasFeedback = modes.includes(`feedback`) || !hasSupport
   const customFields = (
     Array.isArray(raw?.customFields) ? raw.customFields : []
   ).flatMap((entry): CustomFieldRow[] => {
@@ -179,20 +174,12 @@ function readFormConfig(raw: Record<string, unknown> | null): {
     collectName: raw?.collectName === true,
     nameRequired: raw?.nameRequired === true,
     customFields,
-    mode: hasSupport ? (hasFeedback ? `both` : `support`) : `feedback`,
     labelIds: (Array.isArray(raw?.labelIds) ? raw.labelIds : [])
       .filter((id): id is string => typeof id === `string`)
       .slice(0, maxWidgetLabels),
     // Absent = dark, the pre-theme behavior.
     theme: raw?.theme === `light` || raw?.theme === `auto` ? raw.theme : `dark`,
   }
-}
-
-function modesForChoice(
-  choice: WidgetModeChoice
-): Array<`feedback` | `support`> {
-  if (choice === `both`) return [`feedback`, `support`]
-  return [choice]
 }
 
 export function WidgetConfigDialog({
@@ -234,7 +221,6 @@ export function WidgetConfigDialog({
   const [formNameRequired, setFormNameRequired] = useState(false)
   const [formCustomFields, setFormCustomFields] = useState<CustomFieldRow[]>([])
   const [formLabelIds, setFormLabelIds] = useState<string[]>([])
-  const [formMode, setFormMode] = useState<WidgetModeChoice>(`feedback`)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
@@ -243,7 +229,9 @@ export function WidgetConfigDialog({
     if (!open) return
     const config = readFormConfig(editTarget?.formConfig ?? null)
     setFormName(editTarget?.name ?? ``)
-    setFormBoardId(editTarget ? (editTarget.boardId ?? ``) : (boards[0]?.id ?? ``))
+    // SLOP-4: the board is REQUIRED — a new widget defaults to the team's
+    // first board.
+    setFormBoardId(editTarget ? editTarget.boardId : (boards[0]?.id ?? ``))
     setFormDomains(editTarget?.allowedDomains.join(`\n`) ?? ``)
     setFormButtonLabel(config.buttonLabel)
     setFormAccent(config.accentColor)
@@ -257,7 +245,6 @@ export function WidgetConfigDialog({
     setFormNameRequired(config.nameRequired)
     setFormCustomFields(config.customFields)
     setFormLabelIds(config.labelIds)
-    setFormMode(config.mode)
     setFormError(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editTarget])
@@ -334,7 +321,6 @@ export function WidgetConfigDialog({
       ...(formCollectName ? { collectName: true } : {}),
       ...(formCollectName && formNameRequired ? { nameRequired: true } : {}),
       ...(customFields.length > 0 ? { customFields } : {}),
-      modes: modesForChoice(formMode),
       ...(labelIds.length > 0 ? { labelIds } : {}),
       ...(formTheme !== `dark` ? { theme: formTheme } : {}),
     }
@@ -346,26 +332,20 @@ export function WidgetConfigDialog({
       [launcherDevice]: { ...previous[launcherDevice], ...patch },
     }))
 
-  // A feedback board is required whenever the widget offers feedback mode; a
-  // support-only widget has none (tickets go to the team support inbox).
-  const needsBoard = formMode !== `support`
+  // SLOP-4: every submission is an issue, so the board is required.
   const canSave =
     Boolean(formName.trim()) &&
-    (!needsBoard || Boolean(formBoardId)) &&
+    Boolean(formBoardId) &&
     parseDomains(formDomains).length > 0
 
   const save = async () => {
     if (!canSave) {
-      setFormError(
-        needsBoard
-          ? `Name, feedback board, and at least one allowed domain are required.`
-          : `Name and at least one allowed domain are required.`
-      )
+      setFormError(`Name, board, and at least one allowed domain are required.`)
       return
     }
     setSaving(true)
     setFormError(null)
-    const boardId = needsBoard ? formBoardId : null
+    const boardId = formBoardId
     try {
       let created: WidgetListItem | null = null
       if (editTarget) {
@@ -387,7 +367,7 @@ export function WidgetConfigDialog({
         created = {
           ...row,
           boardName:
-            boards.find((board) => board.id === row.boardId)?.name ?? null,
+            boards.find((board) => board.id === row.boardId)?.name ?? ``,
           submissionCount: 0,
         }
       }
@@ -440,8 +420,7 @@ export function WidgetConfigDialog({
         <DialogHeader>
           <DialogTitle>{editTarget ? `Edit widget` : `New widget`}</DialogTitle>
           <DialogDescription>
-            Feedback submissions create issues on the selected board; support
-            tickets land in the team&apos;s Support inbox. The key in the
+            Every submission lands as an issue on the board. The key in the
             snippet is public; restrict it to your domains.
           </DialogDescription>
         </DialogHeader>
@@ -470,50 +449,23 @@ export function WidgetConfigDialog({
                 />
               </div>
               <div className="space-y-2">
-                <Label>Modes</Label>
-                <Select
-                  value={formMode}
-                  onValueChange={(value) =>
-                    setFormMode(value as WidgetModeChoice)
-                  }
-                >
+                <Label>Board</Label>
+                <Select value={formBoardId} onValueChange={setFormBoardId}>
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue placeholder="Select a board" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="feedback">Feedback</SelectItem>
-                    <SelectItem value="support">Support</SelectItem>
-                    <SelectItem value="both">Feedback + support</SelectItem>
+                    {boards.map((board) => (
+                      <SelectItem key={board.id} value={board.id}>
+                        {board.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
-                {formMode !== `feedback` && (
-                  <p className="text-xs text-muted-foreground">
-                    Support files helpdesk tickets. Visitors get a
-                    reply-by-email conversation. Requires the helpdesk to be
-                    enabled for this team (below).
-                  </p>
-                )}
+                <p className="text-xs text-muted-foreground">
+                  Every submission lands as an issue on this board.
+                </p>
               </div>
-              {needsBoard && (
-                <div className="space-y-2">
-                  <Label>Feedback board</Label>
-                  <Select value={formBoardId} onValueChange={setFormBoardId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select a board" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {boards.map((board) => (
-                        <SelectItem key={board.id} value={board.id}>
-                          {board.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Feedback submissions land on this board as issues.
-                  </p>
-                </div>
-              )}
               <div className="space-y-2">
                 <Label htmlFor="widget-domains">Allowed domains</Label>
                 <Textarea
@@ -532,40 +484,41 @@ export function WidgetConfigDialog({
 
             <TabsContent value="form" className="mt-2 space-y-4">
               {/* EXP-244 replaced EXP-267's single "Require email" cell with
-                  per-field Show/Required switches. */}
+                  per-field Show/Required switches. SLOP-4: the group is the
+                  reporter's CONTACT — the email is what the conversation
+                  through the emailed link, and a member's "Reply to
+                  reporter", hang on. */}
               <div className="space-y-2">
-                <Label>Form fields</Label>
+                <Label>Reporter contact</Label>
                 <div className="space-y-3 rounded-md border px-3 py-3">
-                  {needsBoard && (
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm">Email</span>
-                      <div className="flex items-center gap-4">
-                        <Label
-                          htmlFor="widget-collect-email"
-                          className="gap-1.5 text-xs font-normal text-muted-foreground"
-                        >
-                          Show
-                          <Switch
-                            id="widget-collect-email"
-                            checked={formCollectEmail}
-                            onCheckedChange={setFormCollectEmail}
-                          />
-                        </Label>
-                        <Label
-                          htmlFor="widget-email-required"
-                          className="gap-1.5 text-xs font-normal text-muted-foreground"
-                        >
-                          Required
-                          <Switch
-                            id="widget-email-required"
-                            checked={formCollectEmail && formEmailRequired}
-                            disabled={!formCollectEmail}
-                            onCheckedChange={setFormEmailRequired}
-                          />
-                        </Label>
-                      </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm">Email</span>
+                    <div className="flex items-center gap-4">
+                      <Label
+                        htmlFor="widget-collect-email"
+                        className="gap-1.5 text-xs font-normal text-muted-foreground"
+                      >
+                        Show
+                        <Switch
+                          id="widget-collect-email"
+                          checked={formCollectEmail}
+                          onCheckedChange={setFormCollectEmail}
+                        />
+                      </Label>
+                      <Label
+                        htmlFor="widget-email-required"
+                        className="gap-1.5 text-xs font-normal text-muted-foreground"
+                      >
+                        Required
+                        <Switch
+                          id="widget-email-required"
+                          checked={formCollectEmail && formEmailRequired}
+                          disabled={!formCollectEmail}
+                          onCheckedChange={setFormEmailRequired}
+                        />
+                      </Label>
                     </div>
-                  )}
+                  </div>
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-sm">Name</span>
                     <div className="flex items-center gap-4">
@@ -596,127 +549,118 @@ export function WidgetConfigDialog({
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {needsBoard
-                    ? `Hide the email field for teams that follow up in person. A name is often all you need. Support mode always asks for an email (it's the reply channel).`
-                    : `Support mode always asks for an email (it's the reply channel); the name field is optional.`}
+                  A reporter who leaves an address keeps a conversation through
+                  the emailed link and hears back when you reply to them. Hide
+                  the email field for teams that follow up in person.
                 </p>
               </div>
-              {needsBoard && (
-                <div className="space-y-2">
-                  <Label>Labels</Label>
-                  <LabelPicker
-                    teamId={teamId}
-                    selectedLabelIds={formLabelIds}
-                    onToggle={toggleFormLabel}
-                    renderTrigger={(selected) => (
-                      <Button
-                        variant="outline"
-                        className="h-auto min-h-9 w-full flex-wrap justify-start gap-1.5 font-normal"
-                      >
-                        {selected.length === 0 ? (
-                          <span className="text-muted-foreground">
-                            Select labels…
-                          </span>
-                        ) : (
-                          selected.map((label: TeamLabel) => (
-                            <Pill key={label.id} dot={label.color}>
-                              {label.name}
-                            </Pill>
-                          ))
-                        )}
-                      </Button>
-                    )}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Visitors can tag their report with these labels (up to
-                    {` `}
-                    {maxWidgetLabels}).
-                  </p>
-                </div>
-              )}
-              {needsBoard && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label>Custom fields</Label>
+              <div className="space-y-2">
+                <Label>Labels</Label>
+                <LabelPicker
+                  teamId={teamId}
+                  selectedLabelIds={formLabelIds}
+                  onToggle={toggleFormLabel}
+                  renderTrigger={(selected) => (
                     <Button
                       variant="outline"
-                      size="sm"
-                      disabled={formCustomFields.length >= 8}
-                      onClick={() =>
-                        setFormCustomFields((rows) => [
-                          ...rows,
-                          { key: null, label: ``, required: false },
-                        ])
-                      }
+                      className="h-auto min-h-9 w-full flex-wrap justify-start gap-1.5 font-normal"
                     >
-                      Add field
+                      {selected.length === 0 ? (
+                        <span className="text-muted-foreground">
+                          Select labels…
+                        </span>
+                      ) : (
+                        selected.map((label: TeamLabel) => (
+                          <Pill key={label.id} dot={label.color}>
+                            {label.name}
+                          </Pill>
+                        ))
+                      )}
                     </Button>
-                  </div>
-                  {formCustomFields.length > 0 && (
-                    <div className="space-y-2">
-                      {formCustomFields.map((row, index) => (
-                        <div
-                          // eslint-disable-next-line react/no-array-index-key
-                          key={index}
-                          className="flex items-center gap-2"
-                        >
-                          <Input
-                            placeholder="Field label"
-                            maxLength={40}
-                            value={row.label}
-                            onChange={(event) =>
+                  )}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Visitors can tag their report with these labels (up to
+                  {` `}
+                  {maxWidgetLabels}).
+                </p>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label>Custom fields</Label>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={formCustomFields.length >= 8}
+                    onClick={() =>
+                      setFormCustomFields((rows) => [
+                        ...rows,
+                        { key: null, label: ``, required: false },
+                      ])
+                    }
+                  >
+                    Add field
+                  </Button>
+                </div>
+                {formCustomFields.length > 0 && (
+                  <div className="space-y-2">
+                    {formCustomFields.map((row, index) => (
+                      <div
+                        // eslint-disable-next-line react/no-array-index-key
+                        key={index}
+                        className="flex items-center gap-2"
+                      >
+                        <Input
+                          placeholder="Field label"
+                          maxLength={40}
+                          value={row.label}
+                          onChange={(event) =>
+                            setFormCustomFields((rows) =>
+                              rows.map((current, i) =>
+                                i === index
+                                  ? { ...current, label: event.target.value }
+                                  : current
+                              )
+                            )
+                          }
+                        />
+                        <Label className="gap-1.5 text-xs font-normal text-muted-foreground">
+                          Required
+                          <Switch
+                            checked={row.required}
+                            onCheckedChange={(next) =>
                               setFormCustomFields((rows) =>
                                 rows.map((current, i) =>
                                   i === index
-                                    ? { ...current, label: event.target.value }
+                                    ? { ...current, required: next }
                                     : current
                                 )
                               )
                             }
                           />
-                          <Label className="gap-1.5 text-xs font-normal text-muted-foreground">
-                            Required
-                            <Switch
-                              checked={row.required}
-                              onCheckedChange={(next) =>
-                                setFormCustomFields((rows) =>
-                                  rows.map((current, i) =>
-                                    i === index
-                                      ? { ...current, required: next }
-                                      : current
-                                  )
-                                )
-                              }
-                            />
-                          </Label>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label="Remove field"
-                            onClick={() =>
-                              setFormCustomFields((rows) =>
-                                rows.filter((_, i) => i !== index)
-                              )
-                            }
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <p className="text-xs text-muted-foreground">
-                    Extra text inputs on the feedback form (up to 8). Responses
-                    show under “Custom data” on the issue and override matching
-                    setCustomData keys.
-                  </p>
-                </div>
-              )}
-              {!needsBoard && (
+                        </Label>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label="Remove field"
+                          onClick={() =>
+                            setFormCustomFields((rows) =>
+                              rows.filter((_, i) => i !== index)
+                            )
+                          }
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <p className="text-xs text-muted-foreground">
-                  Labels and custom fields apply to the feedback form only.
+                  Extra text inputs on the feedback form (up to 8). Responses
+                  show under “Custom data” on the issue and override matching
+                  setCustomData keys.
                 </p>
-              )}
+              </div>
             </TabsContent>
 
             <TabsContent
@@ -895,7 +839,7 @@ export function WidgetConfigDialog({
                       name: label.name,
                       color: label.color,
                     }))}
-                    collectEmail={needsBoard && formCollectEmail}
+                    collectEmail={formCollectEmail}
                     emailRequired={formCollectEmail && formEmailRequired}
                     collectName={formCollectName}
                     customFieldLabels={formCustomFields

@@ -5,7 +5,6 @@ import {
   CodeXml,
   Copy,
   LoaderCircle,
-  MessageSquarePlus,
   Pencil,
   Sparkles,
   Trash2,
@@ -33,8 +32,11 @@ import {
   DialogHeader,
   DialogTitle,
   Switch,
+  conceptIcon,
 } from "@exp/ui"
 import type { Team } from "@/db/schema"
+
+const WidgetIcon = conceptIcon(`settings-widget`)
 
 function buildSnippet(publicKey: string): string {
   return buildWidgetSnippet(publicKey, window.location.origin)
@@ -102,7 +104,7 @@ export function TeamWidgetSection({ team }: { team: Team }) {
   const deleteWidget = async (widget: WidgetListItem) => {
     if (
       !window.confirm(
-        `Delete the "${widget.name}" widget? Sites using its key stop working immediately. Issues it created are kept.`
+        `Delete the "${widget.name}" widget? Sites using its key stop working immediately. The issues it filed are kept.`
       )
     ) {
       return
@@ -127,20 +129,22 @@ export function TeamWidgetSection({ team }: { team: Team }) {
       {/* Anchor target for the "Getting started" widget card's settings link. */}
       <div id="feedback-widget" className="scroll-mt-6">
         <GlassSectionHeader
-          leading={
-            <MessageSquarePlus className="size-3.5 text-foreground/50" />
-          }
-          label="Exponential widget"
+          leading={<WidgetIcon className="size-3.5 text-foreground/50" />}
+          label="Widget"
           trailing={
             <Pill mode="action" onClick={openCreate}>
               New widget
             </Pill>
           }
         />
+        {/* SLOP-4: ONE path — a submission is an issue; the reporter's
+            address is the thread back to them. */}
         <p className="px-1 pb-2 text-xs text-foreground/50">
-          Embed the Exponential widget on your own site: visitors capture a
-          screenshot, describe the problem, and it lands here as an issue, with
-          reporter email and page context attached.
+          Embed the widget on your own site: visitors capture a screenshot,
+          describe the problem, and it lands as an issue on the board, with
+          page context attached. A reporter who leaves an address keeps a
+          conversation through the emailed link, and your replies to them go
+          out from the issue&apos;s comments.
         </p>
         <div className="space-y-4">
           <div className={SETTINGS_LIST_CLASS}>
@@ -168,9 +172,7 @@ export function TeamWidgetSection({ team }: { team: Team }) {
                       <span className="break-all text-sm font-medium">
                         {widget.name}
                       </span>
-                      {widget.boardName && (
-                        <Pill>{widget.boardName}</Pill>
-                      )}
+                      <Pill>{widget.boardName}</Pill>
                       {!widget.enabled && <Pill>disabled</Pill>}
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">

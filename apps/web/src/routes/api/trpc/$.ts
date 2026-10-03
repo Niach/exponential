@@ -34,7 +34,6 @@ import { onboardingRouter } from "@/lib/trpc/onboarding"
 import { subscriptionsRouter } from "@/lib/trpc/subscriptions"
 import { notificationsRouter } from "@/lib/trpc/notifications"
 import { widgetsRouter } from "@/lib/trpc/widgets"
-import { helpdeskRouter } from "@/lib/trpc/helpdesk"
 import { mcpGrantsRouter } from "@/lib/trpc/mcp-grants"
 import { mcpServersRouter } from "@/lib/trpc/mcp-servers"
 import { pinsRouter } from "@/lib/trpc/pins"
@@ -74,7 +73,6 @@ export const appRouter = router({
   subscriptions: subscriptionsRouter,
   notifications: notificationsRouter,
   widgets: widgetsRouter,
-  helpdesk: helpdeskRouter,
   mcpGrants: mcpGrantsRouter,
   mcpServers: mcpServersRouter,
   pins: pinsRouter,

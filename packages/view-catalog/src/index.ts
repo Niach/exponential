@@ -27,11 +27,9 @@
  *     (EXP-740 gave a session its own page).
  *   - `$NAME` inside a `DesktopDrive.value` is a runtime lookup: `issue:$APP-5`
  *     means "the UUID of the issue whose identifier is APP-5", `pr:$APP-14` the
- *     same for a PR diff, and `support:$thread` means "any open support thread"
- *     (support data is server-only tRPC, so it has no stable identifier to
- *     name). `$emptyBoard` is the seeded board with no issues on it, and
- *     `$supportToken` (in `web.route`) the reporter magic link minted for the
- *     seeded thread. A value with no `$` is literal. `desktop.env` VALUES are
+ *     same for a PR diff. `$emptyBoard` is the seeded board with no issues on
+ *     it, and `$supportToken` (in `web.route`) the reporter magic link minted
+ *     for the seeded widget issue. A value with no `$` is literal. `desktop.env` VALUES are
  *     substituted the same way, so `EXP_DEV_BOARD_ID: "$emptyBoard"` works.
  *
  * Human-readable issue identifiers (APP-5, APP-14) DO appear in `web.route`,
@@ -138,7 +136,7 @@ export interface NativeCapture {
  *                 `issue:<uuid>`, `pr:<uuid>`, `draft` (EXP-1170: a fresh
  *                 new-issue draft on the active board).
  *   - `tool`    → a sidebar tool window (`sidebar::ToolWindow`): `board`,
- *                 `inbox`, `my-issues`, `reviews`, `support`, `files`,
+ *                 `inbox`, `my-issues`, `reviews`, `files`,
  *                 `source-control`.
  *   - `settings`→ a `settings::SettingsSection` slug.
  *   - `dialog`  → `EXP_DEV_DIALOG` (`screens::parse_dev_dialog`): every desktop

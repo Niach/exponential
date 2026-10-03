@@ -81,10 +81,10 @@ describe(`getting-started copy`, () => {
     }
   })
 
-  it(`hides only the three web-managed entries from the phones`, () => {
+  it(`hides only the two web-managed entries from the phones`, () => {
     const hidden = ALL_KEYS.filter(
       (key) => !MOBILE_GETTING_STARTED_KEYS.includes(key)
     )
-    expect(hidden).toEqual([`widget`, `helpdesk`, `mcp`])
+    expect(hidden).toEqual([`widget`, `mcp`])
   })
 })

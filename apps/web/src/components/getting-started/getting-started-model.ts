@@ -12,7 +12,6 @@ export type EntryKey =
   | `action`
   | `server`
   | `widget`
-  | `helpdesk`
   | `mcp`
 
 export type EntryState = `done` | `available` | `locked`
@@ -36,8 +35,6 @@ export interface GettingStartedSignals {
   hasCodingSession: boolean
   /** Any synced `actions` row in the team (EXP-548) — the builtins are not rows. */
   hasAction: boolean
-  /** The team-level helpdesk switch (teams.helpdeskEnabled). */
-  helpdeskEnabled: boolean
   /** widgets.list non-empty (owner-only signal — false for members). */
   hasWidget: boolean
   /** An MCP OAuth grant exists OR the user holds a personal API key. */
@@ -53,12 +50,12 @@ export interface GettingStartedEntry {
 
 // Derive every entry's state, in the single static display order
 // desktop → github → invite → board → coding → action → server → widget →
-// helpdesk → mcp. Completion always wins over locking (a signal that exists
-// proves the prereq was satisfiable). The invite entry is for members who can
-// mint invites (canManageMembers — teamInvites.create is owner/admin-only),
-// and the action, widget and helpdesk entries are for owners only — action
-// writes, widgets.list and the helpdesk switch are owner-only surfaces; the
-// others neither see those entries nor count them in the total.
+// mcp. Completion always wins over locking (a signal that exists proves the
+// prereq was satisfiable). The invite entry is for members who can mint
+// invites (canManageMembers — teamInvites.create is owner/admin-only), and
+// the action and widget entries are for owners only — action writes and
+// widgets.list are owner-only surfaces; the others neither see those entries
+// nor count them in the total.
 //
 // The desktop IDE mirrors this function byte-for-byte in
 // `crates/ui/src/getting_started.rs` (`derive_entries`, EXP-548: same
@@ -141,13 +138,6 @@ export function deriveEntryStates(
     } else {
       entries.push({ key: `widget`, state: `locked`, lockedBy: `board` })
     }
-  }
-
-  if (isOwner) {
-    entries.push({
-      key: `helpdesk`,
-      state: signals.helpdeskEnabled ? `done` : `available`,
-    })
   }
 
   entries.push({

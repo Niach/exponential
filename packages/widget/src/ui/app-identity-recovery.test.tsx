@@ -1,8 +1,8 @@
 // When the server rejects the identity email the widget hid (the reporter
 // typed none), the panel must re-reveal its email input so the visitor can
-// recover — for BOTH the feedback and support forms. A later identify() with a
-// corrected address heals automatically, and a bare 400 with no structured
-// code (old-server skew) still triggers the reveal. The capture/annotator
+// recover. A later identify() with a corrected address heals automatically,
+// and a bare 400 with no structured code (old-server skew) still triggers the
+// reveal. The capture/annotator
 // leaves are mocked; the api-client is mocked so each submit outcome is
 // scripted.
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -17,10 +17,8 @@ vi.mock(`../capture/snapdom-engine`, () => ({ snapdomEngine: {} }))
 vi.mock(`./Annotator`, () => ({ Annotator: () => null }))
 
 const submitFeedback = vi.fn<(args: unknown) => Promise<SubmitResult>>()
-const submitSupportRequest = vi.fn<(args: unknown) => Promise<SubmitResult>>()
 vi.mock(`../api-client`, () => ({
   submitFeedback: (args: unknown) => submitFeedback(args),
-  submitSupportRequest: (args: unknown) => submitSupportRequest(args),
 }))
 
 import { App } from "./App"
@@ -56,7 +54,6 @@ describe(`identity email recovery`, () => {
 
   beforeEach(() => {
     submitFeedback.mockReset()
-    submitSupportRequest.mockReset()
     if (typeof URL.createObjectURL !== `function`) {
       URL.createObjectURL = () => `blob:test`
       URL.revokeObjectURL = () => undefined
@@ -94,7 +91,7 @@ describe(`identity email recovery`, () => {
     return state
   }
 
-  it(`recovers on the feedback form: reveal, friendly message, resubmit with the typed email`, async () => {
+  it(`recovers: reveal, friendly message, resubmit with the typed email`, async () => {
     await mountOpen(null)
     // Identity email present → the email input starts hidden.
     expect(container.querySelector(`#exp-email`)).toBeNull()
@@ -105,7 +102,7 @@ describe(`identity email recovery`, () => {
       status: 400,
       code: `invalid_email`,
     })
-    typeInto(`#exp-title`, `Broken button`)
+    typeInto(`#exp-message`, `Broken button`)
     await submitForm()
 
     // Friendly, code-mapped copy AND the email input revealed.
@@ -122,44 +119,10 @@ describe(`identity email recovery`, () => {
     typeInto(`#exp-email`, `real@example.com`)
     await submitForm()
 
-    expect(container.textContent).toContain(`Thanks for the report!`)
+    expect(container.textContent).toContain(`Thanks, your report is in.`)
     expect(submitFeedback).toHaveBeenCalledTimes(2)
     expect(
       (submitFeedback.mock.calls[1][0] as { email: string | null }).email
-    ).toBe(`real@example.com`)
-  })
-
-  it(`recovers on the support form: reveal, resubmit with the typed email`, async () => {
-    await mountOpen({ enabled: true, modes: [`support`] })
-    // Support-only opens the support form directly; the email input is hidden.
-    expect(container.querySelector(`#exp-message`)).toBeTruthy()
-    expect(container.querySelector(`#exp-support-email`)).toBeNull()
-
-    submitSupportRequest.mockResolvedValueOnce({
-      ok: false,
-      message: `Invalid submission fields`,
-      status: 400,
-      code: `invalid_email`,
-    })
-    typeInto(`#exp-message`, `Please help me`)
-    await submitForm()
-
-    expect(container.textContent).toContain(
-      `Please enter a valid email address.`
-    )
-    expect(container.querySelector(`#exp-support-email`)).toBeTruthy()
-
-    submitSupportRequest.mockResolvedValueOnce({
-      ok: true,
-      identifier: null,
-      url: null,
-    })
-    typeInto(`#exp-support-email`, `real@example.com`)
-    await submitForm()
-
-    expect(container.textContent).toContain(`We got your request!`)
-    expect(
-      (submitSupportRequest.mock.calls[1][0] as { email: string }).email
     ).toBe(`real@example.com`)
   })
 
@@ -172,7 +135,7 @@ describe(`identity email recovery`, () => {
       status: 400,
       code: `invalid_email`,
     })
-    typeInto(`#exp-title`, `Broken`)
+    typeInto(`#exp-message`, `Broken`)
     await submitForm()
     expect(container.querySelector(`#exp-email`)).toBeTruthy()
 
@@ -192,7 +155,7 @@ describe(`identity email recovery`, () => {
       status: 400,
       code: null,
     })
-    typeInto(`#exp-title`, `Broken`)
+    typeInto(`#exp-message`, `Broken`)
     await submitForm()
 
     expect(container.querySelector(`#exp-email`)).toBeTruthy()
@@ -212,7 +175,7 @@ describe(`identity email recovery`, () => {
       status: 400,
       code: null,
     })
-    typeInto(`#exp-title`, `Broken`)
+    typeInto(`#exp-message`, `Broken`)
     await submitForm()
 
     expect(container.querySelector(`#exp-email`)).toBeNull()

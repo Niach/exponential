@@ -25,7 +25,7 @@
 - **Your machines, your logins**: every desktop and server lists its agent accounts with plan, usage and reset times; switch a run to another account when one hits its limit.
 - **Actions**: reusable team prompts, run on demand, on a schedule or on an issue event, on your own machines.
 - **Headless CLI**: `exponential` turns any Linux or macOS box into an always-on agent machine your team starts runs on.
-- **Feedback widget & helpdesk**: a script tag for your site; bug reports with annotated screenshots land as issues, support requests as email tickets in a shared inbox.
+- **Feedback widget**: a script tag for your site; reports with annotated screenshots land as issues, and the reporter keeps a conversation with your team through an emailed link.
 - **MCP server** at `/api/mcp` for Claude Code, Codex, Cursor, or any MCP client.
 
 ## Self-host

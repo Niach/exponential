@@ -243,25 +243,25 @@ fn bind_scalars_not_json_blobs() {
     assert_eq!(row.get("number"), Some(&Value::String("1".into())));
     assert_eq!(row.get("sort_order"), Some(&Value::String("1.5".into())));
 
-    // Bools → canonical "t"/"f" (teams.helpdesk_enabled is a bool column).
+    // Bools → canonical "t"/"f" (teams.yolo_mode is a bool column).
     let teams = shape_by_name("teams").unwrap();
     store
         .apply_batch(
             teams,
             &[
-                insert("w-1", json!({"id": "w-1", "name": "A", "helpdesk_enabled": true})),
-                insert("w-2", json!({"id": "w-2", "name": "B", "helpdesk_enabled": false})),
+                insert("w-1", json!({"id": "w-1", "name": "A", "yolo_mode": true})),
+                insert("w-2", json!({"id": "w-2", "name": "B", "yolo_mode": false})),
             ],
             None,
         )
         .unwrap();
     let rows = store.read_all(teams).unwrap();
     assert_eq!(
-        row_by_id(&rows, "w-1").get("helpdesk_enabled"),
+        row_by_id(&rows, "w-1").get("yolo_mode"),
         Some(&Value::String("t".into()))
     );
     assert_eq!(
-        row_by_id(&rows, "w-2").get("helpdesk_enabled"),
+        row_by_id(&rows, "w-2").get("yolo_mode"),
         Some(&Value::String("f".into()))
     );
 }

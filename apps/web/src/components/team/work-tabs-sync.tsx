@@ -82,9 +82,6 @@ export function WorkTabsSync({
 
   const route = useMemo<RouteTab | null>(() => {
     if (!path) return null
-    if (path.kind === `support`) {
-      return { kind: `support`, threadId: path.threadId, from: path.from }
-    }
     if (path.kind === `issue`) {
       const issue = ((issueRows ?? []) as Issue[])[0]
       return issue ? { kind: `issue`, issueId: issue.id, from: path.from } : null
@@ -165,7 +162,6 @@ export function WorkTabsSync({
     if (boardIds.size === 0) return
     updateWorkTabs(teamId, (state) =>
       pruneTabs(state, (tab) => {
-        if (tab.kind === `support`) return true
         if (tab.kind === `issue`) {
           const issue = issueCollection.get(tab.issueId)
           return issue !== undefined && boardIds.has(issue.boardId)

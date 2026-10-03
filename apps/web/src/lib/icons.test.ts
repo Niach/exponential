@@ -491,20 +491,20 @@ describe(`icon call sites`, () => {
     // Every icon on both screens comes from the registry — no stragglers.
     expect(web).not.toMatch(/icon: [A-Z]\w+,/)
     // EXP-238: + the Personal group (Account, Notifications, API keys).
-    // EXP-771: + Helpdesk as its own Features entry beside Feedback widget.
     // EXP-792: + MCP servers (Features), web-only for now.
     // EXP-630: + Import (Team), web-only like Billing, and + Issues (Team),
     // the parent entry Labels and Statuses now nest under on both clients.
-    expect(webNav.size).toBe(16)
+    // SLOP-4: − Helpdesk (the widget is the one Features entry).
+    expect(webNav.size).toBe(15)
     // EXP-262: + About (desktop-only in the settings nav, like Tools/Agents).
     // EXP-500: + Archived boards (EXP-862: on both clients' navs now).
-    // EXP-771: + Feedback widget and Helpdesk, now on both clients.
+    // EXP-771: + Feedback widget (SLOP-4: labelled Widget; Helpdesk gone).
     // EXP-807: + MCP servers, the IDE pane the desktop sub-issue added — the
     // count the EXP-792 comment here predicted.
     // EXP-886: + Sessions (desktop-only, the This device group).
     // EXP-630: + Issues, the parent pane Labels and Statuses nest under on
     // both clients.
-    expect(desktopNav.size).toBe(20)
+    expect(desktopNav.size).toBe(19)
 
     // The sections both clients render, web label → desktop variant.
     const shared: [string, string][] = [
@@ -519,8 +519,7 @@ describe(`icon call sites`, () => {
       // at render on both clients).
       [`Archived boards`, `ArchivedBoards`],
       [`Repositories`, `Repositories`],
-      [`Feedback widget`, `Widget`],
-      [`Helpdesk`, `Helpdesk`],
+      [`Widget`, `Widget`],
       // EXP-807: member-visible on both clients, so the pair belongs in the
       // SHARED list — without the row here the gate never bites on it.
       [`MCP servers`, `McpServers`],

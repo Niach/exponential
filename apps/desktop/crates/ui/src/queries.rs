@@ -647,24 +647,6 @@ impl InboxGroup {
     }
 }
 
-/// One synthetic Support card (EXP-180): issue-less `support_reply`
-/// notifications, ONE group per ticket team. These synced rows are the
-/// desktop's passive helpdesk signal (EXP-638 raises them as OS
-/// notifications too) — dropping them made a reporter reply invisible
-/// unless the Support tool happened to be open. Click marks the group read and opens the team's Support tool.
-pub struct SupportInboxGroup {
-    /// The ticket team — `None` for the ONE generic group collecting rows
-    /// from before the synced `team_id` column existed plus rows whose team
-    /// row hasn't synced (click falls back to the current team's Support).
-    pub team_id: Option<String>,
-    /// The synced team's name; `None` for the generic group (the row renders
-    /// the plain "Support" label either way, web parity).
-    pub team_name: Option<String>,
-    /// Group items, newest first (like [`InboxGroup::items`]).
-    pub items: Vec<domain::rows::Notification>,
-    pub unread: usize,
-}
-
 /// One agent message (EXP-801): an issue-less `agent_message` row is its own
 /// entry — never bundled, each is a distinct thing someone's agent said.
 /// Click marks it read; there is nowhere to navigate.
@@ -701,12 +683,11 @@ impl SessionInboxEntry {
     }
 }
 
-/// One inbox card — an issue group, a synthetic Support group, an agent
-/// message or a blocked run. Entries are interleaved newest-first by their
-/// latest item (web `inbox-view.tsx` sorts all groups together).
+/// One inbox card — an issue group, an agent message or a blocked run.
+/// Entries are interleaved newest-first by their latest item (web
+/// `inbox-view.tsx` sorts all groups together).
 pub enum InboxEntry {
     Issue(InboxGroup),
-    Support(SupportInboxGroup),
     Message(MessageInboxEntry),
     Session(SessionInboxEntry),
 }
@@ -715,7 +696,6 @@ impl InboxEntry {
     pub fn unread(&self) -> usize {
         match self {
             InboxEntry::Issue(group) => group.unread,
-            InboxEntry::Support(group) => group.unread,
             InboxEntry::Message(entry) => entry.unread(),
             InboxEntry::Session(entry) => entry.unread(),
         }
@@ -724,19 +704,19 @@ impl InboxEntry {
 
 /// The inbox read: is-ready gate + grouped notifications. The notifications
 /// shape is already user-scoped server-side; like web, groups are NOT
-/// team-filtered (the join to a synced issue+board — or, for Support groups,
-/// nothing at all — is the only membership requirement).
+/// team-filtered (the join to a synced issue+board is the only membership
+/// requirement; issue-less rows need none).
 pub struct InboxData {
     pub is_ready: bool,
     pub groups: Vec<InboxEntry>,
-    /// Unread across ALL entries, Support groups included — the count the
+    /// Unread across ALL entries, issue-less ones included — the count the
     /// tool header/badge surfaces.
     pub total_unread: usize,
 }
 
 /// `inbox-view.tsx` grouping: notifications ⨝ issues ⨝ boards grouped by
-/// issue, plus per-team Support groups for issue-less `support_reply` rows;
-/// group order = newest first item.
+/// issue, plus one entry per issue-less `agent_message` / `session_blocked`
+/// row; group order = newest first item.
 pub fn inbox(cx: &App) -> InboxData {
     let collections = Store::global(cx).collections();
     let is_ready = collections.notifications.read(cx).is_ready()
@@ -774,39 +754,21 @@ pub fn inbox(cx: &App) -> InboxData {
     }
 }
 
-/// Unread helpdesk activity in one team (EXP-182): issue-less `support_reply`
-/// rows carry a synced team_id — the same rule the Support inbox groups use.
-/// Lights the rail's Support badge.
-pub fn support_unread(cx: &App, team_id: &str) -> bool {
-    Store::global(cx)
-        .collections()
-        .notifications
-        .read(cx)
-        .iter()
-        .any(|notification| {
-            notification.kind.as_deref()
-                == Some(domain::contract::NOTIFICATION_TYPE_SUPPORT_REPLY)
-                && notification.issue_id.is_none()
-                && notification.team_id.as_deref() == Some(team_id)
-                && notification.read_at.is_none()
-        })
-}
-
-/// The issue-less kinds the inbox renders: helpdesk replies (EXP-180), agent
-/// messages (EXP-801) and blocked runs (EXP-980). Any other issue-less kind is
-/// unknown-future and skipped everywhere this is consulted.
+/// The issue-less kinds the inbox renders: agent messages (EXP-801) and
+/// blocked runs (EXP-980). Any other issue-less kind is unknown-future and
+/// skipped everywhere this is consulted (SLOP-4: the helpdesk's issue-less
+/// `support_reply` rows are gone; `reporter_reply` is issue-scoped).
 fn issueless_kind_renderable(kind: Option<&str>) -> bool {
     matches!(
         kind,
-        Some(domain::contract::NOTIFICATION_TYPE_SUPPORT_REPLY)
-            | Some(domain::contract::NOTIFICATION_TYPE_AGENT_MESSAGE)
+        Some(domain::contract::NOTIFICATION_TYPE_AGENT_MESSAGE)
             | Some(domain::contract::NOTIFICATION_TYPE_SESSION_BLOCKED)
     )
 }
 
 /// EXP-699: the rail's Inbox dot — any unread notification the inbox can
 /// render (issue-keyed rows need the issue AND its board synced, issue-less
-/// rows count only as `support_reply` or `agent_message`): the [`inbox`]
+/// rows count only as `agent_message` or `session_blocked`): the [`inbox`]
 /// renderability rule without the grouping work.
 pub fn inbox_unread(cx: &App) -> bool {
     let collections = Store::global(cx).collections();
@@ -831,8 +793,7 @@ pub fn inbox_unread(cx: &App) -> bool {
 
 /// The pure grouping core of [`inbox`]. `resolve_issue` returns the synced
 /// issue (only while its board is synced too); `resolve_team` returns a
-/// synced team's name — `None` collapses the row into the generic Support
-/// group, exactly like web's `teamMap.get` miss.
+/// synced team's name (`None` when the team row has not synced).
 fn build_inbox_entries(
     mut notifications: Vec<domain::rows::Notification>,
     resolve_issue: impl Fn(&str) -> Option<domain::rows::Issue>,
@@ -847,23 +808,20 @@ fn build_inbox_entries(
     #[derive(Clone, PartialEq, Eq, Hash)]
     enum Key {
         Issue(String),
-        Support(Option<String>),
         Message(String),
         Session(String),
     }
 
     let mut order: Vec<Key> = Vec::new();
     let mut by_issue: HashMap<String, InboxGroup> = HashMap::new();
-    let mut by_support_team: HashMap<Option<String>, SupportInboxGroup> = HashMap::new();
     let mut by_message: HashMap<String, MessageInboxEntry> = HashMap::new();
     let mut by_session: HashMap<String, SessionInboxEntry> = HashMap::new();
     for notification in notifications {
         let unread = notification.read_at.is_none();
         let Some(issue_id) = notification.issue_id.clone() else {
-            // Issue-less rows are the helpdesk fan-out (EXP-180), an agent's
-            // message (EXP-801) or a blocked run (EXP-980) — the last two one
-            // entry per row; any other issue-less kind is unknown-future and
-            // skipped.
+            // Issue-less rows are an agent's message (EXP-801) or a blocked
+            // run (EXP-980) — one entry per row; any other issue-less kind is
+            // unknown-future and skipped.
             if !issueless_kind_renderable(notification.kind.as_deref()) {
                 continue;
             }
@@ -881,38 +839,15 @@ fn build_inbox_entries(
                 );
                 continue;
             }
-            if notification.kind.as_deref()
-                == Some(domain::contract::NOTIFICATION_TYPE_SESSION_BLOCKED)
-            {
-                order.push(Key::Session(notification.id.clone()));
-                by_session.insert(
-                    notification.id.clone(),
-                    SessionInboxEntry {
-                        item: notification,
-                        team_name,
-                    },
-                );
-                continue;
-            }
-            // Unknown/NULL teams collapse into the ONE generic group.
-            let key = if team_name.is_some() {
-                notification.team_id.clone()
-            } else {
-                None
-            };
-            let group = by_support_team.entry(key.clone()).or_insert_with(|| {
-                order.push(Key::Support(key.clone()));
-                SupportInboxGroup {
-                    team_id: key,
+            // `issueless_kind_renderable` left only the blocked run.
+            order.push(Key::Session(notification.id.clone()));
+            by_session.insert(
+                notification.id.clone(),
+                SessionInboxEntry {
+                    item: notification,
                     team_name,
-                    items: Vec::new(),
-                    unread: 0,
-                }
-            });
-            if unread {
-                group.unread += 1;
-            }
-            group.items.push(notification);
+                },
+            );
             continue;
         };
         let Some(issue) = resolve_issue(&issue_id) else {
@@ -936,9 +871,6 @@ fn build_inbox_entries(
         .into_iter()
         .filter_map(|key| match key {
             Key::Issue(issue_id) => by_issue.remove(&issue_id).map(InboxEntry::Issue),
-            Key::Support(team_id) => by_support_team
-                .remove(&team_id)
-                .map(InboxEntry::Support),
             Key::Message(id) => by_message.remove(&id).map(InboxEntry::Message),
             Key::Session(id) => by_session.remove(&id).map(InboxEntry::Session),
         })
@@ -3096,71 +3028,12 @@ mod tests {
         .unwrap()
     }
 
-    /// EXP-180: issue-less `support_reply` rows group per team instead of
-    /// being dropped — desktop has no push channel, so these rows are its
-    /// only passive helpdesk signal.
     #[test]
-    fn inbox_groups_support_replies_per_team() {
-        let entries = build_inbox_entries(
-            vec![
-                notification("n-1", None, Some("w-1"), "support_reply", "2026-07-18T10:00:00Z", false),
-                notification("n-2", None, Some("w-1"), "support_reply", "2026-07-18T09:00:00Z", true),
-                notification("n-3", None, Some("w-2"), "support_reply", "2026-07-18T08:00:00Z", false),
-            ],
-            |_| None,
-            |team_id| match team_id {
-                "w-1" => Some("Acme".to_string()),
-                "w-2" => Some("Beta".to_string()),
-                _ => None,
-            },
-        );
-        assert_eq!(entries.len(), 2);
-        let InboxEntry::Support(acme) = &entries[0] else {
-            panic!("expected a Support entry");
-        };
-        assert_eq!(acme.team_id.as_deref(), Some("w-1"));
-        assert_eq!(acme.team_name.as_deref(), Some("Acme"));
-        assert_eq!(acme.items.len(), 2);
-        assert_eq!(acme.unread, 1);
-        // Newest first inside the group.
-        assert_eq!(acme.items[0].id, "n-1");
-        let InboxEntry::Support(beta) = &entries[1] else {
-            panic!("expected a Support entry");
-        };
-        assert_eq!(beta.team_id.as_deref(), Some("w-2"));
-        assert_eq!(beta.unread, 1);
-        // Support unread counts ride the header/badge total.
-        assert_eq!(entries.iter().map(InboxEntry::unread).sum::<usize>(), 2);
-    }
-
-    #[test]
-    fn inbox_collapses_null_and_unknown_teams_into_one_generic_group() {
-        let entries = build_inbox_entries(
-            vec![
-                // Legacy pre-column row (no team_id).
-                notification("n-1", None, None, "support_reply", "2026-07-18T10:00:00Z", false),
-                // team_id set but the team row hasn't synced.
-                notification("n-2", None, Some("w-gone"), "support_reply", "2026-07-18T09:00:00Z", false),
-            ],
-            |_| None,
-            |_| None,
-        );
-        assert_eq!(entries.len(), 1);
-        let InboxEntry::Support(generic) = &entries[0] else {
-            panic!("expected a Support entry");
-        };
-        assert_eq!(generic.team_id, None);
-        assert_eq!(generic.team_name, None);
-        assert_eq!(generic.items.len(), 2);
-        assert_eq!(generic.unread, 2);
-    }
-
-    #[test]
-    fn inbox_interleaves_support_and_issue_groups_newest_first() {
+    fn inbox_interleaves_issueless_and_issue_groups_newest_first() {
         let entries = build_inbox_entries(
             vec![
                 notification("n-old", Some("i-1"), None, "issue_comment", "2026-07-18T08:00:00Z", false),
-                notification("n-support", None, Some("w-1"), "support_reply", "2026-07-18T09:00:00Z", false),
+                notification("n-message", None, Some("w-1"), "agent_message", "2026-07-18T09:00:00Z", false),
                 notification("n-new", Some("i-2"), None, "issue_assigned", "2026-07-18T10:00:00Z", false),
             ],
             |issue_id| Some(inbox_issue(issue_id)),
@@ -3171,12 +3044,35 @@ mod tests {
             .iter()
             .map(|entry| match entry {
                 InboxEntry::Issue(group) => group.issue.id.as_str(),
-                InboxEntry::Support(_) => "support",
                 InboxEntry::Message(_) => "message",
                 InboxEntry::Session(_) => "session",
             })
             .collect();
-        assert_eq!(kinds, ["i-2", "support", "i-1"]);
+        assert_eq!(kinds, ["i-2", "message", "i-1"]);
+    }
+
+    /// SLOP-4: a widget reporter's reply is issue-scoped — it groups under
+    /// its issue like a comment, and an issue-less one (nothing writes those)
+    /// is an unknown issue-less kind: dropped, never a Support group.
+    #[test]
+    fn inbox_groups_reporter_replies_under_their_issue() {
+        let entries = build_inbox_entries(
+            vec![
+                notification("c-1", Some("i-1"), None, "issue_comment", "2026-07-18T09:00:00Z", true),
+                notification("r-1", Some("i-1"), None, "reporter_reply", "2026-07-18T10:00:00Z", false),
+                notification("r-2", None, Some("w-1"), "reporter_reply", "2026-07-18T11:00:00Z", false),
+            ],
+            |issue_id| Some(inbox_issue(issue_id)),
+            |_| Some("Acme".to_string()),
+        );
+        assert_eq!(entries.len(), 1);
+        let InboxEntry::Issue(group) = &entries[0] else {
+            panic!("expected an Issue entry");
+        };
+        assert_eq!(group.items.len(), 2);
+        assert_eq!(group.items[0].id, "r-1");
+        assert_eq!(group.unread, 1);
+        assert!(!group.opens_results());
     }
 
     /// EXP-801: an agent's message is one entry per row, never bundled,
@@ -3186,7 +3082,7 @@ mod tests {
         let entries = build_inbox_entries(
             vec![
                 notification("m-1", None, Some("w-1"), "agent_message", "2026-07-18T10:00:00Z", false),
-                notification("n-support", None, Some("w-1"), "support_reply", "2026-07-18T09:30:00Z", false),
+                notification("b-1", None, Some("w-1"), "session_blocked", "2026-07-18T09:30:00Z", false),
                 notification("m-2", None, Some("w-gone"), "agent_message", "2026-07-18T09:00:00Z", true),
             ],
             |_| None,
@@ -3199,7 +3095,7 @@ mod tests {
         assert_eq!(first.item.id, "m-1");
         assert_eq!(first.team_name.as_deref(), Some("Acme"));
         assert_eq!(first.unread(), 1);
-        assert!(matches!(&entries[1], InboxEntry::Support(_)));
+        assert!(matches!(&entries[1], InboxEntry::Session(_)));
         let InboxEntry::Message(second) = &entries[2] else {
             panic!("expected a Message entry");
         };
@@ -3256,7 +3152,7 @@ mod tests {
         let entries = build_inbox_entries(
             vec![
                 blocked("b-1", Some("s-1"), "2026-07-18T10:00:00Z", false),
-                notification("n-support", None, Some("w-1"), "support_reply", "2026-07-18T09:30:00Z", false),
+                notification("m-1", None, Some("w-1"), "agent_message", "2026-07-18T09:30:00Z", false),
                 blocked("b-2", None, "2026-07-18T09:00:00Z", false),
             ],
             |_| None,
@@ -3269,7 +3165,7 @@ mod tests {
         assert_eq!(first.item.id, "b-1");
         assert_eq!(first.session_id(), Some("s-1"));
         assert_eq!(first.team_name.as_deref(), Some("Acme"));
-        assert!(matches!(&entries[1], InboxEntry::Support(_)));
+        assert!(matches!(&entries[1], InboxEntry::Message(_)));
         let InboxEntry::Session(second) = &entries[2] else {
             panic!("expected a Session entry");
         };
@@ -3284,8 +3180,7 @@ mod tests {
             vec![
                 // Issue not synced (or its board trashed) — dropped.
                 notification("n-1", Some("i-gone"), None, "issue_comment", "2026-07-18T10:00:00Z", false),
-                // Issue-less row of an unknown future kind — dropped, never
-                // a Support group.
+                // Issue-less row of an unknown future kind — dropped.
                 notification("n-2", None, None, "mystery_kind", "2026-07-18T09:00:00Z", false),
             ],
             |_| None,

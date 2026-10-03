@@ -1246,7 +1246,7 @@ async function main(): Promise<number> {
 
       ids = await fetchDemoIds()
       console.log(
-        `\nids: team ${ids.teamId} · ${Object.keys(ids.issues).length} issues${ids.supportThreadId ? ` · support thread ${ids.supportThreadId}` : ` · NO support thread (support views will skip)`}${ids.deviceId ? `` : ` · NO device row (machine-settings will skip)`}${ids.steeredSessionId ? `` : ` · NO showcase session (steering will skip)`}`
+        `\nids: team ${ids.teamId} · ${Object.keys(ids.issues).length} issues${ids.supportToken ? `` : ` · NO reporter token (support-reporter will skip)`}${ids.deviceId ? `` : ` · NO device row (machine-settings will skip)`}${ids.steeredSessionId ? `` : ` · NO showcase session (steering will skip)`}`
       )
 
       await captureWeb(options.platforms, options, scope, outcomes)

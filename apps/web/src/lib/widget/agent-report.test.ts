@@ -51,7 +51,7 @@ vi.mock(`@/lib/integrations/subscriptions`, () => ({
 vi.mock(`@/lib/integrations/notifications`, () => ({
   fireAndForgetNewIssueNotify: h.fireAndForgetNewIssueNotify,
 }))
-// The real service.ts drags the email/helpdesk graph — mock the two exports
+// The real service.ts drags the email/reporter graph — mock the two exports
 // agent-report.ts uses.
 vi.mock(`@/lib/widget/service`, () => ({
   loadWidgetConfigByKey: h.loadWidgetConfigByKey,

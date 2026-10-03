@@ -80,7 +80,7 @@ const RETRY_BASE_DELAY_MS = 5 * 1000
 const RETRY_MAX_DELAY_MS = 5 * 60 * 1000
 
 // Boot-time bootstrap. EXP-364 removed the dogfood machinery entirely (the
-// feedback team, its comp/helpdesk forcing, and the widget-config seeding are
+// feedback team, its comp forcing, and the widget-config seeding are
 // ordinary hand-managed rows on the cloud now — nothing recreates or heals
 // them); what remains is instance-agnostic.
 //

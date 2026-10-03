@@ -39,13 +39,12 @@ class FcmService : FirebaseMessagingService() {
         val data = message.data
         val title = message.notification?.title ?: data["title"] ?: "Exponential"
         val body = message.notification?.body ?: data["body"]
-        // support_reply pushes (EXP-180) carry a threadId and NO issue keys —
-        // route their taps straight to the ticket conversation; session_blocked
-        // pushes (EXP-980) carry a sessionId and route to the run.
+        // Issue pushes carry an issueId (a reporter's reply too, SLOP-4);
+        // session_blocked pushes (EXP-980) carry a sessionId and route to
+        // the run.
         val target = PushDeepLinks.target(
             type = data["type"],
             issueId = data["issueId"],
-            threadId = data["threadId"],
             sessionId = data["sessionId"],
         )
 

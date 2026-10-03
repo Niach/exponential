@@ -99,11 +99,9 @@ export function TeamMobileTopbar({
           ? `Actions`
           : matchRoute({ to: `/t/$teamSlug/reviews`, fuzzy: true })
             ? `Reviews`
-            : matchRoute({ to: `/t/$teamSlug/support`, fuzzy: true })
-              ? `Support`
-              : matchRoute({ to: `/t/$teamSlug/settings`, fuzzy: true })
-                ? `Settings`
-                : undefined
+            : matchRoute({ to: `/t/$teamSlug/settings`, fuzzy: true })
+              ? `Settings`
+              : undefined
 
   if (!visible) return null
 

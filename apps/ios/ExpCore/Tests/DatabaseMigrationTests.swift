@@ -122,7 +122,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v53_invite_placeholder", "v54_invite_sent_at",
              "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped",
              "v57_team_yolo_mode", "v58_workflows_gate_dropped",
-             "v59_action_triggers", "v60_drop_workflows_and_stacks"]
+             "v59_action_triggers", "v60_drop_workflows_and_stacks",
+             "v61_one_path"]
         )
     }
 
@@ -171,7 +172,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v53_invite_placeholder", "v54_invite_sent_at",
              "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped",
              "v57_team_yolo_mode", "v58_workflows_gate_dropped",
-             "v59_action_triggers", "v60_drop_workflows_and_stacks"]
+             "v59_action_triggers", "v60_drop_workflows_and_stacks",
+             "v61_one_path"]
         )
     }
 
@@ -554,7 +556,7 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(untouched?["needs_refetch"] as Bool?, false)
     }
 
-    // v2 (EXP-180 helpdesk follow-up): a `-v5` store created before
+    // v2 (EXP-180, for the helpdesk (gone, SLOP-4)): a `-v5` store created before
     // notifications.team_id existed must gain the column via the guarded ALTER
     // and get its notifications shape offset reset so already-synced rows
     // re-snapshot with the new column (the old invite-token test's playbook:
@@ -627,7 +629,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v53_invite_placeholder", "v54_invite_sent_at",
              "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped",
              "v57_team_yolo_mode", "v58_workflows_gate_dropped",
-             "v59_action_triggers", "v60_drop_workflows_and_stacks"]
+             "v59_action_triggers", "v60_drop_workflows_and_stacks",
+             "v61_one_path"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -724,7 +727,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v53_invite_placeholder", "v54_invite_sent_at",
              "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped",
              "v57_team_yolo_mode", "v58_workflows_gate_dropped",
-             "v59_action_triggers", "v60_drop_workflows_and_stacks"]
+             "v59_action_triggers", "v60_drop_workflows_and_stacks",
+             "v61_one_path"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -891,6 +895,97 @@ final class DatabaseMigrationTests: XCTestCase {
                 sql: """
                     SELECT "handle", "offset", "needs_refetch", "is_live"
                     FROM "electric_offsets" WHERE "shape" = 'attachments'
+                    """
+            )
+        }
+        let handle: String? = offset?["handle"]
+        let offsetValue: String? = offset?["offset"]
+        let needsRefetch: Bool? = offset?["needs_refetch"]
+        let isLive: Bool? = offset?["is_live"]
+        XCTAssertEqual(handle, "")
+        XCTAssertEqual(offsetValue, "-1")
+        XCTAssertEqual(needsRefetch, true)
+        XCTAssertEqual(isLive, false)
+    }
+
+    // v61 (SLOP-4 one path): a store migrated through v60 carries `comments`
+    // with a NOT NULL `author_id` and no `audience`, and `teams` with the
+    // flag of the helpdesk (gone, SLOP-4). The rebuild relaxes the author, adds
+    // `audience` defaulting to team, keeps rows, resets the comments offset
+    // (every row must re-arrive carrying `audience`), and drops the team
+    // column. Today's v1 create already has the new shape — hand-build the
+    // old one to model the pre-v61 store.
+    func testOnePathRelaxesCommentAuthorAddsAudienceAndDropsTheTeamFlag() throws {
+        let pool = try makePool("one-path")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v60_drop_workflows_and_stacks")
+        try pool.write { db in
+            try db.drop(table: "comments")
+            try db.create(table: "comments") { t in
+                t.primaryKey("id", .text)
+                t.column("issue_id", .text).notNull().indexed()
+                t.column("team_id", .text).notNull().indexed()
+                t.column("author_id", .text).notNull()
+                t.column("body", .text)
+                t.column("kind", .text).notNull().defaults(to: "regular")
+                t.column("edited_at", .text)
+                t.column("created_at", .text).notNull()
+                t.column("updated_at", .text).notNull()
+                t.column("parent_id", .text).indexed()
+                t.column("source", .text)
+            }
+            try db.execute(sql: """
+                INSERT INTO "comments" (
+                    "id", "issue_id", "team_id", "author_id", "body", "kind",
+                    "created_at", "updated_at", "source"
+                )
+                VALUES ('c1', 'i1', 'w1', 'u1', 'hello', 'regular',
+                        '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 'user')
+                """)
+            try db.alter(table: "teams") { t in
+                t.add(column: "helpdesk_enabled", .boolean).notNull().defaults(to: false)
+            }
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('comments', 'h', '0_0', 0, 1)
+                """)
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let author = try pool.read { db in
+            try db.columns(in: "comments").first { $0.name == "author_id" }
+        }
+        XCTAssertNotNil(author)
+        XCTAssertFalse(author?.isNotNull ?? true)
+        XCTAssertTrue(try columnNames(pool, "comments").contains("audience"))
+        XCTAssertFalse(try columnNames(pool, "teams").contains("helpdesk_enabled"))
+        // The rebuild copies rows (audience defaults to team), it doesn't drop them.
+        let existing = try pool.read { db in
+            try Row.fetchOne(db, sql: "SELECT \"body\", \"audience\" FROM \"comments\" WHERE \"id\" = 'c1'")
+        }
+        let body: String? = existing?["body"]
+        let audience: String? = existing?["audience"]
+        XCTAssertEqual(body, "hello")
+        XCTAssertEqual(audience, "team")
+        // A reporter's reply (null author) now persists instead of throwing.
+        XCTAssertNoThrow(try pool.write { db in
+            try db.execute(sql: """
+                INSERT INTO "comments" (
+                    "id", "issue_id", "team_id", "author_id", "body", "kind",
+                    "created_at", "updated_at", "source", "audience"
+                )
+                VALUES ('c2', 'i1', 'w1', NULL, 'still broken', 'regular',
+                        '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 'reporter', 'reporter')
+                """)
+        })
+        // The rebuild must force a re-snapshot of the comments shape.
+        let offset = try pool.read { db in
+            try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT "handle", "offset", "needs_refetch", "is_live"
+                    FROM "electric_offsets" WHERE "shape" = 'comments'
                     """
             )
         }
@@ -1473,13 +1568,20 @@ final class DatabaseMigrationTests: XCTestCase {
         // server-only registry and the releases-era preview feature is deleted.
         XCTAssertFalse(boardCols.contains("github_repo"))
         XCTAssertFalse(boardCols.contains("preview_config"))
-        // The team-level helpdesk switch (EXP-180 Support inbox) IS stored —
-        // the teams shape serves it and the Support segment gates on it.
-        XCTAssertTrue(try columnNames(pool, "teams").contains("helpdesk_enabled"))
+        // The flag of the helpdesk (gone, SLOP-4) left the teams shape and
+        // the local column with it (v61).
+        XCTAssertFalse(try columnNames(pool, "teams").contains("helpdesk_enabled"))
+        // SLOP-4: a reporter's reply has no author; `audience` rides along.
+        let commentAuthor = try pool.read { db in
+            try db.columns(in: "comments").first { $0.name == "author_id" }
+        }
+        XCTAssertNotNil(commentAuthor)
+        XCTAssertFalse(commentAuthor?.isNotNull ?? true)
+        XCTAssertTrue(try columnNames(pool, "comments").contains("audience"))
         // EXP-1105: yolo mode hides Reviews; synced on the teams shape.
         XCTAssertTrue(try columnNames(pool, "teams").contains("yolo_mode"))
-        // notifications.team_id (nullable): set on issue-less support_reply
-        // rows so the inbox can group them per team.
+        // notifications.team_id (nullable): set on issue-less agent_message /
+        // session_blocked rows so the inbox can name their team.
         let notifTeamId = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
         }

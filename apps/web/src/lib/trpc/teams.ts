@@ -11,7 +11,6 @@ import {
 import { teams, teamMembers } from "@/db/schema"
 import { asc, eq } from "drizzle-orm"
 import { teamColumns } from "@/lib/team-columns"
-import { emailEnabled } from "@/lib/email-enabled"
 import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
 import { collectTeamStorageKeys } from "@/lib/storage/team-storage-keys"
 import {
@@ -26,11 +25,7 @@ import {
   assertTeamOwner,
   getTeamMember,
 } from "@/lib/team-membership"
-import {
-  assertCanCreateTeam,
-  assertCanUseHelpdesk,
-  getInviteCapacity,
-} from "@/lib/billing"
+import { assertCanCreateTeam, getInviteCapacity } from "@/lib/billing"
 import { assertTeamDeletableBilling } from "@/lib/billing/billing-handover"
 
 /** EXP-1025: the team prompt's cap, in UTF-8 BYTES (what the agent's
@@ -168,17 +163,14 @@ export const teamsRouter = router({
       return await getInviteCapacity(input.teamId)
     }),
 
-  // Teams are always private — there are no visibility flags here.
-  // `helpdeskEnabled` is the team-level helpdesk switch (owner-only like
-  // every field on this procedure; ENABLING is plan-gated, disabling is
-  // always allowed).
+  // Teams are always private — there are no visibility flags here. Every
+  // field on this procedure is owner-only.
   update: authedProcedure
     .input(
       z.object({
         teamId: z.string().uuid(),
         name: z.string().min(1).max(255).optional(),
         iconUrl: z.string().url().max(2048).nullable().optional(),
-        helpdeskEnabled: z.boolean().optional(),
         // EXP-1105: yolo mode (auto-merge every agent PR, hide Reviews).
         yoloMode: z.boolean().optional(),
         // EXP-630: the estimate scale; `none` switches estimates off (values
@@ -193,20 +185,6 @@ export const teamsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const { teamId: id, agentPrompt, ...updates } = input
       await assertTeamOwner(ctx.session.user.id, id)
-
-      if (updates.helpdeskEnabled === true) {
-        // REV2-10: the reporter's ONLY credential is the emailed magic link,
-        // so a helpdesk on an instance with no mail transport accepts tickets
-        // into a guaranteed black hole. Refuse at setup time, where the
-        // person flipping the switch can still fix it.
-        if (!emailEnabled) {
-          throw new TRPCError({
-            code: `PRECONDITION_FAILED`,
-            message: `Email sending is not configured on this server, and support reporters can only reach their conversation through an emailed link. Set AWS_SES_REGION (Amazon SES) or SMTP_HOST, then enable support.`,
-          })
-        }
-        await assertCanUseHelpdesk(id)
-      }
 
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)

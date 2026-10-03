@@ -1253,7 +1253,7 @@ export function AgentSessionView({
     <OpenResultsContext.Provider value={openResults}>
     <div className="flex h-full min-h-0 flex-col" {...(isMobile ? swipe : {})}>
       {/* EXP-851/850 §10: on a phone the header IS `MobileDetailHeader` —
-          byte-identical to the issue, review, support-thread and session-issue
+          byte-identical to the issue, review and session-issue
           screens — with the Context pill as its one trailing control; the
           run's own controls follow in a compact second row, because a native
           bar carries exactly one. On md+ the single header row names the run

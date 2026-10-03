@@ -967,13 +967,31 @@ impl IssueDetailView {
                 .background_executor()
                 .spawn(async move { api::widgets::submission_for_issue(&trpc, &fetched_issue_id) })
                 .await;
-            let _ = this.update_in(window, |view, _, cx| {
+            let _ = this.update_in(window, |view, window, cx| {
                 // A slow response must never land on a different issue.
                 if view.issue_id.as_deref() != Some(issue_id.as_str()) {
                     return;
                 }
                 match result {
                     Ok(submission) => {
+                        // SLOP-4: the timeline names the reporter on their
+                        // comments and offers "Reply to reporter" while the
+                        // submission has an email.
+                        let reporter = submission.as_ref().map(|submission| {
+                            crate::timeline::ReporterContact {
+                                name: domain::reporter_reply::reporter_display_name(
+                                    submission.reporter_name.as_deref(),
+                                )
+                                .to_string(),
+                                has_email: submission
+                                    .reporter_email
+                                    .as_deref()
+                                    .is_some_and(|email| !email.trim().is_empty()),
+                            }
+                        });
+                        view.timeline.update(cx, |timeline, cx| {
+                            timeline.set_reporter(reporter, window, cx);
+                        });
                         view.widget_submission = submission;
                         cx.notify();
                     }

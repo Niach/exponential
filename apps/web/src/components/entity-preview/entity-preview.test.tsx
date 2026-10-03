@@ -162,14 +162,10 @@ describe(`entityRefRoute`, () => {
     })
   })
 
-  it(`sends a run and a thread to their own pages`, () => {
+  it(`sends a run to its own page`, () => {
     expect(route({ kind: `session`, id: `s-1` })).toEqual({
       to: `/t/$teamSlug/sessions/$sessionId`,
       params: { teamSlug: `acme`, sessionId: `s-1` },
-    })
-    expect(route({ kind: `thread`, id: `th-1` })).toEqual({
-      to: `/t/$teamSlug/support/$threadId`,
-      params: { teamSlug: `acme`, threadId: `th-1` },
     })
   })
 
@@ -211,7 +207,7 @@ describe(`cardExists`, () => {
     expect(cardExists({ kind: `list`, id: `issue`, count: 1 }, [{ kind: `issue`, id: `i-1` }])).toBe(true)
     expect(cardExists({ kind: `repository`, id: `r-1` }, [])).toBe(false)
     expect(cardExists({ kind: `repository`, id: `r-1`, title: `Niach/exponential` }, [])).toBe(true)
-    expect(cardExists({ kind: `thread`, id: `th-1`, title: ` ` }, [])).toBe(false)
+    expect(cardExists({ kind: `repository`, id: `r-2`, title: ` ` }, [])).toBe(false)
     expect(cardExists({ kind: `board`, id: `b-1` }, [])).toBe(true)
   })
 })

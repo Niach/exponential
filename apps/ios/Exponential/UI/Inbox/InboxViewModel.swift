@@ -13,24 +13,6 @@ final class InboxViewModel {
         var latest: NotificationEntity? { notifications.first }
     }
 
-    /// Synthetic per-team group for issue-less `support_reply` rows (EXP-180:
-    /// helpdesk tickets are standalone — no issue to anchor on). One group per
-    /// resolved team; rows with a NULL/unknown team_id collapse into one
-    /// generic group (`teamId == nil`) — web inbox parity.
-    struct SupportGroup: Identifiable {
-        /// The ticket team's id when it resolves to a synced team; nil for the
-        /// generic (NULL/unknown team) group.
-        let teamId: String?
-        /// Resolved team name (nil when unresolved — the row renders as plain
-        /// "Support").
-        let teamName: String?
-        /// Newest first.
-        let notifications: [NotificationEntity]
-        var id: String { "support:\(teamId ?? "unknown")" }
-        var unread: Int { notifications.filter { $0.readAt == nil }.count }
-        var latest: NotificationEntity? { notifications.first }
-    }
-
     /// One agent message (EXP-801): an issue-less `agent_message` row is its
     /// own entry — never bundled, each is a distinct thing someone's agent
     /// said. Tapping marks it read; there is nowhere to navigate.
@@ -55,18 +37,18 @@ final class InboxViewModel {
         var sessionId: String? { notification.sessionId }
     }
 
-    /// One merged stream (web parity): issue groups, Support groups, agent
-    /// messages and blocked runs interleaved by latest activity, newest first.
+    /// One merged stream (web parity): issue groups, agent messages and
+    /// blocked runs interleaved by latest activity, newest first. SLOP-4: a
+    /// widget reporter's reply is an ISSUE row (`reporter_reply` is
+    /// issue-scoped like `issue_comment`), so no synthetic Support group.
     enum Entry: Identifiable {
         case issue(Group)
-        case support(SupportGroup)
         case message(MessageEntry)
         case blockedRun(BlockedRunEntry)
 
         var id: String {
             switch self {
             case .issue(let group): return "issue:\(group.id)"
-            case .support(let group): return group.id
             case .message(let entry): return entry.id
             case .blockedRun(let entry): return entry.id
             }
@@ -75,7 +57,6 @@ final class InboxViewModel {
         var unread: Int {
             switch self {
             case .issue(let group): return group.unread
-            case .support(let group): return group.unread
             case .message(let entry): return entry.unread
             case .blockedRun(let entry): return entry.unread
             }
@@ -84,8 +65,8 @@ final class InboxViewModel {
 
     var entries: [Entry] = []
     var totalUnread = 0
-    /// Web parity: the Support row shows its team name only when the user is
-    /// in more than one team.
+    /// Web parity: an issue-less row shows its team name only when the user
+    /// is in more than one team.
     var hasMultipleTeams = false
 
     private let accountId: String
@@ -137,8 +118,8 @@ final class InboxViewModel {
             } catch {}
         })
 
-        // Teams resolve the Support groups' names (and their >1-team label
-        // gate).
+        // Teams resolve the issue-less rows' team names (and their >1-team
+        // label gate).
         let teamObs = ValueObservation.tracking { db in try TeamEntity.fetchAll(db) }
         observationTasks.append(Task { [weak self] in
             do {
@@ -161,7 +142,7 @@ final class InboxViewModel {
     /// issue-keyed rows need their issue in the local store (the notifications
     /// shape is static per user, so delivered rows outlive membership and a
     /// left team's rows keep syncing without their issues), and issue-less
-    /// rows are helpdesk support replies, agent messages (EXP-801) or blocked
+    /// rows are agent messages (EXP-801) or blocked
     /// runs (EXP-980 — renderable with or WITHOUT a `sessionId`: the run may
     /// have been pruned, and the row still has to be readable and clearable).
     /// MainNavigator's tab-bar dot applies the same rule (REV-15) so the dot
@@ -169,8 +150,7 @@ final class InboxViewModel {
     /// with no Mark-all-read escape.
     nonisolated static func isRenderable(_ notification: NotificationEntity, issueIds: Set<String>) -> Bool {
         guard let issueId = notification.issueId else {
-            return notification.type == DomainContract.notificationTypeSupportReply
-                || notification.type == DomainContract.notificationTypeAgentMessage
+            return notification.type == DomainContract.notificationTypeAgentMessage
                 || notification.type == DomainContract.notificationTypeSessionBlocked
         }
         return issueIds.contains(issueId)
@@ -181,38 +161,25 @@ final class InboxViewModel {
         let issueIds = Set(issuesById.keys)
         let teamsById = Dictionary(teams.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         // Newest-first; first-seen insertion order = groups sorted by latest
-        // activity, issue and Support groups interleaved in one stream.
+        // activity, issue groups and single rows interleaved in one stream.
         let sorted = notifications.sorted { $0.createdAt > $1.createdAt }
         var order: [String] = []
         var byIssue: [String: [NotificationEntity]] = [:]
-        // Keyed by resolved team id; "" is the generic (NULL/unknown) bucket.
-        var supportByTeam: [String: [NotificationEntity]] = [:]
         var messagesById: [String: NotificationEntity] = [:]
         var blockedRunsById: [String: NotificationEntity] = [:]
         for n in sorted {
             guard Self.isRenderable(n, issueIds: issueIds) else { continue }
             guard let iid = n.issueId else {
                 // Issue-less rows: an agent message (EXP-801) and a blocked
-                // run (EXP-980) are one entry per row; everything else here is
-                // support_reply (helpdesk tickets have no issue). A team_id
-                // that doesn't resolve to a synced team collapses into the
-                // generic group — web parity.
+                // run (EXP-980) are one entry per row (`isRenderable` admits
+                // nothing else).
                 if n.type == DomainContract.notificationTypeAgentMessage {
                     order.append("message:\(n.id)")
                     messagesById[n.id] = n
-                    continue
-                }
-                if n.type == DomainContract.notificationTypeSessionBlocked {
+                } else {
                     order.append("blocked-run:\(n.id)")
                     blockedRunsById[n.id] = n
-                    continue
                 }
-                let teamKey = n.teamId.flatMap { teamsById[$0]?.id } ?? ""
-                if supportByTeam[teamKey] == nil {
-                    order.append("support:\(teamKey)")
-                    supportByTeam[teamKey] = []
-                }
-                supportByTeam[teamKey]?.append(n)
                 continue
             }
             if byIssue[iid] == nil {
@@ -235,26 +202,16 @@ final class InboxViewModel {
                 let teamName = n.teamId.flatMap { teamsById[$0]?.name }
                 return .blockedRun(BlockedRunEntry(notification: n, teamName: teamName))
             }
-            if key.hasPrefix("support:") {
-                let teamKey = String(key.dropFirst("support:".count))
-                guard let ns = supportByTeam[teamKey] else { return nil }
-                let team = teamsById[teamKey]
-                return .support(SupportGroup(teamId: team?.id, teamName: team?.name, notifications: ns))
-            }
             let iid = String(key.dropFirst("issue:".count))
             guard let issue = issuesById[iid], let ns = byIssue[iid] else { return nil }
             return .issue(Group(issue: issue, notifications: ns))
         }
-        // Support groups count too — an unread support_reply must never light
-        // the tab-bar dot without a row here to see and clear it.
+        // Every entry counts — an unread row must never light the tab-bar dot
+        // without a row here to see and clear it.
         totalUnread = entries.reduce(0) { $0 + $1.unread }
     }
 
     func markGroupRead(_ group: Group) {
-        markRead(group.notifications)
-    }
-
-    func markSupportGroupRead(_ group: SupportGroup) {
         markRead(group.notifications)
     }
 

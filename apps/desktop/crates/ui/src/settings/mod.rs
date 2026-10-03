@@ -8,7 +8,7 @@
 //! Storage — the EXP-297 owner-only attachment manager), **Boards**
 //! (one entry PER board + New board + Repositories — EXP-288 flattened the
 //! old flat Boards list into per-board detail pages), **Features**
-//! (Feedback widget, Helpdesk — EXP-771), the desktop-only
+//! (Widget — EXP-771, MCP servers — EXP-792), the desktop-only
 //! **This device** group (Tools, Agents, Worktrees, Sessions), and
 //! **Personal** (Account, Notifications, Security, About — EXP-238); the
 //! detail column shows ONE selected pane with the web's `isOwner &&` gating;
@@ -26,11 +26,11 @@
 //! as a neutral "Upgrade on the web" notice. The GitHub App *install* is a
 //! browser hand-off (§7.9).
 //!
-//! EXP-771: the widget and helpdesk settings are NO LONGER web-only. The
+//! EXP-771: the widget settings are NO LONGER web-only. The
 //! Features group carries a READ-ONLY widget list with a "Manage on the web"
 //! hand-off (authoring a config stays a browser flow — it needs the embed
-//! snippet, the domain allowlist and the theme editor) plus the team's
-//! helpdesk switch, which is a plain `teams.update` this app owns outright.
+//! snippet, the domain allowlist and the theme editor). SLOP-4: the helpdesk
+//! pane beside it is gone with the helpdesk.
 
 mod about;
 mod account;
@@ -38,7 +38,6 @@ mod add_repository_dialog;
 mod agents;
 mod api_keys;
 pub(crate) mod doctor_section;
-mod helpdesk;
 // EXP-630: THE invite-by-email form (the pane's own and the resend dialog's)
 // and the "Resend invite" window that hosts a prefilled copy of it.
 mod invite_form;
@@ -137,7 +136,6 @@ use crate::sidebar::{rail_shared_for_window, select_settings_section, RailShared
 use about::AboutPane;
 use account::AccountPane;
 use api_keys::ApiKeysPane;
-use helpdesk::HelpdeskPane;
 use issues::IssuesPane;
 use labels::LabelsPane;
 use mcp_servers::McpServersPane;
@@ -190,10 +188,6 @@ pub(crate) enum SettingsSection {
     /// hand-off. Owner-only, like the web's `canManageWidgets` gate and the
     /// `widgets.list` router behind it.
     Widget,
-    /// EXP-771: the team's helpdesk switch — the web widget page's second
-    /// card, split out into its own pane because the desktop nav is one
-    /// section per page. Owner-only.
-    Helpdesk,
     /// EXP-792/EXP-807: the team's MCP servers — the registry plus the
     /// person's OWN connection to each (Connect / Set key / Disconnect; the
     /// server holds the credential). Member-visible: every member reads the
@@ -296,15 +290,13 @@ const NAV_GROUPS: &[NavGroup] = &[
             NavItem::leaf("Repositories", SettingsSection::Repositories),
         ],
     },
-    // EXP-771: the web's Features group, verbatim — plus Helpdesk, which the
-    // web keeps as the widget page's second card and the desktop nav (one
-    // section per page) gives its own row.
+    // EXP-771: the web's Features group, verbatim (SLOP-4: the Helpdesk row
+    // is gone with the helpdesk; the widget page is "Widget" now).
     NavGroup {
         label: "Features",
         items: &[
-            NavItem::leaf("Feedback widget", SettingsSection::Widget),
-            NavItem::leaf("Helpdesk", SettingsSection::Helpdesk),
-            // EXP-792: member-visible, unlike its two neighbours — every
+            NavItem::leaf("Widget", SettingsSection::Widget),
+            // EXP-792: member-visible, unlike its neighbour — every
             // member reads the registry and signs in on their own machines
             // (the web nav's `visible: () => true`).
             NavItem::leaf("MCP servers", SettingsSection::McpServers),
@@ -353,7 +345,6 @@ fn section_icon(section: &SettingsSection) -> Icon {
         SettingsSection::Board(_) => Icon::from(registry::SETTINGS_BOARDS),
         SettingsSection::Repositories => Icon::from(registry::SETTINGS_REPOSITORIES),
         SettingsSection::Widget => Icon::from(registry::SETTINGS_WIDGET),
-        SettingsSection::Helpdesk => Icon::from(registry::SETTINGS_HELPDESK),
         SettingsSection::McpServers => Icon::from(registry::SETTINGS_MCP),
         SettingsSection::Tools => Icon::from(registry::SETTINGS_TOOLS),
         SettingsSection::Agents => Icon::from(registry::SETTINGS_AGENTS),
@@ -377,8 +368,7 @@ fn section_visible(section: &SettingsSection, owner: bool) -> bool {
         | SettingsSection::Storage
         | SettingsSection::Board(_)
         | SettingsSection::ArchivedBoards
-        | SettingsSection::Widget
-        | SettingsSection::Helpdesk => owner,
+        | SettingsSection::Widget => owner,
         _ => true,
     }
 }
@@ -459,8 +449,6 @@ pub struct SettingsView {
     /// EXP-771 owner-only widget list (fetch-on-open server read —
     /// `widget_configs` is never synced).
     widget: Entity<WidgetPane>,
-    /// EXP-771 owner-only helpdesk switch (the team row's synced flag).
-    helpdesk: Entity<HelpdeskPane>,
     /// EXP-792 team MCP servers (fetch-on-open server read — `mcp_servers`
     /// is never synced), member-visible.
     mcp_servers: Entity<McpServersPane>,
@@ -514,7 +502,6 @@ impl SettingsView {
             cx.new(|cx| BoardDetailPane::new(nav.clone(), shared.clone(), window, cx));
         let repositories = cx.new(|cx| RepositoriesPane::new(nav.clone(), window, cx));
         let widget = cx.new(|cx| WidgetPane::new(nav.clone(), cx));
-        let helpdesk = cx.new(|cx| HelpdeskPane::new(nav.clone(), cx));
         let mcp_servers = cx.new(|cx| McpServersPane::new(nav.clone(), window, cx));
         let tools = cx.new(|cx| ToolsPane::new(window, cx));
         let agents = cx.new(|cx| AgentsPane::new(window, cx));
@@ -550,7 +537,6 @@ impl SettingsView {
             board_detail,
             repositories,
             widget,
-            helpdesk,
             mcp_servers,
             tools,
             agents,
@@ -643,7 +629,6 @@ impl Render for SettingsView {
             SettingsSection::Board(_) => self.board_detail.clone().into_any_element(),
             SettingsSection::Repositories => self.repositories.clone().into_any_element(),
             SettingsSection::Widget => self.widget.clone().into_any_element(),
-            SettingsSection::Helpdesk => self.helpdesk.clone().into_any_element(),
             SettingsSection::McpServers => self.mcp_servers.clone().into_any_element(),
             SettingsSection::Tools => self.tools.clone().into_any_element(),
             SettingsSection::Agents => self.agents.clone().into_any_element(),
@@ -1202,25 +1187,6 @@ pub(crate) fn error_notice(message: SharedString, cx: &App) -> impl IntoElement 
     crate::controls::alert(crate::controls::AlertVariant::Destructive, None, cx).child(message)
 }
 
-/// §4.9 plan-cap surface: a neutral "Upgrade on the web" notice — never an
-/// in-app purchase/pricing UI. The shared inline alert (EXP-970) in its
-/// default variant: the message is its title line, the hint its description.
-pub(crate) fn upgrade_notice(message: SharedString, cx: &App) -> impl IntoElement {
-    let muted = cx.theme().muted_foreground;
-    crate::controls::alert(crate::controls::AlertVariant::Default, None, cx).child(
-        v_flex()
-            .min_w_0()
-            .gap_1()
-            .child(crate::controls::alert_title(message))
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(muted)
-                    .child("Upgrade on the web to raise this limit."),
-            ),
-    )
-}
-
 /// `#rrggbb` → Hsla (label/board colors are stored as hex strings).
 pub(crate) fn parse_hex_color(hex: &str) -> Option<gpui::Hsla> {
     let hex = hex.trim().strip_prefix('#')?;
@@ -1378,7 +1344,6 @@ mod tests {
             // EXP-771: the Features group mirrors the web's
             // `canManageWidgets` gate, which IS `isOwner`.
             SettingsSection::Widget,
-            SettingsSection::Helpdesk,
         ] {
             assert_eq!(
                 effective_selection(gated, false, any_board),
@@ -1535,7 +1500,7 @@ mod tests {
 
     /// EXP-771/EXP-792: the Features group sits between Boards and This
     /// device, its labels are the web's, and its gating is the web's too —
-    /// the two widget panes are owner-only (`canManageWidgets`), MCP servers
+    /// the widget pane is owner-only (`canManageWidgets`), MCP servers
     /// is member-visible (`visible: () => true`), because every member reads
     /// the registry and signs in on their OWN machines. The nav order also
     /// feeds the fallback scan, which must keep landing on a Team section.
@@ -1551,7 +1516,7 @@ mod tests {
             .find(|group| group.label == "Features")
             .expect("Features group");
         let labels: Vec<&str> = features.items.iter().map(|item| item.label).collect();
-        assert_eq!(labels, vec!["Feedback widget", "Helpdesk", "MCP servers"]);
+        assert_eq!(labels, vec!["Widget", "MCP servers"]);
         for item in features.items {
             assert!(section_visible(&item.section, true));
             assert_eq!(

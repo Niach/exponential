@@ -39,7 +39,7 @@ enum PopRects {
     /// card, so the pop-out has to take it in) + `agent-composer` +
     /// `agent-options-row`, `agent-feed-question`,
     /// `pr-merge-bar`, `notification-row`, plus the pre-existing `issue-row-*`,
-    /// `action-row`, `support-thread-row`) and are mirrored 1:1 as Android
+    /// `action-row`) and are mirrored 1:1 as Android
     /// testTags — see `PopRects.kt`.
     static let identifiers: [String: [String]] = [
         "01_board": ["issue-row-APP-5"],
@@ -49,7 +49,6 @@ enum PopRects {
         "05_review": ["pr-merge-bar"],
         "06_actions": ["action-row"],
         "07_inbox": ["notification-row"],
-        "08_support": ["support-thread-row"],
     ]
 
     /// Outward padding around the union, as a fraction of the window's width

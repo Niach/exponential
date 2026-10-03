@@ -27,7 +27,7 @@ export function DocsPage() {
             <h1>Docs</h1>
             <p>
               Everything about Exponential: issue tracking, coding agents,
-              feedback and the helpdesk, the apps, and the API.
+              user feedback, the apps, and the API.
             </p>
             <div className="docs-hero-cta">
               <a className="btn btn-primary" href="/docs/getting-started/">
@@ -46,11 +46,12 @@ export function DocsPage() {
             <h2>What is Exponential</h2>
             <p>
               Exponential is one realtime tracker for{` `}
-              <strong>issues, customer support, and coding agents</strong>.
+              <strong>issues, user feedback, and coding agents</strong>.
               User reports arrive through the{` `}
-              <a href="/docs/widget/">embeddable widget</a> or the{` `}
-              <a href="/docs/feedback/">team helpdesk</a>, your team
-              triages them as <a href="/docs/issues/">issues</a>, and the{` `}
+              <a href="/docs/widget/">embeddable widget</a> as{` `}
+              <a href="/docs/issues/">issues</a> your team triages and{` `}
+              <a href="/docs/feedback/">answers from the issue itself</a>,
+              and the{` `}
               <a href="/docs/coding/">desktop IDE hands issues to your agent</a>
               {` `}(running locally on your machine), which implements,
               pushes, and opens the GitHub PR. Merging the PR completes the
