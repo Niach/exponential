@@ -23,3 +23,6 @@ document.addEventListener('DOMContentLoaded',()=>{
   document.querySelectorAll('[data-slop]').forEach(el=>{const spec=el.dataset.slop;const size=+(el.dataset.size||44);let d;try{d=JSON.parse(spec)}catch{d=spec}el.innerHTML=Slop.svg(d,size)});
   document.querySelectorAll('[data-fake]').forEach(el=>{el.innerHTML='<div class="fake" style="--acc:'+(el.dataset.acc||'#60A5FA')+'">'+el.dataset.fake.split(',').map(c=>'<i class="'+c+'"></i>').join('')+'</div>'+el.innerHTML});
 });
+
+I.x='<svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+I.share='<svg class="ic" viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" x2="12" y1="2" y2="15"/></svg>';

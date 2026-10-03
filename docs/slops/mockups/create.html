@@ -1,0 +1,16 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="base.css"><script src="slop.js"></script><script src="parts.js"></script><style>
+.hero{display:flex;flex-direction:column;align-items:center;gap:10px;padding:6px 0 0}
+.hero img{width:240px;height:240px;border-radius:40px;object-fit:cover;box-shadow:0 20px 50px rgba(0,0,0,.5)}
+.hero .name{font-size:24px;font-weight:700;letter-spacing:-.02em}
+.alts{display:flex;gap:10px;justify-content:center}
+.alts img{width:64px;height:64px;border-radius:16px;object-fit:cover;opacity:.7;border:2px solid transparent}
+.alts img.on{opacity:1;border-color:#fff}
+</style></head><body><div class="phone">{{statusbar}}
+<div class="nav"><div class="circ">{{back}}</div><div class="title">Create a slop</div><div style="width:44px"></div></div>
+<div class="content" style="gap:16px">
+  <div class="hero"><img src="gen/towel-4.webp"><div class="name">Towelie</div></div>
+  <div class="alts"><img src="gen/towel-4.webp" class="on"><img src="gen/towel-1.webp"><img src="gen/cloud-4.webp"><img src="gen/cat-4.webp"></div>
+  <div style="display:flex;justify-content:center;gap:10px"><div class="pillbtn" style="gap:8px">{{shuffle}} Again</div><div class="pillbtn primary" style="padding:0 28px">Keep</div></div>
+  <div class="box" style="margin-top:auto"><div class="ph" style="color:#fff">a stoned towel</div><div class="tools">{{plus}}{{camera}}{{mic}}<div class="send on">{{send}}</div></div></div>
+  <div class="chips"><div class="chip">a grumpy cat</div><div class="chip">a tiny cloud</div><div class="chip">a cactus in shades</div><div class="chip">surprise me</div></div>
+</div></div></body></html>

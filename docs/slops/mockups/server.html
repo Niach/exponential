@@ -1,0 +1,30 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="base.css"><script src="slop.js"></script><script src="parts.js"></script><style>
+.servers{display:flex;gap:14px;padding:4px 2px 2px;align-items:flex-start}
+.srv{display:flex;flex-direction:column;align-items:center;gap:6px;width:60px}
+.srv .c{width:56px;height:56px;border-radius:18px;background:oklch(1 0 0/7%);border:1px solid oklch(1 0 0/10%);display:flex;align-items:center;justify-content:center;position:relative}
+.srv .c.on{border-color:oklch(1 0 0/40%)}
+.srv .c .d{position:absolute;right:-2px;bottom:-2px;width:12px;height:12px;border-radius:50%;background:#22C55E;border:2px solid #0b0b0e}
+.srv .c .d.off{background:oklch(.5 0 0)}
+.srv .l{font-size:11px;color:oklch(.7 0 0);white-space:nowrap}
+.row.min{padding:10px 4px}
+.ib{width:40px;height:40px;border-radius:50%;background:oklch(1 0 0/8%);border:1px solid oklch(1 0 0/10%);display:flex;align-items:center;justify-content:center}
+.ib.p{background:oklch(.922 0 0);color:#111;border-color:transparent}
+.av2{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;margin-left:-8px;border:2px solid #0b0b0e}
+</style></head><body><div class="phone">{{statusbar}}
+<div class="nav"><div class="circ">{{back}}</div><div class="title">Danny's Mac</div><div class="circ">{{share}}</div></div>
+<div class="content" style="gap:12px">
+  <div style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:8px 0 4px">
+    <div class="srv"><div class="c on" style="width:72px;height:72px;border-radius:22px">{{laptop}}<span class="d"></span></div></div>
+    <div class="s muted" style="font-size:13px">Claude · 62% left this week</div>
+  </div>
+  <div class="band">Slops here <span class="count">3</span></div>
+  <div class="rows">
+    <div class="row min"><div class="lead"><span data-slop="{&quot;body&quot;: &quot;bean&quot;, &quot;hue&quot;: 5, &quot;eyes&quot;: &quot;round&quot;, &quot;mouth&quot;: &quot;smile&quot;, &quot;extra&quot;: &quot;beret&quot;, &quot;tilt&quot;: -3}" data-size="44" style="display:inline-flex"></span></div><div class="body"><div class="t">Momo</div><div class="s">Recipe box</div></div><div class="trail"><span class="dot" style="margin:0"></span></div></div>
+    <div class="row min"><div class="lead"><span data-slop="Nuni:5" data-size="44" style="display:inline-flex"></span></div><div class="body"><div class="t">Nuni</div><div class="s">Trip planner · Lena's</div></div><div class="trail"><span class="spin"></span></div></div>
+    <div class="row min"><div class="lead"><span data-slop="{&quot;body&quot;: &quot;drop&quot;, &quot;hue&quot;: 1, &quot;eyes&quot;: &quot;sleepy&quot;, &quot;mouth&quot;: &quot;flat&quot;, &quot;extra&quot;: &quot;none&quot;, &quot;tilt&quot;: 4}" data-size="44" style="display:inline-flex"></span></div><div class="body"><div class="t">Pim</div><div class="s">Chore wheel</div></div><div class="trail"><span class="dot off" style="margin:0"></span></div></div>
+  </div>
+  <div class="band">People <span class="count">3</span></div>
+  <div class="row min"><div style="display:flex;padding-left:8px"><div class="av2" style="background:#60A5FA33;color:#60A5FA">DA</div><div class="av2" style="background:#F472B633;color:#F472B6">LE</div><div class="av2" style="background:#4ADE8033;color:#4ADE80">JO</div></div><div class="body"></div><div class="btn sm">Invite</div></div>
+  <div class="band">Caretaker</div>
+  <div class="row min"><div class="lead">{{eye}}</div><div class="body"><div class="t">Looks around hourly</div><div class="s">12 min ago</div></div><div class="trail"><div class="sw2"></div></div></div>
+</div></div></body></html>

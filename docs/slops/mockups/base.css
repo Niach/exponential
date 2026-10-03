@@ -72,3 +72,5 @@ h1{font-size:28px;font-weight:700;letter-spacing:-.02em}
 h2{font-size:20px;font-weight:600;letter-spacing:-.01em}
 .sub{font-size:15px;color:oklch(0.708 0 0);line-height:1.4}
 svg.ic{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+.sw2{width:36px;height:22px;border-radius:11px;background:#22C55E;position:relative}.sw2:after{content:'';position:absolute;right:2px;top:2px;width:18px;height:18px;border-radius:50%;background:#fff}
