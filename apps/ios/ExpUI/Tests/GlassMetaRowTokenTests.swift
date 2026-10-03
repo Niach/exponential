@@ -4,15 +4,11 @@ import XCTest
 import ExpUI
 
 // EXP-698 r5: `GlassMetaRow` is the ONE property row a `.glassSection()` group
-// stacks — the New-issue page's rows and the issue Properties sheet's are now
-// the same view. Before the lift the sheet drew its own near-copy (a leading
-// gutter glyph, a trailing chevron, a 44pt floor, 14pt gutters), so the same
-// five properties looked like two different lists depending on whether the
-// issue existed yet.
-//
-// The numbers below are what `DueDatePicker` — a row that is NOT a
-// `GlassMetaRow` but sits among them — measures itself against, so a quiet
-// drift here puts the due date two points off the Assignee above it.
+// stacks — the issue Properties sheet's rows. Before the lift the sheet drew
+// its own near-copy (a leading gutter glyph, a trailing chevron, a 44pt floor,
+// 14pt gutters), so the same five properties looked like two different lists
+// depending on whether the issue existed yet. (EXP-1170: the New issue page
+// wears the issue face's chip box instead.)
 final class GlassMetaRowTokenTests: XCTestCase {
 
     func testTheRowPaddingsAreTheAndroidMetaRowNumbers() {

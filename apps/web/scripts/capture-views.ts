@@ -27,6 +27,7 @@
  * as they happen, so the orchestrator can tell the two form factors apart and
  * a killed run still says what it got.
  */
+import { randomUUID } from "node:crypto"
 import { chromium, type BrowserContext, type Page } from "@playwright/test"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -139,6 +140,9 @@ function resolveRoute(route: string, ctx: RecipeCtx, db: DbPlaceholders): string
     // SLOP-2: an action is a page too, and the seed pins its id the same way.
     .replaceAll(`$actionId`, DEMO_ACTION_ID)
     .replaceAll(`$inviteToken`, DEMO_INVITE_TOKEN)
+    // EXP-1170: the New issue page is a fresh draft; the id is client-minted,
+    // so any uuid is a blank page (no row, the team's default board).
+    .replaceAll(`$draftId`, randomUUID())
   for (const name of DB_PLACEHOLDERS) {
     resolved = resolved.replaceAll(name, db[name] ?? ``)
   }

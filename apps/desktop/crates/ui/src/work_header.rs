@@ -1407,6 +1407,199 @@ pub(crate) fn work_body(body: AnyElement, bottom_edge: bool) -> AnyElement {
         .into_any_element()
 }
 
+// ---------------------------------------------------------------------------
+// EXP-1170 — the issue face's scrolling title rows, shared by the detail and
+// the New issue page (the detail in DRAFT mode)
+// ---------------------------------------------------------------------------
+
+/// The large editable title (the `TITLE_*` block): the borderless
+/// auto-grow textarea at [`TITLE_SIZE`]. `under_parent_line` = a line above
+/// already took the header's top inset. `on_tab` moves focus into the
+/// description (web EXP-10 parity) and answers whether it did — only then is
+/// the Tab consumed; Shift+Enter is swallowed so no keyboard path puts a
+/// newline in a title (EXP-230).
+pub(crate) fn title_input_row(
+    input: &gpui::Entity<gpui_component::input::TextareaState>,
+    under_parent_line: bool,
+    on_tab: impl Fn(&mut Window, &mut App) -> bool + 'static,
+) -> gpui::Div {
+    use gpui_component::input::{self, Textarea};
+    let top = if under_parent_line {
+        0.
+    } else {
+        TITLE_PT - TITLE_WIDGET_PY
+    };
+    div()
+        // EXP-877: the multi-line widget insets its text box by
+        // `TITLE_WIDGET_PX` / `TITLE_WIDGET_PY` underneath any refined style
+        // (no public size knob on `Textarea`), so the wrapper gives that much
+        // back on the sides and on top, and pulls the bottom in to `TITLE_PB`
+        // with a negative margin: title at `DETAIL_GUTTER` / `TITLE_PT`,
+        // `TITLE_PB` under it.
+        .px(px(DETAIL_GUTTER - TITLE_WIDGET_PX))
+        .pt(px(top))
+        .pb(px(0.))
+        .mb(px(TITLE_PB - TITLE_WIDGET_PY))
+        // Tab jumps from the title into the description editor. Capture runs
+        // before the input's own Tab handling; Shift+Tab (`OutdentInline`) is
+        // a different action, so it keeps its default behavior.
+        .capture_action(move |_: &input::IndentInline, window, cx| {
+            if on_tab(window, cx) {
+                cx.stop_propagation();
+            }
+        })
+        // Shift+Enter would insert a newline in the auto-grow input
+        // (`submit_on_enter` only intercepts plain Enter) — swallow it.
+        .capture_action(|action: &input::Enter, _window, cx| {
+            if action.shift {
+                cx.stop_propagation();
+            }
+        })
+        // Style the INPUT itself (EXP-181): the widget's own text size and
+        // padding override wrapper styles; `refine_style` runs last, so these
+        // win. The explicit line height lifts the widget's fixed 1.25rem
+        // (which would clip 24px glyphs), and h_auto releases its fixed box.
+        .child(
+            Textarea::new(input)
+                .appearance(false)
+                .text_size(px(TITLE_SIZE))
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .line_height(px(TITLE_LINE))
+                .px_0()
+                .h_auto(),
+        )
+}
+
+/// EXP-1162 — has the large title row scrolled under the floating bar? Its
+/// measured content bottom (`title_bottom`, `None` until the first paint)
+/// plus the body's scroll offset against the bar's bottom edge.
+pub(crate) fn title_collapsed(
+    body_scroll: &gpui::ScrollHandle,
+    title_bottom: &std::cell::Cell<Option<f32>>,
+) -> bool {
+    domain::detail_chrome::is_title_collapsed(
+        true,
+        title_bottom
+            .get()
+            .map(|bottom| f64::from(bottom + f32::from(body_scroll.offset().y))),
+        f64::from(BAR_H),
+    )
+}
+
+/// The measuring state a floating title row needs: the body's scroll handle,
+/// the row's measured content bottom and the bar cluster's measured width —
+/// all three owned by the view (they outlive one frame).
+pub(crate) struct TitleChrome<'a> {
+    pub body_scroll: &'a gpui::ScrollHandle,
+    pub title_bottom: &'a Rc<std::cell::Cell<Option<f32>>>,
+    pub cluster_w: &'a Rc<std::cell::Cell<Option<f32>>>,
+    /// The view to repaint when a measure moves the break.
+    pub entity_id: gpui::EntityId,
+}
+
+/// EXP-1162 — the issue face's floating header AND the rows it hands to the
+/// scrolling body: `title` (the parent line + the large title) shifted so
+/// its first line centres on the bar and kept clear of the cluster, then
+/// `below` (the property tray, the merge caption). Returns `(bar, rows)`;
+/// the bar is [`render_floating_bar`] over `compact` (the collapsed title,
+/// shown only once `collapsed`) and `right` (the cluster).
+pub(crate) fn scrolling_title_rows(
+    chrome: TitleChrome<'_>,
+    collapsed: bool,
+    title: Vec<AnyElement>,
+    below: Vec<AnyElement>,
+    compact: Option<AnyElement>,
+    right: Vec<AnyElement>,
+) -> (AnyElement, AnyElement) {
+    // The row's bottom edge, measured as it paints. The canvas reports it in
+    // content space for the next render and, when the break it implies
+    // differs from the one this frame was rendered with (a scroll offset
+    // restored before the first measure, a title that grew a line), asks for
+    // ONE repaint — the only notify.
+    let probe = {
+        let handle = chrome.body_scroll.clone();
+        let cell = chrome.title_bottom.clone();
+        let entity_id = chrome.entity_id;
+        gpui::canvas(
+            move |bounds, _window, cx| {
+                let viewport_top = handle.bounds().top();
+                let bottom = bounds.bottom();
+                cell.set(Some(f32::from(bottom - viewport_top - handle.offset().y)));
+                let now = domain::detail_chrome::is_title_collapsed(
+                    true,
+                    Some(f64::from(f32::from(bottom))),
+                    f64::from(f32::from(viewport_top) + BAR_H),
+                );
+                if now != collapsed {
+                    cx.defer(move |cx| cx.notify(entity_id));
+                }
+            },
+            |_, _: (), _, _| {},
+        )
+        .absolute()
+        .size_full()
+    };
+    // EXP-1162 (web twin): the floating bar's cluster sits ON the title's
+    // first line — the row keeps clear of the cluster's measured width and
+    // shifts up so that line centres on the bar's (`TITLE_PT` + half a
+    // `TITLE_LINE` → `BAR_H / 2`). Shifted, the row's box would end ABOVE the
+    // bar's bottom edge and read collapsed at rest, so it keeps a `slack` pad
+    // that reaches `TITLE_PB` past the bar and hands it back with a negative
+    // margin: the tray does not move, the break comes after a few px of
+    // scroll.
+    let cluster_w = chrome.cluster_w.get().unwrap_or(CLUSTER_W_FALLBACK);
+    let shift = BAR_H / 2. - TITLE_PT - TITLE_LINE / 2.;
+    let slack = (BAR_H - (shift + TITLE_PT + TITLE_LINE)).max(0.);
+    let title = v_flex()
+        .relative()
+        .w_full()
+        .min_w_0()
+        .mt(px(shift))
+        .pb(px(slack))
+        .mb(px(-slack))
+        .pr(px(cluster_w + CLUSTER_GAP))
+        .children(title)
+        .child(probe);
+    let rows = v_flex()
+        .w_full()
+        .min_w_0()
+        .child(title)
+        .children(below)
+        .into_any_element();
+    // At rest the cluster reports its width for the title row above.
+    let measure = (!collapsed).then(|| (chrome.cluster_w.clone(), chrome.entity_id));
+    let header = render_floating_bar(compact, right, collapsed, measure);
+    (header, rows)
+}
+
+/// EXP-417/EXP-568 — the property TRAY under the title: ONE glass tray, the
+/// property chips growing from the left, `actions` floating on its right
+/// edge (`ml_auto`, so they keep their distance even after wrapping).
+/// `flex_1 + min_w_0` give the tray the column's definite width, which is
+/// what its own `flex_wrap` wraps the chips against.
+pub(crate) fn property_tray(chips: Vec<AnyElement>, actions: Vec<AnyElement>) -> AnyElement {
+    let properties = crate::surface::glass_tray()
+        .children(chips)
+        .when(!actions.is_empty(), |tray| {
+            tray.child(
+                h_flex()
+                    .ml_auto()
+                    .flex_shrink_0()
+                    .items_center()
+                    .gap_1()
+                    .children(actions),
+            )
+        });
+    h_flex()
+        .w_full()
+        .items_center()
+        .px(px(DETAIL_GUTTER))
+        // Web `pt-3` between the title row and the tray.
+        .pt(px(12.))
+        .child(properties.flex_1().min_w_0())
+        .into_any_element()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

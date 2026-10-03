@@ -1,4 +1,5 @@
 import { useMemo } from "react"
+import { useParams } from "@tanstack/react-router"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { issueDraftCollection } from "@/lib/collections"
 import { useTeamBoardsWithReady } from "@/hooks/use-team-data"
@@ -36,7 +37,7 @@ export function useTeamDrafts(teamId: string | undefined): IssueDraft[] {
   return useTeamDraftsWithReady(teamId).drafts
 }
 
-/** One draft by id — the create dialog's seed when it opens from a row. */
+/** One draft by id — the New issue page's seed when it reopens a row. */
 export function useIssueDraft(
   draftId: string | undefined
 ): IssueDraft | undefined {
@@ -59,6 +60,19 @@ export function useIssueDraft(
  */
 export function useDraftEntries(teamId: string | undefined): DraftEntry[] {
   return useDraftEntriesWithReady(teamId).entries
+}
+
+/**
+ * EXP-1170: how many drafts the sidebar's Drafts entry counts — every
+ * resolved draft EXCEPT the one open on the New issue page right now (it is
+ * the page, not something parked). Zero hides the entry.
+ */
+export function useSidebarDraftCount(teamId: string | undefined): number {
+  const { draftId } = useParams({ strict: false }) as { draftId?: string }
+  const entries = useDraftEntries(teamId)
+  return draftId
+    ? entries.filter((entry) => entry.draft.id !== draftId).length
+    : entries.length
 }
 
 /**

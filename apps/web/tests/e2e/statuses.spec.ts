@@ -101,16 +101,16 @@ test(`manages custom statuses in settings and uses them on the board`, async ({
   await rueckfrage.blur()
   await expect(page.getByLabel(`Change color of Waiting`)).toBeVisible()
 
-  // Board: the create-dialog status chip offers the custom status; the new
-  // issue groups under it.
+  // Board: the New issue page's status chip offers the custom status; the
+  // new issue groups under it.
   await page.goto(`/t/${teamSlug}/boards/${app.boardSlug}`)
-  await page.getByRole(`button`, { name: `New Issue`, exact: true }).click()
-  const dialog = page.getByRole(`dialog`)
-  await dialog.getByPlaceholder(`Issue title`).fill(app.issueTitle)
-  await dialog.getByRole(`button`, { name: `Backlog` }).click()
+  await page.getByRole(`button`, { name: `New issue`, exact: true }).click()
+  const draftPage = page.getByTestId(`issue-draft-page`)
+  await draftPage.getByPlaceholder(`Issue title`).fill(app.issueTitle)
+  await draftPage.getByRole(`button`, { name: `Backlog` }).click()
   await page.getByRole(`menuitem`, { name: `Waiting` }).click()
-  await dialog.getByRole(`button`, { name: `Create issue` }).click()
-  await expect(dialog).toBeHidden()
+  await draftPage.getByRole(`button`, { name: `Create` }).click()
+  await expect(page).toHaveURL(/\/issues\//)
   // EXP-878: a create lands ON the new issue — step back for the group
   // assertion, which is about the board list.
   await page.goto(`/t/${teamSlug}/boards/${app.boardSlug}`)

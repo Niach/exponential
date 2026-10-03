@@ -21,6 +21,9 @@ interface BoardPickerProps {
   // Replaces the default chip (the mobile properties sheet renders the picker
   // as a full-width property row) — same contract as `AssigneePicker`.
   trigger?: ReactNode
+  /** EXP-1170: false = the pick lands at once, no move confirm — the New
+   *  issue page's board picker (a draft has no identifier to renumber). */
+  confirm?: boolean
 }
 
 // Move-to-board picker for the issue detail view (EXP-57): single-select over
@@ -40,6 +43,7 @@ export function BoardPicker({
   onOpenChange,
   hideTrigger,
   trigger,
+  confirm = true,
 }: BoardPickerProps) {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
   const open = controlledOpen ?? uncontrolledOpen
@@ -72,7 +76,8 @@ export function BoardPicker({
   const handlePick = (boardId: string) => {
     const board = boardsById.get(boardId)
     if (board && board.id !== selectedBoardId) {
-      setPendingBoard(board)
+      if (confirm) setPendingBoard(board)
+      else void onSelect(board.id)
     }
   }
 
@@ -87,8 +92,8 @@ export function BoardPicker({
         onOpenChange={setOpen}
         hideTrigger={hideTrigger}
         width="sm"
-        mobileTitle="Move to board"
-        searchPlaceholder="Move to board..."
+        mobileTitle={confirm ? `Move to board` : `Board`}
+        searchPlaceholder={confirm ? `Move to board...` : `Search boards…`}
         emptyText="No boards found."
         trigger={
           trigger ?? (

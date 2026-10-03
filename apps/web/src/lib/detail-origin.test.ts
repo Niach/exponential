@@ -191,11 +191,13 @@ describe(`formatOrigin / parseOrigin`, () => {
     const origins: DetailOrigin[] = [
       inbox,
       { kind: `inbox`, tab: `my-issues` },
+      { kind: `inbox`, tab: `drafts` },
       board,
       { kind: `support` },
       { kind: `reviews` },
       { kind: `agent` },
       { kind: `action`, actionId: `a1` },
+      { kind: `drafts` },
     ]
     for (const origin of origins) {
       expect(parseOrigin(formatOrigin(origin)), formatOrigin(origin)).toEqual(
@@ -397,6 +399,54 @@ describe(`originListNavigation`, () => {
 
   it(`leaves the no-origin fallback to the caller`, () => {
     expect(originListNavigation(`acme`, null)).toBeNull()
+  })
+
+  // EXP-1170: a draft reopened from the phone inbox's Drafts tab returns to
+  // that TAB, never to Notifications.
+  it(`returns a phone draft to the inbox Drafts tab`, () => {
+    expect(parseOrigin(`inbox:drafts`)).toEqual({ kind: `inbox`, tab: `drafts` })
+    expect(
+      originListNavigation(`acme`, parseOrigin(`inbox:drafts`))
+    ).toEqual({
+      to: `/t/$teamSlug/inbox`,
+      params: { teamSlug: `acme` },
+      search: { tab: `drafts` },
+    })
+  })
+
+  // EXP-1170: a draft reopened from the md+ Drafts list returns there.
+  it(`returns a draft to the Drafts list`, () => {
+    expect(originListNavigation(`acme`, { kind: `drafts` })).toEqual({
+      to: `/t/$teamSlug/drafts`,
+      params: { teamSlug: `acme` },
+      search: {},
+    })
+    expect(originLabel({ kind: `drafts` })).toBe(`Drafts`)
+    expect(originHasListNav({ kind: `drafts` })).toBe(false)
+  })
+})
+
+// EXP-1170: the New issue page is the issue detail in DRAFT mode, so it keeps
+// the list it was opened from beside it exactly like a detail does.
+describe(`sidebarOccupant on the draft page`, () => {
+  const draftPath = `/t/acme/drafts/1b4e28ba-2fa1-11d2-883f-0016d3cca427`
+
+  it(`keeps the origin's list beside a draft`, () => {
+    expect(sidebarOccupant(draftPath, `board:web`)).toEqual({
+      kind: `list`,
+      origin: board,
+    })
+  })
+
+  it(`keeps the main menu without a list origin`, () => {
+    expect(sidebarOccupant(draftPath, null)).toEqual({ kind: `main` })
+    expect(sidebarOccupant(draftPath, `drafts`)).toEqual({ kind: `main` })
+  })
+
+  it(`treats the Drafts list itself as a list screen`, () => {
+    expect(sidebarOccupant(`/t/acme/drafts`, `board:web`)).toEqual({
+      kind: `main`,
+    })
   })
 })
 

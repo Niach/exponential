@@ -1,5 +1,6 @@
 package com.exponential.app.navigation
 
+import android.net.Uri
 import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -69,7 +70,7 @@ import com.exponential.app.ui.components.Toaster
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.instance.InstanceScreen
 import com.exponential.app.ui.invite.InviteAcceptScreen
-import com.exponential.app.ui.issue.CreateIssueScreen
+import com.exponential.app.ui.issue.IssueDraftScreen
 import com.exponential.app.ui.onboarding.OnboardingScreen
 import com.exponential.app.ui.personal.PersonalScreen
 import com.exponential.app.ui.reviews.ReviewsScreen
@@ -543,7 +544,7 @@ private fun AuthenticatedNav(
                     }
                 },
                 onNewIssue = {
-                    currentBoardId?.let { navController.navigate("board/$it/new") }
+                    currentBoardId?.let { navController.openIssueDraft(it) }
                 },
             )
         }
@@ -607,9 +608,9 @@ private fun AuthenticatedNav(
             // "inbox" route is safe.
             PersonalScreen(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
-                // EXP-878: a draft row resumes the create screen on its board.
+                // EXP-878/1170: a draft row reopens the New issue page.
                 onOpenDraft = { boardId, draftId ->
-                    navController.navigate("board/$boardId/new?draft=$draftId")
+                    navController.openIssueDraft(boardId, draftId = draftId)
                 },
                 // EXP-980: a blocked-run row opens the run it is about.
                 onOpenSession = { sessionId -> navController.navigate("steer/$sessionId") },
@@ -705,7 +706,8 @@ private fun AuthenticatedNav(
             val sharePrefill = remember(pendingShare) { pendingShare?.let { buildSharePrefill(it) } }
             val shareVm: ShareTargetPickerViewModel = hiltViewModel()
             val shareState by shareVm.state.collectAsStateWithLifecycle()
-            CreateIssueScreen(
+            // EXP-1170: the New issue page in share mode (no draft row).
+            IssueDraftScreen(
                 onBack = { navController.popBackStack() },
                 onCreated = { issueId -> navController.openCreatedIssue(issueId) },
                 sharePrefill = sharePrefill,
@@ -731,19 +733,21 @@ private fun AuthenticatedNav(
                 onBack = { navController.popBackStack() },
                 onOpenAgent = openAgent,
                 onOpenSearch = { navController.navigate("search") { launchSingleTop = true } },
-                onNewIssue = { navController.navigate("board/$boardId/new") },
+                onNewIssue = { navController.openIssueDraft(boardId) },
             )
         }
         composable(
-            // EXP-878: `?draft={id}` resumes an unsent draft (the Drafts
-            // section of My Work). Optional query arg, declared nullable the
-            // same way the Agent route's seed args are, so a plain
-            // `board/{boardId}/new` still matches.
-            // EXP-1097: `&parent={id}` files it as a sub-issue (the detail's
-            // Sub-issues `+`), same optional-arg shape.
-            "board/{boardId}/new?draft={draft}&parent={parent}",
+            // EXP-1170: the New issue PAGE. Every opener mints the draft id at
+            // tap time; `board` is the target, `status` a preset, `parent`
+            // files it as a sub-issue (no draft row then, EXP-1130).
+            ISSUE_DRAFT_ROUTE,
             arguments = listOf(
-                navArgument("draft") {
+                navArgument("board") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("status") {
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
@@ -754,27 +758,10 @@ private fun AuthenticatedNav(
                     defaultValue = null
                 },
             ),
-        ) { entry ->
-            // The pending share lives in the TeamSelection singleton (not
-            // route state), so backing out of this screen and re-entering
-            // re-fills the form. The screen consumes it exactly once — on a
-            // successful create or once it was saved as a draft.
-            val pendingShare by teamSelection.pendingShare.collectAsStateWithLifecycle()
-            val sharePrefill = remember(pendingShare) { pendingShare?.let { buildSharePrefill(it) } }
-            val parentIssueId = entry.arguments?.getString("parent")?.takeIf { it.isNotBlank() }
-            CreateIssueScreen(
+        ) {
+            IssueDraftScreen(
                 onBack = { navController.popBackStack() },
-                // A sub-issue (EXP-1097) returns to its PARENT, where the new
-                // child syncs into the Sub-issues list, so filing several is
-                // `+`, create, `+` (web's composer stays on the parent too).
-                onCreated = { issueId ->
-                    if (parentIssueId != null) navController.popBackStack()
-                    else navController.openCreatedIssue(issueId)
-                },
-                draftId = entry.arguments?.getString("draft")?.takeIf { it.isNotBlank() },
-                parentIssueId = parentIssueId,
-                sharePrefill = sharePrefill,
-                onSharePrefillConsumed = { teamSelection.consumePendingShare() },
+                onCreated = { issueId -> navController.openCreatedIssue(issueId) },
             )
         }
         composable("support/{threadId}") {
@@ -815,10 +802,8 @@ private fun AuthenticatedNav(
                 onOpenTeamSettings = openReadinessTeamSettings,
                 onOpenDevices = openReadinessDevices,
                 onCreateSubIssue = { boardId, parentId ->
-                    // Single-top: a double-tap on `+` pushes ONE form.
-                    navController.navigate("board/$boardId/new?parent=$parentId") {
-                        launchSingleTop = true
-                    }
+                    // Single-top: a double-tap on `+` pushes ONE page.
+                    navController.openIssueDraft(boardId, parentId = parentId, singleTop = true)
                 },
             )
         }
@@ -845,10 +830,8 @@ private fun AuthenticatedNav(
                 onOpenTeamSettings = openReadinessTeamSettings,
                 onOpenDevices = openReadinessDevices,
                 onCreateSubIssue = { boardId, parentId ->
-                    // Single-top: a double-tap on `+` pushes ONE form.
-                    navController.navigate("board/$boardId/new?parent=$parentId") {
-                        launchSingleTop = true
-                    }
+                    // Single-top: a double-tap on `+` pushes ONE page.
+                    navController.openIssueDraft(boardId, parentId = parentId, singleTop = true)
                 },
             )
         }
@@ -969,11 +952,35 @@ private fun AuthenticatedNav(
                 }
             },
             onCompose = {
-                composeBoardId?.let { navController.navigate("board/$it/new") }
+                composeBoardId?.let { navController.openIssueDraft(it) }
             },
             onChat = { openAgent(AgentComposerSeed.EMPTY) },
         )
     }
+    }
+}
+
+/** EXP-1170: the New issue page — `drafts/{draftId}?board=&status=&parent=`. */
+private const val ISSUE_DRAFT_ROUTE = "drafts/{draftId}?board={board}&status={status}&parent={parent}"
+
+/**
+ * Open the New issue page. The draft id is minted HERE, at tap time, so the
+ * page and its autosave own one stable id from the first frame (EXP-1170).
+ */
+private fun NavHostController.openIssueDraft(
+    boardId: String,
+    statusId: String? = null,
+    parentId: String? = null,
+    draftId: String = java.util.UUID.randomUUID().toString(),
+    singleTop: Boolean = false,
+) {
+    val query = listOfNotNull(
+        "board=${Uri.encode(boardId)}",
+        statusId?.let { "status=${Uri.encode(it)}" },
+        parentId?.let { "parent=${Uri.encode(it)}" },
+    ).joinToString("&")
+    navigate("drafts/$draftId?$query") {
+        if (singleTop) launchSingleTop = true
     }
 }
 

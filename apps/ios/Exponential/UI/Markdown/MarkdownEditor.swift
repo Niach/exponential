@@ -40,11 +40,9 @@ struct MarkdownEditor: View {
     var hugsContentWidth: Bool = false
     /// EXP-655: issue detail passes 200 (Android's `minHeight = 200.dp`), and
     /// the empty band below the content focuses the end of the description.
-    /// The create screen passes 120, Android's `CreateIssueScreen` height
-    /// (EXP-698 r4): a band short enough that the auto-focused title's keyboard
-    /// still leaves the properties card, Labels and "Create more" on screen —
-    /// the 200pt one hid them on an iPhone (EXP-659). Comment composers keep
-    /// their own bounded scroller, so they leave this nil and stay hugging.
+    /// The New issue page passes the same 200 (EXP-1170: it IS the issue
+    /// face's layout). Comment composers keep their own bounded scroller, so
+    /// they leave this nil and stay hugging.
     var minHeight: CGFloat? = nil
     /// EXP-327: non-nil adds a "Files" entry to the toolbar's image button and
     /// receives the NON-image picks. Images picked there are appended to the

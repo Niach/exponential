@@ -233,20 +233,6 @@ async function recipeScrollToComments(page: Page): Promise<void> {
 }
 
 /**
- * Open the create-issue editor. The only always-present trigger on a NON-empty
- * board is the sidebar's icon link (desktop) / tab-bar FAB (phone); the visible
- * "New issue" button in the board body belongs to the empty state.
- */
-async function recipeOpenCreateIssue(page: Page): Promise<void> {
-  const trigger = page
-    .getByRole(`link`, { name: `New issue` })
-    .or(page.getByRole(`button`, { name: `New issue` }))
-  await trigger.first().waitFor({ timeout: 20_000 })
-  await trigger.first().click()
-  await page.getByTestId(`issue-editor-create`).waitFor({ timeout: 15_000 })
-}
-
-/**
  * Open the cross-board issue search. The keyboard route (Cmd/Ctrl+F, the
  * Linear-style global shortcut in routes/t/$teamSlug/route.tsx) works at both
  * viewports; the icon trigger is the fallback because the sidebar carries it on
@@ -611,7 +597,6 @@ export const RECIPES: Record<string, Recipe> = {
   openOnboardingInvite: recipeOpenOnboardingInvite,
   openOnboardingDevices: recipeOpenOnboardingDevices,
   scrollToComments: recipeScrollToComments,
-  openCreateIssue: recipeOpenCreateIssue,
   openSearch: recipeOpenSearch,
   openBoardBulkEdit: recipeOpenBoardBulkEdit,
   openBoardSwitcher: recipeOpenBoardSwitcher,

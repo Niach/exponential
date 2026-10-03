@@ -101,7 +101,10 @@ export function TeamListNav({
           <BoardListNav teamSlug={teamSlug} boardSlug={origin.boardSlug} />
         )}
         {origin.kind === `inbox` && (
-          <InboxListNav teamSlug={teamSlug} tab={origin.tab ?? null} />
+          <InboxListNav
+            teamSlug={teamSlug}
+            tab={origin.tab === `my-issues` ? `my-issues` : null}
+          />
         )}
         {origin.kind === `support` && team && (
           <SupportListNav teamId={team.id} teamSlug={teamSlug} />

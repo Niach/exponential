@@ -9,9 +9,8 @@
 //! only thing left to do. A subject-less start (the Chat button, the rail's
 //! Agent entry) still opens the Agent screen.
 //!
-//! This file is only the WINDOW HOST, exactly like
-//! [`crate::create_issue_dialog`] is for [`crate::issue_composer`]: the
-//! composer, its pickers, its launch options and its start paths are
+//! This file is only the WINDOW HOST: the composer, its pickers, its launch
+//! options and its start paths are
 //! [`ChatScreenView`] in its `Dialog` presentation — one composer, two
 //! presentations, no second implementation.
 

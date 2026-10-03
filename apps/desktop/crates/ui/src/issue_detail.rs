@@ -34,7 +34,6 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, App, AppContext as _, Entity, FocusHandle, Focusable as _,
     FontWeight, InteractiveElement as _, IntoElement, ParentElement, Render,
@@ -43,9 +42,9 @@ use gpui::{
 use gpui_component::{
     button::ButtonVariant,
     h_flex,
-    input::{self, InputEvent, InputState, Textarea, TextareaState},
+    input::{InputEvent, InputState, TextareaState},
     text::TextView,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use sync::Store;
 
@@ -55,9 +54,9 @@ use crate::coding_flow::StartCodingControl;
 use crate::icons::{registry, ExpIcon};
 use crate::issue_files::{
     all_attachment_ids, attachment_label, description_embed, description_fragment,
-    file_attachments, format_bytes, icon_for_content_type, is_markdown_attachment,
+    file_attachments, is_markdown_attachment,
 };
-use crate::attachment_markdown_preview::{open_markdown_preview, MarkdownPreviewTarget};
+use crate::attachment_markdown_preview::MarkdownPreviewTarget;
 use crate::navigation::{navigate, Screen};
 use crate::issue_header::{spawn_issue_update, IssueHeader};
 use crate::queries;
@@ -1442,7 +1441,7 @@ impl IssueDetailView {
         // EXP-862: the file list's actions are GHOST glyphs, never circles.
         let attach_button = crate::controls::ghost_icon_button(
             "issue-files-attach",
-            Icon::from(ExpIcon::Paperclip),
+            Icon::from(registry::UI_ATTACH),
             cx,
         )
             .tooltip("Attach file")
@@ -1623,8 +1622,8 @@ impl IssueDetailView {
             .into_any_element()
     }
 
-    /// One synced file row: type glyph · filename · size · Open (Preview for
-    /// markdown, EXP-1003) / Save as / Delete.
+    /// One synced file row (EXP-1170: `issue_files::file_row`, shared with
+    /// the New issue page) — Open asks the OS, Delete confirms.
     fn render_file_row(
         &self,
         attachment: &Attachment,
@@ -1632,110 +1631,40 @@ impl IssueDetailView {
     ) -> gpui::AnyElement {
         let id = attachment.id.clone();
         let label = attachment_label(attachment);
-        let busy = self.busy_files.contains(&id);
-        let glyph = icon_for_content_type(attachment.content_type.as_deref());
-        let markdown = is_markdown_attachment(
+        let preview = is_markdown_attachment(
             attachment.content_type.as_deref(),
             attachment.filename.as_deref(),
-        );
-
-        h_flex()
-            .w_full()
-            .min_w_0()
-            .gap_2()
-            .px_2()
-            .py_1()
-            .rounded_md()
-            .items_center()
-            .bg(theme::tokens::glass::FILL_CARD.to_hsla())
-            .child(
-                Icon::from(glyph)
-                    .xsmall()
-                    .text_color(cx.theme().muted_foreground),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_sm()
-                    .whitespace_nowrap()
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .child(SharedString::from(label.clone())),
-            )
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(SharedString::from(format_bytes(
-                        attachment.size_bytes.unwrap_or_default(),
-                    ))),
-            )
-            .child(if markdown {
-                // EXP-1003: a markdown row PREVIEWS in-app instead of handing
-                // the file to the OS (web parity); Save as… stays beside it.
-                let target = MarkdownPreviewTarget::from_attachment(attachment);
-                crate::controls::ghost_icon_button(
-                    SharedString::from(format!("issue-file-preview-{id}")),
-                    Icon::new(registry::UI_WATCH),
-                    cx,
-                )
-                    .tooltip("Preview")
-                    .on_click(move |_, window, cx| {
-                        open_markdown_preview(target.clone(), window, cx);
-                    })
-                    .into_any_element()
-            } else {
-                let (id, label) = (id.clone(), label.clone());
-                crate::controls::ghost_icon_button(
-                    SharedString::from(format!("issue-file-open-{id}")),
-                    Icon::from(ExpIcon::ExternalLink),
-                    cx,
-                )
-                    .disabled(busy)
-                    .tooltip("Open")
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.open_file(id.clone(), label.clone(), window, cx);
-                    }))
-                    .into_any_element()
-            })
-            .child({
-                let (id, label) = (id.clone(), label.clone());
-                crate::controls::ghost_icon_button(
-                    SharedString::from(format!("issue-file-save-{id}")),
-                    Icon::from(ExpIcon::Download),
-                    cx,
-                )
-                    .disabled(busy)
-                    .tooltip("Save as…")
-                    .on_click(move |_, window, cx| {
-                        crate::comment_attachments::save_attachment_as(
-                            id.clone(),
-                            label.clone(),
-                            window,
-                            cx,
-                        );
-                    })
-            })
-            .child({
-                let (id, label) = (id.clone(), label.clone());
-                crate::controls::ghost_icon_button(
-                    SharedString::from(format!("issue-file-delete-{id}")),
-                    Icon::from(ExpIcon::Trash2),
-                    cx,
-                )
-                    .disabled(busy)
-                    .tooltip("Delete")
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.confirm_delete_file(id.clone(), label.clone(), window, cx);
-                    }))
-            })
-            .into_any_element()
+        )
+        .then(|| MarkdownPreviewTarget::from_attachment(attachment));
+        let view = cx.entity().downgrade();
+        let (open_id, open_label) = (id.clone(), label.clone());
+        let (delete_id, delete_label) = (id.clone(), label.clone());
+        let delete_view = view.clone();
+        crate::issue_files::file_row(
+            crate::issue_files::FileRow {
+                id,
+                label,
+                content_type: attachment.content_type.clone(),
+                size_bytes: attachment.size_bytes.unwrap_or_default(),
+                busy: self.busy_files.contains(&attachment.id),
+                preview,
+            },
+            move |window, cx| {
+                let _ = view.update(cx, |this, cx| {
+                    this.open_file(open_id.clone(), open_label.clone(), window, cx);
+                });
+            },
+            move |window, cx| {
+                let _ = delete_view.update(cx, |this, cx| {
+                    this.confirm_delete_file(delete_id.clone(), delete_label.clone(), window, cx);
+                });
+            },
+            cx,
+        )
     }
 
     /// A staged pick: "Uploading…" until the server answers, or the failure
-    /// message with a dismiss ✕.
+    /// message with a dismiss ✕ (`issue_files::pending_file_row`).
     fn render_pending_file_row(
         &self,
         key: u64,
@@ -1743,59 +1672,19 @@ impl IssueDetailView {
         error: Option<SharedString>,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
-        let failed = error.is_some();
-        let status = error.unwrap_or_else(|| SharedString::from("Uploading…"));
-        h_flex()
-            .w_full()
-            .min_w_0()
-            .gap_2()
-            .px_2()
-            .py_1()
-            .rounded_md()
-            .items_center()
-            .bg(theme::tokens::glass::FILL_CARD.to_hsla())
-            .child(
-                Icon::from(ExpIcon::File)
-                    .xsmall()
-                    .text_color(cx.theme().muted_foreground),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_sm()
-                    .whitespace_nowrap()
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(SharedString::from(filename)),
-            )
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_xs()
-                    .text_color(if failed {
-                        cx.theme().danger
-                    } else {
-                        cx.theme().muted_foreground
-                    })
-                    .child(status),
-            )
-            .when(failed, |row| {
-                row.child(
-                    crate::controls::ghost_icon_button(
-                        SharedString::from(format!("issue-file-dismiss-{key}")),
-                        Icon::new(registry::UI_CLOSE),
-                        cx,
-                    )
-                        .tooltip("Dismiss")
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.pending_files.retain(|pending| pending.key != key);
-                            cx.notify();
-                        })),
-                )
-            })
-            .into_any_element()
+        let view = cx.entity().downgrade();
+        crate::issue_files::pending_file_row(
+            key,
+            filename,
+            error,
+            move |_window, cx| {
+                let _ = view.update(cx, |this, cx| {
+                    this.pending_files.retain(|pending| pending.key != key);
+                    cx.notify();
+                });
+            },
+            cx,
+        )
     }
 
     /// "Attach file" — the native multi-select picker (same shape as the
@@ -2093,62 +1982,19 @@ impl IssueDetailView {
         under_parent_line: bool,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
-        let top = if under_parent_line {
-            0.
-        } else {
-            crate::work_header::TITLE_PT - crate::work_header::TITLE_WIDGET_PY
-        };
-        div()
-            // EXP-877: the `work_header::TITLE_*` block. The
-            // multi-line widget insets its text box by `TITLE_WIDGET_PX` /
-            // `TITLE_WIDGET_PY` underneath any refined style (no public size
-            // knob on `Textarea`), so the wrapper gives that much back on the
-            // sides and on top, and pulls the bottom in to `TITLE_PB` with a
-            // negative margin: title at `DETAIL_GUTTER` / `TITLE_PT`,
-            // `TITLE_PB` under it.
-            .px(px(DETAIL_GUTTER - crate::work_header::TITLE_WIDGET_PX))
-            .pt(px(top))
-            .pb(px(0.))
-            .mb(px(crate::work_header::TITLE_PB - crate::work_header::TITLE_WIDGET_PY))
-            // Tab jumps from the title into the description editor (web
-            // EXP-10 parity, dialog-shell.tsx). Capture runs before the
-            // InputState's own Tab handling; Shift+Tab (`OutdentInline`) is a
-            // different action, so it keeps its default behavior.
-            .capture_action(cx.listener(
-                |this, _: &input::IndentInline, window, cx: &mut gpui::Context<Self>| {
-                    if let Some(editor) = this.editor.clone() {
-                        cx.stop_propagation();
-                        editor.focus(window, cx);
-                    }
-                },
-            ))
-            // Shift+Enter would insert a newline in the auto-grow input
-            // (`submit_on_enter` only intercepts plain Enter) — swallow it
-            // so no keyboard path can put a newline in a title (EXP-230).
-            .capture_action(cx.listener(
-                |_, action: &input::Enter, _window, cx: &mut gpui::Context<Self>| {
-                    if action.shift {
-                        cx.stop_propagation();
-                    }
-                },
-            ))
-            // Style the INPUT itself (EXP-181): the widget's own
-            // `input_text_size`/`input_px` (text_sm, 12px padding) override
-            // wrapper styles, so a size set on the wrapper never reached the
-            // text and the extra padding misaligned it against the
-            // description's px_4 edge. `refine_style` runs last, so these
-            // win; the explicit line height lifts the widget's fixed
-            // 1.25rem, which would clip 2xl glyphs, and h_auto releases the
-            // fixed h_8 box.
-            .child(
-                Textarea::new(&self.title_input)
-                    .appearance(false)
-                    .text_size(px(crate::work_header::TITLE_SIZE))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .line_height(px(crate::work_header::TITLE_LINE))
-                    .px_0()
-                    .h_auto(),
-            )
+        // EXP-1170: the row itself is `work_header::title_input_row`, shared
+        // with the New issue page; Tab lands in this issue's editor.
+        let this = cx.entity().downgrade();
+        crate::work_header::title_input_row(&self.title_input, under_parent_line, move |window, cx| {
+            this.update(cx, |this, cx| match this.editor.clone() {
+                Some(editor) => {
+                    editor.focus(window, cx);
+                    true
+                }
+                None => false,
+            })
+            .unwrap_or(false)
+        })
     }
 
     /// EXP-760/EXP-1097: the inline sub-issue composer's two halves for the
@@ -2469,13 +2315,7 @@ impl IssueDetailView {
         // Changes / Results faces have no title row: always collapsed, tray
         // fixed.
         let collapsed = !has_title_row
-            || domain::detail_chrome::is_title_collapsed(
-                true,
-                self.title_bottom
-                    .get()
-                    .map(|bottom| f64::from(bottom + f32::from(self.body_scroll.offset().y))),
-                f64::from(crate::work_header::BAR_H),
-            );
+            || crate::work_header::title_collapsed(&self.body_scroll, &self.title_bottom);
         let changes_open = self.changes_open;
         let (right, tray, extra) = header.update(cx, |header, cx| {
             // EXP-916: the Changes pane has no bar of its own any more, so
@@ -2521,73 +2361,30 @@ impl IssueDetailView {
         // EXP-1097: "Sub-issue of [parent]" rides ABOVE the title.
         let parent_line = crate::issue_relations::render_parent_line(issue, cx);
         let under_parent_line = parent_line.is_some();
-        // EXP-1162: the row's bottom edge, measured as it paints. The canvas
-        // reports it in content space for the next render and, when the
-        // break it implies differs from the one this frame was rendered
-        // with (a scroll offset restored before the first measure, a title
-        // that grew a line), asks for ONE repaint — the only notify.
-        let probe = {
-            let handle = self.body_scroll.clone();
-            let cell = self.title_bottom.clone();
-            let entity_id = cx.entity_id();
-            gpui::canvas(
-                move |bounds, _window, cx| {
-                    let viewport_top = handle.bounds().top();
-                    let bottom = bounds.bottom();
-                    cell.set(Some(f32::from(bottom - viewport_top - handle.offset().y)));
-                    let now = domain::detail_chrome::is_title_collapsed(
-                        true,
-                        Some(f64::from(f32::from(bottom))),
-                        f64::from(f32::from(viewport_top) + crate::work_header::BAR_H),
-                    );
-                    if now != collapsed {
-                        cx.defer(move |cx| cx.notify(entity_id));
-                    }
-                },
-                |_, _: (), _, _| {},
-            )
-            .absolute()
-            .size_full()
-        };
-        // EXP-1162 (web twin): the floating bar's cluster sits ON the title's
-        // first line — the row keeps clear of the cluster's measured width
-        // and shifts up so that line centres on the bar's (`TITLE_PT` + half
-        // a `TITLE_LINE` → `BAR_H / 2`). Shifted, the row's box would end
-        // ABOVE the bar's bottom edge and read collapsed at rest, so it keeps
-        // a `slack` pad that reaches `TITLE_PB` past the bar (the web row's
-        // own overhang) and hands it back with a negative margin: the tray
-        // does not move, the break comes after a few px of scroll.
-        let cluster_w = self
-            .cluster_w
-            .get()
-            .unwrap_or(crate::work_header::CLUSTER_W_FALLBACK);
-        let shift = crate::work_header::BAR_H / 2.
-            - crate::work_header::TITLE_PT
-            - crate::work_header::TITLE_LINE / 2.;
-        let slack = (crate::work_header::BAR_H
-            - (shift + crate::work_header::TITLE_PT + crate::work_header::TITLE_LINE))
-            .max(0.);
-        let title = v_flex()
-            .relative()
-            .w_full()
-            .min_w_0()
-            .mt(px(shift))
-            .pb(px(slack))
-            .mb(px(-slack))
-            .pr(px(cluster_w + crate::work_header::CLUSTER_GAP))
-            .children(parent_line)
-            .child(self.render_title(under_parent_line, cx))
-            .child(probe);
-        let rows = v_flex()
-            .w_full()
-            .min_w_0()
-            .child(title)
-            .child(tray)
-            .children(extra)
-            .into_any_element();
-        // At rest the cluster reports its width for the title row above.
-        let measure = (!collapsed).then(|| (self.cluster_w.clone(), cx.entity_id()));
-        let header = crate::work_header::render_floating_bar(compact, right, collapsed, measure);
+        // EXP-1162: the large title rides the scrolling body under the
+        // FLOATING bar (EXP-1170: `work_header::scrolling_title_rows`, shared
+        // with the New issue page).
+        let title = vec![
+            parent_line.map(IntoElement::into_any_element),
+            Some(self.render_title(under_parent_line, cx).into_any_element()),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        let below = std::iter::once(tray).chain(extra).collect();
+        let (header, rows) = crate::work_header::scrolling_title_rows(
+            crate::work_header::TitleChrome {
+                body_scroll: &self.body_scroll,
+                title_bottom: &self.title_bottom,
+                cluster_w: &self.cluster_w,
+                entity_id: cx.entity_id(),
+            },
+            collapsed,
+            title,
+            below,
+            compact,
+            right,
+        );
         (header, Some(rows))
     }
 }

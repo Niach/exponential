@@ -11,7 +11,10 @@ import {
 import type { User } from "@/db/schema"
 import type { IssueEstimation, IssuePriority, IssueSource } from "@/lib/domain"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
-import type { StatusRowOption } from "@/lib/team-statuses"
+import {
+  creatableStatusOptions,
+  type StatusRowOption,
+} from "@/lib/team-statuses"
 import { cn } from "@/lib/utils"
 import {
   estimatePickerOptions,
@@ -71,6 +74,14 @@ export interface IssuePropertiesPanelProps {
   // Names the issue in the move confirmation; only read alongside a picker.
   issueIdentifier?: string | null
   disabled?: boolean
+  /** EXP-1170 (the New issue page): only creatable statuses (no duplicate
+   *  category — a new issue has nothing to duplicate). */
+  creatableOnly?: boolean
+  /** EXP-1170: no board chip at all (a single-board team's draft). */
+  hideBoard?: boolean
+  /** EXP-1170: false = a board pick lands at once, without the move confirm.
+   *  Default true. */
+  boardConfirm?: boolean
   /** Extra classes for the chip row's own container, so hosts can drop it
    *  into their own card without fighting a baked-in border. */
   className?: string
@@ -208,7 +219,11 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
 
   const statusControl = (
     <StatusPicker
-      statuses={toStatusPickerStatuses(teamStatusOptions)}
+      statuses={toStatusPickerStatuses(
+        props.creatableOnly
+          ? creatableStatusOptions(teamStatusOptions)
+          : teamStatusOptions
+      )}
       value={status.id}
       disabled={disabled}
       width="sm"
@@ -286,14 +301,15 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
       />
     ) : null
 
-  const boardChip =
-    props.boardId && props.onBoardChange ? (
+  const boardChip = props.hideBoard ? null : props.boardId &&
+    props.onBoardChange ? (
       <BoardPicker
         disabled={disabled}
         teamId={teamId}
         selectedBoardId={props.boardId}
         issueIdentifier={props.issueIdentifier}
         onSelect={props.onBoardChange}
+        confirm={props.boardConfirm ?? true}
       />
     ) : (
       <BoardChip

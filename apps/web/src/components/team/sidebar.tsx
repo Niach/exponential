@@ -63,7 +63,8 @@ import {
   UserAvatar,
   UserMenuItems,
 } from "@/components/team/sidebar-rail"
-import { useDraftEntries } from "@/hooks/use-issue-drafts"
+import { useSidebarDraftCount } from "@/hooks/use-issue-drafts"
+import { useOpenNewDraft } from "@/hooks/use-open-new-draft"
 import { useTeamLiveRuns } from "@/hooks/use-team-live-runs"
 import { otherTeamsLive } from "@/lib/sessions/team-live-runs"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
@@ -152,8 +153,9 @@ export function TeamSidebar({
   const permissions = useTeamPermissions(team)
   const { isOwner, canCreate } = permissions
   // EXP-449: the header's New-issue button works from any team route — it
-  // navigates to the active board (else the device's last-used / first board,
-  // same resolution as the mobile FAB) with ?new=1, which opens the dialog.
+  // files onto the active board (else the device's last-used / first board,
+  // same resolution as the mobile FAB). EXP-1170: it opens the New issue
+  // page on a fresh draft.
   const { boardSlug } = useParams({ strict: false })
   const boardTarget = resolveBoardTarget(teamSlug, boards, boardSlug)
   const [whatsNewOpen, setWhatsNewOpen] = useState(false)
@@ -165,8 +167,10 @@ export function TeamSidebar({
   // hint that a run of mine is alive in a team I am not looking at.
   const teamLive = useTeamLiveRuns(session?.user?.id)
   const otherLive = otherTeamsLive(teamLive, team?.id)
-  // EXP-878: the Drafts entry exists only while there IS a draft.
-  const draftCount = useDraftEntries(team?.id).length
+  // EXP-878: the Drafts entry exists only while there IS a draft (EXP-1170:
+  // other than the one open on the New issue page).
+  const draftCount = useSidebarDraftCount(team?.id)
+  const openNewDraft = useOpenNewDraft(teamSlug)
   const showsReviews = useShowsReviews(team ?? undefined, boards)
   // The guarded /t/$teamSlug layout is the only render site, so a session is
   // guaranteed — the reactive useSession store may still be pending on cold
@@ -327,19 +331,13 @@ export function TeamSidebar({
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
-                      asChild
                       variant="default"
                       size="icon"
                       className="size-8 shrink-0"
                       aria-label="New issue"
+                      onClick={() => openNewDraft({ boardId: boardTarget.id })}
                     >
-                      <Link
-                        to="/t/$teamSlug/boards/$boardSlug"
-                        params={{ teamSlug, boardSlug: boardTarget.slug }}
-                        search={(prev) => ({ ...prev, new: 1 })}
-                      >
-                        <NavCreateIssueIcon className="size-4" />
-                      </Link>
+                      <NavCreateIssueIcon className="size-4" />
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>New issue</TooltipContent>

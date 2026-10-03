@@ -303,7 +303,7 @@ final class StyleguideScreenshots: XCTestCase {
 
         // ── sg_issue-create: the new-issue page ─────────────────────────────
         // The compose button is only mounted on board routes (AppNavigator
-        // `composeRoute`), so come back to the issues tab first. The title
+        // `composeTarget`), so come back to the issues tab first. The title
         // field takes focus on appear, so the page is captured with the
         // keyboard up — which is the state a user actually sees.
         app.buttons["tab-issues"].tap()
@@ -316,10 +316,10 @@ final class StyleguideScreenshots: XCTestCase {
         focus(titleField)
         titleField.typeText("Prefetch avatars before the first board paint")
         snapshot("sg_issue-create", settle: 2)
-        // EXP-878: leaving the compose page with content SAVES a draft (there
-        // is no discard alert any more), and the styleguide run must not write
-        // anything to the seed — clear the title first, which leaves the page
-        // with nothing to keep.
+        // EXP-1170: the page AUTOSAVES its draft while the title is typed, and
+        // the styleguide run must not leave anything in the seed — clear the
+        // title first: Back from an emptied page DELETES the transient row the
+        // autosave wrote (and writes nothing when none was written yet).
         clearText(of: titleField)
         app.buttons["Back"].firstMatch.tap()
         _ = titleField.waitForNonExistence(timeout: 10)

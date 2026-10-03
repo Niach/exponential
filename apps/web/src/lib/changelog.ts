@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-03-new-issue-page`,
+    date: `2026-10-03`,
+    title: `New issue is a page`,
+    summary: `New issue opens as the issue detail in draft mode on web, desktop, iOS and Android, saving a draft as you type until you press Create.`,
+    body: `- **New issue page**: the create dialog is gone. New issue opens a blank issue page with the same title, properties, description and files you know from the detail, on every platform.
+- **Drafts as you type**: what you write is kept as a draft a moment after you stop typing, when you pick a property and when you leave the page. Come back from Drafts and continue where you stopped.
+- **Create**: the Create button in the header files the issue and lands you on it. Discard draft in the menu throws it away.
+- **Files on drafts**: paste or attach files before the issue exists; they move onto the issue when you create it.`,
+  },
+  {
     id: `2026-10-02-release-train`,
     date: `2026-10-02`,
     title: `Safer merges for dependent pull requests`,

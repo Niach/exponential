@@ -937,8 +937,8 @@ mod tests {
 
     #[test]
     fn create_files_from_a_draft_with_draft_id() {
-        // EXP-878: the create-issue dialog's Dialog presentation hands the
-        // server the draft row it was composing in, so the draft's already
+        // EXP-878/EXP-1170: the New issue page hands the server the draft
+        // row it was composing in, so the draft's already
         // uploaded attachments are reparented and the row deleted in the
         // same transaction. It stays off the wire for every other create.
         let mut input = IssuesCreateInput::new("p-1", "From draft");

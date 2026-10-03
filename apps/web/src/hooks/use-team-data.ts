@@ -122,7 +122,14 @@ export function useTeamBoards(teamId?: string) {
 // filter over the already-synced labels collection, so a second caller costs
 // nothing beyond the live query itself.
 export function useTeamLabels(teamId?: string) {
-  const { data } = useLiveQuery(
+  return useTeamLabelsWithReady(teamId).labels
+}
+
+/** The team's labels plus readiness (the boards variant's rule: a disabled
+ *  query reports ready, so `teamId` gates it) — EXP-1170's draft page seeds
+ *  a reopened draft's labels only once they can resolve. */
+export function useTeamLabelsWithReady(teamId?: string) {
+  const { data, isReady } = useLiveQuery(
     (query) =>
       teamId
         ? query
@@ -132,7 +139,10 @@ export function useTeamLabels(teamId?: string) {
     [teamId]
   )
 
-  return (data ?? []) as Label[]
+  return {
+    labels: (data ?? []) as Label[],
+    labelsReady: Boolean(teamId) && isReady,
+  }
 }
 
 export function useTeamMemberships(userId?: string) {

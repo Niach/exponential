@@ -59,7 +59,7 @@ export function SubIssueComposer({
   const [description, setDescription] = useState(``)
   const [creating, setCreating] = useState(false)
   // `null` = "no explicit pick yet", so a late issue_statuses snapshot
-  // upgrades the constructed fallback in place (create-issue-dialog's rule).
+  // upgrades the constructed fallback in place (the New issue page's rule).
   const [pickedStatus, setPickedStatus] = useState<StatusRowOption | null>(null)
   const [priority, setPriority] = useState<IssuePriority>(`none`)
   const [assigneeId, setAssigneeId] = useState<string | null>(null)
@@ -71,7 +71,7 @@ export function SubIssueComposer({
   const status =
     pickedStatus ?? resolveStatus({ status: `backlog`, statusId: null })
   // `users` is the bot-excluded member list; 0 means still loading, so only
-  // an actual 1 hides the control (create-issue-dialog's rule).
+  // an actual 1 hides the control (the New issue page's rule).
   const isSolo = users.length === 1
 
   const close = () => {

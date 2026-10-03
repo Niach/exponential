@@ -915,42 +915,21 @@ impl IssueHeader {
 
         // EXP-568/EXP-601: everything lives in ONE glass tray — the property
         // chips grow from the left, the actions float on the right edge of
-        // the same card.
-        let properties = crate::surface::glass_tray()
-            .child(self.status_control(issue, cx))
-            .child(self.priority_control(issue, cx))
-            .when(!solo_team, |row| {
-                row.child(self.assignee_control(issue, cx))
-            })
-            .child(self.labels_control(issue, cx))
-            .child(self.due_control(issue, cx))
-            .children(self.estimate_control(issue, cx))
-            .children(self.board_chip(issue, cx))
-            .children(self.origin_chip(issue, cx))
-            .when(!actions.is_empty(), |tray| {
-                tray.child(
-                    h_flex()
-                        .ml_auto()
-                        .flex_shrink_0()
-                        .items_center()
-                        .gap_1()
-                        .children(actions),
-                )
-            });
-
-        h_flex()
-            .w_full()
-            .items_center()
-            .px(px(DETAIL_GUTTER))
-            // Web `pt-3` between the title row and the tray; the header's own
-            // `pb-3` (work_header) is the gap to the description.
-            .pt(px(12.))
-            // flex_1 + min_w_0: the tray takes the full column width, which
-            // is what gives its own `flex_wrap` a definite width to wrap the
-            // chips against (a shrink-to-fit tray would size to max-content
-            // and paint past the reading column instead).
-            .child(properties.flex_1().min_w_0())
-            .into_any_element()
+        // the same card (EXP-1170: `work_header::property_tray`, shared with
+        // the New issue page).
+        let mut chips = vec![
+            self.status_control(issue, cx).into_any_element(),
+            self.priority_control(issue, cx).into_any_element(),
+        ];
+        if !solo_team {
+            chips.push(self.assignee_control(issue, cx).into_any_element());
+        }
+        chips.push(self.labels_control(issue, cx).into_any_element());
+        chips.push(self.due_control(issue, cx).into_any_element());
+        chips.extend(self.estimate_control(issue, cx).map(IntoElement::into_any_element));
+        chips.extend(self.board_chip(issue, cx).map(IntoElement::into_any_element));
+        chips.extend(self.origin_chip(issue, cx).map(IntoElement::into_any_element));
+        crate::work_header::property_tray(chips, actions)
     }
 
     /// The Board chip (EXP-282): the board's own glyph tinted with its color
@@ -1034,8 +1013,6 @@ impl IssueHeader {
         )
     }
 }
-
-use gpui::prelude::FluentBuilder as _;
 
 // ---------------------------------------------------------------------------
 // Pieces

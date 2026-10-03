@@ -2,16 +2,16 @@
 //! behind the chip row (web `issue-editor/chips.tsx`) and the post-create
 //! pipeline every composer runs.
 //!
-//! Two surfaces use it: the full-window [`crate::create_issue_dialog`] and
-//! the inline sub-issue composer, both presentations of the one
-//! [`crate::issue_composer`]. Everything that is genuinely shared lives here
-//! — the chips, the wire input the picks build, and the create →
-//! image-resolution → file-upload → row-visible sequence — so the composer is
-//! a form and a submit button rather than a second copy of the dialog.
+//! Two surfaces use it: the New issue PAGE ([`crate::issue_draft_screen`],
+//! EXP-1170 — it replaced the create dialog) and the inline sub-issue
+//! composer ([`crate::issue_composer`]). Everything that is genuinely shared
+//! lives here — the chips, the wire input the picks build, and the create →
+//! image-resolution → file-upload → row-visible sequence.
 //!
 //! What deliberately stays with each surface: layout, the title input, the
-//! description editor and what happens AFTER the row exists (the dialog
-//! closes and navigates; the composer clears itself and stays open).
+//! description editor and what happens AFTER the row exists (the page
+//! replace-navigates to the issue; the composer clears itself and stays
+//! open).
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -93,9 +93,9 @@ impl IssueDraft {
         }
     }
 
-    /// EXP-878: adopt a saved DRAFT's picks (the create dialog reopened from
+    /// EXP-878: adopt a saved DRAFT's picks (the New issue page reopened from
     /// the Drafts page). Everything the chip row shows comes from the row, so
-    /// the reopened dialog is the one that was closed — including an empty
+    /// the reopened page is the one that was left — including an empty
     /// assignee on a solo team, which is a deliberate unassign the defaults
     /// must not undo.
     pub(crate) fn apply_seed(
@@ -381,6 +381,70 @@ impl IssueDraft {
             self.due_calendar.clone(),
             Some(px(280.)),
             None,
+        )
+    }
+}
+
+impl IssueDraft {
+    /// EXP-1170: the board chip of the New issue page (lifted from the
+    /// retired dialog's titlebar select, EXP-449): the board's own glyph
+    /// tinted with its color plus its prefix, opening THE searchable board
+    /// picker over the team's boards. `None` when there is nowhere else to
+    /// go (the EXP-57 `move_target_boards` rule) — a single-board team gets
+    /// no chip at all. A pick lands at once, no confirm: nothing else resets
+    /// (status/assignee/label options are team-scoped and the picker only
+    /// offers same-team boards).
+    pub(crate) fn board_chip(
+        prefix: &'static str,
+        board: &domain::rows::Board,
+        on_pick: Rc<dyn Fn(String, &mut Window, &mut App)>,
+        cx: &App,
+    ) -> Option<AnyElement> {
+        if crate::issue_list::move_target_boards(cx, &board.id).is_empty() {
+            return None;
+        }
+        let tint = board
+            .color
+            .as_deref()
+            .and_then(crate::issue_header::parse_hex_color)
+            .unwrap_or(cx.theme().muted_foreground);
+        let icon = crate::icons::board_icon(board).xsmall().text_color(tint);
+        let label = SharedString::from(board.prefix.clone().unwrap_or_default());
+        let trigger = chip_button(SharedString::from(format!("{prefix}-board-chip")), cx)
+            .icon(icon)
+            .child(crate::pickers::chip_label(label, false, cx))
+            .child(
+                Icon::new(registry::UI_CHEVRON_DOWN)
+                    .xsmall()
+                    .text_color(cx.theme().muted_foreground),
+            )
+            .into_any_element();
+        let current_id = board.id.clone();
+        let team_id = board.team_id.clone();
+        Some(
+            crate::picker::deferred(move |window, cx| {
+                let boards = sync::Store::global(cx)
+                    .collections()
+                    .boards_in_team(&team_id, cx);
+                crate::picker::board_picker::board_picker(
+                    &boards,
+                    Some(current_id.clone()),
+                    trigger,
+                    Rc::new(move |picked, window, cx| {
+                        let Some(board_id) = picked
+                            .into_iter()
+                            .next()
+                            .filter(|board_id| board_id != &current_id)
+                        else {
+                            return;
+                        };
+                        on_pick(board_id, window, cx);
+                    }),
+                )
+                .id(SharedString::from(format!("{prefix}-board-picker")))
+                .render(window, cx)
+            })
+            .into_any_element(),
         )
     }
 }

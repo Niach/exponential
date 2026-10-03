@@ -26,7 +26,7 @@ import {
   useUnreadSupportCount,
 } from "@/hooks/use-unread-notifications"
 import { useReviewsOpenPrCount, useShowsReviews } from "@/hooks/use-nav-counts"
-import { useDraftEntries } from "@/hooks/use-issue-drafts"
+import { useSidebarDraftCount } from "@/hooks/use-issue-drafts"
 import { SidebarPinnedIcons } from "@/components/team/sidebar-pinned"
 import { SidebarRunningIcons } from "@/components/team/sidebar-running"
 
@@ -131,7 +131,7 @@ export function DraftsCountBadge({
   teamId?: string
   placement: BadgePlacement
 }) {
-  const count = useDraftEntries(teamId).length
+  const count = useSidebarDraftCount(teamId)
   // EXP-962: `Badge` owns the shape, the zero and the 99+ cap; the rail owns
   // only where it hangs.
   return (
@@ -284,7 +284,7 @@ function DraftsRailItem({
   teamId?: string
   params: Record<string, string>
 }) {
-  const count = useDraftEntries(teamId).length
+  const count = useSidebarDraftCount(teamId)
   if (count === 0) return null
   return (
     <RailItem label="Drafts" link={{ to: `/t/$teamSlug/drafts`, params }}>

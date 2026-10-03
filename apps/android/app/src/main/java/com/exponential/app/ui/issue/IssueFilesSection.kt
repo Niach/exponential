@@ -66,79 +66,34 @@ fun IssueFilesSection(
     val busyIds by viewModel.busyAttachmentIds.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var confirmDelete by remember { mutableStateOf<AttachmentEntity?>(null) }
     var preview by remember { mutableStateOf<AttachmentEntity?>(null) }
+    val byId = files.associateBy { it.id }
 
-    // No files (and none in flight): stay out of the way entirely. A failed
-    // upload keeps a pending row, so errors still have somewhere to surface.
-    if (files.isEmpty() && pending.isEmpty()) return
-
-    Column(modifier = modifier.fillMaxWidth()) {
-        Text(
-            text = "Files",
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        for (file in files) {
-            FileRow(
-                filename = file.filename,
-                subtitle = Formatter.formatShortFileSize(context, file.sizeBytes),
-                busy = file.id in busyIds,
-                canDelete = canDelete,
-                onPreview = if (isMarkdownAttachment(file.contentType, file.filename)) {
-                    { preview = file }
-                } else {
-                    null
-                },
-                onOpen = {
-                    scope.launch {
-                        val local = viewModel.downloadToCache(file) ?: return@launch
-                        openFile(context, local, file.contentType)
-                    }
-                },
-                onShare = {
-                    scope.launch {
-                        val local = viewModel.downloadToCache(file) ?: return@launch
-                        shareFile(context, local, file.contentType)
-                    }
-                },
-                onDelete = { confirmDelete = file },
-            )
-        }
-
-        for (upload in pending) {
-            PendingFileRow(
-                upload = upload,
-                onRetry = { viewModel.retryFileUpload(upload.key) },
-                onDismiss = { viewModel.dismissFileUpload(upload.key) },
-            )
-        }
-    }
-
-    confirmDelete?.let { target ->
-        AlertDialog(
-            onDismissRequest = { confirmDelete = null },
-            title = { Text("Delete file") },
-            text = {
-                Text(
-                    "Delete \"${target.filename}\"? This cannot be undone. " +
-                        "Anywhere it is referenced in text, a placeholder is left behind.",
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmDelete = null
-                    viewModel.deleteAttachment(target.id)
-                }) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmDelete = null }) { Text("Cancel") }
-            },
-        )
-    }
+    FilesSection(
+        files = files.map { FileItem(it.id, it.filename, it.contentType, it.sizeBytes) },
+        pending = pending,
+        busyIds = busyIds,
+        canDelete = canDelete,
+        onDelete = viewModel::deleteAttachment,
+        onOpen = { item ->
+            val file = byId[item.id] ?: return@FilesSection
+            scope.launch {
+                val local = viewModel.downloadToCache(file) ?: return@launch
+                openFile(context, local, file.contentType)
+            }
+        },
+        onShare = { item ->
+            val file = byId[item.id] ?: return@FilesSection
+            scope.launch {
+                val local = viewModel.downloadToCache(file) ?: return@launch
+                shareFile(context, local, file.contentType)
+            }
+        },
+        onPreview = { item -> preview = byId[item.id] },
+        onRetry = viewModel::retryFileUpload,
+        onDismissPending = viewModel::dismissFileUpload,
+        modifier = modifier,
+    )
 
     preview?.let { target ->
         AttachmentMarkdownPreviewSheet(
@@ -156,16 +111,110 @@ fun IssueFilesSection(
     }
 }
 
+/** One row of [FilesSection] — an uploaded attachment, or a held pick. */
+data class FileItem(
+    val id: String,
+    val filename: String,
+    val contentType: String,
+    /** Null = unknown (a held pick not measured yet): no size line. */
+    val sizeBytes: Long?,
+)
+
+/**
+ * The stateless Files section (EXP-1170: the Issue face and the New issue page
+ * share it). Renders nothing at all with no files and nothing in flight.
+ * [onPreview] is offered on markdown rows only (EXP-1003); [onShare] null
+ * drops Share from the row menu.
+ */
+@Composable
+fun FilesSection(
+    files: List<FileItem>,
+    pending: List<PendingFileUpload>,
+    busyIds: Set<String>,
+    canDelete: Boolean,
+    onDelete: (String) -> Unit,
+    onOpen: (FileItem) -> Unit,
+    modifier: Modifier = Modifier,
+    onShare: ((FileItem) -> Unit)? = null,
+    onPreview: ((FileItem) -> Unit)? = null,
+    onRetry: (String) -> Unit = {},
+    onDismissPending: (String) -> Unit = {},
+) {
+    val context = LocalContext.current
+    var confirmDelete by remember { mutableStateOf<FileItem?>(null) }
+
+    // No files (and none in flight): stay out of the way entirely. A failed
+    // upload keeps a pending row, so errors still have somewhere to surface.
+    if (files.isEmpty() && pending.isEmpty()) return
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        Text(
+            text = "Files",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        for (file in files) {
+            FileRow(
+                filename = file.filename,
+                subtitle = file.sizeBytes?.let { Formatter.formatShortFileSize(context, it) },
+                busy = file.id in busyIds,
+                canDelete = canDelete,
+                onPreview = if (onPreview != null && isMarkdownAttachment(file.contentType, file.filename)) {
+                    { onPreview(file) }
+                } else {
+                    null
+                },
+                onOpen = { onOpen(file) },
+                onShare = onShare?.let { share -> { share(file) } },
+                onDelete = { confirmDelete = file },
+            )
+        }
+
+        for (upload in pending) {
+            PendingFileRow(
+                upload = upload,
+                onRetry = { onRetry(upload.key) },
+                onDismiss = { onDismissPending(upload.key) },
+            )
+        }
+    }
+
+    confirmDelete?.let { target ->
+        AlertDialog(
+            onDismissRequest = { confirmDelete = null },
+            title = { Text("Delete file") },
+            text = {
+                Text(
+                    "Delete \"${target.filename}\"? This cannot be undone. " +
+                        "Anywhere it is referenced in text, a placeholder is left behind.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = null
+                    onDelete(target.id)
+                }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = null }) { Text("Cancel") }
+            },
+        )
+    }
+}
+
 @Composable
 private fun FileRow(
     filename: String,
-    subtitle: String,
+    subtitle: String?,
     busy: Boolean,
     canDelete: Boolean,
     /** EXP-1003: set for markdown rows — the row tap previews in the app. */
     onPreview: (() -> Unit)?,
     onOpen: () -> Unit,
-    onShare: () -> Unit,
+    onShare: (() -> Unit)?,
     onDelete: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
@@ -197,11 +246,13 @@ private fun FileRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         Box {
             CircleIconButton(
@@ -229,14 +280,16 @@ private fun FileRow(
                         onOpen()
                     },
                 )
-                GlassMenuItem(
-                    leadingIcon = { Icon(ExpIcons.uiShare, contentDescription = null) },
-                    text = { Text("Share") },
-                    onClick = {
-                        menuOpen = false
-                        onShare()
-                    },
-                )
+                if (onShare != null) {
+                    GlassMenuItem(
+                        leadingIcon = { Icon(ExpIcons.uiShare, contentDescription = null) },
+                        text = { Text("Share") },
+                        onClick = {
+                            menuOpen = false
+                            onShare()
+                        },
+                    )
+                }
                 if (canDelete) {
                     GlassMenuItem(
                         leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },

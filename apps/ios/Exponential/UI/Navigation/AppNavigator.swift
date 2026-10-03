@@ -30,13 +30,20 @@ enum AppRoute: Hashable {
     /// EXP-933: an issue's Work screen opened on a given face — an agent's
     /// targeted message (inbox row or push) lands on its Results.
     case issueFace(accountId: String, id: String, face: WorkFaceKind)
-    /// New issue (EXP-687): a pushed PAGE, not a sheet — back icon top-left,
-    /// `Create` pill top-right, exactly like Android's CreateIssueScreen.
-    /// Creating replaces this route with the issue it filed.
-    /// EXP-878: `draftId` names the saved draft the page reopens (nil = a
-    /// blank compose, which mints its own id). EXP-1097: `parentId` files it
-    /// as a sub-issue of that issue (the detail's Sub-issues `+`).
-    case createIssue(accountId: String, boardId: String, draftId: String?, parentId: String? = nil)
+    /// EXP-1170: the New issue page — a DRAFT in the issue face's layout.
+    /// Every opener mints `draftId` at TAP time (a fresh lowercase uuid; the
+    /// Drafts list passes the row's own), so the route names the draft it
+    /// autosaves to. `statusId` pre-picks a status; `parentId` files it as a
+    /// sub-issue of that issue (the face's Sub-issues `+`, EXP-1097), which
+    /// writes no draft row. Creating replaces this route with the issue it
+    /// filed.
+    case issueDraft(
+        accountId: String,
+        draftId: String,
+        boardId: String,
+        statusId: String? = nil,
+        parentId: String? = nil
+    )
     /// One support ticket's conversation (EXP-180 helpdesk) — pushed from the
     /// My Work Support segment or a support_reply push tap.
     case supportThread(accountId: String, threadId: String)
@@ -502,14 +509,22 @@ struct MainNavigator: View {
                     // The launcher capsule (chat | new issue) rides every
                     // bar-visible surface (EXP-827/EXP-973); only a team with
                     // no board leaves the New-issue arm inert.
-                    composeEnabled: composeRoute != nil,
+                    composeEnabled: composeTarget != nil,
                     onIssues: { path = [] },
                     onDevices: { if !isOnAgents { path = [.agents] } },
                     onActions: { if !isOnActions { path = [.actions] } },
                     onMyWork: { if !isOnMyWork { path = [.myWork] } },
                     onReviews: { if !isOnReviews { path = [.reviews] } },
                     onSupport: { if !isOnSupport { path = [.support] } },
-                    onCompose: { if let route = composeRoute { path.append(route) } },
+                    onCompose: {
+                        // EXP-1170: the draft id is minted HERE, at tap time.
+                        guard let target = composeTarget else { return }
+                        path.append(.issueDraft(
+                            accountId: target.accountId,
+                            draftId: UUID().uuidString.lowercased(),
+                            boardId: target.boardId
+                        ))
+                    },
                     // EXP-825: the Chat FAB pushes the Agent page with an
                     // empty seed — the composer IS the launcher.
                     onChat: {
@@ -632,12 +647,12 @@ struct MainNavigator: View {
     /// tab is pointed at, resolved from the last-used board, else the first of
     /// the active team (EXP-973). Filing an issue is never route-dependent;
     /// only a team with no board at all leaves the arm with nowhere to go.
-    private var composeRoute: AppRoute? {
+    private var composeTarget: (accountId: String, boardId: String)? {
         if case let .board(accountId, id)? = path.last {
-            return .createIssue(accountId: accountId, boardId: id, draftId: nil)
+            return (accountId, id)
         }
         if let current = currentBoard {
-            return .createIssue(accountId: current.accountId, boardId: current.boardId, draftId: nil)
+            return (current.accountId, current.boardId)
         }
         return nil
     }
@@ -646,10 +661,10 @@ struct MainNavigator: View {
     /// Back from the issue returns to the board, not to an empty draft. One
     /// mutation, so the stack animates as a single push.
     private func replaceTopRoute(with route: AppRoute) {
-        // Only the compose page is swapped out. `createIssue()` is async, so a
+        // Only the compose page is swapped out. `create()` is async, so a
         // notification tap or a link can push something else on top meanwhile;
         // that must not be clobbered.
-        if case .createIssue = path.last {
+        if case .issueDraft = path.last {
             path[path.count - 1] = route
         } else {
             path.append(route)
@@ -760,14 +775,22 @@ struct MainNavigator: View {
         case let .issueFace(accountId, id, face):
             WorkScreen(subject: .issue(id: id), initialFace: face)
                 .environment(\.accountId, accountId)
-        case let .createIssue(accountId, boardId, draftId, parentId):
-            CreateIssueView(boardId: boardId, draftId: draftId, parentId: parentId) { createdId in
-                if let createdId {
+        case let .issueDraft(accountId, draftId, boardId, statusId, parentId):
+            IssueDraftPageView(
+                draftId: draftId,
+                boardId: boardId,
+                statusId: statusId,
+                parentId: parentId,
+                onCreated: { createdId in
                     replaceTopRoute(with: .issue(accountId: accountId, id: createdId))
-                } else if !path.isEmpty {
-                    path.removeLast()
+                },
+                onClose: {
+                    // Only THIS page: a link may have pushed over it.
+                    if case let .issueDraft(_, top, _, _, _)? = path.last, top == draftId {
+                        path.removeLast()
+                    }
                 }
-            }
+            )
             .environment(\.accountId, accountId)
         case let .supportThread(accountId, threadId):
             SupportThreadView(threadId: threadId)

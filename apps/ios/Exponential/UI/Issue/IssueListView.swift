@@ -330,7 +330,12 @@ struct IssueListView: View {
                 icon: AppIcons.uiAdd,
                 size: .md,
                 mode: .action {
-                    pushRoute(.createIssue(accountId: accountId, boardId: boardId, draftId: nil))
+                    // EXP-1170: the draft id is minted at tap time.
+                    pushRoute(.issueDraft(
+                        accountId: accountId,
+                        draftId: UUID().uuidString.lowercased(),
+                        boardId: boardId
+                    ))
                 },
                 primary: true
             )

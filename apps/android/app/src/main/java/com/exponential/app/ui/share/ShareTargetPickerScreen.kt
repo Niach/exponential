@@ -27,9 +27,9 @@ data class ShareTargetState(
 /**
  * Data source for the single-screen share composer (`share-compose`): the
  * active account's teams → boards, with the most recently opened board
- * surfaced as the default. Consumed by [com.exponential.app.ui.issue.CreateIssueScreen]
- * in share mode, which renders the "Share to" destination selector at the top
- * of the form (EXP-60), backed by [ShareBoardPickerSheet].
+ * surfaced as the default. Consumed by [com.exponential.app.ui.issue.IssueDraftScreen]
+ * in share mode, whose board chip picks the destination (EXP-60/1170), backed
+ * by [ShareBoardPickerSheet].
  */
 @HiltViewModel
 class ShareTargetPickerViewModel @Inject constructor(

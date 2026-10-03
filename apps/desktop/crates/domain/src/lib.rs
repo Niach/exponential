@@ -54,6 +54,8 @@
 //! * [`issue_estimate`] — EXP-630 story points on the TEAM's scale (labels,
 //!   picker ladder, the `estimate_changed` phrase), byte-locked ×4 by
 //!   `fixtures/issue-estimate.json`;
+//! * [`issue_draft`] — EXP-1170's New issue page copy + autosave cadence,
+//!   locked ×4 by `fixtures/issue-draft.json`;
 //! * [`issue_search`] — EXP-892's ONE issue-search engine (rank + server-hit
 //!   merge), byte-locked ×4 by
 //!   `packages/domain-contract/fixtures/issue-search.json`;
@@ -96,6 +98,7 @@ pub mod entity_preview;
 pub mod enums;
 pub mod hydrate;
 pub mod image_message;
+pub mod issue_draft;
 pub mod issue_estimate;
 pub mod issue_graph;
 pub mod issue_nesting;

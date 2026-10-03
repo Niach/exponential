@@ -17,7 +17,9 @@
 //! [`crate::markdown::AttachmentTransport`] and deletion through
 //! `api::attachments::attachments_delete`.
 
-use gpui::App;
+use gpui::prelude::FluentBuilder as _;
+use gpui::{div, AnyElement, App, IntoElement, ParentElement, SharedString, Styled, Window};
+use gpui_component::{h_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _};
 use sync::Store;
 
 use domain::rows::Attachment;
@@ -459,6 +461,192 @@ pub(crate) fn fetch_attachment_to_temp(
     }
     std::fs::write(&path, bytes)?;
     Ok(path)
+}
+
+// ---------------------------------------------------------------------------
+// EXP-1170 — the Files rows, shared by the issue detail and the New issue page
+// ---------------------------------------------------------------------------
+
+/// One uploaded file as a row: what [`file_row`] paints.
+pub(crate) struct FileRow {
+    /// The attachment id (element ids + the Save as fetch).
+    pub id: String,
+    pub label: String,
+    pub content_type: Option<String>,
+    pub size_bytes: i64,
+    /// An Open/Save/Delete request is in flight — the actions disable.
+    pub busy: bool,
+    /// EXP-1003: a markdown row PREVIEWS in-app instead of opening.
+    pub preview: Option<crate::attachment_markdown_preview::MarkdownPreviewTarget>,
+}
+
+/// One synced file row: type glyph · filename · size · Open (Preview for
+/// markdown, EXP-1003) / Save as / Delete. `on_open` / `on_delete` are the
+/// host's (the detail confirms a delete, a draft just drops the file).
+pub(crate) fn file_row(
+    row: FileRow,
+    on_open: impl Fn(&mut Window, &mut App) + 'static,
+    on_delete: impl Fn(&mut Window, &mut App) + 'static,
+    cx: &App,
+) -> AnyElement {
+    use crate::icons::registry;
+    let FileRow {
+        id,
+        label,
+        content_type,
+        size_bytes,
+        busy,
+        preview,
+    } = row;
+    let glyph = icon_for_content_type(content_type.as_deref());
+    h_flex()
+        .w_full()
+        .min_w_0()
+        .gap_2()
+        .px_2()
+        .py_1()
+        .rounded_md()
+        .items_center()
+        .bg(theme::tokens::glass::FILL_CARD.to_hsla())
+        .child(
+            Icon::from(glyph)
+                .xsmall()
+                .text_color(cx.theme().muted_foreground),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_sm()
+                .whitespace_nowrap()
+                .overflow_hidden()
+                .text_ellipsis()
+                .child(SharedString::from(label.clone())),
+        )
+        .child(
+            div()
+                .flex_shrink_0()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child(SharedString::from(format_bytes(size_bytes))),
+        )
+        .child(match preview {
+            // EXP-1003: a markdown row PREVIEWS in-app instead of handing the
+            // file to the OS (web parity); Save as… stays beside it.
+            Some(target) => crate::controls::ghost_icon_button(
+                SharedString::from(format!("issue-file-preview-{id}")),
+                Icon::new(registry::UI_WATCH),
+                cx,
+            )
+            .tooltip("Preview")
+            .on_click(move |_, window, cx| {
+                crate::attachment_markdown_preview::open_markdown_preview(
+                    target.clone(),
+                    window,
+                    cx,
+                );
+            })
+            .into_any_element(),
+            None => crate::controls::ghost_icon_button(
+                SharedString::from(format!("issue-file-open-{id}")),
+                Icon::from(ExpIcon::ExternalLink),
+                cx,
+            )
+            .disabled(busy)
+            .tooltip("Open")
+            .on_click(move |_, window, cx| on_open(window, cx))
+            .into_any_element(),
+        })
+        .child({
+            let (id, label) = (id.clone(), label.clone());
+            crate::controls::ghost_icon_button(
+                SharedString::from(format!("issue-file-save-{id}")),
+                Icon::from(ExpIcon::Download),
+                cx,
+            )
+            .disabled(busy)
+            .tooltip("Save as…")
+            .on_click(move |_, window, cx| {
+                crate::comment_attachments::save_attachment_as(
+                    id.clone(),
+                    label.clone(),
+                    window,
+                    cx,
+                );
+            })
+        })
+        .child(
+            crate::controls::ghost_icon_button(
+                SharedString::from(format!("issue-file-delete-{id}")),
+                Icon::from(ExpIcon::Trash2),
+                cx,
+            )
+            .disabled(busy)
+            .tooltip("Delete")
+            .on_click(move |_, window, cx| on_delete(window, cx)),
+        )
+        .into_any_element()
+}
+
+/// A staged pick: "Uploading…" until the server answers, or the failure
+/// message with a dismiss ✕ (`on_dismiss`).
+pub(crate) fn pending_file_row(
+    key: u64,
+    filename: String,
+    error: Option<SharedString>,
+    on_dismiss: impl Fn(&mut Window, &mut App) + 'static,
+    cx: &App,
+) -> AnyElement {
+    let failed = error.is_some();
+    let status = error.unwrap_or_else(|| SharedString::from("Uploading…"));
+    h_flex()
+        .w_full()
+        .min_w_0()
+        .gap_2()
+        .px_2()
+        .py_1()
+        .rounded_md()
+        .items_center()
+        .bg(theme::tokens::glass::FILL_CARD.to_hsla())
+        .child(
+            Icon::from(ExpIcon::File)
+                .xsmall()
+                .text_color(cx.theme().muted_foreground),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_sm()
+                .whitespace_nowrap()
+                .overflow_hidden()
+                .text_ellipsis()
+                .text_color(cx.theme().muted_foreground)
+                .child(SharedString::from(filename)),
+        )
+        .child(
+            div()
+                .flex_shrink_0()
+                .text_xs()
+                .text_color(if failed {
+                    cx.theme().danger
+                } else {
+                    cx.theme().muted_foreground
+                })
+                .child(status),
+        )
+        .when(failed, |row| {
+            row.child(
+                crate::controls::ghost_icon_button(
+                    SharedString::from(format!("issue-file-dismiss-{key}")),
+                    Icon::new(crate::icons::registry::UI_CLOSE),
+                    cx,
+                )
+                .tooltip("Dismiss")
+                .on_click(move |_, window, cx| on_dismiss(window, cx)),
+            )
+        })
+        .into_any_element()
 }
 
 #[cfg(test)]

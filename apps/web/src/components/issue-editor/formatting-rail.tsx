@@ -686,11 +686,8 @@ function LinkEditor({
   }
 
   return (
-    // The dialog shells whitelist Escape aimed at this layer so it closes the
-    // link editor instead of the dialog (dialog-shell.tsx).
-    //
-    // EXP-967: both rails portal to document.body, OUTSIDE the create/edit
-    // dialog's Radix focus trap, which watches `focusin` document-wide and
+    // EXP-967: both rails portal to document.body, OUTSIDE any host dialog's
+    // Radix focus trap, which watches `focusin` document-wide and
     // pulled focus straight back to the editor the moment this field took it
     // (the typed URL then replaced the selection). Radix's own escape hatch is
     // a nested FocusScope: mounting one pauses every scope above it on the

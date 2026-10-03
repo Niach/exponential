@@ -28,8 +28,8 @@ actions!(
         GoForward,
         /// Sidebar "Boards" group header `+`: create board.
         NewBoard,
-        /// Board filter bar "New Issue" (§4.2): open the create-issue dialog
-        /// (handler lands with the dialog).
+        /// "New issue" (§4.2): open the New issue PAGE on the window's
+        /// active board (EXP-1170 — handler in `navigation::init`).
         NewIssue,
         /// Team picker: create a new team.
         CreateTeam,

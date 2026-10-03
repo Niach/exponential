@@ -5,7 +5,7 @@
 //! real block editor instead of the read-only fallback.
 //!
 //! Also exports [`build_editor`] — the one configured-editor constructor the
-//! create-issue dialog shares (transport + completion source + `#IDENT`/`@`
+//! New issue page and the sub-issue composer share (transport + completion source + `#IDENT`/`@`
 //! resolver all wired identically, §4.6).
 
 use std::cell::RefCell;
@@ -39,9 +39,9 @@ pub(crate) fn install(cx: &mut App) {
 }
 
 /// Build a configured [`crate::wysiwyg::WysiwygDescription`] entity — the
-/// WYSIWYG analog of [`build_editor`], shared by the detail seam and the
-/// create-issue dialog so transport, autocomplete and pill wiring never
-/// diverge.
+/// WYSIWYG analog of [`build_editor`], shared by the detail seam, the New
+/// issue page and the sub-issue composer so transport, autocomplete and pill
+/// wiring never diverge.
 pub(crate) fn build_wysiwyg_editor(
     team_id: Option<String>,
     upload_issue: Option<String>,
@@ -140,7 +140,7 @@ impl DescriptionEditor for WysiwygSeamEditor {
 }
 
 /// Build a fully configured [`MarkdownEditor`] entity — the single
-/// constructor both the detail seam and the create-issue dialog use, so
+/// constructor the detail seam and the issue composers use, so
 /// image transport, autocomplete and pill resolution never diverge (§4.5
 /// "one upload path").
 ///
@@ -245,7 +245,7 @@ impl SeamEditor {
         editor.update(cx, |editor, _| {
             // Detail mode: read the description rendered (pills, clickable
             // links) until the user clicks in to edit — web parity (EXP-161).
-            // The create dialog keeps the always-editable surface.
+            // The New issue page keeps the always-editable surface.
             editor.set_preview_when_blurred(true);
             // …and edit mode stays chrome-less (EXP-256): no border card, no
             // horizontal padding shift when clicking into the description.

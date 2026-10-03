@@ -18,6 +18,7 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
+import com.exponential.app.domain.IssueDraftPage
 import com.exponential.app.ui.onboarding.OnboardingTestHooks
 import org.junit.After
 import org.junit.Assert.assertTrue
@@ -299,16 +300,15 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasContentDescription("Switch board"), NAV_TIMEOUT)
         flow.settle()
 
-        // --- Create issue: the compose circle on the bottom bar only exists
-        // while a board is in view, and CreateIssueScreen dismisses via
-        // "Cancel" (it has no "Back" node). EXP-878 needs nothing here: this
-        // shot types NOTHING into the form, so the close writes no draft.
+        // --- Create issue: the compose circle opens the New issue PAGE
+        // (EXP-1170), left via its header's "Back". This shot types NOTHING
+        // into it, so leaving writes no draft row.
         composeRule.onNode(hasContentDescription("New issue")).performClick()
         flow.waitFor(hasTestTag("create-issue-title-field"), NAV_TIMEOUT)
-        flow.waitFor(hasText("New Issue"), NAV_TIMEOUT)
+        flow.waitFor(hasText(IssueDraftPage.HEADER), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_issue-create")
-        composeRule.onNode(hasContentDescription("Cancel")).performClick()
+        composeRule.onNode(hasContentDescription("Back")).performClick()
         flow.waitFor(hasContentDescription("Switch board"), NAV_TIMEOUT)
         flow.settle()
 

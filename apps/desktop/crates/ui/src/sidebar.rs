@@ -2003,7 +2003,12 @@ pub(crate) fn render_left_column_header(
                     .icon(registry::NAV_CREATE_ISSUE)
                     .tooltip("New issue")
                     .on_click(move |_: &ClickEvent, window, cx| {
-                        crate::create_issue_dialog::open(window, cx, board_id.clone());
+                        // EXP-1170: the New issue PAGE, no list beside it.
+                        crate::issue_draft_screen::open_new_from_rail(
+                            window,
+                            cx,
+                            board_id.clone(),
+                        );
                     }),
             )
         })
@@ -2176,8 +2181,19 @@ impl Render for RailView {
         // the screen you are looking at). EXP-963: it carries the pile's
         // COUNT as the muted badge the web rail wears (EXP-962) — a count
         // you parked, not an alert, which is what the muted tone says.
+        // EXP-1170: the draft open on the New issue page is not "parked" —
+        // it neither counts nor alone keeps the entry up.
+        let open_draft = match resolved_screen(&self.nav, cx) {
+            Some(Screen::IssueDraft { draft_id, .. }) => Some(draft_id),
+            _ => None,
+        };
         let draft_count = active_team_id(&self.nav, cx)
-            .map(|id| crate::drafts::drafts_in_team(&id, cx).len())
+            .map(|id| {
+                crate::drafts::drafts_in_team(&id, cx)
+                    .iter()
+                    .filter(|draft| Some(&draft.id) != open_draft.as_ref())
+                    .count()
+            })
             .unwrap_or(0);
         let on_drafts = matches!(resolved_screen(&self.nav, cx), Some(Screen::Drafts));
         let drafts_entry = (draft_count > 0 || on_drafts).then(|| {

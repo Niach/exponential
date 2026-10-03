@@ -121,6 +121,7 @@ import {
   PasswordInput,
   Pill,
   PrGithubButton,
+  PropertyRow,
   PreviewMedia,
   RichTab,
   ResizeHandle,
@@ -324,6 +325,9 @@ const EmojiGlyph = conceptIcon(`editor-emoji`)
 const PropertiesGlyph = conceptIcon(`ui-properties`)
 const CommentGlyph = conceptIcon(`notification-issue-comment`)
 const DraftsGlyph = conceptIcon(`nav-drafts`)
+const LabelsGlyph = conceptIcon(`settings-labels`)
+const DueDateGlyph = conceptIcon(`ui-due-date`)
+const PriorityHighGlyph = conceptIcon(`priority-high`)
 const PinGlyph = conceptIcon(`ui-pin`)
 const ToolGlyph = conceptIcon(`coding-tool`)
 const ActionCreateGlyph = conceptIcon(`action-create`)
@@ -644,6 +648,8 @@ function na(note: string): ComponentStatus {
 }
 
 const WEB_GLASS_ROWS = `packages/ui/src/glass-rows.tsx`
+const WEB_PROPERTY_ROW = `packages/ui/src/property-row.tsx`
+const IOS_META_ROW = `apps/ios/ExpUI/Sources/GlassMetaRow.swift`
 const DESKTOP_SURFACE = `apps/desktop/crates/ui/src/surface.rs`
 const DESKTOP_CONTROLS = `apps/desktop/crates/ui/src/controls.rs`
 const IOS_THEME = `apps/ios/ExpUI/Sources/GlassTheme.swift`
@@ -914,6 +920,67 @@ export const COMPONENTS: readonly ComponentSpec[] = [
           </GlassGroup>
         </div>
       </div>
+    ),
+  },
+  {
+    id: `property-row`,
+    title: `Property row`,
+    kind: `Lists & rows`,
+    blurb: `EXP-1170: THE phone properties sheet row (issue detail + create form, ×3 phones): the label left and muted, the value right and readable with its glyph riding beside it as one trailing unit, the WHOLE row the target, no chevron. Rows stack inside a \`GlassGroup\`. A set-valued property (Labels) shows the picks joined by ", " in the team's order and opens the shared picker sheet, never a cloud of toggle chips; nothing picked reads "None".`,
+    status: {
+      web: ok(`PropertyRow`, WEB_PROPERTY_ROW),
+      desktop: na(`Desktop shows the properties inline as header chips; no sheet rows.`),
+      ios: ok(`GlassMetaRow`, IOS_META_ROW),
+      android: ok(`MetaRow`, ANDROID_SHEET_ROWS),
+    },
+    island: () => (
+      <GlassGroup>
+        <PropertyRow
+          label="Status"
+          value={
+            <>
+              <StatusGlyph icon="progress-2-4" colorClass="text-yellow-500" className="size-3.5" />
+              In Progress
+            </>
+          }
+        />
+        <PropertyRow
+          label="Priority"
+          value={
+            <>
+              <PriorityHighGlyph className="size-3.5 text-orange-500" />
+              High
+            </>
+          }
+        />
+        <PropertyRow
+          label="Assignee"
+          value={
+            <>
+              <UserAvatar size={16} user={{ id: `mina`, name: `Mina Kay`, image: null }} />
+              <span className="max-w-[8rem] truncate">Mina Kay</span>
+            </>
+          }
+        />
+        <PropertyRow
+          label="Labels"
+          value={
+            <>
+              <LabelsGlyph className="size-3.5" />
+              <span className="max-w-[8rem] truncate">bug, mobile</span>
+            </>
+          }
+        />
+        <PropertyRow
+          label="Due date"
+          value={
+            <>
+              <DueDateGlyph className="size-3.5" />
+              Mar 8
+            </>
+          }
+        />
+      </GlassGroup>
     ),
   },
   {
