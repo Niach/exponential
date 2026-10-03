@@ -127,14 +127,14 @@ const Card: React.FC<{ state: ReturnType<typeof cardState>; flipPop: number; gho
 const BoardStation: React.FC<{ sf: number; docked: boolean; home: boolean }> = ({ sf, docked, home }) => {
   const rows: [string, string, StatusKind][] = home
     ? [
-        [`EXP-1097`, `Review wave clears its layer`, `done`],
+        [`EXP-1097`, `Offline queue for issue edits`, `done`],
         [`EXP-1093`, `Issue rail hover opens the mini-graph`, `done`],
-        [`EXP-1102`, `Workflow host state lives on the device`, `review`],
+        [`EXP-1102`, `Reduce cold start below 800 ms`, `review`],
       ]
     : [
-        [`EXP-1097`, `Review wave clears its layer`, `progress`],
+        [`EXP-1097`, `Offline queue for issue edits`, `progress`],
         [`EXP-1093`, `Issue rail hover opens the mini-graph`, `progress`],
-        [`EXP-1102`, `Workflow host state lives on the device`, `backlog`],
+        [`EXP-1102`, `Reduce cold start below 800 ms`, `backlog`],
       ]
   return (
     <Glass x={-470} y={-CARD_H / 2 - 56 - 46 - 4} w={940} h={56 + 46 + 4 + CARD_H + 4 + 3 * 66 + 16} r={20}>

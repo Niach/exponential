@@ -161,6 +161,7 @@ function BlockedStartSpecimen({
   stackable: boolean
 }) {
   const suffix = stackable ? copy.bodySuffixStackable : copy.bodySuffix
+  const [, suffixGlue = ``, suffixRest = ``] = /^(\S*)(.*)$/s.exec(suffix) ?? []
   return (
     // The Radix root gives the title, the description and Cancel their
     // context; the alert arm is the one the app's dialog opens in.
@@ -169,11 +170,16 @@ function BlockedStartSpecimen({
         <DialogSpecimen caption={caption} showClose>
           <DialogHeader>
             <DialogTitle>{copy.title}</DialogTitle>
+            {/* The chip flows INLINE in the sentence, glued to the
+                suffix's leading "." so a wrap never starts a line with it. */}
             <DialogDescription asChild>
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span>{copy.bodyPrefix.trimEnd()}</span>
-                {chip(blocker)}
-                <span>{suffix.trimStart()}</span>
+              <div className="leading-6">
+                {copy.bodyPrefix}
+                <span className="whitespace-nowrap">
+                  {chip(blocker)}
+                  {suffixGlue}
+                </span>
+                {suffixRest}
               </div>
             </DialogDescription>
           </DialogHeader>
@@ -202,7 +208,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-980`,
   title: `Blocked-start dialog`,
-  blurb: `What starting a BLOCKED issue asks first (EXP-980, reworked by SLOP-3). The sentence names the direct open blockers as issue chips; under it THE blocks mini-graph draws the whole transitive chain, top = the first blockers, bottom = the subject in the accent ring. Three answers, in this order: Cancel, "${copy.startAnyway}" (outline), "${copy.stackedPr}" (primary). "${copy.stackedPr}" builds the dependency LINE bottom-up and is never hidden: over a line of two or more issues the plan note under the graph says which one starts first; while it cannot stack (a batch, a cycle, a fork, another repository, more than ${blockedStart.maxRun} issues, a member still running) the button is DISABLED and the reason's note takes the plan note's place, and the sentence drops its stacked half. A batch asks with its own title and one line of body ("${copy.batchTitle}"). The copy, the reasons and their order are the contract's (\`blocked-start.json\`, byte-locked ×4). Phones keep the three answers; iOS hosts the graph in a fitted sheet instead of an alert.`,
+  blurb: `What starting a BLOCKED issue asks first (EXP-980, reworked by SLOP-3). The sentence names the direct open blockers as issue chips flowing INLINE in its text, the last one glued to the suffix's "." so a wrap never opens a line with it (EXP-1167; desktop and iOS print one text run, Android stacks the prefix, the chip row and the suffix without its "." in a column); under it THE blocks mini-graph draws the whole transitive chain, top = the first blockers, bottom = the subject in the accent ring. Three answers, in this order: Cancel, "${copy.startAnyway}" (outline), "${copy.stackedPr}" (primary). "${copy.stackedPr}" builds the dependency LINE bottom-up and is never hidden: over a line of two or more issues the plan note under the graph says which one starts first; while it cannot stack (a batch, a cycle, a fork, another repository, more than ${blockedStart.maxRun} issues, a member still running) the button is DISABLED and the reason's note takes the plan note's place, and the sentence drops its stacked half. A batch asks with its own title and one line of body ("${copy.batchTitle}"). The copy, the reasons and their order are the contract's (\`blocked-start.json\`, byte-locked ×4). Phones keep the three answers; iOS hosts the graph in a fitted sheet instead of an alert.`,
   status: {
     web: {
       state: `ok`,
