@@ -157,10 +157,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
             "invite" -> data.pathSegments.firstOrNull()?.let { deepLinkBus.openInvite(it) }
-            // support_reply push taps (EXP-180): straight to the ticket.
-            "support" -> data.pathSegments.firstOrNull()?.let {
-                if (switchToPushAccount(linkUserId)) deepLinkBus.openSupportThread(it)
-            }
             // agent_message push taps (EXP-801): the My Work inbox.
             "inbox" -> if (switchToPushAccount(linkUserId)) deepLinkBus.openInbox()
             // session_blocked push taps (EXP-980): the run that hit the wall.
@@ -188,7 +184,6 @@ class MainActivity : ComponentActivity() {
         val target = PushDeepLinks.target(
             type = intent.getStringExtra("type"),
             issueId = intent.getStringExtra("issueId"),
-            threadId = intent.getStringExtra("threadId"),
             sessionId = intent.getStringExtra("sessionId"),
         ) ?: return
         if (!switchToPushAccount(intent.getStringExtra("userId"))) return
@@ -202,10 +197,6 @@ class MainActivity : ComponentActivity() {
             is PushDeepLinks.Target.IssueResults -> {
                 intent.removeExtra("issueId")
                 deepLinkBus.openIssue(target.id, face = PushDeepLinks.FACE_RESULTS)
-            }
-            is PushDeepLinks.Target.SupportThread -> {
-                intent.removeExtra("threadId")
-                deepLinkBus.openSupportThread(target.id)
             }
             is PushDeepLinks.Target.Session -> {
                 intent.removeExtra("sessionId")

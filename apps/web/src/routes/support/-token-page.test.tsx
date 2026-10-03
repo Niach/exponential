@@ -10,15 +10,35 @@ import {
 
 const thread = {
   subject: `Login is broken`,
-  boardName: null,
   teamName: `Acme`,
-  closed: false,
+  status: `open` as `open` | `resolved`,
   reporterName: `Ada`,
+  report: {
+    title: `Login is broken`,
+    // Stored as server-escaped GFM; the page shows the plain text.
+    description: `It loops back \\#3 times\nand \\*never\\* signs in\\.`,
+    createdAt: new Date().toISOString(),
+  },
+  attachments: [
+    {
+      id: `a1`,
+      filename: `shot.png`,
+      contentType: `image/png`,
+      width: 800,
+      height: 600,
+    },
+  ],
   messages: [
     {
       id: `m1`,
       direction: `inbound` as const,
       body: `Hello`,
+      createdAt: new Date().toISOString(),
+    },
+    {
+      id: `m2`,
+      direction: `outbound` as const,
+      body: `On it.`,
       createdAt: new Date().toISOString(),
     },
   ],
@@ -33,6 +53,7 @@ const jsonResponse = (status: number, body: unknown, headers?: HeadersInit) =>
 function mockFetch(handlers: {
   thread?: () => Response
   reply?: () => Response
+  attachment?: () => Response
 }) {
   // `_init` is unused, but declaring it is what types `mock.calls` entries as
   // 2-tuples so assertions can read the request body off `[1]`.
@@ -45,8 +66,13 @@ function mockFetch(handlers: {
       if (url.endsWith(`/api/support/reply`)) {
         return handlers.reply?.() ?? jsonResponse(200, { ok: true })
       }
-      // The live poll — never the subject of these tests.
-      return jsonResponse(200, { closed: false, messages: [] })
+      if (url.endsWith(`/api/support/attachment`)) {
+        return (
+          handlers.attachment?.() ??
+          new Response(new Blob([new Uint8Array([1])], { type: `image/png` }))
+        )
+      }
+      return jsonResponse(404, { error: `nope` })
     }
   )
   vi.stubGlobal(`fetch`, fetchMock)
@@ -56,6 +82,10 @@ function mockFetch(handlers: {
 const replyCalls = (fetchMock: ReturnType<typeof mockFetch>) =>
   fetchMock.mock.calls.filter(([input]) =>
     String(input).endsWith(`/api/support/reply`)
+  )
+const attachmentCalls = (fetchMock: ReturnType<typeof mockFetch>) =>
+  fetchMock.mock.calls.filter(([input]) =>
+    String(input).endsWith(`/api/support/attachment`)
   )
 
 describe(`retryAfterSeconds`, () => {
@@ -73,6 +103,57 @@ describe(`SupportConversationView`, () => {
   beforeEach(() => {
     vi.unstubAllGlobals()
     Element.prototype.scrollIntoView = vi.fn()
+    vi.stubGlobal(`URL`, {
+      ...URL,
+      createObjectURL: vi.fn(() => `blob:shot`),
+      revokeObjectURL: vi.fn(),
+    })
+  })
+
+  // SLOP-4: the report block — plain text (escapes dropped), the pictures
+  // fetched through the token-gated POST route, the status pill, and the
+  // reply box that stays even when resolved (a reply reopens).
+  it(`shows the report as plain text with its pictures and status`, async () => {
+    const fetchMock = mockFetch({})
+    render(<SupportConversationView token="tok" />)
+
+    expect(await screen.findByText(`It loops back #3 times`, { exact: false })).toBeTruthy()
+    expect(screen.getByText(/and \*never\* signs in\./)).toBeTruthy()
+    expect(screen.queryByText(/\\#3/)).toBeNull()
+    expect(screen.getByTestId(`report-status`).textContent).toBe(`Open`)
+    expect(screen.getByText(`Hello`)).toBeTruthy()
+    expect(screen.getByText(`On it.`)).toBeTruthy()
+
+    await waitFor(() => expect(attachmentCalls(fetchMock)).toHaveLength(1))
+    expect(
+      JSON.parse(String(attachmentCalls(fetchMock)[0]?.[1]?.body))
+    ).toEqual({ token: `tok`, id: `a1` })
+    await waitFor(() =>
+      expect(screen.getByAltText(`shot.png`).getAttribute(`src`)).toBe(
+        `blob:shot`
+      )
+    )
+  })
+
+  it(`keeps the reply box on a resolved report`, async () => {
+    mockFetch({
+      thread: () => jsonResponse(200, { ...thread, status: `resolved` }),
+    })
+    render(<SupportConversationView token="tok" />)
+    expect(await screen.findByPlaceholderText(`Write a reply…`)).toBeTruthy()
+    expect(screen.getByTestId(`report-status`).textContent).toBe(`Resolved`)
+    expect(screen.getByText(/Replying reopens it/)).toBeTruthy()
+  })
+
+  it(`tells a forged or retired link that the conversation moved`, async () => {
+    mockFetch({ thread: () => jsonResponse(404, { error: `nope` }) })
+    render(<SupportConversationView token="tok" />)
+    expect(
+      await screen.findByText(
+        `This conversation moved. Please write to us again from where you first reached out.`
+      )
+    ).toBeTruthy()
+    expect(screen.queryByPlaceholderText(`Write a reply…`)).toBeNull()
   })
 
   it(`lets Enter insert a newline instead of sending`, async () => {
@@ -130,7 +211,7 @@ describe(`SupportConversationView`, () => {
     })
     render(<SupportConversationView token="tok" />)
 
-    expect(await screen.findByText(`Support is busy right now`)).toBeTruthy()
+    expect(await screen.findByText(`We're busy right now`)).toBeTruthy()
     expect(screen.getByText(/Retrying in 30s/)).toBeTruthy()
 
     throttle = false
@@ -157,6 +238,6 @@ describe(`SupportConversationView`, () => {
 
     await waitFor(() => expect(loads).toBe(2))
     expect(screen.getByText(`Hello`)).toBeTruthy()
-    expect(screen.queryByText(`Support is busy right now`)).toBeNull()
+    expect(screen.queryByText(`We're busy right now`)).toBeNull()
   })
 })

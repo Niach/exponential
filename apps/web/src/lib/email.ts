@@ -526,18 +526,19 @@ export async function sendNotificationDigestEmail(args: {
   })
 }
 
-// Helpdesk outbound reply: a member answered a support thread. Carries the
-// reply text + the magic conversation link — the reporter reads and answers
-// in the browser (no inbound email parsing in the MVP). The URL embeds the
-// raw token, so it must never be logged or persisted; reply text is escaped
-// (it interpolates into HTML) and rendered with preserved line breaks.
-export async function sendSupportReplyEmail(args: {
+// SLOP-4: a member answered the reporter of a widget-filed issue (a comment
+// with audience `reporter`). Carries the reply text + the magic conversation
+// link — the reporter reads and answers in the browser (no inbound email
+// parsing). The URL embeds the raw token, so it must never be logged or
+// persisted; reply text is escaped (it interpolates into HTML) and rendered
+// with preserved line breaks.
+export async function sendReporterReplyEmail(args: {
   to: string
-  boardName: string
+  teamName: string
   replyText: string
-  threadUrl: string
+  conversationUrl: string
 }): Promise<EmailSendResult> {
-  const subject = `New reply from ${args.boardName} support`
+  const subject = `${args.teamName} replied to your report`
   const replyHtml = escapeHtml(args.replyText).replace(/\n/g, `<br/>`)
   return await sendEmail({
     to: args.to,
@@ -548,7 +549,7 @@ export async function sendSupportReplyEmail(args: {
     <div style="max-width:480px;margin:0 auto;background:#ffffff;border:1px solid #e4e4e7;border-radius:12px;padding:32px;">
       <h1 style="margin:0 0 12px;font-size:18px;">${escapeHtml(subject)}</h1>
       <div style="margin:0 0 24px;padding:16px;background:#fafafa;border:1px solid #e4e4e7;border-radius:8px;font-size:14px;line-height:1.6;color:#3f3f46;">${replyHtml}</div>
-      <a href="${args.threadUrl}"
+      <a href="${args.conversationUrl}"
          style="display:inline-block;background:#18181b;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:10px 20px;border-radius:8px;">
         View conversation
       </a>
@@ -558,19 +559,21 @@ export async function sendSupportReplyEmail(args: {
     </div>
   </body>
 </html>`,
-    text: `${subject}\n\n${args.replyText}\n\nView and reply: ${args.threadUrl}\n\nThis link is personal to you, so don't share it.`,
+    text: `${subject}\n\n${args.replyText}\n\nView and reply: ${args.conversationUrl}\n\nThis link is personal to you, so don't share it.`,
   })
 }
 
-// Helpdesk ticket confirmation for the reporter (widget support mode): the
-// FIRST carrier of the magic conversation link — the same stable link every
-// later reply email repeats.
-export async function sendSupportConfirmationEmail(args: {
+// SLOP-4: the reporter's confirmation for a widget report filed with an
+// email — the FIRST carrier of the magic conversation link, the same stable
+// link every later reply email repeats.
+export async function sendReporterConfirmationEmail(args: {
   to: string
-  boardName: string
-  threadUrl: string
+  teamName: string
+  issueTitle: string
+  conversationUrl: string
 }): Promise<EmailSendResult> {
-  const subject = `${args.boardName} support: we got your request`
+  const subject = `${args.teamName}: we got your report`
+  const intro = `Thanks for your report "${args.issueTitle}". We'll get back to you as soon as we can. Follow the conversation and reply from the link below.`
   return await sendEmail({
     to: args.to,
     subject,
@@ -579,13 +582,10 @@ export async function sendSupportConfirmationEmail(args: {
   <body style="margin:0;padding:32px 16px;background:#fafafa;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#18181b;">
     <div style="max-width:480px;margin:0 auto;background:#ffffff;border:1px solid #e4e4e7;border-radius:12px;padding:32px;">
       <h1 style="margin:0 0 12px;font-size:18px;">${escapeHtml(subject)}</h1>
-      <p style="margin:0 0 24px;font-size:14px;line-height:1.6;color:#3f3f46;">
-        Thanks for reaching out. We'll get back to you as soon as we can.
-        Track the conversation and reply from the link below.
-      </p>
-      <a href="${args.threadUrl}"
+      <p style="margin:0 0 24px;font-size:14px;line-height:1.6;color:#3f3f46;">${escapeHtml(intro)}</p>
+      <a href="${args.conversationUrl}"
          style="display:inline-block;background:#18181b;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:10px 20px;border-radius:8px;">
-        Track and reply here
+        Open the conversation
       </a>
       <p style="margin:24px 0 0;font-size:12px;line-height:1.6;color:#a1a1aa;">
         This link is personal to you, so don't share it.
@@ -593,11 +593,11 @@ export async function sendSupportConfirmationEmail(args: {
     </div>
   </body>
 </html>`,
-    text: `${subject}\n\nThanks for reaching out. We'll get back to you as soon as we can.\n\nTrack and reply here: ${args.threadUrl}\n\nThis link is personal to you, so don't share it.`,
+    text: `${subject}\n\n${intro}\n\nOpen the conversation: ${args.conversationUrl}\n\nThis link is personal to you, so don't share it.`,
   })
 }
 
-// One-way helpdesk resolution notice for an external widget reporter. CLEAN
+// Resolution notice for an external widget reporter. CLEAN
 // reporter-facing copy only — no assignee names, no page/UA metadata, none of
 // the internal buildWidgetDescription block, no team context, no links
 // into the app (reporters have no account).

@@ -938,6 +938,7 @@ pub(crate) fn alert(variant: AlertVariant, glyph: Option<Icon>, cx: &App) -> Div
 }
 
 /// An [`alert`]'s one-line title (web `AlertTitle`): medium weight, tight.
+#[allow(dead_code)] // part of the shared alert API; its last caller left with the helpdesk (SLOP-4)
 pub(crate) fn alert_title(title: impl Into<SharedString>) -> Div {
     div()
         .min_w_0()

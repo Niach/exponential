@@ -9,8 +9,8 @@ import androidx.navigation.NavHostController
  * REPLACES the top back-stack entry through NavBackStackEntry's copy
  * constructor, and that copy keeps the previous entry's id — hence its
  * ViewModelStore. Every detail ViewModel that snapshots its route argument
- * once at construction (IssueDetailViewModel.issueId and
- * SupportThreadViewModel.threadId, both read from SavedStateHandle) was
+ * once at construction (IssueDetailViewModel.issueId, read from
+ * SavedStateHandle) was
  * therefore handed straight back with the PREVIOUS argument, so a push tapped
  * while ANOTHER issue was open re-rendered that other issue. Reading the
  * argument reactively inside the ViewModel cannot fix it either: the stale
@@ -68,7 +68,7 @@ object DeepLinkRoutes {
  *
  * The comparison is the raw target route against the top entry's pattern
  * refilled from its DECODED arguments. Every deep-link argument today is an
- * opaque URL-safe value (issue/thread uuid, invite token), so both forms are
+ * opaque URL-safe value (issue/session uuid, invite token), so both forms are
  * byte-equal; an argument that could carry / or % would have to be encoded
  * here first.
  */

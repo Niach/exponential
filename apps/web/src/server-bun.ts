@@ -203,7 +203,7 @@ function withWidgetAssetHeaders(req: Request, response: Response): Response {
   return response
 }
 
-// The helpdesk magic-link page: the /support/<token> URL IS the credential,
+// The reporter magic-link page: the /support/<token> URL IS the credential,
 // so the page must never leak it through the Referer header (the SPA also
 // sets a same-named meta tag; this covers direct navigations before hydration
 // and wins over the global strict-origin policy). Set unconditionally — the

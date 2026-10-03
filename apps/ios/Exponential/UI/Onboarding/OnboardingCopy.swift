@@ -26,7 +26,7 @@ enum OnboardingCopy {
     // MARK: - Step 3: invite teammates
 
     static let inviteTitle = "Invite your teammates"
-    static let inviteSubtitle = "Teammates share boards, reviews and the support inbox. You can also invite people later from team settings."
+    static let inviteSubtitle = "Teammates share boards, reviews and the inbox. You can also invite people later from team settings."
     static let inviteGenerate = "Generate invite link"
     static let inviteCopy = "Copy link"
     static let inviteCopied = "Copied"

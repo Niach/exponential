@@ -55,13 +55,13 @@ import {
   notifications,
   boards,
   sessionAttachments,
-  supportThreads,
   users,
   teamInvites,
   teamMembers,
   teams,
 } from "@/db/schema"
 import {
+  commentAudienceValues,
   issuePriorityValues,
   issueRelationTypeValues,
   issueStatusValues,
@@ -330,28 +330,6 @@ async function getActionContext(id: string) {
     .limit(1)
   if (!row) throw new Error(`Action not found`)
   return row
-}
-
-// Support thread id → its team plus that team's helpdesk switch, in ONE
-// select (EXP-660). The helpdesk router deliberately never reads the flag
-// (REV2-23: disabling freezes threads rather than hiding them), so the MCP
-// layer is where a switched-off team refuses the agent.
-async function getSupportThreadContext(threadId: string) {
-  const [row] = await db
-    .select({
-      teamId: supportThreads.teamId,
-      helpdeskEnabled: teams.helpdeskEnabled,
-    })
-    .from(supportThreads)
-    .innerJoin(teams, eq(teams.id, supportThreads.teamId))
-    .where(eq(supportThreads.id, threadId))
-    .limit(1)
-  if (!row) throw new Error(`Thread not found`)
-  return row
-}
-
-function assertHelpdeskEnabled(enabled: boolean) {
-  if (!enabled) throw new Error(`Helpdesk is not enabled for this team`)
 }
 
 const REUSED_PR_NOTE = (head: string) =>
@@ -1076,7 +1054,7 @@ export function registerExponentialTools(
       // inline value lists out too, so status/statusCategory, their exclude*
       // twins and priority all validate at runtime (the refusal names the
       // values; issues_create spells the status enum out).
-      description: `List issues, OPEN only: completed/cancelled/duplicate need includeClosed or a status* filter. Descriptions cut to 200 chars (issues_get has all). statusId: exponential_statuses_list; exclude* invert. created*/updated*: ISO datetime. sort: [-]createdAt|updatedAt|priority. search: full text + identifier; assigneeId null = unassigned.`,
+      description: `List issues, OPEN only: completed/cancelled/duplicate need includeClosed or a status* filter. Descriptions cut at 200. statusId: exponential_statuses_list; exclude* invert. created*/updated*: ISO. sort: [-]createdAt|updatedAt|priority. search: text + identifier; assigneeId null = unassigned; source: user|widget.`,
       inputSchema: strictInput({
         boardId: uuidString.optional(),
         boardIds: z.array(uuidString).optional(),
@@ -1092,6 +1070,7 @@ export function registerExponentialTools(
         includeClosed: z.boolean().default(false),
         priority: z.array(looseEnum(issuePriorityValues)).optional(),
         assigneeId: z.string().nullable().optional(),
+        source: looseEnum([`user`, `widget`] as const).optional(),
         labelIds: z.array(uuidString).optional(),
         labelMatch: z.enum([`any`, `all`]).optional(),
         unlabeled: z.boolean().optional(),
@@ -1126,6 +1105,7 @@ export function registerExponentialTools(
       includeClosed,
       priority,
       assigneeId,
+      source,
       labelIds,
       labelMatch,
       unlabeled,
@@ -1262,6 +1242,10 @@ export function registerExponentialTools(
           conditions.push(isNull(issues.assigneeId))
         } else if (assigneeId !== undefined) {
           conditions.push(eq(issues.assigneeId, assigneeId))
+        }
+        // SLOP-4: widget-filed reports vs member-created issues.
+        if (source) {
+          conditions.push(eq(issues.source, source))
         }
 
         // Labels: any-of / all-of over issue_labels, plus the explicit
@@ -2026,16 +2010,17 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_comments_create`,
     {
-      description: `Post a regular comment on an issue (by UUID or human identifier, e.g. "MET-12") authored by the MCP user; it shows as "via MCP". Body is plain text. Pass parentId (a comment id from exponential_comments_list) to reply under that comment — threads are one level deep, so a reply to a reply lands under the same top-level comment.`,
+      description: `Post a regular comment on an issue (by UUID or human identifier, e.g. "MET-12") authored by the MCP user; it shows as "via MCP". Body is plain text. Pass parentId (a comment id from exponential_comments_list) to reply under that comment — threads are one level deep, so a reply to a reply lands under the same top-level comment. audience "reporter" (top-level only, on a widget-filed issue whose reporter left an email) also emails the comment to the reporter; the result's reporterEmailed says whether it went out.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         issueId: z.string().min(1),
         body: z.string().trim().min(1).max(10_000).describe(`Plain GFM text`),
         attachmentIds: z.array(uuidString).max(10).optional(),
         parentId: uuidString.optional(),
+        audience: z.enum(commentAudienceValues).optional(),
       }),
     },
-    async ({ issueId: issueIdInput, body, attachmentIds, parentId }) => {
+    async ({ issueId: issueIdInput, body, attachmentIds, parentId, audience }) => {
       try {
         const issueId = await resolveIssueId(issueIdInput, user.id, access)
         if (!access.full) {
@@ -2047,9 +2032,10 @@ export function registerExponentialTools(
           body,
           ...(attachmentIds ? { attachmentIds } : {}),
           ...(parentId ? { parentId } : {}),
+          ...(audience ? { audience } : {}),
         })
         noteAgentIssueActivity(issueId, user.id)
-        return ok(result.comment)
+        return ok({ ...result.comment, reporterEmailed: result.reporterEmailed })
       } catch (e) {
         return err(e)
       }
@@ -4553,7 +4539,7 @@ export function registerExponentialTools(
         }
         const recipients = requestedRecipients ?? [user.id]
         // A team-level WRITE (it pushes to every named member), so it takes
-        // the full team grant like invites/helpdesk/actions, not visibility.
+        // the full team grant like invites/actions, not visibility.
         assertTeamFullyGranted(access, teamId)
         await resolveTeamAccess(user.id, teamId)
         const memberRows = await db
@@ -5415,187 +5401,6 @@ export function registerExponentialTools(
       }
     }
   )
-
-  // -----------------------------------------------------------------------
-  // Helpdesk (EXP-660): support tickets filed through the widget
-  // -----------------------------------------------------------------------
-  // Registered only when at least one team this caller could use them in
-  // has helpdesk switched on (gates.helpdesk, resolved per request by the
-  // route) — a family of tools the agent can never call is context noise.
-  // That is hygiene, not the boundary: every tool re-checks the SPECIFIC
-  // team's flag (the router never does, REV2-23), membership lives in the
-  // router, and reads need a FULL team grant like writes — threads carry
-  // reporter email/name, not board-workflow aux data.
-  if (gates.helpdesk) {
-    server.registerTool(
-      `exponential_helpdesk_threads_list`,
-      {
-        annotations: READ_ONLY,
-        description: `List a team's support tickets (newest activity first) with their last message and an unread flag. Page with cursor = the oldest loaded row's updatedAt. Team members only; needs helpdesk enabled.`,
-        inputSchema: strictInput({
-          teamId: uuidString,
-          filter: z.enum([`open`, `resolved`]).default(`open`),
-          limit: z.number().int().min(1).max(200).default(50),
-          cursor: isoDateTime.optional(),
-        }),
-      },
-      async (input) => {
-        try {
-          assertTeamFullyGranted(access, input.teamId)
-          const [team] = await db
-            .select({ helpdeskEnabled: teams.helpdeskEnabled })
-            .from(teams)
-            .where(eq(teams.id, input.teamId))
-            .limit(1)
-          if (!team) throw new Error(`Team not found`)
-          assertHelpdeskEnabled(team.helpdeskEnabled)
-          const result = await caller(user, request).helpdesk.listThreads({
-            ...input,
-            cursor: input.cursor ? new Date(input.cursor) : undefined,
-          })
-          return ok(result)
-        } catch (e) {
-          return err(e)
-        }
-      }
-    )
-
-    server.registerTool(
-      `exponential_helpdesk_threads_get`,
-      {
-        annotations: READ_ONLY,
-        description: `Get a support ticket with its full conversation (public replies and internal notes, each with its email delivery status) and the escalated issue if any.`,
-        inputSchema: strictInput({ id: uuidString }),
-      },
-      async ({ id }) => {
-        try {
-          const thread = await getSupportThreadContext(id)
-          assertTeamFullyGranted(access, thread.teamId)
-          assertHelpdeskEnabled(thread.helpdeskEnabled)
-          const result = await caller(user, request).helpdesk.getThread({
-            threadId: id,
-          })
-          return ok(result)
-        } catch (e) {
-          return err(e)
-        }
-      }
-    )
-
-    server.registerTool(
-      `exponential_helpdesk_reply`,
-      {
-        description: `Post a public reply on a support ticket: the reporter sees it on their magic-link page and gets it emailed (once they have opened the link and are not viewing right now). Replying to a resolved ticket reopens it.`,
-        inputSchema: strictInput({
-          id: uuidString,
-          body: z.string().trim().min(1).max(10_000),
-        }),
-      },
-      async ({ id, body }) => {
-        try {
-          const thread = await getSupportThreadContext(id)
-          assertTeamFullyGranted(access, thread.teamId)
-          assertHelpdeskEnabled(thread.helpdeskEnabled)
-          const result = await caller(user, request).helpdesk.reply({
-            threadId: id,
-            body,
-          })
-          return ok(result)
-        } catch (e) {
-          return err(e)
-        }
-      }
-    )
-
-    server.registerTool(
-      `exponential_helpdesk_note`,
-      {
-        description: `Add an internal note to a support ticket: visible to team members only, never emailed, never shown to the reporter.`,
-        inputSchema: strictInput({
-          id: uuidString,
-          body: z.string().trim().min(1).max(10_000),
-        }),
-      },
-      async ({ id, body }) => {
-        try {
-          const thread = await getSupportThreadContext(id)
-          assertTeamFullyGranted(access, thread.teamId)
-          assertHelpdeskEnabled(thread.helpdeskEnabled)
-          const result = await caller(user, request).helpdesk.note({
-            threadId: id,
-            body,
-          })
-          return ok(result.message)
-        } catch (e) {
-          return err(e)
-        }
-      }
-    )
-
-    server.registerTool(
-      `exponential_helpdesk_close`,
-      {
-        description: `Resolve a support ticket: the transcript stays readable but the reporter's magic link stops accepting replies. An escalated issue is untouched.`,
-        inputSchema: strictInput({ id: uuidString }),
-      },
-      async ({ id }) => {
-        try {
-          const thread = await getSupportThreadContext(id)
-          assertTeamFullyGranted(access, thread.teamId)
-          assertHelpdeskEnabled(thread.helpdeskEnabled)
-          await caller(user, request).helpdesk.close({ threadId: id })
-          return ok({ ok: true, id })
-        } catch (e) {
-          return err(e)
-        }
-      }
-    )
-
-    server.registerTool(
-      `exponential_helpdesk_reopen`,
-      {
-        description: `Reopen a resolved support ticket; the reporter's existing magic link works again.`,
-        inputSchema: strictInput({ id: uuidString }),
-      },
-      async ({ id }) => {
-        try {
-          const thread = await getSupportThreadContext(id)
-          assertTeamFullyGranted(access, thread.teamId)
-          assertHelpdeskEnabled(thread.helpdeskEnabled)
-          await caller(user, request).helpdesk.reopen({ threadId: id })
-          return ok({ ok: true, id })
-        } catch (e) {
-          return err(e)
-        }
-      }
-    )
-
-    server.registerTool(
-      `exponential_helpdesk_escalate`,
-      {
-        description: `File an issue from a support ticket on a board of the ticket's team and link them (one escalation per ticket). The issue opens with the reporter's message as its description; title defaults to the ticket's.`,
-        inputSchema: strictInput({
-          id: uuidString,
-          boardId: uuidString,
-          title: z.string().trim().min(1).max(500).optional(),
-        }),
-      },
-      async ({ id, ...rest }) => {
-        try {
-          const thread = await getSupportThreadContext(id)
-          assertTeamFullyGranted(access, thread.teamId)
-          assertHelpdeskEnabled(thread.helpdeskEnabled)
-          const result = await caller(user, request).helpdesk.escalate({
-            threadId: id,
-            ...rest,
-          })
-          return ok(result.issue)
-        } catch (e) {
-          return err(e)
-        }
-      }
-    )
-  }
 
   // EXP-496: vendor bug intake. Registered only where the instance has an
   // in-app feedback widget (cloud — the same gate as the sidebar Feedback

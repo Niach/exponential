@@ -689,9 +689,8 @@ impl PillSize {
 /// - `Action` — it runs something on click (a header button, a picker
 ///   trigger, a filter pill's ✕). Hover lifts it to the active fill.
 /// - `Select { selected }` — it is one option of a set: the sidebar's tool
-///   tabs (Inbox / My issues, Open / Resolved) and the helpdesk composer's
-///   Reply / Internal note modes. The selected one wears the active fill +
-///   stroke. (The steer viewer has no tab strip to convert — subagent work
+///   tabs (Inbox / My issues) and the issue composer's "Reply to reporter"
+///   toggle. The selected one wears the active fill + stroke. (The steer viewer has no tab strip to convert — subagent work
 ///   renders inline there; see its module doc.)
 /// - `Readonly` — it only LABELS something (a role, a label, an attachment,
 ///   a count badge). No hover, no pointer cursor.

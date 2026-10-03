@@ -31,7 +31,6 @@ export type SettingsSectionPath =
   | `/t/$teamSlug/settings/boards/archived`
   | `/t/$teamSlug/settings/repositories`
   | `/t/$teamSlug/settings/widget`
-  | `/t/$teamSlug/settings/helpdesk`
   | `/t/$teamSlug/settings/mcp-servers`
   | `/t/$teamSlug/settings/account`
   | `/t/$teamSlug/settings/notifications`
@@ -156,18 +155,13 @@ export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
   {
     group: `Features`,
     items: [
+      // SLOP-4: the ONE widget page — a submission lands as an issue on the
+      // widget's board; the reporter keeps a conversation through the
+      // emailed link. Owner-only, and the desktop IDE mirrors the pane.
       {
-        label: `Feedback widget`,
+        label: `Widget`,
         to: `/t/$teamSlug/settings/widget`,
         icon: conceptIcon(`settings-widget`),
-        visible: (permissions) => permissions.canManageWidgets,
-      },
-      // EXP-771: the helpdesk toggle used to ride along on the widget page.
-      // Own page, same owner gate, and the desktop IDE mirrors both panes.
-      {
-        label: `Helpdesk`,
-        to: `/t/$teamSlug/settings/helpdesk`,
-        icon: conceptIcon(`settings-helpdesk`),
         visible: (permissions) => permissions.canManageWidgets,
       },
       // EXP-792: team MCP servers. Member-visible — every member reads the

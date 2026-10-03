@@ -1,6 +1,11 @@
 package com.exponential.app.ui.components
 
+import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.data.db.isFromReporter
+import com.exponential.app.data.db.isToReporter
+import com.exponential.app.data.db.isViaMcp
+import com.exponential.app.domain.ReporterReply
 
 // The server no longer syncs user rows for co-members of a public team, so a
 // userId can resolve to no [UserEntity]. Rather than leak a raw id — or render a
@@ -24,3 +29,28 @@ fun memberPseudonym(userId: String?): String {
  */
 fun userDisplayName(user: UserEntity?, userId: String?): String =
     user?.name?.takeIf { it.isNotBlank() } ?: user?.email ?: memberPseudonym(userId ?: user?.id)
+
+/**
+ * SLOP-4 (fixture `reporter-reply.json`, web `authorLabel`): the name a
+ * comment card carries. A `reporter` comment has no users row — it names the
+ * submission's reporter ([reporterName], else "Anonymous visitor"); a member
+ * comment names its synced author; a member whose row is gone (left the team,
+ * deleted) reads "Former member".
+ */
+fun commentAuthorName(comment: CommentEntity, author: UserEntity?, reporterName: String?): String {
+    if (comment.isFromReporter) return ReporterReply.displayName(reporterName)
+    if (author == null) return ReporterReply.FORMER_MEMBER_NAME
+    return userDisplayName(author, comment.authorId)
+}
+
+/**
+ * The muted caption after the time (web `commentCaption`) — exactly one of
+ * "reporter" (the widget reporter wrote it), "via MCP" (an agent posted it)
+ * or "to reporter" (a member's reply that was emailed out), else none.
+ */
+fun commentCaption(comment: CommentEntity): String? = when {
+    comment.isFromReporter -> ReporterReply.REPORTER_CAPTION
+    comment.isViaMcp -> "via MCP"
+    comment.isToReporter -> ReporterReply.TO_REPORTER_CAPTION
+    else -> null
+}

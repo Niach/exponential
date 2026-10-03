@@ -17,7 +17,7 @@ import { issueMemoryOwner } from "@/lib/work-tab-memory"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { CommentAttachments } from "@/components/comment-rows/attachments"
 import { TimelineRow } from "@/components/comment-rows/timeline-row"
-import { authorLabel, relativeTime } from "./format"
+import { authorLabel, commentCaption, relativeTime } from "./format"
 
 // EXP-698 r5: the comment menu is a bare vertical ellipsis on every client —
 // no glass ring around it.
@@ -36,7 +36,15 @@ export interface CommentCardProps {
   comment: Comment
   // Attachments linked to this comment (attachments.comment_id, EXP-554).
   attachments: Attachment[]
-  canModify: boolean
+  /** Author-only: the Edit row and the edit composer (a reporter comment is
+   *  never editable). */
+  canEdit: boolean
+  /** SLOP-4: Delete — the author, or any member for a reporter comment
+   *  (moderation). */
+  canDelete: boolean
+  /** SLOP-4: the widget submission's reporter name — what a `reporter`
+   *  comment is signed with (null = "Anonymous visitor"). */
+  reporterName: string | null
   editing: boolean
   onDelete: () => void
   onEdit: () => void
@@ -63,7 +71,9 @@ function CommentCardContent({
   author,
   comment,
   attachments,
-  canModify,
+  canEdit,
+  canDelete,
+  reporterName,
   editing,
   onDelete,
   onEdit,
@@ -72,7 +82,8 @@ function CommentCardContent({
   users,
 }: CommentCardProps) {
   const bodyText = getCommentBodyText(comment.body)
-  const name = authorLabel(author, comment.authorId)
+  const name = authorLabel(comment, author, reporterName)
+  const caption = commentCaption(comment)
   return (
     <>
       {/* EXP-723: the name carries the row (body size, medium), the time and
@@ -87,11 +98,13 @@ function CommentCardContent({
           <span className="text-xs text-muted-foreground">edited</span>
         )}
         {/* EXP-741: an agent posted it over MCP — the same caption on every
-            client, so a bot's words never read as its key owner's. */}
-        {comment.source === `mcp` && (
-          <span className="text-xs text-muted-foreground">via MCP</span>
+            client, so a bot's words never read as its key owner's. SLOP-4:
+            the same slot reads "reporter" for the widget reporter's words and
+            "to reporter" for a member's emailed reply. */}
+        {caption && (
+          <span className="text-xs text-muted-foreground">{caption}</span>
         )}
-        {canModify && !editing && (
+        {(canEdit || canDelete) && !editing && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -105,14 +118,18 @@ function CommentCardContent({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={onEdit}>
-                <UiEditIcon />
-                Edit
-              </DropdownMenuItem>
-              <DropdownMenuItem variant="destructive" onSelect={onDelete}>
-                <UiDeleteIcon />
-                Delete
-              </DropdownMenuItem>
+              {canEdit && (
+                <DropdownMenuItem onSelect={onEdit}>
+                  <UiEditIcon />
+                  Edit
+                </DropdownMenuItem>
+              )}
+              {canDelete && (
+                <DropdownMenuItem variant="destructive" onSelect={onDelete}>
+                  <UiDeleteIcon />
+                  Delete
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         )}
@@ -147,21 +164,25 @@ function CommentCardContent({
               />
             </div>
           )}
-          <CommentAttachments attachments={attachments} canModify={canModify} />
+          <CommentAttachments attachments={attachments} canModify={canEdit} />
         </>
       )}
     </>
   )
 }
 
+/** SLOP-4: a reporter comment (no users row) draws the initials fallback of
+ *  the reporter's name; the id only seeds the fallback colour. */
 function CommentAvatar({
   author,
-  userId,
+  comment,
+  reporterName,
   size,
   className,
 }: {
   author: User | undefined
-  userId: string
+  comment: Comment
+  reporterName: string | null
   size: UserAvatarSize
   className?: string
 }) {
@@ -169,7 +190,11 @@ function CommentAvatar({
     <UserAvatar
       size={size}
       className={cn(`shrink-0`, className)}
-      user={{ id: userId, name: authorLabel(author, userId), image: author?.image }}
+      user={{
+        id: comment.authorId ?? `comment:${comment.id}`,
+        name: authorLabel(comment, author, reporterName),
+        image: author?.image,
+      }}
     />
   )
 }
@@ -183,7 +208,7 @@ export function RegularCommentRow({
   onSubmitReply,
   ...card
 }: RegularCommentRowProps) {
-  const { author, comment, users } = card
+  const { author, comment, users, reporterName } = card
 
   // EXP-698 r5: the comment is a BUBBLE — name, time and the ⋮ menu live
   // inside the card with the body, and the avatar rides the timeline gutter
@@ -196,7 +221,12 @@ export function RegularCommentRow({
     <TimelineRow
       lineBelow={lineBelow}
       marker={
-        <CommentAvatar author={author} userId={comment.authorId} size={28} />
+        <CommentAvatar
+          author={author}
+          comment={comment}
+          reporterName={reporterName}
+          size={28}
+        />
       }
       markerSize={28}
     >
@@ -215,7 +245,8 @@ export function RegularCommentRow({
               >
                 <CommentAvatar
                   author={reply.author}
-                  userId={reply.comment.authorId}
+                  comment={reply.comment}
+                  reporterName={reply.reporterName}
                   size={20}
                   className="mt-0.5 [&_[data-slot=avatar-fallback]]:text-[10px]"
                 />

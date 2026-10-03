@@ -18,14 +18,18 @@ import {
   teams,
 } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
-import { assertCanUseHelpdesk, assertWithinStorageLimit } from "@/lib/billing"
+import { assertWithinStorageLimit } from "@/lib/billing"
 import {
-  createSupportThreadInTx,
-  MAX_SUPPORT_MESSAGE_CHARS,
-  supportThreadUrl,
-  supportTicketTitle,
-} from "@/lib/helpdesk/service"
-import { deliveryStatus, sendSupportConfirmationEmail } from "@/lib/email"
+  MAX_REPORTER_MESSAGE_CHARS,
+  reporterConversationUrl,
+} from "@/lib/reporter/service"
+import { mintReporterToken } from "@/lib/reporter/token"
+import {
+  escapeReporterText,
+  titleFromReporterMessage,
+} from "@/lib/reporter-text"
+import { deliveryStatus, sendReporterConfirmationEmail } from "@/lib/email"
+import { emailEnabled } from "@/lib/email-enabled"
 import {
   buildAttachmentStorageKey,
   buildAttachmentUrl,
@@ -38,11 +42,7 @@ import { uploadObject, deleteObject } from "@/lib/storage"
 import { getSoleHumanMemberId } from "@/lib/team-membership"
 import { ensureSubscribed } from "@/lib/integrations/subscriptions"
 import { recordIssueEvent } from "@/lib/integrations/activity"
-import {
-  fireAndForgetNewIssueNotify,
-  fireAndForgetSupportThreadNotify,
-} from "@/lib/integrations/notifications"
-import { TtlPromiseCache } from "@/lib/ttl-promise-cache"
+import { fireAndForgetNewIssueNotify } from "@/lib/integrations/notifications"
 import { buildWidgetDescription } from "./metadata"
 import { isWidgetKeyFormat } from "./key"
 import { isOriginAllowed } from "./origin"
@@ -80,20 +80,18 @@ export class WidgetRequestError extends Error {
   }
 }
 
-// The widget config row plus the trash/archive state of its feedback target
-// board (nullable — support-only widgets have none) and the team's
-// helpdesk flag, so the submit + config paths can gate each mode on live
-// state.
+// The widget config row plus the trash/archive state of its target board
+// (SLOP-4: every widget has one — board_id is NOT NULL), so the submit +
+// config paths can gate on live state.
 export type WidgetConfigWithBoard = typeof widgetConfigs.$inferSelect & {
-  boardSlug: string | null
-  boardName: string | null
+  boardSlug: string
+  boardName: string
   boardDeletedAt: Date | null
   boardArchivedAt: Date | null
-  teamSlug: string | null
-  // The reporter-facing helpdesk identity (REV2-51): the SAME name the
-  // conversation page and every member reply email carry.
-  teamName: string | null
-  teamHelpdeskEnabled: boolean | null
+  teamSlug: string
+  // The reporter-facing identity (REV2-51): the SAME name the conversation
+  // page and every reporter email carry.
+  teamName: string
 }
 
 export async function loadWidgetConfigByKey(
@@ -111,11 +109,10 @@ export async function loadWidgetConfigByKey(
       boardArchivedAt: boards.archivedAt,
       teamSlug: teams.slug,
       teamName: teams.name,
-      teamHelpdeskEnabled: teams.helpdeskEnabled,
     })
     .from(widgetConfigs)
-    .leftJoin(boards, eq(boards.id, widgetConfigs.boardId))
-    .leftJoin(teams, eq(teams.id, widgetConfigs.teamId))
+    .innerJoin(boards, eq(boards.id, widgetConfigs.boardId))
+    .innerJoin(teams, eq(teams.id, widgetConfigs.teamId))
     .where(eq(widgetConfigs.publicKey, key))
     .limit(1)
   if (!row) {
@@ -129,32 +126,14 @@ export async function loadWidgetConfigByKey(
     boardArchivedAt: row.boardArchivedAt,
     teamSlug: row.teamSlug,
     teamName: row.teamName,
-    teamHelpdeskEnabled: row.teamHelpdeskEnabled,
   }
 }
 
-// ---------------------------------------------------------------------------
-// Widget modes: which entry points the panel offers. Stored on
-// form_config.modes; absent = feedback-only (every pre-modes config).
-// ---------------------------------------------------------------------------
-
-export type WidgetMode = `feedback` | `support`
-
-export function requestedWidgetModes(
-  config: WidgetConfigWithBoard
-): WidgetMode[] {
-  const raw = config.formConfig?.modes
-  const modes = Array.isArray(raw)
-    ? [
-        ...new Set(
-          raw.filter(
-            (mode): mode is WidgetMode =>
-              mode === `feedback` || mode === `support`
-          )
-        ),
-      ]
-    : []
-  return modes.length > 0 ? modes : [`feedback`]
+// SLOP-4: the ONE availability gate — a trashed or archived target board
+// rejects new writes (and hides the widget); restoring or unarchiving brings
+// it back automatically.
+export function widgetBoardAvailable(config: WidgetConfigWithBoard): boolean {
+  return config.boardDeletedAt == null && config.boardArchivedAt == null
 }
 
 // Owner-defined extra inputs on the feedback form (EXP-244). Values are
@@ -326,8 +305,7 @@ export async function resolveWidgetConfigLabels(
 // `{nameRequired: true}` row without collectName — writable via a direct
 // tRPC call — used to serve no name field while 400ing every submit).
 // Required always implies collect for email; a hidden name field is never
-// required. Support mode's email stays outside this: it is the reply channel
-// and is unconditionally required by supportFieldsSchema.
+// required.
 export function normalizedWidgetFormToggles(
   formConfig: Record<string, unknown> | null | undefined
 ): {
@@ -347,66 +325,14 @@ export function normalizedWidgetFormToggles(
   }
 }
 
-// Support mode is served (and accepted) only while the TEAM helpdesk is
-// on AND the plan still covers it — the owner-side write gate can go stale
-// (helpdesk toggled off, plan lapsed), so both the config response and raw
-// submits re-check dynamically.
-// 30s-TTL memo over the plan gate (REV-25): this check runs on the ANONYMOUS
-// config path, and on cloud assertCanUseHelpdesk → getTeamPlan costs two
-// uncached selects per call — unmemoized, every config fetch for a
-// support-mode widget triples its DB cost. BOTH outcomes are cached as
-// booleans (a lapsed plan rejects on every call, and TtlPromiseCache evicts
-// rejected promises on settle — caching the raw assert would leave exactly
-// the hot path uncached). The staleness matches the plan cache the submit
-// limiter already rides (submit-limit.ts); the helpdesk toggle itself stays
-// live — it rides the config row, not this cache.
-let supportPlanGateCache: TtlPromiseCache<boolean> | null = null
-
-async function widgetSupportAvailable(
-  config: WidgetConfigWithBoard
-): Promise<boolean> {
-  if (config.teamHelpdeskEnabled !== true) return false
-  supportPlanGateCache ??= new TtlPromiseCache<boolean>({
-    ttlMs: 30_000,
-    maxEntries: 5_000,
-  })
-  return supportPlanGateCache.get(config.teamId, async () => {
-    try {
-      await assertCanUseHelpdesk(config.teamId)
-      return true
-    } catch {
-      return false
-    }
-  })
-}
-
-export function resetWidgetSupportGateCacheForTest(): void {
-  supportPlanGateCache = null
-}
-
-// Per-mode availability: feedback needs a live target board, support the
-// team helpdesk. An EMPTY result means nothing is servable — the config
-// route reports the widget disabled and both submit paths 403.
-export async function effectiveWidgetModes(
-  config: WidgetConfigWithBoard
-): Promise<WidgetMode[]> {
-  const modes = requestedWidgetModes(config)
-  const feedbackAvailable =
-    config.boardId != null &&
-    config.boardDeletedAt == null &&
-    config.boardArchivedAt == null
-  const supportAvailable =
-    modes.includes(`support`) && (await widgetSupportAvailable(config))
-
-  const out: WidgetMode[] = []
-  if (modes.includes(`feedback`) && feedbackAvailable) out.push(`feedback`)
-  if (supportAvailable) out.push(`support`)
-  return out
-}
-
+// SLOP-4: ONE submit shape. `message` is what the panel sends; `title` +
+// `description` are what pre-SLOP-4 cached bundles send — both land as the
+// same escaped reporter text (title derived from the first line when no
+// title came along).
 const submitFieldsSchema = z.object({
-  title: z.string().trim().min(1).max(500),
-  description: z.string().max(10_000).default(``),
+  message: z.string().max(MAX_REPORTER_MESSAGE_CHARS).default(``),
+  title: z.string().trim().max(500).default(``),
+  description: z.string().max(MAX_REPORTER_MESSAGE_CHARS).default(``),
   email: z
     .string()
     .trim()
@@ -484,17 +410,15 @@ function parseWidgetLabelSelection(
 }
 
 export interface WidgetSubmitResult {
-  // Feedback submissions carry the created issue; support submissions carry
-  // neither (the ticket is a standalone thread and its conversation URL is
-  // the reporter's emailed magic link). `url` is always null since public
-  // boards were removed (EXP-180) — the field survives because cached
-  // third-party widget bundles read it.
-  issueId: string | null
-  identifier: string | null
+  // The created issue. `url` is always null since public boards were removed
+  // (EXP-180) — the field survives because cached third-party widget bundles
+  // read it.
+  issueId: string
+  identifier: string
   url: null
-  // Support submissions only (REV2-10): did the confirmation email carrying
-  // the reporter's magic link — their ONLY way back into the conversation —
-  // actually go out? `null` on feedback submissions, which mail nothing. The
+  // When the reporter gave an email (REV2-10): did the confirmation email
+  // carrying their magic link — their ONLY way back into the conversation —
+  // actually go out? `null` when no email was given (nothing to mail). The
   // panel degrades its success copy honestly on false; the link is never
   // returned inline (it is a credential, and this response is anonymous).
   emailDelivered: boolean | null
@@ -509,25 +433,15 @@ export async function createWidgetSubmission(args: {
 }): Promise<WidgetSubmitResult> {
   const { config, formData } = args
 
-  // A missing, trashed or archived target board rejects new writes (a
-  // support-only widget has no feedback board at all); restoring or
+  // A trashed or archived target board rejects new writes; restoring or
   // unarchiving brings a hidden board back automatically.
   const boardId = config.boardId
-  if (
-    boardId == null ||
-    config.boardDeletedAt != null ||
-    config.boardArchivedAt != null
-  ) {
+  if (!widgetBoardAvailable(config)) {
     throw new WidgetRequestError(403, `This feedback board is unavailable`)
   }
 
-  // A support-only widget must not accept feedback via raw POSTs — the UI
-  // gate (which cards the panel offers) is advisory only.
-  if (!(await effectiveWidgetModes(config)).includes(`feedback`)) {
-    throw new WidgetRequestError(403, `Feedback is not enabled for this widget`)
-  }
-
   const fields = submitFieldsSchema.safeParse({
+    message: formData.get(`message`) ?? ``,
     title: formData.get(`title`) ?? ``,
     description: formData.get(`description`) ?? ``,
     email: formData.get(`email`) ?? undefined,
@@ -546,6 +460,18 @@ export async function createWidgetSubmission(args: {
       emailIssue ? `invalid_email` : undefined
     )
   }
+
+  // The reporter's words — UNTRUSTED plain text, escaped ONCE into GFM that
+  // renders literally on every client (lib/reporter-text.ts). `message` wins
+  // over the legacy `description`; a report needs SOME text (a title or a
+  // message) to file as an issue.
+  const reporterText = (fields.data.message || fields.data.description).trim()
+  if (!fields.data.title && !reporterText) {
+    throw new WidgetRequestError(400, `Invalid submission fields`)
+  }
+  const title = fields.data.title
+    ? escapeReporterText(fields.data.title)
+    : titleFromReporterMessage(reporterText)
 
   // The panel's required-email gate is advisory only — it vanishes when the
   // config fetch loses the race with the first open (or fails), and raw POSTs
@@ -672,7 +598,7 @@ export async function createWidgetSubmission(args: {
   // EXP-42b: user text + images ONLY — reporter/page/env metadata stays in
   // the widget_submissions row below (members-only via widgets.submissionForIssue).
   const description = buildWidgetDescription({
-    userText: fields.data.description,
+    userText: escapeReporterText(reporterText),
     screenshotAttachmentId,
     imageAttachmentIds: uploads
       .filter((upload) => upload.attachmentId !== screenshotAttachmentId)
@@ -732,7 +658,7 @@ export async function createWidgetSubmission(args: {
           // populate_issue_board_context overwrites with board-derived
           // truth; passed to satisfy the NOT NULL insert contract.
           teamId: config.teamId,
-          title: fields.data.title,
+          title,
           status: `backlog`,
           priority: `none`,
           // Post-EXP-42b a text-less, screenshot-less submission has an empty
@@ -822,10 +748,10 @@ export async function createWidgetSubmission(args: {
         })
       }
 
-      // One-way helpdesk (§6.4): record the external reporter as a
-      // `widget_reporter` subscriber (null userId + email — no throwaway users
-      // row). They receive the clean resolution email when the issue closes;
-      // member fan-out ignores these rows (it filters on non-null userId).
+      // Record the external reporter as a `widget_reporter` subscriber (null
+      // userId + email — no throwaway users row). They receive the clean
+      // resolution email when the issue closes; member fan-out ignores these
+      // rows (it filters on non-null userId).
       if (fields.data.email) {
         await tx.insert(issueSubscribers).values({
           issueId,
@@ -854,12 +780,7 @@ export async function createWidgetSubmission(args: {
         customData,
       })
 
-      return {
-        issueId: issue.id,
-        identifier: issue.identifier,
-        url: null,
-        emailDelivered: null,
-      }
+      return { issueId: issue.id, identifier: issue.identifier }
     })
 
     // EXP-53: after commit (the notification loads the issue row itself, so
@@ -867,7 +788,23 @@ export async function createWidgetSubmission(args: {
     // members. Fire-and-forget — never fails the submit.
     fireAndForgetNewIssueNotify({ issueId: result.issueId })
 
-    return result
+    // SLOP-4: a reporter who left an email gets the confirmation carrying
+    // the magic conversation link (the issue's one stable reporter URL). A
+    // failed send doesn't fail the (already committed) report, but it is NOT
+    // invisible either (REV2-10): `emailDelivered` rides the submit response
+    // so the panel can stop promising an email that never left. The ledger
+    // row stores no URL — the token is never persisted, only recomputed per
+    // email.
+    const emailDelivered = fields.data.email
+      ? await sendReporterConfirmation({
+          to: fields.data.email,
+          teamName: config.teamName,
+          issueId: result.issueId,
+          issueTitle: title,
+        })
+      : null
+
+    return { ...result, url: null, emailDelivered }
   } catch (error) {
     for (const key of uploadedKeys) {
       try {
@@ -880,148 +817,39 @@ export async function createWidgetSubmission(args: {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Support mode (EXP-130, reshaped by EXP-180): the widget's "Get help" form
-// files a STANDALONE helpdesk ticket — a support thread + magic-link token,
-// no issue — and the reporter gets a confirmation email carrying the
-// conversation link. Tickets land in the team support inbox.
-// ---------------------------------------------------------------------------
-
-const supportFieldsSchema = z.object({
-  message: z.string().trim().min(1).max(MAX_SUPPORT_MESSAGE_CHARS),
-  // Required: the email is the reply channel — a support ticket without one
-  // is a dead end.
-  email: z.string().trim().email().max(320),
-  name: z.string().trim().max(255).optional(),
-  userId: z.string().trim().max(255).optional(),
-})
-
-export async function createWidgetSupportSubmission(args: {
-  config: WidgetConfigWithBoard
-  formData: FormData
-  userAgent: string | null
-}): Promise<WidgetSubmitResult> {
-  const { config, formData } = args
-
-  // Re-checked per submit (not just at config time): the team helpdesk
-  // toggle or the plan may have changed since the widget cached its config.
-  if (!(await effectiveWidgetModes(config)).includes(`support`)) {
-    throw new WidgetRequestError(403, `Support is not enabled for this widget`)
-  }
-
-  const fields = supportFieldsSchema.safeParse({
-    message: formData.get(`message`) ?? ``,
-    email: formData.get(`email`) ?? ``,
-    name: formData.get(`name`) ?? undefined,
-    userId: formData.get(`userId`) ?? undefined,
-  })
-  if (!fields.success) {
-    // A missing OR malformed support email both produce a path[0] === 'email'
-    // issue — flag it so the client re-reveals its email input.
-    const emailIssue = fields.error.issues.some(
-      (issue) => issue.path[0] === `email`
-    )
-    throw new WidgetRequestError(
-      400,
-      `Invalid submission fields`,
-      emailIssue ? `invalid_email` : undefined
-    )
-  }
-
-  // Name toggle applies to the support form too (EXP-244) — the thread's
-  // reporter_name is what the inbox shows. Same normalized view the config
-  // route serves: a hidden name field is never required. (The email needs no
-  // toggle here — support's reply channel is unconditionally required by the
-  // schema above.)
-  const toggles = normalizedWidgetFormToggles(config.formConfig)
-  if (toggles.nameRequired && !fields.data.name) {
-    throw new WidgetRequestError(400, `Name is required`, `name_required`)
-  }
-
-  const customData = parseJsonField(
-    formData.get(`customData`),
-    8 * 1024,
-    `customData`
-  )
-  const metaRaw = parseJsonField(formData.get(`meta`), 4 * 1024, `meta`) ?? {}
-  const meta = envMetaSchema.safeParse(metaRaw)
-  if (!meta.success) {
-    throw new WidgetRequestError(400, `Invalid meta`)
-  }
-
-  const { threadId, token } = await db.transaction(async (tx) => {
-    await generateTxId(tx)
-    const created = await createSupportThreadInTx(tx, {
-      teamId: config.teamId,
-      title: supportTicketTitle(fields.data.message),
-      reporterEmail: fields.data.email,
-      reporterName: fields.data.name ?? null,
-      body: fields.data.message,
-    })
-
-    // Page/env context for the inbox details rail (widgets.submissionForThread).
-    await tx.insert(widgetSubmissions).values({
-      widgetConfigId: config.id,
-      issueId: null,
-      supportThreadId: created.threadId,
-      reporterEmail: fields.data.email,
-      reporterName: fields.data.name ?? null,
-      reporterExternalId: fields.data.userId ?? null,
-      pageUrl: meta.data.url ?? null,
-      userAgent: args.userAgent,
-      viewportWidth: meta.data.viewportWidth ?? null,
-      viewportHeight: meta.data.viewportHeight ?? null,
-      screenWidth: meta.data.screenWidth ?? null,
-      screenHeight: meta.data.screenHeight ?? null,
-      devicePixelRatio: meta.data.devicePixelRatio ?? null,
-      customData,
-    })
-
-    return created
-  })
-
-  // Members learn of the new ticket through the support fan-out (inbox row +
-  // push; email follows via the digest). Fire-and-forget — never fails the
-  // submit.
-  fireAndForgetSupportThreadNotify({ threadId, kind: `created` })
-
-  // Confirmation email with the magic conversation link (the thread's one
-  // stable URL). A failed send doesn't fail the (already committed) ticket,
-  // but it is NOT invisible either (REV2-10): `emailDelivered` rides the
-  // submit response so the panel can stop promising an email that never
-  // left. The ledger row stores no thread URL — the token is never
-  // persisted, only recomputed per email.
-  let emailDelivered = false
+// The reporter's confirmation email + its ledger row. Never throws; returns
+// whether the mail actually went out. With no transport nothing is sent or
+// recorded.
+async function sendReporterConfirmation(args: {
+  to: string
+  teamName: string
+  issueId: string
+  issueTitle: string
+}): Promise<boolean> {
+  if (!emailEnabled) return false
   try {
-    // ONE reporter-facing identity for the whole conversation (REV2-51): the
-    // TEAM name — the same brand the /support/$token page shows and every
-    // member reply email carries. (The email helper's parameter is still
-    // called boardName.) Falls back to the widget's board/own name only when
-    // the team row is somehow missing.
-    const sendResult = await sendSupportConfirmationEmail({
-      to: fields.data.email,
-      boardName: config.teamName ?? config.boardName ?? config.name,
-      threadUrl: supportThreadUrl(token),
+    const sendResult = await sendReporterConfirmationEmail({
+      to: args.to,
+      teamName: args.teamName,
+      issueTitle: args.issueTitle,
+      conversationUrl: reporterConversationUrl(mintReporterToken(args.issueId)),
     })
-    emailDelivered = sendResult.delivered
     await db.insert(emailDeliveries).values({
       userId: null,
-      toEmail: fields.data.email,
-      issueId: null,
-      kind: `support_confirmation`,
+      toEmail: args.to,
+      issueId: args.issueId,
+      kind: `reporter_confirmation`,
       status: deliveryStatus(sendResult),
       provider: sendResult.provider,
       providerMessageId: sendResult.messageId,
       subject: sendResult.subject,
       sentAt: sendResult.delivered ? new Date() : null,
     })
+    return sendResult.delivered
   } catch (error) {
-    console.error(`widget support confirmation email failed`, error)
+    console.error(`widget reporter confirmation email failed`, error)
+    return false
   }
-
-  // Support tickets carry no issue and no public URL — the magic-link page
-  // is the reporter's view of the conversation.
-  return { issueId: null, identifier: null, url: null, emailDelivered }
 }
 
 // The whole GET /api/widget/config pipeline lives here (not in the route
@@ -1074,11 +902,8 @@ export async function handleWidgetConfig(request: Request): Promise<Response> {
   }
 
   const cors = corsHeaders(origin.echoOrigin)
-  // Per-mode gating (EXP-162): a trashed feedback board no longer hides the
-  // whole widget when a live split support target remains — the widget only
-  // reports disabled when NOTHING is servable (or it's switched off).
-  const modes = config.enabled ? await effectiveWidgetModes(config) : []
-  if (modes.length === 0) {
+  // Disabled, or its board is trashed/archived: nothing is servable.
+  if (!config.enabled || !widgetBoardAvailable(config)) {
     return jsonResponse(200, { enabled: false }, cors)
   }
 
@@ -1091,9 +916,6 @@ export async function handleWidgetConfig(request: Request): Promise<Response> {
     200,
     {
       enabled: true,
-      // Which entry points the panel offers (EXP-130). ADDITIVE — cached
-      // pre-modes widget bundles ignore it and render feedback-only.
-      modes,
       form: {
         buttonLabel:
           typeof form.buttonLabel === `string` ? form.buttonLabel : null,

@@ -58,6 +58,8 @@ import com.exponential.app.ui.components.TeamAvatar
 import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.components.deviceIcon
 import com.exponential.app.ui.components.entityConceptIcon
+import com.exponential.app.ui.components.commentAuthorName
+import com.exponential.app.ui.components.commentCaption
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.relativeTime
@@ -174,7 +176,6 @@ fun EntityRefPreviewSheet(
             "invite" -> InviteCard(ref, open)
             "notification" -> NotificationCard(ref, open)
             "attachment" -> AttachmentCard(ref, open)
-            "thread" -> SlimCard(ref, onOpen = { open(EntityTarget.SupportThread(ref.id)) })
             "repository" -> SlimCard(ref, onOpen = { open(EntityTarget.TeamSettings) })
             "list" -> ListCard(ref, members, open)
             else -> SlimCard(ref, onOpen = null)
@@ -359,15 +360,19 @@ private fun CommentCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
         SlimCard(ref, onOpen = null)
         return
     }
-    val author by observeScoped(row.authorId, null) { it.userDao().observeById(row.authorId) }
+    // SLOP-4: a reporter's comment has no author row (the card has no
+    // submission to name them from, so it reads the anonymous name).
+    val author by observeScoped(row.authorId, null) { db ->
+        row.authorId?.let { db.userDao().observeById(it) } ?: flowOf(null)
+    }
     val issue by observeScoped(row.issueId, null) { it.issueDao().observeById(row.issueId) }
     val statuses = teamStatuses()
-    val name = userDisplayName(author, row.authorId)
+    val name = commentAuthorName(row, author, reporterName = null)
     EntityPreviewCard(
         icon = { UserAvatar(author, name, size = 24.dp, userId = row.authorId) },
         eyebrow = "Comment",
         title = name,
-        subtitle = relativeTime(row.createdAt) + if (row.source == DomainContract.commentSourceMcp) " · via MCP" else "",
+        subtitle = relativeTime(row.createdAt) + (commentCaption(row)?.let { " · $it" } ?: ""),
         body = remember(row.body) { row.body?.let { plainExcerpt(it, EXCERPT_MAX) } },
         rows = listOfNotNull(
             issue?.let { target ->
@@ -619,7 +624,6 @@ private fun memberTarget(ref: EntityRef): EntityTarget? = when (ref.kind) {
     "issue" -> EntityTarget.Issue(ref.id)
     "board" -> EntityTarget.Board(ref.id)
     "session" -> EntityTarget.Session(ref.id)
-    "thread" -> EntityTarget.SupportThread(ref.id)
     "action" -> EntityTarget.Action(ref.id)
     "device" -> EntityTarget.Devices
     "label", "status", "member", "invite", "team", "repository" -> EntityTarget.TeamSettings

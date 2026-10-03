@@ -37,7 +37,7 @@ export function LiveDot({
   /** The pulsing halo behind the disc. */
   ping?: boolean
   /** An accessible name for a dot that CARRIES meaning on its own (the
-   *  helpdesk's "Awaiting reply"). A decorative dot beside its own label
+   *  "Awaiting reply" on a run). A decorative dot beside its own label
    *  leaves this off. */
   label?: string
   /** Sizing and layout (`size-1.5`, `shrink-0`, …). Defaults to 8px. */

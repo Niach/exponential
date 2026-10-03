@@ -13,6 +13,7 @@ import {
   toast,
 } from "@exp/ui"
 import { eq, useLiveQuery } from "@tanstack/react-db"
+import type { CommentAudience } from "@exp/db-schema/domain"
 import type { Issue, User, Board } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
 import { issueMemoryOwner } from "@/lib/work-tab-memory"
@@ -66,6 +67,11 @@ import {
 import { IssueChip } from "@/components/issue-chip"
 import { PinToggleButton } from "@/components/pin-toggle-button"
 import { WidgetSubmissionCard } from "@/components/widget-submission-card"
+import { useWidgetSubmission } from "@/hooks/use-widget-submission"
+import {
+  reporterDisplayName,
+  toastReporterReply,
+} from "@/components/reporter-reply-copy"
 import { IssueActionsMenu } from "@/components/issue-actions-menu"
 import { IssuePropertiesTray } from "@/components/issue-properties-tray"
 import { IssueTitleField } from "@/components/issue-title-field"
@@ -239,6 +245,14 @@ export function IssueDetailView({
   // EXP-630: the estimate scale rides the synced team row.
   const team = useTeamById(teamId)
   const statusOption = resolveStatus(issue)
+  // SLOP-4: ONE fetch of the widget submission behind this issue, shared by
+  // the metadata card, the timeline (reporter comment names) and both
+  // composers (the "Reply to reporter" toggle). Members only — anonymous
+  // viewers never fetch.
+  const submission = useWidgetSubmission(issue.id, currentUserId !== null)
+  const reporter = submission?.reporterEmail
+    ? { name: reporterDisplayName(submission.reporterName) }
+    : null
 
   // EXP-877: ONE definition per property mutation, shared with the session
   // route's issue face (`use-issue-property-handlers.ts`); the hook also owns
@@ -691,6 +705,7 @@ export function IssueDetailView({
       currentUserId={currentUserId}
       users={users}
       hideComposer={isMobile}
+      submission={submission ?? null}
     />
   ) : null
 
@@ -698,13 +713,16 @@ export function IssueDetailView({
   // composer moved into the floating bar, which sits outside the timeline).
   const handleCommentSubmit = async (
     body: string,
-    attachmentIds: string[]
+    attachmentIds: string[],
+    audience: CommentAudience
   ) => {
-    await trpc.comments.create.mutate({
+    const result = await trpc.comments.create.mutate({
       issueId: issue.id,
       body,
       attachmentIds,
+      audience,
     })
+    toastReporterReply(result.reporterEmailed)
   }
 
   // EXP-1097: the relations block under the description — the Sub-issues
@@ -723,9 +741,10 @@ export function IssueDetailView({
 
   // EXP-42b: reporter/page/env metadata of widget-filed issues, members-only
   // (the server gates it; anonymous viewers never even fetch).
-  const widgetCard = currentUserId ? (
-    <WidgetSubmissionCard issueId={issue.id} source={issue.source} />
-  ) : null
+  const widgetCard =
+    currentUserId && submission ? (
+      <WidgetSubmissionCard submission={submission} source={issue.source} />
+    ) : null
 
   if (isMobile) {
     return (
@@ -769,6 +788,7 @@ export function IssueDetailView({
             propertiesNode={mobilePropertiesPanel}
             trailingNode={codingFab}
             onSubmitComment={handleCommentSubmit}
+            reporter={reporter}
             hidden={descriptionFocused}
           />
         )}

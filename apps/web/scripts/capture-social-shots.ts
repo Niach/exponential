@@ -84,9 +84,6 @@ const SHOTS: SocialShot[] = [
   { name: `actions`, route: `${T}/actions`, anchor: `Update dependencies` },
   // Inbox — 3 unread.
   { name: `inbox`, route: `${T}/inbox`, anchor: `Mira Chen assigned you APP-6` },
-  // The helpdesk thread list shows reporter + snippet; open the freshest
-  // conversation so the right pane isn't the empty state.
-  { name: `support`, route: `${T}/support`, anchor: `Emma Fischer`, recipe: `openFirstThread` },
 ]
 
 async function capture(page: Page, spec: SocialShot): Promise<void> {

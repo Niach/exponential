@@ -3,7 +3,7 @@
 // against older servers that never send it.
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { WidgetRuntimeState } from "./types"
-import { submitFeedback, submitSupportRequest } from "./api-client"
+import { submitFeedback } from "./api-client"
 
 const makeState = (): WidgetRuntimeState => ({
   protocol: 1,
@@ -27,8 +27,7 @@ const submit = (
 ) =>
   submitFeedback({
     state,
-    title: `Broken button`,
-    description: ``,
+    message: `Broken button`,
     email: null,
     screenshot: null,
     website: overrides.website,
@@ -42,24 +41,6 @@ const submit = (
     },
   })
 
-const submitSupport = (
-  state: WidgetRuntimeState,
-  overrides: { website?: string } = {}
-) =>
-  submitSupportRequest({
-    state,
-    message: `Login is broken`,
-    email: `user@example.com`,
-    website: overrides.website,
-    meta: {
-      url: `https://host.example/page`,
-      viewportWidth: 800,
-      viewportHeight: 600,
-      screenWidth: 1600,
-      screenHeight: 900,
-      devicePixelRatio: 1,
-    },
-  })
 
 const mockFetchJson = (body: unknown) => {
   const fetchMock = vi.fn(async () => ({
@@ -123,8 +104,7 @@ describe(`submitFeedback response parsing`, () => {
     const fetchMock = mockFetchJson({ ok: true, identifier: `EXP-7` })
     await submitFeedback({
       state: makeState(),
-      title: `Broken button`,
-      description: ``,
+      message: `Broken button`,
       email: null,
       screenshot: null,
       images: [
@@ -168,8 +148,7 @@ describe(`submitFeedback response parsing`, () => {
     const fetchMock = mockFetchJson({ ok: true, identifier: `EXP-7` })
     await submitFeedback({
       state: makeState(),
-      title: `Broken button`,
-      description: ``,
+      message: `Broken button`,
       email: null,
       screenshot: null,
       labelIds: [`l-1`, `l-2`],
@@ -185,8 +164,7 @@ describe(`submitFeedback response parsing`, () => {
 
     await submitFeedback({
       state: makeState(),
-      title: `Broken button`,
-      description: ``,
+      message: `Broken button`,
       email: null,
       screenshot: null,
       labelIds: [],
@@ -217,12 +195,12 @@ describe(`submitFeedback response parsing`, () => {
   })
 })
 
-// REV2-10: the support confirmation email carries the reporter's ONLY
+// REV2-10 / SLOP-4: the confirmation email carries the reporter's ONLY
 // credential, so the panel must learn whether it actually went out.
-describe(`submitSupportRequest emailDelivered`, () => {
+describe(`submit emailDelivered`, () => {
   it(`surfaces a failed confirmation email`, async () => {
     mockFetchJson({ ok: true, issueId: null, identifier: null, url: null, emailDelivered: false })
-    expect(await submitSupport(makeState())).toEqual({
+    expect(await submit(makeState())).toEqual({
       ok: true,
       identifier: null,
       url: null,
@@ -232,7 +210,7 @@ describe(`submitSupportRequest emailDelivered`, () => {
 
   it(`surfaces a delivered confirmation email`, async () => {
     mockFetchJson({ ok: true, emailDelivered: true })
-    expect(await submitSupport(makeState())).toMatchObject({
+    expect(await submit(makeState())).toMatchObject({
       ok: true,
       emailDelivered: true,
     })
@@ -240,10 +218,48 @@ describe(`submitSupportRequest emailDelivered`, () => {
 
   it(`degrades to null against a server that omits the field`, async () => {
     mockFetchJson({ ok: true })
-    expect(await submitSupport(makeState())).toMatchObject({
+    expect(await submit(makeState())).toMatchObject({
       ok: true,
       emailDelivered: null,
     })
+  })
+})
+
+// SLOP-4: the one form field rides as `message`; a headless host's explicit
+// title is forwarded only when given (the server titles off the message's
+// first line otherwise). No `mode`, no `description`.
+describe(`submit payload shape`, () => {
+  const bodyOf = (fetchMock: ReturnType<typeof mockFetchJson>): FormData =>
+    ((fetchMock.mock.calls[0] as unknown[])[1] as { body: FormData }).body
+
+  it(`sends message and omits title, description and mode`, async () => {
+    const fetchMock = mockFetchJson({ ok: true })
+    await submit(makeState())
+    const body = bodyOf(fetchMock)
+    expect(body.get(`message`)).toBe(`Broken button`)
+    expect(body.get(`title`)).toBeNull()
+    expect(body.get(`description`)).toBeNull()
+    expect(body.get(`mode`)).toBeNull()
+  })
+
+  it(`forwards an explicit title`, async () => {
+    const fetchMock = mockFetchJson({ ok: true })
+    await submitFeedback({
+      state: makeState(),
+      message: `The form loops back after I press Sign in.`,
+      title: `Login loops`,
+      email: null,
+      screenshot: null,
+      meta: {
+        url: `https://host.example/page`,
+        viewportWidth: 800,
+        viewportHeight: 600,
+        screenWidth: 1600,
+        screenHeight: 900,
+        devicePixelRatio: 1,
+      },
+    })
+    expect(bodyOf(fetchMock).get(`title`)).toBe(`Login loops`)
   })
 })
 
@@ -259,14 +275,10 @@ describe(`honeypot field forwarding`, () => {
     expect(bodyOf(fetchMock).get(`website`)).toBeNull()
   })
 
-  it(`forwards a filled honeypot on both forms`, async () => {
+  it(`forwards a filled honeypot`, async () => {
     const feedbackFetch = mockFetchJson({ ok: true })
     await submit(makeState(), { website: `http://spam.example` })
     expect(bodyOf(feedbackFetch).get(`website`)).toBe(`http://spam.example`)
-
-    const supportFetch = mockFetchJson({ ok: true })
-    await submitSupport(makeState(), { website: `http://spam.example` })
-    expect(bodyOf(supportFetch).get(`website`)).toBe(`http://spam.example`)
   })
 })
 
@@ -308,16 +320,4 @@ describe(`submit error status + code parsing`, () => {
     })
   })
 
-  it(`submitSupportRequest surfaces the status and code too`, async () => {
-    mockFetchError(400, {
-      error: `Invalid submission fields`,
-      code: `invalid_email`,
-    })
-    expect(await submitSupport(makeState())).toEqual({
-      ok: false,
-      message: `Invalid submission fields`,
-      status: 400,
-      code: `invalid_email`,
-    })
-  })
 })

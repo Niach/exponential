@@ -7677,10 +7677,10 @@ fn exp_entity_chip_row(id: FeedItemId, refs: &[steer::EntityRef], cx: &mut App) 
             r#ref,
             &members,
         );
-        // A card exists for a synced row, a list, and the two never-synced
-        // kinds (a slim card); anything else hovers into nothing, so it
+        // A card exists for a synced row, a list, and the one never-synced
+        // kind (a slim card); anything else hovers into nothing, so it
         // does not even ask.
-        let has_card = matches!(r#ref.kind.as_str(), "list" | "repository" | "thread")
+        let has_card = matches!(r#ref.kind.as_str(), "list" | "repository")
             || crate::entity_preview::row_facts(&r#ref.kind, &r#ref.id, cx).synced;
         if has_card {
             chip = chip.hover_card(key);

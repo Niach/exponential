@@ -22,7 +22,6 @@ enum EntityNavigation: Equatable {
     case issue(String)
     case board(String)
     case session(String)
-    case thread(String)
     /// SLOP-2: one action's page.
     case action(String)
     case actions
@@ -79,8 +78,6 @@ struct EntityRefChips: View {
             pushRoute(.board(accountId: accountId, id: id))
         case let .session(id):
             pushRoute(.agentSession(accountId: accountId, sessionId: id))
-        case let .thread(id):
-            pushRoute(.supportThread(accountId: accountId, threadId: id))
         case let .action(id):
             pushRoute(.action(accountId: accountId, id: id))
         case .actions:
@@ -148,6 +145,9 @@ struct EntityPreviewModel {
     enum Icon {
         case glyph(String, Color?)
         case user(UserEntity?, id: String?)
+        /// SLOP-4: a person with no `users` row (a widget reporter, a former
+        /// member) — the initials chip of the name the card reads.
+        case initials(String)
         case team(TeamEntity)
         case sessionDot(SessionDotTone, pulsing: Bool)
         case dot(Color)
@@ -227,6 +227,10 @@ struct EntityRefPreviewSheet: View {
                 .foregroundStyle(color ?? .white.opacity(TextOpacity.secondary))
         case let .user(user, id):
             UserAvatar(user: user, id: id, size: size + 6)
+        case let .initials(name):
+            UserAvatar(
+                image: nil, initials: memberInitials(forDisplayName: name), hueKey: name, size: size + 6
+            )
         case let .team(team):
             TeamAvatar(team: team, size: size + 6)
         case let .sessionDot(tone, pulsing):
@@ -297,7 +301,6 @@ enum EntityRefResolver {
         case "label", "status", "member", "invite", "team", "repository": .teamSettings
         case "device": .devices
         case "notification": .myWork
-        case "thread": .thread(ref.id)
         default: nil
         }
     }
@@ -399,7 +402,7 @@ enum EntityRefResolver {
 
     private static func commentModel(_ ref: EntityRef, db: Database, teamId: String?) throws -> EntityPreviewModel? {
         guard let comment = try CommentEntity.fetchOne(db, key: ref.id) else { return nil }
-        let author = try UserEntity.fetchOne(db, key: comment.authorId)
+        let author = try comment.authorId.flatMap { try UserEntity.fetchOne(db, key: $0) }
         let issue = try IssueEntity.fetchOne(db, key: comment.issueId)
         var rows: [EntityPreviewModel.Row] = []
         if let issue {
@@ -412,10 +415,30 @@ enum EntityRefResolver {
                 open: .issue(issue.id)
             ))
         }
+        // SLOP-4: a reporter's reply has no member author — it reads as the
+        // anonymous reporter here (the issue card names the submission's
+        // reporter); a member's reporter-audience comment says so.
+        let eyebrow: String = comment.isFromReporter
+            ? "Comment · \(ReporterReply.reporterCaption)"
+            : comment.isToReporter
+                ? "Comment · \(ReporterReply.toReporterCaption)"
+                : comment.isViaMcp ? "Comment · via MCP" : "Comment"
+        let title: String
+        let icon: EntityPreviewModel.Icon
+        if comment.isFromReporter {
+            title = ReporterReply.anonymousName
+            icon = .initials(title)
+        } else if let authorId = comment.authorId {
+            title = memberDisplayName(author, id: authorId)
+            icon = .user(author, id: authorId)
+        } else {
+            title = ReporterReply.formerMemberName
+            icon = .initials(title)
+        }
         return EntityPreviewModel(
-            icon: .user(author, id: comment.authorId),
-            eyebrow: comment.isViaMcp ? "Comment · via MCP" : "Comment",
-            title: memberDisplayName(author, id: comment.authorId),
+            icon: icon,
+            eyebrow: eyebrow,
+            title: title,
             subtitle: relativeDate(comment.createdAt),
             excerpt: comment.body,
             rows: rows,

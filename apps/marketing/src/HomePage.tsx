@@ -67,7 +67,7 @@ export function HomePage() {
               </span>
             </motion.h1>
             <motion.p className={`hero-sub`} variants={heroChild}>
-              Issues, customer support and coding agents in one realtime
+              Issues, user feedback and coding agents in one realtime
               tracker. Agents run locally on your machines, on your
               subscription.
             </motion.p>
@@ -96,8 +96,8 @@ export function HomePage() {
         {/* ── Actions: reusable AI tasks on your own agents (EXP-337) ── */}
         <ActionsSection />
 
-        {/* ── Collaboration: widget → Support inbox, realtime with the
-               team (merged Teamwork + Helpdesk, EXP-176) ── */}
+        {/* ── Collaboration: widget → board, realtime with the team
+               (EXP-176, SLOP-4) ── */}
         <CollabSection />
 
         {/* ── Pricing ──────────────────────────── */}

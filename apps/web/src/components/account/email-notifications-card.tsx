@@ -47,13 +47,11 @@ const TYPE_ROWS: Array<{ type: NotificationType; label: string; hint: string }> 
       label: `Pull request merged`,
       hint: `A PR for an issue you follow is merged.`,
     },
-    // REV2-51: the digest honors this pref generically — the panel just never
-    // offered it, so wanting issue mail but not helpdesk mail meant the
-    // global kill switch.
+    // SLOP-4: a widget reporter's answer lands as a comment on the issue.
     {
-      type: `support_reply`,
-      label: `Support tickets`,
-      hint: `New helpdesk tickets and reporter replies in your teams.`,
+      type: `reporter_reply`,
+      label: `Reporter replies`,
+      hint: `A widget reporter answered on an issue in your teams.`,
     },
     // EXP-980: a walled run reads `running`; this is how its owner hears.
     {

@@ -17,14 +17,13 @@ import {
   type WebView,
   type WorkFace,
 } from "./state"
-import { SUPPORT_THREADS, sessionFor, type DemoAgent } from "./data"
+import { sessionFor, type DemoAgent } from "./data"
 import { WebSidebar } from "./Sidebar"
 import { WebBoard } from "./Board"
 import { WebWorkTabs } from "./WorkTabs"
 import { WebAgentPage } from "./AgentPage"
 import { WebIssueDetail } from "./IssueDetail"
 import { WebInbox } from "./Inbox"
-import { WebSupportInbox } from "./SupportInbox"
 
 const BASE_W = 1100
 const WEB_H = 680
@@ -33,11 +32,10 @@ type InitState = {
   nav: WebNav
   openIssueId: string | null
   face: WorkFace
-  selectedThreadId: string | null
 }
 
 const initialState = (view: WebView): InitState => {
-  const base = { openIssueId: null, face: `issue` as WorkFace, selectedThreadId: SUPPORT_THREADS[0].id }
+  const base = { openIssueId: null, face: `issue` as WorkFace }
   switch (view) {
     case `issue`:
       return { ...base, nav: `board`, openIssueId: `EXP-8` }
@@ -45,8 +43,6 @@ const initialState = (view: WebView): InitState => {
       return { ...base, nav: `board`, openIssueId: `EXP-8`, face: `run` }
     case `inbox`:
       return { ...base, nav: `inbox` }
-    case `support`:
-      return { ...base, nav: `support` }
     case `agent`:
       return { ...base, nav: `agent` }
     default:
@@ -79,9 +75,6 @@ export function WebDemo({
   const [agentSeedId, setAgentSeedId] = useState<string | null>(null)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [inboxRead, setInboxRead] = useState<Set<string>>(new Set())
-  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(init.selectedThreadId)
-  const [threadFilter, setThreadFilter] = useState<`open` | `resolved`>(`open`)
-  const [threadRead, setThreadRead] = useState<Set<string>>(new Set())
 
   const api: WebApi = {
     interactive,
@@ -141,14 +134,6 @@ export function WebDemo({
         INBOX_ITEMS.forEach((n) => next.add(n.id))
         return next
       }),
-    selectedThreadId,
-    selectThread: (id) => {
-      setSelectedThreadId(id)
-      setThreadRead((prev) => new Set(prev).add(id))
-    },
-    threadFilter,
-    setThreadFilter,
-    threadRead,
   }
 
   const main = openIssueId ? (
@@ -157,10 +142,8 @@ export function WebDemo({
     <WebBoard />
   ) : nav === `agent` ? (
     <WebAgentPage key={agentSeedId ?? `chat`} />
-  ) : nav === `inbox` ? (
-    <WebInbox />
   ) : (
-    <WebSupportInbox />
+    <WebInbox />
   )
 
   const { ref, scale } = useDemoScale(BASE_W)

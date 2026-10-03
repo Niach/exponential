@@ -503,7 +503,7 @@ docker run -d \\
             <p>
               One sender handles all outgoing mail: password reset and address
               verification, invite emails, the notification digest, the
-              helpdesk reporter magic links, and the contact form. With no
+              widget reporters&apos; follow-up links, and the contact form. With no
               transport configured every send is a logged no-op: nothing
               throws, the UI hides the affordances that depend on it (
               &quot;Forgot password?&quot;, the email-notification prefs), and
@@ -548,12 +548,13 @@ EMAIL_FROM="Exponential <noreply@yourcompany.com>"
               every message (individual sends may override it).
             </p>
 
-            <DocsCallout kind="warn" title="The helpdesk needs a transport">
-              A support reporter&apos;s only credential is the magic link
-              emailed to them, so support mode on the feedback widget can&apos;t
-              work without SMTP or SES. Password reset, address verification,
-              emailed invites, and the notification digest are equally inert.
-              They fail silently rather than erroring.
+            <DocsCallout kind="warn" title="Reporter conversations need a transport">
+              A widget reporter&apos;s only way back to their report is the
+              link emailed to them, so without SMTP or SES your replies to
+              reporters never reach them (the reports themselves still land
+              as issues). Password reset, address verification, emailed
+              invites, and the notification digest are equally inert. They
+              fail silently rather than erroring.
             </DocsCallout>
           </DocsSection>
 
@@ -807,7 +808,7 @@ EMAIL_FROM="Exponential <noreply@yourcompany.com>"
                 <code>KEY_BURST</code> (60/10) bounds them per widget, and is
                 self-host-only; <code>PER_RECIPIENT</code>/
                 <code>RECIPIENT_BURST</code> (6/3) bounds the confirmation mail
-                a support submission sends to a typed-in address. The anonymous
+                a widget submission sends to a typed-in address. The anonymous
                 config read has its own far more generous{` `}
                 <code>WIDGET_CONFIG_RATE_LIMIT_PER_IP_HOURLY</code>/
                 <code>…_IP_BURST</code> (600/60).

@@ -3915,59 +3915,6 @@ public object ExpIcons {
         }.build()
     }
 
-    public val `life-buoy`: ImageVector by lazy {
-        ImageVector.Builder(
-            name = "life-buoy",
-            defaultWidth = 24.dp,
-            defaultHeight = 24.dp,
-            viewportWidth = 24f,
-            viewportHeight = 24f,
-        ).apply {
-            addPath(
-                addPathNodes("M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z"),
-                stroke = SolidColor(Color.Black),
-                strokeLineWidth = 2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round,
-            )
-            addPath(
-                addPathNodes("m4.93 4.93 4.24 4.24"),
-                stroke = SolidColor(Color.Black),
-                strokeLineWidth = 2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round,
-            )
-            addPath(
-                addPathNodes("m14.83 9.17 4.24-4.24"),
-                stroke = SolidColor(Color.Black),
-                strokeLineWidth = 2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round,
-            )
-            addPath(
-                addPathNodes("m14.83 14.83 4.24 4.24"),
-                stroke = SolidColor(Color.Black),
-                strokeLineWidth = 2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round,
-            )
-            addPath(
-                addPathNodes("m9.17 14.83-4.24 4.24"),
-                stroke = SolidColor(Color.Black),
-                strokeLineWidth = 2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round,
-            )
-            addPath(
-                addPathNodes("M8 12A4 4 0 1 0 16 12A4 4 0 1 0 8 12Z"),
-                stroke = SolidColor(Color.Black),
-                strokeLineWidth = 2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round,
-            )
-        }.build()
-    }
-
     public val `lightbulb`: ImageVector by lazy {
         ImageVector.Builder(
             name = "lightbulb",
@@ -4667,6 +4614,38 @@ public object ExpIcons {
             )
             addPath(
                 addPathNodes("M9 11h6"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `message-square-reply`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "message-square-reply",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("m10 8-3 3 3 3"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M17 14v-1a2 2 0 0 0-2-2H7"),
                 stroke = SolidColor(Color.Black),
                 strokeLineWidth = 2f,
                 strokeLineCap = StrokeCap.Round,
@@ -7903,7 +7882,6 @@ public object ExpIcons {
         "layers" -> `layers`
         "layers-2" -> `layers-2`
         "leaf" -> `leaf`
-        "life-buoy" -> `life-buoy`
         "lightbulb" -> `lightbulb`
         "link" -> `link`
         "link-2" -> `link-2`
@@ -7925,6 +7903,7 @@ public object ExpIcons {
         "message-circle" -> `message-circle`
         "message-square" -> `message-square`
         "message-square-plus" -> `message-square-plus`
+        "message-square-reply" -> `message-square-reply`
         "mic" -> `mic`
         "microscope" -> `microscope`
         "minimize-2" -> `minimize-2`
@@ -8164,8 +8143,6 @@ public object ExpIcons {
     public val navSignOut: ImageVector get() = `log-out`
     /** Concept `nav-source-control`. */
     public val navSourceControl: ImageVector get() = `git-merge`
-    /** Concept `nav-support`. */
-    public val navSupport: ImageVector get() = `life-buoy`
     /** Concept `nav-team-switcher`. */
     public val navTeamSwitcher: ImageVector get() = `chevrons-up-down`
     /** Concept `nav-terminal`. */
@@ -8190,10 +8167,10 @@ public object ExpIcons {
     public val notificationPrMerged: ImageVector get() = `git-merge`
     /** Concept `notification-pr-opened`. */
     public val notificationPrOpened: ImageVector get() = `git-pull-request`
+    /** Concept `notification-reporter-reply`. */
+    public val notificationReporterReply: ImageVector get() = `message-square-reply`
     /** Concept `notification-session-blocked`. */
     public val notificationSessionBlocked: ImageVector get() = `hourglass`
-    /** Concept `notification-support-reply`. */
-    public val notificationSupportReply: ImageVector get() = `life-buoy`
     /** Concept `pr-batch`. */
     public val prBatch: ImageVector get() = `boxes`
     /** Concept `pr-closed`. */
@@ -8254,8 +8231,6 @@ public object ExpIcons {
     public val settingsBoards: ImageVector get() = `square-kanban`
     /** Concept `settings-general`. */
     public val settingsGeneral: ImageVector get() = `building-2`
-    /** Concept `settings-helpdesk`. */
-    public val settingsHelpdesk: ImageVector get() = `life-buoy`
     /** Concept `settings-import`. */
     public val settingsImport: ImageVector get() = `download`
     /** Concept `settings-issues`. */

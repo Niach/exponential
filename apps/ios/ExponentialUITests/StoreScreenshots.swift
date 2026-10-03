@@ -4,8 +4,9 @@ import XCTest
 ///
 /// Drives the real app against a seeded local backend: sign in on the
 /// InstanceView/LoginView flow, wait for Electric to sync the demo team, then
-/// capture the eight store shots — board, issue detail, Start-coding dialog,
-/// live steering, PR review, actions, inbox, support inbox. EXP-393 replaced
+/// capture the seven store shots — board, issue detail, Start-coding dialog,
+/// live steering, PR review, actions, inbox (the support inbox left with the
+/// helpdesk (gone, SLOP-4)). EXP-393 replaced
 /// the comments / board-switcher / agents-list / reviews-list / search shots
 /// with the three that actually differentiate the product (start coding,
 /// steering, diff + merge), and kept the set identical to Android's, where
@@ -14,7 +15,7 @@ import XCTest
 /// Run via `fastlane screenshots` (apps/ios). Prerequisites, in order:
 ///   1. seeded dev server — `apps/web/scripts/seed-screenshots.ts`
 ///      (demo@exponential.at / screenshots-demo, team "Acme", board
-///      "Mobile App", showcase issue APP-5, open PRs, actions, helpdesk)
+///      "Mobile App", showcase issue APP-5, open PRs, actions)
 ///   2. a steer relay, with STEER_RELAY_URL + STEER_RELAY_SECRET exported for
 ///      the web server (`docker compose --profile steer up -d`)
 ///   3. `bun run screenshots:desktop` left running for the whole capture
@@ -216,23 +217,6 @@ final class StoreScreenshots: XCTestCase {
             "Inbox never showed the seeded notifications"
         )
         snapshot("07_inbox", settle: 2, popRects: app)
-
-        // ── 08: support inbox (helpdesk threads) ────────────────────────────
-        // The tab only exists because the seed flips the team's
-        // helpdesk_enabled on; threads come from tRPC polling, not Electric.
-        let supportTab = app.buttons["tab-support"]
-        XCTAssertTrue(
-            supportTab.waitForExistence(timeout: 15),
-            "Support tab missing — did the seed enable the team helpdesk?"
-        )
-        supportTab.tap()
-        let threadRow = app.descendants(matching: .any)
-            .matching(identifier: "support-thread-row").firstMatch
-        XCTAssertTrue(
-            threadRow.waitForExistence(timeout: 30),
-            "Support inbox never showed the seeded threads"
-        )
-        snapshot("08_support", settle: 2, popRects: app)
 
         // ── 01: home issue list (captured last, see above) ──────────────────
         app.buttons["tab-issues"].tap()

@@ -2,7 +2,7 @@
 // the web port of the desktop's `navigation::derive_origin` (apps/desktop/
 // crates/ui/src/navigation.rs), same rule, same cases:
 //
-//   * Opened from a LIST screen (board, inbox, support, agent, reviews): that
+//   * Opened from a LIST screen (board, inbox, agent, reviews): that
 //     list STAYS — it rides the detail's `?from=` token and the sidebar shows
 //     it as the LIST NAV panel beside the detail.
 //   * Opened CONTEXT-FREE (a pinned row, a sidebar session row, a deep link, a
@@ -11,7 +11,7 @@
 //
 // EXP-851 made the token the only input: `?from=` decides the sidebar occupant
 // (`sidebarOccupant`) and where Back goes. The vocabulary is the list set —
-// `board:<slug>`, `inbox`, `inbox:my-issues`, `support`, `agent`, `reviews`,
+// `board:<slug>`, `inbox`, `inbox:my-issues`, `agent`, `reviews`,
 // `action:<id>` (an action page's Runs), `drafts` (EXP-1170) — plus one legacy spelling that still parses:
 // `sessions` (the old `agent`).
 // Pure, so every combination is a test.
@@ -22,7 +22,6 @@ export type DetailOrigin =
    *  from it returns there, not to Notifications. */
   | { kind: `inbox`; tab?: `my-issues` | `drafts` }
   | { kind: `board`; boardSlug: string }
-  | { kind: `support` }
   | { kind: `reviews` }
   /** The Agent page's Running/Past list. */
   | { kind: `agent` }
@@ -48,7 +47,6 @@ export type OriginScreen =
   | { kind: `board`; boardSlug: string }
   | { kind: `issue`; boardSlug: string; identifier: string }
   | { kind: `session` }
-  | { kind: `support` }
   | { kind: `reviews` }
   /** The Agent page — a list context (desktop `Screen::Chat`: the Sessions
    * column's own center), never context-free. */
@@ -80,7 +78,6 @@ export function screenFromPath(pathname: string): OriginScreen {
   if (rest === `/agent`) return { kind: `agent` }
   const action = rest.match(/^\/actions\/([^/]+)$/)
   if (action) return { kind: `action`, actionId: action[1] }
-  if (rest === `/support`) return { kind: `support` }
   if (rest === `/reviews`) return { kind: `reviews` }
   if (/^\/sessions\/[^/]+$/.test(rest)) return { kind: `session` }
   const issue = rest.match(/^\/boards\/([^/]+)\/issues\/([^/]+)$/)
@@ -118,8 +115,6 @@ export function capturedOrigin(
       // EXP-870: an issue opened with no list (a pinned row, search) hands on
       // none either — desktop `derive_origin` parity.
       return carried
-    case `support`:
-      return { kind: `support` }
     case `reviews`:
       return { kind: `reviews` }
     case `action`:
@@ -162,8 +157,6 @@ export function formatOrigin(origin: DetailOrigin | null): string | undefined {
       return origin.tab ? `inbox:${origin.tab}` : `inbox`
     case `board`:
       return `board:${origin.boardSlug}`
-    case `support`:
-      return `support`
     case `reviews`:
       return `reviews`
     case `agent`:
@@ -187,7 +180,6 @@ export function parseOrigin(
   if (value === `inbox`) return { kind: `inbox` }
   if (value === `inbox:my-issues`) return { kind: `inbox`, tab: `my-issues` }
   if (value === `inbox:drafts`) return { kind: `inbox`, tab: `drafts` }
-  if (value === `support`) return { kind: `support` }
   if (value === `reviews`) return { kind: `reviews` }
   if (value === `agent` || value === `sessions`) return { kind: `agent` }
   if (value === `running`) return { kind: `running` }
@@ -208,8 +200,6 @@ export function originLabel(
   switch (origin.kind) {
     case `inbox`:
       return `Inbox`
-    case `support`:
-      return `Support`
     case `reviews`:
       return `Reviews`
     case `agent`:
@@ -256,8 +246,6 @@ export function originListNavigation(
         params: { teamSlug },
         search: origin.tab ? { tab: origin.tab } : {},
       }
-    case `support`:
-      return { to: `/t/$teamSlug/support`, params: { teamSlug }, search: {} }
     case `reviews`:
       return { to: `/t/$teamSlug/reviews`, params: { teamSlug }, search: {} }
     case `agent`:
@@ -294,13 +282,12 @@ export type SidebarOccupant =
   | { kind: `recent` }
 
 /** A DETAIL route below `/t/$teamSlug` — the only routes that can show a list
- * nav. Board/inbox/support/agent/reviews are LIST screens and keep the main
+ * nav. Board/inbox/agent/reviews are LIST screens and keep the main
  * menu. */
 function isDetailRest(rest: string): boolean {
   if (/^\/boards\/[^/]+\/issues\/[^/]+$/.test(rest)) return true
   if (/^\/sessions\/[^/]+$/.test(rest)) return true
   if (/^\/reviews\/[^/]+$/.test(rest)) return true
-  if (/^\/support\/[^/]+$/.test(rest)) return true
   // EXP-1170: the New issue page is the issue detail in draft mode.
   if (/^\/drafts\/[^/]+$/.test(rest)) return true
   return false

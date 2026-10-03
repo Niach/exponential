@@ -19,11 +19,6 @@ class DeepLinkBus @Inject constructor() {
         data class Issue(val id: String, val face: String? = null) : Target
         data class Invite(val token: String) : Target
 
-        // exponential://support/{threadId} — a support_reply push tap (EXP-180).
-        // Opens the ticket conversation directly (membership-gated server-side,
-        // so it works whichever team of the active account it belongs to).
-        data class SupportThread(val id: String) : Target
-
         // exponential://inbox — an agent_message push tap (EXP-801). The row
         // renders in the My Work inbox and nowhere else.
         data object Inbox : Target
@@ -86,10 +81,6 @@ class DeepLinkBus @Inject constructor() {
 
     fun openInvite(token: String) {
         _target.value = Target.Invite(token)
-    }
-
-    fun openSupportThread(id: String) {
-        _target.value = Target.SupportThread(id)
     }
 
     fun openInbox() {

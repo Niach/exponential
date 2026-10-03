@@ -7,8 +7,8 @@
  * over to an absolute date, so neither `SCREENSHOT_FREEZE_NOW` nor a pinned
  * past instant can stabilise them. A five-lane refresh runs for hours after the
  * seed: "1 hour ago" became "4 hours ago" between the first and last lane and
- * rewrote `support-*`, `drafts`, `automations-list` and the `chat` history for
- * nothing.
+ * rewrote `support-reporter`, `drafts`, `automations-list` and the `chat`
+ * history for nothing.
  *
  * So the rows those views print are SHIFTED forward by however much time has
  * passed since the seed, which keeps every age exactly what the seed wrote. The
@@ -26,13 +26,19 @@ import { and, eq, inArray, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   codingSessions,
+  comments,
   issueDrafts,
-  supportMessages,
-  supportThreads,
+  issues,
   teams,
   users,
+  widgetSubmissions,
 } from "@/db/schema"
-import { DEMO_EMAIL, DEMO_SESSION_IDS, TEAM_SLUG } from "../screenshot-demo"
+import {
+  DEMO_EMAIL,
+  DEMO_SESSION_IDS,
+  DEMO_WIDGET_ISSUE_ID,
+  TEAM_SLUG,
+} from "../screenshot-demo"
 
 /** The seed stamps `ended_at` of this run exactly this long before its clock. */
 export const DEMO_CLOCK_ANCHOR = {
@@ -84,29 +90,29 @@ export async function reclockDemoRows(now: number = Date.now()): Promise<number>
           createdAt: sql`${codingSessions.createdAt} + ${shift}`,
         })
         .where(inArray(codingSessions.id, ENDED_SESSION_IDS))
+      // SLOP-4: the widget-filed issue's report + conversation — the
+      // reporter page prints every one of these as "X ago".
       await tx
-        .update(supportThreads)
+        .update(issues)
         .set({
-          createdAt: sql`${supportThreads.createdAt} + ${shift}`,
-          updatedAt: sql`${supportThreads.updatedAt} + ${shift}`,
-          lastReporterSeenAt: sql`${supportThreads.lastReporterSeenAt} + ${shift}`,
+          createdAt: sql`${issues.createdAt} + ${shift}`,
+          updatedAt: sql`${issues.updatedAt} + ${shift}`,
         })
-        .where(eq(supportThreads.teamId, teamId))
+        .where(and(eq(issues.id, DEMO_WIDGET_ISSUE_ID), eq(issues.teamId, teamId)))
       await tx
-        .update(supportMessages)
+        .update(comments)
         .set({
-          createdAt: sql`${supportMessages.createdAt} + ${shift}`,
-          updatedAt: sql`${supportMessages.updatedAt} + ${shift}`,
+          createdAt: sql`${comments.createdAt} + ${shift}`,
+          updatedAt: sql`${comments.updatedAt} + ${shift}`,
         })
-        .where(
-          inArray(
-            supportMessages.threadId,
-            tx
-              .select({ id: supportThreads.id })
-              .from(supportThreads)
-              .where(eq(supportThreads.teamId, teamId))
-          )
-        )
+        .where(eq(comments.issueId, DEMO_WIDGET_ISSUE_ID))
+      await tx
+        .update(widgetSubmissions)
+        .set({
+          createdAt: sql`${widgetSubmissions.createdAt} + ${shift}`,
+          lastReporterSeenAt: sql`${widgetSubmissions.lastReporterSeenAt} + ${shift}`,
+        })
+        .where(eq(widgetSubmissions.issueId, DEMO_WIDGET_ISSUE_ID))
       if (!withDrafts) return
       await tx
         .update(issueDrafts)

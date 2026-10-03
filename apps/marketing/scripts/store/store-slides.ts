@@ -126,7 +126,7 @@ export const SLIDES: Slide[] = [
     decorShot: `board`,
     eyebrow: `Exponential`,
     headline: [`The next-gen`, `dev platform`],
-    sub: `Issues, customer support and coding agents in one workspace, in sync on every device.`,
+    sub: `Issues, user feedback and coding agents in one workspace, in sync on every device.`,
     forms: PHONES,
   },
   {
@@ -185,15 +185,6 @@ export const SLIDES: Slide[] = [
     eyebrow: `Actions`,
     headline: [`AI actions.`, `Automate anything.`],
     sub: `Saved agent playbooks your team can run`,
-    forms: PHONES,
-  },
-  {
-    id: `support`,
-    index: 7,
-    shot: `support`,
-    eyebrow: `Helpdesk`,
-    headline: [`Support`, `built in`],
-    sub: `Customer tickets land next to the code`,
     forms: PHONES,
   },
   {

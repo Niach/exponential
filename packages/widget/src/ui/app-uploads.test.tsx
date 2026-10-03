@@ -19,7 +19,6 @@ const submitFeedback = vi.fn(
 )
 vi.mock(`../api-client`, () => ({
   submitFeedback: (args: Record<string, unknown>) => submitFeedback(args),
-  submitSupportRequest: vi.fn(),
 }))
 
 import { App } from "./App"
@@ -85,7 +84,7 @@ describe(`FEED-5 attached pictures`, () => {
   const form = () => container.querySelector(`form`)!
 
   const setTitle = async (value: string) => {
-    const input = container.querySelector<HTMLInputElement>(`#exp-title`)!
+    const input = container.querySelector<HTMLTextAreaElement>(`#exp-message`)!
     input.value = value
     input.dispatchEvent(new Event(`input`, { bubbles: true }))
     await flush()

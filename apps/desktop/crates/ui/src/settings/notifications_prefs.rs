@@ -43,8 +43,8 @@ use domain::contract::{
     NOTIFICATION_TYPE_ISSUE_ASSIGNED, NOTIFICATION_TYPE_ISSUE_COMMENT,
     NOTIFICATION_TYPE_ISSUE_CREATED, NOTIFICATION_TYPE_ISSUE_MENTION,
     NOTIFICATION_TYPE_ISSUE_STATUS_CHANGED, NOTIFICATION_TYPE_PR_MERGED,
-    NOTIFICATION_TYPE_PR_OPENED, NOTIFICATION_TYPE_SESSION_BLOCKED,
-    NOTIFICATION_TYPE_SUPPORT_REPLY,
+    NOTIFICATION_TYPE_PR_OPENED, NOTIFICATION_TYPE_REPORTER_REPLY,
+    NOTIFICATION_TYPE_SESSION_BLOCKED,
 };
 
 use crate::coding_flow::CodingHub;
@@ -90,9 +90,9 @@ const TYPE_ROWS: [(&str, &str, &str); 9] = [
         "A PR for an issue you follow is merged.",
     ),
     (
-        NOTIFICATION_TYPE_SUPPORT_REPLY,
-        "Support tickets",
-        "New helpdesk tickets and reporter replies in your teams.",
+        NOTIFICATION_TYPE_REPORTER_REPLY,
+        "Reporter replies",
+        "A widget reporter answered on an issue in your teams.",
     ),
     (
         NOTIFICATION_TYPE_SESSION_BLOCKED,

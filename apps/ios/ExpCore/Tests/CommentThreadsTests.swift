@@ -38,4 +38,31 @@ final class CommentThreadsTests: XCTestCase {
         )
         XCTAssertTrue(mcp.isViaMcp)
     }
+
+    // SLOP-4: the reporter flags, read off source + audience.
+    func testReporterFlagsReadOffSourceAndAudience() {
+        let fromReporter = CommentEntity(
+            id: "r", issueId: "i-1", teamId: "t-1", authorId: nil, body: "still broken",
+            kind: "regular", editedAt: nil, createdAt: "2026-07-03T10:00:00Z",
+            updatedAt: "2026-07-03T10:00:00Z", source: DomainContract.commentSourceReporter,
+            audience: DomainContract.commentAudienceReporter
+        )
+        XCTAssertTrue(fromReporter.isFromReporter)
+        // The reporter's own words are not "to reporter".
+        XCTAssertFalse(fromReporter.isToReporter)
+        XCTAssertFalse(fromReporter.isViaMcp)
+
+        let toReporter = CommentEntity(
+            id: "m", issueId: "i-1", teamId: "t-1", authorId: "u-1", body: "fixed",
+            kind: "regular", editedAt: nil, createdAt: "2026-07-03T10:00:00Z",
+            updatedAt: "2026-07-03T10:00:00Z", source: DomainContract.commentSourceUser,
+            audience: DomainContract.commentAudienceReporter
+        )
+        XCTAssertTrue(toReporter.isToReporter)
+        XCTAssertFalse(toReporter.isFromReporter)
+
+        // The default is a team comment.
+        XCTAssertEqual(row("a").audience, DomainContract.commentAudienceTeam)
+        XCTAssertFalse(row("a").isToReporter)
+    }
 }

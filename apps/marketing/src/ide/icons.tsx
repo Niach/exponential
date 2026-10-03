@@ -11,7 +11,6 @@ import {
   GitBranch,
   Hash,
   Image as ImageGlyph,
-  LifeBuoy,
   MessageSquareHeart,
   SquareKanban,
   Megaphone,
@@ -169,7 +168,6 @@ export const IcImage = wrap(ImagePlus)
 
 /* Rail / chrome concepts added for the EXP-471 pass */
 export const IcBot = wrap(Bot)
-export const IcLifeBuoy = wrap(LifeBuoy)
 export const IcSparkles = wrap(Sparkles)
 export const IcPanelLeftClose = wrap(PanelLeftClose)
 /* nav-devices = monitor (packages/icons/icons.json) */

@@ -194,7 +194,6 @@
   font-weight: 600;
 }
 
-.cw-back,
 .cw-close {
   display: inline-flex;
   align-items: center;
@@ -205,48 +204,11 @@
   color: #a3a3a3;
 }
 
-.cw-back {
-  margin-left: -6px;
-}
-
 .cw-body {
   padding: 14px 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-
-.cw-home-sub {
-  font-size: 13px;
-  color: #a3a3a3;
-  padding: 2px 0 4px;
-}
-
-.cw-mode-card {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  width: 100%;
-  padding: 12px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-  background: #0a0a0a;
-}
-
-/* The card the scene is about to "click" (real hover state). */
-.cw-mode-card.is-picked {
-  border-color: #e5e5e5;
-  background: #262626;
-}
-
-.cw-mode-title {
-  font-size: 13.5px;
-  font-weight: 600;
-}
-
-.cw-mode-sub {
-  font-size: 12px;
-  color: #a3a3a3;
 }
 
 /* Captured-screenshot preview (the real form's post-capture state; the
@@ -328,12 +290,6 @@
   min-height: 84px;
   white-space: pre-wrap;
   overflow-wrap: break-word;
-}
-
-/* The feedback form stacks a screenshot + three fields — a shorter
-   details box keeps the panel inside the page silhouette. */
-.cw-textarea.is-short {
-  min-height: 56px;
 }
 
 .cw-placeholder {
@@ -500,49 +456,6 @@
   }
 }
 
-/* ── Helpdesk subsection: copy + the Support conversation view ── */
-
-.co-help {
-  margin-top: 64px;
-  display: grid;
-  grid-template-columns: 2fr 3fr;
-  gap: 56px;
-  align-items: center;
-}
-
-.co-help-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.co-help-title {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  color: var(--fg);
-}
-
-.co-help-sub {
-  margin: 0;
-  font-size: 14.5px;
-  line-height: 1.6;
-  color: var(--fg-muted);
-}
-
-.co-help-demo {
-  min-width: 0;
-}
-
-/* HelpdeskChatDemo sizes its .web-root inline (desktop 700px with the rail,
-   phones 760px chat-only — EXP-471 grew both when the recreation moved to the
-   app's real 18.5px rem grid) — no height override here. */
-.co-helpsup {
-  flex: 1;
-  min-width: 0;
-}
-
 /* ── Cross-platform row ── */
 
 .co-platforms {
@@ -600,10 +513,6 @@
     animation: co-dot-y 0.7s ease-in forwards;
   }
 
-  .co-help {
-    grid-template-columns: 1fr;
-    gap: 24px;
-  }
 }
 
 @media (max-width: 480px) {

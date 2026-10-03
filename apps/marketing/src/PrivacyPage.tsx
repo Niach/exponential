@@ -63,8 +63,8 @@ export function PrivacyPage() {
             </li>
             <li style={listItem}>
               <strong>Feedback widget submissions.</strong> If a site operator
-              embeds our feedback widget and you submit feedback or a support
-              request through it, we store what you send (your message and
+              embeds our feedback widget and you submit a report through it,
+              we store what you send (your message and
               optional screenshot) plus the page URL you were on, your
               browser’s user-agent and viewport/screen size, and any email,
               name, or custom data the host site chooses to pass along with your
@@ -150,7 +150,7 @@ export function PrivacyPage() {
             <li style={listItem}>
               <strong>Amazon Web Services (Amazon SES)</strong>: transactional
               email (receives your email address and the message content, e.g.
-              notification digests, team invitations, and support replies).
+              notification digests, team invitations, and replies to your widget reports).
             </li>
             <li style={listItem}>
               <strong>Creem</strong>: subscription billing (merchant of record;
@@ -165,8 +165,8 @@ export function PrivacyPage() {
           </ul>
           <p style={prose}>
             There are no data brokers, ad networks, or analytics providers.
-            Feedback and support requests you submit through a widget are
-            visible only to the members of the team that operates it.
+            Reports you submit through a widget are visible only to the
+            members of the team that operates it.
           </p>
 
           <h2 style={h2Style}>4. Storage and protection</h2>

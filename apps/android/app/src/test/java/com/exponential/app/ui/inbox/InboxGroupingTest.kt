@@ -11,11 +11,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Inbox grouping (EXP-180 helpdesk parity): issue-less `support_reply`
- * notifications must form synthetic per-team Support groups instead of being
- * dropped, interleaved into the one stream by latest activity (web/iOS/desktop
- * parity), and totalUnread must include them. NULL/unknown team ids collapse
- * into one generic bucket.
+ * Inbox grouping: issue-anchored notifications group per issue — a widget
+ * reporter's reply (`reporter_reply`, SLOP-4) included, it is issue-scoped
+ * like `issue_comment` — interleaved with the issue-less agent-message and
+ * blocked-run rows into the one stream by latest activity (web/iOS/desktop
+ * parity), and totalUnread counts them all. Issue-less rows of any other
+ * type are dropped.
  */
 class InboxGroupingTest {
 
@@ -26,7 +27,7 @@ class InboxGroupingTest {
         issueId: String? = null,
         teamId: String? = null,
         sessionId: String? = null,
-        type: String = DomainContract.notificationTypeSupportReply,
+        type: String = DomainContract.notificationTypeIssueComment,
         title: String = "title-$id",
         body: String? = null,
         readAt: String? = null,
@@ -48,58 +49,35 @@ class InboxGroupingTest {
     private val InboxState.issueGroups: List<InboxGroup>
         get() = entries.filterIsInstance<InboxEntry.Issue>().map { it.group }
 
-    private val InboxState.supportGroups: List<SupportGroup>
-        get() = entries.filterIsInstance<InboxEntry.Support>().map { it.group }
-
+    /**
+     * SLOP-4: a reporter's reply rides its issue's group like any comment —
+     * the newest row drives the sentence, and the row opens the issue (not a
+     * Results face, not a Support surface).
+     */
     @Test
-    fun supportRepliesGroupPerTeamAndCountTowardTotalUnread() {
+    fun reporterRepliesGroupUnderTheirIssueAndCountTowardTotalUnread() {
         val state = buildInboxState(
             notifications = listOf(
                 // Newest-first, like the DAO delivers.
-                notification("n1", teamId = "t1", title = "Ann replied on a support ticket"),
-                notification("n2", issueId = "i1", type = DomainContract.notificationTypeIssueComment),
-                notification("n3", teamId = "t1", readAt = ts),
-                notification("n4", teamId = "t2", readAt = ts),
+                notification(
+                    "n1", issueId = "i1", type = DomainContract.notificationTypeReporterReply,
+                    title = "Emma Fischer replied on EXP-1", body = "Still broken on my end.",
+                ),
+                notification("n2", issueId = "i1"),
+                notification("n3", issueId = "i2", type = DomainContract.notificationTypeReporterReply, readAt = ts),
             ),
-            issues = listOf(issue("i1")),
-            teams = listOf(team("t1", "Acme"), team("t2", "Globex")),
-        )
-
-        assertEquals(1, state.issueGroups.size)
-        assertEquals(2, state.supportGroups.size)
-
-        val acme = state.supportGroups.first { it.teamId == "t1" }
-        assertEquals("Acme", acme.teamName)
-        assertEquals(2, acme.notifications.size)
-        assertEquals(1, acme.unread)
-        // Newest-first preserved: the group's latest drives the row preview.
-        assertEquals("Ann replied on a support ticket", acme.latest.title)
-
-        val globex = state.supportGroups.first { it.teamId == "t2" }
-        assertEquals("Globex", globex.teamName)
-        assertEquals(0, globex.unread)
-
-        // 1 unread issue notification + 1 unread support notification.
-        assertEquals(2, state.totalUnread)
-    }
-
-    @Test
-    fun nullAndUnknownTeamRowsCollapseIntoOneGenericGroup() {
-        val state = buildInboxState(
-            notifications = listOf(
-                notification("n1", teamId = null),
-                notification("n2", teamId = "ghost"), // not in the local teams table
-            ),
-            issues = emptyList(),
+            issues = listOf(issue("i1"), issue("i2")),
             teams = listOf(team("t1", "Acme")),
         )
 
-        assertEquals(1, state.supportGroups.size)
-        val generic = state.supportGroups.single()
-        assertNull(generic.teamId)
-        assertNull(generic.teamName)
-        assertEquals(2, generic.notifications.size)
-        assertEquals(2, generic.unread)
+        assertEquals(listOf("issue:i1", "issue:i2"), state.entries.map { it.key })
+        val first = state.issueGroups[0]
+        assertEquals(2, first.notifications.size)
+        assertEquals(2, first.unread)
+        assertEquals(DomainContract.notificationTypeReporterReply, first.latest.type)
+        assertEquals("Emma Fischer replied on EXP-1", first.latest.title)
+        assertEquals(false, first.opensResults)
+        assertEquals(0, state.issueGroups[1].unread)
         assertEquals(2, state.totalUnread)
     }
 
@@ -191,63 +169,71 @@ class InboxGroupingTest {
         assertEquals(1, state.totalUnread)
     }
 
+    /**
+     * Issue-less rows of any other type are dropped — a comment without an
+     * issue, a reporter reply whose issue has not synced, and an issue id
+     * the local issues table does not know.
+     */
     @Test
-    fun issueLessNonSupportRowsStayDropped() {
+    fun issueLessRowsOfOtherTypesStayDropped() {
         val state = buildInboxState(
             notifications = listOf(
                 notification("n1", type = DomainContract.notificationTypeIssueComment),
+                notification("n2", issueId = "ghost", type = DomainContract.notificationTypeReporterReply),
+                notification("n3", teamId = "t1", type = DomainContract.notificationTypeReporterReply),
             ),
             issues = emptyList(),
-            teams = emptyList(),
+            teams = listOf(team("t1", "Acme")),
         )
         assertTrue(state.entries.isEmpty())
         assertEquals(0, state.totalUnread)
     }
 
     /**
-     * Web/iOS/desktop parity: Support groups are NOT pinned above the issue
-     * stream — the one feed order (newest-first) decides, so a stale Support
-     * group sinks below fresher issue activity.
+     * Web/iOS/desktop parity: the issue-less entries are NOT pinned above the
+     * issue stream — the one feed order (newest-first) decides, so a stale
+     * agent message sinks below fresher issue activity.
      */
     @Test
-    fun supportGroupsInterleaveWithIssueGroupsByLatestActivity() {
+    fun entriesInterleaveByLatestActivity() {
         val state = buildInboxState(
             notifications = listOf(
                 // Newest-first, like the DAO delivers.
-                notification("n1", issueId = "i1", type = DomainContract.notificationTypeIssueComment),
-                notification("n2", teamId = "t1"),
-                notification("n3", issueId = "i2", type = DomainContract.notificationTypeIssueComment),
+                notification("n1", issueId = "i1"),
+                notification("n2", teamId = "t1", type = DomainContract.notificationTypeAgentMessage),
+                notification("n3", issueId = "i2"),
                 // Older row of an already-seen group: must not re-order it.
-                notification("n4", teamId = "t1", readAt = ts),
+                notification("n4", issueId = "i1", readAt = ts),
             ),
             issues = listOf(issue("i1"), issue("i2")),
             teams = listOf(team("t1", "Acme")),
         )
 
         assertEquals(
-            listOf("issue:i1", "support:t1", "issue:i2"),
+            listOf("issue:i1", "message:n2", "issue:i2"),
             state.entries.map { it.key },
         )
     }
 
-    // Wire contract: notifications now sync a nullable team_id (set on
-    // issue-less support_reply rows, NULL on issue-anchored rows).
+    // Wire contract: notifications sync a nullable team_id (set on issue-less
+    // agent_message / session_blocked rows, NULL on issue-anchored rows).
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
 
+    // SLOP-4: a reporter's reply is issue-anchored like a comment.
     @Test
-    fun decodesSupportReplyRowWithTeamId() {
+    fun decodesReporterReplyRowWithIssueId() {
         val row = json.decodeFromString(
             NotificationEntity.serializer(),
             """
-            {"id":"n1","user_id":"u1","issue_id":null,"team_id":"t1",
-             "type":"support_reply","title":"New support ticket from Ann",
-             "body":"It broke","read_at":null,
+            {"id":"n1","user_id":"u1","issue_id":"i1","team_id":null,
+             "type":"reporter_reply","title":"Emma Fischer replied on EXP-1",
+             "body":"Still broken","read_at":null,
              "created_at":"$ts","updated_at":"$ts"}
             """.trimIndent(),
         )
-        assertNull(row.issueId)
-        assertEquals("t1", row.teamId)
-        assertEquals(DomainContract.notificationTypeSupportReply, row.type)
+        assertEquals("i1", row.issueId)
+        assertNull(row.teamId)
+        assertEquals(DomainContract.notificationTypeReporterReply, row.type)
     }
 
     // EXP-980: the shape gained a nullable session_id, set on session_blocked.

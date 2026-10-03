@@ -4,11 +4,11 @@ import type { EntryKey } from "@/components/getting-started/getting-started-mode
 // its copy is ONE table per platform and `getting-started-copy.test.ts` reads
 // the native ones off disk to prove they still say the same thing:
 //
-//   desktop  crates/ui/src/getting_started.rs      (all ten entries)
+//   desktop  crates/ui/src/getting_started.rs      (all nine entries)
 //   iOS      UI/GettingStarted/GettingStartedCopy.swift   (the seven mobile ones)
 //   Android  ui/gettingstarted/GettingStartedCopy.kt      (the seven mobile ones)
 //
-// The three web-only entries (widget, helpdesk, mcp) are managed from a
+// The two web-only entries (widget, mcp) are managed from a
 // browser, so the phones never list them. Keep every string free of quotes,
 // backslashes and non-ASCII punctuation: the drift test matches them as
 // literals inside Swift/Kotlin/Rust source.
@@ -32,7 +32,7 @@ export const GETTING_STARTED_COPY: Record<
   },
   invite: {
     title: `Invite your team`,
-    description: `Teammates share boards, reviews, and the support inbox.`,
+    description: `Teammates share boards, reviews, and the inbox.`,
     action: `Invite in team settings`,
   },
   board: {
@@ -60,11 +60,6 @@ export const GETTING_STARTED_COPY: Record<
     description: `Visitors report bugs with an annotated screenshot; each lands here as an issue.`,
     action: `Set up in team settings`,
   },
-  helpdesk: {
-    title: `Enable the helpdesk`,
-    description: `Support tickets from the widget land in a shared Support inbox.`,
-    action: `Enable in team settings`,
-  },
   mcp: {
     title: `Connect your tools via MCP`,
     description: `Work with issues, boards, and comments from Claude, Cursor, or any MCP client.`,
@@ -72,7 +67,7 @@ export const GETTING_STARTED_COPY: Record<
   },
 }
 
-/** The entries the phones render — the other three are managed on the web. */
+/** The entries the phones render — the other two are managed on the web. */
 export const MOBILE_GETTING_STARTED_KEYS: readonly EntryKey[] = [
   `desktop`,
   `github`,

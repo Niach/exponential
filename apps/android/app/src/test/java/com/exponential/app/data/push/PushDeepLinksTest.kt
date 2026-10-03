@@ -32,19 +32,16 @@ class PushDeepLinksTest {
     fun `an issue push targets the issue`() {
         assertEquals(
             PushDeepLinks.Target.Issue("i1"),
-            PushDeepLinks.target(type = "issue_assigned", issueId = "i1", threadId = null),
+            PushDeepLinks.target(type = "issue_assigned", issueId = "i1"),
         )
     }
 
+    /** SLOP-4: a reporter's reply is issue-scoped and opens the issue. */
     @Test
-    fun `a support reply push targets the thread`() {
+    fun `a reporter reply push targets the issue`() {
         assertEquals(
-            PushDeepLinks.Target.SupportThread("t1"),
-            PushDeepLinks.target(
-                type = PushDeepLinks.TYPE_SUPPORT_REPLY,
-                issueId = null,
-                threadId = "t1",
-            ),
+            PushDeepLinks.Target.Issue("i1"),
+            PushDeepLinks.target(type = "reporter_reply", issueId = "i1"),
         )
     }
 
@@ -52,7 +49,7 @@ class PushDeepLinksTest {
     fun `an agent message push targets the inbox`() {
         assertEquals(
             PushDeepLinks.Target.Inbox,
-            PushDeepLinks.target(type = PushDeepLinks.TYPE_AGENT_MESSAGE, issueId = null, threadId = null),
+            PushDeepLinks.target(type = PushDeepLinks.TYPE_AGENT_MESSAGE, issueId = null),
         )
         assertEquals(
             "exponential://inbox?userId=user-1",
@@ -71,7 +68,6 @@ class PushDeepLinksTest {
             PushDeepLinks.target(
                 type = PushDeepLinks.TYPE_SESSION_BLOCKED,
                 issueId = null,
-                threadId = null,
                 sessionId = "run-1",
             ),
         )
@@ -84,7 +80,6 @@ class PushDeepLinksTest {
             PushDeepLinks.target(
                 type = PushDeepLinks.TYPE_SESSION_BLOCKED,
                 issueId = null,
-                threadId = null,
                 sessionId = null,
             ),
         )
@@ -96,21 +91,15 @@ class PushDeepLinksTest {
             PushDeepLinks.target(
                 type = "issue_comment",
                 issueId = null,
-                threadId = null,
                 sessionId = "run-1",
             ),
         )
     }
 
     @Test
-    fun `a thread id without the support type is ignored`() {
-        assertNull(PushDeepLinks.target(type = "issue_comment", issueId = null, threadId = "t1"))
-    }
-
-    @Test
     fun `a payload with nothing to open has no target`() {
-        assertNull(PushDeepLinks.target(type = null, issueId = null, threadId = null))
-        assertNull(PushDeepLinks.target(type = null, issueId = "", threadId = ""))
+        assertNull(PushDeepLinks.target(type = null, issueId = null))
+        assertNull(PushDeepLinks.target(type = null, issueId = ""))
     }
 
     // MARK: - uri
@@ -120,10 +109,6 @@ class PushDeepLinksTest {
         assertEquals(
             "exponential://issue/i1?userId=user-1",
             PushDeepLinks.uri(PushDeepLinks.Target.Issue("i1"), "user-1"),
-        )
-        assertEquals(
-            "exponential://support/t1?userId=user-1",
-            PushDeepLinks.uri(PushDeepLinks.Target.SupportThread("t1"), "user-1"),
         )
     }
 
@@ -202,7 +187,7 @@ class PushDeepLinksTest {
     fun `an agent message push with an issue targets the issue's results`() {
         assertEquals(
             PushDeepLinks.Target.IssueResults("i1"),
-            PushDeepLinks.target(type = PushDeepLinks.TYPE_AGENT_MESSAGE, issueId = "i1", threadId = null),
+            PushDeepLinks.target(type = PushDeepLinks.TYPE_AGENT_MESSAGE, issueId = "i1"),
         )
         assertEquals(
             "exponential://issue/i1?face=results&userId=user-1",
@@ -215,7 +200,7 @@ class PushDeepLinksTest {
         // Any other type naming an issue keeps the plain issue link.
         assertEquals(
             PushDeepLinks.Target.Issue("i1"),
-            PushDeepLinks.target(type = "issue_mention", issueId = "i1", threadId = null),
+            PushDeepLinks.target(type = "issue_mention", issueId = "i1"),
         )
     }
 }

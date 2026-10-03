@@ -1,6 +1,5 @@
-// EXP-244 form fields: the owner-configured name toggle (both forms), the
-// collectEmail toggle (feedback form only — support email is the reply
-// channel), and config-defined custom fields whose values merge into the
+// EXP-244 form fields: the owner-configured name toggle, the collectEmail
+// toggle, and config-defined custom fields whose values merge into the
 // submitted customData blob.
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { render } from "preact"
@@ -16,14 +15,8 @@ const submitFeedback = vi.fn(
   async (_args: Record<string, unknown>) =>
     ({ ok: true, identifier: `EXP-1`, url: null }) as const
 )
-const submitSupportRequest = vi.fn(
-  async (_args: Record<string, unknown>) =>
-    ({ ok: true, identifier: null, url: null }) as const
-)
 vi.mock(`../api-client`, () => ({
   submitFeedback: (args: Record<string, unknown>) => submitFeedback(args),
-  submitSupportRequest: (args: Record<string, unknown>) =>
-    submitSupportRequest(args),
 }))
 
 import { App } from "./App"
@@ -71,7 +64,6 @@ describe(`EXP-244 form fields`, () => {
 
   beforeEach(() => {
     submitFeedback.mockClear()
-    submitSupportRequest.mockClear()
     if (typeof URL.createObjectURL !== `function`) {
       URL.createObjectURL = () => `blob:test`
       URL.revokeObjectURL = () => undefined
@@ -94,7 +86,9 @@ describe(`EXP-244 form fields`, () => {
   }
 
   const setInput = async (selector: string, value: string) => {
-    const input = container.querySelector<HTMLInputElement>(selector)
+    const input = container.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+      selector
+    )
     expect(input).toBeTruthy()
     input!.value = value
     input!.dispatchEvent(new Event(`input`, { bubbles: true }))
@@ -117,7 +111,7 @@ describe(`EXP-244 form fields`, () => {
   it(`collectName renders the name input and submits the typed name`, async () => {
     await mount(nameConfig)
     expect(container.textContent).toContain(`Name (optional)`)
-    await setInput(`#exp-title`, `Broken button`)
+    await setInput(`#exp-message`, `Broken button`)
     await setInput(`#exp-name`, `dani`)
     await submitForm()
     expect(submitFeedback).toHaveBeenCalledTimes(1)
@@ -127,7 +121,7 @@ describe(`EXP-244 form fields`, () => {
   it(`an identified name hides the field and rides the submission`, async () => {
     await mount(nameConfig, { identity: { name: `Known Reporter` } })
     expect(container.querySelector(`#exp-name`)).toBeNull()
-    await setInput(`#exp-title`, `Broken button`)
+    await setInput(`#exp-message`, `Broken button`)
     await submitForm()
     expect(submitFeedback.mock.calls[0][0]).toMatchObject({
       name: `Known Reporter`,
@@ -141,59 +135,50 @@ describe(`EXP-244 form fields`, () => {
     })
     expect(container.textContent).toContain(`Name`)
     expect(container.textContent).not.toContain(`Name (optional)`)
-    await setInput(`#exp-title`, `Broken button`)
+    await setInput(`#exp-message`, `Broken button`)
     await submitForm()
     expect(submitFeedback).not.toHaveBeenCalled()
     expect(container.textContent).toContain(`Your name is required.`)
   })
 
-  it(`nameRequired applies to the support form too`, async () => {
+  it(`an empty message blocks the submit with a form error`, async () => {
+    await mount({ enabled: true })
+    await submitForm()
+    expect(submitFeedback).not.toHaveBeenCalled()
+    expect(container.textContent).toContain(`Tell us what happened.`)
+  })
+
+  it(`emailRequired blocks a submit without an email`, async () => {
     await mount({
       enabled: true,
-      modes: [`support`],
-      form: { ...nameConfig.form!, nameRequired: true },
+      form: { ...nameConfig.form!, collectName: false, emailRequired: true },
     })
-    const message =
-      container.querySelector<HTMLTextAreaElement>(`#exp-message`)!
-    message.value = `Help`
-    message.dispatchEvent(new Event(`input`, { bubbles: true }))
-    await flush()
+    expect(container.textContent).toContain(`Email`)
+    expect(container.textContent).not.toContain(`Email (optional)`)
+    await setInput(`#exp-message`, `Broken button`)
     await submitForm()
-    expect(submitSupportRequest).not.toHaveBeenCalled()
-    expect(container.textContent).toContain(`Your name is required.`)
+    expect(submitFeedback).not.toHaveBeenCalled()
+    expect(container.textContent).toContain(`Your email is required.`)
 
-    await setInput(`#exp-support-name`, `dani`)
-    await setInput(`#exp-support-email`, `reporter@example.com`)
+    await setInput(`#exp-email`, `reporter@example.com`)
     await submitForm()
-    expect(submitSupportRequest).toHaveBeenCalledTimes(1)
-    expect(submitSupportRequest.mock.calls[0][0]).toMatchObject({
-      name: `dani`,
+    expect(submitFeedback).toHaveBeenCalledTimes(1)
+    expect(submitFeedback.mock.calls[0][0]).toMatchObject({
+      message: `Broken button`,
       email: `reporter@example.com`,
     })
   })
 
-  it(`collectEmail:false hides the feedback email field but not support's`, async () => {
+  it(`collectEmail:false hides the email field`, async () => {
     await mount({
       enabled: true,
-      modes: [`feedback`, `support`],
       form: { ...nameConfig.form!, collectEmail: false, collectName: false },
     })
-    const feedbackCard = [
-      ...container.querySelectorAll<HTMLElement>(`.exp-mode-card`),
-    ].find((el) => el.textContent?.includes(`Give feedback`))!
-    feedbackCard.click()
-    await flush()
     expect(container.querySelector(`#exp-email`)).toBeNull()
-
-    const back = container.querySelector<HTMLButtonElement>(`.exp-back`)!
-    back.click()
-    await flush()
-    const supportCard = [
-      ...container.querySelectorAll<HTMLElement>(`.exp-mode-card`),
-    ].find((el) => el.textContent?.includes(`Get help`))!
-    supportCard.click()
-    await flush()
-    expect(container.querySelector(`#exp-support-email`)).toBeTruthy()
+    await setInput(`#exp-message`, `Broken button`)
+    await submitForm()
+    expect(submitFeedback).toHaveBeenCalledTimes(1)
+    expect(submitFeedback.mock.calls[0][0]).toMatchObject({ email: null })
   })
 
   it(`custom fields render and their values merge over host customData`, async () => {
@@ -214,7 +199,7 @@ describe(`EXP-244 form fields`, () => {
     expect(container.textContent).toContain(`Desk number`)
     expect(container.textContent).toContain(`Mood (optional)`)
 
-    await setInput(`#exp-title`, `Broken button`)
+    await setInput(`#exp-message`, `Broken button`)
     // Required custom field empty → advisory client gate fires.
     await submitForm()
     expect(submitFeedback).not.toHaveBeenCalled()
@@ -242,7 +227,7 @@ describe(`EXP-244 form fields`, () => {
       },
       { customData: { blob: `x`.repeat(8 * 1024) } }
     )
-    await setInput(`#exp-title`, `Broken button`)
+    await setInput(`#exp-message`, `Broken button`)
     await setInput(`#exp-custom-notes`, `overflow`)
     await submitForm()
     expect(submitFeedback).not.toHaveBeenCalled()
@@ -270,7 +255,7 @@ describe(`EXP-244 form fields`, () => {
     )!
     expect(input.value).toBe(``)
 
-    await setInput(`#exp-title`, `Broken button`)
+    await setInput(`#exp-message`, `Broken button`)
     // Empty required value: the advisory gate must fire, not throw.
     await submitForm()
     expect(submitFeedback).not.toHaveBeenCalled()

@@ -4,33 +4,22 @@ import XCTest
 import ExpUI
 
 /// EXP-973: the split launcher rides EVERY bar-visible route, so the bar's
-/// widest arrangement — six tabs beside the capsule — has to fit the
-/// narrowest phone. These are the numbers that keep it there.
+/// widest arrangement — five tabs beside the capsule (SLOP-4 retired the
+/// sixth, Support) — has to fit the narrowest phone. These are the numbers
+/// that keep it there.
 final class MobileTabBarMetricsTests: XCTestCase {
 
-    func testSixTabsAndTheFullCapsuleFitTheSmallestPhone() {
-        let width = MobileTabBarMetrics.barWidth(
-            tabs: 6, launcher: MobileTabBarMetrics.capsuleWidth
-        )
-        // 8 + (6×40 + 6) + 8 + 104.5 + 8 = 374.5
-        XCTAssertEqual(width, 374.5)
-        XCTAssertLessThanOrEqual(width, MobileTabBarMetrics.smallestPhoneWidth)
-    }
-
-    func testFiveTabsKeepTheRoomierSlotsAndStillFit() {
+    func testFiveTabsAndTheFullCapsuleFitTheSmallestPhone() {
         let width = MobileTabBarMetrics.barWidth(
             tabs: 5, launcher: MobileTabBarMetrics.capsuleWidth
         )
         // 12 + (5×44 + 4×2 + 6) + 8 + 104.5 + 12 = 370.5
         XCTAssertEqual(width, 370.5)
         XCTAssertLessThanOrEqual(width, MobileTabBarMetrics.smallestPhoneWidth)
-        XCTAssertEqual(MobileTabBarMetrics.tabWidth(tabs: 5), 44)
     }
 
-    func testFourTabsStayRoomy() {
-        // EXP-1105: yolo mode (no open PR) hides Reviews; without Support
-        // that leaves four tabs on the roomy metrics.
-        XCTAssertFalse(MobileTabBarMetrics.isCompact(tabs: 4))
+    func testFourTabsFitToo() {
+        // EXP-1105: yolo mode (no open PR) hides Reviews, leaving four.
         let width = MobileTabBarMetrics.barWidth(
             tabs: 4, launcher: MobileTabBarMetrics.capsuleWidth
         )
@@ -40,7 +29,7 @@ final class MobileTabBarMetricsTests: XCTestCase {
     }
 
     func testTheLoneCircleIsNeverTheTighterCase() {
-        for tabs in 5...6 {
+        for tabs in 4...5 {
             XCTAssertLessThan(
                 MobileTabBarMetrics.barWidth(tabs: tabs, launcher: MobileTabBarMetrics.circleWidth),
                 MobileTabBarMetrics.barWidth(tabs: tabs, launcher: MobileTabBarMetrics.capsuleWidth)
@@ -48,10 +37,9 @@ final class MobileTabBarMetricsTests: XCTestCase {
         }
     }
 
-    func testTheTouchTargetsKeepTheirHeight() {
-        // Only the WIDTH gives way on the crowded bar.
+    func testTheTouchTargetsAreTheHigMinimum() {
         XCTAssertEqual(MobileTabBarMetrics.tabHeight, 44)
-        XCTAssertEqual(MobileTabBarMetrics.tabWidth(tabs: 6), 40)
+        XCTAssertEqual(MobileTabBarMetrics.tabWidth, 44)
         XCTAssertEqual(MobileTabBarMetrics.launcherArm, FloatingBarTokens.slot)
     }
 }

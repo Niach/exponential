@@ -2,8 +2,8 @@
  * Pin the demo user's notification read state across a capture run (EXP-666).
  *
  * The sidebar carries an unread COUNT, and several surfaces clear notifications
- * just by being opened: issue detail fires `markReadByIssue` on mount (EXP-92)
- * and the Support surface fires `markReadSupport` (REV2-13). So the badge every
+ * just by being opened: issue detail fires `markReadByIssue` on mount (EXP-92).
+ * So the badge every
  * OTHER view photographs depends on which views ran before it — a full run walks
  * `issue-detail` (APP-5) and the issue routes behind other views (APP-3, until
  * EXP-825 moved the launcher onto the Agent page) and lands on 1, while a

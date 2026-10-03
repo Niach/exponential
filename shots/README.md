@@ -49,7 +49,7 @@ of `apps/web/src`, type-only imports erased); desktop matches `crates/ui/src`
 module names against view ids and drive values and widens on anything else; the
 native lanes match a Swift/Kotlin file's basename minus its role suffix
 (`IssueDetailView` → `issue-detail`) against view ids and shot names, then its
-DIRECTORY against a view family (`UI/Support` → the support views), and widen
+DIRECTORY against a view family (`UI/Settings` → the settings views), and widen
 the whole platform for shared code (ExpCore/ExpUI, themes, icons, the fastlane
 lanes). A changed `views.json` entry and a view with no stored image yet are always in
 scope.
@@ -183,8 +183,8 @@ family, one `drive` per view:
 
 | drive | env | opens |
 | ----- | --- | ----- |
-| `tool`     | `EXP_DEV_TOOL`                      | a rail tool window (board, inbox, reviews, support, files, source-control) |
-| `screen`   | `EXP_DEV_SCREEN`                    | a centre screen (`settings`, `devices`, `actions`, `action:<id>`, `getting-started`, `issue:<id>`, `pr:<id>`, `support:<thread-id>`, `session:<coding-session-id>`) |
+| `tool`     | `EXP_DEV_TOOL`                      | a rail tool window (board, inbox, reviews, files, source-control) |
+| `screen`   | `EXP_DEV_SCREEN`                    | a centre screen (`settings`, `devices`, `actions`, `action:<id>`, `getting-started`, `issue:<id>`, `pr:<id>`, `session:<coding-session-id>`) |
 | `settings` | `EXP_DEV_SCREEN` + `EXP_DEV_SETTINGS` | one settings section |
 | `dialog`   | `EXP_DEV_DIALOG`                    | one dialog, fired once from the render path after the state it needs resolves |
 | `login`    | — (no session injected)             | the pre-login card, on its own throwaway data dir |
@@ -212,11 +212,11 @@ hundred milliseconds rather than seconds.
 Values may carry `$placeholders` — in the drive value AND in `desktop.env` —
 resolved against the seeded database by `bun run screenshots:ids` (which is a
 thin printer over `apps/web/scripts/lib/demo-ids.ts`): `$APP-5` and friends are
-issue identifiers, and `$thread`, `$action`, `$device`, `$board`,
-`$emptyBoard`, `$team` and `$steeredSession` (the seeded showcase coding
-session, the `steering` shot's subject) name one well-known seeded row each.
-`web.route` adds `$supportToken`, the reporter magic link for the seeded
-helpdesk thread — a CREDENTIAL, resolved lazily and never printed. An
+issue identifiers, and `$action`, `$device`, `$board`, `$emptyBoard`, `$team`
+and `$steeredSession` (the seeded showcase coding session, the `steering`
+shot's subject) name one well-known seeded row each. `web.route` adds
+`$supportToken`, the reporter magic link for the seeded widget issue — a
+CREDENTIAL, resolved lazily and never printed. An
 unresolvable placeholder SKIPS the view rather than photographing whatever the
 app fell back to.
 

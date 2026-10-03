@@ -52,13 +52,12 @@ import {
   notifications,
   boards,
   repositories,
-  supportMessages,
-  supportThreads,
   teamInvites,
   users,
   teamMembers,
   teams,
   widgetConfigs,
+  widgetSubmissions,
 } from "@/db/schema"
 import type { ActionTrigger } from "@exp/db-schema/domain"
 import { auth } from "@/lib/auth"
@@ -105,9 +104,13 @@ import {
   STARTER_USER_ID,
   STARTER_TEAM_NAME,
   STARTER_TEAM_SLUG,
-  SUPPORT_REPORTER_THREAD_TITLE,
+  DEMO_WIDGET_ISSUE_ID,
+  WIDGET_REPORT_TITLE,
+  WIDGET_REPORTER_EMAIL,
+  WIDGET_REPORTER_NAME,
   TEAM_SLUG,
 } from "./screenshot-demo"
+import { escapeReporterText } from "@/lib/reporter-text"
 
 const TEAMMATES = [
   { id: `demo-mira`, name: `Mira Chen`, email: `mira@acme.dev` },
@@ -346,11 +349,9 @@ async function main() {
   const jonas = mates[`demo-jonas`]
   const sofia = mates[`demo-sofia`]
 
-  // helpdeskEnabled unlocks the Support tab on every client — the support
-  // inbox screenshot needs it.
   const [ws] = await db
     .insert(teams)
-    .values({ name: `Acme`, slug: TEAM_SLUG, helpdeskEnabled: true })
+    .values({ name: `Acme`, slug: TEAM_SLUG })
     .returning()
 
   // Staggered joins (EXP-668): one `values([...])` gives every row the same
@@ -1343,145 +1344,6 @@ async function main() {
       },
     })
 
-  // Helpdesk tickets for the support-inbox screenshot (server-only tRPC —
-  // no Electric shape involved). A trailing inbound message marks the
-  // thread unread; explicit updatedAt controls the list order.
-  // EXP-812: the reporter's OWN endpoints stamp `last_reporter_seen_at` on
-  // every read of the magic-link page, so capturing `support-reporter` used to
-  // add a "Last seen …" line to every LATER `support-thread` frame and push the
-  // right panel down ~29px. Seeding the stamp makes the line unconditional and
-  // deterministic (the capture run restores this value between views — see
-  // scripts/lib/demo-support-presence.ts); a `seenHoursAgo` well outside
-  // REPORTER_PRESENCE_WINDOW_MS keeps it on the "Last seen" branch rather than
-  // flipping to "Viewing now".
-  const seedThreads: Array<{
-    title: string
-    reporterName: string
-    reporterEmail: string
-    seenHoursAgo?: number
-    messages: Array<{
-      direction: `inbound` | `outbound`
-      authorUserId?: string
-      body: string
-      hoursAgo: number
-    }>
-  }> = [
-    {
-      title: SUPPORT_REPORTER_THREAD_TITLE,
-      reporterName: `Emma Fischer`,
-      reporterEmail: `emma@lumenlabs.io`,
-      // The instant their last message landed — the one moment we know their
-      // tab was open.
-      seenHoursAgo: 1,
-      messages: [
-        {
-          direction: `inbound`,
-          body: `After the last update the sign-in button just spins forever on my iPad. Works fine on my phone.`,
-          hoursAgo: 26,
-        },
-        {
-          direction: `outbound`,
-          authorUserId: sofia,
-          body: `Thanks for the report! We found a token refresh bug on iPadOS and just shipped a fix — could you update to 2.4.1 and try again?`,
-          hoursAgo: 20,
-        },
-        {
-          direction: `inbound`,
-          body: `That fixed it — thank you for the quick turnaround!`,
-          hoursAgo: 1,
-        },
-      ],
-    },
-    {
-      title: `How do I export my issues?`,
-      reporterName: `Liam O'Connor`,
-      reporterEmail: `liam@brightpath.app`,
-      messages: [
-        {
-          direction: `inbound`,
-          body: `We're migrating our workflow docs and I'd love to pull everything out as CSV. Is that possible?`,
-          hoursAgo: 8,
-        },
-      ],
-    },
-    {
-      title: `Weekly summary email for the whole team`,
-      reporterName: `Priya Nair`,
-      reporterEmail: `priya@northwind.dev`,
-      messages: [
-        {
-          direction: `inbound`,
-          body: `A Monday-morning digest of what shipped last week would be amazing for our standups.`,
-          hoursAgo: 49,
-        },
-        {
-          direction: `outbound`,
-          authorUserId: demoId,
-          body: `Love this idea — I've filed it on our roadmap and linked this ticket so you'll hear back when it ships.`,
-          hoursAgo: 44,
-        },
-      ],
-    },
-    {
-      title: `Screenshot upload stuck at 99%`,
-      reporterName: `Tom Berger`,
-      reporterEmail: `tom@fieldworks.co`,
-      messages: [
-        {
-          direction: `inbound`,
-          body: `Attaching a screenshot from the feedback widget hangs at 99% on our office network. Smaller images go through fine.`,
-          hoursAgo: 4,
-        },
-      ],
-    },
-    {
-      title: `Does the widget support German?`,
-      reporterName: `Anna Keller`,
-      reporterEmail: `anna@studiokeller.de`,
-      messages: [
-        {
-          direction: `inbound`,
-          body: `Our customers write in German — can the feedback form labels be localized?`,
-          hoursAgo: 30,
-        },
-        {
-          direction: `outbound`,
-          authorUserId: sofia,
-          body: `Yes! You can override every label in the embed config — I've sent over a snippet with German defaults.`,
-          hoursAgo: 27,
-        },
-      ],
-    },
-  ]
-  for (const spec of seedThreads) {
-    const last = spec.messages[spec.messages.length - 1]
-    const [thread] = await db
-      .insert(supportThreads)
-      .values({
-        teamId: ws.id,
-        title: spec.title,
-        status: `open`,
-        reporterName: spec.reporterName,
-        reporterEmail: spec.reporterEmail,
-        lastReporterSeenAt:
-          spec.seenHoursAgo === undefined ? null : hoursAgo(spec.seenHoursAgo),
-        createdAt: hoursAgo(spec.messages[0].hoursAgo),
-        updatedAt: hoursAgo(last.hoursAgo),
-      })
-      .returning()
-    await db.insert(supportMessages).values(
-      spec.messages.map((m) => ({
-        threadId: thread.id,
-        direction: m.direction,
-        visibility: `public` as const,
-        authorUserId: m.authorUserId,
-        body: m.body,
-        createdAt: hoursAgo(m.hoursAgo),
-        updatedAt: hoursAgo(m.hoursAgo),
-      }))
-    )
-  }
-
   // MCP servers (EXP-792) for the `settings-mcp-servers` view — one row per
   // state the page draws: Linear (OAuth) CONNECTED for the demo user (a
   // server-held credential, stored the way the OAuth callback stores one, so
@@ -1545,53 +1407,130 @@ async function main() {
   })
 
   // Embeddable widget configs for the `settings-widget` view ("No widgets
-  // yet." without them). One full config — both modes, a domain allowlist, two
-  // of the seeded labels for the reporter to tag with, a theme — and one
-  // support-only config, which is the case that legitimately has no board
-  // (support files a standalone ticket, feedback needs somewhere to file an
-  // issue). Keys are minted the way the router mints them.
-  await db.insert(widgetConfigs).values([
+  // yet." without them). One full config — a domain allowlist, two of the
+  // seeded labels for the reporter to tag with, a theme — and a second,
+  // email-required one on the same board (SLOP-4: every widget files issues
+  // onto a board). Keys are minted the way the router mints them.
+  const [siteWidget] = await db
+    .insert(widgetConfigs)
+    .values([
+      {
+        teamId: ws.id,
+        boardId: board.id,
+        name: `Acme website`,
+        publicKey: generateWidgetKey(),
+        allowedDomains: [`acme.dev`, `*.acme.dev`],
+        createdByUserId: demoId,
+        createdAt: daysAgo(24),
+        formConfig: {
+          buttonLabel: `Feedback`,
+          accentColor: `#6366f1`,
+          // EXP-672 dropped the legacy two-value `position` read shim, so the
+          // row carries the explicit per-device `launcher` every stored config
+          // now has. These values are what the old `position: bottom-right`
+          // resolved to on both devices, so the seeded shots do not move.
+          launcher: {
+            desktop: { mode: `fab`, position: `bottom-right` },
+            mobile: { mode: `fab`, position: `bottom-right` },
+          },
+          collectEmail: true,
+          collectName: true,
+          labelIds: [label[`Bug`], label[`Feature`]],
+          theme: `auto`,
+        },
+      },
+      {
+        teamId: ws.id,
+        boardId: board.id,
+        name: `Help center`,
+        publicKey: generateWidgetKey(),
+        allowedDomains: [`help.acme.dev`],
+        createdByUserId: demoId,
+        createdAt: daysAgo(8),
+        formConfig: {
+          buttonLabel: `Contact us`,
+          accentColor: `#22c55e`,
+          collectEmail: true,
+          emailRequired: true,
+          theme: `dark`,
+        },
+      },
+    ])
+    .returning({ id: widgetConfigs.id })
+
+  // SLOP-4: ONE widget-filed issue with a reporter conversation — the
+  // `support-reporter` view (the anonymous magic-link page, addressed by a
+  // token minted over the PINNED issue id) and the reporter card + "Reply to
+  // reporter" toggle on every client's issue detail. The report is the
+  // issue itself (source `widget`, no creator, the reporter's words escaped
+  // the way the submit path escapes them); the conversation is its
+  // reporter-audience comments: Sofia's reply (emailed to the reporter) and
+  // the reporter's answer (author NULL, source `reporter`). The timestamps
+  // print as "X ago" on the reporter page, so `demo-reclock.ts` shifts them.
+  const [widgetIssue] = await db
+    .insert(issues)
+    .values({
+      id: DEMO_WIDGET_ISSUE_ID,
+      boardId: board.id,
+      teamId: board.teamId,
+      title: WIDGET_REPORT_TITLE,
+      description: escapeReporterText(
+        `After the last update the sign-in button just spins forever on my iPad. Works fine on my phone.`
+      ),
+      status: `backlog`,
+      priority: `none`,
+      creatorId: null,
+      source: `widget`,
+      sortOrder: (seedIssues.length + 2) * 10,
+      createdAt: hoursAgo(26),
+    })
+    .returning()
+  await db.insert(widgetSubmissions).values({
+    widgetConfigId: siteWidget.id,
+    issueId: widgetIssue.id,
+    reporterEmail: WIDGET_REPORTER_EMAIL,
+    reporterName: WIDGET_REPORTER_NAME,
+    pageUrl: `https://acme.dev/app/sign-in`,
+    userAgent: `Mozilla/5.0 (iPad; CPU OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1`,
+    viewportWidth: 1024,
+    viewportHeight: 1366,
+    screenWidth: 1024,
+    screenHeight: 1366,
+    devicePixelRatio: 2,
+    // The instant their last reply landed — the one moment we know their
+    // page was open (the reporter card's read receipt).
+    lastReporterSeenAt: hoursAgo(1),
+    createdAt: hoursAgo(26),
+  })
+  await db.insert(issueSubscribers).values({
+    issueId: widgetIssue.id,
+    userId: null,
+    email: WIDGET_REPORTER_EMAIL,
+    teamId: ws.id,
+    boardId: board.id,
+    source: `widget_reporter`,
+  })
+  await db.insert(comments).values([
     {
+      issueId: widgetIssue.id,
       teamId: ws.id,
       boardId: board.id,
-      name: `Acme website`,
-      publicKey: generateWidgetKey(),
-      allowedDomains: [`acme.dev`, `*.acme.dev`],
-      createdByUserId: demoId,
-      createdAt: daysAgo(24),
-      formConfig: {
-        buttonLabel: `Feedback`,
-        accentColor: `#6366f1`,
-        // EXP-672 dropped the legacy two-value `position` read shim, so the
-        // row carries the explicit per-device `launcher` every stored config
-        // now has. These values are what the old `position: bottom-right`
-        // resolved to on both devices, so the seeded shots do not move.
-        launcher: {
-          desktop: { mode: `fab`, position: `bottom-right` },
-          mobile: { mode: `fab`, position: `bottom-right` },
-        },
-        collectEmail: true,
-        collectName: true,
-        modes: [`feedback`, `support`],
-        labelIds: [label[`Bug`], label[`Feature`]],
-        theme: `auto`,
-      },
+      authorId: sofia,
+      audience: `reporter`,
+      body: `Thanks for the report! We found a token refresh bug on iPadOS and just shipped a fix — could you update to 2.4.1 and try again?`,
+      createdAt: hoursAgo(20),
     },
     {
+      issueId: widgetIssue.id,
       teamId: ws.id,
-      name: `Help center`,
-      publicKey: generateWidgetKey(),
-      allowedDomains: [`help.acme.dev`],
-      createdByUserId: demoId,
-      createdAt: daysAgo(8),
-      formConfig: {
-        buttonLabel: `Contact support`,
-        accentColor: `#22c55e`,
-        collectEmail: true,
-        emailRequired: true,
-        modes: [`support`],
-        theme: `dark`,
-      },
+      boardId: board.id,
+      authorId: null,
+      source: `reporter`,
+      audience: `reporter`,
+      body: escapeReporterText(
+        `That fixed it — thank you for the quick turnaround!`
+      ),
+      createdAt: hoursAgo(1),
     },
   ])
 
@@ -1639,9 +1578,9 @@ Seeded screenshot demo data:
   triggers    ${seededTriggers.length} (2 scheduled + 1 event, 1 paused) + 2 triggered runs
   storage     ${seedAttachments.length} attachments (1 unreferenced image to sweep)
   mcp         3 team MCP servers: linear (OAuth, connected for the demo user), sentry (OAuth, not connected), acme-docs (no sign-in)
-  widgets     2 widget configs (feedback+support, support-only)
+  widgets     2 widget configs
+  reporter    1 widget-filed issue ("${WIDGET_REPORT_TITLE}") with a reporter conversation
   api keys    2 personal keys
-  support     ${seedThreads.length} helpdesk threads
 
 Next: bun run screenshots:desktop (needs STEER_RELAY_URL + STEER_RELAY_SECRET)
 `)

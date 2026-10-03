@@ -9,8 +9,7 @@ enum AppRoute: Hashable {
     /// button — no longer a tab of its own.
     case search
     case agents
-    /// Team actions (EXP-253) — its own tab since EXP-686;
-    /// NOT helpdesk-gated.
+    /// Team actions (EXP-253) — its own tab since EXP-686.
     case actions
     /// SLOP-2: one action's page (Prompt · Triggers · Runs) — pushed from an
     /// Actions row or an `action` entity ref, opened on `tab`.
@@ -22,9 +21,6 @@ enum AppRoute: Hashable {
     /// Reviews (EXP-147): the open-PR list, its own tab beside My Work —
     /// no longer a segment inside it.
     case reviews
-    /// Support (EXP-180): the team helpdesk inbox, its own tab — shown only
-    /// while the active team's synced `helpdesk_enabled` flag is on.
-    case support
     case board(accountId: String, id: String)
     case issue(accountId: String, id: String)
     /// EXP-933: an issue's Work screen opened on a given face — an agent's
@@ -44,9 +40,6 @@ enum AppRoute: Hashable {
         statusId: String? = nil,
         parentId: String? = nil
     )
-    /// One support ticket's conversation (EXP-180 helpdesk) — pushed from the
-    /// My Work Support segment or a support_reply push tap.
-    case supportThread(accountId: String, threadId: String)
     /// The dedicated per-issue diff page (EXP-34) — pushed from the issue
     /// detail's Changes card.
     case changes(accountId: String, issueId: String)
@@ -308,10 +301,6 @@ struct MainNavigator: View {
     @State private var observationTasks: [Task<Void, Never>] = []
     @State private var syncing = false
     @State private var unreadCount = 0
-    // Raw observed notification rows — cached so the Support tab's unread dot
-    // can recompute against the ACTIVE team when the selection changes
-    // without a new sync delta.
-    @State private var observedNotifications: [NotificationEntity] = []
     @State private var agentsRunning = false
     // EXP-214: any live session's desktop-written `needs_input` flag (agent
     // parked on a plan-approval / question picker) — escalates the Agents
@@ -394,7 +383,7 @@ struct MainNavigator: View {
         .onChange(of: availableBoardKeys) { _, _ in
             resolveCurrentBoard()
         }
-        // The Agents dots are team-scoped like the Support and Reviews ones,
+        // The Agents dots are team-scoped like the Reviews one,
         // but they're cached @State (the liveness ticker needs the raw rows)
         // rather than computed — so a team switch has to re-filter them here.
         .onChange(of: teamState.activeTeamId) { _, _ in
@@ -417,15 +406,6 @@ struct MainNavigator: View {
             if let token {
                 path.append(AppRoute.invite(token: token))
                 _ = deps.deepLinkBus.consumeInvite()
-            }
-        }
-        // A support_reply push tap (EXP-180): open the ticket's conversation
-        // under the recipient's account (helpdesk pushes carry no issue keys).
-        .onChange(of: deps.deepLinkBus.pendingSupportThreadId) { _, threadId in
-            if let threadId {
-                let accountId = issueAccountId(forUserId: deps.deepLinkBus.pendingSupportThreadUserId)
-                path.append(AppRoute.supportThread(accountId: accountId, threadId: threadId))
-                _ = deps.deepLinkBus.consumeSupportThread()
             }
         }
         // An agent_message push tap (EXP-801): open My Work → Inbox under the
@@ -465,11 +445,6 @@ struct MainNavigator: View {
             if let token = deps.deepLinkBus.consumeInvite() {
                 path.append(AppRoute.invite(token: token))
             }
-            let supportUserId = deps.deepLinkBus.pendingSupportThreadUserId
-            if let threadId = deps.deepLinkBus.consumeSupportThread() {
-                let accountId = issueAccountId(forUserId: supportUserId)
-                path.append(AppRoute.supportThread(accountId: accountId, threadId: threadId))
-            }
             let sessionUserId = deps.deepLinkBus.pendingSessionUserId
             if let sessionId = deps.deepLinkBus.consumeSession() {
                 let accountId = issueAccountId(forUserId: sessionUserId)
@@ -498,14 +473,11 @@ struct MainNavigator: View {
                     actionsActive: isOnActions,
                     myWorkActive: isOnMyWork,
                     reviewsActive: isOnReviews,
-                    supportActive: isOnSupport,
                     unreadCount: unreadCount,
                     agentsRunning: agentsRunning,
                     agentsNeedInput: agentsNeedInput,
                     reviewsOpen: reviewsOpen,
-                    showsSupport: helpdeskEnabled,
                     showsReviews: showsReviews,
-                    supportUnread: supportUnread,
                     // The launcher capsule (chat | new issue) rides every
                     // bar-visible surface (EXP-827/EXP-973); only a team with
                     // no board leaves the New-issue arm inert.
@@ -515,7 +487,6 @@ struct MainNavigator: View {
                     onActions: { if !isOnActions { path = [.actions] } },
                     onMyWork: { if !isOnMyWork { path = [.myWork] } },
                     onReviews: { if !isOnReviews { path = [.reviews] } },
-                    onSupport: { if !isOnSupport { path = [.support] } },
                     onCompose: {
                         // EXP-1170: the draft id is minted HERE, at tap time.
                         guard let target = composeTarget else { return }
@@ -538,16 +509,9 @@ struct MainNavigator: View {
             }
         }
         .animation(motion.standard, value: tabBarChrome.suppressed)
-        // The Support tab exists only while the flag is on — if it flips off
-        // (team switch, feature disabled) while the Support surface is up,
-        // land back on Issues instead of stranding a tab-less screen.
-        .onChange(of: helpdeskEnabled) { _, enabled in
-            if !enabled {
-                path.removeAll { $0 == .support }
-            }
-        }
-        // EXP-1105: same for Reviews once yolo mode hides it (the flag flips
-        // on, or the last open PR in a yolo team merges).
+        // EXP-1105: Reviews exists only until yolo mode hides it (the flag
+        // flips on, or the last open PR in a yolo team merges) — then land
+        // back on Issues instead of stranding a tab-less screen.
         .onChange(of: showsReviews) { _, shown in
             if !shown {
                 path.removeAll { $0 == .reviews }
@@ -563,17 +527,11 @@ struct MainNavigator: View {
     private var showsTabBar: Bool {
         guard let top = path.last else { return true }
         switch top {
-        case .agents, .actions, .myWork, .reviews, .support, .board:
+        case .agents, .actions, .myWork, .reviews, .board:
             return true
         default:
             return false
         }
-    }
-
-    /// Support (EXP-180) gets a tab only while the active team's synced
-    /// `teams.helpdesk_enabled` flag is on.
-    private var helpdeskEnabled: Bool {
-        teamState.activeTeam?.helpdeskEnabled == true
     }
 
     /// EXP-1105: the active team's synced `teams.yolo_mode` flag. PRs
@@ -588,22 +546,9 @@ struct MainNavigator: View {
         !yoloMode || reviewsOpen
     }
 
-    /// Unread helpdesk activity in the ACTIVE team lights the Support tab's
-    /// dot (EXP-182): issue-less support_reply rows carry a synced team_id —
-    /// the same rule the inbox's per-team Support groups use.
-    private var supportUnread: Bool {
-        guard let teamId = teamState.activeTeamId else { return false }
-        return observedNotifications.contains {
-            $0.type == DomainContract.notificationTypeSupportReply
-                && $0.issueId == nil
-                && $0.teamId == teamId
-                && $0.readAt == nil
-        }
-    }
-
     /// Any open PR in the ACTIVE team lights the Reviews tab's green dot
     /// (EXP-214) — the same open-PR set the Reviews screen lists, scoped
-    /// through the already-observed boards like `supportUnread`.
+    /// through the already-observed boards.
     private var reviewsOpen: Bool {
         guard let teamId = teamState.activeTeamId else { return false }
         let teamBoardIds = Set(
@@ -618,11 +563,6 @@ struct MainNavigator: View {
 
     private var isOnMyWork: Bool {
         if case .myWork = path.last { return true }
-        return false
-    }
-
-    private var isOnSupport: Bool {
-        if case .support = path.last { return true }
         return false
     }
 
@@ -643,7 +583,7 @@ struct MainNavigator: View {
 
     /// Compose targets the board in view: a pushed board list wins, and every
     /// other bar-visible surface (Issues root, Devices, Actions, My Work,
-    /// Reviews, Support) falls back to the CURRENT board — the one the Issues
+    /// Reviews) falls back to the CURRENT board — the one the Issues
     /// tab is pointed at, resolved from the last-used board, else the first of
     /// the active team (EXP-973). Filing an issue is never route-dependent;
     /// only a team with no board at all leaves the arm with nowhere to go.
@@ -762,9 +702,6 @@ struct MainNavigator: View {
         case .reviews:
             ReviewsView()
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
-        case .support:
-            SupportView()
-                .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case let .board(accountId, id):
             IssueListView(boardId: id)
                 .environment(\.accountId, accountId)
@@ -792,9 +729,6 @@ struct MainNavigator: View {
                 }
             )
             .environment(\.accountId, accountId)
-        case let .supportThread(accountId, threadId):
-            SupportThreadView(threadId: threadId)
-                .environment(\.accountId, accountId)
         case let .changes(accountId, issueId):
             ChangesView(issueId: issueId)
                 .environment(\.accountId, accountId)
@@ -884,7 +818,6 @@ struct MainNavigator: View {
         let notifTask = Task { @MainActor in
             do {
                 for try await (notifications, issueIds) in notifObs.values(in: pool) {
-                    observedNotifications = notifications
                     unreadCount = notifications.filter {
                         $0.readAt == nil && InboxViewModel.isRenderable($0, issueIds: issueIds)
                     }.count
@@ -1034,7 +967,7 @@ struct MainNavigator: View {
         // and the next launch lands back in it.
         SharedBoardMirror.writeLastUsed(accountId: accountId, boardId: boardId)
         currentBoard = CurrentBoardRef(accountId: accountId, boardId: boardId)
-        // EXP-400: the tab bar's team-scoped surfaces (Support, Reviews, the
+        // EXP-400: the tab bar's team-scoped surfaces (Reviews, the
         // Agents start pool, Actions) key off the active team — without a
         // re-point here a cross-team pick left them all serving the previous
         // team. A cross-server pick activates the picked account instead
@@ -1049,8 +982,8 @@ struct MainNavigator: View {
     }
 
     /// Points the active team at the current board's team (EXP-400). Called
-    /// only when the current board actually CHANGES — an inbox Support-group
-    /// tap deliberately selects a team other than the current board's, and
+    /// only when the current board actually CHANGES — a team picked elsewhere
+    /// (the team switcher) deliberately differs from the current board's, and
     /// that choice must survive unrelated re-renders and sync deltas.
     private func alignActiveTeam() {
         guard let current = currentBoard,
@@ -1074,7 +1007,7 @@ struct MainNavigator: View {
 
     /// Push the issue detail from a deep-link/push tap. Shared by both drain
     /// paths (EXP-172). No explicit sync kick: IssueDetailView observes GRDB
-    /// live, and a just-created issue (e.g. a fresh support ticket) arrives over
+    /// live, and a just-created issue (e.g. a fresh widget submission) arrives over
     /// the running Electric long-poll — on a cold start the initial sync is
     /// already in flight by the time this route lands, so there is nothing
     /// useful to await here (initialSync only passively polls the active

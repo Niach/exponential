@@ -41,10 +41,15 @@ struct IssueDetailBottomBar: View {
     /// composer in reply mode ("Replying to …" + `parentId` on send); the ✕,
     /// a send and a collapse clear it.
     @Binding var replyTarget: CommentReplyTarget?
+    /// SLOP-4: the widget submission behind this issue (server-only, fetched
+    /// by the detail view model). A reporter EMAIL on it offers the "Reply to
+    /// reporter" pill; its name fills the placeholder.
+    var widgetSubmission: WidgetSubmissionRow? = nil
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.motion) private var motion
+    @Environment(\.toaster) private var toaster
 
     @State private var composerEditor = IssueEditorModel()
     /// EXP-892 — the `#` menu's server half, kept across re-renders so its
@@ -53,6 +58,9 @@ struct IssueDetailBottomBar: View {
     @State private var expanded = false
     @State private var submitting = false
     @State private var composerHasText = false
+    /// SLOP-4: the "Reply to reporter" pill — OFF by default, per composer;
+    /// ON sends the comment with `audience: reporter` (emailed to them).
+    @State private var replyToReporter = false
     @State private var showPhotoPicker = false
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var showFileImporter = false
@@ -194,9 +202,42 @@ struct IssueDetailBottomBar: View {
         pendingAttachments.count >= AttachmentFiles.maxCommentAttachments
     }
 
+    /// SLOP-4: the pill shows only on an issue whose submission carries a
+    /// reporter email, and never on a reply-under-a-card composer (replies
+    /// are team-only).
+    private var offersReporterReply: Bool {
+        guard replyTarget == nil, let email = widgetSubmission?.reporterEmail else { return false }
+        return !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var placeholder: String {
+        if replyTarget != nil { return "Leave a reply…" }
+        if offersReporterReply && replyToReporter {
+            return ReporterReply.placeholder(name: widgetSubmission?.reporterName)
+        }
+        return "Write a comment…"
+    }
+
     private var expandedComposer: some View {
         // EXP-698: the ONE composer card. Opaque — it floats over the feed.
         GlassComposer(isOpaque: true) {
+            // SLOP-4: the ONE "Reply to reporter" toggle, in the leading row
+            // the composer of the helpdesk (gone, SLOP-4) gave its Reply /
+            // Note pills (a `.select` pill, same look).
+            if offersReporterReply {
+                HStack(spacing: 4) {
+                    GlassPill(
+                        ReporterReply.toggleLabel,
+                        mode: .select(isSelected: replyToReporter) { replyToReporter.toggle() }
+                    )
+                    .accessibilityLabel(ReporterReply.toggleLabel)
+                    .accessibilityIdentifier("comment-reply-to-reporter")
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
+                .padding(.bottom, 2)
+            }
             // EXP-741: the reply target rides the composer's leading row.
             if let target = replyTarget {
                 HStack(spacing: 8) {
@@ -223,7 +264,7 @@ struct IssueDetailBottomBar: View {
         } field: {
             MarkdownEditor(
                 model: composerEditor,
-                placeholder: replyTarget == nil ? "Write a comment…" : "Leave a reply…",
+                placeholder: placeholder,
                 baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
                 accountId: accountId,
                 httpClient: deps.httpClient,
@@ -372,6 +413,8 @@ struct IssueDetailBottomBar: View {
         composerHasText = false
         pendingAttachments = []
         attachmentError = nil
+        // The pill is per composer: a sent reply puts it back OFF.
+        replyToReporter = false
         configureComposer()
     }
 
@@ -403,16 +446,26 @@ struct IssueDetailBottomBar: View {
             attachmentIds = outcome.items.compactMap(\.uploadedId)
         }
 
+        // SLOP-4: `audience: reporter` ONLY off the pill, never on a reply.
+        let toReporter = offersReporterReply && replyToReporter
         do {
-            try await deps.commentsApi.create(
+            let result = try await deps.commentsApi.create(
                 accountId: accountId,
                 issueId: issue.id,
                 text: md,
                 attachmentIds: attachmentIds,
-                parentId: replyTarget?.parentId
+                parentId: replyTarget?.parentId,
+                audience: toReporter ? DomainContract.commentAudienceReporter : nil
             )
             resetComposer()
             collapse()
+            // true → emailed; false → saved, no transport; nil → a team
+            // comment, nothing to say.
+            switch result.reporterEmailed {
+            case true?: toaster.success(ReporterReply.sentToast)
+            case false?: toaster.warning(ReporterReply.notSentToast)
+            case nil: break
+            }
         } catch {
             attachmentError = error.userFacingMessage
         }

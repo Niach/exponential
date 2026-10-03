@@ -2,8 +2,8 @@
 name: exponential
 description: >
   Work with Exponential (exponential.at), an open-source realtime issue
-  tracker with local coding agents, a team helpdesk, and an embeddable
-  feedback widget. Use this to connect over MCP, manage teams, boards,
+  tracker with local coding agents and an embeddable feedback widget
+  whose reports land as issues. Use this to connect over MCP, manage teams, boards,
   issues, labels, statuses, comments, and pull requests, install and
   script the exponential CLI, or integrate the feedback widget on a
   user's website.
@@ -12,7 +12,7 @@ description: >
 # Exponential
 
 Exponential is an open-source (Apache-2.0) realtime tracker for issues,
-customer support, and coding agents. Teams file issues on boards, hand them
+user feedback, and coding agents. Teams file issues on boards, hand them
 to AI coding agents (Claude Code or Codex) that run locally on the
 user's own machines, and review the pull requests the agents open. Native
 clients exist for web, iOS, Android, macOS, Windows, and Linux; everything
@@ -56,14 +56,15 @@ Two ways in:
 
 ## Tool families
 
-Around 85 tools, all named `exponential_<family>_<verb>`:
+Around 80 tools, all named `exponential_<family>_<verb>`:
 
 - **teams**: list, get, create, update the user's teams.
 - **boards**: CRUD boards inside a team; a board can be backed by a GitHub
   repository (`boards_set_repository`).
 - **issues**: list and filter (boards, `statusId`/`statusCategory`,
-  priority, assignee, labels any/all/unlabeled, comment activity,
-  created/updated ranges, title search, each with an `exclude*` twin,
+  priority, assignee, labels any/all/unlabeled, `source` user/widget,
+  comment activity, created/updated ranges, title search, each with an
+  `exclude*` twin,
   plus `sort`, where a `-` prefix descends), get by UUID or identifier
   ("ABC-12"), create, update, delete, update_status, subscribe,
   unsubscribe. `issues_list` returns OPEN work unless `includeClosed` (or
@@ -87,7 +88,10 @@ Around 85 tools, all named `exponential_<family>_<verb>`:
 - **issue_relations**: `add` / `remove` link two issues as `blocks`,
   `parent` (sub-issue), `duplicate` or `related`; `inverse: true` states
   the relation the other way round (blocked by, sub-issue of, duplicated by).
-- **comments**: list, create, update, delete on issues.
+- **comments**: list, create, update, delete on issues. `comments_create`
+  takes `audience: "reporter"` on a widget-filed issue whose reporter left
+  an email (top-level only): the comment is emailed to them, and the
+  result's `reporterEmailed` says whether that mail went out.
 - **notifications**: list, mark read.
 - **members** and **invites**: list team members (resolve assignee ids),
   manage invite links (owner only).
@@ -118,8 +122,6 @@ Around 85 tools, all named `exponential_<family>_<verb>`:
   its system prompt.
 - **devices**: `devices_list` shows the user's machines, their online state
   and the agent CLIs each one can run.
-- **helpdesk**: list and read support threads, reply, add an internal note,
-  close, reopen, escalate a ticket into an issue.
 - **report_bug**: file a bug about Exponential itself with its developers.
 
 Every call is confined to the OAuth grant's scope, or to the API key
@@ -160,9 +162,13 @@ user's membership.
 - **Coding agents**: sessions run Claude Code or Codex locally with the
   Exponential MCP server wired in automatically; from the agent's point of
   view the tools look the same on both.
-- **Feedback and support**: the embeddable widget files issues from any
-  website; in support mode it opens email-conversation tickets in the
-  team's Support inbox (helpdesk).
+- **Feedback widget**: every submission from the embeddable widget becomes
+  an issue on the widget's board (title from the message's first line,
+  screenshot and pictures attached, page context in the description,
+  `source: "widget"`). A reporter who left an email gets a private link to
+  their report; a `comments_create` with `audience: "reporter"` emails them
+  a reply, and their answers come back as comments on the issue (a
+  `reporter_reply` notification; an answer on a done issue reopens it).
 
 ## The CLI
 
@@ -195,9 +201,9 @@ reference: https://exponential.at/docs/cli/
 When a user asks to add Exponential feedback collection to their site:
 
 1. Get their widget key (`expw_...`). If they have none, they create a
-   widget in Team settings -> Feedback widget in Exponential (team owners; every
-   plan includes at least one), pick the target board, and add their
-   site's domain to the allowlist (submissions are only accepted from
+   widget in Team settings -> Widget in Exponential (team owners; every
+   plan includes at least one), pick the board its reports land on, and add
+   their site's domain to the allowlist (submissions are only accepted from
    allowlisted domains; the key itself is public by design).
 2. Paste this snippet before `</head>`. It is async and never blocks the
    page. On self-hosted instances, point the loader URL at the instance:
@@ -238,19 +244,23 @@ When a user asks to add Exponential feedback collection to their site:
      ignored once `launcher` is present. `host` overrides the API origin
      when a self-hosted loader is served from elsewhere.
    - Headless mode: `init({ key, showButton: false })`, then call
-     `ExponentialWidget.submit({ title, description, screenshot, images,
-     labels })` from the site's own form (`images`: up to 3 Blobs, 10 MB
-     each; `labels`: ids of the widget's configured labels); it resolves
-     with `{ ok, identifier, url }`.
+     `ExponentialWidget.submit({ message, title?, email?, screenshot,
+     images, labels })` from the site's own form (`message`: the one form
+     field, its first line becomes the issue title unless `title` is
+     given; `images`: up to 3 Blobs, 10 MB each; `labels`: ids of the
+     widget's configured labels); it resolves with `{ ok, identifier, url,
+     emailDelivered }` (`emailDelivered` is null when no email was given).
+     Older hosts' `description` is read as the message; a `mode` is
+     ignored.
 
-Each submission becomes an issue on the configured board with an annotated
+Each submission becomes an issue on the widget's board with an annotated
 screenshot, reporter metadata, and page context, atomically. Full widget
 API: https://exponential.at/docs/widget/
 
 ## More resources
 
 - Docs index: https://exponential.at/docs/ (getting started, issues and
-  boards, coding agents, actions, CLI and daemon, feedback and helpdesk,
+  boards, coding agents, actions, CLI and daemon, feedback and reporters,
   widget, MCP, apps, self-host)
 - MCP guide with per-client setup: https://exponential.at/docs/mcp/
 - Self-hosting runbook: https://exponential.at/docs/self-host/

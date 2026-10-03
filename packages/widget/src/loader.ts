@@ -30,7 +30,7 @@ import {
   resolveLauncher,
   watchMobileViewport,
 } from "./launcher"
-import { submitFeedback, submitSupportRequest } from "./api-client"
+import { submitFeedback } from "./api-client"
 import { collectEnvMeta } from "./env-meta"
 import { maxUploadedImages } from "./uploads"
 
@@ -364,9 +364,9 @@ function start(): void {
       }
       const runtime = state
       try {
-        // The submit gates need the remote config; a failed fetch (null)
+        // The disabled gate needs the remote config settled; a failed fetch
         // fails open like the panel does — the server re-enforces everything.
-        const config = await runtime.configPromise
+        await runtime.configPromise
         if (runtime.disabled) {
           return {
             ok: false,
@@ -375,46 +375,27 @@ function start(): void {
           }
         }
         const request = payload ?? {}
-        const mode = request.mode === `support` ? `support` : `feedback`
-        if (config) {
-          const served =
-            config.modes?.filter(
-              (value) => value === `feedback` || value === `support`
-            ) ?? []
-          if (!(served.length > 0 ? served : [`feedback`]).includes(mode)) {
-            return {
-              ok: false,
-              error: `The ${mode} mode is not enabled for this widget.`,
-              code: `mode_unavailable`,
-            }
-          }
-        }
         // Per-call custom data merges over the identify-time blob, like a
         // panel-typed field value.
         const customData = request.customData
           ? { ...runtime.customData, ...request.customData }
           : undefined
-        const result =
-          mode === `support`
-            ? await submitSupportRequest({
+        // SLOP-4: one submit. `message` is the field; `description` is the
+        // pre-SLOP-4 alias; a `mode` is ignored. The server titles the issue
+        // off the message's first line unless the host passes a title.
+        const message =
+          typeof request.message === `string` && request.message
+            ? request.message
+            : typeof request.description === `string`
+              ? request.description
+              : ``
+        const result = await submitFeedback({
                 state: runtime,
-                message:
-                  typeof request.message === `string` ? request.message : ``,
-                email:
-                  (typeof request.email === `string` && request.email) ||
-                  runtime.identity.email ||
-                  ``,
-                name: typeof request.name === `string` ? request.name : null,
-                customData,
-                meta: collectEnvMeta(),
-              })
-            : await submitFeedback({
-                state: runtime,
-                title: typeof request.title === `string` ? request.title : ``,
-                description:
-                  typeof request.description === `string`
-                    ? request.description
-                    : ``,
+                message,
+                title:
+                  typeof request.title === `string` && request.title.trim()
+                    ? request.title
+                    : null,
                 email:
                   (typeof request.email === `string` && request.email) ||
                   runtime.identity.email ||
@@ -445,7 +426,12 @@ function start(): void {
                 meta: collectEnvMeta(),
               })
         if (result.ok) {
-          return { ok: true, identifier: result.identifier, url: result.url }
+          return {
+            ok: true,
+            identifier: result.identifier,
+            url: result.url,
+            emailDelivered: result.emailDelivered ?? null,
+          }
         }
         return { ok: false, error: result.message, code: result.code }
       } catch {

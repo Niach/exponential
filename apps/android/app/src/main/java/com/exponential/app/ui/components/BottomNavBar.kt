@@ -41,9 +41,7 @@ import com.exponential.app.ui.theme.TextEmphasis
 
 // Linear-style floating bottom navigation: a dark pill with the top-level
 // destinations (Issues, My Work — the merged Inbox + My Issues personal tab,
-// with an unread dot — Support — the team helpdesk inbox, present only while
-// the active team's helpdesk flag is on (EXP-180) — Devices — the machines
-// surface — Actions — the team's action prompts, its own entry since EXP-686
+// with an unread dot — Devices — the machines surface — Actions — the team's action prompts, its own entry since EXP-686
 // — and Reviews) plus a detached launcher on the right: the Chat circle that
 // opens the Agent page on EVERY top-level surface (the sessions list lives
 // there since EXP-825, so it carries the green live dot the Devices tab used
@@ -92,13 +90,10 @@ fun BottomNavBar(
     actionsActive: Boolean,
     personalActive: Boolean,
     reviewsActive: Boolean,
-    supportActive: Boolean,
     unreadCount: Int,
     agentsRunning: Boolean,
     agentsNeedInput: Boolean,
     reviewsOpen: Boolean,
-    showsSupport: Boolean,
-    supportUnread: Boolean,
     /** EXP-973: whether New issue has a board to file onto (it always shows). */
     composeEnabled: Boolean,
     onIssues: () -> Unit,
@@ -106,7 +101,6 @@ fun BottomNavBar(
     onActions: () -> Unit,
     onPersonal: () -> Unit,
     onReviews: () -> Unit,
-    onSupport: () -> Unit,
     onCompose: () -> Unit,
     onChat: () -> Unit,
     modifier: Modifier = Modifier,
@@ -117,12 +111,11 @@ fun BottomNavBar(
      */
     showsReviews: Boolean = true,
 ) {
-    // Four fixed tabs (Issues, My Work, Devices, Actions) + Support + Reviews.
-    val tabCount = 4 + (if (showsSupport) 1 else 0) + (if (showsReviews) 1 else 0)
-    // Six tabs (helpdesk on) must still fit a 360dp screen beside the compose
-    // circle: pull the outer padding in. The tab itself is the shared 44dp
-    // square on every count (EXP-698) — six of them plus the bar's own 4dp
-    // inset and the 52dp circle come to 348dp.
+    // Four fixed tabs (Issues, My Work, Devices, Actions) + Reviews.
+    val tabCount = 4 + (if (showsReviews) 1 else 0)
+    // Every count must still fit a 360dp screen beside the compose circle:
+    // the outer padding pulls in with the count. The tab itself is the shared
+    // 44dp square on every count (EXP-698).
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -156,19 +149,6 @@ fun BottomNavBar(
                 showDot = unreadCount > 0,
                 onClick = onPersonal,
             )
-            // Support (EXP-180): the team helpdesk inbox — the same life-buoy
-            // glyph its rows use. Present only while the active team's synced
-            // helpdesk flag is on.
-            if (showsSupport) {
-                TabItem(
-                    icon = ExpIcons.navSupport,
-                    contentDescription = "Support",
-                    testTag = "tab-support",
-                    active = supportActive,
-                        showDot = supportUnread,
-                    onClick = onSupport,
-                )
-            }
             // Devices (EXP-686, the renamed Agents surface): the machine list.
             // Its live dot moved to the Agent launcher with the sessions list.
             TabItem(
@@ -339,7 +319,7 @@ private fun TabItem(
     // EXP-523: the pill and the glyph fade between states instead of cutting.
     // A travelling pill (iOS uses matchedGeometryEffect) would need
     // SharedTransitionLayout and per-tab position measurement for a bar whose
-    // tab COUNT changes with the helpdesk flag — a cross-fade reads as
+    // tab COUNT changes with the yolo flag — a cross-fade reads as
     // deliberate here and costs one animated float per tab. Both collapse to
     // an instant change when the OS has animations off (Motion -> snap()).
     val pillFill by animateColorAsState(

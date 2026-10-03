@@ -17,11 +17,6 @@ final class DeepLinkBus: @unchecked Sendable {
     // agent's targeted message (its report), `.issue` otherwise.
     var pendingIssueFace: WorkFaceKind = .issue
     var pendingInviteToken: String?
-    // A support_reply push tap (EXP-180): the ticket to open in the Support
-    // thread view. Carries the recipient's server user id like issue pushes so
-    // multi-account devices open it under the right account.
-    var pendingSupportThreadId: String?
-    var pendingSupportThreadUserId: String?
     // An agent_message push tap (EXP-801): the row lives in the My Work
     // inbox and nowhere else, so the tap lands there. Carries the recipient's
     // server user id like the other push kinds.
@@ -58,11 +53,6 @@ final class DeepLinkBus: @unchecked Sendable {
 
     func navigateToInvite(_ token: String) {
         pendingInviteToken = token
-    }
-
-    func navigateToSupportThread(_ threadId: String, userId: String? = nil) {
-        pendingSupportThreadUserId = userId
-        pendingSupportThreadId = threadId
     }
 
     func navigateToInbox(userId: String? = nil) {
@@ -109,13 +99,6 @@ final class DeepLinkBus: @unchecked Sendable {
         let id = pendingSessionId
         pendingSessionId = nil
         pendingSessionUserId = nil
-        return id
-    }
-
-    func consumeSupportThread() -> String? {
-        let id = pendingSupportThreadId
-        pendingSupportThreadId = nil
-        pendingSupportThreadUserId = nil
         return id
     }
 

@@ -2,7 +2,6 @@ package com.exponential.app.ui.inbox
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.NotificationsApi
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
@@ -38,41 +37,20 @@ data class InboxGroup(
 }
 
 /**
- * Synthetic Support group (EXP-180): issue-less `support_reply` notifications
- * bucketed per helpdesk team — the Android mirror of the web inbox's
- * synthetic "Support" group. `teamId`/`teamName` are null for the generic
- * bucket: legacy rows without a `team_id`, or a `team_id` the local teams
- * table doesn't know, all collapse into one group.
- */
-data class SupportGroup(
-    val teamId: String?,
-    val teamName: String?,
-    // Newest first, like InboxGroup.
-    val notifications: List<NotificationEntity>,
-    val unread: Int,
-) {
-    /** The newest notification — drives the row's preview and time. */
-    val latest: NotificationEntity get() = notifications.first()
-}
-
-/**
- * One merged stream (web/iOS/desktop parity): issue groups and synthetic
- * Support groups interleaved newest-first by each group's latest notification.
+ * One merged stream (web/iOS/desktop parity): issue groups and the issue-less
+ * message rows interleaved newest-first by each entry's latest notification.
+ * SLOP-4: a reporter's reply (`reporter_reply`) is issue-scoped, so it groups
+ * under its issue like `issue_comment` — there is no Support entry any more.
  */
 sealed interface InboxEntry {
     val unread: Int
 
-    /** Stable list key, mirroring the web/iOS `issue:`/`support:` key form. */
+    /** Stable list key, mirroring the web/iOS `issue:`/`message:` key form. */
     val key: String
 
     data class Issue(val group: InboxGroup) : InboxEntry {
         override val unread: Int get() = group.unread
         override val key: String get() = "issue:${group.issue.id}"
-    }
-
-    data class Support(val group: SupportGroup) : InboxEntry {
-        override val unread: Int get() = group.unread
-        override val key: String get() = "support:${group.teamId ?: "generic"}"
     }
 
     /**
@@ -106,10 +84,9 @@ data class InboxState(
     val totalUnread: Int = 0,
 )
 
-/** First-seen registry key: one namespace across both entry kinds. */
+/** First-seen registry key: one namespace across every entry kind. */
 private sealed interface GroupKey {
     data class Issue(val issueId: String) : GroupKey
-    data class Support(val teamId: String?) : GroupKey
     data class Message(val notificationId: String) : GroupKey
     data class Session(val notificationId: String) : GroupKey
 }
@@ -117,7 +94,7 @@ private sealed interface GroupKey {
 /**
  * Pure grouping core, extracted so unit tests can drive it directly.
  * `notifications` arrives newest-first (DAO orders created_at DESC); ONE
- * LinkedHashMap across both entry kinds keeps that order, so each group's
+ * LinkedHashMap across every entry kind keeps that order, so each group's
  * first element is its latest notification and the entries interleave by
  * latest activity (web `inbox-view.tsx` sorts all groups together).
  */
@@ -132,14 +109,10 @@ internal fun buildInboxState(
     for (n in notifications) {
         val iid = n.issueId
         val key = if (iid == null) {
-            // Issue-less rows are the helpdesk fan-out (`support_reply`,
-            // EXP-180) — grouped per ticket team instead of dropped, with
-            // NULL/unknown team ids collapsing into one generic bucket — an
-            // agent's message (`agent_message`, EXP-801) or a blocked coding
-            // run (`session_blocked`, EXP-980), one entry each.
+            // Issue-less rows are an agent's message (`agent_message`,
+            // EXP-801) or a blocked coding run (`session_blocked`, EXP-980),
+            // one entry each; anything else without an issue is dropped.
             when (n.type) {
-                DomainContract.notificationTypeSupportReply ->
-                    GroupKey.Support(n.teamId?.takeIf { teamMap.containsKey(it) })
                 DomainContract.notificationTypeAgentMessage -> GroupKey.Message(n.id)
                 DomainContract.notificationTypeSessionBlocked -> GroupKey.Session(n.id)
                 else -> continue
@@ -155,14 +128,6 @@ internal fun buildInboxState(
         when (key) {
             is GroupKey.Issue -> InboxEntry.Issue(
                 InboxGroup(issueMap.getValue(key.issueId), ns, unread),
-            )
-            is GroupKey.Support -> InboxEntry.Support(
-                SupportGroup(
-                    teamId = key.teamId,
-                    teamName = key.teamId?.let { teamMap.getValue(it).name },
-                    notifications = ns,
-                    unread = unread,
-                ),
             )
             is GroupKey.Message -> InboxEntry.Message(
                 notification = ns.single(),
@@ -183,7 +148,6 @@ class InboxViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val holder: DatabaseHolder,
     private val notificationsApi: NotificationsApi,
-    private val teamSelection: TeamSelection,
 ) : ViewModel() {
 
     // Reactive account scoping: all queries re-scope on account switch (no
@@ -197,7 +161,7 @@ class InboxViewModel @Inject constructor(
             else db.notificationDao().observeByUser(userId)
         }
     private val issuesFlow = dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() }
-    // Teams resolve the Support groups' display names.
+    // Teams resolve the issue-less rows' team names.
     private val teamsFlow = dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() }
 
     val state: StateFlow<InboxState> = combine(
@@ -216,16 +180,6 @@ class InboxViewModel @Inject constructor(
      * when it still has one.
      */
     fun markMessageRead(notification: NotificationEntity) = markRead(listOf(notification))
-
-    /**
-     * Tap on a Support group: mark it read and select its team (when known)
-     * so the Support tab the caller navigates to opens on the right helpdesk.
-     * Generic-bucket groups (null team) just mark read.
-     */
-    fun openSupportGroup(group: SupportGroup) {
-        group.teamId?.let { teamSelection.select(it) }
-        markRead(group.notifications)
-    }
 
     private fun markRead(notifications: List<NotificationEntity>) {
         viewModelScope.launch {

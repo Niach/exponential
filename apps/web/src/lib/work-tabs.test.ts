@@ -43,11 +43,6 @@ describe(`routePathFromLocation`, () => {
       runId: `s1`,
       from: null,
     })
-    expect(routePathFromLocation(`/t/acme/support/t1/`, ``)).toEqual({
-      kind: `support`,
-      threadId: `t1`,
-      from: null,
-    })
   })
 
   it(`is null everywhere else`, () => {
@@ -76,7 +71,6 @@ describe(`routeTabKey / routeTabFace`, () => {
     expect(
       routeTabFace({ kind: `run`, runId: `s1`, issueId: `i1`, from: null })
     ).toBe(`run`)
-    expect(routeTabFace({ kind: `support`, threadId: `t`, from: null })).toBeNull()
   })
 })
 
@@ -87,8 +81,8 @@ describe(`upsertFromRoute`, () => {
       issueId: `i1`,
       from: `board:web`,
     })
-    s = upsertFromRoute(s, { kind: `support`, threadId: `t1`, from: `support` })
-    expect(keys(s)).toEqual([`issue:i1`, `support:t1`])
+    s = upsertFromRoute(s, { kind: `run`, runId: `s7`, issueId: null, from: `agent` })
+    expect(keys(s)).toEqual([`issue:i1`, `run:s7`])
     // Re-opening the same issue with the same token changes nothing.
     const again = upsertFromRoute(s, {
       kind: `issue`,
@@ -132,12 +126,12 @@ describe(`upsertFromRoute`, () => {
   it(`folds a run-only tab into its issue once the issue id syncs`, () => {
     // No issue tab yet: the run tab becomes the issue tab in place.
     let s = state([
-      { kind: `support`, threadId: `t1`, from: null },
+      { kind: `run`, runId: `s0`, from: null, live: false },
       { kind: `run`, runId: `s1`, from: `agent`, live: true },
     ])
     s = upsertFromRoute(s, { kind: `run`, runId: `s1`, issueId: `i1`, from: null })
     expect(s.tabs).toEqual([
-      { kind: `support`, threadId: `t1`, from: null },
+      { kind: `run`, runId: `s0`, from: null, live: false },
       { kind: `issue`, issueId: `i1`, face: `run`, runId: `s1`, from: `agent`, live: true },
     ])
     // An issue tab already there absorbs it.
@@ -251,7 +245,7 @@ describe(`the tabless origin`, () => {
     }
   })
 
-  it(`creates no tab for a run, an issue or a thread`, () => {
+  it(`creates no tab for a run or an issue`, () => {
     expect(
       upsertFromRoute(EMPTY_WORK_TABS, {
         kind: `run`,
@@ -272,13 +266,6 @@ describe(`the tabless origin`, () => {
       upsertFromRoute(EMPTY_WORK_TABS, {
         kind: `issue`,
         issueId: `i1`,
-        from: `running`,
-      })
-    ).toBe(EMPTY_WORK_TABS)
-    expect(
-      upsertFromRoute(EMPTY_WORK_TABS, {
-        kind: `support`,
-        threadId: `t1`,
         from: `running`,
       })
     ).toBe(EMPTY_WORK_TABS)
@@ -312,21 +299,19 @@ describe(`closeTabs`, () => {
     const s = state([
       { kind: `run`, runId: `live`, from: null, live: true },
       { kind: `run`, runId: `ended`, from: null, live: false },
-      { kind: `support`, threadId: `t1`, from: null },
       { kind: `issue`, issueId: `i1`, face: `issue`, runId: `s3`, from: null, live: true },
     ])
     expect(
-      keys(closeTabs(s, [`run:live`, `run:ended`, `support:t1`, `issue:i1`]))
+      keys(closeTabs(s, [`run:live`, `run:ended`, `issue:i1`]))
     ).toEqual([])
     expect(keys(closeTabs(s, [`run:live`]))).toEqual([
       `run:ended`,
-      `support:t1`,
       `issue:i1`,
     ])
   })
 
   it(`is a no-op for unknown keys`, () => {
-    const s = state([{ kind: `support`, threadId: `t1`, from: null }])
+    const s = state([{ kind: `run`, runId: `s1`, from: null, live: false }])
     expect(closeTabs(s, [`issue:nope`])).toBe(s)
     expect(closeTabs(s, [])).toBe(s)
   })
@@ -337,7 +322,7 @@ describe(`closeMergedRunTabs`, () => {
   const tabs = (): WorkTab[] => [
     { kind: `issue`, issueId: `i1`, face: `run`, runId: `s1`, from: null, live: true },
     { kind: `run`, runId: `s2`, from: null, live: true },
-    { kind: `support`, threadId: `t1`, from: null },
+    { kind: `run`, runId: `s3`, from: null, live: false },
   ]
 
   it(`closes the merged run's tab`, () => {
@@ -347,14 +332,14 @@ describe(`closeMergedRunTabs`, () => {
           { runId: `s1`, issueId: `i1`, endedBy: `merge` },
         ])
       )
-    ).toEqual([`run:s2`, `support:t1`])
+    ).toEqual([`run:s2`, `run:s3`])
     expect(
       keys(
         closeMergedRunTabs(state(tabs()), [
           { runId: `s2`, issueId: null, endedBy: `merge` },
         ])
       )
-    ).toEqual([`issue:i1`, `support:t1`])
+    ).toEqual([`issue:i1`, `run:s3`])
   })
 
   it(`closes every OTHER tab of the merged issue too`, () => {
@@ -382,11 +367,11 @@ describe(`closeMergedRunTabs`, () => {
 describe(`pruneTabs`, () => {
   it(`drops unresolved tabs`, () => {
     const s = state([
-      { kind: `support`, threadId: `t1`, from: null },
+      { kind: `issue`, issueId: `i1`, face: `issue`, runId: null, from: null, live: false },
       { kind: `run`, runId: `gone`, from: null, live: false },
     ])
-    expect(keys(pruneTabs(s, (tab) => tab.kind === `support`))).toEqual([
-      `support:t1`,
+    expect(keys(pruneTabs(s, (tab) => tab.kind === `issue`))).toEqual([
+      `issue:i1`,
     ])
     expect(pruneTabs(s, () => true)).toBe(s)
   })
@@ -394,12 +379,12 @@ describe(`pruneTabs`, () => {
   // EXP-923: no grouping and no reordering — the strip IS the stored order.
   it(`keeps the stored order`, () => {
     const tabs: WorkTab[] = [
-      { kind: `support`, threadId: `t1`, from: null },
+      { kind: `run`, runId: `z`, from: null, live: false },
       { kind: `run`, runId: `a`, from: null, live: true },
       { kind: `issue`, issueId: `i1`, face: `issue`, runId: null, from: null, live: false },
     ]
     expect(pruneTabs(state(tabs), () => true).tabs.map(tabKey)).toEqual([
-      `support:t1`,
+      `run:z`,
       `run:a`,
       `issue:i1`,
     ])
@@ -442,13 +427,6 @@ describe(`tabHref`, () => {
       to: `/t/$teamSlug/sessions/$sessionId`,
       params: { teamSlug: `acme`, sessionId: `s2` },
       search: { from: `agent` },
-    })
-    expect(
-      tabHref(`acme`, { kind: `support`, threadId: `t1`, from: `support` }, resolve)
-    ).toEqual({
-      to: `/t/$teamSlug/support/$threadId`,
-      params: { teamSlug: `acme`, threadId: `t1` },
-      search: { from: `support` },
     })
   })
 
@@ -505,9 +483,22 @@ describe(`parseWorkTabsState`, () => {
     const s = state([
       { kind: `issue`, issueId: `i1`, face: `run`, runId: `s1`, from: `inbox`, live: true },
       { kind: `run`, runId: `s2`, from: null, live: false },
-      { kind: `support`, threadId: `t1`, from: `support` },
     ])
     expect(parseWorkTabsState(JSON.stringify(s))).toEqual(s)
+  })
+
+  // SLOP-4: the helpdesk's `support` tabs are gone — a stored one is dropped.
+  it(`drops a legacy support tab`, () => {
+    expect(
+      parseWorkTabsState(
+        JSON.stringify({
+          tabs: [
+            { kind: `support`, threadId: `t1`, from: `support` },
+            { kind: `run`, runId: `s1`, from: null, live: true },
+          ],
+        })
+      )
+    ).toEqual(state([{ kind: `run`, runId: `s1`, from: null, live: true }]))
   })
 
   // EXP-877: a state written before the dismissal memory was deleted still

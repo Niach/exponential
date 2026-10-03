@@ -4,8 +4,7 @@
 //
 //   * A tab is a WORK ITEM, not a URL. An issue and its run are ONE tab with
 //     two faces (`issue` | `run`, the header's `Issue | Run` toggle); a run
-//     that links no issue (chat, action, batch) is a run-only tab; a support
-//     conversation is its own tab.
+//     that links no issue (chat, action, batch) is a run-only tab.
 //   * EXP-923: a LIVE run is NOT a tab. Every running run of mine lives in the
 //     sidebar's "Running" section instead (`components/team/sidebar-running`),
 //     and opening one from there navigates with the `running` origin, which
@@ -41,11 +40,6 @@ export type WorkTab =
       from: string | null
       live: boolean
     }
-  | {
-      kind: `support`
-      threadId: string
-      from: string | null
-    }
 
 export interface WorkTabsState {
   tabs: WorkTab[]
@@ -60,18 +54,16 @@ export function tabKey(tab: WorkTab): string {
       return `issue:${tab.issueId}`
     case `run`:
       return `run:${tab.runId}`
-    case `support`:
-      return `support:${tab.threadId}`
   }
 }
 
 /** The run a tab is bound to, when it has one. */
 export function tabRunId(tab: WorkTab): string | null {
-  return tab.kind === `support` ? null : tab.runId
+  return tab.runId
 }
 
 export function tabIsLive(tab: WorkTab): boolean {
-  return tab.kind !== `support` && tab.live
+  return tab.live
 }
 
 // ── The route side ───────────────────────────────────────────────────────────
@@ -80,7 +72,6 @@ export function tabIsLive(tab: WorkTab): boolean {
 export type RoutePath =
   | { kind: `issue`; boardSlug: string; identifier: string; from: string | null }
   | { kind: `run`; runId: string; from: string | null }
-  | { kind: `support`; threadId: string; from: string | null }
 
 /** The work item a pathname shows — `null` for every other screen (lists,
  * full pages, settings). */
@@ -112,11 +103,6 @@ export function routePathFromLocation(
     const runId = decode(run[1])
     return runId === null ? null : { kind: `run`, runId, from: token }
   }
-  const thread = rest.match(/^\/support\/([^/]+)$/)
-  if (thread) {
-    const threadId = decode(thread[1])
-    return threadId === null ? null : { kind: `support`, threadId, from: token }
-  }
   return null
 }
 
@@ -125,7 +111,6 @@ export function routePathFromLocation(
 export type RouteTab =
   | { kind: `issue`; issueId: string; from: string | null }
   | { kind: `run`; runId: string; issueId: string | null; from: string | null }
-  | { kind: `support`; threadId: string; from: string | null }
 
 /** The key of the tab a resolved route shows — the active tab. */
 export function routeTabKey(route: RouteTab): string {
@@ -134,14 +119,11 @@ export function routeTabKey(route: RouteTab): string {
       return `issue:${route.issueId}`
     case `run`:
       return route.issueId ? `issue:${route.issueId}` : `run:${route.runId}`
-    case `support`:
-      return `support:${route.threadId}`
   }
 }
 
 /** The face a resolved route shows. */
 export function routeTabFace(route: RouteTab): WorkTabFace | null {
-  if (route.kind === `support`) return null
   return route.kind === `issue` ? `issue` : `run`
 }
 
@@ -176,21 +158,6 @@ export function upsertFromRoute(
   const creates = originCreatesTab(route.from)
   const nextFrom = (stored: string | null) =>
     creates ? (route.from ?? stored) : stored
-
-  if (route.kind === `support`) {
-    const at = tabs.findIndex(
-      (tab) => tab.kind === `support` && tab.threadId === route.threadId
-    )
-    if (at < 0) {
-      if (!creates) return state
-      tabs.push({ kind: `support`, threadId: route.threadId, from: route.from })
-    } else {
-      const tab = tabs[at] as Extract<WorkTab, { kind: `support` }>
-      if (tab.from === nextFrom(tab.from)) return state
-      tabs[at] = { ...tab, from: nextFrom(tab.from) }
-    }
-    return { ...state, tabs }
-  }
 
   if (route.kind === `run` && !route.issueId) {
     const at = tabs.findIndex(
@@ -316,7 +283,6 @@ export function reconcileLive(
   let changed = false
 
   const tabs: WorkTab[] = state.tabs.map((tab) => {
-    if (tab.kind === `support`) return tab
     if (tab.kind === `run`) {
       const live = liveById.has(tab.runId)
       if (live) bound.add(tab.runId)
@@ -382,7 +348,6 @@ export function closeMergedRunTabs(
   )
   const keys = state.tabs
     .filter((tab) => {
-      if (tab.kind === `support`) return false
       if (tab.runId !== null && runIds.has(tab.runId)) return true
       return tab.kind === `issue` && issueIds.has(tab.issueId)
     })
@@ -410,12 +375,6 @@ export function tabHref(
 ): { to: string; params: Record<string, string>; search: { from?: string } } | null {
   const search = tab.from ? { from: tab.from } : {}
   switch (tab.kind) {
-    case `support`:
-      return {
-        to: `/t/$teamSlug/support/$threadId`,
-        params: { teamSlug, threadId: tab.threadId },
-        search,
-      }
     case `run`:
       return {
         to: `/t/$teamSlug/sessions/$sessionId`,
@@ -525,9 +484,8 @@ function parseTab(value: unknown): WorkTab | null {
         from: optStr(raw.from),
         live: raw.live === true,
       }
-    case `support`:
-      if (!str(raw.threadId)) return null
-      return { kind: `support`, threadId: raw.threadId, from: optStr(raw.from) }
+    // A `support` tab from an older build (helpdesk, gone in SLOP-4) is
+    // simply dropped.
     default:
       return null
   }

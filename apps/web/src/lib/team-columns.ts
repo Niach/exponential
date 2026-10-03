@@ -11,7 +11,6 @@ export const teamColumns = {
   name: teams.name,
   slug: teams.slug,
   iconUrl: teams.iconUrl,
-  helpdeskEnabled: teams.helpdeskEnabled,
   prOpenedStatusId: teams.prOpenedStatusId,
   prOpenedAutomation: teams.prOpenedAutomation,
   prMergedStatusId: teams.prMergedStatusId,

@@ -14,7 +14,6 @@ const NONE: GettingStartedSignals = {
   hasRepoBoard: false,
   hasCodingSession: false,
   hasAction: false,
-  helpdeskEnabled: false,
   hasWidget: false,
   mcpConnected: false,
 }
@@ -36,7 +35,7 @@ function stateOf(
 }
 
 describe(`deriveEntryStates`, () => {
-  it(`emits the single static order desktop → github → invite → board → coding → action → server → widget → helpdesk → mcp`, () => {
+  it(`emits the single static order desktop → github → invite → board → coding → action → server → widget → mcp`, () => {
     const { entries } = deriveEntryStates(NONE, OWNER)
     expect(entries.map((entry) => entry.key)).toEqual([
       `desktop`,
@@ -47,7 +46,6 @@ describe(`deriveEntryStates`, () => {
       `action`,
       `server`,
       `widget`,
-      `helpdesk`,
       `mcp`,
     ])
   })
@@ -55,7 +53,7 @@ describe(`deriveEntryStates`, () => {
   it(`starts with everything undone: coding + action locked on desktop, widget locked on board`, () => {
     const { done, total } = deriveEntryStates(NONE, OWNER)
     expect(done).toBe(0)
-    expect(total).toBe(10)
+    expect(total).toBe(9)
     expect(stateOf(NONE, `coding`)).toEqual({
       key: `coding`,
       state: `locked`,
@@ -70,11 +68,6 @@ describe(`deriveEntryStates`, () => {
       key: `widget`,
       state: `locked`,
       lockedBy: `board`,
-    })
-    // Helpdesk has no prereq — available from the start.
-    expect(stateOf(NONE, `helpdesk`)).toEqual({
-      key: `helpdesk`,
-      state: `available`,
     })
   })
 
@@ -179,7 +172,6 @@ describe(`deriveEntryStates`, () => {
       githubInstalled: true,
       hasInvitedTeam: true,
       hasBoard: true,
-      helpdeskEnabled: true,
       mcpConnected: true,
     }
     expect(stateOf(signals, `desktop`)?.state).toBe(`done`)
@@ -187,7 +179,6 @@ describe(`deriveEntryStates`, () => {
     expect(stateOf(signals, `invite`)?.state).toBe(`done`)
     expect(stateOf(signals, `board`)?.state).toBe(`done`)
     expect(stateOf(signals, `server`)?.state).toBe(`done`)
-    expect(stateOf(signals, `helpdesk`)?.state).toBe(`done`)
     expect(stateOf(signals, `mcp`)?.state).toBe(`done`)
   })
 
@@ -197,7 +188,7 @@ describe(`deriveEntryStates`, () => {
     expect(stateOf(signals, `desktop`)?.state).toBe(`available`)
   })
 
-  it(`members get 6 entries — invite, action, widget and helpdesk are hidden`, () => {
+  it(`members get 6 entries — invite, action and widget are hidden`, () => {
     const { entries, total } = deriveEntryStates(NONE, MEMBER)
     expect(total).toBe(6)
     expect(entries.map((entry) => entry.key)).toEqual([
@@ -219,14 +210,13 @@ describe(`deriveEntryStates`, () => {
       hasBoard: true,
       hasRepoBoard: true,
       hasCodingSession: true,
-      helpdeskEnabled: true,
       mcpConnected: true,
     }
-    // Owner: action + server + widget still open → 7/10. Member: invite,
-    // action, widget and helpdesk hidden, server open → 5/6.
+    // Owner: action + server + widget still open → 6/9. Member: invite,
+    // action and widget hidden, server open → 5/6.
     expect(deriveEntryStates(signals, OWNER)).toMatchObject({
-      done: 7,
-      total: 10,
+      done: 6,
+      total: 9,
     })
     expect(deriveEntryStates(signals, MEMBER)).toMatchObject({
       done: 5,
@@ -245,7 +235,6 @@ describe(`deriveEntryStates`, () => {
       hasRepoBoard: true,
       hasCodingSession: true,
       hasAction: true,
-      helpdeskEnabled: true,
       hasWidget: true,
       mcpConnected: true,
     }

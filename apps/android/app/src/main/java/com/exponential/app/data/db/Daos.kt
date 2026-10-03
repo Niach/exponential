@@ -439,15 +439,6 @@ interface NotificationDao {
     @Query("SELECT COUNT(*) FROM notifications WHERE user_id = :userId AND read_at IS NULL")
     fun observeUnreadCount(userId: String): Flow<Int>
 
-    // Unread helpdesk activity in one team: issue-less support_reply rows
-    // carry a synced team_id (the inbox's per-team Support groups use the
-    // same rule). :type is always DomainContract.notificationTypeSupportReply.
-    @Query(
-        "SELECT COUNT(*) FROM notifications WHERE user_id = :userId AND read_at IS NULL " +
-            "AND type = :type AND issue_id IS NULL AND team_id = :teamId"
-    )
-    fun observeUnreadSupportCount(userId: String, teamId: String, type: String): Flow<Int>
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: NotificationEntity)
 

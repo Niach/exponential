@@ -78,29 +78,6 @@ final class WireDecodingTests: XCTestCase {
         XCTAssertEqual(json, ["teamId": "w1", "labelId": "l1"])
     }
 
-    // MARK: - Team (helpdesk_enabled rides the teams shape as Postgres text)
-
-    func testTeamDecodesWireHelpdeskEnabled() throws {
-        let team = try decode(TeamEntity.self, #"""
-        {
-          "id": "w1", "name": "Team", "slug": "team", "helpdesk_enabled": "t",
-          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
-        }
-        """#)
-        XCTAssertTrue(team.helpdeskEnabled)
-    }
-
-    func testTeamHelpdeskEnabledDefaultsFalseWhenAbsent() throws {
-        // A pre-rotation snapshot may omit the column — schema default wins.
-        let team = try decode(TeamEntity.self, #"""
-        {
-          "id": "w1", "name": "Team", "slug": "team",
-          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
-        }
-        """#)
-        XCTAssertFalse(team.helpdeskEnabled)
-    }
-
     // EXP-1105: yolo mode rides the teams shape as Postgres text ("t"/"f");
     // a native bool (tRPC) decodes too, and a pre-rotation snapshot omits it.
     func testTeamDecodesWireYoloMode() throws {
@@ -139,7 +116,7 @@ final class WireDecodingTests: XCTestCase {
     func testTeamDecodesEstimationType() throws {
         let team = try decode(TeamEntity.self, #"""
         {
-          "id": "w1", "name": "Team", "slug": "team", "helpdesk_enabled": "f",
+          "id": "w1", "name": "Team", "slug": "team",
           "estimation_type": "fibonacci",
           "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
         }
@@ -275,20 +252,78 @@ final class WireDecodingTests: XCTestCase {
         XCTAssertNil(absent.posterStorageKey)
     }
 
-    // MARK: - Notification (issue-less support_reply rows carry team_id)
+    // MARK: - Notification (issue-less agent_message rows carry team_id;
+    // SLOP-4: a reporter_reply is issue-scoped like issue_comment)
 
-    func testNotificationDecodesIssuelessSupportReplyWithTeamId() throws {
+    func testNotificationDecodesIssuelessAgentMessageWithTeamId() throws {
         let notification = try decode(NotificationEntity.self, #"""
         {
           "id": "n1", "user_id": "u1", "issue_id": null, "team_id": "w1",
-          "type": "support_reply", "title": "New reply on ticket",
-          "body": "A customer replied",
+          "type": "agent_message", "title": "Ada's agent: Build finished",
+          "body": "All green",
           "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
         }
         """#)
         XCTAssertNil(notification.issueId)
         XCTAssertEqual(notification.teamId, "w1")
-        XCTAssertEqual(notification.type, "support_reply")
+        XCTAssertEqual(notification.type, "agent_message")
+    }
+
+    func testNotificationDecodesReporterReplyOnItsIssue() throws {
+        let notification = try decode(NotificationEntity.self, #"""
+        {
+          "id": "n3", "user_id": "u1", "issue_id": "i1", "team_id": null,
+          "type": "reporter_reply", "title": "Emma replied on APP-5",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertEqual(notification.issueId, "i1")
+        XCTAssertNil(notification.teamId)
+        XCTAssertEqual(notification.type, DomainContract.notificationTypeReporterReply)
+    }
+
+    // MARK: - Comment (SLOP-4: a reporter's reply has no author; `audience`
+    // rides the comments shape and defaults to team when absent)
+
+    func testCommentDecodesReporterReplyWithNullAuthor() throws {
+        let comment = try decode(CommentEntity.self, #"""
+        {
+          "id": "c1", "issue_id": "i1", "team_id": "w1", "author_id": null,
+          "body": "Still broken", "kind": "regular", "edited_at": null,
+          "parent_id": null, "source": "reporter", "audience": "reporter",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertNil(comment.authorId)
+        XCTAssertTrue(comment.isFromReporter)
+        XCTAssertFalse(comment.isToReporter)
+        XCTAssertEqual(comment.audience, DomainContract.commentAudienceReporter)
+    }
+
+    func testCommentDecodesMemberReplyToReporter() throws {
+        let comment = try decode(CommentEntity.self, #"""
+        {
+          "id": "c2", "issue_id": "i1", "team_id": "w1", "author_id": "u1",
+          "body": "Fixed in 1.2", "kind": "regular", "source": "user", "audience": "reporter",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertEqual(comment.authorId, "u1")
+        XCTAssertFalse(comment.isFromReporter)
+        XCTAssertTrue(comment.isToReporter)
+    }
+
+    func testCommentAudienceAbsentIsTeam() throws {
+        // A pre-rotation snapshot omits the column; the row is a team comment.
+        let comment = try decode(CommentEntity.self, #"""
+        {
+          "id": "c3", "issue_id": "i1", "team_id": "w1", "author_id": "u1",
+          "body": "hi", "kind": "regular",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertEqual(comment.audience, DomainContract.commentAudienceTeam)
+        XCTAssertFalse(comment.isToReporter)
     }
 
     func testNotificationTeamIdAbsentOrNullIsNil() throws {

@@ -45,7 +45,7 @@ const TOOL_GROUPS: {
   {
     heading: `Issues`,
     tools: [
-      { name: `exponential_issues_list`, desc: `List issues, open work only unless includeClosed (or a status filter) says otherwise: boards, statusId / statusCategory, priority, assignee, labels (any, all, or unlabeled), comment activity, created/updated ranges, title search, each with an exclude twin, plus sort (a "-" prefix descends). Up to 1000 per page.` },
+      { name: `exponential_issues_list`, desc: `List issues, open work only unless includeClosed (or a status filter) says otherwise: boards, statusId / statusCategory, priority, assignee, labels (any, all, or unlabeled), source (user or widget), comment activity, created/updated ranges, title search, each with an exclude twin, plus sort (a "-" prefix descends). Up to 1000 per page.` },
       { name: `exponential_issues_get`, desc: `Get one issue with labels, relations and recent comments, by UUID or identifier ("EXP-42").` },
       { name: `exponential_issues_create`, desc: `Create an issue. Pass statusId for a custom status.` },
       { name: `exponential_issues_update`, desc: `Update an issue's fields. Pass only what changes.` },
@@ -89,7 +89,7 @@ const TOOL_GROUPS: {
     heading: `Comments`,
     tools: [
       { name: `exponential_comments_list`, desc: `List an issue's comments, oldest first, each with its parentId when it is a reply.` },
-      { name: `exponential_comments_create`, desc: `Post a comment as the connected user; it shows as "via MCP". Pass parentId to reply under a comment (threads are one level deep).` },
+      { name: `exponential_comments_create`, desc: `Post a comment as the connected user; it shows as "via MCP". Pass parentId to reply under a comment (threads are one level deep), or audience: "reporter" on a widget-filed issue whose reporter left an email to send it to them as well (top-level only); the result says whether that mail went out.` },
       { name: `exponential_comments_update`, desc: `Edit your own comment.` },
       { name: `exponential_comments_delete`, desc: `Delete a comment.` },
     ],
@@ -142,18 +142,6 @@ const TOOL_GROUPS: {
       { name: `exponential_sessions_kill`, desc: `Abort a live session you own or host. Never your own run.` },
       { name: `exponential_sessions_end`, desc: `End this run with a close-out summary for whoever started it (not stored on the run). Registered only inside an unattended (trigger- or agent-started) run.` },
       { name: `exponential_sessions_ask_parent`, desc: `Registered only in a run another run started: ask the starting run a question and end your turn; its answer arrives as a user message.` },
-    ],
-  },
-  {
-    heading: `Helpdesk`,
-    tools: [
-      { name: `exponential_helpdesk_threads_list`, desc: `List a team's support tickets, newest activity first, with an unread flag.` },
-      { name: `exponential_helpdesk_threads_get`, desc: `Get one ticket with its full conversation and any escalated issue.` },
-      { name: `exponential_helpdesk_reply`, desc: `Post a public reply the reporter sees and is emailed.` },
-      { name: `exponential_helpdesk_note`, desc: `Add an internal note: team-only, never emailed.` },
-      { name: `exponential_helpdesk_close`, desc: `Resolve a ticket; the transcript stays readable.` },
-      { name: `exponential_helpdesk_reopen`, desc: `Reopen a resolved ticket.` },
-      { name: `exponential_helpdesk_escalate`, desc: `File an issue from a ticket and link the two.` },
     ],
   },
   {
@@ -345,8 +333,6 @@ npx mcp-remote ${LINKS.app.mcp}
               (&quot;EXP-42&quot;) wherever they take a UUID.
             </p>
             <DocsCallout kind="note" title="Some tools only exist in context">
-              The <code>exponential_helpdesk_*</code> tools register only when
-              a team you have full access to has the helpdesk on;{` `}
               <code>exponential_sessions_end</code> and{` `}
               <code>exponential_sessions_ask_parent</code> only inside an
               agent run the launcher started; and{` `}

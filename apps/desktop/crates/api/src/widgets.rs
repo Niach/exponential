@@ -4,9 +4,13 @@
 //! reporter PII that is deliberately kept out of issue descriptions, so it is
 //! fetched on demand, member-gated, and renders nothing on `null`/error.
 //!
+//! SLOP-4: the row also drives the issue composer's "Reply to reporter" pill
+//! (`reporter_email` present) and names the reporter on `source = reporter`
+//! comments (`reporter_name`).
+//!
 //! Plus `widgets.list` (EXP-548) — the owner-only config list: an existence
 //! signal for the getting-started checklist, and since EXP-771 the rows the
-//! read-only Settings → Feedback widget pane draws.
+//! read-only Settings → Widget pane draws.
 
 use serde::{Deserialize, Serialize};
 
@@ -49,26 +53,6 @@ pub fn submission_for_issue(
     issue_id: &str,
 ) -> Result<Option<WidgetSubmission>, ApiError> {
     client.query_with_input("widgets.submissionForIssue", &SubmissionForIssueInput { issue_id })
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SubmissionForThreadInput<'a> {
-    thread_id: &'a str,
-}
-
-/// Fetch the widget submission metadata behind a SUPPORT thread
-/// (`widgets.submissionForThread`, EXP-525 — the web details rail's Context
-/// section). `Ok(None)` for threads without a widget submission. Blocking —
-/// background executor only (§3.5).
-pub fn submission_for_thread(
-    client: &TrpcClient,
-    thread_id: &str,
-) -> Result<Option<WidgetSubmission>, ApiError> {
-    client.query_with_input(
-        "widgets.submissionForThread",
-        &SubmissionForThreadInput { thread_id },
-    )
 }
 
 #[cfg(test)]
@@ -174,7 +158,7 @@ mod list_tests {
             r#"{"result":{"data":[
                 {"id":"cfg-1","name":"Docs site","publicKey":"expw_abc",
                  "boardId":"b-1","boardName":"Bugs","allowedDomains":["example.com"],
-                 "enabled":false,"formConfig":{"modes":["feedback"]},
+                 "enabled":false,"formConfig":{"labelIds":[]},
                  "createdAt":"2026-09-01T00:00:00.000Z","submissionCount":12},
                 {"id":"cfg-2"}
             ]}}"#,

@@ -353,15 +353,20 @@ export const DEMO_BLOCKS = [
 ] as const
 
 /**
- * The helpdesk thread the `support-reporter` view is captured on.
+ * The widget-filed issue the `support-reporter` view is captured on (SLOP-4:
+ * a widget submission IS an issue; the reporter's conversation is its
+ * reporter-audience comments).
  *
  * That view is the ANONYMOUS magic-link page (`/support/<token>`), so it is
- * addressed by a token minted for ONE thread — and the catalog anchors the shot
- * on the subject line. Seed, id lookup and manifest anchor therefore all have
- * to quote the same string, which is why it lives here rather than inline in
- * the seed's thread list.
+ * addressed by a token minted over ONE issue id — pinned here like the
+ * session and action ids, so `demo-ids.ts` can mint the token without a
+ * lookup — and the catalog anchors the shot on the title. Seed, id lookup
+ * and manifest anchor therefore all have to quote the same string.
  */
-export const SUPPORT_REPORTER_THREAD_TITLE = `Can't sign in on the iPad app`
+export const DEMO_WIDGET_ISSUE_ID = `5d2c8e4a-7b1f-4e63-9a0d-3c6f1b8e2d74`
+export const WIDGET_REPORT_TITLE = `Can't sign in on the iPad app`
+export const WIDGET_REPORTER_NAME = `Emma Fischer`
+export const WIDGET_REPORTER_EMAIL = `emma@lumenlabs.io`
 
 /**
  * What the demo desktop reports about its three agent CLIs (EXP-733): the

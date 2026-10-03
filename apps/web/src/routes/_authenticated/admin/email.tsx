@@ -42,6 +42,10 @@ type DeliveryRow = Awaited<
 const DELIVERY_KINDS = [
   `digest`,
   `team_invite`,
+  `reporter_reply`,
+  `reporter_confirmation`,
+  // Legacy kinds (helpdesk, gone in SLOP-4): old delivery rows still carry
+  // them, so they stay readable in the filter.
   `support_reply`,
   `support_confirmation`,
   `widget_resolution`,

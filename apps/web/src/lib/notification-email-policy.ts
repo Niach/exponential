@@ -1,7 +1,7 @@
 // Pure email-notification policy — no DB, no transport. Home of the
 // push-first digest planner (which notifications get bundled into which
-// user's digest email) plus the per-type allow policy and the one-way
-// helpdesk resolution guards. Unit-tested in notification-email-policy.test.ts.
+// user's digest email) plus the per-type allow policy and the widget
+// reporter resolution guards. Unit-tested in notification-email-policy.test.ts.
 
 import type { IssueStatus, NotificationType } from "@/lib/domain"
 
@@ -511,7 +511,7 @@ export function planEmailDigest<T extends DigestCandidate>(args: {
 }
 
 // ---------------------------------------------------------------------------
-// One-way helpdesk (widget reporter) resolution guards
+// Widget reporter resolution guards (one-way)
 // ---------------------------------------------------------------------------
 
 // Statuses that count as "closed" for the reporter resolution email.
@@ -555,14 +555,6 @@ export function buildIssueDeepLinkPath(args: {
   return `/t/${encodeURIComponent(args.teamSlug)}/boards/${encodeURIComponent(args.boardSlug)}/issues/${encodeURIComponent(args.identifier)}`
 }
 
-// The team's Support inbox — the link target for issue-less `support_reply`
-// digest items (REV2-51). Those rows carry notifications.team_id precisely so
-// clients can route them here; before this they rendered as unlinked text
-// while the prefs page promised "deep links straight to each issue".
-export function buildSupportDeepLinkPath(teamSlug: string): string {
-  return `/t/${encodeURIComponent(teamSlug)}/support`
-}
-
 // The team's Inbox — the link target for issue-less `agent_message` digest
 // items (EXP-801): the row renders there, and nowhere else.
 export function buildInboxDeepLinkPath(teamSlug: string): string {
@@ -572,8 +564,9 @@ export function buildInboxDeepLinkPath(teamSlug: string): string {
 // EXP-933: the path a digest item links to (null = unlinked text). An issue
 // row → the issue, and an `agent_message` about one → that issue's Results
 // face (`?view=results`: the agent's message points at its report);
-// issue-less rows → Support (`support_reply`), the Inbox (`agent_message`)
-// or the run (`session_blocked`).
+// issue-less rows → the Inbox (`agent_message`) or the run
+// (`session_blocked`). SLOP-4: `reporter_reply` is issue-scoped, so it takes
+// the issue arm like `issue_comment`.
 export function digestItemPath(item: {
   type: string
   teamSlug: string | null
@@ -591,9 +584,6 @@ export function digestItemPath(item: {
     return item.type === `agent_message` ? `${path}?view=results` : path
   }
   if (!item.notificationTeamSlug) return null
-  if (item.type === `support_reply`) {
-    return buildSupportDeepLinkPath(item.notificationTeamSlug)
-  }
   if (item.type === `agent_message`) {
     return buildInboxDeepLinkPath(item.notificationTeamSlug)
   }

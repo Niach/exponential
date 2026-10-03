@@ -48,7 +48,7 @@ export function cardExists(
   members: readonly EntityRef[]
 ): boolean {
   if (entityRef.kind === `list`) return members.length > 0
-  if (entityRef.kind === `repository` || entityRef.kind === `thread`) {
+  if (entityRef.kind === `repository`) {
     return Boolean(entityRef.title?.trim())
   }
   return true

@@ -65,9 +65,8 @@ import { useEntityRefTargets } from "./use-entity-ref-target"
 // EXP-920: the hover card / tap sheet behind a tool-row chip, resolved per
 // kind from THIS client's synced rows — never the server. One component per
 // kind (each owns its live queries), one dispatcher. An issue reuses the
-// issue preview outright (EXP-760); the row-less kinds (`repository`,
-// `thread`) draw a slim card from the ref's own title; a `list` lists its
-// members. An unsynced row renders nothing (the chip is muted and inert).
+// issue preview outright (EXP-760); the row-less `repository` kind draws a
+// slim card from the ref's own title; a `list` lists its members. An unsynced row renders nothing (the chip is muted and inert).
 //
 // The chrome is `EntityPreviewCard` in @exp/ui — the same ladder the desktop
 // (`entity_preview.rs`), iOS (`EntityPreviewCard.swift`) and Android
@@ -129,7 +128,6 @@ export function EntityRefPreviewCard({
     case `attachment`:
       return <AttachmentCard attachment={row as Attachment} />
     case `repository`:
-    case `thread`:
       return <SlimCard entityRef={entityRef} />
     case `list`:
       return <ListCard entityRef={entityRef} members={members} />
@@ -488,8 +486,8 @@ function AttachmentCard({ attachment }: { attachment: Attachment }) {
 
 // ── Row-less kinds ──────────────────────────────────────────────────────────
 
-/** A repository or a helpdesk thread: server-only rows, so the card is the
- *  ref's own title under its kind — nothing to resolve. */
+/** A repository: a server-only row, so the card is the ref's own title
+ *  under its kind — nothing to resolve. */
 function SlimCard({ entityRef }: { entityRef: EntityRef }) {
   const title = entityRef.title?.trim()
   if (!title) return null

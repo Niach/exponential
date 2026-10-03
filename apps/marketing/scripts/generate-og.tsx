@@ -67,7 +67,7 @@ const CARDS: Card[] = [
   {
     file: `og-default.png`,
     title: `Exponential`,
-    subtitle: `One realtime tracker for issues, customer support and local AI coding agents.`,
+    subtitle: `One realtime tracker for issues, user feedback and local AI coding agents.`,
   },
 ]
 

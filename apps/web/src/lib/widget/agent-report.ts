@@ -13,7 +13,7 @@ import { loadWidgetConfigByKey, WidgetRequestError } from "./service"
 // It files onto the board of the instance's own feedback widget config (the
 // same hardcoded key the sidebar Feedback button uses), so it only exists
 // where that widget exists. Kept in its own module so mcp/tools.ts can be
-// tested with ONE vi.mock instead of inheriting service.ts's email/helpdesk
+// tested with ONE vi.mock instead of inheriting service.ts's email/reporter
 // import graph.
 export async function createAgentBugReport(args: {
   widgetKey: string

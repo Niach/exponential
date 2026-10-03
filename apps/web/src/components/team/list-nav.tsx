@@ -30,14 +30,13 @@ import { BoardIssueListPane } from "@/components/board-issue-list-pane"
 import { BulkActionBar } from "@/components/bulk-action-bar"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { InboxView } from "@/components/inbox/inbox-view"
-import { SupportThreadList } from "@/components/helpdesk/support-inbox"
 import { SidebarBackRow } from "@/components/team/sidebar-back-row"
 
 // EXP-851: the sidebar's list panel — the list a detail came from. EXP-870:
 // it sits in the 17rem panel slot beside the compact rail (never replacing
 // it), sharing that slot and its directional slide with the settings nav. It carries the same back row (`SidebarBackRow`, labelled
 // with the list) and the list itself, simplified: a board's issue rows, the
-// inbox stream, the support threads, an action's runs, the review queue.
+// inbox stream, an action's runs, the review queue.
 // EXP-923: the AGENT origin lost its panel with the Agent page's own list —
 // a run opened from there keeps the main menu (`originHasListNav`), and the
 // page's Recent list is a toggled panel of its own (`recent-runs-nav.tsx`).
@@ -106,9 +105,6 @@ export function TeamListNav({
             tab={origin.tab === `my-issues` ? `my-issues` : null}
           />
         )}
-        {origin.kind === `support` && team && (
-          <SupportListNav teamId={team.id} teamSlug={teamSlug} />
-        )}
         {origin.kind === `reviews` && (
           <ReviewsListNav teamSlug={teamSlug} team={team} />
         )}
@@ -124,17 +120,14 @@ export function TeamListNav({
 function useActiveDetail(): {
   issueIdentifier: string | null
   sessionId: string | null
-  threadId: string | null
 } {
   const params = useParams({ strict: false }) as {
     issueIdentifier?: string
     sessionId?: string
-    threadId?: string
   }
   return {
     issueIdentifier: params.issueIdentifier ?? null,
     sessionId: params.sessionId ?? null,
-    threadId: params.threadId ?? null,
   }
 }
 
@@ -300,7 +293,7 @@ function InboxListNav({
       </div>
       <div className="flex min-h-0 flex-1 flex-col">
         {active === `inbox` ? (
-          <InboxNavRows teamSlug={teamSlug} />
+          <InboxNavRows />
         ) : (
           <MyIssuesNavRows teamSlug={teamSlug} />
         )}
@@ -309,13 +302,12 @@ function InboxListNav({
   )
 }
 
-function InboxNavRows({ teamSlug }: { teamSlug: string }) {
+function InboxNavRows() {
   const { issueIdentifier } = useActiveDetail()
   // The stream groups by ISSUE, and the route knows only the identifier — the
   // pane highlights by id, so the match rides the row's own identifier below.
   return (
     <InboxView
-      teamSlug={teamSlug}
       compact
       activeIssueIdentifier={issueIdentifier}
       from="inbox"
@@ -359,24 +351,6 @@ function MyIssuesNavRows({ teamSlug }: { teamSlug: string }) {
       labels={labelList}
       users={users}
       listKey={`inbox:my-issues`}
-    />
-  )
-}
-
-function SupportListNav({
-  teamId,
-  teamSlug,
-}: {
-  teamId: string
-  teamSlug: string
-}) {
-  const { threadId } = useActiveDetail()
-  return (
-    <SupportThreadList
-      teamId={teamId}
-      teamSlug={teamSlug}
-      activeThreadId={threadId}
-      compact
     />
   )
 }

@@ -3,7 +3,6 @@ import {
   buildIssueDeepLinkPath,
   digestItemPath,
   buildUnsubscribeUrl,
-  buildSupportDeepLinkPath,
   defaultEmailPrefs,
   digestSendability,
   isDigestDue,
@@ -38,7 +37,7 @@ describe(`notificationTypeAllowed`, () => {
       `issue_mention`,
       `pr_opened`,
       `pr_merged`,
-      `support_reply`,
+      `reporter_reply`,
     ] as const) {
       expect(notificationTypeAllowed(prefs.typePrefs, type)).toBe(true)
     }
@@ -218,18 +217,6 @@ describe(`isTransientSendError`, () => {
     expect(isTransientSendError(new Error(`credentials missing`))).toBe(false)
     expect(isTransientSendError(null)).toBe(false)
     expect(isTransientSendError(undefined)).toBe(false)
-  })
-})
-
-// REV2-51: issue-less support_reply rows rendered as unlinked text while the
-// prefs copy promised deep links.
-describe(`buildSupportDeepLinkPath`, () => {
-  it(`points at the team's Support inbox`, () => {
-    expect(buildSupportDeepLinkPath(`acme`)).toBe(`/t/acme/support`)
-  })
-
-  it(`encodes the slug`, () => {
-    expect(buildSupportDeepLinkPath(`a c/me`)).toBe(`/t/a%20c%2Fme/support`)
   })
 })
 
@@ -826,10 +813,16 @@ describe(`digestItemPath`, () => {
     )
   })
 
-  it(`links issue-less support replies and blocked runs`, () => {
-    expect(digestItemPath({ ...issueLess, type: `support_reply` })).toBe(
-      `/t/metric/support`
+  // SLOP-4: a reporter reply is issue-scoped — it links to the issue like a
+  // comment, never to a team surface.
+  it(`links a reporter reply to its issue`, () => {
+    expect(digestItemPath({ ...issueRow, type: `reporter_reply` })).toBe(
+      `/t/metric/boards/web/issues/MET-12`
     )
+    expect(digestItemPath({ ...issueLess, type: `reporter_reply` })).toBeNull()
+  })
+
+  it(`links blocked runs`, () => {
     expect(
       digestItemPath({ ...issueLess, type: `session_blocked`, sessionId: `s1` })
     ).toBe(`/t/metric/sessions/s1`)

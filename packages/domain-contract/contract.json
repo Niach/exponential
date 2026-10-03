@@ -210,7 +210,10 @@
     "values": ["regular"]
   },
   "commentSource": {
-    "values": ["user", "mcp"]
+    "values": ["user", "mcp", "reporter"]
+  },
+  "commentAudience": {
+    "values": ["team", "reporter"]
   },
   "notificationType": {
     "values": [
@@ -221,7 +224,7 @@
       "issue_created",
       "pr_opened",
       "pr_merged",
-      "support_reply",
+      "reporter_reply",
       "agent_message",
       "session_blocked"
     ]
@@ -666,83 +669,6 @@
         "done": "Listed machines",
         "progressiveMany": "Listing machines {n} times",
         "doneMany": "Listed machines {n} times",
-        "subjectKey": "",
-        "result": "list"
-      },
-      {
-        "name": "helpdesk_close",
-        "title": "Close ticket",
-        "blurb": "Closes a support thread once the reporter has an answer.",
-        "progressive": "Closing support thread",
-        "done": "Closed support thread",
-        "progressiveMany": "Closing {n} support threads",
-        "doneMany": "Closed {n} support threads",
-        "subjectKey": "id",
-        "result": "none"
-      },
-      {
-        "name": "helpdesk_escalate",
-        "title": "Escalate ticket",
-        "blurb": "Turns a support thread into a linked issue on a board.",
-        "progressive": "Escalating support thread",
-        "done": "Escalated support thread",
-        "progressiveMany": "Escalating {n} support threads",
-        "doneMany": "Escalated {n} support threads",
-        "subjectKey": "id",
-        "result": "issue"
-      },
-      {
-        "name": "helpdesk_note",
-        "title": "Add internal note",
-        "blurb": "Adds a note only the team sees, never the reporter.",
-        "progressive": "Adding support note",
-        "done": "Added support note",
-        "progressiveMany": "Adding {n} support notes",
-        "doneMany": "Added {n} support notes",
-        "subjectKey": "id",
-        "result": "none"
-      },
-      {
-        "name": "helpdesk_reopen",
-        "title": "Reopen ticket",
-        "blurb": "Puts a closed support thread back in the queue.",
-        "progressive": "Reopening support thread",
-        "done": "Reopened support thread",
-        "progressiveMany": "Reopening {n} support threads",
-        "doneMany": "Reopened {n} support threads",
-        "subjectKey": "id",
-        "result": "none"
-      },
-      {
-        "name": "helpdesk_reply",
-        "title": "Reply to ticket",
-        "blurb": "Answers the reporter and mails the reply to them.",
-        "progressive": "Replying to support thread",
-        "done": "Replied to support thread",
-        "progressiveMany": "Replying to {n} support threads",
-        "doneMany": "Replied to {n} support threads",
-        "subjectKey": "id",
-        "result": "none"
-      },
-      {
-        "name": "helpdesk_threads_get",
-        "title": "Read ticket",
-        "blurb": "Reads one support thread with its whole message history.",
-        "progressive": "Reading support thread",
-        "done": "Read support thread",
-        "progressiveMany": "Reading {n} support threads",
-        "doneMany": "Read {n} support threads",
-        "subjectKey": "id",
-        "result": "none"
-      },
-      {
-        "name": "helpdesk_threads_list",
-        "title": "List tickets",
-        "blurb": "Lists a team's support threads, open or closed.",
-        "progressive": "Listing support threads",
-        "done": "Listed support threads",
-        "progressiveMany": "Listing support threads {n} times",
-        "doneMany": "Listed support threads {n} times",
         "subjectKey": "",
         "result": "list"
       },
@@ -1382,7 +1308,7 @@
     "values": [
       "issue", "board", "action", "comment", "session", "label",
       "status", "device", "member", "repository", "team", "invite",
-      "notification", "thread", "attachment", "list"
+      "notification", "attachment", "list"
     ]
   },
   "expToolPreview": {
@@ -1408,13 +1334,6 @@
       { "name": "comments_list", "refs": "list:comment@ issue@$issueId" },
       { "name": "comments_update", "refs": "comment@ issue@" },
       { "name": "devices_list", "refs": "list:device@" },
-      { "name": "helpdesk_close", "refs": "" },
-      { "name": "helpdesk_escalate", "refs": "issue@" },
-      { "name": "helpdesk_note", "refs": "" },
-      { "name": "helpdesk_reopen", "refs": "" },
-      { "name": "helpdesk_reply", "refs": "" },
-      { "name": "helpdesk_threads_get", "refs": "thread@thread issue@linkedIssue" },
-      { "name": "helpdesk_threads_list", "refs": "list:thread@" },
       { "name": "invites_create", "refs": "invite@invite" },
       { "name": "invites_list", "refs": "list:invite@" },
       { "name": "invites_revoke", "refs": "" },

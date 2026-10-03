@@ -92,8 +92,6 @@ import com.exponential.app.ui.settings.TeamSettingsScreen
 import com.exponential.app.ui.settings.ThirdPartyLicensesScreen
 import com.exponential.app.ui.share.ShareTargetPickerViewModel
 import com.exponential.app.ui.share.buildSharePrefill
-import com.exponential.app.ui.support.SupportScreen
-import com.exponential.app.ui.support.SupportThreadScreen
 import com.exponential.app.ui.theme.AppBackground
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.LocalReduceMotion
@@ -106,8 +104,7 @@ import dagger.hilt.android.EntryPointAccessors
 /**
  * The single navigation surface, mirroring the iOS `AppNavigator`: a gradient
  * [AppBackground] behind one push-stack `NavHost`, with the floating bottom
- * pill (Issues · My Work · Support (helpdesk-gated, EXP-180) · Agents ·
- * Reviews · Search + compose FAB) overlaid
+ * pill (Issues · My Work · Agents · Reviews · Search + compose FAB) overlaid
  * on the top-level routes. Replaces the inline graph + `MainScaffold` drawer
  * shell that used to live in MainActivity.
  */
@@ -145,10 +142,6 @@ fun AppNavHost() {
                 navController.navigateIssueDeepLink(target.id, target.face)
             is DeepLinkBus.Target.Invite ->
                 navController.navigateDeepLink("invite/${target.token}")
-            // Same snapshot hazard as the issue route: SupportThreadViewModel
-            // reads threadId from SavedStateHandle once.
-            is DeepLinkBus.Target.SupportThread ->
-                navController.navigateDeepLink("support/${target.id}")
             // An agent's message (EXP-801) renders in My Work's inbox — the
             // segment the screen opens on unless the user last left it on
             // My Issues.
@@ -273,9 +266,7 @@ fun AppNavHost() {
             // teams the switcher is NOT on.
             val liveRunsByTeam by viewModel.liveRunsByTeam.collectAsStateWithLifecycle()
             val reviewsOpen by viewModel.reviewsOpen.collectAsStateWithLifecycle()
-            val helpdeskEnabled by viewModel.helpdeskEnabled.collectAsStateWithLifecycle()
             val yoloMode by viewModel.yoloMode.collectAsStateWithLifecycle()
-            val supportUnread by viewModel.supportUnread.collectAsStateWithLifecycle()
             val currentBoardId by viewModel.currentBoardId.collectAsStateWithLifecycle()
             val gatedOtherServers by viewModel.gatedOtherServers.collectAsStateWithLifecycle()
             val syncHealth by viewModel.syncHealth.collectAsStateWithLifecycle()
@@ -291,9 +282,7 @@ fun AppNavHost() {
                 agentsNeedInput = agentsNeedInput,
                 liveRunsByTeam = liveRunsByTeam,
                 reviewsOpen = reviewsOpen,
-                helpdeskEnabled = helpdeskEnabled,
                 yoloMode = yoloMode,
-                supportUnread = supportUnread,
                 currentBoardId = currentBoardId,
                 onSetInstanceUrl = { viewModel.setInstanceUrl(it) },
                 onRetrySync = { viewModel.retrySync() },
@@ -348,9 +337,7 @@ private fun AuthenticatedNav(
     agentsNeedInput: Boolean,
     liveRunsByTeam: Map<String, TeamLiveRuns>,
     reviewsOpen: Boolean,
-    helpdeskEnabled: Boolean,
     yoloMode: Boolean,
-    supportUnread: Boolean,
     currentBoardId: String?,
     onSetInstanceUrl: (String) -> Unit,
     onRetrySync: () -> Unit,
@@ -379,7 +366,7 @@ private fun AuthenticatedNav(
     val currentRoute = backStackEntry?.destination?.route
     val barVisible = !needsOnboarding &&
         currentRoute in setOf(
-            "home", "actions", "agents", "personal", "reviews", "support-inbox", "board/{boardId}",
+            "home", "actions", "agents", "personal", "reviews", "board/{boardId}",
         )
     // EXP-698 r5 (Mechanism A): a screen may claim the tab bar's slot for a
     // bar of its own — today the issue list's multi-select bar. The switch is
@@ -387,28 +374,14 @@ private fun AuthenticatedNav(
     val barSuppression = remember { BottomBarSuppression() }
     val barShown = barVisible && !barSuppression.suppressed
 
-    // The Support tab exists only while the flag is on — if it flips off
-    // (team switch, feature disabled) while the Support surface is up, drop
-    // it from the stack instead of stranding a tab-less screen. Pop ONLY on
-    // a true→false TRANSITION of the flag (iOS AppNavigator's `.onChange`
-    // parity, REV2-2): an inbox Support-group tap selects the group's team
-    // right before navigating here, but helpdeskEnabled recomputes through a
-    // fresh Room flow that can never emit synchronously — a guard re-run on
-    // the route change alone would read the PREVIOUS team's stale false and
-    // bounce the tap straight back to Issues.
-    var hadHelpdesk by remember { mutableStateOf(helpdeskEnabled) }
-    LaunchedEffect(helpdeskEnabled) {
-        val flippedOff = hadHelpdesk && !helpdeskEnabled
-        hadHelpdesk = helpdeskEnabled
-        if (flippedOff) {
-            // No-op when Support isn't on the back stack; also pops any
-            // support thread pushed above the inbox.
-            navController.popBackStack("support-inbox", inclusive = true)
-        }
-    }
     // EXP-1105: yolo mode hides the Reviews tab unless a PR is open (in yolo
-    // mode an open PR = a failed auto-merge, which must still surface). Same
-    // true→false transition pop as Support above.
+    // mode an open PR = a failed auto-merge, which must still surface). If it
+    // flips off while the Reviews surface is up, drop it from the stack
+    // instead of stranding a tab-less screen — and pop ONLY on a true→false
+    // TRANSITION of the flag (iOS AppNavigator's `.onChange` parity, REV2-2):
+    // the flag recomputes through a fresh Room flow that can never emit
+    // synchronously, so a guard re-run on the route change alone would read
+    // the PREVIOUS team's stale value and bounce a tap straight back to Issues.
     val showsReviews = !yoloMode || reviewsOpen
     var hadReviews by remember { mutableStateOf(showsReviews) }
     LaunchedEffect(showsReviews) {
@@ -469,7 +442,6 @@ private fun AuthenticatedNav(
                 is EntityTarget.Issue -> navController.navigate("issue/${target.id}")
                 is EntityTarget.Board -> navController.navigate("board/${target.id}")
                 is EntityTarget.Session -> navController.navigate("steer/${target.id}")
-                is EntityTarget.SupportThread -> navController.navigate("support/${target.id}")
                 // SLOP-2: an `action` ref opens that action's page.
                 is EntityTarget.Action -> navController.navigate("action/${target.id}")
                 EntityTarget.Actions -> navController.navigate("actions") {
@@ -563,8 +535,7 @@ private fun AuthenticatedNav(
             AgentsScreen()
         }
         composable("actions") {
-            // Team actions (EXP-253) — its own bottom-bar tab since EXP-686;
-            // NOT helpdesk-gated.
+            // Team actions (EXP-253) — its own bottom-bar tab since EXP-686.
             ActionsScreen(
                 onOpenAgent = openAgent,
                 onOpenAction = { id -> navController.navigate("action/$id") },
@@ -616,22 +587,6 @@ private fun AuthenticatedNav(
                 onOpenSession = { sessionId -> navController.navigate("steer/$sessionId") },
                 // EXP-933: an agent message's issue row → its Results face.
                 onOpenIssueResults = { id -> navController.navigate("issue/$id?face=results") },
-                // Support-group taps land on the Support tab (the inbox
-                // ViewModel has already selected the group's team).
-                onOpenSupport = {
-                    navController.navigate("support-inbox") {
-                        launchSingleTop = true
-                        popUpTo("home")
-                    }
-                },
-            )
-        }
-        composable("support-inbox") {
-            // Support — the team helpdesk inbox, its own bottom-bar
-            // destination (EXP-180); the tab shows only while the active
-            // team's synced helpdesk flag is on.
-            SupportScreen(
-                onOpenThread = { id -> navController.navigate("support/$id") },
             )
         }
         composable("reviews") {
@@ -764,16 +719,6 @@ private fun AuthenticatedNav(
                 onCreated = { issueId -> navController.openCreatedIssue(issueId) },
             )
         }
-        composable("support/{threadId}") {
-            // A support ticket's conversation (EXP-180) — reached from the
-            // Support tab's inbox or a support_reply push tap. The
-            // ViewModel reads threadId from its SavedStateHandle like the
-            // issue-detail route.
-            SupportThreadScreen(
-                onBack = { navController.popBackStack() },
-                onOpenIssue = { id -> navController.navigate("issue/$id") },
-            )
-        }
         composable(
             ISSUE_ROUTE,
             arguments = listOf(
@@ -897,14 +842,11 @@ private fun AuthenticatedNav(
             actionsActive = currentRoute == "actions",
             personalActive = currentRoute == "personal",
             reviewsActive = currentRoute == "reviews",
-            supportActive = currentRoute == "support-inbox",
             unreadCount = unreadCount,
             agentsRunning = agentsRunning,
             agentsNeedInput = agentsNeedInput,
             reviewsOpen = reviewsOpen,
-            showsSupport = helpdeskEnabled,
             showsReviews = showsReviews,
-            supportUnread = supportUnread,
             // The Chat launcher (the Agent page, with its sessions list and
             // live dot) rides every top-level surface, with New issue beside
             // it in one capsule (EXP-827/EXP-973) — dimmed while the team has
@@ -938,14 +880,6 @@ private fun AuthenticatedNav(
             onReviews = {
                 if (currentRoute != "reviews") {
                     navController.navigate("reviews") {
-                        launchSingleTop = true
-                        popUpTo("home")
-                    }
-                }
-            },
-            onSupport = {
-                if (currentRoute != "support-inbox") {
-                    navController.navigate("support-inbox") {
                         launchSingleTop = true
                         popUpTo("home")
                     }

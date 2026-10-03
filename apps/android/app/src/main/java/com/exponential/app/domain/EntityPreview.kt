@@ -94,7 +94,6 @@ object EntityPreview {
         "team" to "ui-team",
         "invite" to "ui-invite",
         "notification" to "nav-notifications",
-        "thread" to "nav-support",
         "attachment" to "ui-attach",
         "list" to "ui-checklist",
     )
@@ -113,7 +112,6 @@ object EntityPreview {
         "team" to ("team" to "teams"),
         "invite" to ("invite" to "invites"),
         "notification" to ("notification" to "notifications"),
-        "thread" to ("thread" to "threads"),
         "attachment" to ("attachment" to "attachments"),
         "list" to ("list" to "lists"),
     )

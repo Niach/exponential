@@ -2,8 +2,8 @@
  * Resolve the seeded demo instance's real ids (EXP-566/EXP-627).
  *
  * The view catalog names its targets by PLACEHOLDER — `issue:$APP-5`,
- * `support:$thread`, `$emptyBoard`, `/support/$supportToken` — because none of
- * those ids exist until `seed:screenshots` has run, and every re-seed rotates
+ * `$emptyBoard`, `/support/$supportToken` — because none of those ids exist
+ * until `seed:screenshots` has run, and every re-seed rotates
  * them (the users are recreated so the user-scoped Electric shapes get fresh
  * identities). This is the ONE lookup that turns the placeholders into ids, and
  * the only thing in the pipeline that talks to the database.
@@ -18,7 +18,7 @@
  * resolve one skips its view with a note rather than photographing a fallback
  * screen under the right filename.
  */
-import { and, asc, eq, inArray } from "drizzle-orm"
+import { and, eq, inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   actions,
@@ -26,15 +26,14 @@ import {
   codingSessions,
   devices,
   issues,
-  supportThreads,
   teams,
 } from "@/db/schema"
-import { mintSupportToken } from "@/lib/helpdesk/token"
+import { mintReporterToken } from "@/lib/reporter/token"
 import {
   DEMO_DEVICE_ID,
   DEMO_STEERED_SESSION_ID,
+  DEMO_WIDGET_ISSUE_ID,
   EMPTY_BOARD_SLUG,
-  SUPPORT_REPORTER_THREAD_TITLE,
   TEAM_SLUG,
   DEMO_ACTION_ID,
 } from "../screenshot-demo"
@@ -70,14 +69,14 @@ export interface DemoIds {
   issueAId: string
   issueBId: string
   prIssueId: string
-  supportThreadId?: string
-  /** The thread the reporter magic-link page is captured on. */
-  supportReporterThreadId?: string
+  /** The widget-filed issue the reporter magic-link page is captured on
+   *  (SLOP-4: pinned by the seed as `DEMO_WIDGET_ISSUE_ID`). */
+  widgetIssueId?: string
   /**
-   * The reporter's magic link for `supportReporterThreadId` — a CREDENTIAL.
-   * Never log it, never write it into a file that gets committed: it grants
-   * anonymous read/write on that conversation for as long as
-   * `BETTER_AUTH_SECRET` lives. Omitted (not thrown) when the secret is unset.
+   * The reporter's magic link for `widgetIssueId` — a CREDENTIAL. Never log
+   * it, never write it into a file that gets committed: it grants anonymous
+   * read/write on that conversation for as long as `BETTER_AUTH_SECRET`
+   * lives. Omitted (not thrown) when the secret is unset.
    */
   supportToken?: string
   actionId?: string
@@ -137,29 +136,14 @@ export async function resolveDemoIds(): Promise<DemoIds> {
     )
   }
 
-  // "any open support thread": the catalog's `support:$thread` is deliberately
-  // unpinned, so take the oldest open one for a stable pick across runs.
-  const [thread] = await db
-    .select({ id: supportThreads.id })
-    .from(supportThreads)
-    .where(and(eq(supportThreads.teamId, team.id), eq(supportThreads.status, `open`)))
-    .orderBy(asc(supportThreads.createdAt))
-    .limit(1)
-  if (!thread) {
-    throw new Error(`team "${TEAM_SLUG}" has no open support thread. ${RESEED}`)
-  }
-
-  // The reporter page is captured on ONE named thread, not "the oldest": the
-  // view's anchor is that thread's subject, so the two have to agree.
-  const [reporterThread] = await db
-    .select({ id: supportThreads.id })
-    .from(supportThreads)
-    .where(
-      and(
-        eq(supportThreads.teamId, team.id),
-        eq(supportThreads.title, SUPPORT_REPORTER_THREAD_TITLE)
-      )
-    )
+  // The widget-filed issue behind the reporter page: its id is PINNED by the
+  // seed, so this is a presence check (an older seed planted helpdesk threads
+  // instead — reported as absent so the view skips rather than photographing
+  // the "conversation moved" card under its name).
+  const [widgetIssue] = await db
+    .select({ id: issues.id })
+    .from(issues)
+    .where(and(eq(issues.id, DEMO_WIDGET_ISSUE_ID), eq(issues.teamId, team.id)))
     .limit(1)
 
   // The first saved action by sort order — the seed's "Update dependencies",
@@ -209,13 +193,12 @@ export async function resolveDemoIds(): Promise<DemoIds> {
     issueAId: byIdentifier[CHAT_ISSUE_IDENTIFIERS.issueA]!,
     issueBId: byIdentifier[CHAT_ISSUE_IDENTIFIERS.issueB]!,
     prIssueId: byIdentifier[CHAT_ISSUE_IDENTIFIERS.prIssue]!,
-    supportThreadId: thread.id,
-    supportReporterThreadId: reporterThread?.id,
-    // `mintSupportToken` throws without BETTER_AUTH_SECRET; a capture host that
-    // has not exported it should skip the reporter view, not fail the run.
+    widgetIssueId: widgetIssue?.id,
+    // `mintReporterToken` throws without BETTER_AUTH_SECRET; a capture host
+    // that has not exported it should skip the reporter view, not fail the run.
     supportToken:
-      reporterThread && process.env.BETTER_AUTH_SECRET
-        ? mintSupportToken(reporterThread.id)
+      widgetIssue && process.env.BETTER_AUTH_SECRET
+        ? mintReporterToken(widgetIssue.id)
         : undefined,
     actionId: action.id,
     deviceId: device?.id,

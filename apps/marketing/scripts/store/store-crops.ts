@@ -102,12 +102,6 @@ export const HAND_RECTS: Record<string, Rect> = {
   "inbox:android-phone": { x: 0.0222, y: 0.1465, w: 0.955, h: 0.0705 },
   "inbox:ios-tablet": { x: 0.007, y: 0.1095, w: 0.986, h: 0.151 },
 
-  // The top open ticket — reporter name and their message. The mobile support
-  // shots are the thread LIST, so the preview line is the reporter's message.
-  "support:ios-phone": { x: 0.0217, y: 0.188, w: 0.955, h: 0.0935 },
-  "support:android-phone": { x: 0.02, y: 0.1345, w: 0.955, h: 0.072 },
-  "support:ios-tablet": { x: 0.007, y: 0.1095, w: 0.986, h: 0.187 },
-
   // The markdown checklist and the live green "Coding now" row below it.
   "issue-detail:ios-phone": { x: 0.042, y: 0.36, w: 0.923, h: 0.198 },
   "issue-detail:android-phone": { x: 0.032, y: 0.324, w: 0.928, h: 0.2145 },

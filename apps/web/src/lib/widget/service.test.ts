@@ -11,25 +11,20 @@ const h = vi.hoisted(() => ({
   ensureSubscribed: vi.fn(),
   fireAndForgetNewIssueNotify: vi.fn(),
   fireAndForgetAssignmentNotify: vi.fn(),
-  fireAndForgetSupportThreadNotify: vi.fn(),
-  assertCanUseHelpdesk: vi.fn(async (): Promise<void> => undefined),
   // REV-25: the config endpoint's per-IP bucket.
   configIpTryTake: vi.fn(
     (): { ok: true } | { ok: false; retryAfterSeconds: number } => ({
       ok: true,
     })
   ),
-  createSupportThreadInTx: vi.fn(
-    async (_tx: unknown, _args: Record<string, unknown>) => ({
-      threadId: `thread-1`,
-      token: `tok-minted`,
-    })
-  ),
-  sendSupportConfirmationEmail: vi.fn(async () => ({
+  // SLOP-4: the reporter's confirmation email (carries the magic link).
+  sendReporterConfirmationEmail: vi.fn(async () => ({
     delivered: true,
     provider: `ses`,
     messageId: `msg-1`,
+    subject: `Acme: we got your report`,
   })),
+  emailEnabled: { value: true },
   inserts: [] as Array<{ table: unknown; values: Record<string, unknown> }>,
   // Post-commit inserts (the email-delivery ledger) go through db.insert.
   dbInserts: [] as Array<{ table: unknown; values: Record<string, unknown> }>,
@@ -94,23 +89,24 @@ vi.mock(`@/db/connection`, () => ({
 vi.mock(`@/lib/trpc`, () => ({ generateTxId: vi.fn(async () => 1) }))
 vi.mock(`@/lib/billing`, () => ({
   assertWithinStorageLimit: vi.fn(async () => undefined),
-  assertCanUseHelpdesk: h.assertCanUseHelpdesk,
 }))
-vi.mock(`@/lib/helpdesk/service`, () => ({
-  createSupportThreadInTx: h.createSupportThreadInTx,
-  MAX_SUPPORT_MESSAGE_CHARS: 10_000,
-  supportThreadUrl: (token: string) => `https://app.test/support/${token}`,
-  // Mirrors the real first-line clamp — the support path titles threads with it.
-  supportTicketTitle: (message: string) => {
-    const firstLine = (message.split(`\n`, 1)[0] ?? ``).trim()
-    if (!firstLine) return `Support request`
-    return firstLine.length > 120
-      ? `${firstLine.slice(0, 119).trimEnd()}…`
-      : firstLine
+// SLOP-4: the reporter conversation bits — the magic link is a recompute
+// over the issue id, so the URL the email carries is predictable here.
+vi.mock(`@/lib/reporter/service`, () => ({
+  MAX_REPORTER_MESSAGE_CHARS: 10_000,
+  reporterConversationUrl: (token: string) =>
+    `https://app.test/support/${token}`,
+}))
+vi.mock(`@/lib/reporter/token`, () => ({
+  mintReporterToken: (issueId: string) => `${issueId}.mac`,
+}))
+vi.mock(`@/lib/email-enabled`, () => ({
+  get emailEnabled() {
+    return h.emailEnabled.value
   },
 }))
 vi.mock(`@/lib/email`, () => ({
-  sendSupportConfirmationEmail: h.sendSupportConfirmationEmail,
+  sendReporterConfirmationEmail: h.sendReporterConfirmationEmail,
   deliveryStatus: (result: { delivered: boolean; suppressed?: boolean }) =>
     result.delivered ? `sent` : result.suppressed ? `suppressed` : `failed`,
 }))
@@ -144,7 +140,6 @@ vi.mock(`@/lib/integrations/subscriptions`, () => ({
 vi.mock(`@/lib/integrations/notifications`, () => ({
   fireAndForgetNewIssueNotify: h.fireAndForgetNewIssueNotify,
   fireAndForgetAssignmentNotify: h.fireAndForgetAssignmentNotify,
-  fireAndForgetSupportThreadNotify: h.fireAndForgetSupportThreadNotify,
 }))
 vi.mock(`@/lib/widget/rate-limit`, () => ({
   clientIpFromRequest: () => `203.0.113.7`,
@@ -162,30 +157,19 @@ import {
 import { uploadObject, deleteObject } from "@/lib/storage"
 import {
   createWidgetSubmission,
-  createWidgetSupportSubmission,
   defaultWidgetLauncher,
-  effectiveWidgetModes,
   handleWidgetConfig,
   normalizedWidgetFormToggles,
-  requestedWidgetModes,
   resolveWidgetConfigLabels,
   sanitizeWidgetCustomFields,
   sanitizeWidgetHexColor,
   sanitizeWidgetLabelIds,
   sanitizeWidgetLauncher,
   sanitizeWidgetTheme,
-  resetWidgetSupportGateCacheForTest,
   WidgetRequestError,
   type WidgetConfigWithBoard,
 } from "@/lib/widget/service"
 import { defaultLauncher as widgetPackageDefaultLauncher } from "@exp/widget/launcher"
-
-// The support plan gate is memoized per team (REV-25) and the tests below
-// flip h.assertCanUseHelpdesk between tests while reusing one teamId — start
-// every test with a cold cache.
-beforeEach(() => {
-  resetWidgetSupportGateCacheForTest()
-})
 
 const config = {
   id: `cfg-1`,
@@ -200,15 +184,6 @@ const config = {
   boardDeletedAt: null,
   teamSlug: `acme`,
   teamName: `Acme`,
-  teamHelpdeskEnabled: false,
-} as unknown as WidgetConfigWithBoard
-
-// A config whose support mode is fully live (team helpdesk on, plan gate
-// mocked green).
-const supportConfig = {
-  ...config,
-  formConfig: { modes: [`feedback`, `support`] },
-  teamHelpdeskEnabled: true,
 } as unknown as WidgetConfigWithBoard
 
 function submitForm(): FormData {
@@ -439,11 +414,12 @@ describe(`createWidgetSubmission notifications + solo auto-assign`, () => {
   })
 })
 
-// The widget's support mode files a STANDALONE helpdesk ticket (EXP-180):
-// a support thread + widget_submissions context row in one transaction — no
-// issue — then the confirmation email carrying the magic link (emails are the
-// token's only carrier — it is never stored).
-describe(`createWidgetSupportSubmission`, () => {
+// SLOP-4: ONE submit path. The reporter's words arrive as `message` (or
+// as the legacy `title` + `description` of cached pre-SLOP-4 bundles) and
+// are escaped ONCE into literal GFM; a reporter who left an email gets the
+// confirmation carrying the magic conversation link, and the response says
+// whether it went out.
+describe(`createWidgetSubmission reporter text + confirmation (SLOP-4)`, () => {
   beforeEach(() => {
     h.inserts.length = 0
     h.dbInserts.length = 0
@@ -452,307 +428,213 @@ describe(`createWidgetSupportSubmission`, () => {
     h.getSoleHumanMemberId.mockResolvedValue(null)
     h.ensureSubscribed.mockClear()
     h.fireAndForgetNewIssueNotify.mockClear()
-    h.fireAndForgetSupportThreadNotify.mockClear()
-    h.assertCanUseHelpdesk.mockClear()
-    h.assertCanUseHelpdesk.mockResolvedValue(undefined)
-    h.createSupportThreadInTx.mockClear()
-    h.sendSupportConfirmationEmail.mockClear()
+    h.sendReporterConfirmationEmail.mockClear()
+    h.emailEnabled.value = true
   })
 
-  const supportForm = (): FormData => {
+  const messageForm = (message: string): FormData => {
     const form = new FormData()
-    form.set(`mode`, `support`)
-    form.set(`message`, `My login is broken\nIt loops back to the form.`)
-    form.set(`email`, `reporter@example.com`)
+    form.set(`message`, message)
     return form
   }
 
-  it(`files a standalone ticket: thread + context row + confirmation email, NO issue`, async () => {
-    const result = await createWidgetSupportSubmission({
-      config: supportConfig,
-      formData: supportForm(),
-      userAgent: `UA`,
+  it(`a message-only submit derives the title from the first line`, async () => {
+    const result = await createWidgetSubmission({
+      config,
+      formData: messageForm(`My login is broken\nIt loops back to the form.`),
+      userAgent: null,
     })
 
-    // No issue, no subscriber row — the ticket is thread-only.
-    expect(h.inserts.some((i) => i.table === issues)).toBe(false)
-    expect(h.inserts.some((i) => i.table === issueSubscribers)).toBe(false)
-
-    expect(h.createSupportThreadInTx).toHaveBeenCalledTimes(1)
-    expect(h.createSupportThreadInTx.mock.calls[0][1]).toMatchObject({
-      teamId: `ws-1`,
-      title: `My login is broken`,
-      reporterEmail: `reporter@example.com`,
-    })
-
-    const submission = h.inserts.find((i) => i.table === widgetSubmissions)
-    expect(submission?.values.supportThreadId).toBe(`thread-1`)
-    expect(submission?.values.issueId).toBeNull()
-
-    // Members are notified through the support fan-out, not issue_created.
-    expect(h.fireAndForgetSupportThreadNotify).toHaveBeenCalledWith({
-      threadId: `thread-1`,
-      kind: `created`,
-    })
-    expect(h.fireAndForgetNewIssueNotify).not.toHaveBeenCalled()
-
-    // REV2-51: ONE reporter-facing identity — the team name, matching the
-    // conversation page and every member reply email.
-    expect(h.sendSupportConfirmationEmail).toHaveBeenCalledWith(
-      expect.objectContaining({
-        to: `reporter@example.com`,
-        boardName: `Acme`,
-        threadUrl: `https://app.test/support/tok-minted`,
-      })
+    expect(issueInsert()?.values.title).toBe(`My login is broken`)
+    expect(issueInsert()?.values.description).toBe(
+      `My login is broken\nIt loops back to the form.`
     )
-    const delivery = h.dbInserts.find((i) => i.table === emailDeliveries)
-    expect(delivery?.values.kind).toBe(`support_confirmation`)
-    expect(delivery?.values.status).toBe(`sent`)
-    expect(delivery?.values.issueId).toBeNull()
+    expect(issueInsert()?.values.source).toBe(`widget`)
+    expect(result).toMatchObject({
+      issueId: expect.any(String),
+      identifier: `EXP-9`,
+      url: null,
+      emailDelivered: null,
+    })
+    expect(h.sendReporterConfirmationEmail).not.toHaveBeenCalled()
+    expect(h.dbInserts.some((i) => i.table === emailDeliveries)).toBe(false)
+  })
 
-    // Support tickets never mint an issue identifier or URL.
-    expect(result.issueId).toBeNull()
-    expect(result.identifier).toBeNull()
-    expect(result.url).toBeNull()
-    // REV2-10: the panel needs to know the magic link actually went out.
+  it(`escapes the reporter's text so no markdown, mention or ref fires`, async () => {
+    await createWidgetSubmission({
+      config,
+      formData: messageForm(`# not a heading\nping @bob@x.io re #EXP-1 <b>`),
+      userAgent: null,
+    })
+    expect(issueInsert()?.values.title).toBe(`\\# not a heading`)
+    expect(issueInsert()?.values.description).toBe(
+      `\\# not a heading\nping \\@bob\\@x\\.io re \\#EXP-1 \\<b\\>`
+    )
+  })
+
+  it(`emails the confirmation with the magic link when an email was given`, async () => {
+    const form = messageForm(`Button broken`)
+    form.set(`email`, `reporter@example.com`)
+    form.set(`name`, `Ada`)
+
+    const result = await createWidgetSubmission({
+      config,
+      formData: form,
+      userAgent: null,
+    })
+
     expect(result.emailDelivered).toBe(true)
+    const issueId = issueInsert()?.values.id as string
+    expect(h.sendReporterConfirmationEmail).toHaveBeenCalledWith({
+      to: `reporter@example.com`,
+      teamName: `Acme`,
+      issueTitle: `Button broken`,
+      conversationUrl: `https://app.test/support/${issueId}.mac`,
+    })
+    // The ledger row names the issue, never the URL.
+    const ledger = h.dbInserts.find((i) => i.table === emailDeliveries)
+    expect(ledger?.values).toMatchObject({
+      kind: `reporter_confirmation`,
+      toEmail: `reporter@example.com`,
+      issueId,
+      status: `sent`,
+      userId: null,
+    })
+    expect(JSON.stringify(ledger?.values)).not.toContain(`.mac`)
+    // The submission row carries the reporter identity the card + reply
+    // toggle read.
+    const submission = h.inserts.find((i) => i.table === widgetSubmissions)
+    expect(submission?.values).toMatchObject({
+      issueId,
+      reporterEmail: `reporter@example.com`,
+      reporterName: `Ada`,
+    })
   })
 
-  // REV2-10: the emailed link is the reporter's ONLY credential — a failed
-  // send must reach the panel instead of being logged and dropped.
   it(`reports emailDelivered false when the transport refuses the send`, async () => {
-    h.sendSupportConfirmationEmail.mockResolvedValue({
+    h.sendReporterConfirmationEmail.mockResolvedValueOnce({
       delivered: false,
-      provider: null,
+      provider: `ses`,
       messageId: null,
+      subject: `x`,
     } as never)
-    const result = await createWidgetSupportSubmission({
-      config: supportConfig,
-      formData: supportForm(),
+    const form = messageForm(`Button broken`)
+    form.set(`email`, `reporter@example.com`)
+
+    const result = await createWidgetSubmission({
+      config,
+      formData: form,
       userAgent: null,
     })
+
     expect(result.emailDelivered).toBe(false)
-    const delivery = h.dbInserts.find((i) => i.table === emailDeliveries)
-    expect(delivery?.values.status).toBe(`failed`)
-    // The ticket itself still exists and members were still notified.
-    expect(h.createSupportThreadInTx).toHaveBeenCalledTimes(1)
-    expect(h.fireAndForgetSupportThreadNotify).toHaveBeenCalledTimes(1)
+    // The report itself is filed regardless.
+    expect(h.inserts.some((i) => i.table === issues)).toBe(true)
+    expect(h.fireAndForgetNewIssueNotify).toHaveBeenCalledTimes(1)
+    const ledger = h.dbInserts.find((i) => i.table === emailDeliveries)
+    expect(ledger?.values).toMatchObject({ status: `failed`, sentAt: null })
   })
 
-  it(`rejects when support mode is not enabled on the config`, async () => {
-    await expect(
-      createWidgetSupportSubmission({
-        config,
-        formData: supportForm(),
-        userAgent: null,
-      })
-    ).rejects.toMatchObject({ status: 403 })
-    expect(h.inserts).toHaveLength(0)
+  it(`reports emailDelivered false without a transport, recording nothing`, async () => {
+    h.emailEnabled.value = false
+    const form = messageForm(`Button broken`)
+    form.set(`email`, `reporter@example.com`)
+
+    const result = await createWidgetSubmission({
+      config,
+      formData: form,
+      userAgent: null,
+    })
+
+    expect(result.emailDelivered).toBe(false)
+    expect(h.sendReporterConfirmationEmail).not.toHaveBeenCalled()
+    expect(h.dbInserts.some((i) => i.table === emailDeliveries)).toBe(false)
   })
 
-  it(`rejects when the team helpdesk is off`, async () => {
-    const stale = {
-      ...supportConfig,
-      teamHelpdeskEnabled: false,
-    } as unknown as WidgetConfigWithBoard
-    await expect(
-      createWidgetSupportSubmission({
-        config: stale,
-        formData: supportForm(),
-        userAgent: null,
-      })
-    ).rejects.toMatchObject({ status: 403 })
+  it(`a failed confirmation send never fails the committed report`, async () => {
+    h.sendReporterConfirmationEmail.mockRejectedValueOnce(new Error(`boom`))
+    const form = messageForm(`Button broken`)
+    form.set(`email`, `reporter@example.com`)
+
+    const result = await createWidgetSubmission({
+      config,
+      formData: form,
+      userAgent: null,
+    })
+
+    expect(result.emailDelivered).toBe(false)
+    expect(h.inserts.some((i) => i.table === issues)).toBe(true)
   })
 
-  it(`rejects when the plan gate refuses the helpdesk`, async () => {
-    h.assertCanUseHelpdesk.mockRejectedValue(new Error(`plan`))
-    await expect(
-      createWidgetSupportSubmission({
-        config: supportConfig,
-        formData: supportForm(),
-        userAgent: null,
-      })
-    ).rejects.toMatchObject({ status: 403 })
+  it(`a legacy title + description submit still files (title escaped, description from the text)`, async () => {
+    const form = new FormData()
+    form.set(`title`, `Button *broken*`)
+    form.set(`description`, `Clicking does nothing.`)
+
+    await createWidgetSubmission({ config, formData: form, userAgent: null })
+
+    expect(issueInsert()?.values.title).toBe(`Button \\*broken\\*`)
+    expect(issueInsert()?.values.description).toBe(`Clicking does nothing.`)
   })
 
-  it(`requires the reporter email`, async () => {
-    const form = supportForm()
-    form.delete(`email`)
+  it(`message wins over a legacy description when both arrive`, async () => {
+    const form = new FormData()
+    form.set(`message`, `the message`)
+    form.set(`description`, `the description`)
+
+    await createWidgetSubmission({ config, formData: form, userAgent: null })
+
+    expect(issueInsert()?.values.title).toBe(`the message`)
+    expect(issueInsert()?.values.description).toBe(`the message`)
+  })
+
+  it(`uses the title fallback for a text-less report with only a screenshot`, async () => {
+    const form = new FormData()
+    form.set(`message`, `   `)
+    form.set(
+      `screenshot`,
+      new File([new Uint8Array([1])], `shot.png`, { type: `image/png` })
+    )
     await expect(
-      createWidgetSupportSubmission({
-        config: supportConfig,
-        formData: form,
-        userAgent: null,
-      })
+      createWidgetSubmission({ config, formData: form, userAgent: null })
     ).rejects.toMatchObject({ status: 400 })
+    expect(h.inserts.length).toBe(0)
   })
 
-  it(`a failed confirmation email never fails the committed ticket`, async () => {
-    h.sendSupportConfirmationEmail.mockRejectedValue(new Error(`SES down`))
-    const result = await createWidgetSupportSubmission({
-      config: supportConfig,
-      formData: supportForm(),
+  it(`a stale cached bundle's mode field is ignored`, async () => {
+    const form = messageForm(`Please help me`)
+    form.set(`mode`, `support`)
+    form.set(`email`, `reporter@example.com`)
+
+    const result = await createWidgetSubmission({
+      config,
+      formData: form,
       userAgent: null,
     })
-    expect(result.identifier).toBeNull()
-    // …but the reporter is told the truth (REV2-10).
-    expect(result.emailDelivered).toBe(false)
-    expect(h.fireAndForgetSupportThreadNotify).toHaveBeenCalledTimes(1)
+
+    expect(result.issueId).toEqual(expect.any(String))
+    expect(h.inserts.some((i) => i.table === issues)).toBe(true)
   })
 
-  it(`a support ticket still files while the FEEDBACK board is trashed`, async () => {
-    const feedbackTrashed = {
-      ...supportConfig,
-      boardDeletedAt: new Date(),
-    } as unknown as WidgetConfigWithBoard
-
-    await createWidgetSupportSubmission({
-      config: feedbackTrashed,
-      formData: supportForm(),
-      userAgent: null,
-    })
-    expect(h.createSupportThreadInTx).toHaveBeenCalledTimes(1)
-
-    // …while the feedback path still refuses the trashed board.
-    await expect(
-      createWidgetSubmission({
-        config: feedbackTrashed,
-        formData: submitForm(),
-        userAgent: null,
-      })
-    ).rejects.toMatchObject({ status: 403 })
-  })
-
-  it(`the feedback path refuses a support-only widget`, async () => {
-    const supportOnly = {
-      ...supportConfig,
-      formConfig: { modes: [`support`] },
-    } as unknown as WidgetConfigWithBoard
-    await expect(
-      createWidgetSubmission({
-        config: supportOnly,
-        formData: submitForm(),
-        userAgent: null,
-      })
-    ).rejects.toMatchObject({ status: 403 })
-  })
-
-  it(`a board-less (support-only) widget refuses feedback POSTs`, async () => {
-    const boardless = {
-      ...supportConfig,
-      boardId: null,
-      boardName: null,
-      boardSlug: null,
-      formConfig: { modes: [`support`] },
-    } as unknown as WidgetConfigWithBoard
-    await expect(
-      createWidgetSubmission({
-        config: boardless,
-        formData: submitForm(),
-        userAgent: null,
-      })
-    ).rejects.toMatchObject({ status: 403 })
-
-    // Its support path works, branded with the team name like every other
-    // helpdesk email (REV2-51).
-    await createWidgetSupportSubmission({
-      config: boardless,
-      formData: supportForm(),
-      userAgent: null,
-    })
-    expect(h.sendSupportConfirmationEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ boardName: `Acme` })
-    )
-  })
-
-  // The team row is only ever missing on a broken join — the brand still
-  // resolves rather than shipping "undefined support".
-  it(`falls back to the board, then the widget name, without a team name`, async () => {
-    const teamless = {
-      ...supportConfig,
-      teamName: null,
-    } as unknown as WidgetConfigWithBoard
-    await createWidgetSupportSubmission({
-      config: teamless,
-      formData: supportForm(),
-      userAgent: null,
-    })
-    expect(h.sendSupportConfirmationEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ boardName: `Board` })
-    )
-  })
-})
-
-describe(`widget modes`, () => {
-  beforeEach(() => {
-    h.assertCanUseHelpdesk.mockClear()
-    h.assertCanUseHelpdesk.mockResolvedValue(undefined)
-  })
-
-  it(`defaults to feedback-only for pre-modes configs`, () => {
-    expect(requestedWidgetModes(config)).toEqual([`feedback`])
-  })
-
-  it(`ignores junk values and dedupes`, () => {
-    const junk = {
-      ...config,
-      formConfig: { modes: [`support`, `support`, `roadmap`] },
-    } as unknown as WidgetConfigWithBoard
-    expect(requestedWidgetModes(junk)).toEqual([`support`])
-  })
-
-  it(`drops support when the team helpdesk is off, keeping feedback`, async () => {
-    const stale = {
-      ...supportConfig,
-      teamHelpdeskEnabled: false,
-    } as unknown as WidgetConfigWithBoard
-    expect(await effectiveWidgetModes(stale)).toEqual([`feedback`])
-  })
-
-  it(`a support-only widget with support unavailable serves nothing`, async () => {
-    h.assertCanUseHelpdesk.mockRejectedValue(new Error(`plan`))
-    const supportOnly = {
-      ...supportConfig,
-      formConfig: { modes: [`support`] },
-    } as unknown as WidgetConfigWithBoard
-    expect(await effectiveWidgetModes(supportOnly)).toEqual([])
-  })
-
-  it(`a board-less widget never offers feedback`, async () => {
-    const boardless = {
-      ...supportConfig,
-      boardId: null,
-    } as unknown as WidgetConfigWithBoard
-    expect(await effectiveWidgetModes(boardless)).toEqual([`support`])
-  })
-
-  it(`serves both modes when everything is live`, async () => {
-    expect(await effectiveWidgetModes(supportConfig)).toEqual([
-      `feedback`,
-      `support`,
-    ])
-  })
-
-  // REV-25: the plan gate runs on the anonymous config path, so it is
-  // memoized per team — repeated fetches inside the TTL cost zero extra
-  // billing queries, for BOTH outcomes (a lapsed plan rejects every call,
-  // which is exactly the case that must not stay uncached).
-  it(`memoizes the plan gate per team`, async () => {
-    await effectiveWidgetModes(supportConfig)
-    await effectiveWidgetModes(supportConfig)
-    expect(h.assertCanUseHelpdesk).toHaveBeenCalledTimes(1)
-  })
-
-  it(`memoizes the lapsed-plan outcome too`, async () => {
-    h.assertCanUseHelpdesk.mockRejectedValue(new Error(`plan`))
-    expect(await effectiveWidgetModes(supportConfig)).toEqual([`feedback`])
-    expect(await effectiveWidgetModes(supportConfig)).toEqual([`feedback`])
-    expect(h.assertCanUseHelpdesk).toHaveBeenCalledTimes(1)
+  it(`refuses writes while the board is trashed or archived`, async () => {
+    for (const patch of [
+      { boardDeletedAt: new Date() },
+      { boardArchivedAt: new Date() },
+    ]) {
+      await expect(
+        createWidgetSubmission({
+          config: { ...config, ...patch } as WidgetConfigWithBoard,
+          formData: messageForm(`x`),
+          userAgent: null,
+        })
+      ).rejects.toMatchObject({ status: 403 })
+    }
+    expect(h.inserts.length).toBe(0)
   })
 })
 
 // REV-25: the anonymous GET /api/widget/config takes a per-IP token BEFORE
-// any DB work. The db mock in this file has no leftJoin chain, so a
+// any DB work. The db mock in this file has no innerJoin chain, so a
 // well-formed key that reached loadWidgetConfigByKey would surface as a 500
 // — the 429/404 statuses below double as proof the lookup never ran.
 describe(`handleWidgetConfig rate limiting`, () => {
@@ -794,8 +676,6 @@ describe(`handleWidgetConfig rate limiting`, () => {
 describe(`structured email error codes`, () => {
   beforeEach(() => {
     h.inserts.length = 0
-    h.assertCanUseHelpdesk.mockClear()
-    h.assertCanUseHelpdesk.mockResolvedValue(undefined)
   })
 
   it(`flags invalid_email when a feedback email is malformed`, async () => {
@@ -807,17 +687,12 @@ describe(`structured email error codes`, () => {
     expect(h.inserts.length).toBe(0)
   })
 
-  it(`flags invalid_email when a support email is malformed`, async () => {
+  it(`flags invalid_email on a message-only submit too`, async () => {
     const form = new FormData()
-    form.set(`mode`, `support`)
     form.set(`message`, `Please help me`)
     form.set(`email`, `user#tag@example.com`)
     await expect(
-      createWidgetSupportSubmission({
-        config: supportConfig,
-        formData: form,
-        userAgent: null,
-      })
+      createWidgetSubmission({ config, formData: form, userAgent: null })
     ).rejects.toMatchObject({ status: 400, code: `invalid_email` })
     expect(h.inserts.length).toBe(0)
   })
@@ -838,7 +713,7 @@ describe(`structured email error codes`, () => {
 
 // EXP-244: the panel's name gate is advisory like the email one — the config
 // may be up to 5 minutes stale and cached pre-name bundles render no field at
-// all — so the owner's policy is enforced server-side on both submit paths.
+// all — so the owner's policy is enforced server-side on submit.
 describe(`nameRequired enforcement`, () => {
   const nameRequiredConfig = {
     ...config,
@@ -847,12 +722,10 @@ describe(`nameRequired enforcement`, () => {
 
   beforeEach(() => {
     h.inserts.length = 0
-    h.assertCanUseHelpdesk.mockClear()
-    h.assertCanUseHelpdesk.mockResolvedValue(undefined)
     h.fireAndForgetNewIssueNotify.mockClear()
   })
 
-  it(`rejects a name-less feedback submission with name_required`, async () => {
+  it(`rejects a name-less submission with name_required`, async () => {
     await expect(
       createWidgetSubmission({
         config: nameRequiredConfig,
@@ -879,28 +752,6 @@ describe(`nameRequired enforcement`, () => {
     expect(submission?.values.reporterName).toBe(`dani`)
   })
 
-  it(`rejects a name-less support submission with name_required`, async () => {
-    const form = new FormData()
-    form.set(`mode`, `support`)
-    form.set(`message`, `Please help me`)
-    form.set(`email`, `reporter@example.com`)
-    await expect(
-      createWidgetSupportSubmission({
-        config: {
-          ...supportConfig,
-          formConfig: {
-            modes: [`feedback`, `support`],
-            collectName: true,
-            nameRequired: true,
-          },
-        } as unknown as WidgetConfigWithBoard,
-        formData: form,
-        userAgent: null,
-      })
-    ).rejects.toMatchObject({ status: 400, code: `name_required` })
-    expect(h.inserts.length).toBe(0)
-  })
-
   it(`keeps name optional when not required`, async () => {
     await createWidgetSubmission({
       config: {
@@ -914,7 +765,7 @@ describe(`nameRequired enforcement`, () => {
   })
 })
 
-// The submit paths must enforce the SAME normalized toggle view the config
+// The submit path must enforce the SAME normalized toggle view the config
 // route serves — a raw `{nameRequired: true}` row without collectName
 // (writable via a direct tRPC call; the settings UI can't produce it) used to
 // serve a form with no name field while 400ing every submit: a permanently
@@ -922,13 +773,10 @@ describe(`nameRequired enforcement`, () => {
 describe(`served/enforced toggle agreement`, () => {
   beforeEach(() => {
     h.inserts.length = 0
-    h.assertCanUseHelpdesk.mockClear()
-    h.assertCanUseHelpdesk.mockResolvedValue(undefined)
-    h.createSupportThreadInTx.mockClear()
     h.fireAndForgetNewIssueNotify.mockClear()
   })
 
-  it(`ignores nameRequired without collectName on the feedback path`, async () => {
+  it(`ignores nameRequired without collectName`, async () => {
     await createWidgetSubmission({
       config: {
         ...config,
@@ -938,22 +786,6 @@ describe(`served/enforced toggle agreement`, () => {
       userAgent: null,
     })
     expect(h.inserts.some((i) => i.table === issues)).toBe(true)
-  })
-
-  it(`ignores nameRequired without collectName on the support path`, async () => {
-    const form = new FormData()
-    form.set(`mode`, `support`)
-    form.set(`message`, `Please help me`)
-    form.set(`email`, `reporter@example.com`)
-    await createWidgetSupportSubmission({
-      config: {
-        ...supportConfig,
-        formConfig: { modes: [`feedback`, `support`], nameRequired: true },
-      } as unknown as WidgetConfigWithBoard,
-      formData: form,
-      userAgent: null,
-    })
-    expect(h.createSupportThreadInTx).toHaveBeenCalledTimes(1)
   })
 
   it(`emailRequired still enforces when collectEmail is written false`, async () => {
@@ -973,7 +805,7 @@ describe(`served/enforced toggle agreement`, () => {
   })
 })
 
-// The ONE normalizer both the config route and the submit paths read —
+// The ONE normalizer both the config route and the submit path read —
 // locked here so the rules can't drift apart again.
 describe(`normalizedWidgetFormToggles`, () => {
   it(`defaults: email shown optional, name hidden`, () => {

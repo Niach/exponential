@@ -156,7 +156,11 @@ export function serializeComment(
 ) {
   return {
     id: comment.id,
-    author: userNameById.get(comment.authorId) ?? comment.authorId,
+    // SLOP-4: a widget reporter's comment has no author row.
+    author:
+      comment.authorId === null
+        ? `Anonymous visitor`
+        : (userNameById.get(comment.authorId) ?? comment.authorId),
     body: comment.body,
     createdAt: toIso(comment.createdAt),
   }

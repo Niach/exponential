@@ -62,32 +62,39 @@ export type ExponentialWidgetCustomData = Record<
 // merge in exactly like a panel submission; the screenshot is host-supplied
 // (headless never captures).
 export interface ExponentialWidgetSubmitPayload {
-  // Absent = `feedback`.
-  mode?: WidgetMode
-  // Feedback mode.
-  title?: string
+  // What the reporter wrote (SLOP-4: the one form field). `description` is
+  // the pre-SLOP-4 alias and is read when `message` is absent.
+  message?: string
   description?: string
+  // Optional: the server titles the issue off the message's first line
+  // when none is given.
+  title?: string
+  // Pre-SLOP-4 hosts passed `mode: "support"`; accepted and ignored — every
+  // submission becomes an issue now.
+  mode?: string
   screenshot?: Blob
   // Reporter-attached pictures (FEED-5) — up to 3 images, 10 MB each; extra
   // entries and non-Blobs are dropped.
   images?: Blob[]
-  // Support mode.
-  message?: string
-  // Both modes; fall back to identify() values when absent.
+  // Fall back to identify() values when absent.
   email?: string
   name?: string
   // Merged over identify-time custom data for this submission only.
   customData?: ExponentialWidgetCustomData
-  // Feedback mode: ids of the widget's configured labels (EXP-435). Unknown
-  // ids are dropped server-side.
+  // Ids of the widget's configured labels (EXP-435). Unknown ids are
+  // dropped server-side.
   labels?: string[]
 }
 
 export interface ExponentialWidgetSubmitResult {
   ok: boolean
-  // Feedback submissions carry the created issue identifier (e.g. "EXP-42").
+  // The created issue's identifier (e.g. "EXP-42").
   identifier?: string | null
   url?: string | null
+  // Whether the follow-up email (the reporter's link to the conversation)
+  // was sent: `null` when no email was given or the server doesn't report
+  // it. Only on success.
+  emailDelivered?: boolean | null
   error?: string
   code?: string | null
 }
@@ -164,13 +171,8 @@ export interface WidgetRemoteForm {
   }
 }
 
-// Which entry points the panel offers (EXP-130).
-export type WidgetMode = `feedback` | `support`
-
 export interface WidgetRemoteConfig {
   enabled: boolean
-  // Absent on older servers = feedback-only.
-  modes?: WidgetMode[]
   form?: WidgetRemoteForm
   // maxImageBytes/maxImages absent on pre-FEED-5 servers.
   limits?: {

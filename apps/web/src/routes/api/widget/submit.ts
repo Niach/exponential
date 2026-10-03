@@ -8,7 +8,6 @@ import {
 import { takeWidgetSubmitToken } from "@/lib/widget/submit-limit"
 import {
   createWidgetSubmission,
-  createWidgetSupportSubmission,
   loadWidgetConfigByKey,
   maxSubmitRequestBytes,
   WidgetRequestError,
@@ -56,7 +55,7 @@ async function handleWidgetSubmit(request: Request): Promise<Response> {
     return jsonResponse(403, { error: `Widget is disabled` }, cors)
   }
 
-  const { perIpLimiter, perSupportRecipientLimiter } = getWidgetRateLimiters()
+  const { perIpLimiter, perRecipientLimiter } = getWidgetRateLimiters()
   // Per-IP bucket first, short-circuiting: a request already throttled by its
   // own IP must not keep draining the shared per-key/per-team bucket —
   // otherwise one hostile IP 429s every legitimate reporter of that widget.
@@ -79,23 +78,21 @@ async function handleWidgetSubmit(request: Request): Promise<Response> {
       { ...cors, "Retry-After": String(submitLimit.retryAfterSeconds) }
     )
   }
-  // Support submits mail a confirmation to the typed-in reporter address,
-  // and the per-key/per-team bucket above is unlimited on paid plans — this
-  // per-recipient bucket bounds that outbound mail so one address can't be
-  // mail-bombed regardless of key/IP rotation.
-  if (formData.get(`mode`) === `support`) {
-    const reporterEmail = formData.get(`email`)
-    if (typeof reporterEmail === `string` && reporterEmail.trim().length > 0) {
-      const recipientLimit = perSupportRecipientLimiter.tryTake(
-        `support-email:${reporterEmail.trim().toLowerCase()}`
+  // A submit with an email mails a confirmation to the typed-in reporter
+  // address (SLOP-4), and the per-key/per-team bucket above is unlimited on
+  // paid plans — this per-recipient bucket bounds that outbound mail so one
+  // address can't be mail-bombed regardless of key/IP rotation.
+  const reporterEmail = formData.get(`email`)
+  if (typeof reporterEmail === `string` && reporterEmail.trim().length > 0) {
+    const recipientLimit = perRecipientLimiter.tryTake(
+      `reporter-email:${reporterEmail.trim().toLowerCase()}`
+    )
+    if (!recipientLimit.ok) {
+      return jsonResponse(
+        429,
+        { error: `Too many submissions, try again later` },
+        { ...cors, "Retry-After": String(recipientLimit.retryAfterSeconds) }
       )
-      if (!recipientLimit.ok) {
-        return jsonResponse(
-          429,
-          { error: `Too many submissions, try again later` },
-          { ...cors, "Retry-After": String(recipientLimit.retryAfterSeconds) }
-        )
-      }
     }
   }
   // Honeypot: the real widget never fills this hidden field. Pretend success
@@ -113,14 +110,9 @@ async function handleWidgetSubmit(request: Request): Promise<Response> {
   }
 
   try {
-    // mode=support files a helpdesk ticket (EXP-130); everything else is the
-    // classic feedback submission — absent mode keeps old cached bundles
-    // working unchanged.
-    const submit =
-      formData.get(`mode`) === `support`
-        ? createWidgetSupportSubmission
-        : createWidgetSubmission
-    const result = await submit({
+    // SLOP-4: ONE path — every submission is an issue (a cached pre-SLOP-4
+    // bundle's `mode` field is ignored).
+    const result = await createWidgetSubmission({
       config,
       formData,
       userAgent: request.headers.get(`user-agent`),

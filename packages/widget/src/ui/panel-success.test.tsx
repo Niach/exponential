@@ -1,6 +1,7 @@
-// Success card (EXP-42a): the "Filed as EXP-n" line links to the public
-// issue when the server sent a url, and stays plain text when it did not
-// (current servers always send null; older self-hosted ones may link).
+// Success card (EXP-42a / SLOP-4): "Thanks, your report is in." plus the
+// "Filed as EXP-n" line (linked only when the server sent a url — current
+// servers always send null; older self-hosted ones may link) and an honest
+// email sentence driven by `emailDelivered`.
 import { beforeEach, describe, expect, it } from "vitest"
 import { render } from "preact"
 import { Panel } from "./Panel"
@@ -10,7 +11,6 @@ const noop = () => undefined
 const renderSuccess = (args: {
   identifier: string | null
   url: string | null
-  flavor?: `feedback` | `support`
   emailDelivered?: boolean | null
 }) => {
   const container = document.createElement(`div`)
@@ -18,11 +18,6 @@ const renderSuccess = (args: {
   render(
     <Panel
       phase="success"
-      view="feedback"
-      canGoBack={false}
-      onPickMode={noop}
-      onBack={noop}
-      successFlavor={args.flavor ?? `feedback`}
       successIdentifier={args.identifier}
       successUrl={args.url}
       successEmailDelivered={args.emailDelivered ?? null}
@@ -50,7 +45,6 @@ const renderSuccess = (args: {
       onAddImages={noop}
       onRemoveUpload={noop}
       onSubmit={async () => null}
-      onSubmitSupport={async () => null}
     />,
     container
   )
@@ -60,6 +54,11 @@ const renderSuccess = (args: {
 describe(`success card`, () => {
   beforeEach(() => {
     document.body.innerHTML = ``
+  })
+
+  it(`always leads with the thanks line`, () => {
+    const container = renderSuccess({ identifier: null, url: null })
+    expect(container.textContent).toContain(`Thanks, your report is in.`)
   })
 
   it(`links the identifier to the public issue when a url is present`, () => {
@@ -82,55 +81,65 @@ describe(`success card`, () => {
     expect(container.textContent).toContain(`Filed as EXP-7.`)
   })
 
-  it(`falls back to the generic line without an identifier`, () => {
+  it(`shows no sub line without an identifier or an email verdict`, () => {
     const container = renderSuccess({ identifier: null, url: null })
-    // The powered-by footer's anchor is always present — only the
-    // issue-link anchor must be absent.
     expect(container.querySelector(`a.exp-success-link`)).toBeNull()
-    expect(container.textContent).toContain(`Your feedback has been sent.`)
+    expect(container.querySelector(`.exp-success-sub`)).toBeNull()
+    expect(container.textContent).not.toContain(`Filed as`)
   })
 })
 
-// REV2-10: the magic link is the reporter's ONLY way back into the
-// conversation. When the confirmation email didn't go out, saying "check your
-// email" is a lie — and the link must still never be shown inline.
-describe(`support success card email honesty`, () => {
+// REV2-10 / SLOP-4: the emailed link is the reporter's ONLY way back into
+// the conversation. The card promises the email only when the server reports
+// it went out, says so honestly when it failed, and says nothing about email
+// when the reporter left none — and the link is never shown inline.
+describe(`success card email honesty`, () => {
   beforeEach(() => {
     document.body.innerHTML = ``
   })
+
+  const sent = `We emailed you a link to follow the conversation.`
+  const notSent = `We could not send the follow-up email; your report still reached the team.`
 
   it(`promises the email when delivery succeeded`, () => {
     const container = renderSuccess({
       identifier: null,
       url: null,
-      flavor: `support`,
       emailDelivered: true,
     })
-    expect(container.textContent).toContain(`Check your email`)
+    expect(container.textContent).toContain(sent)
+    expect(container.textContent).not.toContain(notSent)
   })
 
-  it(`keeps the optimistic copy when the server doesn't report delivery`, () => {
+  it(`says nothing about email when none was given (or reported)`, () => {
     const container = renderSuccess({
-      identifier: null,
+      identifier: `EXP-7`,
       url: null,
-      flavor: `support`,
       emailDelivered: null,
     })
-    expect(container.textContent).toContain(`Check your email`)
+    expect(container.textContent).toContain(`Filed as EXP-7.`)
+    expect(container.textContent).not.toContain(`email`)
+  })
+
+  it(`shows the identifier AND the email promise together`, () => {
+    const container = renderSuccess({
+      identifier: `EXP-7`,
+      url: null,
+      emailDelivered: true,
+    })
+    expect(container.textContent).toContain(`Filed as EXP-7.`)
+    expect(container.textContent).toContain(sent)
   })
 
   it(`says so honestly — and shows no link — when the email failed`, () => {
     const container = renderSuccess({
-      identifier: null,
+      identifier: `EXP-7`,
       url: null,
-      flavor: `support`,
       emailDelivered: false,
     })
-    expect(container.textContent).toContain(
-      `We couldn't send the confirmation email`
-    )
-    expect(container.textContent).toContain(`will follow up`)
-    expect(container.textContent).not.toContain(`Check your email`)
+    expect(container.textContent).toContain(notSent)
+    expect(container.textContent).toContain(`Filed as EXP-7.`)
+    expect(container.textContent).not.toContain(sent)
     expect(container.querySelector(`a.exp-success-link`)).toBeNull()
     expect(container.textContent).not.toContain(`/support/`)
   })

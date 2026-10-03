@@ -102,7 +102,7 @@ describe(`submit while a flatten is encoding`, () => {
     ].find((chip) => chip.textContent === `Take screenshot`)
     takeButton!.click()
     await flush()
-    const title = container.querySelector<HTMLInputElement>(`#exp-title`)
+    const title = container.querySelector<HTMLTextAreaElement>(`#exp-message`)
     title!.value = `Broken thing`
     title!.dispatchEvent(new Event(`input`, { bubbles: true }))
     await flush()

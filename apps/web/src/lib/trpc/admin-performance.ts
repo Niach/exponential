@@ -278,7 +278,7 @@ export const adminPerformanceRouter = router({
   // memory read.
   runtime: adminProcedure.query(() => {
     const mem = process.memoryUsage()
-    const { perKeyLimiter, perIpLimiter, perSupportRecipientLimiter } =
+    const { perKeyLimiter, perIpLimiter, perRecipientLimiter } =
       getWidgetRateLimiters()
     return {
       now: new Date().toISOString(),
@@ -296,8 +296,8 @@ export const adminPerformanceRouter = router({
         { name: `widget per-key`, trackedKeys: perKeyLimiter.trackedKeys },
         { name: `widget per-IP`, trackedKeys: perIpLimiter.trackedKeys },
         {
-          name: `support recipient`,
-          trackedKeys: perSupportRecipientLimiter.trackedKeys,
+          name: `widget reporter address`,
+          trackedKeys: perRecipientLimiter.trackedKeys,
         },
         {
           name: `widget config per-IP`,

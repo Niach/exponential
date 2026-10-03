@@ -534,7 +534,7 @@ describe(`the settings page header`, () => {
     expect(markup).toContain(`<div class="title">Settings</div>`)
     expect(markup).toMatch(/<div class="desc">Manage .+ and your account<\/div>/)
     expect(markup).toContain(`class="cmp-divider"`)
-    expect(blurb).toContain(`Helpdesk`)
+    expect(blurb).toContain(`Widget`)
     const column = ruleBody(`.cmp-page-header .content`)
     expect(column).toContain(`max-width: 896px`)
     expect(column).toContain(`margin: 0 auto`)

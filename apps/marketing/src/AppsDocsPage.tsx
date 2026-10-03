@@ -79,7 +79,7 @@ export function AppsDocsPage() {
             <p>
               The sidebar mirrors the web app: the team switcher,{` `}
               <strong>Search</strong> and <strong>New issue</strong> at the
-              top, then Inbox, Support, Devices, Actions, Reviews
+              top, then Inbox, Devices, Actions, Reviews
               and <strong>Agent</strong>, your <strong>Pinned</strong> issues
               and actions, the boards, and under{` `}
               <strong>This device</strong> the machine&apos;s own{` `}
@@ -127,8 +127,7 @@ export function AppsDocsPage() {
             <p>
               Native <a href={LINKS.downloads.ios}>iOS</a> and{` `}
               <a href={LINKS.downloads.android}>Android</a> apps with
-              everything synced in real time. Five tabs (six with the helpdesk
-              on):
+              everything synced in real time. Five tabs:
             </p>
             <ul>
               <li>
@@ -138,10 +137,6 @@ export function AppsDocsPage() {
               <li>
                 <strong>My Work</strong>: your inbox and the issues assigned
                 to you, in one place.
-              </li>
-              <li>
-                <strong>Support</strong>: the team&apos;s shared helpdesk
-                inbox. Present only while the helpdesk is enabled.
               </li>
               <li>
                 <strong>Devices</strong>: your machines, the team&apos;s

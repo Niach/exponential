@@ -33,7 +33,6 @@ public enum EntityChipIcon {
         "ui-team": AppIcons.uiTeam,
         "ui-invite": AppIcons.uiInvite,
         "nav-notifications": AppIcons.navNotifications,
-        "nav-support": AppIcons.navSupport,
         "ui-attach": AppIcons.uiAttach,
         "ui-checklist": AppIcons.uiChecklist,
     ]

@@ -264,7 +264,6 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "layers" => ExpIcon::Layers,
         "layers-2" => ExpIcon::Layers2,
         "leaf" => ExpIcon::Leaf,
-        "life-buoy" => ExpIcon::LifeBuoy,
         "lightbulb" => ExpIcon::Lightbulb,
         "link" => ExpIcon::Link,
         "link-2" => ExpIcon::Link2,
@@ -286,6 +285,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "message-circle" => ExpIcon::MessageCircle,
         "message-square" => ExpIcon::MessageSquare,
         "message-square-plus" => ExpIcon::MessageSquarePlus,
+        "message-square-reply" => ExpIcon::MessageSquareReply,
         "mic" => ExpIcon::Mic,
         "microscope" => ExpIcon::Microscope,
         "minimize-2" => ExpIcon::Minimize2,
@@ -526,8 +526,6 @@ pub const NAV_SETTINGS: ExpIcon = ExpIcon::Settings;
 pub const NAV_SIGN_OUT: ExpIcon = ExpIcon::LogOut;
 /// Registry concept `nav-source-control` -> Lucide `git-merge`.
 pub const NAV_SOURCE_CONTROL: ExpIcon = ExpIcon::GitMerge;
-/// Registry concept `nav-support` -> Lucide `life-buoy`.
-pub const NAV_SUPPORT: ExpIcon = ExpIcon::LifeBuoy;
 /// Registry concept `nav-team-switcher` -> Lucide `chevrons-up-down`.
 pub const NAV_TEAM_SWITCHER: ExpIcon = ExpIcon::ChevronsUpDown;
 /// Registry concept `nav-terminal` -> Lucide `square-terminal`.
@@ -552,10 +550,10 @@ pub const NOTIFICATION_MUTE: ExpIcon = ExpIcon::BellOff;
 pub const NOTIFICATION_PR_MERGED: ExpIcon = ExpIcon::GitMerge;
 /// Registry concept `notification-pr-opened` -> Lucide `git-pull-request`.
 pub const NOTIFICATION_PR_OPENED: ExpIcon = ExpIcon::GitPullRequest;
+/// Registry concept `notification-reporter-reply` -> Lucide `message-square-reply`.
+pub const NOTIFICATION_REPORTER_REPLY: ExpIcon = ExpIcon::MessageSquareReply;
 /// Registry concept `notification-session-blocked` -> Lucide `hourglass`.
 pub const NOTIFICATION_SESSION_BLOCKED: ExpIcon = ExpIcon::Hourglass;
-/// Registry concept `notification-support-reply` -> Lucide `life-buoy`.
-pub const NOTIFICATION_SUPPORT_REPLY: ExpIcon = ExpIcon::LifeBuoy;
 /// Registry concept `pr-batch` -> Lucide `boxes`.
 pub const PR_BATCH: ExpIcon = ExpIcon::Boxes;
 /// Registry concept `pr-closed` -> Lucide `circle-x`.
@@ -616,8 +614,6 @@ pub const SETTINGS_BILLING: ExpIcon = ExpIcon::CreditCard;
 pub const SETTINGS_BOARDS: ExpIcon = ExpIcon::SquareKanban;
 /// Registry concept `settings-general` -> Lucide `building-2`.
 pub const SETTINGS_GENERAL: ExpIcon = ExpIcon::Building2;
-/// Registry concept `settings-helpdesk` -> Lucide `life-buoy`.
-pub const SETTINGS_HELPDESK: ExpIcon = ExpIcon::LifeBuoy;
 /// Registry concept `settings-import` -> Lucide `download`.
 pub const SETTINGS_IMPORT: ExpIcon = ExpIcon::Download;
 /// Registry concept `settings-issues` -> Lucide `list-checks`.

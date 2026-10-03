@@ -22,7 +22,6 @@ import {
   sessionRowIsWorking,
 } from "@/lib/coding-session-display"
 import { sessionIdentity } from "@/lib/session-identity"
-import { trpc } from "@/lib/trpc-client"
 import { cn } from "@/lib/utils"
 import {
   closeTabs,
@@ -48,8 +47,8 @@ import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 //   * EXP-923: a FLAT chip list in stored order — the agent groups (their
 //     brand marks, their fold chevrons) are gone with the live tabs they
 //     existed to corral. A live run is a sidebar row now
-//     (`components/team/sidebar-running.tsx`); the strip holds issues, support
-//     conversations and ENDED runs.
+//     (`components/team/sidebar-running.tsx`); the strip holds issues and
+//     ENDED runs.
 //   * the ACTIVE chip is derived from the URL — never stored;
 //   * a chip's lead is the bound run's state dot while it is live (the ping
 //     while the agent works), else the issue's status glyph, else a muted dot;
@@ -59,7 +58,6 @@ import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 //     (`partitionTabs`, measured against the real chips).
 
 const UiCloseIcon = conceptIcon(`ui-close`)
-const NavSupportIcon = conceptIcon(`nav-support`)
 
 interface ChipModel {
   key: string
@@ -67,38 +65,6 @@ interface ChipModel {
   identifier: string | null
   title: string
   lead: React.ReactNode
-}
-
-/** Support thread subjects, fetched once per thread per page load — the
- *  helpdesk tables are server-only (never synced). */
-const threadSubjects = new Map<string, Promise<string | null>>()
-
-function useThreadSubject(threadId: string | null): string | null {
-  const [subject, setSubject] = useState<string | null>(null)
-  useEffect(() => {
-    if (!threadId) return
-    let cancelled = false
-    let pending = threadSubjects.get(threadId)
-    if (!pending) {
-      pending = trpc.helpdesk.getThread
-        .query({ threadId }, { context: { skipErrorToast: true } })
-        .then((detail) => detail.thread.title ?? null)
-        .catch(() => null)
-      threadSubjects.set(threadId, pending)
-    }
-    void pending.then((value) => {
-      if (!cancelled) setSubject(value)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [threadId])
-  return subject
-}
-
-function SupportTitle({ threadId }: { threadId: string }) {
-  const subject = useThreadSubject(threadId)
-  return <>{subject?.trim() || `Support conversation`}</>
 }
 
 export function WorkTabsStrip({
@@ -127,7 +93,7 @@ export function WorkTabsStrip({
       [
         ...new Set(
           state.tabs.flatMap((tab) =>
-            tab.kind !== `support` && tab.runId ? [tab.runId] : []
+            tab.runId ? [tab.runId] : []
           )
         ),
       ].sort(),
@@ -174,10 +140,8 @@ export function WorkTabsStrip({
     if (!path) return null
     const match = tabs.find((tab) => {
       switch (path.kind) {
-        case `support`:
-          return tab.kind === `support` && tab.threadId === path.threadId
         case `run`:
-          return tab.kind !== `support` && tab.runId === path.runId
+          return tab.runId === path.runId
         case `issue`: {
           if (tab.kind !== `issue`) return false
           const issue = issuesById.get(tab.issueId)
@@ -193,15 +157,6 @@ export function WorkTabsStrip({
 
   const chipOf = (tab: WorkTab): ChipModel => {
     const key = tabKey(tab)
-    if (tab.kind === `support`) {
-      return {
-        key,
-        tab,
-        identifier: null,
-        title: ``,
-        lead: <NavSupportIcon className="size-3.5 text-muted-foreground" />,
-      }
-    }
     const run = tab.runId ? runsById.get(tab.runId) : undefined
     const issue = tab.kind === `issue` ? issuesById.get(tab.issueId) : undefined
     const identity = run
@@ -256,7 +211,7 @@ export function WorkTabsStrip({
   useLayoutEffect(measureChips, [chipSignature])
 
   // …and whenever the strip or a chip resizes: a window resize, the sidebar
-  // width change, a support subject that arrives late.
+  // width change.
   useEffect(() => {
     const container = containerRef.current
     const measure = measureRef.current
@@ -362,13 +317,7 @@ export function WorkTabsStrip({
               {chip.identifier}
             </span>
           )}
-          <span className="min-w-0 truncate text-sm">
-            {chip.tab.kind === `support` ? (
-              <SupportTitle threadId={chip.tab.threadId} />
-            ) : (
-              chip.title
-            )}
-          </span>
+          <span className="min-w-0 truncate text-sm">{chip.title}</span>
         </Button>
         <Button
           variant="ghost"
@@ -457,13 +406,7 @@ export function WorkTabsStrip({
                       {chip.identifier}
                     </span>
                   )}
-                  <span className="min-w-0 truncate">
-                    {chip.tab.kind === `support` ? (
-                      <SupportTitle threadId={chip.tab.threadId} />
-                    ) : (
-                      chip.title
-                    )}
-                  </span>
+                  <span className="min-w-0 truncate">{chip.title}</span>
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>

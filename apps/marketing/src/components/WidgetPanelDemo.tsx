@@ -1,12 +1,12 @@
 /* ─── WidgetPanelDemo — faithful static recreation of the REAL feedback
    widget panel (packages/widget/src/ui/Panel.tsx + widget.css + theme.ts).
    Copy, layout, sizes and colors are transcribed 1:1 from the widget source
-   (380px card panel, 12/16 header, mode cards, 13.5px inputs, near-white
-   submit, "Powered by Exponential" footer, megaphone FAB). The real widget
-   lives in a shadow root under exp-* classes; this recreation uses cw-*
-   (collab.css) so the two can never collide. Decorative only — rendered
-   inside an inert, aria-hidden stage. Plays the GIVE-FEEDBACK path
-   (EXP-602): captured screenshot, title + details, filed as an issue. */
+   (380px card panel, 12/16 header, 13.5px inputs, near-white submit,
+   "Powered by Exponential" footer, megaphone FAB). The real widget lives in
+   a shadow root under exp-* classes; this recreation uses cw-* (collab.css)
+   so the two can never collide. Decorative only — rendered inside an inert,
+   aria-hidden stage. Plays the ONE form (EXP-602, SLOP-4): captured
+   screenshot, the message, filed as an issue. */
 
 import { WIDGET_FILED_ISSUE } from "../webui/data"
 
@@ -27,14 +27,6 @@ export function MegaphoneIcon({ size = 16 }: { size?: number }) {
   )
 }
 
-function BackIcon() {
-  return (
-    <svg {...svgProps} width={15} height={15} strokeWidth={2} aria-hidden>
-      <path d="m15 18-6-6 6-6" />
-    </svg>
-  )
-}
-
 function CloseIcon() {
   return (
     <svg {...svgProps} width={14} height={14} strokeWidth={2} aria-hidden>
@@ -51,23 +43,20 @@ function CheckIcon() {
   )
 }
 
-export type WidgetDemoView = `home` | `feedback` | `success`
+export type WidgetDemoView = `form` | `success`
 
 export function WidgetPanelDemo({
   view,
-  title,
-  details,
+  message,
   emailFilled,
   caret,
 }: {
   view: WidgetDemoView
-  /* Feedback-form title (the scene types it in). */
-  title: string
-  /* Details body — fills at once when the title finishes typing. */
-  details: string
-  /* The email field fills once the details are in. */
+  /* The one form field (the scene types it in). */
+  message: string
+  /* The email field fills once the message is in. */
   emailFilled: boolean
-  /* Blinking caret in the title input while typing. */
+  /* Blinking caret in the textarea while typing. */
   caret: boolean
 }) {
   return (
@@ -77,101 +66,65 @@ export function WidgetPanelDemo({
           <span className={`cw-success-icon`}>
             <CheckIcon />
           </span>
-          <span className={`cw-success-title`}>Thanks for the report!</span>
+          <span className={`cw-success-title`}>Thanks, your report is in.</span>
           <span className={`cw-success-sub`}>
             Filed as{` `}
             <span className={`cw-success-link`}>{WIDGET_FILED_ISSUE.id}</span>.
+            {` `}We emailed you a link to follow the conversation.
           </span>
         </div>
       ) : (
         <>
           <div className={`cw-header`}>
             <span className={`cw-header-lead`}>
-              {view === `feedback` && (
-                <span className={`cw-back`}>
-                  <BackIcon />
-                </span>
-              )}
-              <span className={`cw-title`}>
-                {view === `home` ? `Hi there 👋` : `Send feedback`}
-              </span>
+              <span className={`cw-title`}>Send feedback</span>
             </span>
             <span className={`cw-close`}>
               <CloseIcon />
             </span>
           </div>
 
-          {view === `home` ? (
-            <div className={`cw-body`}>
-              <span className={`cw-home-sub`}>How can we help?</span>
-              <div className={`cw-mode-card is-picked`}>
-                <span className={`cw-mode-title`}>Give feedback</span>
-                <span className={`cw-mode-sub`}>
-                  Report a bug or share an idea, screenshot included.
-                </span>
+        <div className={`cw-body`}>
+            {/* Captured screenshot preview + action chips (the real form's
+                post-capture state; the thumbnail is a page silhouette). */}
+            <div className={`cw-shot`}>
+              <div className={`cw-shot-img`}>
+                <span className={`cw-shot-bar is-w60`} />
+                <span className={`cw-shot-bar is-w80`} />
+                <span className={`cw-shot-bar is-w40`} />
               </div>
-              <div className={`cw-mode-card`}>
-                <span className={`cw-mode-title`}>Get help</span>
-                <span className={`cw-mode-sub`}>
-                  Ask us anything. We&apos;ll reply by email.
-                </span>
-              </div>
-            </div>
-          ) : (
-            <div className={`cw-body`}>
-              {/* Captured screenshot preview + action chips (the real form's
-                  post-capture state; the thumbnail is a page silhouette). */}
-              <div className={`cw-shot`}>
-                <div className={`cw-shot-img`}>
-                  <span className={`cw-shot-bar is-w60`} />
-                  <span className={`cw-shot-bar is-w80`} />
-                  <span className={`cw-shot-bar is-w40`} />
-                </div>
-                <div className={`cw-shot-actions`}>
-                  <span className={`cw-chip`}>Annotate</span>
-                  <span className={`cw-chip`}>Retake</span>
-                  <span className={`cw-chip`}>Remove</span>
-                </div>
-              </div>
-              <div className={`cw-field`}>
-                <span className={`cw-label`}>Title</span>
-                <div className={`cw-input`}>
-                  {title.length === 0 && (
-                    <span className={`cw-placeholder`}>
-                      Something&apos;s broken on this page&hellip;
-                    </span>
-                  )}
-                  {title}
-                  {caret && <span className={`cw-caret`} />}
-                </div>
-              </div>
-              <div className={`cw-field`}>
-                <span className={`cw-label`}>Details</span>
-                <div className={`cw-textarea is-short`}>
-                  {details.length === 0 ? (
-                    <span className={`cw-placeholder`}>
-                      What happened? What did you expect?
-                    </span>
-                  ) : (
-                    details
-                  )}
-                </div>
-              </div>
-              <div className={`cw-field`}>
-                <span className={`cw-label`}>Email (optional)</span>
-                <div className={`cw-input`}>
-                  {emailFilled ? (
-                    `mara@heliolabs.io`
-                  ) : (
-                    <span className={`cw-placeholder`}>you@example.com</span>
-                  )}
-                </div>
-              </div>
-              <div className={`cw-footer`}>
-                <span className={`cw-submit`}>Send feedback</span>
+              <div className={`cw-shot-actions`}>
+                <span className={`cw-chip`}>Annotate</span>
+                <span className={`cw-chip`}>Retake</span>
+                <span className={`cw-chip`}>Remove</span>
               </div>
             </div>
-          )}
+            <div className={`cw-field`}>
+              <span className={`cw-label`}>What happened?</span>
+              <div className={`cw-textarea`}>
+                {message.length === 0 && (
+                  <span className={`cw-placeholder`}>
+                    Describe what you saw, or what you&apos;d like to see.
+                  </span>
+                )}
+                {message}
+                {caret && <span className={`cw-caret`} />}
+              </div>
+            </div>
+            <div className={`cw-field`}>
+              <span className={`cw-label`}>Email (optional)</span>
+              <div className={`cw-input`}>
+                {emailFilled ? (
+                  `mara@heliolabs.io`
+                ) : (
+                  <span className={`cw-placeholder`}>you@example.com</span>
+                )}
+              </div>
+            </div>
+            <div className={`cw-footer`}>
+              <span className={`cw-submit`}>Send feedback</span>
+            </div>
+          </div>
         </>
       )}
       <div className={`cw-powered`}>

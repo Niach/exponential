@@ -7,10 +7,7 @@ import { useChromeHeightVar } from "@/hooks/use-chrome-height-var"
 import { useMobileChrome } from "@/hooks/use-mobile-chrome"
 import { useOpenNewDraft } from "@/hooks/use-open-new-draft"
 import { useSession } from "@/hooks/use-session"
-import {
-  useUnreadNotificationCount,
-  useUnreadSupportCount,
-} from "@/hooks/use-unread-notifications"
+import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
 import {
   useReviewsOpenPrCount,
   useShowsReviews,
@@ -26,7 +23,6 @@ const NavDevicesIcon = conceptIcon(`nav-devices`)
 const NavInboxIcon = conceptIcon(`nav-inbox`)
 const NavIssuesIcon = conceptIcon(`nav-issues`)
 const NavReviewsIcon = conceptIcon(`nav-reviews`)
-const NavSupportIcon = conceptIcon(`nav-support`)
 
 // Bottom padding for every scroll container that sits under the floating
 // tab bar, so list ends scroll clear of the glass pill. Detail routes hide
@@ -61,12 +57,6 @@ export function useMobileChromeVisible(): boolean {
     to: `/t/$teamSlug/sessions/$sessionId`,
     fuzzy: true,
   })
-  // EXP-851: a support ticket is its own route now, and it is a DETAIL —
-  // the conversation carries the shared back header.
-  const onSupportThread = matchRoute({
-    to: `/t/$teamSlug/support/$threadId`,
-    fuzzy: true,
-  })
   // EXP-1170: the New issue page is the issue detail in draft mode.
   const onDraftPage = matchRoute({
     to: `/t/$teamSlug/drafts/$draftId`,
@@ -83,7 +73,6 @@ export function useMobileChromeVisible(): boolean {
     !onIssueDetail &&
     !onReviewDetail &&
     !onSessionDetail &&
-    !onSupportThread &&
     !onActionDetail &&
     !onDraftPage
   )
@@ -114,12 +103,6 @@ export function resolveBoardTarget(
 // dots, not counts.
 function InboxDot() {
   const unread = useUnreadNotificationCount()
-  if (unread === 0) return null
-  return <TabDot className="bg-primary" />
-}
-
-function SupportDot({ teamId }: { teamId?: string }) {
-  const unread = useUnreadSupportCount(teamId)
   if (unread === 0) return null
   return <TabDot className="bg-primary" />
 }
@@ -230,9 +213,6 @@ export function MobileTabBar({
   // there is one, else the team's remembered/first board
   // (`resolveBoardTarget`). Same predicate as iOS / Android `composeEnabled`.
   const composeEnabled = boardTarget !== undefined
-  const onSupport = Boolean(
-    matchRoute({ to: `/t/$teamSlug/support`, fuzzy: true })
-  )
 
   if (!visible) return null
 
@@ -273,17 +253,6 @@ export function MobileTabBar({
           <NavInboxIcon className="size-5" />
           <InboxDot />
         </Link>
-        {team?.helpdeskEnabled === true && (
-          <Link
-            to="/t/$teamSlug/support"
-            params={{ teamSlug }}
-            aria-label="Support"
-            className={tabClass(onSupport)}
-          >
-            <NavSupportIcon className="size-5" />
-            <SupportDot teamId={team?.id} />
-          </Link>
-        )}
         <Link
           to="/t/$teamSlug/devices"
           params={{ teamSlug }}

@@ -109,16 +109,16 @@ class PartialUpdatePlannerTest {
 
     @Test
     fun bindsQuotedPostgresBooleansOnIntegerColumns() {
-        // The EXP-185 regression: Electric ships `helpdesk_enabled` as the
-        // Postgres text form "t" in a partial update; bound as TEXT into the
-        // INTEGER-affinity Boolean column it read back as false, so the
-        // Support tab never appeared.
+        // The EXP-185 regression: Electric ships a Boolean team switch (today
+        // `yolo_mode`) as the Postgres text form "t" in a partial update;
+        // bound as TEXT into the INTEGER-affinity Boolean column it read
+        // back as false, so the flip never took.
         for ((wire, bound) in listOf("t" to 1L, "true" to 1L, "1" to 1L, "f" to 0L, "false" to 0L, "0" to 0L)) {
             val plan = planPartialUpdate(
                 pkColumns = listOf("id"),
-                knownColumns = setOf("id", "helpdesk_enabled"),
-                wireColumns = linkedMapOf("helpdesk_enabled" to JsonPrimitive(wire)),
-                integerColumns = setOf("helpdesk_enabled"),
+                knownColumns = setOf("id", "yolo_mode"),
+                wireColumns = linkedMapOf("yolo_mode" to JsonPrimitive(wire)),
+                integerColumns = setOf("yolo_mode"),
             )
             assertEquals(listOf<Any?>(bound), plan!!.args)
         }
@@ -128,12 +128,12 @@ class PartialUpdatePlannerTest {
     fun keepsQuotedBooleanTextOnNonIntegerColumns() {
         val plan = planPartialUpdate(
             pkColumns = listOf("id"),
-            knownColumns = setOf("id", "title", "helpdesk_enabled"),
+            knownColumns = setOf("id", "title", "yolo_mode"),
             wireColumns = linkedMapOf(
                 "title" to JsonPrimitive("t"),
-                "helpdesk_enabled" to JsonPrimitive("t"),
+                "yolo_mode" to JsonPrimitive("t"),
             ),
-            integerColumns = setOf("helpdesk_enabled"),
+            integerColumns = setOf("yolo_mode"),
         )
         // Only the INTEGER-affinity column converts; the TEXT column keeps "t".
         assertEquals(listOf<Any?>("t", 1L), plan!!.args)

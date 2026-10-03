@@ -49,7 +49,6 @@ export interface GettingStartedCardsProps {
 const ActionCreateIcon = conceptIcon(`action-create`)
 const GithubIcon = conceptIcon(`ui-github`)
 const TerminalIcon = conceptIcon(`nav-terminal`)
-const HelpdeskIcon = conceptIcon(`nav-support`)
 
 const ENTRY_ICONS: Record<EntryKey, LucideIcon> = {
   desktop: conceptIcon(`ui-device`),
@@ -60,7 +59,6 @@ const ENTRY_ICONS: Record<EntryKey, LucideIcon> = {
   action: ActionCreateIcon,
   server: conceptIcon(`ui-server`),
   widget: conceptIcon(`settings-widget`),
-  helpdesk: HelpdeskIcon,
   mcp: conceptIcon(`ui-mcp`),
 }
 
@@ -301,20 +299,6 @@ export function GettingStartedCards({
           </Button>
         </div>
       </>
-    ),
-
-    helpdesk: (
-      <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" asChild>
-          <Link
-            to="/t/$teamSlug/settings/helpdesk"
-            params={{ teamSlug }}
-          >
-            <HelpdeskIcon className="mr-1.5 size-4" />
-            {GETTING_STARTED_COPY.helpdesk.action}
-          </Link>
-        </Button>
-      </div>
     ),
 
     mcp: <McpSetupTabs />,

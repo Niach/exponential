@@ -139,19 +139,12 @@ export function WidgetPanelPreview({
               </div>
             </div>
           </div>
+          {/* SLOP-4: ONE message field, mirroring packages/widget Panel.tsx. */}
           <div className="exp-field">
-            <label>Title</label>
-            <input
-              className="exp-input"
-              placeholder="Something's broken on this page…"
-              readOnly
-            />
-          </div>
-          <div className="exp-field">
-            <label>Details</label>
+            <label>What happened?</label>
             <textarea
               className="exp-textarea"
-              placeholder="What happened? What did you expect?"
+              placeholder="Describe what you saw, or what you'd like to see."
               readOnly
             />
           </div>

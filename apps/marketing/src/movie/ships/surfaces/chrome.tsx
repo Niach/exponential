@@ -81,17 +81,6 @@ const GitPullRequestIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
   </Svg>
 )
 
-const LifeBuoyIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
-  <Svg size={size}>
-    <circle cx="12" cy="12" r="10" />
-    <path d="m4.93 4.93 4.24 4.24" />
-    <path d="m14.83 9.17 4.24-4.24" />
-    <path d="m14.83 14.83 4.24 4.24" />
-    <path d="m9.17 14.83-4.24 4.24" />
-    <circle cx="12" cy="12" r="4" />
-  </Svg>
-)
-
 const BotIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
   <Svg size={size} sw={1.7}>
     <path d="M12 8V4H8" />
@@ -510,7 +499,6 @@ export const CutoutPanel: React.FC<{ children: React.ReactNode }> = ({
 
 export type RailRowId =
   | "inbox"
-  | "support"
   | "devices"
   | "actions"
   | "reviews"
@@ -533,7 +521,6 @@ const DIVIDER_BLOCK = 1 + 2 * ICON_GAP + ICON_GAP // my_1 hairline + gap
 const railIconY: Record<RailRowId, number> = (() => {
   const nav: RailRowId[] = [
     "inbox",
-    "support",
     "devices",
     "actions",
     "reviews",
@@ -572,7 +559,6 @@ type NavRowId = Exclude<RailRowId, "board" | "board1" | "board2">
 
 const RAIL_ICON: Record<NavRowId, React.FC<{ size?: number }>> = {
   inbox: InboxIcon,
-  support: LifeBuoyIcon,
   devices: MonitorIcon,
   actions: BotIcon,
   reviews: GitPullRequestIcon,
@@ -830,7 +816,6 @@ export const CompactRail: React.FC<CompactRailProps> = ({
       {(
         [
           "inbox",
-          "support",
           "devices",
           "actions",
           "reviews",

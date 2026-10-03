@@ -503,24 +503,6 @@ export function assertWidgetCreatable(
   }
 }
 
-// Pure helpdesk gate: the support inbox is a paid feature (no per-tier count —
-// it's a per-team boolean). Exported for unit tests.
-export function assertHelpdeskUsable(plan: PlanTier): void {
-  if (plan === `free`) {
-    throw planLimitError(
-      `the helpdesk on the Team plan. Upgrade to enable support conversations.`
-    )
-  }
-}
-
-// Helpdesk gate (teams.update helpdesk_enabled flip + support-thread
-// creation). Self-hosted is unlimited.
-export async function assertCanUseHelpdesk(teamId: string): Promise<void> {
-  if (!isCloudInstance()) return
-  const { plan } = await getTeamPlan(teamId)
-  assertHelpdeskUsable(plan)
-}
-
 // Widget-create gate (widgets.create). Self-hosted is unlimited.
 export async function assertCanCreateWidget(
   teamId: string

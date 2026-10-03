@@ -7,10 +7,8 @@ import { db } from "@/db/connection"
 import {
   boards,
   labels,
-  supportThreads,
   widgetConfigs,
   widgetSubmissions,
-  teams,
 } from "@/db/schema"
 import {
   assertTeamMember,
@@ -27,7 +25,7 @@ import {
   widgetLauncherModes,
   widgetLauncherPositions,
 } from "@/lib/widget/service"
-import { assertCanCreateWidget, assertCanUseHelpdesk } from "@/lib/billing"
+import { assertCanCreateWidget } from "@/lib/billing"
 
 const widgetNameSchema = z.string().trim().min(1).max(255)
 // Hostname[:port] patterns, optionally `*.`-prefixed. Kept permissive on
@@ -88,12 +86,6 @@ const formConfigSchema = z
         { message: `Custom field keys must be unique` }
       )
       .optional(),
-    // Which entry points the panel offers (EXP-130); absent = feedback-only.
-    modes: z
-      .array(z.enum([`feedback`, `support`]))
-      .min(1)
-      .max(2)
-      .optional(),
     // Team labels visitors can tag their report with (EXP-435). Stored as
     // ids; the config route resolves them to {id,name,color} and silently
     // drops labels deleted since this write.
@@ -111,31 +103,6 @@ const formConfigSchema = z
     theme: z.enum([`dark`, `light`, `auto`]).optional(),
   })
   .optional()
-
-// Absent modes = feedback-only (every pre-modes config).
-function modesOf(formConfig: { modes?: string[] } | null | undefined): string[] {
-  const raw = formConfig?.modes
-  return Array.isArray(raw) && raw.length > 0 ? raw : [`feedback`]
-}
-
-// Support mode files helpdesk tickets into the team support inbox, so it
-// needs both the plan gate and the team helpdesk switch — otherwise
-// tickets would land invisibly (the Support inbox nav keys off
-// teams.helpdesk_enabled).
-async function assertSupportModeUsable(teamId: string) {
-  await assertCanUseHelpdesk(teamId)
-  const [team] = await db
-    .select({ helpdeskEnabled: teams.helpdeskEnabled })
-    .from(teams)
-    .where(eq(teams.id, teamId))
-    .limit(1)
-  if (team?.helpdeskEnabled !== true) {
-    throw new TRPCError({
-      code: `PRECONDITION_FAILED`,
-      message: `Enable the helpdesk in the widget settings first`,
-    })
-  }
-}
 
 // Write-time gate for form_config.labelIds: every id must be a live label of
 // this team (mirrors issues.create). Read paths stay tolerant of ids that go
@@ -195,29 +162,6 @@ export const widgetsRouter = router({
       return submission ?? null
     }),
 
-  // Same card for the support inbox details rail: the page/env context of a
-  // widget-filed ticket. MEMBER-gated like submissionForIssue (every member
-  // handles support).
-  submissionForThread: authedProcedure
-    .input(z.object({ threadId: z.string().uuid() }))
-    .query(async ({ ctx, input }) => {
-      const [thread] = await ctx.db
-        .select({ teamId: supportThreads.teamId })
-        .from(supportThreads)
-        .where(eq(supportThreads.id, input.threadId))
-        .limit(1)
-      if (!thread) {
-        throw new TRPCError({ code: `NOT_FOUND`, message: `Thread not found` })
-      }
-      await assertTeamMember(ctx.session.user.id, thread.teamId)
-      const [submission] = await ctx.db
-        .select()
-        .from(widgetSubmissions)
-        .where(eq(widgetSubmissions.supportThreadId, input.threadId))
-        .limit(1)
-      return submission ?? null
-    }),
-
   list: authedProcedure
     .input(z.object({ teamId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
@@ -238,8 +182,8 @@ export const widgetsRouter = router({
           submissionCount: count(widgetSubmissions.id),
         })
         .from(widgetConfigs)
-        // Left join: a support-only widget has no feedback board.
-        .leftJoin(boards, eq(widgetConfigs.boardId, boards.id))
+        // SLOP-4: every widget has a board (NOT NULL, cascade).
+        .innerJoin(boards, eq(widgetConfigs.boardId, boards.id))
         .leftJoin(
           widgetSubmissions,
           eq(widgetSubmissions.widgetConfigId, widgetConfigs.id)
@@ -253,10 +197,8 @@ export const widgetsRouter = router({
     .input(
       z.object({
         teamId: z.string().uuid(),
-        // The feedback target board. Required iff the widget offers feedback
-        // mode; a support-only widget has none (tickets go to the team
-        // support inbox).
-        boardId: z.string().uuid().nullable().optional(),
+        // The board reports land on (SLOP-4: every widget has one).
+        boardId: z.string().uuid(),
         name: widgetNameSchema,
         allowedDomains: allowedDomainsSchema,
         formConfig: formConfigSchema,
@@ -268,25 +210,12 @@ export const widgetsRouter = router({
       // Widget count is capped per tier (1 on Free).
       await assertCanCreateWidget(input.teamId)
 
-      const modes = modesOf(input.formConfig)
-      const boardId = input.boardId ?? null
-      if (modes.includes(`feedback`) && boardId == null) {
+      const board = await getBoardTeamId(input.boardId)
+      if (board.teamId !== input.teamId) {
         throw new TRPCError({
           code: `BAD_REQUEST`,
-          message: `Pick a board for feedback submissions`,
+          message: `Board must belong to the team`,
         })
-      }
-      if (boardId != null) {
-        const board = await getBoardTeamId(boardId)
-        if (board.teamId !== input.teamId) {
-          throw new TRPCError({
-            code: `BAD_REQUEST`,
-            message: `Board must belong to the team`,
-          })
-        }
-      }
-      if (modes.includes(`support`)) {
-        await assertSupportModeUsable(input.teamId)
       }
       await assertLabelsBelongToTeam(input.teamId, input.formConfig)
 
@@ -294,7 +223,7 @@ export const widgetsRouter = router({
         .insert(widgetConfigs)
         .values({
           teamId: input.teamId,
-          boardId,
+          boardId: input.boardId,
           name: input.name,
           publicKey: generateWidgetKey(),
           allowedDomains: input.allowedDomains,
@@ -310,9 +239,8 @@ export const widgetsRouter = router({
       z.object({
         widgetConfigId: z.string().uuid(),
         name: widgetNameSchema.optional(),
-        // Tri-state: undefined = unchanged, null = clear (support-only
-        // widget), uuid = feedback lands on that board.
-        boardId: z.string().uuid().nullable().optional(),
+        // undefined = unchanged; a uuid moves reports to that board.
+        boardId: z.string().uuid().optional(),
         allowedDomains: allowedDomainsSchema.optional(),
         enabled: z.boolean().optional(),
         formConfig: formConfigSchema,
@@ -324,37 +252,13 @@ export const widgetsRouter = router({
         input.widgetConfigId
       )
 
-      if (input.boardId != null && input.boardId !== config.boardId) {
+      if (input.boardId !== undefined && input.boardId !== config.boardId) {
         const board = await getBoardTeamId(input.boardId)
         if (board.teamId !== config.teamId) {
           throw new TRPCError({
             code: `BAD_REQUEST`,
             message: `Board must belong to the team`,
           })
-        }
-      }
-
-      // Validate the FINAL state, but only when this update actually touches
-      // it — a lapsed plan must not block unrelated edits like renaming or
-      // disabling, and stale stored support degrades gracefully at serve
-      // time via effectiveWidgetModes.
-      const touchesModeState =
-        input.formConfig !== undefined || input.boardId !== undefined
-      const finalModes =
-        input.formConfig !== undefined
-          ? modesOf(input.formConfig)
-          : modesOf(config.formConfig as { modes?: string[] } | null)
-      const finalBoardId =
-        input.boardId !== undefined ? input.boardId : config.boardId
-      if (touchesModeState) {
-        if (finalModes.includes(`feedback`) && finalBoardId == null) {
-          throw new TRPCError({
-            code: `BAD_REQUEST`,
-            message: `Pick a board for feedback submissions`,
-          })
-        }
-        if (finalModes.includes(`support`)) {
-          await assertSupportModeUsable(config.teamId)
         }
       }
       if (input.formConfig !== undefined) {

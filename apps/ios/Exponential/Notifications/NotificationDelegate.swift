@@ -50,9 +50,6 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Me
         // whichever one is active.
         let userId = userInfo["userId"] as? String
         switch NotificationRouting.pushTarget(userInfo) {
-        case let .supportThread(threadId):
-            // Helpdesk pushes (EXP-180) carry a threadId and NO issue keys.
-            deepLinkBus.navigateToSupportThread(threadId, userId: userId)
         case let .session(sessionId):
             // A blocked run (EXP-980): its `sessionId` is the run to open.
             deepLinkBus.navigateToSession(sessionId, userId: userId)

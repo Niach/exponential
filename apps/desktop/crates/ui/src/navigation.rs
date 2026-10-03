@@ -52,9 +52,6 @@ pub enum Screen {
     /// and the My Issues board behind ONE segmented strip (EXP-186's two tabs,
     /// carried on the screen so a tab restore and go-back keep the tab).
     Inbox { tab: crate::sidebar::InboxTab },
-    /// EXP-851: the Support ticket list, full width (EXP-180 — server-only
-    /// tRPC rows, polled; its Open/Resolved strip lives inside the view).
-    Support,
     /// EXP-851: the trunk file tree beside the read-only viewer — one screen
     /// now that the tool column is gone.
     Files,
@@ -66,9 +63,6 @@ pub enum Screen {
     /// `routes/t/$ws/settings/` — team, device AND personal sections
     /// (EXP-238 folded the old Account screen into the settings nav).
     Settings,
-    /// One support ticket's conversation (EXP-180 — server-only tRPC data,
-    /// opened from the Support tool window's thread list).
-    SupportThread { thread_id: String },
     /// Read-only PR diff for an issue's linked PR (EXP-181 — the Reviews
     /// page's rows open this instead of the issue detail; data via
     /// `issues.prFiles`, rendered by the shared unified `DiffView`).
@@ -196,7 +190,6 @@ impl Screen {
         matches!(
             self,
             Screen::IssueDetail { .. }
-                | Screen::SupportThread { .. }
                 | Screen::Session { .. }
                 | Screen::Terminal { .. }
         )
@@ -227,7 +220,7 @@ impl Screen {
 
     /// EXP-851: which LIST this screen IS, expressed as the [`TabOrigin`] a
     /// detail opened from it inherits. The list screens are a board, the
-    /// Inbox, Support and Reviews; everything else — Settings,
+    /// Inbox and Reviews; everything else — Settings,
     /// Devices, Actions, an action's page, Getting started, Files, Source Control, a
     /// terminal, any detail — is CONTEXT-FREE and leaves the rail up.
     ///
@@ -251,7 +244,6 @@ impl Screen {
                     inbox_tab: Some(*tab),
                 })
             }
-            Screen::Support => ToolWindow::Support,
             Screen::Reviews => ToolWindow::Reviews,
             _ => return None,
         };
@@ -311,7 +303,7 @@ pub(crate) enum PendingOrigin {
 /// EXP-851: the ONE rule for which LIST the left column shows beside a
 /// freshly opened detail — the "breadcrumb" rule, one layer only:
 ///
-/// * Opened from a LIST SCREEN (a board, the Inbox, Support, the Agent page,
+/// * Opened from a LIST SCREEN (a board, the Inbox, the Agent page,
 ///   Reviews): that list comes along, so the detail sits beside the rows it
 ///   was picked from.
 /// * Opened from another screen that already CARRIES a list (an issue → its
@@ -380,11 +372,6 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
             .map(issue_tab_title)
             .unwrap_or_else(|| "Issue".into()),
         Screen::Settings => "Settings".into(),
-        // Thread titles are tRPC-only (never synced) — the support surfaces
-        // remember them in a process global; unknown ids degrade generically.
-        Screen::SupportThread { thread_id } => crate::support_thread::title_of(cx, thread_id)
-            .map(gpui::SharedString::from)
-            .unwrap_or_else(|| "Support ticket".into()),
         // "· Diff" keeps the tab distinguishable from the same issue's
         // detail tab.
         Screen::PrDiff { issue_id } => Store::global(cx)
@@ -412,7 +399,6 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
             crate::sidebar::InboxTab::Inbox => "Inbox".into(),
             crate::sidebar::InboxTab::MyIssues => "My Issues".into(),
         },
-        Screen::Support => "Support".into(),
         Screen::Files => "Files".into(),
         Screen::SourceControl => "Source Control".into(),
         Screen::Devices => "Devices".into(),
@@ -776,13 +762,13 @@ impl Navigation {
 /// `drafts` | `draft` (EXP-1170: a fresh New issue page, active board) |
 /// `actions` | `action:<uuid>` (SLOP-2: one action's page) | `usage` |
 /// `board-issues` | `inbox` |
-/// `inbox-my-issues` | `support` | `files` | `source-control` (EXP-851 — the
+/// `inbox-my-issues` | `files` | `source-control` (EXP-851 — the
 /// list screens the rail's tool windows became) | `chat` | `chat?<seed>` (EXP-825:
 /// `issues=<a>,<b>&action=<id>&pr=<issue>&device=<id>&text=<url-encoded>`
 /// &icon=<name>`, any subset — [`parse_dev_chat_seed`]) | `reviews` |
 /// `getting-started` | `issue:<uuid>` |
 /// `pr:<issue-uuid>` (the PR-diff screen, keyed by the ISSUE whose linked PR
-/// it shows) | `support:<uuid>` | `session:<uuid>` (a coding session, keyed by
+/// it shows) | `session:<uuid>` (a coding session, keyed by
 /// its `coding_sessions` ROW id — EXP-746) (anything else = no pre-route).
 /// `getting-started` additionally reads `EXP_DEV_GETTING_STARTED_TAB`
 /// ([`parse_getting_started_tab`]) so a capture run can land on the
@@ -826,7 +812,6 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
         "inbox-my-issues" | "my-issues" => Some(Screen::Inbox {
             tab: crate::sidebar::InboxTab::MyIssues,
         }),
-        "support" => Some(Screen::Support),
         "files" => Some(Screen::Files),
         "source-control" => Some(Screen::SourceControl),
         "getting-started" => Some(Screen::GettingStarted {
@@ -854,15 +839,9 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
                 });
             }
             // SLOP-2: one action's page (Prompt · Triggers · Runs).
-            if let Some(id) = spec.strip_prefix("action:") {
-                return Some(Screen::Action {
-                    action_id: id.to_string(),
-                });
-            }
-            spec.strip_prefix("support:")
-                .map(|id| Screen::SupportThread {
-                    thread_id: id.to_string(),
-                })
+            spec.strip_prefix("action:").map(|id| Screen::Action {
+                action_id: id.to_string(),
+            })
         }
     }
 }
@@ -956,7 +935,6 @@ pub(crate) fn dev_tool_screen(spec: &str) -> Option<Screen> {
         "board" | "board-issues" | "issues" => Some(Screen::BoardIssues {
             board_id: String::new(),
         }),
-        "support" => Some(Screen::Support),
         "files" => Some(Screen::Files),
         "source-control" => Some(Screen::SourceControl),
         // EXP-818: the Agent page (its sessions list is the page now).
@@ -974,7 +952,7 @@ fn legacy_tool_screen() -> Option<Screen> {
 
 /// DEV-ONLY (EXP-851): the left-column LIST a capture run wants beside a
 /// detail screen. `EXP_DEV_TOOL` names a list and `EXP_DEV_SCREEN` a detail
-/// (`issue:…`, `support:…`, `session:…`) — the pair used to mean "tool column
+/// (`issue:…`, `session:…`) — the pair used to mean "tool column
 /// + centre tab" and now means "ListNav + main view", so it seeds the first
 /// navigation's explicit origin. `None` whenever either half is missing or
 /// the screen carries no list (a list screen carries its own rail).
@@ -2154,8 +2132,10 @@ mod tests {
                 tab: InboxTab::MyIssues
             })
         );
-        assert_eq!(parse_dev_screen("support"), Some(Screen::Support));
-        assert_eq!(dev_tool_screen("support"), Some(Screen::Support));
+        // SLOP-4: the Support screens are gone with the helpdesk.
+        assert_eq!(parse_dev_screen("support"), None);
+        assert_eq!(parse_dev_screen("support:t1"), None);
+        assert_eq!(dev_tool_screen("support"), None);
         assert_eq!(parse_dev_screen("files"), Some(Screen::Files));
         assert_eq!(dev_tool_screen("files"), Some(Screen::Files));
         assert_eq!(parse_dev_screen("source-control"), Some(Screen::SourceControl));
@@ -2249,7 +2229,7 @@ mod tests {
     }
 
     /// EXP-851/EXP-862: the screens that are LISTS — a board, the Inbox,
-    /// Support and Reviews. Every other screen (and every detail) is context-free: a
+    /// Reviews. Every other screen (and every detail) is context-free: a
     /// detail opened from it keeps the rail up.
     #[test]
     fn the_list_screens_are_the_six_the_left_column_can_show() {
@@ -2286,12 +2266,10 @@ mod tests {
                 inbox_tab: Some(InboxTab::MyIssues),
             })
         );
-        for (screen, tool) in [
-            (Screen::Support, ToolWindow::Support),
-            (Screen::Reviews, ToolWindow::Reviews),
-        ] {
-            assert_eq!(screen.list_origin().map(|origin| origin.tool), Some(tool));
-        }
+        assert_eq!(
+            Screen::Reviews.list_origin().map(|origin| origin.tool),
+            Some(ToolWindow::Reviews)
+        );
         for screen in [
             Screen::Settings,
             Screen::Devices,
@@ -2310,9 +2288,6 @@ mod tests {
             },
             Screen::PrDiff {
                 issue_id: "i1".into(),
-            },
-            Screen::SupportThread {
-                thread_id: "t1".into(),
             },
             Screen::Session {
                 session_id: "s1".into(),
@@ -2434,9 +2409,6 @@ mod tests {
         let session = Screen::Session {
             session_id: "s1".into(),
         };
-        let ticket = Screen::SupportThread {
-            thread_id: "t1".into(),
-        };
         let diff = Screen::PrDiff {
             issue_id: "i1".into(),
         };
@@ -2459,11 +2431,10 @@ mod tests {
             derive_origin(Some(&inbox_screen), None, &issue),
             Some(inbox.clone())
         );
-        // Support → a ticket.
+        // Reviews → a diff.
         assert_eq!(
-            derive_origin(Some(&Screen::Support), None, &ticket)
-                .map(|origin| origin.tool),
-            Some(ToolWindow::Support)
+            derive_origin(Some(&Screen::Reviews), None, &diff).map(|origin| origin.tool),
+            Some(ToolWindow::Reviews)
         );
         // EXP-923: the Agent page reached from the RAIL (carrying nothing) →
         // a session: NO list. Its sessions rows moved to the rail and behind
@@ -2684,9 +2655,6 @@ mod tests {
         }));
         assert!(!reveals_undocked_window(&Screen::Session {
             session_id: "s1".into()
-        }));
-        assert!(!reveals_undocked_window(&Screen::SupportThread {
-            thread_id: "t1".into()
         }));
         assert!(!reveals_undocked_window(&Screen::Reviews));
         assert!(!reveals_undocked_window(&Screen::Settings));

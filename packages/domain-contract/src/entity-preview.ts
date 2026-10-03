@@ -58,7 +58,6 @@ export const ENTITY_REF_ICON: Readonly<Record<string, string>> = {
   team: `ui-team`,
   invite: `ui-invite`,
   notification: `nav-notifications`,
-  thread: `nav-support`,
   attachment: `ui-attach`,
   list: `ui-checklist`,
 }
@@ -77,7 +76,6 @@ const NOUNS: Readonly<Record<string, readonly [string, string]>> = {
   team: [`team`, `teams`],
   invite: [`invite`, `invites`],
   notification: [`notification`, `notifications`],
-  thread: [`thread`, `threads`],
   attachment: [`attachment`, `attachments`],
   list: [`list`, `lists`],
 }

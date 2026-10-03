@@ -27,7 +27,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  * Drives the REAL app UI end-to-end against a locally seeded backend
  * (apps/web/scripts/seed-screenshots.ts): instance picker → password login →
  * board → issue detail → live steering → the Agent page composer → PR review →
- * actions → inbox → support inbox. Play caps phone screenshots at 8; EXP-393
+ * actions → inbox. Play caps phone screenshots at 8; EXP-393
  * spent the budget on the surfaces that actually differentiate the product,
  * dropping the comments / agents-list / reviews-list shots for start coding,
  * steering and the diff + merge bar (the iOS set is identical).
@@ -224,13 +224,8 @@ class StoreScreenshotsTest {
         flow.settle()
         flow.screenshot("7_inbox", popRects = true)
 
-        // --- Support inbox: the tab only exists because the seed flips the
-        // team's helpdesk_enabled on; threads come from tRPC polling.
-        composeRule.onNode(hasContentDescription("Support")).performClick()
-        flow.waitFor(hasTestTag("support-thread-row"), SYNC_TIMEOUT)
-        flow.settle()
-        flow.screenshot("8_support", popRects = true)
-
+        // (SLOP-4: the 8th slide, the Support inbox, is gone with the
+        // surface — a reporter's conversation is the issue's comments now.)
         finished = true
     }
 }

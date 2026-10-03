@@ -81,7 +81,6 @@ const PINNED_RECIPES = [
   `openSuggestionsTab`,
   `openWidgetEditor`,
   `expandFirstDiffFile`,
-  `openFirstThread`,
   `openTriggerEditor`,
   `openGettingStarted`,
 ]

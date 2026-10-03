@@ -1,18 +1,16 @@
-/* ─── Collaboration — feedback widget → board, plus helpdesk (EXP-602) ───
+/* ─── Collaboration — feedback widget → board (EXP-602, SLOP-4) ───
    The visitor side is a scripted, looping widget scene (real-UI widget
-   recreation, GIVE-FEEDBACK path); the team side is the web app recreation
-   on the BOARD view, side by side — submitting the report files a new issue
-   row into the board. Below, a small helpdesk subsection shows the Support
-   conversation view (chat + details rail only). Stages are decorative
-   (aria-hidden + inert); reduced motion renders the finished composite
-   statically (widget success + board including the filed row). */
+   recreation, the ONE form); the team side is the web app recreation on the
+   BOARD view, side by side — submitting the report files a new issue row
+   into the board. Stages are decorative (aria-hidden + inert); reduced
+   motion renders the finished composite statically (widget success + board
+   including the filed row). */
 import { motion } from "motion/react"
 import { useEffect, useState } from "react"
 import { EASE_EXPO, sectionReveal } from "../lib/animations"
 import { useScenePlayer } from "../lib/use-scene-player"
 import { WIDGET_FILED_ISSUE } from "../webui/data"
 import { WebDemo } from "../webui/WebDemo"
-import { HelpdeskChatDemo } from "../webui/HelpdeskChatDemo"
 import { DownloadIconRow } from "./DownloadSection"
 import {
   MegaphoneIcon,
@@ -20,23 +18,21 @@ import {
   type WidgetDemoView,
 } from "./WidgetPanelDemo"
 
-/* Beat script (~11.6s loop). Beat 0 is the SSR resting state. */
+/* Beat script (~10.5s loop). Beat 0 is the SSR resting state. */
 const B = {
   fab: 0,
-  home: 1,
-  form: 2,
-  sent: 3,
-  handoff: 4,
-  filed: 5,
+  form: 1,
+  sent: 2,
+  handoff: 3,
+  filed: 4,
 } as const
-const BEATS = [1400, 1100, 3400, 1300, 800, 3600]
+const BEATS = [1400, 3400, 1300, 800, 3600]
 
-/* The typed report title IS the injected issue's title (webui/data.ts) —
-   the same bug Mara's helpdesk fixture thread below is about. */
-const REPORT_TITLE = WIDGET_FILED_ISSUE.title
-const REPORT_DETAILS = `The upload spinner runs forever when I attach a screenshot. Safari 17 on macOS.`
+/* The message's FIRST LINE becomes the issue title (the server titles a
+   widget report off it), so it IS the injected issue's title (webui/data.ts). */
+const REPORT_MESSAGE = `${WIDGET_FILED_ISSUE.title}\nThe upload spinner runs forever when I attach a screenshot. Safari 17 on macOS.`
 
-/* Types the widget title in while `active` (client-only — the scene never
+/* Types the widget message in while `active` (client-only — the scene never
    types during SSR, whose resting beat shows only the FAB). */
 function useTypedText(text: string, active: boolean): string {
   const [count, setCount] = useState(0)
@@ -64,14 +60,10 @@ export function CollabSection() {
   const at = (from: number) => reduced || beat >= from
 
   const typing = !reduced && beat === B.form
-  const typed = useTypedText(REPORT_TITLE, typing)
-  const typedDone = typed.length >= REPORT_TITLE.length
+  const typed = useTypedText(REPORT_MESSAGE, typing)
+  const typedDone = typed.length >= REPORT_MESSAGE.length
 
-  const widgetView: WidgetDemoView = at(B.sent)
-    ? `success`
-    : beat === B.form
-      ? `feedback`
-      : `home`
+  const widgetView: WidgetDemoView = at(B.sent) ? `success` : `form`
 
   /* Entrance props — collapse to nothing under reduced motion. */
   const pop = reduced
@@ -100,28 +92,28 @@ export function CollabSection() {
           <p className={`section-sub`}>
             Visitors report bugs and ideas without leaving your site,
             screenshot included. Every report lands as an issue on your board,
-            ready to triage with the team.
+            ready to triage with the team, and you answer the reporter right
+            from the issue.
           </p>
         </motion.div>
 
         <div className={stageClass} ref={ref} aria-hidden inert>
-          {/* ── The visitor's page: real widget, Give-feedback path ── */}
+          {/* ── The visitor's page: real widget, the one form ── */}
           <div className={`co-widgetcol`}>
             <div className={`co-page`}>
               <span className={`co-page-bar is-w60`} />
               <span className={`co-page-bar is-w80`} />
               <span className={`co-page-bar is-w40`} />
-              {!at(B.home) && (
+              {!at(B.form) && (
                 <span className={`co-fab`}>
                   <MegaphoneIcon size={16} />
                 </span>
               )}
-              {at(B.home) && (
+              {at(B.form) && (
                 <motion.div className={`co-panel`} {...pop}>
                   <WidgetPanelDemo
                     view={widgetView}
-                    title={reduced ? `` : typed}
-                    details={reduced || typedDone ? REPORT_DETAILS : ``}
+                    message={reduced ? REPORT_MESSAGE : typed}
                     emailFilled={reduced || typedDone}
                     caret={typing && !typedDone}
                   />
@@ -146,26 +138,6 @@ export function CollabSection() {
               interactive={false}
               injectedIssue={at(B.filed) ? WIDGET_FILED_ISSUE : null}
             />
-          </div>
-        </div>
-
-        {/* ── Helpdesk subsection: the Support conversation view ── */}
-        <div className={`co-help`}>
-          <motion.div className={`co-help-copy`} {...sectionReveal}>
-            <h3 className={`co-help-title`}>
-              Stay in touch with your customers with our helpdesk
-            </h3>
-            <p className={`co-help-sub`}>
-              Support requests from the widget open email conversations in a
-              shared inbox, and any ticket escalates to an issue in one click.
-            </p>
-            <span className={`co-pro`}>
-              <span className={`co-pro-badge`}>Team</span> Helpdesk is included
-              in the Team plan.
-            </span>
-          </motion.div>
-          <div className={`co-help-demo`} aria-hidden inert>
-            <HelpdeskChatDemo />
           </div>
         </div>
 

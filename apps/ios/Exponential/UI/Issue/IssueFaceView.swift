@@ -316,6 +316,7 @@ struct IssueFaceView: View {
                 CommentThreadView(
                     issue: issue,
                     singleMemberTeam: vm.singleMemberTeam,
+                    reporterName: vm.widgetSubmission?.reporterName,
                     editEditor: $commentEditEditor,
                     replyTarget: $commentReplyTarget
                 )
@@ -365,7 +366,9 @@ struct IssueFaceView: View {
                     trailing: barTrailing,
                     onOpenProperties: { activeSheet = .properties },
                     onStartCoding: onStartCoding,
-                    replyTarget: $commentReplyTarget
+                    replyTarget: $commentReplyTarget,
+                    // SLOP-4: the reporter-reply pill keys off the submission.
+                    widgetSubmission: vm.widgetSubmission
                 )
             }
         }

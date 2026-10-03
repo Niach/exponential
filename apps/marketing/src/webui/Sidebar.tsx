@@ -2,14 +2,13 @@
    Mirrors apps/web components/team/sidebar.tsx on the shadcn sidebar
    primitive: a 16rem (296px) transparent rail divided from the main pane by
    one hairline. Header = team switcher + icon-only Search and New-issue
-   actions (EXP-449). Nav = Inbox / Support / Devices / Actions /
+   actions (EXP-449). Nav = Inbox / Devices / Actions /
    Reviews and Agent badged with DOTS (EXP-699/EXP-880). Then the Boards group,
    and a footer with Getting started and the user row + settings gear. */
 import { INBOX_ITEMS, REVIEWS } from "../ide/data"
 import { useWeb, type WebNav } from "./state"
 import {
   AGENTS_RUNNING,
-  SUPPORT_THREADS,
   WEB_PROJECTS,
   WEB_USER,
   type DemoProjectIcon,
@@ -29,7 +28,6 @@ import {
   IcSearch,
   IcSettings,
   IcSparkles,
-  IcSupport,
   IcTeamSwitcher,
   type WebIcon,
 } from "./icons"
@@ -77,16 +75,12 @@ function NavItem({
 }
 
 export function WebSidebar() {
-  const { nav, setNav, closeIssue, inboxRead, threadRead } = useWeb()
+  const { nav, setNav, closeIssue, inboxRead } = useWeb()
 
   const unread = INBOX_ITEMS.filter((n) => n.unread && !inboxRead.has(n.id)).length
   /* DISTINCT open PRs, like the real ReviewsOpenBadge (a batch PR linked to
      several issues counts once) — only its presence lights the dot. */
   const hasOpenPrs = new Set(REVIEWS.map((r) => r.prNumber)).size > 0
-  /* Unread helpdesk activity in THIS team, like SupportUnreadBadge. */
-  const supportUnread = SUPPORT_THREADS.some(
-    (t) => t.unread && !threadRead.has(t.id)
-  )
 
   const go = (target: WebNav) => () => {
     setNav(target)
@@ -115,7 +109,7 @@ export function WebSidebar() {
       <div className="web-side-rule" />
 
       <div className="web-side-scroll">
-        {/* EXP-699/EXP-818 nav order: Inbox, Support, Devices, Actions,
+        {/* EXP-699/EXP-818 nav order: Inbox, Devices, Actions,
             Reviews, Agent. Badges are dots (primary for unread,
             green for live). */}
         <div className="web-side-group">
@@ -125,13 +119,6 @@ export function WebSidebar() {
             active={nav === `inbox`}
             onClick={go(`inbox`)}
             dot={unread > 0 ? `primary` : undefined}
-          />
-          <NavItem
-            icon={<IcSupport size={ICON_4} />}
-            label="Support"
-            active={nav === `support`}
-            onClick={go(`support`)}
-            dot={supportUnread ? `primary` : undefined}
           />
           <NavItem
             icon={<IcDevices size={ICON_4} />}

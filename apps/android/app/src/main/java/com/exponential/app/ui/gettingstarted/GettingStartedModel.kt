@@ -2,8 +2,8 @@ package com.exponential.app.ui.gettingstarted
 
 // The pure state model behind the getting-started checklist — a 1:1 port of
 // web's `components/getting-started/getting-started-model.ts`
-// (`deriveEntryStates`) minus the three web-only entries (widget, helpdesk,
-// mcp), which mobile does not show. Kept free of Room, Hilt and Compose so
+// (`deriveEntryStates`) minus the two web-only entries (widget, mcp), which
+// mobile does not show. Kept free of Room, Hilt and Compose so
 // the order / lock / done rules are unit tested without a device.
 
 /** The seven steps mobile shows, in their single static display order. */

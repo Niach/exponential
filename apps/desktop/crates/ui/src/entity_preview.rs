@@ -6,8 +6,8 @@
 //! ([`steer::EntityRef`]) against the desktop's OWN synced store: the card
 //! per kind, and where a click goes. A kind whose row is not synced here
 //! (another team's board, a trashed one, a brand-new row the shape has not
-//! landed) has NO card and an inert chip — except `repository` and `thread`,
-//! which never sync and get a slim card over what the answer itself named.
+//! landed) has NO card and an inert chip — except `repository`, which never
+//! syncs and gets a slim card over what the answer itself named.
 //!
 //! The web twin is `components/entity-preview-card.tsx`; iOS/Android mirror
 //! the same per-kind content.
@@ -60,7 +60,6 @@ pub(crate) fn concept_icon(concept: &str) -> Option<ExpIcon> {
         "ui-team" => registry::UI_TEAM,
         "ui-invite" => registry::UI_INVITE,
         "nav-notifications" => registry::NAV_NOTIFICATIONS,
-        "nav-support" => registry::NAV_SUPPORT,
         "ui-attach" => registry::UI_ATTACH,
         "ui-checklist" => registry::UI_CHECKLIST,
         _ => return None,
@@ -162,16 +161,11 @@ pub(crate) enum EntityTarget {
 ///   (action), the Devices page, Settings (label, status,
 ///   member, invite, team) or the Inbox (notification);
 /// * a comment / an attachment opens the ISSUE it belongs to;
-/// * `repository` and `thread` never sync: a repository opens Settings
-///   (where repositories live), a thread its Support conversation (the screen
-///   fetches it);
+/// * `repository` never syncs: it opens Settings (where repositories live);
 /// * a `list` chip is hover-only; an unsynced or unknown ref is inert.
 pub(crate) fn target_for(kind: &str, id: &str, facts: &EntityRowFacts) -> Option<EntityTarget> {
     match kind {
         "repository" => return Some(EntityTarget::Screen(Screen::Settings)),
-        "thread" => {
-            return Some(EntityTarget::Screen(Screen::SupportThread { thread_id: id.to_string() }))
-        }
         "list" => return None,
         _ => {}
     }
@@ -264,7 +258,7 @@ fn kind_glyph(r#ref: &EntityRef, cx: &App) -> Icon {
         .text_color(cx.theme().muted_foreground)
 }
 
-/// The slim card for a kind that never syncs (`repository`, `thread`) or
+/// The slim card for a kind that never syncs (`repository`) or
 /// whose row is not here: the ref's own title over its noun.
 fn slim_card(r#ref: &EntityRef, cx: &App) -> AnyElement {
     let label = rule::entity_chip_label(&view(r#ref));
@@ -303,7 +297,7 @@ pub(crate) fn card(r#ref: &EntityRef, members: &[EntityRef], cx: &mut App) -> Op
         "invite" => invite_card(&r#ref.id, cx),
         "notification" => notification_card(&r#ref.id, cx),
         "attachment" => attachment_card(&r#ref.id, cx),
-        "repository" | "thread" => Some(slim_card(r#ref, cx)),
+        "repository" => Some(slim_card(r#ref, cx)),
         "list" => Some(list_card(r#ref, members, cx)),
         _ => None,
     }
@@ -941,10 +935,9 @@ mod tests {
             target_for("repository", "r-1", &none),
             Some(EntityTarget::Screen(Screen::Settings))
         );
-        assert_eq!(
-            target_for("thread", "th-1", &none),
-            Some(EntityTarget::Screen(Screen::SupportThread { thread_id: "th-1".into() }))
-        );
+        // SLOP-4: the helpdesk's `thread` kind left the contract — an old
+        // answer naming one is an unknown kind now, inert.
+        assert_eq!(target_for("thread", "th-1", &none), None);
     }
 
     #[test]

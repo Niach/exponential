@@ -184,13 +184,6 @@
       "icon": "nav-notifications"
     },
     {
-      "name": "a thread",
-      "ref": { "kind": "thread", "id": "th-1", "title": "Login loops on Safari" },
-      "label": "Login loops on Safari",
-      "detail": null,
-      "icon": "nav-support"
-    },
-    {
       "name": "an attachment reads its file name",
       "ref": { "kind": "attachment", "id": "at-1", "title": "trace.png" },
       "label": "trace.png",

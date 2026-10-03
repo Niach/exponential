@@ -32,7 +32,7 @@ import androidx.room.TypeConverters
     // v2: added attachments.width / attachments.height (parity with iOS).
     // v3: added 8 agent/PR fields on issues + notifications / issue_subscribers
     //     / issue_events tables (parity with web; the 11th/12th/13th shapes).
-    // v4: added users.is_agent (widget helpdesk bot marker).
+    // v4: added users.is_agent (widget support-bot marker).
     // v5: agent_runs table (14th shape) — removed in v6.
     // v6: hard cut — dropped agent_runs + agent/google-calendar issue columns,
     //     added coding_sessions (the new 14th shape) + issues.duplicate_of_id,
@@ -89,11 +89,12 @@ import androidx.room.TypeConverters
     //      (team_id / board_id on every child table) renamed to the new server
     //      contract. Destructive fallback wipes + resyncs from the renamed
     //      shapes.
-    // v21: teams.helpdesk_enabled (EXP-180 helpdesk) — the synced team-level
+    // v21: the team-level support switch column (EXP-180, gone in v80) — the synced team-level
     //      flag gating the Support inbox. Additive column on the existing teams
     //      shape; destructive fallback wipes + resyncs.
-    // v22: notifications.team_id (EXP-180 helpdesk) — nullable, set on
-    //      issue-less support_reply rows so the inbox can group them per team.
+    // v22: notifications.team_id (EXP-180) — nullable, set on
+    //      issue-less rows (EXP-180's support fan-out, gone since SLOP-4) so
+    //      the inbox can group them per team.
     //      Additive column on the existing notifications shape; destructive
     //      fallback wipes + resyncs.
     // v23: team_invites.email (EXP-188 invite-by-email) — optional invited
@@ -369,8 +370,15 @@ import androidx.room.TypeConverters
     //      workflow_node_id / workflow_role. issues.pr_base_branch STAYS.
     //      The FIRST explicit migration ([MIGRATION_78_79]): every other row
     //      and every other shape's offset survives, no resync.
+    // v80 (SLOP-4): a widget submission IS an issue and the reporter
+    //      conversation is its comments — comments.author_id goes NULLABLE
+    //      (a reporter's comment has no users row) and comments gains
+    //      `audience` (team | reporter, NOT NULL, existing rows = team);
+    //      the EXP-180 team support switch drops (the Support tab is gone). Explicit
+    //      [MIGRATION_79_80]: both tables are rebuilt in place, every row
+    //      and every shape offset survives, no resync.
     // Older versions still fall back to destructive + resync (DatabaseHolder).
-    version = 79,
+    version = 80,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

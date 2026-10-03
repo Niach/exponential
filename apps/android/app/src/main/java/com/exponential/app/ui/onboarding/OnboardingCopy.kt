@@ -26,7 +26,7 @@ object OnboardingCopy {
 
     const val INVITE_TITLE = "Invite your teammates"
     const val INVITE_SUBTITLE =
-        "Teammates share boards, reviews and the support inbox. You can also invite people later from team settings."
+        "Teammates share boards, reviews and the inbox. You can also invite people later from team settings."
     const val INVITE_GENERATE = "Generate invite link"
     const val INVITE_COPY = "Copy link"
     const val INVITE_COPIED = "Copied"

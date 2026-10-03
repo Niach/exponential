@@ -26,7 +26,6 @@ function PoweredBy() {
   )
 }
 const checkIconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>`
-const backIconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>`
 // Lucide `timer`, inlined like the rest (the widget bundles no icon set).
 const timerIconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/></svg>`
 
@@ -40,38 +39,27 @@ function captureDelayLabel(delay: CaptureDelay): string {
   return delay === 0 ? `Off` : `${delay}s`
 }
 
-// Which pane the panel shows: the card home (only when both modes are
-// enabled) or one of the two forms directly.
-export type PanelView = `home` | `feedback` | `support`
-
-const viewTitles: Record<PanelView, string> = {
-  home: `Hi there 👋`,
-  feedback: `Send feedback`,
-  support: `Get help`,
-}
+// SLOP-4: ONE form. Everything a visitor sends becomes an issue on the
+// widget's board; the title comes from the message's first line.
+const panelTitle = `Send feedback`
 
 export function Panel(props: {
   phase: `open` | `submitting` | `success`
   // Mounted-but-invisible while the annotation editor is open, so the typed
   // form fields survive.
   hidden?: boolean
-  view: PanelView
-  // True when both modes exist (the home screen is reachable).
-  canGoBack: boolean
-  onPickMode(mode: `feedback` | `support`): void
-  onBack(): void
-  successFlavor: `feedback` | `support`
+  // The created issue's identifier ("Filed as EXP-42").
   successIdentifier: string | null
   // Absolute issue URL. Current servers always send null (EXP-180 removed
   // public boards); kept so the card still links when an older self-hosted
   // server sends one.
   successUrl: string | null
-  // Support mode only: whether the confirmation email carrying the magic
-  // conversation link actually went out. `false` swaps the success copy for
-  // an honest one — the link itself is NEVER shown inline (it is the
-  // reporter's credential and this page is not an authenticated surface).
-  // `null` (feedback, or a server that doesn't report it) keeps the
-  // optimistic copy.
+  // Whether the confirmation email carrying the magic conversation link
+  // went out: `true` promises it, `false` swaps the success copy for an
+  // honest one — the link itself is NEVER shown inline (it is the reporter's
+  // credential and this page is not an authenticated surface) — and `null`
+  // (no email given, or a server that doesn't report it) says nothing about
+  // email at all.
   successEmailDelivered: boolean | null
   // The resolved launcher position — the panel anchors itself to the same
   // region (EXP-569).
@@ -86,9 +74,8 @@ export function Panel(props: {
   uploadError: string | null
   identityEmail: string | null
   emailRequired: boolean
-  // False hides the feedback form's email input (EXP-244 owner toggle) —
-  // except App re-enables it while recovering from a rejected identity
-  // email. Support mode ignores this: email is the reply channel there.
+  // False hides the email input (EXP-244 owner toggle) — except App
+  // re-enables it while recovering from a rejected identity email.
   collectEmail: boolean
   identityName: string | null
   collectName: boolean
@@ -111,8 +98,7 @@ export function Panel(props: {
   onAddImages(files: File[]): void
   onRemoveUpload(id: string): void
   onSubmit(form: {
-    title: string
-    description: string
+    message: string
     email: string
     name: string
     customValues: Record<string, string>
@@ -120,32 +106,22 @@ export function Panel(props: {
     // The honeypot's value — empty for every real reporter.
     website: string
   }): Promise<string | null>
-  onSubmitSupport(form: {
-    message: string
-    email: string
-    name: string
-    website: string
-  }): Promise<string | null>
 }) {
-  const [title, setTitle] = useState(``)
-  const [description, setDescription] = useState(``)
+  const [message, setMessage] = useState(``)
   const [email, setEmail] = useState(``)
   const [name, setName] = useState(``)
-  const [message, setMessage] = useState(``)
-  const [supportEmail, setSupportEmail] = useState(``)
   const [customValues, setCustomValues] = useState<Record<string, string>>({})
   const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([])
   // Honeypot (REV2-69): the server drops any submission that carries a
   // non-empty `website`, but the field was never rendered — so DOM-walking
-  // bots had nothing to fall for. Shared by both forms; a real reporter can
-  // neither see nor tab into it.
+  // bots had nothing to fall for. A real reporter can neither see nor tab
+  // into it.
   const [website, setWebsite] = useState(``)
   const [error, setError] = useState<string | null>(null)
   // True while picture files are dragged over the feedback form — drives the
   // drop-target highlight.
   const [dragActive, setDragActive] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
-  const titleRef = useRef<HTMLInputElement>(null)
   const messageRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const feedbackFormRef = useRef<HTMLFormElement>(null)
@@ -185,13 +161,12 @@ export function Panel(props: {
       feedbackForm.removeEventListener(`dragleave`, onDragLeave)
       feedbackForm.removeEventListener(`drop`, onDrop)
     }
-  }, [props.view])
+  }, [])
 
   useEffect(() => {
     setError(null)
-    if (props.view === `feedback`) titleRef.current?.focus()
-    if (props.view === `support`) messageRef.current?.focus()
-  }, [props.view])
+    messageRef.current?.focus()
+  }, [])
 
   // Escape closes; Tab cycles within the panel (shadow-root focus trap).
   useEffect(() => {
@@ -240,10 +215,10 @@ export function Panel(props: {
     event.preventDefault()
     if (props.phase === `submitting` || props.flattening) return
     setError(null)
-    const trimmedTitle = title.trim()
-    if (!trimmedTitle) {
-      setError(`Add a short title for the report.`)
-      titleRef.current?.focus()
+    const trimmedMessage = message.trim()
+    if (!trimmedMessage) {
+      setError(`Tell us what happened.`)
+      messageRef.current?.focus()
       return
     }
     if (!requireTypedName()) return
@@ -258,8 +233,7 @@ export function Panel(props: {
       }
     }
     const failure = await props.onSubmit({
-      title: trimmedTitle,
-      description: description.trim(),
+      message: trimmedMessage,
       email: email.trim(),
       name: name.trim(),
       customValues,
@@ -275,32 +249,6 @@ export function Panel(props: {
         ? previous.filter((selected) => selected !== id)
         : [...previous, id]
     )
-  }
-
-  const submitSupport = async (event: Event) => {
-    event.preventDefault()
-    if (props.phase === `submitting`) return
-    setError(null)
-    const trimmedMessage = message.trim()
-    if (!trimmedMessage) {
-      setError(`Tell us what you need help with.`)
-      messageRef.current?.focus()
-      return
-    }
-    if (!requireTypedName()) return
-    // Email is the reply channel — always required in support mode.
-    const emailValue = props.identityEmail ?? supportEmail.trim()
-    if (!emailValue) {
-      setError(`Your email is required so we can reply.`)
-      return
-    }
-    const failure = await props.onSubmitSupport({
-      message: trimmedMessage,
-      email: emailValue,
-      name: name.trim(),
-      website,
-    })
-    if (failure) setError(failure)
   }
 
   const nameField = (idPrefix: string) =>
@@ -369,48 +317,42 @@ export function Panel(props: {
         className={panelClass}
         role="dialog"
         aria-modal="true"
-        aria-label={
-          props.successFlavor === `support` ? `Request sent` : `Feedback sent`
-        }
+        aria-label="Feedback sent"
       >
         <div className="exp-success">
           <div
             className="exp-success-icon"
             dangerouslySetInnerHTML={{ __html: checkIconSvg }}
           />
-          <div className="exp-success-title">
-            {props.successFlavor === `support`
-              ? `We got your request!`
-              : `Thanks for the report!`}
-          </div>
-          <div className="exp-success-sub">
-            {props.successFlavor === `support` ? (
-              props.successEmailDelivered === false ? (
-                `We couldn't send the confirmation email. The team has received your message and will follow up.`
-              ) : (
-                `Check your email. We sent you a link to track the conversation and reply.`
-              )
-            ) : props.successIdentifier ? (
-              props.successUrl ? (
-                <>
-                  Filed as{` `}
-                  <a
-                    className="exp-success-link"
-                    href={props.successUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    {props.successIdentifier}
-                  </a>
-                  .
-                </>
-              ) : (
-                `Filed as ${props.successIdentifier}.`
-              )
-            ) : (
-              `Your feedback has been sent.`
-            )}
-          </div>
+          <div className="exp-success-title">Thanks, your report is in.</div>
+          {(props.successIdentifier || props.successEmailDelivered !== null) && (
+            <div className="exp-success-sub">
+              {props.successIdentifier &&
+                (props.successUrl ? (
+                  <>
+                    Filed as{` `}
+                    <a
+                      className="exp-success-link"
+                      href={props.successUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {props.successIdentifier}
+                    </a>
+                    .
+                  </>
+                ) : (
+                  `Filed as ${props.successIdentifier}.`
+                ))}
+              {props.successIdentifier &&
+                props.successEmailDelivered !== null &&
+                ` `}
+              {props.successEmailDelivered === true &&
+                `We emailed you a link to follow the conversation.`}
+              {props.successEmailDelivered === false &&
+                `We could not send the follow-up email; your report still reached the team.`}
+            </div>
+          )}
         </div>
         <PoweredBy />
       </div>
@@ -424,20 +366,11 @@ export function Panel(props: {
       style={props.hidden ? { display: `none` } : undefined}
       role="dialog"
       aria-modal="true"
-      aria-label={viewTitles[props.view]}
+      aria-label={panelTitle}
     >
       <div className="exp-header">
         <div className="exp-header-lead">
-          {props.canGoBack && props.view !== `home` && (
-            <button
-              type="button"
-              className="exp-back"
-              aria-label="Back"
-              onClick={props.onBack}
-              dangerouslySetInnerHTML={{ __html: backIconSvg }}
-            />
-          )}
-          <h2>{viewTitles[props.view]}</h2>
+          <h2>{panelTitle}</h2>
         </div>
         <button
           className="exp-close"
@@ -447,322 +380,233 @@ export function Panel(props: {
         />
       </div>
 
-      {props.view === `home` && (
-        <div className="exp-body">
-          <div className="exp-home-sub">How can we help?</div>
-          <button
-            type="button"
-            className="exp-mode-card"
-            onClick={() => props.onPickMode(`feedback`)}
-          >
-            <span className="exp-mode-title">Give feedback</span>
-            <span className="exp-mode-sub">
-              Report a bug or share an idea, screenshot included.
-            </span>
-          </button>
-          <button
-            type="button"
-            className="exp-mode-card"
-            onClick={() => props.onPickMode(`support`)}
-          >
-            <span className="exp-mode-title">Get help</span>
-            <span className="exp-mode-sub">
-              Ask us anything. We'll reply by email.
-            </span>
-          </button>
-        </div>
-      )}
-
-      {props.view === `support` && (
-        <form className="exp-body" onSubmit={submitSupport}>
-          {honeypotField(`exp-support`)}
-          <div className="exp-field">
-            <label htmlFor="exp-message">How can we help?</label>
-            <textarea
-              id="exp-message"
-              ref={messageRef}
-              className="exp-textarea"
-              placeholder="Describe your question or problem…"
-              maxLength={10_000}
-              value={message}
-              onInput={(event) =>
-                setMessage((event.target as HTMLTextAreaElement).value)
-              }
-            />
-          </div>
-          {nameField(`exp-support`)}
-          {!props.identityEmail && (
-            <div className="exp-field">
-              <label htmlFor="exp-support-email">Email</label>
-              <input
-                id="exp-support-email"
-                className="exp-input"
-                type="email"
-                placeholder="you@example.com"
-                maxLength={320}
-                value={supportEmail}
-                onInput={(event) =>
-                  setSupportEmail((event.target as HTMLInputElement).value)
-                }
+      <form
+        ref={feedbackFormRef}
+        className={`exp-body${dragActive ? ` exp-body-drag` : ``}`}
+        onSubmit={submit}
+        // Pasting picture files anywhere on the form attaches them
+        // (FEED-5); drops are wired natively in the effect above.
+        onPaste={(event) => {
+          const files = Array.from(event.clipboardData?.files ?? []).filter(
+            (file) => file.type.startsWith(`image/`)
+          )
+          if (files.length === 0) return
+          event.preventDefault()
+          props.onAddImages(files)
+        }}
+      >
+        {honeypotField(`exp`)}
+        <div className="exp-shot">
+          {props.screenshot ? (
+            <>
+              <img
+                src={props.screenshot.objectUrl}
+                alt="Screenshot of this page"
               />
-            </div>
-          )}
-          {error && <div className="exp-error">{error}</div>}
-          <div className="exp-footer" style={{ padding: `0`, border: `none` }}>
-            <button
-              type="submit"
-              className="exp-submit"
-              disabled={props.phase === `submitting`}
-            >
-              {props.phase === `submitting` ? `Sending…` : `Send request`}
-            </button>
-          </div>
-        </form>
-      )}
-
-      {props.view === `feedback` && (
-        <form
-          ref={feedbackFormRef}
-          className={`exp-body${dragActive ? ` exp-body-drag` : ``}`}
-          onSubmit={submit}
-          // Pasting picture files anywhere on the form attaches them
-          // (FEED-5); drops are wired natively in the effect above.
-          onPaste={(event) => {
-            const files = Array.from(event.clipboardData?.files ?? []).filter(
-              (file) => file.type.startsWith(`image/`)
-            )
-            if (files.length === 0) return
-            event.preventDefault()
-            props.onAddImages(files)
-          }}
-        >
-          {honeypotField(`exp`)}
-          <div className="exp-shot">
-            {props.screenshot ? (
-              <>
-                <img
-                  src={props.screenshot.objectUrl}
-                  alt="Screenshot of this page"
-                />
-                <div className="exp-shot-actions">
-                  <button
-                    type="button"
-                    className="exp-chip"
-                    onClick={props.onAnnotate}
-                  >
-                    Annotate
-                  </button>
-                  <button
-                    type="button"
-                    className="exp-chip"
-                    onClick={props.onRetake}
-                  >
-                    Retake
-                  </button>
-                  <button
-                    type="button"
-                    className="exp-chip"
-                    onClick={props.onRemoveScreenshot}
-                  >
-                    Remove
-                  </button>
-                </div>
-              </>
-            ) : (
-              <div className="exp-shot-empty">
-                <span>
-                  {props.captureFailed
-                    ? `Screenshot couldn't be captured.`
-                    : `Attach a screenshot of this page.`}
-                </span>
-                <div className="exp-shot-empty-actions">
-                  <div className="exp-chip-group">
-                    <button
-                      type="button"
-                      className="exp-chip"
-                      onClick={props.onCapture}
-                    >
-                      {props.captureFailed ? `Try again` : `Take screenshot`}
-                    </button>
-                    <button
-                      type="button"
-                      className="exp-chip exp-chip-delay"
-                      aria-pressed={props.captureDelay > 0}
-                      aria-label={`Screenshot delay: ${captureDelayLabel(props.captureDelay)}`}
-                      title="Delay the capture to catch menus and popups"
-                      onClick={props.onCycleCaptureDelay}
-                    >
-                      <span
-                        style={{ display: `flex` }}
-                        // eslint-disable-next-line react/no-danger
-                        dangerouslySetInnerHTML={{ __html: timerIconSvg }}
-                      />
-                      {captureDelayLabel(props.captureDelay)}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="exp-images">
-            {props.uploads.map((upload) => (
-              <div className="exp-thumb" key={upload.id}>
-                <img src={upload.objectUrl} alt={upload.filename} />
+              <div className="exp-shot-actions">
                 <button
                   type="button"
-                  className="exp-thumb-remove"
-                  aria-label={`Remove ${upload.filename}`}
-                  onClick={() => props.onRemoveUpload(upload.id)}
+                  className="exp-chip"
+                  onClick={props.onAnnotate}
                 >
-                  ×
+                  Annotate
+                </button>
+                <button
+                  type="button"
+                  className="exp-chip"
+                  onClick={props.onRetake}
+                >
+                  Retake
+                </button>
+                <button
+                  type="button"
+                  className="exp-chip"
+                  onClick={props.onRemoveScreenshot}
+                >
+                  Remove
                 </button>
               </div>
-            ))}
-            {props.uploads.length < maxUploadedImages && (
+            </>
+          ) : (
+            <div className="exp-shot-empty">
+              <span>
+                {props.captureFailed
+                  ? `Screenshot couldn't be captured.`
+                  : `Attach a screenshot of this page.`}
+              </span>
+              <div className="exp-shot-empty-actions">
+                <div className="exp-chip-group">
+                  <button
+                    type="button"
+                    className="exp-chip"
+                    onClick={props.onCapture}
+                  >
+                    {props.captureFailed ? `Try again` : `Take screenshot`}
+                  </button>
+                  <button
+                    type="button"
+                    className="exp-chip exp-chip-delay"
+                    aria-pressed={props.captureDelay > 0}
+                    aria-label={`Screenshot delay: ${captureDelayLabel(props.captureDelay)}`}
+                    title="Delay the capture to catch menus and popups"
+                    onClick={props.onCycleCaptureDelay}
+                  >
+                    <span
+                      style={{ display: `flex` }}
+                      // eslint-disable-next-line react/no-danger
+                      dangerouslySetInnerHTML={{ __html: timerIconSvg }}
+                    />
+                    {captureDelayLabel(props.captureDelay)}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="exp-images">
+          {props.uploads.map((upload) => (
+            <div className="exp-thumb" key={upload.id}>
+              <img src={upload.objectUrl} alt={upload.filename} />
               <button
                 type="button"
-                className="exp-add-image"
-                title="Attach pictures — you can also drop or paste them"
-                onClick={() => fileInputRef.current?.click()}
+                className="exp-thumb-remove"
+                aria-label={`Remove ${upload.filename}`}
+                onClick={() => props.onRemoveUpload(upload.id)}
               >
-                Add image
+                ×
               </button>
-            )}
+            </div>
+          ))}
+          {props.uploads.length < maxUploadedImages && (
+            <button
+              type="button"
+              className="exp-add-image"
+              title="Attach pictures — you can also drop or paste them"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              Add image
+            </button>
+          )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={acceptedUploadImageTypes.join(`,`)}
+            multiple
+            hidden
+            onChange={(event) => {
+              const input = event.target as HTMLInputElement
+              props.onAddImages(Array.from(input.files ?? []))
+              // Reset so picking the same file again re-fires change.
+              input.value = ``
+            }}
+          />
+        </div>
+        {props.uploadError && (
+          <div className="exp-error">{props.uploadError}</div>
+        )}
+
+        <div className="exp-field">
+          <label htmlFor="exp-message">What happened?</label>
+          <textarea
+            id="exp-message"
+            ref={messageRef}
+            className="exp-textarea"
+            placeholder="Describe what you saw, or what you'd like to see."
+            maxLength={10_000}
+            value={message}
+            onInput={(event) =>
+              setMessage((event.target as HTMLTextAreaElement).value)
+            }
+          />
+        </div>
+
+        {props.labels.length > 0 && (
+          <div className="exp-field">
+            <label id="exp-labels-label">What is this about?</label>
+            <div
+              className="exp-labels"
+              role="group"
+              aria-labelledby="exp-labels-label"
+            >
+              {props.labels.map((label) => (
+                <button
+                  type="button"
+                  key={label.id}
+                  className="exp-label-chip"
+                  aria-pressed={selectedLabelIds.includes(label.id)}
+                  onClick={() => toggleLabel(label.id)}
+                >
+                  <span
+                    className="exp-label-dot"
+                    style={{ background: label.color }}
+                  />
+                  {label.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {props.customFields.map((field) => (
+          <div className="exp-field" key={field.key}>
+            <label htmlFor={`exp-custom-${field.key}`}>
+              {field.required ? field.label : `${field.label} (optional)`}
+            </label>
             <input
-              ref={fileInputRef}
-              type="file"
-              accept={acceptedUploadImageTypes.join(`,`)}
-              multiple
-              hidden
-              onChange={(event) => {
-                const input = event.target as HTMLInputElement
-                props.onAddImages(Array.from(input.files ?? []))
-                // Reset so picking the same file again re-fires change.
-                input.value = ``
+              id={`exp-custom-${field.key}`}
+              className="exp-input"
+              type="text"
+              maxLength={255}
+              value={ownCustomValue(customValues, field.key)}
+              onInput={(event) => {
+                const value = (event.target as HTMLInputElement).value
+                setCustomValues((previous) => ({
+                  ...previous,
+                  [field.key]: value,
+                }))
               }}
             />
           </div>
-          {props.uploadError && (
-            <div className="exp-error">{props.uploadError}</div>
-          )}
+        ))}
 
+        {nameField(`exp`)}
+
+        {props.collectEmail && !props.identityEmail && (
           <div className="exp-field">
-            <label htmlFor="exp-title">Title</label>
+            <label htmlFor="exp-email">
+              {props.emailRequired ? `Email` : `Email (optional)`}
+            </label>
             <input
-              id="exp-title"
-              ref={titleRef}
+              id="exp-email"
               className="exp-input"
-              placeholder="Something's broken on this page…"
-              maxLength={500}
-              value={title}
+              type="email"
+              placeholder="you@example.com"
+              maxLength={320}
+              value={email}
               onInput={(event) =>
-                setTitle((event.target as HTMLInputElement).value)
+                setEmail((event.target as HTMLInputElement).value)
               }
             />
           </div>
+        )}
 
-          <div className="exp-field">
-            <label htmlFor="exp-description">Details</label>
-            <textarea
-              id="exp-description"
-              className="exp-textarea"
-              placeholder="What happened? What did you expect?"
-              maxLength={10_000}
-              value={description}
-              onInput={(event) =>
-                setDescription((event.target as HTMLTextAreaElement).value)
-              }
-            />
-          </div>
+        {error && <div className="exp-error">{error}</div>}
 
-          {props.labels.length > 0 && (
-            <div className="exp-field">
-              <label id="exp-labels-label">What is this about?</label>
-              <div
-                className="exp-labels"
-                role="group"
-                aria-labelledby="exp-labels-label"
-              >
-                {props.labels.map((label) => (
-                  <button
-                    type="button"
-                    key={label.id}
-                    className="exp-label-chip"
-                    aria-pressed={selectedLabelIds.includes(label.id)}
-                    onClick={() => toggleLabel(label.id)}
-                  >
-                    <span
-                      className="exp-label-dot"
-                      style={{ background: label.color }}
-                    />
-                    {label.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {props.customFields.map((field) => (
-            <div className="exp-field" key={field.key}>
-              <label htmlFor={`exp-custom-${field.key}`}>
-                {field.required ? field.label : `${field.label} (optional)`}
-              </label>
-              <input
-                id={`exp-custom-${field.key}`}
-                className="exp-input"
-                type="text"
-                maxLength={255}
-                value={ownCustomValue(customValues, field.key)}
-                onInput={(event) => {
-                  const value = (event.target as HTMLInputElement).value
-                  setCustomValues((previous) => ({
-                    ...previous,
-                    [field.key]: value,
-                  }))
-                }}
-              />
-            </div>
-          ))}
-
-          {nameField(`exp`)}
-
-          {props.collectEmail && !props.identityEmail && (
-            <div className="exp-field">
-              <label htmlFor="exp-email">
-                {props.emailRequired ? `Email` : `Email (optional)`}
-              </label>
-              <input
-                id="exp-email"
-                className="exp-input"
-                type="email"
-                placeholder="you@example.com"
-                maxLength={320}
-                value={email}
-                onInput={(event) =>
-                  setEmail((event.target as HTMLInputElement).value)
-                }
-              />
-            </div>
-          )}
-
-          {error && <div className="exp-error">{error}</div>}
-
-          <div className="exp-footer" style={{ padding: `0`, border: `none` }}>
-            <button
-              type="submit"
-              className="exp-submit"
-              disabled={props.phase === `submitting` || props.flattening}
-            >
-              {props.phase === `submitting`
-                ? `Sending…`
-                : props.flattening
-                  ? `Preparing screenshot…`
-                  : `Send feedback`}
-            </button>
-          </div>
-        </form>
-      )}
+        <div className="exp-footer" style={{ padding: `0`, border: `none` }}>
+          <button
+            type="submit"
+            className="exp-submit"
+            disabled={props.phase === `submitting` || props.flattening}
+          >
+            {props.phase === `submitting`
+              ? `Sending…`
+              : props.flattening
+                ? `Preparing screenshot…`
+                : `Send feedback`}
+          </button>
+        </div>
+      </form>
       <PoweredBy />
     </div>
   )

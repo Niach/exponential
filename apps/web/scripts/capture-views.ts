@@ -42,7 +42,6 @@ import {
 import { launchContext, login, settle, shot, waitForAnchor } from "./lib/capture-web"
 import { RECIPES, recipeContext, type RecipeCtx } from "./lib/view-recipes"
 import type { NotificationReadState } from "./lib/demo-notifications"
-import type { ReporterPresenceState } from "./lib/demo-support-presence"
 import {
   DEMO_EMAIL,
   DEMO_INVITE_TOKEN,
@@ -115,7 +114,8 @@ interface Credentials {
 
 /**
  * The route placeholders that need the DATABASE, not a constant: the reporter's
- * magic link is an HMAC over a thread id that only exists after a seed, and the
+ * magic link is an HMAC over the seeded widget issue's id (minted only once the
+ * seed has planted that row and only with the server secret), and the
  * Agent composer's subjects (EXP-825: `?issues=$issueA,$issueB`, `&pr=$prIssue`)
  * are issue uuids the seed mints afresh every run. Kept out of `resolveRoute`
  * so the browser lane never imports the db layer unless a view it actually
@@ -333,29 +333,6 @@ async function resolveNotificationBaseline(): Promise<
 }
 
 /**
- * The same trade for the seeded reporter-presence stamp (EXP-812 — see
- * `lib/demo-support-presence.ts`): capturing `support-reporter` stamps it to
- * "now", which moves the right panel of every LATER `support-thread` frame.
- */
-async function resolveReporterPresenceBaseline(): Promise<
-  { restore: () => Promise<void> } | undefined
-> {
-  try {
-    const { snapshotReporterPresence, restoreReporterPresence } = await import(
-      `./lib/demo-support-presence`
-    )
-    const snapshot: readonly ReporterPresenceState[] = await snapshotReporterPresence()
-    if (snapshot.length === 0) return undefined
-    return { restore: () => restoreReporterPresence(snapshot) }
-  } catch (err) {
-    console.warn(
-      `  not pinning the reporter presence: ${err instanceof Error ? err.message : String(err)}`
-    )
-    return undefined
-  }
-}
-
-/**
  * The re-clock of the seeded "X ago" labels (EXP-913, `lib/demo-reclock.ts`).
  * Dynamic for the same reason as the baselines above; a host without a
  * database simply photographs whatever age the rows have reached.
@@ -402,7 +379,6 @@ async function main() {
   // Before the first view, so the baseline is the SEEDED state and not
   // whatever the first few captures already cleared.
   const notificationBaseline = await resolveNotificationBaseline()
-  const reporterPresenceBaseline = await resolveReporterPresenceBaseline()
   const reclock = await resolveReclock()
 
   const browser = await chromium.launch()
@@ -457,7 +433,6 @@ async function main() {
             // shutter opens. EXP-913: and at the seeded age of every "X ago".
             await reclock?.()
             await notificationBaseline?.restore()
-            await reporterPresenceBaseline?.restore()
 
             if (identity === `anonymous`) {
               throwaway = await launchContext(browser, geometry)
@@ -517,10 +492,6 @@ async function main() {
     }
   } finally {
     await browser.close()
-    // Once more at the end of the LANE: `support-reporter` is a browser-only
-    // view, and the desktop and native lanes photograph `support-thread` after
-    // this process has exited (EXP-812).
-    await reporterPresenceBaseline?.restore()
   }
 
   if (results.length === 0) {

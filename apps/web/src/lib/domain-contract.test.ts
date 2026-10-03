@@ -16,6 +16,7 @@ import {
   deviceIconValues,
   commentKindValues,
   commentSourceValues,
+  commentAudienceValues,
   notificationTypeValues,
   prStateValues,
   DEVICE_AGENT_DEFAULTS,
@@ -163,6 +164,12 @@ describe(`domain-contract parity`, () => {
   it(`comment source values match the contract (EXP-741)`, () => {
     expect([...commentSourceValues]).toEqual([
       ...contract.commentSource.values,
+    ])
+  })
+
+  it(`comment audience values match the contract (SLOP-4)`, () => {
+    expect([...commentAudienceValues]).toEqual([
+      ...contract.commentAudience.values,
     ])
   })
 

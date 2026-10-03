@@ -498,7 +498,7 @@ impl GeneralPane {
 
     /// EXP-1105: flip the team's synced `yolo_mode` through `teams.update`
     /// (owner-only server-side). No optimistic flip — the Electric echo moves
-    /// the switch, like the helpdesk toggle.
+    /// the switch.
     fn set_yolo_mode(&mut self, team_id: String, enabled: bool, cx: &mut gpui::Context<Self>) {
         if self.yolo_busy {
             return;

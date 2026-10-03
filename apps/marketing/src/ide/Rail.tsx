@@ -21,7 +21,6 @@ import {
   IcGitPullRequest,
   IcInbox,
   IcKanban,
-  IcLifeBuoy,
   IcMegaphone,
   IcMessageCircle,
   IcMonitor,
@@ -115,7 +114,6 @@ export function Rail({ compact = false }: { compact?: boolean }) {
       badge: unreadInbox ? <span className="ide-rail-dot is-primary" /> : undefined,
       onClick: go(`inbox`),
     },
-    { key: `support`, Icon: IcLifeBuoy, label: `Support` },
     { key: `devices`, Icon: IcMonitor, label: `Devices` },
     { key: `actions`, Icon: IcBot, label: `Actions` },
     {

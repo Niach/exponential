@@ -87,7 +87,7 @@ describe(`headless submit`, () => {
     stubFetch(enabledConfig)
     installSnippetStub()
     await importLoader()
-    const result = await window.ExponentialWidget!.submit({ title: `x` })
+    const result = await window.ExponentialWidget!.submit({ message: `x` })
     expect(result.ok).toBe(false)
     expect(result.error).toContain(`not initialized`)
   })
@@ -101,20 +101,26 @@ describe(`headless submit`, () => {
     window.ExponentialWidget!.setCustomData({ plan: `pro`, desk: `old` })
 
     const result = await window.ExponentialWidget!.submit({
-      title: `Broken thing`,
-      description: `Details`,
+      message: `Broken thing`,
       customData: { desk: `42b` },
     })
 
-    expect(result).toEqual({ ok: true, identifier: `EXP-9`, url: null })
+    expect(result).toEqual({
+      ok: true,
+      identifier: `EXP-9`,
+      url: null,
+      emailDelivered: null,
+    })
     expect(submitCalls.length).toBe(1)
     expect(submitCalls[0].url).toBe(
       `https://app.exponential.test/api/widget/submit`
     )
     const body = submitCalls[0].body
     expect(body.get(`key`)).toBe(testKey)
-    expect(body.get(`title`)).toBe(`Broken thing`)
-    expect(body.get(`description`)).toBe(`Details`)
+    expect(body.get(`message`)).toBe(`Broken thing`)
+    expect(body.get(`title`)).toBeNull()
+    expect(body.get(`description`)).toBeNull()
+    expect(body.get(`mode`)).toBeNull()
     expect(body.get(`email`)).toBe(`jane@acme.com`)
     expect(body.get(`name`)).toBe(`Jane`)
     expect(JSON.parse(body.get(`customData`) as string)).toEqual({
@@ -129,7 +135,7 @@ describe(`headless submit`, () => {
     window.ExponentialWidget!.identify({ email: `jane@acme.com` })
     const shot = new Blob([`png-bytes`], { type: `image/png` })
     const result = await window.ExponentialWidget!.submit({
-      title: `T`,
+      message: `T`,
       email: `other@acme.com`,
       name: `dani`,
       screenshot: shot,
@@ -148,7 +154,7 @@ describe(`headless submit`, () => {
     const plain = new Blob([`1`], { type: `image/png` })
     const named = new File([`2`], `shot.png`, { type: `image/png` })
     const result = await window.ExponentialWidget!.submit({
-      title: `T`,
+      message: `T`,
       images: [plain, `junk` as never, named, plain, plain],
     })
     expect(result.ok).toBe(true)
@@ -164,7 +170,7 @@ describe(`headless submit`, () => {
   it(`forwards payload labels, dropping non-string junk`, async () => {
     await boot(enabledConfig)
     const result = await window.ExponentialWidget!.submit({
-      title: `T`,
+      message: `T`,
       labels: [`l-1`, 7 as never, `l-2`],
     })
     expect(result.ok).toBe(true)
@@ -176,13 +182,28 @@ describe(`headless submit`, () => {
 
   it(`omits the labels field when the payload has none`, async () => {
     await boot(enabledConfig)
-    const result = await window.ExponentialWidget!.submit({ title: `T` })
+    const result = await window.ExponentialWidget!.submit({ message: `T` })
     expect(result.ok).toBe(true)
     expect(submitCalls[0].body.get(`labels`)).toBeNull()
   })
 
-  it(`routes mode: support to the support pipeline`, async () => {
-    await boot({ enabled: true, modes: [`feedback`, `support`] })
+  // SLOP-4: one submit. `description` is the pre-SLOP-4 alias of `message`,
+  // an explicit `title` is forwarded, and the old `mode` is ignored.
+  it(`reads a legacy description as the message`, async () => {
+    await boot(enabledConfig)
+    const result = await window.ExponentialWidget!.submit({
+      title: `Broken thing`,
+      description: `Details`,
+    })
+    expect(result.ok).toBe(true)
+    const body = submitCalls[0].body
+    expect(body.get(`message`)).toBe(`Details`)
+    expect(body.get(`title`)).toBe(`Broken thing`)
+    expect(body.get(`description`)).toBeNull()
+  })
+
+  it(`accepts and ignores a pre-SLOP-4 mode`, async () => {
+    await boot(enabledConfig)
     const result = await window.ExponentialWidget!.submit({
       mode: `support`,
       message: `Help me`,
@@ -190,32 +211,45 @@ describe(`headless submit`, () => {
     })
     expect(result.ok).toBe(true)
     const body = submitCalls[0].body
-    expect(body.get(`mode`)).toBe(`support`)
+    expect(body.get(`mode`)).toBeNull()
     expect(body.get(`message`)).toBe(`Help me`)
     expect(body.get(`email`)).toBe(`reporter@example.com`)
   })
 
-  it(`gates on the served modes`, async () => {
-    await boot({ enabled: true, modes: [`feedback`] })
+  it(`relays the server's emailDelivered verdict`, async () => {
+    await boot(enabledConfig)
+    submitResponse = () =>
+      new Response(
+        JSON.stringify({
+          ok: true,
+          identifier: `EXP-9`,
+          url: null,
+          emailDelivered: false,
+        }),
+        { status: 201 }
+      )
     const result = await window.ExponentialWidget!.submit({
-      mode: `support`,
-      message: `Help`,
-      email: `a@b.co`,
+      message: `x`,
+      email: `reporter@example.com`,
     })
-    expect(result).toMatchObject({ ok: false, code: `mode_unavailable` })
-    expect(submitCalls.length).toBe(0)
+    expect(result).toEqual({
+      ok: true,
+      identifier: `EXP-9`,
+      url: null,
+      emailDelivered: false,
+    })
   })
 
   it(`refuses when the config resolved disabled`, async () => {
     await boot({ enabled: false })
-    const result = await window.ExponentialWidget!.submit({ title: `x` })
+    const result = await window.ExponentialWidget!.submit({ message: `x` })
     expect(result).toMatchObject({ ok: false, code: `widget_disabled` })
     expect(submitCalls.length).toBe(0)
   })
 
   it(`fails open when the config fetch failed (server re-enforces)`, async () => {
     await boot(null)
-    const result = await window.ExponentialWidget!.submit({ title: `x` })
+    const result = await window.ExponentialWidget!.submit({ message: `x` })
     expect(result.ok).toBe(true)
     expect(submitCalls.length).toBe(1)
   })
@@ -227,7 +261,7 @@ describe(`headless submit`, () => {
         JSON.stringify({ error: `Name is required`, code: `name_required` }),
         { status: 400 }
       )
-    const result = await window.ExponentialWidget!.submit({ title: `x` })
+    const result = await window.ExponentialWidget!.submit({ message: `x` })
     expect(result).toEqual({
       ok: false,
       error: `Name is required`,
@@ -238,7 +272,7 @@ describe(`headless submit`, () => {
   it(`resolves a network failure as an error result`, async () => {
     await boot(enabledConfig)
     submitResponse = () => Promise.reject(new Error(`offline`))
-    const result = await window.ExponentialWidget!.submit({ title: `x` })
+    const result = await window.ExponentialWidget!.submit({ message: `x` })
     expect(result.ok).toBe(false)
     expect(result.error).toContain(`Network error`)
   })
@@ -247,13 +281,13 @@ describe(`headless submit`, () => {
     stubFetch(enabledConfig)
     installSnippetStub()
     window.ExponentialWidget!.init({ key: testKey, showButton: false })
-    window.ExponentialWidget!.submit({ title: `Queued report` })
+    window.ExponentialWidget!.submit({ message: `Queued report` })
     await importLoader()
     // The queued call resolves asynchronously after the config fetch.
     for (let i = 0; i < 6; i += 1) {
       await new Promise((resolve) => setTimeout(resolve, 0))
     }
     expect(submitCalls.length).toBe(1)
-    expect(submitCalls[0].body.get(`title`)).toBe(`Queued report`)
+    expect(submitCalls[0].body.get(`message`)).toBe(`Queued report`)
   })
 })

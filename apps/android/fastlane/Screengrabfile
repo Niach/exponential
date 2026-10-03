@@ -30,7 +30,7 @@
 #   `fastlane screenshots` matches iOS's Snapfile override.
 #
 # Output lands in fastlane/screenshots-raw/en-US/images/phoneScreenshots/
-# (1_board.png … 8_support.png) — RAW device captures, not the Play upload set.
+# (1_board.png … 7_inbox.png) — RAW device captures, not the Play upload set.
 # Then run `bun run screenshots:store` from the repo root BEFORE `sync_store`:
 # it composites the raw captures into the headline + bezel marketing panels
 # (EXP-580) and writes the finished set to

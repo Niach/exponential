@@ -86,8 +86,6 @@ export function tabMemoryOwners(tab: WorkTab): string[] {
         : [issueMemoryOwner(tab.issueId)]
     case `run`:
       return [runMemoryOwner(tab.runId)]
-    case `support`:
-      return []
   }
 }
 

@@ -55,7 +55,7 @@ import { db } from "@/db/connection"
 import {
   fireAndForgetAssignmentNotify,
   fireAndForgetNewIssueNotify,
-  fireAndForgetSupportThreadNotify,
+  fireAndForgetReporterReplyNotify,
 } from "@/lib/integrations/notifications"
 
 const issueMeta = {
@@ -153,7 +153,10 @@ describe(`fireAndForgetNewIssueNotify (EXP-53)`, () => {
   })
 })
 
-describe(`issue-less support fan-out push payload (EXP-264)`, () => {
+// SLOP-4: a widget reporter's reply is ISSUE-scoped — subscribers + the
+// assignee get a `reporter_reply` row whose push routes to the issue exactly
+// like an `issue_comment` (no team-level surface, no thread id).
+describe(`fireAndForgetReporterReplyNotify push payload (SLOP-4)`, () => {
   beforeEach(() => {
     h.selectQueue.length = 0
     h.executeRows.length = 0
@@ -162,22 +165,16 @@ describe(`issue-less support fan-out push payload (EXP-264)`, () => {
     mockedDb.execute.mockClear()
   })
 
-  it(`carries the thread id and each recipient's own notification id`, async () => {
+  it(`names the reporter, previews the reply and routes to the issue`, async () => {
     h.selectQueue.push(
-      // the thread
-      [
-        {
-          id: `t-1`,
-          teamId: `ws-1`,
-          title: `Cannot log in`,
-          reporterName: `Ada`,
-          reporterEmail: `ada@example.com`,
-        },
-      ],
-      // team member enumeration
-      [{ userId: `u1` }, { userId: `u2` }],
-      // latest inbound public message (the preview)
+      // loadIssueMeta (assignee u2)
+      [{ ...issueMeta, assigneeId: `u2` }],
+      // the reporter comment
       [{ body: `Still broken after a reload` }],
+      // the submission (reporter identity)
+      [{ reporterName: `Ada` }],
+      // subscriberRecipients
+      [{ userId: `u1` }],
       // deliverableRecipients: current members
       [{ id: `u1` }, { id: `u2` }]
     )
@@ -186,23 +183,51 @@ describe(`issue-less support fan-out push payload (EXP-264)`, () => {
       { id: `n2`, user_id: `u2` }
     )
 
-    fireAndForgetSupportThreadNotify({ threadId: `t-1`, kind: `reply` })
+    fireAndForgetReporterReplyNotify({
+      issueId: issueMeta.id,
+      commentId: `c-1`,
+    })
 
     await vi.waitFor(() => expect(h.sendToUsers).toHaveBeenCalledTimes(1))
 
-    // These rows have no issue, so `threadId` is the whole routing key —
-    // paired per recipient with the notification row written for them.
     expect(h.sendToUsers).toHaveBeenCalledWith(
       [
         { userId: `u1`, data: { notificationId: `n1` } },
         { userId: `u2`, data: { notificationId: `n2` } },
       ],
       {
-        title: `Ada replied on a support ticket`,
+        title: `Ada replied on EXP-7`,
         body: `Still broken after a reload`,
-        data: { type: `support_reply`, threadId: `t-1` },
+        data: {
+          type: `reporter_reply`,
+          issueId: issueMeta.id,
+          identifier: `EXP-7`,
+          teamSlug: `acme`,
+          boardSlug: `feedback`,
+        },
       }
     )
+  })
+
+  it(`falls back to "Anonymous visitor" without a reporter name`, async () => {
+    h.selectQueue.push(
+      [issueMeta],
+      [{ body: `Any news?` }],
+      [{ reporterName: null }],
+      [{ userId: `u1` }],
+      [{ id: `u1` }]
+    )
+    h.executeRows.push({ id: `n1`, user_id: `u1` })
+
+    fireAndForgetReporterReplyNotify({
+      issueId: issueMeta.id,
+      commentId: `c-1`,
+    })
+
+    await vi.waitFor(() => expect(h.sendToUsers).toHaveBeenCalledTimes(1))
+    expect((h.sendToUsers.mock.calls[0] as unknown[])[1]).toMatchObject({
+      title: `Anonymous visitor replied on EXP-7`,
+    })
   })
 })
 

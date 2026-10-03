@@ -77,7 +77,7 @@ function hasSessionCookie(req: Request): boolean {
   return (req.headers.get(`cookie`) ?? ``).includes(`session_token`)
 }
 
-// Paths no capture may ever record: APIs, widget assets, the helpdesk
+// Paths no capture may ever record: APIs, widget assets, the reporter
 // magic-link surface (its URL is a credential), invite links (the token is a
 // team-join bearer secret and must never land in conversion_events —
 // invite_accepted is tracked separately), router internals.

@@ -118,28 +118,17 @@ vi.mock(`@/lib/team-membership`, () => ({
 }))
 
 const assertCanCreateTeam = vi.fn(async () => {})
-const assertCanUseHelpdesk = vi.fn(async () => {})
 const getInviteCapacity = vi.fn(async () => ({
   remaining: 2 as number | null,
 }))
 vi.mock(`@/lib/billing`, () => ({
   assertCanCreateTeam: (...args: unknown[]) =>
     assertCanCreateTeam(...(args as [])),
-  assertCanUseHelpdesk: (...args: unknown[]) =>
-    assertCanUseHelpdesk(...(args as [])),
   getInviteCapacity: (...args: unknown[]) =>
     getInviteCapacity(...(args as [])),
 }))
 
-// REV2-10: enabling the helpdesk without a mail transport accepts tickets
-// into a black hole (the emailed magic link is the reporter's ONLY
-// credential), so the toggle refuses. Mutable so both postures are testable.
-const transport = { enabled: true }
-vi.mock(`@/lib/email-enabled`, () => ({
-  get emailEnabled() {
-    return transport.enabled
-  },
-}))
+vi.mock(`@/lib/email-enabled`, () => ({ emailEnabled: true }))
 
 // REV2-55: deleting a paying team is GATED on its subscription being
 // cancelled first (the router no longer cancels anything itself).
@@ -189,11 +178,8 @@ beforeEach(() => {
   insertReturningQueue.length = 0
   updates.length = 0
   updateReturningQueue.length = 0
-  transport.enabled = true
   fakeDb.execute.mockClear()
   assertCanCreateTeam.mockClear()
-  assertCanUseHelpdesk.mockClear()
-  assertCanUseHelpdesk.mockResolvedValue(undefined)
   assertTeamDeletableBilling.mockClear()
   assertTeamDeletableBilling.mockResolvedValue(undefined)
   deleteStorageObjects.mockClear()
@@ -283,33 +269,18 @@ describe(`teams.getDefault — non-creating resolver (EXP-188)`, () => {
   })
 })
 
-// REV2-10: the helpdesk's whole reporter channel is email — the magic link is
-// the only credential. Enabling it on an instance with no transport accepts
-// tickets nobody can ever answer.
-describe(`teams.update helpdesk transport gate (REV2-10)`, () => {
-  it(`refuses to enable the helpdesk with no mail transport`, async () => {
-    transport.enabled = false
-    await expect(
-      caller().update({ teamId: WS, helpdeskEnabled: true })
-    ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
-    expect(updates).toHaveLength(0)
-    // The plan gate never even runs — the setup problem comes first.
-    expect(assertCanUseHelpdesk).not.toHaveBeenCalled()
-  })
-
-  it(`enables it when a transport is configured (plan gate still applies)`, async () => {
-    updateReturningQueue.push([{ id: WS, helpdeskEnabled: true }])
-    const result = await caller().update({ teamId: WS, helpdeskEnabled: true })
-    expect(assertCanUseHelpdesk).toHaveBeenCalledWith(WS)
-    expect(result.team).toMatchObject({ helpdeskEnabled: true })
-  })
-
-  it(`always allows DISABLING it, transport or not`, async () => {
-    transport.enabled = false
-    updateReturningQueue.push([{ id: WS, helpdeskEnabled: false }])
-    await caller().update({ teamId: WS, helpdeskEnabled: false })
+// SLOP-4: the helpdesk switch is gone — teams.update knows no
+// helpdeskEnabled.
+describe(`teams.update`, () => {
+  it(`strips the retired helpdeskEnabled field (never written)`, async () => {
+    updateReturningQueue.push([{ id: WS }])
+    await caller().update({
+      teamId: WS,
+      name: `Acme`,
+      helpdeskEnabled: true,
+    } as never)
     expect(updates).toHaveLength(1)
-    expect(updates[0]!.table).toBe(teams)
+    expect(updates[0]!.values).not.toHaveProperty(`helpdeskEnabled`)
   })
 
   // REV2-67: `.returning()` used to hand back the whole row, comp_tier and
@@ -323,7 +294,6 @@ describe(`teams.update helpdesk transport gate (REV2-10)`, () => {
       `createdAt`,
       `endSessionsOnMerge`,
       `estimationType`,
-      `helpdeskEnabled`,
       `iconUrl`,
       `id`,
       `name`,

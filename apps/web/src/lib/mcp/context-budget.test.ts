@@ -86,12 +86,12 @@ it(`keeps the always-loaded MCP tool set exactly ALWAYS_LOAD_TOOLS`, () => {
   // Guard the CLOUD_INSTANCE stub above: if the cloud-only tool ever stops
   // registering here, the budget silently under-measures.
   expect(defs.some((def) => def.name === `exponential_report_bug`)).toBe(true)
-  // EXP-660: the helpdesk family registers behind a per-caller gate whose
+  // EXP-660: the gated families register behind per-caller gates whose
   // DEFAULT is the full surface — if that default ever flips, the budget
-  // would silently stop measuring seven tools.
-  expect(
-    defs.some((def) => def.name === `exponential_helpdesk_threads_list`)
-  ).toBe(true)
+  // would silently stop measuring them.
+  expect(defs.some((def) => def.name === `exponential_sessions_end`)).toBe(
+    true
+  )
   // Every listed tool actually registers, and nothing else carries the flag —
   // adding `_meta` to a tool is adding it to EVERY session's context, so it
   // has to be a deliberate edit of always-load.ts.
@@ -118,7 +118,6 @@ it(`registers exponential_sessions_end only behind its gate`, () => {
     serializeToolDefs().some((def) => def.name === `exponential_sessions_end`)
   ).toBe(true)
   const person = serializeToolDefs({
-    helpdesk: true,
     sessionsEnd: false,
     askParent: false,
     sessionResults: true,
@@ -137,7 +136,6 @@ it(`registers exponential_sessions_ask_parent only behind its gate`, () => {
     )
   ).toBe(true)
   const automation = serializeToolDefs({
-    helpdesk: true,
     sessionsEnd: true,
     askParent: false,
     sessionResults: true,
@@ -161,7 +159,6 @@ it(`registers exponential_sessions_results only behind its gate`, () => {
     )
   ).toBe(true)
   const headerless = serializeToolDefs({
-    helpdesk: true,
     sessionsEnd: false,
     askParent: false,
     sessionResults: false,
@@ -171,7 +168,6 @@ it(`registers exponential_sessions_results only behind its gate`, () => {
   ).toBe(false)
   // It does NOT ride the close-out's gate: an attended run publishes too.
   const attended = serializeToolDefs({
-    helpdesk: true,
     sessionsEnd: false,
     askParent: false,
     sessionResults: true,
@@ -190,7 +186,6 @@ it(`registers exponential_sessions_compact only behind the session gate`, () => 
     )
   ).toBe(true)
   const headerless = serializeToolDefs({
-    helpdesk: true,
     sessionsEnd: false,
     askParent: false,
     sessionResults: false,
@@ -248,8 +243,9 @@ it(`keeps the MCP server instructions self-contained and in budget`, () => {
   expect(opening).toContain(`exponential_pr_open`)
   expect(opening).toContain(`Search for exponential_*`)
   // EXP-660: the deferred families an agent would never guess at by name.
-  expect(opening).toContain(`helpdesk`)
   expect(opening).toContain(`sessions`)
+  expect(opening).toContain(`devices`)
+  expect(opening).not.toContain(`helpdesk`)
   // The first paragraph must fit that window whole — a sentence cut in half
   // at 512 is worse than no sentence.
   expect(MCP_SERVER_INSTRUCTIONS.split(`\n\n`)[0].length).toBeLessThanOrEqual(

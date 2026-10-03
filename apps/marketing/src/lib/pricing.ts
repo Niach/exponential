@@ -30,7 +30,7 @@ export const linearComparison: CompareRow[] = [
     linear: { value: `$10–14 / user / mo, features split across tiers` },
   },
   {
-    label: `Helpdesk & feedback widget`,
+    label: `Feedback widget`,
     exponential: { value: `Built in, one seat price`, good: true },
     linear: { value: `Separate tools, separately billed` },
   },

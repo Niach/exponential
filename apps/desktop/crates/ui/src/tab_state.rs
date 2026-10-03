@@ -1,7 +1,8 @@
 //! EXP-894 — per-TAB view state that survives a tab switch.
 //!
-//! The centre's heavyweight detail views (issue detail, support thread) are
-//! ONE shared instance each, re-pointed on every tab switch (`screens.rs`).
+//! The centre's heavyweight detail view (the issue detail; the support
+//! thread was one too until SLOP-4) is ONE shared instance, re-pointed on
+//! every tab switch (`screens.rs`).
 //! Re-pointing used to reset their local state, so a half-typed comment was
 //! gone the moment you looked at another tab and came back.
 //!
@@ -27,8 +28,8 @@ pub(crate) trait TabStateEmpty {
     fn is_empty_state(&self) -> bool;
 }
 
-/// The per-tab stash itself: `key` = the tab's subject (an issue id, a
-/// support-thread id). Bounded by the open tabs — the panel calls
+/// The per-tab stash itself: `key` = the tab's subject (an issue id).
+/// Bounded by the open tabs — the panel calls
 /// [`TabStateStore::forget`] from every tab-removal path.
 pub(crate) struct TabStateStore<T> {
     entries: HashMap<String, T>,
