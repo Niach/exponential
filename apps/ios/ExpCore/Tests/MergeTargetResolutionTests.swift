@@ -14,7 +14,8 @@ final class MergeTargetResolutionTests: XCTestCase {
         branch: String? = nil,
         prUrl: String? = nil,
         prNumber: Int? = nil,
-        prState: String? = nil
+        prState: String? = nil,
+        batchIssueIds: String? = nil
     ) -> CodingSessionEntity {
         CodingSessionEntity(
             id: id,
@@ -24,6 +25,7 @@ final class MergeTargetResolutionTests: XCTestCase {
             deviceLabel: "macbook",
             status: status,
             branch: branch,
+            batchIssueIds: batchIssueIds,
             actionName: actionName,
             startedAt: "2026-09-04T09:00:00Z",
             endedAt: nil,
@@ -160,6 +162,59 @@ final class MergeTargetResolutionTests: XCTestCase {
                 ),
                 issue: nil
             )
+        )
+    }
+
+    // EXP-1165: a batch whose combined PR a covered issue carries (same url,
+    // still open) merges through THAT issue — the stack choice and "Fix
+    // conflicts" live on the issue path. Twin of web session-merge-target.
+    func testBatchRunWithACarrierTargetsTheIssue() {
+        let url = "https://github.com/acme/web/pull/7"
+        let row = session(
+            id: "cs-batch",
+            status: DomainContract.codingSessionStatusInReview,
+            branch: "exp/batch-a1b2c3d4",
+            prUrl: url,
+            prNumber: 7,
+            prState: DomainContract.prStateOpen,
+            batchIssueIds: "[\"i-1\",\"i-2\"]"
+        )
+        let other = issue(id: "i-1", prUrl: "https://github.com/acme/web/pull/99")
+        let carrier = issue(id: "i-2", prUrl: url)
+        XCTAssertEqual(
+            MergeTargetResolution.resolve(session: row, issue: nil, batchIssues: [other, carrier]),
+            .issue(issueId: "i-2")
+        )
+        // No carrier: the session row as before.
+        XCTAssertEqual(
+            MergeTargetResolution.resolve(session: row, issue: nil, batchIssues: [other]),
+            .session(sessionId: "cs-batch")
+        )
+        // A merged carrier is no carrier.
+        XCTAssertEqual(
+            MergeTargetResolution.resolve(
+                session: row,
+                issue: nil,
+                batchIssues: [issue(id: "i-2", prUrl: url, prState: DomainContract.prStateMerged)]
+            ),
+            .session(sessionId: "cs-batch")
+        )
+        // An issue the run does not cover never carries it.
+        XCTAssertEqual(
+            MergeTargetResolution.resolve(
+                session: row, issue: nil, batchIssues: [issue(id: "i-9", prUrl: url)]
+            ),
+            .session(sessionId: "cs-batch")
+        )
+    }
+
+    func testIssueRunIgnoresBatchIssues() {
+        let row = session(id: "cs-issue", issueId: "i-1", prUrl: "https://github.com/acme/web/pull/3")
+        XCTAssertEqual(
+            MergeTargetResolution.resolve(
+                session: row, issue: issue(), batchIssues: [issue(id: "i-2")]
+            ),
+            .issue(issueId: "i-1")
         )
     }
 }

@@ -10,6 +10,7 @@ import {
   MAX_START_PROMPT_IMAGES,
 } from "@exp/db-schema/domain"
 import { router, authedProcedure, type Context } from "@/lib/trpc"
+import type { MergePullResult } from "@/lib/trpc/repositories"
 import { notifySessionBlocked } from "@/lib/integrations/notifications"
 import {
   findLiveResumeId,
@@ -569,7 +570,7 @@ export const codingSessionsRouter = router({
         endSessions: z.boolean().optional(),
       })
     )
-    .mutation(async ({ ctx, input }): Promise<{ merged: true }> => {
+    .mutation(async ({ ctx, input }): Promise<MergePullResult> => {
       const [session] = await ctx.db
         .select({
           id: codingSessions.id,

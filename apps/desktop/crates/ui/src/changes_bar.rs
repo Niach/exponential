@@ -126,7 +126,12 @@ impl MergeTarget {
 /// EXP-734), pure so every arm can be tested against it:
 ///
 /// 1. an ISSUE-linked run merges its OWN issue, when that issue's PR is open;
-/// 2. otherwise an issue-less run (batch, chat, action) merges its OWN PR off
+/// 2. EXP-1165: a BATCH run whose open combined PR a COVERED issue carries
+///    (one of the row's `batch_issue_ids`, same `pr_url`, still open) merges
+///    through THAT issue — exactly the Reviews row's path, so the stack-choice
+///    dialog and the "Fix conflicts" swap reach the run view too (web
+///    `resolveSessionMergeTarget`);
+/// 3. otherwise an issue-less run (batch, chat, action) merges its OWN PR off
 ///    the `coding_sessions` row — the run owns the PR it opened.
 ///
 /// `row` is the synced session row (absent while a just-started run has not
@@ -144,8 +149,37 @@ pub(crate) fn merge_target_for_run<'a>(
         }
     }
     let row = row?;
-    row.has_open_pr().then(|| MergeTarget::Session {
+    if !row.has_open_pr() {
+        return None;
+    }
+    if issue_id.is_none() {
+        if let Some(carrier) = batch_pr_carrier(row, issues) {
+            return Some(MergeTarget::Issue {
+                issue_id: carrier.id.clone(),
+            });
+        }
+    }
+    Some(MergeTarget::Session {
         session_id: row.id.clone(),
+    })
+}
+
+/// EXP-1165: the covered issue that carries a batch run's combined PR — one
+/// of the row's `batch_issue_ids` whose `pr_url` is the run's and whose PR is
+/// still open. `None` for every non-batch row (no covered ids).
+fn batch_pr_carrier<'a>(
+    row: &domain::rows::CodingSession,
+    mut issues: impl Iterator<Item = &'a domain::rows::Issue>,
+) -> Option<&'a domain::rows::Issue> {
+    let covered = domain::batch_run::parse_batch_issue_ids(row.batch_issue_ids.as_ref());
+    if covered.is_empty() {
+        return None;
+    }
+    let run_pr = row.pr_url.as_deref().filter(|url| !url.is_empty())?;
+    issues.find(|issue| {
+        covered.contains(&issue.id)
+            && issue.pr_url.as_deref() == Some(run_pr)
+            && issue_has_open_pr(issue)
     })
 }
 
@@ -266,6 +300,75 @@ mod tests {
         assert_eq!(
             merge_target_for_run(None, None, std::iter::empty()),
             None
+        );
+    }
+
+    /// EXP-1165: a BATCH run whose combined PR a covered issue carries
+    /// merges through THAT issue (the stack dialog + Fix conflicts path); no
+    /// carrier, a merged carrier or an uncovered issue keeps the session
+    /// target; an issue run is unchanged.
+    #[test]
+    fn a_batch_run_merges_through_the_issue_carrying_its_pr() {
+        const PR: &str = "https://github.com/o/r/pull/12";
+        let issue = |id: &str, pr_url: Option<&str>, pr_state: Option<&str>| -> domain::rows::Issue {
+            serde_json::from_value(serde_json::json!({
+                "id": id, "board_id": "b-1", "number": 1,
+                "identifier": "EXP-1", "title": "t", "status": "in_review",
+                "pr_url": pr_url, "pr_state": pr_state,
+            }))
+            .unwrap()
+        };
+        let batch_row = |pr_state: &str| -> domain::rows::CodingSession {
+            serde_json::from_value(serde_json::json!({
+                "id": "cs-1", "team_id": "t-1", "status": "in_review",
+                "branch": "exp/batch-a1b2c3d4",
+                "batch_issue_ids": ["i-1", "i-2"],
+                "pr_url": PR, "pr_number": "12", "pr_state": pr_state,
+            }))
+            .unwrap()
+        };
+        let session = Some(MergeTarget::Session {
+            session_id: "cs-1".to_string(),
+        });
+        let open = batch_row("open");
+        let unrelated = issue("i-1", None, None);
+        let carrier = issue("i-2", Some(PR), Some("open"));
+
+        // A covered issue carries the open PR → the ISSUE target.
+        assert_eq!(
+            merge_target_for_run(None, Some(&open), [&unrelated, &carrier].into_iter()),
+            Some(MergeTarget::Issue {
+                issue_id: "i-2".to_string()
+            })
+        );
+        // No carrier → the session row, as before.
+        assert_eq!(
+            merge_target_for_run(None, Some(&open), [&unrelated].into_iter()),
+            session
+        );
+        // A merged carrier, another PR's carrier, or an UNCOVERED issue with
+        // the same PR never redirect the merge.
+        let merged = issue("i-2", Some(PR), Some("merged"));
+        let other_pr = issue("i-2", Some("https://github.com/o/r/pull/99"), Some("open"));
+        let uncovered = issue("i-9", Some(PR), Some("open"));
+        for stray in [&merged, &other_pr, &uncovered] {
+            assert_eq!(
+                merge_target_for_run(None, Some(&open), [stray].into_iter()),
+                session
+            );
+        }
+        // A batch run whose own PR is no longer open offers nothing.
+        assert_eq!(
+            merge_target_for_run(None, Some(&batch_row("merged")), [&carrier].into_iter()),
+            None
+        );
+        // An ISSUE run is unchanged: its own issue, never a batch carrier.
+        let own = issue("i-7", Some(PR), Some("open"));
+        assert_eq!(
+            merge_target_for_run(Some("i-7"), Some(&open), [&carrier, &own].into_iter()),
+            Some(MergeTarget::Issue {
+                issue_id: "i-7".to_string()
+            })
         );
     }
 

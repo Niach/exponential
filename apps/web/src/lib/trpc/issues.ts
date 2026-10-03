@@ -2279,11 +2279,16 @@ export const issuesRouter = router({
           throw err
         }
 
-        // Every issue on this PR (a batch PR has several).
+        // Every issue on this PR (a batch PR has several), and the run rows
+        // carrying it (EXP-1165).
         await ctx.db
           .update(issues)
           .set({ prBaseBranch: base })
           .where(eq(issues.prUrl, row.prUrl))
+        await ctx.db
+          .update(codingSessions)
+          .set({ prBaseBranch: base })
+          .where(eq(codingSessions.prUrl, row.prUrl))
 
         return { retargeted: true, base }
       }
@@ -2430,6 +2435,10 @@ export const issuesRouter = router({
             .update(issues)
             .set({ prBaseBranch: liveBase })
             .where(eq(issues.prUrl, row.prUrl))
+          await ctx.db
+            .update(codingSessions)
+            .set({ prBaseBranch: liveBase })
+            .where(eq(codingSessions.prUrl, row.prUrl))
         } catch {
           // ignored
         }

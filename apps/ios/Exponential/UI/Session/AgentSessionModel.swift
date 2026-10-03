@@ -268,9 +268,12 @@ final class AgentSessionModel {
     /// included (`resumeDevice` is the ENDED-run affordance and stays that).
     private(set) var switchDevice: SteerDevice?
     /// EXP-678: the issue whose PR the Merge pill merges — this session's own
-    /// issue. Nil for every issue-less run (batch, action, chat: their PR
-    /// rides the session row) and whenever there is nothing to merge through.
+    /// issue, or (EXP-1165) the covered issue carrying a BATCH run's combined
+    /// PR. Nil for every other issue-less run (action, chat: their PR rides
+    /// the session row) and whenever there is nothing to merge through.
     private(set) var mergeIssue: IssueEntity?
+    /// EXP-1165: a batch run's covered issue rows (synced), the carrier input.
+    private var batchMergeIssues: [IssueEntity] = []
     /// EXP-734: WHAT the Merge pill merges — `mergeIssue`'s PR, or (an
     /// issue-less run that opened its own PR) this session row's own.
     /// Nil whenever there is nothing to merge.
@@ -1708,6 +1711,30 @@ final class AgentSessionModel {
                     }
                 }
             }
+        } else if BatchRun.isBatch(session) {
+            // EXP-1165: a batch merges through the covered issue that carries
+            // its combined PR (stack choice + Fix conflicts), so watch them.
+            let ids = BatchRun.issueIds(session.batchIssueIds)
+            guard !ids.isEmpty else { return }
+            let observation = ValueObservation.tracking { db in
+                try IssueEntity.filter(ids.contains(Column("id"))).fetchAll(db)
+            }
+            mergeObservationTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    do {
+                        for try await rows in observation.values(in: pool) {
+                            guard let self else { return }
+                            self.batchMergeIssues = rows
+                            self.rebuildMergeTarget()
+                        }
+                        return
+                    } catch is CancellationError {
+                        return
+                    } catch {
+                        try? await Task.sleep(for: .seconds(1))
+                    }
+                }
+            }
         }
     }
 
@@ -1720,7 +1747,16 @@ final class AgentSessionModel {
             mergeTarget = nil
             return
         }
-        mergeTarget = MergeTargetResolution.resolve(session: session, issue: mergeIssue)
+        if session.issueId == nil {
+            // EXP-1165: a batch's carrier stands in as the merge issue, so
+            // the pill reads its stack/branch exactly as on the issue path.
+            mergeIssue = MergeTargetResolution.batchCarrier(
+                session: session, batchIssues: batchMergeIssues
+            )
+        }
+        mergeTarget = MergeTargetResolution.resolve(
+            session: session, issue: mergeIssue, batchIssues: batchMergeIssues
+        )
     }
 
     // MARK: - Connect lifecycle

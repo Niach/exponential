@@ -49,6 +49,8 @@ import com.exponential.app.domain.SessionDevicePresentation
 import com.exponential.app.domain.SessionUsageState
 import com.exponential.app.domain.SlashCommand
 import com.exponential.app.domain.SlashCommands
+import com.exponential.app.domain.batchMergeCarrier
+import com.exponential.app.domain.isBatchRun
 import com.exponential.app.domain.resolveMergeTarget
 import com.exponential.app.domain.resumeTargetFor
 import com.exponential.app.domain.runChain
@@ -664,8 +666,11 @@ class AgentSessionViewModel @AssistedInject constructor(
 
     /**
      * EXP-678: the issue whose PR the Merge pill above the composer merges —
-     * this run's own issue. An issue-less run (batch, chat, action) has none:
-     * it merges the PR on its OWN row, which [mergeTarget] resolves.
+     * this run's own issue. EXP-1165: a BATCH run whose combined PR a covered
+     * issue carries (same url, still open) merges through THAT issue, so the
+     * stack choice and "Fix conflicts" reach the run view. Any other
+     * issue-less run (chat, action, carrier-less batch) has none: it merges
+     * the PR on its OWN row, which [mergeTarget] resolves.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     val mergeIssue: StateFlow<IssueEntity?> = session
@@ -674,6 +679,9 @@ class AgentSessionViewModel @AssistedInject constructor(
                 row == null -> flowOf(null)
                 row.issueId != null ->
                     dbFlow.scopedQuery(null) { it.issueDao().observeById(row.issueId) }
+                isBatchRun(row) && !row.prUrl.isNullOrEmpty() ->
+                    dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() }
+                        .map { issues -> batchMergeCarrier(row, batchRunIssues(row, issues)) }
                 else -> flowOf(null)
             }
         }
@@ -685,7 +693,13 @@ class AgentSessionViewModel @AssistedInject constructor(
      * nothing to merge, and the pill stays hidden.
      */
     val mergeTarget: StateFlow<MergeTarget?> = combine(session, mergeIssue) { row, issue ->
-        row?.let { resolveMergeTarget(it, issue = if (it.issueId != null) issue else null) }
+        row?.let {
+            if (it.issueId != null) {
+                resolveMergeTarget(it, issue)
+            } else {
+                resolveMergeTarget(it, issue = null, batchIssues = listOfNotNull(issue))
+            }
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**

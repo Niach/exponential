@@ -943,8 +943,11 @@ function defaultDeps(): YoloDeps {
         throw new Error(`${repo} is not a repository of this team`)
       }
       const caller = await callerFor(run.userId)
-      await caller.repositories.mergePull({ repositoryId: repository.id, prNumber })
-      return { merged: true }
+      const result = await caller.repositories.mergePull({
+        repositoryId: repository.id,
+        prNumber,
+      })
+      return { merged: result.merged, queued: result.queued === true }
     },
     stampOwnPr: (sessionId) => stampMergedOwnPr(db, sessionId),
     revertOwnPr: (sessionId, prior) => revertMergedOwnPr(db, sessionId, prior),

@@ -282,7 +282,10 @@ describe(`issues.mergePr({mergeStack: true}) (SLOP-3)`, () => {
     expect(h.applyPrMergeState).toHaveBeenCalledTimes(3)
     expect(h.endMergedPrSessions).toHaveBeenCalledTimes(3)
     // The recorded bases follow GitHub's move onto the default branch.
+    // Each write lands on the issue rows and the run rows (EXP-1165).
     expect(h.updates).toEqual([
+      { prBaseBranch: `master` },
+      { prBaseBranch: `master` },
       { prBaseBranch: `master` },
       { prBaseBranch: `master` },
     ])
@@ -435,7 +438,11 @@ describe(`issues.mergePr({mergeStack: true}) (SLOP-3)`, () => {
       caller.mergePr({ issueId: ID(2), mergeStack: true })
     ).resolves.toEqual({ merged: true })
     expect(h.log).toEqual([`retarget exp/EXP-11`, `merge #242`])
-    expect(h.updates).toEqual([{ prBaseBranch: `master` }])
+    // Each write lands on the issue rows and the run rows (EXP-1165).
+    expect(h.updates).toEqual([
+      { prBaseBranch: `master` },
+      { prBaseBranch: `master` },
+    ])
   })
 
   it(`is the plain merge for a PR in no stack`, async () => {
