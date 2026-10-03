@@ -31,6 +31,7 @@ import {
   type CodingSessionResult,
   codingSessionStatusSchema,
   commentBodyWithAttachmentsSchema,
+  commentAudienceValues,
   commentSourceValues,
   issueDescriptionSchema,
   issueEventTypeSchema,
@@ -141,6 +142,10 @@ export const issueRelationSourceEnum = pgEnum(
 
 // EXP-741: who posted a comment (a person, or an agent over MCP).
 export const commentSourceEnum = pgEnum(`comment_source`, commentSourceValues)
+export const commentAudienceEnum = pgEnum(
+  `comment_audience`,
+  commentAudienceValues
+)
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -176,11 +181,6 @@ export const teams = pgTable(`teams`, {
   // SERVER-ONLY — must stay behind the teams shape columns allowlist.
   // Honored by getTeamPlan as a floor over the Creem-derived tier.
   compTier: text(`comp_tier`),
-  // Team-level helpdesk switch (EXP-180 — replaced the per-board flag;
-  // Pro-gated on cloud via assertCanUseHelpdesk on enable and per submission).
-  // Synced so every client can gate its Support-inbox menu entry; the
-  // conversation tables themselves stay server-only.
-  helpdeskEnabled: boolean(`helpdesk_enabled`).notNull().default(false),
   // EXP-319 — per-team PR automation targets. NULL status_id = the builtin
   // default (In Review on open, Done on merge) — deliberately NOT "do
   // nothing", so the FK's SET NULL (target status deleted) falls back to the
@@ -728,9 +728,12 @@ export const comments = pgTable(
     // archive predicates. Server-only, shape-excluded.
     boardDeletedAt: timestamp(`board_deleted_at`, { withTimezone: true }),
     boardArchivedAt: timestamp(`board_archived_at`, { withTimezone: true }),
-    authorId: text(`author_id`)
-      .notNull()
-      .references(() => users.id, { onDelete: `cascade` }),
+    // SLOP-4: NULLABLE — a widget reporter's words (`source = reporter`)
+    // have no users row behind them; the card names the submission's
+    // reporter (widgets.submissionForIssue) or "Anonymous visitor".
+    authorId: text(`author_id`).references(() => users.id, {
+      onDelete: `cascade`,
+    }),
     // EXP-741: the top-level comment this one replies to — ONE level deep
     // (`comments.create` flattens a reply-to-a-reply onto the root), same
     // issue. NULL = a top-level comment. SET NULL, never cascade: deleting a
@@ -745,7 +748,21 @@ export const comments = pgTable(
     }),
     // EXP-741: `mcp` when an agent posted it over MCP (the card header shows
     // "via MCP"); stamped server-side from the MCP context, never by input.
+    // SLOP-4: `reporter` when the widget reporter wrote it through their
+    // magic-link page (author_id NULL, body server-escaped GFM).
     source: commentSourceEnum().notNull().default(`user`),
+    // SLOP-4: who may read it. `team` (default) never leaves the team;
+    // `reporter` shows on the reporter's magic-link page and, from a member,
+    // is emailed to the submission's reporter address. Reporter-written rows
+    // are always `reporter`. Synced (every member sees both).
+    audience: commentAudienceEnum().notNull().default(`team`),
+    // SLOP-4: the outbound email that carried a member's reporter-audience
+    // reply (audit; NULL for team comments, reporter rows and no-transport
+    // sends). Server-only, shape-excluded.
+    emailDeliveryId: uuid(`email_delivery_id`).references(
+      () => emailDeliveries.id,
+      { onDelete: `set null` }
+    ),
     // Plain GFM markdown (was jsonb `{ text }`).
     body: text().notNull(),
     editedAt: timestamp(`edited_at`, { withTimezone: true }),
@@ -1840,11 +1857,11 @@ export const notifications = pgTable(
     // always sync. Server-only, shape-excluded.
     boardDeletedAt: timestamp(`board_deleted_at`, { withTimezone: true }),
     boardArchivedAt: timestamp(`board_archived_at`, { withTimezone: true }),
-    // App-written team pointer for ISSUE-LESS rows (helpdesk support_reply):
-    // with no issue to resolve a team from, clients need this to route the
-    // notification to the right team's Support inbox. Synced (in the shape
-    // allowlist), unlike board_id. Stays NULL on issue-anchored rows — their
-    // team comes from the issue.
+    // App-written team pointer for ISSUE-LESS rows (`agent_message`,
+    // `session_blocked`): with no issue to resolve a team from, clients need
+    // this to route the row. Synced (in the shape allowlist), unlike
+    // board_id. Stays NULL on issue-anchored rows — their team comes from
+    // the issue.
     teamId: uuid(`team_id`).references(() => teams.id, {
       onDelete: `cascade`,
     }),
@@ -1874,8 +1891,8 @@ export const notifications = pgTable(
     // issue delete (and issues.move's board_id rewrite) seq-scans the table.
     index(`idx_notifications_issue`).on(table.issueId),
     // Bounds the deliver()/deliverToTeam 30s dedupe NOT EXISTS (recipient +
-    // recency) — without it the issue-less team-wide fan-out walks each
-    // recipient's full notification history per inbound support message.
+    // recency) — without it the team-wide fan-out walks each recipient's
+    // full notification history per event.
     index(`idx_notifications_user_created`).on(
       table.userId,
       table.createdAt.desc()
@@ -2418,8 +2435,7 @@ export const userNotificationPrefs = pgTable(`user_notification_prefs`, {
 })
 
 // Email audit ledger (SERVER-ONLY). One row per outbound app email — hourly
-// digests, helpdesk support mail, and external widget-reporter mail (null
-// userId). Per-notification email idempotency does NOT live here: it is the
+// digests and external widget-reporter mail (null userId). Per-notification email idempotency does NOT live here: it is the
 // notifications.emailed_at claim the digest sweep stamps before sending.
 export const emailDeliveries = pgTable(
   `email_deliveries`,
@@ -2433,7 +2449,7 @@ export const emailDeliveries = pgTable(
     subject: text(),
     // Legacy: the pre-digest per-event pipeline wrote one delivery per
     // notification row. No current path sets it (a digest email covers many
-    // notifications; the support/widget paths have none) — kept for old
+    // notifications; the widget-reporter paths have none) — kept for old
     // rows' audit trail.
     notificationId: uuid(`notification_id`).references(() => notifications.id, {
       onDelete: `set null`,
@@ -2441,9 +2457,10 @@ export const emailDeliveries = pgTable(
     issueId: uuid(`issue_id`).references(() => issues.id, {
       onDelete: `set null`,
     }),
-    // digest|support_reply|support_confirmation|widget_resolution|team_invite
-    // |password_reset|email_verification|contact — documented varchar (legacy
-    // rows: notification).
+    // digest|reporter_reply|reporter_confirmation|widget_resolution
+    // |team_invite|password_reset|email_verification|contact — documented
+    // varchar (legacy rows: notification, support_reply,
+    // support_confirmation).
     kind: varchar({ length: 32 }).notNull(),
     // queued|sent|failed|suppressed|bounced|complained — documented varchar
     // (suppressed = the send-time application-side suppression check refused
@@ -2587,13 +2604,12 @@ export const widgetConfigs = pgTable(
     teamId: uuid(`team_id`)
       .notNull()
       .references(() => teams.id, { onDelete: `cascade` }),
-    // Where FEEDBACK-mode submissions land. NULLABLE (EXP-180): a
-    // support-only widget targets no board at all — its tickets go to the
-    // team support inbox. `set null` (not cascade): deleting the target
-    // board degrades feedback mode, never deletes the config.
-    boardId: uuid(`board_id`).references(() => boards.id, {
-      onDelete: `set null`,
-    }),
+    // Where every submission lands (SLOP-4: ONE path, a submission IS an
+    // issue, so the board is REQUIRED again). Cascade: a board delete takes
+    // its widgets with it — a widget cannot exist without a target.
+    boardId: uuid(`board_id`)
+      .notNull()
+      .references(() => boards.id, { onDelete: `cascade` }),
     name: varchar({ length: 255 }).notNull(),
     // `expw_` + 32 base62 chars. Public by design (it ships inside the host
     // page's snippet); the domain allowlist + rate limiting are the controls,
@@ -2610,9 +2626,9 @@ export const widgetConfigs = pgTable(
     // Appearance/behavior overrides served to the widget loader. Validated
     // by formConfigSchema (apps/web lib/trpc/widgets.ts) on write and
     // re-sanitized field-by-field on read (lib/widget/service.ts):
-    // { buttonLabel?, accentColor?, position?, launcher?, emailRequired?,
-    //   collectEmail?, collectName?, nameRequired?, customFields?, modes?,
-    //   labelIds?, theme? }.
+    // { buttonLabel?, accentColor?, launcher?, emailRequired?,
+    //   collectEmail?, collectName?, nameRequired?, customFields?,
+    //   labelIds?, theme? }. (SLOP-4 dropped `modes`: one form.)
     formConfig: jsonb(`form_config`).$type<Record<string, unknown>>(),
     createdByUserId: text(`created_by_user_id`).references(() => users.id, {
       onDelete: `set null`,
@@ -2624,9 +2640,9 @@ export const widgetConfigs = pgTable(
 
 // One row per widget submission (server-only, NOT synced): the structured
 // reporter contact + page/env context that must survive description edits.
-// Feedback submissions anchor on the created issue (`issue_id`); support
-// submissions anchor on the created ticket (`support_thread_id`) — exactly
-// one of the two is set.
+// SLOP-4: every submission IS an issue (`issue_id` NOT NULL); the row is the
+// issue's "Reported via widget" card and the reporter's identity for the
+// magic-link conversation (`reporter_email` = the reply channel).
 export const widgetSubmissions = pgTable(
   `widget_submissions`,
   {
@@ -2637,12 +2653,9 @@ export const widgetSubmissions = pgTable(
       { onDelete: `set null` }
     ),
     issueId: uuid(`issue_id`)
+      .notNull()
       .unique()
       .references(() => issues.id, { onDelete: `cascade` }),
-    supportThreadId: uuid(`support_thread_id`).references(
-      () => supportThreads.id,
-      { onDelete: `cascade` }
-    ),
     reporterEmail: varchar(`reporter_email`, { length: 320 }),
     reporterName: varchar(`reporter_name`, { length: 255 }),
     // Host-app user id passed via identify(); opaque to us.
@@ -2660,98 +2673,14 @@ export const widgetSubmissions = pgTable(
     resolvedNotifiedAt: timestamp(`resolved_notified_at`, {
       withTimezone: true,
     }),
-    ...timestamps,
-  },
-  (table) => [
-    index(`idx_widget_submissions_config`).on(table.widgetConfigId),
-    index(`idx_widget_submissions_thread`).on(table.supportThreadId),
-  ]
-)
-
-// Helpdesk conversation threads (SERVER-ONLY, never Electric-synced — read
-// via the `helpdesk` tRPC router and the anonymous magic-link routes). A
-// ticket is a STANDALONE team-scoped record (EXP-180 — it is no longer
-// backed by an issue; the whole conversation lives in these two tables, and
-// a ticket only touches the issue tracker when a member explicitly escalates
-// it, which files an ordinary issue and links it via linked_issue_id). The
-// reporter's only credential is the token embedded in emailed magic links —
-// deterministic HMAC(server secret, thread id), recomputed per email and
-// verified by recompute (apps/web lib/helpdesk/token.ts), so NOTHING secret
-// is stored at rest and a DB leak never leaks live conversation URLs
-// (EXP-132).
-export const supportThreads = pgTable(
-  `support_threads`,
-  {
-    id: uuidPk(),
-    teamId: uuid(`team_id`)
-      .notNull()
-      .references(() => teams.id, { onDelete: `cascade` }),
-    title: varchar({ length: 500 }).notNull(),
-    // 'open' | 'resolved' — documented varchar (server-only vocabulary in
-    // domain.ts, not the contract), same convention as message direction/
-    // visibility. Close/reopen flip this; an escalated issue's status is
-    // deliberately independent.
-    status: varchar({ length: 16 })
-      .notNull()
-      .default(`open`)
-      .$type<`open` | `resolved`>(),
-    // Set by the member "escalate" action: the ordinary issue created from
-    // this ticket. `set null` — deleting the issue keeps the conversation.
-    linkedIssueId: uuid(`linked_issue_id`).references(() => issues.id, {
-      onDelete: `set null`,
-    }),
-    reporterEmail: varchar(`reporter_email`, { length: 320 }).notNull(),
-    reporterName: varchar(`reporter_name`, { length: 255 }),
-    // Stamped on close: the transcript stays readable but replies are
-    // rejected. Reopen clears this — the magic link itself never changes
-    // (it is recomputed from the thread id, not stored).
-    tokenRevokedAt: timestamp(`token_revoked_at`, { withTimezone: true }),
-    // When the reporter last loaded the magic-link page — lets members see
-    // whether their reply has been read.
+    // SLOP-4: when the reporter last opened their magic-link page (stamped
+    // by /api/support/thread, best-effort) — the card's read receipt.
     lastReporterSeenAt: timestamp(`last_reporter_seen_at`, {
       withTimezone: true,
     }),
     ...timestamps,
   },
-  (table) => [index(`idx_support_threads_team`).on(table.teamId)]
-)
-
-// Individual helpdesk messages. direction: inbound|outbound (inbound = the
-// reporter; author_user_id NULL). visibility: public|internal — internal
-// notes are member-only and never reach the reporter page or emails. Both
-// documented varchars (server-only vocabulary in domain.ts, not the
-// contract).
-export const supportMessages = pgTable(
-  `support_messages`,
-  {
-    id: uuidPk(),
-    threadId: uuid(`thread_id`)
-      .notNull()
-      .references(() => supportThreads.id, { onDelete: `cascade` }),
-    // NULL = the external reporter wrote it.
-    authorUserId: text(`author_user_id`).references(() => users.id, {
-      onDelete: `set null`,
-    }),
-    direction: varchar({ length: 16 })
-      .notNull()
-      .$type<`inbound` | `outbound`>(),
-    visibility: varchar({ length: 16 })
-      .notNull()
-      .default(`public`)
-      .$type<`public` | `internal`>(),
-    // Plain text on both sides: reporter input is untrusted (never rendered
-    // as GFM, no @mention/#ref resolution), and member replies land in plain
-    // emails, so symmetrical plain text keeps the transcript honest.
-    body: text().notNull(),
-    // The outbound email that carried this reply (audit; NULL for internal
-    // notes, inbound messages, and no-transport sends).
-    emailDeliveryId: uuid(`email_delivery_id`).references(
-      () => emailDeliveries.id,
-      { onDelete: `set null` }
-    ),
-    ...timestamps,
-  },
-  (table) => [index(`idx_support_messages_thread`).on(table.threadId)]
+  (table) => [index(`idx_widget_submissions_config`).on(table.widgetConfigId)]
 )
 
 // What an OAuth-authenticated MCP client may touch (SERVER-ONLY, written by
@@ -3074,8 +3003,6 @@ export type ConversionEvent = InferSelectModel<typeof conversionEvents>
 export type UserClientPlatformRow = InferSelectModel<typeof userClientPlatforms>
 export type WidgetConfig = InferSelectModel<typeof widgetConfigs>
 export type WidgetSubmission = InferSelectModel<typeof widgetSubmissions>
-export type SupportThread = InferSelectModel<typeof supportThreads>
-export type SupportMessage = InferSelectModel<typeof supportMessages>
 export type McpGrant = InferSelectModel<typeof mcpGrants>
 export type Device = InferSelectModel<typeof devices>
 export type DeviceWorktree = InferSelectModel<typeof deviceWorktrees>

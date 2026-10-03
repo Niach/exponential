@@ -827,57 +827,6 @@
       ]
     },
     {
-      "name": "helpdesk_threads_get: the thread and its linked issue",
-      "tool": "exponential_helpdesk_threads_get",
-      "result": {
-        "thread": {
-          "id": "th-1",
-          "title": "Login broken",
-          "status": "open"
-        },
-        "messages": [],
-        "linkedIssue": {
-          "id": "i-9",
-          "identifier": "EXP-9",
-          "title": "Login broken",
-          "status": "backlog"
-        }
-      },
-      "refs": [
-        {
-          "kind": "thread",
-          "id": "th-1",
-          "title": "Login broken"
-        },
-        {
-          "kind": "issue",
-          "id": "i-9",
-          "identifier": "EXP-9",
-          "title": "Login broken"
-        }
-      ]
-    },
-    {
-      "name": "helpdesk_threads_get: no linked issue",
-      "tool": "exponential_helpdesk_threads_get",
-      "result": {
-        "thread": {
-          "id": "th-1",
-          "title": "Login broken",
-          "status": "open"
-        },
-        "messages": [],
-        "linkedIssue": null
-      },
-      "refs": [
-        {
-          "kind": "thread",
-          "id": "th-1",
-          "title": "Login broken"
-        }
-      ]
-    },
-    {
       "name": "report_bug: the filed issue by issueId + identifier",
       "tool": "exponential_report_bug",
       "result": {

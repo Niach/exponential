@@ -39,6 +39,7 @@ interface Contract {
   deviceIcon: Section
   commentKind: Section
   commentSource: Section
+  commentAudience: Section
   notificationType: Section
   prState: Section
   codingSessionStatus: Section
@@ -446,6 +447,7 @@ ${swiftStringArray("boardIconValues", contract.boardIcon.values)}
 ${swiftStringArray("deviceIconValues", contract.deviceIcon.values)}
 ${swiftStringArray("commentKindValues", contract.commentKind.values)}
 ${swiftStringArray("commentSourceValues", contract.commentSource.values)}
+${swiftStringArray("commentAudienceValues", contract.commentAudience.values)}
 ${swiftStringArray("notificationTypeValues", contract.notificationType.values)}
 ${swiftStringArray("prStateValues", contract.prState.values)}
 ${swiftStringArray("codingSessionStatusValues", contract.codingSessionStatus.values)}
@@ -553,6 +555,7 @@ ${swiftNamedValues("issueEstimation", contract.issueEstimation.values)}
 ${swiftNamedValues("teamRole", contract.teamRole.values)}
 ${swiftNamedValues("commentKind", contract.commentKind.values)}
 ${swiftNamedValues("commentSource", contract.commentSource.values)}
+${swiftNamedValues("commentAudience", contract.commentAudience.values)}
 ${swiftNamedValues("notificationType", contract.notificationType.values)}
 ${swiftNamedValues("prState", contract.prState.values)}
 ${swiftNamedValues("codingSessionStatus", contract.codingSessionStatus.values)}
@@ -586,6 +589,7 @@ ${kotlinStringArray("boardIconValues", contract.boardIcon.values)}
 ${kotlinStringArray("deviceIconValues", contract.deviceIcon.values)}
 ${kotlinStringArray("commentKindValues", contract.commentKind.values)}
 ${kotlinStringArray("commentSourceValues", contract.commentSource.values)}
+${kotlinStringArray("commentAudienceValues", contract.commentAudience.values)}
 ${kotlinStringArray("notificationTypeValues", contract.notificationType.values)}
 ${kotlinStringArray("prStateValues", contract.prState.values)}
 ${kotlinStringArray("codingSessionStatusValues", contract.codingSessionStatus.values)}
@@ -693,6 +697,7 @@ ${kotlinNamedValues("issueEstimation", contract.issueEstimation.values)}
 ${kotlinNamedValues("teamRole", contract.teamRole.values)}
 ${kotlinNamedValues("commentKind", contract.commentKind.values)}
 ${kotlinNamedValues("commentSource", contract.commentSource.values)}
+${kotlinNamedValues("commentAudience", contract.commentAudience.values)}
 ${kotlinNamedValues("notificationType", contract.notificationType.values)}
 ${kotlinNamedValues("prState", contract.prState.values)}
 ${kotlinNamedValues("codingSessionStatus", contract.codingSessionStatus.values)}
@@ -728,6 +733,7 @@ ${rustStrSlice("boardIconValues", contract.boardIcon.values)}
 ${rustStrSlice("deviceIconValues", contract.deviceIcon.values)}
 ${rustStrSlice("commentKindValues", contract.commentKind.values)}
 ${rustStrSlice("commentSourceValues", contract.commentSource.values)}
+${rustStrSlice("commentAudienceValues", contract.commentAudience.values)}
 ${rustStrSlice("notificationTypeValues", contract.notificationType.values)}
 ${rustStrSlice("prStateValues", contract.prState.values)}
 ${rustStrSlice("codingSessionStatusValues", contract.codingSessionStatus.values)}
@@ -838,6 +844,7 @@ ${rustNamedValues("issueEstimation", contract.issueEstimation.values)}
 ${rustNamedValues("teamRole", contract.teamRole.values)}
 ${rustNamedValues("commentKind", contract.commentKind.values)}
 ${rustNamedValues("commentSource", contract.commentSource.values)}
+${rustNamedValues("commentAudience", contract.commentAudience.values)}
 ${rustNamedValues("notificationType", contract.notificationType.values)}
 ${rustNamedValues("prState", contract.prState.values)}
 ${rustNamedValues("codingSessionStatus", contract.codingSessionStatus.values)}

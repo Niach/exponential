@@ -319,18 +319,20 @@ export function isCodingSessionStale(
 // Only `regular` (human) comments exist.
 export const commentKindValues = [`regular`] as const
 
-// EXP-741: who posted the comment — a person in a client, or an agent over
+// EXP-741: who posted the comment — a person in a client, an agent over
 // MCP (`comments.create` stamps it from the MCP context; the card header
-// carries a "via MCP" caption). Threading is `comments.parent_id`: ONE level
-// deep, a reply to a reply flattens to the root.
-export const commentSourceValues = [`user`, `mcp`] as const
+// carries a "via MCP" caption), or (SLOP-4) the widget REPORTER through
+// their magic-link page (`author_id` NULL; the card names the submission's
+// reporter and carries a "reporter" caption). Threading is
+// `comments.parent_id`: ONE level deep, a reply to a reply flattens to the
+// root.
+export const commentSourceValues = [`user`, `mcp`, `reporter`] as const
 
-// Helpdesk conversation vocabulary (SERVER-ONLY — support tables never sync,
-// so these stay out of the domain contract). Direction is who wrote the
-// message; visibility gates what the anonymous magic-link page may see
-// (`internal` notes never leave the member inbox).
-export const supportMessageDirectionValues = [`inbound`, `outbound`] as const
-export const supportMessageVisibilityValues = [`public`, `internal`] as const
+// SLOP-4: who may read a comment. `team` never leaves the team; `reporter`
+// shows on the widget reporter's magic-link page and, written by a member,
+// is emailed to the submission's reporter address. A reporter-written
+// comment is always `reporter`.
+export const commentAudienceValues = [`team`, `reporter`] as const
 
 // Notification kinds. Mirrors the `notification_type` pg enum in schema.ts;
 // promoted into the contract so the native inbox can label rows.
@@ -346,12 +348,13 @@ export const notificationTypeValues = [
   // away/phone flow gets "PR opened" and "it's merged" on every channel.
   `pr_opened`,
   `pr_merged`,
-  // Helpdesk: an external reporter replied on a support thread (broadcast to
-  // team members, mirroring the issue_created feedback broadcast).
-  `support_reply`,
+  // SLOP-4: the widget reporter answered on their issue (issue-scoped, to
+  // subscribers + assignee like a comment; replaced the issue-less
+  // `support_reply` of the standalone helpdesk).
+  `reporter_reply`,
   // EXP-801: a message an agent sent a team member over MCP
-  // (`exponential_notifications_send`). Issue-less like support_reply; the
-  // row carries the sending team's `team_id`. Blocked per recipient by
+  // (`exponential_notifications_send`). Issue-less; the row carries the
+  // sending team's `team_id`. Blocked per recipient by
   // `user_notification_prefs.allow_agent_messages` (own agents always pass).
   `agent_message`,
   // EXP-980: a coding run hit a wall (`coding_sessions.blocked` went null →
@@ -583,6 +586,7 @@ export type BoardIcon = (typeof boardIconValues)[number]
 export type DeviceIcon = (typeof deviceIconValues)[number]
 export type CommentKind = (typeof commentKindValues)[number]
 export type CommentSource = (typeof commentSourceValues)[number]
+export type CommentAudience = (typeof commentAudienceValues)[number]
 export type NotificationType = (typeof notificationTypeValues)[number]
 export type PrState = (typeof prStateValues)[number]
 export type CodingSessionStatus = (typeof codingSessionStatusValues)[number]
@@ -596,10 +600,6 @@ export type CodingSessionBlockedKind =
   (typeof codingSessionBlockedKindValues)[number]
 export type CodingSessionBlockedWindow =
   (typeof codingSessionBlockedWindowValues)[number]
-export type SupportMessageDirection =
-  (typeof supportMessageDirectionValues)[number]
-export type SupportMessageVisibility =
-  (typeof supportMessageVisibilityValues)[number]
 
 export const issueStatusSchema = z.enum(issueStatusValues)
 export const issueStatusCategorySchema = z.enum(issueStatusCategoryValues)
@@ -614,6 +614,7 @@ export const actionIconSchema = boardIconSchema
 export const deviceIconSchema = z.enum(deviceIconValues)
 export const commentKindSchema = z.enum(commentKindValues)
 export const commentSourceSchema = z.enum(commentSourceValues)
+export const commentAudienceSchema = z.enum(commentAudienceValues)
 export const notificationTypeSchema = z.enum(notificationTypeValues)
 export const prStateSchema = z.enum(prStateValues)
 export const codingSessionStatusSchema = z.enum(codingSessionStatusValues)

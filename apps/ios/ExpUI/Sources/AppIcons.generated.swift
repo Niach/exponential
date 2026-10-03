@@ -259,7 +259,6 @@ public enum AppIcons {
         "layers",
         "layers-2",
         "leaf",
-        "life-buoy",
         "lightbulb",
         "link",
         "link-2",
@@ -281,6 +280,7 @@ public enum AppIcons {
         "message-circle",
         "message-square",
         "message-square-plus",
+        "message-square-reply",
         "mic",
         "microscope",
         "minimize-2",
@@ -524,8 +524,6 @@ public enum AppIcons {
     public static let navSignOut: String = "log-out"
     /// Concept `nav-source-control`.
     public static let navSourceControl: String = "git-merge"
-    /// Concept `nav-support`.
-    public static let navSupport: String = "life-buoy"
     /// Concept `nav-team-switcher`.
     public static let navTeamSwitcher: String = "chevrons-up-down"
     /// Concept `nav-terminal`.
@@ -550,10 +548,10 @@ public enum AppIcons {
     public static let notificationPrMerged: String = "git-merge"
     /// Concept `notification-pr-opened`.
     public static let notificationPrOpened: String = "git-pull-request"
+    /// Concept `notification-reporter-reply`.
+    public static let notificationReporterReply: String = "message-square-reply"
     /// Concept `notification-session-blocked`.
     public static let notificationSessionBlocked: String = "hourglass"
-    /// Concept `notification-support-reply`.
-    public static let notificationSupportReply: String = "life-buoy"
     /// Concept `pr-batch`.
     public static let prBatch: String = "boxes"
     /// Concept `pr-closed`.
@@ -614,8 +612,6 @@ public enum AppIcons {
     public static let settingsBoards: String = "square-kanban"
     /// Concept `settings-general`.
     public static let settingsGeneral: String = "building-2"
-    /// Concept `settings-helpdesk`.
-    public static let settingsHelpdesk: String = "life-buoy"
     /// Concept `settings-import`.
     public static let settingsImport: String = "download"
     /// Concept `settings-issues`.

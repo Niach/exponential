@@ -1,0 +1,28 @@
+{
+  "_doc": "SLOP-4: widget-reporter text (the submission message, the reporter page's replies) is UNTRUSTED plain text. The SERVER escapes it into GFM that renders as the literal text on every client (web lib/reporter-text.ts escapeReporterText; the migration 0158's pg_temp.slop4_escape is its SQL twin), so no renderer needs a plain-text branch and no mention / issue-ref / autolink ever fires on it. Rules, in order: backslash first, then every ASCII special that can open structure or a token ( ` * _ [ ] < > # ~ | @ & ) is backslash-escaped; a dot directly followed by a letter or digit is escaped (kills www./http:// and email autolinks); per line, 4+ leading spaces/tabs are stripped (no indented code), a leading - or + list marker, a leading `N.`/`N)` ordered marker and a leading = (setext) are escaped. Line breaks, tabs and unicode pass through. CRLF normalises to LF.",
+  "cases": [
+    { "name": "plain text passes", "input": "Hello there, it broke.", "output": "Hello there, it broke." },
+    { "name": "backslash first", "input": "C:\\temp\\*.txt", "output": "C:\\\\temp\\\\\\*\\.txt" },
+    { "name": "heading and emphasis", "input": "# not a heading\n**bold** _it_ `code`", "output": "\\# not a heading\n\\*\\*bold\\*\\* \\_it\\_ \\`code\\`" },
+    { "name": "mention and issue ref", "input": "ping @ada@x.test about #PRD-1", "output": "ping \\@ada\\@x\\.test about \\#PRD-1" },
+    { "name": "autolinks die", "input": "see https://example.com/login or www.site.org", "output": "see https://example\\.com/login or www\\.site\\.org" },
+    { "name": "sentence dots survive", "input": "Done. Thanks. 3.5 rating", "output": "Done. Thanks. 3\\.5 rating" },
+    { "name": "html and entities", "input": "<script>alert(1)</script> &amp; co", "output": "\\<script\\>alert(1)\\</script\\> \\&amp; co" },
+    { "name": "lists, ordered, setext, quote, table, strike", "input": "- a\n+ b\n1. one\n2) two\n===\n> q\n| a | b |\n~~gone~~", "output": "\\- a\n\\+ b\n1\\. one\n2\\) two\n\\===\n\\> q\n\\| a \\| b \\|\n\\~\\~gone\\~\\~" },
+    { "name": "indented code is unindented", "input": "text\n    code?\n\tmore\n   three", "output": "text\ncode?\nmore\n   three" },
+    { "name": "links and images", "input": "![x](http://a.b/c.png) [t](u)", "output": "!\\[x\\](http://a\\.b/c\\.png) \\[t\\](u)" },
+    { "name": "crlf and unicode", "input": "héllo\r\nwörld 🎉", "output": "héllo\nwörld 🎉" },
+    { "name": "fence", "input": "```js\nx\n```", "output": "\\`\\`\\`js\nx\n\\`\\`\\`" },
+    { "name": "empty", "input": "", "output": "" }
+  ],
+  "title": {
+    "_doc": "titleFromReporterMessage: the issue title = the message's first non-empty line, escaped, collapsed whitespace, cut to 120 chars with an ellipsis; empty = fallback.",
+    "fallback": "Feedback",
+    "cases": [
+      { "input": "  Login loops\non Safari", "output": "Login loops" },
+      { "input": "\n\n# Big   problem", "output": "\\# Big problem" },
+      { "input": "", "output": "Feedback" },
+      { "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "output": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…" }
+    ]
+  }
+}
