@@ -19,7 +19,6 @@ import {
   codingSessions,
   comments,
   emailBounces,
-  githubInstallationRepoGrants,
   issues,
   teams,
   teamInvites,
@@ -438,7 +437,7 @@ describe(`guardAndCleanupTeamsForUserDeletion — mentions (REV2-37)`, () => {
 
     expect(updatesTo(issues)).toHaveLength(0)
     expect(updatesTo(comments)).toHaveLength(0)
-    expect(deletes).toEqual([githubInstallationRepoGrants])
+    expect(deletes).toEqual([])
   })
 })
 
@@ -454,8 +453,7 @@ describe(`guardAndCleanupTeamsForUserDeletion — email residue (REV2-75)`, () =
     await guardAndCleanupTeamsForUserDeletion(fakeTx, USER, `self`)
 
     expect(deletes).toEqual([
-      githubInstallationRepoGrants,
-      emailBounces,
+          emailBounces,
       verifications,
       teamInvites,
     ])
@@ -472,8 +470,7 @@ describe(`guardAndCleanupTeamsForUserDeletion — email residue (REV2-75)`, () =
     await guardAndCleanupTeamsForUserDeletion(fakeTx, USER, `admin`)
 
     expect(deletes).toEqual([
-      githubInstallationRepoGrants,
-      teams,
+          teams,
       emailBounces,
       verifications,
       teamInvites,

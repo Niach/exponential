@@ -2,7 +2,8 @@ import { useMemo, useState } from "react"
 import { Link } from "@tanstack/react-router"
 import { BookOpen, CircleCheck, Download, Lock } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
-import { Button, GlassGroup, Progress, conceptIcon } from "@exp/ui"
+import { Button, GlassGroup, Progress, conceptIcon, toast } from "@exp/ui"
+import { openGithubConnect, POPUP_BLOCKED_MESSAGE } from "@/lib/github-connect"
 import {
   DESKTOP_RELEASES_URL,
   desktopDownloadHref,
@@ -203,15 +204,27 @@ export function GettingStartedCards({
     ),
 
     // EXP-557: every member connects their own GitHub — no role gate.
+    // SLOP-7: the ONE guided page, as a popup over this page (the progress
+    // hook re-probes on focus); the settings section stays one click away.
     github: (
       <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" asChild>
+        <Button
+          size="sm"
+          onClick={() => {
+            if (!openGithubConnect({ teamId: team.id })) {
+              toast.error(POPUP_BLOCKED_MESSAGE)
+            }
+          }}
+        >
+          <GithubIcon className="mr-1.5 size-4" />
+          {GETTING_STARTED_COPY.github.action}
+        </Button>
+        <Button size="sm" variant="outline" asChild>
           <Link
             to="/t/$teamSlug/settings/repositories"
             params={{ teamSlug }}
           >
-            <GithubIcon className="mr-1.5 size-4" />
-            {GETTING_STARTED_COPY.github.action}
+            Repositories
           </Link>
         </Button>
       </div>

@@ -137,7 +137,6 @@ import {
   PullAlreadyExistsError,
 } from "@/lib/integrations/github-pr"
 import { resolveRepoInstallationTokenInfo } from "@/lib/integrations/github-app"
-import { isInstallationLinkedToTeam } from "@/lib/trpc/integrations"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 import { applyPrLifecycleStatusInTx } from "@/lib/integrations/pr-sync"
 import {
@@ -2403,16 +2402,6 @@ export function registerExponentialTools(
               `The Exponential GitHub App is not installed on ${repo.fullName}.`
             )
           }
-          if (
-            !(await isInstallationLinkedToTeam(
-              repo.teamId,
-              resolvedRepo.installationId
-            ))
-          ) {
-            throw new Error(
-              `${repo.fullName} resolves to a GitHub account that isn't connected to this team. Reconnect it in team settings → Repositories.`
-            )
-          }
 
           claimPrOpen(repo.fullName, head!, {
             userId: user.id,
@@ -2553,19 +2542,6 @@ export function registerExponentialTools(
           throw new Error(
             `The Exponential GitHub App is not installed on ${repo.fullName}.`
           )
-        }
-        // Link-gate (mirrors issues.mergePr/closePr): the installation serving
-        // this repo must still be claimed by the issue's team — a
-        // deliberately severed GitHub connection must not keep authorizing PR
-        // writes through the App.
-        for (const wsId of new Set(teamIdByIssue.values())) {
-          if (
-            !(await isInstallationLinkedToTeam(wsId, resolved.installationId))
-          ) {
-            throw new Error(
-              `${repo.fullName} resolves to a GitHub account that isn't connected to this team. Reconnect it in team settings → Repositories.`
-            )
-          }
         }
         const token = resolved.token
 

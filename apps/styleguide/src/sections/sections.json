@@ -3,14 +3,14 @@
   "sections": [
     { "id": "style", "order": 1, "title": "1 Style", "blurb": "The values the controls are made of: colour, shape, type, motion and the icon registry.", "entries": [] },
     { "id": "general", "order": 2, "title": "2 General components", "blurb": "The glass control set every screen is built from.", "entries": [
-      "picker", "picker-board", "picker-issue", "picker-action", "picker-account", "picker-device", "picker-assignee", "picker-icon", "picker-status", "picker-priority", "picker-label", "picker-mcp",
+      "picker", "picker-board", "picker-issue", "picker-action", "picker-account", "picker-device", "picker-assignee", "picker-icon", "picker-status", "picker-priority", "picker-label", "picker-mcp", "picker-repository",
       "sub-shell",
       "menu",
       "toast"
     ] },
     { "id": "special", "order": 3, "title": "3 Special components", "blurb": "Compositions with one owner: a dialog, a tree, a settings surface.", "entries": [
       "composer-dialog", "issue-context-menu", "session-tree", "pr-graph-badge", "device-settings",
-      "blocked-start-dialog", "stack-merge-choice-dialog"
+      "blocked-start-dialog", "stack-merge-choice-dialog", "readiness-checklist"
     ] },
     { "id": "views", "order": 4, "title": "4 Views", "blurb": "Whole screens, photographed on every platform.", "entries": [] }
   ],
@@ -27,6 +27,7 @@
     "picker-priority": "EXP-1021",
     "picker-label": "EXP-1021",
     "picker-mcp": "EXP-792",
+    "picker-repository": "SLOP-7",
     "sub-shell": "EXP-1020",
     "menu": "EXP-1074",
     "issue-context-menu": "EXP-1074",
@@ -36,6 +37,7 @@
     "pr-graph-badge": "EXP-1058",
     "device-settings": "EXP-1020",
     "blocked-start-dialog": "EXP-980",
-    "stack-merge-choice-dialog": "EXP-1145"
+    "stack-merge-choice-dialog": "EXP-1145",
+    "readiness-checklist": "SLOP-7"
   }
 }

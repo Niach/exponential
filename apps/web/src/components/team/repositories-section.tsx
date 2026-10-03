@@ -14,41 +14,44 @@ import {
   User,
   X,
 } from "lucide-react"
+import {
+  openGithubConnect,
+  openGithubPopup,
+  POPUP_BLOCKED_MESSAGE,
+} from "@/lib/github-connect"
 import { trpc } from "@/lib/trpc-client"
 import { isPlanLimitError } from "@/lib/plan-limit-error"
 import { trpcErrorCode } from "@/lib/trpc-error"
 import {
+  GH_ACCOUNTS_HEADER,
   GH_ADD_FORBIDDEN,
   GH_ADD_REPOSITORY,
   GH_CANCEL,
   GH_CONFIGURE,
-  GH_CONNECT_ANOTHER,
   GH_CONNECT_GITHUB,
-  GH_CONNECTED_HEADER,
+  GH_CONNECTED,
   GH_DISCONNECT,
-  GH_DISCONNECT_ACCOUNT,
+  GH_DISCONNECT_BODY,
   GH_DISCONNECT_CONFIRM_TITLE,
-  GH_INSTALL_ON_ACCOUNT,
+  GH_INSTALL_ANOTHER,
+  GH_INSTALL_APP,
   GH_INSTALLATION_CAPTION,
   GH_MANAGE,
   GH_NO_REPOSITORIES,
   GH_NOT_CONFIGURED,
   GH_NOT_INSTALLED,
+  GH_NOT_LINKED,
   GH_PICKER_TITLE,
   GH_RECONNECT,
   GH_RECONNECT_GITHUB,
-  GH_REFRESH_ACCESS,
+  GH_RECONNECT_NEEDED,
   GH_RETRY,
   GH_SECTION_INTRO,
   GH_SECTION_TITLE,
   GH_STATUS_FAILED,
-  GH_UNLINK_TITLE,
   GH_UPGRADE,
   ghConfigureTitle,
-  ghDisconnectLiveBody,
-  ghDisconnectStaleBody,
-  ghReauthLine,
-  ghStaleLine,
+  ghConnectedAs,
   ghSuspendedLine,
   githubInstallationLabel,
 } from "@/lib/github-connect-copy"
@@ -81,8 +84,6 @@ import { BranchCombobox } from "@/components/branch-combobox"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import {
   GithubRepoPicker,
-  openGithubPopup,
-  POPUP_BLOCKED_MESSAGE,
   type PickerRepo,
 } from "@/components/github-repo-picker"
 
@@ -98,11 +99,11 @@ type GithubStatus = Awaited<
 >
 type GithubInstallation = GithubStatus[`installations`][number]
 
-// Member-visible since EXP-557 (per-user sharing): the status line and the
-// pickers show the VIEWER's own GitHub connections/repos (the server scopes
-// them), connecting shares a repo with the team, and row management (remove,
-// branch pin) is sharer-or-owner. Owners additionally get a Disconnect button
-// on STALE accounts — linked installations no reconnect can ever refresh.
+// Member-visible since EXP-557 (per-user sharing): the connection block and
+// the picker show the VIEWER's own GitHub connection (SLOP-7: their linked
+// GitHub account, the installations and push-able repos it sees, LIVE),
+// adding shares a repo with the team, and row management (remove, branch
+// pin) is sharer-or-owner.
 export function TeamRepositoriesSection({
   teamId,
   currentUserId,
@@ -122,12 +123,8 @@ export function TeamRepositoriesSection({
   const [repos, setRepos] = useState<RepoList | null>(null)
   const [connectOpen, setConnectOpen] = useState(false)
   const [removeTarget, setRemoveTarget] = useState<RepoRowData | null>(null)
-  // FEED-42: every unlink confirms — a live account (the row ✕) and a stale
-  // one (its "Disconnect account" pill) share this dialog, differing in copy.
-  const [disconnectTarget, setDisconnectTarget] = useState<{
-    installation: GithubInstallation
-    stale: boolean
-  } | null>(null)
+  // Disconnecting GitHub (unlinking the viewer's account) confirms first.
+  const [disconnectOpen, setDisconnectOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Set when the last failure was a plan cap (PRECONDITION_FAILED from
@@ -143,9 +140,8 @@ export function TeamRepositoriesSection({
     null
   )
 
-  // The GitHub accounts (App installations) linked to THIS team — drives
-  // the status line. Linking happens via the OAuth claim flow (connectUrl)
-  // or the install-page round-trip fallback (installUrl).
+  // The viewer's GitHub connection: linked or not, the login, the
+  // installations their token sees — drives the connection block.
   const [githubStatus, setGithubStatus] = useState<GithubStatus | null>(null)
   // EXP-774 (IDE parity): a failed probe says so instead of rendering nothing.
   const [githubStatusFailed, setGithubStatusFailed] = useState(false)
@@ -193,12 +189,15 @@ export function TeamRepositoriesSection({
     return () => window.removeEventListener(`focus`, onFocus)
   }, [refresh, refreshGithubStatus])
 
-  // Connect/install URLs carry a signed single-use state token (it drives
-  // the team claim and the self-closing landing page) — never append query
-  // params. The focus listener above re-detects when the popup hands focus
-  // back. openGithubPopup re-focuses an already-open popup and reports a
-  // popup-blocked null so the button never silently does nothing (EXP-557).
-  const openConnectHop = (url: string | null | undefined) => {
+  // The two GitHub hops, both popups the focus listener above re-detects:
+  // the guided page (connect, then install) and GitHub's install page for a
+  // further account. openGithubPopup re-focuses an already-open popup and
+  // reports a popup-blocked null so the button never silently does nothing.
+  const openConnect = () => {
+    setError(openGithubConnect({ teamId }) ? null : POPUP_BLOCKED_MESSAGE)
+  }
+  const openInstall = () => {
+    const url = githubStatus?.installUrl
     if (!url) return
     setError(openGithubPopup(url) ? null : POPUP_BLOCKED_MESSAGE)
   }
@@ -274,18 +273,14 @@ export function TeamRepositoriesSection({
     }
   }
 
-  const handleUnlink = (installationId: number) =>
+  const handleDisconnect = () =>
     run(() =>
-      trpc.integrations.github.unlink.mutate(
-        { teamId, installationId },
-        { context: { skipErrorToast: true } }
-      )
+      trpc.integrations.github.disconnect.mutate(undefined, {
+        context: { skipErrorToast: true },
+      })
     )
 
   const count = repos?.length ?? 0
-  const connectHopUrl = githubStatus
-    ? (githubStatus.connectUrl ?? githubStatus.installUrl)
-    : null
   const installations = githubStatus?.installations ?? []
   const manageUrlForRepo = (repo: RepoRowData) =>
     installations.find((inst) => inst.installationId === repo.installationId)
@@ -316,17 +311,10 @@ export function TeamRepositoriesSection({
             status={githubStatus}
             probeFailed={githubStatusFailed}
             busy={busy}
-            canUnlink
-            connectHopUrl={connectHopUrl}
             onRetry={() => void refreshGithubStatus()}
-            onConnect={() => openConnectHop(connectHopUrl)}
-            onInstall={() => openConnectHop(githubStatus?.installUrl)}
-            onUnlink={(installation) =>
-              setDisconnectTarget({ installation, stale: false })
-            }
-            onDisconnectStale={(installation) =>
-              setDisconnectTarget({ installation, stale: true })
-            }
+            onConnect={openConnect}
+            onInstall={openInstall}
+            onDisconnect={() => setDisconnectOpen(true)}
           />
 
           {error && (
@@ -415,12 +403,10 @@ export function TeamRepositoriesSection({
           {connectForbidden && (
             <div className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               <span className="min-w-0 flex-1">{GH_ADD_FORBIDDEN}</span>
-              {connectHopUrl && (
-                <Pill mode="action" onClick={() => openConnectHop(connectHopUrl)}>
-                  <RefreshCw />
-                  {GH_RECONNECT_GITHUB}
-                </Pill>
-              )}
+              <Pill mode="action" onClick={openConnect}>
+                <RefreshCw />
+                {GH_RECONNECT_GITHUB}
+              </Pill>
             </div>
           )}
           {connectLimitError && (
@@ -483,35 +469,19 @@ export function TeamRepositoriesSection({
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog
-        open={disconnectTarget !== null}
-        onOpenChange={(open) => {
-          if (!open) setDisconnectTarget(null)
-        }}
-      >
+      <AlertDialog open={disconnectOpen} onOpenChange={setDisconnectOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{GH_DISCONNECT_CONFIRM_TITLE}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {disconnectTarget &&
-                (disconnectTarget.stale
-                  ? ghDisconnectStaleBody(
-                      installationLabel(disconnectTarget.installation)
-                    )
-                  : ghDisconnectLiveBody(
-                      installationLabel(disconnectTarget.installation)
-                    ))}
-            </AlertDialogDescription>
+            <AlertDialogDescription>{GH_DISCONNECT_BODY}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={busy}>{GH_CANCEL}</AlertDialogCancel>
             <AlertDialogAction
               disabled={busy}
               onClick={() => {
-                const target = disconnectTarget
-                setDisconnectTarget(null)
-                if (!target) return
-                void handleUnlink(target.installation.installationId)
+                setDisconnectOpen(false)
+                void handleDisconnect()
               }}
             >
               {GH_DISCONNECT}
@@ -526,40 +496,29 @@ export function TeamRepositoriesSection({
 const installationLabel = (inst: GithubInstallation) =>
   githubInstallationLabel(inst)
 
-// The ONE GitHub-connection surface of the section, pinned by FEED-42 spec A
-// (×4, copy in lib/github-connect-copy.ts). FEED-31: an installation is per
-// GitHub account/organization, so the installed state lists ONE ROW PER
-// ACCOUNT (icon, login, a Configure link to that installation's GitHub
-// settings page, an always-visible unlink ✕ that confirms) and offers TWO
-// clearly separate actions underneath: "Connect another account" opens
-// GitHub's account picker (`installUrl` = installations/new — the ONLY way to
-// reach a second org; the OAuth hop auto-redirects on re-auth and just
-// re-links what's already controlled), "Refresh access" re-runs the OAuth hop
-// that re-captures the viewer's repo grants. The server CONFLICTs an unlink
-// while repos still use the account and the message lands in the section's
-// inline error box.
+// The ONE GitHub-connection surface of the section (SLOP-7). Top to bottom:
+// the viewer's own connection (not connected → Connect GitHub, which opens
+// the guided page; connected as `login` with Disconnect; an expired token →
+// Reconnect), then the accounts where the app is installed, ONE ROW PER
+// ACCOUNT with a Configure link to that installation's GitHub settings page,
+// and "Install on another account" underneath. Nothing is per team anymore:
+// the connection is the person's, the repositories below are the team's.
 function GithubStatusLine({
   status,
   probeFailed,
   busy,
-  canUnlink,
-  connectHopUrl,
   onRetry,
   onConnect,
   onInstall,
-  onUnlink,
-  onDisconnectStale,
+  onDisconnect,
 }: {
   status: GithubStatus | null
   probeFailed: boolean
   busy: boolean
-  canUnlink: boolean
-  connectHopUrl: string | null
   onRetry: () => void
   onConnect: () => void
   onInstall: () => void
-  onUnlink: (installation: GithubInstallation) => void
-  onDisconnectStale: (installation: GithubInstallation) => void
+  onDisconnect: () => void
 }) {
   if (!status) {
     // The probe is best-effort — say nothing definite rather than a false
@@ -586,27 +545,47 @@ function GithubStatusLine({
     )
   }
 
-  if (!status.installed) {
-    // Primary = the OAuth hop (finds installations the viewer already
-    // controls; the callback sends a zero-installation user on to GitHub's
-    // install page itself). The secondary goes straight to the account
-    // picker — only worth a second pill when the two URLs differ.
+  if (!status.linked) {
     return (
-      <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+      <div
+        className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
+        data-testid="github-connection"
+        data-state="unlinked"
+      >
         <Github className="h-3.5 w-3.5 shrink-0" />
-        <span className="min-w-0 flex-1">{GH_NOT_INSTALLED}</span>
-        {connectHopUrl && (
-          <Pill mode="action" onClick={onConnect}>
-            <Github />
-            {GH_CONNECT_GITHUB}
-          </Pill>
-        )}
-        {status.connectUrl && status.installUrl && (
-          <Pill mode="action" onClick={onInstall}>
-            <Plus />
-            {GH_INSTALL_ON_ACCOUNT}
-          </Pill>
-        )}
+        <span className="min-w-0 flex-1">{GH_NOT_LINKED}</span>
+        <Pill mode="action" primary onClick={onConnect}>
+          <Github />
+          {GH_CONNECT_GITHUB}
+        </Pill>
+      </div>
+    )
+  }
+
+  if (status.needsReconnect) {
+    return (
+      <div
+        className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
+        data-testid="github-connection"
+        data-state="expired"
+      >
+        <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+        <span className="min-w-0 flex-1">{GH_RECONNECT_NEEDED}</span>
+        <Pill mode="action" primary onClick={onConnect}>
+          <RefreshCw />
+          {GH_RECONNECT}
+        </Pill>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-5 w-5 shrink-0 p-0 text-muted-foreground hover:text-destructive"
+          disabled={busy}
+          onClick={onDisconnect}
+          title={GH_DISCONNECT}
+          aria-label={GH_DISCONNECT}
+        >
+          <X className="h-3 w-3" />
+        </Button>
       </div>
     )
   }
@@ -614,147 +593,94 @@ function GithubStatusLine({
   const installations = status.installations
   const suspended = installations.filter((inst) => inst.suspended)
 
-  // GitHub suspended the App for a linked account (REV2-29). The claim link
-  // survives a suspension — but until it's unsuspended no token mints, which
-  // means no clone, no coding, no PRs. Say so instead of looking healthy (and
-  // show no stale lines, FEED-42).
-  if (suspended.length > 0) {
-    const manageUrl = suspended[0]!.manageUrl ?? status.installUrl
-    return (
-      <div className="flex flex-wrap items-center gap-2 text-sm text-destructive">
-        <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
-        <span className="min-w-0 flex-1">
-          {ghSuspendedLine(suspended.map(installationLabel))}
+  return (
+    <div className="space-y-2" data-testid="github-connection" data-state="linked">
+      <div className="flex items-center gap-2 text-sm">
+        <LiveDot tone="live" className="shrink-0" />
+        <span className="min-w-0 flex-1 truncate text-muted-foreground">
+          {status.login ? ghConnectedAs(status.login) : GH_CONNECTED}
         </span>
-        {manageUrl && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-5 w-5 shrink-0 p-0 text-muted-foreground hover:text-destructive"
+          disabled={busy}
+          onClick={onDisconnect}
+          title={GH_DISCONNECT}
+          aria-label={GH_DISCONNECT}
+        >
+          <X className="h-3 w-3" />
+        </Button>
+      </div>
+
+      {/* GitHub suspended the app for an account (REV2-29): until it is
+          unsuspended no token mints — say so instead of looking healthy. */}
+      {suspended.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 pl-5 text-sm text-destructive">
+          <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 flex-1">
+            {ghSuspendedLine(suspended.map(installationLabel))}
+          </span>
           <Pill asChild mode="action">
-            <a href={manageUrl} target="_blank" rel="noreferrer">
+            <a href={suspended[0]!.manageUrl} target="_blank" rel="noreferrer">
               {GH_MANAGE}
               <ExternalLink />
             </a>
           </Pill>
-        )}
-      </div>
-    )
-  }
+        </div>
+      )}
 
-  // The account rows ALWAYS render when installed (EXP-365): they carry the
-  // per-account unlink ✕. STALE accounts (zero grants from anyone — EXP-557)
-  // get their own line with a visible Disconnect pill instead of the
-  // reconnect nag: reconnecting can never refresh them, which is exactly how
-  // the warning got permanent (EXP-556).
-  const staleAccounts = installations.filter(
-    (inst) => inst.stale && !inst.suspended
-  )
-  const staleIds = new Set(staleAccounts.map((inst) => inst.installationId))
-  const needingReauth = installations.filter(
-    (inst) => inst.needsReauth && !staleIds.has(inst.installationId)
-  )
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2 text-sm">
-        {needingReauth.length > 0 ? (
-          <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-        ) : (
-          <LiveDot tone="live" className="shrink-0" />
-        )}
-        <span className="text-muted-foreground">{GH_CONNECTED_HEADER}</span>
-      </div>
-      <ul className="space-y-1 pl-5">
-        {installations.map((inst) => (
-          <li
-            key={inst.installationId}
-            className="flex items-center gap-2 text-sm"
-          >
-            {inst.accountType === `Organization` ? (
-              <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            ) : (
-              <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            )}
-            <span className="min-w-0 flex-1 truncate text-foreground">
-              {installationLabel(inst)}
-            </span>
-            {inst.manageUrl && (
-              <a
-                href={inst.manageUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                title={ghConfigureTitle(installationLabel(inst))}
-              >
-                {GH_CONFIGURE}
-                <ExternalLink className="h-3 w-3" />
-              </a>
-            )}
-            {canUnlink && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-5 w-5 shrink-0 p-0 text-muted-foreground hover:text-destructive"
-                disabled={busy}
-                onClick={() => onUnlink(inst)}
-                title={GH_UNLINK_TITLE}
-                aria-label={GH_UNLINK_TITLE}
-              >
-                <X className="h-3 w-3" />
-              </Button>
-            )}
-          </li>
-        ))}
-      </ul>
-      <p className="pl-5 text-xs text-muted-foreground">
-        {GH_INSTALLATION_CAPTION}
-      </p>
-      {(status.installUrl || status.connectUrl) && (
-        <div className="flex flex-wrap items-center gap-2 pl-5">
+      {installations.length === 0 ? (
+        <div className="flex flex-wrap items-center gap-2 pl-5 text-sm text-muted-foreground">
+          <span className="min-w-0 flex-1">{GH_NOT_INSTALLED}</span>
           {status.installUrl && (
-            <Pill mode="action" onClick={onInstall}>
+            <Pill mode="action" primary onClick={onInstall}>
               <Plus />
-              {GH_CONNECT_ANOTHER}
-            </Pill>
-          )}
-          {status.connectUrl && (
-            <Pill mode="action" onClick={onConnect}>
-              <RefreshCw />
-              {GH_REFRESH_ACCESS}
+              {GH_INSTALL_APP}
             </Pill>
           )}
         </div>
+      ) : (
+        <>
+          <div className="pl-5 text-xs text-muted-foreground">{GH_ACCOUNTS_HEADER}</div>
+          <ul className="space-y-1 pl-5">
+            {installations.map((inst) => (
+              <li
+                key={inst.installationId}
+                className="flex items-center gap-2 text-sm"
+              >
+                {inst.accountType === `Organization` ? (
+                  <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                ) : (
+                  <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                )}
+                <span className="min-w-0 flex-1 truncate text-foreground">
+                  {installationLabel(inst)}
+                </span>
+                <a
+                  href={inst.manageUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                  title={ghConfigureTitle(installationLabel(inst))}
+                >
+                  {GH_CONFIGURE}
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              </li>
+            ))}
+          </ul>
+          <p className="pl-5 text-xs text-muted-foreground">{GH_INSTALLATION_CAPTION}</p>
+          {status.installUrl && (
+            <div className="flex flex-wrap items-center gap-2 pl-5">
+              <Pill mode="action" onClick={onInstall}>
+                <Plus />
+                {GH_INSTALL_ANOTHER}
+              </Pill>
+            </div>
+          )}
+        </>
       )}
-      {needingReauth.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-          <span className="w-3.5 shrink-0" aria-hidden />
-          <span className="min-w-0 flex-1">
-            {ghReauthLine(needingReauth.map(installationLabel))}
-          </span>
-          {connectHopUrl && (
-            <Pill mode="action" onClick={onConnect}>
-              <RefreshCw />
-              {GH_RECONNECT}
-            </Pill>
-          )}
-        </div>
-      )}
-      {staleAccounts.map((inst) => (
-        <div
-          key={inst.installationId}
-          className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
-        >
-          <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-          <span className="min-w-0 flex-1">
-            {ghStaleLine(installationLabel(inst))}
-          </span>
-          <Pill
-            mode="action"
-            disabled={busy}
-            onClick={() => onDisconnectStale(inst)}
-          >
-            <X />
-            {GH_DISCONNECT_ACCOUNT}
-          </Pill>
-        </div>
-      ))}
     </div>
   )
 }

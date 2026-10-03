@@ -92,8 +92,18 @@ mod tests {
     #[test]
     fn every_entry_is_filled() {
         const PLACEHOLDERS: [&str; 0] = [];
+        // An owner is an issue identifier, `<BOARD>-<number>` (EXP-1031,
+        // SLOP-7): uppercase letters, a dash, digits.
+        let is_identifier = |owner: &str| {
+            owner.split_once('-').is_some_and(|(board, number)| {
+                !board.is_empty()
+                    && board.chars().all(|c| c.is_ascii_uppercase())
+                    && !number.is_empty()
+                    && number.chars().all(|c| c.is_ascii_digit())
+            })
+        };
         for entry in entries::ENTRIES {
-            assert!(entry.owner.starts_with("EXP-"), "{}", entry.id);
+            assert!(is_identifier(entry.owner), "{}: {}", entry.id, entry.owner);
         }
         let placeholders: Vec<&str> = entries::ENTRIES
             .iter()

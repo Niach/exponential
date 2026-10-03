@@ -14,12 +14,11 @@ vi.mock(`@/lib/integrations/github-app`, async (importOriginal) => {
   }
 })
 
-// The connect gate (the repo must resolve to an installation linked to the
-// target team) lives in the integrations router module; stub it so
-// connect tests drive it directly.
+// The connect gate (SLOP-7: the caller's own GitHub token must see the repo
+// with push access, and the App must be installed on it) lives in the
+// integrations router module; stub it so connect tests drive it directly.
 vi.mock(`@/lib/trpc/integrations`, () => ({
-  assertRepoInstallationAccess: vi.fn(),
-  isInstallationLinkedToTeam: vi.fn(async () => true),
+  resolveRepoForConnect: vi.fn(),
 }))
 
 // assertRepoManager resolves the actor's membership — mocked so the
@@ -48,13 +47,11 @@ import {
 import {
   fetchBranchDiff,
   peekBranchDiff,
-  resolveRepoDefaultBranch,
   type CompareFetch,
 } from "@/lib/integrations/github-app"
-import { assertRepoInstallationAccess } from "@/lib/trpc/integrations"
+import { resolveRepoForConnect } from "@/lib/trpc/integrations"
 
-const mockAssertRepoAccess = vi.mocked(assertRepoInstallationAccess)
-const mockResolveDefaultBranch = vi.mocked(resolveRepoDefaultBranch)
+const mockResolveRepo = vi.mocked(resolveRepoForConnect)
 
 function jsonResponse(status: number, body: unknown) {
   return {
@@ -292,12 +289,14 @@ describe(`fetchBranchDiff`, () => {
 // connect semantics. A minimal fake tx exercises each branch.
 describe(`connectRepositoryInTx`, () => {
   beforeEach(() => {
-    mockAssertRepoAccess.mockReset()
-    mockResolveDefaultBranch.mockReset()
-    // Default: the caller is attributed to the repo's installation and
-    // supplies no branch; the live default-branch lookup succeeds.
-    mockAssertRepoAccess.mockResolvedValue(7)
-    mockResolveDefaultBranch.mockResolvedValue(`main`)
+    mockResolveRepo.mockReset()
+    // Default: the caller's token sees the repo with push access on
+    // installation 7 and GitHub reports `main` as its default branch.
+    mockResolveRepo.mockResolvedValue({
+      installationId: 7,
+      private: true,
+      defaultBranch: `main`,
+    })
   })
 
   function makeTx(opts: {
@@ -332,53 +331,38 @@ describe(`connectRepositoryInTx`, () => {
     await expect(
       connectRepositoryInTx(tx as never, input)
     ).resolves.toBe(`r1`)
-    // The gate runs on THIS transaction (EXP-371) — it leaves the
-    // installation's link row locked for the insert below, which is the whole
-    // reason a concurrent unlink can't strand the row.
-    expect(mockAssertRepoAccess).toHaveBeenCalledWith(
-      tx,
-      `ws1`,
-      `u1`,
-      `acme/app`
-    )
+    // The gate runs on the CALLER (their token proves push access).
+    expect(mockResolveRepo).toHaveBeenCalledWith(`u1`, `acme/app`)
     // The persisted id is GitHub's authoritative one, never a client claim.
     expect(captured.values?.installationId).toBe(7)
+    expect(captured.values?.private).toBe(true)
     // EXP-557: the connector becomes the sharer.
     expect(captured.values?.sharedByUserId).toBe(`u1`)
   })
 
-  it(`resolves the live default branch when the caller supplies none`, async () => {
-    mockResolveDefaultBranch.mockResolvedValue(`master`)
+  it(`persists GitHub's default branch, even over a client-supplied one`, async () => {
+    mockResolveRepo.mockResolvedValue({
+      installationId: 7,
+      private: false,
+      defaultBranch: `master`,
+    })
     const captured: { values?: Record<string, unknown> } = {}
     const tx = makeTx({ insert: [{ id: `r1` }], captured })
-    await connectRepositoryInTx(tx as never, input)
-    expect(mockResolveDefaultBranch).toHaveBeenCalledWith(`acme/app`)
+    await connectRepositoryInTx(tx as never, { ...input, defaultBranch: `develop` })
     expect(captured.values?.defaultBranch).toBe(`master`)
   })
 
-  it(`does NOT resolve when the caller already supplied a branch`, async () => {
-    const captured: { values?: Record<string, unknown> } = {}
-    const tx = makeTx({ insert: [{ id: `r1` }], captured })
-    await connectRepositoryInTx(tx as never, {
-      ...input,
-      defaultBranch: `develop`,
+  it(`falls back to the client's branch, then main, when GitHub names none`, async () => {
+    mockResolveRepo.mockResolvedValue({
+      installationId: 7,
+      private: false,
+      defaultBranch: ``,
     })
-    expect(mockResolveDefaultBranch).not.toHaveBeenCalled()
+    const captured: { values?: Record<string, unknown> } = {}
+    let tx = makeTx({ insert: [{ id: `r1` }], captured })
+    await connectRepositoryInTx(tx as never, { ...input, defaultBranch: `develop` })
     expect(captured.values?.defaultBranch).toBe(`develop`)
-  })
-
-  it(`falls back to main when the live lookup yields nothing`, async () => {
-    mockResolveDefaultBranch.mockResolvedValue(null)
-    const captured: { values?: Record<string, unknown> } = {}
-    const tx = makeTx({ insert: [{ id: `r1` }], captured })
-    await connectRepositoryInTx(tx as never, input)
-    expect(captured.values?.defaultBranch).toBe(`main`)
-  })
-
-  it(`falls back to main when the live lookup throws`, async () => {
-    mockResolveDefaultBranch.mockRejectedValue(new Error(`network`))
-    const captured: { values?: Record<string, unknown> } = {}
-    const tx = makeTx({ insert: [{ id: `r1` }], captured })
+    tx = makeTx({ insert: [{ id: `r1` }], captured })
     await connectRepositoryInTx(tx as never, input)
     expect(captured.values?.defaultBranch).toBe(`main`)
   })
@@ -397,14 +381,14 @@ describe(`connectRepositoryInTx`, () => {
     ).rejects.toThrow(/removed concurrently/)
   })
 
-  it(`propagates the gate's rejection (not installed / foreign installation)`, async () => {
-    mockAssertRepoAccess.mockRejectedValue(
-      new Error(`The Exponential GitHub App is not installed on acme/app. Install it, then try again.`)
+  it(`propagates the gate's rejection (not installed / no push access)`, async () => {
+    mockResolveRepo.mockRejectedValue(
+      new Error(`The Exponential GitHub App isn't installed on acme/app. Install it for acme on GitHub (and grant the repository), then try again.`)
     )
     const tx = makeTx({ insert: [{ id: `r1` }] })
     await expect(
       connectRepositoryInTx(tx as never, input)
-    ).rejects.toThrow(/not installed/)
+    ).rejects.toThrow(/isn't installed/)
   })
 })
 

@@ -98,7 +98,7 @@ object CodingReadiness {
         const val GITHUB_MET = "GitHub connected"
         const val GITHUB_UNMET = "Connect GitHub"
         const val GITHUB_BODY =
-            "Start coding clones a repository from a GitHub account or organization connected to the team."
+            "Connect your GitHub account so Exponential can list the repositories you can push to. Install the Exponential app on the accounts that own them."
         const val REPOSITORY_MET = "Repository connected"
         const val DEVICE_MET = "Device online"
         const val DEVICE_UNMET = "A device online"

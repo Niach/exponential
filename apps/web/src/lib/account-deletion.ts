@@ -14,7 +14,6 @@ import {
   codingSessions,
   comments,
   emailBounces,
-  githubInstallationRepoGrants,
   issueDrafts,
   issues,
   teams,
@@ -246,18 +245,6 @@ export async function guardAndCleanupTeamsForUserDeletion(
     )
     .returning({ id: codingSessions.id })
   endedSessionIds.push(...hosted.map((s) => s.id))
-
-  // GitHub repo grants this user proved: a grant row means "team W may
-  // see/connect this repo because user U proved user-scoped GitHub access",
-  // so the entitlement must die with the user (assertRepoGrant matches on
-  // team+installation+repo alone — an ownerless row would keep entitling
-  // the team forever). The FK cascades on user delete as the schema-level
-  // backstop; this explicit delete makes the revocation part of the guard
-  // transaction itself rather than a side effect of whichever statement later
-  // removes the users row.
-  await tx
-    .delete(githubInstallationRepoGrants)
-    .where(eq(githubInstallationRepoGrants.grantedByUserId, userId))
 
   const soloToDelete = solo
 

@@ -88,7 +88,7 @@ export const READINESS_COPY = {
   captionDevice: `No device online`,
   githubMet: `GitHub connected`,
   githubUnmet: `Connect GitHub`,
-  githubBody: `Start coding clones a repository from a GitHub account or organization connected to the team.`,
+  githubBody: `Connect your GitHub account so Exponential can list the repositories you can push to. Install the Exponential app on the accounts that own them.`,
   repositoryMet: `Repository connected`,
   deviceMet: `Device online`,
   deviceUnmet: `A device online`,

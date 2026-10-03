@@ -139,10 +139,12 @@ export function useGettingStartedProgress(
         .query({ teamId })
         .then((status) => {
           if (cancelled) return
+          // SLOP-7: the entry is done once the viewer's GitHub lists an
+          // installed account (the team's repositories count too, below).
           setGithubInstalled(status.installed)
           // The listener only exists to catch not-installed → installed
-          // (returning from the GitHub install tab); once installed there is
-          // nothing left to detect, so stop re-querying on every focus.
+          // (returning from the guided page's popup); once installed there
+          // is nothing left to detect, so stop re-querying on every focus.
           if (status.installed) window.removeEventListener(`focus`, check)
         })
         .catch(() => {
@@ -217,7 +219,11 @@ export function useGettingStartedProgress(
     () => ({
       hasDesktopDevice: deviceKinds?.desktop === true,
       hasServerDevice: deviceKinds?.server === true,
-      githubInstalled: githubInstalled === true,
+      // A repo-backed board proves a teammate connected GitHub for the team:
+      // the entry is done for everyone, not only for whoever linked it.
+      githubInstalled:
+        githubInstalled === true ||
+        liveBoards.some((board) => board.repositoryId != null),
       hasInvitedTeam: members.length > 1 || invites.length > 0,
       hasBoard: liveBoards.length > 0,
       hasRepoBoard: liveBoards.some(

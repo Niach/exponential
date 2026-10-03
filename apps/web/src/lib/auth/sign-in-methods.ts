@@ -26,7 +26,12 @@ import {
 // mutations call `assertNotLastWayIn`, and the plugin below guards the two
 // Better Auth endpoints a direct API caller could still reach.
 
-export type SignInProviderKind = `apple` | `google` | `oidc` | `password`
+export type SignInProviderKind =
+  | `apple`
+  | `google`
+  | `github`
+  | `oidc`
+  | `password`
 
 export interface SignInProvider {
   // Better Auth provider id: `google`, `apple`, the OIDC id, or `credential`.
@@ -68,6 +73,7 @@ type ProviderConfig = Pick<
   | `passkeyEnabled`
   | `googleLoginEnabled`
   | `appleLoginEnabled`
+  | `githubLoginEnabled`
   | `oidcProviders`
 >
 
@@ -80,7 +86,9 @@ type PasskeyRow = {
 }
 
 /** The linkable providers this instance offers, in the order every client
- *  renders them: Apple, Google, then the OIDC providers as configured. */
+ *  renders them: Apple, Google, GitHub (SLOP-7, only with GitHub LOGIN on —
+ *  the repositories connection lives under Settings → Repositories and is
+ *  never a sign-in method on its own), then the OIDC providers. */
 export function configuredProviders(
   config: ProviderConfig
 ): Array<{ id: string; name: string; kind: SignInProviderKind }> {
@@ -90,6 +98,9 @@ export function configuredProviders(
       : []),
     ...(config.googleLoginEnabled
       ? [{ id: `google`, name: `Google`, kind: `google` as const }]
+      : []),
+    ...(config.githubLoginEnabled
+      ? [{ id: `github`, name: `GitHub`, kind: `github` as const }]
       : []),
     ...config.oidcProviders.map((p) => ({
       id: p.id,
@@ -103,6 +114,7 @@ function providerAvailable(providerId: string, config: ProviderConfig): boolean 
   if (providerId === `credential`) return config.passwordEnabled
   if (providerId === `google`) return config.googleLoginEnabled
   if (providerId === `apple`) return config.appleLoginEnabled
+  if (providerId === `github`) return config.githubLoginEnabled
   return config.oidcProviders.some((p) => p.id === providerId)
 }
 
@@ -152,6 +164,10 @@ export function buildSignInMethods(input: {
   for (const [providerId, row] of linkedByProvider) {
     if (providers.some((p) => p.id === providerId)) continue
     if (providerId === `credential`) continue
+    // SLOP-7: a GitHub row on an instance without GitHub LOGIN is the
+    // repositories connection, managed under Settings → Repositories — it is
+    // not a sign-in method and must not read as a leftover grant here.
+    if (providerId === `github`) continue
     providers.push({
       id: providerId,
       name: providerId,

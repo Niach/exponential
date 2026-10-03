@@ -73,12 +73,13 @@ export function readinessBoard(
   return picked.find((board) => board.repositoryId) ?? picked[0] ?? null
 }
 
-/** `acme-inc`: the connected account's login, else the owner half of the
- * first team repository. */
+/** `octocat`: the viewer's linked GitHub login, else the first installed
+ * account, else the owner half of the first team repository. */
 function githubLabel(
   status: GithubStatus | null,
   repos: ReadinessRepoList
 ): string | null {
+  if (status?.login) return status.login
   const login = status?.installations.find((inst) => inst.accountLogin)
     ?.accountLogin
   if (login) return login
@@ -96,9 +97,9 @@ export interface CodingReadinessState {
   /** The team's repositories (null until the first answer) — the inline
    * repository picker lists them. */
   repos: ReadinessRepoList | null
-  /** GitHub's connect hop for the "Connect GitHub" fix, when the instance
-   * has the App configured. */
-  githubConnectUrl: string | null
+  /** The viewer has GitHub linked (SLOP-7); null while unknown. The
+   * "Connect GitHub" fix opens the guided page either way. */
+  githubLinked: boolean | null
   /** The caller's OWN machines (the add-device dialog watches them for the
    * new one); null while loading. */
   ownDevices: SteerDevice[] | null
@@ -266,14 +267,19 @@ export function useCodingReadiness({
     : (repos?.find((repo) => repo.id === board.repositoryId)?.fullName ?? ``)
   // Asked only while the board has none; an unresolved board keeps the
   // whole checklist loading (null repository + null GitHub).
+  // SLOP-7: "GitHub connected" = the viewer's own GitHub account is linked
+  // with a live token, or the team already has repositories (a teammate
+  // connected them — this person needs no GitHub of their own to pick one).
   const githubInput = useMemo(() => {
     if (!board || board.repositoryId) return null
     const reposKnown = repos !== null || reposFailed
     const statusKnown = github !== null || githubFailed
     if (!reposKnown || !statusKnown) return null
     const teamRepos = repos ?? []
+    const linked =
+      github?.linked === true && github.needsReconnect !== true
     return {
-      connected: teamRepos.length > 0 || github?.installed === true,
+      connected: teamRepos.length > 0 || linked,
       label: githubLabel(github, teamRepos),
     }
   }, [board, repos, reposFailed, github, githubFailed])
@@ -308,7 +314,7 @@ export function useCodingReadiness({
     teamId,
     isOwner,
     repos,
-    githubConnectUrl: github?.connectUrl ?? github?.installUrl ?? null,
+    githubLinked: github ? github.linked && !github.needsReconnect : null,
     ownDevices,
     reload,
   }

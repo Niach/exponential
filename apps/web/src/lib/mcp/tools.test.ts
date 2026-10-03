@@ -309,7 +309,6 @@ import {
 } from "@/lib/integrations/github-pr"
 import { insertRelationInTx } from "@/lib/issue-relations"
 import { resolveRepoInstallationTokenInfo } from "@/lib/integrations/github-app"
-import { isInstallationLinkedToTeam } from "@/lib/trpc/integrations"
 import { registerExponentialTools } from "@/lib/mcp/tools"
 import { verifySessionResultToken } from "@/lib/storage/session-result-token"
 import {
@@ -2141,7 +2140,6 @@ describe(`exponential_pr_open batch session parking`, () => {
       token: `tok`,
       installationId: 42,
     } as never)
-    vi.mocked(isInstallationLinkedToTeam).mockResolvedValue(true)
     vi.mocked(createPullRequest).mockResolvedValue({
       url: `https://github.com/acme/app/pull/7`,
       number: 7,
@@ -3239,7 +3237,6 @@ describe(`exponential_pr_open — repositoryId path`, () => {
       token: `tok`,
       installationId: 42,
     } as never)
-    vi.mocked(isInstallationLinkedToTeam).mockResolvedValue(true)
     vi.mocked(createPullRequest).mockResolvedValue({
       url: `https://github.com/acme/app/pull/9`,
       number: 9,
@@ -5259,7 +5256,6 @@ describe(`exponential_pr_open — a follow-up run based on its parent's branch`,
       token: `tok`,
       installationId: 42,
     } as never)
-    vi.mocked(isInstallationLinkedToTeam).mockResolvedValue(true)
     vi.mocked(createPullRequest).mockResolvedValue({
       url: `https://github.com/acme/app/pull/242`,
       number: 242,
