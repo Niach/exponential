@@ -172,6 +172,8 @@ const authConfig = {
   googleLoginEnabled: false,
   appleLoginEnabled: false,
   githubEnabled: false,
+  githubConnectEnabled: false,
+  githubLoginEnabled: false,
   deviceFlowEnabled: true,
   emailOtpEnabled: true,
   passkeyEnabled: false,

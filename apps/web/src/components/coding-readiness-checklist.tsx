@@ -7,6 +7,11 @@ import {
   Popover,
   PopoverAnchor,
   PopoverContent,
+  ReadinessFixPill,
+  ReadinessFixes,
+  ReadinessProgress,
+  ReadinessRow,
+  ReadinessRows,
   Sheet,
   SheetContent,
   SheetDescription,
@@ -25,10 +30,7 @@ import {
 } from "@/lib/coding-readiness"
 import { desktopDownloadHref } from "@/lib/desktop-download"
 import { cn } from "@/lib/utils"
-import {
-  openGithubPopup,
-  POPUP_BLOCKED_MESSAGE,
-} from "@/components/github-repo-picker"
+import { openGithubConnect, POPUP_BLOCKED_MESSAGE } from "@/lib/github-connect"
 import { ReadinessRepoPicker } from "@/components/coding-readiness-repo-picker"
 import { AddDeviceDialog } from "@/components/add-device-dialog"
 import type { CodingReadinessState } from "@/hooks/use-coding-readiness"
@@ -38,10 +40,13 @@ import type { CodingReadinessState } from "@/hooks/use-coding-readiness"
 // opens this checklist — anchored under the capsule on a pointer device, a
 // bottom sheet on a phone — with the fix for the current step inline. The
 // model + every word come from `lib/coding-readiness.ts` (fixture-locked ×4);
-// this file only draws it and wires each fix to the surface that already
-// exists for it.
+// the rows, fix pills and progress strip are `@exp/ui`'s
+// (`readiness-checklist.tsx`, the styleguide specimen); this file wires each
+// fix to the surface that already exists for it. SLOP-7: Connect GitHub
+// opens the ONE guided page (`/integrations/github`) as a popup over the
+// issue — connect, install the app, pick this board's repository — and the
+// rows re-probe once focus comes back.
 
-const CheckIcon = conceptIcon(`ui-check`)
 const CloseIcon = conceptIcon(`ui-close`)
 const ChevronIcon = conceptIcon(`ui-chevron-right`)
 const PlayIcon = conceptIcon(`action-run`)
@@ -70,8 +75,7 @@ const FIX_LABELS: Record<ReadinessFix, string> = {
   set_up_server: READINESS_COPY.fixSetUpServer,
 }
 
-/** The amber the whole not-ready language shares (dot, capsule, ring). */
-export const READINESS_AMBER = `var(--color-amber-400)`
+export { READINESS_AMBER } from "@exp/ui"
 
 /** Dot + "Needs a repository" — the capsule's one-line caption. */
 export function ReadinessCaption({
@@ -147,29 +151,6 @@ export function ReadinessStartPill({
   )
 }
 
-function StepGlyph({ step }: { step: ReadinessStep }) {
-  if (step.state === `met`) {
-    return (
-      <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-400">
-        <CheckIcon className="size-4" />
-      </span>
-    )
-  }
-  const Glyph = STEP_ICONS[step.key]
-  return (
-    <span
-      className={cn(
-        `flex size-7 shrink-0 items-center justify-center rounded-full border-[1.5px]`,
-        step.state === `current`
-          ? `border-amber-400 text-amber-400`
-          : `border-dashed border-muted-foreground/50 text-muted-foreground`
-      )}
-    >
-      <Glyph className="size-3.5" />
-    </span>
-  )
-}
-
 function FixButtons({
   step,
   state,
@@ -198,7 +179,7 @@ function FixButtons({
     typeof navigator === `undefined` ? 0 : navigator.maxTouchPoints
 
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-2">
+    <ReadinessFixes>
       {fixes.map((fix, index) => {
         const Glyph = FIX_ICONS[fix]
         const body = (
@@ -209,29 +190,27 @@ function FixButtons({
           </>
         )
         const common = {
-          size: `sm` as const,
-          mode: `action` as const,
           // The first fix is the one to press.
           primary: index === 0,
           "data-testid": `readiness-fix-${fix}`,
         }
         if (fix === `choose_repository`) {
           return (
-            <Pill key={fix} {...common} onClick={onChooseRepository}>
+            <ReadinessFixPill key={fix} {...common} onClick={onChooseRepository}>
               {body}
-            </Pill>
+            </ReadinessFixPill>
           )
         }
         if (fix === `set_up_server`) {
           return (
-            <Pill key={fix} {...common} onClick={onSetUpServer}>
+            <ReadinessFixPill key={fix} {...common} onClick={onSetUpServer}>
               {body}
-            </Pill>
+            </ReadinessFixPill>
           )
         }
         if (fix === `get_desktop_app`) {
           return (
-            <Pill key={fix} {...common} asChild>
+            <ReadinessFixPill key={fix} {...common} asChild>
               <a
                 href={desktopDownloadHref(userAgent, touchPoints)}
                 target="_blank"
@@ -239,43 +218,35 @@ function FixButtons({
               >
                 {body}
               </a>
-            </Pill>
+            </ReadinessFixPill>
           )
         }
         if (fix === `connect_github`) {
-          // The GitHub hop opens as a popup over the issue — the person
+          // The guided page opens as a popup over the issue — the person
           // never leaves it, and the rows re-probe once focus comes back.
-          // Without the App's connect URL, Settings › Repositories.
-          const url = state.githubConnectUrl
-          if (url || !teamSlug) {
-            return (
-              <Pill
-                key={fix}
-                {...common}
-                onClick={() => {
-                  if (!openGithubPopup(url)) toast.error(POPUP_BLOCKED_MESSAGE)
-                }}
-              >
-                {body}
-              </Pill>
-            )
-          }
           return (
-            <Pill key={fix} {...common} asChild>
-              <Link
-                to="/t/$teamSlug/settings/repositories"
-                params={{ teamSlug }}
-                onClick={onNavigate}
-              >
-                {body}
-              </Link>
-            </Pill>
+            <ReadinessFixPill
+              key={fix}
+              {...common}
+              onClick={() => {
+                if (
+                  !openGithubConnect({
+                    teamId: state.teamId,
+                    boardId: board?.id ?? null,
+                  })
+                ) {
+                  toast.error(POPUP_BLOCKED_MESSAGE)
+                }
+              }}
+            >
+              {body}
+            </ReadinessFixPill>
           )
         }
         if (!teamSlug) return null
         if (fix === `board_settings` && board) {
           return (
-            <Pill key={fix} {...common} asChild>
+            <ReadinessFixPill key={fix} {...common} asChild>
               <Link
                 to="/t/$teamSlug/settings/boards/$boardId"
                 params={{ teamSlug, boardId: board.id }}
@@ -283,12 +254,12 @@ function FixButtons({
               >
                 {body}
               </Link>
-            </Pill>
+            </ReadinessFixPill>
           )
         }
         if (fix === `open_devices`) {
           return (
-            <Pill key={fix} {...common} asChild>
+            <ReadinessFixPill key={fix} {...common} asChild>
               <Link
                 to="/t/$teamSlug/devices"
                 params={{ teamSlug }}
@@ -296,12 +267,12 @@ function FixButtons({
               >
                 {body}
               </Link>
-            </Pill>
+            </ReadinessFixPill>
           )
         }
         return null
       })}
-    </div>
+    </ReadinessFixes>
   )
 }
 
@@ -332,75 +303,46 @@ export function ReadinessSteps({
           onOpenChange={setAddDeviceOpen}
         />
       )}
-      <div
-        className={cn(`flex flex-col divide-y divide-glass-stroke`, className)}
-        data-testid="coding-readiness-steps"
-      >
+      <ReadinessRows className={className}>
         {readiness.steps.map((step) => {
           const current = step.state === `current`
           const showPicker =
             picking && current && step.key === `repository` && board !== null
           return (
-            <div
+            <ReadinessRow
               key={step.key}
-              data-step={step.key}
-              data-state={step.state}
-              className={cn(
-                `flex gap-3 px-4 py-3`,
-                step.state === `met` ? `items-center` : `items-start`,
-                current && `bg-amber-400/[0.06]`
-              )}
+              stepKey={step.key}
+              icon={STEP_ICONS[step.key]}
+              state={step.state}
+              title={step.title}
+              body={step.body}
+              detail={step.detail}
             >
-              <StepGlyph step={step} />
-              <div className="min-w-0 flex-1">
-                <div className="flex min-w-0 items-center gap-2">
-                  <span
-                    className={cn(
-                      `min-w-0 flex-1 truncate text-sm`,
-                      step.state === `met`
-                        ? `text-muted-foreground`
-                        : `font-medium text-foreground`
-                    )}
-                  >
-                    {step.title}
-                  </span>
-                  {step.detail && (
-                    <span className="max-w-[45%] shrink-0 truncate text-xs text-muted-foreground">
-                      {step.detail}
-                    </span>
-                  )}
+              {showPicker && board ? (
+                <div className="mt-2">
+                  <ReadinessRepoPicker
+                    teamId={state.teamId}
+                    board={board}
+                    repos={state.repos}
+                    onPicked={() => setPicking(false)}
+                    onReload={state.reload}
+                  />
                 </div>
-                {step.body && (
-                  <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                    {step.body}
-                  </p>
-                )}
-                {showPicker && board ? (
-                  <div className="mt-2">
-                    <ReadinessRepoPicker
-                      teamId={state.teamId}
-                      board={board}
-                      repos={state.repos}
-                      onPicked={() => setPicking(false)}
-                      onReload={state.reload}
-                    />
-                  </div>
-                ) : (
-                  current && (
-                    <FixButtons
-                      step={step}
-                      state={state}
-                      onChooseRepository={() => setPicking(true)}
-                      onSetUpServer={setUpServer}
-                      onNavigate={onNavigate ?? (() => {})}
-                    />
-                  )
-                )}
-              </div>
-            </div>
+              ) : (
+                current && (
+                  <FixButtons
+                    step={step}
+                    state={state}
+                    onChooseRepository={() => setPicking(true)}
+                    onSetUpServer={setUpServer}
+                    onNavigate={onNavigate ?? (() => {})}
+                  />
+                )
+              )}
+            </ReadinessRow>
           )
         })}
-      </div>
+      </ReadinessRows>
     </>
   )
 }
@@ -423,24 +365,12 @@ function ReadinessAddDeviceDialog({
 }
 
 /** Green met, amber current, grey pending — one slice per step. */
-function ReadinessProgress({ readiness }: { readiness: CodingReadiness }) {
+function ReadinessProgressStrip({ readiness }: { readiness: CodingReadiness }) {
   return (
-    <div className="mt-3 flex gap-1" aria-hidden>
-      {readiness.steps.map((step) => (
-        <span
-          key={step.key}
-          data-state={step.state}
-          className={cn(
-            `h-1 flex-1 rounded-full`,
-            step.state === `met`
-              ? `bg-emerald-400`
-              : step.state === `current`
-                ? `bg-amber-400`
-                : `bg-glass-stroke-strong`
-          )}
-        />
-      ))}
-    </div>
+    <ReadinessProgress
+      className="mt-3"
+      states={readiness.steps.map((step) => step.state)}
+    />
   )
 }
 
@@ -527,7 +457,7 @@ export function CodingReadinessOverlay({
             <SheetHeader className="px-4 pt-3 pb-3">
               <SheetTitle>{READINESS_COPY.title}</SheetTitle>
               <SheetDescription>{readiness.summary}</SheetDescription>
-              <ReadinessProgress readiness={readiness} />
+              <ReadinessProgressStrip readiness={readiness} />
             </SheetHeader>
             <div className="min-h-0 flex-1 overflow-y-auto border-y border-glass-stroke">
               <ReadinessSteps
@@ -588,7 +518,7 @@ export function CodingReadinessOverlay({
                 <CloseIcon />
               </Button>
             </div>
-            <ReadinessProgress readiness={readiness} />
+            <ReadinessProgressStrip readiness={readiness} />
           </div>
           <div className="max-h-[60vh] overflow-y-auto border-y border-glass-stroke">
             <ReadinessSteps

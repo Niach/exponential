@@ -5,13 +5,16 @@ import type { PullFile } from "@/lib/integrations/github-pr"
 // to exactly the permissions the App was granted (contents + pull_requests).
 // This replaces the per-user OAuth token. The App's private key is stored
 // base64-encoded (env-safe) in GITHUB_APP_PRIVATE_KEY.
+//
+// SLOP-7: the App's OAuth client credentials are NOT consumed here anymore —
+// they configure Better Auth's `github` social provider (lib/auth/index.ts),
+// which stores the user's token on their `accounts` row. Repo discovery and
+// connect run on THAT token (lib/integrations/github-user.ts); this module
+// keeps the App-JWT side: installation tokens, branch/diff reads, listings.
 
 const APP_ID = process.env.GITHUB_APP_ID
 const APP_SLUG = process.env.GITHUB_APP_SLUG
 const PRIVATE_KEY_B64 = process.env.GITHUB_APP_PRIVATE_KEY
-// The App's built-in OAuth credentials — powers the team claim flow (a
-// TRANSIENT user token used once to enumerate /user/installations, never
-// stored). Optional: unset → clients fall back to the install-page round-trip.
 const OAUTH_CLIENT_ID = process.env.GITHUB_APP_CLIENT_ID
 const OAUTH_CLIENT_SECRET = process.env.GITHUB_APP_CLIENT_SECRET
 
@@ -19,54 +22,30 @@ export function githubAppConfigured(): boolean {
   return Boolean(APP_ID && PRIVATE_KEY_B64)
 }
 
-export function githubOAuthConfigured(): boolean {
-  return githubAppConfigured() && Boolean(OAUTH_CLIENT_ID && OAUTH_CLIENT_SECRET)
+/** The App's OAuth client, for Better Auth's `github` provider. Null until
+ * BOTH GITHUB_APP_CLIENT_ID and GITHUB_APP_CLIENT_SECRET are set. */
+export function githubOAuthClient(): {
+  clientId: string
+  clientSecret: string
+} | null {
+  if (!OAUTH_CLIENT_ID || !OAUTH_CLIENT_SECRET) return null
+  return { clientId: OAUTH_CLIENT_ID, clientSecret: OAUTH_CLIENT_SECRET }
 }
 
-// The OAuth authorize hop for the team claim flow. Unlike the install
-// page, this is a single lightweight consent screen (instant auto-redirect on
-// re-authorization) — GitHub Apps take no scopes here; the token's reach is
-// fixed by the App's permissions. `state` is the same signed single-use token
-// as the install flow, minted with the oauth purpose flag.
-export function githubOAuthAuthorizeUrl(state?: string): string | null {
-  if (!githubOAuthConfigured() || !state) return null
-  return `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(
-    OAUTH_CLIENT_ID!
-  )}&state=${encodeURIComponent(state)}`
+/** The ONE guided flow needs the App (token mints) AND its OAuth client (the
+ * user's token for discovery): without either, GitHub is "not configured". */
+export function githubConnectConfigured(): boolean {
+  return githubAppConfigured() && githubOAuthClient() !== null && Boolean(APP_SLUG)
 }
 
-// Exchange the callback's `code` for a user-to-server token. Used exactly once
-// (to list the user's installations) and discarded — never persisted, so token
-// expiry/refresh never matters. Null on any failure (expired/reused code).
-export async function exchangeGithubOAuthCode(
-  code: string
-): Promise<string | null> {
-  if (!githubOAuthConfigured()) return null
-  const res = await fetch(`https://github.com/login/oauth/access_token`, {
-    method: `POST`,
-    headers: {
-      accept: `application/json`,
-      "content-type": `application/json`,
-      "user-agent": `exponential`,
-    },
-    body: JSON.stringify({
-      client_id: OAUTH_CLIENT_ID,
-      client_secret: OAUTH_CLIENT_SECRET,
-      code,
-    }),
-  })
-  if (!res.ok) return null
-  const data = (await res.json()) as { access_token?: string }
-  return data.access_token ?? null
-}
-
-// `state` is echoed back to the App's Setup URL (our /api/integrations/github/
-// setup route), letting the callback distinguish an in-dialog install (popup,
-// self-closing landing page) from a plain full-page install.
-export function githubAppInstallUrl(state?: string): string | null {
+// GitHub's install page for the App (new install, or "grant more repos"
+// through the account picker). The App's Setup URL is a plain redirect back
+// to `/integrations/github` — nothing is read off that redirect (GitHub's
+// docs: `installation_id` on the setup redirect is not proof of anything);
+// the page simply re-lists the user's installations live.
+export function githubAppInstallUrl(): string | null {
   if (!APP_SLUG) return null
-  const base = `https://github.com/apps/${APP_SLUG}/installations/new`
-  return state ? `${base}?state=${encodeURIComponent(state)}` : base
+  return `https://github.com/apps/${APP_SLUG}/installations/new`
 }
 
 function privateKeyPem(): string {
@@ -682,30 +661,40 @@ export async function listAllInstallationRepos(
   return { repos: all, hasMore: true }
 }
 
-// The installations the OAuth'd GitHub user can ACCESS — the claim flow's
-// enumeration (`GET /user/installations` with the transient user-to-server
-// token). Access is NOT control (EXP-363): GitHub lists an installation here
-// for anyone who can reach even one of its repos, collaborators included, so
-// every linking decision must additionally pass
-// partitionControlledInstallations.
+export interface UserInstallation extends AppInstallation {
+  /** GitHub has the App suspended for this account: it lists no repos and
+   * mints no tokens until unsuspended on GitHub (REV2-29). */
+  suspended: boolean
+}
+
+// The installations the GitHub user can ACCESS — `GET /user/installations`
+// with the user's stored token (SLOP-7: Better Auth's `github` account row).
+// GitHub lists an installation here for anyone who can reach at least one of
+// its repos, which is exactly the discovery surface the picker wants: the
+// per-installation listing below then intersects with the user's own repo
+// access, and `permissions.push` gates what may be connected.
 export async function listUserInstallations(
   userToken: string,
   opts?: { maxPages?: number }
-): Promise<AppInstallation[]> {
+): Promise<UserInstallation[]> {
   const maxPages = opts?.maxPages ?? 10
-  const all: AppInstallation[] = []
+  const all: UserInstallation[] = []
   for (let page = 1; page <= maxPages; page++) {
     const res = await fetch(
       `https://api.github.com/user/installations?per_page=100&page=${page}`,
       { headers: githubApiHeaders(userToken) }
     )
     if (!res.ok) {
-      throw new Error(`GitHub user installations failed (${res.status})`)
+      throw new GithubUserApiError(
+        `GitHub user installations failed (${res.status})`,
+        res.status
+      )
     }
     const data = (await res.json()) as {
       total_count: number
       installations: Array<{
         id: number
+        suspended_at?: string | null
         account: { login?: string; type?: string } | null
       }>
     }
@@ -714,6 +703,7 @@ export async function listUserInstallations(
         id: i.id,
         account: i.account?.login ?? ``,
         accountType: i.account?.type ?? ``,
+        suspended: Boolean(i.suspended_at),
       }))
     )
     if (page * 100 >= data.total_count) break
@@ -721,17 +711,21 @@ export async function listUserInstallations(
   return all
 }
 
-// The GitHub account behind the transient user token (`GET /user` — always
-// readable with a user-to-server token, no permission needed). Null on any
-// failure rather than throwing: the claim callback's catch-all renders a fake
-// "connected" landing on mobile, so verification helpers must fail as VALUES
-// the callback can turn into an explicit error redirect.
-//
-// EXP-617 also takes the NUMERIC id from the same response (it was always
-// there) — that is what github_user_identities keys on, because logins are
-// renameable and re-registerable. The id stays nullable so a response without
-// one still satisfies the EXP-363 ownership check; the identity row is simply
-// not written in that case.
+/** A GitHub call made with the USER's token that GitHub refused. A 401 means
+ * the stored token is dead (revoked on GitHub, or the App's user tokens
+ * expired without a refresh): the UI offers a reconnect, nothing else. */
+export class GithubUserApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number
+  ) {
+    super(message)
+  }
+}
+
+// The GitHub account behind the user's token (`GET /user` — always readable
+// with a user-to-server token, no permission needed). Null on any failure
+// rather than throwing: the status surfaces only need the login for a label.
 export async function getAuthenticatedGithubUser(
   userToken: string
 ): Promise<{ id: number | null; login: string } | null> {
@@ -751,94 +745,15 @@ export async function getAuthenticatedGithubUser(
   }
 }
 
-export async function getAuthenticatedGithubLogin(
-  userToken: string
-): Promise<string | null> {
-  return (await getAuthenticatedGithubUser(userToken))?.login ?? null
-}
-
-// The OAuth user's own membership in an org (`GET /user/memberships/orgs/{org}`
-// with the user token). Requires the App's Organization → Members (read-only)
-// permission — 403 means it's missing or the installation hasn't approved the
-// permission update yet, surfaced separately so the claim page can say so.
-// Everything else that isn't an active membership (404 outside collaborator,
-// pending invite, transient 5xx) fails CLOSED to "not-member" — a hiccup must
-// never link, and must never throw (see getAuthenticatedGithubLogin).
-export type OrgMembershipState = `active` | `not-member` | `permission-missing`
-
-export async function getUserOrgMembershipState(
-  userToken: string,
-  org: string
-): Promise<OrgMembershipState> {
-  try {
-    const res = await fetch(
-      `https://api.github.com/user/memberships/orgs/${encodeURIComponent(org)}`,
-      { headers: githubApiHeaders(userToken) }
-    )
-    if (res.status === 403) return `permission-missing`
-    if (!res.ok) return `not-member`
-    const data = (await res.json()) as { state?: string }
-    return data.state === `active` ? `active` : `not-member`
-  } catch {
-    return `not-member`
-  }
-}
-
-// EXP-363: the claim flow's CONTROL verdict. `GET /user/installations`
-// attributes an installation to anyone who can access even ONE of its repos —
-// a mere collaborator on a stranger's repo enumerates the stranger's whole
-// installation, and linking it would brand the stranger's account as the
-// team's GitHub connection. So enumeration alone is NOT proof of control:
-// a User-type installation must belong to the OAuth login itself
-// (case-insensitive — GitHub logins are), an Organization-type installation
-// requires an active org membership. Anything else — unknown account type,
-// missing login, membership lookup failure — is not controlled. Org
-// installations whose membership check came back `permission-missing` are
-// additionally reported as UNDETERMINED: they must not link (fail closed),
-// but the caller must also not treat the ambiguity as proof of non-control
-// (e.g. by scrubbing that user's existing repo grants). Ops are injected for
-// tests (style of resolveInstallationTokenWith).
-export async function partitionControlledInstallations(
-  installations: AppInstallation[],
-  ops: {
-    viewerLogin: string
-    orgMembership: (org: string) => Promise<OrgMembershipState>
-  }
-): Promise<{
-  controlled: AppInstallation[]
-  orgPermissionBlocked: boolean
-  undeterminedIds: Set<number>
-}> {
-  const controlled: AppInstallation[] = []
-  const undeterminedIds = new Set<number>()
-  const viewer = ops.viewerLogin.toLowerCase()
-  for (const inst of installations) {
-    if (!inst.account || !viewer) continue
-    if (inst.accountType === `User`) {
-      if (inst.account.toLowerCase() === viewer) controlled.push(inst)
-      continue
-    }
-    if (inst.accountType === `Organization`) {
-      const state = await ops.orgMembership(inst.account)
-      if (state === `active`) controlled.push(inst)
-      else if (state === `permission-missing`) undeterminedIds.add(inst.id)
-    }
-  }
-  return {
-    controlled,
-    orgPermissionBlocked: undeterminedIds.size > 0,
-    undeterminedIds,
-  }
-}
-
-// The repos of ONE installation as the OAuth'd GitHub USER can access them —
-// `GET /user/installations/{id}/repositories` with the transient user-to-server
-// token. Unlike `listInstallationRepos` (installation token → the WHOLE
-// installation selection), GitHub intersects this with the user's own repo
-// access, which is exactly what the grant capture persists: a collaborator on
-// one repo must not discover/connect the rest of the installation. Paginated
-// and deduped like `listAllInstallationRepos`; `hasMore` is true only when the
-// page cap truncated a genuinely larger set.
+// The repos of ONE installation as the GitHub USER can access them —
+// `GET /user/installations/{id}/repositories` with the user's token. Unlike
+// `listInstallationRepos` (installation token → the WHOLE installation
+// selection), GitHub intersects this with the user's own repo access, and
+// SLOP-7 keeps only rows the user can PUSH to (`permissions.push`): a
+// read-only collaborator may see a repo on GitHub, but connecting it here
+// would hand the team a clone/push token for it. Paginated and deduped like
+// `listAllInstallationRepos`; `hasMore` is true only when the page cap
+// truncated a genuinely larger set.
 export async function listUserInstallationRepos(
   userToken: string,
   installationId: number,
@@ -853,7 +768,10 @@ export async function listUserInstallationRepos(
       { headers: githubApiHeaders(userToken) }
     )
     if (!res.ok) {
-      throw new Error(`GitHub user installation repos failed (${res.status})`)
+      throw new GithubUserApiError(
+        `GitHub user installation repos failed (${res.status})`,
+        res.status
+      )
     }
     const data = (await res.json()) as {
       total_count: number
@@ -861,11 +779,13 @@ export async function listUserInstallationRepos(
         full_name: string
         private: boolean
         default_branch: string
+        permissions?: { push?: boolean }
       }>
     }
     for (const r of data.repositories) {
       if (seen.has(r.full_name)) continue
       seen.add(r.full_name)
+      if (r.permissions?.push !== true) continue
       all.push({
         fullName: r.full_name,
         private: r.private,
@@ -876,6 +796,36 @@ export async function listUserInstallationRepos(
     if (page * 100 >= data.total_count) return { repos: all, hasMore: false }
   }
   return { repos: all, hasMore: true }
+}
+
+/** What the user's token says about ONE repo (`GET /repos/{owner}/{name}`):
+ * null when GitHub answers 404 (no such repo, or the user cannot see it);
+ * `push` is the connect gate. Throws on other failures so a transient error
+ * never reads as "no access". */
+export async function fetchUserRepoAccess(
+  userToken: string,
+  fullName: string
+): Promise<{ push: boolean; private: boolean; defaultBranch: string } | null> {
+  const res = await fetch(`https://api.github.com/repos/${fullName}`, {
+    headers: githubApiHeaders(userToken),
+  })
+  if (res.status === 404) return null
+  if (!res.ok) {
+    throw new GithubUserApiError(
+      `GitHub repo lookup failed (${res.status}) for ${fullName}`,
+      res.status
+    )
+  }
+  const data = (await res.json()) as {
+    private?: boolean
+    default_branch?: string
+    permissions?: { push?: boolean }
+  }
+  return {
+    push: data.permissions?.push === true,
+    private: data.private === true,
+    defaultBranch: data.default_branch ?? `main`,
+  }
 }
 
 // Where a user grants/revokes the repos of an installation — GitHub's

@@ -48,6 +48,7 @@ import {
   providerProfileFromClaims,
 } from "@/lib/placeholder-members"
 import { mintAppleClientSecret } from "./apple"
+import { githubOAuthClient } from "@/lib/integrations/github-app"
 import { withAuthDbFailureSignal } from "./db-failure-signal"
 import { askNameBeforeHook, fallbackUserName } from "./ask-name"
 import { emailChangeNotice, signInMethodsGuardPlugin } from "./sign-in-methods"
@@ -112,6 +113,11 @@ const googleClientConfigured = Boolean(
 const googleLoginEnabled =
   googleClientConfigured && process.env.GOOGLE_LOGIN_ENABLED === `true`
 const googleSocialEnabled = googleLoginEnabled
+// SLOP-7: the GitHub App's OAuth client is a `github` social provider. It is
+// registered whenever the credentials exist — `linkSocial` is how a
+// Google/Apple/code account connects GitHub for repositories — while the
+// LOGIN button is a separate switch (GITHUB_LOGIN_ENABLED, lib/auth/config.ts).
+const githubOAuth = githubOAuthClient()
 
 // Sign in with Apple — required by App Store guideline 4.8 whenever the iOS
 // app offers Google login. clientId is the Apple *Services ID* (web flow);
@@ -302,6 +308,17 @@ export const auth = betterAuth({
           },
         }
       : {}),
+    ...(githubOAuth
+      ? {
+          github: {
+            clientId: githubOAuth.clientId,
+            clientSecret: githubOAuth.clientSecret,
+            // A GitHub App ignores OAuth scopes (its permissions are fixed on
+            // the App); the defaults (`read:user user:email`) only matter for
+            // a classic OAuth App and are harmless here.
+          },
+        }
+      : {}),
     ...(appleLoginEnabled
       ? {
           apple: {
@@ -330,6 +347,7 @@ export const auth = betterAuth({
         ...oidcProviders.map((p) => p.id),
         ...(googleSocialEnabled ? [`google`] : []),
         ...(appleLoginEnabled ? [`apple`] : []),
+        ...(githubOAuth ? [`github`] : []),
       ],
       // Logged-in user's email (from an OIDC provider) likely differs from
       // their Google account email — without this, Better Auth refuses to link.

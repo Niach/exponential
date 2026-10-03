@@ -2,15 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto"
 import { createFileRoute } from "@tanstack/react-router"
 import { and, eq, inArray, isNull, or } from "drizzle-orm"
 import { db } from "@/db/connection"
-import {
-  githubInstallationLinks,
-  githubInstallationRepoGrants,
-  githubInstallations,
-  issues,
-  repositories,
-} from "@/db/schema"
-import { resolveRepoDefaultBranchCached } from "@/lib/integrations/github-app"
-import { getTeamMember } from "@/lib/team-membership"
+import { githubInstallations, issues, repositories } from "@/db/schema"
 import {
   applyPrClosedState,
   applyPrMergeState,
@@ -28,7 +20,6 @@ import {
   resolveAppUserForGithubActor,
   type GithubActorRef,
 } from "@/lib/integrations/github-identity"
-import { invalidateRepoCacheForInstallation } from "@/lib/trpc/integrations"
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -73,70 +64,11 @@ async function resolveIssuesForPr(args: {
   return []
 }
 
-// FEED-30: keep the grant snapshot in step with GitHub's repo selection. The
-// `installation_repositories` sender just changed which repos this
-// installation grants, so they control it and can access what they picked —
-// write THEIR grant rows for every linked team they belong to, and the
-// picker's Refresh shows a freshly granted repo without an OAuth re-auth (the
-// only other grant writer). Best-effort: an unmapped sender (never connected
-// a GitHub account here) or a missed delivery just leaves the re-auth path.
-async function syncGrantsForAddedRepos(
-  installationId: number,
-  added: Array<{ fullName: string; private: boolean }>,
-  sender: GithubActorRef | undefined
-): Promise<void> {
-  if (added.length === 0) return
-  const userId = await resolveAppUserForGithubActor(sender)
-  if (!userId) return
-  const linked = await db
-    .select({ teamId: githubInstallationLinks.teamId })
-    .from(githubInstallationLinks)
-    .innerJoin(
-      githubInstallations,
-      eq(githubInstallations.id, githubInstallationLinks.githubInstallationId)
-    )
-    .where(eq(githubInstallations.installationId, installationId))
-  const teamIds = [...new Set(linked.map((row) => row.teamId))]
-  // Membership FIRST: only the linked teams the sender belongs to get rows,
-  // and a sender who belongs to none must not cost a GitHub call per repo.
-  const memberTeamIds: string[] = []
-  for (const teamId of teamIds) {
-    if (await getTeamMember(userId, teamId)) memberTeamIds.push(teamId)
-  }
-  if (memberTeamIds.length === 0) return
-  const defaultBranches = new Map<string, string | null>()
-  for (const repo of added) {
-    try {
-      defaultBranches.set(
-        repo.fullName,
-        await resolveRepoDefaultBranchCached(repo.fullName)
-      )
-    } catch {
-      defaultBranches.set(repo.fullName, null)
-    }
-  }
-  const rows: Array<typeof githubInstallationRepoGrants.$inferInsert> = []
-  for (const teamId of memberTeamIds) {
-    for (const repo of added) {
-      rows.push({
-        teamId,
-        installationId,
-        fullName: repo.fullName,
-        private: repo.private,
-        defaultBranch: defaultBranches.get(repo.fullName) ?? null,
-        grantedByUserId: userId,
-      })
-    }
-  }
-  if (rows.length === 0) return
-  await db.insert(githubInstallationRepoGrants).values(rows).onConflictDoNothing()
-}
-
 // GitHub webhook receiver — the CLOUD PR-linking + merge-detection trigger
 // (self-hosted uses the outbound cron for merges instead). Acts on
 // `installation` `created`/`unsuspend` (upsert + clear the suspension mark),
-// `suspend` (mark, never delete — REV2-29) and `deleted` (drop the row and its
-// claim links), `installation_repositories` (repo-selection
+// `suspend` (mark, never delete — REV2-29) and `deleted` (drop the row),
+// `installation_repositories` (repo-selection
 // changes → flag/heal `repositories.inaccessible_at`), `pull_request` `opened`
 // (link an out-of-band PR to its issue) and `closed` (flip prState to merged
 // or, when closed without merging, to closed).
@@ -157,11 +89,9 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
 
     const event = request.headers.get(`x-github-event`)
 
-    // App lifecycle: mirror installs into github_installations. The setup
-    // redirect is best-effort (it can land without a browser session, or not
-    // at all) — this webhook is the reliable writer for the UI "installed"
-    // state. User attribution stays null here (webhooks carry no app user);
-    // the setup redirect fills it in when it can.
+    // App lifecycle: mirror installs into github_installations. SLOP-7: the
+    // mirror is bookkeeping only (the admin console, the suspension mark on
+    // repo rows) — discovery lists installations LIVE off the user's token.
     if (event === `installation`) {
       const payload = JSON.parse(rawBody) as {
         action?: string
@@ -172,12 +102,11 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         return jsonResponse(200, { ok: true })
       }
       if (payload.action === `created` || payload.action === `unsuspend`) {
-        // `unsuspend` HEALS: the row and every team's claim link survived the
-        // suspension (see the `suspend` branch), so clearing `suspended_at`
-        // restores discovery/connect/token minting with no manual reconnect.
-        // Repo `inaccessible_at` flags stay put — only a VERIFIED access proof
-        // clears those (the token mint, repositories.list's default-branch
-        // heal), and both are reachable again now that the links are intact.
+        // `unsuspend` HEALS: the row survived the suspension (see the
+        // `suspend` branch), so clearing `suspended_at` restores token
+        // minting with no manual step. Repo `inaccessible_at` flags stay put —
+        // only a VERIFIED access proof clears those (the token mint,
+        // repositories.list's default-branch heal).
         await db
           .insert(githubInstallations)
           .values({
@@ -197,12 +126,9 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
           })
       } else if (payload.action === `suspend`) {
         // REVERSIBLE (REV2-29): GitHub keeps the installation and only refuses
-        // to mint tokens for it, so this must NOT delete the row — that
-        // CASCADE-dropped every team's claim link, and the `unsuspend`
-        // re-insert minted a fresh uuid PK the old links could never point at
-        // again. Mark it suspended instead (discovery/connect go inert) and
-        // flag every bound repo as inaccessible so the settings UI stops
-        // showing them healthy while every token mint fails.
+        // to mint tokens for it, so this must NOT delete the row. Mark it
+        // suspended and flag every bound repo as inaccessible so the settings
+        // UI stops showing them healthy while every token mint fails.
         await db
           .update(githubInstallations)
           .set({ suspendedAt: new Date(), updatedAt: new Date() })
@@ -214,12 +140,8 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
       } else if (payload.action === `deleted`) {
         // TERMINAL: the App was uninstalled. Flag every repo bound to it as
         // inaccessible (the settings badge + the launcher's 412), then drop the
-        // row — its team links CASCADE away with it, and a re-install gets a
-        // brand-new installation id anyway, so nothing could have been restored.
-        // Invalidate the repo cache BEFORE the delete: the invalidation
-        // resolves the linked teams through the installation links, which
-        // cascade away with the row.
-        await invalidateRepoCacheForInstallation(installation.id)
+        // row — a re-install gets a brand-new installation id anyway, so
+        // nothing could have been restored.
         await db
           .update(repositories)
           .set({ inaccessibleAt: new Date() })
@@ -228,7 +150,6 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
           .delete(githubInstallations)
           .where(eq(githubInstallations.installationId, installation.id))
       }
-      await invalidateRepoCacheForInstallation(installation.id)
       return jsonResponse(200, { ok: true })
     }
 
@@ -278,37 +199,15 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
               inArray(repositories.fullName, removed)
             )
           )
-        // FEED-30: nobody reaches a removed repo through the App anymore —
-        // drop every member's grant rows for it so the pickers stop listing
-        // it (the OAuth re-auth would only scrub the re-authing user's own).
-        await db
-          .delete(githubInstallationRepoGrants)
-          .where(
-            and(
-              eq(githubInstallationRepoGrants.installationId, installation.id),
-              inArray(githubInstallationRepoGrants.fullName, removed)
-            )
-          )
       }
       if (added.length > 0) {
         // Tenant-scoped heal (EXP-363 hardening): a bare full_name match let
         // ANY installation of the App rebind another team's registry row (a
         // renamed-then-squatted account could clear the no-access flag and
         // repoint installation_id from the outside). Heal only rows that are
-        // already bound to THIS installation, still unbound (connected before
-        // this webhook existed), or owned by a team that has actually claimed
-        // this installation — the same trust root every token mint checks.
-        const claimingTeams = db
-          .select({ teamId: githubInstallationLinks.teamId })
-          .from(githubInstallationLinks)
-          .innerJoin(
-            githubInstallations,
-            eq(
-              githubInstallations.id,
-              githubInstallationLinks.githubInstallationId
-            )
-          )
-          .where(eq(githubInstallations.installationId, installation.id))
+        // already bound to THIS installation or still unbound (connected
+        // before this webhook existed) — a row bound elsewhere is healed by
+        // its own token mint, which verifies access.
         await db
           .update(repositories)
           .set({ inaccessibleAt: null, installationId: installation.id })
@@ -317,35 +216,11 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
               inArray(repositories.fullName, added),
               or(
                 isNull(repositories.installationId),
-                eq(repositories.installationId, installation.id),
-                inArray(repositories.teamId, claimingTeams)
+                eq(repositories.installationId, installation.id)
               )
             )
           )
-        // Best-effort for real: a failed grant sync must neither turn the
-        // delivery into a 500 (GitHub would retry the whole heal) nor skip
-        // the cache invalidation below. The OAuth re-auth path remains.
-        try {
-          await syncGrantsForAddedRepos(
-            installation.id,
-            (payload.repositories_added ?? [])
-              .filter((r): r is { full_name: string; private?: boolean } =>
-                Boolean(r.full_name)
-              )
-              .map((r) => ({
-                fullName: r.full_name,
-                private: r.private === true,
-              })),
-            payload.sender
-          )
-        } catch (err) {
-          console.error(
-            `[github-webhook] grant sync for installation ${installation.id} failed:`,
-            err
-          )
-        }
       }
-      await invalidateRepoCacheForInstallation(installation.id)
       return jsonResponse(200, { ok: true })
     }
 

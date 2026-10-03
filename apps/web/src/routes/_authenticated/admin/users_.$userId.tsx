@@ -238,72 +238,16 @@ function AdminUserDetail() {
         <CardContent className="space-y-3 text-xs">
           {!detail.github.connected ? (
             <p className="text-sm text-muted-foreground">
-              Never completed the GitHub connect flow.
+              Never connected a GitHub account.
             </p>
           ) : (
-            <>
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-muted-foreground">Accounts</span>
-                {detail.github.identities.length === 0 ? (
-                  <span className="text-muted-foreground">
-                    — (connected before identities were recorded)
-                  </span>
-                ) : (
-                  detail.github.identities.map((i) => (
-                    <Pill key={i.githubLogin} title={`verified ${formatDateTime(i.verifiedAt)}`}>
-                      {i.githubLogin}
-                    </Pill>
-                  ))
-                )}
-                <span aria-hidden>·</span>
-                <span className="text-muted-foreground">
-                  {detail.github.repoGrantCount} repo{` `}
-                  {detail.github.repoGrantCount === 1 ? `grant` : `grants`}
-                </span>
-              </div>
-              {detail.github.installations.length > 0 && (
-                <div className="rounded-md border">
-                  <div className="grid grid-cols-[1fr_1fr_100px] items-center gap-3 border-b px-3 py-2 font-medium text-muted-foreground">
-                    <div>Installation</div>
-                    <div>Team</div>
-                    <div>Claimed</div>
-                  </div>
-                  {detail.github.installations.map((inst) => (
-                    <div
-                      key={inst.id}
-                      className="grid grid-cols-[1fr_1fr_100px] items-center gap-3 border-b px-3 py-2 last:border-b-0"
-                    >
-                      <div className="truncate font-medium">
-                        {inst.accountLogin ?? `—`}
-                        {inst.accountType && (
-                          <span className="font-normal text-muted-foreground">
-                            {` `}({inst.accountType})
-                          </span>
-                        )}
-                        {inst.suspendedAt && (
-                          <span className="font-normal text-destructive">
-                            {` `}suspended
-                          </span>
-                        )}
-                      </div>
-                      <Link
-                        to="/admin/teams/$teamId"
-                        params={{ teamId: inst.teamId }}
-                        className="truncate hover:underline"
-                      >
-                        {inst.teamName}
-                      </Link>
-                      <div
-                        className="text-muted-foreground"
-                        title={formatDateTime(inst.createdAt)}
-                      >
-                        {formatDate(inst.createdAt)}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
+            <p className="text-sm text-muted-foreground">
+              GitHub account linked
+              {detail.github.connectedAt
+                ? ` ${formatDate(detail.github.connectedAt)}`
+                : ``}
+              .
+            </p>
           )}
           {detail.github.sharedRepos.length > 0 && (
             <div className="rounded-md border">

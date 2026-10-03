@@ -15,6 +15,7 @@ import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SupportTokenRouteImport } from './routes/support/$token'
 import { Route as InviteTokenRouteImport } from './routes/invite/$token'
+import { Route as IntegrationsGithubRouteImport } from './routes/integrations/github'
 import { Route as AuthResetPasswordRouteImport } from './routes/auth/reset-password'
 import { Route as AuthRegisterRouteImport } from './routes/auth/register'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
@@ -116,11 +117,7 @@ import { Route as ApiTeamsTeamIdSessionFilesRouteImport } from './routes/api/tea
 import { Route as ApiSessionsSessionIdFilesRouteImport } from './routes/api/sessions/$sessionId/files'
 import { Route as ApiIssuesIssueIdFilesRouteImport } from './routes/api/issues/$issueId/files'
 import { Route as ApiIssueDraftsDraftIdFilesRouteImport } from './routes/api/issue-drafts/$draftId/files'
-import { Route as ApiIntegrationsGithubSetupRouteImport } from './routes/api/integrations/github/setup'
-import { Route as ApiIntegrationsGithubCallbackRouteImport } from './routes/api/integrations/github/callback'
 import { Route as ApiCliInstallTokenRedeemRouteImport } from './routes/api/cli/install-token/redeem'
-import { Route as AuthenticatedIntegrationsGithubInstalledRouteImport } from './routes/_authenticated/integrations/github/installed'
-import { Route as AuthenticatedIntegrationsGithubClaimRouteImport } from './routes/_authenticated/integrations/github/claim'
 import { Route as AuthenticatedAdminUsersUserIdRouteImport } from './routes/_authenticated/admin/users_.$userId'
 import { Route as AuthenticatedAdminTeamsTeamIdRouteImport } from './routes/_authenticated/admin/teams_.$teamId'
 import { Route as TTeamSlugSettingsBoardsIndexRouteImport } from './routes/t/$teamSlug/settings/boards/index'
@@ -156,6 +153,11 @@ const SupportTokenRoute = SupportTokenRouteImport.update({
 const InviteTokenRoute = InviteTokenRouteImport.update({
   id: '/invite/$token',
   path: '/invite/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const IntegrationsGithubRoute = IntegrationsGithubRouteImport.update({
+  id: '/integrations/github',
+  path: '/integrations/github',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthResetPasswordRoute = AuthResetPasswordRouteImport.update({
@@ -692,35 +694,11 @@ const ApiIssueDraftsDraftIdFilesRoute =
     path: '/api/issue-drafts/$draftId/files',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiIntegrationsGithubSetupRoute =
-  ApiIntegrationsGithubSetupRouteImport.update({
-    id: '/api/integrations/github/setup',
-    path: '/api/integrations/github/setup',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiIntegrationsGithubCallbackRoute =
-  ApiIntegrationsGithubCallbackRouteImport.update({
-    id: '/api/integrations/github/callback',
-    path: '/api/integrations/github/callback',
-    getParentRoute: () => rootRouteImport,
-  } as any)
 const ApiCliInstallTokenRedeemRoute =
   ApiCliInstallTokenRedeemRouteImport.update({
     id: '/api/cli/install-token/redeem',
     path: '/api/cli/install-token/redeem',
     getParentRoute: () => rootRouteImport,
-  } as any)
-const AuthenticatedIntegrationsGithubInstalledRoute =
-  AuthenticatedIntegrationsGithubInstalledRouteImport.update({
-    id: '/integrations/github/installed',
-    path: '/integrations/github/installed',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
-const AuthenticatedIntegrationsGithubClaimRoute =
-  AuthenticatedIntegrationsGithubClaimRouteImport.update({
-    id: '/integrations/github/claim',
-    path: '/integrations/github/claim',
-    getParentRoute: () => AuthenticatedRoute,
   } as any)
 const AuthenticatedAdminUsersUserIdRoute =
   AuthenticatedAdminUsersUserIdRouteImport.update({
@@ -790,6 +768,7 @@ export interface FileRoutesByFullPath {
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
+  '/integrations/github': typeof IntegrationsGithubRoute
   '/invite/$token': typeof InviteTokenRoute
   '/support/$token': typeof SupportTokenRoute
   '/t/$teamSlug/settings': typeof TTeamSlugSettingsRouteRouteWithChildren
@@ -845,11 +824,7 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/': typeof TTeamSlugIndexRoute
   '/admin/teams/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
   '/admin/users/$userId': typeof AuthenticatedAdminUsersUserIdRoute
-  '/integrations/github/claim': typeof AuthenticatedIntegrationsGithubClaimRoute
-  '/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
   '/api/cli/install-token/redeem': typeof ApiCliInstallTokenRedeemRoute
-  '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
-  '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issue-drafts/$draftId/files': typeof ApiIssueDraftsDraftIdFilesRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
   '/api/sessions/$sessionId/files': typeof ApiSessionsSessionIdFilesRoute
@@ -908,6 +883,7 @@ export interface FileRoutesByTo {
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
+  '/integrations/github': typeof IntegrationsGithubRoute
   '/invite/$token': typeof InviteTokenRoute
   '/support/$token': typeof SupportTokenRoute
   '/account/notifications': typeof AuthenticatedAccountNotificationsRoute
@@ -962,11 +938,7 @@ export interface FileRoutesByTo {
   '/t/$teamSlug': typeof TTeamSlugIndexRoute
   '/admin/teams/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
   '/admin/users/$userId': typeof AuthenticatedAdminUsersUserIdRoute
-  '/integrations/github/claim': typeof AuthenticatedIntegrationsGithubClaimRoute
-  '/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
   '/api/cli/install-token/redeem': typeof ApiCliInstallTokenRedeemRoute
-  '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
-  '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issue-drafts/$draftId/files': typeof ApiIssueDraftsDraftIdFilesRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
   '/api/sessions/$sessionId/files': typeof ApiSessionsSessionIdFilesRoute
@@ -1029,6 +1001,7 @@ export interface FileRoutesById {
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
+  '/integrations/github': typeof IntegrationsGithubRoute
   '/invite/$token': typeof InviteTokenRoute
   '/support/$token': typeof SupportTokenRoute
   '/t/$teamSlug/settings': typeof TTeamSlugSettingsRouteRouteWithChildren
@@ -1084,11 +1057,7 @@ export interface FileRoutesById {
   '/t/$teamSlug/': typeof TTeamSlugIndexRoute
   '/_authenticated/admin/teams_/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
   '/_authenticated/admin/users_/$userId': typeof AuthenticatedAdminUsersUserIdRoute
-  '/_authenticated/integrations/github/claim': typeof AuthenticatedIntegrationsGithubClaimRoute
-  '/_authenticated/integrations/github/installed': typeof AuthenticatedIntegrationsGithubInstalledRoute
   '/api/cli/install-token/redeem': typeof ApiCliInstallTokenRedeemRoute
-  '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
-  '/api/integrations/github/setup': typeof ApiIntegrationsGithubSetupRoute
   '/api/issue-drafts/$draftId/files': typeof ApiIssueDraftsDraftIdFilesRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
   '/api/sessions/$sessionId/files': typeof ApiSessionsSessionIdFilesRoute
@@ -1151,6 +1120,7 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/auth/register'
     | '/auth/reset-password'
+    | '/integrations/github'
     | '/invite/$token'
     | '/support/$token'
     | '/t/$teamSlug/settings'
@@ -1206,11 +1176,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/'
     | '/admin/teams/$teamId'
     | '/admin/users/$userId'
-    | '/integrations/github/claim'
-    | '/integrations/github/installed'
     | '/api/cli/install-token/redeem'
-    | '/api/integrations/github/callback'
-    | '/api/integrations/github/setup'
     | '/api/issue-drafts/$draftId/files'
     | '/api/issues/$issueId/files'
     | '/api/sessions/$sessionId/files'
@@ -1269,6 +1235,7 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/auth/register'
     | '/auth/reset-password'
+    | '/integrations/github'
     | '/invite/$token'
     | '/support/$token'
     | '/account/notifications'
@@ -1323,11 +1290,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug'
     | '/admin/teams/$teamId'
     | '/admin/users/$userId'
-    | '/integrations/github/claim'
-    | '/integrations/github/installed'
     | '/api/cli/install-token/redeem'
-    | '/api/integrations/github/callback'
-    | '/api/integrations/github/setup'
     | '/api/issue-drafts/$draftId/files'
     | '/api/issues/$issueId/files'
     | '/api/sessions/$sessionId/files'
@@ -1389,6 +1352,7 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/auth/register'
     | '/auth/reset-password'
+    | '/integrations/github'
     | '/invite/$token'
     | '/support/$token'
     | '/t/$teamSlug/settings'
@@ -1444,11 +1408,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/'
     | '/_authenticated/admin/teams_/$teamId'
     | '/_authenticated/admin/users_/$userId'
-    | '/_authenticated/integrations/github/claim'
-    | '/_authenticated/integrations/github/installed'
     | '/api/cli/install-token/redeem'
-    | '/api/integrations/github/callback'
-    | '/api/integrations/github/setup'
     | '/api/issue-drafts/$draftId/files'
     | '/api/issues/$issueId/files'
     | '/api/sessions/$sessionId/files'
@@ -1509,6 +1469,7 @@ export interface RootRouteChildren {
   AuthLoginRoute: typeof AuthLoginRoute
   AuthRegisterRoute: typeof AuthRegisterRoute
   AuthResetPasswordRoute: typeof AuthResetPasswordRoute
+  IntegrationsGithubRoute: typeof IntegrationsGithubRoute
   InviteTokenRoute: typeof InviteTokenRoute
   SupportTokenRoute: typeof SupportTokenRoute
   ApiAttachmentUploadsTokenRoute: typeof ApiAttachmentUploadsTokenRoute
@@ -1552,8 +1513,6 @@ export interface RootRouteChildren {
   ApiWidgetConfigRoute: typeof ApiWidgetConfigRoute
   ApiWidgetSubmitRoute: typeof ApiWidgetSubmitRoute
   ApiCliInstallTokenRedeemRoute: typeof ApiCliInstallTokenRedeemRoute
-  ApiIntegrationsGithubCallbackRoute: typeof ApiIntegrationsGithubCallbackRoute
-  ApiIntegrationsGithubSetupRoute: typeof ApiIntegrationsGithubSetupRoute
   ApiIssueDraftsDraftIdFilesRoute: typeof ApiIssueDraftsDraftIdFilesRoute
   ApiIssuesIssueIdFilesRoute: typeof ApiIssuesIssueIdFilesRoute
   ApiSessionsSessionIdFilesRoute: typeof ApiSessionsSessionIdFilesRoute
@@ -1602,6 +1561,13 @@ declare module '@tanstack/react-router' {
       path: '/invite/$token'
       fullPath: '/invite/$token'
       preLoaderRoute: typeof InviteTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/integrations/github': {
+      id: '/integrations/github'
+      path: '/integrations/github'
+      fullPath: '/integrations/github'
+      preLoaderRoute: typeof IntegrationsGithubRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth/reset-password': {
@@ -2311,40 +2277,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiIssueDraftsDraftIdFilesRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/integrations/github/setup': {
-      id: '/api/integrations/github/setup'
-      path: '/api/integrations/github/setup'
-      fullPath: '/api/integrations/github/setup'
-      preLoaderRoute: typeof ApiIntegrationsGithubSetupRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/integrations/github/callback': {
-      id: '/api/integrations/github/callback'
-      path: '/api/integrations/github/callback'
-      fullPath: '/api/integrations/github/callback'
-      preLoaderRoute: typeof ApiIntegrationsGithubCallbackRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/cli/install-token/redeem': {
       id: '/api/cli/install-token/redeem'
       path: '/api/cli/install-token/redeem'
       fullPath: '/api/cli/install-token/redeem'
       preLoaderRoute: typeof ApiCliInstallTokenRedeemRouteImport
       parentRoute: typeof rootRouteImport
-    }
-    '/_authenticated/integrations/github/installed': {
-      id: '/_authenticated/integrations/github/installed'
-      path: '/integrations/github/installed'
-      fullPath: '/integrations/github/installed'
-      preLoaderRoute: typeof AuthenticatedIntegrationsGithubInstalledRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/integrations/github/claim': {
-      id: '/_authenticated/integrations/github/claim'
-      path: '/integrations/github/claim'
-      fullPath: '/integrations/github/claim'
-      preLoaderRoute: typeof AuthenticatedIntegrationsGithubClaimRouteImport
-      parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/admin/users_/$userId': {
       id: '/_authenticated/admin/users_/$userId'
@@ -2430,8 +2368,6 @@ interface AuthenticatedRouteChildren {
   AuthenticatedAdminRouteRoute: typeof AuthenticatedAdminRouteRouteWithChildren
   AuthenticatedOnboardingRoute: typeof AuthenticatedOnboardingRoute
   AuthenticatedAccountNotificationsRoute: typeof AuthenticatedAccountNotificationsRoute
-  AuthenticatedIntegrationsGithubClaimRoute: typeof AuthenticatedIntegrationsGithubClaimRoute
-  AuthenticatedIntegrationsGithubInstalledRoute: typeof AuthenticatedIntegrationsGithubInstalledRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
@@ -2439,10 +2375,6 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedOnboardingRoute: AuthenticatedOnboardingRoute,
   AuthenticatedAccountNotificationsRoute:
     AuthenticatedAccountNotificationsRoute,
-  AuthenticatedIntegrationsGithubClaimRoute:
-    AuthenticatedIntegrationsGithubClaimRoute,
-  AuthenticatedIntegrationsGithubInstalledRoute:
-    AuthenticatedIntegrationsGithubInstalledRoute,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
@@ -2568,6 +2500,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthLoginRoute: AuthLoginRoute,
   AuthRegisterRoute: AuthRegisterRoute,
   AuthResetPasswordRoute: AuthResetPasswordRoute,
+  IntegrationsGithubRoute: IntegrationsGithubRoute,
   InviteTokenRoute: InviteTokenRoute,
   SupportTokenRoute: SupportTokenRoute,
   ApiAttachmentUploadsTokenRoute: ApiAttachmentUploadsTokenRoute,
@@ -2611,8 +2544,6 @@ const rootRouteChildren: RootRouteChildren = {
   ApiWidgetConfigRoute: ApiWidgetConfigRoute,
   ApiWidgetSubmitRoute: ApiWidgetSubmitRoute,
   ApiCliInstallTokenRedeemRoute: ApiCliInstallTokenRedeemRoute,
-  ApiIntegrationsGithubCallbackRoute: ApiIntegrationsGithubCallbackRoute,
-  ApiIntegrationsGithubSetupRoute: ApiIntegrationsGithubSetupRoute,
   ApiIssueDraftsDraftIdFilesRoute: ApiIssueDraftsDraftIdFilesRoute,
   ApiIssuesIssueIdFilesRoute: ApiIssuesIssueIdFilesRoute,
   ApiSessionsSessionIdFilesRoute: ApiSessionsSessionIdFilesRoute,

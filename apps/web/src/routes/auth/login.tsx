@@ -97,6 +97,7 @@ function LoginPage() {
     oidcProviders,
     googleLoginEnabled,
     appleLoginEnabled,
+    githubLoginEnabled,
     emailOtpEnabled,
     passkeyEnabled,
   } = Route.useLoaderData()
@@ -127,6 +128,7 @@ function LoginPage() {
     setError,
     signInWithOidc,
     signInWithGoogle,
+    signInWithGithub,
     signInWithApple,
   } = useOAuthSignIn(destination)
 
@@ -412,12 +414,14 @@ function LoginPage() {
               oidcProviders={oidcProviders}
               googleLoginEnabled={googleLoginEnabled}
               appleLoginEnabled={appleLoginEnabled}
+              githubLoginEnabled={githubLoginEnabled}
               verb="Continue"
               pendingProvider={pendingProvider}
               showDivider={false}
               onOidc={signInWithOidc}
               onGoogle={signInWithGoogle}
               onApple={signInWithApple}
+              onGithub={signInWithGithub}
             />
 
             {emailAvailable && (

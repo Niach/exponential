@@ -18,6 +18,7 @@ const everythingOn = {
   passkeyEnabled: true,
   googleLoginEnabled: true,
   appleLoginEnabled: true,
+  githubLoginEnabled: true,
   oidcProviders: [{ id: `okta`, name: `Okta` }],
 }
 
@@ -27,16 +28,18 @@ const codeOnly = {
   passkeyEnabled: false,
   googleLoginEnabled: false,
   appleLoginEnabled: false,
+  githubLoginEnabled: false,
   oidcProviders: [],
 }
 
 const day = new Date(`2026-09-30T10:00:00Z`)
 
 describe(`configuredProviders`, () => {
-  it(`orders Apple, Google, then the OIDC providers`, () => {
+  it(`orders Apple, Google, GitHub, then the OIDC providers`, () => {
     expect(configuredProviders(everythingOn).map((p) => p.id)).toEqual([
       `apple`,
       `google`,
+      `github`,
       `okta`,
     ])
   })
@@ -69,6 +72,32 @@ describe(`countWaysIn`, () => {
 
   it(`the email code alone is a way in`, () => {
     expect(countWaysIn({ accounts: [], passkeyCount: 0, config: codeOnly })).toBe(1)
+  })
+})
+
+describe(`the GitHub row without GitHub login (SLOP-7)`, () => {
+  it(`is the repositories connection, not a sign-in method, and not a way in`, () => {
+    const config = { ...everythingOn, githubLoginEnabled: false }
+    const methods = buildSignInMethods({
+      user: { email: `a@b.c`, emailVerified: true },
+      accounts: [{ providerId: `github`, createdAt: day }],
+      passkeys: [],
+      config,
+    })
+    expect(methods.providers.some((p) => p.id === `github`)).toBe(false)
+    expect(
+      countWaysIn({ accounts: [{ providerId: `github` }], passkeyCount: 0, config })
+    ).toBe(1)
+  })
+
+  it(`counts as a way in once GitHub login is on`, () => {
+    expect(
+      countWaysIn({
+        accounts: [{ providerId: `github` }],
+        passkeyCount: 0,
+        config: { ...everythingOn, emailOtpEnabled: false },
+      })
+    ).toBe(1)
   })
 })
 
@@ -143,6 +172,7 @@ describe(`buildSignInMethods`, () => {
     expect(methods.providers.map((p) => [p.id, p.linked, p.available])).toEqual([
       [`apple`, false, true],
       [`google`, true, true],
+      [`github`, false, true],
       [`okta`, false, true],
       [`old-idp`, true, false],
       [`credential`, true, true],

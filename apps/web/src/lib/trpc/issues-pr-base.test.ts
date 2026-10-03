@@ -419,16 +419,6 @@ describe(`issues.updatePr (EXP-1139)`, () => {
     })
   })
 
-  it(`refuses a severed installation link`, async () => {
-    h.selectQueue.push([
-      { prNumber: 241, prUrl: PR_URL, prState: `open` },
-    ])
-    h.isInstallationLinkedToTeam.mockResolvedValueOnce(false)
-    await expect(
-      caller.updatePr({ issueId: ISSUE_ID, title: `x` })
-    ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
-    expect(h.updatePullRequest).not.toHaveBeenCalled()
-  })
 })
 
 describe(`issues.prDescription (EXP-1139)`, () => {

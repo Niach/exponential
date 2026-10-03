@@ -3,7 +3,11 @@ import { trpc } from "@/lib/trpc-client"
 import { authClient } from "@/lib/auth/client"
 import { authErrorMessage } from "@/lib/auth/error-messages"
 import { oauthLinkErrorMessage } from "@/lib/deep-link"
-import { AppleIcon, GoogleIcon } from "@/components/oauth-provider-buttons"
+import {
+  AppleIcon,
+  GithubIcon,
+  GoogleIcon,
+} from "@/components/oauth-provider-buttons"
 import { ChangeEmailDialog } from "@/components/account/change-email-dialog"
 import {
   Button,
@@ -63,6 +67,7 @@ function noticeFromReturn(
 function ProviderMark({ provider }: { provider: SignInProvider }) {
   if (provider.kind === `google`) return <GoogleIcon />
   if (provider.kind === `apple`) return <AppleIcon />
+  if (provider.kind === `github`) return <GithubIcon />
   return null
 }
 
@@ -134,7 +139,7 @@ export function SignInMethodsSection({
               errorCallbackURL,
             })
           : await authClient.linkSocial({
-              provider: provider.id as `google` | `apple`,
+              provider: provider.id as `google` | `apple` | `github`,
               callbackURL,
               errorCallbackURL,
             })

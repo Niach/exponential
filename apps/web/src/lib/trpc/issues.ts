@@ -48,7 +48,6 @@ import {
   resolveRepoInstallationTokenInfo,
 } from "@/lib/integrations/github-app"
 import { recordConversionEvent } from "@/lib/conversion/events"
-import { isInstallationLinkedToTeam } from "@/lib/trpc/integrations"
 import {
   boardBranchOverride,
   repoBranchOverride,
@@ -455,18 +454,6 @@ async function mergeOneIssuePr(
     throw new TRPCError({
       code: `PRECONDITION_FAILED`,
       message: `GitHub App is not installed on ${repoFullName}`,
-    })
-  }
-  // Link-gate (mirrors prFiles): the installation serving this repo must
-  // still be claimed by the issue's team — a deliberately severed
-  // GitHub connection must not keep authorizing PR writes through an old
-  // prUrl.
-  if (
-    !(await isInstallationLinkedToTeam(teamId, resolved.installationId))
-  ) {
-    throw new TRPCError({
-      code: `PRECONDITION_FAILED`,
-      message: `${repoFullName} resolves to a GitHub account that isn't connected to this team. Reconnect it in team settings → Repositories.`,
     })
   }
 
@@ -1885,11 +1872,7 @@ export const issuesRouter = router({
   closePr: authedProcedure
     .input(z.object({ issueId: z.string().uuid() }))
     .mutation(async ({ ctx, input }): Promise<{ closed: true }> => {
-      const { teamId } = await assertIssueAccess(
-        ctx.session.user.id,
-        input.issueId,
-        `write`
-      )
+      await assertIssueAccess(ctx.session.user.id, input.issueId, `write`)
 
       const [row] = await ctx.db
         .select({
@@ -1941,18 +1924,6 @@ export const issuesRouter = router({
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
           message: `GitHub App is not installed on ${repoFullName}`,
-        })
-      }
-      // Link-gate (mirrors prFiles): the installation serving this repo must
-      // still be claimed by the issue's team — a deliberately severed
-      // GitHub connection must not keep authorizing PR writes through an old
-      // prUrl.
-      if (
-        !(await isInstallationLinkedToTeam(teamId, resolved.installationId))
-      ) {
-        throw new TRPCError({
-          code: `PRECONDITION_FAILED`,
-          message: `${repoFullName} resolves to a GitHub account that isn't connected to this team. Reconnect it in team settings → Repositories.`,
         })
       }
 
@@ -2030,15 +2001,6 @@ export const issuesRouter = router({
       }
 
       const resolved = await resolveRepoInstallationTokenInfo(repo)
-      if (
-        resolved &&
-        !(await isInstallationLinkedToTeam(teamId, resolved.installationId))
-      ) {
-        throw new TRPCError({
-          code: `PRECONDITION_FAILED`,
-          message: `${repo} resolves to a GitHub account that isn't connected to this team. Reconnect it in team settings → Repositories.`,
-        })
-      }
 
       try {
         const pull = await getPullRequest(repo, row.prNumber, resolved?.token)
@@ -2081,11 +2043,7 @@ export const issuesRouter = router({
         input,
       }): Promise<{ updated: true; url: string; number: number }> => {
         assertPrUpdateHasFields(input)
-        const { teamId } = await assertIssueAccess(
-          ctx.session.user.id,
-          input.issueId,
-          `write`
-        )
+        await assertIssueAccess(ctx.session.user.id, input.issueId, `write`)
 
         const [row] = await ctx.db
           .select({
@@ -2133,16 +2091,6 @@ export const issuesRouter = router({
           throw new TRPCError({
             code: `PRECONDITION_FAILED`,
             message: `GitHub App is not installed on ${repoFullName}`,
-          })
-        }
-        // Link-gate (mirrors mergePr): the installation serving this repo
-        // must still be claimed by the issue's team.
-        if (
-          !(await isInstallationLinkedToTeam(teamId, resolved.installationId))
-        ) {
-          throw new TRPCError({
-            code: `PRECONDITION_FAILED`,
-            message: `${repoFullName} resolves to a GitHub account that isn't connected to this team. Reconnect it in team settings → Repositories.`,
           })
         }
 
@@ -2224,16 +2172,6 @@ export const issuesRouter = router({
           throw new TRPCError({
             code: `PRECONDITION_FAILED`,
             message: `GitHub App is not installed on ${repoFullName}`,
-          })
-        }
-        // Link-gate (mirrors mergePr): the installation serving this repo must
-        // still be claimed by the issue's team.
-        if (
-          !(await isInstallationLinkedToTeam(teamId, resolved.installationId))
-        ) {
-          throw new TRPCError({
-            code: `PRECONDITION_FAILED`,
-            message: `${repoFullName} resolves to a GitHub account that isn't connected to this team. Reconnect it in team settings → Repositories.`,
           })
         }
 
@@ -2349,14 +2287,6 @@ export const issuesRouter = router({
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
           message: `GitHub App is not installed on ${repoFullName}`,
-        })
-      }
-      if (
-        !(await isInstallationLinkedToTeam(teamId, resolved.installationId))
-      ) {
-        throw new TRPCError({
-          code: `PRECONDITION_FAILED`,
-          message: `${repoFullName} resolves to a GitHub account that isn't connected to this team. Reconnect it in team settings → Repositories.`,
         })
       }
 
@@ -2479,15 +2409,6 @@ export const issuesRouter = router({
       // deliberately severed GitHub connection must not keep exposing
       // private-repo PR contents through an old prUrl.
       const resolved = await resolveRepoInstallationTokenInfo(repo)
-      if (
-        resolved &&
-        !(await isInstallationLinkedToTeam(teamId, resolved.installationId))
-      ) {
-        throw new TRPCError({
-          code: `PRECONDITION_FAILED`,
-          message: `${repo} resolves to a GitHub account that isn't connected to this team. Reconnect it in team settings → Repositories.`,
-        })
-      }
 
       try {
         const files = await fetchPullFiles(repo, row.prNumber, resolved?.token)

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { Button, PickerList, conceptIcon, type PickerItem } from "@exp/ui"
+import { Button, RepositoryPickerList, conceptIcon } from "@exp/ui"
 import type { Board } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import {
@@ -22,7 +22,6 @@ import type { ReadinessRepoList } from "@/hooks/use-coding-readiness"
 // Repositories — which connects a brand-new repository and points the board
 // at it in one go.
 
-const GithubIcon = conceptIcon(`ui-github`)
 const AddIcon = conceptIcon(`ui-add`)
 
 export function ReadinessRepoPicker({
@@ -46,18 +45,6 @@ export function ReadinessRepoPicker({
     () => (repos ? readinessRepoRows(repos, board, query) : []),
     [repos, board, query]
   )
-  const items = useMemo<PickerItem[]>(
-    () =>
-      rows.map((row) => ({
-        value: row.id,
-        label: row.fullName,
-        icon: GithubIcon,
-        keywords: [row.fullName],
-      })),
-    [rows]
-  )
-  const byId = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows])
-
   const point = async (repositoryId: string) => {
     if (busy) return
     setBusy(true)
@@ -116,16 +103,15 @@ export function ReadinessRepoPicker({
   }
 
   return (
-    <div
-      className="overflow-hidden rounded-md border border-glass-stroke-card bg-glass-card"
-      data-testid="readiness-repo-picker"
-    >
-      <PickerList
-        mode="single"
-        value={null}
-        onChange={(repositoryId) => void point(repositoryId)}
-        items={items}
-        search
+    <div data-testid="readiness-repo-picker">
+      <RepositoryPickerList
+        rows={rows.map((row) => ({
+          id: row.id,
+          fullName: row.fullName,
+          tag: row.tag,
+          emphasis: row.matches,
+        }))}
+        onPick={(repositoryId) => void point(repositoryId)}
         searchPlaceholder={READINESS_COPY.pickerSearch}
         query={query}
         onQueryChange={setQuery}
@@ -137,28 +123,6 @@ export function ReadinessRepoPicker({
             : undefined
         }
         listClassName="max-h-48"
-        renderItem={(item) => {
-          const row = byId.get(item.value)
-          return (
-            <>
-              <GithubIcon aria-hidden className="size-4 shrink-0" />
-              <span className="min-w-0 flex-1 truncate text-left text-sm">
-                {item.label}
-              </span>
-              {row?.tag && (
-                <span
-                  className={
-                    row.matches
-                      ? `shrink-0 text-xs text-emerald-400`
-                      : `shrink-0 text-xs text-muted-foreground`
-                  }
-                >
-                  {row.tag}
-                </span>
-              )}
-            </>
-          )
-        }}
         footer={
           <Button
             variant="ghost"

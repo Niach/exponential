@@ -15,6 +15,7 @@ pub(crate) mod picker_status;
 pub(crate) mod picker_priority;
 pub(crate) mod picker_label;
 pub(crate) mod picker_mcp;
+pub(crate) mod picker_repository;
 pub(crate) mod sub_shell;
 pub(crate) mod menu;
 pub(crate) mod toast;
@@ -25,6 +26,7 @@ pub(crate) mod pr_graph_badge;
 pub(crate) mod device_settings;
 pub(crate) mod blocked_start_dialog;
 pub(crate) mod stack_merge_choice_dialog;
+pub(crate) mod readiness_checklist;
 
 /// EXP-1030: whether `id`'s file is still the one-line placeholder rather
 /// than a demo. None is any more: EXP-1031 filled the last one (`toast`).
@@ -60,6 +62,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: picker_priority::ID, owner: picker_priority::OWNER, render: picker_priority::render },
     Entry { id: picker_label::ID, owner: picker_label::OWNER, render: picker_label::render },
     Entry { id: picker_mcp::ID, owner: picker_mcp::OWNER, render: picker_mcp::render },
+    Entry { id: picker_repository::ID, owner: picker_repository::OWNER, render: picker_repository::render },
     Entry { id: sub_shell::ID, owner: sub_shell::OWNER, render: sub_shell::render },
     Entry { id: menu::ID, owner: menu::OWNER, render: menu::render },
     Entry { id: toast::ID, owner: toast::OWNER, render: toast::render },
@@ -70,4 +73,5 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: device_settings::ID, owner: device_settings::OWNER, render: device_settings::render },
     Entry { id: blocked_start_dialog::ID, owner: blocked_start_dialog::OWNER, render: blocked_start_dialog::render },
     Entry { id: stack_merge_choice_dialog::ID, owner: stack_merge_choice_dialog::OWNER, render: stack_merge_choice_dialog::render },
+    Entry { id: readiness_checklist::ID, owner: readiness_checklist::OWNER, render: readiness_checklist::render },
 ];

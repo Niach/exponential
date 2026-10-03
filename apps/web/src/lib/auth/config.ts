@@ -13,7 +13,15 @@ export type AuthConfig = {
   oidcProviders: Array<{ id: string; name: string }>
   googleLoginEnabled: boolean
   appleLoginEnabled: boolean
+  // The GitHub App is configured (token mints): coding can exist here.
   githubEnabled: boolean
+  // SLOP-7: the App's OAuth client is configured too, so GitHub can be
+  // CONNECTED (linked to the account for repo discovery) — the ONE flow.
+  githubConnectEnabled: boolean
+  // SLOP-7: "Continue with GitHub" on the login page (GITHUB_LOGIN_ENABLED).
+  // Connecting GitHub for repositories never needs this: the link runs from
+  // Settings → Repositories and the guided page on any account.
+  githubLoginEnabled: boolean
   // RFC 8628 device-code login is available (EXP-403) — the CLI feature-detects
   // this and falls back to password login against older self-hosted instances.
   deviceFlowEnabled: boolean
@@ -83,6 +91,16 @@ export function buildAuthConfig(): AuthConfig {
   const googleClientConfigured = Boolean(
     process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
   )
+  const githubAppConfigured = Boolean(
+    process.env.GITHUB_APP_ID && process.env.GITHUB_APP_PRIVATE_KEY
+  )
+  const githubConnectConfigured =
+    githubAppConfigured &&
+    Boolean(
+      process.env.GITHUB_APP_SLUG &&
+        process.env.GITHUB_APP_CLIENT_ID &&
+        process.env.GITHUB_APP_CLIENT_SECRET
+    )
   const passwordEnabled = process.env.AUTH_PASSWORD_ENABLED !== `false`
   return {
     passwordEnabled,
@@ -99,9 +117,10 @@ export function buildAuthConfig(): AuthConfig {
               process.env.APPLE_KEY_ID &&
               process.env.APPLE_TEAM_ID))
       ) && process.env.APPLE_LOGIN_ENABLED === `true`,
-    githubEnabled: Boolean(
-      process.env.GITHUB_APP_ID && process.env.GITHUB_APP_PRIVATE_KEY
-    ),
+    githubEnabled: githubAppConfigured,
+    githubConnectEnabled: githubConnectConfigured,
+    githubLoginEnabled:
+      githubConnectConfigured && process.env.GITHUB_LOGIN_ENABLED === `true`,
     deviceFlowEnabled: true,
     emailOtpEnabled: isEmailOtpEnabled(),
     passkeyEnabled: isPasskeyEnabled(),

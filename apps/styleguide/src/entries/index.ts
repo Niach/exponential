@@ -15,6 +15,7 @@ import { entry as pickerStatus } from "./picker-status.tsx"
 import { entry as pickerPriority } from "./picker-priority.tsx"
 import { entry as pickerLabel } from "./picker-label.tsx"
 import { entry as pickerMcp } from "./picker-mcp.tsx"
+import { entry as pickerRepository } from "./picker-repository.tsx"
 import { entry as subShell } from "./sub-shell.tsx"
 import { entry as menu } from "./menu.tsx"
 import { entry as toast } from "./toast.tsx"
@@ -25,6 +26,7 @@ import { entry as prGraphBadge } from "./pr-graph-badge.tsx"
 import { entry as deviceSettings } from "./device-settings.tsx"
 import { entry as blockedStartDialog } from "./blocked-start-dialog.tsx"
 import { entry as stackMergeChoiceDialog } from "./stack-merge-choice-dialog.tsx"
+import { entry as readinessChecklist } from "./readiness-checklist.tsx"
 import type { StyleguideEntry } from "./types.ts"
 
 export type { StyleguideEntry } from "./types.ts"
@@ -42,6 +44,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   pickerPriority,
   pickerLabel,
   pickerMcp,
+  pickerRepository,
   subShell,
   menu,
   toast,
@@ -52,6 +55,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   deviceSettings,
   blockedStartDialog,
   stackMergeChoiceDialog,
+  readinessChecklist,
 ]
 
 export function entryById(id: string): StyleguideEntry | undefined {

@@ -1,42 +1,49 @@
 import { useCallback, useEffect, useState } from "react"
 import type { ReactNode } from "react"
-import { cn } from "@/lib/utils"
 import { trpc } from "@/lib/trpc-client"
 import { isRepoFullName } from "@/lib/repo-full-name"
+import {
+  openGithubConnect,
+  openGithubPopup,
+  POPUP_BLOCKED_MESSAGE,
+} from "@/lib/github-connect"
 import {
   GH_CAP_NOTE,
   GH_CONNECT_GITHUB,
   GH_FOOTER_EXPLAIN,
   GH_INSTALL_ANOTHER,
+  GH_INSTALL_APP,
   GH_LOOK_UP,
   GH_LOOKUP_A11Y,
   GH_LOOKUP_PLACEHOLDER,
   GH_NO_MATCH,
-  GH_NONE_GRANTED,
+  GH_NONE_PUSHABLE,
   GH_PICKER_CONNECTED_CHECK,
   GH_PICKER_LOADING,
   GH_PICKER_NOT_CONFIGURED,
   GH_PICKER_NOT_INSTALLED,
+  GH_PICKER_NOT_LINKED,
+  GH_PICKER_RECONNECT_BANNER,
   GH_RECONNECT_GITHUB,
   GH_REFRESH,
   GH_SEARCH_PLACEHOLDER,
   GH_SUSPENDED_ACCOUNT_FALLBACK,
-  ghPickerReauthBanner,
   ghPickerSuspendedBanner,
   githubInstallationLabel,
 } from "@/lib/github-connect-copy"
 import {
   Button,
-  ComboboxList,
   Input,
   ListEmpty,
   Pill,
-  GLASS_CARD_CLASS,
+  RepositoryPickerList,
   conceptIcon,
 } from "@exp/ui"
 
+// Re-exported for the hosts that already import the popup helpers from here.
+export { openGithubPopup, POPUP_BLOCKED_MESSAGE } from "@/lib/github-connect"
+
 const GithubGlyph = conceptIcon(`ui-github`)
-const PrivateGlyph = conceptIcon(`ui-private`)
 const LoadingGlyph = conceptIcon(`ui-loading`)
 const ExternalLinkGlyph = conceptIcon(`ui-external-link`)
 const AddGlyph = conceptIcon(`ui-add`)
@@ -50,77 +57,29 @@ export type PickerRepo = {
   installationId: number
 }
 
-type ReposResult = {
-  configured: boolean
-  installed: boolean
-  installUrl: string | null
-  connectUrl: string | null
-  repos: PickerRepo[]
-  hasMore: boolean
-  // A linked GitHub account whose user-scoped repo grants haven't been captured
-  // yet (or need refreshing), and whether GitHub has the installation suspended
-  // (REV2-29 — it lists no repos until it's unsuspended). Both optional so the
-  // not-configured return branches (which omit them) stay assignable.
-  installations?: Array<{
-    installationId?: number
-    needsReauth?: boolean
-    suspended?: boolean
-    accountLogin?: string | null
-    accountType?: string | null
-    // FEED-30: the per-account GitHub settings page where repo grants change.
-    manageUrl?: string | null
-  }>
-}
+export type ReposResult = Awaited<
+  ReturnType<typeof trpc.integrations.github.repos.query>
+>
 
-// Repo-first connect surface shared by team settings → Repositories, the
-// onboarding board step, and the create-board dialog. Self-contained: loads
-// the team's installable repos (its linked GitHub accounts), offers an
-// inline connect when none are linked, and re-detects after the user returns
-// from the GitHub hop (window focus). Calls `onSelect` with the chosen repo —
+// SLOP-7: the repo-first connect surface shared by Settings › Repositories'
+// Add-repository dialog, the board form, the onboarding board step and the
+// readiness checklist's "Add another repository from GitHub…". Self-
+// contained: it lists the repositories the VIEWER can push to, LIVE off
+// GitHub (`integrations.github.repos`), and when a prerequisite is missing it
+// says which one and offers the fix — Connect GitHub (the guided page in a
+// popup) or Install the app (GitHub's install page in a popup) — then
+// re-lists when focus comes back. Calls `onSelect` with the chosen repo —
 // FEED-42: every host treats that as the add itself (tap adds, ×4), so there
 // is no selection marker.
-//
-// The connect hop prefers `connectUrl` (the OAuth claim flow — one authorize
-// screen, no configure page) and falls back to `installUrl` (the install-page
-// round-trip) when the instance has no OAuth client secret.
-//
-// v4: repo-less boards no longer exist, so there is no skip escape. Every
-// surface uses the built-in inline install CTA; `installEmptyState` remains
-// for callers that need a custom App-absent state.
 //
 // `variant="plain"` drops the list's own card chrome for hosts that already
 // provide a glass surface (the Add-repository dialog); inline hosts keep the
 // default glass card.
 
-// The connect hop must open synchronously inside a click handler or popup
-// blockers eat it — shared by the picker, the one-step trigger shortcut and
-// the Repositories settings section. EXP-557 fixes two silent dead ends:
-// window.open with a reused window NAME returns the existing popup without
-// raising it (the button looked broken while the popup sat behind the app),
-// so we keep the handle and focus() it; and a popup-blocked `null` is now
-// reported (returns false) so callers can render an inline hint instead of
-// nothing.
-let githubPopup: Window | null = null
-export function openGithubPopup(url: string | null | undefined): boolean {
-  if (!url) return false
-  if (githubPopup && !githubPopup.closed) {
-    githubPopup.focus()
-    return true
-  }
-  githubPopup = window.open(url, `gh-install`, `popup,width=980,height=820`)
-  if (!githubPopup) return false
-  githubPopup.focus()
-  return true
-}
-
-// The message callers show when openGithubPopup returns false with a URL at
-// hand — one string so every surface says the same thing.
-export const POPUP_BLOCKED_MESSAGE = `Your browser blocked the GitHub window. Allow popups for this site and try again.`
-
 // One-step connect for hosts whose compact "Connect a GitHub repository"
-// trigger expands into this picker (EXP-390): prefetches the team's connect
-// state so the trigger click can open the GitHub popup DIRECTLY when no
-// account is linked yet, instead of expanding to a second "Connect GitHub"
+// trigger expands into this picker (EXP-390): prefetches the viewer's connect
+// state so the trigger click can open the guided page DIRECTLY when GitHub
+// is not linked yet, instead of expanding to a second "Connect GitHub"
 // button. Callers still expand the picker on the same click — it's the return
 // surface whose window-focus listener re-detects the connection. `enabled`
 // gates the prefetch for hosts that mount closed (dialogs).
@@ -143,8 +102,8 @@ export function useGithubConnectShortcut(teamId: string, enabled = true) {
 
   return useCallback(() => {
     if (!data?.configured || data.installed) return
-    openGithubPopup(data.connectUrl ?? data.installUrl)
-  }, [data])
+    openGithubConnect({ teamId })
+  }, [data, teamId])
 }
 
 export function GithubRepoPicker({
@@ -180,7 +139,7 @@ export function GithubRepoPicker({
           })
         )
       } catch {
-        // Leave `data` as-is; the configured/installed branches degrade safely.
+        // Leave `data` as-is; the configured/linked branches degrade safely.
       } finally {
         setLoading(false)
       }
@@ -192,7 +151,7 @@ export function GithubRepoPicker({
     void refresh()
   }, [refresh])
 
-  // Re-detect the connection after the user returns from the GitHub hop —
+  // Re-detect the connection after the user returns from a GitHub hop —
   // avoids brittle popup postMessage relays.
   useEffect(() => {
     const onFocus = () => void refresh(true)
@@ -200,33 +159,17 @@ export function GithubRepoPicker({
     return () => window.removeEventListener(`focus`, onFocus)
   }, [refresh])
 
+  // The guided page (Connect GitHub, then Install the app) in a popup.
   const openConnect = () => {
-    setPopupBlocked(
-      !openGithubPopup(data?.connectUrl ?? data?.installUrl) &&
-        Boolean(data?.connectUrl ?? data?.installUrl)
-    )
+    setPopupBlocked(!openGithubConnect({ teamId }))
   }
 
-  // FEED-30: GitHub's account picker (installations/new) — the ONLY way to a
-  // second account/org once one is linked (the OAuth hop just re-links what
-  // the viewer already controls).
+  // GitHub's account picker (installations/new) — the way to a second
+  // account/org once the first one is installed.
   const openInstall = () => {
     setPopupBlocked(
       !openGithubPopup(data?.installUrl) && Boolean(data?.installUrl)
     )
-  }
-
-  // FEED-30: on OAuth instances the list IS the viewer's grant snapshot, which
-  // only the OAuth re-auth (or the installation_repositories webhook) rewrites
-  // — a bare cache refresh can't surface a repo granted since. So "Refresh"
-  // runs the re-auth popup there (instant auto-redirect; the focus listener
-  // re-lists on return) and a plain forced re-list where there is no OAuth.
-  const refreshAccess = () => {
-    if (data?.connectUrl) {
-      setPopupBlocked(!openGithubPopup(data.connectUrl))
-      return
-    }
-    void refresh(true)
   }
 
   const lookup = async () => {
@@ -268,23 +211,38 @@ export function GithubRepoPicker({
     )
   }
 
-  // Configured but no GitHub account linked to this team → inline connect
-  // (or the caller's own CTA).
-  if (!data.installed) {
-    if (installEmptyState) return <>{installEmptyState}</>
+  // A prerequisite is missing: GitHub not linked (or its token expired), or
+  // linked but the app installed nowhere the viewer can see. One sentence
+  // naming it, one button fixing it, and the "I've done that" re-list.
+  if (!data.linked || data.needsReconnect || !data.installed) {
+    if (installEmptyState && !data.linked) return <>{installEmptyState}</>
+    const needsLink = !data.linked || data.needsReconnect
     return (
-      <div className="space-y-3">
+      <div className="space-y-3" data-testid="repo-picker-prerequisite">
         <div className="flex items-start gap-2 rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground">
           <GithubGlyph className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{GH_PICKER_NOT_INSTALLED}</span>
+          <span>
+            {needsLink
+              ? data.needsReconnect
+                ? GH_PICKER_RECONNECT_BANNER
+                : GH_PICKER_NOT_LINKED
+              : GH_PICKER_NOT_INSTALLED}
+          </span>
         </div>
         {/* flex-wrap: narrow hosts (mobile-width dialogs) must wrap the
             refresh button instead of clipping it (EXP-390). */}
         <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" onClick={openConnect}>
-            <GithubGlyph className="mr-2 h-4 w-4" />
-            {GH_CONNECT_GITHUB}
-          </Button>
+          {needsLink ? (
+            <Button type="button" onClick={openConnect}>
+              <GithubGlyph className="mr-2 h-4 w-4" />
+              {data.needsReconnect ? GH_RECONNECT_GITHUB : GH_CONNECT_GITHUB}
+            </Button>
+          ) : (
+            <Button type="button" onClick={openInstall}>
+              <GithubGlyph className="mr-2 h-4 w-4" />
+              {GH_INSTALL_APP}
+            </Button>
+          )}
           <Pill mode="action" onClick={() => void refresh(true)}>
             <RefreshGlyph />
             {GH_PICKER_CONNECTED_CHECK}
@@ -297,49 +255,21 @@ export function GithubRepoPicker({
     )
   }
 
-  // Installed → searchable repo list. We only ever show repositories a member
-  // proved user-scoped access to at connect time (the grant snapshot), so a repo
-  // created or shared AFTER the last connect won't appear until a reconnect
-  // (the banner's re-auth) re-captures the set. `needsReauth` flags a linked
-  // account whose grants haven't been captured at all.
-  const suspendedAccounts = (data.installations ?? [])
+  // Installed → the live, searchable list of push-able repositories.
+  const suspendedAccounts = data.installations
     .filter((i) => i.suspended)
     .map((i) => i.accountLogin || GH_SUSPENDED_ACCOUNT_FALLBACK)
-  const reauthAccounts = (data.installations ?? [])
-    .filter((i) => i.needsReauth && !i.suspended)
-    .map((i) => i.accountLogin)
-    .filter((login): login is string => Boolean(login))
-  const needsReauth = (data.installations ?? []).some(
-    (i) => i.needsReauth && !i.suspended
-  )
   const empty = data.repos.length === 0
-  const manageLinks = (data.installations ?? []).filter(
-    (inst): inst is typeof inst & { manageUrl: string } =>
-      Boolean(inst.manageUrl)
-  )
   return (
     <div className="space-y-2">
       {/* Suspended installations list no repos at all — say why, or the empty
           state reads as "you have no repositories" (REV2-29). */}
       {suspendedAccounts.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          <GithubGlyph className="h-4 w-4 shrink-0" />
+          <WarningGlyph className="h-4 w-4 shrink-0" />
           <span className="min-w-0 flex-1">
             {ghPickerSuspendedBanner(suspendedAccounts)}
           </span>
-        </div>
-      )}
-
-      {needsReauth && (
-        <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-sm text-muted-foreground">
-          <WarningGlyph className="h-4 w-4 shrink-0 text-amber-500" />
-          <span className="min-w-0 flex-1">
-            {ghPickerReauthBanner(reauthAccounts, empty)}
-          </span>
-          <Pill mode="action" onClick={openConnect}>
-            <RefreshGlyph />
-            {GH_RECONNECT_GITHUB}
-          </Pill>
         </div>
       )}
 
@@ -348,54 +278,47 @@ export function GithubRepoPicker({
       )}
 
       {!empty && (
-        // EXP-958: the shared picker body (`ComboboxList`), inline — no
-        // popover, this card IS the host. FEED-42 says tap adds, so nothing
-        // is ever "the picked repo": `value={null}` marks no row.
-        <ComboboxList
-          options={data.repos.map((repo) => ({
-            value: repo.fullName,
-            label: repo.fullName,
-            icon: GithubGlyph,
-            hint: repo.private ? (
-              <PrivateGlyph className="size-3.5" aria-label="Private" />
-            ) : undefined,
+        // The shared picker body (`RepositoryPickerList`), inline — no
+        // popover, this card IS the host. Tap adds, so nothing is ever "the
+        // picked repo".
+        <RepositoryPickerList
+          rows={data.repos.map((repo) => ({
+            id: repo.fullName,
+            fullName: repo.fullName,
+            private: repo.private,
           }))}
-          value={null}
-          onChange={(fullName) => {
+          onPick={(fullName) => {
             const repo = data.repos.find((r) => r.fullName === fullName)
             if (repo) onSelect(repo)
           }}
-          placeholder={GH_SEARCH_PLACEHOLDER}
+          searchPlaceholder={GH_SEARCH_PLACEHOLDER}
           emptyText={GH_NO_MATCH}
-          // EXP-903: the framed arm is the canonical glass card — XL
-          // radius and the card hairline, not the `rounded-md border` this
-          // had drifted to.
-          className={variant === `plain` ? undefined : GLASS_CARD_CLASS}
-          listClassName={cn(`max-h-[min(20rem,50dvh)]`, listClassName)}
+          className={variant === `plain` ? `rounded-none border-0 bg-transparent` : undefined}
+          listClassName={listClassName ?? `max-h-[min(20rem,50dvh)]`}
         />
       )}
 
-      {empty && !needsReauth && suspendedAccounts.length === 0 && (
-        <ListEmpty className="rounded-md border">{GH_NONE_GRANTED}</ListEmpty>
+      {empty && suspendedAccounts.length === 0 && (
+        <ListEmpty className="rounded-md border">{GH_NONE_PUSHABLE}</ListEmpty>
       )}
 
-      {/* FEED-30: the list explains itself. A missing repo is (almost) always
-          an installation whose repo selection doesn't include it, or a repo
-          on an account that isn't installed at all — say so, link the exact
-          GitHub page per account, and offer the two fixes plus a by-name
-          escape hatch that runs the connect path's own checks (its error
-          names the real reason). */}
+      {/* The list explains itself: a missing repo is (almost) always an
+          installation whose repo selection doesn't include it, or a repo on
+          an account that isn't installed at all — say so, link the exact
+          GitHub page per account, and offer the fixes plus a by-name escape
+          hatch that runs the connect gate's own checks (its error names the
+          real reason). */}
       <div
         className="space-y-2 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground"
         data-testid="repo-picker-footer"
       >
         <p>
           {GH_FOOTER_EXPLAIN}
-          {manageLinks.length > 0 && (
+          {data.installations.length > 0 && (
             <>
               {` `}
-              {manageLinks.map((inst, index) => (
-                <span key={inst.installationId ?? inst.manageUrl}>
+              {data.installations.map((inst, index) => (
+                <span key={inst.installationId}>
                   <a
                     href={inst.manageUrl}
                     target="_blank"
@@ -405,17 +328,15 @@ export function GithubRepoPicker({
                     {githubInstallationLabel(inst)}
                     <ExternalLinkGlyph className="h-3 w-3" />
                   </a>
-                  {index < manageLinks.length - 1 && `, `}
+                  {index < data.installations.length - 1 && `, `}
                 </span>
               ))}
             </>
           )}
         </p>
-        {data.hasMore && (
-          <p>{GH_CAP_NOTE}</p>
-        )}
+        {data.hasMore && <p>{GH_CAP_NOTE}</p>}
         <div className="flex flex-wrap items-center gap-2">
-          <Pill mode="action" onClick={refreshAccess} disabled={loading}>
+          <Pill mode="action" onClick={() => void refresh(true)} disabled={loading}>
             <RefreshGlyph />
             {GH_REFRESH}
           </Pill>
@@ -426,6 +347,8 @@ export function GithubRepoPicker({
             </Pill>
           )}
         </div>
+        {/* A div, not a form: the board dialog hosts this inside its own
+            form, and nested forms are invalid markup. */}
         <div className="flex items-center gap-2">
           <Input
             value={lookupName}
@@ -454,7 +377,11 @@ export function GithubRepoPicker({
             {GH_LOOK_UP}
           </Pill>
         </div>
-        {lookupError && <p className="text-destructive">{lookupError}</p>}
+        {lookupError && (
+          <p className="text-destructive" data-testid="repo-lookup-error">
+            {lookupError}
+          </p>
+        )}
       </div>
     </div>
   )
