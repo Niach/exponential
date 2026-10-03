@@ -117,7 +117,7 @@ private const val ANSWER_ACK_TIMEOUT_MS = 8_000L
 /** Shown when the session's row no longer exists — a swept row (or one that
  *  left this client's sync scope) is over as far as any client can tell, and
  *  nothing about it is retryable. */
-private const val SESSION_GONE_DETAIL = "This session is no longer available."
+private const val SESSION_GONE_DETAIL = "This run is no longer available."
 
 /** Shown when a dial gets no answer at all: the relay ALWAYS answers a join
  *  (activity_reset + replay, or an error frame then close), so silence means a
@@ -621,7 +621,7 @@ class SteerConnection internal constructor(
             val minted = transport.mint(codingSessionId)
             if (!minted.isUsable) {
                 // Config state, not a transient failure — retrying can't help.
-                return DialOutcome.Closed("Live sessions are unavailable on this instance.", retryable = false)
+                return DialOutcome.Closed("Live runs are unavailable on this instance.", retryable = false)
             }
             Log.i(TAG, "[$sid] dial#$dial mint ok")
             // The upgrade is BOUNDED (EXP-625): ktor's HttpTimeout skips

@@ -205,21 +205,24 @@ class StoreScreenshotsTest {
         flow.settle()
         flow.screenshot("5_review", popRects = true)
 
-        // --- Actions (EXP-253): its own bottom-bar tab since EXP-686; the
-        // seed inserts three team actions (no client builtins are listed).
+        // --- Actions (EXP-253): a row of the bottom bar's More menu since
+        // SLOP-5; the seed inserts three team actions (no client builtins are
+        // listed).
         composeRule.onNode(hasContentDescription("Back")).performClick()
-        flow.waitFor(hasTestTag("tab-actions"), NAV_TIMEOUT)
-        composeRule.onNode(hasTestTag("tab-actions")).performClick()
+        flow.waitFor(hasTestTag("tab-more"), NAV_TIMEOUT)
+        composeRule.onNode(hasTestTag("tab-more")).performClick()
+        flow.waitFor(hasTestTag("menu-actions"), NAV_TIMEOUT)
+        composeRule.onNode(hasTestTag("menu-actions")).performClick()
         flow.waitFor(hasTestTag("action-row"), SYNC_TIMEOUT)
         flow.waitFor(hasText("Update dependencies", substring = true), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("6_actions", popRects = true)
 
-        // --- My Work tab (EXP-58: Inbox + My Issues merged behind a
+        // --- Inbox tab (EXP-58: Inbox + My Issues merged behind a
         // segmented control; Inbox is the default segment, seeded with 5
         // notifications, 3 unread). Wait for a real group row — capturing
         // "You're all caught up" would silently ship an empty screenshot.
-        composeRule.onNode(hasContentDescription("My Work")).performClick()
+        composeRule.onNode(hasTestTag("tab-mywork")).performClick()
         flow.waitFor(hasText(SHOWCASE_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("7_inbox", popRects = true)

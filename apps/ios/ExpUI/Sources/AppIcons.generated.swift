@@ -504,6 +504,8 @@ public enum AppIcons {
     public static let navInbox: String = "inbox"
     /// Concept `nav-issues`.
     public static let navIssues: String = "list"
+    /// Concept `nav-more`.
+    public static let navMore: String = "ellipsis"
     /// Concept `nav-my-issues`.
     public static let navMyIssues: String = "list"
     /// Concept `nav-notifications`.

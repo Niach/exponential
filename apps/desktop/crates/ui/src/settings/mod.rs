@@ -9,7 +9,7 @@
 //! (one entry PER board + New board + Repositories — EXP-288 flattened the
 //! old flat Boards list into per-board detail pages), **Features**
 //! (Widget — EXP-771, MCP servers — EXP-792), the desktop-only
-//! **This device** group (Tools, Agents, Worktrees, Sessions), and
+//! **This device** group (Tools, Agents, Worktrees, Runs), and
 //! **Personal** (Account, Notifications, Security, About — EXP-238); the
 //! detail column shows ONE selected pane with the web's `isOwner &&` gating;
 //! each pane mirrors its web card field-for-field — and since EXP-771 sits
@@ -278,17 +278,11 @@ const NAV_GROUPS: &[NavGroup] = &[
                     NavItem::leaf("Statuses", SettingsSection::Statuses),
                 ],
             },
-            // EXP-297: the web nav's Team group order minus the web-only
-            // Plan & Billing and Import entries.
-            NavItem::leaf("Storage", SettingsSection::Storage),
         ],
     },
     NavGroup {
         label: "Boards",
-        items: &[
-            NavItem::leaf("Archived boards", SettingsSection::ArchivedBoards),
-            NavItem::leaf("Repositories", SettingsSection::Repositories),
-        ],
+        items: &[NavItem::leaf("Repositories", SettingsSection::Repositories)],
     },
     // EXP-771: the web's Features group, verbatim (SLOP-4: the Helpdesk row
     // is gone with the helpdesk; the widget page is "Widget" now).
@@ -308,7 +302,8 @@ const NAV_GROUPS: &[NavGroup] = &[
             NavItem::leaf("Tools", SettingsSection::Tools),
             NavItem::leaf("Agents", SettingsSection::Agents),
             NavItem::leaf("Worktrees", SettingsSection::LocalRepos),
-            NavItem::leaf("Sessions", SettingsSection::Sessions),
+            // SLOP-5: "Runs" — the one word for a coding run in UI copy.
+            NavItem::leaf("Runs", SettingsSection::Sessions),
         ],
     },
     // EXP-238: the Personal group is ordinary nav now — the web merged the
@@ -322,6 +317,16 @@ const NAV_GROUPS: &[NavGroup] = &[
             NavItem::leaf("Notifications", SettingsSection::Notifications),
             NavItem::leaf("Security", SettingsSection::ApiKeys),
             NavItem::leaf("About", SettingsSection::About),
+        ],
+    },
+    // SLOP-5: the admin-ish, owner-only sections close the nav as one
+    // Advanced group — the web nav's group, minus its web-only Import. After
+    // Personal on purpose: the fallback scan still lands on General/Members.
+    NavGroup {
+        label: "Advanced",
+        items: &[
+            NavItem::leaf("Storage", SettingsSection::Storage),
+            NavItem::leaf("Archived boards", SettingsSection::ArchivedBoards),
         ],
     },
 ];
@@ -1372,13 +1377,14 @@ mod tests {
                 section
             );
         }
-        // EXP-886: Sessions closes the This device group.
+        // EXP-886: the run-history pane closes the This device group
+        // (SLOP-5: labelled "Runs").
         let device = NAV_GROUPS
             .iter()
             .find(|group| group.label == "This device")
             .expect("This device group");
         let labels: Vec<&str> = device.items.iter().map(|item| item.label).collect();
-        assert_eq!(labels, vec!["Tools", "Agents", "Worktrees", "Sessions"]);
+        assert_eq!(labels, vec!["Tools", "Agents", "Worktrees", "Runs"]);
     }
 
     /// EXP-262/EXP-238: the Personal sections are never gated and never fall
@@ -1507,9 +1513,11 @@ mod tests {
     #[test]
     fn features_group_sits_between_boards_and_this_device() {
         let groups: Vec<&str> = NAV_GROUPS.iter().map(|group| group.label).collect();
+        // SLOP-5: the owner-only Advanced group (Storage, Archived boards)
+        // closes the nav AFTER Personal, so the fallback scan is unchanged.
         assert_eq!(
             groups,
-            vec!["Team", "Boards", "Features", "This device", "Personal"]
+            vec!["Team", "Boards", "Features", "This device", "Personal", "Advanced"]
         );
         let features = NAV_GROUPS
             .iter()

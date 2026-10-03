@@ -424,14 +424,14 @@ impl IssuesPane {
                         .child(
                             div()
                                 .text_sm()
-                                .child("When a pull request merges, end its coding sessions"),
+                                .child("When a pull request merges, end its runs"),
                         )
                         .child(
                             div()
                                 .text_xs()
                                 .text_color(cx.theme().muted_foreground)
                                 .child(
-                                    "The session that merged its own pull request always keeps running.",
+                                    "The run that merged its own pull request always keeps running.",
                                 ),
                         ),
                 )

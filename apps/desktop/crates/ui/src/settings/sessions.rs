@@ -106,7 +106,7 @@ impl Render for SessionsPane {
         let value_color = cx.theme().foreground.opacity(0.7);
 
         let row = glass_picker_row(
-            "Keep session history",
+            "Keep run history",
             None,
             Button::new("sessions-retention-select")
                 .ghost()
@@ -139,7 +139,7 @@ impl Render for SessionsPane {
         );
 
         let mut card = section(cx)
-            .child(crate::surface::glass_section_header("Sessions", None, cx))
+            .child(crate::surface::glass_section_header("Runs", None, cx))
             .child(glass_group_rows(vec![row]));
         if let Some(error) = &self.save_error {
             card = card.child(error_notice(error.clone(), cx));

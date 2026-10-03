@@ -108,7 +108,7 @@ struct BoardRepoField: View {
 
             // The ONE explanatory line under the block — byte-identical on
             // every client (lib/board-copy.ts, gated by board-copy.test.ts).
-            Text("Coding sessions start from here.")
+            Text("Runs start from here.")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
 

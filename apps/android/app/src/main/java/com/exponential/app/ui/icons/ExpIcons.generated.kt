@@ -8123,6 +8123,8 @@ public object ExpIcons {
     public val navInbox: ImageVector get() = `inbox`
     /** Concept `nav-issues`. */
     public val navIssues: ImageVector get() = `list`
+    /** Concept `nav-more`. */
+    public val navMore: ImageVector get() = `ellipsis`
     /** Concept `nav-my-issues`. */
     public val navMyIssues: ImageVector get() = `list`
     /** Concept `nav-notifications`. */

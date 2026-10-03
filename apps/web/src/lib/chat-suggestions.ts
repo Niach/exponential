@@ -21,7 +21,7 @@ export const CHAT_SUGGESTION_POOL: readonly string[] = [
   `Set up a weekly standup digest action`,
   `Draft release notes from the issues completed this month`,
   `Summarize what changed across the boards this week`,
-  `Start a session for # on my other machine`,
+  `Start a run for # on my other machine`,
   `Move stale in-progress issues back to the backlog`,
   `Comment a plan on #`,
   `Which issues are blocked, and by what?`,

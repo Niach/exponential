@@ -506,6 +506,8 @@ pub const NAV_GETTING_STARTED: ExpIcon = ExpIcon::Sparkles;
 pub const NAV_INBOX: ExpIcon = ExpIcon::Inbox;
 /// Registry concept `nav-issues` -> Lucide `list`.
 pub const NAV_ISSUES: ExpIcon = ExpIcon::List;
+/// Registry concept `nav-more` -> Lucide `ellipsis`.
+pub const NAV_MORE: ExpIcon = ExpIcon::Ellipsis;
 /// Registry concept `nav-my-issues` -> Lucide `list`.
 pub const NAV_MY_ISSUES: ExpIcon = ExpIcon::List;
 /// Registry concept `nav-notifications` -> Lucide `bell`.

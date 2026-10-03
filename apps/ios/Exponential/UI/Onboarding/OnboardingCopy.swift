@@ -34,7 +34,7 @@ enum OnboardingCopy {
     // MARK: - Step 4: devices
 
     static let devicesTitle = "Set up your devices"
-    static let devicesSubtitle = "Coding sessions run on the desktop app or on a server with the Exponential CLI. Install one and sign your agents in. You can also do this later."
+    static let devicesSubtitle = "Runs happen on the desktop app or on a server with the Exponential CLI. Install one and sign your agents in. You can also do this later."
     static let devicesYours = "Your devices"
     static let devicesNone = "No devices yet. Sign in on the desktop app or a server and it shows up here."
 

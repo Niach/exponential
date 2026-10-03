@@ -470,7 +470,7 @@ struct MainNavigator: View {
                 MobileTabBar(
                     issuesActive: path.isEmpty,
                     devicesActive: isOnAgents,
-                    actionsActive: isOnActions,
+                    moreActive: isOnActions,
                     myWorkActive: isOnMyWork,
                     reviewsActive: isOnReviews,
                     unreadCount: unreadCount,
@@ -484,7 +484,11 @@ struct MainNavigator: View {
                     composeEnabled: composeTarget != nil,
                     onIssues: { path = [] },
                     onDevices: { if !isOnAgents { path = [.agents] } },
+                    // SLOP-5: both rows of the More menu. Actions is a
+                    // bar-visible top-level surface; Settings pushes bar-less,
+                    // like the Issues header's gear.
                     onActions: { if !isOnActions { path = [.actions] } },
+                    onSettings: { path.append(.settings) },
                     onMyWork: { if !isOnMyWork { path = [.myWork] } },
                     onReviews: { if !isOnReviews { path = [.reviews] } },
                     onCompose: {
@@ -522,7 +526,7 @@ struct MainNavigator: View {
     // MARK: - Tab bar
 
     /// The bar floats only over the top-level surfaces (Issues root, Devices,
-    /// Actions, My Work, Reviews, pushed board lists); detail and settings
+    /// Actions (via More), Inbox, Reviews, pushed board lists); detail and settings
     /// screens — Search among them since EXP-686 — get the full height back.
     private var showsTabBar: Bool {
         guard let top = path.last else { return true }
@@ -582,7 +586,7 @@ struct MainNavigator: View {
     }
 
     /// Compose targets the board in view: a pushed board list wins, and every
-    /// other bar-visible surface (Issues root, Devices, Actions, My Work,
+    /// other bar-visible surface (Issues root, Devices, Actions, Inbox,
     /// Reviews) falls back to the CURRENT board — the one the Issues
     /// tab is pointed at, resolved from the last-used board, else the first of
     /// the active team (EXP-973). Filing an issue is never route-dependent;

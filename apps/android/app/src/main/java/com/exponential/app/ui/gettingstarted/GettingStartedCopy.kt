@@ -14,11 +14,11 @@ package com.exponential.app.ui.gettingstarted
  */
 object GettingStartedCopy {
     const val DESKTOP_TITLE = "Get the desktop app"
-    const val DESKTOP_DESCRIPTION = "Runs coding sessions on your machine and registers it as one of your devices."
+    const val DESKTOP_DESCRIPTION = "Runs agents on your machine and registers it as one of your devices."
     const val DESKTOP_ACTION = "Download the desktop app"
 
     const val GITHUB_TITLE = "Connect a GitHub repo"
-    const val GITHUB_DESCRIPTION = "Boards attach repositories; pull requests and coding sessions flow back into issues."
+    const val GITHUB_DESCRIPTION = "Boards attach repositories; pull requests and runs flow back into issues."
     const val GITHUB_ACTION = "Connect GitHub"
 
     const val INVITE_TITLE = "Invite your team"
@@ -81,9 +81,9 @@ object GettingStartedCopy {
      */
     fun lockedHint(entry: GettingStartedEntryKey, lockedBy: GettingStartedEntryKey): String = when {
         entry == GettingStartedEntryKey.Coding && lockedBy == GettingStartedEntryKey.Desktop ->
-            "Connect a machine first — coding sessions run on the desktop app or a registered server."
+            "Connect a machine first — runs happen on the desktop app or a registered server."
         entry == GettingStartedEntryKey.Coding && lockedBy == GettingStartedEntryKey.Github ->
-            "Connect a GitHub repo first. Coding sessions need a repo-backed board."
+            "Connect a GitHub repo first. Runs need a repo-backed board."
         entry == GettingStartedEntryKey.Coding && lockedBy == GettingStartedEntryKey.Board ->
             "Create a board with a repository first."
         entry == GettingStartedEntryKey.Action ->

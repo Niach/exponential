@@ -1573,7 +1573,7 @@ impl DeviceSettingsView {
             .gap_1()
             .child(surface::glass_group_rows(rows))
             .child(div().text_xs().text_color(muted).child(
-                "Teammates of a shared team can start coding sessions on this device.",
+                "Teammates of a shared team can start runs on this device.",
             ))
     }
 }
@@ -1581,8 +1581,8 @@ impl DeviceSettingsView {
 /// FEED-36: the caption under a QUEUED update — the daemon's own rules for
 /// getting there (every session ends, or one sits idle for 2 hours). Web
 /// `QUEUED_UPDATE_TOOLTIP`, ×4.
-const QUEUED_UPDATE_TOOLTIP: &str = "Live sessions hold this update — the device restarts itself \
-     once every session ends or sits idle for 2 hours.";
+const QUEUED_UPDATE_TOOLTIP: &str = "Live runs hold this update — the device restarts itself \
+     once every run ends or sits idle for 2 hours.";
 
 impl DeviceSettingsView {
     /// EXP-909: the Update section — SERVER devices only (a desktop app
@@ -1718,7 +1718,7 @@ impl DeviceSettingsView {
                 surface::glass_pill_button("device-update-now", surface::PillSize::Sm, cx)
                     .danger()
                     .label("Update now…")
-                    .tooltip("End this device's live sessions and restart it on the new version now.")
+                    .tooltip("End this device's live runs and restart it on the new version now.")
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.prompt_update_now(confirm_label.clone(), live_sessions, window, cx);
                     })),

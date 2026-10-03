@@ -453,7 +453,7 @@ fun AgentScreen(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "Remote start isn't available on this server. Start runs from the desktop app; live sessions show up below.",
+                            "Remote start isn't available on this server. Start runs from the desktop app; live runs show up below.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                         )

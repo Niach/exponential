@@ -2,8 +2,8 @@
    Mirrors apps/web components/team/sidebar.tsx on the shadcn sidebar
    primitive: a 16rem (296px) transparent rail divided from the main pane by
    one hairline. Header = team switcher + icon-only Search and New-issue
-   actions (EXP-449). Nav = Inbox / Devices / Actions /
-   Reviews and Agent badged with DOTS (EXP-699/EXP-880). Then the Boards group,
+   actions (EXP-449). Nav = Inbox / Devices / Reviews / Agent / More
+   (SLOP-5: Actions sits behind More) badged with DOTS (EXP-699/EXP-880). Then the Boards group,
    and a footer with Getting started and the user row + settings gear. */
 import { INBOX_ITEMS, REVIEWS } from "../ide/data"
 import { useWeb, type WebNav } from "./state"
@@ -15,7 +15,7 @@ import {
 } from "./data"
 import {
   ICON_4,
-  IcActions,
+  IcEllipsis,
   IcAgent,
   IcCode,
   IcCompose,
@@ -109,9 +109,8 @@ export function WebSidebar() {
       <div className="web-side-rule" />
 
       <div className="web-side-scroll">
-        {/* EXP-699/EXP-818 nav order: Inbox, Devices, Actions,
-            Reviews, Agent. Badges are dots (primary for unread,
-            green for live). */}
+        {/* SLOP-5 nav order: Inbox, Devices, Reviews, Agent, More.
+            Badges are dots (primary for unread, green for live). */}
         <div className="web-side-group">
           <NavItem
             icon={<IcInbox size={ICON_4} />}
@@ -124,7 +123,6 @@ export function WebSidebar() {
             icon={<IcDevices size={ICON_4} />}
             label="Devices"
           />
-          <NavItem icon={<IcActions size={ICON_4} />} label="Actions" />
           <NavItem
             icon={<IcReviews size={ICON_4} />}
             label="Reviews"
@@ -137,6 +135,7 @@ export function WebSidebar() {
             onClick={go(`agent`)}
             dot={AGENTS_RUNNING > 0 ? `green` : undefined}
           />
+          <NavItem icon={<IcEllipsis size={ICON_4} />} label="More" />
         </div>
 
         <div className="web-side-group">

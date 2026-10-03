@@ -36,7 +36,7 @@ struct LaunchOptionsSection: View {
         case device
     }
 
-    /// EXP-481's "Resume previous session" offer — launch variant only.
+    /// EXP-481's "Resume previous run" offer — launch variant only.
     struct ResumeRow {
         let isOn: Binding<Bool>
         /// The issue the existing worktree belongs to (nil renders "this issue").
@@ -260,7 +260,7 @@ struct LaunchOptionsSection: View {
             // mode are both claude-only (EXP-441/EXP-849); a binding (the
             // trigger variant) has neither.
             if let resumeRow {
-                Toggle("Resume previous session", isOn: resumeRow.isOn)
+                Toggle("Resume previous run", isOn: resumeRow.isOn)
             }
             if let ultracode, agent == "claude" {
                 Toggle("Ultracode", isOn: ultracode)

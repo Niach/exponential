@@ -118,6 +118,7 @@
     "nav-devices": "monitor",
     "nav-actions": "bot",
     "nav-settings": "settings",
+    "nav-more": "ellipsis",
     "nav-notifications": "bell",
     "nav-account": "circle-user",
     "nav-admin": "shield",

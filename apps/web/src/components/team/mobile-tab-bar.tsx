@@ -13,11 +13,16 @@ import {
   useShowsReviews,
   useAgentsRunningCount,
 } from "@/hooks/use-nav-counts"
+import {
+  MORE_LABEL,
+  MoreMenu,
+  NavMoreIcon,
+  useMoreActive,
+} from "@/components/team/sidebar-more"
 
 // EXP-317: the cross-client nav glyphs come from the shared registry
 // (packages/icons/icons.json) so web, desktop, iOS and Android agree.
 const ActionChatIcon = conceptIcon(`action-chat`)
-const NavActionsIcon = conceptIcon(`nav-actions`)
 const NavCreateIssueIcon = conceptIcon(`nav-create-issue`)
 const NavDevicesIcon = conceptIcon(`nav-devices`)
 const NavInboxIcon = conceptIcon(`nav-inbox`)
@@ -172,8 +177,10 @@ interface MobileTabBarProps {
 // Native-parity mobile navigation (EXP-189): a floating glass pill with the
 // top-level destinations plus a detached compose FAB, replacing the old
 // sidebar-as-drawer. Desktop keeps the persistent sidebar (`md:hidden`).
-// EXP-686: Issues, Inbox, Support, Devices, Actions, Reviews — Search left
-// the bar for the board header (`use-issue-search.tsx`) to make room.
+// EXP-686: Search left the bar for the board header (`use-issue-search.tsx`).
+// SLOP-5: Issues, Inbox, Devices, Reviews, More — the four nouns
+// plus Reviews and Inbox; Actions and Settings sit behind More (×3 with the
+// iOS and Android bars).
 export function MobileTabBar({
   teamSlug,
   team,
@@ -202,9 +209,8 @@ export function MobileTabBar({
   const onDevices = Boolean(
     matchRoute({ to: `/t/$teamSlug/devices`, fuzzy: true })
   )
-  const onActions = Boolean(
-    matchRoute({ to: `/t/$teamSlug/actions`, fuzzy: true })
-  )
+  // SLOP-5: More is lit while Actions or Settings is up.
+  const moreActive = useMoreActive({ settings: true })
   const onReviews = Boolean(
     matchRoute({ to: `/t/$teamSlug/reviews`, fuzzy: true })
   )
@@ -261,14 +267,6 @@ export function MobileTabBar({
         >
           <NavDevicesIcon className="size-5" />
         </Link>
-        <Link
-          to="/t/$teamSlug/actions"
-          params={{ teamSlug }}
-          aria-label="Actions"
-          className={tabClass(onActions)}
-        >
-          <NavActionsIcon className="size-5" />
-        </Link>
         {showsReviews && (
           <Link
             to="/t/$teamSlug/reviews"
@@ -280,6 +278,25 @@ export function MobileTabBar({
             <ReviewsDot boards={boards} teamId={team?.id} />
           </Link>
         )}
+        {/* SLOP-5: the phone's More — Actions and Settings on the touch
+            menu surface, opening above the bar. Drafts stay the Inbox's
+            third segment here (EXP-878). */}
+        <MoreMenu
+          teamSlug={teamSlug}
+          drafts={false}
+          settings
+          side="top"
+          align="end"
+        >
+          <button
+            type="button"
+            aria-label={MORE_LABEL}
+            data-testid="nav-more"
+            className={tabClass(moreActive)}
+          >
+            <NavMoreIcon className="size-5" />
+          </button>
+        </MoreMenu>
       </nav>
       {/* EXP-631/694: the chat launcher started on Devices and Actions,
           EXP-739 made it a LINK to the team's Agent page, EXP-827 merged it

@@ -515,7 +515,7 @@ fun ChangesScreen(
                 onDismissRequest = { mergeConfirmOpen = false },
                 title = { Text("Merge pull request?") },
                 text = {
-                    Text("Squash-merges PR #${issue?.prNumber ?: ""} via the GitHub App. Any live coding session for it closes.")
+                    Text("Squash-merges PR #${issue?.prNumber ?: ""} via the GitHub App. Any live run for it ends.")
                 },
                 confirmButton = {
                     TextButton(onClick = {

@@ -73,8 +73,8 @@ export function StopRunPill({
         className
       )}
       onClick={onStop}
-      aria-label="Stop the agent and end the session"
-      title="Stop the agent and end the session"
+      aria-label="Stop the agent and end the run"
+      title="Stop the agent and end the run"
       data-testid="run-stop-pill"
     >
       <CodingStopIcon className={PLACEMENT_GLYPH[placement]} />

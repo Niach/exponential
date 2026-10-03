@@ -113,7 +113,7 @@ pub(crate) const CHAT_SUGGESTIONS: [&str; 16] = [
     "Set up a weekly standup digest action",
     "Draft release notes from the issues completed this month",
     "Summarize what changed across the boards this week",
-    "Start a session for # on my other machine",
+    "Start a run for # on my other machine",
     "Move stale in-progress issues back to the backlog",
     "Comment a plan on #",
     "Which issues are blocked, and by what?",
@@ -1244,7 +1244,7 @@ impl ChatScreenView {
             return Some("Uploading images…".into());
         }
         if self.team_id.is_none() {
-            return Some("Sign in and wait for sync before starting a session.".into());
+            return Some("Sign in and wait for sync before starting a run.".into());
         }
         let Some(launch) = self.launch.as_ref() else {
             return Some("Checking local tools…".into());
@@ -1340,7 +1340,7 @@ impl ChatScreenView {
                         .unwrap_or_else(|| "another device".to_string());
                         return Some(
                             format!(
-                                "{} already has a live session on {device} (only one session per issue).",
+                                "{} already has a live run on {device} (one run per issue).",
                                 row.identifier
                             )
                             .into(),
@@ -1571,7 +1571,7 @@ impl ChatScreenView {
                     if let Some(record) = record {
                         let same_agent = options.agent == record.agent;
                         let Some(deps) = coding_flow::build_resume_deps(&record, cx) else {
-                            self.error = Some("Sign in and wait for sync before starting a session.".into());
+                            self.error = Some("Sign in and wait for sync before starting a run.".into());
                             cx.notify();
                             return;
                         };
@@ -1614,7 +1614,7 @@ impl ChatScreenView {
                         prompt,
                         cx,
                     ) else {
-                        self.error = Some("Sign in and wait for sync before starting a session.".into());
+                        self.error = Some("Sign in and wait for sync before starting a run.".into());
                         cx.notify();
                         return;
                     };
@@ -1638,7 +1638,7 @@ impl ChatScreenView {
                 };
                 let batch_id = request.batch_id.clone();
                 let Some(deps) = coding_flow::build_batch_deps(cx) else {
-                    self.error = Some("Sign in and wait for sync before starting a session.".into());
+                    self.error = Some("Sign in and wait for sync before starting a run.".into());
                     cx.notify();
                     return;
                 };
@@ -1768,7 +1768,7 @@ impl ChatScreenView {
         cx: &mut gpui::Context<Self>,
     ) {
         let Some(trpc) = queries::trpc_client(cx) else {
-            self.error = Some("Sign in and wait for sync before starting a session.".into());
+            self.error = Some("Sign in and wait for sync before starting a run.".into());
             cx.notify();
             return;
         };
@@ -2454,7 +2454,7 @@ impl ChatScreenView {
         let muted = cx.theme().muted_foreground;
         let hint: SharedString = match self.resume_candidate() {
             Some((_, record)) => format!(
-                "Resumes the {} session exactly (its own transcript); a resume keeps the session's own agent.",
+                "Resumes the {} run exactly (its own transcript); a resume keeps the run's own agent.",
                 record.agent.label()
             )
             .into(),
@@ -3316,7 +3316,7 @@ mod tests {
                 "Set up a weekly standup digest action",
                 "Draft release notes from the issues completed this month",
                 "Summarize what changed across the boards this week",
-                "Start a session for # on my other machine",
+                "Start a run for # on my other machine",
                 "Move stale in-progress issues back to the backlog",
                 "Comment a plan on #",
                 "Which issues are blocked, and by what?",

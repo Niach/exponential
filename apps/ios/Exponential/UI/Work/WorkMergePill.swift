@@ -38,11 +38,11 @@ struct WorkMergePill: View {
             // EXP-734: a run's OWN pull request links no issue, so promising
             // completed issues would be a lie.
             if case .session = target {
-                Text("Merges this run's pull request and closes the coding session.")
+                Text("Merges this run's pull request and ends the run.")
             } else if let number = issue?.prNumber {
-                Text("Squash-merges PR #\(number), completes every linked issue, and closes any live coding session for it.")
+                Text("Squash-merges PR #\(number), completes every linked issue, and ends any live run for it.")
             } else {
-                Text("Merges the pull request, completes every linked issue, and closes the coding session.")
+                Text("Merges the pull request, completes every linked issue, and ends the run.")
             }
         }
         .confirmationDialog(

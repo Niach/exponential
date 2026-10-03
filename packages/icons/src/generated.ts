@@ -478,6 +478,7 @@ export const SEMANTIC_ICONS = {
   "nav-getting-started": `sparkles`,
   "nav-inbox": `inbox`,
   "nav-issues": `list`,
+  "nav-more": `ellipsis`,
   "nav-my-issues": `list`,
   "nav-notifications": `bell`,
   "nav-rail-collapse": `panel-left-close`,

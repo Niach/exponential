@@ -61,7 +61,7 @@ import kotlinx.coroutines.launch
  * otherwise self-explanatory, so nothing else is said there.
  * `apps/web/src/lib/board-copy.test.ts` greps this tree for the literal.
  */
-const val BOARD_REPO_NOTE = "Coding sessions start from here."
+const val BOARD_REPO_NOTE = "Runs start from here."
 
 private const val NO_REPOSITORY = "No repository"
 

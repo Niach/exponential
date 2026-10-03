@@ -110,23 +110,6 @@ export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
         visible: (permissions, context) =>
           permissions.canManageTeam && context.isCloud,
       },
-      // EXP-297 attachment manager: usage meter + per-file delete + the
-      // unreferenced-image sweep. Owner-only, like the router behind it.
-      {
-        label: `Storage`,
-        to: `/t/$teamSlug/settings/storage`,
-        icon: conceptIcon(`settings-storage`),
-        visible: (permissions) => permissions.isOwner,
-      },
-      // EXP-630: the tracker-import wizard (Linear today). Owner-only and
-      // web-only, like Billing: it creates boards, statuses and hundreds of
-      // issues under the owner's name.
-      {
-        label: `Import`,
-        to: `/t/$teamSlug/settings/import`,
-        icon: conceptIcon(`settings-import`),
-        visible: (permissions) => permissions.isOwner,
-      },
     ],
   },
   // EXP-862: the group FLATTENS like the desktop IDE's (EXP-288) — one
@@ -136,12 +119,6 @@ export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
   {
     group: `Boards`,
     items: [
-      {
-        label: `Archived boards`,
-        to: `/t/$teamSlug/settings/boards/archived`,
-        icon: conceptIcon(`ui-archive`),
-        visible: (permissions) => permissions.isOwner,
-      },
       // EXP-557 per-user sharing: every member manages their own GitHub
       // connection and shares repos here, so the section is member-visible.
       {
@@ -201,6 +178,39 @@ export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
         to: `/t/$teamSlug/settings/security`,
         icon: conceptIcon(`settings-api`),
         visible: () => true,
+      },
+    ],
+  },
+  // SLOP-5: the admin-ish sections — rare, owner-only, and none of them a
+  // noun — close the nav as one Advanced group (the desktop nav's twin,
+  // `settings/mod.rs`). Last, after Personal: the index redirect still lands
+  // on a team section.
+  {
+    group: `Advanced`,
+    items: [
+      // EXP-297 attachment manager: usage meter + per-file delete + the
+      // unreferenced-image sweep. Owner-only, like the router behind it.
+      {
+        label: `Storage`,
+        to: `/t/$teamSlug/settings/storage`,
+        icon: conceptIcon(`settings-storage`),
+        visible: (permissions) => permissions.isOwner,
+      },
+      // EXP-630: the tracker-import wizard (Linear today). Owner-only and
+      // web-only, like Billing: it creates boards, statuses and hundreds of
+      // issues under the owner's name.
+      {
+        label: `Import`,
+        to: `/t/$teamSlug/settings/import`,
+        icon: conceptIcon(`settings-import`),
+        visible: (permissions) => permissions.isOwner,
+      },
+      // EXP-500: the archived boards' restore list.
+      {
+        label: `Archived boards`,
+        to: `/t/$teamSlug/settings/boards/archived`,
+        icon: conceptIcon(`ui-archive`),
+        visible: (permissions) => permissions.isOwner,
       },
     ],
   },

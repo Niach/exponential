@@ -82,7 +82,7 @@ fun PersonalScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "My Work",
+                    "Inbox",
                     style = MaterialTheme.typography.headlineLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                 )

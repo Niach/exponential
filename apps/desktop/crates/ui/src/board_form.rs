@@ -341,7 +341,7 @@ pub(crate) fn color_swatch_grid(
 /// on web (`lib/board-copy.ts` `BOARD_REPO_NOTE`), iOS, Android and here —
 /// `apps/web/src/lib/board-copy.test.ts` greps this file for it. The fields
 /// are otherwise self-explanatory, so nothing else is said there.
-pub(crate) const BOARD_REPO_NOTE: &str = "Coding sessions start from here.";
+pub(crate) const BOARD_REPO_NOTE: &str = "Runs start from here.";
 
 /// The "No repository" selection label — the same words in the trigger and in
 /// the menu, so the select reads as one control.

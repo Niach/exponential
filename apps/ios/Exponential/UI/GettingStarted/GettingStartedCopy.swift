@@ -14,11 +14,11 @@ import Foundation
 /// web/IDE-only surfaces, so the phone neither shows them nor counts them.
 enum GettingStartedCopy {
     static let desktopTitle = "Get the desktop app"
-    static let desktopDescription = "Runs coding sessions on your machine and registers it as one of your devices."
+    static let desktopDescription = "Runs agents on your machine and registers it as one of your devices."
     static let desktopAction = "Download the desktop app"
 
     static let githubTitle = "Connect a GitHub repo"
-    static let githubDescription = "Boards attach repositories; pull requests and coding sessions flow back into issues."
+    static let githubDescription = "Boards attach repositories; pull requests and runs flow back into issues."
     static let githubAction = "Connect GitHub"
 
     static let inviteTitle = "Invite your team"
@@ -106,10 +106,10 @@ func gettingStartedLockedHint(
     lockedBy: GettingStartedEntryKey
 ) -> String {
     if entry == .coding && lockedBy == .desktop {
-        return "Connect a machine first — coding sessions run on the desktop app or a registered server."
+        return "Connect a machine first — runs happen on the desktop app or a registered server."
     }
     if entry == .coding && lockedBy == .github {
-        return "Connect a GitHub repo first. Coding sessions need a repo-backed board."
+        return "Connect a GitHub repo first. Runs need a repo-backed board."
     }
     if entry == .coding && lockedBy == .board {
         return "Create a board with a repository first."

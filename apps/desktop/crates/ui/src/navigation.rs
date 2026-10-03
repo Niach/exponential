@@ -440,15 +440,15 @@ fn issue_tab_title(issue: &domain::rows::Issue) -> gpui::SharedString {
 /// "Issue" — a tab is chrome, so it never renders a transient status string.
 fn session_tab_title(session_id: &str, cx: &App) -> gpui::SharedString {
     let Some(store) = Store::try_global(cx) else {
-        return "Session".into();
+        return "Run".into();
     };
     let collections = store.collections();
     let Some(row) = collections.coding_sessions.read(cx).get(session_id).cloned() else {
-        return "Session".into();
+        return "Run".into();
     };
     if let Some(issue_id) = row.issue_id.as_deref() {
         let Some(issue) = collections.issues.read(cx).get(issue_id) else {
-            return "Session".into();
+            return "Run".into();
         };
         let title = issue.title.trim();
         if title.is_empty() {

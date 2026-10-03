@@ -22,12 +22,12 @@ export const GETTING_STARTED_COPY: Record<
 > = {
   desktop: {
     title: `Get the desktop app`,
-    description: `Runs coding sessions on your machine and registers it as one of your devices.`,
+    description: `Runs agents on your machine and registers it as one of your devices.`,
     action: `Download the desktop app`,
   },
   github: {
     title: `Connect a GitHub repo`,
-    description: `Boards attach repositories; pull requests and coding sessions flow back into issues.`,
+    description: `Boards attach repositories; pull requests and runs flow back into issues.`,
     action: `Connect GitHub`,
   },
   invite: {

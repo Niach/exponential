@@ -221,7 +221,7 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
               size="sm"
               checked={model.resume}
               onCheckedChange={model.setResume}
-              aria-label="Resume previous session"
+              aria-label="Resume previous run"
             />
           </Label>
         )}

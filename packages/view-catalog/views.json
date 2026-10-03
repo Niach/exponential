@@ -838,7 +838,7 @@
       "id": "actions-mobile",
       "group": "coding",
       "title": "Actions",
-      "blurb": "The team's action catalog: one row per reusable agent run, each with its play button.",
+      "blurb": "The team's action catalog: one row per reusable agent run, each with its play button. SLOP-5: reached through the navigation's More entry on every client.",
       "order": 2,
       "web": {
         "route": "/t/$teamSlug/actions",
@@ -865,7 +865,7 @@
         "lane": "store"
       },
       "notes": {
-        "web": "EXP-686 gave Actions its own top-level route on every client. A desktop viewport shows the list alone — the seeds live in Getting started; the phone keeps Actions and Suggestions behind ?tab=. A row opens the action's page."
+        "web": "EXP-686 gave Actions its own top-level route on every client; SLOP-5 moved the entry behind More (the composer's action chip is the everyday way to run one). A desktop viewport shows the list alone — the seeds live in Getting started; the phone keeps Actions and Suggestions behind ?tab=. A row opens the action's page."
       },
       "desktop": {
         "drive": {
@@ -875,11 +875,47 @@
       }
     },
     {
+      "id": "more",
+      "group": "coding",
+      "title": "More",
+      "blurb": "The navigation's one advanced entry (SLOP-5): a menu on the styleguide's menu surface holding Actions, the Drafts pile while any (web md+ and desktop) and Settings (phones). Everything else in the sidebar and tab bar is one of the four nouns plus Reviews and Inbox.",
+      "order": 3,
+      "web": {
+        "route": "/t/$teamSlug/agent",
+        "anchor": {
+          "testId": "menu-actions",
+          "timeoutMs": 30000
+        },
+        "recipe": "openMoreMenu",
+        "settleMs": 600
+      },
+      "webMobile": {
+        "route": "/t/$teamSlug/agent",
+        "anchor": {
+          "testId": "menu-actions",
+          "timeoutMs": 30000
+        },
+        "recipe": "openMoreMenu",
+        "settleMs": 600
+      },
+      "ios": {
+        "shot": "sg_more",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_more",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "desktop": "Not captured yet — the rail's More button opens a gpui popup menu and has no EXP_DEV_* drive for an open menu."
+      }
+    },
+    {
       "id": "chat",
       "group": "coding",
       "title": "Agent",
       "blurb": "The Agent page: the composer — the ONE launcher since EXP-825 — here empty: a free prompt bound to no issue that needs no repository. EXP-923 moved the runs off the page: what is RUNNING is a section of the sidebar, and the history sits behind the page's own toggle.",
-      "order": 3,
+      "order": 4,
       "web": {
         "route": "/t/$teamSlug/agent",
         "anchor": {
@@ -900,7 +936,7 @@
       "notes": {
         "web": "EXP-923: the page is the COMPOSER alone. My live runs are the sidebar's Running section, and Recent is a panel behind the ghost history button at the page's top-left — so the shot shows a full-width composer, not a list.",
         "web-mobile": "EXP-923: the phone keeps the Running list under the composer; Recent left the page for the header's history button, which opens it as a bottom sheet.",
-        "desktop": "EXP-923: the IDE's Agent rail entry opens the COMPOSER alone \u2014 the Sessions tool window beside it is gone. My live runs are the rail's own Running section (between the boards and This device), and Recent slides into the left column behind the ghost history button at the page's top-left. `EXP_DEV_SCREEN=chat` opens it."
+        "desktop": "EXP-923: the IDE's Agent rail entry opens the COMPOSER alone — the Sessions tool window beside it is gone. My live runs are the rail's own Running section (between the boards and This device), and Recent slides into the left column behind the ghost history button at the page's top-left. `EXP_DEV_SCREEN=chat` opens it."
       },
       "desktop": {
         "drive": {
@@ -914,7 +950,7 @@
       "group": "coding",
       "title": "Agent · Issues",
       "blurb": "The composer with work attached: one chip per picked issue above the prompt, the machine and agent pickers under it. Two issues off the board, handed to one run.",
-      "order": 4,
+      "order": 5,
       "web": {
         "route": "/t/$teamSlug/agent?issues=$issueA,$issueB",
         "anchor": {
@@ -948,7 +984,7 @@
       "group": "coding",
       "title": "Agent · Action",
       "blurb": "The composer running a saved action: the action chip above the prompt and the action's typed inputs under it — here the builtin Fix merge conflicts with an open PR already filled in.",
-      "order": 5,
+      "order": 6,
       "web": {
         "route": "/t/$teamSlug/agent?action=builtin:fix-conflicts&pr=$prIssue",
         "anchor": {
@@ -982,7 +1018,7 @@
       "group": "coding",
       "title": "Steering a session",
       "blurb": "One coding session on its own page: scrubbed activity feed, the agent's open question, and the reply box that answers it.",
-      "order": 6,
+      "order": 7,
       "web": {
         "route": "/t/$teamSlug/sessions/$sessionId",
         "anchor": {
@@ -1017,7 +1053,7 @@
       "group": "coding",
       "title": "Start coding from an issue (mobile)",
       "blurb": "The phone's way into the composer: the issue's Start coding button lands on the Agent page with that one issue already chipped. The store slide keeps its start-coding filename.",
-      "order": 7,
+      "order": 8,
       "ios": {
         "shot": "03_start-coding",
         "lane": "store"
@@ -1036,8 +1072,8 @@
       "id": "machine-settings",
       "group": "coding",
       "title": "Device settings",
-      "blurb": "One device up close, opened by the gear on its row: name, whether it is your default, what it shares with the team, its per-agent defaults, then Update and Remove device as a plain row. EXP-1020 took the worktrees out — a machine's worktrees are local, so the IDE's Settings \u2192 Worktrees owns them. EXP-862 renamed the dialog from Machine settings; the view id and the native shot names keep the old spelling so the store keeps its history.",
-      "order": 8,
+      "blurb": "One device up close, opened by the gear on its row: name, whether it is your default, what it shares with the team, its per-agent defaults, then Update and Remove device as a plain row. EXP-1020 took the worktrees out — a machine's worktrees are local, so the IDE's Settings → Worktrees owns them. EXP-862 renamed the dialog from Machine settings; the view id and the native shot names keep the old spelling so the store keeps its history.",
+      "order": 9,
       "web": {
         "route": "/t/$teamSlug/devices",
         "anchor": {
@@ -1072,7 +1108,7 @@
       "group": "coding",
       "title": "Add a device",
       "blurb": "Both ways to put a machine on the account: download the desktop app, or run the one-liner that installs the CLI daemon on a server. The same device-setup block as the onboarding step.",
-      "order": 9,
+      "order": 10,
       "web": {
         "route": "/t/$teamSlug/devices",
         "anchor": {

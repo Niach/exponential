@@ -90,7 +90,7 @@ pub(crate) mod copy {
     pub const INVITE_COPIED: &str = "Copied";
 
     pub const DEVICES_TITLE: &str = "Set up your devices";
-    pub const DEVICES_SUBTITLE: &str = "Coding sessions run on the desktop app or on a server with the Exponential CLI. Install one and sign your agents in. You can also do this later.";
+    pub const DEVICES_SUBTITLE: &str = "Runs happen on the desktop app or on a server with the Exponential CLI. Install one and sign your agents in. You can also do this later.";
     pub const DEVICES_YOURS: &str = "Your devices";
     pub const DEVICES_NONE: &str = "No devices yet. Sign in on the desktop app or a server and it shows up here.";
 

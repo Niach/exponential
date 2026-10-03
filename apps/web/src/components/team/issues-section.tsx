@@ -288,10 +288,10 @@ export function PrAutomationCard({
         <div className="flex items-center justify-between gap-3 px-4 py-3">
           <div className="min-w-0">
             <p className="text-sm">
-              When a pull request merges, end its coding sessions
+              When a pull request merges, end its runs
             </p>
             <p className="text-xs text-muted-foreground">
-              The session that merged its own pull request always keeps
+              The run that merged its own pull request always keeps
               running.
             </p>
           </div>
@@ -299,7 +299,7 @@ export function PrAutomationCard({
             checked={team.endSessionsOnMerge !== false}
             disabled={endSessionsBusy}
             onCheckedChange={(next) => void persistEndSessions(next)}
-            aria-label="End coding sessions when a pull request merges"
+            aria-label="End runs when a pull request merges"
           />
         </div>
       </GlassGroup>

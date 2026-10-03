@@ -190,10 +190,13 @@ final class StoreScreenshots: XCTestCase {
         goBack(app)
 
         // ── 06: actions (EXP-253) — the seed inserts three team actions.
-        // EXP-686: Actions is its own tab; no builtins in the list.
-        let actionsTab = app.buttons["tab-actions"]
-        XCTAssertTrue(actionsTab.waitForExistence(timeout: 15), "Actions tab missing")
-        actionsTab.tap()
+        // SLOP-5: Actions is a row of the More menu; no builtins in the list.
+        let moreTab = app.buttons["tab-more"]
+        XCTAssertTrue(moreTab.waitForExistence(timeout: 15), "More tab missing")
+        moreTab.tap()
+        let actionsRow = app.buttons["menu-actions"]
+        XCTAssertTrue(actionsRow.waitForExistence(timeout: 15), "More menu's Actions row missing")
+        actionsRow.tap()
         let actionRow = app.descendants(matching: .any)
             .matching(identifier: "action-row").firstMatch
         XCTAssertTrue(
@@ -206,11 +209,11 @@ final class StoreScreenshots: XCTestCase {
         )
         snapshot("06_actions", settle: 2, popRects: app)
 
-        // ── 07: inbox (My Work tab, Inbox segment — the default) ────────────
+        // ── 07: inbox (the Inbox tab, Inbox segment — the default) ──────────
         // Wait for a real notification group — capturing the "You're all
         // caught up" empty state would silently ship an empty store shot.
         let inboxTab = app.buttons["tab-mywork"]
-        XCTAssertTrue(inboxTab.waitForExistence(timeout: 15), "My Work tab missing")
+        XCTAssertTrue(inboxTab.waitForExistence(timeout: 15), "Inbox tab missing")
         inboxTab.tap()
         XCTAssertTrue(
             app.staticTexts[Self.showcaseTitle].firstMatch.waitForExistence(timeout: 60),

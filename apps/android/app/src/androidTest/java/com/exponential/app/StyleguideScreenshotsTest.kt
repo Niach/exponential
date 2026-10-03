@@ -324,9 +324,9 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasContentDescription("Switch board"), NAV_TIMEOUT)
         flow.settle()
 
-        // --- My Issues: the My Work tab opens on the Inbox segment (EXP-58);
+        // --- My Issues: the Inbox tab opens on the Inbox segment (EXP-58);
         // the segmented control's label is the only handle on it.
-        composeRule.onNode(hasContentDescription("My Work")).performClick()
+        composeRule.onNode(hasTestTag("tab-mywork")).performClick()
         flow.waitFor(hasText("My Issues"), NAV_TIMEOUT)
         composeRule.onAllNodes(hasText("My Issues")).onFirst().performClick()
         flow.waitFor(hasText(MY_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
@@ -416,11 +416,19 @@ class StyleguideScreenshotsTest {
         flow.waitForGone(hasTestTag("device-settings-sheet"), NAV_TIMEOUT)
         flow.settle(longer = true)
 
-        // --- The Actions surface: five shots off one tab. EXP-686 gave it its
-        // own bottom-bar entry (it used to ride the Agents header). The segment
-        // is rememberSaveable, so re-select the Actions one explicitly by tag
-        // rather than trusting where a previous visit left it.
-        composeRule.onNode(hasTestTag("tab-actions")).performClick()
+        // --- sg_more: the More menu (SLOP-5) — the bar's one advanced entry,
+        // Actions and Settings on the glass menu surface. Photographed open;
+        // its Actions row leads on.
+        composeRule.onNode(hasTestTag("tab-more")).performClick()
+        flow.waitFor(hasTestTag("menu-actions"), NAV_TIMEOUT)
+        flow.settle()
+        flow.screenshot("sg_more")
+
+        // --- The Actions surface: five shots off one menu row (SLOP-5: Actions
+        // is reached through More). The segment is rememberSaveable, so
+        // re-select the Actions one explicitly by tag rather than trusting
+        // where a previous visit left it.
+        composeRule.onNode(hasTestTag("menu-actions")).performClick()
         composeRule.onNode(hasTestTag("actions-segment-actions")).performClick()
         flow.waitFor(hasText(SEEDED_ACTION_NAME, substring = true), SYNC_TIMEOUT)
 
