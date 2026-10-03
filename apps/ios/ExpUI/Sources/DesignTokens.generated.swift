@@ -145,6 +145,57 @@ public enum DesignTokens {
         public static let toolLineHeight: CGFloat = 18
     }
 
+    // The shared spacing scale (SLOP-18), in pt — padding, gaps and insets.
+    public enum Spacing {
+        public static let xxs: CGFloat = 2
+        public static let xs: CGFloat = 4
+        public static let sm: CGFloat = 8
+        public static let md: CGFloat = 12
+        public static let lg: CGFloat = 16
+        public static let xl: CGFloat = 24
+        public static let xl2: CGFloat = 32
+    }
+
+    // The shared type scale (SLOP-18): size/lineHeight in pt, the four
+    // weights, and the text emphasis alpha ladder (GlassTheme.swift
+    // `TextOpacity` reads it). Not `Type`: that is Swift's metatype keyword.
+    public enum Typography {
+        public static let fontFamily: String = "Inter"
+        public static let baseSize: CGFloat = 16
+
+        public enum Size {
+            public static let xs: CGFloat = 12
+            public static let sm: CGFloat = 14
+            public static let base: CGFloat = 16
+            public static let lg: CGFloat = 18
+            public static let xl: CGFloat = 20
+            public static let xl2: CGFloat = 24
+        }
+
+        public enum LineHeight {
+            public static let xs: CGFloat = 16
+            public static let sm: CGFloat = 20
+            public static let base: CGFloat = 24
+            public static let lg: CGFloat = 28
+            public static let xl: CGFloat = 28
+            public static let xl2: CGFloat = 32
+        }
+
+        public enum Weight {
+            public static let regular: Font.Weight = .regular
+            public static let medium: Font.Weight = .medium
+            public static let semibold: Font.Weight = .semibold
+            public static let bold: Font.Weight = .bold
+        }
+
+        public enum Emphasis {
+            public static let primary: Double = 1.0
+            public static let secondary: Double = 0.7
+            public static let tertiary: Double = 0.5
+            public static let quaternary: Double = 0.3
+        }
+    }
+
     // Motion (EXP-523) — durations in SECONDS (SwiftUI's unit; tokens.json
     // stores integer milliseconds), easings as CSS cubic-bezier control
     // points. `BezierCurve` is hand-written in ExpUI/Sources/Motion.swift,
