@@ -1,0 +1,59 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="base.css"><script src="slop.js"></script><script src="parts.js"></script><style>
+body{width:1280px;height:800px;background:#0a0a0d;display:flex}
+.rail{width:72px;background:#050507;border-right:1px solid oklch(1 0 0/8%);display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px 0}
+.rail .s{width:44px;height:44px;border-radius:14px;background:oklch(1 0 0/7%);border:1px solid oklch(1 0 0/10%);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13px;position:relative;color:oklch(.85 0 0)}
+.rail .s.on{border-color:oklch(1 0 0/45%);background:oklch(1 0 0/12%)}
+.rail .s .d{position:absolute;right:-3px;bottom:-3px;width:11px;height:11px;border-radius:50%;background:#22C55E;border:2px solid #050507}
+.rail .s .d.off{background:oklch(.45 0 0)}
+.rail .s.add{border-style:dashed;background:transparent}
+.side{width:260px;border-right:1px solid oklch(1 0 0/8%);padding:14px 12px;display:flex;flex-direction:column;gap:10px}
+.side h2{font-size:16px;padding:4px 6px 6px}
+.srow{display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:8px;font-size:14px;color:oklch(.85 0 0)}
+.srow.on{background:oklch(1 0 0/9%);color:#fff}
+.srow .sp{margin-left:auto;font-size:12px;color:oklch(.6 0 0)}
+.band.sm{padding:6px 8px;font-size:12px;color:oklch(.65 0 0);background:transparent;font-weight:500}
+.main{flex:1;display:flex;flex-direction:column}
+.top{height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;border-bottom:1px solid oklch(1 0 0/8%);font-weight:600}
+.app{flex:1;padding:22px 24px;display:grid;grid-template-columns:repeat(3,1fr);gap:14px;align-content:start}
+.gc{border-radius:14px;background:oklch(1 0 0/5%);border:1px solid oklch(1 0 0/8%);overflow:hidden}.gc .ph{height:120px}.gc .n{padding:10px 12px;font-weight:600;font-size:14px}.gc .m{padding:0 12px 12px;font-size:12px;color:oklch(.65 0 0)}
+.foot{padding:12px 24px 18px}
+.foot .box{margin:0}
+</style></head><body>
+<div class="rail">
+  <div class="s" style="font-size:20px">{{laptop}}<span class="d"></span></div>
+  <div class="s on" style="background:#60A5FA33;color:#60A5FA;border-color:#60A5FA88">FA<span class="d"></span></div>
+  <div class="s" style="background:#F472B633;color:#F472B6">LE<span class="d"></span></div>
+  <div class="s" style="background:#4ADE8033;color:#4ADE80">EX<span class="d off"></span></div>
+  <div class="s add">{{plus}}</div>
+  <div style="flex:1"></div>
+  <div class="s" style="border-radius:50%">{{store}}</div>
+  <div class="s" style="border-radius:50%;font-size:12px">DA</div>
+</div>
+<div class="side">
+  <h2>Family</h2>
+  <div class="band sm">Apps</div>
+  <div class="srow on"><div style="width:28px;height:28px;border-radius:9px;background:#F472B633;color:#F472B6;display:flex;align-items:center;justify-content:center;flex:none">{{book}}</div>Recipe box<span class="sp">●</span></div>
+  <div class="srow"><div style="width:28px;height:28px;border-radius:9px;background:#FACC1533;color:#FACC15;display:flex;align-items:center;justify-content:center;flex:none">{{wheel}}</div>Chore wheel<span class="sp">●</span></div>
+  <div class="srow"><div style="width:28px;height:28px;border-radius:9px;background:#4ADE8033;color:#4ADE80;display:flex;align-items:center;justify-content:center;flex:none">{{map}}</div>Trip planner<span class="sp"><span class="spin" style="width:11px;height:11px"></span></span></div>
+  <div class="band sm">Threads</div>
+  <div class="srow">{{hash}} general</div>
+  <div class="srow">{{hash}} recipe box <span class="sp">3</span></div>
+  <div class="srow">{{hash}} trip planner</div>
+  <div class="band sm">Machines</div>
+  <div class="srow">{{laptop}} Danny's Mac<span class="sp" style="color:#22C55E">●</span></div>
+  <div class="srow">{{server}} Homelab<span class="sp">●</span></div>
+  <div style="flex:1"></div>
+  <div class="srow"><div style="display:flex"><div class="av2" style="background:#60A5FA33;color:#60A5FA;margin-left:0;width:28px;height:28px;font-size:10px">DA</div><div class="av2" style="background:#F472B633;color:#F472B6;width:28px;height:28px;font-size:10px">LE</div><div class="av2" style="background:#4ADE8033;color:#4ADE80;width:28px;height:28px;font-size:10px">JO</div></div><span class="sp">Invite</span></div>
+</div>
+<div class="main">
+  <div class="top"><span style="display:flex;align-items:center;gap:10px"><div style="width:26px;height:26px;border-radius:8px;background:#F472B633;color:#F472B6;display:flex;align-items:center;justify-content:center;flex:none">{{book}}</div>Recipe box <span class="muted" style="font-weight:400;font-size:13px">· Danny's Mac</span></span><span style="display:flex;gap:8px"><div class="btn sm">Share</div><div class="btn sm">Open in Exponential</div></span></div>
+  <div class="app">
+    <div class="gc"><div class="ph" style="background:linear-gradient(135deg,#F472B6,#BE185D)"></div><div class="n">Lemon pasta</div><div class="m">20 min · Lena</div></div>
+    <div class="gc"><div class="ph" style="background:linear-gradient(135deg,#FACC15,#A16207)"></div><div class="n">Shakshuka</div><div class="m">35 min</div></div>
+    <div class="gc"><div class="ph" style="background:linear-gradient(135deg,#4ADE80,#15803D)"></div><div class="n">Green curry</div><div class="m">40 min</div></div>
+    <div class="gc"><div class="ph" style="background:linear-gradient(135deg,#60A5FA,#1D4ED8)"></div><div class="n">Apfelstrudel</div><div class="m">90 min</div></div>
+    <div class="gc"><div class="ph" style="background:linear-gradient(135deg,#FB923C,#B45309)"></div><div class="n">Chili sin carne</div><div class="m">50 min</div></div>
+    <div class="gc"><div class="ph" style="background:linear-gradient(135deg,#2DD4BF,#0F766E)"></div><div class="n">Miso soup</div><div class="m">15 min</div></div>
+  </div>
+  <div class="foot"><div class="box"><div class="ph">Change something in Recipe box…</div><div class="tools">{{plus}}{{camera}}<div class="send">{{send}}</div></div></div></div>
+</div></body></html>

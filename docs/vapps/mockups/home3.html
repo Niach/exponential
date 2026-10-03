@@ -1,0 +1,32 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="base.css"><script src="slop.js"></script><script src="parts.js"></script><style>
+.servers{display:flex;gap:14px;padding:4px 2px 2px}
+.srv{display:flex;flex-direction:column;align-items:center;gap:6px;width:60px}
+.srv .c{width:56px;height:56px;border-radius:18px;background:oklch(1 0 0/7%);border:1px solid oklch(1 0 0/10%);display:flex;align-items:center;justify-content:center;position:relative;font-weight:600;font-size:15px}
+.srv .c.on{border-color:oklch(1 0 0/45%)}
+.srv .c .d{position:absolute;right:-2px;bottom:-2px;width:12px;height:12px;border-radius:50%;background:#22C55E;border:2px solid #0b0b0e}
+.srv .c .d.off{background:oklch(.5 0 0)}
+.srv .l{font-size:11px;color:oklch(.7 0 0);white-space:nowrap}
+.row.min{padding:10px 4px}
+</style></head><body><div class="phone">{{statusbar}}
+<div class="nav"><div class="circ" style="font-weight:600;font-size:14px;background:#60A5FA33;color:#60A5FA">DA</div><div class="title">Family</div><div class="circ">{{plus}}</div></div>
+<div class="content" style="gap:12px">
+  <div class="servers">
+    <div class="srv"><div class="c">{{laptop}}<span class="d"></span></div><div class="l">Danny</div></div>
+    <div class="srv"><div class="c on" style="background:#60A5FA33;color:#60A5FA">FA<span class="d"></span></div><div class="l">Family</div></div>
+    <div class="srv"><div class="c" style="background:#F472B633;color:#F472B6">LE<span class="d"></span></div><div class="l">Lena</div></div>
+    <div class="srv"><div class="c" style="background:#4ADE8033;color:#4ADE80">EX<span class="d off"></span></div><div class="l">Exp</div></div>
+    <div class="srv"><div class="c" style="border-style:dashed">{{plus}}</div><div class="l">Join</div></div>
+  </div>
+  <div class="band">Apps</div>
+  <div class="rows">
+    <div class="row min"><div style="width:40px;height:40px;border-radius:12px;background:#F472B633;color:#F472B6;display:flex;align-items:center;justify-content:center;flex:none">{{book}}</div><div class="body"><div class="t">Recipe box</div><div class="s">Danny's Mac</div></div><div class="trail"><span class="dot" style="margin:0"></span></div></div>
+    <div class="row min"><div style="width:40px;height:40px;border-radius:12px;background:#FACC1533;color:#FACC15;display:flex;align-items:center;justify-content:center;flex:none">{{wheel}}</div><div class="body"><div class="t">Chore wheel</div><div class="s">Homelab</div></div><div class="trail"><span class="dot" style="margin:0"></span></div></div>
+    <div class="row min"><div style="width:40px;height:40px;border-radius:12px;background:#4ADE8033;color:#4ADE80;display:flex;align-items:center;justify-content:center;flex:none">{{map}}</div><div class="body"><div class="t">Trip planner</div><div class="s">building · 4 min</div></div><div class="trail"><span class="spin"></span></div></div>
+  </div>
+  <div class="band">Threads</div>
+  <div class="rows">
+    <div class="row min"><div class="lead">{{hash}}</div><div class="body"><div class="t">general</div><div class="s">Lena: dinner on Sunday?</div></div><div class="trail">2 min</div></div>
+    <div class="row min"><div class="lead">{{hash}}</div><div class="body"><div class="t">recipe box</div><div class="s">Done: photo import</div></div><div class="trail">1 h</div></div>
+  </div>
+  <div class="box"><div class="ph">What should we make?</div><div class="tools">{{plus}}{{camera}}{{mic}}<div class="send">{{send}}</div></div></div>
+</div></div></body></html>
