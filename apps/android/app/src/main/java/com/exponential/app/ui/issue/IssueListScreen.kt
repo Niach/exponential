@@ -1259,7 +1259,9 @@ private fun SelectionBar(
     onStartCoding: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(percent = 50)
+    // EXP-1176: the bar's one text button is the row-radius rectangle like the
+    // web bulk bar's Button; only the pill keeps the capsule.
+    val shape = GlassTokens.ButtonShape
     val neutral = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     // Suppress the 48dp minimum interactive inflation so the 32dp icon buttons
     // keep the bar at its own height instead of ballooning it.

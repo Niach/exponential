@@ -287,7 +287,7 @@ impl Render for CreateTeamDialogView {
             .child(
                 {
                     let submit = Button::new("create-team-submit").primary().cursor_pointer();
-                    if self.embedded { submit.web_md().rounded_full() } else { submit.web_sm() }
+                    if self.embedded { submit.web_md() } else { submit.web_sm() }
                 }
                     .label(if self.submitting {
                         "Creating…"

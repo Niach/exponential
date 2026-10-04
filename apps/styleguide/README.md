@@ -118,7 +118,12 @@ narrowed by EXP-862):
   ladder's MD step is a PICKER trigger: the **icon picker**, the colour picker
   beside it (EXP-862 made the board form's two triggers one control repeated),
   and every cell of the glyph grid. Colour swatches stay circles, because a
-  colour has no shape to read, and text capsules stay at 9999.
+  colour has no shape to read. **A text button is a rounded rectangle at MD**
+  on every client and at every size (EXP-1176: web `Button`, desktop
+  `web_md`/`web_sm`/`web_xs`, iOS `GlassSubmitButton`, Android
+  `GlassSubmitButton` and the Material buttons); the capsule at 9999 belongs
+  to the **pill** (chips, header actions, picker triggers), the tabs, the
+  badge and the phone bars, never to a button with words in it.
 - **Chrome sits on the ground, not in the card.** The title strip above the
   content card and the **session bar** below it are 36px bands on the bare page
   gradient with no fill and no border, their chips inset 8; the card stops 6px

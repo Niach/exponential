@@ -77,6 +77,15 @@ object GlassTokens {
     val GroupRadius = DesignTokens.Radius.Lg
     val CardRadius = DesignTokens.Radius.Xl
 
+    /**
+     * EXP-1176: the ONE text-button shape on every client — the row-radius
+     * rectangle (web `Button` rounded-md, desktop `web_md`, iOS
+     * `GlassSubmitButton`). `GlassSubmitButton`, `GlassOAuthButton` and every
+     * Material `Button`/`OutlinedButton` wear it; Material's own default is a
+     * capsule, and the capsule here belongs to `GlassPill` alone.
+     */
+    val ButtonShape: RoundedCornerShape get() = RoundedCornerShape(RowRadius)
+
     /** The one circular/segmented control diameter (iOS 32pt). */
     val ControlSize = DesignTokens.Size.ControlMd
 

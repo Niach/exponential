@@ -41,6 +41,7 @@ import com.google.android.play.core.appupdate.AppUpdateManagerFactory
 import com.google.android.play.core.appupdate.AppUpdateOptions
 import com.google.android.play.core.install.model.AppUpdateType
 import com.google.android.play.core.install.model.UpdateAvailability
+import com.exponential.app.ui.theme.GlassTokens
 
 private const val IMMEDIATE_UPDATE_REQUEST_CODE = 5104
 
@@ -128,6 +129,7 @@ fun UpdateRequiredScreen(
         Spacer(Modifier.height(24.dp))
         Button(
             onClick = { startUpdate(context) },
+            shape = GlassTokens.ButtonShape,
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("Update")

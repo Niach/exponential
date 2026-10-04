@@ -355,13 +355,19 @@ struct CodingReadinessSheet: View {
             .foregroundStyle(ready ? Color.black : Color.white.opacity(TextOpacity.quaternary))
             .frame(maxWidth: .infinity)
             .frame(height: ReadinessSheetTokens.startHeight)
-            .background(Capsule().fill(ready ? Color.white : GlassTokens.fillCard))
+            // EXP-1176: a text button is the row-radius rectangle on every
+            // client (GlassSubmitButton's shape), never a capsule.
+            .background(
+                RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
+                    .fill(ready ? Color.white : GlassTokens.fillCard)
+            )
             .overlay {
                 if !ready {
-                    Capsule().stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
+                    RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
+                        .stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
                 }
             }
-            .contentShape(Capsule())
+            .contentShape(RoundedRectangle(cornerRadius: GlassTokens.rowRadius))
         }
         .buttonStyle(.plain)
         .disabled(!ready)

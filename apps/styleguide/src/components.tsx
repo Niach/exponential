@@ -1603,12 +1603,12 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `button-primary`,
     title: `Primary submit`,
     kind: `Buttons & chips`,
-    blurb: `Full width, padding 14/16, radius 10, solid primary. Disabled drops to card fill with a card stroke and 50% foreground. The specimen is the web's own Button, which is a CAPSULE — the radius-10 rectangle is the mobile sheet submit, as the web row below says.`,
+    blurb: `Full width, padding 14/16, radius 10, solid primary. Disabled drops to card fill with a card stroke and 50% foreground. EXP-1176: ONE shape on every client — the specimen is the web's own Button, a radius-10 rectangle like the mobile sheet submit and desktop web_md. A text button is never a capsule; the capsule is the pill.`,
     status: {
       web: ok(
         `Button (variant default)`,
         `packages/ui/src/button.tsx`,
-        `web/desktop primaries stay capsules; the radius-10 full-width form is the mobile sheet submit`
+        `the same radius-10 rectangle on every client since EXP-1176; the mobile sheet submit is the full-width form of it`
       ),
       desktop: ok(`surface::glass_pill_button_primary`, DESKTOP_SURFACE),
       ios: ok(`GlassSubmitButton`, IOS_CONTROLS),
@@ -2625,7 +2625,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `tokens-radius`,
     title: `Radius ladder`,
     kind: `Shape & size`,
-    blurb: `Six steps. Row 10, group and field 12, card 16, sheet 24 — anything else is a mistake, and capsules use 9999 rather than a step. MD does double duty as the PICKER corner (EXP-771): an icon or colour picker trigger and every cell of the glyph grid take it, which is what keeps a picker from reading as a circular action button.`,
+    blurb: `Six steps. Row 10, group and field 12, card 16, sheet 24 — anything else is a mistake, and capsules use 9999 rather than a step. MD is also the BUTTON corner (EXP-1176: every text button, every size, every client) and the PICKER corner (EXP-771): an icon or colour picker trigger and every cell of the glyph grid take it, which is what keeps a picker from reading as a circular action button. 9999 belongs to the pill, the tabs, the badge and the phone bars.`,
     status: {
       web: ok(`--radius`, `packages/ui/src/styles.css`),
       desktop: ok(`theme::radius::*`, `apps/desktop/crates/theme/src/tokens.generated.rs`),
@@ -3129,7 +3129,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `dialog`,
     title: `Dialog`,
     kind: `Surfaces`,
-    blurb: `The centred modal: a radius-16 card on the OPAQUE card fill under a card hairline, a semibold title, one line of body, and a footer whose LAST capsule is the primary. Cancel is borderless — two boxed buttons side by side ask the reader to choose between two equals. On a phone the same component drops to the bottom sheet arm, so a confirm never opens in the middle of a thumb's reach. Hand-written here because a closed Radix portal renders nothing at all statically (PORTAL_ONLY_IDS).`,
+    blurb: `The centred modal: a radius-16 card on the OPAQUE card fill under a card hairline, a semibold title, one line of body, and a footer whose LAST button is the primary. Cancel is borderless — two boxed buttons side by side ask the reader to choose between two equals. On a phone the same component drops to the bottom sheet arm, so a confirm never opens in the middle of a thumb's reach. Hand-written here because a closed Radix portal renders nothing at all statically (PORTAL_ONLY_IDS).`,
     status: {
       web: ok(
         `Dialog / DialogContent`,

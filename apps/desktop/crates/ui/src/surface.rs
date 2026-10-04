@@ -845,11 +845,11 @@ pub(crate) fn glass_pill_button(
         .custom(variant)
         .border_1()
         .border_color(t::glass::STROKE_CARD.to_hsla());
+    // EXP-1176: the controls are rectangles now; the capsule shape is this
+    // recipe's, so every size puts the radius back on.
     match size {
-        PillSize::Sm => button.web_xs(),
-        PillSize::Md => button.web_sm(),
-        // EXP-926: `web_md` is the 36px control; the capsule shape is this
-        // recipe's, so the radius comes back on.
+        PillSize::Sm => button.web_xs().rounded_full(),
+        PillSize::Md => button.web_sm().rounded_full(),
         PillSize::Lg => button.web_md().rounded_full(),
     }
 }
@@ -873,8 +873,8 @@ pub(crate) fn glass_pill_button_primary(
     use gpui_component::button::ButtonVariants as _;
     let button = gpui_component::button::Button::new(id).primary();
     match size {
-        PillSize::Sm => button.web_xs(),
-        PillSize::Md => button.web_sm(),
+        PillSize::Sm => button.web_xs().rounded_full(),
+        PillSize::Md => button.web_sm().rounded_full(),
         PillSize::Lg => button.web_md().rounded_full(),
     }
 }

@@ -840,7 +840,7 @@ impl Render for OnboardingView {
                         .justify_end()
                         .child(if minted {
                             Button::new("onboarding-invite-advance")
-                                .primary().web_md().rounded_full()
+                                .primary().web_md()
                                 .label(copy::CONTINUE)
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.complete_invite_step(cx);
@@ -882,7 +882,7 @@ impl Render for OnboardingView {
                 Some(
                     row.child(if all_green {
                         Button::new("onboarding-tools-continue")
-                            .primary().web_md().rounded_full()
+                            .primary().web_md()
                             .label(copy::CONTINUE)
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.complete_devices_step(in_wizard, cx);

@@ -1785,7 +1785,7 @@ export function AgentSessionView({
               <Button
                 variant="secondary"
                 size="sm"
-                className="absolute bottom-2 left-1/2 h-7 -translate-x-1/2 rounded-full border border-border shadow-md"
+                className="absolute bottom-2 left-1/2 h-7 -translate-x-1/2 border border-border shadow-md"
                 onClick={jumpToBottom}
               >
                 Jump to bottom
