@@ -1,0 +1,123 @@
+{
+  "$comment": "EXP-1172: inline pictures. MCP exponential_sessions_show files ONE picture into coding_sessions.results like a sessions_results picture plus `inline: true` and an optional `caption` (the call's text), default topic `Progress`, and answers with the attachment's id as `id`, so the engine's tool preview carries it (`preview.id`). A transcript row of an `exponential_sessions_show` call (contract expToolDisplay result kind `picture`) renders the picture whose attachmentId == preview.id as ONE tile under the row, once the call SETTLED and the picture is in the synced results (an upload still in flight renders nothing yet): height inlineTileHeight fitted to the column (sessionResultTileHeightFitting with that base), caption line = tileCaption (the caption, else the label), tap = the client's existing lightbox. The tile sits where the call sits, so pictures read in publish order, newest at the bottom. A run of consecutive show calls (the EXP-948 same-tool group, \"Showed 2 pictures\") draws its calls' tiles in call order under the group caption even while the group is FOLDED: a picture never hides in a fold. Readers: a picture's `inline` is true only for a JSON true; `caption` is trimmed, blank = null. The Results face folds: every group reader moves a topic's INLINE pictures into `earlier` (publish order) unless the topic has exactly ONE picture; `entries` keeps the rest. A non-empty `earlier` renders under the group's tiles as a collapsed `earlierLabel · N` row that expands in place to the same tiles; Results-face tiles, Earlier ones included, keep the LABEL as their caption line (tileCaption is the transcript's). Mirrored by packages/ui session-results.ts, desktop session_results.rs, iOS SessionResults.swift, Android SessionResults.kt.",
+  "defaultTopic": "Progress",
+  "inlineTileHeight": 240,
+  "earlierLabel": "Earlier",
+  "groups": [
+    {
+      "name": "no inline pictures keep today's groups",
+      "raw": [
+        { "topic": "nav", "label": "web", "attachmentId": "a1" },
+        { "topic": "nav", "label": "ios", "attachmentId": "a2" }
+      ],
+      "expected": [
+        {
+          "topic": "nav",
+          "text": null,
+          "entries": [
+            { "label": "web", "attachmentId": "a1", "inline": false, "caption": null },
+            { "label": "ios", "attachmentId": "a2", "inline": false, "caption": null }
+          ],
+          "earlier": []
+        }
+      ]
+    },
+    {
+      "name": "a topic's only picture stays even when inline",
+      "raw": [
+        { "topic": "Progress", "label": "Shot 1", "attachmentId": "a1", "inline": true, "caption": "  The empty state  " }
+      ],
+      "expected": [
+        {
+          "topic": "Progress",
+          "text": null,
+          "entries": [
+            { "label": "Shot 1", "attachmentId": "a1", "inline": true, "caption": "The empty state" }
+          ],
+          "earlier": []
+        }
+      ]
+    },
+    {
+      "name": "inline pictures fold under earlier beside the final ones",
+      "raw": [
+        { "topic": "Summary", "label": null, "attachmentId": null, "text": "Done" },
+        { "topic": "nav", "label": "Shot 1", "attachmentId": "a1", "inline": true },
+        { "topic": "nav", "label": "web", "attachmentId": "a2" },
+        { "topic": "nav", "label": "Shot 2", "attachmentId": "a3", "inline": true, "caption": "" },
+        { "topic": "nav", "label": "ios", "attachmentId": "a4", "inline": false }
+      ],
+      "expected": [
+        { "topic": "Summary", "text": "Done", "entries": [], "earlier": [] },
+        {
+          "topic": "nav",
+          "text": null,
+          "entries": [
+            { "label": "web", "attachmentId": "a2", "inline": false, "caption": null },
+            { "label": "ios", "attachmentId": "a4", "inline": false, "caption": null }
+          ],
+          "earlier": [
+            { "label": "Shot 1", "attachmentId": "a1", "inline": true, "caption": null },
+            { "label": "Shot 2", "attachmentId": "a3", "inline": true, "caption": null }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a progress topic of inline pictures folds whole",
+      "raw": [
+        { "topic": "Progress", "label": "Shot 1", "attachmentId": "a1", "inline": true, "caption": "Before" },
+        { "topic": "Progress", "label": "Shot 2", "attachmentId": "a2", "inline": "true" },
+        { "topic": "Progress", "label": "Shot 3", "attachmentId": "a3", "inline": true, "caption": "After" }
+      ],
+      "expected": [
+        {
+          "topic": "Progress",
+          "text": null,
+          "entries": [
+            { "label": "Shot 2", "attachmentId": "a2", "inline": false, "caption": null }
+          ],
+          "earlier": [
+            { "label": "Shot 1", "attachmentId": "a1", "inline": true, "caption": "Before" },
+            { "label": "Shot 3", "attachmentId": "a3", "inline": true, "caption": "After" }
+          ]
+        }
+      ]
+    }
+  ],
+  "lookup": [
+    {
+      "name": "the call's picture by id, its caption on the tile",
+      "raw": [
+        { "topic": "Progress", "label": "Shot 1", "attachmentId": "a1", "inline": true, "caption": "Before" },
+        { "topic": "Progress", "label": "Shot 2", "attachmentId": "a2", "inline": true }
+      ],
+      "attachmentId": "a1",
+      "expected": { "label": "Shot 1", "inline": true, "caption": "Before", "tileCaption": "Before" }
+    },
+    {
+      "name": "without a caption the tile reads the label",
+      "raw": [
+        { "topic": "Progress", "label": "Shot 2", "attachmentId": "a2", "inline": true, "caption": "   " }
+      ],
+      "attachmentId": "a2",
+      "expected": { "label": "Shot 2", "inline": true, "caption": null, "tileCaption": "Shot 2" }
+    },
+    {
+      "name": "an upload still in flight (or a removed picture) renders nothing",
+      "raw": [
+        { "topic": "Progress", "label": "Shot 1", "attachmentId": "a1", "inline": true }
+      ],
+      "attachmentId": "a9",
+      "expected": null
+    },
+    {
+      "name": "a blank id and a text entry never match",
+      "raw": [
+        { "topic": "Summary", "label": null, "attachmentId": null, "text": "Done" }
+      ],
+      "attachmentId": "",
+      "expected": null
+    }
+  ]
+}

@@ -136,6 +136,9 @@ struct AgentSessionView: View {
     // inside out; the order of application is unchanged.
     var body: some View {
         withSheets(withLifecycle(withAlerts(sessionContent)))
+            // EXP-1172: a settled `sessions_show` row finds its picture in
+            // this run's live results.
+            .environment(\.sessionResultsRaw, session.results)
     }
 
     private var sessionContent: some View {
@@ -2952,6 +2955,7 @@ private struct ToolRow: View {
 ///   list                          → "N results"
 ///   session/board/action          → a name chip
 ///   results                       → an `Open Results` button (EXP-933)
+///   picture                       → the shown picture as ONE tile (EXP-1172)
 ///   none                          → the caption alone
 ///
 /// EXP-920: a preview that carries `refs` (what the answer touched, one
@@ -2973,6 +2977,14 @@ private struct ExpToolRow: View {
 
     @Environment(\.openURL) private var openURL
     @Environment(\.openResultsFace) private var openResultsFace
+    @Environment(\.sessionResultsRaw) private var sessionResultsRaw
+
+    /// EXP-1172: a settled `sessions_show` call's picture, by the attachment
+    /// id its answer carried — nil while the upload is still in flight.
+    private var inlinePicture: SessionResultEntry? {
+        guard settled, display.result == .picture, let id = preview?.id else { return nil }
+        return sessionResultPicture(sessionResultsRaw, attachmentId: id)
+    }
 
     private var trimmedSubject: String? {
         guard let subject else { return nil }
@@ -3007,6 +3019,12 @@ private struct ExpToolRow: View {
             // reaches this row) offers its report on the Results face.
             if settled, display.result == .results, let openResultsFace {
                 openResultsButton(openResultsFace)
+            }
+            // EXP-1172: a settled `sessions_show` call draws its picture as
+            // ONE tile under the row, once it is in the synced results.
+            if let inlinePicture {
+                SessionInlinePicture(entry: inlinePicture)
+                    .padding(.top, 4)
             }
         }
     }
@@ -3058,8 +3076,9 @@ private struct ExpToolRow: View {
                     .font(.caption2)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
-        case .results:
-            // The `Open Results` button below the row IS its preview.
+        case .results, .picture:
+            // The `Open Results` button / the inline tile below the row IS
+            // its preview (EXP-933 / EXP-1172).
             EmptyView()
         case .session, .board, .action, .comment:
             // A name/identifier chip — never a bare uuid: an id the reader
@@ -3304,10 +3323,26 @@ private struct ExpToolGroupRow: View {
     var refs: AgentIssueRefContext? = nil
 
     @State private var expanded = false
+    @Environment(\.sessionResultsRaw) private var sessionResultsRaw
 
     /// The contract's own sentence — `ExpToolGroup.caption`, locked ×4 by the
     /// shared fixture.
     private var caption: String { ExpToolGroup.caption(items) }
+
+    /// EXP-1172: a run of `sessions_show` calls keeps its pictures visible
+    /// while FOLDED — each settled, non-failed call's picture (by its
+    /// `preview.id`) in call order; a picture never hides in a fold. Expanded,
+    /// the single rows carry their own tiles, so this strip is empty.
+    private var foldedPictures: [SessionResultEntry] {
+        guard !expanded else { return [] }
+        return items.compactMap { item in
+            guard case let .tool(_, name, _, _, _, _, settled, failed, _, preview, _) = item,
+                  settled, !failed,
+                  ExpToolDisplay.resolve(toolName: name)?.result == .picture
+            else { return nil }
+            return sessionResultPicture(sessionResultsRaw, attachmentId: preview?.id)
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -3328,6 +3363,15 @@ private struct ExpToolGroupRow: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(expanded ? "Collapse tool calls" : "Expand tool calls")
+            let pictures = foldedPictures
+            if !pictures.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(pictures.enumerated()), id: \.offset) { _, picture in
+                        SessionInlinePicture(entry: picture)
+                    }
+                }
+                .padding(.top, 8)
+            }
             if expanded {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(items) { item in

@@ -1353,7 +1353,15 @@ impl SteerSessionView {
             self.feed.clear_compaction();
         }
         if self.row != row {
+            // EXP-1172: a `sessions_show` tile appears (or goes) under its
+            // call when the synced results change — the list re-measures its
+            // rows so an off-screen one does not keep a stale height.
+            let results_changed = self.row.as_ref().map(|row| &row.results)
+                != row.as_ref().map(|row| &row.results);
             self.row = row;
+            if results_changed {
+                self.list.remeasure();
+            }
             cx.notify();
         }
         // EXP-895: the row is where the issue id comes from, so this is the
@@ -4482,6 +4490,76 @@ impl SteerSessionView {
         }
     }
 
+    /// EXP-1172 — the inline tile a feed item carries: a SETTLED, successful
+    /// call whose contract result kind is `picture` (`sessions_show`) and
+    /// whose `preview.id` resolves in the run's synced results; `None` for
+    /// anything else (an upload in flight included).
+    fn inline_picture_for(
+        &self,
+        item: &FeedItem,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<AnyElement> {
+        let FeedKind::Tool {
+            name,
+            failed,
+            settled,
+            preview,
+            ..
+        } = &item.kind
+        else {
+            return None;
+        };
+        let display = steer::exp_tool_display(name, *settled)?;
+        if display.result != steer::exp_tool::result::PICTURE || !*settled || *failed {
+            return None;
+        }
+        let attachment_id = preview.as_ref()?.id.as_deref()?;
+        self.render_inline_picture(item.id, attachment_id, cx)
+    }
+
+    /// EXP-1172 — the picture an `exponential_sessions_show` call filed, as
+    /// ONE Results tile under its row: looked up by `attachment_id` (the
+    /// call's `preview.id`) in the run's synced `results`, so it appears the
+    /// moment the row syncs and follows a re-publish or removal. The base is
+    /// [`SESSION_INLINE_TILE_HEIGHT`], fitted to the transcript column by the
+    /// shared ×4 rule; the caption is the call's text, else the label; a
+    /// click opens the same lightbox a Results tile does. `None` = nothing
+    /// to show yet.
+    fn render_inline_picture(
+        &self,
+        id: FeedItemId,
+        attachment_id: &str,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<AnyElement> {
+        use domain::session_results as results;
+        let entry = results::session_result_picture(
+            self.row.as_ref().and_then(|row| row.results.as_ref()),
+            attachment_id,
+        )?;
+        // The transcript column (the work column, narrowed by a pane too
+        // small for it, inside the pane's 12px insets) minus the row's `pl_5`
+        // indent. The unmeasured first frame takes the full column.
+        let view = f32::from(self.view_width.get());
+        let column = if view > 0. {
+            (view - 24.).min(crate::work_header::WORK_COLUMN_W)
+        } else {
+            crate::work_header::WORK_COLUMN_W
+        };
+        let height = results::session_result_tile_height_fitting_from(
+            std::slice::from_ref(&entry),
+            column - 20.,
+            results::SESSION_INLINE_TILE_HEIGHT,
+        );
+        Some(crate::session_results::tile(
+            &entry,
+            height,
+            SharedString::from(format!("steer-exp-picture-{}", id as usize)),
+            results::session_result_tile_caption(&entry).to_string(),
+            &self.images,
+            cx,
+        ))
+    }
+
     /// One tool call's row plus whatever hangs off it.
     ///
     /// EXP-895 replaced "local run → local cards, remote → the wire's" with the
@@ -4514,16 +4592,22 @@ impl SteerSessionView {
         // contract's caption, the answer's preview); everything else is the
         // plain tool row.
         let row = match steer::exp_tool_display(name, *settled) {
-            Some(display) => exp_tool_call_row(
-                item.id,
-                display,
-                detail.as_deref(),
-                *failed,
-                *settled,
-                preview.as_ref(),
-                &self.session_id,
-                cx,
-            ),
+            Some(display) => {
+                // EXP-1172: a settled `sessions_show` call's picture, once it
+                // is in the run's synced results (an upload in flight = none).
+                let picture = self.inline_picture_for(item, cx);
+                exp_tool_call_row(
+                    item.id,
+                    display,
+                    detail.as_deref(),
+                    *failed,
+                    *settled,
+                    preview.as_ref(),
+                    picture,
+                    &self.session_id,
+                    cx,
+                )
+            }
             None => tool_row(name, detail.as_deref(), *failed, cx).into_any_element(),
         };
         if mode == ToolRowMode::Nested {
@@ -4893,7 +4977,24 @@ impl SteerSessionView {
                     );
                 }
             }
-        } else if live_tail {
+        } else {
+            // EXP-1172: a picture never hides in a fold — a FOLDED run of
+            // `sessions_show` calls draws its calls' inline tiles in call
+            // order under the caption (expanded, each row carries its own).
+            // The live tail's call is skipped: its own row below draws it.
+            let tail = live_tail
+                .then(|| items.last().filter(|item| item.is_tool()).map(|item| item.id))
+                .flatten();
+            for item in items {
+                if Some(item.id) == tail {
+                    continue;
+                }
+                if let Some(tile) = self.inline_picture_for(item, cx) {
+                    column = column.child(div().pl_5().py_1().child(tile));
+                }
+            }
+        }
+        if !expanded && live_tail {
             // Collapsed but still running — the newest call stays visible
             // and expanded, exactly as a plain tool run keeps its (EXP-895).
             if let Some(item) = items.last().filter(|item| item.is_tool()) {
@@ -7451,6 +7552,10 @@ fn tool_row(name: &str, detail: Option<&str>, failed: bool, cx: &App) -> impl In
 /// EXP-933: a SETTLED, successful `results` call (`sessions_results`) carries
 /// an `Open Results` button that puts `run_id` — the run this transcript is —
 /// on its Results face.
+///
+/// EXP-1172: a `picture` call (`sessions_show`) hangs its `picture` tile (the
+/// caller resolved it off the synced results) under the row instead of a
+/// preview; none yet = the bare row.
 #[allow(clippy::too_many_arguments)]
 fn exp_tool_call_row(
     id: FeedItemId,
@@ -7459,6 +7564,7 @@ fn exp_tool_call_row(
     failed: bool,
     settled: bool,
     preview: Option<&steer::frames::ToolPreview>,
+    picture: Option<AnyElement>,
     run_id: &str,
     cx: &mut App,
 ) -> AnyElement {
@@ -7494,6 +7600,8 @@ fn exp_tool_call_row(
     let body = if display.result == steer::exp_tool::result::RESULTS {
         (settled && !failed && !run_id.is_empty())
             .then(|| exp_open_results_button(id, run_id, cx))
+    } else if display.result == steer::exp_tool::result::PICTURE {
+        picture
     } else {
         (!failed)
             .then(|| preview.and_then(|preview| exp_tool_preview_row(id, display.result, preview, cx)))
@@ -7650,7 +7758,7 @@ fn exp_tool_preview_row(
                     .child(SharedString::from(exp_tool_result_count(count)))
                     .into_any_element()
             }),
-        kind::NONE | kind::RESULTS => None,
+        kind::NONE | kind::RESULTS | kind::PICTURE => None,
         // session / board / action / comment: a name chip.
         _ => exp_preview_label(preview).map(|label| exp_preview_chip(registry::CODING_TOOL, label, cx)),
     }

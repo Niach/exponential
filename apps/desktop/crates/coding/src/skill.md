@@ -23,7 +23,7 @@ Never file an issue for what you can finish in your own PR.
 
 After your PR is open and your branch is pushed, start a run for each follow-up you filed that needs no person's decision, is in this repository and can be verified on this device: `exponential_sessions_start({deviceId: <yours>, issueId, account, prompt})`; `exponential_devices_list` names your device and its accounts (`account` = a profile id with usage left). The prompt names your branch as the base (`git fetch origin <your branch> && git reset --hard origin/<your branch>` before any edit), tells the child to open its PR with `exponential_pr_open({issueId, base: "<your branch>"})`, and carries the depth (`follow-up depth N of 3`). Caps: 3 children per run, depth 3, 10 runs per tree; over the cap, file only (a stacked line named in your prompt always continues). Children do the same. Do not wait for them: end your turn. Skip this when the prompt or team prompt says `no follow-up runs`, when you have no repository, or when the follow-up needs a decision, another platform, or a migration/auth/billing/pipeline change.
 
-Other work can be delegated the same way to any ONLINE device whose `agents` includes the agent you want (offline ones refuse, nothing queues), with one subject: `issueId`, `issueIds` (one combined PR) or `actionId`. A child's questions and its finish arrive here as `[Exponential child run ...]` user messages; answer with `exponential_sessions_message`. Read a child's report before merging its PR: merging first ends the run unreported.
+Other work can be delegated the same way to any ONLINE device whose `agents` has the agent you want (offline ones refuse), with one subject: `issueId`, `issueIds` (one combined PR) or `actionId`. A child's questions and finish arrive as `[Exponential child run ...]` user messages; answer with `exponential_sessions_message`. Read a child's report before merging its PR: merging first ends the run unreported.
 
 `exponential_sessions_ask_parent` reaches the run that started you (`to: 'parent'`) or the person (`to: 'user'`): ask, then stop until the answer arrives. Close out with your report (Results below); if `exponential_sessions_end` is registered, it is your last call.
 
@@ -37,11 +37,11 @@ One branch `exp/<IDENT>` and one PR per issue; a PR may link several issues (a b
 
 ## Results
 
-Your close-out report goes to `exponential_sessions_results`, not chat: a GFM `text` (what you did, `#IDENT` refs) per `topic`, `Summary` first, then one per screen with `label`ed pictures (`web`, `ios`) uploaded by the returned `curl` line; it shows on the issue's Results. Screenshot each visible change before the PR at viewport size, never a full page; name any screen you could not run. `exponential_attachments_upload` does the same for an issue file; `exponential_attachments_list` lists them.
+While you work, `exponential_sessions_show` a screenshot after each visible change: it appears in your run's transcript. Your close-out report goes to `exponential_sessions_results`, not chat: a short GFM `text` (what you did, `#IDENT` refs) per `topic`, `Summary` first, then one per screen with `label`ed pictures (`web`, `ios`) via the returned `curl` line, before the PR. Viewport size, never a full page; name any screen you could not run. `exponential_attachments_upload` does the same for an issue file; `exponential_attachments_list` lists them.
 
-Ping a person with `exponential_notifications_send` when a long task finished, a decision waits on them, or they asked; `recipients` default to you.
+Ping a person with `exponential_notifications_send` when a long task finished, a decision waits or they asked; `recipients` default to you.
 
-A long context: `exponential_sessions_compact` asks the host to compact at the next turn (`keep` = what to preserve); it may refuse.
+A long context: `exponential_sessions_compact` asks the host to compact at the next turn (`keep` = what to preserve; it may refuse).
 
 ## Comments and actions
 
@@ -50,4 +50,4 @@ A long context: `exponential_sessions_compact` asks the host to compact at the n
 
 ## Exponential misbehaving
 
-When Exponential misbehaves (a tool result contradicting its description, a dropped remote start, a sync glitch), file it with `exponential_report_bug` if registered; it reaches Exponential's developers.
+When Exponential misbehaves (a result contradicting its tool, a dropped start, a sync glitch), file it with `exponential_report_bug` if registered; it reaches Exponential's developers.

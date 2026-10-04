@@ -26,6 +26,15 @@ export const SESSION_RESULT_TILE_HEIGHT = 320
  *  is not tall. Fixture `session-results.json` `tiles` (×4). */
 export const SESSION_RESULT_TALL_ASPECT = 1 / 3
 
+/** EXP-1172: an `exponential_sessions_show` picture's tile in the run
+ *  transcript, one base height lower than a Results tile so a shot sits in
+ *  the conversation without swallowing it. Fixture `session-inline.json`. */
+export const SESSION_INLINE_TILE_HEIGHT = 240
+
+/** EXP-1172: the collapsed band a Results group folds its inline pictures
+ *  under (`Earlier · 3`). */
+export const SESSION_RESULTS_EARLIER_LABEL = `Earlier`
+
 export interface SessionResultEntry {
   topic: string
   label: string
@@ -33,6 +42,11 @@ export interface SessionResultEntry {
   /** Probed at upload; null when the image could not be measured. */
   width: number | null
   height: number | null
+  /** EXP-1172: filed by `exponential_sessions_show` while the run worked
+   *  (true only for a JSON true). */
+  inline: boolean
+  /** EXP-1172: the show call's `text`, trimmed; null when blank. */
+  caption: string | null
 }
 
 function text(value: unknown): string | null {
@@ -86,6 +100,8 @@ function picture(record: Record<string, unknown>): SessionResultEntry | null {
     attachmentId,
     width: dimension(record.width),
     height: dimension(record.height),
+    inline: record.inline === true,
+    caption: text(record.caption),
   }
 }
 
@@ -106,6 +122,20 @@ export interface SessionResultGroup {
    *  without one. */
   text: string | null
   entries: SessionResultEntry[]
+  /** EXP-1172: the topic's INLINE pictures, folded under the `Earlier` band
+   *  (publish order); empty when the topic has a single picture. */
+  earlier: SessionResultEntry[]
+}
+
+/** EXP-1172: a topic with more than one picture moves its inline ones into
+ *  `earlier`, so the final report leads; a topic's only picture stays. */
+function foldInline(groups: SessionResultGroup[]): SessionResultGroup[] {
+  for (const group of groups) {
+    if (group.entries.length < 2) continue
+    group.earlier = group.entries.filter((entry) => entry.inline)
+    group.entries = group.entries.filter((entry) => !entry.inline)
+  }
+  return groups
 }
 
 /** Groups by topic in FIRST-SEEN order, keeping each group's entries in the
@@ -118,13 +148,13 @@ export function groupSessionResults(
   for (const entry of entries) {
     let group = byTopic.get(entry.topic)
     if (!group) {
-      group = { topic: entry.topic, text: null, entries: [] }
+      group = { topic: entry.topic, text: null, entries: [], earlier: [] }
       byTopic.set(entry.topic, group)
       groups.push(group)
     }
     group.entries.push(entry)
   }
-  return groups
+  return foldInline(groups)
 }
 
 /**
@@ -140,7 +170,7 @@ export function parseSessionResultGroups(raw: unknown): SessionResultGroup[] {
   const open = (topic: string) => {
     let group = byTopic.get(topic)
     if (!group) {
-      group = { topic, text: null, entries: [] }
+      group = { topic, text: null, entries: [], earlier: [] }
       byTopic.set(topic, group)
       groups.push(group)
     }
@@ -161,7 +191,7 @@ export function parseSessionResultGroups(raw: unknown): SessionResultGroup[] {
     const group = open(topic)
     if (group.text === null) group.text = body
   }
-  return groups
+  return foldInline(groups)
 }
 
 /** True when the blob has anything for the Results face to show. */
@@ -169,11 +199,32 @@ export function hasSessionResults(raw: unknown): boolean {
   return parseSessionResultGroups(raw).length > 0
 }
 
-/** Every picture of a set of groups, in order — what the tile sizing reads. */
+/** Every picture of a set of groups, in order — what the tile sizing reads
+ *  (the folded `earlier` ones too: expanding the band never resizes). */
 export function sessionResultPictures(
   groups: readonly SessionResultGroup[]
 ): SessionResultEntry[] {
-  return groups.flatMap((group) => group.entries)
+  return groups.flatMap((group) => [...group.entries, ...(group.earlier ?? [])])
+}
+
+/** EXP-1172: the picture an `exponential_sessions_show` call filed, by the
+ *  attachment id its answer carried (`preview.id`); null while the upload is
+ *  still in flight, once it was removed, or for a blank id. */
+export function sessionResultPicture(
+  raw: unknown,
+  attachmentId: string | null | undefined
+): SessionResultEntry | null {
+  const id = attachmentId?.trim()
+  if (!id) return null
+  return parseSessionResults(raw).find((entry) => entry.attachmentId === id) ?? null
+}
+
+/** EXP-1172: the line under a transcript tile — the show call's caption,
+ *  else the picture's label. */
+export function sessionResultTileCaption(
+  entry: Pick<SessionResultEntry, `label` | `caption`>
+): string {
+  return entry.caption ?? entry.label
 }
 
 /** EXP-1128: true when the probed aspect is under `SESSION_RESULT_TALL_ASPECT`;

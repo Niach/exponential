@@ -93,6 +93,9 @@ public enum ExpToolResultKind: String, Sendable, CaseIterable {
     /// EXP-933: `sessions_results` — the run's report; the row offers
     /// `Open Results` (the Work screen's Results face).
     case results
+    /// EXP-1172: `sessions_show` — ONE picture the run filed while it worked;
+    /// the settled row renders it as a tile under itself (`preview.id`).
+    case picture
 
     public init(wire: String) {
         // Spelled out rather than `?? .none`: a `none` CASE beside Optional's

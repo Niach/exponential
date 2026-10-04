@@ -154,7 +154,9 @@ export interface PreparedSessionImage {
 
 export async function prepareSessionImage(
   request: Request,
-  scope: { teamId: string; sessionId: string | null }
+  scope: { teamId: string; sessionId: string | null },
+  /** EXP-1172: a pre-allocated id (a sessions_show grant); else a fresh one. */
+  attachmentId?: string
 ): Promise<PreparedSessionImage> {
   const formData = await request.formData()
   const file = formData.get(`file`)
@@ -166,7 +168,32 @@ export async function prepareSessionImage(
     })
   }
 
-  const contentType = canonicalizeContentType(file.type)
+  return prepareSessionImageBytes(
+    {
+      filename: file.name,
+      contentType: file.type,
+      body: new Uint8Array(await file.arrayBuffer()),
+      size: file.size,
+    },
+    scope,
+    attachmentId
+  )
+}
+
+/** EXP-1172: the same validate-store-probe half for bytes already in hand —
+ *  the multipart route above and `exponential_sessions_show`'s `dataBase64`. */
+export async function prepareSessionImageBytes(
+  file: {
+    filename: string
+    contentType: string
+    body: Uint8Array
+    /** The part's declared size; the bytes' length without one. */
+    size?: number
+  },
+  scope: { teamId: string; sessionId: string | null },
+  attachmentId: string = crypto.randomUUID()
+): Promise<PreparedSessionImage> {
+  const contentType = canonicalizeContentType(file.contentType)
 
   if (!isAcceptedImageContentType(contentType)) {
     throw new TRPCError({
@@ -175,24 +202,24 @@ export async function prepareSessionImage(
     })
   }
 
-  if (file.size === 0) {
+  const size = file.size ?? file.body.byteLength
+  if (size === 0) {
     throw new TRPCError({
       code: `BAD_REQUEST`,
       message: `File is empty`,
     })
   }
 
-  if (file.size > maxImageUploadBytes) {
+  if (size > maxImageUploadBytes) {
     throw new TRPCError({
       code: `BAD_REQUEST`,
       message: `Images must be ${maxImageUploadBytes / (1024 * 1024)} MB or smaller`,
     })
   }
 
-  await assertWithinStorageLimit(scope.teamId, file.size)
+  await assertWithinStorageLimit(scope.teamId, size)
 
-  const filename = sanitizeUploadFilename(file.name, `image`)
-  const attachmentId = crypto.randomUUID()
+  const filename = sanitizeUploadFilename(file.filename, `image`)
   const storageKey =
     scope.sessionId === null
       ? buildPendingSessionAttachmentStorageKey(
@@ -206,14 +233,14 @@ export async function prepareSessionImage(
           filename
         )
   const url = buildAttachmentUrl(attachmentId)
-  const body = new Uint8Array(await file.arrayBuffer())
+  const body = file.body
   // Best-effort intrinsic dimensions; never block the upload if probing
   // fails.
   const dimensions = getImageDimensions(body)
 
   await uploadObject({
     body,
-    contentLength: file.size,
+    contentLength: size,
     contentType,
     key: storageKey,
   })
@@ -222,7 +249,7 @@ export async function prepareSessionImage(
     attachmentId,
     filename,
     contentType,
-    sizeBytes: file.size,
+    sizeBytes: size,
     storageKey,
     url,
     width: dimensions?.width ?? null,

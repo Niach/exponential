@@ -36,6 +36,8 @@ export const GATED_ALWAYS_LOAD_TOOLS = [
   // EXP-879: a run that never learns it can publish a screenshot never does —
   // the instructions ask for one, so the tool has to be there when it looks.
   `exponential_sessions_results`,
+  // EXP-1172: the playbook asks for a shot after each visible change.
+  `exponential_sessions_show`,
 ] as const
 
 /** Spread into a `registerTool` config to mark it always-loaded. */

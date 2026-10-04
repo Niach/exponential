@@ -146,3 +146,22 @@ export function exceedsSessionResultsCap(
 ): boolean {
   return results.length > SESSION_RESULTS_MAX
 }
+
+/** EXP-1172: the label a `sessions_show` picture filed without one gets —
+ *  `Shot N`, N one past the topic's pictures, bumped past any taken label so
+ *  a show never REPLACES an earlier picture by accident. Picked under the
+ *  upload's row lock, so two shows in flight never collide. */
+export function nextShowLabel(
+  results: readonly CodingSessionResult[] | null,
+  topic: string
+): string {
+  const taken = new Set<string>()
+  for (const row of results ?? []) {
+    if (row?.topic === topic && !isTextEntry(row) && typeof row.label === `string`) {
+      taken.add(row.label)
+    }
+  }
+  let n = taken.size + 1
+  while (taken.has(`Shot ${n}`)) n += 1
+  return `Shot ${n}`
+}
