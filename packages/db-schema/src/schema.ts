@@ -916,6 +916,10 @@ export const codingSessions = pgTable(
     prUrl: text(`pr_url`),
     prNumber: integer(`pr_number`),
     prState: prStateEnum(`pr_state`),
+    // EXP-1165: that PR's base ref (pr_open, retarget, the `edited` webhook
+    // leg), the issue column's twin: the merge guards read it to refuse an
+    // issue-less run PR stacked on another open PR.
+    prBaseBranch: text(`pr_base_branch`),
     // EXP-637 close-out (synced). The agent's own summary is REPORTED to the
     // run that started this one (`exponential_sessions_end`, EXP-862) and no
     // longer stored: EXP-864 dropped the `summary` column.

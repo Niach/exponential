@@ -1,4 +1,4 @@
-// acts/Ship.tsx — review & merge (10.9–13.9 s): a four-node workflow DAG
+// acts/Ship.tsx — review & merge (10.9–13.9 s): a four-issue dependency graph
 // draws itself (edges on, nodes in wave order), every node goes to review
 // as its PR opens, the cursor lands on Merge stack, and a blue front sweeps
 // out from the button flipping nodes to Done as it reaches them, with a

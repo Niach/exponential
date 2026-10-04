@@ -24,6 +24,13 @@ const tokens = JSON.parse(
   motion: { duration: Record<string, number>; ease: Record<string, number[]> }
   transcript: Record<string, number | string>
   menu: { pointer: Record<string, number>; touch: Record<string, number> }
+  spacing: Record<string, number>
+  type: {
+    size: Record<string, number>
+    lineHeight: Record<string, number>
+    weight: Record<string, number>
+    emphasis: Record<string, number>
+  }
 }
 
 const stylesCss = readFileSync(
@@ -262,6 +269,28 @@ describe(`design-tokens parity with web styles.css`, () => {
         rootVars[cssVar],
         `tokens.transcript.${key} should equal --${cssVar} in styles.css`
       ).toBe(`${value}px`)
+    }
+  })
+
+  // SLOP-18: the spacing and type scales, flat :root vars like the
+  // transcript's. Sizes are px; weights and the emphasis ladder unitless.
+  it(`every spacing and type-scale token matches its :root CSS variable`, () => {
+    const groups: [string, Record<string, number>, string][] = [
+      [`space`, tokens.spacing, `px`],
+      [`type-size`, tokens.type.size, `px`],
+      [`type-line-height`, tokens.type.lineHeight, `px`],
+      [`type-weight`, tokens.type.weight, ``],
+      [`type-emphasis`, tokens.type.emphasis, ``],
+    ]
+    for (const [prefix, group, unit] of groups) {
+      for (const [key, value] of Object.entries(group)) {
+        if (key.startsWith(`$`)) continue
+        const cssVar = `${prefix}-${kebab(key)}`
+        expect(
+          rootVars[cssVar],
+          `tokens ${prefix}.${key} should equal --${cssVar} in styles.css`
+        ).toBe(`${value}${unit}`)
+      }
     }
   })
 

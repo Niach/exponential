@@ -182,3 +182,30 @@ describe(`upsertSessionResultText`, () => {
     ])
   })
 })
+
+// EXP-1172: a show without a label never replaces an earlier picture.
+import { nextShowLabel } from "./session-result-writes"
+
+describe(`nextShowLabel`, () => {
+  it(`counts the topic's pictures and skips a taken label`, () => {
+    expect(nextShowLabel(null, `Progress`)).toBe(`Shot 1`)
+    const pic = (topic: string, label: string) => ({
+      topic,
+      label,
+      attachmentId: label,
+      width: null,
+      height: null,
+    })
+    expect(
+      nextShowLabel(
+        [
+          pic(`Progress`, `Shot 1`),
+          pic(`other`, `Shot 2`),
+          { topic: `Progress`, label: null, attachmentId: null, width: null, height: null, text: `t` },
+        ],
+        `Progress`
+      )
+    ).toBe(`Shot 2`)
+    expect(nextShowLabel([pic(`Progress`, `Shot 2`)], `Progress`)).toBe(`Shot 3`)
+  })
+})

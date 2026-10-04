@@ -224,6 +224,38 @@ html {
   --transcript-body-line-height: 22px;
   --transcript-tool-size: 12px;
   --transcript-tool-line-height: 18px;
+  /* SLOP-18 spacing + type scales, mirroring packages/design-tokens/tokens.json
+     `spacing` and `type` (design-tokens.test.ts guards the parity). The record
+     the natives and the `exp` catalog's Box styles resolve against; web
+     surfaces keep their Tailwind utilities (the same 4px ladder and
+     text-xs…2xl pairs, in rem) — nothing reads these yet. px like --radius. */
+  --space-xxs: 2px;
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
+  --space-xl2: 32px;
+  --type-size-xs: 12px;
+  --type-size-sm: 14px;
+  --type-size-base: 16px;
+  --type-size-lg: 18px;
+  --type-size-xl: 20px;
+  --type-size-xl2: 24px;
+  --type-line-height-xs: 16px;
+  --type-line-height-sm: 20px;
+  --type-line-height-base: 24px;
+  --type-line-height-lg: 28px;
+  --type-line-height-xl: 28px;
+  --type-line-height-xl2: 32px;
+  --type-weight-regular: 400;
+  --type-weight-medium: 500;
+  --type-weight-semibold: 600;
+  --type-weight-bold: 700;
+  --type-emphasis-primary: 1;
+  --type-emphasis-secondary: 0.7;
+  --type-emphasis-tertiary: 0.5;
+  --type-emphasis-quaternary: 0.3;
   /* EXP-1074 menu row geometry, BOTH density classes, mirroring
      packages/design-tokens/tokens.json `menu` (design-tokens.test.ts guards
      the parity). px on purpose, like --radius: the ≥768px root font would

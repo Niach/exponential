@@ -252,7 +252,11 @@ describe(`issues.prepareConflictFix (EXP-324)`, () => {
       defaultBranch: `master`,
     })
     // The synced base follows the heal.
-    expect(h.updates).toEqual([{ prBaseBranch: `master` }])
+    // Each write lands on the issue rows and the run rows (EXP-1165).
+    expect(h.updates).toEqual([
+      { prBaseBranch: `master` },
+      { prBaseBranch: `master` },
+    ])
   })
 
   it(`returns the live parent branch as the rebase target for an open parent — no retarget`, async () => {
@@ -281,7 +285,11 @@ describe(`issues.prepareConflictFix (EXP-324)`, () => {
       retargeted: false,
     })
     // GitHub's live base is mirrored opportunistically.
-    expect(h.updates).toEqual([{ prBaseBranch: `exp/EXP-314` }])
+    // Each write lands on the issue rows and the run rows (EXP-1165).
+    expect(h.updates).toEqual([
+      { prBaseBranch: `exp/EXP-314` },
+      { prBaseBranch: `exp/EXP-314` },
+    ])
   })
 
   it(`tolerates a 422 on the heal (concurrent retarget won the race)`, async () => {
@@ -295,7 +303,11 @@ describe(`issues.prepareConflictFix (EXP-324)`, () => {
 
     const result = await caller.prepareConflictFix({ issueId: ISSUE_ID })
     expect(result).toMatchObject({ rebaseOnto: `master`, retargeted: false })
-    expect(h.updates).toEqual([{ prBaseBranch: `master` }])
+    // Each write lands on the issue rows and the run rows (EXP-1165).
+    expect(h.updates).toEqual([
+      { prBaseBranch: `master` },
+      { prBaseBranch: `master` },
+    ])
   })
 
   it(`surfaces a GitHub read failure as BAD_GATEWAY`, async () => {
@@ -333,7 +345,11 @@ describe(`issues.retargetPr (EXP-324)`, () => {
     })
     expect(result).toEqual({ retargeted: true, base: `master` })
     // Persisted for every issue on the PR.
-    expect(h.updates).toEqual([{ prBaseBranch: `master` }])
+    // Each write lands on the issue rows and the run rows (EXP-1165).
+    expect(h.updates).toEqual([
+      { prBaseBranch: `master` },
+      { prBaseBranch: `master` },
+    ])
   })
 
   it(`passes an explicit base through and maps GitHub's 422 onto a named error`, async () => {
@@ -865,7 +881,11 @@ describe(`issues.mergePr on a PR whose parent already merged`, () => {
       teamId: `ws-1`,
     })
     // The recorded base follows GitHub's move.
-    expect(h.updates).toEqual([{ prBaseBranch: `master` }])
+    // Each write lands on the issue rows and the run rows (EXP-1165).
+    expect(h.updates).toEqual([
+      { prBaseBranch: `master` },
+      { prBaseBranch: `master` },
+    ])
   })
 
   it(`refuses, before any claim, when the heal left the PR on the merged branch`, async () => {

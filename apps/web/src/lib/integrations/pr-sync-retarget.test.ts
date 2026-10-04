@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { getTableName } from "drizzle-orm"
 
 // EXP-324: `retargetChildrenOfMergedPr` — after a parent PR merges, its
 // open children (PRs based on the merged head branch) are retargeted onto the
@@ -8,6 +9,8 @@ const h = vi.hoisted(() => ({
   githubAppConfigured: vi.fn(() => true),
   getSteerRelayConfig: vi.fn((): { url: string; secret: string } | null => null),
   updates: [] as Array<Record<string, unknown>>,
+  // EXP-1165: which table each of those writes hit, in order.
+  updatedTables: [] as string[],
   resolveRepoDefaultBranchCached: vi.fn(
     async (): Promise<string | null> => `master`
   ),
@@ -62,10 +65,11 @@ vi.mock(`@/db/connection`, () => {
   }
   const db: Record<string, unknown> = {
     select,
-    update: () => ({
+    update: (table: unknown) => ({
       set: (values: Record<string, unknown>) => ({
         where: () => {
           h.updates.push(values)
+          h.updatedTables.push(getTableName(table as never))
           return Object.assign(Promise.resolve(), {
             returning: async () => h.flipped,
           })
@@ -122,6 +126,7 @@ beforeEach(() => {
   h.plainSelects = []
   h.flipped = []
   h.updates.length = 0
+  h.updatedTables.length = 0
 })
 
 describe(`retargetChildrenOfMergedPr (EXP-324)`, () => {
@@ -302,8 +307,13 @@ describe(`retargetChildrenOfMergedPr (EXP-324)`, () => {
       base: `master`,
       token: `tok`,
     })
-    // The synced base follows only the retarget that landed (242).
-    expect(h.updates).toEqual([{ prBaseBranch: `master` }])
+    // The synced base follows only the retarget that landed (242), on the
+    // issue rows and the run rows carrying it.
+    expect(h.updates).toEqual([
+      { prBaseBranch: `master` },
+      { prBaseBranch: `master` },
+    ])
+    expect(h.updatedTables).toEqual([`issues`, `coding_sessions`])
     errorSpy.mockRestore()
   })
 
@@ -385,7 +395,10 @@ describe(`retargetChildrenOfMergedPr for an issue-less PR`, () => {
       token: `tok`,
     })
     expect(h.resolveRepoDefaultBranchCached).not.toHaveBeenCalled()
-    expect(h.updates).toEqual([{ prBaseBranch: `develop` }])
+    expect(h.updates).toEqual([
+      { prBaseBranch: `develop` },
+      { prBaseBranch: `develop` },
+    ])
   })
 
   it(`falls back to GitHub's default when the team has no row for the repo`, async () => {
@@ -462,9 +475,14 @@ describe(`applyPrClosedState / applyPrReopenedState`, () => {
 })
 
 describe(`applyPrBaseBranchEdit`, () => {
-  it(`mirrors an edited base onto every issue on the PR`, async () => {
+  it(`mirrors an edited base onto every issue and run row on the PR`, async () => {
     await applyPrBaseBranchEdit({ prUrl: PARENT_PR_URL, baseRef: `exp/EXP-10` })
-    expect(h.updates).toEqual([{ prBaseBranch: `exp/EXP-10` }])
+    expect(h.updates).toEqual([
+      { prBaseBranch: `exp/EXP-10` },
+      { prBaseBranch: `exp/EXP-10` },
+    ])
+    // EXP-1165: an issue-less run's PR records its base on the run row.
+    expect(h.updatedTables).toEqual([`issues`, `coding_sessions`])
   })
 
   it(`writes nothing without a base`, async () => {

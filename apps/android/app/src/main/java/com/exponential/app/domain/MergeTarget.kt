@@ -33,19 +33,40 @@ val CodingSessionEntity.hasOpenPr: Boolean
     get() = prState == DomainContract.prStateOpen && !prUrl.isNullOrEmpty()
 
 /**
+ * EXP-1165: the covered issue that carries a BATCH run's combined PR (same
+ * url, still open), or null. Merging through it reaches the issue path's stack
+ * choice and "Fix conflicts" recovery (Reviews) from the run view too. Web
+ * `resolveSessionMergeTarget`.
+ */
+fun batchMergeCarrier(
+    session: CodingSessionEntity,
+    batchIssues: List<IssueEntity>,
+): IssueEntity? {
+    if (session.issueId != null) return null
+    val url = session.prUrl?.takeIf { it.isNotEmpty() } ?: return null
+    return batchIssues.firstOrNull {
+        it.prUrl == url && it.prState == DomainContract.prStateOpen
+    }
+}
+
+/**
  * The merge control's target for one run, or null when there is nothing to
  * merge (no PR, or one already merged/closed): an ISSUE run → its issue while
- * that issue's PR is open; an issue-less run → its own row's open PR.
+ * that issue's PR is open; a batch run whose PR a covered issue carries
+ * ([batchMergeCarrier]) → that issue; any other issue-less run → its own row's
+ * open PR.
  */
 fun resolveMergeTarget(
     session: CodingSessionEntity,
     issue: IssueEntity?,
+    batchIssues: List<IssueEntity> = emptyList(),
 ): MergeTarget? {
     if (session.issueId != null) {
         return issue
             ?.takeIf { it.prState == DomainContract.prStateOpen }
             ?.let { MergeTarget.Issue(it.id) }
     }
+    batchMergeCarrier(session, batchIssues)?.let { return MergeTarget.Issue(it.id) }
     if (session.hasOpenPr) return MergeTarget.Session(session.id)
     return null
 }

@@ -49,12 +49,12 @@ type Row = {
 
 const STARTED: Row[] = [
   { ident: `EXP-1100`, title: HERO_TITLE, status: `progress`, prio: 3, assignee: null },
-  { ident: `EXP-1097`, title: `Review wave clears its layer before landing`, status: `progress`, prio: 2, assignee: MK },
+  { ident: `EXP-1097`, title: `Offline queue for issue edits`, status: `progress`, prio: 2, assignee: MK },
   { ident: `EXP-1093`, title: `Issue rail hover opens the mini-graph`, status: `progress`, prio: 1, assignee: AL },
 ]
 
 const BACKLOG: Row[] = [
-  { ident: `EXP-1102`, title: `Workflow host state lives on the device`, status: `backlog`, prio: 2, assignee: JR },
+  { ident: `EXP-1102`, title: `Reduce cold start below 800 ms`, status: `backlog`, prio: 2, assignee: JR },
   { ident: `EXP-1104`, title: `Android: unbroken tee on tree connectors`, status: `backlog`, prio: 1, assignee: null },
   { ident: `EXP-1105`, title: `Digest picks the reader's local hour`, status: `backlog`, prio: 1, assignee: null },
   { ident: `EXP-1106`, title: `Passkey login through the desktop handoff`, status: `backlog`, prio: 0, assignee: null },

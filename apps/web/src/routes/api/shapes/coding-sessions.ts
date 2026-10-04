@@ -41,7 +41,9 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // the run spends — without it no client can point the usage readout at the
 // run's own account, and the account switch has to guess the current one),
 // and `agent_title` for EXP-905 (the device-written title the agent CLI
-// names a run with — a chat run's subject ×4) — each a
+// names a run with — a chat run's subject ×4), and `pr_base_branch` for
+// EXP-1165 (the base an issue-less run's PR was opened against, like the
+// issue column: the stack edge of a chat/action PR) — each a
 // ONE-TIME shape-identity rotation (benign: small table, full resync; land in
 // one deploy).
 // `merged_own_pr` stays OUT: server-only like `host_user_id` (nothing on a
@@ -70,6 +72,7 @@ export const CODING_SESSION_COLUMNS = [
   `pr_url`,
   `pr_number`,
   `pr_state`,
+  `pr_base_branch`,
   `ended_by`,
   `resumed_from_id`,
   `parent_session_id`,

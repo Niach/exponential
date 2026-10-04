@@ -4,18 +4,10 @@ import { eq } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { codingSessions, sessionAttachments } from "@/db/schema"
 import { errorToResponse } from "@/lib/http-errors"
-import { deleteObject } from "@/lib/storage"
-import {
-  prepareSessionImage,
-  rollbackSessionImage,
-  sessionAttachmentValues,
-} from "@/lib/storage/session-attachment-upload"
+import { prepareSessionImage } from "@/lib/storage/session-attachment-upload"
 import { verifySessionResultToken } from "@/lib/storage/session-result-token"
-import {
-  exceedsSessionResultsCap,
-  resultsSummary,
-  upsertSessionResult,
-} from "@/lib/session-result-writes"
+import { resultsSummary } from "@/lib/session-result-writes"
+import { publishSessionResultPicture } from "@/lib/session-result-publish"
 import { buildAttachmentUrl } from "@/lib/storage/issue-attachments"
 
 // EXP-879: the run's screenshot upload. One of the app's very few anonymous
@@ -35,7 +27,8 @@ import { buildAttachmentUrl } from "@/lib/storage/issue-attachments"
 //
 // The write is a jsonb read-modify-write, so it runs inside a transaction
 // that takes `FOR UPDATE` on the coding_sessions row: two pictures published
-// concurrently by the same run would otherwise lose one another.
+// concurrently by the same run would otherwise lose one another. EXP-1172:
+// that write is `publishSessionResultPicture`, shared with sessions_show.
 
 async function uploadSessionResult({
   params,
@@ -69,84 +62,38 @@ async function uploadSessionResult({
     })
   }
 
+  // EXP-1172: a show grant pre-allocated its attachment id, so a second curl
+  // of the same line would put its object over the first one's key and then
+  // fail the row insert; refuse it before any storage work.
+  if (payload.a) {
+    const [taken] = await db
+      .select({ id: sessionAttachments.id })
+      .from(sessionAttachments)
+      .where(eq(sessionAttachments.id, payload.a))
+      .limit(1)
+    if (taken) {
+      throw new TRPCError({
+        code: `CONFLICT`,
+        message: `This picture was already uploaded. Call exponential_sessions_show again for another one.`,
+      })
+    }
+  }
+
   const scope = { teamId: run.teamId, sessionId: run.id }
   // Validates the part (images only, 10 MB), charges the team's storage
   // budget, probes the pixel size and puts the object — no row yet.
-  const prepared = await prepareSessionImage(request, scope)
-
-  let displacedAttachmentId: string | null = null
-  let displacedStorageKey: string | null = null
-  let results: Awaited<ReturnType<typeof upsertSessionResult>>[`results`] = []
-
-  try {
-    await db.transaction(async (tx) => {
-      const [locked] = await tx
-        .select({
-          id: codingSessions.id,
-          results: codingSessions.results,
-        })
-        .from(codingSessions)
-        .where(eq(codingSessions.id, payload.s))
-        .limit(1)
-        .for(`update`)
-
-      if (!locked) {
-        throw new TRPCError({
-          code: `NOT_FOUND`,
-          message: `Session not found`,
-        })
-      }
-
-      const upsert = upsertSessionResult(locked.results, {
-        topic: payload.t,
-        label: payload.l,
-        attachmentId: prepared.attachmentId,
-        width: prepared.width,
-        height: prepared.height,
-      })
-      if (exceedsSessionResultsCap(upsert.results)) {
-        throw new TRPCError({
-          code: `CONFLICT`,
-          message: `This run already published the maximum number of results. Remove one first (exponential_sessions_results with remove).`,
-        })
-      }
-      results = upsert.results
-      displacedAttachmentId = upsert.displacedAttachmentId
-
-      await tx
-        .insert(sessionAttachments)
-        .values(sessionAttachmentValues(prepared, scope, payload.u))
-
-      if (upsert.displacedAttachmentId) {
-        const [gone] = await tx
-          .delete(sessionAttachments)
-          .where(eq(sessionAttachments.id, upsert.displacedAttachmentId))
-          .returning({ storageKey: sessionAttachments.storageKey })
-        displacedStorageKey = gone?.storageKey ?? null
-      }
-
-      await tx
-        .update(codingSessions)
-        .set({ results: upsert.results, updatedAt: new Date() })
-        .where(eq(codingSessions.id, payload.s))
-    })
-  } catch (error) {
-    // The row never landed, so the object it points at is garbage.
-    await rollbackSessionImage(prepared.storageKey)
-    throw error
-  }
-
-  // Only once the swap is durable: the replaced picture's bytes go.
-  if (displacedStorageKey) {
-    try {
-      await deleteObject(displacedStorageKey)
-    } catch (deleteError) {
-      console.error(
-        `Failed to delete the replaced session result object`,
-        deleteError
-      )
-    }
-  }
+  const prepared = await prepareSessionImage(request, scope, payload.a)
+  const published = await publishSessionResultPicture(
+    {
+      sessionId: run.id,
+      teamId: run.teamId,
+      topic: payload.t,
+      label: payload.l || null,
+      uploaderId: payload.u,
+      ...(payload.i === 1 ? { inline: { caption: payload.c ?? null } } : {}),
+    },
+    prepared
+  )
 
   return Response.json({
     ok: true,
@@ -155,9 +102,9 @@ async function uploadSessionResult({
     width: prepared.width,
     height: prepared.height,
     topic: payload.t,
-    label: payload.l,
-    replaced: displacedAttachmentId !== null,
-    results: resultsSummary(results),
+    label: published.label,
+    replaced: published.replaced,
+    results: resultsSummary(published.results),
   })
 }
 

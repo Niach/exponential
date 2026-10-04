@@ -86,12 +86,13 @@ object GlassTokens {
 }
 
 
-/** iOS `TextOpacity` tiers — apply as foreground alpha over onSurface / white. */
+/** iOS `TextOpacity` tiers — apply as foreground alpha over onSurface / white.
+ *  tokens.json `type.emphasis` (SLOP-18). */
 object TextEmphasis {
-    const val Primary = 1.0f
-    const val Secondary = 0.7f
-    const val Tertiary = 0.5f
-    const val Quaternary = 0.3f
+    const val Primary = DesignTokens.Typography.Emphasis.Primary
+    const val Secondary = DesignTokens.Typography.Emphasis.Secondary
+    const val Tertiary = DesignTokens.Typography.Emphasis.Tertiary
+    const val Quaternary = DesignTokens.Typography.Emphasis.Quaternary
 }
 
 /**

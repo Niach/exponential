@@ -35,6 +35,8 @@ vi.mock(`@/lib/integrations/github-pr`, () => ({ createPullRequest: vi.fn() }))
 vi.mock(`@/lib/integrations/github-app`, () => ({
   resolveRepoInstallationToken: vi.fn(),
   resolveRepoInstallationTokenInfo: vi.fn(),
+  // SLOP-7: lib/auth/index.ts reads the App's OAuth client at import time.
+  githubOAuthClient: () => null,
 }))
 vi.mock(`@/lib/trpc/integrations`, () => ({
   isInstallationLinkedToTeam: vi.fn(),
@@ -153,6 +155,7 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   exponential_sessions_list: [`list`, `session`],
   exponential_sessions_message: [`session`],
   exponential_sessions_results: [],
+  exponential_sessions_show: [],
   exponential_sessions_start: [`session`, `issue`, `issue`, `issue`],
   exponential_statuses_create: [`status`],
   exponential_statuses_delete: [],

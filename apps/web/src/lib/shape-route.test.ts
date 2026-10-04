@@ -582,6 +582,7 @@ describe(`shape column + trash contracts`, () => {
       `pr_url`,
       `pr_number`,
       `pr_state`,
+      `pr_base_branch`,
       `ended_by`,
       `resumed_from_id`,
       `parent_session_id`,
