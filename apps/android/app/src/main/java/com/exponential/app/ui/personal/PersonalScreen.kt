@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.ui.components.GlassSegmentedControl
+import com.exponential.app.ui.components.TabPager
 import com.exponential.app.ui.drafts.DraftsListContent
 import com.exponential.app.ui.drafts.DraftsViewModel
 import com.exponential.app.ui.inbox.InboxListContent
@@ -70,6 +71,12 @@ fun PersonalScreen(
         section == SECTION_DRAFTS && hasDrafts -> SECTION_DRAFTS
         else -> SECTION_INBOX
     }
+    // Drafts is offered only while there are any (EXP-878).
+    val sections = buildList {
+        add(SECTION_INBOX)
+        add(SECTION_MY_ISSUES)
+        if (hasDrafts) add(SECTION_DRAFTS)
+    }
 
     Scaffold(containerColor = Color.Transparent) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
@@ -94,12 +101,7 @@ fun PersonalScreen(
                 }
             }
             GlassSegmentedControl(
-                // Drafts is offered only while there are any (EXP-878).
-                options = buildList {
-                    add(SECTION_INBOX)
-                    add(SECTION_MY_ISSUES)
-                    if (hasDrafts) add(SECTION_DRAFTS)
-                },
+                options = sections,
                 // Anything unknown renders the inbox (incl. saved
                 // pre-EXP-147 "reviews" / pre-EXP-180 "support" values) —
                 // highlight accordingly.
@@ -116,18 +118,28 @@ fun PersonalScreen(
                 badge = { if (it == SECTION_INBOX) inboxState.totalUnread else 0 },
             )
             Spacer(Modifier.height(8.dp))
-            when (effective) {
-                SECTION_MY_ISSUES -> MyIssuesListContent(onOpenIssue = onOpenIssue)
-                SECTION_DRAFTS -> DraftsListContent(
-                    onOpenDraft = onOpenDraft,
-                    viewModel = draftsViewModel,
-                )
-                else -> InboxListContent(
-                    onOpenIssue = onOpenIssue,
-                    onOpenSession = onOpenSession,
-                    onOpenIssueResults = onOpenIssueResults,
-                    viewModel = inboxViewModel,
-                )
+            // EXP-1190: the sections page with a horizontal swipe (the Work
+            // screen's faces), filling the column's remaining height.
+            TabPager(
+                pages = sections,
+                selected = effective,
+                onSelect = { section = it },
+                key = { it },
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+            ) { page ->
+                when (page) {
+                    SECTION_MY_ISSUES -> MyIssuesListContent(onOpenIssue = onOpenIssue)
+                    SECTION_DRAFTS -> DraftsListContent(
+                        onOpenDraft = onOpenDraft,
+                        viewModel = draftsViewModel,
+                    )
+                    else -> InboxListContent(
+                        onOpenIssue = onOpenIssue,
+                        onOpenSession = onOpenSession,
+                        onOpenIssueResults = onOpenIssueResults,
+                        viewModel = inboxViewModel,
+                    )
+                }
             }
         }
     }

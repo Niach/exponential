@@ -42,6 +42,10 @@ import {
 } from "@/components/action-suggestions-list"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import {
+  primeTabEnter,
+  useFaceSwipe,
+} from "@/components/mobile-face-tabs"
+import {
   PinToggleMenuItem,
   usePinToggleVisible,
 } from "@/components/pin-toggle-button"
@@ -64,7 +68,8 @@ const ActionRunIcon = conceptIcon(`action-run`)
  * list and the suggestions behind a tab strip); `actions` the desktop one. */
 export type ActionsPanelView = `tabs` | `actions`
 /** The mobile tab strip's value — also the `?tab=` search param. */
-export type ActionsPanelTab = `actions` | `suggestions`
+export const ACTIONS_PANEL_TABS = [`actions`, `suggestions`] as const
+export type ActionsPanelTab = (typeof ACTIONS_PANEL_TABS)[number]
 
 // The row's ⋯ menu — hidden entirely on the builtin (server-shipped, not
 // editable, deletable or pinnable). EXP-778: every member gets Pin/Unpin (a
@@ -306,6 +311,10 @@ export function TeamActionsPanel({
 }) {
   const { isMember } = useTeamPermissions(team)
   const [deleteTarget, setDeleteTarget] = useState<TeamAction | null>(null)
+  // EXP-1190: the phone's tabs page with a swipe, like the Work faces.
+  const swipe = useFaceSwipe(ACTIONS_PANEL_TABS, tab, (next) =>
+    onTabChange?.(next)
+  )
 
   if (!isMember) return null
 
@@ -330,25 +339,32 @@ export function TeamActionsPanel({
   return (
     <>
       {view === `tabs` ? (
-        <Tabs
-          value={tab}
-          onValueChange={(value) => onTabChange?.(value as ActionsPanelTab)}
-          className="mb-4"
-        >
-          <TabsList className="w-full">
-            <TabsTrigger value="actions" className="flex-1">
-              Actions
-            </TabsTrigger>
-            <TabsTrigger value="suggestions" className="flex-1">
-              Suggestions
-            </TabsTrigger>
-          </TabsList>
+        <div className="flex-1" {...swipe}>
+          <Tabs
+            value={tab}
+            onValueChange={(value) => {
+              primeTabEnter(ACTIONS_PANEL_TABS, tab, value as ActionsPanelTab)
+              onTabChange?.(value as ActionsPanelTab)
+            }}
+            className="mb-4"
+          >
+            <TabsList className="w-full">
+              <TabsTrigger value="actions" className="flex-1">
+                Actions
+              </TabsTrigger>
+              <TabsTrigger value="suggestions" className="flex-1">
+                Suggestions
+              </TabsTrigger>
+            </TabsList>
 
-          <TabsContent value="actions">{actionsSection}</TabsContent>
-          <TabsContent value="suggestions">
-            <ActionSuggestionsPanel team={team} />
-          </TabsContent>
-        </Tabs>
+            <TabsContent value="actions" data-face-body="">
+              {actionsSection}
+            </TabsContent>
+            <TabsContent value="suggestions" data-face-body="">
+              <ActionSuggestionsPanel team={team} />
+            </TabsContent>
+          </Tabs>
+        </div>
       ) : (
         actionsSection
       )}

@@ -180,6 +180,10 @@ describe(`work faces`, () => {
     // A face that is not in the strip swipes nowhere.
     expect(swipeTarget([`issue`], `run`, `left`)).toBeNull()
     expect(swipeTarget([], `issue`, `left`)).toBeNull()
+    // EXP-1190: any phone tab strip walks the same way.
+    const tabs = [`inbox`, `my-issues`, `drafts`]
+    expect(swipeTarget(tabs, `inbox`, `left`)).toBe(`my-issues`)
+    expect(swipeTarget(tabs, `drafts`, `left`)).toBeNull()
   })
 
   it(`falls back changes to run to issue`, () => {

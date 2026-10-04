@@ -52,6 +52,17 @@ struct MyWorkView: View {
         return segments.contains(stored) ? stored : .inbox
     }
 
+    /// The pager's selection: a drag onto a page writes the stored segment.
+    private var selection: Binding<Segment> {
+        Binding(get: { segment }, set: { segmentRaw = $0.rawValue })
+    }
+
+    /// A segment tap slides the pages.
+    private func selectSegment(_ next: Segment) {
+        guard next != segment else { return }
+        withAnimation { segmentRaw = next.rawValue }
+    }
+
     var body: some View {
         ZStack {
             AppBackground()
@@ -62,25 +73,29 @@ struct MyWorkView: View {
                     selection: segment,
                     label: { $0.label },
                     badge: { $0 == .inbox ? (inboxViewModel?.totalUnread ?? 0) : 0 },
-                    onSelect: { segmentRaw = $0.rawValue }
+                    onSelect: selectSegment
                 )
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
 
-                switch segment {
-                case .inbox:
-                    if let vm = inboxViewModel {
-                        InboxListContent(viewModel: vm)
-                    } else {
-                        Color.clear
-                    }
-                case .myIssues:
-                    MyIssuesListContent()
-                case .drafts:
-                    if let vm = draftsViewModel {
-                        DraftsListContent(viewModel: vm)
-                    } else {
-                        Color.clear
+                // EXP-1190: the segments are PAGES that follow the finger,
+                // like the action page's tabs.
+                FacePager(pages: segments, selection: selection) { page in
+                    switch page {
+                    case .inbox:
+                        if let vm = inboxViewModel {
+                            InboxListContent(viewModel: vm)
+                        } else {
+                            Color.clear
+                        }
+                    case .myIssues:
+                        MyIssuesListContent()
+                    case .drafts:
+                        if let vm = draftsViewModel {
+                            DraftsListContent(viewModel: vm)
+                        } else {
+                            Color.clear
+                        }
                     }
                 }
             }
