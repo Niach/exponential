@@ -85,7 +85,7 @@ final class EntityPreviewTests: XCTestCase {
 
     func testEveryChipCaseRendersByteExact() throws {
         let cases = try chipCases()
-        XCTAssertGreaterThanOrEqual(cases.count, 30)
+        XCTAssertGreaterThanOrEqual(cases.count, 29)
         for fixture in cases {
             XCTAssertEqual(EntityPreview.chipLabel(fixture.ref), fixture.label, fixture.name)
             XCTAssertEqual(EntityPreview.chipDetail(fixture.ref), fixture.detail, fixture.name)

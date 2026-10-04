@@ -71,7 +71,7 @@ export function StackMergeChoiceDialog({
       }}
     >
       <AlertDialogContent
-        className="sm:max-w-md"
+        className="sm:max-w-lg"
         onClick={(e) => e.stopPropagation()}
         data-testid="stack-merge-choice-dialog"
       >

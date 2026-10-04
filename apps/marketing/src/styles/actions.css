@@ -53,10 +53,34 @@
 /* ── Triggers sub-block (EXP-583 marketing, EXP-602) ── */
 .ac-triggers {
   margin-top: 14px;
+  display: grid;
+  grid-template-columns: 2fr 3fr;
+  gap: 32px;
+  align-items: center;
+  padding: 20px;
+}
+
+@media (max-width: 880px) {
+  .ac-triggers {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+}
+
+.ac-triggers-copy {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 20px;
+}
+
+/* The real action page (shots/action-page/web.webp). */
+.ac-triggers-shot {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--glass-stroke-card);
+  border-radius: var(--radius-row);
+  background: var(--bg-elev);
 }
 
 .ac-triggers-head {

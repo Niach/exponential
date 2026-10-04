@@ -79,10 +79,10 @@ use tokens as t;
 /// own chrome is set in, so the two products read at the same density instead
 /// of the IDE running a notch tighter. Every rem-derived metric in the app
 /// (gpui-component's control sizing, `controls.rs`, the tab-strip measurers)
-/// scales off this one number. Hand-set per the plan — the generated token
-/// file carries no type-scale consts (tokens.json `type.baseSize` is the web's
-/// 16px root, not the component base).
-pub const FONT_SIZE_PX: f32 = 14.0;
+/// scales off this one number. SLOP-18: read from the shared type scale
+/// (`typography::size::SM`; tokens.json `type.baseSize` is the web's 16px
+/// root, not the component base).
+pub const FONT_SIZE_PX: f32 = t::typography::size::SM;
 
 /// EXP-877 — Anthropic's brand orange, the ONE place the tab strip's Claude
 /// group mark is tinted. NOT a design token: the token file is the product's

@@ -84,7 +84,7 @@ const BoardWorld: React.FC<{ l: number }> = ({ l }) => (
       <GroupBand label="In progress" count={3} status="progress" h={54} font={20} />
       {[
         [`EXP-1100`, `Ship the 15-second showreel`, `progress`],
-        [`EXP-1097`, `Review wave clears its layer before landing`, `progress`],
+        [`EXP-1097`, `Offline queue for issue edits`, `progress`],
         [`EXP-1093`, `Issue rail hover opens the mini-graph`, `review`],
       ].map(([id, t, st], i) => (
         <div key={id} style={enter(l, stagger(4, i, 4), 12, { rise: 0, x: -40, blur: 0 })}>
@@ -93,7 +93,7 @@ const BoardWorld: React.FC<{ l: number }> = ({ l }) => (
       ))}
       <GroupBand label="Backlog" count={5} status="backlog" h={54} font={20} />
       {[
-        [`EXP-1102`, `Workflow host state lives on the device`],
+        [`EXP-1102`, `Reduce cold start below 800 ms`],
         [`EXP-1104`, `Android: unbroken tee on tree connectors`],
         [`EXP-1105`, `Digest picks the reader's local hour`],
         [`EXP-1106`, `Passkey login through the desktop handoff`],
