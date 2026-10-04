@@ -30,9 +30,6 @@ describe(`github-connect-copy (SLOP-7)`, () => {
   it(`locks the connection block strings`, () => {
     expect(copy.githubInstallationLabel({ accountLogin: null, installationId: 42 })).toBe(`installation 42`)
     expect(copy.githubInstallationLabel({ accountLogin: `acme`, installationId: 42 })).toBe(`acme`)
-    expect(copy.GH_SECTION_INTRO).toBe(
-      `Connect your GitHub account, install the Exponential app on the accounts whose repositories you want, then add repositories you can push to. Point a board at one to make it the clone target for “Start coding”.`
-    )
     expect(copy.GH_STATUS_FAILED).toBe(`Couldn’t reach GitHub connect state.`)
     expect(copy.GH_NOT_CONFIGURED).toBe(`GitHub isn’t configured on this server.`)
     expect(copy.GH_NOT_LINKED).toBe(`No GitHub account connected`)

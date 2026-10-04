@@ -11,10 +11,6 @@ object GithubCopy {
     // --- A. Connection block (Settings › Repositories) ---
     const val SECTION_TITLE = "Repositories"
     const val ADD_REPOSITORY = "Add repository"
-    const val INTRO =
-        "Connect your GitHub account, install the Exponential app on the accounts whose repositories " +
-            "you want, then add repositories you can push to. Point a board at one to make it the clone " +
-            "target for “Start coding”."
     const val STATUS_FAILED = "Couldn’t reach GitHub connect state."
     const val RETRY = "Retry"
     const val NOT_CONFIGURED = "GitHub isn’t configured on this server."

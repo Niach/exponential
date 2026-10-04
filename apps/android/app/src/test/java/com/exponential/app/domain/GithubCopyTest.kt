@@ -13,10 +13,6 @@ class GithubCopyTest {
     fun connectionBlockLiterals() {
         assertEquals("Repositories", GithubCopy.SECTION_TITLE)
         assertEquals("Add repository", GithubCopy.ADD_REPOSITORY)
-        assertEquals(
-            "Connect your GitHub account, install the Exponential app on the accounts whose repositories you want, then add repositories you can push to. Point a board at one to make it the clone target for “Start coding”.",
-            GithubCopy.INTRO,
-        )
         assertEquals("Couldn’t reach GitHub connect state.", GithubCopy.STATUS_FAILED)
         assertEquals("GitHub isn’t configured on this server.", GithubCopy.NOT_CONFIGURED)
         assertEquals("No GitHub account connected", GithubCopy.NOT_LINKED)

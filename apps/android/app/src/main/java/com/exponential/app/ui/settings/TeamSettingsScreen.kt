@@ -477,13 +477,6 @@ private fun RepositoriesSection(
                 onClick = { showAddRepo = true },
             )
         }
-        Text(
-            GithubCopy.INTRO,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            modifier = Modifier.padding(horizontal = 4.dp),
-        )
-
         val context = LocalContext.current
         GithubStatusBlock(
             status = state.githubStatus,

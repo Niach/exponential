@@ -46,7 +46,6 @@ import {
   GH_RECONNECT_GITHUB,
   GH_RECONNECT_NEEDED,
   GH_RETRY,
-  GH_SECTION_INTRO,
   GH_SECTION_TITLE,
   GH_STATUS_FAILED,
   GH_UPGRADE,
@@ -303,9 +302,6 @@ export function TeamRepositoriesSection({
             </Pill>
           }
         />
-        <p className="px-1 pb-2 text-xs text-foreground/50">
-          {GH_SECTION_INTRO}
-        </p>
         <div className="space-y-3">
           <GithubStatusLine
             status={githubStatus}

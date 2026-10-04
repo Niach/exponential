@@ -1362,15 +1362,15 @@
         "file": "shots/settings-repositories/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 42282,
-        "sha256": "0b87010e6dc064297f028d4e85a0fcf41c4612e0357a4bb9c4d5fb583da6439d"
+        "bytes": 32494,
+        "sha256": "9cf076b556bbe96f5f79806d375c952adbc626e850d0255bfc376f9770f7ac72"
       },
       "web-mobile": {
         "file": "shots/settings-repositories/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 38438,
-        "sha256": "a08881706f0e252ac54501c9c72dbdce8ee871f38e22585093b7515c5288731e"
+        "bytes": 26696,
+        "sha256": "0208c7029ee5f62c95144964c60075fd944a8020fa0a914282dbf1dc0c536793"
       }
     },
     "settings-root": {
