@@ -150,6 +150,7 @@ import com.exponential.app.ui.components.BarCapsule
 import com.exponential.app.ui.components.BarCircle
 import com.exponential.app.ui.components.ContextRing
 import com.exponential.app.ui.components.FloatingBottomBar
+import com.exponential.app.ui.components.TaskListProgress
 import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.components.modelOptionsFor
 import androidx.lifecycle.Lifecycle
@@ -1202,12 +1203,13 @@ private fun RunFaceContent(
                 Spacer(Modifier.height(8.dp))
             }
 
-            // EXP-927: the strip's FIRST block — the agent's own plan, one
-            // collapsed line until somebody opens it. Same live gate as the
-            // blocks below: a finished run has no plan left to work.
-            if (phase == AgentPhase.Live && !sessionEnded && taskList != null) {
+            // EXP-861: what the device holds for the agent's next turn — one
+            // line per queued message, each with the X that revokes it.
+            // Never while the run is over: an ended run delivers nothing. The
+            // composer stays live beneath it.
+            if (phase == AgentPhase.Live && !sessionEnded && activity.queue.isNotEmpty()) {
                 ReadingColumn {
-                    TaskListBlock(summary = taskList, entries = activity.taskList)
+                    QueueStrip(messages = activity.queue, onRemove = viewModel::unqueue)
                 }
                 Spacer(Modifier.height(8.dp))
             }
@@ -1220,17 +1222,6 @@ private fun RunFaceContent(
                 (stripTasks.isNotEmpty() || openWaits.isNotEmpty())
             ) {
                 ReadingColumn { BackgroundWorkStrip(tasks = stripTasks, waits = openWaits) }
-                Spacer(Modifier.height(8.dp))
-            }
-
-            // EXP-861: what the device holds for the agent's next turn — one
-            // line per queued message, each with the X that revokes it.
-            // Never while the run is over: an ended run delivers nothing. The
-            // composer stays live beneath it.
-            if (phase == AgentPhase.Live && !sessionEnded && activity.queue.isNotEmpty()) {
-                ReadingColumn {
-                    QueueStrip(messages = activity.queue, onRemove = viewModel::unqueue)
-                }
                 Spacer(Modifier.height(8.dp))
             }
 
@@ -1271,6 +1262,17 @@ private fun RunFaceContent(
                     Spacer(Modifier.height(8.dp))
                 }
                 ComposerMenu.None -> Unit
+            }
+            // EXP-927/EXP-1191: the agent's own plan — ALWAYS the last block,
+            // directly on the composer, under the queued steer messages and
+            // the background lines (a menu opens above it). One collapsed
+            // line until somebody opens it. Same live gate as the blocks
+            // above: a finished run has no plan left to work.
+            if (phase == AgentPhase.Live && !sessionEnded && taskList != null) {
+                ReadingColumn {
+                    TaskListBlock(summary = taskList, entries = activity.taskList)
+                }
+                Spacer(Modifier.height(4.dp))
             }
             // Escape has no hardware key on most phones — Back dismisses
             // the menu, and only the menu (EXP-724). One handler per menu,
@@ -2498,12 +2500,14 @@ private const val TASK_LIST_VISIBLE_ROWS = 8
 private const val TASK_LIST_SPIN_MS = 1_200
 
 /**
- * EXP-927 (wire doc §2c): the agent's OWN task list — the FIRST block of the
- * strip above the composer, above the background tasks and the waits.
- * Collapsed (the default) it is ONE line: the checklist glyph, the current
- * entry and `{completed}/{total}`, with the chevron that says it opens; the
- * whole line toggles. Expanded it is one line per entry in wire order. The
- * expansion is view state, never persisted — a rejoin opens collapsed.
+ * EXP-927 (wire doc §2c): the agent's OWN task list — EXP-1191: the LAST
+ * block above the composer, and deliberately NOT a box (no fill, no border),
+ * so it never reads as a queued steer message or as the composer itself.
+ * Collapsed (the default) it is ONE plain line: the checklist glyph, the
+ * current entry, the segmented [TaskListProgress] mark, `{completed}/{total}`
+ * and the disclosure chevron; the whole line toggles. Expanded it is one line
+ * per entry in wire order. The expansion is view state, never persisted — a
+ * rejoin opens collapsed.
  */
 @Composable
 private fun TaskListBlock(summary: TaskListSummary, entries: List<TaskListEntry>) {
@@ -2513,7 +2517,6 @@ private fun TaskListBlock(summary: TaskListSummary, entries: List<TaskListEntry>
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .glassRow()
             .testTag("task-list-block"),
     ) {
         // The header is the toggle, so its own tag is the one a test may read:
@@ -2522,7 +2525,7 @@ private fun TaskListBlock(summary: TaskListSummary, entries: List<TaskListEntry>
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable(role = Role.Button) { expanded = !expanded }
-                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .padding(horizontal = 4.dp, vertical = 6.dp)
                 .testTag("task-list-toggle"),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -2541,14 +2544,15 @@ private fun TaskListBlock(summary: TaskListSummary, entries: List<TaskListEntry>
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
+            TaskListProgress(statuses = entries.map { it.status })
             Text(
                 "${summary.completed}/${summary.total}",
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                 color = tertiary,
                 maxLines = 1,
             )
             Icon(
-                imageVector = if (expanded) ExpIcons.uiChevronDown else ExpIcons.uiChevronUp,
+                imageVector = if (expanded) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
                 contentDescription = null,
                 modifier = Modifier.size(12.dp),
                 tint = tertiary,
@@ -2560,7 +2564,7 @@ private fun TaskListBlock(summary: TaskListSummary, entries: List<TaskListEntry>
                     .fillMaxWidth()
                     .heightIn(max = TaskListEntryHeight * TASK_LIST_VISIBLE_ROWS)
                     .verticalScroll(rememberScrollState())
-                    .padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
+                    .padding(start = 4.dp, end = 4.dp, bottom = 6.dp),
             ) {
                 entries.forEach { entry -> TaskListEntryLine(entry) }
             }

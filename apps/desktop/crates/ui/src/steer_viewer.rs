@@ -3718,6 +3718,73 @@ fn restore_unread_to_draft(draft: &str, held: &str) -> String {
     }
 }
 
+/// EXP-1191: a segment per entry above this many becomes ONE track (web
+/// `TASK_LIST_PROGRESS_MAX_SEGMENTS`).
+const TASK_LIST_PROGRESS_MAX_SEGMENTS: usize = 12;
+
+/// EXP-1191 — the task list's own progress mark ×4 (web `TaskListProgress`):
+/// one 10×4 pill per entry, 3px apart — done solid (foreground 70%), the
+/// current one half (35%), the rest faint (12%). Past
+/// [`TASK_LIST_PROGRESS_MAX_SEGMENTS`] one 80×4 track filled to done/total.
+/// `None` for an empty list.
+pub(crate) fn task_list_progress(
+    statuses: &[steer::TaskListStatus],
+    cx: &gpui::App,
+) -> Option<AnyElement> {
+    let total = statuses.len();
+    if total == 0 {
+        return None;
+    }
+    let foreground = cx.theme().foreground;
+    if total > TASK_LIST_PROGRESS_MAX_SEGMENTS {
+        let done = statuses
+            .iter()
+            .filter(|status| **status == steer::TaskListStatus::Completed)
+            .count();
+        let track = px(80.);
+        return Some(
+            div()
+                .flex_shrink_0()
+                .relative()
+                .w(track)
+                .h(px(4.))
+                .rounded_full()
+                .overflow_hidden()
+                .bg(foreground.opacity(0.12))
+                .child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .h_full()
+                        .w(track * (done as f32 / total as f32))
+                        .rounded_full()
+                        .bg(foreground.opacity(0.7)),
+                )
+                .into_any_element(),
+        );
+    }
+    Some(
+        h_flex()
+            .flex_shrink_0()
+            .items_center()
+            .gap(px(3.))
+            .children(statuses.iter().map(|status| {
+                let alpha = match status {
+                    steer::TaskListStatus::Completed => 0.7,
+                    steer::TaskListStatus::InProgress => 0.35,
+                    _ => 0.12,
+                };
+                div()
+                    .w(px(10.))
+                    .h(px(4.))
+                    .rounded_full()
+                    .bg(foreground.opacity(alpha))
+            }))
+            .into_any_element(),
+    )
+}
+
 /// EXP-861 — whether the queue strip renders: something is held AND the run
 /// is still open. Deliberately NOT a function of the composer's visibility
 /// (a pending card hides the composer, never the strip) — Android
@@ -5669,6 +5736,12 @@ impl SteerSessionView {
                     .truncate()
                     .child(SharedString::from(summary.current.clone())),
             )
+            // EXP-1191: the list's own mark between the label and the count,
+            // so the line never reads as a queued message or the composer.
+            .children(task_list_progress(
+                &entries.iter().map(|entry| entry.status).collect::<Vec<_>>(),
+                cx,
+            ))
             .child(div().flex_shrink_0().child(SharedString::from(format!(
                 "{}/{}",
                 summary.completed, summary.total
@@ -7967,11 +8040,9 @@ impl Render for SteerSessionView {
             .then(|| self.render_rate_limit_banner(cx))
             .flatten();
         let composer = composer_visible.then(|| self.render_composer(window, cx));
-        // EXP-850 §1/§2: the background-task / waiting strip sits directly
-        // above the composer, under everything else. EXP-861: the queue bar
-        // goes between it and the composer — the last thing above the field.
-        // EXP-927 §2c: the agent's own task list is the FIRST block of that
-        // strip, above the tasks and waits.
+        // EXP-1191 (web order): banners → the queue bar (EXP-861) → the
+        // background tasks / waits (EXP-850) → the agent's task list
+        // (EXP-927), which is ALWAYS the last block, directly on the composer.
         let task_list = self.render_task_list_strip(cx);
         let tasks = self.render_task_strip(cx);
         // The strip follows the RUN, not the composer: with a question or
@@ -8021,9 +8092,9 @@ impl Render for SteerSessionView {
                 .children(banners)
                 .children(compacting)
                 .children(rate_limit)
-                .children(task_list)
-                .children(tasks)
                 .children(queue)
+                .children(tasks)
+                .children(task_list)
                 .children(composer)
         });
         v_flex()

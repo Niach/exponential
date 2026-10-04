@@ -33,6 +33,7 @@ import {
   FAB_CHROME_CLASS,
   FabButton,
   JumpToBottomButton,
+  TaskListProgress,
   GlassCard,
   useIsMobile,
   Button,
@@ -1959,11 +1960,6 @@ export function AgentSessionView({
               diff is the pane beside the transcript. The phone's floating
               version renders inside the scroll wrapper above. */}
 
-          {/* EXP-850 §1/§2: monitors and background shell commands, right
-              above the composer. EXP-927: led by the agent's own task list;
-              background AGENTS are the tabs above, never lines here. */}
-          <BackgroundStrip lines={stripLines} taskList={taskList} />
-
           {/* EXP-861: the messages the agent has not read yet — held behind a
               compaction (an X revokes one and hands the text back to an
               empty draft, the CLI's "edit queued message") or sent mid-turn
@@ -1979,6 +1975,12 @@ export function AgentSessionView({
             }}
           />
 
+          {/* EXP-850 §1/§2: monitors and background shell commands, right
+              above the composer, then (EXP-927) the agent's own task list —
+              EXP-1191: the LAST block, directly on the composer, under the
+              queued steer messages. Background AGENTS are the tabs above,
+              never lines here. */}
+          <BackgroundStrip lines={stripLines} taskList={taskList} />
           {/* Steering composer. Steering is fully seamless (EXP-312) — no
               captions, no operator state; live implies ownership. */}
           {composerVisible && !isMobile && (
@@ -2237,9 +2239,6 @@ function BackgroundStrip({
       data-testid="session-background-strip"
     >
       <div className={cn(TRANSCRIPT_COLUMN, `flex flex-col gap-0.5`)}>
-        {summary !== null && (
-          <TaskListBlock entries={taskList} summary={summary} />
-        )}
         {lines.map((line) => (
           <div
             key={line.key}
@@ -2258,6 +2257,10 @@ function BackgroundStrip({
             </span>
           </div>
         ))}
+        {/* EXP-1191: the task list closes the strip, right on the composer. */}
+        {summary !== null && (
+          <TaskListBlock entries={taskList} summary={summary} />
+        )}
       </div>
     </div>
   )
@@ -2286,6 +2289,9 @@ function TaskListBlock({
         <span className="min-w-0 flex-1 truncate" title={summary.current}>
           {summary.current}
         </span>
+        {/* EXP-1191: its own mark, so the line never reads as a queued
+            message or the composer. */}
+        <TaskListProgress statuses={entries.map((entry) => entry.status)} />
         <span className="shrink-0 tabular-nums">
           {summary.completed}/{summary.total}
         </span>

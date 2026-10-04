@@ -183,10 +183,6 @@ struct AgentSessionView: View {
             banners(model)
             rateLimitBanner(model)
             compactionStrip(model)
-            // EXP-850 §1/§2: the monitors and background shell commands,
-            // directly above the composer. Absent when there is nothing running.
-            // EXP-927 §2c: the agent's own task list is the strip's first block.
-            AgentBottomStrip(lines: model.visibleStripLines, taskList: model.visibleTaskList)
             // EXP-861: the messages the device holds until the turn ends, each
             // with an X that revokes it. Absent when nothing is queued or the run
             // is over.
@@ -195,6 +191,10 @@ struct AgentSessionView: View {
                     model.unqueue(id)
                 }
             }
+            // EXP-850 §1/§2: the monitors and background shell commands.
+            // Absent when there is nothing running. EXP-1191: the agent's own
+            // task list closes it — ALWAYS the last block, on the composer.
+            AgentBottomStrip(lines: model.visibleStripLines, taskList: model.visibleTaskList)
             bottomBar(model)
         }
         // EXP-1162: the bottom edge strip behind the band — not behind an
