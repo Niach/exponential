@@ -127,6 +127,7 @@ import {
   ResizeHandle,
   SearchField,
   SegmentedControl,
+  SessionInlineResultTile,
   SessionResultsView,
   Select,
   SelectTrigger,
@@ -762,10 +763,18 @@ const EMOJI_FIXTURE: EmojiDataset = {
    shot one screen on two platforms. The probed size gives each tile its
    aspect; the src is the flat data-URI tile, because an island loads nothing. */
 const SESSION_RESULTS_FIXTURE: SessionResultEntry[] = [
-  { topic: `Issue header`, label: `web`, attachmentId: `a1`, width: 1440, height: 900 },
-  { topic: `Issue header`, label: `ios`, attachmentId: `a2`, width: 390, height: 844 },
-  { topic: `Emoji picker`, label: `web`, attachmentId: `a3`, width: 1440, height: 900 },
-  { topic: `Emoji picker`, label: `android`, attachmentId: `a4`, width: 412, height: 915 },
+  { topic: `Issue header`, label: `web`, attachmentId: `a1`, width: 1440, height: 900, inline: false, caption: null },
+  { topic: `Issue header`, label: `ios`, attachmentId: `a2`, width: 390, height: 844, inline: false, caption: null },
+  { topic: `Emoji picker`, label: `web`, attachmentId: `a3`, width: 1440, height: 900, inline: false, caption: null },
+  { topic: `Emoji picker`, label: `android`, attachmentId: `a4`, width: 412, height: 915, inline: false, caption: null },
+]
+
+/* EXP-1172: what `exponential_sessions_show` filed while the run worked —
+   `inline` pictures with the call's caption. In a topic beside final shots
+   they fold under `Earlier · N`; in the transcript each sits under its call. */
+const SESSION_INLINE_FIXTURE: SessionResultEntry[] = [
+  { topic: `Issue header`, label: `Shot 1`, attachmentId: `a5`, width: 1440, height: 900, inline: true, caption: `Before: the title clipped at one line` },
+  { topic: `Issue header`, label: `Shot 2`, attachmentId: `a6`, width: 1440, height: 900, inline: true, caption: `Two-line wrap, toggle still right-aligned` },
 ]
 
 /* EXP-933: the same run as a REPORT — a text-only `Summary` topic first, then
@@ -776,13 +785,20 @@ const SESSION_RESULT_GROUPS_FIXTURE: SessionResultGroup[] = [
     topic: `Summary`,
     text: `Moved the issue header onto the shared \`WorkHeader\` and gave the emoji picker a Recent row.\n\n- Header: one row on every width\n- Picker: recents persist per device`,
     entries: [],
+    earlier: [],
   },
   {
     topic: `Issue header`,
     text: `The title wraps at two lines; the face toggle stays right-aligned.`,
     entries: SESSION_RESULTS_FIXTURE.slice(0, 2),
+    earlier: SESSION_INLINE_FIXTURE,
   },
-  { topic: `Emoji picker`, text: null, entries: SESSION_RESULTS_FIXTURE.slice(2) },
+  {
+    topic: `Emoji picker`,
+    text: null,
+    entries: SESSION_RESULTS_FIXTURE.slice(2),
+    earlier: [],
+  },
 ]
 
 /* -------------------------------------------------------------- the specs */
@@ -4219,6 +4235,38 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         groups={SESSION_RESULT_GROUPS_FIXTURE}
         attachmentSrc={() => THUMB_FIXTURE_SRC}
       />
+    ),
+  },
+  {
+    id: `session-inline-picture`,
+    title: `Inline run picture`,
+    kind: `Lists & rows`,
+    blurb: `EXP-1172: a screenshot \`exponential_sessions_show\` filed while the run worked, drawn in the run TRANSCRIPT under that call's row ("Showed picture"): the Results tile at a 240px base (fitted to the column by the same one-factor rule), the call's caption under it (else the label), the shared lightbox behind a tap. It is found by the attachment id the call's answer carried (the tool preview's \`id\`) in the synced \`coding_sessions.results\`, so it appears the moment the upload lands, at the call, newest at the bottom; a run of show calls keeps its tiles visible while its group is folded. On the Results face the same \`inline\` pictures fold under a collapsed \`Earlier · N\` disclosure below a topic's final tiles unless they are its only picture (the Session results entry above shows the fold). Fixture \`session-inline.json\` ×4.`,
+    status: {
+      web: ok(
+        `SessionInlineResultTile`,
+        `packages/ui/src/session-results-view.tsx`,
+        `agent-session.tsx ShownPicture places it under the exp tool row`
+      ),
+      desktop: ok(`render_inline_picture`, `apps/desktop/crates/ui/src/steer_viewer.rs`, `the steer view method; Earlier band in session_results.rs`),
+      ios: ok(
+        `SessionInlinePicture`,
+        `apps/ios/Exponential/UI/Work/SessionResultsFace.swift`,
+        `AgentSessionView reads the run's results through the sessionResultsRaw environment value`
+      ),
+      android: ok(
+        `ExpToolPicture`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/session/AgentSessionScreen.kt`,
+        `reuses ResultTile + ResultPreviewDialog from ui/work/ResultsFace.kt`
+      ),
+    },
+    island: () => (
+      <div className="flex w-[28rem] flex-col gap-1">
+        <SessionInlineResultTile
+          entry={SESSION_INLINE_FIXTURE[1]}
+          attachmentSrc={() => THUMB_FIXTURE_SRC}
+        />
+      </div>
     ),
   },
   {

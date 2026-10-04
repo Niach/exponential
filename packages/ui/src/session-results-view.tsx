@@ -6,11 +6,15 @@ import {
   type RefObject,
 } from "react"
 import { Button } from "./button"
+import { DisclosureHeader } from "./disclosure-header"
 import { GlassSectionHeader } from "./glass-rows"
 import { ImagePreviewDialog } from "./image-preview-dialog"
 import {
   groupSessionResults,
+  SESSION_INLINE_TILE_HEIGHT,
   SESSION_RESULT_TILE_HEIGHT,
+  SESSION_RESULTS_EARLIER_LABEL,
+  sessionResultTileCaption,
   sessionResultIsTall,
   sessionResultPictures,
   type SessionResultGroup,
@@ -39,6 +43,12 @@ import { cn } from "./cn"
 // the 4:3 frame cropped to its TOP under a bottom fade and a `Tall` pill, so it
 // reads as its first viewport instead of a 10px sliver; the lightbox then
 // opens it fit-to-width in a vertical scroll. Same look ×4.
+//
+// EXP-1172: `exponential_sessions_show` pictures (`inline`) render in the run
+// TRANSCRIPT at the call (`SessionInlineResultTile`, one tile at the 240px
+// base, the call's caption under it); on this face a topic with more than one
+// picture folds them under a collapsed `Earlier · N` disclosure below its
+// final tiles, so the report leads. Fixture `session-inline.json` ×4.
 
 /** The measured CONTENT width of a node, 0 until the first measurement (and in
  *  jsdom, which has no layout): the callers render at the base height then. */
@@ -68,11 +78,15 @@ function ResultTile({
   height,
   src,
   onOpen,
+  caption = entry.label,
 }: {
   entry: SessionResultEntry
   height: number
   src: string
   onOpen: () => void
+  /** The line under the shot: the label on the Results face, the show
+   *  call's caption in the transcript (EXP-1172). */
+  caption?: string
 }) {
   const tall = sessionResultIsTall(entry)
   return (
@@ -122,10 +136,115 @@ function ResultTile({
           </>
         )}
       </span>
-      <span className="w-full truncate text-xs text-muted-foreground">
-        {entry.label}
+      <span className="w-full truncate text-left text-xs text-muted-foreground">
+        {caption}
       </span>
     </Button>
+  )
+}
+
+function ResultPreview({
+  entry,
+  src,
+  onClose,
+}: {
+  entry: SessionResultEntry
+  src: string
+  onClose: () => void
+}) {
+  return (
+    <ImagePreviewDialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+      src={src}
+      alt={entry.label}
+      label={entry.label}
+      naturalSize={
+        entry.width !== null && entry.height !== null
+          ? { width: entry.width, height: entry.height }
+          : null
+      }
+    />
+  )
+}
+
+/** EXP-1172: a group's inline pictures, folded under `Earlier · N` until
+ *  opened; open, they wrap like the tiles above them. */
+function EarlierFold({
+  entries,
+  height,
+  attachmentSrc,
+  onOpen,
+}: {
+  entries: readonly SessionResultEntry[]
+  height: number
+  attachmentSrc: (attachmentId: string) => string
+  onOpen: (entry: SessionResultEntry) => void
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="flex flex-col pt-3" data-testid="session-results-earlier">
+      <DisclosureHeader
+        open={open}
+        onToggle={() => setOpen((value) => !value)}
+        className="w-auto self-start text-xs"
+      >
+        {`${SESSION_RESULTS_EARLIER_LABEL} · ${entries.length}`}
+      </DisclosureHeader>
+      {open && (
+        <div className="flex flex-wrap gap-3 pt-3">
+          {entries.map((entry) => (
+            <ResultTile
+              key={`${entry.topic}/${entry.label}/${entry.attachmentId}`}
+              entry={entry}
+              height={height}
+              src={attachmentSrc(entry.attachmentId)}
+              onOpen={() => onOpen(entry)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * EXP-1172: the picture an `exponential_sessions_show` call filed, drawn
+ * under that call's transcript row — one tile at the inline base, fitted to
+ * the column like a Results page, the call's caption (else the label) under
+ * it, the shared lightbox behind a tap.
+ */
+export function SessionInlineResultTile({
+  entry,
+  attachmentSrc,
+  className,
+}: {
+  entry: SessionResultEntry
+  attachmentSrc: (attachmentId: string) => string
+  className?: string
+}) {
+  const [preview, setPreview] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const width = useContentWidth(containerRef)
+  const height = width
+    ? sessionResultTileHeightFitting([entry], width, SESSION_INLINE_TILE_HEIGHT)
+    : SESSION_INLINE_TILE_HEIGHT
+  const src = attachmentSrc(entry.attachmentId)
+  return (
+    <div ref={containerRef} className={cn(`flex`, className)} data-testid="session-inline-result">
+      <ResultTile
+        entry={entry}
+        height={height}
+        src={src}
+        caption={sessionResultTileCaption(entry)}
+        onOpen={() => setPreview(true)}
+      />
+      {preview && (
+        <ResultPreview entry={entry} src={src} onClose={() => setPreview(false)} />
+      )}
+    </div>
   )
 }
 
@@ -206,22 +325,21 @@ export function SessionResultsView({
             ))}
           </div>
           )}
+          {group.earlier.length > 0 && (
+            <EarlierFold
+              entries={group.earlier}
+              height={height}
+              attachmentSrc={attachmentSrc}
+              onOpen={setPreview}
+            />
+          )}
         </div>
       ))}
       {preview && (
-        <ImagePreviewDialog
-          open
-          onOpenChange={(open) => {
-            if (!open) setPreview(null)
-          }}
+        <ResultPreview
+          entry={preview}
           src={attachmentSrc(preview.attachmentId)}
-          alt={preview.label}
-          label={preview.label}
-          naturalSize={
-            preview.width !== null && preview.height !== null
-              ? { width: preview.width, height: preview.height }
-              : null
-          }
+          onClose={() => setPreview(null)}
         />
       )}
     </div>

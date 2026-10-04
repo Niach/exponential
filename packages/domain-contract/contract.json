@@ -460,7 +460,8 @@
       "board",
       "action",
       "list",
-      "results"
+      "results",
+      "picture"
     ],
     "tools": [
       {
@@ -1157,6 +1158,17 @@
         "result": "results"
       },
       {
+        "name": "sessions_show",
+        "title": "Show picture",
+        "blurb": "Shows a screenshot in the run's transcript while it works, filed under its Results.",
+        "progressive": "Showing picture",
+        "done": "Showed picture",
+        "progressiveMany": "Showing {n} pictures",
+        "doneMany": "Showed {n} pictures",
+        "subjectKey": "topic",
+        "result": "picture"
+      },
+      {
         "name": "sessions_start",
         "title": "Start coding session",
         "blurb": "Starts a coding run on one of your devices for an issue or an action.",
@@ -1378,6 +1390,7 @@
       { "name": "sessions_list", "refs": "list:session@" },
       { "name": "sessions_message", "refs": "session@" },
       { "name": "sessions_results", "refs": "" },
+      { "name": "sessions_show", "refs": "" },
       { "name": "sessions_start", "refs": "session@session issue@session issue@$issueId issue@$issueIds[]" },
       { "name": "statuses_create", "refs": "status@" },
       { "name": "statuses_delete", "refs": "" },

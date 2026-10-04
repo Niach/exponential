@@ -38,6 +38,15 @@ pub const SESSION_RESULT_TILE_HEIGHT: f32 = 320.0;
 /// is not tall. Fixture `session-results.json` `tiles` (×4).
 pub const SESSION_RESULT_TALL_ASPECT: f32 = 1.0 / 3.0;
 
+/// EXP-1172 — an `exponential_sessions_show` picture's tile in the run
+/// transcript, one base height lower than a Results tile so a shot sits in
+/// the conversation without swallowing it. Fixture `session-inline.json`.
+pub const SESSION_INLINE_TILE_HEIGHT: f32 = 240.0;
+
+/// EXP-1172 — the collapsed band a Results group folds its inline pictures
+/// under (`Earlier · 3`).
+pub const SESSION_RESULTS_EARLIER_LABEL: &str = "Earlier";
+
 /// One published picture.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionResultEntry {
@@ -52,6 +61,11 @@ pub struct SessionResultEntry {
     /// `None` (a tile with either side unknown falls back to 4:3).
     pub width: Option<u32>,
     pub height: Option<u32>,
+    /// EXP-1172 — filed by `exponential_sessions_show` while the run worked
+    /// (true only for a JSON `true`).
+    pub inline: bool,
+    /// EXP-1172 — the show call's `text`, trimmed; `None` when blank.
+    pub caption: Option<String>,
 }
 
 /// One topic's tiles, in the order they were published.
@@ -62,6 +76,25 @@ pub struct SessionResultGroup {
     /// `None` without one. A text-only topic is a group with no entries.
     pub text: Option<String>,
     pub entries: Vec<SessionResultEntry>,
+    /// EXP-1172 — the topic's INLINE pictures, folded under the `Earlier`
+    /// band (publish order); empty when the topic has a single picture.
+    pub earlier: Vec<SessionResultEntry>,
+}
+
+/// EXP-1172 — a topic with more than one picture moves its inline ones into
+/// `earlier`, so the final report leads; a topic's only picture stays.
+fn fold_inline(mut groups: Vec<SessionResultGroup>) -> Vec<SessionResultGroup> {
+    for group in &mut groups {
+        if group.entries.len() < 2 {
+            continue;
+        }
+        let (earlier, entries) = std::mem::take(&mut group.entries)
+            .into_iter()
+            .partition(|entry| entry.inline);
+        group.earlier = earlier;
+        group.entries = entries;
+    }
+    groups
 }
 
 /// The blob's array elements, whether it arrived structured or as the TEXT
@@ -94,6 +127,7 @@ pub fn parse_session_result_groups(raw: Option<&Value>) -> Vec<SessionResultGrou
                     topic: topic.to_string(),
                     text: None,
                     entries: Vec::new(),
+                    earlier: Vec::new(),
                 });
                 groups.len() - 1
             }
@@ -126,7 +160,7 @@ pub fn parse_session_result_groups(raw: Option<&Value>) -> Vec<SessionResultGrou
             group.text = Some(body);
         }
     }
-    groups
+    fold_inline(groups)
 }
 
 /// EXP-933 — true when the blob has anything for the Results face to show
@@ -174,10 +208,40 @@ pub fn group_session_results(entries: &[SessionResultEntry]) -> Vec<SessionResul
                 topic: entry.topic.clone(),
                 text: None,
                 entries: vec![entry.clone()],
+                earlier: Vec::new(),
             }),
         }
     }
+    fold_inline(groups)
+}
+
+/// Every picture of a set of groups, in order — what the tile sizing reads
+/// (EXP-1172: the folded `earlier` ones too, so expanding the band never
+/// resizes the page).
+pub fn session_result_pictures(groups: &[SessionResultGroup]) -> Vec<SessionResultEntry> {
     groups
+        .iter()
+        .flat_map(|group| group.entries.iter().chain(group.earlier.iter()).cloned())
+        .collect()
+}
+
+/// EXP-1172 — the picture an `exponential_sessions_show` call filed, by the
+/// attachment id its answer carried (`preview.id`); `None` while the upload
+/// is still in flight, once it was removed, or for a blank id.
+pub fn session_result_picture(raw: Option<&Value>, attachment_id: &str) -> Option<SessionResultEntry> {
+    let id = attachment_id.trim();
+    if id.is_empty() {
+        return None;
+    }
+    parse_session_results(raw)
+        .into_iter()
+        .find(|entry| entry.attachment_id == id)
+}
+
+/// EXP-1172 — the line under a transcript tile: the show call's caption,
+/// else the picture's label.
+pub fn session_result_tile_caption(entry: &SessionResultEntry) -> &str {
+    entry.caption.as_deref().unwrap_or(&entry.label)
 }
 
 /// EXP-1128: true when the probed aspect is under
@@ -221,7 +285,16 @@ pub fn session_result_tile_height_fitting(
     entries: &[SessionResultEntry],
     available_width: f32,
 ) -> f32 {
-    let base = SESSION_RESULT_TILE_HEIGHT;
+    session_result_tile_height_fitting_from(entries, available_width, SESSION_RESULT_TILE_HEIGHT)
+}
+
+/// [`session_result_tile_height_fitting`] from another `base` — EXP-1172: the
+/// transcript's inline tile fits from [`SESSION_INLINE_TILE_HEIGHT`].
+pub fn session_result_tile_height_fitting_from(
+    entries: &[SessionResultEntry],
+    available_width: f32,
+    base: f32,
+) -> f32 {
     // An unmeasured or nonsense width is not a constraint — never shrink the
     // page because the layout has not reported yet.
     if !available_width.is_finite() || available_width <= 0.0 {
@@ -252,6 +325,8 @@ fn entry_from(value: &Value) -> Option<SessionResultEntry> {
         attachment_id: text("attachmentId")?,
         width: dimension(object.get("width")),
         height: dimension(object.get("height")),
+        inline: object.get("inline").and_then(Value::as_bool) == Some(true),
+        caption: text("caption"),
     })
 }
 
@@ -284,6 +359,80 @@ mod tests {
             attachment_id: id.to_string(),
             width: None,
             height: None,
+            inline: false,
+            caption: None,
+        }
+    }
+
+    fn inline_json(entry: &SessionResultEntry) -> Value {
+        serde_json::json!({
+            "label": entry.label,
+            "attachmentId": entry.attachment_id,
+            "inline": entry.inline,
+            "caption": entry.caption,
+        })
+    }
+
+    /// EXP-1172 — the shared `session-inline.json` fixture ×4: the Results
+    /// fold (`groups`) and the transcript tile's lookup (`lookup`).
+    #[test]
+    fn session_inline_matches_the_shared_fixture() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/session-inline.json"
+        ))
+        .unwrap();
+        assert_eq!(fixture["inlineTileHeight"].as_f64().unwrap() as f32, SESSION_INLINE_TILE_HEIGHT);
+        assert_eq!(fixture["earlierLabel"].as_str().unwrap(), SESSION_RESULTS_EARLIER_LABEL);
+        let cases = fixture["groups"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let groups = parse_session_result_groups(Some(&case["raw"]));
+            let actual: Vec<Value> = groups
+                .iter()
+                .map(|group| {
+                    serde_json::json!({
+                        "topic": group.topic,
+                        "text": group.text,
+                        "entries": group.entries.iter().map(inline_json).collect::<Vec<_>>(),
+                        "earlier": group.earlier.iter().map(inline_json).collect::<Vec<_>>(),
+                    })
+                })
+                .collect();
+            assert_eq!(Value::Array(actual), case["expected"], "fixture case: {name}");
+            // The pictures-only grouping folds the same way.
+            let pictures = group_session_results(&parse_session_results(Some(&case["raw"])));
+            let folded: Vec<_> = groups
+                .iter()
+                .filter(|group| !group.entries.is_empty() || !group.earlier.is_empty())
+                .map(|group| (group.entries.clone(), group.earlier.clone()))
+                .collect();
+            assert_eq!(
+                pictures
+                    .iter()
+                    .map(|group| (group.entries.clone(), group.earlier.clone()))
+                    .collect::<Vec<_>>(),
+                folded,
+                "fixture case: {name}"
+            );
+        }
+        let lookups = fixture["lookup"].as_array().unwrap();
+        assert!(!lookups.is_empty());
+        for case in lookups {
+            let name = case["name"].as_str().unwrap();
+            let found = session_result_picture(
+                Some(&case["raw"]),
+                case["attachmentId"].as_str().unwrap(),
+            );
+            let actual = found.map_or(Value::Null, |entry| {
+                serde_json::json!({
+                    "label": entry.label,
+                    "inline": entry.inline,
+                    "caption": entry.caption,
+                    "tileCaption": session_result_tile_caption(&entry),
+                })
+            });
+            assert_eq!(actual, case["expected"], "fixture case: {name}");
         }
     }
 

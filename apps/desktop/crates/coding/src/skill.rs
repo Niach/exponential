@@ -142,6 +142,8 @@ run `bun test`.\n"
             "exponential_sessions_ask_parent",
             // EXP-879: the run publishes pictures of its own work.
             "exponential_sessions_results",
+            // EXP-1172: and shows each visible change while it works.
+            "exponential_sessions_show",
         ] {
             assert!(tools.contains(&name), "playbook never names {name}");
         }

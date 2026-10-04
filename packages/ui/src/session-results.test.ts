@@ -18,9 +18,9 @@ describe(`session results`, () => {
   it(`parses a flat ordered list and drops malformed entries`, () => {
     expect(
       parseSessionResults([
-        { topic: `chatui`, label: `web`, attachmentId: `a1`, width: 1600, height: 900 },
+        { topic: `chatui`, label: `web`, attachmentId: `a1`, width: 1600, height: 900, inline: false, caption: null },
         // No label, no attachment, blank topic: all dropped.
-        { topic: `chatui`, attachmentId: `a2`, width: 10, height: 10 },
+        { topic: `chatui`, attachmentId: `a2`, width: 10, height: 10, inline: false, caption: null },
         { topic: `chatui`, label: `ios`, width: 10, height: 10 },
         { topic: `   `, label: `android`, attachmentId: `a3` },
         { topic: `chatui`, label: 7, attachmentId: `a4` },
@@ -32,16 +32,16 @@ describe(`session results`, () => {
         [],
       ])
     ).toEqual([
-      { topic: `chatui`, label: `web`, attachmentId: `a1`, width: 1600, height: 900 },
-      { topic: `chatui`, label: `ios`, attachmentId: `a5`, width: null, height: null },
-      { topic: `nav`, label: `web`, attachmentId: `a6`, width: null, height: null },
+      { topic: `chatui`, label: `web`, attachmentId: `a1`, width: 1600, height: 900, inline: false, caption: null },
+      { topic: `chatui`, label: `ios`, attachmentId: `a5`, width: null, height: null, inline: false, caption: null },
+      { topic: `nav`, label: `web`, attachmentId: `a6`, width: null, height: null, inline: false, caption: null },
     ])
     // The natives hand their decoder the raw column, so a JSON string parses
     // exactly like the array does.
     expect(
       parseSessionResults(`[{"topic":"t","label":"l","attachmentId":"a"}]`)
     ).toEqual([
-      { topic: `t`, label: `l`, attachmentId: `a`, width: null, height: null },
+      { topic: `t`, label: `l`, attachmentId: `a`, width: null, height: null, inline: false, caption: null },
     ])
     // Topic, label and id are trimmed.
     expect(
@@ -63,7 +63,7 @@ describe(`session results`, () => {
         },
       ])
     ).toEqual([
-      { topic: `t`, label: `l`, attachmentId: `a`, width: 4, height: 2 },
+      { topic: `t`, label: `l`, attachmentId: `a`, width: 4, height: 2, inline: false, caption: null },
     ])
     expect(parseSessionResults(null)).toEqual([])
     expect(parseSessionResults(undefined)).toEqual([])
@@ -85,16 +85,18 @@ describe(`session results`, () => {
         topic: `chatui`,
         text: null,
         entries: [
-          { topic: `chatui`, label: `web`, attachmentId: `a1`, width: null, height: null },
-          { topic: `chatui`, label: `ios`, attachmentId: `a3`, width: null, height: null },
+          { topic: `chatui`, label: `web`, attachmentId: `a1`, width: null, height: null, inline: false, caption: null },
+          { topic: `chatui`, label: `ios`, attachmentId: `a3`, width: null, height: null, inline: false, caption: null },
         ],
+        earlier: [],
       },
       {
         topic: `nav`,
         text: null,
         entries: [
-          { topic: `nav`, label: `web`, attachmentId: `a2`, width: null, height: null },
+          { topic: `nav`, label: `web`, attachmentId: `a2`, width: null, height: null, inline: false, caption: null },
         ],
+        earlier: [],
       },
     ])
     expect(groupSessionResults([])).toEqual([])
@@ -126,8 +128,8 @@ describe(`session results`, () => {
   it(`scales every tile down by one factor when the widest overflows the page`, () => {
     const entries = parseSessionResults([
       // 480px wide at the 320px base — wider than a phone.
-      { topic: `t`, label: `web`, attachmentId: `a1`, width: 1800, height: 1200 },
-      { topic: `t`, label: `ios`, attachmentId: `a2`, width: 828, height: 1800 },
+      { topic: `t`, label: `web`, attachmentId: `a1`, width: 1800, height: 1200, inline: false, caption: null },
+      { topic: `t`, label: `ios`, attachmentId: `a2`, width: 828, height: 1800, inline: false, caption: null },
     ])
     expect(sessionResultTileWidth(entries[0])).toBe(480)
     // A 358px phone column: floor(320 * 358 / 480).
@@ -174,4 +176,50 @@ describe(`session results report fixture`, () => {
       expect(sessionResultTileWidth(entry, 320), c.name).toBe(c.widthAt320)
     }
   })
+})
+
+// EXP-1172: the inline-picture fixture, shared ×4.
+import inlineFixture from "@exp/domain-contract/fixtures/session-inline.json"
+import {
+  SESSION_INLINE_TILE_HEIGHT,
+  SESSION_RESULTS_EARLIER_LABEL,
+  sessionResultPicture,
+  sessionResultTileCaption,
+} from "./session-results"
+
+describe(`session inline fixture`, () => {
+  it(`pins the shared constants`, () => {
+    expect(SESSION_INLINE_TILE_HEIGHT).toBe(inlineFixture.inlineTileHeight)
+    expect(SESSION_RESULTS_EARLIER_LABEL).toBe(inlineFixture.earlierLabel)
+  })
+  const pick = (entry: { label: string; attachmentId: string; inline: boolean; caption: string | null }) => ({
+    label: entry.label,
+    attachmentId: entry.attachmentId,
+    inline: entry.inline,
+    caption: entry.caption,
+  })
+  for (const c of inlineFixture.groups) {
+    it(`folds: ${c.name}`, () => {
+      const groups = parseSessionResultGroups(c.raw).map((group) => ({
+        topic: group.topic,
+        text: group.text,
+        entries: group.entries.map(pick),
+        earlier: group.earlier.map(pick),
+      }))
+      expect(groups).toEqual(c.expected)
+    })
+  }
+  for (const c of inlineFixture.lookup) {
+    it(`looks up: ${c.name}`, () => {
+      const entry = sessionResultPicture(c.raw, c.attachmentId)
+      expect(
+        entry && {
+          label: entry.label,
+          inline: entry.inline,
+          caption: entry.caption,
+          tileCaption: sessionResultTileCaption(entry),
+        }
+      ).toEqual(c.expected)
+    })
+  }
 })

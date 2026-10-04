@@ -12,6 +12,8 @@ const entry = (over: Partial<SessionResultEntry>): SessionResultEntry => ({
   attachmentId: `att-1`,
   width: 1280,
   height: 800,
+  inline: false,
+  caption: null,
   ...over,
 })
 
@@ -131,5 +133,58 @@ describe(`SessionResultsView report text`, () => {
     expect(getAllByTestId(`session-result-text`)).toHaveLength(2)
     expect(getByText(`md:Did **it**`)).toBeTruthy()
     expect(getAllByTestId(`session-result-a1`)).toHaveLength(1)
+  })
+})
+
+// EXP-1172: sessions_show pictures — folded under Earlier on the face, one
+// captioned tile in the transcript.
+import { SessionInlineResultTile } from "./session-results-view"
+
+describe(`SessionResultsView inline pictures`, () => {
+  it(`folds a topic's inline pictures under a collapsed Earlier row`, () => {
+    const { getByTestId, queryByTestId, getByText } = render(
+      <SessionResultsView
+        groups={parseSessionResultGroups([
+          { topic: `nav`, label: `Shot 1`, attachmentId: `a1`, inline: true },
+          { topic: `nav`, label: `web`, attachmentId: `a2` },
+          { topic: `nav`, label: `Shot 2`, attachmentId: `a3`, inline: true },
+        ])}
+        attachmentSrc={(id) => `/api/attachments/${id}`}
+      />
+    )
+    expect(getByTestId(`session-result-a2`)).toBeTruthy()
+    expect(queryByTestId(`session-result-a1`)).toBeNull()
+    const fold = getByText(`Earlier · 2`)
+    expect(fold.closest(`button`)?.getAttribute(`aria-expanded`)).toBe(`false`)
+    fireEvent.click(fold)
+    expect(getByTestId(`session-result-a1`)).toBeTruthy()
+    expect(getByTestId(`session-result-a3`)).toBeTruthy()
+  })
+
+  it(`keeps a topic's only picture in place, inline or not`, () => {
+    const { getByTestId, queryByTestId } = render(
+      <SessionResultsView
+        groups={parseSessionResultGroups([
+          { topic: `Progress`, label: `Shot 1`, attachmentId: `a1`, inline: true },
+        ])}
+        attachmentSrc={(id) => `/api/attachments/${id}`}
+      />
+    )
+    expect(getByTestId(`session-result-a1`)).toBeTruthy()
+    expect(queryByTestId(`session-results-earlier`)).toBeNull()
+  })
+
+  it(`draws the transcript tile with the call's caption and opens the lightbox`, () => {
+    const { getByText, getByTestId } = render(
+      <SessionInlineResultTile
+        entry={entry({ attachmentId: `a9`, label: `Shot 1`, inline: true, caption: `Empty state` })}
+        attachmentSrc={(id) => `/api/attachments/${id}`}
+      />
+    )
+    expect(getByText(`Empty state`)).toBeTruthy()
+    const img = getByTestId(`session-result-a9`).querySelector(`img`)!
+    expect(img.style.height).toBe(`240px`)
+    fireEvent.click(getByTestId(`session-result-a9`))
+    expect(document.querySelector(`[role="dialog"]`)).toBeTruthy()
   })
 })

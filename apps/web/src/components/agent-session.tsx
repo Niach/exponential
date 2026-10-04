@@ -51,8 +51,10 @@ import {
   AgentMark,
   AgentBrandMark,
   ContextRing,
+  SessionInlineResultTile,
   SessionResultsView,
   parseSessionResultGroups,
+  sessionResultPicture,
   WORK_COLUMN_CLASS,
   WorkHeader,
   CollapsedTitle,
@@ -1251,6 +1253,7 @@ export function AgentSessionView({
 
   return (
     <OpenResultsContext.Provider value={openResults}>
+    <SessionResultsRawContext.Provider value={session.results}>
     <div className="flex h-full min-h-0 flex-col" {...(isMobile ? swipe : {})}>
       {/* EXP-851/850 §10: on a phone the header IS `MobileDetailHeader` —
           byte-identical to the issue, review and session-issue
@@ -1970,6 +1973,7 @@ export function AgentSessionView({
 
       {killDialog}
     </div>
+    </SessionResultsRawContext.Provider>
     </OpenResultsContext.Provider>
   )
 }
@@ -3947,6 +3951,30 @@ const ToolOutput = memo(function ToolOutput({
  *  face; null outside a run view, or while the run has published nothing. */
 const OpenResultsContext = createContext<(() => void) | null>(null)
 
+/** EXP-1172: the run's synced `coding_sessions.results` blob, so a settled
+ *  `sessions_show` row can draw the picture its answer named. */
+const SessionResultsRawContext = createContext<unknown>(null)
+
+/** EXP-1172: the picture a settled `sessions_show` call filed (contract result
+ *  kind `picture`), found by the attachment id its answer carried
+ *  (`preview.id`) in the synced results — nothing while the upload is still
+ *  in flight. It sits under the call, so pictures read in publish order. */
+function ShownPicture({ item }: { item: ToolItem }) {
+  const raw = useContext(SessionResultsRawContext)
+  const entry = useMemo(
+    () => sessionResultPicture(raw, item.preview?.id),
+    [raw, item.preview?.id]
+  )
+  if (!entry) return null
+  return (
+    <SessionInlineResultTile
+      entry={entry}
+      attachmentSrc={(id) => `/api/attachments/${id}`}
+      className="ml-5 pt-1.5"
+    />
+  )
+}
+
 /** EXP-933: a settled `sessions_results` call (contract result kind
  *  `results`) — the one-tap way from the transcript to what it published. */
 function OpenResultsCard() {
@@ -4035,6 +4063,8 @@ function ExpToolRow({
       </div>
       {!failed && display.result === `results` && item.settled === true ? (
         <OpenResultsCard />
+      ) : !failed && display.result === `picture` && item.settled === true ? (
+        <ShownPicture item={item} />
       ) : (
         !failed &&
         item.preview && (
@@ -4270,12 +4300,23 @@ function ExpToolGroupRow({ items }: { items: ToolItem[] }) {
           {caption}
         </span>
       </DisclosureHeader>
-      {expanded && (
+      {expanded ? (
         <div className="ml-5">
           {items.map((item) => (
             <ToolRow key={item.id} item={item} />
           ))}
         </div>
+      ) : (
+        // EXP-1172: a run of show calls keeps its pictures in view while
+        // folded — a picture never hides in a fold (open, each row has its
+        // own).
+        items.map((item) =>
+          item.settled === true &&
+          item.failed !== true &&
+          expToolDisplay(item.name)?.result === `picture` ? (
+            <ShownPicture key={item.id} item={item} />
+          ) : null
+        )
       )}
     </div>
   )
