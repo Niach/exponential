@@ -636,7 +636,7 @@ public final class AuthApi: Sendable {
     }
 
     /// The LINK-mode handoff (EXP-1126): a signed-in account attaches a
-    /// Google/Apple/OIDC login in the browser. The single-use `ticket`
+    /// Google/Apple/GitHub/OIDC login in the browser. The single-use `ticket`
     /// (`users.mintSignInLinkTicket`) names the account; PKCE still rides
     /// because the route requires it, though link mode returns no code — the
     /// callback is `exponential://oauth-return?linked=<providerId>`.
@@ -644,7 +644,9 @@ public final class AuthApi: Sendable {
         instanceUrl: String, ticket: String, provider: String, codeChallenge: String
     ) -> URL? {
         var components = URLComponents(string: "\(instanceUrl)/api/mobile-oauth-start")
-        let providerItem: URLQueryItem = (provider == "google" || provider == "apple")
+        // Google, Apple and GitHub (SLOP-26) are Better Auth SOCIAL providers
+        // (`provider=`); every other id is an OIDC `providerId=`.
+        let providerItem: URLQueryItem = (provider == "google" || provider == "apple" || provider == "github")
             ? URLQueryItem(name: "provider", value: provider)
             : URLQueryItem(name: "providerId", value: provider)
         components?.queryItems = [

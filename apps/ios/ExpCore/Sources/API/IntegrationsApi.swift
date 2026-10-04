@@ -1,22 +1,47 @@
 import Foundation
 
-/// GitHub App install state for the signed-in user (mirrors the web
-/// `integrations.github.status` output). `installUrl` can be nil even when
-/// configured (server without `GITHUB_APP_SLUG`). `connectUrl` is the
-/// mobile-friendly OAuth authorize URL that claims a GitHub account for a
-/// team (single consent screen); nil when unavailable — callers prefer
-/// `connectUrl ?? installUrl` for the connect hop.
+// SLOP-7/SLOP-26: ONE GitHub flow. Mirrors `apps/web/src/lib/trpc/integrations.ts`.
+// A member's GitHub connection is their own linked GitHub account; the
+// installations and push-able repositories are listed LIVE off GitHub with
+// that token. Nothing is claimed per team any more, so `installations[]`
+// carries no re-auth / stale marks — a dead token is reported ONCE on the
+// whole connection (`needsReconnect`).
+
+/// The viewer's connection half every surface renders (`status` and `repos`
+/// share it). `linked` falls back to `installed` and `needsReconnect` to
+/// false on a server predating the fields.
 public struct GithubStatusResult: Decodable, Sendable {
     public let configured: Bool
+    /// The viewer has a GitHub account linked (a token exists, live or dead).
+    public let linked: Bool
+    /// Linked, but GitHub refuses the token — Reconnect is the one fix.
+    public let needsReconnect: Bool
+    /// The linked account's GitHub login; nil until the token answered.
+    public let login: String?
+    /// The App is installed on at least one account the token can see.
     public let installed: Bool
+    /// GitHub's install page for the App (nil without `GITHUB_APP_SLUG`).
     public let installUrl: String?
+    /// The guided web page (`/integrations/github?return=app`), which hands
+    /// back through `exponential://github-connected`. The fallback connect
+    /// hop when the server does not offer the GitHub link ticket.
     public let connectUrl: String?
-    /// Per-installation grant state (grant model); `[]` on servers that predate
-    /// the field.
     public let installations: [GithubInstallation]
 
-    public init(configured: Bool, installed: Bool, installUrl: String?, connectUrl: String? = nil, installations: [GithubInstallation] = []) {
+    public init(
+        configured: Bool,
+        linked: Bool,
+        needsReconnect: Bool = false,
+        login: String? = nil,
+        installed: Bool,
+        installUrl: String?,
+        connectUrl: String? = nil,
+        installations: [GithubInstallation] = []
+    ) {
         self.configured = configured
+        self.linked = linked
+        self.needsReconnect = needsReconnect
+        self.login = login
         self.installed = installed
         self.installUrl = installUrl
         self.connectUrl = connectUrl
@@ -25,9 +50,13 @@ public struct GithubStatusResult: Decodable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let installed = try container.decode(Bool.self, forKey: .installed)
         self.init(
             configured: try container.decode(Bool.self, forKey: .configured),
-            installed: try container.decode(Bool.self, forKey: .installed),
+            linked: try container.decodeIfPresent(Bool.self, forKey: .linked) ?? installed,
+            needsReconnect: try container.decodeIfPresent(Bool.self, forKey: .needsReconnect) ?? false,
+            login: try container.decodeIfPresent(String.self, forKey: .login),
+            installed: installed,
             installUrl: try container.decodeIfPresent(String.self, forKey: .installUrl),
             connectUrl: try container.decodeIfPresent(String.self, forKey: .connectUrl),
             installations: try container.decodeIfPresent([GithubInstallation].self, forKey: .installations) ?? []
@@ -35,45 +64,54 @@ public struct GithubStatusResult: Decodable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case configured, installed, installUrl, connectUrl, installations
+        case configured, linked, needsReconnect, login, installed, installUrl, connectUrl, installations
+    }
+
+    /// The missing prerequisite, nil once repositories can be listed.
+    public var prerequisite: GithubConnect.Prerequisite? {
+        GithubConnect.prerequisite(
+            configured: configured, linked: linked, needsReconnect: needsReconnect, installed: installed
+        )
     }
 }
 
-/// One GitHub App installation linked to the team (mirrors the web
-/// `installationSummary` + grant flags). `needsReauth` marks an installation
-/// whose per-user repo grants were never captured (linked before the grant
-/// model existed) — it yields zero repos until a member re-runs the OAuth
-/// connect hop (`connectUrl`; the install page does NOT re-capture grants).
-/// `suspended` marks a GitHub-side App suspension (REV2-29): the installation
-/// lists no repos and mints no tokens until it's UNSUSPENDED on GitHub — a
-/// reconnect cannot fix it, so the UI must never nudge one. Optional so
-/// servers predating the field decode as "not suspended".
-/// `hasMore` exists only on the `repos` endpoint (nil on `status`).
-/// `stale` (EXP-557, `status` endpoint only) marks a linked installation with
-/// zero grants from ANY member — a reconnect can never refresh it, so the UI
-/// offers a Disconnect instead of the reconnect nag. Optional so servers (and
-/// endpoints) predating the field decode as "not stale".
+/// One GitHub App installation the viewer's token sees (mirrors the web
+/// `installationSummary`). `suspended` marks a GitHub-side App suspension
+/// (REV2-29): the installation lists no repos and mints no tokens until it is
+/// UNSUSPENDED on GitHub — a reconnect cannot fix it, so the UI never nudges
+/// one. `hasMore` exists only on the `repos` endpoint (nil on `status`).
 public struct GithubInstallation: Decodable, Sendable, Identifiable {
     public var id: Int { installationId }
     public let installationId: Int
     public let accountLogin: String?
     public let accountType: String?
     public let manageUrl: String
-    public let needsReauth: Bool
     public let suspended: Bool?
-    public let stale: Bool?
     public let hasMore: Bool?
+
+    public init(
+        installationId: Int,
+        accountLogin: String?,
+        accountType: String? = nil,
+        manageUrl: String,
+        suspended: Bool? = nil,
+        hasMore: Bool? = nil
+    ) {
+        self.installationId = installationId
+        self.accountLogin = accountLogin
+        self.accountType = accountType
+        self.manageUrl = manageUrl
+        self.suspended = suspended
+        self.hasMore = hasMore
+    }
 
     /// Suspension with the servers-predating-the-field default applied.
     public var isSuspended: Bool { suspended ?? false }
-
-    /// Staleness with the servers-predating-the-field default applied.
-    public var isStale: Bool { stale ?? false }
 }
 
-/// One repo the user's GitHub App can connect (mirrors web `InstallationRepo`).
-/// JSON keys are camelCase so the plain decoder maps them directly; `private` is
-/// a Swift keyword so it's backticked.
+/// One repo the viewer can push to (mirrors web `InstallationRepo`). JSON
+/// keys are camelCase so the plain decoder maps them directly; `private` is a
+/// Swift keyword so it's backticked.
 public struct GithubPickerRepo: Decodable, Sendable, Identifiable {
     public var id: String { fullName }
     public let fullName: String
@@ -84,22 +122,23 @@ public struct GithubPickerRepo: Decodable, Sendable, Identifiable {
 
 public struct GithubReposResult: Decodable, Sendable {
     public let configured: Bool
+    public let linked: Bool
+    public let needsReconnect: Bool
+    public let login: String?
     public let installed: Bool
     public let installUrl: String?
-    /// Mobile-friendly OAuth authorize URL that claims a GitHub account for the
-    /// team (single consent screen, no configure page); nil when
-    /// unavailable. Prefer `connectUrl ?? installUrl` for the connect hop.
     public let connectUrl: String?
     public let repos: [GithubPickerRepo]
     public let hasMore: Bool
-    /// Per-installation grant state (grant model); `[]` on servers that predate
-    /// the field.
     public let installations: [GithubInstallation]
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         configured = try container.decode(Bool.self, forKey: .configured)
         installed = try container.decode(Bool.self, forKey: .installed)
+        linked = try container.decodeIfPresent(Bool.self, forKey: .linked) ?? installed
+        needsReconnect = try container.decodeIfPresent(Bool.self, forKey: .needsReconnect) ?? false
+        login = try container.decodeIfPresent(String.self, forKey: .login)
         installUrl = try container.decodeIfPresent(String.self, forKey: .installUrl)
         connectUrl = try container.decodeIfPresent(String.self, forKey: .connectUrl)
         repos = try container.decode([GithubPickerRepo].self, forKey: .repos)
@@ -108,9 +147,19 @@ public struct GithubReposResult: Decodable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case configured, installed, installUrl, connectUrl, repos, hasMore, installations
+        case configured, linked, needsReconnect, login, installed, installUrl, connectUrl, repos, hasMore, installations
+    }
+
+    /// The missing prerequisite, nil once the live list renders.
+    public var prerequisite: GithubConnect.Prerequisite? {
+        GithubConnect.prerequisite(
+            configured: configured, linked: linked, needsReconnect: needsReconnect, installed: installed
+        )
     }
 }
+
+/// `{}` — the body of a mutation that takes no input.
+private struct EmptyInput: Encodable {}
 
 public final class IntegrationsApi: Sendable {
     private let trpc: TrpcClient
@@ -119,13 +168,10 @@ public final class IntegrationsApi: Sendable {
         self.trpc = trpc
     }
 
-    /// GitHub App install state, for the account integrations card. Pass
-    /// `teamId` to scope the result to that team's linked GitHub
-    /// accounts; omit it to fall back to the server's deprecated
-    /// union-across-memberships shim.
-    /// `mobile: true` marks the minted connect/install URLs like `githubRepos`
-    /// does, so the hop deep-links back via `exponential://github-connected`
-    /// (FEED-42: the settings section reads ONLY this endpoint).
+    /// The viewer's GitHub connection for a team context (member-gated):
+    /// linked or not, the login, the installations their token sees, and the
+    /// two hops. `mobile: true` marks `connectUrl` so the guided page hands
+    /// back through `exponential://github-connected`.
     public func githubStatus(accountId: String, teamId: String, mobile: Bool = false) async throws -> GithubStatusResult {
         struct Input: Encodable {
             let teamId: String
@@ -138,15 +184,10 @@ public final class IntegrationsApi: Sendable {
         )
     }
 
-    /// Repos the user's GitHub App is installed on, for the connect-repo picker.
-    /// `platform: "mobile"` marks the caller so the server returns an install
-    /// URL whose post-install page renders phone-sized and deep-links back into
-    /// the app via `exponential://github-connected` (instead of stranding the user in
-    /// the browser). Pass `teamId` to scope the result to that team's
-    /// linked GitHub accounts; omit it to fall back to the server's deprecated
-    /// union-across-memberships shim. `refresh` bypasses the server's per-user
-    /// repo cache — pass it when re-querying right after an install so new repos
-    /// show immediately.
+    /// The repositories the viewer may add: every push-able repo of every
+    /// installation their token sees, deduped and sorted. Always mobile-marked.
+    /// `refresh` bypasses the server's per-user discovery cache — pass it when
+    /// re-querying right after a GitHub hop so new repos show immediately.
     public func githubRepos(accountId: String, teamId: String, refresh: Bool = false) async throws -> GithubReposResult {
         struct Input: Encodable {
             let platform: String
@@ -162,10 +203,9 @@ public final class IntegrationsApi: Sendable {
 
     /// FEED-30: the Add-repository picker's "Add by name" escape hatch
     /// (`integrations.github.lookupRepo`). Resolves an `owner/name` through
-    /// the connect path's own checks (linked installation, not suspended, the
-    /// actor's own grant on OAuth instances), so a failure's message names the
-    /// real reason and is shown verbatim. Read-only; the result is exactly a
-    /// picker row, so a hit is handled like a row pick.
+    /// EXACTLY the connect gate (the viewer's token, push access, the App
+    /// installed), so a failure's message names the real reason and is shown
+    /// verbatim. Read-only; the result is exactly a picker row.
     public func lookupRepo(accountId: String, teamId: String, fullName: String) async throws -> GithubPickerRepo {
         struct Input: Encodable {
             let teamId: String
@@ -178,19 +218,14 @@ public final class IntegrationsApi: Sendable {
         )
     }
 
-    /// Disconnect a GitHub account (App installation) from the team
-    /// (EXP-557). Server-enforced link-creator-or-owner; the primary surface
-    /// is the STALE-account row (zero grants from anyone — a reconnect can
-    /// never refresh it, so disconnecting is the only fix).
-    public func githubUnlink(accountId: String, teamId: String, installationId: Int) async throws {
-        struct Input: Encodable {
-            let teamId: String
-            let installationId: Int
-        }
+    /// Disconnect the viewer's own GitHub account (`integrations.github.
+    /// disconnect`). Repositories already added keep working — their tokens
+    /// mint off the App installation, not off this person's token.
+    public func githubDisconnect(accountId: String) async throws {
         try await trpc.mutationVoid(
             accountId: accountId,
-            path: "integrations.github.unlink",
-            input: Input(teamId: teamId, installationId: installationId)
+            path: "integrations.github.disconnect",
+            input: EmptyInput()
         )
     }
 }

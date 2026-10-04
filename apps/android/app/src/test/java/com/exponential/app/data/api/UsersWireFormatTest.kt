@@ -89,5 +89,10 @@ class UsersWireFormatTest {
             "https://x.test/api/mobile-oauth-start?link=t%2B1&providerId=my+oidc&code_challenge=ch",
             AuthWire.linkStartUrl("https://x.test", "t+1", "my oidc", "ch"),
         )
+        // SLOP-26: GitHub is a social provider too (the repositories connect hop).
+        assertEquals(
+            "https://x.test/api/mobile-oauth-start?link=t&provider=github&code_challenge=ch",
+            AuthWire.linkStartUrl("https://x.test", "t", "github", "ch"),
+        )
     }
 }

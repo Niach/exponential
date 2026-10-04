@@ -561,32 +561,30 @@ final class WireDecodingTests: XCTestCase {
         XCTAssertNil(AuthApi.forgotPasswordUrl(instanceUrl: nil))
     }
 
-    // MARK: - GithubInstallation (`stale` rides only the `status` endpoint, EXP-557)
+    // MARK: - GithubInstallation (SLOP-26: the pre-SLOP-7 `needsReauth`/`stale`
+    // marks the server still emits are ignored; `suspended` stays optional)
 
-    func testGithubInstallationDecodesStaleTrue() throws {
+    func testGithubInstallationIgnoresTheLegacyMarks() throws {
         let installation = try decode(GithubInstallation.self, #"""
         {
           "installationId": 42, "accountLogin": "octo", "accountType": "User",
           "manageUrl": "https://github.com/settings/installations/42",
-          "needsReauth": false, "suspended": false, "stale": true
+          "needsReauth": false, "suspended": true, "stale": true
         }
         """#)
-        XCTAssertTrue(installation.isStale)
-        XCTAssertFalse(installation.isSuspended)
+        XCTAssertEqual(installation.accountLogin, "octo")
+        XCTAssertTrue(installation.isSuspended)
     }
 
-    func testGithubInstallationStaleAbsentDefaultsFalse() throws {
-        // The `repos` endpoint (and pre-EXP-557 servers) never emit `stale` —
-        // absent must decode as "not stale", never a decode failure.
+    func testGithubInstallationSuspendedAbsentDefaultsFalse() throws {
         let installation = try decode(GithubInstallation.self, #"""
         {
           "installationId": 42, "accountLogin": "octo", "accountType": "User",
-          "manageUrl": "https://github.com/settings/installations/42",
-          "needsReauth": true
+          "manageUrl": "https://github.com/settings/installations/42"
         }
         """#)
-        XCTAssertFalse(installation.isStale)
-        XCTAssertTrue(installation.needsReauth)
+        XCTAssertFalse(installation.isSuspended)
+        XCTAssertNil(installation.hasMore)
     }
 
     // MARK: - TeamRepo (`sharedBy` — per-user repo sharing, EXP-557)

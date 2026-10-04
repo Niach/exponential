@@ -2,96 +2,112 @@ import Foundation
 import XCTest
 @testable import ExpCore
 
-// FEED-42: the GitHub connection block + Add-repository picker copy is
+// SLOP-7/SLOP-26: the GitHub connection block + Add-repository picker copy is
 // byte-identical on all four clients. These literals mirror web
-// `github-connect-copy.ts` — change both together.
+// `github-connect-copy.ts` (`github-connect-copy.test.ts`) — change both
+// together.
 final class GithubCopyTests: XCTestCase {
     func testConnectionBlockLiterals() {
+        XCTAssertEqual(GithubCopy.sectionTitle, "Repositories")
         XCTAssertEqual(GithubCopy.addRepository, "Add repository")
         XCTAssertEqual(
             GithubCopy.intro,
-            "Connect a GitHub account or organization first, then add its repositories to share them with the team — everyone can code on a shared repo. Point a board at one to make it the clone target for “Start coding”."
+            "Connect your GitHub account, install the Exponential app on the accounts whose repositories you want, then add repositories you can push to. Point a board at one to make it the clone target for “Start coding”."
         )
         XCTAssertEqual(GithubCopy.statusFailed, "Couldn’t reach GitHub connect state.")
         XCTAssertEqual(GithubCopy.notConfigured, "GitHub isn’t configured on this server.")
-        XCTAssertEqual(GithubCopy.notInstalled, "No GitHub account connected")
-        XCTAssertEqual(GithubCopy.accountsHeader, "GitHub accounts connected to this team")
+        XCTAssertEqual(GithubCopy.notLinked, "No GitHub account connected")
+        XCTAssertEqual(GithubCopy.connectGithub, "Connect GitHub")
+        XCTAssertEqual(GithubCopy.connectedAs("octocat"), "Connected as octocat")
+        XCTAssertEqual(GithubCopy.connected, "GitHub connected")
+        XCTAssertEqual(GithubCopy.reconnectNeeded, "Your GitHub connection expired.")
+        XCTAssertEqual(GithubCopy.reconnect, "Reconnect")
+        XCTAssertEqual(GithubCopy.reconnectGithub, "Reconnect GitHub")
+        XCTAssertEqual(GithubCopy.disconnectTitle, "Disconnect GitHub")
         XCTAssertEqual(
-            GithubCopy.installationsCaption,
-            "An installation is per GitHub account or organization. Repositories come from the accounts listed here."
-        )
-        XCTAssertEqual(GithubCopy.noRepositories, "No repositories connected yet.")
-        XCTAssertEqual(
-            GithubCopy.suspendedLine(["acme", "installation 7"]),
-            "GitHub suspended the Exponential app for acme, installation 7. Unsuspend it on GitHub."
-        )
-        XCTAssertEqual(
-            GithubCopy.reauthLine(["acme"]),
-            "Reconnect GitHub to refresh which repositories you can access from acme."
+            GithubCopy.disconnectBody,
+            "This unlinks GitHub from your account. Repositories already added keep working; adding more needs a reconnect."
         )
         XCTAssertEqual(
-            GithubCopy.staleLine("acme"),
-            "No one’s GitHub connection covers acme anymore — reconnecting can’t refresh it."
+            GithubCopy.notInstalled,
+            "The Exponential app isn’t installed on any of your GitHub accounts yet."
         )
+        XCTAssertEqual(GithubCopy.installApp, "Install the app")
+        XCTAssertEqual(GithubCopy.installAnother, "Install on another account")
+        XCTAssertEqual(GithubCopy.accountsHeader, "GitHub accounts with the app installed")
+        XCTAssertEqual(GithubCopy.configure, "Configure")
+        XCTAssertEqual(
+            GithubCopy.configureTitle("acme"),
+            "Configure which repositories acme grants on GitHub"
+        )
+        XCTAssertEqual(
+            GithubCopy.installationCaption,
+            "Repositories come from these accounts. Configure one to grant more."
+        )
+        XCTAssertEqual(
+            GithubCopy.suspendedLine(["acme", "octocat"]),
+            "GitHub suspended the Exponential app for acme, octocat. Unsuspend it on GitHub."
+        )
+        XCTAssertEqual(GithubCopy.manage, "Manage")
+        XCTAssertEqual(GithubCopy.noRepositories, "No repositories added yet.")
+        XCTAssertEqual(GithubCopy.linkFailed, "GitHub didn’t finish connecting. Try again.")
     }
 
     func testFallbackLabelIsLowerCase() {
         XCTAssertEqual(GithubCopy.installationLabel(login: nil, installationId: 42), "installation 42")
+        XCTAssertEqual(GithubCopy.installationLabel(login: "", installationId: 42), "installation 42")
         XCTAssertEqual(GithubCopy.installationLabel(login: "acme", installationId: 42), "acme")
     }
 
-    func testConfirmCopy() {
-        XCTAssertEqual(GithubCopy.disconnectTitle, "Disconnect GitHub account")
-        XCTAssertEqual(
-            GithubCopy.unlinkConfirm("acme"),
-            "This disconnects acme from the team. Repositories connected through it must be removed first."
-        )
-        XCTAssertEqual(
-            GithubCopy.staleConfirm("acme"),
-            "This removes acme from the team. Nobody’s GitHub connection covers it, so no repositories are lost."
-        )
-    }
-
     func testPickerLiterals() {
-        XCTAssertEqual(GithubCopy.loadingRepos, "Loading your GitHub repositories…")
+        XCTAssertEqual(GithubCopy.pickerTitle, "Add repository")
+        XCTAssertEqual(GithubCopy.pickerLoading, "Loading your GitHub repositories…")
         XCTAssertEqual(
             GithubCopy.pickerNotConfigured,
-            "GitHub isn’t configured on this server, so repositories can’t be connected."
+            "GitHub isn’t configured on this server, so repositories can’t be added."
+        )
+        XCTAssertEqual(
+            GithubCopy.pickerNotLinked,
+            "Connect your GitHub account to pick a repository. You’ll come right back here."
         )
         XCTAssertEqual(
             GithubCopy.pickerNotInstalled,
-            "Connect the Exponential GitHub App to pick a repository. You’ll come right back here."
+            "Install the Exponential app on the GitHub account that owns the repository. You’ll come right back here."
         )
-        XCTAssertEqual(GithubCopy.iveConnected, "I’ve connected")
+        XCTAssertEqual(GithubCopy.pickerConnectedCheck, "I’ve done that")
         XCTAssertEqual(
-            GithubCopy.pickerSuspended(["acme", nil]),
-            "GitHub suspended the Exponential app for acme, a connected account. Its repositories can’t be connected until you unsuspend it on GitHub."
-        )
-        XCTAssertEqual(
-            GithubCopy.reauthBanner(accounts: ["a", "b"], emptyList: false),
-            "Reconnect GitHub (a, b) to refresh. Repos created or shared with you since your last connect won’t appear until you do."
+            GithubCopy.pickerSuspended([nil]),
+            "GitHub suspended the Exponential app for a connected account. Its repositories can’t be added until you unsuspend it on GitHub."
         )
         XCTAssertEqual(
-            GithubCopy.reauthBanner(accounts: [], emptyList: false),
-            "Reconnect GitHub to refresh. Repos created or shared with you since your last connect won’t appear until you do."
+            GithubCopy.pickerSuspended(["acme", ""]),
+            "GitHub suspended the Exponential app for acme, a connected account. Its repositories can’t be added until you unsuspend it on GitHub."
         )
         XCTAssertEqual(
-            GithubCopy.reauthBanner(accounts: ["a", "b"], emptyList: true),
-            "Reconnect GitHub to load the repositories you can access from a, b."
+            GithubCopy.pickerReconnectBanner,
+            "Your GitHub connection expired. Reconnect to list your repositories."
         )
-        XCTAssertEqual(GithubCopy.noneGranted, "None of your connected GitHub accounts grants a repository yet.")
+        XCTAssertEqual(GithubCopy.searchPlaceholder, "Search repositories…")
+        XCTAssertEqual(GithubCopy.noMatch, "No repositories found.")
         XCTAssertEqual(
-            GithubCopy.footerSentence,
-            "Only repositories your GitHub installation grants appear here. Missing one? Grant it on GitHub, then refresh."
+            GithubCopy.nonePushable,
+            "The app is installed, but none of its repositories lets you push. Grant one on GitHub, then refresh."
+        )
+        XCTAssertEqual(
+            GithubCopy.footerExplain,
+            "Only repositories you can push to, on accounts where the app is installed, appear here. Missing one? Grant it on GitHub, then refresh."
         )
         XCTAssertEqual(
             GithubCopy.capNote,
             "Showing the first 500 repositories per account — use the field below for the rest."
         )
+        XCTAssertEqual(GithubCopy.refresh, "Refresh")
+        XCTAssertEqual(GithubCopy.lookupPlaceholder, "owner/name")
         XCTAssertEqual(GithubCopy.lookupAccessibility, "Add repository by name")
+        XCTAssertEqual(GithubCopy.lookUp, "Look up")
         XCTAssertEqual(
             GithubCopy.addForbidden,
-            "GitHub says you don’t have access to this repository, or your connection is stale. Reconnect GitHub and try again."
+            "GitHub says you can’t push to this repository, or your connection expired. Reconnect GitHub and try again."
         )
     }
 
