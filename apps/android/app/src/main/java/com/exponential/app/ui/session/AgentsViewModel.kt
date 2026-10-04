@@ -3,7 +3,6 @@ package com.exponential.app.ui.session
 import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.CodingSessionsApi
 import com.exponential.app.data.api.DeviceLatestVersions
 import com.exponential.app.data.api.DevicesApi
@@ -19,6 +18,7 @@ import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
@@ -121,7 +121,6 @@ class AgentsViewModel @Inject constructor(
     private val devicesApi: DevicesApi,
     private val issuesApi: IssuesApi,
     private val codingSessionsApi: CodingSessionsApi,
-    private val selection: TeamSelection,
     stats: SyncStats,
 ) : ViewModel() {
 
@@ -146,8 +145,10 @@ class AgentsViewModel @Inject constructor(
     // devices shape — plus the selected team's shared servers. null until the
     // shape's initial snapshot has landed (offset is_live), so the section
     // shows nothing rather than a flash of "No machines yet".
+    // EXP-1186: CROSS-TEAM like the Inbox — own machines plus every server
+    // shared with ANY member team (the synced rows are exactly those).
     val devices: StateFlow<List<SteerDevice>?> =
-        steerDeviceFlow(dbFlow, selection.selectedId, auth.userId)
+        steerDeviceFlow(dbFlow, flowOf(null), auth.userId, allTeams = true)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // Informational CLIENT_LATEST_VERSION_* values behind the "update
@@ -333,10 +334,9 @@ class AgentsViewModel @Inject constructor(
         // the window.
         DeviceLiveness.ticker(),
         auth.userId,
-        selection.selectedId,
-    ) { (sessions, issues), (steerEnabled, devices, polledAt), now, userId, teamId ->
+    ) { (sessions, issues), (steerEnabled, devices, polledAt), now, userId ->
         val rows = agentRows(
-            sessions, issues, userId, teamId, now, devices,
+            sessions, issues, userId, now, devices,
             // The stamp rides elapsedRealtime, not the wall clock `now`.
             devicesFresh = DeviceFreshness.isTrustworthy(
                 polledAt,
@@ -349,22 +349,20 @@ class AgentsViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AgentsState())
 
-    // EXP-746: the caller's own FINISHED, person-started sessions in the
-    // selected team, newest first — the source of the "Recent" list. Queried
+    // EXP-746: the caller's own FINISHED, person-started sessions across
+    // every member team (EXP-1186), newest first — the source of the "Recent" list. Queried
     // wider than the list shows so a row the pure filter drops can't push a
     // real one off the end; the DAO already excludes triggered runs, which
     // belong to their action page's Runs alone.
     private val endedSessionRows = combine(
         dbFlow,
-        selection.selectedId,
         auth.userId,
-    ) { db, teamId, userId -> Triple(db, teamId, userId) }
-        .flatMapLatest { (db, teamId, userId) ->
-            if (db == null || teamId == null || userId == null) {
+    ) { db, userId -> db to userId }
+        .flatMapLatest { (db, userId) ->
+            if (db == null || userId == null) {
                 flowOf(emptyList())
             } else {
-                db.codingSessionDao().observePastByTeamAndUser(
-                    teamId = teamId,
+                db.codingSessionDao().observePastByUser(
                     userId = userId,
                     status = DomainContract.codingSessionStatusEnded,
                     limit = PAST_RUN_QUERY_LIMIT,
@@ -381,14 +379,22 @@ class AgentsViewModel @Inject constructor(
         endedSessionRows,
         dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
         deviceRowsAndFreshness,
-        combine(auth.userId, selection.selectedId) { userId, teamId -> userId to teamId },
+        auth.userId,
         DeviceLiveness.ticker(),
-    ) { sessions, issues, (devices, polledAt), (userId, teamId), now ->
+    ) { sessions, issues, (devices, polledAt), userId, now ->
         pastRunRows(
-            sessions, issues, userId, teamId, devices, now,
+            sessions, issues, userId, devices, now,
             devicesFresh = DeviceFreshness.isTrustworthy(polledAt, SystemClock.elapsedRealtime()),
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * EXP-1186: the member teams, name order — the Agent page bands its live
+     * and recent runs per team once there is more than one.
+     */
+    val teams: StateFlow<List<TeamEntity>> =
+        dbFlow.scopedQuery(emptyList<TeamEntity>()) { it.teamDao().observeAll() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // The account steer.config was last resolved for. steer.config is
     // env-derived and static per INSTANCE, so a team switch must not re-run it
@@ -523,21 +529,17 @@ class AgentsViewModel @Inject constructor(
 }
 
 /**
- * The Agents list: the signed-in user's OWN live sessions in the SELECTED team
- * only. A teammate's live session is neither viewable nor steerable (EXP-312),
- * so listing it just read as "computer not online" — and a session in another
- * team belongs under that team, matching web's `use-agents-data.ts`. The rows
- * stay SYNCED for the issue-detail badges and Reviews, they only leave this
- * list. Every session row carries a non-null synced `team_id` (denormalized by
- * trigger for issue rows, explicit on batch/action rows), so the scoping holds
- * for issueless runs too. Signed out (null [currentUserId]) or no team
- * selected (null [teamId]) lists nothing.
+ * The Agents list: the signed-in user's OWN live sessions across EVERY member
+ * team (EXP-1186, cross-team like the Inbox; the page bands them per team). A
+ * teammate's live session is neither viewable nor steerable (EXP-312), so
+ * listing it just read as "computer not online". The rows stay SYNCED for the
+ * issue-detail badges and Reviews, they only leave this list. Signed out
+ * (null [currentUserId]) lists nothing.
  */
 fun agentRows(
     sessions: List<CodingSessionEntity>,
     issues: List<IssueEntity>,
     currentUserId: String?,
-    teamId: String?,
     nowMs: Long,
     // EXP-549/550: the synced machine rows, for the live label + offline flip.
     // Defaulted so a caller that only cares about the session/issue join
@@ -547,11 +549,10 @@ fun agentRows(
     // last_seen_at to mean "away" rather than "we haven't heard".
     devicesFresh: Boolean = true,
 ): List<AgentRow> {
-    if (currentUserId == null || teamId == null) return emptyList()
+    if (currentUserId == null) return emptyList()
     val issuesById = issues.associateBy { it.id }
     val live = sessions.filter {
         it.userId == currentUserId &&
-            it.teamId == teamId &&
             CodingSessionLiveness.isLive(it, nowMs)
     }
     // issueId is null for batch multi-issue sessions — those rows render
@@ -613,20 +614,19 @@ const val PAST_RUN_LIMIT = 20
 
 /**
  * EXP-746: the "Recent" list (EXP-886; "Past" before) — the caller's OWN finished PERSON-STARTED runs in
- * the SELECTED team, newest first by when they ended, capped at [limit].
+ * EVERY member team (EXP-1186), newest first by when they ended, capped at [limit].
  *
  * `started_reason == null` is the whole predicate on top of ownership: a
  * scheduled or event-triggered run belongs to its action page's Runs and
  * must NEVER list here (EXP-676's rule, kept). The DAO
  * already scopes, filters and orders; the rules live here too so they are
  * testable and so a wider query can't leak a foreign, still-live or automated
- * row into the list. Signed out or no team selected lists nothing.
+ * row into the list. Signed out lists nothing.
  */
 fun pastRunRows(
     sessions: List<CodingSessionEntity>,
     issues: List<IssueEntity>,
     currentUserId: String?,
-    teamId: String?,
     // EXP-549/550: the synced machine rows, for the byline's live label.
     devices: List<DeviceEntity> = emptyList(),
     nowMs: Long = System.currentTimeMillis(),
@@ -635,7 +635,7 @@ fun pastRunRows(
     // presence, never offline.
     devicesFresh: Boolean = true,
 ): List<PastRunRow> {
-    if (currentUserId == null || teamId == null) return emptyList()
+    if (currentUserId == null) return emptyList()
     val issuesById = issues.associateBy { it.id }
     // Resolved once for the whole list: a Resume needs the run's OWN machine
     // online and `resume-run`-capable, which only the live device row knows.
@@ -643,7 +643,6 @@ fun pastRunRows(
     return sessions
         .filter {
             it.userId == currentUserId &&
-                it.teamId == teamId &&
                 runHasEnded(it) &&
                 it.startedReason == null
         }
@@ -701,6 +700,10 @@ fun issueRunRows(
  * member of the sharing team, hence inside the users shape). Each group in
  * [stableDeviceOrder] (EXP-623) — online-by-label first, so heartbeats can't
  * reorder the list. Signed out (null [currentUserId]) lists nothing.
+ *
+ * EXP-1186: [allTeams] (the Devices page) lists the servers shared with ANY
+ * member team instead — the synced rows are exactly those (`user_id = me OR
+ * shared_team_ids && member teams`) — once each, ignoring [teamId].
  */
 fun composeDeviceList(
     rows: List<DeviceEntity>,
@@ -708,6 +711,7 @@ fun composeDeviceList(
     teamId: String?,
     currentUserId: String?,
     nowMs: Long,
+    allTeams: Boolean = false,
 ): List<SteerDevice> {
     if (currentUserId == null) return emptyList()
     val usersById = users.associateBy { it.id }
@@ -718,10 +722,10 @@ fun composeDeviceList(
     val shared = rows
         .filter {
             it.userId != currentUserId &&
-                teamId != null &&
-                it.sharedTeamIds.contains(teamId) &&
+                (allTeams || (teamId != null && it.sharedTeamIds.contains(teamId))) &&
                 it.kind == SteerDevice.KIND_SERVER
         }
+        .distinctBy { it.id }
         .sortedWith(stableDeviceOrder(nowMs))
         .map { it.toSteerDevice(nowMs, currentUserId, usersById[it.userId]?.name) }
     return own + shared

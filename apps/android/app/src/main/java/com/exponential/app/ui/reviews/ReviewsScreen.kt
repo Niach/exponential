@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -68,8 +69,8 @@ import com.exponential.app.ui.theme.flatRow
 import com.exponential.app.ui.theme.glassCard
 
 /**
- * "Reviews" (EXP-131): the open pull requests in the current team, grouped
- * by board. Its own bottom-bar destination beside My Work (EXP-147 — it used
+ * "Reviews" (EXP-131): the open pull requests across every member team
+ * (EXP-1186), grouped by board. Its own bottom-bar destination beside My Work (EXP-147 — it used
  * to be a PersonalScreen segment). A batch coding run's combined PR shows as
  * ONE entry ("N issues"), never one row per linked issue. Rows open the Review
  * detail (EXP-168 — web parity: the reviews queue reviews PRs, not issues);
@@ -116,7 +117,7 @@ private fun ReviewsListContent(
     // SLOP-16 r3: what the batch sheet's relation rows resolve against.
     val issueStatuses by viewModel.issueStatuses.collectAsStateWithLifecycle()
     val users by viewModel.users.collectAsStateWithLifecycle()
-    val teamOpenPrIssues by viewModel.teamOpenPrIssues.collectAsStateWithLifecycle()
+    val openPrIssuesByTeam by viewModel.openPrIssuesByTeam.collectAsStateWithLifecycle()
     var mergeTarget by remember { mutableStateOf<ReviewEntry?>(null) }
     // EXP-734: an issueless run's own PR — merged through the session, so it
     // gets its own confirm target.
@@ -138,7 +139,7 @@ private fun ReviewsListContent(
         ) {
             state.groups.forEach { group ->
                 item(key = "header-${group.board.id}") {
-                    BoardHeader(board = group.board)
+                    BoardHeader(board = group.board, teamName = group.teamName)
                 }
                 items(group.entries, key = { it.groupKey }) { entry ->
                     ReviewRow(
@@ -167,9 +168,12 @@ private fun ReviewsListContent(
             // EXP-734: the runs that opened a pull request of their OWN — a
             // batch, action or chat run whose PR links no issue, so no board
             // group can hold it. Listed last, under one header.
-            if (state.runs.isNotEmpty()) {
-                item(key = "header-runs") { RunsHeader() }
-                items(state.runs, key = { it.groupKey }) { entry ->
+            // EXP-1186: one band per team once the user is in more than one.
+            state.runGroups.forEach { runGroup ->
+                item(key = "header-runs-${runGroup.team?.id.orEmpty()}") {
+                    RunsHeader(teamName = runGroup.team?.name)
+                }
+                items(runGroup.entries, key = { it.groupKey }) { entry ->
                     RunReviewRow(
                         entry = entry,
                         failure = mergeErrors[entry.groupKey],
@@ -183,6 +187,9 @@ private fun ReviewsListContent(
 
     mergeTarget?.let { entry ->
         // EXP-1145/SLOP-3: a stack member's row asks which merge it means.
+        // EXP-1186: against the ROW's team, never the selected one.
+        val teamId = state.groups.firstOrNull { it.board.id == entry.boardId }?.board?.teamId
+        val teamOpenPrIssues = openPrIssuesByTeam[teamId].orEmpty()
         val stackChoice = remember(entry, teamOpenPrIssues) {
             PrStack.stackMergeChoice(entry.representative, teamOpenPrIssues)
         }
@@ -237,11 +244,27 @@ private fun ReviewsListContent(
 // EXP-698/EXP-818: the board band over its PR rows — THE section header every
 // list renders, with the board icon as its leading glyph and no count (the
 // header counts are gone on every client).
+// EXP-1186: with more than one team, the band names the board's team as
+// quiet secondary text.
 @Composable
-private fun BoardHeader(board: BoardEntity) {
+private fun BoardHeader(board: BoardEntity, teamName: String?) {
     SectionHeader(
         board.name,
         leading = { BoardIcon(board, size = 14.dp) },
+        trailing = teamName?.let { name -> @Composable { BandTeamName(name) } },
+    )
+}
+
+/** EXP-1186: the band's muted team name (multi-team only). */
+@Composable
+private fun BandTeamName(name: String) {
+    Text(
+        name,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.widthIn(max = 160.dp),
     )
 }
 
@@ -250,9 +273,10 @@ private fun BoardHeader(board: BoardEntity) {
  * actions one, not a board icon — these PRs belong to a RUN, not to a board.
  */
 @Composable
-private fun RunsHeader() {
+private fun RunsHeader(teamName: String?) {
     SectionHeader(
         "Agent runs",
+        trailing = teamName?.let { name -> @Composable { BandTeamName(name) } },
         leading = {
             Icon(
                 ExpIcons.navActions,

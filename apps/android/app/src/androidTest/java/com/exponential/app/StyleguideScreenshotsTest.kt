@@ -416,19 +416,11 @@ class StyleguideScreenshotsTest {
         flow.waitForGone(hasTestTag("device-settings-sheet"), NAV_TIMEOUT)
         flow.settle(longer = true)
 
-        // --- sg_more: the More menu (SLOP-5) — the bar's one advanced entry,
-        // Actions and Settings on the glass menu surface. Photographed open;
-        // its Actions row leads on.
-        composeRule.onNode(hasTestTag("tab-more")).performClick()
-        flow.waitFor(hasTestTag("menu-actions"), NAV_TIMEOUT)
-        flow.settle()
-        flow.screenshot("sg_more")
-
-        // --- The Actions surface: five shots off one menu row (SLOP-5: Actions
-        // is reached through More). The segment is rememberSaveable, so
-        // re-select the Actions one explicitly by tag rather than trusting
+        // --- The Actions surface: five shots off its bottom-bar tab (EXP-1187:
+        // the More menu is gone on phones). The segment is rememberSaveable,
+        // so re-select the Actions one explicitly by tag rather than trusting
         // where a previous visit left it.
-        composeRule.onNode(hasTestTag("menu-actions")).performClick()
+        composeRule.onNode(hasTestTag("tab-actions")).performClick()
         composeRule.onNode(hasTestTag("actions-segment-actions")).performClick()
         flow.waitFor(hasText(SEEDED_ACTION_NAME, substring = true), SYNC_TIMEOUT)
 

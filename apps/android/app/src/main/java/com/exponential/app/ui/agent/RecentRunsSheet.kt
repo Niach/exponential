@@ -23,7 +23,10 @@ import com.exponential.app.domain.visibleSessionTreeRows
 import com.exponential.app.domain.pastRunByline
 import com.exponential.app.domain.pastRunIdentifier
 import com.exponential.app.domain.pastRunTitle
+import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.ui.components.EndedRunRow
+import com.exponential.app.ui.components.TeamSectionHeader
+import com.exponential.app.ui.components.teamBands
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.TreeGuidesRow
 import com.exponential.app.ui.issue.relativeTime
@@ -47,6 +50,8 @@ fun RecentRunsSheet(
     pastRuns: List<PastRunRow>,
     onOpenRun: (String) -> Unit,
     onDismiss: () -> Unit,
+    /** EXP-1186: cross-team — one band per team once there are several. */
+    teams: List<TeamEntity> = emptyList(),
 ) {
     var collapsed by remember { mutableStateOf(emptySet<String>()) }
     GlassSheet(title = "Recent", onDismiss = onDismiss) {
@@ -62,10 +67,12 @@ fun RecentRunsSheet(
         // Capped BEFORE the tree (`PastRuns` cap), so a child whose parent fell
         // off the cap is a top-level orphan.
         val rowsBySessionId = remember(pastRuns) { pastRuns.associateBy { it.session.id } }
-        val tree = remember(pastRuns, collapsed) {
-            visibleSessionTreeRows(sessionTree(pastRuns.map { it.session }), collapsed)
+        val bands = remember(pastRuns, teams, collapsed) {
+            teamBands(pastRuns, teams) { it.session.teamId }.map { band ->
+                val tree = visibleSessionTreeRows(sessionTree(band.items.map { it.session }), collapsed)
+                Triple(band.team, tree, TreeGuides.compute(tree.map { it.depth }))
+            }
         }
-        val guides = remember(tree) { TreeGuides.compute(tree.map { it.depth }) }
         val toggle = { key: String -> collapsed = if (key in collapsed) collapsed - key else collapsed + key }
         LazyColumn(
             modifier = Modifier.fillMaxWidth().testTag("recent-runs-sheet"),
@@ -73,38 +80,43 @@ fun RecentRunsSheet(
             // EXP-818: the 6dp every converted list uses.
             verticalArrangement = Arrangement.spacedBy(AGENT_LIST_ROW_GAP),
         ) {
-            itemsIndexed(tree, key = { _, entry -> entry.key }) { index, entry ->
-                val expanded = entry.key !in collapsed
-                TreeGuidesRow(
-                    depth = entry.depth,
-                    guide = guides.getOrNull(index),
-                    gap = AGENT_LIST_ROW_GAP,
-                ) {
-                    when (val node = entry.node) {
-                        is SessionTreeNode.Session -> {
-                            val row = rowsBySessionId[node.session.id] ?: return@TreeGuidesRow
-                            val timeLabel = relativeTime(row.session.endedAt ?: row.session.updatedAt)
-                            EndedRunRow(
-                                // The ×4 rule (domain `pastRunTitle`): the
-                                // issue's title, a sync placeholder while it is
-                                // missing, the action_name snapshot (a chat
-                                // run's reads "Chat"), else the batch.
-                                title = pastRunTitle(row.session, row.issue, row.batchIssues),
-                                // EXP-876: a batch's `EXP-874 +2`, an issue run's id.
-                                identifier = pastRunIdentifier(row.session, row.issue, row.batchIssues),
-                                timeLabel = timeLabel,
-                                byline = pastRunByline(
-                                    deviceLabel = row.device.displayLabel,
+            bands.forEach { (team, tree, guides) ->
+                team?.let {
+                    item(key = "__recent_team_${it.id}__") { TeamSectionHeader(it) }
+                }
+                itemsIndexed(tree, key = { _, entry -> entry.key }) { index, entry ->
+                    val expanded = entry.key !in collapsed
+                    TreeGuidesRow(
+                        depth = entry.depth,
+                        guide = guides.getOrNull(index),
+                        gap = AGENT_LIST_ROW_GAP,
+                    ) {
+                        when (val node = entry.node) {
+                            is SessionTreeNode.Session -> {
+                                val row = rowsBySessionId[node.session.id] ?: return@TreeGuidesRow
+                                val timeLabel = relativeTime(row.session.endedAt ?: row.session.updatedAt)
+                                EndedRunRow(
+                                    // The ×4 rule (domain `pastRunTitle`): the
+                                    // issue's title, a sync placeholder while it is
+                                    // missing, the action_name snapshot (a chat
+                                    // run's reads "Chat"), else the batch.
+                                    title = pastRunTitle(row.session, row.issue, row.batchIssues),
+                                    // EXP-876: a batch's `EXP-874 +2`, an issue run's id.
+                                    identifier = pastRunIdentifier(row.session, row.issue, row.batchIssues),
                                     timeLabel = timeLabel,
-                                ),
-                                expandable = entry.hasChildren,
-                                expanded = expanded,
-                                onToggle = { toggle(entry.key) },
-                                onOpen = {
-                                    onDismiss()
-                                    onOpenRun(row.session.id)
-                                },
-                            )
+                                    byline = pastRunByline(
+                                        deviceLabel = row.device.displayLabel,
+                                        timeLabel = timeLabel,
+                                    ),
+                                    expandable = entry.hasChildren,
+                                    expanded = expanded,
+                                    onToggle = { toggle(entry.key) },
+                                    onOpen = {
+                                        onDismiss()
+                                        onOpenRun(row.session.id)
+                                    },
+                                )
+                            }
                         }
                     }
                 }

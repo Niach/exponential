@@ -1,5 +1,6 @@
 package com.exponential.app.ui.steer
 
+import kotlinx.coroutines.flow.Flow
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.SteerApi
@@ -51,7 +52,7 @@ class SteerLaunchDelegate @Inject constructor(
 ) {
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
-    private val teamIdFlow = selection.selectedId
+    private var teamIdFlow: Flow<String?> = selection.selectedId
 
     private val _enabled = MutableStateFlow<Boolean?>(null)
     /** Steer availability on this instance. null = not resolved yet. */
@@ -104,9 +105,14 @@ class SteerLaunchDelegate @Inject constructor(
         get() = _startCandidates ?: noCandidates
 
     /** Bind to the hosting ViewModel's scope — call once from its `init`. */
-    fun attach(scope: CoroutineScope) {
+    fun attach(
+        scope: CoroutineScope,
+        /** EXP-1186: the host's team (default: the selection). */
+        teamId: Flow<String?>? = null,
+    ) {
         if (this.scope != null) return
         this.scope = scope
+        if (teamId != null) teamIdFlow = teamId
         _startCandidates = combine(
             dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
             dbFlow.scopedQuery(emptyList()) { it.boardDao().observeAll() },

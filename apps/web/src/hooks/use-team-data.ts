@@ -1,5 +1,5 @@
 import { useMemo } from "react"
-import { eq } from "@tanstack/react-db"
+import { eq, inArray } from "@tanstack/react-db"
 import { useLiveQuery } from "@tanstack/react-db"
 import {
   boardCollection,
@@ -116,6 +116,32 @@ export function useTeamBoardsWithReady(teamId?: string) {
 
 export function useTeamBoards(teamId?: string) {
   return useTeamBoardsWithReady(teamId).boards
+}
+
+/** EXP-1186: the boards of SEVERAL teams (a phone's cross-team surfaces),
+ *  each team's run in canonical order; teams in the order `teamIds` lists
+ *  them. One team = exactly `useTeamBoards`. */
+export function useBoardsForTeams(teamIds: readonly string[]) {
+  const key = teamIds.join(`,`)
+  const { data, isReady } = useLiveQuery(
+    (query) =>
+      teamIds.length > 0
+        ? query
+            .from({ boards: boardCollection })
+            .where(({ boards }) => inArray(boards.teamId, [...teamIds]))
+        : undefined,
+    [key]
+  )
+  const boards = useMemo(() => {
+    const order = new Map(teamIds.map((id, index) => [id, index]))
+    return [...((data ?? []) as Board[])].sort(
+      (left, right) =>
+        (order.get(left.teamId) ?? 0) - (order.get(right.teamId) ?? 0) ||
+        compareBoards(left, right)
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, key])
+  return { boards, boardsReady: teamIds.length > 0 && isReady }
 }
 
 // The team's labels, for pickers and the filter popover. Cheap: a client-side

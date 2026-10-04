@@ -89,17 +89,19 @@ export function runIsLive(session: RunEndFacts): boolean {
 export function selectPastRuns<T extends PastRunSession>(
   sessions: readonly T[],
   currentUserId: string | undefined,
-  teamId: string | undefined,
+  /** One team, or (EXP-1186, the phone) several. */
+  teamId: string | readonly string[] | undefined,
   cap: number = PAST_RUN_CAP
 ): T[] {
-  if (!currentUserId || !teamId) return []
+  if (!currentUserId || !teamId || teamId.length === 0) return []
+  const teams = new Set<string>(typeof teamId === `string` ? [teamId] : teamId)
   return sessions
     .filter(
       (session) =>
         runHasEnded(session) &&
         session.startedReason == null &&
         session.userId === currentUserId &&
-        session.teamId === teamId
+        teams.has(session.teamId)
     )
     .sort((a, b) => pastRunEndedAt(b) - pastRunEndedAt(a))
     .slice(0, cap)

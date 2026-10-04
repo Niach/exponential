@@ -2,7 +2,6 @@ package com.exponential.app.ui.reviews
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.CodingSessionsApi
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.auth.AuthRepository
@@ -11,6 +10,7 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.IssueStatusEntity
+import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
@@ -34,8 +34,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-// Reviews (EXP-131): every open pull request in the CURRENT team, grouped
-// by board. A batch coding run links N issues to ONE pr_url, so the list
+// Reviews (EXP-131): every open pull request across EVERY member team
+// (EXP-1186, like the Inbox), grouped by board. A batch coding run links N issues to ONE pr_url, so the list
 // collapses those rows into a single entry (never N). Pure client work over the
 // already-synced issues shape — no new shape, no server round-trip to list.
 
@@ -112,18 +112,25 @@ fun buildRunEntries(
 }
 
 /**
- * The team's open-PR issues, boards and open-PR runs → the Reviews state.
+ * The open-PR issues, boards and open-PR runs → the Reviews state.
  * Issues group by `pr_url` so a batch PR (N issues, one url) is ONE entry;
- * entries are newest first and grouped by the representative issue's board,
- * boards in board order (sortOrder, name tiebreak). Pure so it can be tested
- * without a database.
+ * entries are newest first and grouped by the representative issue's board.
+ * EXP-1186: the list spans every member team ([teams], name order). Boards
+ * order by team (its position in [teams]) then board order (sortOrder, name
+ * tiebreak); with MORE than one team each board band names its team and the
+ * run PRs band once per team. One team = exactly the single-team list. Pure
+ * so it can be tested without a database.
  */
 fun buildReviewsState(
     issues: List<IssueEntity>,
     boards: List<BoardEntity>,
     runs: List<CodingSessionEntity>,
+    teams: List<TeamEntity> = emptyList(),
 ): ReviewsState {
     val boardsById = boards.associateBy { it.id }
+    val multiTeam = teams.size > 1
+    val teamsById = teams.associateBy { it.id }
+    val teamOrder = teams.withIndex().associate { (index, team) -> team.id to index }
     // An issue without a url (defensive — the query only selects pr_state
     // 'open', which normally implies a url) keys on its own id so it stays a
     // distinct single-issue row.
@@ -147,13 +154,35 @@ fun buildReviewsState(
         .groupBy { it.boardId }
         .mapNotNull { (boardId, boardEntries) ->
             val board = boardsById[boardId] ?: return@mapNotNull null
-            ReviewBoardGroup(board = board, entries = boardEntries)
+            ReviewBoardGroup(
+                board = board,
+                entries = boardEntries,
+                teamName = if (multiTeam) teamsById[board.teamId]?.name else null,
+            )
         }
-        .sortedWith(compareBy({ it.board.sortOrder }, { it.board.name.lowercase() }))
+        .sortedWith(
+            compareBy(
+                { teamOrder[it.board.teamId] ?: Int.MAX_VALUE },
+                { it.board.sortOrder },
+                { it.board.name.lowercase() },
+            ),
+        )
     val issuePrUrls = issues.mapNotNullTo(HashSet()) { it.prUrl?.takeIf(String::isNotEmpty) }
+    val runEntries = buildRunEntries(runs, issuePrUrls)
+    val runGroups = if (runEntries.isEmpty()) {
+        emptyList()
+    } else if (!multiTeam) {
+        listOf(ReviewRunGroup(team = null, entries = runEntries))
+    } else {
+        runEntries
+            .groupBy { it.session.teamId }
+            .map { (teamId, rows) -> ReviewRunGroup(team = teamsById[teamId], entries = rows) }
+            .sortedBy { group -> group.team?.let { teamOrder[it.id] } ?: Int.MAX_VALUE }
+    }
     return ReviewsState(
         groups = groups,
-        runs = buildRunEntries(runs, issuePrUrls),
+        runs = runEntries,
+        runGroups = runGroups,
         loaded = true,
     )
 }
@@ -162,6 +191,17 @@ data class ReviewBoardGroup(
     val board: BoardEntity,
     /** One entry per open pull request, newest first — a FLAT list. */
     val entries: List<ReviewEntry>,
+    /** EXP-1186: the board's team, named only when the user is in >1 team. */
+    val teamName: String? = null,
+)
+
+/**
+ * EXP-1186: one "Agent runs" band. [team] is null with a single team (one
+ * band, exactly as before), else the band's team.
+ */
+data class ReviewRunGroup(
+    val team: TeamEntity?,
+    val entries: List<RunReviewEntry>,
 )
 
 data class ReviewsState(
@@ -169,6 +209,8 @@ data class ReviewsState(
     // EXP-734: issueless runs whose OWN pull request is open — listed under
     // their own header, after the board groups.
     val runs: List<RunReviewEntry> = emptyList(),
+    /** EXP-1186: [runs] banded per team (one band with a single team). */
+    val runGroups: List<ReviewRunGroup> = emptyList(),
     val loaded: Boolean = false,
 ) {
     val isEmpty: Boolean get() = groups.isEmpty() && runs.isEmpty()
@@ -181,23 +223,24 @@ class ReviewsViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val issuesApi: IssuesApi,
     private val codingSessionsApi: CodingSessionsApi,
-    selection: TeamSelection,
 ) : ViewModel() {
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
+    // EXP-1186: cross-team like the Inbox — never the selected team.
     val state: StateFlow<ReviewsState> =
-        combine(dbFlow, selection.selectedId) { db, teamId -> db to teamId }
-            .flatMapLatest { (db, teamId) ->
-                if (db == null || teamId == null) {
+        dbFlow
+            .flatMapLatest { db ->
+                if (db == null) {
                     flowOf(ReviewsState(loaded = true))
                 } else {
                     combine(
-                        db.issueDao().observeOpenPrsByTeam(teamId),
-                        db.boardDao().observeByTeam(teamId),
-                        db.codingSessionDao().observeOpenPrRunsByTeam(teamId),
-                    ) { issues, boards, runs ->
-                        buildReviewsState(issues, boards, runs)
+                        db.issueDao().observeOpenPrs(),
+                        db.boardDao().observeAll(),
+                        db.codingSessionDao().observeOpenPrRuns(),
+                        db.teamDao().observeAll(),
+                    ) { issues, boards, runs, teams ->
+                        buildReviewsState(issues, boards, runs, teams)
                     }
                 }
             }
@@ -270,18 +313,24 @@ class ReviewsViewModel @Inject constructor(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
-     * EXP-1145: the SELECTED team's open pull requests, so a row's Merge on a
-     * PR-stack member asks first
-     * ([com.exponential.app.domain.PrStack.stackMergeChoice]). Never the whole
-     * account: branch names repeat across teams.
+     * EXP-1145: open pull requests PER TEAM, so a row's Merge on a PR-stack
+     * member asks first ([com.exponential.app.domain.PrStack.stackMergeChoice])
+     * against ITS OWN team's PRs (EXP-1186: the row's team, not the
+     * selection). Never the whole account: branch names repeat across teams.
      */
-    val teamOpenPrIssues: StateFlow<List<IssueEntity>> =
-        combine(dbFlow, selection.selectedId) { db, teamId -> db to teamId }
-            .flatMapLatest { (db, teamId) ->
-                if (db == null || teamId == null) flowOf(emptyList())
-                else db.issueDao().observeOpenPrsByTeam(teamId)
+    val openPrIssuesByTeam: StateFlow<Map<String, List<IssueEntity>>> =
+        dbFlow
+            .flatMapLatest { db ->
+                if (db == null) flowOf(emptyMap())
+                else combine(
+                    db.issueDao().observeOpenPrs(),
+                    db.boardDao().observeAll(),
+                ) { issues, boards ->
+                    val teamByBoard = boards.associate { it.id to it.teamId }
+                    issues.groupBy { teamByBoard[it.boardId].orEmpty() }
+                }
             }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /** SLOP-16 r3: the batch sheet's assignee avatars. */
     val users: StateFlow<List<UserEntity>> =

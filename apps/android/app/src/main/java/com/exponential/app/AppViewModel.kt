@@ -234,8 +234,9 @@ class AppViewModel @Inject constructor(
         else db.notificationDao().observeUnreadCount(userId)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
-    // True while at least one coding session is live in the SELECTED team on
-    // the active account — drives the bottom bar's Agents dot. A live session
+    // True while at least one of my coding sessions is live in ANY member team
+    // (EXP-1186: the Agent page lists every team's runs) on the active
+    // account — drives the bottom bar's Chat dot. A live session
     // is `running` or the `in_review` PR-open parking spot (EXP-194 — the dot
     // counts in_review as the "agent finished, look at it" signal).
     // Heartbeat-stale rows count as absent (EXP-153); the minute ticker clears
@@ -249,25 +250,21 @@ class AppViewModel @Inject constructor(
                     .observeByStatuses(CodingSessionLiveness.liveStatuses),
                 CodingSessionLiveness.minuteTicker(),
                 auth.userId,
-                teamSelection.selectedId,
-                // Own sessions in the selected team only, matching the list the
-                // dot points at (and web's `useAgentsRunningCount`): neither a
-                // teammate's session nor one of the caller's own runs in
-                // ANOTHER team may light a dot over an empty screen.
-            ) { sessions, now, me, teamId ->
-                me != null && teamId != null && sessions.any {
-                    it.userId == me &&
-                        it.teamId == teamId &&
-                        CodingSessionLiveness.isLive(it, now)
+                // Own sessions only, matching the list the dot points at: a
+                // teammate's session may never light a dot over an empty
+                // screen.
+            ) { sessions, now, me ->
+                me != null && sessions.any {
+                    it.userId == me && CodingSessionLiveness.isLive(it, now)
                 }
             }
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
-    // True while any LIVE session of the caller's in the selected team carries
+    // True while any LIVE session of the caller's (any team) carries
     // the desktop-written `needs_input` attention flag (EXP-214: agent parked
     // on a plan-approval / question picker) — escalates the Agents dot to
-    // amber. Same own + selected-team scoping as [agentsRunning].
+    // amber. Same own, cross-team scoping as [agentsRunning].
     @OptIn(ExperimentalCoroutinesApi::class)
     val agentsNeedInput: StateFlow<Boolean> = accountDatabaseFlow(auth, databaseHolder)
         .flatMapLatest { db ->
@@ -277,14 +274,12 @@ class AppViewModel @Inject constructor(
                     .observeByStatuses(CodingSessionLiveness.liveStatuses),
                 CodingSessionLiveness.minuteTicker(),
                 auth.userId,
-                teamSelection.selectedId,
-            ) { sessions, now, me, teamId ->
+            ) { sessions, now, me ->
                 // EXP-1184: the display state's NeedsInput — on every live
                 // status, an open PR included — so the amber dot means "a
                 // live agent wants you".
-                me != null && teamId != null && sessions.any {
+                me != null && sessions.any {
                     it.userId == me &&
-                        it.teamId == teamId &&
                         CodingSessionLiveness.isLive(it, now) &&
                         codingSessionDisplayState(it, null) == CodingSessionDisplayState.NeedsInput
                 }
@@ -313,38 +308,36 @@ class AppViewModel @Inject constructor(
             }
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
-    // True while the active team has any open pull request — the Reviews
+    // True while ANY member team has an open pull request — the Reviews
     // tab's green "stuff to do" dot (EXP-214). Same queries the Reviews screen
-    // lists (team-scoped, open PRs only, trashed filtered) — including, since
-    // EXP-734, the issueless RUNS whose own PR is open.
+    // lists (cross-team since EXP-1186, open PRs only, trashed filtered) —
+    // including, since EXP-734, the issueless RUNS whose own PR is open.
     @OptIn(ExperimentalCoroutinesApi::class)
-    val reviewsOpen: StateFlow<Boolean> = combine(
-        accountDatabaseFlow(auth, databaseHolder),
-        teamSelection.selectedId,
-    ) { db, teamId -> db to teamId }
-        .flatMapLatest { (db, teamId) ->
-            if (db == null || teamId == null) {
+    val reviewsOpen: StateFlow<Boolean> = accountDatabaseFlow(auth, databaseHolder)
+        .flatMapLatest { db ->
+            if (db == null) {
                 flowOf(false)
             } else {
                 combine(
-                    db.issueDao().observeOpenPrsByTeam(teamId),
-                    db.codingSessionDao().observeOpenPrRunsByTeam(teamId),
+                    db.issueDao().observeOpenPrs(),
+                    db.codingSessionDao().observeOpenPrRuns(),
                 ) { issues, runs -> issues.isNotEmpty() || runs.isNotEmpty() }
             }
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
-    // The active team's synced `yolo_mode` flag (EXP-1105) — hides the bottom
-    // bar's Reviews tab unless `reviewsOpen` (an open PR in yolo mode = a
-    // failed auto-merge, which must still surface). No toggle on Android.
+    // EXP-1105/EXP-1186: true while EVERY member team runs in yolo mode (the
+    // synced `yolo_mode` flag) — hides the bottom bar's Reviews tab unless
+    // `reviewsOpen` (an open PR in yolo mode = a failed auto-merge, which
+    // must still surface). One non-yolo team keeps the tab. No teams = false.
+    // No toggle on Android.
     @OptIn(ExperimentalCoroutinesApi::class)
-    val yoloMode: StateFlow<Boolean> = combine(
-        accountDatabaseFlow(auth, databaseHolder),
-        teamSelection.selectedId,
-    ) { db, teamId -> db to teamId }
-        .flatMapLatest { (db, teamId) ->
-            if (db == null || teamId == null) flowOf(false)
-            else db.teamDao().observeById(teamId).map { it?.yoloMode == true }
+    val yoloMode: StateFlow<Boolean> = accountDatabaseFlow(auth, databaseHolder)
+        .flatMapLatest { db ->
+            if (db == null) flowOf(false)
+            else db.teamDao().observeAll().map { teams ->
+                teams.isNotEmpty() && teams.all { it.yoloMode == true }
+            }
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 

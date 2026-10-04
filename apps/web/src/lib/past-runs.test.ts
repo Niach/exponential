@@ -110,6 +110,20 @@ describe(`selectPastRuns`, () => {
     expect(selectPastRuns(rows, `me`, undefined)).toEqual([])
   })
 
+  it(`EXP-1186: several teams (the phone's Recent) list each one's runs`, () => {
+    const rows = [
+      run({ id: `one`, teamId: `team-1` }),
+      run({ id: `two`, teamId: `team-2` }),
+      run({ id: `three`, teamId: `team-3` }),
+    ]
+    expect(
+      selectPastRuns(rows, `me`, [`team-1`, `team-2`])
+        .map((r) => r.id)
+        .sort()
+    ).toEqual([`one`, `two`])
+    expect(selectPastRuns(rows, `me`, [])).toEqual([])
+  })
+
   it(`a swept run stays out of Past`, () => {
     // EXP-888: the sweep ends a silent row with `ended_by = stale`; its host
     // revives it on the next heartbeat. Listing it under Recent would grey

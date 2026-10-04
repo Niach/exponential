@@ -11,6 +11,7 @@ import { useSteerConfig } from "@/components/agent-session"
 import { SessionsList } from "@/components/agent-shell"
 import { LaunchComposer } from "@/components/launch-composer"
 import { useAgentsData } from "@/hooks/use-agents-data"
+import { useCrossTeamScope } from "@/hooks/use-cross-team-scope"
 import { useLaunchComposer } from "@/hooks/use-launch-composer"
 import { useRemoteStart, type RemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
@@ -208,7 +209,10 @@ function AgentPage() {
   // centres in the column instead of hanging off the top edge (the desktop's
   // `min_h_full` + centred chat column). EXP-923: on md+ there is no list at
   // all, so it centres there unconditionally.
-  const { running } = useAgentsData(team?.id, currentUserId)
+  // EXP-1186: the phone's Running list reads every member team (the
+  // composer keeps the active one); md+ = the active team.
+  const scope = useCrossTeamScope(team)
+  const { running } = useAgentsData(scope.teamIds, currentUserId)
   const listEmpty = running.length === 0
   // EXP-923: the Recent panel is a disclosure on THIS page — leaving it (or
   // switching team) always shuts it again.
@@ -288,6 +292,8 @@ function AgentPage() {
               so it never traps a nested one. */}
           <SessionsList
             teamId={team.id}
+            teams={scope.teams}
+            grouped={scope.grouped}
             currentUserId={currentUserId}
             activeSessionId={null}
             origin={{ kind: `agent` }}

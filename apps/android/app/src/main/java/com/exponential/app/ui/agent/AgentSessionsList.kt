@@ -22,7 +22,10 @@ import com.exponential.app.domain.SessionTreeNode
 import com.exponential.app.domain.TreeGuides
 import com.exponential.app.domain.sessionTree
 import com.exponential.app.domain.visibleSessionTreeRows
+import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.ui.components.SectionHeader
+import com.exponential.app.ui.components.TeamSectionHeader
+import com.exponential.app.ui.components.teamBands
 import com.exponential.app.ui.components.TreeGuidesRow
 import com.exponential.app.ui.issue.StaticDot
 import com.exponential.app.ui.session.AgentRow
@@ -60,8 +63,17 @@ internal fun LazyListScope.agentSessionsList(
     steerEnabled: Boolean,
     onOpenSteer: (String) -> Unit,
     onOpenIssue: (String) -> Unit,
+    /**
+     * EXP-1186: the member teams — the list is CROSS-TEAM, and with more than
+     * one team each team's runs sit under its own band (avatar + name)
+     * instead of the one "Running" band.
+     */
+    teams: List<TeamEntity> = emptyList(),
 ) {
-    item(key = "__running_header__") { SectionHeader("Running") }
+    val bands = teamBands(rows, teams) { it.session.teamId }
+    if (rows.isEmpty() || bands.all { it.team == null }) {
+        item(key = "__running_header__") { SectionHeader("Running") }
+    }
     if (rows.isEmpty()) {
         item(key = "__no_running__") {
             // iOS noAgentsRow: caption/tertiary text in a glass row.
@@ -75,14 +87,17 @@ internal fun LazyListScope.agentSessionsList(
                     .padding(horizontal = 12.dp, vertical = 12.dp),
             )
         }
-    } else {
+    } else bands.forEach { band ->
+        band.team?.let { team ->
+            item(key = "__running_team_${team.id}__") { TeamSectionHeader(team) }
+        }
         // EXP-818/EXP-996: a run started by another run nests under its parent
         // and a resume succession is ONE row. EXP-897: every parent folds.
         val tree = visibleSessionTreeRows(
-            sessionTree(rows.map { it.session }),
+            sessionTree(band.items.map { it.session }),
             collapsedRunning,
         )
-        val rowsBySessionId = rows.associateBy { it.session.id }
+        val rowsBySessionId = band.items.associateBy { it.session.id }
         // EXP-965: the indent alone made a child read as a shifted stranger.
         val guides = TreeGuides.compute(tree.map { it.depth })
         itemsIndexed(tree, key = { _, entry -> entry.key }) { index, entry ->

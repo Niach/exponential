@@ -132,6 +132,33 @@ final class WorktreeResumeTests: XCTestCase {
         XCTAssertEqual(composed[0].rowId, "r2")
     }
 
+    // EXP-1186: the Devices tab's cross-team form — a teammate's server
+    // shared with ANY member team lists, once, however many it is shared with.
+    func testComposeAcrossTeamsListsServersSharedWithAnyTeamOnce() {
+        let now = WireTimestamps.parse("2026-08-11T10:00:00.000Z")!
+        let rows = [
+            entity(id: "r1", userId: "me", deviceId: "mine", lastSeenAt: nil),
+            entity(id: "r2", userId: "mate", deviceId: "a-box", lastSeenAt: nil,
+                   sharedTeamIds: ["team-1", "team-2"]),
+            entity(id: "r3", userId: "mate", deviceId: "b-box", lastSeenAt: nil,
+                   sharedTeamIds: ["team-2"]),
+            entity(id: "r4", userId: "mate", deviceId: "c-box", lastSeenAt: nil,
+                   sharedTeamIds: ["team-3"]),
+            entity(id: "r5", userId: "mate", deviceId: "desk", lastSeenAt: nil,
+                   sharedTeamIds: ["team-1"], kind: "desktop"),
+        ]
+        let composed = DeviceQueries.compose(
+            rows: rows, users: [], teamIds: ["team-1", "team-2"], userId: "me", now: now
+        )
+        XCTAssertEqual(composed.map(\.deviceId), ["mine", "a-box", "b-box"])
+        // The single-team form is the one-element set.
+        XCTAssertEqual(
+            DeviceQueries.compose(rows: rows, users: [], teamId: "team-2", userId: "me", now: now)
+                .map(\.deviceId),
+            ["mine", "a-box", "b-box"]
+        )
+    }
+
     // EXP-623: online rows sort by label (heartbeats can't reorder them);
     // offline rows sit below, most recently seen first.
     func testComposeOrdersOnlineByLabelThenOfflineByLastSeen() {

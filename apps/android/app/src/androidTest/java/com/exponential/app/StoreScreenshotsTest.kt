@@ -205,14 +205,11 @@ class StoreScreenshotsTest {
         flow.settle()
         flow.screenshot("5_review", popRects = true)
 
-        // --- Actions (EXP-253): a row of the bottom bar's More menu since
-        // SLOP-5; the seed inserts three team actions (no client builtins are
-        // listed).
+        // --- Actions (EXP-253): a bottom-bar tab again since EXP-1187; the
+        // seed inserts three team actions (no client builtins are listed).
         composeRule.onNode(hasContentDescription("Back")).performClick()
-        flow.waitFor(hasTestTag("tab-more"), NAV_TIMEOUT)
-        composeRule.onNode(hasTestTag("tab-more")).performClick()
-        flow.waitFor(hasTestTag("menu-actions"), NAV_TIMEOUT)
-        composeRule.onNode(hasTestTag("menu-actions")).performClick()
+        flow.waitFor(hasTestTag("tab-actions"), NAV_TIMEOUT)
+        composeRule.onNode(hasTestTag("tab-actions")).performClick()
         flow.waitFor(hasTestTag("action-row"), SYNC_TIMEOUT)
         flow.waitFor(hasText("Update dependencies", substring = true), SYNC_TIMEOUT)
         flow.settle()

@@ -5,6 +5,7 @@ import { codingSessionCollection } from "@/lib/collections"
 import type { CodingSession } from "@/db/schema"
 import { useNow } from "@/hooks/use-now"
 import { isLiveRun } from "@/lib/past-runs"
+import { teamScopeIds } from "@/lib/team-scope"
 
 // EXP-870: the signed-in user's OWN live runs in the team — running and
 // in_review (EXP-194), heartbeat-dead rows dropped (EXP-153). Every run
@@ -13,18 +14,20 @@ import { isLiveRun } from "@/lib/past-runs"
 // auto-added live tabs, so the badge and the strip never disagree. Own-only
 // to match the owner-only session views (EXP-312).
 export function useMyLiveRuns(
-  teamId: string | undefined,
+  teamId: string | readonly string[] | undefined,
   currentUserId: string | undefined,
   nowIntervalMs = 60_000
 ): { runs: CodingSession[]; isReady: boolean; now: Date } {
+  const teamIds = teamScopeIds(teamId)
+  const teamKey = teamIds.join(`,`)
   const { data, isReady } = useLiveQuery(
     (query) =>
-      teamId && currentUserId
+      teamIds.length > 0 && currentUserId
         ? query
             .from({ sessions: codingSessionCollection })
             .where(({ sessions }) =>
               and(
-                eq(sessions.teamId, teamId),
+                inArray(sessions.teamId, teamIds),
                 eq(sessions.userId, currentUserId),
                 // EXP-888: a SWEPT row (`ended` + `ended_by = 'stale'`) is
                 // still live — the device ignores the flip and its next
@@ -39,7 +42,7 @@ export function useMyLiveRuns(
               )
             )
         : undefined,
-    [teamId, currentUserId]
+    [teamKey, currentUserId]
   )
   const now = useNow(nowIntervalMs)
   const runs = useMemo(
@@ -57,5 +60,9 @@ export function useMyLiveRuns(
         ),
     [data, now]
   )
-  return { runs, isReady: Boolean(teamId && currentUserId) && isReady, now }
+  return {
+    runs,
+    isReady: Boolean(teamIds.length > 0 && currentUserId) && isReady,
+    now,
+  }
 }

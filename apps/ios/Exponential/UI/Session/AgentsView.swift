@@ -7,7 +7,8 @@ import SwiftUI
 /// headless `exponential` daemon servers, online or not — since EXP-481 read
 /// from the synced `devices` shape, online-ness derived from last_seen_at
 /// freshness) — then "Team devices" (EXP-432: teammates' servers shared with
-/// the active team, readable but never manageable here).
+/// ANY of the caller's teams — EXP-1186: cross-team like the Inbox, each
+/// server once — readable but never manageable here).
 ///
 /// EXP-909: a device row carries exactly ONE control ×4, the settings GEAR
 /// that opens `DeviceSettingsSheet`, and only on the caller's own registered
@@ -103,9 +104,10 @@ struct AgentsView: View {
                     accountId: accountId, userId: deps.auth.userId, db: deps.db
                 )
             }
-            // The list is scoped to the active team — the VM observes the
-            // account's rows, the view owns the team.
+            // EXP-1186: the list spans every member team — the VM observes
+            // the account's rows, the view hands it the team set.
             viewModel?.activeTeamId = teamState.activeTeam?.id
+            viewModel?.deviceTeamIds = memberTeamIds
             // EXP-829: the Accounts section queues its usage refreshes from
             // this page only.
             viewModel?.devicesApi = deps.devicesApi
@@ -113,14 +115,19 @@ struct AgentsView: View {
             // (onDisappear), popping back must resume it.
             viewModel?.startObserving()
         }
-        .onChange(of: teamState.activeTeam?.id) { _, teamId in
-            // EXP-432/EXP-481: the shared rows belong to the ACTIVE team —
-            // the VM recomposes on the team switch.
-            viewModel?.activeTeamId = teamId
+        .onChange(of: memberTeamIds) { _, teamIds in
+            // EXP-432/EXP-1186: the shared rows belong to the member teams —
+            // the VM recomposes when one is joined or left.
+            viewModel?.deviceTeamIds = teamIds
         }
         .onDisappear {
             viewModel?.stopObserving()
         }
+    }
+
+    /// EXP-1186: every team the caller is a member of (the synced teams).
+    private var memberTeamIds: Set<String> {
+        Set(teamState.teams.map(\.id))
     }
 
     // MARK: - My machines
@@ -136,7 +143,7 @@ struct AgentsView: View {
         devices?.filter(\.isMine)
     }
 
-    /// EXP-432: teammates' servers shared with the active team — the VM
+    /// EXP-432: teammates' servers shared with any member team — the VM
     /// composes them after the own rows.
     private var teamDevices: [SteerDevice] {
         devices?.filter { !$0.isMine } ?? []

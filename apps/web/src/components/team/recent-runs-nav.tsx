@@ -4,6 +4,8 @@ import { usePastRuns } from "@/hooks/use-agents-data"
 import { useOpenSession } from "@/hooks/use-open-session"
 import { SidebarBackRow } from "@/components/team/sidebar-back-row"
 import { setRecentRunsPanelOpen } from "@/lib/recent-runs-panel"
+import type { CodingSession, Team } from "@/db/schema"
+import { groupByTeam, TeamBandHeader } from "@/components/team/team-band"
 
 // EXP-923: the Agent page's RECENT runs, as a sidebar panel.
 //
@@ -56,25 +58,51 @@ export function RecentRunsSidebar({
   )
 }
 
-/** The same rows for the phone's bottom sheet (`mobile-topbar.tsx`). */
+/** The same rows for the phone's bottom sheet (`mobile-topbar.tsx`).
+ *  EXP-1186: across every member team (`teams`), one band per team while
+ *  `grouped`; a row opens under ITS team's slug. */
 export function RecentRunsList({
   teamId,
+  teams,
+  grouped = false,
   currentUserId,
   onOpened,
 }: {
   teamId: string
+  teams?: readonly Team[]
+  grouped?: boolean
   currentUserId: string | undefined
   onOpened: () => void
 }) {
-  const { past } = usePastRuns(teamId, currentUserId)
+  const scopeIds = teams && teams.length > 0 ? teams.map((t) => t.id) : teamId
+  const { past } = usePastRuns(scopeIds, currentUserId)
   const openSession = useOpenSession()
+  const open = (session: CodingSession) => {
+    onOpened()
+    const teamSlug = teams?.find((team) => team.id === session.teamId)?.slug
+    openSession(session, {
+      origin: { kind: `agent` },
+      ...(teamSlug ? { teamSlug } : {}),
+    })
+  }
+  const groups =
+    grouped && teams ? groupByTeam(teams, past, (row) => row.session.teamId) : []
+  if (groups.length > 0) {
+    return (
+      <>
+        {groups.map((group) => (
+          <div key={group.team.id} className="mb-4 last:mb-0">
+            <TeamBandHeader team={group.team} />
+            <SessionTree rows={group.rows} onOpen={open} />
+          </div>
+        ))}
+      </>
+    )
+  }
   return (
     <SessionTree
       rows={past}
-      onOpen={(session) => {
-        onOpened()
-        openSession(session, { origin: { kind: `agent` } })
-      }}
+      onOpen={open}
       emptyNote="Nothing has finished yet."
     />
   )

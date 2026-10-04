@@ -54,6 +54,20 @@ public enum PastRuns {
         !hasEnded(session)
     }
 
+    /// EXP-1186: the section's rows across EVERY member team — the list is
+    /// cross-team like the Inbox and groups per team itself. Same predicate,
+    /// ordering key and cap as the team-scoped form below.
+    public static func select(
+        _ sessions: [CodingSessionEntity],
+        userId: String?,
+        cap limit: Int = cap
+    ) -> [CodingSessionEntity] {
+        selectOwn(
+            sessions.filter { CodingSessionOwnership.isOwn($0, userId: userId) },
+            cap: limit
+        )
+    }
+
     /// The section's rows: own + active-team + `ended` + PERSON-started,
     /// newest first, capped. Ordering key is `ended_at ?? updated_at` — a row
     /// whose end never landed still sorts by its last heartbeat, and ISO-8601
@@ -64,8 +78,19 @@ public enum PastRuns {
         teamId: String?,
         cap limit: Int = cap
     ) -> [CodingSessionEntity] {
+        selectOwn(
+            sessions.filter {
+                CodingSessionOwnership.isOwn($0, userId: userId, teamId: teamId)
+            },
+            cap: limit
+        )
+    }
+
+    /// The shared tail of both `select` forms, over already-own rows.
+    private static func selectOwn(
+        _ sessions: [CodingSessionEntity], cap limit: Int
+    ) -> [CodingSessionEntity] {
         sessions
-            .filter { CodingSessionOwnership.isOwn($0, userId: userId, teamId: teamId) }
             // EXP-888: a sweep end is not an end — that row belongs to Running.
             .filter { hasEnded($0) }
             // EXP-676: a triggered run belongs under its action's Runs, never here.

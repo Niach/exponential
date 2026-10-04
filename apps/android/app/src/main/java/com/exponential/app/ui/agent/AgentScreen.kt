@@ -161,6 +161,8 @@ fun AgentScreen(
     // ── Sessions ────────────────────────────────────────────────────────────
     val sessionsState by sessionsViewModel.state.collectAsStateWithLifecycle()
     val pastRuns by sessionsViewModel.pastRuns.collectAsStateWithLifecycle()
+    // EXP-1186: runs are cross-team, banded per team once there are several.
+    val memberTeams by sessionsViewModel.teams.collectAsStateWithLifecycle()
 
     // The desktop picked the start up — open the live session ONCE (EXP-536).
     val startedSessionId by viewModel.startedSessionId.collectAsStateWithLifecycle()
@@ -665,6 +667,7 @@ fun AgentScreen(
                 steerEnabled = steerEnabled == true,
                 onOpenSteer = onOpenSteer,
                 onOpenIssue = onOpenIssue,
+                teams = memberTeams,
             )
         }
     }
@@ -672,6 +675,7 @@ fun AgentScreen(
     if (recentOpen) {
         RecentRunsSheet(
             pastRuns = pastRuns,
+            teams = memberTeams,
             onOpenRun = onOpenSteer,
             onDismiss = { recentOpen = false },
         )

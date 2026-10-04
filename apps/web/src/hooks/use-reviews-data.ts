@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import {
-  useTeamBoards,
+  useBoardsForTeams,
   useTeamUsers,
 } from "@/hooks/use-team-data"
 import { trpc } from "@/lib/trpc-client"
@@ -24,6 +24,8 @@ export interface ReviewEntry {
 
 export interface ReviewGroup {
   board: Board
+  /** EXP-1186: the board's team (a phone reads every member team). */
+  team: Team | undefined
   /** One entry per open PR, newest first — a FLAT list. */
   entries: ReviewEntry[]
 }
@@ -39,9 +41,17 @@ export interface SessionReviewEntry {
 }
 
 export interface ExternalPullGroup {
+  /** EXP-1186: the team whose `openPulls` listed it. */
+  teamId: string
   repositoryId: string
   fullName: string
   pulls: OpenPull[]
+}
+
+/** EXP-1186: the run PRs of one team, a band of their own per team. */
+export interface SessionReviewGroup {
+  team: Team | undefined
+  entries: SessionReviewEntry[]
 }
 
 // Cross-board review queue: every issue in the team with an open pull
@@ -49,9 +59,29 @@ export interface ExternalPullGroup {
 // client work over the already-synced issues shape — prState arrives on every
 // issue row, and the collections' snakeCamelMapper makes the camelCase filter
 // match the Postgres pr_state column.
-export function useReviewsData(team: Team | null | undefined) {
-  const boards = useTeamBoards(team?.id)
-  const teamId = team?.id
+// EXP-1186: `teams` widens it to several teams (the phone reads every member
+// team, `useCrossTeamScope`) — boards ordered team by team, in that order.
+// Omitted = the active team alone.
+export function useReviewsData(
+  team: Team | null | undefined,
+  teams?: readonly Team[]
+) {
+  const scopeTeams = useMemo<Team[]>(
+    () =>
+      teams && teams.length > 0 ? [...teams] : team ? [team] : [],
+    [team, teams]
+  )
+  const orderedTeamIds = useMemo(
+    () => scopeTeams.map((row) => row.id),
+    [scopeTeams]
+  )
+  const teamIds = useMemo(() => [...orderedTeamIds].sort(), [orderedTeamIds])
+  const teamKey = teamIds.join(`,`)
+  const teamById = useMemo(
+    () => new Map(scopeTeams.map((row) => [row.id, row])),
+    [scopeTeams]
+  )
+  const { boards } = useBoardsForTeams(orderedTeamIds)
   const boardIds = useMemo(
     () => boards.map((board) => board.id),
     [boards]
@@ -79,17 +109,17 @@ export function useReviewsData(team: Team | null | undefined) {
   // JS below (a live query cannot express either).
   const { data: sessionRows } = useLiveQuery(
     (query) =>
-      teamId
+      teamIds.length > 0
         ? query
             .from({ sessions: codingSessionCollection })
             .where(({ sessions }) =>
               and(
-                eq(sessions.teamId, teamId),
+                inArray(sessions.teamId, teamIds),
                 eq(sessions.prState, `open`)
               )
             )
         : undefined,
-    [teamId]
+    [teamKey]
   )
 
   // Open PRs with no issue link, fetched live from GitHub through the server
@@ -98,14 +128,34 @@ export function useReviewsData(team: Team | null | undefined) {
   const [externalGroups, setExternalGroups] = useState<ExternalPullGroup[]>([])
   const [externalLoading, setExternalLoading] = useState(false)
   useEffect(() => {
-    if (!teamId) return
+    if (teamIds.length === 0) return
     let cancelled = false
     setExternalLoading(true)
-    trpc.repositories.openPulls
-      .query({ teamId })
-      .then((result) => {
+    // One request per team; a team that fails just lists nothing.
+    Promise.all(
+      teamIds.map((teamId) =>
+        trpc.repositories.openPulls
+          .query({ teamId })
+          .then((result) =>
+            result.repos
+              .filter((repo) => repo.pulls.length > 0)
+              .map((repo) => ({ ...repo, teamId }))
+          )
+          .catch(() => [] as ExternalPullGroup[])
+      )
+    )
+      .then((perTeam) => {
         if (cancelled) return
-        setExternalGroups(result.repos.filter((repo) => repo.pulls.length > 0))
+        // Team order, like the board bands.
+        const order = new Map(orderedTeamIds.map((id, index) => [id, index]))
+        setExternalGroups(
+          perTeam
+            .flat()
+            .sort(
+              (left, right) =>
+                (order.get(left.teamId) ?? 0) - (order.get(right.teamId) ?? 0)
+            )
+        )
       })
       .catch(() => {
         if (!cancelled) setExternalGroups([])
@@ -116,7 +166,9 @@ export function useReviewsData(team: Team | null | undefined) {
     return () => {
       cancelled = true
     }
-  }, [teamId])
+    // `teamKey` names the id set; the order map only sorts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamKey])
 
   // External PRs have no Electric echo — a successful merge removes the row
   // locally.
@@ -176,7 +228,7 @@ export function useReviewsData(team: Team | null | undefined) {
     for (const board of boards) {
       const bucket = byBoard.get(board.id)
       if (!bucket) continue
-      groups.push({ board, entries: bucket })
+      groups.push({ board, team: teamById.get(board.teamId), entries: bucket })
     }
 
     // EXP-734: the run's OWN PR (no linked issue), newest per prUrl. A batch
@@ -201,6 +253,16 @@ export function useReviewsData(team: Team | null | undefined) {
       .sort(byCreatedAtDesc)
       .map((session) => ({ key: `session:${session.id}`, session }))
 
+    // EXP-1186: one "Agent runs" band per team, in team order.
+    const sessionGroups: SessionReviewGroup[] = orderedTeamIds
+      .map((teamId) => ({
+        team: teamById.get(teamId),
+        entries: sessionEntries.filter(
+          (entry) => entry.session.teamId === teamId
+        ),
+      }))
+      .filter((group) => group.entries.length > 0)
+
     // The server already excludes run PRs from `openPulls`, but its 60 s
     // cache can still hand back one that a run just claimed — drop it here so
     // the same PR never renders twice.
@@ -220,6 +282,7 @@ export function useReviewsData(team: Team | null | undefined) {
     return {
       groups,
       sessionEntries,
+      sessionGroups,
       externalGroups: externalPullGroups,
       count:
         entriesByKey.size +
@@ -246,5 +309,7 @@ export function useReviewsData(team: Team | null | undefined) {
     externalGroups,
     externalLoading,
     removeExternalPull,
+    orderedTeamIds,
+    teamById,
   ])
 }

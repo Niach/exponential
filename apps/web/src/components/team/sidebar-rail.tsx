@@ -233,9 +233,9 @@ function RailItem({
   )
 }
 
-/** SLOP-5: the rail's More button — the same menu the expanded row and the
- *  phone tab open (Actions, the Drafts pile while any). Lit while one of
- *  those is on screen. */
+/** SLOP-5: the rail's More button — the same menu the expanded row opens
+ *  (Actions, the Drafts pile while any). Lit while one of those is on
+ *  screen. */
 function MoreRailItem({
   teamSlug,
   teamId,
@@ -243,13 +243,12 @@ function MoreRailItem({
   teamSlug: string
   teamId?: string
 }) {
-  const active = useMoreActive({ settings: false })
+  const active = useMoreActive()
   return (
     <MoreMenu
       teamSlug={teamSlug}
       teamId={teamId}
       drafts
-      settings={false}
       side="right"
     >
       <Tooltip>

@@ -2,8 +2,10 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// The Actions surface (EXP-253): the active team's action prompts, each with
-/// a Run affordance. EXP-825: Run, "New action" (EXP-431, in the web-parity
+/// The Actions surface (EXP-253): the action prompts of EVERY member team
+/// (EXP-1186: cross-team like the Inbox — one band per team, `TeamAvatar` +
+/// name, once the caller is in more than one), each with a Run affordance
+/// that opens the composer on the action's OWN team. EXP-825: Run, "New action" (EXP-431, in the web-parity
 /// "Actions" section header since EXP-574) and a suggestion's tap are all
 /// NAVIGATION into the Agent page composer, seeded with the action (or the
 /// Create action builtin plus the suggestion's text and icon). SLOP-2: a row
@@ -71,8 +73,9 @@ struct ActionsListView: View {
     }
 
     /// EXP-825: every launch here is a push into the Agent page composer.
+    /// EXP-1186: a seed naming a team opens THAT team's composer.
     private func openComposer(_ seed: AgentComposerSeed) {
-        guard teamState.activeTeam != nil else { return }
+        guard seed.teamId != nil || teamState.activeTeam != nil else { return }
         pushRoute(.agent(accountId: accountId, seed: seed))
     }
 
@@ -124,15 +127,37 @@ struct ActionsListView: View {
                 // EXP-818: a filled group BAND over flat rows — the list reads
                 // as a table instead of a stack of cards (web `ListRow`,
                 // desktop `surface::flat_row`).
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    // EXP-574 (web parity): the "Actions" band with the
-                    // "New action" entry (EXP-431) as its trailing control.
-                    GlassSectionBand("Actions") {
-                        newActionButton
+                if TeamGroups.isMultiTeam(teamState.teams) {
+                    // EXP-1186: one band per team — its avatar and name lead,
+                    // "New action" creates in THAT team.
+                    LazyVStack(alignment: .leading, spacing: 12) {
+                        ForEach(
+                            TeamGroups.group(vm.actions, teams: teamState.teams) { $0.teamId }
+                        ) { group in
+                            VStack(alignment: .leading, spacing: 0) {
+                                GlassSectionBand(group.team.name) {
+                                    TeamAvatar(team: group.team, size: 16)
+                                } trailing: {
+                                    newActionButton(teamId: group.team.id)
+                                }
+                                ForEach(group.items) { actionRow($0) }
+                            }
+                            .accessibilityElement(children: .contain)
+                            .accessibilityIdentifier("actions-team-\(group.team.id)")
+                        }
                     }
-                    ForEach(vm.actions) { actionRow($0) }
+                    .padding()
+                } else {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        // EXP-574 (web parity): the "Actions" band with the
+                        // "New action" entry (EXP-431) as its trailing control.
+                        GlassSectionBand("Actions") {
+                            newActionButton(teamId: nil)
+                        }
+                        ForEach(vm.actions) { actionRow($0) }
+                    }
+                    .padding()
                 }
-                .padding()
             }
             // Actions is a tab of its own since EXP-686 — reserve the
             // floating bar's clearance (EXP-36).
@@ -143,14 +168,16 @@ struct ActionsListView: View {
     /// EXP-431: creation left the list ("Create action" no longer poses as a
     /// row); EXP-825: it is the composer with the Create action builtin
     /// picked — describe it, and the creator run writes it.
-    private var newActionButton: some View {
+    private func newActionButton(teamId: String?) -> some View {
         GlassPill(
             "New action",
             icon: AppIcons.actionCreate,
             mode: .action {
-                openComposer(AgentComposerSeed(actionId: DomainContract.builtinCreateActionId))
+                openComposer(AgentComposerSeed(
+                    actionId: DomainContract.builtinCreateActionId, teamId: teamId
+                ))
             },
-            enabled: teamState.activeTeam != nil
+            enabled: teamId != nil || teamState.activeTeam != nil
         )
         .accessibilityLabel("New action")
     }
@@ -310,7 +337,8 @@ struct ActionsListView: View {
             // web and desktop wear on their action cards. EXP-825: it pushes
             // the composer with this action picked.
             CircleIconButton(AppIcons.actionRun, accessibilityLabel: "Run") {
-                openComposer(AgentComposerSeed(actionId: action.id))
+                // EXP-1186: on the action's OWN team (the list is cross-team).
+                openComposer(AgentComposerSeed(actionId: action.id, teamId: action.teamId))
             }
 
             // EXP-694: non-owners reach the page too — read-only there.

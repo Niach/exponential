@@ -10,15 +10,12 @@ import { useSession } from "@/hooks/use-session"
 import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
 import {
   useReviewsOpenPrCount,
-  useShowsReviews,
+  useShowsReviewsAcrossTeams,
   useAgentsRunningCount,
 } from "@/hooks/use-nav-counts"
-import {
-  MORE_LABEL,
-  MoreMenu,
-  NavMoreIcon,
-  useMoreActive,
-} from "@/components/team/sidebar-more"
+import { useCrossTeamScope } from "@/hooks/use-cross-team-scope"
+import { useBoardsForTeams } from "@/hooks/use-team-data"
+import { MORE_ACTIONS_LABEL } from "@/components/team/sidebar-more"
 
 // EXP-317: the cross-client nav glyphs come from the shared registry
 // (packages/icons/icons.json) so web, desktop, iOS and Android agree.
@@ -28,6 +25,7 @@ const NavDevicesIcon = conceptIcon(`nav-devices`)
 const NavInboxIcon = conceptIcon(`nav-inbox`)
 const NavIssuesIcon = conceptIcon(`nav-issues`)
 const NavReviewsIcon = conceptIcon(`nav-reviews`)
+const NavActionsIcon = conceptIcon(`nav-actions`)
 
 // Bottom padding for every scroll container that sits under the floating
 // tab bar, so list ends scroll clear of the glass pill. Detail routes hide
@@ -114,25 +112,27 @@ function InboxDot() {
 
 // Review green (EXP-214): open PRs are "stuff to do", colored like the
 // in_review issue status. green-500/yellow-400 match the natives'
-// semantic tokens (EXP-699).
+// semantic tokens (EXP-699). EXP-1186: across every member team — the
+// phone's Reviews is cross-team like the inbox.
 function ReviewsDot({
   boards,
-  teamId,
+  teamIds,
 }: {
   boards: Board[] | undefined
-  teamId?: string
+  teamIds: readonly string[]
 }) {
-  const count = useReviewsOpenPrCount(boards, teamId)
+  const count = useReviewsOpenPrCount(boards, teamIds)
   if (count === 0) return null
   return <TabDot className="bg-green-500" />
 }
 
-// Any of MY live coding sessions in the team, on the Chat launcher — the
-// Agent page holds the sessions list (EXP-818), so the dot rides its button.
-// Amber while one waits on a plan approval / question (EXP-214).
-function AgentDot({ teamId }: { teamId?: string }) {
+// Any of MY live coding sessions, on the Chat launcher — the Agent page holds
+// the sessions list (EXP-818), so the dot rides its button. Amber while one
+// waits on a plan approval / question (EXP-214). EXP-1186: in ANY member team
+// on the phone, matching the Agent page's cross-team Running list.
+function AgentDot({ teamIds }: { teamIds: readonly string[] }) {
   const { data: session } = useSession()
-  const { count, needsInput } = useAgentsRunningCount(teamId, session?.user?.id)
+  const { count, needsInput } = useAgentsRunningCount(teamIds, session?.user?.id)
   if (count === 0) return null
   return <TabDot className={needsInput ? `bg-yellow-400` : `bg-green-500`} />
 }
@@ -178,9 +178,9 @@ interface MobileTabBarProps {
 // top-level destinations plus a detached compose FAB, replacing the old
 // sidebar-as-drawer. Desktop keeps the persistent sidebar (`md:hidden`).
 // EXP-686: Search left the bar for the board header (`use-issue-search.tsx`).
-// SLOP-5: Issues, Inbox, Devices, Reviews, More — the four nouns
-// plus Reviews and Inbox; Actions and Settings sit behind More (×3 with the
-// iOS and Android bars).
+// EXP-1187: Issues · Inbox · Devices · Reviews · Actions — no More on the
+// phone: Actions is a tab of its own and Settings lives in the topbar's
+// avatar menu (×3 with the iOS and Android bars).
 export function MobileTabBar({
   teamSlug,
   team,
@@ -198,7 +198,12 @@ export function MobileTabBar({
   const publishTabBarHeight = useChromeHeightVar(`--tabbar-h`)
 
   const boardTarget = resolveBoardTarget(teamSlug, boards, boardSlug)
-  const showsReviews = useShowsReviews(team ?? undefined, boards)
+  // EXP-1186: only Issues is team-scoped on the phone; Reviews and the
+  // Agent dot read every member team (md+ = the active team, the bar is
+  // hidden there anyway).
+  const scope = useCrossTeamScope(team)
+  const { boards: scopeBoards } = useBoardsForTeams(scope.teamIds)
+  const showsReviews = useShowsReviewsAcrossTeams(scope.teams, scopeBoards)
   const openNewDraft = useOpenNewDraft(teamSlug)
 
   const onBoard = Boolean(
@@ -209,8 +214,10 @@ export function MobileTabBar({
   const onDevices = Boolean(
     matchRoute({ to: `/t/$teamSlug/devices`, fuzzy: true })
   )
-  // SLOP-5: More is lit while Actions or Settings is up.
-  const moreActive = useMoreActive({ settings: true })
+  // EXP-1187: lit on the list AND on one action's page (SLOP-2).
+  const onActions = Boolean(
+    matchRoute({ to: `/t/$teamSlug/actions`, fuzzy: true })
+  )
   const onReviews = Boolean(
     matchRoute({ to: `/t/$teamSlug/reviews`, fuzzy: true })
   )
@@ -275,28 +282,20 @@ export function MobileTabBar({
             className={tabClass(onReviews)}
           >
             <NavReviewsIcon className="size-5" />
-            <ReviewsDot boards={boards} teamId={team?.id} />
+            <ReviewsDot boards={scopeBoards} teamIds={scope.teamIds} />
           </Link>
         )}
-        {/* SLOP-5: the phone's More — Actions and Settings on the touch
-            menu surface, opening above the bar. Drafts stay the Inbox's
-            third segment here (EXP-878). */}
-        <MoreMenu
-          teamSlug={teamSlug}
-          drafts={false}
-          settings
-          side="top"
-          align="end"
+        {/* EXP-1187: Actions is a tab; Drafts stay the Inbox's third
+            segment on the phone (EXP-878), Settings the avatar menu's. */}
+        <Link
+          to="/t/$teamSlug/actions"
+          params={{ teamSlug }}
+          aria-label={MORE_ACTIONS_LABEL}
+          data-testid="tab-actions"
+          className={tabClass(onActions)}
         >
-          <button
-            type="button"
-            aria-label={MORE_LABEL}
-            data-testid="nav-more"
-            className={tabClass(moreActive)}
-          >
-            <NavMoreIcon className="size-5" />
-          </button>
-        </MoreMenu>
+          <NavActionsIcon className="size-5" />
+        </Link>
       </nav>
       {/* EXP-631/694: the chat launcher started on Devices and Actions,
           EXP-739 made it a LINK to the team's Agent page, EXP-827 merged it
@@ -313,7 +312,7 @@ export function MobileTabBar({
           className={FAB_ARM_CLASS}
         >
           <ActionChatIcon className="size-5" />
-          <AgentDot teamId={team?.id} />
+          <AgentDot teamIds={scope.teamIds} />
         </Link>
         <span aria-hidden className="my-3 w-px shrink-0 bg-glass-stroke-card" />
         {composeEnabled ? (

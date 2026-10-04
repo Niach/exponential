@@ -136,6 +136,7 @@ struct AgentPageView: View {
                         showRecent = false
                     }
                 )
+                .environment(teamState)
             }
         }
         .accessibilityElement(children: .contain)

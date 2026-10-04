@@ -26,6 +26,7 @@ import { BoardSwitcherSheet } from "@/components/team/board-switcher-sheet"
 import { RecentRunsList } from "@/components/team/recent-runs-nav"
 import { TeamLiveDot } from "@/components/team/sidebar-rail"
 import { useTeamLiveRuns } from "@/hooks/use-team-live-runs"
+import { useCrossTeamScope } from "@/hooks/use-cross-team-scope"
 import { otherTeamsLive } from "@/lib/sessions/team-live-runs"
 import {
   resolveBoardTarget,
@@ -74,6 +75,8 @@ export function TeamMobileTopbar({
   // twin of the md+ page's history panel. The page itself is the composer
   // over what is RUNNING; the history is one tap away, never in the way.
   const [recentOpen, setRecentOpen] = useState(false)
+  // EXP-1186: Recent reads every member team on the phone.
+  const scope = useCrossTeamScope(team)
   const feedbackAvailable = useFeedbackWidgetAvailable()
   // EXP-1075: the phone's team picker is this button — it carries the same
   // "a run of mine is live in another team" dot as the sidebar's.
@@ -228,6 +231,8 @@ export function TeamMobileTopbar({
             {team && (
               <RecentRunsList
                 teamId={team.id}
+                teams={scope.teams}
+                grouped={scope.grouped}
                 currentUserId={session?.user?.id}
                 onOpened={() => setRecentOpen(false)}
               />

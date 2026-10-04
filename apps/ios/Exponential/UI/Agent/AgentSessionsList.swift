@@ -2,8 +2,9 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-825: the Agent page's sessions — the caller's OWN live runs in the
-/// active team ("Running", nested by `SessionTree`, EXP-818). Moved verbatim
+/// EXP-825: the Agent page's sessions — the caller's OWN live runs
+/// ("Running"; EXP-1186: across EVERY member team, one band per team —
+/// `TeamAvatar` + name — once the caller is in more than one; nested by `SessionTree`, EXP-818). Moved verbatim
 /// from the Devices tab, which keeps machines only (web parity, EXP-818).
 ///
 /// EXP-996: the list draws the session TREE, not a flat roll of strangers —
@@ -23,6 +24,7 @@ struct AgentSessionsList: View {
     let steerEnabled: Bool
 
     @Environment(\.accountId) private var accountId
+    @Environment(TeamState.self) private var teamState
 
     /// EXP-897/EXP-996: the nodes folded shut, keyed by the NODE key
     /// (`SessionTree.nodeKey`) — a parent's chevron hides its whole subtree.
@@ -33,26 +35,53 @@ struct AgentSessionsList: View {
         // EXP-818: the Running group is a filled BAND over flat rows
         // (`GlassSectionBand` + `.flatRow()`) — the runs read as a table, the
         // way web's and the IDE's session lists do.
-        VStack(alignment: .leading, spacing: 0) {
-            GlassSectionBand("Running")
-            if vm.rows.isEmpty {
-                noAgentsRow
-            } else {
-                // EXP-818: a run started by another run nests under its
-                // parent, indented (`SessionTree`, the ×4 rule). EXP-897:
-                // every parent carries a fold, 14 pt per level. EXP-965: the
-                // connector says which row hangs off which; the band's rows
-                // stack flush (spacing 0), so it bridges no gap.
-                let rows = runningRows
-                let guides = TreeGuides.compute(depths: rows.map(\.depth))
-                let byId = Dictionary(
-                    vm.rows.map { ($0.session.id, $0) }, uniquingKeysWith: { a, _ in a }
-                )
-                ForEach(Array(rows.enumerated()), id: \.element.key) { index, entry in
-                    treeRow(entry, rows: byId)
-                        .treeGuides(guides[index])
+        // EXP-1186: grouped per team only when the caller is in several; one
+        // team draws exactly the single "Running" band it always did.
+        let groups = TeamGroups.isMultiTeam(teamState.teams)
+            ? TeamGroups.group(vm.rows, teams: teamState.teams) { $0.session.teamId }
+            : []
+        if groups.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                GlassSectionBand("Running")
+                if vm.rows.isEmpty {
+                    noAgentsRow
+                } else {
+                    tree(vm.rows)
                 }
             }
+        } else {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(groups) { group in
+                    VStack(alignment: .leading, spacing: 0) {
+                        GlassSectionBand(group.team.name) {
+                            TeamAvatar(team: group.team, size: 16)
+                        } trailing: {
+                            EmptyView()
+                        }
+                        tree(group.items)
+                    }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("agent-sessions-team-\(group.team.id)")
+                }
+            }
+        }
+    }
+
+    /// One band's rows. EXP-818: a run started by another run nests under its
+    /// parent, indented (`SessionTree`, the ×4 rule). EXP-897: every parent
+    /// carries a fold, 14 pt per level. EXP-965: the connector says which row
+    /// hangs off which; the band's rows stack flush (spacing 0), so it
+    /// bridges no gap.
+    @ViewBuilder
+    private func tree(_ source: [AgentsViewModel.Row]) -> some View {
+        let rows = runningRows(source)
+        let guides = TreeGuides.compute(depths: rows.map(\.depth))
+        let byId = Dictionary(
+            source.map { ($0.session.id, $0) }, uniquingKeysWith: { a, _ in a }
+        )
+        ForEach(Array(rows.enumerated()), id: \.element.key) { index, entry in
+            treeRow(entry, rows: byId)
+                .treeGuides(guides[index])
         }
     }
 
@@ -60,9 +89,9 @@ struct AgentSessionsList: View {
 
     /// EXP-996: the list is the `sessionTree` SELECTOR drawn — a resume
     /// succession is ONE row and children nest.
-    private var runningRows: [SessionTree.FlatRow] {
+    private func runningRows(_ source: [AgentsViewModel.Row]) -> [SessionTree.FlatRow] {
         SessionTree.visibleRows(
-            SessionTree.sessionTree(vm.rows.map(\.session)),
+            SessionTree.sessionTree(source.map(\.session)),
             collapsed: collapsedRunning
         )
     }

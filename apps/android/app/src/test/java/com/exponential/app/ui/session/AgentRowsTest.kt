@@ -139,7 +139,6 @@ class AgentRowsTest {
             ),
             issues = listOf(issue("issue-1")),
             currentUserId = "me",
-            teamId = "team-1",
             nowMs = nowMs,
         )
         assertEquals(listOf("mine"), rows.map { it.session.id })
@@ -154,7 +153,6 @@ class AgentRowsTest {
             ),
             issues = listOf(issue("issue-1")),
             currentUserId = "me",
-            teamId = "team-1",
             nowMs = nowMs,
         )
         assertEquals(emptyList<AgentRow>(), rows)
@@ -166,14 +164,13 @@ class AgentRowsTest {
             sessions = listOf(session("mine", userId = "me")),
             issues = listOf(issue("issue-1")),
             currentUserId = null,
-            teamId = "team-1",
             nowMs = nowMs,
         )
         assertEquals(emptyList<AgentRow>(), rows)
     }
 
     @Test
-    fun `own session in another team is not listed`() {
+    fun `own session in another team is listed too (EXP-1186)`() {
         val rows = agentRows(
             sessions = listOf(
                 session("here", userId = "me"),
@@ -181,22 +178,9 @@ class AgentRowsTest {
             ),
             issues = listOf(issue("issue-1")),
             currentUserId = "me",
-            teamId = "team-1",
             nowMs = nowMs,
         )
-        assertEquals(listOf("here"), rows.map { it.session.id })
-    }
-
-    @Test
-    fun `no selected team lists nothing`() {
-        val rows = agentRows(
-            sessions = listOf(session("mine", userId = "me")),
-            issues = listOf(issue("issue-1")),
-            currentUserId = "me",
-            teamId = null,
-            nowMs = nowMs,
-        )
-        assertEquals(emptyList<AgentRow>(), rows)
+        assertEquals(listOf("here", "elsewhere"), rows.map { it.session.id })
     }
 
     @Test
@@ -206,7 +190,6 @@ class AgentRowsTest {
             sessions = listOf(session("mine", userId = "me", updatedAt = "2026-07-17T09:00:00Z")),
             issues = listOf(issue("issue-1")),
             currentUserId = "me",
-            teamId = "team-1",
             nowMs = nowMs,
         )
         assertEquals(emptyList<AgentRow>(), rows)
@@ -220,7 +203,6 @@ class AgentRowsTest {
             sessions = listOf(session("batch", userId = "me", issueId = null)),
             issues = listOf(issue("issue-1")),
             currentUserId = "me",
-            teamId = "team-1",
             nowMs = nowMs,
         )
         assertEquals(1, rows.size)
@@ -233,7 +215,6 @@ class AgentRowsTest {
             sessions = listOf(session("mine", userId = "me")),
             issues = listOf(issue("issue-1")),
             currentUserId = "me",
-            teamId = "team-1",
             nowMs = nowMs,
         )
         assertEquals("EXP-1", rows.single().issue?.identifier)
@@ -260,7 +241,6 @@ class AgentRowsTest {
             ),
             issues = emptyList(),
             currentUserId = "me",
-            teamId = "team-1",
             nowMs = nowMs,
         )
         assertEquals(MergeTarget.Session("action-run"), rows.single().mergeTarget)
@@ -283,7 +263,6 @@ class AgentRowsTest {
             ),
             issues = emptyList(),
             currentUserId = "me",
-            teamId = "team-1",
             nowMs = nowMs,
         )
         assertEquals(MergeTarget.Session("chat-run"), rows.single().mergeTarget)
@@ -297,7 +276,6 @@ class AgentRowsTest {
                 issue("issue-1", prUrl = "https://github.com/o/r/pull/1", prState = "open"),
             ),
             currentUserId = "me",
-            teamId = "team-1",
             nowMs = nowMs,
         )
         assertEquals(MergeTarget.Issue("issue-1"), rows.single().mergeTarget)
@@ -327,7 +305,6 @@ class AgentRowsTest {
                 issue("b", prUrl = "https://github.com/o/r/pull/2", prState = "open", branch = "exp/batch-ef567890"),
             ),
             currentUserId = "me",
-            teamId = "team-1",
             nowMs = nowMs,
         )
         assertEquals(MergeTarget.Session("reviewing"), rows.single { it.session.id == "reviewing" }.mergeTarget)
@@ -357,7 +334,6 @@ class AgentRowsTest {
                 issue("issue-1", prUrl = "https://github.com/o/r/pull/2", prState = "closed"),
             ),
             currentUserId = "me",
-            teamId = "team-1",
             nowMs = nowMs,
         )
         assertNull(rows.single { it.session.id == "action-run" }.mergeTarget)
@@ -368,7 +344,7 @@ class AgentRowsTest {
     // ── EXP-746: the Agent page's "Recent" list ─────────────────────────
 
     @Test
-    fun `lists only the caller's own finished runs in this team`() {
+    fun `lists only the caller's own finished runs, every team (EXP-1186)`() {
         val rows = pastRunRows(
             sessions = listOf(
                 pastRun("mine"),
@@ -383,12 +359,11 @@ class AgentRowsTest {
             ),
             issues = emptyList(),
             currentUserId = "me",
-            teamId = "team-1",
             nowMs = nowMs,
         )
         // Equal `ended_at` stamps keep their input order (a stable sort).
         assertEquals(
-            listOf("mine", "mine-killed", "mine-merged", "legacy"),
+            listOf("mine", "mine-killed", "mine-merged", "legacy", "elsewhere"),
             rows.map { it.session.id },
         )
     }
@@ -433,7 +408,6 @@ class AgentRowsTest {
             ),
             issues = emptyList(),
             currentUserId = "me",
-            teamId = "team-1",
             nowMs = nowMs,
         )
         assertEquals(listOf("really-ended"), rows.map { it.session.id })
@@ -448,7 +422,6 @@ class AgentRowsTest {
             ),
             issues = emptyList(),
             currentUserId = "me",
-            teamId = "team-1",
             nowMs = nowMs,
         )
         assertEquals(listOf("done"), rows.map { it.session.id })
@@ -475,7 +448,6 @@ class AgentRowsTest {
             sessions = mixed,
             issues = emptyList(),
             currentUserId = "me",
-            teamId = "team-1",
             nowMs = nowMs,
         )
         assertEquals(20, rows.size)
@@ -494,7 +466,6 @@ class AgentRowsTest {
             ),
             issues = emptyList(),
             currentUserId = "me",
-            teamId = "team-1",
             nowMs = nowMs,
         )
         assertEquals(listOf("newest", "middle", "oldest"), rows.map { it.session.id })
@@ -508,7 +479,6 @@ class AgentRowsTest {
             },
             issues = emptyList(),
             currentUserId = "me",
-            teamId = "team-1",
             nowMs = nowMs,
         )
         assertEquals(PAST_RUN_LIMIT, rows.size)
@@ -517,15 +487,11 @@ class AgentRowsTest {
     }
 
     @Test
-    fun `signed out or no team selected lists nothing`() {
+    fun `signed out lists no recent runs`() {
         val sessions = listOf(pastRun("mine"))
         assertEquals(
             emptyList<PastRunRow>(),
-            pastRunRows(sessions, emptyList(), currentUserId = null, teamId = "team-1"),
-        )
-        assertEquals(
-            emptyList<PastRunRow>(),
-            pastRunRows(sessions, emptyList(), currentUserId = "me", teamId = null),
+            pastRunRows(sessions, emptyList(), currentUserId = null),
         )
     }
 
@@ -538,7 +504,6 @@ class AgentRowsTest {
             ),
             issues = listOf(issue("issue-1")),
             currentUserId = "me",
-            teamId = "team-1",
             nowMs = nowMs,
         )
         assertEquals("EXP-1", rows.first().issue?.identifier)

@@ -157,6 +157,23 @@ final class PastRunsTests: XCTestCase {
         XCTAssertTrue(PastRuns.select([session(id: "mine")], userId: "user-1", teamId: nil).isEmpty)
     }
 
+    /// EXP-1186: the cross-team form — every member team's own ended runs,
+    /// same predicate, one newest-first list.
+    func testSelectAcrossTeamsListsOwnRunsOfEveryTeam() {
+        let rows = PastRuns.select(
+            [
+                session(id: "mine", endedAt: "2026-09-01T10:00:00Z"),
+                session(id: "theirs", userId: "user-2"),
+                session(id: "other-team", teamId: "team-2", endedAt: "2026-09-02T10:00:00Z"),
+                session(id: "live", status: "running"),
+                session(id: "scheduled", startedReason: "schedule"),
+            ],
+            userId: "user-1"
+        )
+        XCTAssertEqual(rows.map(\.id), ["other-team", "mine"])
+        XCTAssertTrue(PastRuns.select([session(id: "mine")], userId: nil).isEmpty)
+    }
+
     /// EXP-676: triggered runs live under their action's Runs and nowhere
     /// else.
     func testAScheduledRunNeverListsUnderPast() {

@@ -190,13 +190,10 @@ final class StoreScreenshots: XCTestCase {
         goBack(app)
 
         // ── 06: actions (EXP-253) — the seed inserts three team actions.
-        // SLOP-5: Actions is a row of the More menu; no builtins in the list.
-        let moreTab = app.buttons["tab-more"]
-        XCTAssertTrue(moreTab.waitForExistence(timeout: 15), "More tab missing")
-        moreTab.tap()
-        let actionsRow = app.buttons["menu-actions"]
-        XCTAssertTrue(actionsRow.waitForExistence(timeout: 15), "More menu's Actions row missing")
-        actionsRow.tap()
+        // EXP-1187: Actions is a tab of its own; no builtins in the list.
+        let actionsTab = app.buttons["tab-actions"]
+        XCTAssertTrue(actionsTab.waitForExistence(timeout: 15), "Actions tab missing")
+        actionsTab.tap()
         let actionRow = app.descendants(matching: .any)
             .matching(identifier: "action-row").firstMatch
         XCTAssertTrue(
