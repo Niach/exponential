@@ -1,12 +1,15 @@
 package com.exponential.app.ui.session
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -22,9 +25,11 @@ import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.SessionDevicePresentation
 import com.exponential.app.domain.codingSessionDisplayState
+import com.exponential.app.domain.codingSessionIsWorking
+import com.exponential.app.ui.components.AgentWorkingMark
+import com.exponential.app.ui.components.RowWorkingMarkSize
 import com.exponential.app.ui.components.FoldChevron
 import com.exponential.app.ui.issue.DoneBlue
-import com.exponential.app.ui.issue.LiveDot
 import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.issue.ReviewGreen
 import com.exponential.app.ui.issue.StaticDot
@@ -71,7 +76,8 @@ internal fun RunningSessionRow(
     // EXP-550: the machine went away (lid closed) — the run is not lost and
     // not ended, it continues when the machine comes back. Grey, never a live
     // dot.
-    val paused = device.isPaused(state)
+    val paused = device.isPaused(state, session.status)
+    val working = !paused && codingSessionIsWorking(session.status, state)
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -95,12 +101,22 @@ internal fun RunningSessionRow(
                     dot = { Row(verticalAlignment = Alignment.CenterVertically) {
                         when {
                             paused -> StaticDot(LostGray)
+                            // EXP-1184: the agent at work wears its working
+                            // mark (Claude's spark, else the pulsed brand
+                            // mark), overflowing the 8dp dot slot so the
+                            // byline stays aligned; a parked state is a
+                            // steady dot in its tone.
+                            working -> Box(Modifier.size(8.dp), contentAlignment = Alignment.Center) {
+                                AgentWorkingMark(
+                                    session.agent,
+                                    RowWorkingMarkSize,
+                                    modifier = Modifier
+                                        .requiredSize(RowWorkingMarkSize)
+                                        .testTag("session-working-mark"),
+                                )
+                            }
                             else -> when (state) {
-                                // EXP-848: the pulse means MID-TURN, off the
-                                // synced agent_busy flag — a live run between
-                                // turns is steady, not forever "working".
-                                CodingSessionDisplayState.Running ->
-                                    LiveDot(busy = session.agentBusy)
+                                CodingSessionDisplayState.Working -> StaticDot(LostGray)
                                 CodingSessionDisplayState.NeedsInput -> StaticDot(NeedsInputAmber)
                                 CodingSessionDisplayState.Review -> StaticDot(ReviewGreen)
                                 CodingSessionDisplayState.Done -> StaticDot(DoneBlue)
@@ -139,7 +155,7 @@ internal fun RunningSessionRow(
                             CodingSessionDisplayState.NeedsInput -> "Needs input · $deviceName"
                             CodingSessionDisplayState.Review -> "Ready for review · $deviceName"
                             CodingSessionDisplayState.Done -> "Done · $deviceName"
-                            CodingSessionDisplayState.Running ->
+                            CodingSessionDisplayState.Working ->
                                 "$deviceName · started ${relativeTime(session.startedAt)}"
                         }
                     },
@@ -150,7 +166,7 @@ internal fun RunningSessionRow(
                             CodingSessionDisplayState.NeedsInput -> NeedsInputAmber
                             CodingSessionDisplayState.Review -> ReviewGreen
                             CodingSessionDisplayState.Done -> DoneBlue
-                            CodingSessionDisplayState.Running ->
+                            CodingSessionDisplayState.Working ->
                                 MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
                         }
                     },

@@ -1158,9 +1158,10 @@ impl RailView {
         let muted = cx.theme().muted_foreground;
         let session_id = run.session_id.clone();
         let issue_id = run.issue_id.clone();
-        // EXP-923: the lead is the agent's brand mark, with the attention
-        // badge on its corner — the compact column's badge rule, on a glyph.
-        let lead = crate::coding_selects::run_lead(Some(run.agent), 16., 6., run.attention)
+        // EXP-923/EXP-1184: the lead is the agent's mark — its working
+        // spark mid-turn, else the brand mark with the run state's badge on
+        // its corner (the compact column's badge rule, on a glyph).
+        let lead = crate::coding_selects::run_lead(Some(run.agent), 16., 6., run.state)
             .into_any_element();
         // The compact square has no room for two texts: the tooltip is the
         // whole label the expanded row splits into identifier + title.

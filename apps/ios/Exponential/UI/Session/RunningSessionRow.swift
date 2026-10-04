@@ -80,7 +80,7 @@ struct RunningSessionRow<Footer: View>: View {
     private var content: some View {
         // EXP-550: the host machine stopped heartbeating (lid closed) — the
         // run is PAUSED, not ended, and resumes when the machine returns.
-        let paused = device.isPaused(state)
+        let paused = device.isPaused(state, status: session.status)
         return HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
@@ -99,12 +99,14 @@ struct RunningSessionRow<Footer: View>: View {
                         title: title,
                         state: state,
                         paused: paused,
-                        // EXP-848: the dot pulses on the device-written turn flag.
-                        busy: session.agentBusy
+                        status: session.status,
+                        agent: session.agent
                     )
                 }
-                // EXP-850 §8: the device-written caption, only on a live row.
-                if state != .done, let caption = session.agentCaption, !caption.isEmpty {
+                // EXP-850 §8: the device-written caption, only on a live row
+                // (web `sessionAgentCaption`: never on an ended row).
+                if session.status != DomainContract.codingSessionStatusEnded,
+                   let caption = session.agentCaption, !caption.isEmpty {
                     Text(caption)
                         .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
@@ -189,17 +191,17 @@ func sessionStatusLine(
     case .needsInput: return "Needs input · \(device)"
     case .review: return "Ready for review · \(device)"
     case .done: return "Done · \(device)"
-    case .running: return started.isEmpty ? device : "\(device) · started \(started)"
+    case .working: return started.isEmpty ? device : "\(device) · started \(started)"
     }
 }
 
-/// The status line's tint: the parked states wear their dot color, a paused
-/// or simply running row reads secondary.
+/// The status line's tint (fixture `statusTone`): needs input amber, review
+/// green, done blue; a paused or working row reads secondary (muted).
 func sessionStatusLineColor(state: CodingSessionDisplayState, paused: Bool) -> Color {
     if paused { return .white.opacity(TextOpacity.secondary) }
     switch state {
     case .needsInput, .review, .done: return sessionStateColor(state)
-    case .running: return .white.opacity(TextOpacity.secondary)
+    case .working: return .white.opacity(TextOpacity.secondary)
     }
 }
 

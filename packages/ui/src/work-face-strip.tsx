@@ -1,7 +1,7 @@
 import type { ReactNode } from "react"
 import { additionsLabel, deletionsLabel } from "@exp/domain-contract/diff"
 
-import { AgentRunMark } from "./agent-brand-mark"
+import { AgentRunMark, type RunMarkState } from "./agent-brand-mark"
 import { Button } from "./button"
 import { cn } from "./cn"
 import { DiffCounts } from "./diff-counts"
@@ -74,11 +74,19 @@ const FACE_DOT_LABEL: Partial<Record<SessionDotTone, string>> = {
   review: `Pull request open`,
 }
 
-/** The run behind the Run tab: whose mark it wears, and whether the agent
- *  is mid-turn (the mark beats). */
+/** The run behind the Run tab: whose mark it wears, and what it is doing
+ *  (EXP-1184, the ×4 `session-display.json` rule — the working spark, or a
+ *  state badge). */
 export interface WorkFaceStripRun {
   agent: string | null | undefined
-  busy?: boolean
+  state?: RunMarkState
+}
+
+const RUN_STATE_LABEL: Record<RunMarkState, string> = {
+  working: `Working`,
+  needs_input: `Needs input`,
+  review: `Pull request open`,
+  done: `Done`,
 }
 
 function RunMark({
@@ -89,20 +97,23 @@ function RunMark({
   run: WorkFaceStripRun | undefined
 }) {
   if (!tone) return null
+  const state =
+    run?.state ?? (tone === `needs_input` ? `needs_input` : undefined)
+  const label = state ? RUN_STATE_LABEL[state] : FACE_DOT_LABEL[tone]
   return (
     <span
       role="img"
-      aria-label={FACE_DOT_LABEL[tone]}
-      title={FACE_DOT_LABEL[tone]}
+      aria-label={label}
+      title={label}
       data-testid="face-run-mark"
       data-tone={tone}
+      data-state={state}
       // The segment's own `gap-1.5` is the contract's 6px.
       className="inline-flex shrink-0"
     >
       <AgentRunMark
         agent={run?.agent}
-        needsInput={tone === `needs_input`}
-        pulse={run?.busy === true}
+        state={state}
         ringClassName="ring-background"
       />
     </span>

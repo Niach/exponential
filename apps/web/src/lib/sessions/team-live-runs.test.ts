@@ -79,13 +79,14 @@ describe(`liveRunsByTeam`, () => {
     })
   })
 
-  it(`never reads needs_input off an in_review run`, () => {
+  // EXP-1184: an in_review run that asks again waits on you like any other.
+  it(`reads needs_input off an in_review run too`, () => {
     const map = liveRunsByTeam(
       [run({ status: `in_review`, needsInput: true })],
       { me: `u-me`, now: NOW }
     )
     expect(summary(map)).toEqual({
-      "team-a": { count: 1, needsInput: false },
+      "team-a": { count: 1, needsInput: true },
     })
   })
 })

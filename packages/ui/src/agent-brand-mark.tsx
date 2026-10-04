@@ -1,4 +1,5 @@
 import { ClaudeIcon, CodexIcon } from "./brand-icons"
+import { ClaudeSpinner } from "./claude-spinner"
 import { conceptIcon } from "./icons.generated"
 import { cn } from "./cn"
 
@@ -44,44 +45,83 @@ export function AgentBrandMark({
   return <SettingsAgentsIcon className={shared} />
 }
 
+/** EXP-1184: what a live run is doing, the ×4 rule
+ *  (`fixtures/session-display.json`): it waits on you, it works, its PR is
+ *  open, or it is done (no open PR, or merged). */
+export type RunMarkState = `needs_input` | `working` | `review` | `done`
+
+/** The badge each parked state wears, in the session-dot palette. */
+export const RUN_MARK_BADGE_CLASS: Record<
+  Exclude<RunMarkState, `working`>,
+  string
+> = {
+  needs_input: `bg-amber-500`,
+  review: `bg-emerald-500`,
+  done: `bg-sky-500`,
+}
+
+/** EXP-1184: the agent at work — Claude's own frame-stepped spark, or the
+ *  EXP-850 pulse for an agent with no working art of its own. */
+export function AgentWorkingMark({
+  agent,
+  className,
+}: {
+  agent: string | null | undefined
+  className?: string
+}) {
+  const id = (agent ?? `claude`).trim().toLowerCase()
+  if (id === `` || id === `claude`) {
+    return <ClaudeSpinner className={cn(`size-3`, className)} />
+  }
+  return <AgentBrandMark agent={agent} className={className} pulse />
+}
+
 /**
- * EXP-923 / EXP-1162: a RUNNING run's mark — the agent's brand mark with the
- * small "wants you" badge. One component for the sidebar's Running rows, the
- * compact rail and the Work face strip's Run tab, so a live run reads the
- * same wherever it is named (contract `detail-chrome.json` FACE MARKS, ×4).
+ * EXP-923 / EXP-1162 / EXP-1184: a LIVE run's mark — wherever a run is named
+ * (the sidebar's Running rows, the compact rail, the Work face strip's Run
+ * tab) it reads the same: the agent's working mark while it works, else its
+ * brand mark with a small state badge (amber: wants you, emerald: PR open,
+ * sky: done). No `state` = a paused run, the bare mark.
  */
 export function AgentRunMark({
   agent,
-  needsInput = false,
+  state,
   needsYou = false,
-  pulse = false,
   ringClassName = `ring-sidebar`,
   className,
 }: {
   agent: string | null | undefined
-  /** The run waits on a person: the amber badge. */
-  needsInput?: boolean
+  state?: RunMarkState
   /** EXP-1068/1082 §4: an open question for a person — the RED badge, which
-   *  beats the amber one. */
+   *  beats every state badge. */
   needsYou?: boolean
-  /** The agent is mid-turn: the session screen's working beat. */
-  pulse?: boolean
   /** The badge's ring is the ground it sits on. */
   ringClassName?: string
   className?: string
 }) {
+  const badge = needsYou
+    ? `bg-red-500`
+    : state && state !== `working`
+      ? RUN_MARK_BADGE_CLASS[state]
+      : null
   return (
     <span
+      data-state={state}
       className={cn(`relative flex size-3.5 items-center justify-center`, className)}
     >
-      <AgentBrandMark agent={agent} className="size-3.5" pulse={pulse} />
-      {(needsInput || needsYou) && (
+      {state === `working` ? (
+        <AgentWorkingMark agent={agent} className="size-3.5" />
+      ) : (
+        <AgentBrandMark agent={agent} className="size-3.5" />
+      )}
+      {badge && (
         <span
           aria-hidden
+          data-slot="run-mark-badge"
           className={cn(
             `absolute -top-0.5 -right-0.5 size-1.5 rounded-full ring-2`,
             ringClassName,
-            needsYou ? `bg-red-500` : `bg-yellow-400`
+            badge
           )}
         />
       )}

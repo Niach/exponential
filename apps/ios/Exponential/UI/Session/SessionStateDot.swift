@@ -36,7 +36,7 @@ struct SessionStateDot: View {
     /// A synced row's display state as a dot tone.
     static func tone(of state: CodingSessionDisplayState) -> SessionDotTone {
         switch state {
-        case .running: .running
+        case .working: .running
         case .needsInput: .needsInput
         case .review: .review
         case .done: .done

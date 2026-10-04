@@ -33,16 +33,18 @@ data class SessionDevicePresentation(
     val displayLabel: String get() = label?.takeIf { it.isNotBlank() } ?: "Desktop"
 
     /**
-     * Whether the session should read "paused" instead of live. Only a session
-     * that would otherwise render as still-working can pause — a row already
-     * in review / done is parked on its own outcome, and an offline
-     * machine says nothing about it.
+     * Whether the session should read "paused" instead of live: its agent
+     * still has work in it and the machine went away. A PR in review or
+     * merged stays what it is (the PR is the story there, not the machine);
+     * EXP-1184: `Done` on a still-`running` row means "idle with no PR",
+     * which pauses. Same rule ×4 (web `sessionIsPaused`, iOS `isPaused`).
      */
-    fun isPaused(state: CodingSessionDisplayState): Boolean =
-        offline && (
-            state == CodingSessionDisplayState.Running ||
-                state == CodingSessionDisplayState.NeedsInput
-            )
+    fun isPaused(state: CodingSessionDisplayState, status: String = "running"): Boolean =
+        offline && when (state) {
+            CodingSessionDisplayState.Working, CodingSessionDisplayState.NeedsInput -> true
+            CodingSessionDisplayState.Done -> status == "running"
+            CodingSessionDisplayState.Review -> false
+        }
 
     companion object {
         val Unknown = SessionDevicePresentation(label = null, online = null)

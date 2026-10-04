@@ -538,16 +538,24 @@ fn session_card(session_id: &str, cx: &mut App) -> Option<AnyElement> {
             .label,
         ),
     };
-    let mark = coding::CodingAgent::parse(session.agent.as_deref().unwrap_or_default())
-        .map(crate::coding_selects::agent_mark)
-        .unwrap_or_else(|| Icon::new(registry::CODING_RUNNING).text_color(muted));
+    let agent = coding::CodingAgent::parse(session.agent.as_deref().unwrap_or_default());
+    // EXP-1184: a working run's mark is the agent's working mark (Claude's
+    // stepped spark); the dot beside it stays steady.
+    let mark = if working {
+        crate::coding_selects::agent_working_mark(agent, 14.).into_any_element()
+    } else {
+        let mark = agent
+            .map(crate::coding_selects::agent_mark)
+            .unwrap_or_else(|| Icon::new(registry::CODING_RUNNING).text_color(muted));
+        div().flex_shrink_0().child(mark.small()).into_any_element()
+    };
     let mut head = h_flex()
         .w_full()
         .min_w_0()
         .items_center()
         .gap_2()
-        .child(crate::surface::live_dot(dot, working))
-        .child(div().flex_shrink_0().child(mark.small()));
+        .child(crate::surface::live_dot(dot, false))
+        .child(mark);
     if let Some(identifier) = identifier {
         head = head.child(
             div()

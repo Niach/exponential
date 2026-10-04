@@ -311,6 +311,22 @@ struct WorkScreen: View {
         )
     }
 
+    /// EXP-1184: what the shown run is doing, for the Run tab's mark — the
+    /// ×4 `session-display.json` rule over the live synced row, with the
+    /// VIEWER's busy signal (`AgentSessionModel.agentWorking`, while its socket
+    /// is live) as `agentBusy`, else the synced `agent_busy`. Nil for no live
+    /// run (the tab then carries no mark at all).
+    private var runState: CodingSessionDisplayState? {
+        guard let shownSession, CodingSessionLiveness.isLive(shownSession) else { return nil }
+        let prState = issue?.prState ?? (issueId == nil ? shownSession.prState : nil)
+        let viewerBusy: Bool? = shownModel.flatMap { model in
+            model.phase == .live ? model.agentWorking : nil
+        }
+        return CodingSessionDisplayState.of(
+            session: shownSession, prState: prState, agentBusy: viewerBusy
+        )
+    }
+
     /// EXP-952: whether the issue's PR files are the Changes face's source —
     /// an issue with changes and NO live diff on the shown run (Android's
     /// `hasChanges && latestDiff == null && issueId != null`). The key the
@@ -485,7 +501,7 @@ struct WorkScreen: View {
             changesCounts: changesCounts,
             dots: faceDots,
             runAgent: shownSession?.agent,
-            runBusy: shownSession?.agentBusy ?? false,
+            runState: runState,
             runsAnchor: $runsMenuAnchor,
             onSelect: selectFace,
             onReselectRuns: toggleRunsMenu,

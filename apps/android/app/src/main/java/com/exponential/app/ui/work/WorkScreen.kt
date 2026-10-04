@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.domain.changesFaceCounts
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.ActivityFeedState
@@ -357,6 +358,17 @@ fun WorkScreen(
         needsInput = shownSession?.needsInput == true || awaitingInput,
         prOpen = prOpen,
     )
+    // EXP-1184: the Run tab's mark reads the ×4 display rule, the viewer's
+    // own "waiting on a person" (an open question in the feed) overlaid on the
+    // synced flag.
+    val runMarkState = shownSession?.takeIf { shownLive && !sessionEnded }?.let {
+        codingSessionDisplayState(
+            status = it.status,
+            needsInput = it.needsInput || awaitingInput,
+            agentBusy = it.agentBusy,
+            prState = issue?.prState ?: it.prState,
+        )
+    }
     // EXP-1150: Start coding once the shown run ended for good.
     val offerStart = sessionEnded && ownShown && resumeTarget == null && issueId != null &&
         readiness?.visible == true
@@ -604,7 +616,7 @@ fun WorkScreen(
                             changesCounts = changesCounts,
                             dots = faceDots,
                             runAgent = shownSession?.agent,
-                            runBusy = shownSession?.agentBusy == true,
+                            runState = runMarkState,
                             trailing = headerMerge?.let { merge ->
                                 {
                                     MergePrHeaderPill(

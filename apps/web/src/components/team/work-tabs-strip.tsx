@@ -435,6 +435,7 @@ function ChipLead({
     return (
       <RunningIndicator
         state={sessionDisplayState(run, prState)}
+        agent={run.agent}
         working={sessionRowIsWorking(run, prState)}
       />
     )

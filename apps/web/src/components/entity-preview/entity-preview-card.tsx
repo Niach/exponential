@@ -8,6 +8,7 @@ import {
 import type { IconConcept } from "@exp/icons"
 import {
   AgentBrandMark,
+  AgentWorkingMark,
   BoardGlyph,
   EntityPreviewCard,
   LiveDot,
@@ -283,7 +284,7 @@ function CommentCard({ comment }: { comment: Comment }) {
 // ── Session ─────────────────────────────────────────────────────────────────
 
 const SESSION_TONE: Record<string, LiveDotTone> = {
-  running: `live`,
+  working: `live`,
   review: `live`,
   needs_input: `attention`,
   done: `done`,
@@ -300,7 +301,7 @@ function SessionCard({ session }: { session: CodingSession }) {
   const device = useSessionDevice(session)
   const state = sessionDisplayState(session, session.prState)
   const ended = session.status === `ended`
-  const paused = sessionIsPaused(state, device)
+  const paused = sessionIsPaused(state, session.status, device)
   const line = sessionStatusLine({
     state,
     paused,
@@ -311,7 +312,14 @@ function SessionCard({ session }: { session: CodingSession }) {
   const started = relativeTime(session.startedAt)
   return (
     <EntityPreviewCard
-      icon={<AgentBrandMark agent={session.agent} className="size-3.5" />}
+      icon={
+        // EXP-1184: a working run's mark is the agent's working mark.
+        !ended && !paused && state === `working` ? (
+          <AgentWorkingMark agent={session.agent} className="size-3.5" />
+        ) : (
+          <AgentBrandMark agent={session.agent} className="size-3.5" />
+        )
+      }
       eyebrow={identity.identifier ? `Run · ${identity.identifier}` : `Run`}
       title={identity.subject}
       subtitle={ended && started ? `Ended · ${device.label ?? `Unknown device`} · started ${started}` : line.text}

@@ -1,0 +1,18 @@
+{
+  "_doc": "EXP-1184: how a LIVE run renders, ONE rule x4 (web lib/coding-session-display.ts, desktop queries::coding_session_display, iOS CodingSessionDisplay.swift, Android CodingSessionDisplay.kt). First match wins: needsInput -> needs_input (amber dot, the run waits on you); agentBusy -> working (the agent's working mark: Claude's frame-stepped spark, or the pulsed brand mark); PR open (status in_review and prState is neither merged nor closed) -> review (green, in review); else -> done (blue: finished with no open PR, or merged). The session row's status never changes for this: a follow-up turn on an in_review run reads working and drops back to review when the turn ends. A paused (offline) run and an ended row are decided by the caller, before this rule. working = status != ended AND state == working (an ended row never animates). statusTone = the list row's status-line tone.",
+  "cases": [
+    { "name": "working, no PR", "status": "running", "needsInput": false, "agentBusy": true, "prState": null, "state": "working", "working": true, "statusTone": "muted" },
+    { "name": "asks a question", "status": "running", "needsInput": true, "agentBusy": false, "prState": null, "state": "needs_input", "working": false, "statusTone": "amber" },
+    { "name": "asks mid-turn (needs input beats busy)", "status": "running", "needsInput": true, "agentBusy": true, "prState": null, "state": "needs_input", "working": false, "statusTone": "amber" },
+    { "name": "idle without a PR is done", "status": "running", "needsInput": false, "agentBusy": false, "prState": null, "state": "done", "working": false, "statusTone": "sky" },
+    { "name": "idle with a closed PR is done", "status": "running", "needsInput": false, "agentBusy": false, "prState": "closed", "state": "done", "working": false, "statusTone": "sky" },
+    { "name": "PR open, idle", "status": "in_review", "needsInput": false, "agentBusy": false, "prState": "open", "state": "review", "working": false, "statusTone": "emerald" },
+    { "name": "PR open, follow-up turn", "status": "in_review", "needsInput": false, "agentBusy": true, "prState": "open", "state": "working", "working": true, "statusTone": "muted" },
+    { "name": "PR open, asks a question", "status": "in_review", "needsInput": true, "agentBusy": false, "prState": "open", "state": "needs_input", "working": false, "statusTone": "amber" },
+    { "name": "PR merged", "status": "in_review", "needsInput": false, "agentBusy": false, "prState": "merged", "state": "done", "working": false, "statusTone": "sky" },
+    { "name": "PR closed unmerged is done", "status": "in_review", "needsInput": false, "agentBusy": false, "prState": "closed", "state": "done", "working": false, "statusTone": "sky" },
+    { "name": "PR merged, still working", "status": "in_review", "needsInput": false, "agentBusy": true, "prState": "merged", "state": "working", "working": true, "statusTone": "muted" },
+    { "name": "in_review with no PR state yet", "status": "in_review", "needsInput": false, "agentBusy": false, "prState": null, "state": "review", "working": false, "statusTone": "emerald" },
+    { "name": "ended row never works", "status": "ended", "needsInput": false, "agentBusy": true, "prState": null, "state": "working", "working": false, "statusTone": "muted" }
+  ]
+}

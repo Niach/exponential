@@ -1,7 +1,12 @@
 import type { PastRunRow } from "@/hooks/use-agents-data"
 import type { SessionDisplayState } from "@/lib/coding-session-display"
 import { relativeTime } from "@/components/comment-rows/format"
-import { LiveDot, type LiveDotTone, type SessionDotTone } from "@exp/ui"
+import {
+  AgentWorkingMark,
+  LiveDot,
+  type LiveDotTone,
+  type SessionDotTone,
+} from "@exp/ui"
 import { pastRunByline, pastRunEndedAt } from "@/lib/past-runs"
 
 // The session state dot and the Recent caption, shared by every session list
@@ -23,27 +28,44 @@ export const LIVE_DOT_TONE_BY_SESSION_TONE: Record<
   muted: `idle`,
 }
 
-/** The row's state dot. EXP-862: the colours are the shared session-dot table
- * (`SESSION_DOT_CLASS`, the desktop's `queries::session_dot_tone`), drawn here
- * through the `LiveDot` primitive; the row adds the EXP-848 ping, which fires
- * only while the agent is WORKING. */
+/** EXP-1184: the run state's dot tone — a working run's is never drawn as a
+ *  dot (it wears the working mark), so it maps onto the live green. */
+export const SESSION_DOT_TONE_BY_STATE: Record<
+  SessionDisplayState,
+  SessionDotTone
+> = {
+  working: `running`,
+  needs_input: `needs_input`,
+  review: `review`,
+  done: `done`,
+}
+
+/** The row's state mark. EXP-862: the colours are the shared session-dot
+ * table (`SESSION_DOT_CLASS`, the desktop's `queries::session_dot_tone`),
+ * drawn through the `LiveDot` primitive. EXP-1184: while the agent WORKS the
+ * dot gives way to the agent's working mark (Claude's stepped spark) — the
+ * same mark the sidebar's Running rows wear. */
 export function RunningIndicator({
   state,
+  agent,
   paused = false,
   working = false,
 }: {
   state: SessionDisplayState
-  /** EXP-550: the host machine is offline — a steady grey dot, no ping. */
+  /** The run's `coding_sessions.agent` — whose working mark to draw. */
+  agent?: string | null
+  /** EXP-550: the host machine is offline — a steady grey dot. */
   paused?: boolean
-  /** EXP-848: the agent is executing a turn (`sessionRowIsWorking`) — the ONLY
-   * thing that pings. A live-but-idle run draws the steady emerald dot. */
+  /** EXP-848: the agent is executing a turn on a live row
+   * (`sessionRowIsWorking`) — the ONLY thing that animates. */
   working?: boolean
 }) {
   if (paused) return <LiveDot tone={LIVE_DOT_TONE_BY_SESSION_TONE.muted} />
-  if (state !== `running`)
-    return <LiveDot tone={LIVE_DOT_TONE_BY_SESSION_TONE[state]} />
+  if (working) return <AgentWorkingMark agent={agent} />
   return (
-    <LiveDot tone={LIVE_DOT_TONE_BY_SESSION_TONE.running} ping={working} />
+    <LiveDot
+      tone={LIVE_DOT_TONE_BY_SESSION_TONE[SESSION_DOT_TONE_BY_STATE[state]]}
+    />
   )
 }
 

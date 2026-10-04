@@ -213,6 +213,7 @@ import { IssueChip } from "@/components/issue-chip"
 import { EntityRefChips } from "@/components/entity-preview/entity-ref-chips"
 import { parseSteerMessage } from "@/lib/steer-image-message"
 import { cn } from "@/lib/utils"
+import { sessionDisplayState } from "@/lib/coding-session-display"
 
 // EXP-317: the session glyphs the native clients also draw resolve through
 // the shared registry (packages/icons/icons.json).
@@ -1133,12 +1134,27 @@ export function AgentSessionView({
     needsInput: dot.tone === `needs_input`,
     prOpen: mergeProps?.prState === `open`,
   }
+  /** EXP-1184: what the Run tab's mark says — the ×4 rule fed with this
+   *  viewer's own signals (the live feed's turn state, the pending ask). */
+  const runMark = {
+    agent: session.agent,
+    state: dotState.runLive
+      ? sessionDisplayState(
+          {
+            status: session.status,
+            needsInput: dotState.needsInput,
+            agentBusy: working,
+          },
+          mergeProps?.prState
+        )
+      : undefined,
+  }
   const mobileTabs = isMobile ? (
     <MobileFaceTabs
       faces={phoneFaces}
       face={shownFace}
       dots={faceDots({ faces: phoneFaces, ...dotState })}
-      run={{ agent: session.agent, busy: working }}
+      run={runMark}
       runs={issueRuns}
       viewedRunId={session.id}
       changesCounts={phoneChangesCounts}
@@ -1328,7 +1344,7 @@ export function AgentSessionView({
               <WorkFaceToggle
                 face={showDiffFace || showResultsFace ? face : `run`}
                 items={faceItems}
-                run={{ agent: session.agent, busy: working }}
+                run={runMark}
                 dots={toggleFaceDots(
                   faceDots({
                     faces: faceItems.map((item) =>

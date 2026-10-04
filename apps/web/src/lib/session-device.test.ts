@@ -103,16 +103,17 @@ describe(`resolveSessionDevice`, () => {
 
 describe(`sessionIsPaused`, () => {
   const offline = { label: `macbook`, online: false }
-  it(`pauses running and needs_input on an offline device`, () => {
-    expect(sessionIsPaused(`running`, offline)).toBe(true)
-    expect(sessionIsPaused(`needs_input`, offline)).toBe(true)
+  it(`pauses working, needs_input and an idle run without a PR`, () => {
+    expect(sessionIsPaused(`working`, `running`, offline)).toBe(true)
+    expect(sessionIsPaused(`needs_input`, `in_review`, offline)).toBe(true)
+    expect(sessionIsPaused(`done`, `running`, offline)).toBe(true)
   })
-  it(`never overrides review/done`, () => {
-    expect(sessionIsPaused(`review`, offline)).toBe(false)
-    expect(sessionIsPaused(`done`, offline)).toBe(false)
+  it(`never overrides a PR in review or merged`, () => {
+    expect(sessionIsPaused(`review`, `in_review`, offline)).toBe(false)
+    expect(sessionIsPaused(`done`, `in_review`, offline)).toBe(false)
   })
   it(`unknown or online devices never pause`, () => {
-    expect(sessionIsPaused(`running`, { label: `x`, online: null })).toBe(false)
-    expect(sessionIsPaused(`running`, { label: `x`, online: true })).toBe(false)
+    expect(sessionIsPaused(`working`, `running`, { label: `x`, online: null })).toBe(false)
+    expect(sessionIsPaused(`working`, `running`, { label: `x`, online: true })).toBe(false)
   })
 })

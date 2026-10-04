@@ -6,7 +6,7 @@ import {
 } from "react"
 import { Link } from "@tanstack/react-router"
 import { ChevronRight, GitBranch, GitPullRequest } from "lucide-react"
-import { conceptIcon, FabButton, Pill, GlassRow, LiveDot } from "@exp/ui"
+import { AgentWorkingMark, conceptIcon, FabButton, Pill, GlassRow } from "@exp/ui"
 import type { CodingSession, Issue, Board } from "@/db/schema"
 import { useNow } from "@/hooks/use-now"
 import { blockedBadgeLabel } from "@/lib/agent-usage"
@@ -73,9 +73,6 @@ export function PrStateBadge({ state }: { state: string | null | undefined }) {
   return <Pill className={cn(`capitalize`, cls)}>{state}</Pill>
 }
 
-function RunningPing() {
-  return <LiveDot tone="live" ping />
-}
 
 // The display-state derivation lives in a plain lib module so it can be
 // unit-tested without dragging the component graph in (EXP-531); re-exported
@@ -94,7 +91,7 @@ export { sessionDisplayState, type SessionDisplayState }
 // The tones are the Tailwind palette vars so the inline mix and the dot draw
 // the SAME colour the class-based rows draw.
 const SESSION_STATE_BADGE: Record<
-  Exclude<SessionDisplayState, `running`>,
+  Exclude<SessionDisplayState, `working`>,
   { label: string; tone: string }
 > = {
   needs_input: { label: `Needs input`, tone: `var(--color-amber-400)` },
@@ -150,7 +147,9 @@ export function SessionStatusBadge({
   count = 1,
   paused = false,
 }: {
-  session: Pick<CodingSession, `status` | `needsInput` | `agentBusy`>
+  session: Pick<CodingSession, `status` | `needsInput` | `agentBusy`> & {
+    agent?: string | null
+  }
   prState: string | null | undefined
   count?: number
   /** EXP-550: the host machine is offline — the agent is parked, not gone.
@@ -170,16 +169,16 @@ export function SessionStatusBadge({
       </Pill>
     )
   }
-  if (state === `running`) {
-    // The pulsing ping IS the dot while the agent WORKS (EXP-848) — it rides
-    // the `leading` slot so the ripple has room the 6px disc would clip. An
-    // idle-between-turns run keeps the badge and drops the ripple.
+  if (state === `working`) {
+    // EXP-1184: the agent's working mark (Claude's stepped spark) IS the dot
+    // while the agent works — it rides the `leading` slot, which has room the
+    // 6px disc would not.
     const working = sessionRowIsWorking(session, prState)
     return (
       <Pill
         size="sm"
         style={toneStyle(RUNNING_TONE)}
-        leading={working ? <RunningPing /> : undefined}
+        leading={working ? <AgentWorkingMark agent={session.agent} /> : undefined}
         dot={working ? undefined : RUNNING_TONE}
       >
         Coding now

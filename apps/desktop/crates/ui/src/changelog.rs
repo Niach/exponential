@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-04-run-status",
+    date: "2026-10-04",
+    title: "Run status at a glance",
+    summary: "Every live run says what it is doing wherever it is named: Claude's spark spins while it works, amber waits on you, green has an open pull request, blue is done.",
+    body: r#"- **Working**: while the agent works, its mark is Claude's own spark, spinning in the sidebar's Running rows, the run lists, the tabs and the Run face. Other agents pulse their mark.
+- **Waiting on you**: an amber badge, also when the run already has a pull request open and asks again.
+- **In review**: a green badge once the agent finished and its pull request is open.
+- **Done**: a blue badge once the agent finished with no open pull request, or after the merge.
+- **Follow-ups**: a follow-up on a run in review shows it working again and returns to green when the turn ends; the issue's status does not change."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_00: ChangelogEntry = ChangelogEntry {
     id: "2026-10-04-one-github-flow",
     date: "2026-10-04",
     title: "One way to connect GitHub",
