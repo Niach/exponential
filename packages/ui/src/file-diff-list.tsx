@@ -120,7 +120,7 @@ export function FileDiffList({
               if (el) sectionRefs.current.set(file.path, el)
               else sectionRefs.current.delete(file.path)
             }}
-            className="scroll-mt-2"
+            className="scroll-mt-[calc(var(--work-sticky-top,0px)+0.5rem)]"
           >
             <FileDiffCard
               file={file}

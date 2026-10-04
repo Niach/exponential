@@ -13,6 +13,7 @@ import {
   WORK_BAR_HEIGHT,
   WORK_COLUMN_CLASS,
   WorkHeader,
+  WorkStickyTray,
 } from "@exp/ui"
 import type { Board, IssueDraft, User } from "@/db/schema"
 import { useMeasuredSize, useTitleCollapsed } from "@/hooks/use-detail-chrome"
@@ -110,6 +111,7 @@ export function IssueDraftPage({
   // header, which then breaks into the collapsed title.
   const [mobileHeaderRef, mobileHeaderSize] = useMeasuredSize()
   const [clusterRef, clusterSize] = useMeasuredSize()
+  const [trayRef, traySize] = useMeasuredSize()
   const {
     scrollRef,
     titleRef,
@@ -362,6 +364,10 @@ export function IssueDraftPage({
         ref={editorRef}
         markdown={editor.description}
         editable={!disabled}
+        // EXP-1191: the caret scrolls clear of the sticky bar + tray.
+        topScrollInset={
+          isMobile ? undefined : WORK_BAR_HEIGHT + traySize.height
+        }
         onChange={editor.setDescription}
         onBlur={editor.onDescriptionBlur}
         placeholder={ISSUE_DRAFT_COPY.descriptionPlaceholder}
@@ -456,6 +462,7 @@ export function IssueDraftPage({
           >
             <WorkHeader
               floating
+              edge={false}
               collapsed={titleCollapsed}
               title={collapsedTitle(`start`)}
               trailingRef={clusterRef}
@@ -477,7 +484,10 @@ export function IssueDraftPage({
                 {titleInput}
               </div>
             </div>
-            <div className="pb-3">{tray}</div>
+            {/* EXP-1191: the tray stays in view, like the issue's. */}
+            <WorkStickyTray ref={trayRef} collapsed={titleCollapsed}>
+              {tray}
+            </WorkStickyTray>
             <div className={cn(WORK_COLUMN_CLASS, `pb-8`)}>
               {descriptionEditor}
               {attachmentError}

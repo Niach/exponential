@@ -448,6 +448,10 @@ pub struct IssueDetailView {
     /// first paint — what [`domain::detail_chrome::is_title_collapsed`] reads
     /// against the scroll offset to break the header into its compact title.
     title_bottom: Rc<std::cell::Cell<Option<f32>>>,
+    /// EXP-1191: the tray slot's content top and height — when it reaches
+    /// the bar the tray PINS under it (`work_header::tray_pinned`).
+    tray_top: Rc<std::cell::Cell<Option<f32>>>,
+    tray_h: Rc<std::cell::Cell<Option<f32>>>,
     /// EXP-1162: the floating bar's cluster width at rest — the large title
     /// row keeps clear of it (measured as it paints, `None` until then).
     cluster_w: Rc<std::cell::Cell<Option<f32>>>,
@@ -634,6 +638,8 @@ impl IssueDetailView {
             focus_handle: cx.focus_handle(),
             body_scroll: gpui::ScrollHandle::new(),
             title_bottom: Rc::new(std::cell::Cell::new(None)),
+            tray_top: Rc::new(std::cell::Cell::new(None)),
+            tray_h: Rc::new(std::cell::Cell::new(None)),
             cluster_w: Rc::new(std::cell::Cell::new(None)),
             title_input,
             synced_title: String::new(),
@@ -1017,6 +1023,8 @@ impl IssueDetailView {
             .set_offset(gpui::point(gpui::px(0.), gpui::px(0.)));
         // EXP-1162: the title row is re-measured on the incoming issue.
         self.title_bottom.set(None);
+        self.tray_top.set(None);
+        self.tray_h.set(None);
         // Swap the title UNCONDITIONALLY on an issue switch. The focused-input
         // guard in `sync_from_issue` exists for remote echoes of the SAME
         // issue; across a switch it would leave the old issue's title in the
@@ -2476,15 +2484,10 @@ impl IssueDetailView {
             // the tray keeps the ONE merge control on every face. (The
             // badge's overlay still follows the face.)
             header.set_merge_suppressed(false);
-            // EXP-1162: the tray scrolled away — its Merge / Stop / Resume
-            // ride the bar, so nothing is out of reach mid-scroll.
-            let bar_actions = if has_title_row && collapsed {
-                header.bar_actions(issue, action.clone(), cx)
-            } else {
-                Vec::new()
-            };
             // EXP-949: the GitHub link rides the Changes face alone.
-            let right = header.right_cluster(issue, bar_actions, toggle, changes_open, cx);
+            // EXP-1191: the tray never scrolls away now (it pins under the
+            // bar), so its Merge / Stop / Resume stay in it.
+            let right = header.right_cluster(issue, Vec::new(), toggle, changes_open, cx);
             let actions = header.issue_actions(issue, action, cx);
             (
                 right,
@@ -2525,19 +2528,23 @@ impl IssueDetailView {
         .into_iter()
         .flatten()
         .collect();
-        let below = std::iter::once(tray).chain(extra).collect();
+        let pinned = crate::work_header::tray_pinned(&self.body_scroll, &self.tray_top);
         let (header, rows) = crate::work_header::scrolling_title_rows(
             crate::work_header::TitleChrome {
                 body_scroll: &self.body_scroll,
                 title_bottom: &self.title_bottom,
+                tray_top: &self.tray_top,
+                tray_h: &self.tray_h,
                 cluster_w: &self.cluster_w,
                 entity_id: cx.entity_id(),
             },
             collapsed,
             title,
-            below,
+            tray,
+            extra.into_iter().collect(),
             compact,
             right,
+            pinned,
         );
         (header, Some(rows))
     }

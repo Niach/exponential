@@ -146,6 +146,9 @@ pub(crate) struct IssueDraftView {
     /// EXP-1162: the title row's measured content bottom / the bar cluster's
     /// measured width (`work_header::scrolling_title_rows`).
     title_bottom: Rc<std::cell::Cell<Option<f32>>>,
+    /// EXP-1191: the tray slot's top and height (it pins under the bar).
+    tray_top: Rc<std::cell::Cell<Option<f32>>>,
+    tray_h: Rc<std::cell::Cell<Option<f32>>>,
     cluster_w: Rc<std::cell::Cell<Option<f32>>>,
     title: Entity<TextareaState>,
     parts: Option<DraftParts>,
@@ -273,6 +276,8 @@ impl IssueDraftView {
             focus_handle: cx.focus_handle(),
             body_scroll: gpui::ScrollHandle::new(),
             title_bottom: Rc::new(std::cell::Cell::new(None)),
+            tray_top: Rc::new(std::cell::Cell::new(None)),
+            tray_h: Rc::new(std::cell::Cell::new(None)),
             cluster_w: Rc::new(std::cell::Cell::new(None)),
             title,
             parts: None,
@@ -463,6 +468,8 @@ impl IssueDraftView {
         self.focused_once = false;
         self.busy_files.clear();
         self.title_bottom.set(None);
+        self.tray_top.set(None);
+        self.tray_h.set(None);
         self.body_scroll.set_offset(gpui::Point::default());
         cx.notify();
     }
@@ -1106,18 +1113,23 @@ impl Render for IssueDraftView {
         // parent line or identifier above it, it hugged the pane's top.
         .mt(px(16.))
         .into_any_element();
+        let pinned = crate::work_header::tray_pinned(&self.body_scroll, &self.tray_top);
         let (header, rows) = crate::work_header::scrolling_title_rows(
             crate::work_header::TitleChrome {
                 body_scroll: &self.body_scroll,
                 title_bottom: &self.title_bottom,
+                tray_top: &self.tray_top,
+                tray_h: &self.tray_h,
                 cluster_w: &self.cluster_w,
                 entity_id: cx.entity_id(),
             },
             collapsed,
             vec![title_row],
-            vec![tray],
+            tray,
+            Vec::new(),
             compact,
             right,
+            pinned,
         );
         let column = v_flex()
             .child(rows)

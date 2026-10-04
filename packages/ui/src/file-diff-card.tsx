@@ -324,7 +324,8 @@ export function FileDiffCard({
           header wears, so a card stacks inside one without a seam. */}
       <div
         className={cn(
-          `sticky top-0 z-10 bg-glass-section backdrop-blur-sm`,
+          // EXP-1191: below the scroller's sticky chrome, when it has any.
+          `sticky top-[var(--work-sticky-top,0px)] z-10 bg-glass-section backdrop-blur-sm`,
           !flush && `rounded-t-md`
         )}
       >

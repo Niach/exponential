@@ -8,7 +8,9 @@ import {
   Pill,
   WORK_BAR_HEIGHT,
   WORK_COLUMN_CLASS,
+  WORK_STICKY_TOP_VAR,
   WorkHeader,
+  WorkStickyTray,
   toast,
 } from "@exp/ui"
 import { eq, useLiveQuery } from "@tanstack/react-db"
@@ -193,6 +195,7 @@ export function IssueDetailView({
   // breaks into the collapsed title once that row scrolled away under it.
   const [mobileHeaderRef, mobileHeaderSize] = useMeasuredSize()
   const [clusterRef, clusterSize] = useMeasuredSize()
+  const [trayRef, traySize] = useMeasuredSize()
   const {
     scrollRef: collapseScrollRef,
     titleRef,
@@ -657,6 +660,10 @@ export function IssueDetailView({
         ref={editorRef}
         markdown={description}
         editable={!readOnly}
+        // EXP-1191: the caret scrolls clear of the sticky bar + tray.
+        topScrollInset={
+          isMobile ? undefined : WORK_BAR_HEIGHT + traySize.height
+        }
         onChange={setDescriptionValue}
         onBlur={() => void handleDescriptionBlur()}
         placeholder="Add description..."
@@ -820,6 +827,13 @@ export function IssueDetailView({
             ref={bodyScrollRef}
             className="flex-1 min-h-0 overflow-y-auto"
             data-detail-scroll=""
+            /* EXP-1191: sticky rows inside (a diff's file headers) stick
+               below the bar and the tray. */
+            style={
+              {
+                [WORK_STICKY_TOP_VAR]: `${WORK_BAR_HEIGHT + traySize.height}px`,
+              } as React.CSSProperties
+            }
           >
             {/* EXP-877: the ONE work header the session route renders too
                 (the IDE's `work_header.rs`). EXP-1162: a compact bar
@@ -828,6 +842,7 @@ export function IssueDetailView({
                 once the title row below scrolled away under it. */}
             <WorkHeader
               floating
+              edge={false}
               collapsed={titleCollapsed}
               title={
                 <CollapsedTitle
@@ -862,7 +877,8 @@ export function IssueDetailView({
             />
             {/* The title row: the large editable title, clear of the bar's
                 cluster on its right. The tray (Merge and the coding action
-                inside it) follows as the next row and scrolls with it. */}
+                inside it) follows as the next row; EXP-1191: it sticks under
+                the bar once the title scrolled away, on every face. */}
             <div className={WORK_COLUMN_CLASS}>
               <div
                 ref={titleRef}
@@ -872,7 +888,9 @@ export function IssueDetailView({
                 {titleField}
               </div>
             </div>
-            <div className="pb-3">{propsTray(true)}</div>
+            <WorkStickyTray ref={trayRef} collapsed={titleCollapsed}>
+              {propsTray(true)}
+            </WorkStickyTray>
             <div className={WORK_COLUMN_CLASS}>
               {faceBody ?? (
                 <>

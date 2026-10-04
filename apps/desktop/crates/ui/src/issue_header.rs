@@ -887,41 +887,6 @@ impl IssueHeader {
         actions
     }
 
-    /// EXP-1162: what the compact bar carries once the issue face's tray has
-    /// scrolled away — Merge PR and Stop / Resume at the TOGGLE's rung
-    /// (EXP-926: the placement decides the size), so scrolling never loses
-    /// them. Start coding stays in the tray: it is a launcher entity with a
-    /// readiness popover of its own, and one instance renders once.
-    pub(crate) fn bar_actions(
-        &mut self,
-        issue: &Issue,
-        action: crate::work_header::CodingAction,
-        cx: &mut gpui::Context<Self>,
-    ) -> Vec<gpui::AnyElement> {
-        let pr_open = issue.pr_state.as_deref() == Some("open");
-        let mut actions = Vec::with_capacity(2);
-        if pr_open && !self.merge_suppressed {
-            actions.push(crate::work_header::merge_slot(
-                "bar-merge-pr",
-                &crate::changes_bar::MergeTarget::Issue {
-                    issue_id: issue.id.clone(),
-                },
-                true,
-                crate::work_header::header_action_size(false),
-                cx,
-            ));
-        }
-        if !matches!(action, crate::work_header::CodingAction::Start) {
-            actions.extend(crate::work_header::coding_action_button(
-                action,
-                None,
-                crate::work_header::header_action_size(false),
-                cx,
-            ));
-        }
-        actions
-    }
-
     /// EXP-417: the mobile-style chip row under the title — Status ·
     /// Priority · Assignee · Labels · Due date · Estimate · Board · Origin, property-ish
     /// chips first and the navigation-ish Board last. Wraps inside the

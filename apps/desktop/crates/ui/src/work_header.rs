@@ -1366,6 +1366,7 @@ pub(crate) fn render_floating_bar(
     right: Vec<AnyElement>,
     collapsed: bool,
     measure: Option<ClusterMeasure>,
+    below: Option<AnyElement>,
 ) -> AnyElement {
     let cluster = h_flex()
         .relative()
@@ -1390,6 +1391,9 @@ pub(crate) fn render_floating_bar(
                 .size_full(),
             )
         });
+    // EXP-1191: with the tray pinned under the bar the fade hangs under the
+    // TRAY's ground instead.
+    let pinned = below.is_some();
     let ground = collapsed.then(|| {
         use gpui::AnimationExt as _;
         div()
@@ -1399,7 +1403,9 @@ pub(crate) fn render_floating_bar(
             .right_0()
             .h(px(BAR_H))
             .bg(crate::surface::scrim_ground())
-            .child(crate::surface::edge_fade_top_scrim().top(px(BAR_H)))
+            .when(!pinned, |ground| {
+                ground.child(crate::surface::edge_fade_top_scrim().top(px(BAR_H)))
+            })
             .with_animation(
                 "work-bar-ground",
                 gpui::Animation::new(std::time::Duration::from_millis(
@@ -1408,11 +1414,8 @@ pub(crate) fn render_floating_bar(
                 |ground, delta| ground.opacity(delta),
             )
     });
-    div()
-        .absolute()
-        .top_0()
-        .left_0()
-        .right_0()
+    let bar = div()
+        .relative()
         .h(px(BAR_H))
         .children(ground)
         .child(centered_column(
@@ -1423,7 +1426,26 @@ pub(crate) fn render_floating_bar(
                 .px(px(DETAIL_GUTTER))
                 .child(div().flex_1().min_w_0().children(title))
                 .child(cluster),
-        ))
+        ));
+    // EXP-1191: the pinned tray, on the same ground, the fade under it.
+    let below = below.map(|below| {
+        div()
+            .relative()
+            .pb(px(12.))
+            .bg(crate::surface::scrim_ground())
+            .child(
+                crate::surface::edge_fade_top_scrim()
+                    .top(gpui::relative(1.)),
+            )
+            .child(centered_column(div().child(below)))
+    });
+    v_flex()
+        .absolute()
+        .top_0()
+        .left_0()
+        .right_0()
+        .child(bar)
+        .children(below)
         .into_any_element()
 }
 
@@ -1524,12 +1546,29 @@ pub(crate) fn title_collapsed(
     )
 }
 
+/// EXP-1191 — whether the Issue face's tray reached the bar's bottom edge
+/// (its measured content top + the scroll offset vs `BAR_H`): from there on
+/// it stays PINNED under the bar, the web `WorkStickyTray`.
+pub(crate) fn tray_pinned(
+    body_scroll: &gpui::ScrollHandle,
+    tray_top: &std::cell::Cell<Option<f32>>,
+) -> bool {
+    tray_top
+        .get()
+        .is_some_and(|top| top + f32::from(body_scroll.offset().y) <= BAR_H)
+}
+
 /// The measuring state a floating title row needs: the body's scroll handle,
-/// the row's measured content bottom and the bar cluster's measured width —
-/// all three owned by the view (they outlive one frame).
+/// the row's measured content bottom, the tray's measured content top and
+/// the bar cluster's measured width — all owned by the view (they outlive
+/// one frame).
 pub(crate) struct TitleChrome<'a> {
     pub body_scroll: &'a gpui::ScrollHandle,
     pub title_bottom: &'a Rc<std::cell::Cell<Option<f32>>>,
+    /// EXP-1191: the tray slot's content top ([`tray_pinned`]) and its
+    /// height (the spacer it leaves in the body while pinned).
+    pub tray_top: &'a Rc<std::cell::Cell<Option<f32>>>,
+    pub tray_h: &'a Rc<std::cell::Cell<Option<f32>>>,
     pub cluster_w: &'a Rc<std::cell::Cell<Option<f32>>>,
     /// The view to repaint when a measure moves the break.
     pub entity_id: gpui::EntityId,
@@ -1541,13 +1580,22 @@ pub(crate) struct TitleChrome<'a> {
 /// `below` (the property tray, the merge caption). Returns `(bar, rows)`;
 /// the bar is [`render_floating_bar`] over `compact` (the collapsed title,
 /// shown only once `collapsed`) and `right` (the cluster).
+///
+/// EXP-1191: the tray stays in view on every face. `pinned` (the view's
+/// [`tray_pinned`]) is the frame its slot reached the bar: from there the
+/// ONE tray rides the bar, under it (gpui has no `position: sticky`; the
+/// tray holds entities that render once), and the body keeps a spacer of
+/// its measured height, so nothing moves.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn scrolling_title_rows(
     chrome: TitleChrome<'_>,
     collapsed: bool,
     title: Vec<AnyElement>,
-    below: Vec<AnyElement>,
+    tray: AnyElement,
+    extra: Vec<AnyElement>,
     compact: Option<AnyElement>,
     right: Vec<AnyElement>,
+    pinned: bool,
 ) -> (AnyElement, AnyElement) {
     // The row's bottom edge, measured as it paints. The canvas reports it in
     // content space for the next render and, when the break it implies
@@ -1598,15 +1646,54 @@ pub(crate) fn scrolling_title_rows(
         .pr(px(cluster_w + CLUSTER_GAP))
         .children(title)
         .child(probe);
+    // EXP-1191: the tray slot's top edge (and, unpinned, its height),
+    // measured like the title's bottom; a frame that crossed the pin line
+    // asks for one repaint.
+    let tray_probe = {
+        let handle = chrome.body_scroll.clone();
+        let top_cell = chrome.tray_top.clone();
+        let h_cell = chrome.tray_h.clone();
+        let entity_id = chrome.entity_id;
+        gpui::canvas(
+            move |bounds, _window, cx| {
+                let viewport_top = handle.bounds().top();
+                let top = bounds.top();
+                top_cell.set(Some(f32::from(top - viewport_top - handle.offset().y)));
+                if !pinned {
+                    h_cell.set(Some(f32::from(bounds.size.height)));
+                }
+                let now = f32::from(top - viewport_top) <= BAR_H;
+                if now != pinned {
+                    cx.defer(move |cx| cx.notify(entity_id));
+                }
+            },
+            |_, _: (), _, _| {},
+        )
+        .absolute()
+        .size_full()
+    };
+    let tray_h = chrome.tray_h.get();
+    let (slot, pinned_tray) = match (pinned, tray_h) {
+        (true, Some(height)) => (div().h(px(height)), Some(tray)),
+        _ => (div().child(tray), None),
+    };
+    let slot = slot.relative().w_full().min_w_0().child(tray_probe);
     let rows = v_flex()
         .w_full()
         .min_w_0()
         .child(title)
-        .children(below)
+        .child(slot)
+        .children(extra)
         .into_any_element();
     // At rest the cluster reports its width for the title row above.
     let measure = (!collapsed).then(|| (chrome.cluster_w.clone(), chrome.entity_id));
-    let header = render_floating_bar(compact, right, collapsed, measure);
+    let header = render_floating_bar(
+        compact,
+        right,
+        collapsed,
+        measure,
+        pinned_tray,
+    );
     (header, rows)
 }
 
@@ -2056,7 +2143,7 @@ mod tests {
                         .relative()
                         .w_full()
                         .child(div().h(px(300.)))
-                        .child(render_floating_bar(title, vec![stop], self.collapsed, measure))
+                        .child(render_floating_bar(title, vec![stop], self.collapsed, measure, None))
                         .child(
                             gpui::canvas(
                                 move |bounds, _, _| height.set(f32::from(bounds.size.height)),
