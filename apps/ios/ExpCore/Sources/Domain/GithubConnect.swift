@@ -1,13 +1,34 @@
 import Foundation
 
-/// EXP-390: the `exponential://github-connected[?error=<code>]` deep link's
-/// error leg. The server's browser return page hands every connect outcome
-/// back to the app through that link; dropping the `error` query (as the app
-/// did before) made every failed connect look like a silent no-op — the
-/// browser sheet closed and nothing happened. Copy mirrors the desktop's
-/// `connect_error_message` (github_connect.rs) — keep the three natives'
-/// strings identical (not a byte-parity contract, just courtesy).
+/// SLOP-26: the pure half of the ONE GitHub flow on the phone — which
+/// prerequisite is missing (the picker and the connection block name it with
+/// its one fix), and the `exponential://github-connected` return's shape.
+/// Android's `domain/GithubConnect.kt` writes the same rules.
 public enum GithubConnect {
+    /// What stands between the viewer and the live repository list, in the
+    /// order the guided web page walks them.
+    public enum Prerequisite: Equatable, Sendable {
+        /// GitHub isn't configured on this server — nothing to do here.
+        case notConfigured
+        /// No GitHub account linked → Connect GitHub.
+        case notLinked
+        /// Linked, token dead → Reconnect GitHub.
+        case expired
+        /// Linked, the App installed nowhere the token sees → Install the app.
+        case notInstalled
+    }
+
+    /// The first missing prerequisite, nil once repositories can be listed.
+    public static func prerequisite(
+        configured: Bool, linked: Bool, needsReconnect: Bool, installed: Bool
+    ) -> Prerequisite? {
+        if !configured { return .notConfigured }
+        if !linked { return .notLinked }
+        if needsReconnect { return .expired }
+        if !installed { return .notInstalled }
+        return nil
+    }
+
     /// The `error` slug of a github-connected URL, `nil` when absent or empty
     /// (an error-less link is the success form). Works on both the deep link
     /// and the ASWebAuthenticationSession callback URL — same URL.
@@ -19,23 +40,11 @@ public enum GithubConnect {
         return (slug?.isEmpty ?? true) ? nil : slug
     }
 
-    /// Human copy per server error code; unknown codes get the generic line.
-    public static func errorMessage(for slug: String) -> String {
-        switch slug {
-        case "session":
-            return "The connect link expired or was already used. Try connecting again."
-        case "exchange":
-            return "GitHub sign-in didn't complete. Try connecting again."
-        case "none":
-            return "The Exponential GitHub App isn't installed for any account you can access yet. Use Connect GitHub to install it."
-        case "notowner":
-            return "The authorized GitHub account only has collaborator access to existing installations. Install the App on your own account or organization."
-        case "orgperm":
-            return "Your organization hasn't approved the App's members-read permission yet. An org admin must accept it on GitHub, then reconnect."
-        case "forbidden":
-            return "Only team members can connect GitHub accounts to a team."
-        default:
-            return "Something went wrong while connecting GitHub. Please try again."
-        }
+    /// Whether a refused `users.mintSignInLinkTicket({provider: "github"})`
+    /// means the server does not offer the GitHub link (BAD_REQUEST: "That
+    /// sign-in provider is not offered on this instance") — the hop then falls
+    /// back to the guided web page (`connectUrl`). Any other refusal is shown.
+    public static func linkNotOffered(code: String?) -> Bool {
+        code == "BAD_REQUEST"
     }
 }

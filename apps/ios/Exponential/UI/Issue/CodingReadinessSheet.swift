@@ -69,9 +69,15 @@ struct CodingReadinessSheet: View {
     /// A route fix: the host dismisses, then pushes.
     let onRoute: (CodingReadinessRoute) -> Void
 
+    @Environment(AppDependencies.self) private var deps
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
     @State private var showPicker = false
+    /// SLOP-26: "Connect GitHub" opens the Add-repository picker, the phone's
+    /// guided flow — it names the missing prerequisite (not linked / expired
+    /// / not installed) with its one fix, then lists the live repositories,
+    /// and a pick adds the repo AND points this board at it.
+    @State private var showGithub = false
     /// EXP-1169: "Set up a server" opens the ONE device setup block.
     @State private var showAddDevice = false
 
@@ -106,14 +112,32 @@ struct CodingReadinessSheet: View {
                 CodingReadinessRepoPickerSheet(model: model, board: board, accountId: accountId)
             }
         }
-        // One presentation per node: the Add device sheet hangs off a
-        // zero-size node of its own.
+        // One presentation per node: the Add device and GitHub sheets hang
+        // off zero-size nodes of their own.
         .background(
             Color.clear
                 .frame(width: 0, height: 0)
                 .allowsHitTesting(false)
                 .sheet(isPresented: $showAddDevice) {
                     AddDeviceSheet(accountId: accountId)
+                }
+        )
+        .background(
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .sheet(isPresented: $showGithub) {
+                    if let board = vm.board {
+                        GithubRepoPicker(
+                            accountId: accountId,
+                            teamId: board.teamId,
+                            integrationsApi: deps.integrationsApi
+                        ) { picked in
+                            _ = try await readinessAddFromGithub(
+                                deps: deps, model: model, board: board, accountId: accountId, picked: picked
+                            )
+                        }
+                    }
                 }
         )
     }
@@ -296,7 +320,13 @@ struct CodingReadinessSheet: View {
         case .chooseRepository:
             showPicker = true
         case .connectGithub:
-            onRoute(.connectGithub)
+            // The picker IS the guided flow on the phone; without a board to
+            // point at the repo, Team settings' connection block is the fix.
+            if vm.board != nil {
+                showGithub = true
+            } else {
+                onRoute(.connectGithub)
+            }
         case .boardSettings:
             onRoute(.boardSettings)
         case .openDevices:
@@ -405,23 +435,10 @@ struct CodingReadinessRepoPickerSheet: View {
                 teamId: board.teamId,
                 integrationsApi: deps.integrationsApi
             ) { picked in
-                // Register it with the team, then point the board at it —
-                // board settings' connect path (ChangeRepositorySheet).
-                let id = try await deps.repositoriesApi.add(
-                    accountId: accountId,
-                    teamId: board.teamId,
-                    fullName: picked.fullName,
-                    defaultBranch: picked.defaultBranch,
-                    isPrivate: picked.`private`
+                let pointed = try await readinessAddFromGithub(
+                    deps: deps, model: model, board: board, accountId: accountId, picked: picked
                 )
-                if let id {
-                    try await deps.boardsApi.setRepository(
-                        accountId: accountId, boardId: board.id, repositoryId: id
-                    )
-                }
-                RepositoryDirectory.invalidate(accountId: accountId, teamId: board.teamId)
-                await model.refresh(board: board)
-                if id != nil { dismiss() }
+                if pointed { dismiss() }
             }
         }
     }
@@ -493,4 +510,34 @@ struct CodingReadinessRepoPickerSheet: View {
             errorText = error.trpcUserMessage
         }
     }
+}
+
+/// The readiness flow's add-from-GitHub: register the picked repo with the
+/// team (`repositories.add`), then point the board at it (`boards.
+/// setRepository`, board settings' own call) so the repository row ticks,
+/// then re-list. Throws on failure (the GitHub sheet renders it inline);
+/// returns whether the board now points at the repo.
+@MainActor
+func readinessAddFromGithub(
+    deps: AppDependencies,
+    model: CodingReadinessModel,
+    board: BoardEntity,
+    accountId: String,
+    picked: GithubPickerRepo
+) async throws -> Bool {
+    let id = try await deps.repositoriesApi.add(
+        accountId: accountId,
+        teamId: board.teamId,
+        fullName: picked.fullName,
+        defaultBranch: picked.defaultBranch,
+        isPrivate: picked.`private`
+    )
+    if let id {
+        try await deps.boardsApi.setRepository(
+            accountId: accountId, boardId: board.id, repositoryId: id
+        )
+    }
+    RepositoryDirectory.invalidate(accountId: accountId, teamId: board.teamId)
+    await model.refresh(board: board)
+    return id != nil
 }

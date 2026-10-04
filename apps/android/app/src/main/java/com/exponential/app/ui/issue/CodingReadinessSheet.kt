@@ -102,8 +102,9 @@ private fun stepIcon(key: StepKey): ImageVector = when (key) {
 /**
  * @param availableFixes the fixes this viewer can actually perform here — a
  *   fix outside it never renders (no dead buttons).
- * @param onNavigateFix a fix that leaves the sheet (Connect GitHub, Board
- *   settings, Open Devices); the host closes the sheet and navigates.
+ * @param onNavigateFix a fix that leaves the sheet (Board settings, Open
+ *   Devices, and Connect GitHub without a board); the host closes the sheet
+ *   and navigates.
  * @param onStart the ready footer's tap; the host closes the sheet and opens
  *   the composer.
  */
@@ -141,7 +142,15 @@ fun CodingReadinessSheet(
                 context.startActivity(Intent(Intent.ACTION_VIEW, AppConstants.DESKTOP_RELEASES_URL.toUri()))
             }
             Fix.SET_UP_SERVER -> addDevice = true
-            Fix.CONNECT_GITHUB, Fix.BOARD_SETTINGS, Fix.OPEN_DEVICES -> onNavigateFix(fix)
+            // SLOP-26: the Add-repository picker IS the guided flow on the
+            // phone — it names the missing prerequisite (not linked / expired
+            // / not installed) with its one fix, then lists the live
+            // repositories, and a pick adds the repo AND points this board at
+            // it. Without a board to point at, team settings' block is the fix.
+            Fix.CONNECT_GITHUB -> {
+                if (state.accountId != null && state.board != null) addFromGithub = true else onNavigateFix(fix)
+            }
+            Fix.BOARD_SETTINGS, Fix.OPEN_DEVICES -> onNavigateFix(fix)
         }
     }
 

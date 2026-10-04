@@ -8,11 +8,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * EXP-557 (per-user repo sharing) wire-format locks: the
- * `integrations.github.unlink` mutation payload, the additive `stale` flag on
- * `installations[]` entries (optional-with-default — old servers omit it, and
- * an unknown-to-old-clients field must never break decoding), and the additive
- * `sharedBy` object on `repositories.list` rows.
+ * SLOP-26 wire-format locks: the `integrations.github.disconnect` payload
+ * (`{}`), the connection fields `linked`/`needsReconnect`/`login` (with the
+ * pre-SLOP-7 fallbacks), the prerequisite ladder every surface names, the
+ * by-name lookup (FEED-30) and the additive `sharedBy` on `repositories.list`.
  */
 class IntegrationsWireFormatTest {
 
@@ -24,14 +23,8 @@ class IntegrationsWireFormatTest {
     }
 
     @Test
-    fun `unlink input is the flat teamId + installationId payload`() {
-        assertEquals(
-            """{"teamId":"team-1","installationId":81577533}""",
-            json.encodeToString(
-                UnlinkInput.serializer(),
-                UnlinkInput(teamId = "team-1", installationId = 81577533L),
-            ),
-        )
+    fun `disconnect input is the empty object`() {
+        assertEquals("{}", json.encodeToString(DisconnectInput.serializer(), DisconnectInput))
     }
 
     // FEED-30: the by-name lookup sends the flat teamId + fullName payload the
@@ -60,23 +53,54 @@ class IntegrationsWireFormatTest {
     }
 
     @Test
-    fun `installations entry without stale defaults to false`() {
-        val inst = json.decodeFromString(
-            GithubInstallation.serializer(),
-            """{"installationId":1,"accountLogin":"acme","manageUrl":"https://github.com/settings/installations/1"}""",
+    fun `status decodes the connection fields`() {
+        val status = json.decodeFromString(
+            GithubStatusResult.serializer(),
+            """{"configured":true,"connectConfigured":true,"linked":true,"needsReconnect":false,"login":"octocat",""" +
+                """"installed":true,"installUrl":"https://github.com/apps/exp/installations/new",""" +
+                """"connectUrl":"https://app.test/integrations/github?team=t&return=app",""" +
+                """"installations":[{"installationId":7,"accountLogin":"acme","accountType":"Organization",""" +
+                """"manageUrl":"https://github.com/organizations/acme/settings/installations/7",""" +
+                """"suspended":false,"needsReauth":false,"stale":false}]}""",
         )
-        assertFalse(inst.stale)
-        assertFalse(inst.needsReauth)
+        assertTrue(status.isLinked)
+        assertFalse(status.needsReconnect)
+        assertEquals("octocat", status.login)
+        assertNull(status.prerequisite)
+        assertEquals("acme", status.installations.single().accountLogin)
+        assertFalse(status.installations.single().suspended)
     }
 
     @Test
-    fun `installations entry with stale true parses`() {
+    fun `repos without the new fields falls back to installed`() {
+        val repos = json.decodeFromString(
+            GithubReposResult.serializer(),
+            """{"configured":true,"installed":false,"installUrl":null,"repos":[],"hasMore":false}""",
+        )
+        assertFalse(repos.isLinked)
+        assertFalse(repos.needsReconnect)
+        assertNull(repos.login)
+        assertEquals(GithubPrerequisite.NOT_LINKED, repos.prerequisite)
+    }
+
+    @Test
+    fun `prerequisite ladder`() {
+        assertEquals(GithubPrerequisite.NOT_CONFIGURED, githubPrerequisite(configured = false, linked = true, needsReconnect = false, installed = true))
+        assertEquals(GithubPrerequisite.NOT_LINKED, githubPrerequisite(configured = true, linked = false, needsReconnect = false, installed = false))
+        assertEquals(GithubPrerequisite.EXPIRED, githubPrerequisite(configured = true, linked = true, needsReconnect = true, installed = false))
+        assertEquals(GithubPrerequisite.NOT_INSTALLED, githubPrerequisite(configured = true, linked = true, needsReconnect = false, installed = false))
+        assertNull(githubPrerequisite(configured = true, linked = true, needsReconnect = false, installed = true))
+    }
+
+    @Test
+    fun `installations entry ignores the legacy marks and defaults suspended`() {
         val inst = json.decodeFromString(
             GithubInstallation.serializer(),
             """{"installationId":1,"accountLogin":"acme","manageUrl":"https://github.com/settings/installations/1","needsReauth":true,"stale":true}""",
         )
-        assertTrue(inst.stale)
-        assertTrue(inst.needsReauth)
+        assertEquals("acme", inst.accountLogin)
+        assertFalse(inst.suspended)
+        assertFalse(inst.hasMore)
     }
 
     @Test

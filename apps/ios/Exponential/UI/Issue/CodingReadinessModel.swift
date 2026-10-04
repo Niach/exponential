@@ -170,9 +170,12 @@ final class CodingReadinessModel {
         }
     }
 
-    /// `acme-inc`: the connected account's login, else the owner half of the
-    /// first team repository.
+    /// `octocat`: the viewer's linked GitHub login, else the first installed
+    /// account, else the owner half of the first team repository.
     private func githubLabel(_ repos: [TeamRepo]) -> String? {
+        if let login = githubStatus?.login, !login.isEmpty {
+            return login
+        }
         if let login = githubStatus?.installations.lazy.compactMap(\.accountLogin).first {
             return login
         }
@@ -187,8 +190,13 @@ final class CodingReadinessModel {
         let statusKnown = githubStatus != nil || githubFailed
         guard reposKnown, statusKnown else { return nil }
         let teamRepos = repos ?? []
+        // SLOP-7: "GitHub connected" = the viewer's own GitHub account is
+        // linked with a live token, or the team already has repositories (a
+        // teammate connected them — this person needs no GitHub of their own
+        // to pick one).
+        let linked = githubStatus?.linked == true && githubStatus?.needsReconnect != true
         return CodingReadiness.Github(
-            connected: !teamRepos.isEmpty || githubStatus?.installed == true,
+            connected: !teamRepos.isEmpty || linked,
             label: githubLabel(teamRepos)
         )
     }

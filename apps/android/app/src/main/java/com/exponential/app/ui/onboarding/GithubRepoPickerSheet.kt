@@ -49,6 +49,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.GithubPickerRepo
+import com.exponential.app.data.api.GithubPrerequisite
 import com.exponential.app.data.api.GithubReposResult
 import com.exponential.app.domain.GithubCopy
 import com.exponential.app.domain.isRepoFullName
@@ -62,15 +63,17 @@ import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
 
-// The Add-repository picker (FEED-42 canonical form — web github-repo-picker.tsx,
-// desktop add_repository_dialog.rs, iOS GithubRepoPicker): lists the repos the
-// user's linked GitHub accounts grant, and a TAP ADDS through the host's
-// [onAdd] (which throws on failure). The sheet stays open while the add runs
-// and on failure (the error renders inline), and dismisses on success. When the
-// App isn't installed it offers the connect hop in a Chrome Custom Tab; the
-// server's post-connect page fires exponential://github-connected, which
-// re-fetches (see GithubRepoPickerViewModel). Returning any other way still
-// re-queries on lifecycle RESUME.
+// The Add-repository picker (SLOP-7/SLOP-26 canonical form — web
+// github-repo-picker.tsx, desktop add_repository_dialog.rs, iOS
+// GithubRepoPicker): lists the repos the VIEWER can push to, LIVE off GitHub,
+// and a TAP ADDS through the host's [onAdd] (which throws on failure). The
+// sheet stays open while the add runs and on failure (the error renders
+// inline), and dismisses on success. When a prerequisite is missing it names
+// which one and offers the ONE fix — Connect GitHub (the link-ticket hop in a
+// Custom Tab, [GithubRepoPickerViewModel.connectGithub]), Reconnect GitHub
+// (the same hop) or Install the app (`installUrl` in a Custom Tab) — plus
+// "I’ve done that" to re-list. Every return path re-queries (see the VM) and
+// lifecycle RESUME is the fallback.
 @Composable
 fun GithubRepoPickerSheet(
     accountId: String,
@@ -83,6 +86,7 @@ fun GithubRepoPickerSheet(
     val loading by viewModel.loading.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val connectError by viewModel.connectError.collectAsStateWithLifecycle()
+    val connecting by viewModel.connecting.collectAsStateWithLifecycle()
     val lookupBusy by viewModel.lookupBusy.collectAsStateWithLifecycle()
     val lookupError by viewModel.lookupError.collectAsStateWithLifecycle()
     val adding by viewModel.adding.collectAsStateWithLifecycle()
@@ -136,16 +140,13 @@ fun GithubRepoPickerSheet(
                 item(key = "add-error") {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         ErrorText(failure.message)
-                        val reconnectUrl = result?.let { it.connectUrl ?: it.installUrl }
-                        if (failure.forbidden && reconnectUrl != null) {
+                        if (failure.forbidden) {
                             GlassPill(
                                 GithubCopy.RECONNECT_GITHUB,
                                 icon = ExpIcons.uiRefresh,
                                 size = PillSize.Sm,
-                                onClick = {
-                                    viewModel.clearConnectError()
-                                    openUrl(reconnectUrl)
-                                },
+                                enabled = !connecting,
+                                onClick = { viewModel.connectGithub(openUrl) },
                             )
                         }
                     }
@@ -160,36 +161,40 @@ fun GithubRepoPickerSheet(
                         error?.let { ErrorText(it) }
                     }
                 }
-                !data.installed -> item(key = "connect") {
-                    val connectUrl = data.connectUrl ?: data.installUrl
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        GithubBox(GithubCopy.PICKER_NOT_INSTALLED)
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                            itemVerticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Button(
-                                onClick = {
-                                    connectUrl?.let {
-                                        viewModel.clearConnectError()
-                                        openUrl(it)
-                                    }
-                                },
-                                enabled = connectUrl != null,
-                            ) {
-                                Icon(ExpIcons.uiGithub, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text(GithubCopy.CONNECT_GITHUB)
+                // A prerequisite is missing: one sentence naming it, ONE button
+                // fixing it, and the "I’ve done that" re-list.
+                data.prerequisite == GithubPrerequisite.NOT_LINKED -> item(key = "connect") {
+                    PrerequisiteBox(
+                        text = GithubCopy.PICKER_NOT_LINKED,
+                        fix = GithubCopy.CONNECT_GITHUB,
+                        busy = connecting,
+                        onFix = { viewModel.connectGithub(openUrl) },
+                        onDone = { viewModel.load(accountId, teamId, refresh = true) },
+                    )
+                }
+                data.prerequisite == GithubPrerequisite.EXPIRED -> item(key = "reconnect") {
+                    PrerequisiteBox(
+                        text = GithubCopy.PICKER_RECONNECT_BANNER,
+                        fix = GithubCopy.RECONNECT_GITHUB,
+                        busy = connecting,
+                        onFix = { viewModel.connectGithub(openUrl) },
+                        onDone = { viewModel.load(accountId, teamId, refresh = true) },
+                    )
+                }
+                data.prerequisite == GithubPrerequisite.NOT_INSTALLED -> item(key = "install") {
+                    val installUrl = data.installUrl
+                    PrerequisiteBox(
+                        text = GithubCopy.PICKER_NOT_INSTALLED,
+                        fix = GithubCopy.INSTALL_APP,
+                        enabled = installUrl != null,
+                        onFix = {
+                            installUrl?.let {
+                                viewModel.clearConnectError()
+                                openUrl(it)
                             }
-                            GlassPill(
-                                GithubCopy.I_HAVE_CONNECTED,
-                                icon = ExpIcons.uiRefresh,
-                                size = PillSize.Sm,
-                                onClick = { viewModel.load(accountId, teamId, refresh = true) },
-                            )
-                        }
-                    }
+                        },
+                        onDone = { viewModel.load(accountId, teamId, refresh = true) },
+                    )
                 }
                 else -> {
                     installedItems(
@@ -198,12 +203,6 @@ fun GithubRepoPickerSheet(
                         onQueryChange = { query = it },
                         adding = adding,
                         onPick = add,
-                        onReconnect = {
-                            (data.connectUrl ?: data.installUrl)?.let {
-                                viewModel.clearConnectError()
-                                openUrl(it)
-                            }
-                        },
                     )
                     item(key = "footer") {
                         PickerFooter(
@@ -216,19 +215,9 @@ fun GithubRepoPickerSheet(
                             },
                             lookupBusy = lookupBusy,
                             lookupError = lookupError,
-                            // On OAuth instances the list IS the viewer's grant
-                            // snapshot, which only the re-auth (or the webhook)
-                            // rewrites — Refresh runs the re-auth hop there and a
-                            // forced re-list where there is no OAuth.
-                            onRefresh = {
-                                val connectUrl = data.connectUrl
-                                if (connectUrl != null) {
-                                    viewModel.clearConnectError()
-                                    openUrl(connectUrl)
-                                } else {
-                                    viewModel.load(accountId, teamId, refresh = true)
-                                }
-                            },
+                            // The list is live off GitHub: Refresh is a forced
+                            // re-list past the server's discovery cache.
+                            onRefresh = { viewModel.load(accountId, teamId, refresh = true) },
                             onInstall = { url ->
                                 viewModel.clearConnectError()
                                 openUrl(url)
@@ -240,7 +229,7 @@ fun GithubRepoPickerSheet(
                     error?.let { message -> item(key = "error") { ErrorText(message) } }
                 }
             }
-            // A FAILED connect hop's outcome (EXP-390).
+            // A FAILED connect hop's outcome.
             connectError?.let { message -> item(key = "connect-error") { ErrorText(message) } }
         }
     }
@@ -280,7 +269,47 @@ private fun LoadingBox() {
     }
 }
 
-/** Not configured / not installed: a dashed box with the GitHub glyph. */
+/**
+ * A missing prerequisite (web `repo-picker-prerequisite`): the dashed notice,
+ * the ONE primary fix (the app's one primary button, never a system tint) and
+ * the "I’ve done that" re-list.
+ */
+@Composable
+private fun PrerequisiteBox(
+    text: String,
+    fix: String,
+    onFix: () -> Unit,
+    onDone: () -> Unit,
+    busy: Boolean = false,
+    enabled: Boolean = true,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        GithubBox(text)
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            itemVerticalAlignment = Alignment.CenterVertically,
+        ) {
+            Button(onClick = onFix, enabled = enabled && !busy) {
+                if (busy) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(ExpIcons.uiGithub, contentDescription = null, modifier = Modifier.size(16.dp))
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(fix)
+            }
+            GlassPill(
+                GithubCopy.PICKER_CONNECTED_CHECK,
+                icon = ExpIcons.uiRefresh,
+                size = PillSize.Sm,
+                onClick = onDone,
+            )
+        }
+    }
+}
+
+/** Not configured / a prerequisite: a dashed box with the GitHub glyph. */
 @Composable
 private fun GithubBox(message: String) {
     val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
@@ -301,21 +330,16 @@ private fun GithubBox(message: String) {
     }
 }
 
-// Installed: the suspended and re-auth banners (INDEPENDENT — both can show),
-// then the search + rows (tap adds), or the honest empty state.
+// Installed: the suspended banner (REV2-29), then the search + rows (tap
+// adds), or the honest empty state.
 private fun LazyListScope.installedItems(
     data: GithubReposResult,
     query: String,
     onQueryChange: (String) -> Unit,
     adding: Boolean,
     onPick: (GithubPickerRepo) -> Unit,
-    onReconnect: () -> Unit,
 ) {
     val suspended = data.installations.filter { it.suspended }
-    val reauthLogins = data.installations
-        .filter { it.needsReauth && !it.suspended }
-        .mapNotNull { it.accountLogin?.takeIf { login -> login.isNotEmpty() } }
-    val needsReauth = data.installations.any { it.needsReauth && !it.suspended }
     val empty = data.repos.isEmpty()
 
     // A suspended installation lists no repos and cannot be fixed by a
@@ -329,7 +353,7 @@ private fun LazyListScope.installedItems(
                     .padding(horizontal = 12.dp, vertical = 10.dp),
             ) {
                 Icon(
-                    ExpIcons.uiGithub,
+                    ExpIcons.uiWarning,
                     contentDescription = null,
                     modifier = Modifier.padding(top = 2.dp).size(16.dp),
                     tint = MaterialTheme.colorScheme.error,
@@ -339,38 +363,6 @@ private fun LazyListScope.installedItems(
                     GithubCopy.pickerSuspended(suspended.map { it.accountLogin }),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
-                )
-            }
-        }
-    }
-    if (needsReauth) {
-        item(key = "reconnect-banner") {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier
-                    .pickerBox(dashed = false, color = DesignTokens.Semantic.Yellow.copy(alpha = 0.4f))
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-            ) {
-                Row(verticalAlignment = Alignment.Top) {
-                    Icon(
-                        ExpIcons.uiWarning,
-                        contentDescription = null,
-                        modifier = Modifier.padding(top = 2.dp).size(14.dp),
-                        tint = DesignTokens.Semantic.Yellow,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        GithubCopy.reauthBanner(empty = empty, logins = reauthLogins),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    )
-                }
-                GlassPill(
-                    GithubCopy.RECONNECT_GITHUB,
-                    icon = ExpIcons.uiRefresh,
-                    size = PillSize.Sm,
-                    enabled = data.connectUrl != null || data.installUrl != null,
-                    onClick = onReconnect,
                 )
             }
         }
@@ -426,10 +418,10 @@ private fun LazyListScope.installedItems(
                 }
             }
         }
-    } else if (!needsReauth && suspended.isEmpty()) {
+    } else if (suspended.isEmpty()) {
         item(key = "empty") {
             Text(
-                GithubCopy.NONE_GRANTED,
+                GithubCopy.NONE_PUSHABLE,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                 modifier = Modifier
@@ -506,11 +498,11 @@ private fun PickerFooter(
                 enabled = !loading,
                 onClick = onRefresh,
             )
-            // GitHub's account picker (installations/new) — the ONLY way to a
-            // second account/org once one is linked.
+            // GitHub's account picker (installations/new) — the way to a
+            // second account/org once the first one is installed.
             data.installUrl?.let { installUrl ->
                 GlassPill(
-                    GithubCopy.INSTALL_ON_ANOTHER_ACCOUNT,
+                    GithubCopy.INSTALL_ANOTHER,
                     icon = ExpIcons.uiAdd,
                     size = PillSize.Sm,
                     onClick = { onInstall(installUrl) },

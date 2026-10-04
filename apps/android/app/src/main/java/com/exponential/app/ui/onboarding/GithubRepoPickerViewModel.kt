@@ -7,9 +7,10 @@ import com.exponential.app.data.api.GithubReposResult
 import com.exponential.app.data.api.IntegrationsApi
 import com.exponential.app.data.api.TrpcException
 import com.exponential.app.data.api.trpcErrorMessage
+import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.auth.GithubConnectStarter
 import com.exponential.app.data.push.DeepLinkBus
 import com.exponential.app.domain.GithubCopy
-import com.exponential.app.domain.githubConnectErrorMessage
 import com.exponential.app.domain.isRepoFullName
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -21,17 +22,17 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
-// Backs [GithubRepoPickerSheet]: loads the user's installable repos over the
-// `integrations.github.repos` query (sent with platform="mobile" so the install
-// URL deep-links back into the app) and exposes a refresh so returning from the
-// GitHub App install re-detects the new connection. Two return paths re-fetch:
-// the exponential://github-connected deep link the server's post-install page fires
-// (observed here via the DeepLinkBus), and the sheet's on-resume refresh as a
-// fallback for servers without the deep-link page / a manually closed tab.
+// Backs [GithubRepoPickerSheet]: loads the viewer's push-able repos over the
+// `integrations.github.repos` query (mobile-marked) and exposes a refresh so
+// returning from a GitHub hop re-detects the new state. Three return paths
+// re-fetch: the `oauth-return?linked=github` deep link of the link-ticket hop
+// ([AuthRepository.linkResult]), the exponential://github-connected deep link
+// the guided page / the App's setup page fires (via the DeepLinkBus), and the
+// sheet's on-resume refresh as the fallback for a manually closed tab.
 /** FEED-42: a failed add, rendered inline in the still-open picker. */
 data class GithubAddError(
     val message: String,
-    /** The grant-model refusal: [GithubCopy.ADD_FORBIDDEN] + "Reconnect GitHub". */
+    /** The FORBIDDEN arm: [GithubCopy.ADD_FORBIDDEN] + "Reconnect GitHub". */
     val forbidden: Boolean = false,
 )
 
@@ -39,6 +40,8 @@ data class GithubAddError(
 class GithubRepoPickerViewModel @Inject constructor(
     private val integrationsApi: IntegrationsApi,
     private val deepLinkBus: DeepLinkBus,
+    private val auth: AuthRepository,
+    private val connectStarter: GithubConnectStarter,
 ) : ViewModel() {
 
     private val _result = MutableStateFlow<GithubReposResult?>(null)
@@ -50,10 +53,14 @@ class GithubRepoPickerViewModel @Inject constructor(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
-    // A failed connect hop's message (EXP-390) — separate from `error`, which
-    // belongs to the repos query.
+    // A failed connect hop's message — separate from `error`, which belongs
+    // to the repos query.
     private val _connectError = MutableStateFlow<String?>(null)
     val connectError: StateFlow<String?> = _connectError.asStateFlow()
+
+    // A connect hop being minted (the ticket round-trip before the tab opens).
+    private val _connecting = MutableStateFlow(false)
+    val connecting: StateFlow<Boolean> = _connecting.asStateFlow()
 
     // FEED-30: the footer's "Add by name" escape hatch — its own busy flag and
     // inline error (the server's message verbatim: it names the real reason).
@@ -76,28 +83,42 @@ class GithubRepoPickerViewModel @Inject constructor(
     private var loadJob: Job? = null
 
     init {
-        // The install Custom Tab ends on the server's "connected" page, which
-        // fires exponential://github-connected — that lands here (viewModelScope stays
-        // active while the activity is stopped behind the tab), so the sheet
-        // the user returns to already shows the fresh repo list. Event counter,
-        // not a consumed one-shot (EXP-365): team settings may be collecting
-        // too, and both must refresh. drop(1) skips the StateFlow replay.
-        // An error slug means the connect FAILED (EXP-390): surface it instead
-        // of refreshing — nothing changed server-side.
+        // The guided page / the App's setup page fire exponential://
+        // github-connected — that lands here (viewModelScope stays active
+        // while the activity is stopped behind the tab), so the sheet the user
+        // returns to already shows the fresh list. Event counter, not a
+        // consumed one-shot (EXP-365): team settings may be collecting too,
+        // and both must refresh. drop(1) skips the StateFlow replay. An error
+        // slug means the hop FAILED: say so instead of refreshing.
         viewModelScope.launch {
             deepLinkBus.githubConnected.drop(1).collect { event ->
                 if (event.error != null) {
-                    _connectError.value = githubConnectErrorMessage(event.error)
+                    _connectError.value = GithubCopy.LINK_FAILED
                     return@collect
                 }
                 _connectError.value = null
-                val account = lastAccountId
-                val team = lastTeamId
-                if (account != null && team != null) {
-                    load(account, team, refresh = true)
+                reloadAfterHop()
+            }
+        }
+        // The link-ticket hop's outcome (EXP-1126 link mode): a linked GitHub
+        // re-lists with the cache bypassed; a failure shows its reason.
+        viewModelScope.launch {
+            auth.linkResult.drop(1).collect { result ->
+                if (result.providerId != GithubConnectStarter.PROVIDER) return@collect
+                if (result.error != null) {
+                    _connectError.value = result.error
+                } else {
+                    _connectError.value = null
+                    reloadAfterHop()
                 }
             }
         }
+    }
+
+    private fun reloadAfterHop() {
+        val account = lastAccountId
+        val team = lastTeamId
+        if (account != null && team != null) load(account, team, refresh = true)
     }
 
     // A fresh connect attempt clears the previous failure.
@@ -118,9 +139,37 @@ class GithubRepoPickerViewModel @Inject constructor(
     }
 
     /**
+     * SLOP-26: Connect (or reconnect) the viewer's GitHub account — the
+     * link-ticket hop, the guided page ([GithubReposResult.connectUrl]) as the
+     * fallback — handing the URL to [open] (a Custom Tab).
+     */
+    fun connectGithub(open: (String) -> Unit) {
+        val account = lastAccountId ?: return
+        if (_connecting.value) return
+        _connectError.value = null
+        _connecting.value = true
+        viewModelScope.launch {
+            try {
+                val hop = connectStarter.start(account, _result.value?.connectUrl)
+                if (hop == null) {
+                    _connectError.value = GithubCopy.LINK_FAILED
+                } else {
+                    open(hop.url)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _connectError.value = trpcErrorMessage(e, GithubCopy.LINK_FAILED)
+            } finally {
+                _connecting.value = false
+            }
+        }
+    }
+
+    /**
      * FEED-42: add [repo] through the host's [onAdd] (which throws on failure),
      * then [onAdded] (the sheet dismisses). A failure stays inline: the plan cap,
-     * the grant-model FORBIDDEN arm, or the server message verbatim.
+     * the FORBIDDEN arm, or the server message verbatim.
      */
     fun add(repo: GithubPickerRepo, onAdd: suspend (GithubPickerRepo) -> Unit, onAdded: () -> Unit) {
         if (_adding.value) return
@@ -149,8 +198,9 @@ class GithubRepoPickerViewModel @Inject constructor(
 
     // FEED-30: integrations.github.lookupRepo for the typed `owner/name` — a
     // hit is handed to [onFound] exactly like a row pick, a miss lands in
-    // [lookupError]. Shape-invalid names and a lookup already in flight are
-    // ignored (the button is disabled for both).
+    // [lookupError] (the server's message: it runs the connect gate, so it
+    // names the real reason). Shape-invalid names and a lookup already in
+    // flight are ignored (the button is disabled for both).
     fun lookup(fullName: String, onFound: (GithubPickerRepo) -> Unit) {
         val account = lastAccountId ?: return
         val team = lastTeamId ?: return
