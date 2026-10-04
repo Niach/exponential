@@ -1,0 +1,33 @@
+import { describe, expect, it, vi } from "vitest"
+
+vi.mock(`@/lib/auth/client`, () => ({ authClient: { linkSocial: vi.fn() } }))
+
+import { githubConnectPagePath, isSameOriginPath } from "@/lib/github-connect"
+
+describe(`isSameOriginPath`, () => {
+  it(`accepts a path on this origin only`, () => {
+    expect(isSameOriginPath(`/t/acme/settings/repositories`)).toBe(true)
+    expect(isSameOriginPath(`/`)).toBe(true)
+    expect(isSameOriginPath(`//evil.example/x`)).toBe(false)
+    expect(isSameOriginPath(`https://evil.example/x`)).toBe(false)
+    expect(isSameOriginPath(``)).toBe(false)
+    expect(isSameOriginPath(null)).toBe(false)
+  })
+})
+
+describe(`githubConnectPagePath`, () => {
+  it(`carries the opener's path as from, same origin only`, () => {
+    expect(
+      githubConnectPagePath({
+        teamId: `t1`,
+        returnTo: `popup`,
+        from: `/t/acme/settings/repositories?x=1`,
+      })
+    ).toBe(
+      `/integrations/github?team=t1&return=popup&from=%2Ft%2Facme%2Fsettings%2Frepositories%3Fx%3D1`
+    )
+    expect(githubConnectPagePath({ from: `https://evil.example/` })).toBe(
+      `/integrations/github`
+    )
+  })
+})

@@ -83,6 +83,8 @@ export interface GithubConnectFlowProps {
   linkError?: string | null
   /** The done state's action (close the popup, deep-link, navigate). */
   doneAction: React.ReactNode
+  /** Fired once when the flow reaches its done state. */
+  onDone?: () => void
 }
 
 type StepKey = `connect` | `install` | `repo`
@@ -93,6 +95,7 @@ export function GithubConnectFlow({
   callbackURL,
   linkError,
   doneAction,
+  onDone,
 }: GithubConnectFlowProps) {
   const [data, setData] = useState<ReposResult | null>(null)
   const [failed, setFailed] = useState(false)
@@ -219,6 +222,11 @@ export function GithubConnectFlow({
   const loading = data === null && !failed
   const configured = data?.configured ?? true
   const done = added !== null || (teamId === null && installed)
+  // The host decides what "done" means for its arrival (close the popup, go
+  // back where the person came from); it is told once, when done flips.
+  useEffect(() => {
+    if (done) onDone?.()
+  }, [done, onDone])
 
   return (
     <GlassGroup className="w-full" data-testid="github-connect-flow">
@@ -346,7 +354,7 @@ export function GithubConnectFlow({
         </div>
       )}
 
-      {done && <div className="flex justify-center px-6 pb-6">{doneAction}</div>}
+      {done && <div className="flex justify-center p-6">{doneAction}</div>}
     </GlassGroup>
   )
 }
@@ -360,8 +368,6 @@ export function GithubFlowDoneButton({
   children: React.ReactNode
 }) {
   return (
-    <Button size="lg" className="w-full max-w-xs" onClick={onClick}>
-      {children}
-    </Button>
+    <Button onClick={onClick}>{children}</Button>
   )
 }

@@ -14,11 +14,16 @@ export function githubConnectPagePath(opts: {
   teamId?: string | null
   boardId?: string | null
   returnTo?: `app` | `popup`
+  /** The same-origin path the person came from: when the flow ends outside
+   * a popup (a blocked popup, a tab GitHub's redirect landed in) the page
+   * goes straight back there instead of showing a done card. */
+  from?: string | null
 } = {}): string {
   const params = new URLSearchParams()
   if (opts.teamId) params.set(`team`, opts.teamId)
   if (opts.boardId) params.set(`board`, opts.boardId)
   if (opts.returnTo) params.set(`return`, opts.returnTo)
+  if (opts.from && isSameOriginPath(opts.from)) params.set(`from`, opts.from)
   const query = params.toString()
   return `/integrations/github${query ? `?${query}` : ``}`
 }
@@ -48,9 +53,18 @@ export function openGithubConnect(opts: {
   teamId?: string | null
   boardId?: string | null
 }): boolean {
+  const from =
+    typeof window === `undefined`
+      ? null
+      : `${window.location.pathname}${window.location.search}`
   return openGithubPopup(
-    githubConnectPagePath({ ...opts, returnTo: `popup` })
+    githubConnectPagePath({ ...opts, returnTo: `popup`, from })
   )
+}
+
+/** A path on this origin: starts with ONE slash (`//host` would leave). */
+export function isSameOriginPath(value: unknown): value is string {
+  return typeof value === `string` && /^\/(?!\/)/.test(value) && !value.includes(`\n`)
 }
 
 // The message callers show when openGithubPopup returns false with a URL at

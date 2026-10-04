@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { useLiveQuery, eq } from "@tanstack/react-db"
 import type { Board } from "@/db/schema"
@@ -6,6 +6,7 @@ import { useSession } from "@/hooks/use-session"
 import { useTeamById } from "@/hooks/use-team-data"
 import { boardCollection } from "@/lib/collections"
 import { githubConnectedDeepLink } from "@/lib/deep-link"
+import { isSameOriginPath } from "@/lib/github-connect"
 import { pageTitle } from "@/lib/page-title"
 import {
   GH_CLOSE_WINDOW,
@@ -41,8 +42,15 @@ type ConnectSearch = {
   team?: string
   board?: string
   return?: `app` | `popup`
+  /** The same-origin path the web opener was on (lib/github-connect.ts):
+   * where the page goes back to when it ends outside a popup. */
+  from?: string
   link_error?: string
 }
+
+// GitHub's install redirect drops our query, so the origin path also lives in
+// sessionStorage for the length of the hop (one key, this tab only).
+const FROM_KEY = `exp.github-connect.from`
 
 const uuid = (value: unknown): string | undefined =>
   typeof value === `string` &&
@@ -60,6 +68,7 @@ export const Route = createFileRoute(`/integrations/github`)({
       search.return === `app` || search.return === `popup`
         ? search.return
         : undefined,
+    from: isSameOriginPath(search.from) ? search.from : undefined,
     link_error:
       search.link_error === undefined || search.link_error === null
         ? undefined
@@ -68,8 +77,42 @@ export const Route = createFileRoute(`/integrations/github`)({
   component: GithubConnectPage,
 })
 
-const GithubIcon = conceptIcon(`ui-github`)
 const CheckIcon = conceptIcon(`ui-check`)
+
+/** Where to go back to when the flow ends in a plain tab: the opener's path
+ * (`?from=`), else what this tab remembered before GitHub's redirects, else a
+ * same-origin referrer that is not this page. */
+function rememberedReturnPath(from: string | undefined): string | null {
+  if (typeof window === `undefined`) return null
+  if (from) {
+    try {
+      window.sessionStorage.setItem(FROM_KEY, from)
+    } catch {
+      // storage can be unavailable (private mode); the param still works
+    }
+    return from
+  }
+  try {
+    const stored = window.sessionStorage.getItem(FROM_KEY)
+    if (isSameOriginPath(stored)) return stored
+  } catch {
+    // ignore
+  }
+  try {
+    const ref = document.referrer ? new URL(document.referrer) : null
+    if (
+      ref &&
+      ref.origin === window.location.origin &&
+      !ref.pathname.startsWith(`/integrations/github`) &&
+      !ref.pathname.startsWith(`/auth/`)
+    ) {
+      return `${ref.pathname}${ref.search}`
+    }
+  } catch {
+    // ignore
+  }
+  return null
+}
 
 function GithubConnectPage() {
   const search = Route.useSearch()
@@ -111,13 +154,9 @@ function GithubConnectPage() {
   )
 
   const [closed, setClosed] = useState(false)
-  useEffect(() => {
-    if (search.return === `app` || !isPopup) return
-    // A popup arriving back from GitHub's install redirect with no return
-    // marker is still the popup the app opened: keep its context.
-  }, [search.return, isPopup])
+  const [returnPath] = useState(() => rememberedReturnPath(search.from))
 
-  const finish = () => {
+  const finish = useCallback(() => {
     if (search.return === `app`) {
       window.location.href = githubConnectedDeepLink()
       return
@@ -132,8 +171,25 @@ function GithubConnectPage() {
       }
       return
     }
+    if (returnPath) {
+      try {
+        window.sessionStorage.removeItem(FROM_KEY)
+      } catch {
+        // ignore
+      }
+      window.location.assign(returnPath)
+      return
+    }
     void navigate({ to: `/` })
-  }
+  }, [search.return, isPopup, returnPath, navigate])
+
+  // Done = straight back: a popup closes itself (its opener re-probes on
+  // focus), a plain tab returns to where it came from. Only a native hand-off
+  // (a deep link wants a click) or an unknown origin keeps the done card.
+  const onDone = useCallback(() => {
+    if (search.return === `app`) return
+    if (isPopup || returnPath) finish()
+  }, [search.return, isPopup, returnPath, finish])
 
   if (isPending) return null
 
@@ -150,14 +206,11 @@ function GithubConnectPage() {
             <h2 className="text-xl font-semibold">{GH_INSTALLED_SIGNED_OUT_TITLE}</h2>
             <p className="text-sm text-muted-foreground">{GH_INSTALLED_SIGNED_OUT_BODY}</p>
           </div>
-          <div className="flex flex-wrap items-center justify-center gap-2 px-6 pb-6">
-            <Button asChild size="lg">
-              <a href={githubConnectedDeepLink()}>
-                <GithubIcon className="mr-2 size-4" />
-                {GH_RETURN_TO_APP}
-              </a>
+          <div className="flex flex-wrap items-center justify-center gap-2 p-6">
+            <Button asChild>
+              <a href={githubConnectedDeepLink()}>{GH_RETURN_TO_APP}</a>
             </Button>
-            <Button asChild variant="outline" size="lg">
+            <Button asChild variant="outline">
               <Link to="/auth/login" search={{ redirect: here }}>
                 {GH_SIGN_IN}
               </Link>
@@ -182,6 +235,7 @@ function GithubConnectPage() {
         board={board ? { id: board.id, name: board.name } : null}
         callbackURL={callbackURL}
         linkError={search.link_error ?? null}
+        onDone={onDone}
         doneAction={
           closed ? (
             <p className="text-sm text-muted-foreground">{GH_CLOSE_WINDOW}</p>
