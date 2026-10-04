@@ -5,6 +5,7 @@ import { inArray, useLiveQuery } from "@tanstack/react-db"
 import type { Board, CodingSession, Issue } from "@/db/schema"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import {
+  AgentRunMark,
   conceptIcon,
   Button,
   ContextMenu,
@@ -17,10 +18,7 @@ import {
   DropdownMenuTrigger,
   LiveDot,
 } from "@exp/ui"
-import {
-  sessionDisplayState,
-  sessionRowIsWorking,
-} from "@/lib/coding-session-display"
+import { sessionDisplayState } from "@/lib/coding-session-display"
 import { sessionIdentity } from "@/lib/session-identity"
 import { cn } from "@/lib/utils"
 import {
@@ -33,10 +31,7 @@ import {
   type WorkTab,
 } from "@/lib/work-tabs"
 import { updateWorkTabs, useWorkTabs } from "@/hooks/use-work-tabs"
-import {
-  LIVE_DOT_TONE_BY_SESSION_TONE,
-  RunningIndicator,
-} from "@/components/agent-session-row"
+import { LIVE_DOT_TONE_BY_SESSION_TONE } from "@/components/agent-session-row"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 
 // EXP-870: the WORK TABS strip — browser-like tabs on the bare ground above
@@ -50,8 +45,10 @@ import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 //     (`components/team/sidebar-running.tsx`); the strip holds issues and
 //     ENDED runs.
 //   * the ACTIVE chip is derived from the URL — never stored;
-//   * a chip's lead is the bound run's state dot while it is live (the ping
-//     while the agent works), else the issue's status glyph, else a muted dot;
+//   * a chip's lead is the bound run's mark while it is live — EXP-1191: the
+//     sidebar's Running-row `AgentRunMark` (the spark while the agent works,
+//     else the brand mark with its state badge) — else the issue's status
+//     glyph, else (an ended run tab) the bare mark, else a muted dot;
 //   * EVERY chip closes again (EXP-923) — its ×, a middle click, and Close /
 //     Close others / Close all all reach it;
 //   * chips that do not fit collapse into a trailing "+N" menu
@@ -433,15 +430,15 @@ function ChipLead({
   if (live) {
     const prState = issue?.prState ?? run.prState
     return (
-      <RunningIndicator
-        state={sessionDisplayState(run, prState)}
+      <AgentRunMark
         agent={run.agent}
-        working={sessionRowIsWorking(run, prState)}
+        state={sessionDisplayState(run, prState)}
       />
     )
   }
   if (issue) {
     return <IssueStatusIcon issue={issue} className="size-3.5!" />
   }
+  if (run) return <AgentRunMark agent={run.agent} />
   return <LiveDot tone={LIVE_DOT_TONE_BY_SESSION_TONE.muted} />
 }

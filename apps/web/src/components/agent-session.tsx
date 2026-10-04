@@ -50,7 +50,7 @@ import {
   PrGithubButton,
   ChangesFileSheet,
   AgentMark,
-  AgentBrandMark,
+  AgentWorkingMark,
   ContextRing,
   SessionInlineResultTile,
   SessionResultsView,
@@ -2194,8 +2194,8 @@ function CenteredState({ children }: { children: React.ReactNode }) {
 /** Assistant prose — a chat bubble with a small glyph, selectable text. */
 /** The trailing "agent is busy" row (EXP-389, rewritten by EXP-850 §5): the
  *  turn's verb, its clock and the tokens it has produced —
- *  `Pondering… (2m 04s · ↓ 12.4k tokens)` — beside the RUNNING AGENT's brand
- *  mark, pulsing. While a workflow runs the text is that workflow's caption
+ *  `Pondering… (2m 04s · ↓ 12.4k tokens)` — beside the RUNNING AGENT's
+ *  working mark (EXP-1191: Claude's spark, the sidebar's; others pulse). While a workflow runs the text is that workflow's caption
  *  (§7) with the same suffix. A publisher that sends no turn start (codex,
  *  and every pre-EXP-850 desktop) degrades to the old bare "Working…", which
  *  is why the group is optional.
@@ -2227,7 +2227,7 @@ function WorkingIndicatorRow({
   })
   return (
     <div className={cn(`flex items-center gap-2`, TRANSCRIPT_TOOL_TEXT)}>
-      <AgentBrandMark agent={agent} pulse />
+      <AgentWorkingMark agent={agent} />
       <span className="min-w-0 truncate text-muted-foreground">{caption}</span>
     </div>
   )

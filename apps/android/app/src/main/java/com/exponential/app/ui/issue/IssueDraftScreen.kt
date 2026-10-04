@@ -15,9 +15,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -48,8 +46,6 @@ import com.exponential.app.domain.IssueRelationsView
 import com.exponential.app.domain.IssueStatusCategory
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.CircleIconButton
-import com.exponential.app.ui.components.GlassDropdownMenu
-import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.LocalDetailHaze
 import com.exponential.app.ui.components.LocalToaster
@@ -87,8 +83,8 @@ private enum class DraftSheet { Status, Priority, Assignee, Labels, DueDate, Boa
 /**
  * EXP-1170: the New issue PAGE — the phone issue face (`IssueFace` inside
  * `WorkScreen`) in draft mode, ONE view ×4. The header is the Work screen's
- * (`New issue` collapsing to the typed title; Create + a `…` holding only
- * Discard draft); the body is title → property chips (+ board) → description →
+ * (`New issue` collapsing to the typed title; Create + an `×` that is
+ * Discard draft, EXP-1191); the body is title → property chips (+ board) → description →
  * Files, nothing else. Everything autosaves into the draft row
  * ([IssueDraftViewModel]); share mode and parent mode write no row.
  */
@@ -223,7 +219,7 @@ fun IssueDraftScreen(
                             )
                         },
                         menu = {
-                            DraftMenu(onDiscard = {
+                            DraftDiscardButton(onDiscard = {
                                 viewModel.discard()
                                 if (shareMode && sharePrefill != null) onSharePrefillConsumed()
                                 onBack()
@@ -440,28 +436,15 @@ fun IssueDraftScreen(
     }
 }
 
-/** The header's `…`: ONE item, Discard draft (no confirm). */
+/** EXP-1191: the header's `×`, Discard draft (no confirm) — the draft's only
+ *  action, so no one-item `…` menu; the copy is its content description. */
 @Composable
-private fun DraftMenu(onDiscard: () -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    Box {
-        CircleIconButton(
-            ExpIcons.uiMore,
-            "Draft actions",
-            onClick = { open = true },
-            modifier = Modifier.padding(end = 8.dp),
-            borderless = true,
-        )
-        GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            GlassMenuItem(
-                leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
-                text = { Text(IssueDraftPage.DISCARD) },
-                destructive = true,
-                onClick = {
-                    open = false
-                    onDiscard()
-                },
-            )
-        }
-    }
+private fun DraftDiscardButton(onDiscard: () -> Unit) {
+    CircleIconButton(
+        ExpIcons.uiClose,
+        IssueDraftPage.DISCARD,
+        onClick = onDiscard,
+        modifier = Modifier.padding(end = 8.dp).testTag("issue-draft-discard"),
+        borderless = true,
+    )
 }

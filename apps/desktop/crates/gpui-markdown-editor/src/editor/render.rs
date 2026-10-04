@@ -1048,8 +1048,18 @@ impl Render for Editor {
             .on_action(cx.listener(Self::on_jump_to_bottom))
             .on_action(cx.listener(Self::on_dismiss_transient_ui));
         let base = base.child(content_area);
-        let base = if let Some(context_menu) = self.render_context_menu_overlay(&theme, cx) {
-            base.child(context_menu)
+        let viewport = window.viewport_size();
+        let base = if let Some(context_menu) =
+            self.render_context_menu_overlay(&theme, viewport, cx)
+        {
+            // EXP-1191: the menus sit at the click's WINDOW coordinates, so
+            // they render in a window-sized layer above everything (a child
+            // of the editor offset them by its own origin and clipped them).
+            base.child(deferred(
+                anchored()
+                    .position(Point::default())
+                    .child(div().w(viewport.width).h(viewport.height).child(context_menu)),
+            ))
         } else {
             base
         };

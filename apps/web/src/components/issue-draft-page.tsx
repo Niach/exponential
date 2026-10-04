@@ -4,12 +4,11 @@ import {
   Button,
   CollapsedTitle,
   conceptIcon,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
   Pill,
   toast,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
   useIsMobile,
   WORK_BAR_HEIGHT,
   WORK_COLUMN_CLASS,
@@ -49,16 +48,15 @@ import {
   MobileDetailHeader,
 } from "@/components/team/mobile-detail-header"
 
-const UiMoreIcon = conceptIcon(`ui-more`)
-const UiDeleteIcon = conceptIcon(`ui-delete`)
+const UiCloseIcon = conceptIcon(`ui-close`)
 
 // EXP-1170: the New issue PAGE — the issue detail (`issue-detail-view.tsx`)
 // in DRAFT mode, ×4. Same chrome, same title row, same properties tray, same
 // editor and Files section; what differs is only what a not-yet-filed issue
 // cannot have: no identifier (the header says "New issue"), no pin, PR,
 // faces, coding, timeline, relations or bottom bar, and the trailing cluster
-// is Create plus a `…` holding "Discard draft". Everything typed autosaves to
-// the draft row (`use-issue-draft-editor.ts`).
+// is Create plus an `×` whose tooltip says "Discard draft" (EXP-1191).
+// Everything typed autosaves to the draft row (`use-issue-draft-editor.ts`).
 
 export interface IssueDraftPageProps {
   draftId: string
@@ -286,29 +284,25 @@ export function IssueDraftPage({
     </Button>
   )
 
-  const moreMenu = (phone: boolean) => (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
+  // EXP-1191: Discard is the draft's only action, so it is a bare `×` with
+  // the copy as its tooltip, not a one-item `…` menu.
+  const discardButton = (phone: boolean) => (
+    <Tooltip>
+      <TooltipTrigger asChild>
         <Button
           variant="ghost"
           size={phone ? `icon` : `icon-sm`}
           className={phone ? HEADER_BUTTON_CLASS : undefined}
-          aria-label="Draft actions"
+          aria-label={ISSUE_DRAFT_COPY.discard}
           disabled={disabled}
+          onClick={() => void handleDiscard()}
+          data-testid="issue-draft-discard"
         >
-          <UiMoreIcon className="size-4" />
+          <UiCloseIcon className="size-4" />
         </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-[14rem]">
-        <DropdownMenuItem
-          variant="destructive"
-          onSelect={() => void handleDiscard()}
-        >
-          <UiDeleteIcon className="size-4" />
-          {ISSUE_DRAFT_COPY.discard}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+      </TooltipTrigger>
+      <TooltipContent>{ISSUE_DRAFT_COPY.discard}</TooltipContent>
+    </Tooltip>
   )
 
   const collapsedTitle = (align: `start` | `center`) => (
@@ -428,7 +422,7 @@ export function IssueDraftPage({
               >
                 {ISSUE_DRAFT_COPY.create}
               </Pill>
-              {moreMenu(true)}
+              {discardButton(true)}
             </div>
           }
         />
@@ -468,13 +462,16 @@ export function IssueDraftPage({
               trailing={
                 <>
                   {createButton}
-                  {moreMenu(false)}
+                  {discardButton(false)}
                 </>
               }
             />
             <div className={WORK_COLUMN_CLASS}>
+              {/* EXP-1191: a little air above the title — with no parent
+                  line or identifier above it, it hugged the card's top. */}
               <div
                 ref={titleRef}
+                className="pt-4"
                 style={{ paddingRight: clusterSize.width }}
               >
                 {titleInput}

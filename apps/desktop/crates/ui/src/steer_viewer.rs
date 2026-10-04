@@ -5234,24 +5234,15 @@ impl SteerSessionView {
 
     /// §5 — the synthetic trailing row: the turn's verb (or the running
     /// workflow's caption) with its duration and token count, under the
-    /// RUNNING AGENT's own brand mark, pulsing.
+    /// RUNNING AGENT's working mark — EXP-1191: the very spark the sidebar's
+    /// Running rows and the tabs draw ([`crate::coding_selects::agent_working_mark`];
+    /// codex and an external agent keep the pulse).
     ///
     /// gpui exposes no OS reduce-motion signal (see `theme::motion`), so the
-    /// pulse is unconditional here; the hook, if one is ever wanted, is the
-    /// shared settings file, not a speculative flag.
+    /// animation is unconditional here; the hook, if one is ever wanted, is
+    /// the shared settings file, not a speculative flag.
     fn render_working_row(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
-        // EXP-877: the brand mark in its own colour (claude orange, like the
-        // web's `AgentBrandMark`); codex and the fallback ride `muted`.
-        let mark = match self.builtin_agent() {
-            Some(coding::CodingAgent::Claude) => {
-                crate::coding_selects::agent_mark(coding::CodingAgent::Claude)
-            }
-            Some(agent) => crate::coding_selects::agent_mark(agent).text_color(muted),
-            // An external agent has no brand mark — the generic AGENT
-            // concept, the same fallback every run list uses.
-            None => Icon::new(registry::SETTINGS_AGENTS).text_color(muted),
-        };
         tool_text(h_flex())
             .w_full()
             .min_w_0()
@@ -5259,15 +5250,8 @@ impl SteerSessionView {
             .items_center()
             .child(
                 div()
-                    .flex_shrink_0()
-                    .child(mark.xsmall())
-                    .with_animation(
-                        "steer-working-pulse",
-                        gpui::Animation::new(WORKING_PULSE)
-                            .repeat()
-                            .with_easing(bounce(ease_in_out)),
-                        |mark, delta| mark.opacity(0.4 + 0.6 * delta),
-                    ),
+                    .text_color(muted)
+                    .child(crate::coding_selects::agent_working_mark(self.builtin_agent(), 12.)),
             )
             .child(
                 div()

@@ -948,8 +948,9 @@ pub(crate) enum RichTabStatus {
     Glyph(gpui_component::Icon),
     /// A liveness tone dot (`queries::session_dot_tone`) — every run chip.
     Dot(Hsla),
-    /// EXP-1184: the agent's working mark — a run chip whose agent works.
-    Working(Option<coding::CodingAgent>),
+    /// EXP-1184/EXP-1191: a run chip's lead, the rail's Running-row mark
+    /// ([`crate::coding_selects::run_lead`]; `None` = the bare mark).
+    Run(Option<coding::CodingAgent>, Option<crate::queries::CodingSessionDisplay>),
     None,
 }
 
@@ -1068,8 +1069,8 @@ pub(crate) fn rich_tab(tab: RichTab, cx: &App) -> Stateful<Div> {
                     // the strip re-rendering on every turn edge was motion
                     // without information).
                     RichTabStatus::Dot(tone) => slot.child(live_dot(tone, false)),
-                    RichTabStatus::Working(agent) => {
-                        slot.child(crate::coding_selects::agent_working_mark(agent, 14.))
+                    RichTabStatus::Run(agent, state) => {
+                        slot.child(crate::coding_selects::run_lead(agent, 14., 5., state))
                     }
                     RichTabStatus::None => slot,
                 }),

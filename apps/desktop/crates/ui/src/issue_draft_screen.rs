@@ -9,7 +9,7 @@
 //! over the scrolling body, the large title row, the property tray, the
 //! description, the Files — with only these differences: the collapsed title
 //! reads "New issue" over the typed title (or "Untitled draft"), the bar's
-//! cluster is a primary Create plus a `…` holding only "Discard draft", the
+//! cluster is a primary Create plus an `×` tooltipped "Discard draft", the
 //! tray is the [`IssueDraft`] chip row (no estimate) plus a board chip when
 //! the team has another board, and nothing follows the Files (no relations,
 //! composer, PR row or timeline).
@@ -35,7 +35,6 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{InputEvent, TextareaState},
-    menu::DropdownMenu as _,
     v_flex, ActiveTheme as _, Disableable as _, Icon,
 };
 use sync::Store;
@@ -868,7 +867,9 @@ impl IssueDraftView {
 
     // -- render -----------------------------------------------------------------
 
-    /// The bar's right cluster: Create, then the `…` holding only Discard.
+    /// The bar's right cluster: Create, then an `×` that discards (EXP-1191:
+    /// the draft's only action, so no one-item `…` menu; its tooltip says
+    /// what it does).
     fn cluster(&self, cx: &mut gpui::Context<Self>) -> Vec<AnyElement> {
         let enabled = self.can_create(cx);
         let create = Button::new("draft-create")
@@ -877,26 +878,14 @@ impl IssueDraftView {
             .label(copy::CREATE)
             .disabled(!enabled)
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.create(window, cx)));
-        let view = cx.entity().downgrade();
-        let menu = crate::controls::ghost_icon_button(
-            "draft-actions",
-            Icon::new(registry::UI_MORE),
+        let discard = crate::controls::ghost_icon_button(
+            "draft-discard",
+            Icon::new(registry::UI_CLOSE),
             cx,
         )
-        .dropdown_menu(move |menu, _window, cx| {
-            let view = view.clone();
-            menu.item(
-                crate::controls::danger_menu_item(
-                    copy::DISCARD,
-                    Icon::from(registry::UI_DELETE),
-                    cx,
-                )
-                .on_click(move |_, window, cx| {
-                    let _ = view.update(cx, |this, cx| this.discard(window, cx));
-                }),
-            )
-        });
-        vec![create.into_any_element(), menu.into_any_element()]
+        .tooltip(copy::DISCARD)
+        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.discard(window, cx)));
+        vec![create.into_any_element(), discard.into_any_element()]
     }
 
     /// The property tray: the [`IssueDraft`] chips plus the board chip.
@@ -1113,6 +1102,9 @@ impl Render for IssueDraftView {
                 true
             }
         })
+        // EXP-1191: a little air above the title (web `pt-4`) — with no
+        // parent line or identifier above it, it hugged the pane's top.
+        .mt(px(16.))
         .into_any_element();
         let (header, rows) = crate::work_header::scrolling_title_rows(
             crate::work_header::TitleChrome {

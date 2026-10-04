@@ -409,7 +409,7 @@ struct TabEntry {
     /// decides whether the tab EXISTS (a live run lives in the rail's Running
     /// section, never in the strip) nor whether it can be closed — only what
     /// the chip's lead says: an issue tab whose run is going wears the run's
-    /// liveness dot instead of the issue's status glyph.
+    /// mark instead of the issue's status glyph.
     live: bool,
 }
 
@@ -856,13 +856,14 @@ enum ChipLead {
     /// Resolution is per-issue, so it stays correct on this cross-team strip
     /// — only GROUPING is team-scoped.
     Status(domain::statuses::ResolvedStatus),
-    /// EXP-746: a liveness tone dot — every RUN chip (web `tabStatus`), a
-    /// steady disc in the run state's tone (EXP-877: never the ping).
+    /// EXP-746: a steady tone dot (EXP-877: never the ping) — since
+    /// EXP-1191 only a run chip whose row has not synced yet.
     Dot(gpui::Hsla),
-    /// EXP-1184: a run chip whose agent WORKS right now wears the agent's
-    /// working mark (Claude's stepped spark) instead of its dot — the same
-    /// mark the rail's Running rows and the session lists draw.
-    Working(Option<coding::CodingAgent>),
+    /// EXP-1184/EXP-1191: a run chip wears the rail's Running-row lead
+    /// ([`crate::coding_selects::run_lead`]): the agent's working spark
+    /// mid-turn, else its brand mark with the state badge; `None` = an ended
+    /// or paused run, the bare mark.
+    Run(Option<coding::CodingAgent>, Option<crate::queries::CodingSessionDisplay>),
     /// EXP-769: the `session-shell` glyph — a plain terminal chip (EXP-723: a
     /// chip carrying only a title read as a nameless tab next to the issue
     /// chips' status glyphs).
@@ -876,7 +877,7 @@ impl ChipLead {
         match self {
             ChipLead::None | ChipLead::Dot(_) => None,
             // A static menu row: the brand mark, never the animation.
-            ChipLead::Working(agent) => Some(match agent {
+            ChipLead::Run(agent, _) => Some(match agent {
                 Some(agent) => crate::coding_selects::agent_mark(*agent),
                 None => Icon::new(registry::SETTINGS_AGENTS),
             }),
@@ -900,7 +901,7 @@ fn lead_reserve_px(lead: &ChipLead) -> f32 {
     const LEAD_BOX_PX: f32 = 14.;
     match lead {
         ChipLead::None => 0.,
-        ChipLead::Status(_) | ChipLead::Shell | ChipLead::Dot(_) | ChipLead::Working(_) => {
+        ChipLead::Status(_) | ChipLead::Shell | ChipLead::Dot(_) | ChipLead::Run(..) => {
             LEAD_BOX_PX
         }
     }
@@ -912,7 +913,7 @@ fn lead_reserve_px(lead: &ChipLead) -> f32 {
 const CHIP_LOADING: &str = "Loading…";
 
 /// EXP-746/EXP-769/EXP-877: a RUN chip, the web `DockTab` piece for piece —
-/// the liveness dot (`tabStatus`), the issue identifier in the mono slot and
+/// the run's mark (EXP-1191), the issue identifier in the mono slot and
 /// the subject. An issue-less run (chat, action, batch) takes the ×4
 /// [`crate::run_rows::run_title`], so the strip and the runs list call the
 /// same run the same thing.
@@ -948,8 +949,8 @@ fn session_chip_content(session_id: &str, cx: &App) -> ChipContent {
         collections.devices.read(cx).iter(),
         now * 1_000,
     );
-    // An ended run keeps its tab as a read-only transcript — its dot says so
-    // rather than claiming the agent is still working.
+    // An ended run keeps its tab as a read-only transcript — its bare mark
+    // says so rather than claiming the agent is still working.
     // EXP-888: a sweep end is not an end — the tab keeps its live dot.
     let ended = crate::run_rows::run_has_ended(row);
     let pr_state = issue
@@ -962,29 +963,16 @@ fn session_chip_content(session_id: &str, cx: &App) -> ChipContent {
     );
     let display = crate::queries::coding_session_display(row, busy, pr_state);
     let paused = !ended && crate::queries::session_is_paused(display, row.status.as_deref(), &presentation);
-    // EXP-1184: a working run's chip wears the agent's working mark; every
-    // other state keeps its dot.
-    if !ended && !paused && crate::queries::session_row_is_working(row, display) {
-        let agent = match row.agent.as_deref() {
-            None => Some(coding::CodingAgent::default()),
-            Some(id) => coding::CodingAgent::parse(id),
-        };
-        return ChipContent {
-            lead: ChipLead::Working(agent),
-            identifier,
-            title: Some(title),
-            badge: None,
-        };
-    }
-    // EXP-862: the ONE dot mapping (`queries::session_dot_tone`) — the rail
-    // rows, the session lists, the steer viewer's header and this chip all
-    // read it, so a run cannot be green here and amber two panels over.
-    let tone = crate::queries::session_dot_tone(
-        crate::queries::SessionDotFacts::from_display(display, ended, paused),
-        muted,
-    );
+    // EXP-1184/EXP-1191: the chip wears the sidebar's Running-row mark, the
+    // spark mid-turn, else the brand mark with the state badge; an ended or
+    // paused run keeps the bare mark.
+    let agent = match row.agent.as_deref() {
+        None => Some(coding::CodingAgent::default()),
+        Some(id) => coding::CodingAgent::parse(id),
+    };
+    let state = (!ended && !paused).then_some(display);
     ChipContent {
-        lead: ChipLead::Dot(tone),
+        lead: ChipLead::Run(agent, state),
         identifier,
         title: Some(title),
         badge: None,
@@ -992,7 +980,7 @@ fn session_chip_content(session_id: &str, cx: &App) -> ChipContent {
 }
 
 /// EXP-870: a TAB's chip. An issue tab is the issue chip, with the lead taken
-/// over by its run's liveness dot while that run is live (amber waiting,
+/// over by its run's mark while that run is live (amber waiting,
 /// green PR open); a Run-only tab is the run chip; a terminal its own.
 fn tab_chip_content(tab: &TabEntry, cx: &App) -> ChipContent {
     if let Screen::Terminal { tab: terminal } = &tab.screen {
@@ -2547,7 +2535,7 @@ impl ScreensPanel {
         let mut tab = crate::surface::RichTab::new(("center-tab", ix), Some(ix) == active_ix);
         tab.status = match &content.lead {
             ChipLead::Dot(tone) => crate::surface::RichTabStatus::Dot(*tone),
-            ChipLead::Working(agent) => crate::surface::RichTabStatus::Working(*agent),
+            ChipLead::Run(agent, state) => crate::surface::RichTabStatus::Run(*agent, *state),
             lead => match lead.icon(cx) {
                 Some(icon) => crate::surface::RichTabStatus::Glyph(icon),
                 None => crate::surface::RichTabStatus::None,
@@ -2776,7 +2764,7 @@ impl ScreensPanel {
                 );
                 tab.status = match &content.lead {
                     ChipLead::Dot(tone) => crate::surface::RichTabStatus::Dot(*tone),
-                    ChipLead::Working(agent) => crate::surface::RichTabStatus::Working(*agent),
+                    ChipLead::Run(agent, state) => crate::surface::RichTabStatus::Run(*agent, *state),
                     lead => match lead.icon(cx) {
                         Some(icon) => crate::surface::RichTabStatus::Glyph(icon),
                         None => crate::surface::RichTabStatus::None,
