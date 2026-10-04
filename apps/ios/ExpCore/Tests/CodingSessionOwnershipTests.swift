@@ -179,14 +179,15 @@ final class CodingSessionOwnershipTests: XCTestCase {
         XCTAssertEqual(byTeam["team-2"], CodingSessionOwnership.TeamLiveRuns(count: 2, needsInput: true))
     }
 
-    func testLiveByTeamMasksNeedsInputBehindReview() {
-        // EXP-531/679 ordering: an in_review run is "ready for review", never
-        // amber — the switcher dot goes through the same mask as the tab dot.
+    func testLiveByTeamNeedsInputShowsThroughReview() {
+        // EXP-1184: needs input wins on every live status, an open PR
+        // included — the old EXP-531 in_review mask is gone (×4 fixture
+        // `session-display.json`).
         let sessions = [
             session(id: "review", userId: "me", teamId: "team-2", status: "in_review", needsInput: true)
         ]
         let byTeam = CodingSessionOwnership.liveByTeam(sessions, userId: "me", now: soon)
-        XCTAssertEqual(byTeam["team-2"], CodingSessionOwnership.TeamLiveRuns(count: 1, needsInput: false))
+        XCTAssertEqual(byTeam["team-2"], CodingSessionOwnership.TeamLiveRuns(count: 1, needsInput: true))
     }
 
     func testOtherTeamsLiveExcludesTheActiveTeam() {

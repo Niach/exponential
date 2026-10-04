@@ -20,7 +20,7 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, AnimationExt as _, AnyElement, App, InteractiveElement as _,
+    div, prelude::FluentBuilder as _, px, AnyElement, App, InteractiveElement as _,
     IntoElement, ParentElement, SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
 use gpui_component::{
@@ -115,14 +115,16 @@ pub(crate) struct FaceToggle {
 /// `detail-chrome.json` `faceDots`): the tab's run is live, that live run
 /// waits on a person, the issue's (or run's) pull request is open. FACE
 /// MARKS: the run's agent (`None` = an unknown one, the generic glyph) and
-/// its synced turn flag, for the Run tab's brand mark.
+/// what it is doing (EXP-1184, [`crate::queries::coding_session_display`];
+/// `None` while it is not live or its host is offline), for the Run tab's
+/// mark.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct FaceState {
     pub run_live: bool,
     pub needs_input: bool,
     pub pr_open: bool,
     pub agent: Option<coding::CodingAgent>,
-    pub agent_busy: bool,
+    pub run_state: Option<crate::queries::CodingSessionDisplay>,
 }
 
 /// EXP-1162 FACE MARKS: how a segment draws its tone — the Run segment as
@@ -272,6 +274,31 @@ pub(crate) fn face_state(run_id: Option<&str>, pr_open: bool, cx: &App) -> FaceS
     let run_live = row
         .as_ref()
         .is_some_and(|row| crate::queries::coding_session_is_live(row, now));
+    // EXP-1184: the ONE display rule, fed like every other surface — the
+    // local engine's turn signal for a run hosted here, the issue's PR state
+    // before the run's own (EXP-734); an offline host is paused: no state.
+    let run_state = row.as_ref().filter(|_| run_live).and_then(|row| {
+        let store = Store::try_global(cx)?;
+        let collections = store.collections();
+        let pr_state = row
+            .issue_id
+            .as_deref()
+            .and_then(|id| collections.issues.read(cx).get(id).and_then(|issue| issue.pr_state.clone()))
+            .or_else(|| row.pr_state.clone());
+        let busy = crate::queries::session_agent_busy(
+            row,
+            crate::queries::local_agent_busy(&row.id, cx),
+            now,
+        );
+        let display = crate::queries::coding_session_display(row, busy, pr_state.as_deref());
+        let presentation = crate::queries::session_device_presentation(
+            row,
+            collections.devices.read(cx).iter(),
+            now * 1_000,
+        );
+        (!crate::queries::session_is_paused(display, row.status.as_deref(), &presentation))
+            .then_some(display)
+    });
     FaceState {
         run_live,
         needs_input: run_live && row.as_ref().and_then(|row| row.needs_input) == Some(true),
@@ -282,9 +309,7 @@ pub(crate) fn face_state(run_id: Option<&str>, pr_open: bool, cx: &App) -> FaceS
             None => Some(coding::CodingAgent::default()),
             Some(id) => coding::CodingAgent::parse(id),
         },
-        agent_busy: row
-            .as_ref()
-            .is_some_and(|row| crate::queries::session_agent_busy(row, None, now)),
+        run_state,
     }
 }
 
@@ -295,6 +320,23 @@ pub(crate) fn face_dot_label(tone: domain::detail_chrome::FaceDotTone) -> &'stat
         FaceDotTone::Running => "Running",
         FaceDotTone::NeedsInput => "Needs input",
         FaceDotTone::Review => "Pull request open",
+    }
+}
+
+/// EXP-1184: a segment's tooltip — the Run segment names what its run is
+/// doing (web `RUN_STATE_LABEL`), any other its dot's words.
+pub(crate) fn face_tooltip(
+    face: Face,
+    tone: domain::detail_chrome::FaceDotTone,
+    run_state: Option<crate::queries::CodingSessionDisplay>,
+) -> &'static str {
+    use crate::queries::CodingSessionDisplay;
+    match (face, run_state) {
+        (Face::Run, Some(CodingSessionDisplay::Working)) => "Working",
+        (Face::Run, Some(CodingSessionDisplay::NeedsInput)) => "Needs input",
+        (Face::Run, Some(CodingSessionDisplay::Review)) => "Pull request open",
+        (Face::Run, Some(CodingSessionDisplay::Done)) => "Done",
+        _ => face_dot_label(tone),
     }
 }
 
@@ -325,25 +367,19 @@ fn face_dot(tone: domain::detail_chrome::FaceDotTone, cx: &App) -> gpui::Div {
         .bg(face_dot_color(tone, cx))
 }
 
-/// EXP-1162 FACE MARKS: the Run segment's lead — the run's brand mark,
-/// `faceMark` square, `faceMarkGap` before the label, the Running row's
-/// badge while it needs input; mid-turn it beats like the session screen's
-/// working mark (`steer_viewer::WORKING_PULSE`).
+/// EXP-1162/EXP-1184 FACE MARKS: the Run segment's lead — the rail's run
+/// mark ([`crate::coding_selects::run_lead`]), `faceMark` square,
+/// `faceMarkGap` before the label: the agent's working mark mid-turn, else
+/// the brand mark with the run state's badge. A run whose state is unknown
+/// still wears the amber badge while the contract's tone says it waits.
 fn face_agent_mark(state: FaceState, attention: bool) -> AnyElement {
     use domain::detail_chrome::{FACE_MARK, FACE_MARK_BADGE, FACE_MARK_GAP};
-    let lead = crate::coding_selects::run_lead(state.agent, FACE_MARK, FACE_MARK_BADGE, attention)
-        .mr(px(FACE_MARK_GAP));
-    if !state.agent_busy {
-        return lead.into_any_element();
-    }
-    lead.with_animation(
-        "face-run-working-pulse",
-        gpui::Animation::new(crate::steer_viewer::WORKING_PULSE)
-            .repeat()
-            .with_easing(gpui::bounce(gpui::ease_in_out)),
-        |mark, delta| mark.opacity(0.4 + 0.6 * delta),
-    )
-    .into_any_element()
+    let run_state = state
+        .run_state
+        .or(attention.then_some(crate::queries::CodingSessionDisplay::NeedsInput));
+    crate::coding_selects::run_lead(state.agent, FACE_MARK, FACE_MARK_BADGE, run_state)
+        .mr(px(FACE_MARK_GAP))
+        .into_any_element()
 }
 
 /// The callback a toggle pick lands on.
@@ -396,8 +432,9 @@ pub(crate) fn face_toggle(
                 .children(lead)
                 .child(run_face_label(true))
                 .when_some(dot, |label, tone| {
+                    let words = face_tooltip(face, tone, spec.state.run_state);
                     label.tooltip(move |window, cx| {
-                        gpui_component::tooltip::Tooltip::new(face_dot_label(tone)).build(window, cx)
+                        gpui_component::tooltip::Tooltip::new(words).build(window, cx)
                     })
                 })
                 .when(!active, |label| {
@@ -444,8 +481,9 @@ pub(crate) fn face_toggle(
             })
             .children(trailing_dot.map(|tone| face_dot(tone, cx)))
             .when_some(dot, |item, tone| {
+                let words = face_tooltip(face, tone, spec.state.run_state);
                 item.tooltip(move |window, cx| {
-                    gpui_component::tooltip::Tooltip::new(face_dot_label(tone)).build(window, cx)
+                    gpui_component::tooltip::Tooltip::new(words).build(window, cx)
                 })
             })
             .when(!active, |item| {
@@ -2116,6 +2154,25 @@ mod tests {
         assert_eq!(face_dot_label(FaceDotTone::Running), "Running");
         assert_eq!(face_dot_label(FaceDotTone::NeedsInput), "Needs input");
         assert_eq!(face_dot_label(FaceDotTone::Review), "Pull request open");
+        // EXP-1184: the Run segment names its run's state; others their dot.
+        {
+            use crate::queries::CodingSessionDisplay as D;
+            assert_eq!(face_tooltip(Face::Run, FaceDotTone::Running, Some(D::Working)), "Working");
+            assert_eq!(face_tooltip(Face::Run, FaceDotTone::Running, Some(D::Done)), "Done");
+            assert_eq!(
+                face_tooltip(Face::Run, FaceDotTone::Running, Some(D::Review)),
+                "Pull request open"
+            );
+            assert_eq!(
+                face_tooltip(Face::Run, FaceDotTone::NeedsInput, Some(D::NeedsInput)),
+                "Needs input"
+            );
+            assert_eq!(face_tooltip(Face::Run, FaceDotTone::Running, None), "Running");
+            assert_eq!(
+                face_tooltip(Face::Results, FaceDotTone::Review, Some(D::Working)),
+                "Pull request open"
+            );
+        }
         cx.update(|cx| {
             gpui_component::init(cx);
             theme::init(cx);

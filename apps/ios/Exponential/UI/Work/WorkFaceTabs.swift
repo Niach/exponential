@@ -32,8 +32,11 @@ struct WorkFaceTabs<Trailing: View>: View {
     /// The shown run's coding agent (contract `codingAgent`): the Run tab's
     /// tone is drawn as THIS brand mark, never a dot. Nil = the agents glyph.
     var runAgent: String? = nil
-    /// The shown run's synced `agent_busy`: the Run tab's mark beats.
-    var runBusy: Bool = false
+    /// EXP-1184: what the shown run is doing (the `session-display.json`
+    /// rule, fed the viewer's own busy signal): the Run tab wears the working
+    /// mark, or the brand mark with a state badge. Nil = the bare mark (no
+    /// live run, or a paused one).
+    var runState: CodingSessionDisplayState? = nil
     /// The Run segment's global frame — where the run menu hangs.
     @Binding var runsAnchor: CGRect
     let onSelect: (WorkFaceKind) -> Void
@@ -105,12 +108,15 @@ struct WorkFaceTabs<Trailing: View>: View {
         )
     }
 
-    /// EXP-1162: the Run tab's tone as the run's agent brand mark, leading
-    /// the label.
+    /// EXP-1162/1184: the Run tab's tone as the run's agent mark, leading
+    /// the label — the working mark while the agent works, else the brand
+    /// mark with the state's badge (`AgentRunMark`).
     private func segmentMark(_ face: WorkFaceKind) -> AnyView? {
         guard face == .run, let tone = dots[face] else { return nil }
+        let state = runState ?? (tone == .needsInput ? .needsInput : nil)
         return AnyView(
-            FaceTabRunMark(agent: runAgent, needsInput: tone == .needsInput, busy: runBusy)
+            AgentRunMark(agent: runAgent, state: state, badgeSize: DetailChrome.faceMarkBadge)
+                .frame(width: DetailChrome.faceMark, height: DetailChrome.faceMark)
                 .accessibilityHidden(true)
         )
     }
@@ -129,7 +135,20 @@ struct WorkFaceTabs<Trailing: View>: View {
     /// open`.
     private func spokenLabel(_ face: WorkFaceKind) -> String? {
         guard let tone = dots[face] else { return nil }
+        if face == .run, let runState {
+            return "\(segmentLabel(face)), \(Self.spokenState(runState))"
+        }
         return "\(segmentLabel(face)), \(DetailChrome.faceDotSpokenState(tone))"
+    }
+
+    /// EXP-1184: the Run tab's spoken state (web `RUN_STATE_LABEL`).
+    private static func spokenState(_ state: CodingSessionDisplayState) -> String {
+        switch state {
+        case .working: "working"
+        case .needsInput: "needs input"
+        case .review: "pull request open"
+        case .done: "done"
+        }
     }
 
     private func tapped(_ face: WorkFaceKind) {
@@ -152,65 +171,6 @@ struct WorkFaceTabs<Trailing: View>: View {
             width: width,
             height: strip.height
         )
-    }
-}
-
-/// EXP-1162: the Run tab's mark — the run's agent brand mark at `faceMark`
-/// (the working row's `AgentBrandMark`, the agents glyph for an unknown or
-/// missing agent), with the session-dot amber badge at its top trailing
-/// corner while the run waits on a person. While the agent is mid-turn the
-/// mark beats like `WorkingIndicatorRow`'s (opacity 0.4 ↔ 1 over 1.4s);
-/// steady under Reduce Motion. The badge never beats.
-private struct FaceTabRunMark: View {
-    let agent: String?
-    let needsInput: Bool
-    let busy: Bool
-
-    var body: some View {
-        // A busy flip remounts the beat, so a stopped turn rests at full
-        // opacity instead of freezing mid-cycle.
-        BeatingAgentMark(agent: agent, beating: busy)
-            .id(busy)
-            .frame(width: DetailChrome.faceMark, height: DetailChrome.faceMark)
-            .overlay(alignment: .topTrailing) {
-                if needsInput {
-                    SessionStateDot(tone: .needsInput, size: DetailChrome.faceMarkBadge)
-                        .offset(x: DetailChrome.faceMarkBadge / 3, y: -DetailChrome.faceMarkBadge / 3)
-                }
-            }
-    }
-}
-
-private struct BeatingAgentMark: View {
-    let agent: String?
-    let beating: Bool
-
-    @Environment(\.motion) private var motion
-    @State private var dimmed = false
-
-    var body: some View {
-        mark
-            .opacity(dimmed ? 0.4 : 1)
-            .onAppear {
-                guard beating, !motion.reduceMotion else { return }
-                withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
-                    dimmed = true
-                }
-            }
-    }
-
-    @ViewBuilder
-    private var mark: some View {
-        // EXP-849: never a bare `Image("agent-…")`.
-        if let agent, let image = AgentBrandMark.image(agent) {
-            image
-                .resizable()
-                .scaledToFit()
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-        } else {
-            AppIcon(AppIcons.settingsAgents, size: DetailChrome.faceMark)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-        }
     }
 }
 

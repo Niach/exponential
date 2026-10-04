@@ -80,13 +80,20 @@ public struct SessionDevicePresentation: Equatable {
     }
 
     /// Whether the run reads "Paused" rather than live: the host is offline
-    /// AND the run is still coding. A finished run (review/done) keeps its own
-    /// state — its machine's presence stopped mattering.
-    public func isPaused(_ state: CodingSessionDisplayState) -> Bool {
+    /// AND the run is still coding — mid-turn, waiting on a person, or simply
+    /// `running` (an idle run with no PR, which the EXP-1184 rule would
+    /// otherwise call done). A run parked in review (or a merged one) keeps
+    /// its own state — its machine's presence stopped mattering. Decided
+    /// BEFORE the display rule, as the fixture says.
+    public func isPaused(
+        _ state: CodingSessionDisplayState,
+        status: String = DomainContract.codingSessionStatusRunning
+    ) -> Bool {
         guard offline else { return false }
         switch state {
-        case .running, .needsInput: return true
-        case .review, .done: return false
+        case .working, .needsInput: return true
+        case .review: return false
+        case .done: return status == DomainContract.codingSessionStatusRunning
         }
     }
 

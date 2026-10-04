@@ -52,15 +52,17 @@ export function resolveSessionDevice(
   }
 }
 
-/** A running/needs-input session on an offline machine reads as PAUSED —
- * the agent is parked, not gone, and resumes when the device returns. Parked
- * review/done states stay what they are (the PR outcome is the story there,
- * not the machine). */
+/** A session on an offline machine whose agent still has work in it reads
+ * as PAUSED — parked, not gone, it resumes when the device returns. A PR in
+ * review or merged stays what it is (the PR is the story there, not the
+ * machine); EXP-1184: `done` on a still-`running` row means "idle with no
+ * PR", which pauses. Same rule ×4. */
 export function sessionIsPaused(
   state: SessionDisplayState,
+  status: string,
   device: SessionDevice
 ): boolean {
-  return (
-    device.online === false && (state === `running` || state === `needs_input`)
-  )
+  if (device.online !== false) return false
+  if (state === `working` || state === `needs_input`) return true
+  return state === `done` && status === `running`
 }

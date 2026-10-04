@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import display from "@exp/domain-contract/fixtures/session-display.json"
 import {
   sessionAgentCaption,
   sessionDisplayState,
@@ -6,72 +7,26 @@ import {
   sessionStatusLine,
 } from "./coding-session-display"
 
-// Parity suite — iOS CodingSessionDisplayTests.swift and Android
-// CodingSessionDisplayTest.kt assert the same cases; move all of them in
-// lockstep.
-describe(`sessionDisplayState`, () => {
-  it(`in_review with a merged PR is done (old-server tolerance)`, () => {
-    expect(
-      sessionDisplayState({ status: `in_review`, needsInput: false }, `merged`)
-    ).toBe(`done`)
-  })
-
-  it(`in_review with an open PR is review`, () => {
-    expect(
-      sessionDisplayState({ status: `in_review`, needsInput: false }, `open`)
-    ).toBe(`review`)
-  })
-
-  it(`in_review with needsInput stays review (EXP-531)`, () => {
-    // The desktop's post-turn idle nudge lands AFTER the PR-open flip — a
-    // reviewed session must never read "Needs input".
-    expect(
-      sessionDisplayState({ status: `in_review`, needsInput: true }, `open`)
-    ).toBe(`review`)
-  })
-
-  it(`running with needsInput is needs_input`, () => {
-    expect(
-      sessionDisplayState({ status: `running`, needsInput: true }, null)
-    ).toBe(`needs_input`)
-  })
-
-  it(`running without needsInput is running`, () => {
-    expect(
-      sessionDisplayState({ status: `running`, needsInput: false }, null)
-    ).toBe(`running`)
-  })
-})
-
-// EXP-848: the pulse keys on the device-written turn flag, not on `running`.
-describe(`sessionRowIsWorking`, () => {
-  it(`only a live row whose agent is busy works`, () => {
-    expect(
-      sessionRowIsWorking(
-        { status: `running`, needsInput: false, agentBusy: true },
-        null
-      )
-    ).toBe(true)
-    expect(
-      sessionRowIsWorking(
-        { status: `running`, needsInput: false, agentBusy: false },
-        null
-      )
-    ).toBe(false)
-  })
-
-  it(`a parked or ended row never works, whatever the flag says`, () => {
-    // `sessionDisplayState` maps an ended row to `running` (its callers filter
-    // those out themselves), so the ended guard is explicit here — a stale
-    // flag on a finished run must never pulse.
-    for (const session of [
-      { status: `running` as const, needsInput: true, agentBusy: true },
-      { status: `in_review` as const, needsInput: false, agentBusy: true },
-      { status: `ended` as const, needsInput: false, agentBusy: true },
-    ]) {
-      expect(sessionRowIsWorking(session, null)).toBe(false)
-    }
-  })
+// EXP-1184: the ×4 rule, replayed from the shared fixture — desktop
+// queries.rs, iOS CodingSessionDisplayTests.swift and Android
+// CodingSessionDisplayTest.kt read the same cases.
+describe(`session-display.json`, () => {
+  for (const c of display.cases) {
+    it(c.name, () => {
+      const session = {
+        status: c.status as `running` | `in_review` | `ended`,
+        needsInput: c.needsInput,
+        agentBusy: c.agentBusy,
+      }
+      const state = sessionDisplayState(session, c.prState)
+      expect(state).toBe(c.state)
+      expect(sessionRowIsWorking(session, c.prState)).toBe(c.working)
+      expect(
+        sessionStatusLine({ state, paused: false, device: `mbp`, startedAt: null })
+          .tone
+      ).toBe(c.statusTone)
+    })
+  }
 })
 
 // EXP-850 §8: the session row's second line.
@@ -103,12 +58,12 @@ describe(`sessionAgentCaption`, () => {
   })
 })
 
-// EXP-874: the running row's status line (Android's row is the reference).
+// EXP-874: the live row's status line (Android's row is the reference).
 describe(`sessionStatusLine`, () => {
   const startedAt = new Date(Date.now() - 5 * 60_000)
 
   it(`a paused run says so, whatever its state`, () => {
-    for (const state of [`running`, `needs_input`, `review`, `done`] as const) {
+    for (const state of [`working`, `needs_input`, `review`, `done`] as const) {
       expect(
         sessionStatusLine({ state, paused: true, device: `mbp`, startedAt })
       ).toEqual({ text: `Paused · mbp`, tone: `muted` })
@@ -129,7 +84,7 @@ describe(`sessionStatusLine`, () => {
 
   it(`a live run names the machine and when it started`, () => {
     expect(
-      sessionStatusLine({ state: `running`, paused: false, device: `mbp`, startedAt })
+      sessionStatusLine({ state: `working`, paused: false, device: `mbp`, startedAt })
     ).toEqual({ text: `mbp · started 5 minutes ago`, tone: `muted` })
   })
 })

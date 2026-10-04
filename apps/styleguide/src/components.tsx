@@ -51,6 +51,7 @@ import { parseDiff } from "@exp/domain-contract/diff"
 import { editCard } from "@exp/domain-contract/edit-card"
 import {
   AgentBrandMark,
+  AgentRunMark,
   AccountPicker,
   AccountLimitBars,
   MENU_SURFACE_CLASS,
@@ -1337,7 +1338,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `work-face-tabs`,
     title: `Work face tabs`,
     kind: `Inputs & pickers`,
-    blurb: `EXP-1152: the ONE strip every Work screen wears (the md+ work header, the phone's header band, the desktop IDE, iOS, Android): Issue · Run/Runs · +N −M · Results in that fixed order, the segmented capsule above. The Changes segment wears the diff's counts once its files are known and the word Changes until then (the desktop FaceToggle::diff rule); the Runs segment carries a caret to the run menu with several runs; an unavailable face is HIDDEN, never disabled, and the strip is absent under two faces. On phones the body under it is a PAGER: iOS TabView(.page), Android HorizontalPager, and on the web the face's body follows the finger and the next face slides in (the header band and the bar never move). EXP-1162 (contract \`detail-chrome.json\` face marks): the tabs carry the STATE, the header title never does. The Run tab wears the run's agent brand mark while it is live (the sidebar Running row's mark, leading the label, beating while the agent works, with the amber badge while it waits on a person), never a dot; an open pull request puts a 6px dot on Results, or on Changes when there is no Results face.`,
+    blurb: `EXP-1152: the ONE strip every Work screen wears (the md+ work header, the phone's header band, the desktop IDE, iOS, Android): Issue · Run/Runs · +N −M · Results in that fixed order, the segmented capsule above. The Changes segment wears the diff's counts once its files are known and the word Changes until then (the desktop FaceToggle::diff rule); the Runs segment carries a caret to the run menu with several runs; an unavailable face is HIDDEN, never disabled, and the strip is absent under two faces. On phones the body under it is a PAGER: iOS TabView(.page), Android HorizontalPager, and on the web the face's body follows the finger and the next face slides in (the header band and the bar never move). EXP-1162 (contract \`detail-chrome.json\` face marks): the tabs carry the STATE, the header title never does. The Run tab wears the run's mark while it is live (the sidebar Running row's \`AgentRunMark\`, leading the label: Claude's working spark while the agent works, else the brand mark with its run-state badge), never a dot; an open pull request puts a 6px dot on Results, or on Changes when there is no Results face.`,
     status: {
       web: ok(
         `WorkFaceStrip`,
@@ -1356,7 +1357,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         face="diff"
         // A run waiting on a person, and an open pull request.
         dots={{ run: `needs_input`, results: `review` }}
-        run={{ agent: `claude` }}
+        run={{ agent: `claude`, state: `needs_input` }}
         items={[
           { face: `issue`, label: `Issue`, onSelect: noop },
           { face: `run`, label: `Runs`, onSelect: noop },
@@ -3024,7 +3025,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         <div className="flex items-center gap-3">
           <LiveDot tone="live" ping label="Running" />
           <LiveDot tone="attention" label="Needs input" />
-          <LiveDot tone="done" label="In review" />
+          <LiveDot tone="done" label="Done" />
           <LiveDot tone="unread" label="Unread" />
           <LiveDot tone="idle" label="Idle" />
           <LiveDot tone="muted" label="Ended" />
@@ -3711,6 +3712,55 @@ export const COMPONENTS: readonly ComponentSpec[] = [
           <AgentBrandMark agent="claude" className="size-4" />
           <AgentBrandMark agent="codex" className="size-4" />
           <AgentBrandMark agent="some-acp-binary" className="size-4" />
+        </div>
+      </div>
+    ),
+  },
+  {
+    id: `run-state-mark`,
+    title: `Run state mark`,
+    kind: `Icons`,
+    blurb: `EXP-1184: what a LIVE run is doing, one rule ×4 (contract fixture \`session-display.json\`, first match wins): it waits on you → the AMBER badge; the agent works → Claude's own "writing" spark, eight hand-drawn frames at 90 ms with hard cuts (vendored once as \`packages/icons/agent/claude-writing.svg\`, generated into every client; an agent without working art pulses its brand mark instead; reduced motion holds the static mark); idle with its pull request open → the GREEN badge (in review); idle with no open pull request, or merged → the BLUE badge (done). A follow-up turn on a run in review reads working again; the session row and the issue status never change for it. The red needs-you badge beats every state, a paused run wears the bare mark. Where a surface draws a dot instead (list rows, tab chips), the dot takes the state's tone and gives way to the same working mark.`,
+    status: {
+      web: ok(
+        `AgentRunMark / AgentWorkingMark / ClaudeSpinner`,
+        `packages/ui/src/agent-brand-mark.tsx`,
+        `the derivation is apps/web/src/lib/coding-session-display.ts; the spark steps a CSS steps(8) sprite (claude-spinner.tsx)`
+      ),
+      desktop: ok(
+        `coding_selects::run_lead`,
+        `apps/desktop/crates/ui/src/coding_selects.rs`,
+        `assets/icons/claude-writing-{0..7}.svg; the derivation is queries::coding_session_display`
+      ),
+      ios: ok(
+        `AgentRunMark / ClaudeSparkSpinner`,
+        `apps/ios/Exponential/UI/Session/AgentRunMark.swift`,
+        `Assets.xcassets/agent-claude-writing-{0..7}; the derivation is ExpCore CodingSessionDisplay.swift`
+      ),
+      android: ok(
+        `AgentRunMark / ClaudeSparkSpinner`,
+        `${ANDROID_COMPONENTS}/AgentRunMark.kt`,
+        `drawable/ic_agent_claude_writing_{0..7}.xml; the derivation is domain/CodingSessionDisplay.kt`
+      ),
+    },
+    island: () => (
+      <div className="flex items-center gap-5">
+        {(
+          [
+            [`working`, `Working`],
+            [`needs_input`, `Needs input`],
+            [`review`, `In review`],
+            [`done`, `Done`],
+          ] as const
+        ).map(([state, label]) => (
+          <div key={state} className="flex items-center gap-1.5 text-xs">
+            <AgentRunMark agent="claude" state={state} ringClassName="ring-background" />
+            {label}
+          </div>
+        ))}
+        <div className="flex items-center gap-1.5 text-xs">
+          <AgentRunMark agent="codex" state="working" ringClassName="ring-background" />
+          Codex working
         </div>
       </div>
     ),

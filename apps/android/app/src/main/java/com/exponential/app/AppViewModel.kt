@@ -279,9 +279,9 @@ class AppViewModel @Inject constructor(
                 auth.userId,
                 teamSelection.selectedId,
             ) { sessions, now, me, teamId ->
-                // EXP-679: the display state masks `needs_input` behind
-                // in_review (the server accepts the flag on every live status
-                // now), so the amber dot means "a running agent wants you".
+                // EXP-1184: the display state's NeedsInput — on every live
+                // status, an open PR included — so the amber dot means "a
+                // live agent wants you".
                 me != null && teamId != null && sessions.any {
                     it.userId == me &&
                         it.teamId == teamId &&

@@ -99,17 +99,18 @@ class SessionDevicePresentationTest {
     }
 
     @Test
-    fun `a stale heartbeat pauses only the still-working states`() {
+    fun `a stale heartbeat pauses the states with work left in them`() {
         val offline = resolveSessionDevice(
             session(deviceId = "dev-1", deviceLabel = "macbook"),
             listOf(device("row-1", "dev-1", "macbook", lastSeenAt = iso(-10 * 60_000))),
             nowMs,
         )
         assertTrue(offline.offline)
-        assertTrue(offline.isPaused(CodingSessionDisplayState.Running))
+        assertTrue(offline.isPaused(CodingSessionDisplayState.Working))
         assertTrue(offline.isPaused(CodingSessionDisplayState.NeedsInput))
         assertFalse(offline.isPaused(CodingSessionDisplayState.Review))
-        assertFalse(offline.isPaused(CodingSessionDisplayState.Done))
+        assertTrue(offline.isPaused(CodingSessionDisplayState.Done, "running"))
+        assertFalse(offline.isPaused(CodingSessionDisplayState.Done, "in_review"))
 
         val online = resolveSessionDevice(
             session(deviceId = "dev-1", deviceLabel = "macbook"),
@@ -117,7 +118,7 @@ class SessionDevicePresentationTest {
             nowMs,
         )
         assertFalse(online.offline)
-        assertFalse(online.isPaused(CodingSessionDisplayState.Running))
+        assertFalse(online.isPaused(CodingSessionDisplayState.Working))
     }
 
     // ── EXP-656: presence is unknown while our own devices cursor is stale ───
@@ -135,7 +136,7 @@ class SessionDevicePresentationTest {
         )
         assertEquals(null, resolved.online)
         assertFalse(resolved.offline)
-        assertFalse(resolved.isPaused(CodingSessionDisplayState.Running))
+        assertFalse(resolved.isPaused(CodingSessionDisplayState.Working))
         assertFalse(resolved.isPaused(CodingSessionDisplayState.NeedsInput))
         // The label still resolves off the live row — only presence is unknown.
         assertEquals("macbook", resolved.label)
@@ -165,7 +166,7 @@ class SessionDevicePresentationTest {
         )
         assertEquals(false, resolved.online)
         assertTrue(resolved.offline)
-        assertTrue(resolved.isPaused(CodingSessionDisplayState.Running))
+        assertTrue(resolved.isPaused(CodingSessionDisplayState.Working))
     }
 
     @Test

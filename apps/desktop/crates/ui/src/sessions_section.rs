@@ -75,9 +75,10 @@ pub(crate) struct RailRunRow {
     /// EXP-923: the leading glyph is the AGENT's brand mark, not a state dot
     /// — a rail row says WHAT is running; the state rides the badge.
     pub(crate) agent: coding::CodingAgent,
-    /// The run is waiting on a person (`needs_input`) — the mark wears the
-    /// yellow corner badge, the rail's one status signal here.
-    pub(crate) attention: bool,
+    /// EXP-1184: what the run is doing ([`queries::coding_session_display`])
+    /// — the working mark, or the mark with its state badge; `None` while
+    /// its host is offline (paused): the bare mark.
+    pub(crate) state: Option<queries::CodingSessionDisplay>,
     /// The host machine's glyph (`icons::device_icon`, the Devices list's
     /// own resolver) and its label, which the glyph's tooltip names.
     pub(crate) device_icon: crate::icons::ExpIcon,
@@ -249,13 +250,19 @@ pub(crate) fn rail_running_rows(
             },
         };
         // EXP-734: an issue-less run (action/chat) carries its own PR state.
-        let display = queries::coding_session_display(
+        let pr_state = issue
+            .as_ref()
+            .and_then(|issue| issue.pr_state.as_deref())
+            .or(session.pr_state.as_deref());
+        // EXP-848: a run THIS process hosts reads its engine's own turn
+        // signal, every other one the synced column.
+        let busy = queries::session_agent_busy(
             session,
-            issue
-                .as_ref()
-                .and_then(|issue| issue.pr_state.as_deref())
-                .or(session.pr_state.as_deref()),
+            host.map(|host| host.session.agent_busy()),
+            now,
         );
+        let display = queries::coding_session_display(session, busy, pr_state);
+        let paused = queries::session_is_paused(display, session.status.as_deref(), &presentation);
         RailRunRow {
             session_id: session.id.clone(),
             issue_id: session.issue_id.clone(),
@@ -268,14 +275,14 @@ pub(crate) fn rail_running_rows(
                 .as_deref()
                 .and_then(coding::CodingAgent::parse)
                 .unwrap_or_default(),
-            attention: display == queries::CodingSessionDisplay::NeedsInput,
+            state: (!paused).then_some(display),
             device_icon: crate::icons::device_icon(
                 device.as_ref().and_then(|row| row.icon.as_deref()),
                 device.as_ref().is_some_and(|row| row.is_server()),
             ),
             device_label: presentation.label.clone().map(SharedString::from),
             local: host.cloned(),
-            paused: queries::session_is_paused(display, &presentation),
+            paused,
             marks,
         }
     })

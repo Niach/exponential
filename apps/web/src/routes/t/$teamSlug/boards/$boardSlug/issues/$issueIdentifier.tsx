@@ -55,6 +55,7 @@ import {
   WorkFaceToggle,
 } from "@/components/team/work-face-toggle"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
+import { runFaceMark } from "@/lib/coding-session-display"
 
 type IssueSearch = { from?: string; view?: `diff` | `results` }
 
@@ -377,10 +378,7 @@ function IssueDetailPage() {
         <WorkFaceToggle
           face={showResults ? `results` : `issue`}
           /* EXP-1162: the tabs carry the state — live run, open PR. */
-          run={{
-            agent: runTarget?.agent,
-            busy: runTarget?.agentBusy === true,
-          }}
+          run={runFaceMark(runTarget, issue.prState)}
           dots={toggleFaceDots(
             faceDots({
               faces: [
@@ -552,7 +550,7 @@ function MobileIssuePage({
       faces={faces}
       face={face}
       dots={dots}
-      run={{ agent: runTarget?.agent, busy: runTarget?.agentBusy === true }}
+      run={runFaceMark(runTarget, issue.prState)}
       runs={issueRuns}
       viewedRunId={runTarget?.id ?? null}
       changesCounts={changesCounts}

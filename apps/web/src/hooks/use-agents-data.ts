@@ -251,6 +251,7 @@ export function useAgentsData(
         device,
         paused: sessionIsPaused(
           sessionDisplayState(session, rowPrState(session, issue)),
+          session.status,
           device
         ),
       }
@@ -721,6 +722,7 @@ export function useSessionListRows(
           session.status !== `ended` &&
           sessionIsPaused(
             sessionDisplayState(session, rowPrState(session, issue)),
+            session.status,
             device
           ),
         mergeTarget:

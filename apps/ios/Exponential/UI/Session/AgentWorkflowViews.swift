@@ -18,18 +18,16 @@ import SwiftUI
 /// EXP-850 §5: the caption is the turn's own verb with its duration and token
 /// count (`Weaving… (2m 04s · ↓ 12.4k tokens)`), or the running workflow's §7
 /// caption while one runs, and the glyph beside it is the RUNNING AGENT's
-/// brand mark rather than the generic assistant sparkle. The mark is what
-/// pulses; the text stays put, so a caption that ticks every second is still
-/// readable. Static under Reduce Motion.
+/// working mark (EXP-1184: Claude's spark, else the pulsing brand mark). The
+/// mark is what moves; the text stays put, so a caption that ticks every
+/// second is still readable. Static under Reduce Motion.
 struct WorkingIndicatorRow: View {
     /// The run's coding agent (contract `codingAgent`), for the brand mark.
-    /// Nil (or an id outside the contract) draws the neutral agents glyph.
+    /// Nil is a claude run (web parity); an id outside the contract draws
+    /// the neutral agents glyph.
     var agent: String?
     /// §5's caption at `now`, re-derived by the caller on every tick.
     let caption: (Date) -> String
-
-    @Environment(\.motion) private var motion
-    @State private var pulsing = false
 
     var body: some View {
         // The caption carries a clock, so the row re-renders once a second.
@@ -49,38 +47,11 @@ struct WorkingIndicatorRow: View {
         .accessibilityIdentifier("agent-working-row")
     }
 
-    @ViewBuilder
+    /// EXP-1184: the agent's working mark — Claude's frame-stepped spark,
+    /// else the brand mark with the EXP-850 beat (`AgentWorkingMark`).
     private var mark: some View {
-        // EXP-849: never a bare `Image("agent-…")` — the brand marks are
-        // hand-maintained assets and an unknown id falls back to the shared
-        // `settings-agents` concept.
-        if let agent, let image = AgentBrandMark.image(agent) {
-            image
-                .resizable()
-                .scaledToFit()
-                .frame(width: 13, height: 13)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .opacity(pulsing ? 1 : 0.4)
-                .onAppear { startPulse() }
-        } else {
-            AppIcon(AppIcons.settingsAgents, size: 11)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                .opacity(pulsing ? 1 : 0.4)
-                .onAppear { startPulse() }
-        }
-    }
-
-    /// §5: opacity 0.4 ↔ 1 over 1.4s, ease-in-out, autoreversing. The flag
-    /// must STAY false under Reduce Motion — it drives the resting opacity
-    /// too, so flipping it with a nil animation would pin the mark at 0.4.
-    private func startPulse() {
-        guard !motion.reduceMotion else {
-            pulsing = true
-            return
-        }
-        withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
-            pulsing = true
-        }
+        AgentWorkingMark(agent: agent)
+            .frame(width: 13, height: 13)
     }
 }
 

@@ -4,6 +4,7 @@ import { useParams, useRouterState } from "@tanstack/react-router"
 import { useLiveQuery } from "@tanstack/react-db"
 import {
   AgentRunMark,
+  type RunMarkState,
   getDeviceIcon,
   ListRow,
   SidebarGroup,
@@ -66,7 +67,7 @@ export interface RunningSessionEntry {
   device: Pick<Device, `icon` | `kind`> | undefined
   deviceName: string
   /** EXP-804/EXP-679: the run is parked on the person — the amber badge. */
-  needsInput: boolean
+  state: RunMarkState | undefined
   identifier: string | null
   subject: string
   /** EXP-1068: the red needs-you dot of an open question. */
@@ -111,7 +112,9 @@ export function useMyRunningRows(
           row,
           device: deviceOf(row.session),
           deviceName: row.device.label || row.session.deviceLabel || `Desktop`,
-          needsInput: state === `needs_input`,
+          // EXP-1184: what the run is doing — the mark's spark or badge. A
+          // paused run (offline host) wears the bare mark.
+          state: row.paused ? undefined : state,
           identifier: identity.identifier,
           subject: decor?.title ?? identity.subject,
           decor,
@@ -145,8 +148,8 @@ function isShown(
   )
 }
 
-/** The brand mark with its amber "wants you" badge — the row's lead and the
- *  rail button's whole content. EXP-1162: `@exp/ui` `AgentRunMark`, the very
+/** The run's mark — the working spark, or the brand mark with its state
+ *  badge (EXP-1184) — the row's lead and the rail button's whole content. EXP-1162: `@exp/ui` `AgentRunMark`, the very
  *  mark the Work face strip's Run tab wears. */
 const RunningMark = AgentRunMark
 
@@ -201,7 +204,7 @@ export function SidebarRunningSection({
                 )}
                 <RunningMark
                   agent={session.agent}
-                  needsInput={entry.needsInput}
+                  state={entry.state}
                   needsYou={entry.decor?.needsYou}
                 />
                 {entry.identifier && (
@@ -269,7 +272,7 @@ export function SidebarRunningIcons({
           icon: (
             <RunningMark
               agent={session.agent}
-              needsInput={entry.needsInput}
+              state={entry.state}
               needsYou={entry.decor?.needsYou}
             />
           ),

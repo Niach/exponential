@@ -1,58 +1,82 @@
 import Foundation
 
-/// EXP-214: how a LIVE coding session renders. The synced status alone is not
-/// the whole story — `in_review` splits on the linked issue's PR outcome
-/// (merged → the run is done, review otherwise, matching the issue-status
-/// palette: review green, done blue), and the desktop-written `needs_input`
-/// attention flag (agent parked on a plan-approval / AskUserQuestion picker)
-/// marks a still-RUNNING session as an amber "Needs input". Callers
-/// pass only sessions that already passed CodingSessionLiveness.
-/// EXP-540: a PR merge ENDS the session (EXP-498), so a merged run leaves the
-/// live set instead of parking in a status of its own. The `in_review` +
-/// merged-PR arm stays as old-server tolerance: a lagging self-host server can
-/// still leave a row in `in_review` after its PR merged.
-/// EXP-531: `in_review` also outranks the needs-input flag — once the PR is
-/// open the run is done coding, and claude's idle-nudge notification (which
-/// the desktop forwards as needs_input) must not mask "Ready for review".
-/// EXP-679: the server accepts the flag on every live status now (a
-/// person-started run stays live after its PR, and the idle edge is "your
-/// turn"), so this ordering is the ONLY mask — the nav dot goes through it too.
-public enum CodingSessionDisplayState {
-    case running
-    case needsInput
+/// EXP-1184 (EXP-214/531/848 before it): how a LIVE coding session renders —
+/// ONE rule ×4, locked by `packages/domain-contract/fixtures/session-display.json`
+/// (web `lib/coding-session-display.ts`, desktop
+/// `queries::coding_session_display`, Android `CodingSessionDisplay.kt`).
+/// First match wins:
+/// - `needsInput`: the run waits on a person — on every live status, an open
+///   PR included (the old EXP-531 "in_review masks needs input" rule is gone:
+///   the server clears the flag on every turn start and every PR park).
+/// - `working`: the agent is mid-turn (the device-written `agent_busy`, or the
+///   steering screen's own working signal) — a follow-up turn on an
+///   `in_review` run included.
+/// - `review`: `in_review` with the PR neither merged nor closed.
+/// - `done`: idle with no open PR (none, closed, or merged).
+/// The session row's status never changes for this. A paused (offline) run
+/// and an ended row are the caller's to decide, before this rule.
+public enum CodingSessionDisplayState: String, Sendable {
+    case working
+    case needsInput = "needs_input"
     case review
     case done
 
+    /// `agentBusy` overrides the synced `agent_busy` — the Work screen passes
+    /// its viewer's live working signal; lists leave it nil.
     public static func of(
         session: CodingSessionEntity,
-        prState: String?
+        prState: String?,
+        agentBusy: Bool? = nil
     ) -> CodingSessionDisplayState {
-        let merged = prState == DomainContract.prStateMerged
-        if session.status == DomainContract.codingSessionStatusInReview {
-            return merged ? .done : .review
-        }
-        if session.needsInput && !merged { return .needsInput }
-        return .running
+        of(
+            status: session.status,
+            needsInput: session.needsInput,
+            agentBusy: agentBusy ?? session.agentBusy,
+            prState: prState
+        )
     }
 
-    /// EXP-848: whether the dot PULSES — the row-level mirror of the
-    /// in-session working predicate (`AgentFeed.working`), and the ONE rule
-    /// every list, badge and header shares.
-    ///
-    /// `status = running` only ever meant "this row is live", so a run sitting
-    /// idle between turns, parked on a question or walled by a rate limit drew
-    /// a pulsing "coding now" it had no business drawing. The device-written
-    /// `agent_busy` is the input instead; a row from before the column (or a
-    /// machine too old to write it) simply never pulses, which is the honest
-    /// degradation. `paused`/`live` are the callers' own narrowings — an
-    /// offline host or a dead socket is never "coding now" whatever the row
-    /// says. Mirrored ×4.
-    public static func pulses(
-        state: CodingSessionDisplayState,
+    public static func of(
+        status: String,
+        needsInput: Bool,
         agentBusy: Bool,
+        prState: String?
+    ) -> CodingSessionDisplayState {
+        if needsInput { return .needsInput }
+        if agentBusy { return .working }
+        let prOpen = prState != DomainContract.prStateMerged && prState != DomainContract.prStateClosed
+        return status == DomainContract.codingSessionStatusInReview && prOpen ? .review : .done
+    }
+
+    /// EXP-848: whether the row ANIMATES (the working mark) — the agent is
+    /// executing a turn right now on a row that is still live; an ended row
+    /// never does, whatever the flag says. `paused`/`live` are the callers'
+    /// own narrowings — an offline host or a dead socket is never "coding
+    /// now" whatever the row says. Same fixture as `of`.
+    public static func working(
+        status: String,
+        state: CodingSessionDisplayState,
         paused: Bool = false,
         live: Bool = true
     ) -> Bool {
-        state == .running && agentBusy && !paused && live
+        status != DomainContract.codingSessionStatusEnded && state == .working && !paused && live
     }
+
+    /// The tone the list row's status line paints in (fixture `statusTone`).
+    public var statusTone: SessionStatusTone {
+        switch self {
+        case .working: .muted
+        case .needsInput: .amber
+        case .review: .emerald
+        case .done: .sky
+        }
+    }
+}
+
+/// The tone a session row's status line paints in (web `SessionStatusTone`).
+public enum SessionStatusTone: String, Sendable {
+    case muted
+    case amber
+    case emerald
+    case sky
 }

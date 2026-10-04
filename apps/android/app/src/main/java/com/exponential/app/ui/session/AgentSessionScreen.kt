@@ -250,6 +250,7 @@ import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.SegmentedTrack
 import com.exponential.app.ui.components.contextToneColor
+import com.exponential.app.ui.components.AgentWorkingMark
 import com.exponential.app.ui.components.agentIconPainter
 import com.exponential.app.ui.components.agentIconTint
 import com.exponential.app.ui.components.ExponentialMark
@@ -1719,9 +1720,14 @@ fun sessionDotTone(
 ): SessionDotTone? {
     if (session == null) return null
     if (!isSessionLive(session, nowMs)) return null
-    return when (codingSessionDisplayState(session, prState)) {
-        CodingSessionDisplayState.Running ->
-            if (awaitingInput) SessionDotTone.NeedsInput else SessionDotTone.Running
+    val state = codingSessionDisplayState(
+        status = session.status,
+        needsInput = session.needsInput || awaitingInput,
+        agentBusy = session.agentBusy,
+        prState = prState,
+    )
+    return when (state) {
+        CodingSessionDisplayState.Working -> SessionDotTone.Running
         CodingSessionDisplayState.NeedsInput -> SessionDotTone.NeedsInput
         CodingSessionDisplayState.Review -> SessionDotTone.Review
         CodingSessionDisplayState.Done -> SessionDotTone.Done
@@ -2417,23 +2423,18 @@ private fun WorkingIndicatorRow(
             delay(WORKING_CLOCK_TICK_MS)
         }
     }
-    val pulse = rememberWorkingMarkPulse()
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Icon(
-            // EXP-850: WHICH agent is working, not a generic assistant glyph.
-            // An agent this build has no mark for falls back to the neutral
-            // `settings-agents` concept (agentIconPainter's own rule).
-            agentIconPainter(agent.orEmpty()),
-            contentDescription = null,
-            modifier = Modifier.size(13.dp).alpha(pulse),
-            tint = agentIconTint(
-                agent.orEmpty(),
-                MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            ),
+        // EXP-850: WHICH agent is working, not a generic assistant glyph.
+        // EXP-1184: claude steps its own spark; any other agent pulses its
+        // brand mark (the neutral `settings-agents` concept when unknown).
+        AgentWorkingMark(
+            agent,
+            13.dp,
+            fallbackTint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
         Text(
             workingCaption(startedAt, tokens, nowMs, workflowCaption),

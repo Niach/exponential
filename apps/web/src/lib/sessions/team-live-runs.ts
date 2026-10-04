@@ -1,7 +1,6 @@
 import { isCodingSessionStale } from "@exp/db-schema/domain"
 
 import type { CodingSession } from "@/db/schema"
-import { sessionDisplayState } from "@/lib/coding-session-display"
 import { isLiveRun } from "@/lib/past-runs"
 
 // EXP-1075: session lists are TEAM-scoped, so a run left behind in another
@@ -36,9 +35,10 @@ export function liveRunsByTeam(
     if (isCodingSessionStale(new Date(session.updatedAt), now)) continue
     const entry = byTeam.get(session.teamId) ?? { count: 0, needsInput: false }
     entry.count += 1
-    // `prState` is not read here: the picker's dot only splits parked-on-me
-    // from everything else, and an `in_review` run is never `needs_input`.
-    if (sessionDisplayState(session, null) === `needs_input`) {
+    // The picker's dot only splits parked-on-me from everything else — the
+    // first rule of `sessionDisplayState` (EXP-1184), which reads nothing
+    // but the flag.
+    if (session.needsInput) {
       entry.needsInput = true
     }
     byTeam.set(session.teamId, entry)

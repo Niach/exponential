@@ -30,8 +30,8 @@ data class OtherTeamsLive(
  * run is never the caller's business (EXP-312: it can't be viewed or steered),
  * and ended/heartbeat-stale rows drop out (EXP-153).
  *
- * `needsInput` uses the DISPLAY state, not the raw flag: EXP-679 lets the
- * server set `needs_input` on every live status, and `in_review` masks it.
+ * `needsInput` uses the DISPLAY state (EXP-1184: `needs_input` wins on every
+ * live status, an open PR included), so the dot reads like every list.
  */
 fun liveRunsByTeam(
     sessions: List<CodingSessionEntity>,

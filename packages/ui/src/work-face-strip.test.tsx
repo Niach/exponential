@@ -69,7 +69,7 @@ describe(`WorkFaceStrip`, () => {
       <WorkFaceStrip
         face="issue"
         dots={{ run: `needs_input`, results: `review` }}
-        run={{ agent: `codex`, busy: true }}
+        run={{ agent: `codex`, state: `needs_input` }}
         items={[
           { face: `issue`, label: `Issue`, onSelect: vi.fn() },
           { face: `run`, label: `Run`, onSelect: vi.fn() },
@@ -81,13 +81,9 @@ describe(`WorkFaceStrip`, () => {
     expect(mark.closest(`[data-face]`)?.getAttribute(`data-face`)).toBe(`run`)
     expect(mark.dataset.tone).toBe(`needs_input`)
     expect(mark.getAttribute(`aria-label`)).toBe(`Needs input`)
-    // The mark LEADS the label, beats while the agent works, and carries the
-    // sidebar row's amber badge.
+    // The mark LEADS the label and carries the sidebar row's amber badge.
     expect(mark.nextSibling?.textContent).toBe(`Run`)
-    expect(mark.querySelector(`svg`)?.getAttribute(`class`)).toContain(
-      `animate-agent-pulse`
-    )
-    expect(mark.querySelector(`.bg-yellow-400`)).not.toBeNull()
+    expect(mark.querySelector(`.bg-amber-500`)).not.toBeNull()
     const dots = screen.getAllByTestId(`face-dot`)
     expect(dots.map((dot) => dot.dataset.tone)).toEqual([`review`])
     expect(dots[0]?.closest(`[data-face]`)?.getAttribute(`data-face`)).toBe(
@@ -96,12 +92,13 @@ describe(`WorkFaceStrip`, () => {
     expect(dots[0]?.getAttribute(`aria-label`)).toBe(`Pull request open`)
   })
 
-  it(`a running run shows the mark without a badge`, () => {
+  // EXP-1184: a working run wears the working mark, never a badge.
+  it(`a working run shows the working mark without a badge`, () => {
     render(
       <WorkFaceStrip
         face="run"
         dots={{ run: `running` }}
-        run={{ agent: `claude` }}
+        run={{ agent: `claude`, state: `working` }}
         items={[
           { face: `issue`, label: `Issue`, onSelect: vi.fn() },
           { face: `run`, label: `Run`, onSelect: vi.fn() },
@@ -109,7 +106,26 @@ describe(`WorkFaceStrip`, () => {
       />
     )
     const mark = screen.getByTestId(`face-run-mark`)
-    expect(mark.querySelector(`.bg-yellow-400`)).toBeNull()
+    expect(mark.getAttribute(`aria-label`)).toBe(`Working`)
+    expect(mark.querySelector(`[data-slot="claude-spinner"]`)).not.toBeNull()
+    expect(mark.querySelector(`[data-slot="run-mark-badge"]`)).toBeNull()
     expect(screen.queryByTestId(`face-dot`)).toBeNull()
+  })
+
+  it(`a finished run with an open PR wears the emerald badge`, () => {
+    render(
+      <WorkFaceStrip
+        face="run"
+        dots={{ run: `running` }}
+        run={{ agent: `claude`, state: `review` }}
+        items={[
+          { face: `issue`, label: `Issue`, onSelect: vi.fn() },
+          { face: `run`, label: `Run`, onSelect: vi.fn() },
+        ]}
+      />
+    )
+    const mark = screen.getByTestId(`face-run-mark`)
+    expect(mark.querySelector(`.bg-emerald-500`)).not.toBeNull()
+    expect(mark.querySelector(`[data-slot="claude-spinner"]`)).toBeNull()
   })
 })

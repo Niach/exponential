@@ -1,48 +1,43 @@
 import type { CodingSession } from "@/db/schema"
 import { relativeTime } from "@/components/comment-rows/format"
 
-/** How a live session should render (EXP-214) — the session status alone is
- * not the whole story: `in_review` splits on the linked issue's PR outcome
- * (merged → the run is done, green review otherwise, matching the issue-status
- * palette — a lagging self-host server can still leave a merged PR's row in
- * `in_review`), and a desktop-reported pending picker (plan approval /
- * AskUserQuestion) shows as "needs input" while the run is still coding.
- * EXP-531: `in_review` beats `needsInput` — once the PR is open the session
- * IS in review, and a stale flag (the desktop's post-turn idle nudge, or a
- * row written by an older server that never cleared it) must not mask "Ready
- * for review". EXP-679: this mask is now the ONLY place that arbitration
- * happens — the server accepts `needsInput` on every live status (its
- * `running`-only fence pinned "Working…" forever after pr_open), so the row
- * carries the truthful flag and each client decides how to render it.
- * Hand-mirrored on iOS (CodingSessionDisplay.swift), Android
- * (CodingSessionDisplay.kt) and desktop (queries.rs) — move all four in
- * lockstep. */
-export type SessionDisplayState = `needs_input` | `running` | `review` | `done`
+/** How a LIVE run renders (EXP-1184; EXP-214/531/848 before it) — one rule
+ * ×4, locked by `packages/domain-contract/fixtures/session-display.json`
+ * (desktop `queries::coding_session_display`, iOS CodingSessionDisplay.swift,
+ * Android CodingSessionDisplay.kt). First match wins:
+ * - `needs_input`: the run waits on a person (a pending ask, or an MCP
+ *   question to its user) — on every live status, an open PR included: the
+ *   server clears the flag on every turn start and every PR park, so it is
+ *   never stale.
+ * - `working`: the agent is mid-turn (the device-written `agent_busy`) — a
+ *   follow-up turn on an `in_review` run included.
+ * - `review`: idle with its PR open (`in_review`, the PR neither merged nor
+ *   closed).
+ * - `done`: idle with no open PR, or merged.
+ * The session row's status never changes for this. A paused (offline) run
+ * and an ended row are the caller's to decide. */
+export type SessionDisplayState = `needs_input` | `working` | `review` | `done`
 
 export function sessionDisplayState(
-  session: Pick<CodingSession, `status` | `needsInput`>,
+  session: Pick<CodingSession, `status` | `needsInput` | `agentBusy`>,
   prState: string | null | undefined
 ): SessionDisplayState {
-  const merged = prState === `merged`
-  if (session.status === `in_review`) return merged ? `done` : `review`
-  if (session.needsInput && !merged) return `needs_input`
-  return `running`
+  if (session.needsInput) return `needs_input`
+  if (session.agentBusy) return `working`
+  const prOpen = prState !== `merged` && prState !== `closed`
+  return session.status === `in_review` && prOpen ? `review` : `done`
 }
 
-/** EXP-848: whether a LIST row's dot pulses — the agent is executing a turn
- * right now, per the device-written `agent_busy` flag. `running` only ever
- * meant "the run is live": a row sat pulsing through every idle gap between
- * turns, which is what made a parked run look busy. A parked state
- * (needs_input/review/done) never pulses, whatever the flag says.
- * Hand-mirrored with `sessionDisplayState` ×4. */
+/** EXP-848: whether a row animates — the agent is executing a turn right now
+ * on a row that is still live (an ended row never does, whatever the flag
+ * says). Same fixture as `sessionDisplayState`. */
 export function sessionRowIsWorking(
   session: Pick<CodingSession, `status` | `needsInput` | `agentBusy`>,
   prState: string | null | undefined
 ): boolean {
   return (
     session.status !== `ended` &&
-    sessionDisplayState(session, prState) === `running` &&
-    session.agentBusy === true
+    sessionDisplayState(session, prState) === `working`
   )
 }
 
@@ -65,7 +60,7 @@ export function sessionAgentCaption(
 /** The tone a session row's status line paints in. */
 export type SessionStatusTone = `muted` | `amber` | `emerald` | `sky`
 
-/** EXP-874: the status line of a RUNNING session list row (Android's row is
+/** EXP-874: the status line of a LIVE session list row (Android's row is
  * the reference) — the parked state first, then the host machine; a live run
  * reads "<device> · started <rel time>". `device` is the resolved label
  * (`device.label || session.deviceLabel || 'Desktop'`). A paused run (offline
@@ -89,7 +84,7 @@ export function sessionStatusLine({
       return { text: `Ready for review · ${device}`, tone: `emerald` }
     case `done`:
       return { text: `Done · ${device}`, tone: `sky` }
-    case `running`: {
+    case `working`: {
       const started = relativeTime(startedAt)
       return {
         text: started ? `${device} · started ${started}` : device,
@@ -97,4 +92,21 @@ export function sessionStatusLine({
       }
     }
   }
+}
+
+/** EXP-1184: the Work face strip's Run-tab mark for a live run — whose mark,
+ * and what it is doing (no run = no mark). */
+export function runFaceMark(
+  session:
+    | (Pick<CodingSession, `status` | `needsInput` | `agentBusy`> & {
+        agent: string | null
+      })
+    | null
+    | undefined,
+  prState: string | null | undefined
+): { agent: string | null | undefined; state: SessionDisplayState | undefined } {
+  if (!session || session.status === `ended`) {
+    return { agent: session?.agent, state: undefined }
+  }
+  return { agent: session.agent, state: sessionDisplayState(session, prState) }
 }

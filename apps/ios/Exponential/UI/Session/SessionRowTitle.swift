@@ -2,8 +2,9 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-688: the first line of a coding-session row — state dot, mono issue
-/// identifier, issue title.
+/// EXP-688: the first line of a coding-session row — state dot (EXP-1184:
+/// the agent's working mark while it works), mono issue identifier, issue
+/// title.
 ///
 /// ONE view, two call sites: the Agents list row and the steering screen's
 /// nav-bar title, which used to say `Live · macbook` and never named the issue
@@ -25,22 +26,25 @@ struct SessionRowTitle: View {
     /// disconnected screen must not pulse a green "coding now" dot over a
     /// caption that says "Connecting…" or "Session ended".
     var live: Bool = true
-    /// EXP-848: the agent is inside a TURN right now — the synced
-    /// `coding_sessions.agent_busy` in a list, the screen's own working
-    /// predicate while steering. Without it every live row pulsed "coding now"
-    /// whether the agent was doing anything or not.
-    let busy: Bool
+    /// The synced `coding_sessions.status`: an ended row never animates,
+    /// whatever its state says (EXP-848).
+    let status: String
+    /// EXP-1184: the run's coding agent — a working row wears its working
+    /// mark (Claude's spark, else the beating brand mark) instead of a dot.
+    let agent: String?
 
     var body: some View {
         HStack(spacing: 6) {
-            if !CodingSessionDisplayState.pulses(
-                state: state, agentBusy: busy, paused: paused, live: live
+            if CodingSessionDisplayState.working(
+                status: status, state: state, paused: paused, live: live
             ) {
+                AgentWorkingMark(agent: agent)
+                    .frame(width: 13, height: 13)
+                    .accessibilityLabel("Working")
+            } else {
                 Circle()
                     .fill(paused ? DesignTokens.Semantic.neutral : sessionStateColor(state))
                     .frame(width: 9, height: 9)
-            } else {
-                PulsingLiveDot()
             }
             if let identifier, !identifier.isEmpty {
                 Text(identifier)
@@ -98,14 +102,15 @@ struct SessionBlockedBadge: View {
     }
 }
 
-/// Static-dot/label tint per parked display state (EXP-194/EXP-214):
-/// review green, done blue (the issue-status palette), needs-input amber.
+/// Static-dot/label tint per display state (EXP-194/EXP-214/EXP-1184):
+/// review green, done blue (the issue-status palette), needs-input amber; a
+/// working row draws its working mark, so its dot colour is the fallback.
 func sessionStateColor(_ state: CodingSessionDisplayState) -> Color {
     switch state {
     case .needsInput: DesignTokens.Semantic.yellow
     case .review: DesignTokens.Semantic.green
     case .done: DesignTokens.Semantic.blue
-    case .running: DesignTokens.Semantic.green
+    case .working: DesignTokens.Semantic.green
     }
 }
 

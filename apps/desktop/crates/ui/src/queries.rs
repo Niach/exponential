@@ -1423,64 +1423,94 @@ pub(crate) fn session_device_row<'a>(
 }
 
 /// EXP-550: a session whose host machine is offline (lid closed) is PAUSED,
-/// not live — but only while it would otherwise read as in-flight. Review and
-/// Done are outcomes the offline host cannot un-say, so they are never
-/// overridden.
+/// not live — the caller's decision, made BEFORE the display rule
+/// (EXP-1184). A PR in review or past it is an outcome the offline host
+/// cannot un-say, so it is never overridden; working, waiting and an idle
+/// still-`running` run (done with no PR) read as paused. Same rule ×4 (web
+/// `sessionIsPaused`, iOS/Android `isPaused`).
 pub(crate) fn session_is_paused(
     display: CodingSessionDisplay,
+    status: Option<&str>,
     presentation: &SessionDevicePresentation,
 ) -> bool {
     presentation.offline
-        && matches!(
-            display,
-            CodingSessionDisplay::Running | CodingSessionDisplay::NeedsInput
-        )
+        && match display {
+            CodingSessionDisplay::Working | CodingSessionDisplay::NeedsInput => true,
+            CodingSessionDisplay::Done => {
+                status == Some(domain::contract::CODING_SESSION_STATUS_RUNNING)
+            }
+            CodingSessionDisplay::Review => false,
+        }
 }
 
-/// EXP-214: how a LIVE coding session renders. The synced status alone is not
-/// the whole story — `in_review` splits on the linked issue's PR outcome
-/// (merged → the run is done, review otherwise, matching the issue-status
-/// palette: review green, done blue), and the desktop-written `needs_input`
-/// attention flag (agent parked on a plan-approval / AskUserQuestion picker)
-/// renders a RUNNING session as an amber "needs input". Callers pass only
-/// sessions that already passed [`coding_session_is_live`].
+/// EXP-1184 (EXP-214/531/848 before it): how a LIVE run renders — ONE rule
+/// ×4, locked by `packages/domain-contract/fixtures/session-display.json`
+/// (web `lib/coding-session-display.ts`, iOS CodingSessionDisplay.swift,
+/// Android CodingSessionDisplay.kt). First match wins:
 ///
-/// EXP-531: `in_review` beats `needs_input` — once the PR is open the run is
-/// done coding, and the flag remaining true is idle noise (claude's
-/// "waiting for your input" nudge lands AFTER `open_pr` flips the row, and
-/// old desktops keep writing it). EXP-679: the server ACCEPTS the flag on
-/// every live status now (a person-started run stays live after its PR and
-/// the idle edge is "your turn"), so this ordering is the ONLY mask.
+/// - `NeedsInput`: the run waits on a person — on EVERY live status, an open
+///   PR included (the EXP-531 "in_review masks needs_input" rule is gone: the
+///   server clears the flag on every turn start and every PR park);
+/// - `Working`: the agent is mid-turn ([`session_agent_busy`]) — a follow-up
+///   turn on an `in_review` run included;
+/// - `Review`: idle, `in_review`, the PR neither merged nor closed;
+/// - `Done`: idle with no open PR (none, closed, or merged).
 ///
-/// EXP-498/EXP-540: a merged PR now ENDS the session, and the session status
-/// `merged` is retired — so `in_review` + `pr_state = merged` is the only
-/// merge inference left. It is kept for old-SERVER tolerance: a lagging
-/// self-host server can still park a row in `in_review` while its PR is
-/// already merged.
-#[derive(Clone, Copy, PartialEq, Eq)]
+/// The session row's status never changes for this. A paused (offline) run
+/// and an ended row are the caller's to decide ([`session_is_paused`],
+/// [`session_row_is_working`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CodingSessionDisplay {
-    Running,
+    Working,
     NeedsInput,
     Review,
     Done,
 }
 
+/// [`CodingSessionDisplay`]'s rule. `agent_busy` is [`session_agent_busy`]'s
+/// answer (the local engine's signal for a run hosted here, else the synced
+/// column); `pr_state` the run's PR outcome (the issue's, else the row's own,
+/// EXP-734).
 pub(crate) fn coding_session_display(
     session: &domain::rows::CodingSession,
+    agent_busy: bool,
     pr_state: Option<&str>,
 ) -> CodingSessionDisplay {
-    let merged = pr_state == Some(domain::contract::PR_STATE_MERGED);
-    if session.status.as_deref() == Some(domain::contract::CODING_SESSION_STATUS_IN_REVIEW) {
-        return if merged {
-            CodingSessionDisplay::Done
-        } else {
-            CodingSessionDisplay::Review
-        };
-    }
-    if session.needs_input.unwrap_or(false) && !merged {
+    if session.needs_input.unwrap_or(false) {
         return CodingSessionDisplay::NeedsInput;
     }
-    CodingSessionDisplay::Running
+    if agent_busy {
+        return CodingSessionDisplay::Working;
+    }
+    let pr_open = pr_state != Some(domain::contract::PR_STATE_MERGED)
+        && pr_state != Some(domain::contract::PR_STATE_CLOSED);
+    if session.status.as_deref() == Some(domain::contract::CODING_SESSION_STATUS_IN_REVIEW)
+        && pr_open
+    {
+        CodingSessionDisplay::Review
+    } else {
+        CodingSessionDisplay::Done
+    }
+}
+
+/// EXP-848/EXP-1184: whether a row ANIMATES — the agent works right now on a
+/// row that is still live (an ended row never does, whatever the flag says).
+/// Same fixture as [`coding_session_display`].
+pub(crate) fn session_row_is_working(
+    session: &domain::rows::CodingSession,
+    display: CodingSessionDisplay,
+) -> bool {
+    session.status.as_deref() != Some(domain::contract::CODING_SESSION_STATUS_ENDED)
+        && display == CodingSessionDisplay::Working
+}
+
+/// The in-process engine's turn signal for `session_id` when THIS process
+/// hosts the run, else `None` ([`session_agent_busy`]'s `local`).
+pub(crate) fn local_agent_busy(session_id: &str, cx: &App) -> Option<bool> {
+    let sessions = crate::coding_flow::LocalSessions::global_ref(cx)?;
+    let sessions = sessions.read(cx);
+    let local = sessions.session_by_id(session_id)?;
+    Some(local.host.session.agent_busy())
 }
 
 /// EXP-848: is the agent executing a turn RIGHT NOW? The ONE input every
@@ -1586,7 +1616,7 @@ impl SessionDotFacts {
             needs_input: display == CodingSessionDisplay::NeedsInput,
             done: display == CodingSessionDisplay::Done,
             review: display == CodingSessionDisplay::Review,
-            running: display == CodingSessionDisplay::Running,
+            running: display == CodingSessionDisplay::Working,
             ..Self::default()
         }
     }
@@ -1742,9 +1772,9 @@ pub(crate) fn own_ended_runs<'a>(
 /// server-side, so `None` is a decode gap, never "any team"
 /// ([`own_ended_runs`]'s rule).
 ///
-/// `pr_state` resolves the PR state the attention rule reads (the run's
-/// issue first, then the run's own column — EXP-734), because a merged PR
-/// demotes `needs_input` ([`coding_session_display`]). Pure (unit-tested);
+/// `pr_state` resolves the PR state the display rule reads (the run's issue
+/// first, then the run's own column — EXP-734); since EXP-1184 `needs_input`
+/// wins on every PR state ([`coding_session_display`]). Pure (unit-tested);
 /// [`own_live_runs_by_team_now`] is the `cx` wrapper.
 pub(crate) fn own_live_runs_by_team<'a>(
     sessions: impl Iterator<Item = &'a domain::rows::CodingSession> + Clone,
@@ -1780,7 +1810,9 @@ pub(crate) fn own_live_runs_by_team<'a>(
         };
         let entry = by_team.entry(team_id.to_string()).or_default();
         entry.count += 1;
-        entry.needs_input |= coding_session_display(row, pr_state(row).as_deref())
+        // The busy signal cannot beat `needs_input` (EXP-1184's first rule),
+        // so the tally never needs it.
+        entry.needs_input |= coding_session_display(row, false, pr_state(row).as_deref())
             == CodingSessionDisplay::NeedsInput;
     }
     by_team
@@ -2601,51 +2633,59 @@ mod tests {
         assert!(!coding_session_is_live(&stale, now));
     }
 
-    /// EXP-540: with the `merged` session status retired, `in_review` + a
-    /// merged PR is the only merge inference left — kept for old-SERVER
-    /// tolerance (a lagging self-host can still park a row in `in_review`
-    /// while its PR is already merged).
+    /// EXP-1184 — the display rule replays `session-display.json`, the ONE
+    /// fixture the web, iOS and Android suites replay too.
     #[test]
-    fn coding_session_display_infers_done_from_a_merged_pr_in_review() {
-        let row = session(Some("in_review"), Some("2026-07-17T11:30:00Z"));
-        assert!(
-            coding_session_display(&row, Some(domain::contract::PR_STATE_MERGED))
-                == CodingSessionDisplay::Done
-        );
-        assert!(
-            coding_session_display(&row, Some(domain::contract::PR_STATE_OPEN))
-                == CodingSessionDisplay::Review
-        );
-        assert!(coding_session_display(&row, None) == CodingSessionDisplay::Review);
-    }
-
-    #[test]
-    fn coding_session_display_in_review_beats_needs_input() {
-        // EXP-531: claude's idle nudge lands AFTER open_pr flips the row to
-        // in_review, and the stamped flag used to mask "review" as an amber
-        // "needs input" for the rest of the session. A running row keeps the
-        // flag's meaning.
-        let flagged: domain::rows::CodingSession = serde_json::from_value(json!({
-            "id": "sess-1",
-            "issue_id": "issue-1",
-            "status": "in_review",
-            "updated_at": "2026-07-17T11:30:00Z",
-            "needs_input": true,
-        }))
-        .unwrap();
-        assert!(
-            coding_session_display(&flagged, Some(domain::contract::PR_STATE_OPEN))
-                == CodingSessionDisplay::Review
-        );
-        let running: domain::rows::CodingSession = serde_json::from_value(json!({
-            "id": "sess-2",
-            "issue_id": "issue-1",
-            "status": "running",
-            "updated_at": "2026-07-17T11:30:00Z",
-            "needs_input": true,
-        }))
-        .unwrap();
-        assert!(coding_session_display(&running, None) == CodingSessionDisplay::NeedsInput);
+    fn coding_session_display_matches_the_fixture() {
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Case {
+            name: String,
+            status: String,
+            needs_input: bool,
+            agent_busy: bool,
+            pr_state: Option<String>,
+            state: String,
+            working: bool,
+            status_tone: String,
+        }
+        #[derive(serde::Deserialize)]
+        struct Fixture {
+            cases: Vec<Case>,
+        }
+        let fixture: Fixture = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/session-display.json"
+        ))
+        .expect("session-display.json parses");
+        assert!(!fixture.cases.is_empty());
+        for case in fixture.cases {
+            let row: domain::rows::CodingSession = serde_json::from_value(json!({
+                "id": "sess-1",
+                "issue_id": "issue-1",
+                "status": case.status,
+                "updated_at": "2026-07-17T11:30:00Z",
+                "needs_input": case.needs_input,
+                "agent_busy": case.agent_busy,
+            }))
+            .unwrap();
+            let display = coding_session_display(&row, case.agent_busy, case.pr_state.as_deref());
+            let state = match display {
+                CodingSessionDisplay::Working => "working",
+                CodingSessionDisplay::NeedsInput => "needs_input",
+                CodingSessionDisplay::Review => "review",
+                CodingSessionDisplay::Done => "done",
+            };
+            assert_eq!(state, case.state, "{}: state", case.name);
+            assert_eq!(session_row_is_working(&row, display), case.working, "{}: working", case.name);
+            let (_, tone) = crate::run_rows::running_status_line(display, false, Some("mbp"), "");
+            let tone = match tone {
+                crate::run_rows::StatusTone::Muted => "muted",
+                crate::run_rows::StatusTone::Amber => "amber",
+                crate::run_rows::StatusTone::Green => "emerald",
+                crate::run_rows::StatusTone::Blue => "sky",
+            };
+            assert_eq!(tone, case.status_tone, "{}: statusTone", case.name);
+        }
     }
 
     #[test]
@@ -2858,9 +2898,12 @@ mod tests {
         assert!(!presentation.offline);
     }
 
-    /// EXP-550: offline flips only the in-flight displays to paused.
+    /// EXP-550: offline flips every display but the outcomes (a PR in review
+    /// or past it) to paused.
     #[test]
     fn session_is_paused_only_while_in_flight() {
+        let running = domain::contract::CODING_SESSION_STATUS_RUNNING;
+        let in_review = domain::contract::CODING_SESSION_STATUS_IN_REVIEW;
         let offline = SessionDevicePresentation {
             label: Some("mac-studio".to_string()),
             offline: true,
@@ -2870,16 +2913,23 @@ mod tests {
             offline: false,
         };
         for display in [
-            CodingSessionDisplay::Running,
+            CodingSessionDisplay::Working,
             CodingSessionDisplay::NeedsInput,
+            CodingSessionDisplay::Done,
         ] {
-            assert!(session_is_paused(display, &offline));
-            assert!(!session_is_paused(display, &online));
+            assert!(session_is_paused(display, Some(running), &offline));
+            assert!(!session_is_paused(display, Some(running), &online));
         }
-        for display in [CodingSessionDisplay::Review, CodingSessionDisplay::Done] {
-            assert!(!session_is_paused(display, &offline));
-            assert!(!session_is_paused(display, &online));
-        }
+        assert!(!session_is_paused(
+            CodingSessionDisplay::Review,
+            Some(in_review),
+            &offline
+        ));
+        assert!(!session_is_paused(
+            CodingSessionDisplay::Done,
+            Some(in_review),
+            &offline
+        ));
     }
 
     /// The blocker message names the RENAMED machine (EXP-549), not the
@@ -4107,10 +4157,10 @@ mod tests {
         .is_empty());
     }
 
-    /// `coding_session_display`'s merge rule rides along: a merged PR demotes
-    /// `needs_input`, so the run still counts but the dot stays green.
+    /// EXP-1184: `needs_input` wins on every PR state — a merged PR no
+    /// longer demotes it, so the switcher's dot goes amber.
     #[test]
-    fn a_merged_pr_state_demotes_needs_input() {
+    fn a_merged_pr_state_keeps_needs_input() {
         let mut asking = live_row("asking", "me", Some("laptop"), Some("t-1"));
         asking.needs_input = Some(true);
         let rows = vec![asking];
@@ -4124,7 +4174,7 @@ mod tests {
             |_| Some(domain::contract::PR_STATE_MERGED.to_string()),
         );
         assert_eq!(by_team["t-1"].count, 1);
-        assert!(!by_team["t-1"].needs_input);
+        assert!(by_team["t-1"].needs_input);
     }
 
     /// EXP-862 — the ONE dot mapping, as a table. Four surfaces used to derive
@@ -4203,15 +4253,15 @@ mod tests {
         );
         assert_eq!(
             session_dot_tone(
-                SessionDotFacts::from_display(CodingSessionDisplay::Running, false, false),
+                SessionDotFacts::from_display(CodingSessionDisplay::Working, false, false),
                 muted,
             ),
             theme::tokens::GREEN.to_hsla(),
         );
         // EXP-550/EXP-746: an offline host or a finished row grey out.
         for facts in [
-            SessionDotFacts::from_display(CodingSessionDisplay::Running, false, true),
-            SessionDotFacts::from_display(CodingSessionDisplay::Running, true, false),
+            SessionDotFacts::from_display(CodingSessionDisplay::Working, false, true),
+            SessionDotFacts::from_display(CodingSessionDisplay::Working, true, false),
         ] {
             assert_eq!(session_dot_tone(facts, muted), muted.opacity(0.4));
         }

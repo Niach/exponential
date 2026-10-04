@@ -102,7 +102,28 @@ describe(`SidebarRunningSection (EXP-923)`, () => {
   it(`badges a run that needs input, and only that one`, () => {
     live.value = [run({}), run({ id: `s2`, issueId: null, needsInput: true })]
     const { container } = renderSection()
-    expect(container.querySelectorAll(`.bg-yellow-400`).length).toBe(1)
+    expect(container.querySelectorAll(`.bg-amber-500`).length).toBe(1)
+  })
+
+  // EXP-1184: the ×4 run states on the mark — Claude's spark while it works,
+  // emerald with its PR open, sky once idle with no PR.
+  it(`marks each run with what it is doing`, () => {
+    live.value = [
+      run({ agentBusy: true }),
+      run({ id: `s2`, issueId: null, status: `in_review`, prState: `open` }),
+      run({ id: `s3`, issueId: null }),
+    ]
+    renderSection()
+    const mark = (id: string) =>
+      screen.getByTestId(`sidebar-running-${id}`).querySelector(`[data-state]`)
+    expect(mark(`s1`)?.getAttribute(`data-state`)).toBe(`working`)
+    expect(
+      mark(`s1`)?.querySelector(`[data-slot="claude-spinner"]`)
+    ).not.toBeNull()
+    expect(mark(`s2`)?.getAttribute(`data-state`)).toBe(`review`)
+    expect(mark(`s2`)?.querySelector(`.bg-emerald-500`)).not.toBeNull()
+    expect(mark(`s3`)?.getAttribute(`data-state`)).toBe(`done`)
+    expect(mark(`s3`)?.querySelector(`.bg-sky-500`)).not.toBeNull()
   })
 
   it(`nests a child run under its parent and draws the connector`, () => {

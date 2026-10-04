@@ -138,7 +138,12 @@ export function RunningSessionRow({
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5 text-sm">
           <span className="flex shrink-0 items-center justify-center">
-            <RunningIndicator state={state} paused={paused} working={working} />
+            <RunningIndicator
+              state={state}
+              agent={session.agent}
+              paused={paused}
+              working={working}
+            />
           </span>
           {identity.identifier && (
             <span className="shrink-0 font-mono text-xs text-muted-foreground">

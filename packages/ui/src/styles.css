@@ -473,6 +473,20 @@ html {
      `motion-safe:`. */
   --animate-agent-pulse: agent-pulse 1.4s ease-in-out infinite;
 
+  /* EXP-1184 — Claude's own "working" spark: an 8-frame sprite sheet
+     (claude-spinner.generated.ts) stepped with hard cuts, 90 ms a frame —
+     the claude.ai cadence, mirrored ×4. Always behind `motion-safe:`. */
+  --animate-claude-writing: claude-writing 720ms steps(8, jump-none) infinite;
+
+  @keyframes claude-writing {
+    from {
+      transform: translateY(0);
+    }
+    to {
+      transform: translateY(-87.5%);
+    }
+  }
+
   @keyframes agent-pulse {
     0%,
     100% {

@@ -56,9 +56,9 @@ public enum CodingSessionOwnership {
 
     /// Own + live (`CodingSessionLiveness`, so a heartbeat-stale row counts as
     /// absent exactly like it does for the tab dot), grouped by `teamId`.
-    /// `needsInput` follows `CodingSessionDisplayState` — the SAME masking the
+    /// `needsInput` follows `CodingSessionDisplayState` — the SAME rule the
     /// Agents tab dot's amber goes through (`prState: nil`: the switcher has no
-    /// issue row in hand, and in_review already outranks the flag).
+    /// issue row in hand; EXP-1184: needs input wins on every live status).
     /// Tolerates a caller passing an already-own-only list.
     public static func liveByTeam(
         _ sessions: [CodingSessionEntity], userId: String?, now: Date = Date()

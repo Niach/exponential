@@ -152,11 +152,14 @@ final class SessionDevicePresentationTests: XCTestCase {
             now: now
         )
         XCTAssertTrue(offline.offline)
-        XCTAssertTrue(offline.isPaused(.running))
+        XCTAssertTrue(offline.isPaused(.working))
         XCTAssertTrue(offline.isPaused(.needsInput))
         // The PR is out — the machine's presence stopped mattering.
         XCTAssertFalse(offline.isPaused(.review))
-        XCTAssertFalse(offline.isPaused(.done))
+        XCTAssertFalse(offline.isPaused(.done, status: "in_review"))
+        // EXP-1184: an idle `running` row with no PR reads done online, but
+        // a closed lid still parks it.
+        XCTAssertTrue(offline.isPaused(.done, status: "running"))
     }
 
     func testOnlineNeverPauses() {
@@ -169,7 +172,7 @@ final class SessionDevicePresentationTests: XCTestCase {
             now: now
         )
         XCTAssertFalse(online.offline)
-        XCTAssertFalse(online.isPaused(.running))
+        XCTAssertFalse(online.isPaused(.working))
         XCTAssertFalse(online.isPaused(.needsInput))
     }
 
@@ -204,7 +207,7 @@ final class SessionDevicePresentationTests: XCTestCase {
         )
         XCTAssertNil(resolved.online)
         XCTAssertFalse(resolved.offline)
-        XCTAssertFalse(resolved.isPaused(.running))
+        XCTAssertFalse(resolved.isPaused(.working))
         XCTAssertEqual(resolved.label, "macbook")
     }
 
@@ -238,7 +241,7 @@ final class SessionDevicePresentationTests: XCTestCase {
         )
         XCTAssertEqual(resolved.online, false)
         XCTAssertTrue(resolved.offline)
-        XCTAssertTrue(resolved.isPaused(.running))
+        XCTAssertTrue(resolved.isPaused(.working))
     }
 
     // No matched row is unknown too — an absent machine is not an offline one.

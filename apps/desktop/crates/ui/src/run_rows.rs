@@ -82,9 +82,13 @@ pub(crate) struct RunningRunFacts {
     /// The machine's name (the kill confirm names it).
     pub(crate) device_label: Option<String>,
     pub(crate) paused: bool,
-    /// EXP-848: the agent is mid-turn RIGHT NOW — the dot's ping, and only
-    /// that (`queries::session_agent_busy`, never `running` alone).
+    /// EXP-848/EXP-1184: the agent is mid-turn RIGHT NOW on a live row
+    /// (`queries::session_row_is_working`, never `running` alone) — the row
+    /// wears the agent's working mark in place of its dot.
     pub(crate) working: bool,
+    /// The run's agent (`None` = an id this build does not know) — whose
+    /// working mark to draw.
+    pub(crate) agent: Option<coding::CodingAgent>,
 }
 
 /// Everything a past row draws.
@@ -152,14 +156,17 @@ pub(crate) fn running_run_facts(
         },
     };
     // EXP-734: an issue-less run (action/chat) carries its own PR state.
-    let display = queries::coding_session_display(
+    let pr_state = issue
+        .as_ref()
+        .and_then(|issue| issue.pr_state.as_deref())
+        .or(session.pr_state.as_deref());
+    let busy = queries::session_agent_busy(
         session,
-        issue
-            .as_ref()
-            .and_then(|issue| issue.pr_state.as_deref())
-            .or(session.pr_state.as_deref()),
+        local_busy.or_else(|| queries::local_agent_busy(&session.id, cx)),
+        now_epoch,
     );
-    let paused = queries::session_is_paused(display, &presentation);
+    let display = queries::coding_session_display(session, busy, pr_state);
+    let paused = queries::session_is_paused(display, session.status.as_deref(), &presentation);
     let started = run_started_at(session)
         .map(|at| crate::comments::relative_time(at, now_epoch))
         .unwrap_or_default();
@@ -185,8 +192,14 @@ pub(crate) fn running_run_facts(
             .map(SharedString::from),
         device_label: presentation.label,
         paused,
-        // EXP-848: the turn flag, the ONE input the dot's ping keys on.
-        working: queries::session_agent_busy(session, local_busy, now_epoch),
+        // EXP-848/EXP-1184: the turn flag, the ONE input the working mark
+        // keys on — never on a paused row.
+        working: !paused && queries::session_row_is_working(session, display),
+        // An absent id is claude (`codingSessions.start`'s default).
+        agent: match session.agent.as_deref() {
+            None => Some(coding::CodingAgent::default()),
+            Some(id) => coding::CodingAgent::parse(id),
+        },
     }
 }
 
@@ -243,7 +256,7 @@ pub(crate) fn running_status_line(
         CodingSessionDisplay::NeedsInput => (join("Needs input"), StatusTone::Amber),
         CodingSessionDisplay::Review => (join("Ready for review"), StatusTone::Green),
         CodingSessionDisplay::Done => (join("Done"), StatusTone::Blue),
-        CodingSessionDisplay::Running => {
+        CodingSessionDisplay::Working => {
             let started = (!started_relative.is_empty()).then(|| format!("started {started_relative}"));
             let line = [device.map(str::to_string), started]
                 .into_iter()
@@ -398,7 +411,14 @@ pub(crate) fn render_running_run_row(
         .items_center()
         .gap_2()
         .children(fold.map(|fold| fold_chevron(id_prefix, index, fold, muted)))
-        .child(crate::surface::live_dot(facts.dot, facts.working))
+        // EXP-1184: a working run wears the agent's working mark (Claude's
+        // stepped spark) in the dot's place; every other state its dot.
+        .child(if facts.working {
+            crate::coding_selects::agent_working_mark(facts.agent, crate::surface::LIVE_DOT_PX + 4.)
+                .into_any_element()
+        } else {
+            crate::surface::live_dot(facts.dot, false)
+        })
         .children(facts.identifier.clone().map(|identifier| {
             div()
                 .flex_shrink_0()
@@ -944,7 +964,7 @@ mod tests {
         use CodingSessionDisplay as D;
         let line = |display, paused, device, rel| running_status_line(display, paused, device, rel);
         assert_eq!(
-            line(D::Running, false, Some("Studio"), "2 minutes ago"),
+            line(D::Working, false, Some("Studio"), "2 minutes ago"),
             ("Studio · started 2 minutes ago".to_string(), StatusTone::Muted)
         );
         // EXP-550: the offline host wins over the display word.
@@ -970,10 +990,10 @@ mod tests {
             ("Ready for review".to_string(), StatusTone::Green)
         );
         assert_eq!(
-            line(D::Running, false, None, "5 minutes ago"),
+            line(D::Working, false, None, "5 minutes ago"),
             ("started 5 minutes ago".to_string(), StatusTone::Muted)
         );
-        assert_eq!(line(D::Running, false, None, ""), (String::new(), StatusTone::Muted));
+        assert_eq!(line(D::Working, false, None, ""), (String::new(), StatusTone::Muted));
     }
 
     /// EXP-746 — the ×4 past byline: machine and how long ago. EXP-833: the

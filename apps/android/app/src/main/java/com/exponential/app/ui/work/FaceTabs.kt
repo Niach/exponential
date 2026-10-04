@@ -33,6 +33,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.ChangesFaceCounts
+import com.exponential.app.domain.CodingSessionDisplayState
+import com.exponential.app.ui.components.AgentRunMark
 import com.exponential.app.domain.DetailChrome
 import com.exponential.app.domain.SessionDotTone
 import com.exponential.app.ui.issue.DoneBlue
@@ -44,11 +46,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.offset
-import androidx.compose.ui.draw.alpha
-import com.exponential.app.ui.components.agentIconPainter
-import com.exponential.app.ui.components.agentIconTint
-import com.exponential.app.ui.session.rememberWorkingMarkPulse
 import com.exponential.app.domain.Diff
 import com.exponential.app.domain.WorkFaceKind
 import com.exponential.app.domain.changesFaceText
@@ -183,9 +180,10 @@ fun WorkFaceTabs(
     changesCounts: ChangesFaceCounts? = null,
     /** EXP-1162: the tabs' state dots (`DetailChrome.faceDots`). */
     dots: Map<WorkFaceKind, SessionDotTone> = emptyMap(),
-    /** EXP-1162: the shown run's agent (its Run mark) and mid-turn flag. */
+    /** EXP-1162: the shown run's agent (its Run mark); EXP-1184: its display
+     *  state (`codingSessionDisplayState`) — working spark or state badge. */
     runAgent: String? = null,
-    runBusy: Boolean = false,
+    runState: CodingSessionDisplayState? = null,
 ) {
     if (faces.size < 2 && trailing == null) return
     val multipleRuns = runs.size >= 2
@@ -236,7 +234,7 @@ fun WorkFaceTabs(
                     // PR's `Review`) a dot trailing it.
                     leading = { f ->
                         dots[f]?.takeIf { f == WorkFaceKind.Run }?.let { tone ->
-                            { FaceMark(runAgent.orEmpty(), tone, runBusy) }
+                            { FaceMark(runAgent.orEmpty(), tone, runState) }
                         }
                     },
                     trailing = { f ->
@@ -285,36 +283,23 @@ fun WorkFaceTabs(
 }
 
 /**
- * EXP-1162: the Run tab's mark — the run's agent brand mark (`agentIconPainter`,
- * the neutral agents glyph for an unknown agent), `faceMark` square and
- * `faceMarkGap` before the label. `NeedsInput` adds an amber `faceMarkBadge`
- * at its top end corner; while [busy] it beats like the session screen's
- * working mark (reduced motion: steady). Only a live run gets here.
+ * EXP-1162 / EXP-1184: the Run tab's mark, `faceMark` square and
+ * `faceMarkGap` before the label — the ×4 run mark ([AgentRunMark]): the
+ * agent's working mark while it works, else its brand mark with an amber
+ * (needs input) / green (PR open) / blue (done) `faceMarkBadge`. [state] null
+ * falls back to the tab's tone (amber only for `NeedsInput`). Only a live run
+ * gets here.
  */
 @Composable
-private fun FaceMark(agent: String, tone: SessionDotTone, busy: Boolean) {
-    val alpha = if (busy) rememberWorkingMarkPulse() else 1f
-    Box(
-        modifier = Modifier
-            .size(DetailChrome.FACE_MARK.dp)
-            .testTag("work-face-run-mark"),
-    ) {
-        Icon(
-            agentIconPainter(agent),
-            contentDescription = null,
-            tint = agentIconTint(agent),
-            modifier = Modifier.matchParentSize().alpha(alpha),
-        )
-        if (tone == SessionDotTone.NeedsInput) {
-            Box(
-                Modifier
-                    .align(Alignment.TopEnd)
-                    .offset(x = (DetailChrome.FACE_MARK_BADGE / 3).dp, y = -(DetailChrome.FACE_MARK_BADGE / 3).dp)
-                    .size(DetailChrome.FACE_MARK_BADGE.dp)
-                    .background(NeedsInputAmber, CircleShape),
-            )
-        }
-    }
+private fun FaceMark(agent: String, tone: SessionDotTone, state: CodingSessionDisplayState?) {
+    val shown = state ?: if (tone == SessionDotTone.NeedsInput) CodingSessionDisplayState.NeedsInput else null
+    AgentRunMark(
+        agent = agent,
+        state = shown,
+        size = DetailChrome.FACE_MARK.dp,
+        badgeSize = DetailChrome.FACE_MARK_BADGE.dp,
+        modifier = Modifier.testTag("work-face-run-mark"),
+    )
     Spacer(Modifier.width(DetailChrome.FACE_MARK_GAP.dp))
 }
 

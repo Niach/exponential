@@ -469,7 +469,7 @@ enum EntityRefResolver {
         return EntityPreviewModel(
             icon: .sessionDot(
                 CodingSessionLiveness.isLive(session) ? SessionStateDot.tone(of: state) : .muted,
-                pulsing: session.agentBusy
+                pulsing: CodingSessionDisplayState.working(status: session.status, state: state)
             ),
             eyebrow: sessionRowIdentifier(issue: issue, session: session, batchIssues: batchIssues) ?? "Run",
             title: sessionRowTitle(issue: issue, session: session, batchIssues: batchIssues),
@@ -695,7 +695,7 @@ enum EntityRefResolver {
 
     private static func stateLabel(_ state: CodingSessionDisplayState) -> String {
         switch state {
-        case .running: "Running"
+        case .working: "Working"
         case .needsInput: "Needs input"
         case .review: "In review"
         case .done: "Done"

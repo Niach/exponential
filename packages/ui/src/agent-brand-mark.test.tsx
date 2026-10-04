@@ -1,6 +1,7 @@
 import { render } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
-import { AgentBrandMark } from "./agent-brand-mark"
+import { AgentBrandMark, AgentRunMark } from "./agent-brand-mark"
+import { CLAUDE_SPINNER_FRAMES } from "./claude-spinner.generated"
 
 // EXP-850 §5: the brand mark beside the working caption.
 describe(`AgentBrandMark`, () => {
@@ -37,5 +38,54 @@ describe(`AgentBrandMark`, () => {
     expect(
       steady.container.querySelector(`svg`)?.getAttribute(`class`)
     ).not.toContain(`animate-agent-pulse`)
+  })
+})
+
+// EXP-1184: a live run's mark, per the ×4 `session-display.json` states.
+describe(`AgentRunMark`, () => {
+  const badgeOf = (container: HTMLElement) =>
+    container.querySelector(`[data-slot="run-mark-badge"]`)
+
+  it(`a working claude run steps Claude's spark, with no badge`, () => {
+    const { container } = render(<AgentRunMark agent="claude" state="working" />)
+    const spinner = container.querySelector(`[data-slot="claude-spinner"]`)
+    expect(spinner).not.toBeNull()
+    expect(spinner?.querySelectorAll(`path`).length).toBe(
+      CLAUDE_SPINNER_FRAMES.length + 1
+    )
+    expect(
+      spinner?.querySelector(`svg`)?.getAttribute(`class`)
+    ).toContain(`motion-safe:animate-claude-writing`)
+    expect(badgeOf(container)).toBeNull()
+  })
+
+  it(`a working codex run pulses its own mark`, () => {
+    const { container } = render(<AgentRunMark agent="codex" state="working" />)
+    expect(container.querySelector(`[data-slot="claude-spinner"]`)).toBeNull()
+    expect(container.querySelector(`svg`)?.getAttribute(`class`)).toContain(
+      `motion-safe:animate-agent-pulse`
+    )
+  })
+
+  it(`parked states wear their badge, the red needs-you beats them`, () => {
+    for (const [state, cls] of [
+      [`needs_input`, `bg-amber-500`],
+      [`review`, `bg-emerald-500`],
+      [`done`, `bg-sky-500`],
+    ] as const) {
+      const { container } = render(<AgentRunMark agent="claude" state={state} />)
+      expect(badgeOf(container)?.getAttribute(`class`)).toContain(cls)
+      expect(container.querySelector(`[data-slot="claude-spinner"]`)).toBeNull()
+    }
+    const { container } = render(
+      <AgentRunMark agent="claude" state="review" needsYou />
+    )
+    expect(badgeOf(container)?.getAttribute(`class`)).toContain(`bg-red-500`)
+  })
+
+  it(`a paused run (no state) is the bare mark`, () => {
+    const { container } = render(<AgentRunMark agent="claude" />)
+    expect(badgeOf(container)).toBeNull()
+    expect(container.querySelector(`[data-slot="claude-spinner"]`)).toBeNull()
   })
 })
