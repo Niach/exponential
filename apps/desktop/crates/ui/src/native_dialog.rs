@@ -71,7 +71,7 @@ use gpui_component::{
 };
 use theme::tokens as t;
 use crate::controls::WebControl as _;
-use crate::icons::registry;
+use crate::icons::{registry, ExpIcon};
 
 const CONTEXT: &str = "NativeDialog";
 
@@ -1035,6 +1035,12 @@ pub(crate) struct AlertSpec {
     description: SharedString,
     ok_text: SharedString,
     ok_variant: ButtonVariant,
+    /// EXP-1167: a leading glyph on the OK button, where the web dialog's
+    /// primary carries one ("Merge stack" wears the merge glyph). `None` =
+    /// label-only, every alert before it.
+    ok_icon: Option<ExpIcon>,
+    /// Window width; [`ALERT_WIDTH`] unless a footer needs more room.
+    width: Pixels,
     /// Total window height, titlebar strip included (see [`AlertSpec::height`]).
     height: Pixels,
     /// Whether the footer draws Cancel next to OK. `false` (EXP-697) is for
@@ -1067,6 +1073,8 @@ impl AlertSpec {
             description: description.into(),
             ok_text: ok_text.into(),
             ok_variant: ButtonVariant::Primary,
+            ok_icon: None,
+            width: px(ALERT_WIDTH),
             // EXP-285: trimmed 240 → 220 — alerts size closer to content.
             height: px(220.),
             cancel: true,
@@ -1086,6 +1094,19 @@ impl AlertSpec {
 
     pub(crate) fn ok_variant(mut self, variant: ButtonVariant) -> Self {
         self.ok_variant = variant;
+        self
+    }
+
+    /// EXP-1167: lead the OK label with `icon` (see [`AlertSpec::ok_icon`]).
+    pub(crate) fn ok_icon(mut self, icon: ExpIcon) -> Self {
+        self.ok_icon = Some(icon);
+        self
+    }
+
+    /// EXP-1167: a wider window, for a three-button footer whose labels
+    /// overflow [`ALERT_WIDTH`].
+    pub(crate) fn width(mut self, width: Pixels) -> Self {
+        self.width = width;
         self
     }
 
@@ -1132,7 +1153,7 @@ pub(crate) fn open_alert(window: &mut Window, cx: &mut App, spec: AlertSpec) {
     // `AlertSpec::height` is the whole window; `DialogSpec::size` is the
     // content below the titlebar strip (EXP-287).
     let content_height = (spec.height - crate::title_bar::TITLE_BAR_HEIGHT).max(px(0.));
-    let dialog_size = size(px(ALERT_WIDTH), content_height);
+    let dialog_size = size(spec.width, content_height);
     let title = spec.title.clone();
     open_dialog_window(window, cx, DialogSpec::new(title, dialog_size), move |_, cx| {
         let view = cx.new(|_| AlertView { spec });
@@ -1157,10 +1178,11 @@ pub(crate) fn alert_specimen(
 ) -> gpui::Div {
     let title = spec.title.clone();
     let height = spec.height;
+    let width = spec.width;
     let view = window.use_keyed_state(key, cx, |_, _| AlertView { spec });
     let radius = px(t::radius::LG);
     v_flex()
-        .w(px(ALERT_WIDTH))
+        .w(width)
         .h(height)
         .flex_shrink_0()
         .rounded(radius)
@@ -1256,6 +1278,9 @@ impl Render for AlertView {
                         Button::new("native-alert-ok")
                             .with_variant(self.spec.ok_variant)
                             .web_sm()
+                            .when_some(self.spec.ok_icon.clone(), |button, icon| {
+                                button.icon(Icon::new(icon))
+                            })
                             .label(self.spec.ok_text.clone())
                             .disabled(self.spec.ok_disabled)
                             .on_click(move |_, window, cx| {
