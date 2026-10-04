@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import { useNavigate, useParams } from "@tanstack/react-router"
+import { useNavigate } from "@tanstack/react-router"
 import type { SyncedAction, Team } from "@/db/schema"
 import { actionCollection } from "@/lib/collections"
 import { BUILTIN_CREATE_ACTION_ID } from "@/lib/builtin-actions"
@@ -34,7 +34,8 @@ import { trpc } from "@/lib/trpc-client"
 import { useSteerConfig } from "@/components/agent-session"
 import type { TeamAction } from "@/components/action-prompt-form"
 import { TriggerGlyph } from "@/components/action-triggers-section"
-import { useOpenComposer } from "@/hooks/use-open-composer"
+import { useOpenComposerInTeam } from "@/hooks/use-open-composer"
+import { TeamBandHeader } from "@/components/team/team-band"
 import { SuggestionsButton } from "@/components/getting-started/getting-started-sheet"
 import {
   ActionSuggestionsPanel,
@@ -285,107 +286,44 @@ function NoCustomActionsNudge({ onClick }: { onClick: () => void }) {
 
 export function TeamActionsPanel({
   team,
+  teams,
+  grouped = false,
   view,
   tab = `actions`,
   onTabChange,
 }: {
   team: Team
+  /** EXP-1186: the teams the list reads (the phone: every member team);
+   *  absent = `team` alone. */
+  teams?: readonly Team[]
+  /** EXP-1186: one band per team (team mark + name) instead of the one
+   *  "Actions" band. */
+  grouped?: boolean
   view: ActionsPanelView
   /** `tabs` view only — the controlled tab, i.e. the route's `?tab=`. */
   tab?: ActionsPanelTab
   onTabChange?: (tab: ActionsPanelTab) => void
 }) {
-  const { isMember, isOwner } = useTeamPermissions(team)
-  const steerConfig = useSteerConfig()
-  const navigate = useNavigate()
-  const { teamSlug } = useParams({ strict: false })
-
-  const teamId = team.id
-  // Steer tickets require team membership and a configured relay; the
-  // server enforces both at mint time, this only decides whether the
-  // interactive affordances render.
-  const steerEnabled = Boolean(isMember && steerConfig?.enabled)
-  const openComposer = useOpenComposer()
-
-  // Actions ride the Electric `actions` shape since EXP-268 (body excluded —
-  // the action page fetches it via tRPC), so a builtin "Create action" run's
-  // MCP-authored action just appears; no refetch machinery.
-  const { data: actionRows } = useLiveQuery(
-    (query) =>
-      query.from({ a: actionCollection }).where(({ a }) => eq(a.teamId, teamId)),
-    [teamId]
-  )
-
-  // The synced rows re-apply the server's ordering (sortOrder asc, then name
-  // — collections hydrate unordered). No builtin is LISTED: "Create action"
-  // lives behind the section's own "New action" button (EXP-431), and
-  // EXP-686 hid "Fix merge conflicts" too — it is launched from Reviews and
-  // over MCP, never picked out of this list.
-  const sortedActions = useMemo<TeamAction[] | null>(() => {
-    if (!isMember || actionRows === undefined) return null
-    return [...actionRows]
-      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
-      .map((row) => ({ ...row, builtin: false as const }))
-  }, [isMember, actionRows])
-
+  const { isMember } = useTeamPermissions(team)
   const [deleteTarget, setDeleteTarget] = useState<TeamAction | null>(null)
 
   if (!isMember) return null
 
-  const actionItemProps = (action: TeamAction) => ({
-    action,
-    isOwner,
-    canRun: steerEnabled,
-    // EXP-825: the composer with this action as the subject chip.
-    onRun: () => openComposer({ actionId: action.id }),
-    onOpen: () => {
-      if (!teamSlug) return
-      void navigate({
-        to: `/t/$teamSlug/actions/$actionId`,
-        params: { teamSlug, actionId: action.id },
-      })
-    },
-    onDelete: () => setDeleteTarget(action),
-  })
-
-  const canCreateAction = steerEnabled && isOwner
-  // EXP-825: "New action" is the composer with the Create action builtin
-  // picked — the request is typed there (its own dialog is gone).
-  const openCreateAction = () =>
-    openComposer({ actionId: BUILTIN_CREATE_ACTION_ID })
   // EXP-686: the seeds live in Getting started on a desktop viewport; the
   // mobile tabs keep their own Suggestions tab.
   const showSuggestions = view !== `tabs`
+  const sectionTeams = grouped && teams && teams.length > 1 ? teams : [team]
   const actionsSection = (
     <>
-      <GlassSectionHeader
-        label="Actions"
-        trailing={
-          !showSuggestions && !canCreateAction ? undefined : (
-            <>
-              {showSuggestions && <SuggestionsButton />}
-              {canCreateAction && (
-                <Pill mode="action" onClick={openCreateAction}>
-                  <ActionCreateIcon className="size-3" />
-                  New action
-                </Pill>
-              )}
-            </>
-          )
-        }
-      />
-      {sortedActions === null ? (
-        <div className="px-1 py-3 text-sm text-muted-foreground">Loading…</div>
-      ) : (
-        <div className="flex flex-col gap-0">
-          {sortedActions.map((action) => (
-            <ActionRow key={action.id} {...actionItemProps(action)} />
-          ))}
-          {canCreateAction && sortedActions.length === 0 && (
-            <NoCustomActionsNudge onClick={openCreateAction} />
-          )}
-        </div>
-      )}
+      {sectionTeams.map((row) => (
+        <TeamActionsSection
+          key={row.id}
+          team={row}
+          grouped={sectionTeams.length > 1}
+          showSuggestions={showSuggestions}
+          onDelete={setDeleteTarget}
+        />
+      ))}
     </>
   )
 
@@ -420,5 +358,113 @@ export function TeamActionsPanel({
         onClose={() => setDeleteTarget(null)}
       />
     </>
+  )
+}
+
+/** One team's actions under its band — the whole list on md+ and for a
+ *  single team; one of several (EXP-1186) on a phone in more than one team,
+ *  where the band carries the team mark + name and every start, open and
+ *  create goes to THAT team. */
+function TeamActionsSection({
+  team,
+  grouped,
+  showSuggestions,
+  onDelete,
+}: {
+  team: Team
+  grouped: boolean
+  showSuggestions: boolean
+  onDelete: (action: TeamAction) => void
+}) {
+  const { isMember, isOwner } = useTeamPermissions(team)
+  const steerConfig = useSteerConfig()
+  const navigate = useNavigate()
+
+  const teamId = team.id
+  // Steer tickets require team membership and a configured relay; the
+  // server enforces both at mint time, this only decides whether the
+  // interactive affordances render.
+  const steerEnabled = Boolean(isMember && steerConfig?.enabled)
+  // EXP-1186: starts go to the action's OWN team (the route's team keeps
+  // the dialog).
+  const openComposer = useOpenComposerInTeam()
+
+  // Actions ride the Electric `actions` shape since EXP-268 (body excluded —
+  // the action page fetches it via tRPC), so a builtin "Create action" run's
+  // MCP-authored action just appears; no refetch machinery.
+  const { data: actionRows } = useLiveQuery(
+    (query) =>
+      query.from({ a: actionCollection }).where(({ a }) => eq(a.teamId, teamId)),
+    [teamId]
+  )
+
+  // The synced rows re-apply the server's ordering (sortOrder asc, then name
+  // — collections hydrate unordered). No builtin is LISTED: "Create action"
+  // lives behind the section's own "New action" button (EXP-431), and
+  // EXP-686 hid "Fix merge conflicts" too — it is launched from Reviews and
+  // over MCP, never picked out of this list.
+  const sortedActions = useMemo<TeamAction[] | null>(() => {
+    if (!isMember || actionRows === undefined) return null
+    return [...actionRows]
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+      .map((row) => ({ ...row, builtin: false as const }))
+  }, [isMember, actionRows])
+
+  if (!isMember) return null
+
+  const actionItemProps = (action: TeamAction) => ({
+    action,
+    isOwner,
+    canRun: steerEnabled,
+    // EXP-825: the composer with this action as the subject chip.
+    onRun: () => openComposer(team.slug, { actionId: action.id }),
+    onOpen: () => {
+      void navigate({
+        to: `/t/$teamSlug/actions/$actionId`,
+        params: { teamSlug: team.slug, actionId: action.id },
+      })
+    },
+    onDelete: () => onDelete(action),
+  })
+
+  const canCreateAction = steerEnabled && isOwner
+  // EXP-825: "New action" is the composer with the Create action builtin
+  // picked — the request is typed there (its own dialog is gone).
+  const openCreateAction = () =>
+    openComposer(team.slug, { actionId: BUILTIN_CREATE_ACTION_ID })
+  // A grouped team with nothing to list and nothing to create is no band.
+  if (grouped && sortedActions?.length === 0 && !canCreateAction) return null
+  const trailing =
+    !showSuggestions && !canCreateAction ? undefined : (
+      <>
+        {showSuggestions && <SuggestionsButton />}
+        {canCreateAction && (
+          <Pill mode="action" onClick={openCreateAction}>
+            <ActionCreateIcon className="size-3" />
+            New action
+          </Pill>
+        )}
+      </>
+    )
+  return (
+    <div className={grouped ? `mb-4 last:mb-0` : undefined}>
+      {grouped ? (
+        <TeamBandHeader team={team} trailing={trailing} />
+      ) : (
+        <GlassSectionHeader label="Actions" trailing={trailing} />
+      )}
+      {sortedActions === null ? (
+        <div className="px-1 py-3 text-sm text-muted-foreground">Loading…</div>
+      ) : (
+        <div className="flex flex-col gap-0">
+          {sortedActions.map((action) => (
+            <ActionRow key={action.id} {...actionItemProps(action)} />
+          ))}
+          {canCreateAction && !grouped && sortedActions.length === 0 && (
+            <NoCustomActionsNudge onClick={openCreateAction} />
+          )}
+        </div>
+      )}
+    </div>
   )
 }

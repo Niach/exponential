@@ -1,8 +1,10 @@
 package com.exponential.app.ui.actions
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
+import com.exponential.app.data.routeTeamIdFlow
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.ActionsApi
 import com.exponential.app.data.api.trpcErrorMessage
@@ -44,10 +46,11 @@ data class ActionEditState(
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class ActionEditViewModel @Inject constructor(
+    savedStateHandle: SavedStateHandle,
     private val auth: AuthRepository,
     holder: DatabaseHolder,
     private val actionsApi: ActionsApi,
-    private val selection: TeamSelection,
+    selection: TeamSelection,
 ) : ViewModel() {
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
@@ -56,10 +59,14 @@ class ActionEditViewModel @Inject constructor(
     val state: StateFlow<ActionEditState> = _state
 
     /**
-     * Whether the caller OWNS the selected team — `actions.update` is
+     * Whether the caller OWNS the action's team (EXP-1186: the ACTION's, not
+     * the selection — the Actions list is cross-team) — `actions.update` is
      * owner-gated, so a member sees the same fields disabled and no Save.
      */
-    val isTeamOwner: StateFlow<Boolean> = combine(dbFlow, selection.selectedId) { db, teamId ->
+    val isTeamOwner: StateFlow<Boolean> = combine(
+        dbFlow,
+        routeTeamIdFlow(dbFlow, savedStateHandle, selection.selectedId),
+    ) { db, teamId ->
         db to teamId
     }.flatMapLatest { (db, teamId) ->
         if (db == null || teamId == null) {

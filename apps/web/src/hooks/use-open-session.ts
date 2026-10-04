@@ -45,6 +45,9 @@ export interface OpenSessionOptions {
   /** The list the click came from. `null` = context-free (main menu stays).
    *  Omit the KEY (or the whole options object) to derive it from the URL. */
   origin?: DetailOrigin | null
+  /** EXP-1186: the run's OWN team when it is not the route's (a phone's
+   *  cross-team lists) — the run opens under that team's slug. */
+  teamSlug?: string
 }
 
 /** The navigation a run's row performs — pure, so every case is a test. */
@@ -105,7 +108,8 @@ export function useOpenSession(): (
 
   return useCallback(
     (session: OpenableSession, options?: OpenSessionOptions) => {
-      if (!teamSlug) {
+      const targetSlug = options?.teamSlug ?? teamSlug
+      if (!targetSlug) {
         console.warn(`useOpenSession: no teamSlug in scope, ignoring`)
         return
       }
@@ -118,7 +122,7 @@ export function useOpenSession(): (
           : deriveOrigin(screen, capturedOrigin(screen, parseOrigin(from)), {
               kind: `session`,
             })
-      void navigate(sessionNavigation(teamSlug, session, origin) as never)
+      void navigate(sessionNavigation(targetSlug, session, origin) as never)
     },
     [navigate, teamSlug, location, from]
   )

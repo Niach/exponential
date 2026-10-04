@@ -265,6 +265,22 @@ public enum DeviceQueries {
         userId: String?,
         now: Date = Date()
     ) -> [SteerDevice] {
+        compose(
+            rows: rows, users: users, teamIds: teamId.map { [$0] } ?? [],
+            userId: userId, now: now
+        )
+    }
+
+    /// EXP-1186: the Devices tab is cross-team — own rows, then teammates'
+    /// servers shared with ANY of `teamIds` (the caller's member teams). A
+    /// server shared with several of them is one row, listed once.
+    public static func compose(
+        rows: [DeviceEntity],
+        users: [UserEntity],
+        teamIds: Set<String>,
+        userId: String?,
+        now: Date = Date()
+    ) -> [SteerDevice] {
         // users.name is nullable — flatten so the lookup yields String?.
         let nameById: [String: String] = Dictionary(
             users.compactMap { user in user.name.map { (user.id, $0) } },
@@ -294,9 +310,10 @@ public enum DeviceQueries {
             .sorted(by: stableOrder)
         let shared = rows
             .filter { row in
-                guard row.userId != userId, let teamId else { return false }
-                // FEED-33: shared with several teams — this one among them.
-                return row.kind == "server" && row.sharedTeamIds.contains(teamId)
+                guard row.userId != userId, !teamIds.isEmpty else { return false }
+                // FEED-33: shared with several teams — one of these among them.
+                return row.kind == "server"
+                    && row.sharedTeamIds.contains(where: teamIds.contains)
             }
             .sorted(by: stableOrder)
         return own.map(mapped) + shared.map(mapped)

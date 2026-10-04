@@ -170,8 +170,8 @@
         "file": "shots/actions-mobile/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 34270,
-        "sha256": "ffc090fc4b2c041428b9ff6aa1dfe402555d3a7ff6df3909885d546c83f6f458"
+        "bytes": 34412,
+        "sha256": "7145148dbaa56f8158a46371cd46e57d2e54ecb0608538831252739a7848cac4"
       }
     },
     "add-server": {
@@ -761,26 +761,12 @@
       }
     },
     "more": {
-      "ios": {
-        "file": "shots/more/ios.webp",
-        "width": 828,
-        "height": 1800,
-        "bytes": 37328,
-        "sha256": "cfb2ebc54e1204f0fa6985938c2b1b1dd9e208ffe8b18a5a89eae735dd905837"
-      },
       "web": {
         "file": "shots/more/web.webp",
         "width": 1800,
         "height": 1200,
         "bytes": 35958,
         "sha256": "d1e14d35a23fc9e2a0eae2f9303b06740bf3fa8555d73241fb40c6446bbd45e6"
-      },
-      "web-mobile": {
-        "file": "shots/more/web-mobile.webp",
-        "width": 832,
-        "height": 1800,
-        "bytes": 41726,
-        "sha256": "53bd2ac30c186aca6864d53053e108fb20bf53e17ee141277c8675c241de8768"
       }
     },
     "my-issues": {
@@ -1061,8 +1047,8 @@
         "file": "shots/reviews/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 26920,
-        "sha256": "ba31189205d76a3cd9b2adfef5220a14d704d5dc9047c92b1054a1f2add1e7b9"
+        "bytes": 27058,
+        "sha256": "23eb6f3e924494b651cfba1ec9fb00d308387cd92102550d350339d3e719cd83"
       }
     },
     "search": {

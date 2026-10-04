@@ -306,8 +306,8 @@ struct MainNavigator: View {
     // parked on a plan-approval / question picker) — escalates the Agents
     // dot to amber.
     @State private var agentsNeedInput = false
-    // EXP-214: open-PR issues — the Reviews tab's green dot, scoped to the
-    // active team via `reviewsOpen`.
+    // EXP-214: open-PR issues — the Reviews tab's green dot, across every
+    // member team via `reviewsOpen` (EXP-1186).
     @State private var observedOpenPrIssues: [IssueEntity] = []
     // EXP-734: issue-less runs parking their OWN open PR — they light the same
     // dot, and no board can ever carry them.
@@ -470,7 +470,7 @@ struct MainNavigator: View {
                 MobileTabBar(
                     issuesActive: path.isEmpty,
                     devicesActive: isOnAgents,
-                    moreActive: isOnActions,
+                    actionsActive: isOnActions,
                     myWorkActive: isOnMyWork,
                     reviewsActive: isOnReviews,
                     unreadCount: unreadCount,
@@ -484,11 +484,9 @@ struct MainNavigator: View {
                     composeEnabled: composeTarget != nil,
                     onIssues: { path = [] },
                     onDevices: { if !isOnAgents { path = [.agents] } },
-                    // SLOP-5: both rows of the More menu. Actions is a
-                    // bar-visible top-level surface; Settings pushes bar-less,
-                    // like the Issues header's gear.
+                    // EXP-1187: Actions is a top-level tab; Settings is the
+                    // Issues header's gear only.
                     onActions: { if !isOnActions { path = [.actions] } },
-                    onSettings: { path.append(.settings) },
                     onMyWork: { if !isOnMyWork { path = [.myWork] } },
                     onReviews: { if !isOnReviews { path = [.reviews] } },
                     onCompose: {
@@ -526,7 +524,7 @@ struct MainNavigator: View {
     // MARK: - Tab bar
 
     /// The bar floats only over the top-level surfaces (Issues root, Devices,
-    /// Actions (via More), Inbox, Reviews, pushed board lists); detail and settings
+    /// Actions, Inbox, Reviews, pushed board lists); detail and settings
     /// screens — Search among them since EXP-686 — get the full height back.
     private var showsTabBar: Bool {
         guard let top = path.last else { return true }
@@ -538,10 +536,12 @@ struct MainNavigator: View {
         }
     }
 
-    /// EXP-1105: the active team's synced `teams.yolo_mode` flag. PRs
-    /// auto-merge there, so Reviews has nothing routine to show.
+    /// EXP-1105: the synced `teams.yolo_mode` flag. PRs auto-merge there,
+    /// so Reviews has nothing routine to show. EXP-1186: Reviews is
+    /// cross-team, so only EVERY member team in yolo mode counts (no team
+    /// synced yet keeps the tab, as before).
     private var yoloMode: Bool {
-        teamState.activeTeam?.yoloMode == true
+        !teamState.teams.isEmpty && teamState.teams.allSatisfy(\.yoloMode)
     }
 
     /// Reviews hides in yolo mode EXCEPT while a PR is open: there, an open
@@ -550,19 +550,19 @@ struct MainNavigator: View {
         !yoloMode || reviewsOpen
     }
 
-    /// Any open PR in the ACTIVE team lights the Reviews tab's green dot
-    /// (EXP-214) — the same open-PR set the Reviews screen lists, scoped
-    /// through the already-observed boards.
+    /// Any open PR in ANY member team lights the Reviews tab's green dot
+    /// (EXP-214; EXP-1186: cross-team) — the same open-PR set the Reviews
+    /// screen lists, scoped through the already-observed boards.
     private var reviewsOpen: Bool {
-        guard let teamId = teamState.activeTeamId else { return false }
+        let teamIds = Set(teamState.teams.map(\.id))
         let teamBoardIds = Set(
-            teamState.boards.filter { $0.teamId == teamId }.map(\.id)
+            teamState.boards.filter { teamIds.contains($0.teamId) }.map(\.id)
         )
         if observedOpenPrIssues.contains(where: { teamBoardIds.contains($0.boardId) }) {
             return true
         }
         // EXP-734: a run's own chore PR belongs to the team, not a board.
-        return observedOpenPrSessions.contains { $0.teamId == teamId && $0.hasOpenPr }
+        return observedOpenPrSessions.contains { teamIds.contains($0.teamId) && $0.hasOpenPr }
     }
 
     private var isOnMyWork: Bool {
@@ -897,18 +897,15 @@ struct MainNavigator: View {
         ]
     }
 
-    /// The Agents tab's dots, from the cached own sessions: live in the ACTIVE
-    /// team only — the surface they point at is team-scoped (web parity,
-    /// `useAgentsRunningCount`), so a run of the caller's in another team must
-    /// not light a dot over a screen that shows nothing, no more than a
-    /// teammate's may. Heartbeat-stale rows don't light it either (EXP-153).
-    /// Re-run on every session emission, on the liveness tick, and whenever the
-    /// active team changes.
+    /// The Agents tab's dots, from the cached own sessions: live in ANY
+    /// member team (EXP-1186) — the Agent page lists every team's runs now,
+    /// so the dot counts what it shows; a teammate's run never lights it.
+    /// Heartbeat-stale rows don't light it either (EXP-153). Re-run on every
+    /// session emission, on the liveness tick, and whenever the active team
+    /// changes.
     private func recomputeAgentDots() {
         let mine = observedSessions.filter {
-            CodingSessionOwnership.isOwn(
-                $0, userId: deps.auth.userId, teamId: teamState.activeTeamId
-            )
+            CodingSessionOwnership.isOwn($0, userId: deps.auth.userId)
         }
         agentsRunning = mine.contains { CodingSessionLiveness.isLive($0) }
         // EXP-1184: the display rule — needs input wins on every live status
@@ -918,10 +915,9 @@ struct MainNavigator: View {
             CodingSessionLiveness.isLive($0)
                 && CodingSessionDisplayState.of(session: $0, prState: nil) == .needsInput
         }
-        // EXP-1075: the same live/own rule WITHOUT the active-team narrowing —
-        // the board switcher's dot is exactly the runs this method just refused
-        // to count. `observedSessions` is already own-only; liveByTeam filters
-        // again anyway.
+        // EXP-1075: the same live/own rule per team — the board switcher's
+        // per-team dot. `observedSessions` is already own-only; liveByTeam
+        // filters again anyway.
         teamState.liveRunsByTeam = CodingSessionOwnership.liveByTeam(
             observedSessions, userId: deps.auth.userId
         )

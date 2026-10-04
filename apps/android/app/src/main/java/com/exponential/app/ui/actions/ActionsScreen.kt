@@ -50,6 +50,8 @@ import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSegmentedControl
 import com.exponential.app.ui.components.SectionHeader
+import com.exponential.app.ui.components.TeamSectionHeader
+import com.exponential.app.ui.components.teamBands
 import com.exponential.app.ui.components.actionGlyph
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.GlassTokens
@@ -57,7 +59,8 @@ import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
 import com.exponential.app.ui.theme.glassRow
 
-// The Actions screen (EXP-253): the selected team's action prompts, each with
+// The Actions screen (EXP-253): every member team's action prompts (EXP-1186),
+// banded per team once there are several, each with
 // a Run affordance. EXP-825: Run NAVIGATES to the Agent page composer with the
 // action preselected (the ONE launcher — typed inputs, free text and the
 // agent/model/device options live there), the "Actions" header's "New action"
@@ -92,6 +95,20 @@ fun ActionsScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val selectedTeamId by viewModel.selectedTeamId.collectAsStateWithLifecycle()
     val triggerDevices by viewModel.triggerDevices.collectAsStateWithLifecycle()
+    // EXP-1186: cross-team — one band per team once there are several.
+    val teams by viewModel.teams.collectAsStateWithLifecycle()
+    val multiTeam = teams.size > 1
+    val newActionPill: @Composable () -> Unit = {
+        GlassPill(
+            "New action",
+            icon = ExpIcons.actionCreate,
+            enabled = selectedTeamId != null,
+            onClick = {
+                onOpenAgent(AgentComposerSeed(actionId = DomainContract.builtinCreateActionId))
+            },
+            modifier = Modifier.testTag("new-action"),
+        )
+    }
 
     var segment by rememberSaveable { mutableStateOf(SEGMENT_ACTIONS) }
 
@@ -99,12 +116,22 @@ fun ActionsScreen(
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             // The root screens' header (AgentsScreen / SearchScreen parity):
             // a plain large title, no back button — this is a tab now.
-            Text(
-                "Actions",
-                style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
-            )
+            // EXP-1186: with several teams the rows sit under TEAM bands, so
+            // "New action" (the selected team's) moves up beside the title.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Actions",
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                if (multiTeam && segment != SEGMENT_SUGGESTIONS) newActionPill()
+            }
             GlassSegmentedControl(
                 options = listOf(SEGMENT_ACTIONS, SEGMENT_SUGGESTIONS),
                 selected = if (segment == SEGMENT_SUGGESTIONS) SEGMENT_SUGGESTIONS else SEGMENT_ACTIONS,
@@ -158,35 +185,31 @@ fun ActionsScreen(
                             // EXP-574 (web parity): the "Actions" header with
                             // the "New action" entry (EXP-431) as its trailing
                             // control.
-                            item(key = "__actions_header__") {
-                                SectionHeader(title = "Actions") {
-                                    GlassPill(
-                                        "New action",
-                                        icon = ExpIcons.actionCreate,
-                                        enabled = selectedTeamId != null,
-                                        onClick = {
-                                            onOpenAgent(
-                                                AgentComposerSeed(
-                                                    actionId = DomainContract.builtinCreateActionId,
-                                                ),
-                                            )
-                                        },
-                                        modifier = Modifier.testTag("new-action"),
-                                    )
+                            if (!multiTeam) {
+                                item(key = "__actions_header__") {
+                                    SectionHeader(title = "Actions") { newActionPill() }
                                 }
                             }
                             // Server order (sort_order, then name) — since
                             // EXP-686 the list carries no client builtins to
-                            // pin above it.
-                            items(state.actions, key = { it.id }) { action ->
-                                ActionRow(
-                                    action = action,
-                                    onRun = { onOpenAgent(AgentComposerSeed(actionId = action.id)) },
-                                    // SLOP-2: the row (and its menu's Edit)
-                                    // opens the action page, which is
-                                    // read-only for non-owners.
-                                    onOpen = { onOpenAction(action.id) },
-                                )
+                            // pin above it. EXP-1186: one band per team (the
+                            // team avatar + name) with several teams.
+                            teamBands(state.actions, teams) { it.teamId }.forEach { band ->
+                                band.team?.let { team ->
+                                    item(key = "__actions_team_${team.id}__") { TeamSectionHeader(team) }
+                                }
+                                items(band.items, key = { it.id }) { action ->
+                                    ActionRow(
+                                        action = action,
+                                        // EXP-1186: the composer resolves the
+                                        // ACTION's team off the seed.
+                                        onRun = { onOpenAgent(AgentComposerSeed(actionId = action.id)) },
+                                        // SLOP-2: the row (and its menu's Edit)
+                                        // opens the action page, which is
+                                        // read-only for non-owners.
+                                        onOpen = { onOpenAction(action.id) },
+                                    )
+                                }
                             }
                         }
                     }

@@ -170,7 +170,7 @@ export function TeamSidebar({
   const openNewDraft = useOpenNewDraft(teamSlug)
   // SLOP-5: the More entry reads active while one of its destinations
   // (Actions, Drafts) is up.
-  const moreActive = useMoreActive({ settings: false })
+  const moreActive = useMoreActive()
   const showsReviews = useShowsReviews(team ?? undefined, boards)
   // The guarded /t/$teamSlug layout is the only render site, so a session is
   // guaranteed — the reactive useSession store may still be pending on cold
@@ -436,14 +436,13 @@ export function TeamSidebar({
                           </SidebarMenuItem>
                           {/* SLOP-5: More — Actions (authoring) and the
                               Drafts pile (EXP-878, while any) behind one
-                              entry. The same rows on desktop, iOS and
-                              Android. */}
+                              entry, as on desktop. Phones have none
+                              (EXP-1187). */}
                           <SidebarMenuItem>
                             <MoreMenu
                               teamSlug={teamSlug}
                               teamId={team?.id}
                               drafts
-                              settings={false}
                               side="right"
                             >
                               <SidebarMenuButton

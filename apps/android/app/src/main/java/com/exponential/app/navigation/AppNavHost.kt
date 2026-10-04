@@ -375,7 +375,8 @@ private fun AuthenticatedNav(
     val barShown = barVisible && !barSuppression.suppressed
 
     // EXP-1105: yolo mode hides the Reviews tab unless a PR is open (in yolo
-    // mode an open PR = a failed auto-merge, which must still surface). If it
+    // mode an open PR = a failed auto-merge, which must still surface).
+    // EXP-1186: both flags span every member team (`yoloMode` = ALL yolo). If it
     // flips off while the Reviews surface is up, drop it from the stack
     // instead of stranding a tab-less screen — and pop ONLY on a true→false
     // TRANSITION of the flag (iOS AppNavigator's `.onChange` parity, REV2-2):
@@ -839,7 +840,7 @@ private fun AuthenticatedNav(
         BottomNavBar(
             issuesActive = currentRoute == "home",
             devicesActive = currentRoute == "agents",
-            moreActive = currentRoute == "actions",
+            actionsActive = currentRoute == "actions",
             personalActive = currentRoute == "personal",
             reviewsActive = currentRoute == "reviews",
             unreadCount = unreadCount,
@@ -861,9 +862,8 @@ private fun AuthenticatedNav(
                     }
                 }
             },
-            // SLOP-5: both rows of the More menu. Actions is a bar-visible
-            // top-level route; Settings pushes bar-less, like the Issues
-            // header's gear.
+            // EXP-1187: Actions is a top-level tab (the More menu is gone;
+            // Settings = the Issues header's gear).
             onActions = {
                 if (currentRoute != "actions") {
                     navController.navigate("actions") {
@@ -872,7 +872,6 @@ private fun AuthenticatedNav(
                     }
                 }
             },
-            onSettings = { navController.navigate("settings") },
             onPersonal = {
                 if (currentRoute != "personal") {
                     navController.navigate("personal") {

@@ -2,9 +2,10 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-/// "Reviews" (EXP-131): the active team's open PRs awaiting review, one row
-/// per distinct PR (a batch coding run's issues collapse into a single row),
-/// grouped by board. Its own bottom-bar destination beside My Work (EXP-147 —
+/// "Reviews" (EXP-131): the open PRs awaiting review across EVERY member team
+/// (EXP-1186, cross-team like the Inbox), one row per distinct PR (a batch
+/// coding run's issues collapse into a single row), grouped by board — the
+/// board header names its team, quietly, once the caller is in several. Its own bottom-bar destination beside My Work (EXP-147 —
 /// it used to be a My Work segment).
 struct ReviewsView: View {
     var body: some View {
@@ -51,10 +52,11 @@ struct ReviewsListContent: View {
     @State private var steerEnabled = false
 
     var body: some View {
-        let groups = viewModel?.groups(teamId: teamState.activeTeam?.id) ?? []
+        let groups = viewModel?.groups(teams: teamState.teams) ?? []
         // EXP-734: agent runs parking their OWN pull request belong to no
-        // board, so they get their own section after the board groups.
-        let runs = viewModel?.runEntries(teamId: teamState.activeTeam?.id) ?? []
+        // board, so they get their own section after the board groups —
+        // one per team (EXP-1186).
+        let runs = viewModel?.runEntries(teams: teamState.teams) ?? []
         Group {
             if viewModel == nil {
                 Color.clear
@@ -163,8 +165,11 @@ struct ReviewsListContent: View {
     @ViewBuilder
     private func reviewList(
         _ groups: [ReviewGroup],
-        runs: [RunReviewEntry]
+        runs: [TeamGroups.Group<RunReviewEntry>]
     ) -> some View {
+        // EXP-1186: the team name rides the headers only when there is more
+        // than one team to tell apart.
+        let multiTeam = TeamGroups.isMultiTeam(teamState.teams)
         List {
             ForEach(groups) { group in
                 Section {
@@ -175,24 +180,32 @@ struct ReviewsListContent: View {
                             .listRowInsets(EdgeInsets(top: 1.5, leading: 16, bottom: 1.5, trailing: 16))
                     }
                 } header: {
-                    boardHeader(board: group.board, count: group.entries.count)
+                    boardHeader(
+                        board: group.board,
+                        teamName: multiTeam ? group.team.name : nil,
+                        count: group.entries.count
+                    )
                         .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 2, trailing: 16))
                         .listRowBackground(Color.clear)
                 }
             }
 
             // EXP-734: the runs' own pull requests, last — they belong to no
-            // board, so they cannot ride a board section.
-            if !runs.isEmpty {
+            // board, so they cannot ride a board section. EXP-1186: one
+            // section per team.
+            ForEach(runs) { group in
                 Section {
-                    ForEach(runs) { entry in
+                    ForEach(group.items) { entry in
                         runEntryRow(entry)
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
                             .listRowInsets(EdgeInsets(top: 1.5, leading: 16, bottom: 1.5, trailing: 16))
                     }
                 } header: {
-                    runsHeader(count: runs.count)
+                    runsHeader(
+                        teamName: multiTeam ? group.team.name : nil,
+                        count: group.items.count
+                    )
                         .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 2, trailing: 16))
                         .listRowBackground(Color.clear)
                 }
@@ -210,7 +223,7 @@ struct ReviewsListContent: View {
     }
 
     @ViewBuilder
-    private func boardHeader(board: BoardEntity, count: Int) -> some View {
+    private func boardHeader(board: BoardEntity, teamName: String?, count: Int) -> some View {
         HStack(spacing: 8) {
             // Board glyph tinted with the board color — same idiom as the
             // board switcher sheet, scaled down for a section header (EXP-449).
@@ -220,6 +233,9 @@ struct ReviewsListContent: View {
             Text(board.name)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .lineLimit(1)
+
+            teamCaption(teamName)
 
             Text("\(count)")
                 .font(.caption)
@@ -235,7 +251,7 @@ struct ReviewsListContent: View {
     /// EXP-734: the "Agent runs" section header — same shape as a board
     /// header, with the Actions glyph instead of a board's.
     @ViewBuilder
-    private func runsHeader(count: Int) -> some View {
+    private func runsHeader(teamName: String?, count: Int) -> some View {
         HStack(spacing: 8) {
             AppIcon(AppIcons.navActions, size: 13)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
@@ -243,6 +259,8 @@ struct ReviewsListContent: View {
             Text("Agent runs")
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
+
+            teamCaption(teamName)
 
             Text("\(count)")
                 .font(.caption)
@@ -253,6 +271,18 @@ struct ReviewsListContent: View {
         .padding(.vertical, 6)
         .padding(.horizontal, 8)
         .textCase(nil)
+    }
+
+    /// EXP-1186: the header's quiet team name — muted secondary text after
+    /// the board (or "Agent runs"), only when the caller is in several teams.
+    @ViewBuilder
+    private func teamCaption(_ teamName: String?) -> some View {
+        if let teamName {
+            Text(teamName)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .lineLimit(1)
+        }
     }
 
     /// EXP-734: one agent run's own pull request. There is no issue and no
@@ -589,9 +619,11 @@ struct ReviewsListContent: View {
     private func fixConflicts(_ entry: ReviewEntry) {
         pushRoute(.agent(
             accountId: accountId,
+            // EXP-1186: on the PR's OWN team — Reviews is cross-team.
             seed: AgentComposerSeed(
                 actionId: DomainContract.builtinFixConflictsId,
-                prIssueId: entry.representative.id
+                prIssueId: entry.representative.id,
+                teamId: viewModel?.teamId(of: entry)
             )
         ))
     }

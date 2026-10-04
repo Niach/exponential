@@ -463,19 +463,11 @@ final class StyleguideScreenshots: XCTestCase {
         _ = deviceSheet.waitForNonExistence(timeout: 10)
         settle(1)
 
-        // ── sg_more: the More menu (SLOP-5) — the one advanced entry ─────────
-        // Actions and Settings on the glass menu surface, opened off the bar's
-        // last tab. Photographed open, then its Actions row leads on.
-        let moreBarTab = app.buttons["tab-more"]
-        XCTAssertTrue(moreBarTab.waitForExistence(timeout: 15), "More tab missing")
-        moreBarTab.tap()
-        let moreActionsRow = app.buttons["menu-actions"]
-        XCTAssertTrue(moreActionsRow.waitForExistence(timeout: 15), "More menu's Actions row missing")
-        snapshot("sg_more", settle: 1)
-
-        // ── The Actions surface: five shots off one menu row ─────────────────
-        // SLOP-5: Actions is reached through More.
-        moreActionsRow.tap()
+        // ── The Actions surface: five shots off one tab ──────────────────────
+        // EXP-1187: Actions is a tab of its own (the More menu is gone).
+        let actionsBarTab = app.buttons["tab-actions"]
+        XCTAssertTrue(actionsBarTab.waitForExistence(timeout: 15), "Actions tab missing")
+        actionsBarTab.tap()
         XCTAssertTrue(
             app.navigationBars["Actions"].waitForExistence(timeout: 30),
             "Actions surface never appeared"

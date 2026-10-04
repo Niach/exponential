@@ -6,6 +6,7 @@ import {
 } from "@/components/team-actions-panel"
 import { useIsMobile } from "@exp/ui"
 import { useTeamBySlug } from "@/hooks/use-team-data"
+import { useCrossTeamScope } from "@/hooks/use-cross-team-scope"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { pageTitle } from "@/lib/page-title"
 
@@ -48,6 +49,9 @@ function ActionsPage() {
   const navigate = useNavigate()
   const team = useTeamBySlug(teamSlug)
   const isMobile = useIsMobile()
+  // EXP-1186: the phone lists every member team's actions, one band per
+  // team; md+ = the active team.
+  const scope = useCrossTeamScope(team)
 
   useEffect(() => {
     if (!editAction) return
@@ -66,6 +70,8 @@ function ActionsPage() {
         {team ? (
           <TeamActionsPanel
             team={team}
+            teams={scope.teams}
+            grouped={scope.grouped}
             view={isMobile ? `tabs` : `actions`}
             tab={tab ?? `actions`}
             onTabChange={(next) =>

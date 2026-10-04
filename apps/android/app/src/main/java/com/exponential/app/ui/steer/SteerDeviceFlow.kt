@@ -30,6 +30,8 @@ fun steerDeviceFlow(
     dbFlow: Flow<ExponentialDatabase?>,
     teamIdFlow: Flow<String?>,
     userIdFlow: Flow<String?>,
+    /** EXP-1186: the Devices page — servers shared with ANY member team. */
+    allTeams: Boolean = false,
 ): Flow<List<SteerDevice>?> = combine(
     dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() },
     dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeAll() },
@@ -40,7 +42,7 @@ fun steerDeviceFlow(
     if (snapshotLive != true && rows.isEmpty()) {
         null
     } else {
-        composeDeviceList(rows, users, teamId, userId, now)
+        composeDeviceList(rows, users, teamId, userId, now, allTeams)
     }
 }
 

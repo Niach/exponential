@@ -140,13 +140,17 @@ export function useRemoteStart(
     currentUserId?: string
     /** EXP-432: also list teammates' server devices shared with this team. */
     teamId?: string
+    /** EXP-1186: list servers shared into ANY of these teams instead (the
+     *  phone's Devices tab, cross-team); `teamId` still keys the starts. */
+    listTeamIds?: readonly string[]
     /** EXP-870: where the started run OPENS. The key PRESENT (even as `null`
      * = context-free, a pinned row's start) is the caller's answer, handed to
      * `useOpenSession` verbatim; absent = derive it from the URL. */
     origin?: DetailOrigin | null
   } = {}
 ): RemoteStart {
-  const { enabled = true, currentUserId, teamId } = options
+  const { enabled = true, currentUserId, teamId, listTeamIds } = options
+  const listKey = listTeamIds?.join(`,`)
   const hasOrigin = `origin` in options
   const origin = options.origin ?? null
   const openOptions = useMemo(
@@ -189,9 +193,11 @@ export function useRemoteStart(
       usersById,
       now,
       currentUserId,
-      teamId
+      listTeamIds && listTeamIds.length > 0 ? listTeamIds : teamId
     )
-  }, [enabled, currentUserId, deviceRows, userRows, now, teamId])
+    // `listKey` stands for `listTeamIds` (a fresh array per render).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, currentUserId, deviceRows, userRows, now, teamId, listKey])
 
   // `latestVersions` is instance config, not a shape column — one fetch per
   // mount (sync owns the device rows).

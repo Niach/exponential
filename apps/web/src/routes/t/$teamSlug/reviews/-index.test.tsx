@@ -32,7 +32,14 @@ vi.mock(`@/hooks/use-team-permissions`, () => ({
   useTeamPermissions: () => ({ isMember: true }),
 }))
 vi.mock(`@/hooks/use-open-composer`, () => ({
-  useOpenComposer: () => vi.fn(),
+  useOpenComposerInTeam: () => vi.fn(),
+}))
+vi.mock(`@/hooks/use-cross-team-scope`, () => ({
+  useCrossTeamScope: (team: { id: string }) => ({
+    teams: [team],
+    teamIds: [team.id],
+    grouped: false,
+  }),
 }))
 vi.mock(`@/components/agent-session`, () => ({
   useSteerConfig: () => ({ enabled: true }),
@@ -78,6 +85,7 @@ beforeEach(() => {
   mocks.reviews.current = {
     groups: [{ board: { id: `b1`, name: `App` }, entries }],
     sessionEntries: [],
+    sessionGroups: [],
     externalGroups: [],
     count: entries.length,
     isLoading: false,

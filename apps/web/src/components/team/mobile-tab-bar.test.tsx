@@ -47,9 +47,28 @@ vi.mock(`@/hooks/use-unread-notifications`, () => ({
 const openPrs = { current: 0 }
 vi.mock(`@/hooks/use-nav-counts`, () => ({
   useReviewsOpenPrCount: () => openPrs.current,
-  // Mirrors the real hook: yolo mode hides Reviews unless a PR is open.
-  useShowsReviews: (t?: Team) => t?.yoloMode !== true || openPrs.current > 0,
+  // Mirrors the real hook: yolo mode hides Reviews unless a PR is open in
+  // ANY member team (EXP-1186).
+  useShowsReviewsAcrossTeams: (teams: Team[]) =>
+    teams.some((t) => t.yoloMode !== true) || openPrs.current > 0,
   useAgentsRunningCount: () => ({ count: 0, needsInput: false }),
+}))
+// EXP-1186: the bar's cross-team scope — the member teams the test sets.
+const memberTeams = vi.hoisted(() => ({ value: null as unknown[] | null }))
+vi.mock(`@/hooks/use-cross-team-scope`, () => ({
+  useCrossTeamScope: (active: { id: string } | null) => {
+    const teams = (memberTeams.value ?? (active ? [active] : [])) as {
+      id: string
+    }[]
+    return {
+      teams,
+      teamIds: teams.map((t) => t.id).sort(),
+      grouped: teams.length > 1,
+    }
+  },
+}))
+vi.mock(`@/hooks/use-team-data`, () => ({
+  useBoardsForTeams: () => ({ boards: [], boardsReady: true }),
 }))
 
 import { MobileTabBar } from "@/components/team/mobile-tab-bar"
@@ -134,6 +153,7 @@ describe(`MobileTabBar Reviews in yolo mode (EXP-1105)`, () => {
   beforeEach(() => {
     route.value = ``
     openPrs.current = 0
+    memberTeams.value = null
   })
 
   const reviewsTab = () => screen.queryByLabelText(`Reviews`)
@@ -152,5 +172,57 @@ describe(`MobileTabBar Reviews in yolo mode (EXP-1105)`, () => {
     openPrs.current = 1
     renderBar(boards, { ...team, yoloMode: true })
     expect(reviewsTab()).toBeTruthy()
+  })
+
+  // EXP-1186: the phone's Reviews is cross-team — one non-yolo member team
+  // keeps the tab even while the active one is in yolo mode.
+  it(`keeps Reviews while another member team is not in yolo mode`, () => {
+    const yolo = { ...team, yoloMode: true }
+    memberTeams.value = [yolo, { id: `t2`, name: `Beta`, yoloMode: false }]
+    renderBar(boards, yolo)
+    expect(reviewsTab()).toBeTruthy()
+  })
+})
+
+// EXP-1187: no More on the phone — Actions is a tab of its own, Settings
+// lives in the topbar's avatar menu (×3 with iOS and Android).
+describe(`MobileTabBar tabs (EXP-1187)`, () => {
+  beforeEach(() => {
+    route.value = ``
+    openPrs.current = 0
+    memberTeams.value = null
+  })
+
+  it(`draws Issues · Inbox · Devices · Reviews · Actions and no More`, () => {
+    renderBar()
+    const nav = screen.getByRole(`navigation`, { name: `Primary` })
+    const labels = [...nav.querySelectorAll(`a, button`)].map((el) =>
+      el.getAttribute(`aria-label`)
+    )
+    expect(labels).toEqual([`Issues`, `Inbox`, `Devices`, `Reviews`, `Actions`])
+    expect(screen.queryByTestId(`nav-more`)).toBeNull()
+    expect(screen.queryByLabelText(`More`)).toBeNull()
+    expect(screen.queryByLabelText(`Settings`)).toBeNull()
+  })
+
+  it(`links the Actions tab to the team's actions`, () => {
+    renderBar()
+    const tab = screen.getByTestId(`tab-actions`)
+    expect(tab.getAttribute(`href`)).toBe(`/t/$teamSlug/actions`)
+    expect(tab.getAttribute(`aria-label`)).toBe(`Actions`)
+  })
+
+  it(`lights the Actions tab on the actions routes only`, () => {
+    route.value = `/t/$teamSlug/actions`
+    const view = renderBar()
+    expect(screen.getByTestId(`tab-actions`).className).toContain(
+      `bg-glass-active`
+    )
+    view.unmount()
+    route.value = `/t/$teamSlug/devices`
+    renderBar()
+    expect(screen.getByTestId(`tab-actions`).className).not.toContain(
+      `bg-glass-active`
+    )
   })
 })

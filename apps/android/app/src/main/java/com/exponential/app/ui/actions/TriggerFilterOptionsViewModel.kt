@@ -1,8 +1,10 @@
 package com.exponential.app.ui.actions
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
+import com.exponential.app.data.routeTeamIdFlow
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueStatusEntity
@@ -39,6 +41,7 @@ import kotlinx.coroutines.flow.stateIn
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class TriggerFilterOptionsViewModel @Inject constructor(
+    savedStateHandle: SavedStateHandle,
     auth: AuthRepository,
     holder: DatabaseHolder,
     selection: TeamSelection,
@@ -47,10 +50,14 @@ class TriggerFilterOptionsViewModel @Inject constructor(
     // Reactive account scoping (no constructor-time DB snapshot).
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
+    // EXP-1186: the ACTION's team (the action page's `actionId` route arg),
+    // never the selection — the Actions list is cross-team.
+    private val teamId = routeTeamIdFlow(dbFlow, savedStateHandle, selection.selectedId)
+
     /** Live, team-scoped labels — the `label_added` filter's rows. */
     val labels: StateFlow<List<LabelPickerLabel>> = combine(
         dbFlow.scopedQuery(emptyList<LabelEntity>()) { it.labelDao().observeAll() },
-        selection.selectedId,
+        teamId,
     ) { rows, teamId ->
         if (teamId == null) {
             emptyList()
@@ -69,7 +76,7 @@ class TriggerFilterOptionsViewModel @Inject constructor(
      */
     val statuses: StateFlow<List<StatusPickerStatus>> = combine(
         dbFlow,
-        selection.selectedId,
+        teamId,
     ) { db, teamId -> db to teamId }
         .flatMapLatest { (db, teamId) ->
             if (db == null || teamId == null) {

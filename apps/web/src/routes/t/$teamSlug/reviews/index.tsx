@@ -18,7 +18,8 @@ import {
   BoardGlyph,
 } from "@exp/ui"
 import { useSteerConfig } from "@/components/agent-session"
-import { useOpenComposer } from "@/hooks/use-open-composer"
+import { useOpenComposerInTeam } from "@/hooks/use-open-composer"
+import { useCrossTeamScope } from "@/hooks/use-cross-team-scope"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import {
   useReviewsData,
@@ -99,16 +100,31 @@ function ReviewsPage() {
   const { teamSlug } = Route.useParams()
   const navigate = useNavigate()
   const team = useTeamBySlug(teamSlug)
+  // EXP-1186: the phone's Reviews reads EVERY member team, like the inbox;
+  // with more than one, each band names its team. md+ = the active team.
+  const scope = useCrossTeamScope(team)
   const {
     groups,
     sessionEntries,
+    sessionGroups,
     externalGroups,
     count,
     isLoading,
     externalLoading,
     removeExternalPull,
     openIssues,
-  } = useReviewsData(team)
+  } = useReviewsData(team, scope.teams)
+  const teamById = useMemo(
+    () => new Map(scope.teams.map((row) => [row.id, row])),
+    [scope.teams]
+  )
+  // A band's quiet team caption — only while the list spans several teams.
+  const teamCaption = (teamId: string | undefined) => {
+    const name = scope.grouped && teamId ? teamById.get(teamId)?.name : undefined
+    return name ? (
+      <span className="truncate text-xs text-muted-foreground">{name}</span>
+    ) : undefined
+  }
 
   // The entry whose confirm dialog is open, and the entries with an in-flight
   // merge (keyed by entry.key). A successful merge keeps its spinner until the
@@ -189,18 +205,20 @@ function ReviewsPage() {
   const steerEnabled = Boolean(isMember && steerConfig?.enabled)
   // EXP-825: "Fix conflicts" is a navigation to the Agent page composer with
   // the builtin picked and this PR pre-filled (the launch dialog is gone).
-  const openComposer = useOpenComposer()
-  const openFixConflicts = (entry: ReviewEntry) =>
-    openComposer({
+  // EXP-1186: in the PR's OWN team.
+  const openComposerInTeam = useOpenComposerInTeam()
+  const openFixConflicts = (entry: ReviewEntry, rowTeamSlug: string) =>
+    openComposerInTeam(rowTeamSlug, {
       actionId: BUILTIN_FIX_CONFLICTS_ID,
       prIssueId: entry.issue.id,
     })
   // The row opens the review-detail page (PR/branch diff + Merge/Close), not the
   // issue itself — a batch entry's representative identifier stands for the PR.
-  const openReview = (issueIdentifier: string) => {
+  // EXP-1186: under the row's OWN team's slug (the inbox rule).
+  const openReview = (issueIdentifier: string, rowTeamSlug: string) => {
     void navigate({
       to: `/t/$teamSlug/reviews/$issueIdentifier`,
-      params: { teamSlug, issueIdentifier },
+      params: { teamSlug: rowTeamSlug, issueIdentifier },
       // EXP-851: the queue stays in the sidebar beside the review.
       search: { from: `reviews` },
     })
@@ -384,18 +402,25 @@ function ReviewsPage() {
             <EmptyState
               icon={PrOpenIcon}
               title="No open pull requests"
-              description="Open pull requests in this team's repositories land here for review."
+              description={
+                scope.teams.length > 1
+                  ? `Open pull requests in your teams' repositories land here for review.`
+                  : `Open pull requests in this team's repositories land here for review.`
+              }
             />
           )
         ) : (
           <>
-            {groups.map((group) => (
+            {groups.map((group) => {
+              const rowTeam = group.team ?? team
+              return (
               <div key={group.board.id} className="mb-6">
                 <GlassSectionHeader
                   leading={
                     <BoardGlyph board={group.board} className="size-3.5" />
                   }
                   label={group.board.name}
+                  trailing={teamCaption(group.board.teamId)}
                 />
 
                 <div className="flex flex-col gap-0">
@@ -418,7 +443,9 @@ function ReviewsPage() {
                         key={entry.key}
                         issue={issue}
                         issues={entry.issues}
-                        onOpen={() => openReview(issue.identifier)}
+                        onOpen={() =>
+                          openReview(issue.identifier, rowTeam.slug)
+                        }
                         /* A PR linking several issues wears the batch glyph;
                             the overlay on it lists the issues it closes
                             (EXP-897 Part 4). EXP-916: the lead cell is ALWAYS
@@ -427,8 +454,8 @@ function ReviewsPage() {
                         lead={
                           isBatch ? (
                             <PrGraphBadge
-                              teamId={team.id}
-                              teamSlug={teamSlug}
+                              teamId={rowTeam.id}
+                              teamSlug={rowTeam.slug}
                               issue={issue}
                               variant="glyph"
                               fallback={
@@ -452,7 +479,7 @@ function ReviewsPage() {
                               mode="action"
                               onClick={(e) => {
                                 e.stopPropagation()
-                                openFixConflicts(entry)
+                                openFixConflicts(entry, rowTeam.slug)
                               }}
                             >
                               <BranchIcon className="h-3.5 w-3.5" />
@@ -516,27 +543,31 @@ function ReviewsPage() {
                   })}
                 </div>
               </div>
-            ))}
+              )
+            })}
 
             {/* EXP-734: pull requests a coding run opened for itself — an
                 action or chat run with no linked issue. They merge through
                 the run, not an issue, so they group on their own. */}
-            {sessionEntries.length > 0 && (
-              <div className="mb-6">
+            {/* EXP-1186: one band per team (a single team = one band). */}
+            {sessionEntries.length > 0 && sessionGroups.map((sessionGroup) => (
+              <div key={sessionGroup.team?.id ?? `runs`} className="mb-6">
                 <GlassSectionHeader
                   leading={
                     <PrOpenIcon className="h-2.5 w-2.5 shrink-0 text-foreground/50" />
                   }
                   label="Agent runs"
                   trailing={
-                    <span className="text-xs text-foreground/50">
-                      opened by a coding run
-                    </span>
+                    teamCaption(sessionGroup.team?.id) ?? (
+                      <span className="text-xs text-foreground/50">
+                        opened by a coding run
+                      </span>
+                    )
                   }
                 />
 
                 <div className="flex flex-col gap-0">
-                  {sessionEntries.map((entry) => {
+                  {sessionGroup.entries.map((entry) => {
                     const session = entry.session
                     const merging = mergingIds.has(entry.key)
                     const mergeError = mergeErrors[entry.key]
@@ -604,17 +635,19 @@ function ReviewsPage() {
                   })}
                 </div>
               </div>
-            )}
+            ))}
 
             {externalGroups.map((group) => (
-              <div key={group.repositoryId} className="mb-6">
+              <div key={`${group.teamId}:${group.repositoryId}`} className="mb-6">
                 <GlassSectionHeader
                   leading={
                     <PrOpenIcon className="h-2.5 w-2.5 shrink-0 text-foreground/50" />
                   }
                   label={group.fullName}
                   trailing={
-                    <span className="text-xs text-foreground/50">not linked to an issue</span>
+                    teamCaption(group.teamId) ?? (
+                      <span className="text-xs text-foreground/50">not linked to an issue</span>
+                    )
                   }
                 />
 

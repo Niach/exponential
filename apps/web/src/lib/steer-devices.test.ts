@@ -406,6 +406,33 @@ describe(`composeDeviceList`, () => {
     expect(list[2]?.owner).toEqual({ id: `them`, name: `Tessa` })
   })
 
+  it(`EXP-1186: lists servers shared into ANY of several teams, once`, () => {
+    const rows = [
+      deviceRow({
+        id: `r-both`,
+        deviceId: `d-both`,
+        userId: `them`,
+        label: `both`,
+        sharedTeamIds: [`team-1`, `team-2`],
+      }),
+      deviceRow({
+        id: `r-two`,
+        deviceId: `d-two`,
+        userId: `them`,
+        label: `two`,
+        sharedTeamIds: [`team-2`],
+      }),
+      deviceRow({
+        id: `r-three`,
+        deviceId: `d-three`,
+        userId: `them`,
+        sharedTeamIds: [`team-3`],
+      }),
+    ]
+    const list = composeDeviceList(rows, users, NOW, `me`, [`team-1`, `team-2`])
+    expect(list.map((d) => d.deviceId)).toEqual([`d-both`, `d-two`])
+  })
+
   it(`EXP-623: online rows sort by label so heartbeats can't reorder them`, () => {
     const rows = [
       deviceRow({

@@ -3,10 +3,9 @@ import SwiftUI
 
 /// Linear-style floating bottom navigation: a glass pill with the top-level
 /// destinations (Issues, Inbox — with an unread dot — Devices — the
-/// machines surface — Reviews — its own entry per EXP-147 — and More —
-/// SLOP-5: the ONE advanced entry ×4, a glass menu holding Actions and
-/// Settings; base order per EXP-81; the Support tab left with the helpdesk,
-/// gone in SLOP-4) plus a detached launcher on
+/// machines surface — Reviews — its own entry per EXP-147 — and Actions —
+/// EXP-1187: a top-level tab ×3, the More menu is gone; Settings stays the
+/// Issues header's gear; base order per EXP-81) plus a detached launcher on
 /// the right: the SPLIT capsule (chat | new issue), on every bar-visible
 /// route since EXP-973 — the chat arm opens the Agent page (the sessions list
 /// lives there since EXP-825, so it wears the running-session dot the Devices
@@ -19,8 +18,8 @@ import SwiftUI
 struct MobileTabBar: View {
     let issuesActive: Bool
     let devicesActive: Bool
-    /// SLOP-5: lit while one of More's destinations (Actions) is up.
-    let moreActive: Bool
+    /// EXP-1187: lit while the Actions list (or an action) is up.
+    let actionsActive: Bool
     let myWorkActive: Bool
     let reviewsActive: Bool
     let unreadCount: Int
@@ -37,11 +36,7 @@ struct MobileTabBar: View {
     let composeEnabled: Bool
     let onIssues: () -> Void
     let onDevices: () -> Void
-    /// More → Actions.
     let onActions: () -> Void
-    /// More → Settings (the phone has no footer gear, so More is its
-    /// "More / settings" entry).
-    let onSettings: () -> Void
     let onMyWork: () -> Void
     let onReviews: () -> Void
     let onCompose: () -> Void
@@ -63,7 +58,7 @@ struct MobileTabBar: View {
         if myWorkActive { return "mywork" }
         if devicesActive { return "devices" }
         if reviewsActive { return "reviews" }
-        if moreActive { return "more" }
+        if actionsActive { return "actions" }
         return "none"
     }
 
@@ -113,22 +108,16 @@ struct MobileTabBar: View {
                     )
                     .accessibilityIdentifier("tab-reviews")
                 }
-                // SLOP-5: More — the one advanced entry (×4 with the web
-                // sidebar's row, the desktop rail and Android). Actions
-                // (authoring; the composer's action chip runs one) and
-                // Settings on the glass menu surface (the touch density of
-                // the styleguide's menu). Drafts stay the Inbox's third
-                // segment (EXP-878).
-                GlassMenu {
-                    GlassMenuItem("Actions", icon: AppIcons.navActions, action: onActions)
-                        .accessibilityIdentifier("menu-actions")
-                    GlassMenuItem("Settings", icon: AppIcons.navSettings, action: onSettings)
-                        .accessibilityIdentifier("menu-settings")
-                } label: {
-                    tabLabel(glyph: AppIcons.navMore, active: moreActive)
-                }
-                .accessibilityLabel("More")
-                .accessibilityIdentifier("tab-more")
+                // EXP-1187: Actions — a top-level tab ×3 (the More menu is
+                // gone; Settings is the Issues header's gear). Authoring
+                // lives here; the composer's action chip runs one.
+                tab(
+                    glyph: AppIcons.navActions,
+                    label: "Actions",
+                    active: actionsActive,
+                    action: onActions
+                )
+                .accessibilityIdentifier("tab-actions")
             }
             .animation(motion.standard, value: activeKey)
             .padding(MobileTabBarMetrics.pillPadding)
@@ -240,8 +229,7 @@ struct MobileTabBar: View {
     }
 
     /// One tab's ink — the glyph in its slot, the travelling active circle and
-    /// the status dot — without the button, so the More menu's trigger can
-    /// wear exactly what a plain tab wears.
+    /// the status dot — without the button.
     private func tabLabel(
         glyph: String,
         active: Bool,

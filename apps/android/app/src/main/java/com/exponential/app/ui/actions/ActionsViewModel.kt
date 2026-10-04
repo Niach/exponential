@@ -8,6 +8,7 @@ import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.toActionDto
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
+import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.DeviceLiveness
@@ -25,7 +26,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.serialization.json.Json
 
-// The Actions list (EXP-253): the selected team's action prompts LIVE from the
+// The Actions list (EXP-253): EVERY member team's action prompts (EXP-1186,
+// cross-team like the Inbox; the screen bands them per team) LIVE from the
 // synced actions shape (EXP-268 — the local Room flow, body-less by design;
 // no client builtin is listed, EXP-431 / EXP-686). EXP-825: starts left for
 // the Agent page composer. SLOP-2: an action carries its triggers on its own
@@ -53,6 +55,11 @@ class ActionsViewModel @Inject constructor(
     // The selected team, for the screen's "New action" entry point (EXP-431).
     val selectedTeamId: StateFlow<String?> = selection.selectedId
 
+    /** EXP-1186: the member teams (name order) the list bands by. */
+    val teams: StateFlow<List<TeamEntity>> =
+        dbFlow.scopedQuery(emptyList<TeamEntity>()) { it.teamDao().observeAll() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /**
      * The machines a suggestion's trigger can be bound to: every synced device
      * that advertises the `automations` cap, ONLINE OR NOT (a trigger outlives
@@ -74,13 +81,11 @@ class ActionsViewModel @Inject constructor(
     // and "Fix merge conflicts" is launched from Reviews / the start-coding
     // sheet (which builds its own list) — neither poses as a team action here.
     val state: StateFlow<ActionsState> =
-        combine(dbFlow, selection.selectedId) { db, teamId ->
-            db to teamId
-        }.flatMapLatest { (db, teamId) ->
-            if (db == null || teamId == null) {
+        dbFlow.flatMapLatest { db ->
+            if (db == null) {
                 flowOf(ActionsState(loading = false))
             } else {
-                db.actionDao().observeByTeam(teamId).map { rows ->
+                db.actionDao().observeAll().map { rows ->
                     ActionsState(
                         actions = rows.map { it.toActionDto(json) },
                         loading = false,

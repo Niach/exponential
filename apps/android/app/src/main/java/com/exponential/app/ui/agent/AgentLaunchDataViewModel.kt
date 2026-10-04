@@ -1,8 +1,10 @@
 package com.exponential.app.ui.agent
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
+import com.exponential.app.data.routeTeamIdFlow
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.RepositoriesApi
 import com.exponential.app.data.api.TeamRepo
@@ -100,6 +102,7 @@ data class StartPullRequestOption(
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class AgentLaunchDataViewModel @Inject constructor(
+    savedStateHandle: SavedStateHandle,
     auth: AuthRepository,
     holder: DatabaseHolder,
     private val repositoriesApi: RepositoriesApi,
@@ -110,7 +113,16 @@ class AgentLaunchDataViewModel @Inject constructor(
     // Reactive account scoping (no constructor-time DB snapshot).
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
-    private val scope = combine(auth.activeAccountId, selection.selectedId) { accountId, teamId ->
+    /**
+     * EXP-1186: the route's team — the composer seeded from another team's
+     * row, or the action page of another team's action ([routeTeamIdFlow]);
+     * otherwise the selection.
+     */
+    val teamId: StateFlow<String?> =
+        routeTeamIdFlow(dbFlow, savedStateHandle, selection.selectedId)
+            .stateIn(viewModelScope, SharingStarted.Eagerly, selection.selectedId.value)
+
+    private val scope = combine(auth.activeAccountId, teamId) { accountId, teamId ->
         accountId to teamId
     }
 
@@ -119,7 +131,6 @@ class AgentLaunchDataViewModel @Inject constructor(
      * locally by the composer, and every builtin start has to carry its
      * teamId (there is no DB row for the server to derive it from).
      */
-    val teamId: StateFlow<String?> = selection.selectedId
 
     /**
      * The selected team's actions: the three LISTED builtins pinned first —
@@ -128,7 +139,7 @@ class AgentLaunchDataViewModel @Inject constructor(
      * a team's OWN "Tidy up" row hides the virtual one ([hasOwnTidyUpAction]).
      * Chat is in NO list: it is what "no subject" means on the composer.
      */
-    val actionsState: StateFlow<SheetActionsState> = combine(dbFlow, selection.selectedId) { db, teamId ->
+    val actionsState: StateFlow<SheetActionsState> = combine(dbFlow, teamId) { db, teamId ->
         db to teamId
     }.flatMapLatest { (db, teamId) ->
         if (db == null || teamId == null) {
@@ -186,7 +197,7 @@ class AgentLaunchDataViewModel @Inject constructor(
     /** Live, team-scoped boards — options for `board`-typed inputs. */
     val boardOptions: StateFlow<List<StartBoardOption>> = combine(
         dbFlow.scopedQuery(emptyList()) { it.boardDao().observeAll() },
-        selection.selectedId,
+        teamId,
     ) { boards, teamId ->
         if (teamId == null) {
             emptyList()
@@ -214,7 +225,7 @@ class AgentLaunchDataViewModel @Inject constructor(
     val pullRequestOptions: StateFlow<List<StartPullRequestOption>> = combine(
         dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
         dbFlow.scopedQuery(emptyList()) { it.boardDao().observeAll() },
-        selection.selectedId,
+        teamId,
     ) { issues, boards, teamId ->
         if (teamId == null) {
             emptyList()

@@ -3,6 +3,7 @@ package com.exponential.app.ui.reviews
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.data.db.TeamEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -33,9 +34,9 @@ class ReviewRowsTest {
         updatedAt = createdAt,
     )
 
-    private fun board(id: String, sortOrder: Double) = BoardEntity(
+    private fun board(id: String, sortOrder: Double, teamId: String = "team-1") = BoardEntity(
         id = id,
-        teamId = "team-1",
+        teamId = teamId,
         name = "Board $id",
         slug = id,
         prefix = "EXP",
@@ -45,11 +46,16 @@ class ReviewRowsTest {
         updatedAt = "2026-09-10T10:00:00Z",
     )
 
-    private fun run(id: String, prUrl: String, startedAt: String = "2026-09-10T10:00:00Z") =
+    private fun run(
+        id: String,
+        prUrl: String,
+        startedAt: String = "2026-09-10T10:00:00Z",
+        teamId: String = "team-1",
+    ) =
         CodingSessionEntity(
             id = id,
             issueId = null,
-            teamId = "team-1",
+            teamId = teamId,
             userId = "me",
             status = "in_review",
             actionName = "Deploy",
@@ -115,5 +121,50 @@ class ReviewRowsTest {
         )
         assertEquals(listOf("chore-resume"), state.runs.map { it.session.id })
         assertEquals(1, state.groups.single().entries.size)
+    }
+
+    private fun team(id: String, name: String) = TeamEntity(
+        id = id,
+        name = name,
+        slug = id,
+        createdAt = "2026-09-10T10:00:00Z",
+        updatedAt = "2026-09-10T10:00:00Z",
+    )
+
+    // EXP-1186: cross-team — boards order by team (name order) then board
+    // order, each band names its team, and run PRs band once per team.
+    @Test
+    fun crossTeamBandsBoardsByTeamAndNamesTheTeamOnlyWithSeveral() {
+        val teams = listOf(team("team-a", "Alpha"), team("team-b", "Beta"))
+        val state = buildReviewsState(
+            issues = listOf(
+                issue("b1", boardId = "beta-board"),
+                issue("a2", boardId = "alpha-2"),
+                issue("a1", boardId = "alpha-1"),
+            ),
+            boards = listOf(
+                board("beta-board", 0.5, teamId = "team-b"),
+                board("alpha-2", 2.0, teamId = "team-a"),
+                board("alpha-1", 1.0, teamId = "team-a"),
+            ),
+            runs = listOf(
+                run("beta-run", "https://github.com/acme/app/pull/20", teamId = "team-b"),
+                run("alpha-run", "https://github.com/acme/app/pull/21", teamId = "team-a"),
+            ),
+            teams = teams,
+        )
+        assertEquals(listOf("alpha-1", "alpha-2", "beta-board"), state.groups.map { it.board.id })
+        assertEquals(listOf("Alpha", "Alpha", "Beta"), state.groups.map { it.teamName })
+        assertEquals(listOf("team-a", "team-b"), state.runGroups.map { it.team?.id })
+
+        // One team = today's list: no team names, one run band.
+        val single = buildReviewsState(
+            issues = listOf(issue("a1", boardId = "alpha-1")),
+            boards = listOf(board("alpha-1", 1.0, teamId = "team-a")),
+            runs = listOf(run("alpha-run", "https://github.com/acme/app/pull/21", teamId = "team-a")),
+            teams = teams.take(1),
+        )
+        assertEquals(listOf<String?>(null), single.groups.map { it.teamName })
+        assertEquals(listOf<String?>(null), single.runGroups.map { it.team?.id })
     }
 }

@@ -10,30 +10,26 @@ import {
 } from "@exp/ui"
 import { useDraftEntries } from "@/hooks/use-issue-drafts"
 
-// SLOP-5: the ONE advanced entry of the navigation ×4. Everything that is
-// not one of the four nouns (People / Devices / Apps / Actions) plus Reviews
-// and Inbox sits behind "More": the action catalog (authoring; the composer's
-// action chip is the everyday way to RUN one), the parked drafts and, on a
-// phone, Settings (phones have no footer gear). The menu is the styleguide's
-// `menu` surface — pointer density from md up, touch density below — so the
-// sidebar row, the compact rail's icon and the tab bar's tab all open the
-// same rows. Desktop (`sidebar.rs`), iOS (`MobileTabBar.swift`) and Android
-// (`BottomNavBar.kt`) draw the same entry with the same copy.
+// SLOP-5: the sidebar's ONE advanced entry: the action catalog (authoring;
+// the composer's action chip is the everyday way to RUN one) and the parked
+// drafts sit behind "More". The menu is the styleguide's `menu` surface, so
+// the sidebar row and the compact rail's icon open the same rows; desktop
+// (`sidebar.rs`) draws the same entry with the same copy. EXP-1187: PHONES
+// have no More (web, iOS, Android): Actions is a tab of its own and Settings
+// lives in the topbar's avatar menu.
 
 export const MORE_LABEL = `More`
 export const MORE_ACTIONS_LABEL = `Actions`
 export const MORE_DRAFTS_LABEL = `Drafts`
-export const MORE_SETTINGS_LABEL = `Settings`
 
 export const NavMoreIcon = conceptIcon(`nav-more`)
 const NavActionsIcon = conceptIcon(`nav-actions`)
 const NavDraftsIcon = conceptIcon(`nav-drafts`)
-const NavSettingsIcon = conceptIcon(`nav-settings`)
 
 /** Whether one of More's destinations is on screen — the entry reads active
  *  then, exactly like the desktop rail's Actions entry stayed lit on one
- *  action's page (SLOP-2). `settings` is a destination only on phones. */
-export function useMoreActive({ settings }: { settings: boolean }): boolean {
+ *  action's page (SLOP-2). */
+export function useMoreActive(): boolean {
   const matchRoute = useMatchRoute()
   const onActions = Boolean(
     matchRoute({ to: `/t/$teamSlug/actions`, fuzzy: true })
@@ -41,15 +37,11 @@ export function useMoreActive({ settings }: { settings: boolean }): boolean {
   const onDrafts = Boolean(
     matchRoute({ to: `/t/$teamSlug/drafts`, fuzzy: true })
   )
-  const onSettings =
-    settings &&
-    Boolean(matchRoute({ to: `/t/$teamSlug/settings`, fuzzy: true }))
-  return onActions || onDrafts || onSettings
+  return onActions || onDrafts
 }
 
-/** The Drafts row — its own component so the phone variant (which keeps
- *  Drafts as an Inbox segment, EXP-878) never runs the drafts query. Hidden
- *  while the caller has no draft, like the old sidebar entry. */
+/** The Drafts row — hidden while the caller has no draft, like the old
+ *  sidebar entry. */
 function DraftsMenuItem({
   teamSlug,
   teamId,
@@ -73,10 +65,8 @@ function DraftsMenuItem({
 export interface MoreMenuProps {
   teamSlug: string
   teamId?: string
-  /** Web md+ and desktop list the parked drafts here; phones do not. */
+  /** List the parked drafts (the sidebar and the rail both do). */
   drafts: boolean
-  /** Phones carry Settings here; the sidebar keeps its footer gear. */
-  settings: boolean
   /** Where the surface opens relative to the trigger. */
   side: `right` | `top` | `bottom`
   align?: `start` | `center` | `end`
@@ -89,7 +79,6 @@ export function MoreMenu({
   teamSlug,
   teamId,
   drafts,
-  settings,
   side,
   align = `start`,
   children,
@@ -109,18 +98,6 @@ export function MoreMenu({
           </Link>
         </DropdownMenuItem>
         {drafts && <DraftsMenuItem teamSlug={teamSlug} teamId={teamId} />}
-        {settings && (
-          <DropdownMenuItem asChild>
-            <Link
-              to="/t/$teamSlug/settings"
-              params={{ teamSlug }}
-              data-testid="menu-settings"
-            >
-              <NavSettingsIcon />
-              <span>{MORE_SETTINGS_LABEL}</span>
-            </Link>
-          </DropdownMenuItem>
-        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )

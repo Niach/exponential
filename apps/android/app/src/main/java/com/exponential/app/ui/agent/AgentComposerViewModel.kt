@@ -1,5 +1,6 @@
 package com.exponential.app.ui.agent
 
+import com.exponential.app.data.routeTeamIdFlow
 import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -172,8 +173,14 @@ class AgentComposerViewModel @Inject constructor(
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
-    /** The selected team: the pools, the builtins' teamId, the upload scope. */
-    val teamId: StateFlow<String?> = selection.selectedId
+    /**
+     * The team: the pools, the builtins' teamId, the upload scope. The
+     * SELECTED team, unless the seed names a team-owned subject (EXP-1186: a
+     * cross-team Actions/Reviews row starts in ITS team, [routeTeamIdFlow]).
+     */
+    val teamId: StateFlow<String?> =
+        routeTeamIdFlow(dbFlow, savedStateHandle, selection.selectedId)
+            .stateIn(viewModelScope, SharingStarted.Eagerly, selection.selectedId.value)
 
     // ── The shared launch rails ─────────────────────────────────────────────
     val steerEnabled: StateFlow<Boolean?> get() = steerLaunch.enabled
@@ -196,7 +203,7 @@ class AgentComposerViewModel @Inject constructor(
     // never-resolving placeholder (the composer sat on "CLI default" with a
     // disabled submit forever).
     init {
-        steerLaunch.attach(viewModelScope)
+        steerLaunch.attach(viewModelScope, teamId)
     }
 
     /**

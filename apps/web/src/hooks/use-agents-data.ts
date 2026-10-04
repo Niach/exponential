@@ -5,7 +5,12 @@ import {
   deviceCollection,
   issueCollection,
 } from "@/lib/collections"
-import { useTeamBoards, useTeamUsers } from "@/hooks/use-team-data"
+import {
+  useBoardsForTeams,
+  useTeamBoards,
+  useTeamUsers,
+} from "@/hooks/use-team-data"
+import { teamScopeIds } from "@/lib/team-scope"
 import type { CodingSession, Device, Issue, Board, User } from "@/db/schema"
 import { isCodingSessionStale } from "@exp/db-schema/domain"
 import { useNow } from "@/hooks/use-now"
@@ -168,23 +173,27 @@ function useBatchIssues(
 // surface as status badges on issue detail and in the Reviews queue.
 // Both params stay REQUIRED (optional-typed, not optional-arity) so no future
 // caller can silently ask for the whole team's sessions again.
+// EXP-1186: `teamId` may name SEVERAL teams — the phone's Agent page lists
+// my runs across every member team.
 export function useAgentsData(
-  teamId: string | undefined,
+  teamId: string | readonly string[] | undefined,
   currentUserId: string | undefined
 ) {
+  const teamIds = teamScopeIds(teamId)
+  const teamKey = teamIds.join(`,`)
   const { data: sessionRows, isReady } = useLiveQuery(
     (query) =>
-      teamId && currentUserId
+      teamIds.length > 0 && currentUserId
         ? query
             .from({ sessions: codingSessionCollection })
             .where(({ sessions }) =>
               and(
-                eq(sessions.teamId, teamId),
+                inArray(sessions.teamId, teamIds),
                 eq(sessions.userId, currentUserId)
               )
             )
         : undefined,
-    [teamId, currentUserId]
+    [teamKey, currentUserId]
   )
   const sessions = useMemo(
     () => (sessionRows ?? []) as CodingSession[],
@@ -216,16 +225,19 @@ export function useAgentsData(
   // guard below.
   const { data: deviceRows } = useLiveQuery(
     (query) =>
-      teamId && currentUserId ? query.from({ d: deviceCollection }) : undefined,
-    [teamId, currentUserId]
+      teamIds.length > 0 && currentUserId
+        ? query.from({ d: deviceCollection })
+        : undefined,
+    [teamKey, currentUserId]
   )
   const devices = useMemo(
     () => (deviceRows ?? []) as Device[],
     [deviceRows]
   )
 
-  const boards = useTeamBoards(teamId)
-  const { userMap } = useTeamUsers(teamId)
+  const { boards } = useBoardsForTeams(teamIds)
+  // Own runs only, so the roster of any one team holds their user.
+  const { userMap } = useTeamUsers(teamIds[0])
   const now = useNow(30_000)
   // EXP-876: what names a batch row.
   const resolveBatchIssues = useBatchIssues(sessions)
@@ -278,8 +290,10 @@ export function useAgentsData(
       // Without a team id or a signed-in user the query is skipped and can
       // never deliver a snapshot — treat that as ready-empty instead of
       // loading forever.
-      isLoading: !isReady && Boolean(teamId && currentUserId),
+      isLoading: !isReady && Boolean(teamIds.length > 0 && currentUserId),
     }
+    // `teamKey` stands for `teamIds` (a fresh array per render).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     sessions,
     issueRows,
@@ -288,7 +302,7 @@ export function useAgentsData(
     userMap,
     devices,
     isReady,
-    teamId,
+    teamKey,
     currentUserId,
     now,
   ])
@@ -434,7 +448,8 @@ export interface PastRunRow {
  * `coding-session-sweep.ts` only deletes `running`/`in_review`.
  */
 export function usePastRuns(
-  teamId: string | undefined,
+  /** EXP-1186: one team, or several (the phone's Recent sheet). */
+  teamId: string | readonly string[] | undefined,
   currentUserId: string | undefined,
   options?: {
     /** EXP-739: narrow the list BEFORE the 20-row cap — the chat page's
@@ -444,32 +459,35 @@ export function usePastRuns(
   }
 ) {
   const only = options?.only
+  const teamIds = teamScopeIds(teamId)
+  const teamKey = teamIds.join(`,`)
   const { data: sessionRows, isReady } = useLiveQuery(
     (query) =>
-      teamId && currentUserId
+      teamIds.length > 0 && currentUserId
         ? query
             .from({ sessions: codingSessionCollection })
             .where(({ sessions }) =>
               and(
-                eq(sessions.teamId, teamId),
+                inArray(sessions.teamId, teamIds),
                 eq(sessions.userId, currentUserId),
                 eq(sessions.status, `ended`)
               )
             )
         : undefined,
-    [teamId, currentUserId]
+    [teamKey, currentUserId]
   )
   const past = useMemo(() => {
     const rows = (sessionRows ?? []) as CodingSession[]
     return selectPastRuns(
       only ? rows.filter(only) : rows,
       currentUserId,
-      teamId,
+      teamIds,
       PAST_RUN_CAP
     )
-  }, [sessionRows, currentUserId, teamId, only])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionRows, currentUserId, teamKey, only])
 
-  const { rows, isLoading } = usePastRunRows(teamId, currentUserId, past, isReady)
+  const { rows, isLoading } = usePastRunRows(teamIds, currentUserId, past, isReady)
   return { past: rows, isLoading }
 }
 
@@ -553,7 +571,7 @@ export function useRunChain(
 /** Joins selected ended runs into `PastRunRow`s: issue, board, live device
  *  label and whether that machine can resume the run. */
 function usePastRunRows(
-  teamId: string | undefined,
+  teamId: string | readonly string[] | undefined,
   currentUserId: string | undefined,
   past: readonly CodingSession[],
   isReady: boolean
@@ -582,14 +600,18 @@ function usePastRunRows(
     [issueIds.join(`,`)]
   )
 
+  const teamIds = teamScopeIds(teamId)
+  const teamKey = teamIds.join(`,`)
   const { data: deviceRows } = useLiveQuery(
     (query) =>
-      teamId && currentUserId ? query.from({ d: deviceCollection }) : undefined,
-    [teamId, currentUserId]
+      teamIds.length > 0 && currentUserId
+        ? query.from({ d: deviceCollection })
+        : undefined,
+    [teamKey, currentUserId]
   )
   const devices = useMemo(() => (deviceRows ?? []) as Device[], [deviceRows])
 
-  const boards = useTeamBoards(teamId)
+  const { boards } = useBoardsForTeams(teamIds)
   const now = useNow(30_000)
   // EXP-876: what names a batch row.
   const resolveBatchIssues = useBatchIssues(past)
@@ -632,8 +654,9 @@ function usePastRunRows(
       rows,
       // Without a team id or a signed-in user the query is skipped and can
       // never deliver a snapshot — ready-empty, not loading forever.
-      isLoading: !isReady && Boolean(teamId && currentUserId),
+      isLoading: !isReady && Boolean(teamIds.length > 0 && currentUserId),
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     past,
     issueRows,
@@ -642,7 +665,7 @@ function usePastRunRows(
     devices,
     now,
     isReady,
-    teamId,
+    teamKey,
     currentUserId,
   ])
 }

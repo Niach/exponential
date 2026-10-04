@@ -2,7 +2,8 @@ import ExpCore
 import Foundation
 import GRDB
 
-/// Backs the Actions list (EXP-253): the active team's action prompts LIVE
+/// Backs the Actions list (EXP-253): the action prompts of EVERY member team
+/// (EXP-1186, cross-team like the Inbox; the view groups them per team) LIVE
 /// from the synced local store (EXP-268 — actions became the 15th Electric
 /// shape, minus `body`, which nothing here needs). SLOP-2: each row carries
 /// its own `triggers`, so the list reads the trigger glyphs straight off it;
@@ -38,15 +39,14 @@ final class ActionsViewModel {
         self.auth = auth
     }
 
-    /// Observe the team's synced actions (EXP-268: the local GRDB store, not
-    /// tRPC — the list stays live as sync lands rows). Real rows sort
-    /// sortOrder-then-name like the server list did.
+    /// Observe every member team's synced actions (EXP-268: the local GRDB
+    /// store, not tRPC — the list stays live as sync lands rows; EXP-1186:
+    /// the synced set IS the member teams'). Real rows sort
+    /// sortOrder-then-name like the server list did; the view splits them
+    /// per team. `teamId` = the ACTIVE team, which only scopes the
+    /// suggestions' trigger machines (a suggestion opens that team's
+    /// composer).
     func load(teamId: String) async {
-        if loadedTeamId != teamId {
-            // New team context — drop the previous team's rows.
-            actions = []
-            loadError = nil
-        }
         loadedTeamId = teamId
         if actions.isEmpty { isLoading = true }
         actionsObservationTask?.cancel()
@@ -59,7 +59,7 @@ final class ActionsViewModel {
             db: db, accountId: accountId, teamId: teamId, userId: auth.userId
         )
         let observation = ValueObservation.tracking { db in
-            try ActionEntity.filter(Column("team_id") == teamId).fetchAll(db)
+            try ActionEntity.fetchAll(db)
         }
         actionsObservationTask = Task { [weak self] in
             do {

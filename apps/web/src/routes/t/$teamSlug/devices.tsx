@@ -4,6 +4,7 @@ import { useSteerConfig } from "@/components/agent-session"
 import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"
+import { useCrossTeamScope } from "@/hooks/use-cross-team-scope"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { pageTitle } from "@/lib/page-title"
@@ -46,10 +47,15 @@ function DevicesPage() {
   // interactive affordances render.
   const steerEnabled = Boolean(isMember && steerConfig?.enabled)
 
+  // EXP-1186: the phone's Devices is not team-scoped — every synced
+  // teammate server shared into ANY member team, listed once; md+ keeps
+  // the active team's.
+  const scope = useCrossTeamScope(team)
   const remote = useRemoteStart({
     enabled: steerEnabled,
     currentUserId,
     teamId,
+    listTeamIds: scope.teamIds,
   })
 
   if (!team) {

@@ -87,6 +87,14 @@ interface IssueDao {
     )
     fun observeOpenPrsByTeam(teamId: String): Flow<List<IssueEntity>>
 
+    // EXP-1186: Reviews is CROSS-TEAM like the Inbox — every member team's
+    // open PRs (the synced issues ARE the member teams').
+    @Query(
+        "SELECT i.* FROM issues i JOIN boards p ON p.id = i.board_id " +
+            "WHERE i.pr_state = 'open' AND p.deleted_at IS NULL"
+    )
+    fun observeOpenPrs(): Flow<List<IssueEntity>>
+
     // App-link resolution (EXP-92): team SLUG + identifier → issue id.
     // Deliberately no board-slug predicate (identifiers are
     // team-unique; the board slug in an old link goes stale when an
@@ -309,6 +317,19 @@ interface CodingSessionDao {
         limit: Int,
     ): Flow<List<CodingSessionEntity>>
 
+    // EXP-1186: the Recent feed across EVERY member team (same rules as
+    // [observePastByTeamAndUser]; the page groups it by team).
+    @Query(
+        "SELECT * FROM coding_sessions WHERE user_id = :userId " +
+            "AND status = :status AND started_reason IS NULL " +
+            "ORDER BY COALESCE(ended_at, updated_at) DESC LIMIT :limit",
+    )
+    fun observePastByUser(
+        userId: String,
+        status: String,
+        limit: Int,
+    ): Flow<List<CodingSessionEntity>>
+
     // EXP-734: the team's runs with an OPEN pull request of their OWN — an
     // action or chat run (issue_id NULL) whose PR links no issue, so nothing
     // in the issues table can represent it in Reviews. Newest first; the
@@ -318,6 +339,13 @@ interface CodingSessionDao {
             "AND issue_id IS NULL AND pr_state = 'open' ORDER BY started_at DESC"
     )
     fun observeOpenPrRunsByTeam(teamId: String): Flow<List<CodingSessionEntity>>
+
+    // EXP-1186: [observeOpenPrRunsByTeam] across every member team.
+    @Query(
+        "SELECT * FROM coding_sessions WHERE issue_id IS NULL " +
+            "AND pr_state = 'open' ORDER BY started_at DESC"
+    )
+    fun observeOpenPrRuns(): Flow<List<CodingSessionEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: CodingSessionEntity)
@@ -333,6 +361,11 @@ interface CodingSessionDao {
 interface ActionDao {
     @Query("SELECT * FROM actions WHERE team_id = :teamId ORDER BY sort_order, name")
     fun observeByTeam(teamId: String): Flow<List<ActionEntity>>
+
+    // EXP-1186: Actions is CROSS-TEAM — every member team's actions; the
+    // screen groups them by team.
+    @Query("SELECT * FROM actions ORDER BY sort_order, name")
+    fun observeAll(): Flow<List<ActionEntity>>
 
     // SLOP-2: the action page's own row (its triggers ride it).
     @Query("SELECT * FROM actions WHERE id = :id LIMIT 1")

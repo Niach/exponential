@@ -13,10 +13,15 @@ import SwiftUI
 /// under its parent, every parent folds, top level newest ACTIVITY first. Each run row
 /// is the `EndedRunRow` the band used to draw, each tap opening that run's
 /// Work screen.
+///
+/// EXP-1186: history spans EVERY member team; with more than one, the rows
+/// split into one band per team (`TeamAvatar` + name), each its own tree.
 struct RecentRunsSheet: View {
     let vm: AgentsViewModel
     /// The picked run — the page dismisses this sheet and pushes it.
     let onOpen: (String) -> Void
+
+    @Environment(TeamState.self) private var teamState
 
     /// The nodes folded shut, keyed by `SessionTree.nodeKey` (the ×4 rule).
     @State private var collapsed: Set<String> = []
@@ -26,22 +31,44 @@ struct RecentRunsSheet: View {
             VStack(alignment: .leading, spacing: 0) {
                 if vm.pastRows.isEmpty {
                     emptyNote
-                } else {
-                    let rows = pastRows
-                    let guides = TreeGuides.compute(depths: rows.map(\.depth))
-                    let byId = Dictionary(
-                        vm.pastRows.map { ($0.session.id, $0) }, uniquingKeysWith: { a, _ in a }
-                    )
-                    ForEach(Array(rows.enumerated()), id: \.element.key) { index, entry in
-                        treeRow(entry, rows: byId)
-                            .treeGuides(guides[index])
+                } else if TeamGroups.isMultiTeam(teamState.teams) {
+                    let groups = TeamGroups.group(vm.pastRows, teams: teamState.teams) {
+                        $0.session.teamId
                     }
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(groups) { group in
+                            VStack(alignment: .leading, spacing: 0) {
+                                GlassSectionBand(group.team.name) {
+                                    TeamAvatar(team: group.team, size: 16)
+                                } trailing: {
+                                    EmptyView()
+                                }
+                                tree(group.items)
+                            }
+                        }
+                    }
+                } else {
+                    tree(vm.pastRows)
                 }
             }
             .padding(.horizontal, 10)
             .padding(.bottom, 16)
         }
         .accessibilityIdentifier("recent-runs-sheet")
+    }
+
+    /// One list's rows, drawn as the session tree.
+    @ViewBuilder
+    private func tree(_ source: [AgentsViewModel.PastRow]) -> some View {
+        let rows = pastRows(source)
+        let guides = TreeGuides.compute(depths: rows.map(\.depth))
+        let byId = Dictionary(
+            source.map { ($0.session.id, $0) }, uniquingKeysWith: { a, _ in a }
+        )
+        ForEach(Array(rows.enumerated()), id: \.element.key) { index, entry in
+            treeRow(entry, rows: byId)
+                .treeGuides(guides[index])
+        }
     }
 
     /// One drawn row.
@@ -103,9 +130,9 @@ struct RecentRunsSheet: View {
     /// EXP-1061: history is the same tree as the Running band — the cap
     /// (`PastRuns.cap`) applies to the ROWS first, so a child whose parent fell
     /// off it is a top-level orphan.
-    private var pastRows: [SessionTree.FlatRow] {
+    private func pastRows(_ source: [AgentsViewModel.PastRow]) -> [SessionTree.FlatRow] {
         SessionTree.visibleRows(
-            SessionTree.sessionTree(vm.pastRows.map(\.session)),
+            SessionTree.sessionTree(source.map(\.session)),
             collapsed: collapsed
         )
     }

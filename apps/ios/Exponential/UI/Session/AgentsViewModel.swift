@@ -4,12 +4,13 @@ import GRDB
 
 /// Backs the Devices tab (machines) AND the Agent page (EXP-825: the
 /// sessions and the composer's pools): the signed-in user's own live coding
-/// sessions in the ACTIVE TEAM of the active account (the synced
-/// `coding_sessions` shape) — running AND in_review (EXP-194), joined to
-/// their issues for display. Desktop is the only session runner — this list
-/// is the mobile window into what YOU are coding right now; teammates' runs
-/// are owner-only (EXP-312) and never listed here, and the team scoping
-/// mirrors web's `use-agents-data.ts`.
+/// sessions across EVERY member team of the active account (EXP-1186: the
+/// lists are cross-team like the Inbox and group per team in the view; the
+/// synced `coding_sessions` shape) — running AND in_review (EXP-194), joined
+/// to their issues for display. Desktop is the only session runner — this
+/// list is the mobile window into what YOU are coding right now; teammates'
+/// runs are owner-only (EXP-312) and never listed here. The composer's pools
+/// stay bound to the ACTIVE team.
 @MainActor @Observable
 final class AgentsViewModel {
     struct Row: Identifiable {
@@ -27,7 +28,7 @@ final class AgentsViewModel {
     }
 
     /// EXP-746: one finished run under "Recent" — an ended, PERSON-started run
-    /// of the caller's in the active team. Triggered runs are not here: they
+    /// of the caller's in any member team (EXP-1186). Triggered runs are not here: they
     /// live under their action's Runs (EXP-676, SLOP-2) and the two sets are
     /// disjoint by `started_reason`, so the two Resume paths can never
     /// double-fire on the same row.
@@ -92,20 +93,30 @@ final class AgentsViewModel {
     /// editor target through these — no network read.
     var actions: [ActionDto] = []
 
-    /// The team the surrounding view currently shows — kept current by
-    /// `AgentsView` (the LIVE sessions observation is account-wide and the
-    /// list filters it; the ended-runs one is team-scoped in SQL, EXP-758).
-    /// nil until the team state resolves: no rows.
+    /// The active team — kept current by the surrounding view. EXP-1186: it
+    /// no longer scopes the session lists (cross-team); it scopes `devices`
+    /// (the composer's start targets: a server shared with ANOTHER team
+    /// cannot run this team's work) unless `deviceTeamIds` widens them.
     var activeTeamId: String? {
         didSet {
             guard oldValue != activeTeamId else { return }
-            // EXP-758: the "Recent" query is USER- and TEAM-scoped in SQL, so a
-            // team switch has to RE-ARM that observation — re-filtering what
-            // the previous one emitted would show the old team's rows.
-            startEndedObservation()
-            rebuild()
             rebuildDevices()
         }
+    }
+
+    /// EXP-1186: the Devices tab is cross-team — set to the caller's member
+    /// team ids there, so teammates' servers shared with ANY of them list
+    /// (once each). nil = the active team only (the Agent page composer).
+    var deviceTeamIds: Set<String>? {
+        didSet {
+            guard oldValue != deviceTeamIds else { return }
+            rebuildDevices()
+        }
+    }
+
+    /// The team ids teammates' shared servers are matched against.
+    private var sharedDeviceTeamIds: Set<String> {
+        deviceTeamIds ?? activeTeamId.map { [$0] } ?? []
     }
 
     private let accountId: String
@@ -132,8 +143,7 @@ final class AgentsViewModel {
     /// that cursor, so a machine's badge must repaint the moment it advances
     /// (and not before: an unrefreshed cursor renders presence as unknown).
     private var freshnessTask: Task<Void, Never>?
-    /// EXP-758: are the observations armed? The ended-runs one re-arms on a
-    /// team switch, which must be a no-op while the view is off screen.
+    /// EXP-758: are the observations armed?
     private var observing = false
 
     /// EXP-829: how long a queued refresh shows as in flight before giving
@@ -312,7 +322,7 @@ final class AgentsViewModel {
     }
 
     /// EXP-746/758: the finished runs behind "Recent" — the caller's OWN rows in
-    /// the ACTIVE team, PERSON-started (`started_reason IS NULL`), newest end
+    /// every member team (EXP-1186), PERSON-started (`started_reason IS NULL`), newest end
     /// first and hard-capped, all of it in the QUERY. Android's
     /// `CodingSessionDao.observePastByTeamAndUser` is the reference predicate:
     /// an unscoped, unbounded fetch is every ended run of every team on the
@@ -324,10 +334,9 @@ final class AgentsViewModel {
         endedTask?.cancel()
         endedTask = nil
         guard observing else { return }
-        // No resolved account or team owns nothing (`CodingSessionOwnership`):
-        // the section is empty rather than everyone's history.
+        // No resolved account owns nothing (`CodingSessionOwnership`): the
+        // section is empty rather than everyone's history.
         guard let userId, !userId.isEmpty,
-              let teamId = activeTeamId, !teamId.isEmpty,
               let pool = try? db.pool(forAccountId: accountId)
         else {
             endedSessions = []
@@ -337,7 +346,6 @@ final class AgentsViewModel {
         let endedObservation = ValueObservation.tracking { db in
             try CodingSessionEntity
                 .filter(Column("user_id") == userId)
-                .filter(Column("team_id") == teamId)
                 .filter(Column("status") == DomainContract.codingSessionStatusEnded)
                 .filter(Column("started_reason") == nil)
                 // The ×4 ordering key (`PastRuns.endedAt`): a row swept before
@@ -391,15 +399,15 @@ final class AgentsViewModel {
     }
 
     /// EXP-481: recompose the machines list from the observed rows — own
-    /// machines first (most recently seen), then the active team's shared
-    /// servers, exactly the `devices.list` ordering the view already renders.
+    /// machines first (most recently seen), then the shared servers of the
+    /// active team (or, on the Devices tab, of every member team), exactly the `devices.list` ordering the view already renders.
     private func rebuildDevices() {
         guard let deviceEntities else { return }
         let now = Date()
         devices = DeviceQueries.compose(
             rows: deviceEntities,
             users: users,
-            teamId: activeTeamId,
+            teamIds: sharedDeviceTeamIds,
             userId: userId,
             now: now
         )
@@ -418,9 +426,10 @@ final class AgentsViewModel {
     /// section away. A refresh may only be queued on one of MY online
     /// machines that advertises the cap.
     private func rebuildAccounts(_ entities: [DeviceEntity], now: Date) {
+        let teamIds = sharedDeviceTeamIds
         let scoped = entities.filter { row in
             (userId != nil && row.userId == userId)
-                || (activeTeamId.map { row.sharedTeamIds.contains($0) } == true && row.kind == "server")
+                || (row.kind == "server" && row.sharedTeamIds.contains(where: teamIds.contains))
         }
         let capsByDevice: [String: [String]] = Dictionary(
             (devices ?? []).map { ($0.deviceId, $0.caps ?? []) },
@@ -611,7 +620,7 @@ final class AgentsViewModel {
         }
     }
 
-    /// EXP-746: the "Recent" rows — own, active-team, ended, person-started,
+    /// EXP-746: the "Recent" rows — own, every member team (EXP-1186), ended, person-started,
     /// newest by `ended_at ?? updated_at`, capped at 20. The predicate, the
     /// ordering key and the cap are the ×4-locked `PastRuns` rules; only the
     /// joins (issue, device presentation, resume target) are local.
@@ -622,7 +631,7 @@ final class AgentsViewModel {
         let deviceRows = deviceEntities ?? []
         let startTargets = devices ?? []
         pastRows = PastRuns.select(
-            endedSessions, userId: userId, teamId: activeTeamId
+            endedSessions, userId: userId
         ).map { session in
             PastRow(
                 session: session,
@@ -697,13 +706,10 @@ final class AgentsViewModel {
         let deviceRows = deviceEntities ?? []
         let issuesById = Dictionary(issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         rows = sessions
-            // Own runs in the active team only: a teammate's session can't be
-            // opened or steered (EXP-312), so listing it only read as "computer
-            // not online" — and an own run in another team belongs under that
-            // team (web parity, `use-agents-data.ts`).
-            .filter {
-                CodingSessionOwnership.isOwn($0, userId: userId, teamId: activeTeamId)
-            }
+            // Own runs only: a teammate's session can't be opened or steered
+            // (EXP-312), so listing it only read as "computer not online".
+            // EXP-1186: every member team — the view groups them per team.
+            .filter { CodingSessionOwnership.isOwn($0, userId: userId) }
             // Heartbeat-stale rows render as absent (EXP-153).
             .filter { CodingSessionLiveness.isLive($0) }
             .sorted { $0.startedAt > $1.startedAt }

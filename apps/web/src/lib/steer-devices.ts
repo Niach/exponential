@@ -455,8 +455,14 @@ export function composeDeviceList(
   usersById: Map<string, Pick<User, `id` | `name`>>,
   now: Date,
   currentUserId: string,
-  teamId?: string
+  /** Teammates' servers shared into this team — or (EXP-1186, the phone's
+   *  Devices) into ANY of these teams; a row shared into several is listed
+   *  once. */
+  teamId?: string | readonly string[]
 ): SteerDevice[] {
+  const teams = new Set<string>(
+    teamId === undefined ? [] : typeof teamId === `string` ? [teamId] : teamId
+  )
   const stableOrder = (a: Device, b: Device) => {
     const aOnline = deviceRowIsOnline(a.lastSeenAt, now)
     const bOnline = deviceRowIsOnline(b.lastSeenAt, now)
@@ -475,12 +481,12 @@ export function composeDeviceList(
   const own = rows
     .filter((row) => row.userId === currentUserId)
     .sort(stableOrder)
-  const shared = teamId
+  const shared = teams.size > 0
     ? rows
         .filter(
           (row) =>
             row.userId !== currentUserId &&
-            (row.sharedTeamIds ?? []).includes(teamId) &&
+            (row.sharedTeamIds ?? []).some((id) => teams.has(id)) &&
             row.kind === `server`
         )
         .sort(stableOrder)

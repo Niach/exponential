@@ -4,6 +4,7 @@ import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import type { CodingSession, Board, Team } from "@/db/schema"
 import { sessionDisplayState } from "@/lib/coding-session-display"
 import { useMyLiveRuns } from "@/hooks/use-my-live-runs"
+import { teamScopeIds } from "@/lib/team-scope"
 
 // Shared nav-count hooks for the sidebar badges (desktop) and the mobile
 // tab bar dots. Both count purely client-side over already-synced shapes.
@@ -24,14 +25,30 @@ export function useShowsReviews(
   return team?.yoloMode !== true || open > 0
 }
 
+/** EXP-1186: the phone's Reviews tab across EVERY member team — shown while
+ *  any of them is not in yolo mode, or while any of them has a PR open. */
+export function useShowsReviewsAcrossTeams(
+  teams: readonly Pick<Team, `id` | `yoloMode`>[],
+  boards: Board[] | undefined
+): boolean {
+  const open = useReviewsOpenPrCount(
+    boards,
+    teams.map((team) => team.id)
+  )
+  return teams.length === 0 || teams.some((team) => team.yoloMode !== true) || open > 0
+}
+
+/** `teamId` = one team, or (EXP-1186, the phone) several. */
 export function useReviewsOpenPrCount(
   boards: Board[] | undefined,
-  teamId?: string
+  teamId?: string | readonly string[]
 ): number {
   const boardIds = useMemo(
     () => (boards ?? []).map((board) => board.id),
     [boards]
   )
+  const teamIds = teamScopeIds(teamId)
+  const teamKey = teamIds.join(`,`)
   const { data } = useLiveQuery(
     (query) =>
       boardIds.length > 0
@@ -48,17 +65,17 @@ export function useReviewsOpenPrCount(
   )
   const { data: sessionData } = useLiveQuery(
     (query) =>
-      teamId
+      teamIds.length > 0
         ? query
             .from({ sessions: codingSessionCollection })
             .where(({ sessions }) =>
               and(
-                eq(sessions.teamId, teamId),
+                inArray(sessions.teamId, teamIds),
                 eq(sessions.prState, `open`)
               )
             )
         : undefined,
-    [teamId]
+    [teamKey]
   )
   return useMemo(() => {
     // One key space: a run PR's url can never sit on an issue row, and
@@ -81,7 +98,7 @@ export function useReviewsOpenPrCount(
 // while any live session sits on a plan-approval / AskUserQuestion picker —
 // the badges escalate to amber for it.
 export function useAgentsRunningCount(
-  teamId?: string,
+  teamId?: string | readonly string[],
   currentUserId?: string
 ): {
   count: number

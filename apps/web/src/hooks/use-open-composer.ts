@@ -56,6 +56,36 @@ export interface OpenComposerOptions {
   origin?: DetailOrigin | null
 }
 
+/**
+ * EXP-1186: start something in a GIVEN team — the phone's cross-team lists
+ * (Actions, Reviews) start in the ROW's team. The route's own team keeps the
+ * dialog (`useOpenComposer`); another team's start travels to THAT team's
+ * Agent page with the seed in its search, which the page honours as a
+ * one-shot like any deep link — the launcher is bound to the route's team.
+ */
+export function useOpenComposerInTeam(): (
+  teamSlug: string,
+  seed: Partial<LaunchSeed>
+) => void {
+  const navigate = useNavigate()
+  const { teamSlug: routeSlug } = useParams({ strict: false })
+  const openComposer = useOpenComposer()
+  return useCallback(
+    (teamSlug: string, seed: Partial<LaunchSeed>) => {
+      if (teamSlug === routeSlug) {
+        openComposer(seed)
+        return
+      }
+      void navigate({
+        to: `/t/$teamSlug/agent`,
+        params: { teamSlug },
+        search: searchFromSeed(seed),
+      })
+    },
+    [navigate, routeSlug, openComposer]
+  )
+}
+
 export function useOpenComposer(): (
   seed: Partial<LaunchSeed>,
   options?: OpenComposerOptions
