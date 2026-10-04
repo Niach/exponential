@@ -863,7 +863,13 @@ export async function applySessionPrState(opts: {
         : eq(codingSessions.prState, opts.state === `closed` ? `open` : `closed`)
     const flipped = await tx
       .update(codingSessions)
-      .set({ prState: opts.state, updatedAt: new Date() })
+      .set({
+        prState: opts.state,
+        // Like the issue column: a landed or closed PR targets nothing, and
+        // a stale edge would read as "stacked" to the merge guard.
+        ...(opts.state === `open` ? {} : { prBaseBranch: null }),
+        updatedAt: new Date(),
+      })
       .where(
         and(
           eq(codingSessions.prUrl, opts.prUrl),
@@ -1056,11 +1062,16 @@ export async function retargetChildrenOfMergedPr(opts: {
         base: defaultBranch,
         token: resolved.token,
       })
-      // The synced base follows the one we just wrote.
+      // The synced base follows the one we just wrote (the issue rows and,
+      // EXP-1165, the run rows carrying the PR).
       await db
         .update(issues)
         .set({ prBaseBranch: defaultBranch })
         .where(eq(issues.prUrl, child.url))
+      await db
+        .update(codingSessions)
+        .set({ prBaseBranch: defaultBranch })
+        .where(eq(codingSessions.prUrl, child.url))
     } catch (err) {
       // One unreachable (or 422-refused) child never blocks the rest.
       console.error(
@@ -1137,7 +1148,8 @@ async function applyPrStateFlip(
 
 /**
  * A PR's base changed on GitHub (`edited` with `changes.base`): mirror it into
- * the synced `pr_base_branch` of every issue on that PR.
+ * the synced `pr_base_branch` of every issue on that PR and (EXP-1165) of
+ * every run row carrying it, an issue-less run's PR included.
  */
 export async function applyPrBaseBranchEdit(opts: {
   prUrl: string
@@ -1148,4 +1160,8 @@ export async function applyPrBaseBranchEdit(opts: {
     .update(issues)
     .set({ prBaseBranch: opts.baseRef })
     .where(eq(issues.prUrl, opts.prUrl))
+  await db
+    .update(codingSessions)
+    .set({ prBaseBranch: opts.baseRef })
+    .where(eq(codingSessions.prUrl, opts.prUrl))
 }

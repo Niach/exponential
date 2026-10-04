@@ -1694,6 +1694,18 @@ mod tests {
         assert!(request.ends_with(r#"{"sessionId":"sess-1"}"#));
     }
 
+    /// EXP-1165: a merge GitHub's queue only took answers `merged: false`.
+    #[test]
+    fn merge_pr_decodes_a_queued_merge_as_not_landed() {
+        let (base, _captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"merged":false,"queued":true}}}"#,
+        );
+        let out = merge_pr(&client(&base), "sess-1").unwrap();
+        assert!(out.queued);
+        assert!(!out.landed());
+    }
+
     /// Guard failures read like `issues.mergePr`'s — PRECONDITION_FAILED with
     /// the user-facing message the surfaces caption verbatim.
     #[test]

@@ -792,6 +792,9 @@ export function registerExponentialTools(
       callerSessionId: string | null
       prTeamId: string
       headBranch: string
+      // EXP-1165: the base the PR was opened against (a reused PR's real
+      // one), so the merge guards see an issue-less run PR's stack too.
+      baseBranch: string
       pr: { url: string; number: number }
     }
   ): Promise<void> {
@@ -814,6 +817,7 @@ export function registerExponentialTools(
         prUrl: opts.pr.url,
         prNumber: opts.pr.number,
         prState: `open` as const,
+        prBaseBranch: opts.baseBranch,
         updatedAt: now,
       })
       .where(
@@ -2444,6 +2448,8 @@ export function registerExponentialTools(
                 callerSessionId: callerSession.id,
                 prTeamId: repo.teamId,
                 headBranch: head!,
+                baseBranch:
+                  createdPr.reusedBase ?? base ?? repo.defaultBranch,
                 pr: { url: createdPr.url, number: createdPr.number },
               })
             })
@@ -2706,6 +2712,7 @@ export function registerExponentialTools(
             callerSessionId: callerSession?.id ?? null,
             prTeamId: teamIdByIssue.get(ids[0]!)!,
             headBranch,
+            baseBranch,
             pr: { url: created.url, number: created.number },
           })
 
@@ -2869,8 +2876,9 @@ export function registerExponentialTools(
             }
           }
           if (ownChorePr) await stampMergedOwnPr()
+          let chore: { merged: boolean; queued?: boolean }
           try {
-            await caller(user, request).repositories.mergePull({
+            chore = await caller(user, request).repositories.mergePull({
               repositoryId,
               prNumber: prNumber!,
               ...endSessionsInput,
@@ -2879,8 +2887,17 @@ export function registerExponentialTools(
             if (ownChorePr) await revertMergedOwnPr()
             throw e
           }
+          // EXP-1165: an enqueued merge has not landed (merged=false).
+          const choreQueued = chore.queued === true
           return ok({
-            results: [{ repositoryId, prNumber: prNumber!, merged: true }],
+            results: [
+              {
+                repositoryId,
+                prNumber: prNumber!,
+                merged: chore.merged && !choreQueued,
+                ...(choreQueued ? { queued: true } : {}),
+              },
+            ],
           })
         }
 

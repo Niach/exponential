@@ -3456,6 +3456,8 @@ describe(`exponential_pr_open — repositoryId path`, () => {
       prUrl: `https://github.com/acme/app/pull/9`,
       prNumber: 9,
       prState: `open`,
+      // EXP-1165: with its base, so the merge guards see a stacked run PR.
+      prBaseBranch: `main`,
     })
     for (const update of updates) {
       const { sql, params } = new PgDialect().sqlToQuery(update.where as never)
@@ -3620,6 +3622,23 @@ describe(`exponential_pr_merge — repository path and the self-merge spare`, ()
     expect(caller.repositories.mergePull).toHaveBeenCalledWith({
       repositoryId: REPO,
       prNumber: 9,
+    })
+  })
+
+  // EXP-1165: GitHub's merge queue only took it, nothing landed yet.
+  it(`reports a queued chore merge as merged=false, queued`, async () => {
+    caller.repositories.mergePull.mockResolvedValue({
+      merged: false,
+      queued: true,
+      note: `GitHub queued the merge of PR #9.`,
+    })
+
+    const result = await collectTools(USER, null).get(
+      `exponential_pr_merge`
+    )!({ repositoryId: REPO, prNumber: 9 })
+
+    expect(parseOk(result)).toEqual({
+      results: [{ repositoryId: REPO, prNumber: 9, merged: false, queued: true }],
     })
   })
 
