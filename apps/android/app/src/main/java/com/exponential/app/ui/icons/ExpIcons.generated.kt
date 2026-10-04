@@ -1978,6 +1978,45 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `computer`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "computer",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M7 2H17A2 2 0 0 1 19 4V8A2 2 0 0 1 17 10H7A2 2 0 0 1 5 8V4A2 2 0 0 1 7 2Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M4 14H20A2 2 0 0 1 22 16V20A2 2 0 0 1 20 22H4A2 2 0 0 1 2 20V16A2 2 0 0 1 4 14Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M6 18h2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M12 18h6"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `copy`: ImageVector by lazy {
         ImageVector.Builder(
             name = "copy",
@@ -7825,6 +7864,7 @@ public object ExpIcons {
         "code" -> `code`
         "coffee" -> `coffee`
         "compass" -> `compass`
+        "computer" -> `computer`
         "copy" -> `copy`
         "corner-down-right" -> `corner-down-right`
         "cpu" -> `cpu`
@@ -8102,13 +8142,15 @@ public object ExpIcons {
     /** Concept `nav-account`. */
     public val navAccount: ImageVector get() = `circle-user`
     /** Concept `nav-actions`. */
-    public val navActions: ImageVector get() = `bot`
+    public val navActions: ImageVector get() = `rocket`
     /** Concept `nav-admin`. */
     public val navAdmin: ImageVector get() = `shield`
     /** Concept `nav-boards`. */
     public val navBoards: ImageVector get() = `folder-kanban`
     /** Concept `nav-changelog`. */
     public val navChangelog: ImageVector get() = `megaphone`
+    /** Concept `nav-computer`. */
+    public val navComputer: ImageVector get() = `computer`
     /** Concept `nav-create-issue`. */
     public val navCreateIssue: ImageVector get() = `square-pen`
     /** Concept `nav-devices`. */
@@ -8123,8 +8165,6 @@ public object ExpIcons {
     public val navInbox: ImageVector get() = `inbox`
     /** Concept `nav-issues`. */
     public val navIssues: ImageVector get() = `list`
-    /** Concept `nav-more`. */
-    public val navMore: ImageVector get() = `ellipsis`
     /** Concept `nav-my-issues`. */
     public val navMyIssues: ImageVector get() = `list`
     /** Concept `nav-notifications`. */

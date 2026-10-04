@@ -207,6 +207,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "code" => ExpIcon::Code,
         "coffee" => ExpIcon::Coffee,
         "compass" => ExpIcon::Compass,
+        "computer" => ExpIcon::Computer,
         "copy" => ExpIcon::Copy,
         "corner-down-right" => ExpIcon::CornerDownRight,
         "cpu" => ExpIcon::Cpu,
@@ -484,14 +485,16 @@ pub const EVENT_RELATION_REMOVED: ExpIcon = ExpIcon::Unlink;
 pub const EVENT_STATUS_CHANGED: ExpIcon = ExpIcon::CircleDot;
 /// Registry concept `nav-account` -> Lucide `circle-user`.
 pub const NAV_ACCOUNT: ExpIcon = ExpIcon::CircleUser;
-/// Registry concept `nav-actions` -> Lucide `bot`.
-pub const NAV_ACTIONS: ExpIcon = ExpIcon::Bot;
+/// Registry concept `nav-actions` -> Lucide `rocket`.
+pub const NAV_ACTIONS: ExpIcon = ExpIcon::Rocket;
 /// Registry concept `nav-admin` -> Lucide `shield`.
 pub const NAV_ADMIN: ExpIcon = ExpIcon::Shield;
 /// Registry concept `nav-boards` -> Lucide `folder-kanban`.
 pub const NAV_BOARDS: ExpIcon = ExpIcon::FolderKanban;
 /// Registry concept `nav-changelog` -> Lucide `megaphone`.
 pub const NAV_CHANGELOG: ExpIcon = ExpIcon::Megaphone;
+/// Registry concept `nav-computer` -> Lucide `computer`.
+pub const NAV_COMPUTER: ExpIcon = ExpIcon::Computer;
 /// Registry concept `nav-create-issue` -> Lucide `square-pen`.
 pub const NAV_CREATE_ISSUE: ExpIcon = ExpIcon::SquarePen;
 /// Registry concept `nav-devices` -> Lucide `monitor`.
@@ -506,8 +509,6 @@ pub const NAV_GETTING_STARTED: ExpIcon = ExpIcon::Sparkles;
 pub const NAV_INBOX: ExpIcon = ExpIcon::Inbox;
 /// Registry concept `nav-issues` -> Lucide `list`.
 pub const NAV_ISSUES: ExpIcon = ExpIcon::List;
-/// Registry concept `nav-more` -> Lucide `ellipsis`.
-pub const NAV_MORE: ExpIcon = ExpIcon::Ellipsis;
 /// Registry concept `nav-my-issues` -> Lucide `list`.
 pub const NAV_MY_ISSUES: ExpIcon = ExpIcon::List;
 /// Registry concept `nav-notifications` -> Lucide `bell`.

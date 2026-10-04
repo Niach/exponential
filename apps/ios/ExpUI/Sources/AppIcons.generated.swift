@@ -202,6 +202,7 @@ public enum AppIcons {
         "code",
         "coffee",
         "compass",
+        "computer",
         "copy",
         "corner-down-right",
         "cpu",
@@ -483,13 +484,15 @@ public enum AppIcons {
     /// Concept `nav-account`.
     public static let navAccount: String = "circle-user"
     /// Concept `nav-actions`.
-    public static let navActions: String = "bot"
+    public static let navActions: String = "rocket"
     /// Concept `nav-admin`.
     public static let navAdmin: String = "shield"
     /// Concept `nav-boards`.
     public static let navBoards: String = "folder-kanban"
     /// Concept `nav-changelog`.
     public static let navChangelog: String = "megaphone"
+    /// Concept `nav-computer`.
+    public static let navComputer: String = "computer"
     /// Concept `nav-create-issue`.
     public static let navCreateIssue: String = "square-pen"
     /// Concept `nav-devices`.
@@ -504,8 +507,6 @@ public enum AppIcons {
     public static let navInbox: String = "inbox"
     /// Concept `nav-issues`.
     public static let navIssues: String = "list"
-    /// Concept `nav-more`.
-    public static let navMore: String = "ellipsis"
     /// Concept `nav-my-issues`.
     public static let navMyIssues: String = "list"
     /// Concept `nav-notifications`.

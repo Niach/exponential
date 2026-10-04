@@ -615,9 +615,13 @@ pub(crate) enum RailBadge {
     Dot(Hsla),
     Icon(ExpIcon, Hsla),
     Syncing,
+    /// EXP-963: a COUNT — the web rail's `Badge` (EXP-962): the Drafts
+    /// entry's pile, muted. Zero renders nothing (the badge's own rule).
+    Count(usize, crate::surface::BadgeTone),
 }
 
-/// One badge element at `glyph_px` (dots keep their fixed 6px regardless).
+/// One badge element at `glyph_px` (dots keep their fixed 6px regardless;
+/// a count is the 16px capsule).
 fn rail_badge_element(badge: RailBadge, glyph_px: f32, cx: &App) -> gpui::AnyElement {
     match badge {
         RailBadge::Dot(color) => div()
@@ -625,6 +629,10 @@ fn rail_badge_element(badge: RailBadge, glyph_px: f32, cx: &App) -> gpui::AnyEle
             .flex_shrink_0()
             .rounded_full()
             .bg(color)
+            .into_any_element(),
+        RailBadge::Count(count, tone) => div()
+            .flex_shrink_0()
+            .children(crate::surface::count_badge(count, tone, cx))
             .into_any_element(),
         RailBadge::Icon(icon, color) => Icon::from(icon)
             .with_size(px(glyph_px))
@@ -672,13 +680,17 @@ fn rail_compact_button(
         .hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
         .child(lead)
         .when_some(badge, |this, badge| {
-            // The dots and glyphs sit inside the glyph's corner. (EXP-963's
-            // count capsule moved into the More menu's Drafts row, SLOP-5.)
+            // A count capsule overhangs the glyph's corner (web `-top-0.5
+            // -right-0.5`); the dots and glyphs sit inside it.
+            let (top, right) = match badge {
+                RailBadge::Count(..) => (-2., -2.),
+                _ => (3., 3.),
+            };
             this.child(
                 div()
                     .absolute()
-                    .top(px(3.))
-                    .right(px(3.))
+                    .top(px(top))
+                    .right(px(right))
                     .child(rail_badge_element(badge, 10., cx)),
             )
         })
@@ -1407,19 +1419,14 @@ impl RailView {
         self.rail_screen_entry_active(id, icon, label, screen, badge, active, cx)
     }
 
-    /// SLOP-5: the More entry — the ONE advanced entry of the navigation ×4
-    /// (web `sidebar-more.tsx`, the iOS / Android More tab): a dropdown on
-    /// the menu surface holding Actions (authoring — the composer's action
-    /// chip is the everyday way to RUN one), the Drafts pile while any
-    /// (EXP-878, with its muted count) and this device's Files and Source
-    /// Control (EXP-1105: yolo mode hides those two until a git failure
-    /// needs a person). Source Control's attention / error badge and its
-    /// reason ride the entry, so a trunk failure stays visible with the row
-    /// folded away. Lit while any of those screens is up (SLOP-2 kept it lit
-    /// on one action's page the same way).
-    fn rail_more_entry(
+    /// The footer's Computer button — THIS machine's tools behind one menu
+    /// on the menu surface: a new Terminal (the shell tab cmd-t opens,
+    /// EXP-791), Files and Source Control (EXP-1105: yolo mode hides those
+    /// two until a git failure needs a person). Source Control's attention /
+    /// error badge and its reason ride the button, so a trunk failure stays
+    /// visible with the menu closed. Lit while Files or Source Control is up.
+    fn rail_computer_entry(
         &self,
-        draft_count: usize,
         files: bool,
         source_control: bool,
         sc_tooltip: SharedString,
@@ -1428,50 +1435,27 @@ impl RailView {
     ) -> gpui::AnyElement {
         let active = matches!(
             resolved_screen(&self.nav, cx),
-            Some(Screen::Actions)
-                | Some(Screen::Action { .. })
-                | Some(Screen::Drafts)
-                | Some(Screen::Files)
-                | Some(Screen::SourceControl)
+            Some(Screen::Files) | Some(Screen::SourceControl)
         );
-        // Only a FAILURE rides the entry (the attention triangle / error
+        // Only a FAILURE rides the button (the attention triangle / error
         // cross); the syncing spinner stays on the menu row.
         let entry_badge = sc_badge
             .clone()
             .filter(|badge| source_control && matches!(badge, RailBadge::Icon(..)));
-        let failing = entry_badge.is_some();
-        let tooltip: SharedString = if failing { sc_tooltip } else { "More".into() };
+        let tooltip: SharedString = if entry_badge.is_some() {
+            sc_tooltip
+        } else {
+            "Computer".into()
+        };
         let menu_sc_badge = sc_badge.filter(|_| source_control);
         let menu = move |mut menu: gpui_component::menu::PopupMenu,
                          _window: &mut Window,
                          _cx: &mut gpui::Context<gpui_component::menu::PopupMenu>| {
             menu = menu.item(
-                PopupMenuItem::new("Actions")
-                    .icon(Icon::from(registry::NAV_ACTIONS))
-                    .on_click(|_, window, cx| {
-                        crate::navigation::navigate_from_rail(window, cx, Screen::Actions);
-                    }),
+                PopupMenuItem::new("Terminal")
+                    .icon(Icon::from(registry::NAV_TERMINAL))
+                    .on_click(|_, window, cx| crate::session_bar::open_new_shell(window, cx)),
             );
-            if draft_count > 0 {
-                menu = menu.item(
-                    PopupMenuItem::element(move |_, cx| {
-                        h_flex()
-                            .flex_1()
-                            .gap_2()
-                            .items_center()
-                            .child(div().flex_1().min_w_0().truncate().child("Drafts"))
-                            .children(crate::surface::count_badge(
-                                draft_count,
-                                crate::surface::BadgeTone::Muted,
-                                cx,
-                            ))
-                    })
-                    .icon(Icon::from(registry::NAV_DRAFTS))
-                    .on_click(|_, window, cx| {
-                        crate::navigation::navigate_from_rail(window, cx, Screen::Drafts);
-                    }),
-                );
-            }
             if files {
                 menu = menu.item(
                     PopupMenuItem::new("Files")
@@ -1490,7 +1474,7 @@ impl RailView {
                             .child(div().flex_1().min_w_0().truncate().child("Source Control"))
                             .children(badge.clone().map(|badge| rail_badge_element(badge, 12., cx)))
                     })
-                    .icon(Icon::from(ExpIcon::GitMerge))
+                    .icon(Icon::from(registry::NAV_SOURCE_CONTROL))
                     .on_click(|_, window, cx| {
                         activate_tool(window, cx, ToolWindow::SourceControl)
                     }),
@@ -1499,58 +1483,30 @@ impl RailView {
             menu
         };
 
-        if self.compact {
-            // The icon column's 32px square — the settings gear's shape —
-            // with the failure badge in its top-right corner.
-            let button = Button::new("rail-more")
-                .ghost()
-                .cursor_pointer()
-                .small()
-                .icon(registry::NAV_MORE)
-                .selected(active)
-                .tooltip(tooltip)
-                .dropdown_menu(menu);
-            return div()
-                .relative()
-                .flex_shrink_0()
-                .child(button)
-                .when_some(entry_badge, |this, badge| {
-                    this.child(
-                        div()
-                            .absolute()
-                            .top(px(3.))
-                            .right(px(3.))
-                            .child(rail_badge_element(badge, 10., cx)),
-                    )
-                })
-                .into_any_element();
-        }
-
-        // The expanded row — `rail_row_lead`'s geometry (28 tall, 8px
-        // sides, 8px gap) on a Button, since a dropdown needs one.
-        let row = h_flex()
-            .w_full()
-            .gap_2()
-            .items_center()
-            .child(
-                Icon::from(registry::NAV_MORE)
-                    .with_size(gpui_component::Size::Medium)
-                    .flex_shrink_0(),
-            )
-            .child(div().flex_1().min_w_0().truncate().text_sm().child("More"))
-            .children(entry_badge.map(|badge| rail_badge_element(badge, 12., cx)));
-        Button::new("rail-more")
+        // The footer's small ghost square (the settings gear's shape), the
+        // failure badge in its top-right corner. It opens upward: the
+        // button sits at the window's bottom edge.
+        let button = Button::new("rail-computer")
             .ghost()
             .cursor_pointer()
-            .w_full()
-            .h(px(crate::surface::FLAT_ROW_COMPACT_H))
-            .px_2()
+            .small()
+            .icon(registry::NAV_COMPUTER)
             .selected(active)
-            .child(row)
-            // A tooltip only where the label cannot say it: the failure's
-            // reason (the old Source Control entry's rule).
-            .when(failing, |button| button.tooltip(tooltip))
-            .dropdown_menu(menu)
+            .tooltip(tooltip)
+            .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, menu);
+        div()
+            .relative()
+            .flex_shrink_0()
+            .child(button)
+            .when_some(entry_badge, |this, badge| {
+                this.child(
+                    div()
+                        .absolute()
+                        .top(px(3.))
+                        .right(px(3.))
+                        .child(rail_badge_element(badge, 10., cx)),
+                )
+            })
             .into_any_element()
     }
 
@@ -2227,8 +2183,8 @@ impl Render for RailView {
         // rows in the rail's Running section (EXP-923) right below, each
         // with its own state dot — a second signal on the entry above them
         // was noise. (It was the EXP-699 Devices dot, moved by EXP-818.)
-        // EXP-878: the Drafts pile — SLOP-5 moved it off the rail into the
-        // More menu, where its muted count (EXP-963) still rides the row.
+        // EXP-878: the Drafts pile — a root entry with its muted count
+        // (EXP-963) while any draft is parked (or the pile is on screen).
         // EXP-1170: the draft open on the New issue page is not "parked" —
         // it does not count.
         let open_draft = match resolved_screen(&self.nav, cx) {
@@ -2363,18 +2319,6 @@ impl Render for RailView {
             .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
                 navigate(window, cx, Screen::Settings)
             }));
-        // EXP-791: a new terminal, from the footer — the session bar's `+`
-        // moved here, since the bar is gone while no terminal is open. A
-        // direct call (EXP-17), the same shell tab cmd-t opens.
-        let terminal_entry = Button::new("rail-new-terminal")
-            .ghost().cursor_pointer()
-            .small()
-            .icon(registry::NAV_TERMINAL)
-            .tooltip("New terminal")
-            .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
-                crate::session_bar::open_new_shell(window, cx);
-            }));
-
         // EXP-1105: yolo mode hides Reviews / Files / Source Control unless
         // a git failure needs a person (see `yolo_rail`).
         let rail_gate = yolo_rail(yolo_mode(&self.nav, cx), has_reviews, sc_failing);
@@ -2390,10 +2334,37 @@ impl Render for RailView {
                 cx,
             )
         });
-        // SLOP-5: Actions, Drafts, Files and Source Control sit behind the
-        // ONE More entry (the web sidebar's, the phones' More tab).
-        let more_entry = self.rail_more_entry(
-            draft_count,
+        // Actions is a root entry (lit on one action's page too, SLOP-2);
+        // Drafts follows while any draft is parked.
+        let actions_entry = self.rail_screen_entry_active(
+            "rail-actions",
+            Icon::from(registry::NAV_ACTIONS),
+            "Actions",
+            Screen::Actions,
+            None,
+            matches!(
+                resolved_screen(&self.nav, cx),
+                Some(Screen::Actions) | Some(Screen::Action { .. })
+            ),
+            cx,
+        );
+        let on_drafts = matches!(resolved_screen(&self.nav, cx), Some(Screen::Drafts));
+        let drafts_entry = (draft_count > 0 || on_drafts).then(|| {
+            self.rail_screen_entry(
+                "rail-drafts",
+                Icon::from(registry::NAV_DRAFTS),
+                "Drafts",
+                Screen::Drafts,
+                Some(RailBadge::Count(
+                    draft_count,
+                    crate::surface::BadgeTone::Muted,
+                )),
+                cx,
+            )
+        });
+        // The footer's Computer menu: Terminal (EXP-791's footer button),
+        // Files and Source Control.
+        let computer_entry = self.rail_computer_entry(
             rail_gate.files,
             rail_gate.source_control,
             sc_tooltip,
@@ -2404,7 +2375,7 @@ impl Render for RailView {
         if self.compact {
             // EXP-870: the ICON column. Same destinations in the same order
             // as the expanded rail below (Inbox, Devices, Reviews, Agent,
-            // More), minus everything that needs a label to mean anything
+            // Actions, Drafts), minus everything that needs a label to mean anything
             // (section labels, the What's-new card, Getting started, the
             // sync caption); the footer stacks vertically.
             return v_flex()
@@ -2442,14 +2413,15 @@ impl Render for RailView {
                         ))
                         .children(reviews_entry)
                         .child(self.rail_agent_entry(active_chat_action.as_deref(), cx))
-                        .child(more_entry)
+                        .child(actions_entry)
+                        .children(drafts_entry)
                         .children(pinned_section)
                         .child(self.divider(cx))
                         .children(board_icons)
                         .children(running_section),
                 ))
                 .child(self.render_account_button(cx))
-                .child(terminal_entry)
+                .child(computer_entry)
                 .child(settings_entry)
                 .into_any_element();
         }
@@ -2498,10 +2470,10 @@ impl Render for RailView {
             // Middle zone — scrollable so many boards never push the pinned
             // Settings/Account off small windows. Rail order (SLOP-5, the
             // four nouns plus Reviews and Inbox, ×4 with the web sidebar and
-            // the phone tab bars): [Inbox, Devices, Reviews?, Agent, More]
-            // / Pinned (EXP-778) / boards + "+" / Running (EXP-923).
-            // Actions, Drafts, Files and Source Control are the More menu's
-            // rows.
+            // the phone tab bars): [Inbox, Devices, Reviews?, Agent, Actions,
+            // Drafts?] / Pinned (EXP-778) / boards + "+" / Running (EXP-923).
+            // Terminal, Files and Source Control are the footer's Computer
+            // menu.
             .child(crate::scroll_pane::sidebar_scroll_pane(
                 "rail-scroll",
                 &self.rail_scroll,
@@ -2539,8 +2511,9 @@ impl Render for RailView {
                     // list on the left, the Chat prompt in the center until a
                     // row is clicked (the master-detail shape).
                     .child(self.rail_agent_entry(active_chat_action.as_deref(), cx))
-                    // SLOP-5: More closes the nav entries.
-                    .child(more_entry)
+                    // Actions and Drafts (while any) close the nav entries.
+                    .child(actions_entry)
+                    .children(drafts_entry)
                     // EXP-778: Pinned sits between the nav entries and the
                     // boards (rail order: entries / Pinned / boards / Running).
                     .children(pinned_section)
@@ -2575,7 +2548,7 @@ impl Render for RailView {
                     .children(getting_started_icon)
                     .children(self.render_sync_indicator(cx))
                     // EXP-340: one bottom row — the account button fills the
-                    // width, the terminal button and the gear ride its right
+                    // width, the Computer menu and the gear ride its right
                     // edge.
                     .child(
                         h_flex()
@@ -2588,7 +2561,7 @@ impl Render for RailView {
                                     .min_w_0()
                                     .child(self.render_account_button(cx)),
                             )
-                            .child(terminal_entry)
+                            .child(computer_entry)
                             .child(settings_entry),
                     ),
             )

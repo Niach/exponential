@@ -67,7 +67,6 @@ const ANDROID_STYLEGUIDE = resolve(
  */
 const PINNED_RECIPES = [
   `scrollToComments`,
-  `openMoreMenu`,
   `openSearch`,
   `openOnboardingCreateTeam`,
   `openOnboardingJoin`,

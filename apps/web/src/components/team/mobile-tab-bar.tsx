@@ -15,7 +15,7 @@ import {
 } from "@/hooks/use-nav-counts"
 import { useCrossTeamScope } from "@/hooks/use-cross-team-scope"
 import { useBoardsForTeams } from "@/hooks/use-team-data"
-import { MORE_ACTIONS_LABEL } from "@/components/team/sidebar-more"
+import { ACTIONS_LABEL } from "@/components/team/sidebar-nav-entries"
 
 // EXP-317: the cross-client nav glyphs come from the shared registry
 // (packages/icons/icons.json) so web, desktop, iOS and Android agree.
@@ -285,7 +285,7 @@ export function MobileTabBar({
         <Link
           to="/t/$teamSlug/actions"
           params={{ teamSlug }}
-          aria-label={MORE_ACTIONS_LABEL}
+          aria-label={ACTIONS_LABEL}
           data-testid="tab-actions"
           className={tabClass(onActions)}
         >
