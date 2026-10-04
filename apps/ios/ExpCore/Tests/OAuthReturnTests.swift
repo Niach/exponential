@@ -78,6 +78,14 @@ final class OAuthReturnTests: XCTestCase {
             google.absoluteString,
             "https://exp.example.com/api/mobile-oauth-start?link=T_k-1&provider=google&code_challenge=ch"
         )
+        // SLOP-26: GitHub is a social provider too (the repositories connect hop).
+        let github = try XCTUnwrap(AuthApi.linkStartUrl(
+            instanceUrl: "https://exp.example.com", ticket: "T", provider: "github", codeChallenge: "ch"
+        ))
+        XCTAssertEqual(
+            github.absoluteString,
+            "https://exp.example.com/api/mobile-oauth-start?link=T&provider=github&code_challenge=ch"
+        )
         let oidc = try XCTUnwrap(AuthApi.linkStartUrl(
             instanceUrl: "https://exp.example.com", ticket: "T", provider: "corp-sso", codeChallenge: "ch"
         ))

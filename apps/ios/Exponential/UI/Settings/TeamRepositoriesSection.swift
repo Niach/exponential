@@ -6,18 +6,18 @@ import SwiftUI
 /// The server-only repositories registry (masterplan §6 / §5.3). v4: a pure
 /// registry — each row shows `owner/name`, the default branch, and the boards
 /// it backs ("used by" chips from `repositories.list().boards`). Member-visible
-/// since EXP-557 (per-user sharing): the status block and the picker show the
-/// VIEWER's own GitHub connections/repos (the server scopes them), any member
-/// connects GitHub / adds a repo (connecting SHARES it with the team), and
-/// removal is sharer-or-owner per row. Removal is blocked server-side
-/// (CONFLICT) while any board still points at it, and that message is surfaced
-/// inline. Connecting GitHub runs fully IN-APP (EXP-45), same
-/// ASWebAuthenticationSession flow as GithubRepoPicker.
+/// since EXP-557 (per-user sharing): any member adds a repo (adding SHARES it
+/// with the team), removal is sharer-or-owner per row and blocked server-side
+/// (CONFLICT) while any board still points at it — that message is surfaced
+/// inline.
 ///
-/// FEED-42: the connection block follows the canonical ×4 spec (copy in ExpCore
-/// `GithubCopy`): header pill, intro, the status block BEFORE the list, then
-/// the list. Accounts, re-auth and stale marks all come from
-/// `integrations.github.status`, exactly as web and desktop read them.
+/// SLOP-7/SLOP-26: the connection block above the list is the VIEWER's OWN
+/// GitHub connection (web `GithubStatusLine`, copy in ExpCore `GithubCopy`):
+/// not connected → Connect GitHub (the link-ticket hop, `GithubConnectSession`);
+/// connected as `login` with Disconnect; an expired token → Reconnect; then
+/// the accounts where the app is installed, one row each with a Configure
+/// link, and Install on another account (`installUrl` in the system
+/// browser). Nothing is per team any more — no stale or re-auth lines.
 struct TeamRepositoriesSection: View {
     let accountId: String
     let team: TeamEntity?
@@ -31,27 +31,30 @@ struct TeamRepositoriesSection: View {
     let integrationsApi: IntegrationsApi
     let instanceBaseURL: URL?
 
+    @Environment(AppDependencies.self) private var deps
+    @Environment(\.openURL) private var openURL
     @State private var repos: [TeamRepo] = []
     @State private var loading = true
-    // Mutation failures (remove/CONFLICT/unlink). Kept SEPARATE from load
+    // Mutation failures (remove/CONFLICT/disconnect). Kept SEPARATE from load
     // failures so a failed mutation survives its own post-mutation reload
     // (EXP-365).
     @State private var errorText: String?
     // repositories.list failures — rendered from the same inline slot.
     @State private var loadErrorText: String?
     @State private var removeTarget: TeamRepo?
-    // Account disconnect confirmation — live (✕) and stale rows share it.
-    @State private var disconnectTarget: GithubInstallation?
+    // Disconnecting GitHub (unlinking the viewer's account) confirms first.
+    @State private var disconnectConfirm = false
     // The ONE GitHub data source (FEED-42): `status` with `platform: mobile`,
-    // so its connect URL deep-links back via `exponential://github-connected`.
+    // so its guided-page URL deep-links back via `exponential://github-connected`.
     @State private var githubStatus: GithubStatusResult?
     // A failed probe with nothing loaded renders the failed line + Retry;
     // a later failure keeps the last good value.
     @State private var githubStatusFailed = false
     @Environment(\.scenePhase) private var scenePhase
-    @State private var connectSession = InstallWebAuthSession()
-    // A failed GitHub connect hop's message (EXP-390) — separate from
-    // `errorText`, which belongs to mutations and is cleared by `mutate`.
+    @State private var connectSession = GithubConnectSession()
+    @State private var connecting = false
+    // A failed GitHub connect hop's message — separate from `errorText`,
+    // which belongs to mutations and is cleared by `mutate`.
     @State private var connectError: String?
     // "Add repository" picker sheet (EXP-225): the add runs inside the sheet
     // (FEED-42), which shows its own failures.
@@ -101,8 +104,8 @@ struct TeamRepositoriesSection: View {
         // via the app-level `exponential://github-connected` deep link. An
         // error slug means the connect FAILED: surface it (EXP-390).
         .onReceive(NotificationCenter.default.publisher(for: .githubConnected)) { notification in
-            if let slug = notification.userInfo?["error"] as? String {
-                connectError = GithubConnect.errorMessage(for: slug)
+            if notification.userInfo?["error"] != nil {
+                connectError = GithubCopy.linkFailed
             } else {
                 connectError = nil
                 Task { await reload() }
@@ -115,6 +118,7 @@ struct TeamRepositoriesSection: View {
                 Task { await reload() }
             }
         }
+        .onDisappear { connectSession.cancel() }
         // The add lands in the registry (repositories.add) INSIDE the sheet:
         // a throw keeps the picker open with the error inline.
         .sheet(isPresented: $showAddRepo) {
@@ -151,38 +155,21 @@ struct TeamRepositoriesSection: View {
         } message: {
             Text("This disconnects \(removeTarget?.fullName ?? "this repository") from the team.")
         }
-        // Confirm-first account disconnect (EXP-557 stale rows, FEED-31 ✕).
-        .alert(GithubCopy.disconnectTitle, isPresented: Binding(
-            get: { disconnectTarget != nil },
-            set: { if !$0 { disconnectTarget = nil } }
-        )) {
-            Button(GithubCopy.cancel, role: .cancel) { disconnectTarget = nil }
+        // Confirm-first disconnect of the viewer's GitHub account (web
+        // `GH_DISCONNECT_CONFIRM_TITLE`): repositories already added keep
+        // working, their tokens mint off the App installation.
+        .alert(GithubCopy.disconnectTitle, isPresented: $disconnectConfirm) {
+            Button(GithubCopy.cancel, role: .cancel) { disconnectConfirm = false }
             Button(GithubCopy.disconnect, role: .destructive) {
-                if let installation = disconnectTarget, let teamId = team?.id {
-                    Task {
-                        await mutate {
-                            try await integrationsApi.githubUnlink(
-                                accountId: accountId,
-                                teamId: teamId,
-                                installationId: installation.installationId
-                            )
-                        }
+                Task {
+                    await mutate {
+                        try await integrationsApi.githubDisconnect(accountId: accountId)
                     }
                 }
             }
         } message: {
-            Text(disconnectMessage)
+            Text(GithubCopy.disconnectBody)
         }
-    }
-
-    // A LIVE link gets honest copy (the server refuses while a connected repo
-    // still rides it); a stale one the "nothing is lost" copy.
-    private var disconnectMessage: String {
-        let label = disconnectTarget.map { installationLabel($0) } ?? "this account"
-        let stale = disconnectTarget.map { target in
-            staleAccounts.contains { $0.installationId == target.installationId }
-        } ?? false
-        return stale ? GithubCopy.staleConfirm(label) : GithubCopy.unlinkConfirm(label)
     }
 
     // MARK: - Row
@@ -268,20 +255,19 @@ struct TeamRepositoriesSection: View {
         .flatRow()
     }
 
-    // MARK: - GitHub status block (FEED-42 spec A)
+    // MARK: - GitHub connection block (SLOP-26, web GithubStatusLine)
 
     @ViewBuilder
     private var githubStatusBlock: some View {
         if let status = githubStatus {
-            let suspended = status.installations.filter { $0.isSuspended }
             if !status.configured {
                 githubLine(GithubCopy.notConfigured)
-            } else if !status.installed {
-                notInstalledLine(status)
-            } else if !suspended.isEmpty {
-                suspendedLine(status, suspended: suspended)
+            } else if !status.linked {
+                notLinkedLine(status)
+            } else if status.needsReconnect {
+                expiredLine(status)
             } else {
-                installedAccountsBlock(status)
+                connectedBlock(status)
             }
         } else if githubStatusFailed {
             // The probe is best-effort — say nothing definite, offer a retry.
@@ -291,7 +277,7 @@ struct TeamRepositoriesSection: View {
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 Spacer()
-                GlassPill(GithubCopy.retry, mode: .action {
+                GlassPill(GithubCopy.retry, icon: AppIcons.uiRefresh, mode: .action {
                     Task { await reload() }
                 })
             }
@@ -320,45 +306,133 @@ struct TeamRepositoriesSection: View {
         .glassRow()
     }
 
-    // Primary = the OAuth hop (finds installations the viewer already
-    // controls); the secondary goes straight to the account picker — only
-    // worth a second pill when both URLs exist (FEED-31).
-    private func notInstalledLine(_ status: GithubStatusResult) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                githubGlyph
-                Text(GithubCopy.notInstalled)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                Spacer(minLength: 0)
-            }
-            if connectHopUrl(status) != nil {
-                FlowLayout(spacing: 8) {
-                    GlassPill(GithubCopy.connectGithub, mode: .action { openHop(connectHopUrl(status)) })
-                    if status.connectUrl != nil, status.installUrl != nil {
-                        GlassPill(GithubCopy.installOnAnAccount, mode: .action { openHop(status.installUrl) })
-                    }
-                }
-            }
+    // Not connected: ONE primary fix, the link-ticket hop.
+    private func notLinkedLine(_ status: GithubStatusResult) -> some View {
+        HStack(spacing: 8) {
+            githubGlyph
+            Text(GithubCopy.notLinked)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            Spacer(minLength: 8)
+            GlassPill(
+                GithubCopy.connectGithub,
+                icon: AppIcons.uiGithub,
+                mode: .action { connect(status) },
+                primary: true,
+                enabled: !connecting
+            )
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .glassRow()
+        .accessibilityIdentifier("github-connection-unlinked")
     }
 
-    // Suspension outranks everything (REV2-29): a reconnect CANNOT fix it —
-    // only unsuspending on GitHub can. The whole line is destructive and no
-    // stale lines render under it.
+    // Linked, token dead: Reconnect (the same hop) or the ✕ to drop the link.
+    private func expiredLine(_ status: GithubStatusResult) -> some View {
+        HStack(spacing: 8) {
+            AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)
+                .foregroundStyle(DesignTokens.Semantic.yellow)
+            Text(GithubCopy.reconnectNeeded)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            Spacer(minLength: 8)
+            GlassPill(
+                GithubCopy.reconnect,
+                icon: AppIcons.uiRefresh,
+                mode: .action { connect(status) },
+                primary: true,
+                enabled: !connecting
+            )
+            disconnectButton
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .glassRow()
+        .accessibilityIdentifier("github-connection-expired")
+    }
+
+    // Connected: "Connected as login" + ✕, the suspended line (REV2-29), then
+    // the accounts where the app is installed (Configure each) and Install
+    // on another account — or the install nudge when there are none.
+    private func connectedBlock(_ status: GithubStatusResult) -> some View {
+        let suspended = status.installations.filter { $0.isSuspended }
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(DesignTokens.Semantic.green)
+                    .frame(width: 8, height: 8)
+                Text(status.login.map { GithubCopy.connectedAs($0) } ?? GithubCopy.connected)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 8)
+                disconnectButton
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                if !suspended.isEmpty {
+                    suspendedLine(status, suspended: suspended)
+                }
+                if status.installations.isEmpty {
+                    HStack(alignment: .top, spacing: 8) {
+                        Text(GithubCopy.notInstalled)
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        Spacer(minLength: 8)
+                        if status.installUrl != nil {
+                            GlassPill(GithubCopy.installApp, icon: AppIcons.uiAdd, mode: .action {
+                                openInstall(status.installUrl)
+                            }, primary: true)
+                        }
+                    }
+                } else {
+                    Text(GithubCopy.accountsHeader)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    ForEach(status.installations) { installation in
+                        accountRow(installation)
+                    }
+                    Text(GithubCopy.installationCaption)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    if status.installUrl != nil {
+                        GlassPill(GithubCopy.installAnother, icon: AppIcons.uiAdd, mode: .action {
+                            openInstall(status.installUrl)
+                        })
+                    }
+                }
+            }
+            .padding(.leading, 16)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .glassRow()
+        .accessibilityIdentifier("github-connection-linked")
+    }
+
+    private var disconnectButton: some View {
+        GhostIconButton(
+            AppIcons.uiClose,
+            accessibilityLabel: GithubCopy.disconnect,
+            glyphSize: AppIcon.Size.small,
+            tint: .white.opacity(TextOpacity.tertiary)
+        ) {
+            disconnectConfirm = true
+        }
+    }
+
+    // GitHub suspended the app for an account (REV2-29): until it is
+    // unsuspended no token mints — say so instead of looking healthy. A
+    // reconnect cannot fix it; Manage opens the installation on GitHub.
     private func suspendedLine(_ status: GithubStatusResult, suspended: [GithubInstallation]) -> some View {
         let manage = suspended[0].manageUrl.isEmpty ? status.installUrl : suspended[0].manageUrl
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 8) {
-                AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)
-                    .padding(.top, 1)
-                Text(GithubCopy.suspendedLine(suspended.map { installationLabel($0) }))
-                    .font(.caption)
-                Spacer(minLength: 0)
-            }
+        return HStack(alignment: .top, spacing: 8) {
+            AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)
+                .padding(.top, 1)
+            Text(GithubCopy.suspendedLine(suspended.map { installationLabel($0) }))
+                .font(.caption)
+            Spacer(minLength: 8)
             if let manage, let url = URL(string: manage) {
                 Link(destination: url) {
                     GlassPill(GithubCopy.manage, tint: DesignTokens.Palette.destructive) {
@@ -371,86 +445,10 @@ struct TeamRepositoriesSection: View {
             }
         }
         .foregroundStyle(DesignTokens.Palette.destructive)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .glassRow()
     }
 
-    // FEED-31 (web GithubStatusLine, installed state): header, one indented
-    // row per account (glyph, login, Configure, ✕ + confirm), the caption, the
-    // two SEPARATE actions, then the re-auth line and the stale lines.
-    private func installedAccountsBlock(_ status: GithubStatusResult) -> some View {
-        let stale = staleAccounts
-        let staleIds = Set(stale.map { $0.installationId })
-        let reauthInstalls = status.installations.filter {
-            $0.needsReauth && !staleIds.contains($0.installationId)
-        }
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                if reauthInstalls.isEmpty {
-                    Circle()
-                        .fill(DesignTokens.Semantic.green)
-                        .frame(width: 8, height: 8)
-                } else {
-                    AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)
-                        .foregroundStyle(DesignTokens.Semantic.yellow)
-                }
-                Text(GithubCopy.accountsHeader)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            }
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(status.installations) { installation in
-                    accountRow(installation)
-                }
-                Text(GithubCopy.installationsCaption)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                if status.installUrl != nil || status.connectUrl != nil {
-                    FlowLayout(spacing: 8) {
-                        if status.installUrl != nil {
-                            GlassPill(GithubCopy.connectAnotherAccount, icon: AppIcons.uiAdd, mode: .action { openHop(status.installUrl) })
-                        }
-                        if status.connectUrl != nil {
-                            GlassPill(GithubCopy.refreshAccess, icon: AppIcons.uiRefresh, mode: .action { openHop(status.connectUrl) })
-                        }
-                    }
-                }
-                if !reauthInstalls.isEmpty {
-                    HStack(spacing: 8) {
-                        Text(GithubCopy.reauthLine(reauthInstalls.map { installationLabel($0) }))
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        Spacer(minLength: 8)
-                        if connectHopUrl(status) != nil {
-                            GlassPill(GithubCopy.reconnect, mode: .action { openHop(connectHopUrl(status)) })
-                        }
-                    }
-                }
-                // Stale accounts (EXP-557): no reconnect can ever refresh them
-                // — a Disconnect instead of a permanent nag (EXP-556).
-                ForEach(stale) { installation in
-                    HStack(alignment: .top, spacing: 8) {
-                        AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)
-                            .foregroundStyle(DesignTokens.Semantic.yellow)
-                            .padding(.top, 1)
-                        Text(GithubCopy.staleLine(installationLabel(installation)))
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        Spacer(minLength: 8)
-                        GlassPill(GithubCopy.disconnectAccount, mode: .action {
-                            disconnectTarget = installation
-                        })
-                    }
-                }
-            }
-            .padding(.leading, 16)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .glassRow()
-    }
-
+    // One row per account with the app installed: glyph, login, Configure
+    // (that installation's GitHub settings page, in the system browser).
     private func accountRow(_ installation: GithubInstallation) -> some View {
         HStack(spacing: 8) {
             AppIcon(
@@ -473,23 +471,9 @@ struct TeamRepositoriesSection: View {
                     }
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 }
-            }
-            GhostIconButton(
-                AppIcons.uiClose,
-                accessibilityLabel: GithubCopy.disconnectAccessibility,
-                glyphSize: AppIcon.Size.small,
-                tint: .white.opacity(TextOpacity.tertiary)
-            ) {
-                disconnectTarget = installation
+                .accessibilityLabel(GithubCopy.configureTitle(installationLabel(installation)))
             }
         }
-    }
-
-    // Linked installations with zero grants from ANY member — only the
-    // `status` endpoint carries the mark. Suspended installs are excluded
-    // (their fix is an unsuspend, REV2-29).
-    private var staleAccounts: [GithubInstallation] {
-        (githubStatus?.installations ?? []).filter { $0.isStale && !$0.isSuspended }
     }
 
     private func installationLabel(_ installation: GithubInstallation) -> String {
@@ -509,22 +493,30 @@ struct TeamRepositoriesSection: View {
         return sharer.email ?? "a teammate"
     }
 
-    // The OAuth connect hop re-captures grants; `installUrl` is only the
-    // no-OAuth-secret fallback.
-    private func connectHopUrl(_ status: GithubStatusResult) -> String? {
-        status.connectUrl ?? status.installUrl
+    // Connect (or reconnect) the viewer's GitHub account: the link-ticket
+    // hop in the in-app auth sheet, the guided page as the fallback. Every
+    // outcome but a failure re-probes.
+    private func connect(_ status: GithubStatusResult) {
+        guard !connecting else { return }
+        connectError = nil
+        connecting = true
+        connectSession.start(deps: deps, accountId: accountId, connectUrl: status.connectUrl) { outcome in
+            connecting = false
+            switch outcome {
+            case .connected, .cancelled:
+                Task { await reload() }
+            case let .failed(message):
+                connectError = message
+            }
+        }
     }
 
-    // The in-app hop (ASWebAuthenticationSession, same flow as
-    // GithubRepoPicker) for an explicit URL. The completion fires on callback
-    // AND manual dismissal, so re-query regardless.
-    private func openHop(_ urlString: String?) {
+    // GitHub's install page in the system browser: the App's setup URL lands
+    // on the web page, whose "Return to the app" deep-links back here.
+    private func openInstall(_ urlString: String?) {
         guard let urlString, let url = URL(string: urlString) else { return }
         connectError = nil
-        connectSession.start(url: url) { errorSlug in
-            connectError = errorSlug.map { GithubConnect.errorMessage(for: $0) }
-            Task { await reload() }
-        }
+        openURL(url)
     }
 
     // MARK: - Data (server-only registry; refetched after every mutation)
@@ -569,7 +561,6 @@ struct TeamRepositoriesSection: View {
             errorText = error.trpcUserMessage
         }
         removeTarget = nil
-        disconnectTarget = nil
         await reload()
     }
 }

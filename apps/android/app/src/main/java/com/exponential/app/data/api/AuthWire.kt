@@ -59,13 +59,14 @@ object AuthWire {
 
     /**
      * EXP-1126: the Custom Tab URL of the browser handoff's LINK mode. The
-     * minted [ticket] names the signed-in session; Google/Apple ride
+     * minted [ticket] names the signed-in session; Google/Apple/GitHub ride
      * `provider=`, every other id is an OIDC `providerId=`. The route still
      * demands a PKCE challenge even though link mode answers with
      * `oauth-return?linked=<id>` and never a code.
      */
     fun linkStartUrl(baseUrl: String, ticket: String, providerId: String, codeChallenge: String): String {
-        val providerParam = if (providerId == "google" || providerId == "apple") {
+        // Google, Apple and GitHub (SLOP-26) are Better Auth SOCIAL providers.
+        val providerParam = if (providerId == "google" || providerId == "apple" || providerId == "github") {
             "provider=${encode(providerId)}"
         } else {
             "providerId=${encode(providerId)}"

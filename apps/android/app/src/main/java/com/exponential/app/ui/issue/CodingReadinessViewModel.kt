@@ -125,10 +125,17 @@ class CodingReadinessViewModel @Inject constructor(
             null
         } else {
             val list = teamRepos.value.orEmpty()
+            val github = status.value
+            // SLOP-7: "GitHub connected" = the viewer's own GitHub account is
+            // linked with a live token, or the team already has repositories
+            // (a teammate connected them — this person needs no GitHub of
+            // their own to pick one). The label: the viewer's login, else the
+            // first installed account, else the first repo's owner.
+            val linked = github?.isLinked == true && github.needsReconnect != true
             CodingReadiness.Github(
-                connected = list.isNotEmpty() || status.value?.installed == true,
-                label = status.value?.installations?.firstOrNull { !it.accountLogin.isNullOrBlank() }
-                    ?.accountLogin
+                connected = list.isNotEmpty() || linked,
+                label = github?.login?.takeIf { it.isNotBlank() }
+                    ?: github?.installations?.firstOrNull { !it.accountLogin.isNullOrBlank() }?.accountLogin
                     ?: list.firstOrNull()?.fullName?.substringBefore('/')?.takeIf { it.isNotBlank() },
             )
         }

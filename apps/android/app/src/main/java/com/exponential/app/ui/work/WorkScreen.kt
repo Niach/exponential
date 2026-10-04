@@ -734,8 +734,11 @@ fun WorkScreen(
         val fixes = CodingReadiness.Fix.entries.filterTo(mutableSetOf()) { fix ->
             when (fix) {
                 // Team settings is where Android edits a board's repository
-                // (member-level `boards.setRepository`) and connects GitHub.
-                CodingReadiness.Fix.CONNECT_GITHUB, CodingReadiness.Fix.BOARD_SETTINGS -> openTeamSettings != null
+                // (member-level `boards.setRepository`).
+                CodingReadiness.Fix.BOARD_SETTINGS -> openTeamSettings != null
+                // SLOP-26: Connect GitHub runs in the sheet's own picker for a
+                // member with a board; team settings is the fallback.
+                CodingReadiness.Fix.CONNECT_GITHUB -> permissions?.isMember == true || openTeamSettings != null
                 CodingReadiness.Fix.OPEN_DEVICES -> onOpenDevices != null
                 // `boards.setRepository` = `mutate_resources`: any member.
                 CodingReadiness.Fix.CHOOSE_REPOSITORY -> permissions?.isMember == true

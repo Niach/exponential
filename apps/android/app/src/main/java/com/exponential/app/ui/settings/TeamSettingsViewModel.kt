@@ -5,7 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.PlaceholderStatus
-import com.exponential.app.domain.githubConnectErrorMessage
+import com.exponential.app.domain.GithubCopy
 import com.exponential.app.domain.placeholderStatuses
 import com.exponential.app.data.api.BoardsApi
 import com.exponential.app.data.api.CreateLabelInput
@@ -19,6 +19,7 @@ import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.data.api.TeamMembersApi
 import com.exponential.app.data.api.TeamsApi
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.auth.GithubConnectStarter
 import com.exponential.app.data.push.DeepLinkBus
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.LabelEntity
@@ -67,14 +68,17 @@ data class TeamSettingsState(
     // FEED-32: the repo id a one-shot re-list is resolving right now (a board
     // whose synced repositoryId the registry copy doesn't know yet).
     val resolvingRepoId: String? = null,
-    // FEED-42: the connection block's ONE source, `integrations.github.status`
-    // (mobile-marked URLs) — exactly as web and desktop: the viewer's accounts
-    // plus, for owners, the team's STALE links (the `repos` payload never
-    // carries `stale`). Null while loading or after a failed probe.
+    // The connection block's ONE source, `integrations.github.status`
+    // (mobile-marked URLs) — exactly as web and desktop: the VIEWER's own
+    // GitHub connection and the installations their token sees. Null while
+    // loading or after a failed probe.
     val githubStatus: GithubStatusResult? = null,
     // The status probe failed (and no earlier value is on screen) — the block
     // says so with a Retry instead of rendering nothing.
     val githubFailed: Boolean = false,
+    // SLOP-26: a connect hop being minted (the ticket round-trip before the
+    // Custom Tab opens) — the Connect/Reconnect pill is held meanwhile.
+    val githubConnecting: Boolean = false,
     // FEED-42: registry/GitHub failures (list load, remove, unlink, a failed
     // connect hop) render INLINE above the list, never as a snackbar.
     val repositoriesError: String? = null,
@@ -106,6 +110,7 @@ class TeamSettingsViewModel @Inject constructor(
     private val boardsApi: BoardsApi,
     private val integrationsApi: IntegrationsApi,
     private val deepLinkBus: DeepLinkBus,
+    private val connectStarter: GithubConnectStarter,
 ) : ViewModel() {
 
     // Reactive account scoping: a Settings → Teams tap on a different
@@ -145,13 +150,14 @@ class TeamSettingsViewModel @Inject constructor(
     private val resolvedRepoIds = mutableSetOf<String>()
     private val _githubStatus = MutableStateFlow<GithubStatusResult?>(null)
     private val _githubFailed = MutableStateFlow(false)
+    private val _githubConnecting = MutableStateFlow(false)
     private val _repositoriesError = MutableStateFlow<String?>(null)
     val transient: StateFlow<String?> = _transient.asStateFlow()
 
     init {
         // Repositories aren't an Electric shape — (re)load the registry over
         // tRPC whenever the active account or selected team changes. The
-        // GitHub grant state rides along (needsReauth drives the reconnect row).
+        // The viewer's GitHub connection state rides along (the connection block).
         viewModelScope.launch {
             combine(auth.activeAccountId, selection.selectedId) { a, w -> a to w }
                 .collectLatest { (accountId, teamId) ->
@@ -174,19 +180,59 @@ class TeamSettingsViewModel @Inject constructor(
                     }
                 }
         }
-        // The reconnect Custom Tab ends on the server's "connected" page, which
-        // fires exponential://github-connected — re-fetch so the needsReauth row clears
+        // The guided page / the App's setup page fire exponential://
+        // github-connected — re-fetch so the block reflects the install
         // without leaving the screen. Event counter, not a consumed one-shot
         // (EXP-365): the repo picker may be collecting too, and both must
         // refresh. drop(1) skips the StateFlow replay. An error slug means the
-        // connect FAILED (EXP-390): surface it instead of refreshing.
+        // hop FAILED: surface it instead of refreshing.
         viewModelScope.launch {
             deepLinkBus.githubConnected.drop(1).collect { event ->
                 if (event.error != null) {
-                    _repositoriesError.value = githubConnectErrorMessage(event.error)
+                    _repositoriesError.value = GithubCopy.LINK_FAILED
                 } else {
                     refreshGithub()
                 }
+            }
+        }
+        // SLOP-26: the link-ticket hop's outcome (EXP-1126 link mode) — a
+        // linked GitHub re-probes; a failure renders inline.
+        viewModelScope.launch {
+            auth.linkResult.drop(1).collect { result ->
+                if (result.providerId != GithubConnectStarter.PROVIDER) return@collect
+                if (result.error != null) {
+                    _repositoriesError.value = result.error
+                } else {
+                    _repositoriesError.value = null
+                    refreshGithub()
+                }
+            }
+        }
+    }
+
+    /**
+     * SLOP-26: Connect (or reconnect) the viewer's GitHub account — the
+     * link-ticket hop, the guided page (`connectUrl`) as the fallback — handing
+     * the URL to [open] (a Custom Tab). The outcome arrives on the deep links
+     * collected above.
+     */
+    fun connectGithub(open: (String) -> Unit) {
+        val accountId = auth.activeAccountId.value ?: return
+        if (_githubConnecting.value) return
+        _repositoriesError.value = null
+        _githubConnecting.value = true
+        viewModelScope.launch {
+            try {
+                val hop = connectStarter.start(accountId, _githubStatus.value?.connectUrl)
+                if (hop == null) {
+                    _repositoriesError.value = GithubCopy.LINK_FAILED
+                } else {
+                    open(hop.url)
+                }
+            } catch (e: Exception) {
+                _repositoriesError.value = trpcErrorMessage(e, GithubCopy.LINK_FAILED)
+            } finally {
+                _githubConnecting.value = false
             }
         }
     }
@@ -237,16 +283,14 @@ class TeamSettingsViewModel @Inject constructor(
         }
     }
 
-    // Disconnect a linked GitHub account from the team (EXP-557 — the visible
-    // "Disconnect account" action on STALE accounts, which no reconnect can
-    // heal). Link-creator-or-owner server-side; the grant state is re-fetched
-    // either way so the section reflects the outcome.
-    fun unlinkGithub(installationId: Long) = viewModelScope.launch {
+    // SLOP-26: disconnect the viewer's OWN GitHub account (confirm-first).
+    // Repositories already added keep working; the connection state is
+    // re-fetched either way so the block reflects the outcome.
+    fun disconnectGithub() = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
-        val teamId = selection.selectedId.value ?: return@launch
         _repositoriesError.value = null
-        runCatching { integrationsApi.githubUnlink(accountId, teamId, installationId) }
-            .onFailure { _repositoriesError.value = trpcErrorMessage(it, "Couldn’t disconnect the GitHub account") }
+        runCatching { integrationsApi.githubDisconnect(accountId) }
+            .onFailure { _repositoriesError.value = trpcErrorMessage(it, "Couldn’t disconnect GitHub") }
         refreshGithub()
     }
 
@@ -269,6 +313,7 @@ class TeamSettingsViewModel @Inject constructor(
             _resolvingRepoId,
             _githubFailed,
             _repositoriesError,
+            _githubConnecting,
         )
     ) { values ->
         @Suppress("UNCHECKED_CAST")
@@ -295,6 +340,7 @@ class TeamSettingsViewModel @Inject constructor(
         val resolvingRepoId = values[14] as String?
         val githubFailed = values[15] as Boolean
         val repositoriesError = values[16] as String?
+        val githubConnecting = values[17] as Boolean
         val placeholders = placeholderStatuses(invites)
         TeamSettingsState(
             team = team,
@@ -315,6 +361,7 @@ class TeamSettingsViewModel @Inject constructor(
             resolvingRepoId = resolvingRepoId,
             githubStatus = githubStatus,
             githubFailed = githubFailed,
+            githubConnecting = githubConnecting,
             repositoriesError = repositoriesError,
             currentUserId = currentUserId,
             transient = transient,
