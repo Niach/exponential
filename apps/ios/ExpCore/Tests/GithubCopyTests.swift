@@ -10,10 +10,6 @@ final class GithubCopyTests: XCTestCase {
     func testConnectionBlockLiterals() {
         XCTAssertEqual(GithubCopy.sectionTitle, "Repositories")
         XCTAssertEqual(GithubCopy.addRepository, "Add repository")
-        XCTAssertEqual(
-            GithubCopy.intro,
-            "Connect your GitHub account, install the Exponential app on the accounts whose repositories you want, then add repositories you can push to. Point a board at one to make it the clone target for “Start coding”."
-        )
         XCTAssertEqual(GithubCopy.statusFailed, "Couldn’t reach GitHub connect state.")
         XCTAssertEqual(GithubCopy.notConfigured, "GitHub isn’t configured on this server.")
         XCTAssertEqual(GithubCopy.notLinked, "No GitHub account connected")

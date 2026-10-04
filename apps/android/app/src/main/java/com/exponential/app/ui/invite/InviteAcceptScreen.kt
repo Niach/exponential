@@ -41,6 +41,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import com.exponential.app.ui.theme.GlassTokens
 
 data class InviteAcceptState(
     val loading: Boolean = true,
@@ -190,6 +191,7 @@ fun InviteAcceptScreen(
                     Button(
                         onClick = { viewModel.accept(token) },
                         enabled = !state.accepting && preview.acceptedAt == null,
+                        shape = GlassTokens.ButtonShape,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         if (state.accepting) Text("Joining…") else Text("Accept invite")

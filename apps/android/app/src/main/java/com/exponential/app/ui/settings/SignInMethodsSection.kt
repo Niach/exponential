@@ -56,6 +56,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
+import com.exponential.app.ui.theme.GlassTokens
 
 /**
  * EXP-1126: Settings › server › Sign-in methods (web `SignInMethodsSection` +
@@ -324,7 +325,9 @@ private fun RowButton(
     OutlinedButton(
         onClick = onClick,
         enabled = enabled,
-        // The web's `size="sm"` outline button: a compact pill beside the row text.
+        // The web's `size="sm"` outline button beside the row text (EXP-1176:
+        // the row-radius rectangle, not Material's capsule).
+        shape = GlassTokens.ButtonShape,
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
         modifier = Modifier
             .height(32.dp)

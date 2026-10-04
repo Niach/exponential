@@ -801,8 +801,13 @@ struct IssueListView: View {
                     .foregroundStyle(DesignTokens.Palette.primaryForeground)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(DesignTokens.Palette.primary, in: Capsule())
-                    .contentShape(Capsule())
+                    // EXP-1176: a text button is the row-radius rectangle,
+                    // like the web bulk bar's Button; the capsule is the pill.
+                    .background(
+                        DesignTokens.Palette.primary,
+                        in: RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
+                    )
+                    .contentShape(RoundedRectangle(cornerRadius: GlassTokens.rowRadius))
                 }
                 .buttonStyle(.plain)
                 .padding(.leading, 4)

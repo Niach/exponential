@@ -13,8 +13,6 @@ public enum GithubCopy {
 
     public static let sectionTitle = "Repositories"
     public static let addRepository = "Add repository"
-    public static let intro =
-        "Connect your GitHub account, install the Exponential app on the accounts whose repositories you want, then add repositories you can push to. Point a board at one to make it the clone target for “Start coding”."
     public static let statusFailed = "Couldn’t reach GitHub connect state."
     public static let retry = "Retry"
     public static let notConfigured = "GitHub isn’t configured on this server."

@@ -41,7 +41,7 @@ fun GlassSubmitButton(
     enabled: Boolean = true,
     icon: (@Composable () -> Unit)? = null,
 ) {
-    val shape = RoundedCornerShape(10.dp)
+    val shape = GlassTokens.ButtonShape
     val content = if (enabled) {
         DesignTokens.Palette.PrimaryForeground
     } else {
@@ -91,7 +91,7 @@ fun GlassOAuthButton(
     modifier: Modifier = Modifier,
     icon: @Composable () -> Unit,
 ) {
-    val shape = RoundedCornerShape(10.dp)
+    val shape = GlassTokens.ButtonShape
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),

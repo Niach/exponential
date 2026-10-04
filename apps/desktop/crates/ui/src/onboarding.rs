@@ -55,7 +55,7 @@ use crate::coding_flow::CodingHub;
 use crate::controls::WebControl as _;
 use crate::create_board_dialog::{BoardCreated, CreateBoardDialogView};
 use crate::create_team_dialog::{CreateTeamDialogView, TeamCreated};
-use crate::icons::registry;
+use crate::icons::{registry, ExpIcon};
 use crate::invite_link::{InviteLinkPanel, InviteMinted};
 use crate::join_team::{InviteAccepted, JoinTeamView};
 use crate::queries;
@@ -445,70 +445,35 @@ impl OnboardingView {
 
     // -- step pages (lazily created; events subscribed once) ----------------
 
-    /// One full-width choice row (web `ChoiceStep` outline-button parity).
-    fn team_choice_row(
-        &mut self,
-        id: &'static str,
-        icon: Icon,
-        title: &'static str,
-        subtitle: &'static str,
-        target: TeamPage,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let muted = cx.theme().muted_foreground;
-        div()
-            .id(id)
-            .w_full()
-            .px_4()
-            .py_3()
-            .rounded(cx.theme().radius)
-            .border_1()
-            .border_color(cx.theme().border)
-            .cursor_pointer()
-            .hover(|style| style.bg(cx.theme().list_hover))
-            .flex()
-            .items_center()
-            .gap_3()
-            .child(icon.size_5().text_color(cx.theme().primary))
-            .child(
-                v_flex()
-                    .min_w_0()
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_weight(FontWeight::MEDIUM)
-                            .child(title),
-                    )
-                    .child(div().text_xs().text_color(muted).child(subtitle)),
-            )
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.team_page = target;
-                cx.notify();
-            }))
-            .into_any_element()
-    }
-
-    /// EXP-470: the create-or-join choice (web wizard parity — two big
-    /// option rows instead of both forms stacked).
+    /// EXP-470/EXP-1176: the create-or-join choice (web wizard parity): two
+    /// standard outline buttons, the same shape as the login method list. No
+    /// subtitles — "Create a team" and "Join a team" say it all.
     fn team_choice_page(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         v_flex()
-            .gap_3()
-            .child(self.team_choice_row(
-                "onboarding-choice-create",
-                Icon::new(registry::UI_ADD),
-                "Create a team",
-                "Start fresh. You'll be the owner.",
-                TeamPage::Create,
-                cx,
-            ))
-            .child(self.team_choice_row(
-                "onboarding-choice-join",
-                Icon::new(registry::EDITOR_LINK),
-                "Join a team",
-                "Use an invite link a teammate sent you",
-                TeamPage::Join,
-                cx,
-            ))
+            .w_full()
+            .gap_2p5()
+            .child(
+                Button::new("onboarding-choice-create")
+                    .outline().web_md()
+                    .w_full()
+                    .icon(Icon::new(registry::UI_ADD))
+                    .label("Create a team")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.team_page = TeamPage::Create;
+                        cx.notify();
+                    })),
+            )
+            .child(
+                Button::new("onboarding-choice-join")
+                    .outline().web_md()
+                    .w_full()
+                    .icon(Icon::new(registry::EDITOR_LINK))
+                    .label("Join a team")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.team_page = TeamPage::Join;
+                        cx.notify();
+                    })),
+            )
             .into_any_element()
     }
 
@@ -759,6 +724,11 @@ impl Render for OnboardingView {
         };
 
         let muted = cx.theme().muted_foreground;
+        // EXP-1176: the welcome page (and the syncing frame before it) opens
+        // like the login screen — the mark over the title, no disc, no blurb,
+        // no card. Every form step keeps the card head below.
+        let bare = matches!(step, WizardStep::Syncing)
+            || (matches!(step, WizardStep::Team) && matches!(self.team_page, TeamPage::Choice));
         // The card HEAD (web `OnboardingWizard` parity): a primary-tinted
         // 48px disc, the step title, the muted blurb. No "Step x of y" —
         // the web wizard never numbered its steps, and neither do we.
@@ -770,12 +740,7 @@ impl Render for OnboardingView {
                     "Syncing your account…",
                 ),
                 WizardStep::Team => match self.team_page {
-                    TeamPage::Choice => (
-                        registry::SETTINGS_MEMBERS,
-                        "Welcome to Exponential",
-                        "Teams hold your boards and teammates. Create your own, or join \
-                         one you've been invited to.",
-                    ),
+                    TeamPage::Choice => (registry::SETTINGS_MEMBERS, "Welcome to Exponential", ""),
                     TeamPage::Create => (
                         registry::SETTINGS_MEMBERS,
                         "Create a team",
@@ -875,7 +840,7 @@ impl Render for OnboardingView {
                         .justify_end()
                         .child(if minted {
                             Button::new("onboarding-invite-advance")
-                                .primary().web_md().rounded_full()
+                                .primary().web_md()
                                 .label(copy::CONTINUE)
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.complete_invite_step(cx);
@@ -917,7 +882,7 @@ impl Render for OnboardingView {
                 Some(
                     row.child(if all_green {
                         Button::new("onboarding-tools-continue")
-                            .primary().web_md().rounded_full()
+                            .primary().web_md()
                             .label(copy::CONTINUE)
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.complete_devices_step(in_wizard, cx);
@@ -944,7 +909,78 @@ impl Render for OnboardingView {
         // `GlassGroup` (radius 12, glass-row fill, no outer stroke) whose two
         // sections — the head and the p-6 body — are split by the group's
         // hairline. Title, blurb and footer all live INSIDE it; nothing
-        // floats above or below.
+        // floats above or below. EXP-1176: the welcome page is the exception
+        // (`bare`): a 384px column, the brand head over the body, no card.
+        let column = if bare {
+            let mut head = v_flex()
+                .items_center()
+                .gap_3()
+                .text_center()
+                .child(
+                    Icon::from(ExpIcon::Logo)
+                        .size(px(56.))
+                        .text_color(cx.theme().foreground),
+                )
+                .child(
+                    div()
+                        .text_size(px(24.))
+                        .line_height(px(32.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(title),
+                );
+            if !subtitle.is_empty() {
+                head = head.child(div().text_sm().text_color(muted).child(subtitle));
+            }
+            v_flex()
+                .w_full()
+                .max_w(px(384.))
+                .px_6()
+                .my_8()
+                .gap_6()
+                .items_center()
+                .child(head)
+                .child(v_flex().w_full().gap_4().child(body).children(footer))
+        } else {
+            v_flex()
+                .w_full()
+                .max_w(px(672.))
+                .px_6()
+                .my_8()
+                .child(
+                    crate::surface::glass_group()
+                        .child(
+                            v_flex()
+                                .p_6()
+                                .items_center()
+                                .gap_1p5()
+                                .text_center()
+                                .child(
+                                    div()
+                                        .size(px(48.))
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .rounded_full()
+                                        .bg(cx.theme().primary.opacity(0.1))
+                                        .child(
+                                            Icon::new(icon)
+                                                .size(px(24.))
+                                                .text_color(cx.theme().primary),
+                                        ),
+                                )
+                                .child(
+                                    div()
+                                        .text_xl()
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .child(title),
+                                )
+                                .child(div().text_sm().text_color(muted).child(subtitle)),
+                        )
+                        .child(crate::surface::glass_row_divider(
+                            v_flex().p_6().gap_4().child(body).children(footer),
+                        )),
+                )
+        };
         div()
             .id("onboarding-scroll")
             .size_full()
@@ -954,49 +990,7 @@ impl Render for OnboardingView {
                 // min-height, not height: a card taller than the window
                 // (the board step) must grow the scroll extent instead of
                 // being centred past the top edge.
-                div().w_full().min_h_full().flex().items_center().justify_center().child(
-                    v_flex()
-                        .w_full()
-                        .max_w(px(672.))
-                        .px_6()
-                        .my_8()
-                        .child(
-                            crate::surface::glass_group()
-                                .child(
-                                    v_flex()
-                                        .p_6()
-                                        .items_center()
-                                        .gap_1p5()
-                                        .text_center()
-                                        .child(
-                                            div()
-                                                .size(px(48.))
-                                                .flex()
-                                                .items_center()
-                                                .justify_center()
-                                                .rounded_full()
-                                                .bg(cx.theme().primary.opacity(0.1))
-                                                .child(
-                                                    Icon::new(icon)
-                                                        .size(px(24.))
-                                                        .text_color(cx.theme().primary),
-                                                ),
-                                        )
-                                        .child(
-                                            div()
-                                                .text_xl()
-                                                .font_weight(FontWeight::SEMIBOLD)
-                                                .child(title),
-                                        )
-                                        .child(
-                                            div().text_sm().text_color(muted).child(subtitle),
-                                        ),
-                                )
-                                .child(crate::surface::glass_row_divider(
-                                    v_flex().p_6().gap_4().child(body).children(footer),
-                                )),
-                        ),
-                ),
+                div().w_full().min_h_full().flex().items_center().justify_center().child(column),
             )
             .into_any_element()
     }

@@ -3,8 +3,9 @@
 //! gpui-component sizes its controls in rem off this app's root font size
 //! ([`theme::FONT_SIZE_PX`], 14px since EXP-723), which still lands every
 //! button/input under the web's shadcn boxes (web Button
-//! default h-9/px-4, sm h-8/px-3 rounded-full, xs h-6/px-2 rounded-full;
-//! inputs h-9). These helpers are pure `Styled` refinements — gpui-component
+//! default h-9/px-4, sm h-8/px-3, xs h-6/px-2, all on the theme radius since
+//! EXP-1176 — a text button is a rounded rectangle, the capsule is the pill
+//! recipe's; inputs h-9). These helpers are pure `Styled` refinements — gpui-component
 //! applies caller refinements after its own base styles (`refine_style` runs
 //! last and is replayed inside the selected/disabled state closures), so they
 //! win without forking the component. `cursor_pointer` rides the same
@@ -258,21 +259,19 @@ pub(crate) trait WebControl: Styled + Sizable + Sized {
             .cursor_pointer()
     }
 
-    /// Web Button `sm`: h-8 px-3, capsule.
+    /// Web Button `sm`: h-8 px-3, theme radius (EXP-1176).
     fn web_sm(self) -> Self {
         self.with_size(Size::Small)
             .h(px(CTL_MD_H))
             .px(px(12.))
-            .rounded_full()
             .cursor_pointer()
     }
 
-    /// Web Button `xs`: h-6 px-2, capsule.
+    /// Web Button `xs`: h-6 px-2, theme radius (EXP-1176).
     fn web_xs(self) -> Self {
         self.with_size(Size::XSmall)
             .h(px(CTL_SM_H))
             .px(px(8.))
-            .rounded_full()
             .cursor_pointer()
     }
 

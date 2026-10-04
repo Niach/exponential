@@ -111,8 +111,16 @@ struct TeamSettingsView: View {
                             // NOT a GlassPill (EXP-698): this is a full-width
                             // destructive action in the app's one red, and a
                             // pill is a fixed-height capsule with a white
-                            // label. It keeps the raw capsule modifier.
-                            .glassButton()
+                            // label. EXP-1176: a text button is the row-radius
+                            // rectangle (GlassSubmitButton's chrome), not a capsule.
+                            .background(
+                                GlassTokens.fillCard,
+                                in: RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
+                                    .stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
+                            )
                             .buttonStyle(.plain)
 
                             if let dangerError {

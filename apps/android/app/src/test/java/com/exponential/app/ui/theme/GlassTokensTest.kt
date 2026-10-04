@@ -5,6 +5,7 @@ import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import androidx.compose.foundation.shape.RoundedCornerShape
 
 /**
  * EXP-698: [GlassTokens] used to WRITE DOWN the glass palette as literals
@@ -44,6 +45,8 @@ class GlassTokensTest {
         assertEquals(DesignTokens.Radius.Md, GlassTokens.RowRadius)
         assertEquals(DesignTokens.Radius.Lg, GlassTokens.GroupRadius)
         assertEquals(DesignTokens.Radius.Xl, GlassTokens.CardRadius)
+        // EXP-1176: a text button is the row-radius rectangle, never a capsule.
+        assertEquals(RoundedCornerShape(GlassTokens.RowRadius), GlassTokens.ButtonShape)
     }
 
     /**

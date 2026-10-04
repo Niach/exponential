@@ -538,9 +538,6 @@ pub(crate) mod copy {
     // --- B. Connection block (Settings › Repositories) -----------------------
     pub const SECTION_TITLE: &str = "Repositories";
     pub const ADD_REPOSITORY: &str = "Add repository";
-    pub const SECTION_INTRO: &str = "Connect your GitHub account, install the Exponential app on \
-        the accounts whose repositories you want, then add repositories you can push to. Point a \
-        board at one to make it the clone target for \u{201c}Start coding\u{201d}.";
     pub const STATUS_FAILED: &str = "Couldn\u{2019}t reach GitHub connect state.";
     pub const RETRY: &str = "Retry";
     pub const NOT_CONFIGURED: &str = "GitHub isn\u{2019}t configured on this server.";
@@ -654,10 +651,6 @@ mod tests {
     #[test]
     fn copy_is_locked() {
         assert_eq!(copy::installation_fallback(42), "installation 42");
-        assert_eq!(
-            copy::SECTION_INTRO,
-            "Connect your GitHub account, install the Exponential app on the accounts whose repositories you want, then add repositories you can push to. Point a board at one to make it the clone target for “Start coding”."
-        );
         assert_eq!(copy::STATUS_FAILED, "Couldn’t reach GitHub connect state.");
         assert_eq!(copy::NOT_CONFIGURED, "GitHub isn’t configured on this server.");
         assert_eq!(copy::NOT_LINKED, "No GitHub account connected");

@@ -363,6 +363,9 @@ function LoginPage() {
         : isSignup
           ? `Create an account`
           : `Continue to Exponential`
+  // EXP-1176: only lines that carry STATE go under the title. "Sign in or
+  // create your account" and "Enter your details to get started" restated
+  // the buttons below them and are gone.
   const description =
     step === `name`
       ? SIGN_UP_NAME_COPY.body
@@ -370,9 +373,7 @@ function LoginPage() {
         ? `We sent a 6-digit code to ${sentTo}.`
         : nativeHandoff
           ? `You'll be sent back to the app once you continue.`
-          : isSignup
-            ? `Enter your details to get started`
-            : `Sign in or create your account`
+          : undefined
 
   const footer =
     step === `email` && emailMode === `password` && passwordEnabled && signupEnabled ? (
@@ -409,7 +410,7 @@ function LoginPage() {
     <AuthFormShell title={title} description={description} footer={footer}>
       <div className="space-y-4">
         {step === `methods` && (
-          <>
+          <div className="space-y-2.5">
             <OAuthProviderButtons
               oidcProviders={oidcProviders}
               googleLoginEnabled={googleLoginEnabled}
@@ -451,7 +452,7 @@ function LoginPage() {
             )}
 
             {error && <p className="text-sm text-destructive">{error}</p>}
-          </>
+          </div>
         )}
 
         {step === `email` && (

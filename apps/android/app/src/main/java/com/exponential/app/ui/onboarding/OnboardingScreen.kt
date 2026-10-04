@@ -49,6 +49,7 @@ import com.exponential.app.ui.theme.LocalReduceMotion
 import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassCard
+import com.exponential.app.ui.theme.GlassTokens
 
 // First-run onboarding. EXP-725 made the four product steps identical on every
 // client (team -> board -> invite -> devices); the phones wrap them in a
@@ -292,7 +293,7 @@ private fun WelcomeStep(onContinue: () -> Unit) {
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(32.dp))
-        Button(onClick = onContinue, modifier = Modifier.fillMaxWidth()) {
+        Button(onClick = onContinue, shape = GlassTokens.ButtonShape, modifier = Modifier.fillMaxWidth()) {
             Text("Get started")
         }
     }

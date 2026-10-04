@@ -290,7 +290,7 @@ private fun PrerequisiteBox(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             itemVerticalAlignment = Alignment.CenterVertically,
         ) {
-            Button(onClick = onFix, enabled = enabled && !busy) {
+            Button(onClick = onFix, enabled = enabled && !busy, shape = GlassTokens.ButtonShape) {
                 if (busy) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                 } else {

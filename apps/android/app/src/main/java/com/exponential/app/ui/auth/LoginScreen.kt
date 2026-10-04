@@ -51,6 +51,7 @@ import com.exponential.app.domain.EmailCodeSignUpCopy
 import com.exponential.app.ui.components.GlassOAuthButton
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.theme.GlassTokens
 
 @Composable
 fun LoginScreen(
@@ -261,6 +262,7 @@ fun LoginScreen(
                             Button(
                                 onClick = { viewModel.submitName(name) },
                                 enabled = !state.loading,
+                                shape = GlassTokens.ButtonShape,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .testTag("login-create-account-button"),
@@ -304,6 +306,7 @@ fun LoginScreen(
                             Button(
                                 onClick = { viewModel.verifyCode(code) },
                                 enabled = !state.loading && code.isNotBlank(),
+                                shape = GlassTokens.ButtonShape,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .testTag("login-submit-button"),
@@ -347,6 +350,7 @@ fun LoginScreen(
                             Button(
                                 onClick = { viewModel.sendCode(email.trim()) },
                                 enabled = !state.loading && email.isNotBlank(),
+                                shape = GlassTokens.ButtonShape,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .testTag("login-submit-button"),
@@ -396,6 +400,7 @@ fun LoginScreen(
                         Button(
                             onClick = { viewModel.signIn(email = email, password = password) },
                             enabled = !state.loading && email.isNotBlank() && password.isNotBlank(),
+                            shape = GlassTokens.ButtonShape,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("login-submit-button"),

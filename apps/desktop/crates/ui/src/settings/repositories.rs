@@ -649,13 +649,7 @@ impl Render for RepositoriesPane {
                 copy::SECTION_TITLE,
                 Some(header_actions),
                 cx,
-            ))
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(copy::SECTION_INTRO),
-            );
+            ));
 
         match &self.load {
             Load::Idle | Load::Loading => {

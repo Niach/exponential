@@ -22,6 +22,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.theme.GlassTokens
 
 // The onboarding create-board form presented as a bottom sheet for the app's
 // empty states (no boards yet). Resolves the target team itself — callers
@@ -98,7 +99,10 @@ fun CreateBoardSheet(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
                         )
-                        OutlinedButton(onClick = { viewModel.ensureTeam(teamId) }) {
+                        OutlinedButton(
+                            onClick = { viewModel.ensureTeam(teamId) },
+                            shape = GlassTokens.ButtonShape,
+                        ) {
                             Text("Retry")
                         }
                     }

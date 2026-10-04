@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest"
 import { AuthFormShell } from "./auth-form-shell"
 
 describe(`AuthFormShell`, () => {
-  it(`heads the card with a title and a description`, () => {
+  it(`heads the form with a title and a description`, () => {
     render(
       <AuthFormShell
         title="Sign in"
@@ -26,7 +26,8 @@ describe(`AuthFormShell`, () => {
         <p>Device connected</p>
       </AuthFormShell>
     )
-    expect(container.querySelector(`[data-slot="card-header"]`)).toBeNull()
+    expect(container.querySelector(`h1`)).toBeNull()
+    expect(container.querySelector(`svg`)).toBeTruthy()
     expect(screen.getByText(`Device connected`)).toBeTruthy()
   })
 
@@ -36,8 +37,10 @@ describe(`AuthFormShell`, () => {
         <span />
       </AuthFormShell>
     )
-    expect(container.querySelector(`svg`)).toBeTruthy()
-    expect(screen.getByText(`Exponential`)).toBeTruthy()
+    // EXP-1176: the mark alone, drawn big; the wordmark is gone.
+    expect(container.querySelector(`svg`)?.getAttribute(`width`)).toBe(`56`)
+    expect(screen.queryByText(`Exponential`)).toBeNull()
+    expect(container.querySelector(`[data-slot="card"]`)).toBeNull()
     expect(screen.getByRole(`link`, { name: `Privacy` }).getAttribute(`href`))
       .toBe(`https://exponential.at/privacy/`)
     expect(screen.getByRole(`link`, { name: `Terms` }).getAttribute(`href`))

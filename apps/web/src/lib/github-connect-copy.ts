@@ -45,7 +45,6 @@ export const GH_LINK_FAILED = `GitHub didn’t finish connecting. Try again.`
 // ── B. Connection block (Settings › Repositories) ──────────────────────
 export const GH_SECTION_TITLE = `Repositories`
 export const GH_ADD_REPOSITORY = `Add repository`
-export const GH_SECTION_INTRO = `Connect your GitHub account, install the Exponential app on the accounts whose repositories you want, then add repositories you can push to. Point a board at one to make it the clone target for “Start coding”.`
 export const GH_STATUS_FAILED = `Couldn’t reach GitHub connect state.`
 export const GH_RETRY = `Retry`
 export const GH_NOT_CONFIGURED = `GitHub isn’t configured on this server.`

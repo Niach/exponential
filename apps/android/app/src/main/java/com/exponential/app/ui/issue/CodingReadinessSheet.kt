@@ -402,10 +402,11 @@ private fun FixButton(label: String, primary: Boolean, onClick: () -> Unit) {
     }
 }
 
-/** Full-width, fully rounded: glass + quaternary until ready, then white/black. */
+/** Full-width at the button corner (EXP-1176: a text button is the row-radius
+ * rectangle, never a capsule): glass + quaternary until ready, then white/black. */
 @Composable
 private fun StartFooter(ready: Boolean, onStart: () -> Unit) {
-    val shape = RoundedCornerShape(percent = 50)
+    val shape = GlassTokens.ButtonShape
     val content = if (ready) Color.Black else Color.White.copy(alpha = TextEmphasis.Quaternary)
     Row(
         modifier = Modifier

@@ -71,11 +71,6 @@ struct TeamRepositoriesSection: View {
                 })
             }
 
-            Text(GithubCopy.intro)
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                .padding(.horizontal, 4)
-
             // The status block sits BEFORE the list (FEED-42).
             githubStatusBlock
 

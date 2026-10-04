@@ -11,6 +11,7 @@ import androidx.compose.material3.Text
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import com.exponential.app.ui.theme.GlassTokens
 
 // ISO `yyyy-MM-dd` ⇄ UTC-midnight millis, shared with the glass DueDateSheet
 // (EXP-240) — the M3 DatePickerState speaks epoch millis in UTC.
@@ -36,9 +37,10 @@ fun IssueDatePickerDialog(
     DatePickerDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
-            Button(onClick = {
-                onConfirm(state.selectedDateMillis?.let(::utcMillisToIsoDate))
-            }) { Text("Set") }
+            Button(
+                onClick = { onConfirm(state.selectedDateMillis?.let(::utcMillisToIsoDate)) },
+                shape = GlassTokens.ButtonShape,
+            ) { Text("Set") }
         },
         dismissButton = {
             TextButton(onClick = { onConfirm(null) }) { Text("Clear") }
