@@ -513,6 +513,9 @@ pub(crate) fn stack_merge_choice_for(
     domain::pr_stack::stack_merge_choice(&issue, &issues)
 }
 
+/// EXP-1167: the stack dialog's window width: room for the three-button
+/// footer once the primary leads with the merge glyph.
+const STACK_MERGE_CHOICE_WIDTH: f32 = 456.;
 /// The stack dialog's window height: the listing, a blank line and two
 /// sentences (the second wraps) above the three-button footer.
 const STACK_MERGE_CHOICE_HEIGHT: f32 = 290.;
@@ -572,6 +575,10 @@ pub(crate) fn stack_merge_alert(
         choice.body.clone(),
         MERGE_STACK_LABEL,
     )
+    // EXP-1167: the primary wears the merge glyph, as on web, and the
+    // window widens so the three buttons keep their row.
+    .ok_icon(crate::icons::registry::PR_MERGED)
+    .width(gpui::px(STACK_MERGE_CHOICE_WIDTH))
     .height(gpui::px(STACK_MERGE_CHOICE_HEIGHT))
     .secondary(MERGE_THIS_PR_LABEL, move |_, cx| {
         fire_confirmed(this_op.clone(), cx);

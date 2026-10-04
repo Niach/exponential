@@ -1,3 +1,4 @@
+import { Fragment } from "react"
 import {
   Button,
   Dialog,
@@ -93,6 +94,7 @@ function BlockedStartBody({
     stackReason === null
       ? BLOCKED_START_BODY_SUFFIX_STACKABLE
       : BLOCKED_START_BODY_SUFFIX
+  const [, suffixGlue = ``, suffixRest = ``] = /^(\S*)(.*)$/s.exec(suffix) ?? []
   return (
     <DialogContent mobile="alert" data-testid="blocked-start-dialog">
       <DialogHeader>
@@ -103,16 +105,31 @@ function BlockedStartBody({
           {batch ? (
             <div>{BLOCKED_BATCH_BODY}</div>
           ) : (
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span>{BLOCKED_START_BODY_PREFIX.trimEnd()}</span>
-              {blockers.map((blocker) => (
-                <IssueChip
-                  key={blocker.id}
-                  issue={blocker}
-                  testId={`blocked-start-chip-${blocker.identifier}`}
-                />
-              ))}
-              <span>{suffix.trimStart()}</span>
+            // The chips flow INLINE in the sentence (they are inline-flex,
+            // `align-middle`), and the last one carries the suffix's leading
+            // "." in a nowrap span, so a wrap never starts a line with it.
+            <div className="leading-6" data-testid="blocked-start-sentence">
+              {BLOCKED_START_BODY_PREFIX}
+              {blockers.map((blocker, index) => {
+                const chip = (
+                  <IssueChip
+                    issue={blocker}
+                    testId={`blocked-start-chip-${blocker.identifier}`}
+                  />
+                )
+                return index < blockers.length - 1 ? (
+                  <Fragment key={blocker.id}>
+                    {chip}
+                    {`, `}
+                  </Fragment>
+                ) : (
+                  <span key={blocker.id} className="whitespace-nowrap">
+                    {chip}
+                    {suffixGlue}
+                  </span>
+                )
+              })}
+              {suffixRest}
             </div>
           )}
         </DialogDescription>

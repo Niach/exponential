@@ -447,7 +447,13 @@ describe(`LaunchComposer blocked start`, () => {
     // The blocker rides an ordinary issue chip.
     expect(screen.getByTestId(`blocked-start-chip-APP-2`)).toBeTruthy()
     expect(screen.getByText(`Cancel`)).toBeTruthy()
-    expect(screen.getByText(`. Start anyway?`)).toBeTruthy()
+    // EXP-1167: one flowing sentence, the "." glued to the last chip.
+    const sentence = screen.getByTestId(`blocked-start-sentence`)
+    expect(sentence.textContent?.endsWith(` Start anyway?`)).toBe(true)
+    expect(
+      screen.getByTestId(`blocked-start-chip-APP-2`).closest(`.whitespace-nowrap`)
+        ?.textContent?.endsWith(`.`)
+    ).toBe(true)
     const stacked = screen.getByTestId(`blocked-start-stacked`)
     expect(stacked.textContent).toBe(STACKED_PR_LABEL)
     expect((stacked as HTMLButtonElement).disabled).toBe(true)
@@ -481,7 +487,13 @@ describe(`LaunchComposer blocked start`, () => {
         users={[]}
       />
     )
-    expect(screen.getByText(`. Start anyway, or start a stacked PR?`)).toBeTruthy()
+    // EXP-1167: one flowing sentence, the "." glued to the last chip.
+    const sentence = screen.getByTestId(`blocked-start-sentence`)
+    expect(sentence.textContent?.endsWith(` Start anyway, or start a stacked PR?`)).toBe(true)
+    expect(
+      screen.getByTestId(`blocked-start-chip-APP-2`).closest(`.whitespace-nowrap`)
+        ?.textContent?.endsWith(`.`)
+    ).toBe(true)
     expect(screen.queryByTestId(`blocked-start-stack-note`)).toBeNull()
     expect(screen.getByTestId(`blocked-start-plan-note`).textContent).toBe(
       `Starts #APP-2 first, then #APP-1.`
