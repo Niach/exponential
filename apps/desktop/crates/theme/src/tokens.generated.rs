@@ -160,6 +160,57 @@ pub mod sidebar {
     pub const KEYBOARD_STEP: f32 = 16.0;
 }
 
+// The shared spacing scale (SLOP-18), in px — padding, gaps and insets.
+pub mod spacing {
+    pub const XXS: f32 = 2.0;
+    pub const XS: f32 = 4.0;
+    pub const SM: f32 = 8.0;
+    pub const MD: f32 = 12.0;
+    pub const LG: f32 = 16.0;
+    pub const XL: f32 = 24.0;
+    pub const XL2: f32 = 32.0;
+}
+
+// The shared type scale (SLOP-18): size/line_height in px (`size::SM` is the
+// IDE's base, `FONT_SIZE_PX`), the four weights as gpui `FontWeight` f32s,
+// and the text emphasis alpha ladder. Not `type`: that is a Rust keyword.
+pub mod typography {
+    pub const FONT_FAMILY: &str = "Inter";
+    pub const BASE_SIZE: f32 = 16.0;
+
+    pub mod size {
+        pub const XS: f32 = 12.0;
+        pub const SM: f32 = 14.0;
+        pub const BASE: f32 = 16.0;
+        pub const LG: f32 = 18.0;
+        pub const XL: f32 = 20.0;
+        pub const XL2: f32 = 24.0;
+    }
+
+    pub mod line_height {
+        pub const XS: f32 = 16.0;
+        pub const SM: f32 = 20.0;
+        pub const BASE: f32 = 24.0;
+        pub const LG: f32 = 28.0;
+        pub const XL: f32 = 28.0;
+        pub const XL2: f32 = 32.0;
+    }
+
+    pub mod weight {
+        pub const REGULAR: f32 = 400.0;
+        pub const MEDIUM: f32 = 500.0;
+        pub const SEMIBOLD: f32 = 600.0;
+        pub const BOLD: f32 = 700.0;
+    }
+
+    pub mod emphasis {
+        pub const PRIMARY: f32 = 1.0;
+        pub const SECONDARY: f32 = 0.7;
+        pub const TERTIARY: f32 = 0.5;
+        pub const QUATERNARY: f32 = 0.3;
+    }
+}
+
 // Motion (EXP-523) — durations in milliseconds (u64, so `Duration::from_millis`
 // takes them verbatim), easings as CSS cubic-bezier control points. Read these
 // through `theme::motion`, which wraps the millis in `Duration` and SOLVES the

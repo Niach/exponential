@@ -334,11 +334,12 @@ extension View {
 
 // MARK: - Text Styles
 
+/// The text emphasis ladder — tokens.json `type.emphasis` (SLOP-18).
 public enum TextOpacity {
-    public static let primary: Double = 1.0
-    public static let secondary: Double = 0.7
-    public static let tertiary: Double = 0.5
-    public static let quaternary: Double = 0.3
+    public static let primary: Double = DesignTokens.Typography.Emphasis.primary
+    public static let secondary: Double = DesignTokens.Typography.Emphasis.secondary
+    public static let tertiary: Double = DesignTokens.Typography.Emphasis.tertiary
+    public static let quaternary: Double = DesignTokens.Typography.Emphasis.quaternary
 }
 
 // EXP-594: the indigo `Accent` enum is retired — the main scheme is white/
