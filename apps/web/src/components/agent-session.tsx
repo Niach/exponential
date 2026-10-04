@@ -1842,7 +1842,7 @@ export function AgentSessionView({
           {/* Status banners (feed retained above). EXP-877: no "ended" strip
               — the hidden composer and the header's Resume say it. */}
           {paused && feed.length > 0 && (
-            <div className="border-t border-border/60 py-2">
+            <div className="py-2">
               <div
                 className={cn(
                   TRANSCRIPT_COLUMN,
@@ -1857,7 +1857,7 @@ export function AgentSessionView({
             </div>
           )}
           {phase.kind === `closed` && !paused && (
-            <div className="border-t border-border/60 py-2">
+            <div className="py-2">
               <div
                 className={cn(
                   TRANSCRIPT_COLUMN,
@@ -1888,7 +1888,7 @@ export function AgentSessionView({
               run looks healthy. */}
           {blockedLabel && (
             <div
-              className="border-t border-border/60 py-1.5"
+              className="py-1.5"
               data-testid="session-blocked-strip"
             >
               <div
@@ -1942,7 +1942,7 @@ export function AgentSessionView({
             />
           )}
           {phase.kind === `starting` && !paused && feed.length > 0 && (
-            <div className="border-t border-border/60 py-2">
+            <div className="py-2">
               <div
                 className={cn(
                   TRANSCRIPT_COLUMN,
@@ -2233,7 +2233,7 @@ function BackgroundStrip({
   if (lines.length === 0 && summary === null) return null
   return (
     <div
-      className="border-t border-border/60 py-1.5"
+      className="py-1.5"
       data-testid="session-background-strip"
     >
       <div className={cn(TRANSCRIPT_COLUMN, `flex flex-col gap-0.5`)}>
@@ -2344,7 +2344,7 @@ function QueueStrip({
   if (messages.length === 0) return null
   return (
     <div
-      className="border-t border-border/60 py-1.5"
+      className="py-1.5"
       aria-label={QUEUE_STRIP_TITLE}
       data-testid="session-queue-strip"
     >
@@ -3221,7 +3221,7 @@ function RateLimitBanner({
   if (!banner) return null
   const { text, resets } = banner
   return (
-    <div className="border-t border-border/60 py-2">
+    <div className="py-2">
       <div
         className={cn(
           TRANSCRIPT_COLUMN,

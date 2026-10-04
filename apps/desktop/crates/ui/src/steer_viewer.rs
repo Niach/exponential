@@ -5580,11 +5580,13 @@ impl SteerSessionView {
                 "{}/{}",
                 summary.completed, summary.total
             ))))
+            // EXP-1191: the shared disclosure glyph (web `DisclosureHeader`):
+            // right while folded, down while open.
             .child(
                 Icon::new(if expanded {
                     registry::UI_CHEVRON_DOWN
                 } else {
-                    registry::UI_CHEVRON_UP
+                    registry::UI_CHEVRON_RIGHT
                 })
                 .xsmall()
                 .text_color(muted.opacity(0.7)),
@@ -6530,8 +6532,8 @@ impl SteerSessionView {
             .as_deref()
             .and_then(|id| self.subagents.iter().find(|agent| agent.subagent_id == id));
         // EXP-927: the tabs sit in the transcript's reading column, like
-        // every strip block ([`work_column_row`]); only the hairline under
-        // them still spans the panel.
+        // every strip block ([`work_column_row`]). EXP-1191: no hairline
+        // under them (web parity).
         let column = v_flex()
             .w_full()
             .min_w_0()
@@ -6597,8 +6599,6 @@ impl SteerSessionView {
             div()
                 .w_full()
                 .flex_shrink_0()
-                .border_b_1()
-                .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
                 .child(work_column_row(column.into_any_element()))
                 .into_any_element(),
         )
@@ -7505,24 +7505,23 @@ fn body_text<E: Styled>(element: E) -> E {
 const TASK_LIST_MAX_ROWS: f32 = 8.;
 
 /// EXP-927 — one block of the strip above the composer (the task list, the
-/// background tasks and waits, the queue bar): a hairline and the pane's
-/// padding spanning the PANEL, its content in the reading column
-/// ([`work_column_row`]). Every block shares the recipe, so they stack into
-/// one surface instead of three.
+/// background tasks and waits, the queue bar): the pane's padding spanning
+/// the PANEL, its content in the reading column ([`work_column_row`]). Every
+/// block shares the recipe, so they stack into one surface instead of three.
+/// EXP-1191: NO hairline above it (web parity) — the transcript's fade
+/// ([`crate::surface::composer_edge_fade`]) is the only edge.
 fn strip_block(content: AnyElement) -> gpui::Div {
     div()
         .w_full()
         .flex_shrink_0()
         .py_1p5()
-        .border_t_1()
-        .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
         .child(work_column_row(content))
 }
 
 /// The status banners under the transcript (the rate-limit wall, replay,
 /// connection and ended lines, the notice, the compaction strip): the
-/// [`strip_block`] recipe at the banners' own `py_2` — the hairline and the
-/// pane's padding span the panel, the content sits in the reading column.
+/// [`strip_block`] recipe at the banners' own `py_2` — the pane's padding
+/// spans the panel, the content sits in the reading column, no hairline.
 /// They ran edge to edge and read as a different surface, like the strips
 /// before EXP-927.
 /// EXP-1157: the compaction strip's indeterminate track — a short accent
@@ -7534,8 +7533,6 @@ fn banner_block(content: AnyElement) -> gpui::Div {
         .w_full()
         .flex_shrink_0()
         .py_2()
-        .border_t_1()
-        .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
         .child(work_column_row(content))
 }
 
@@ -7552,8 +7549,8 @@ fn banner_block(content: AnyElement) -> gpui::Div {
 /// EXP-927 (§2c "Alignment"): the transcript rows
 /// ([`SteerSessionView::transcript_row`]) were the only thing that took it.
 /// The conversation TABS and every strip block (task list, tasks and waits,
-/// the queue bar) wrap their CONTENT in this too. Only the hairline borders
-/// and the backgrounds still span the panel.
+/// the queue bar) wrap their CONTENT in this too. Only the backgrounds
+/// still span the panel.
 fn work_column_row(element: AnyElement) -> gpui::Div {
     h_flex().w_full().justify_center().child(
         div()

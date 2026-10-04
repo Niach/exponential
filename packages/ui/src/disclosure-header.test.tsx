@@ -57,8 +57,9 @@ describe(`DisclosureHeader`, () => {
     button = screen.getByRole(`button`)
     expect(button.getAttribute(`data-chevron`)).toBe(`trailing`)
     expect(button.lastElementChild).toBe(chevron(container))
-    // The spacer pushes it to the edge.
-    expect(button.children[1]!.className).toContain(`flex-1`)
+    // EXP-1191: `ml-auto` pushes it to the edge (no spacer to share the
+    // free space with a `flex-1` label).
+    expect(chevron(container).getAttribute(`class`)).toContain(`ml-auto`)
   })
 
   it(`is muted at rest and brightens on hover`, () => {
