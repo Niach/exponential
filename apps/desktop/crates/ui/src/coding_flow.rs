@@ -1696,6 +1696,30 @@ impl StartCodingControl {
             cx.observe(&synced_sessions, |_, _, cx| cx.notify()),
             cx.observe(&boards, |_, _, cx| cx.notify()),
             cx.observe(&devices, |_, _, cx| cx.notify()),
+            // SLOP-7/25: the GitHub step's fixes finish in the browser — the
+            // two hand-backs (`oauth-return?linked=github`, `github-connected`)
+            // re-read the facts so the row ticks in place.
+            cx.observe_global::<crate::oauth::SignInLinkOutcome>(|this, cx| {
+                if matches!(
+                    crate::github_connect::github_link_outcome(cx),
+                    Some(Ok(()))
+                ) {
+                    this.refresh_github(cx);
+                }
+            }),
+            cx.observe_global::<crate::github_connect::GithubConnectSignal>(|this, cx| {
+                let connected = cx
+                    .try_global::<crate::github_connect::GithubConnectSignal>()
+                    .is_some_and(|signal| {
+                        matches!(
+                            signal.outcome,
+                            Some(crate::github_connect::GithubConnectOutcome::Connected)
+                        )
+                    });
+                if connected {
+                    this.refresh_github(cx);
+                }
+            }),
         ];
         Self {
             issue_id: None,
@@ -2013,12 +2037,14 @@ impl StartCodingControl {
             .github
             .facts_for(&subject.team_id)
             .map(|facts| facts.repos.clone());
+        let github = this.github.facts_for(&subject.team_id).cloned();
         Some(crate::coding_readiness::PopoverFacts {
             readiness,
             subject,
             picker_open: this.picker_open,
             linking: this.linking,
             link_error: this.link_error.clone(),
+            github,
             repos,
             query: this.repo_query.clone(),
             launch_blocked: this.disabled_reason(cx),
