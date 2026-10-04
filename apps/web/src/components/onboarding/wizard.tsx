@@ -150,13 +150,14 @@ function SignedInFooter() {
   const { data: session } = useSession()
   const handleSignOut = useSignOut()
   const email = session?.user?.email
+  // The GitHub install redirect can land a signed-out person in this frame
+  // (routes/integrations/github.tsx): nobody to sign out, so no row.
+  if (!email) return null
   return (
     <div className="mt-4 flex items-center justify-center gap-1 text-xs text-muted-foreground">
-      {email && (
-        <span className="min-w-0 truncate" data-testid="onboarding-signed-in-as">
-          Signed in as {email}
-        </span>
-      )}
+      <span className="min-w-0 truncate" data-testid="onboarding-signed-in-as">
+        Signed in as {email}
+      </span>
       <Button
         type="button"
         variant="ghost"
