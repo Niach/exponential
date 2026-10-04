@@ -41,6 +41,8 @@ export function ChangesView({
         onSelect={onSelect}
         truncatedLines={truncatedLines}
         emptyLabel={emptyLabel}
+        /* EXP-1191: the cards' edges on the work column's gutter (md+). */
+        className="md:px-5"
       />
     </div>
   )

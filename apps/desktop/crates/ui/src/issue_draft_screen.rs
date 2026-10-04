@@ -46,7 +46,8 @@ use crate::controls::WebControl as _;
 use crate::draft_editor::{DraftEditor, DraftEditorEvent, LeaveAction};
 use crate::drafts::DraftSave;
 use crate::icons::registry;
-use crate::issue_detail::{centered_column, DETAIL_GUTTER, WYSIWYG_BLOCK_PADDING_X};
+use crate::issue_detail::{centered_column, WYSIWYG_BLOCK_PADDING_X};
+use crate::work_header::WORK_GUTTER;
 use crate::issue_draft::IssueDraft;
 use crate::markdown::image_paste::{markdown_for_save, strip_draft_images};
 use crate::navigation::{nav_for_window, resolved_screen, Navigation, Screen};
@@ -892,6 +893,10 @@ impl IssueDraftView {
         )
         .tooltip(copy::DISCARD)
         .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.discard(window, cx)));
+        // EXP-1191: the `×` glyph, not its hit box, ends on the content edge.
+        let discard = div()
+            .mr(px(-crate::work_header::GHOST_ICON_HANG))
+            .child(discard);
         vec![create.into_any_element(), discard.into_any_element()]
     }
 
@@ -932,7 +937,7 @@ impl IssueDraftView {
     /// The description slot (the detail's insets and textarea floor).
     fn description_slot(&self, parts: &DraftParts) -> AnyElement {
         div()
-            .px(px(DETAIL_GUTTER - WYSIWYG_BLOCK_PADDING_X))
+            .px(px(WORK_GUTTER - WYSIWYG_BLOCK_PADDING_X))
             .min_h(px(96.))
             .flex()
             .flex_col()
@@ -971,10 +976,15 @@ impl IssueDraftView {
                     .text_color(cx.theme().muted_foreground)
                     .child("Files"),
             )
-            .child(attach);
+            // EXP-1191: the paperclip GLYPH ends on the content edge.
+            .child(
+                div()
+                    .mr(px(-crate::work_header::GHOST_ICON_HANG))
+                    .child(attach),
+            );
         let mut section = v_flex()
             .w_full()
-            .px(px(DETAIL_GUTTER))
+            .px(px(WORK_GUTTER))
             .pt_2()
             .gap_1()
             .child(header);

@@ -48,7 +48,8 @@ use domain::relations_view::{
 use domain::rows::Issue;
 
 use crate::icons::{registry, ExpIcon};
-use crate::issue_detail::{open_duplicate_picker, open_issue_picker, DETAIL_GUTTER};
+use crate::issue_detail::{open_duplicate_picker, open_issue_picker};
+use crate::work_header::WORK_GUTTER;
 use crate::navigation::{navigate, Screen};
 use crate::queries;
 
@@ -275,7 +276,7 @@ pub(crate) fn render_parent_line(issue: &Issue, cx: &mut App) -> Option<AnyEleme
             .min_w_0()
             .items_center()
             .gap_1p5()
-            .px(px(DETAIL_GUTTER))
+            .px(px(WORK_GUTTER))
             .pt(px(crate::work_header::TITLE_PT))
             .child(
                 Icon::new(registry::RELATION_SUB_ISSUE)
@@ -311,7 +312,7 @@ pub(crate) fn render_relations_section(
     cx: &mut App,
 ) -> AnyElement {
     let read = read(issue, cx);
-    let mut column = v_flex().w_full().min_w_0().gap_2().px(px(DETAIL_GUTTER)).pb_2();
+    let mut column = v_flex().w_full().min_w_0().gap_2().px(px(WORK_GUTTER)).pb_2();
     column = column.child(render_sub_issues(issue, &read, composer, cx));
     for band in &read.view.bands {
         column = column.child(render_band(issue, &read, band, cx));
@@ -368,9 +369,12 @@ fn render_sub_issues(
         };
         // A row, not a block: a block child stretches the ghost button to
         // the full column width and its label ends up centred.
+        // EXP-1191: the `+` glyph on the content edge — the ghost button's
+        // own inset (and its hover fill) hang outside it.
         return h_flex()
             .w_full()
             .justify_start()
+            .ml(px(-crate::issue_composer::ADD_SUB_ISSUES_INSET))
             .child(
                 crate::issue_composer::add_sub_issues_button(cx)
                     .label(copy::ADD_SUB_ISSUES)

@@ -28,6 +28,12 @@ export const WORK_BAR_HEIGHT = 48
 /** The reading column every face shares: issue body, transcript, diff. */
 export const WORK_COLUMN_CLASS = `mx-auto w-full max-w-4xl`
 
+/** EXP-1191: the column's ONE side inset on md+ (Linear's single edge): the
+ *  title, the properties row, description text, tables, cards, rules, the
+ *  bar's cluster, the transcript and the composer all start and end on it.
+ *  The IDE's `WORK_GUTTER`. */
+export const WORK_GUTTER_CLASS = `px-5`
+
 export function WorkHeader({
   ref,
   title,
@@ -90,7 +96,9 @@ export function WorkHeader({
         {trailing && (
           <div
             ref={trailingRef}
-            className="pointer-events-auto flex shrink-0 items-center gap-1 pr-4"
+            // EXP-1191: the ghost glyphs hang into the gutter so the last
+            // one's glyph, not its hit box, ends on the column's edge.
+            className="pointer-events-auto flex shrink-0 items-center gap-1 pr-3"
           >
             {trailing}
           </div>

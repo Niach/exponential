@@ -487,6 +487,9 @@ pub(crate) fn render<V: Render>(
     let column = v_flex()
         .w_full()
         .max_w(px(crate::work_header::WORK_COLUMN_W))
+        // EXP-1191: the file cards' outer borders on the work column's
+        // content box (the diff list pads itself by `LIST_PAD`).
+        .px(px(crate::work_header::WORK_GUTTER - crate::diff::LIST_PAD))
         .h_full()
         .min_w_0()
         .overflow_hidden()
@@ -494,7 +497,7 @@ pub(crate) fn render<V: Render>(
             div()
                 .w_full()
                 .flex_shrink_0()
-                .px_1()
+                .px(px(crate::diff::LIST_PAD))
                 .pb_1()
                 .text_xs()
                 .truncate()

@@ -655,7 +655,7 @@ export function IssueDetailView({
   const parentLine = <IssueParentLine issueId={issue.id} phone={isMobile} />
 
   const editor = (
-    <div className="px-1">
+    <div className="max-md:px-1">
       <MarkdownEditor
         ref={editorRef}
         markdown={description}

@@ -514,6 +514,11 @@ impl Render for IssueComposer {
     }
 }
 
+/// The xsmall ghost button's inset from its box to its `+` glyph (`px_1`
+/// on the 14px rem): hosts pull the button out by it so the glyph sits on
+/// the work column's content edge (EXP-1191).
+pub(crate) const ADD_SUB_ISSUES_INSET: f32 = 3.5;
+
 /// The closed affordance: the ghost "Add sub-issues" button the issue detail
 /// shows until the inline composer is open.
 pub(crate) fn add_sub_issues_button(cx: &mut gpui::App) -> Button {

@@ -2843,7 +2843,7 @@ impl SteerSessionView {
         } else {
             f32::from(window.viewport_size().width)
         };
-        pane.min(crate::work_header::WORK_COLUMN_W) - 2. * crate::issue_detail::DETAIL_GUTTER
+        pane.min(crate::work_header::WORK_COLUMN_W) - 2. * crate::work_header::WORK_GUTTER
     }
 
     /// The Merge target this run offers, or `None` once it is over
@@ -3975,17 +3975,16 @@ impl SteerSessionView {
         // for each one it paints by index; the padding is the old column's,
         // honoured by the list as its own (`last_padding`).
         //
-        // EXP-787: the list keeps the pane's 12px inset (the header, banners
-        // and composer sit at the same `px_3`); the token GUTTER and the
-        // reading column are laid out per ROW ([`Self::transcript_row`])
-        // rather than by wrapping the list in a narrower box, so the list
-        // keeps measuring and scrolling over the full pane width exactly as
-        // before.
+        // EXP-787: the reading column (and, EXP-1191, the work gutter) is
+        // laid out per ROW ([`Self::transcript_row`]) rather than by wrapping
+        // the list in a narrower box, so the list keeps measuring and
+        // scrolling over the full pane width; it carries no side inset of
+        // its own, so its rows centre on the pane exactly as the header's
+        // column does.
         let list = list(
             self.list.clone(),
             cx.processor(|this, ix: usize, window, cx| this.render_list_row(ix, window, cx)),
         )
-        .px_3()
         .pt_2()
         // EXP-1191: at the tail the last line rests just clear of the
         // composer fade rather than under it.
@@ -4403,7 +4402,7 @@ impl SteerSessionView {
             view.min(crate::work_header::WORK_COLUMN_W)
         } else {
             crate::work_header::WORK_COLUMN_W
-        };
+        } - 2. * crate::work_header::WORK_GUTTER;
         let cap = px((column * USER_BUBBLE_MAX_FRACTION).max(USER_BUBBLE_MIN_W));
         // px_3 both sides + the 1px stroke each side.
         let padded = longest + px(2. * 12. + 2.);
@@ -4581,15 +4580,15 @@ impl SteerSessionView {
             self.row.as_ref().and_then(|row| row.results.as_ref()),
             attachment_id,
         )?;
-        // The transcript column (the work column, narrowed by a pane too
-        // small for it, inside the pane's 12px insets) minus the row's `pl_5`
-        // indent. The unmeasured first frame takes the full column.
+        // The transcript column's content box (the work column, narrowed by
+        // a pane too small for it, inside the work gutter) minus the row's
+        // `pl_5` indent. The unmeasured first frame takes the full column.
         let view = f32::from(self.view_width.get());
         let column = if view > 0. {
-            (view - 24.).min(crate::work_header::WORK_COLUMN_W)
+            view.min(crate::work_header::WORK_COLUMN_W)
         } else {
             crate::work_header::WORK_COLUMN_W
-        };
+        } - 2. * crate::work_header::WORK_GUTTER;
         let height = results::session_result_tile_height_fitting_from(
             std::slice::from_ref(&entry),
             column - 20.,
@@ -6598,7 +6597,6 @@ impl SteerSessionView {
             div()
                 .w_full()
                 .flex_shrink_0()
-                .px_3()
                 .border_b_1()
                 .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
                 .child(work_column_row(column.into_any_element()))
@@ -6934,12 +6932,15 @@ impl SteerSessionView {
             .flex()
             .flex_col()
             .items_center()
-            .p_2()
+            .py_2()
             .child(
+                // EXP-1191: the card's outer edges on the work column's
+                // content box, like the transcript above it.
                 v_flex()
                     .w_full()
                     .min_w_0()
                     .max_w(px(crate::work_header::WORK_COLUMN_W))
+                    .px(px(crate::work_header::WORK_GUTTER))
                     .child(
                         crate::composer::glass_composer(composer)
                             .capture_action(cx.listener(Self::on_paste)),
@@ -7271,7 +7272,6 @@ impl SteerSessionView {
         div()
             .w_full()
             .flex_shrink_0()
-            .px_3()
             .py_1()
             .child(work_column_row(row.into_any_element()))
             .into_any_element()
@@ -7513,7 +7513,6 @@ fn strip_block(content: AnyElement) -> gpui::Div {
     div()
         .w_full()
         .flex_shrink_0()
-        .px_3()
         .py_1p5()
         .border_t_1()
         .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
@@ -7534,49 +7533,36 @@ fn banner_block(content: AnyElement) -> gpui::Div {
     div()
         .w_full()
         .flex_shrink_0()
-        .px_3()
         .py_2()
         .border_t_1()
         .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
         .child(work_column_row(content))
 }
 
-/// EXP-787/EXP-927 — the reading column every part of the conversation takes:
-/// the work column ([`crate::work_header::WORK_COLUMN_W`], the same measure as
-/// the run header, the issue body and the diff page) centred between the
-/// transcript's two gutters, inside the pane's own 12px inset.
-///
-/// The gutters are flex SPACERS, not padding: on a pane wide enough for the
-/// whole measure they hold the token GUTTER (minus that inset) either side of
-/// the column, and on a narrow IDE split they give way in proportion with it
-/// instead of eating 96px of a 400px pane — the web's `sm:` fallback, done the
-/// way gpui can.
+/// EXP-787/EXP-927/EXP-1191 — the reading column every part of the
+/// conversation takes: the work column ([`crate::work_header::WORK_COLUMN_W`],
+/// the same measure as the run header, the issue body and the diff page)
+/// centred on the PANE exactly like [`crate::issue_detail::centered_column`],
+/// its content inset by [`crate::work_header::WORK_GUTTER`]. So transcript
+/// text, the user bubbles' right edge, tool / subagent cards, the working
+/// row, the conversation tabs, every strip block and the composer box all
+/// sit on the header's content box — the same left and right edges as its
+/// collapsed title, chips and trailing cluster, at every pane width.
 ///
 /// EXP-927 (§2c "Alignment"): the transcript rows
 /// ([`SteerSessionView::transcript_row`]) were the only thing that took it.
 /// The conversation TABS and every strip block (task list, tasks and waits,
-/// the queue bar) ran edge to edge under an 896px transcript and read as a
-/// different surface; they wrap their CONTENT in this now. Only the hairline
-/// borders and the backgrounds still span the panel.
+/// the queue bar) wrap their CONTENT in this too. Only the hairline borders
+/// and the backgrounds still span the panel.
 fn work_column_row(element: AnyElement) -> gpui::Div {
-    let gutter = || {
+    h_flex().w_full().justify_center().child(
         div()
-            .flex_basis(px(transcript::GUTTER - 12.))
+            .flex_basis(px(crate::work_header::WORK_COLUMN_W))
             .flex_shrink(1.)
             .min_w_0()
-    };
-    h_flex()
-        .w_full()
-        .justify_center()
-        .child(gutter())
-        .child(
-            div()
-                .flex_basis(px(crate::work_header::WORK_COLUMN_W))
-                .flex_shrink(1.)
-                .min_w_0()
-                .child(element),
-        )
-        .child(gutter())
+            .px(px(crate::work_header::WORK_GUTTER))
+            .child(element),
+    )
 }
 
 /// EXP-787 — the transcript's TOOL rung: tool rows, group captions, permission

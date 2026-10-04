@@ -47,7 +47,8 @@ use domain::rows::{Issue, Label, Board, User};
 use crate::coding_flow::{LocalSessions, StartCodingControl};
 use crate::icons::{option_icon, registry, ExpIcon};
 use crate::pickers::{chip_button, PICKER_MENU_MIN_WIDTH};
-use crate::issue_detail::{issue_web_url, set_duplicate_of, DETAIL_GUTTER};
+use crate::issue_detail::{issue_web_url, set_duplicate_of};
+use crate::work_header::WORK_GUTTER;
 use crate::navigation::go_back;
 use crate::queries;
 use crate::surface::{glass_pill, PillMode, PillSize};
@@ -610,7 +611,7 @@ impl IssueHeader {
         if !pr_open {
             return None;
         }
-        let mut column = v_flex().w_full().gap_2().px(px(DETAIL_GUTTER)).pb_2();
+        let mut column = v_flex().w_full().gap_2().px(px(WORK_GUTTER)).pb_2();
         let has_card = false;
 
         let mut controls = h_flex().w_full().flex_wrap().gap_2().items_center();
@@ -835,7 +836,13 @@ impl IssueHeader {
                 .into_any_element(),
             );
         }
-        cluster.push(self.render_actions_menu(issue, cx).into_any_element());
+        // EXP-1191: the `…` glyph, not its hit box, ends on the content edge.
+        cluster.push(
+            div()
+                .mr(px(-crate::work_header::GHOST_ICON_HANG))
+                .child(self.render_actions_menu(issue, cx))
+                .into_any_element(),
+        );
         cluster
     }
 

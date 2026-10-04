@@ -773,7 +773,9 @@ function SubIssuesBlock({
         onClick={onCompose}
         className={cn(
           `flex items-center gap-2 rounded-md px-3 text-left text-sm text-muted-foreground outline-none transition-colors duration-fast hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50`,
-          phone ? `h-11 bg-glass-section` : `h-8 hover:bg-glass-row`
+          // EXP-1191: md+ hangs the hover fill outside the column so the
+          // glyph sits on its edge.
+          phone ? `h-11 bg-glass-section` : `-mx-3 h-8 hover:bg-glass-row`
         )}
       >
         <UiAddIcon className="size-4" />
@@ -904,7 +906,7 @@ export function IssueRelationsSection({
     <div
       className={cn(
         `flex flex-col gap-4`,
-        phone ? `px-4 pt-5` : `px-4 pt-3`
+        phone ? `px-4 pt-5` : `px-5 pt-3`
       )}
     >
       {(hasSubIssues || !readOnly) && (

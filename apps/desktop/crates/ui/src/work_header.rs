@@ -31,13 +31,27 @@ use sync::Store;
 use crate::changes_bar::MergeTarget;
 use crate::coding_flow::{LocalSessions, StartCodingControl};
 use crate::icons::{registry, ExpIcon};
-use crate::issue_detail::{centered_column, DETAIL_GUTTER};
+use crate::issue_detail::centered_column;
 use crate::session_screen::ResumePath;
 use crate::surface::{glass_pill_button, glass_pill_button_primary, PillSize};
 
 /// The shared work column width — web `max-w-4xl` (896px): header, issue
 /// body, transcript and the full-page diff all cap to it.
 pub(crate) const WORK_COLUMN_W: f32 = 896.;
+
+/// EXP-1191 — the work column's ONE content box: [`WORK_COLUMN_W`] inset by
+/// this much on both sides (web `md:px-5`, 1.25rem). Every face (issue,
+/// draft, run, changes, results) puts its VISIBLE edges on it: text starts,
+/// chip / card / box outer borders, hairline dividers, the leading glyph of
+/// a hover-filled row (its fill may hang outside), the bar's collapsed
+/// title and trailing cluster. A block that pads itself (the WYSIWYG
+/// editor's `WYSIWYG_BLOCK_PADDING_X`) takes the REMAINDER, never adds to it.
+pub(crate) const WORK_GUTTER: f32 = 20.;
+
+/// A 32px ghost icon button's box-to-glyph inset (`controls::
+/// ghost_icon_button`): a trailing / leading ghost glyph hangs its hit box
+/// into the gutter by this much so the GLYPH sits on the content edge.
+pub(crate) const GHOST_ICON_HANG: f32 = 8.;
 
 /// EXP-926 / FEED-45 — ONE size rule per PLACEMENT, and the placement is the
 /// only thing that decides it.
@@ -1191,7 +1205,7 @@ pub(crate) fn merge_error_caption(target: &MergeTarget, cx: &mut App) -> Option<
     Some(
         v_flex()
             .w_full()
-            .px(px(DETAIL_GUTTER))
+            .px(px(WORK_GUTTER))
             .pb_2()
             .child(
                 div()
@@ -1317,7 +1331,7 @@ pub(crate) fn render_work_header(header: WorkHeader, _cx: &App) -> AnyElement {
         .items_center()
         .gap_3()
         .py(px(BAR_PY))
-        .px(px(DETAIL_GUTTER))
+        .px(px(WORK_GUTTER))
         // The bar keeps the toggle's height with or without a title.
         .min_h(px(theme::tokens::size::CONTROL_LG + 2. * BAR_PY))
         .child(div().flex_1().min_w_0().children(title))
@@ -1423,7 +1437,7 @@ pub(crate) fn render_floating_bar(
                 .h(px(BAR_H))
                 .items_center()
                 .gap_3()
-                .px(px(DETAIL_GUTTER))
+                .px(px(WORK_GUTTER))
                 .child(div().flex_1().min_w_0().children(title))
                 .child(cluster),
         ));
@@ -1494,9 +1508,9 @@ pub(crate) fn title_input_row(
         // `TITLE_WIDGET_PX` / `TITLE_WIDGET_PY` underneath any refined style
         // (no public size knob on `Textarea`), so the wrapper gives that much
         // back on the sides and on top, and pulls the bottom in to `TITLE_PB`
-        // with a negative margin: title at `DETAIL_GUTTER` / `TITLE_PT`,
+        // with a negative margin: title at `WORK_GUTTER` / `TITLE_PT`,
         // `TITLE_PB` under it.
-        .px(px(DETAIL_GUTTER - TITLE_WIDGET_PX))
+        .px(px(WORK_GUTTER - TITLE_WIDGET_PX))
         .pt(px(top))
         .pb(px(0.))
         .mb(px(TITLE_PB - TITLE_WIDGET_PY))
@@ -1719,7 +1733,7 @@ pub(crate) fn property_tray(chips: Vec<AnyElement>, actions: Vec<AnyElement>) ->
     h_flex()
         .w_full()
         .items_center()
-        .px(px(DETAIL_GUTTER))
+        .px(px(WORK_GUTTER))
         // Web `pt-3` between the title row and the tray.
         .pt(px(12.))
         .child(properties.flex_1().min_w_0())

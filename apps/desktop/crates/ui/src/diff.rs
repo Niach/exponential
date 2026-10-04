@@ -69,6 +69,9 @@ const NOTE_ROW_H: f32 = 22.0;
 const FILE_GAP_H: f32 = 8.0;
 /// Line-number gutter width — 4 digits + padding at 11px mono.
 const GUTTER_W: f32 = 36.0;
+/// The virtual list's own inset around the file cards (and the status
+/// lines): hosts that put the cards on an edge subtract it (EXP-1191).
+pub(crate) const LIST_PAD: f32 = 8.;
 /// The `+`/`−`/`` sign column between the gutters and the text.
 const SIGN_W: f32 = 14.0;
 /// Estimated mono advance at 11px — sizes rows for horizontal scrolling
@@ -1406,7 +1409,7 @@ impl DiffView {
                 .top_0()
                 .left_0()
                 .right_0()
-                .px_2()
+                .px(px(LIST_PAD))
                 .child(self.render_file_card(row, RowShape::Top, file_ix, cx))
                 .into_any_element(),
         )
@@ -1424,14 +1427,14 @@ impl Render for DiffView {
         let theme = cx.theme();
         let body: AnyElement = match &self.phase {
             Phase::Loading => div()
-                .px_3()
+                .px(px(LIST_PAD))
                 .py_3()
                 .text_xs()
                 .text_color(theme.muted_foreground)
                 .child("Loading changes…")
                 .into_any_element(),
             Phase::Error(message) => div()
-                .px_3()
+                .px(px(LIST_PAD))
                 .py_3()
                 .text_xs()
                 .text_color(theme.danger)
@@ -1440,7 +1443,7 @@ impl Render for DiffView {
                 )))
                 .into_any_element(),
             Phase::Ready if self.rows.is_empty() => div()
-                .px_3()
+                .px(px(LIST_PAD))
                 .py_3()
                 .text_xs()
                 .text_color(theme.muted_foreground)
@@ -1479,7 +1482,7 @@ impl Render for DiffView {
                             },
                         )
                         .track_scroll(&self.scroll)
-                        .p_2(),
+                        .p(px(LIST_PAD)),
                     )
                     .children(sticky)
                     .scrollbar(&self.scroll, ScrollbarAxis::Vertical)

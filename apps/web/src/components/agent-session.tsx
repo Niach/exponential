@@ -58,6 +58,7 @@ import {
   parseSessionResultGroups,
   sessionResultPicture,
   WORK_COLUMN_CLASS,
+  WORK_GUTTER_CLASS,
   WorkHeader,
   CollapsedTitle,
   DETAIL_FADE_BOTTOM_CLASS,
@@ -276,10 +277,11 @@ const UiUnselectedIcon = conceptIcon(`ui-unselected`)
 // derived ONCE in lib/agent-feed.ts). The renderer only maps a ladder token
 // onto its custom property, so no number is restated here.
 
-/** The centred reading column every transcript row sits in: the measure plus
- *  one gutter either side, with the gutter as padding from `sm:` up (a phone
- *  cannot afford 48px of it, so it keeps the old 12). */
-const TRANSCRIPT_COLUMN = `${WORK_COLUMN_CLASS} px-3 sm:px-[var(--transcript-gutter)]`
+/** The centred reading column every transcript row sits in. EXP-1191: on
+ *  md+ its gutter is the work column's (`WORK_GUTTER_CLASS`), so the run's
+ *  rows, strips and composer share the issue face's edges; a phone keeps
+ *  its 12. */
+const TRANSCRIPT_COLUMN = `${WORK_COLUMN_CLASS} px-3 md:px-5`
 
 /** Prose scale — agent narration and the sender's own bubbles. Markdown
  *  bodies get the same size/leading from the `.agent-feed .tiptap-content`
@@ -1980,8 +1982,8 @@ export function AgentSessionView({
           {/* Steering composer. Steering is fully seamless (EXP-312) — no
               captions, no operator state; live implies ownership. */}
           {composerVisible && !isMobile && (
-            <div className="p-2">
-              <div className={WORK_COLUMN_CLASS}>
+            <div className="py-2">
+              <div className={cn(WORK_COLUMN_CLASS, WORK_GUTTER_CLASS)}>
                 <SteerComposer
                   store={store}
                   // `connected` matters beyond the phase: a silent

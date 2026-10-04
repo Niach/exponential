@@ -331,6 +331,7 @@ export function IssueDraftPage({
     <PropertiesTrayCard>
       <div className="min-w-0 flex-1">
         <IssuePropertiesPanel
+          className="md:px-0"
           status={editor.status}
           onStatusChange={editor.setStatus}
           priority={editor.priority}
@@ -359,7 +360,7 @@ export function IssueDraftPage({
   )
 
   const descriptionEditor = (
-    <div className="px-1">
+    <div className="max-md:px-1">
       <MarkdownEditor
         ref={editorRef}
         markdown={editor.description}

@@ -53,7 +53,8 @@ use domain::session_results::{
 
 use crate::controls::{disclosure_header, ChevronSide};
 
-use crate::issue_detail::{centered_column, DETAIL_GUTTER};
+use crate::issue_detail::centered_column;
+use crate::work_header::WORK_GUTTER;
 use crate::markdown::{placeholder_box, ImageCache, ImageSlot, MarkdownView, RefResolver};
 
 /// EXP-1154 — what the Guide's FILE rows read: the loaded diff (counts for
@@ -174,7 +175,7 @@ fn page_column() -> gpui::Div {
     v_flex()
         .w_full()
         .min_w_0()
-        .px(px(DETAIL_GUTTER))
+        .px(px(WORK_GUTTER))
         .pt_4()
         .pb_8()
         .gap_5()

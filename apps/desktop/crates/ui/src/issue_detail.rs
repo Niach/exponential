@@ -59,6 +59,7 @@ use crate::issue_files::{
 use crate::attachment_markdown_preview::MarkdownPreviewTarget;
 use crate::navigation::{navigate, Screen};
 use crate::issue_header::{spawn_issue_update, IssueHeader};
+use crate::work_header::WORK_GUTTER;
 use crate::queries;
 use crate::timeline::IssueTimeline;
 
@@ -81,16 +82,13 @@ pub(crate) const DETAIL_COLUMN_W: f32 = crate::work_header::WORK_COLUMN_W;
 /// wrapper (gpui's div default) the same `max_w` + `mx_auto` resolves like
 /// CSS block flow — width = min(container, max), auto margins split the
 /// rest — with no content-measure pass above the wrapping text.
-/// The ONE left edge of the detail body (EXP-282): the title row, the
-/// description slot, the activity section and the comment composer all
-/// resolve to this inset inside [`centered_column`] — `px_4` on every plain
-/// block, and `DETAIL_GUTTER - WYSIWYG_BLOCK_PADDING_X` on the slot that
-/// hosts the self-padding WYSIWYG editor.
-pub(crate) const DETAIL_GUTTER: f32 = 16.;
 
 /// The vendored WYSIWYG editor's own per-block horizontal padding — the
 /// description slot's inset compensation, see `wysiwyg::mod`.
 pub(crate) use crate::wysiwyg::WYSIWYG_BLOCK_PADDING_X;
+
+/// The PR row's own horizontal padding (its hover fill's overhang).
+const PR_ROW_PX: f32 = 8.;
 
 pub(crate) fn centered_column(column: gpui::Div) -> gpui::Div {
     div()
@@ -796,7 +794,7 @@ impl IssueDetailView {
             .clone();
         let width = f32::from(window.viewport_size().width)
             .min(crate::work_header::WORK_COLUMN_W)
-            - 2. * DETAIL_GUTTER;
+            - 2. * WORK_GUTTER;
         let team_id = row.team_id.clone();
         Some(crate::session_results::render(
             &groups,
@@ -1441,7 +1439,7 @@ impl IssueDetailView {
             // area below a short description places the caret at the end
             // (textarea behavior) instead of dying on a bare div.
             return div()
-                .px(px(DETAIL_GUTTER - WYSIWYG_BLOCK_PADDING_X))
+                .px(px(WORK_GUTTER - WYSIWYG_BLOCK_PADDING_X))
                 .min_h(px(96.))
                 .flex()
                 .flex_col()
@@ -1452,7 +1450,7 @@ impl IssueDetailView {
         let source = issue.description.clone().unwrap_or_default();
         if source.trim().is_empty() {
             return div()
-                .px_4()
+                .px(px(WORK_GUTTER))
                 .py_2()
                 .text_sm()
                 .text_color(cx.theme().muted_foreground.opacity(0.6))
@@ -1460,7 +1458,7 @@ impl IssueDetailView {
                 .into_any_element();
         }
         div()
-            .px_4()
+            .px(px(WORK_GUTTER))
             .py_2()
             .text_sm()
             .child(
@@ -1501,16 +1499,15 @@ impl IssueDetailView {
         let state_chip = pr_state_chip(&state, cx);
         let is_open = state == "open";
         let issue_id = issue.id.clone();
-        Some(
-            h_flex()
+        let row = h_flex()
                 .id("issue-pr-row")
-                .w_full()
                 .min_w_0()
                 .items_center()
                 .gap_2()
-                .border_t_1()
-                .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
-                .px_1()
+                // EXP-1191: the glyph on the content edge, the hover fill
+                // hanging outside it by the row's own padding.
+                .mx(px(-PR_ROW_PX))
+                .px(px(PR_ROW_PX))
                 .py_3()
                 .text_sm()
                 .cursor_pointer()
@@ -1556,6 +1553,18 @@ impl IssueDetailView {
                             .small()
                             .text_color(muted),
                     ),
+                );
+        // The hairline spans the content box exactly.
+        Some(
+            div()
+                .w_full()
+                .px(px(WORK_GUTTER))
+                .child(
+                    div()
+                        .w_full()
+                        .border_t_1()
+                        .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+                        .child(row),
                 )
                 .into_any_element(),
         )
@@ -1615,11 +1624,16 @@ impl IssueDetailView {
                     .text_color(cx.theme().muted_foreground)
                     .child("Files"),
             )
-            .child(attach_button);
+            // EXP-1191: the paperclip GLYPH ends on the content edge.
+            .child(
+                div()
+                    .mr(px(-crate::work_header::GHOST_ICON_HANG))
+                    .child(attach_button),
+            );
 
         let mut section = v_flex()
             .w_full()
-            .px(px(DETAIL_GUTTER))
+            .px(px(WORK_GUTTER))
             .pt_2()
             .gap_1()
             .child(header);
@@ -1772,7 +1786,7 @@ impl IssueDetailView {
         // Web parity: `mx-5 my-3` inside the centered reading column.
         div()
             .w_full()
-            .px(px(DETAIL_GUTTER))
+            .px(px(WORK_GUTTER))
             .py_3()
             .child(card)
             .into_any_element()
@@ -2124,7 +2138,7 @@ impl IssueDetailView {
         crate::native_dialog::open_alert(window, cx, spec);
     }
 
-    /// The borderless 2xl title block (web `titleField`). [`DETAIL_GUTTER`] =
+    /// The borderless 2xl title block (web `titleField`). [`WORK_GUTTER`] =
     /// the one shared left edge for the detail body (title / description /
     /// activity / composer all align on it — §8.3, EXP-282). EXP-1162: it is
     /// the first row of the SCROLLING body again (the fixed bar carries the

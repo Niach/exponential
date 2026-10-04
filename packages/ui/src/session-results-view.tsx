@@ -240,7 +240,7 @@ export function GuideSectionHeader({
   return (
     <GlassSectionHeader
       label={label}
-      className={cn(`-mx-3 w-auto`, className)}
+      className={cn(`-mx-3 w-auto md:mx-0`, className)}
       leading={
         index !== undefined && total !== undefined ? (
           <span
@@ -477,12 +477,13 @@ export function SessionResultsView({
   return (
     <div
       ref={containerRef}
-      // The COLUMN (text + tiles) sits at the band's LABEL; the band pulls
-      // out by its own px-3 (`-mx-3`), so it lines up with the work header's
-      // title while a report reads as one column under each header. The
-      // column, not the band, is what `useContentWidth` measures, so tiles
-      // fit it exactly.
-      className={cn(`flex flex-col gap-7 px-7 py-5 md:px-9`, className)}
+      // Phone: the COLUMN (text + tiles) sits at the band's LABEL; the band
+      // pulls out by its own px-3 (`-mx-3`), so it lines up with the header's
+      // title. EXP-1191 md+: the work column's ONE edge (`WORK_GUTTER_CLASS`)
+      // — text and the band's box both start on it, like every other band
+      // and card of the work column. The column, not the band, is what
+      // `useContentWidth` measures, so tiles fit it exactly.
+      className={cn(`flex flex-col gap-7 px-7 py-5 md:px-5`, className)}
       data-testid="session-results"
     >
       {guide.lead && (

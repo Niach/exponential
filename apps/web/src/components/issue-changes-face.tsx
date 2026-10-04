@@ -84,18 +84,18 @@ export function IssueChangesBody({
   return (
     <div data-testid="issue-changes-body">
       {state.kind === `loading` && (
-        <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted-foreground">
+        <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted-foreground md:px-5">
           <UiLoadingIcon className="size-4 animate-spin" />
           Loading changes…
         </div>
       )}
       {state.kind === `none` && (
-        <p className="px-4 py-6 text-sm text-muted-foreground">
+        <p className="px-4 py-6 text-sm text-muted-foreground md:px-5">
           No changes yet. Nothing has been pushed for this issue.
         </p>
       )}
       {state.kind === `error` && (
-        <div className="flex flex-wrap items-center gap-2 px-4 py-6 text-sm text-destructive">
+        <div className="flex flex-wrap items-center gap-2 px-4 py-6 text-sm text-destructive md:px-5">
           {`Couldn’t load changes: ${state.message}`}
           {onRetry && (
             <Pill mode="action" onClick={onRetry}>
