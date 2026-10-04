@@ -466,10 +466,9 @@ export async function loadRepositoryByFullName(
 //
 // `queued` (FEED-43 R1, like `issues.mergePr`): GitHub's merge queue took
 // the merge and may still reject it, so nothing landed and nothing was
-// written; the webhook (or the poller) completes it. `merged` stays `true`
-// there only because `codingSessions.mergePr` declares `{ merged: true }`:
-// read `queued`.
-export type MergePullResult = { merged: true; queued?: true; note?: string }
+// written; the webhook (or the poller) completes it, so `merged` is `false`
+// (EXP-1165).
+export type MergePullResult = { merged: boolean; queued?: true; note?: string }
 
 export async function mergeRepositoryPull(opts: {
   repo: Awaited<ReturnType<typeof loadRepository>>
@@ -497,9 +496,27 @@ export async function mergeRepositoryPull(opts: {
     .where(and(eq(issues.prUrl, prUrl), eq(issues.teamId, repo.teamId)))
     .orderBy(asc(issues.createdAt))
   // EXP-1145: a PR based on another OPEN PR's branch would squash INTO that
-  // branch; refused before any claim or GitHub call. Only an issue-linked PR
-  // records its base (`pr_base_branch`); an issue-less one passes.
-  const based = onPr.find((issue) => issue.prBaseBranch)
+  // branch; refused before any claim or GitHub call. An issue-linked PR
+  // records its base on the issue; an issue-less one (a chat or action run's
+  // PR) on the run row that opened it (EXP-1165).
+  let based: { id: string | null; prBaseBranch: string } | null = null
+  const issueBased = onPr.find((issue) => issue.prBaseBranch)
+  if (issueBased?.prBaseBranch) {
+    based = { id: issueBased.id, prBaseBranch: issueBased.prBaseBranch }
+  } else if (onPr.length === 0) {
+    const [run] = await db
+      .select({ prBaseBranch: codingSessions.prBaseBranch })
+      .from(codingSessions)
+      .where(
+        and(
+          eq(codingSessions.prUrl, prUrl),
+          eq(codingSessions.teamId, repo.teamId),
+          isNotNull(codingSessions.prBaseBranch)
+        )
+      )
+      .limit(1)
+    if (run?.prBaseBranch) based = { id: null, prBaseBranch: run.prBaseBranch }
+  }
   if (based) {
     const parent = await stackedOnOpenPr(db, {
       issueId: based.id,
@@ -532,7 +549,7 @@ export async function mergeRepositoryPull(opts: {
   // merge call would beat it, squashing INTO the parent's kept branch. Await
   // the heal, then refuse while GitHub still reports the merged branch as
   // the base (same as `issues.mergePr`). Before any claim.
-  if (based?.prBaseBranch) {
+  if (based) {
     const mergedParent = await basedOnMergedPr(db, {
       teamId: repo.teamId,
       repoFullName: repo.fullName,
@@ -631,7 +648,7 @@ export async function mergeRepositoryPull(opts: {
   // nobody is notified. The claim stays for the landing merge's webhook.
   if (smart.queued) {
     return {
-      merged: true,
+      merged: false,
       queued: true,
       note: `GitHub queued the merge of PR #${prNumber}. Nothing is merged yet; it completes when the merge lands.`,
     }

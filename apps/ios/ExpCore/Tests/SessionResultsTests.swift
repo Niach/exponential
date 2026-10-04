@@ -185,14 +185,14 @@ final class SessionResultsTests: XCTestCase {
     // MARK: EXP-933 — the report fixture (`session-results.json`), same case
     // names ×4.
 
-    private func fixture() throws -> [String: Any] {
+    private func fixture(_ name: String = "session-results.json") throws -> [String: Any] {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()          // ExpCore/Tests/
             .deletingLastPathComponent()          // ExpCore/
             .deletingLastPathComponent()          // apps/ios/
             .deletingLastPathComponent()          // apps/
             .deletingLastPathComponent()          // the repo root
-            .appendingPathComponent("packages/domain-contract/fixtures/session-results.json")
+            .appendingPathComponent("packages/domain-contract/fixtures/\(name)")
         let json = try JSONSerialization.jsonObject(with: try Data(contentsOf: url))
         return try XCTUnwrap(json as? [String: Any])
     }
@@ -275,6 +275,95 @@ final class SessionResultsTests: XCTestCase {
                 testCase["expected"] as? String,
                 name
             )
+        }
+    }
+
+    // MARK: EXP-1172 — inline pictures (`session-inline.json`), same case
+    // names ×4.
+
+    private func inlineEntry(_ entry: SessionResultEntry) -> [String: String] {
+        [
+            "label": entry.label,
+            "attachmentId": entry.attachmentId,
+            "inline": entry.inline ? "true" : "false",
+            "caption": entry.caption ?? "<null>",
+        ]
+    }
+
+    private func inlineExpected(_ value: Any?) -> [[String: String]] {
+        (value as? [[String: Any]] ?? []).map { entry in
+            [
+                "label": entry["label"] as? String ?? "",
+                "attachmentId": entry["attachmentId"] as? String ?? "",
+                "inline": (entry["inline"] as? Bool ?? false) ? "true" : "false",
+                "caption": entry["caption"] as? String ?? "<null>",
+            ]
+        }
+    }
+
+    func testInlineConstantsMatchTheFixture() throws {
+        let fixture = try fixture("session-inline.json")
+        XCTAssertEqual(sessionInlineTileHeight, CGFloat(try XCTUnwrap(fixture["inlineTileHeight"] as? Int)))
+        XCTAssertEqual(sessionResultsEarlierLabel, fixture["earlierLabel"] as? String)
+    }
+
+    func testFoldsInlinePicturesUnderEarlierPerTheFixture() throws {
+        let cases = try XCTUnwrap(try fixture("session-inline.json")["groups"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let expected = try XCTUnwrap(testCase["expected"] as? [[String: Any]])
+            let raw = try rawString(testCase["raw"])
+            let groups = parseSessionResultGroups(raw)
+            XCTAssertEqual(groups.map(\.topic), expected.map { $0["topic"] as? String }, name)
+            XCTAssertEqual(groups.map(\.text), expected.map { $0["text"] as? String }, name)
+            XCTAssertEqual(
+                groups.map { $0.entries.map(inlineEntry) },
+                expected.map { inlineExpected($0["entries"]) },
+                name
+            )
+            XCTAssertEqual(
+                groups.map { $0.earlier.map(inlineEntry) },
+                expected.map { inlineExpected($0["earlier"]) },
+                name
+            )
+            // The pictures-only reader folds the same way.
+            let pictureGroups = expected.filter {
+                !inlineExpected($0["entries"]).isEmpty || !inlineExpected($0["earlier"]).isEmpty
+            }
+            let grouped = groupSessionResults(parseSessionResults(raw))
+            XCTAssertEqual(
+                grouped.map { $0.earlier.map(inlineEntry) },
+                pictureGroups.map { inlineExpected($0["earlier"]) },
+                name
+            )
+            // Tile sizing reads the folded pictures too.
+            XCTAssertEqual(
+                sessionResultPictures(groups).count,
+                parseSessionResults(raw).count,
+                name
+            )
+        }
+    }
+
+    func testLooksUpTheShownPicturePerTheFixture() throws {
+        let cases = try XCTUnwrap(try fixture("session-inline.json")["lookup"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let picture = sessionResultPicture(
+                try rawString(testCase["raw"]),
+                attachmentId: testCase["attachmentId"] as? String
+            )
+            guard let expected = testCase["expected"] as? [String: Any] else {
+                XCTAssertNil(picture, name)
+                continue
+            }
+            let entry = try XCTUnwrap(picture, name)
+            XCTAssertEqual(entry.label, expected["label"] as? String, name)
+            XCTAssertEqual(entry.inline, expected["inline"] as? Bool, name)
+            XCTAssertEqual(entry.caption, expected["caption"] as? String, name)
+            XCTAssertEqual(entry.tileCaption, expected["tileCaption"] as? String, name)
         }
     }
 }

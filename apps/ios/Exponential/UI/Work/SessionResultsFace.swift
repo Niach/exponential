@@ -18,6 +18,10 @@ import UIKit
 /// Resume (the Run face's) NOR the merge bar (the Changes face's), and
 /// (EXP-1150) no bottom bar at all — the faces are the screen's tab strip.
 ///
+/// EXP-1172: a group's folded `earlier` pictures (the `sessions_show` shots
+/// filed while the run worked) sit under its tiles behind a collapsed
+/// `Earlier · N` row that expands in place to the same tiles.
+///
 /// The pure rules — parse, group, tile size — are `ExpCore/SessionResults`,
 /// mirrored by web `lib/session-results.ts`, desktop `session_results.rs` and
 /// Android `domain/SessionResults.kt`.
@@ -26,11 +30,11 @@ struct SessionResultsFace: View {
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
+    @Environment(\.motion) private var motion
 
-    @State private var previewURL: URL?
-    @State private var downloadingId: String?
-    /// EXP-1128: the tall picture the scroll viewer shows, nil when closed.
-    @State private var tallPreview: TallPreview?
+    /// EXP-1172: the topics whose `Earlier` band is open — collapsed by
+    /// default.
+    @State private var expandedEarlier: Set<String> = []
     /// The page's content width, measured once — a phone is narrower than the
     /// pinned 320pt tile is wide for anything landscape, so the whole page
     /// scales DOWN by one factor. Every tile keeps its probed aspect and every
@@ -73,12 +77,10 @@ struct SessionResultsFace: View {
                                 .padding(.bottom, group.entries.isEmpty ? 0 : 12)
                         }
                         if !group.entries.isEmpty {
-                            FlowLayout(spacing: 12) {
-                                ForEach(group.entries, id: \.attachmentId) { entry in
-                                    tile(entry)
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            tiles(group.entries)
+                        }
+                        if !group.earlier.isEmpty {
+                            earlierBand(group)
                         }
                     }
                 }
@@ -89,31 +91,118 @@ struct SessionResultsFace: View {
         .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
             contentWidth = width
         }
-        .quickLookPreview($previewURL)
-        .sheet(item: $tallPreview) { preview in
-            TallImageViewerSheet(entry: preview.entry)
-        }
         .accessibilityIdentifier("session-results")
     }
 
-    private func tile(_ entry: SessionResultEntry) -> some View {
-        let width = sessionResultTileWidth(entry, height: tileHeight)
-        return VStack(alignment: .leading, spacing: 4) {
+    private func tiles(_ entries: [SessionResultEntry]) -> some View {
+        FlowLayout(spacing: 12) {
+            ForEach(entries, id: \.attachmentId) { entry in
+                SessionResultPictureTile(
+                    entry: entry,
+                    height: tileHeight,
+                    caption: entry.label
+                )
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// EXP-1172: the muted `Earlier · N` disclosure under a group's tiles —
+    /// the transcript's chevron idiom — opening in place to the same tiles.
+    @ViewBuilder
+    private func earlierBand(_ group: SessionResultGroup) -> some View {
+        let expanded = expandedEarlier.contains(group.topic)
+        Button {
+            withAnimation(motion.standard) {
+                if expanded {
+                    expandedEarlier.remove(group.topic)
+                } else {
+                    expandedEarlier.insert(group.topic)
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                AppIcon(expanded ? AppIcons.uiChevronDown : AppIcons.uiChevronRight, size: 11)
+                Text("\(sessionResultsEarlierLabel) · \(group.earlier.count)")
+                    .font(.caption)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.top, group.entries.isEmpty ? 4 : 8)
+        .accessibilityLabel("\(sessionResultsEarlierLabel), \(group.earlier.count)")
+        .accessibilityValue(expanded ? "Expanded" : "Collapsed")
+        .accessibilityIdentifier("session-results-earlier")
+        if expanded {
+            tiles(group.earlier)
+        }
+    }
+}
+
+/// EXP-1172: the `sessions_show` picture an Exponential tool row renders
+/// under itself — ONE Results tile at `sessionInlineTileHeight`, scaled down
+/// to the transcript column by the Results face's own fitting rule, captioned
+/// with the call's caption (else the label).
+struct SessionInlinePicture: View {
+    let entry: SessionResultEntry
+
+    @State private var columnWidth: CGFloat = 0
+
+    private var height: CGFloat {
+        sessionResultTileHeightFitting(
+            [entry], availableWidth: columnWidth, base: sessionInlineTileHeight
+        )
+    }
+
+    var body: some View {
+        SessionResultPictureTile(entry: entry, height: height, caption: entry.tileCaption)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
+                columnWidth = width
+            }
+            .accessibilityIdentifier("exp-tool-inline-picture")
+    }
+}
+
+/// One published picture as a tappable tile with its caption line under it —
+/// the Results face's tile (EXP-879) and, at the inline height, the
+/// transcript's `sessions_show` tile (EXP-1172). A tap opens Quick Look over
+/// the download-to-temp path the comment strips use; a TALL picture
+/// (EXP-1128) opens `TallImageViewerSheet` instead.
+struct SessionResultPictureTile: View {
+    let entry: SessionResultEntry
+    let height: CGFloat
+    let caption: String
+
+    @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
+
+    @State private var previewURL: URL?
+    @State private var downloading = false
+    /// EXP-1128: the tall picture the scroll viewer shows, nil when closed.
+    @State private var tallPreview: TallPreview?
+
+    var body: some View {
+        let width = sessionResultTileWidth(entry, height: height)
+        VStack(alignment: .leading, spacing: 4) {
             Button {
                 preview(entry)
             } label: {
                 SessionResultTile(
                     entry: entry,
                     width: width,
-                    height: tileHeight,
+                    height: height,
                     baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
                     accountId: accountId,
                     httpClient: deps.httpClient,
-                    isLoading: downloadingId == entry.attachmentId
+                    isLoading: downloading
                 )
             }
             .buttonStyle(.plain)
-            Text(entry.label)
+            Text(caption)
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .lineLimit(1)
@@ -123,9 +212,13 @@ struct SessionResultsFace: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
             sessionResultIsTall(entry)
-                ? "\(entry.topic), \(entry.label), tall"
-                : "\(entry.topic), \(entry.label)"
+                ? "\(entry.topic), \(caption), tall"
+                : "\(entry.topic), \(caption)"
         )
+        .quickLookPreview($previewURL)
+        .sheet(item: $tallPreview) { preview in
+            TallImageViewerSheet(entry: preview.entry)
+        }
     }
 
     // MARK: - Quick Look
@@ -137,11 +230,11 @@ struct SessionResultsFace: View {
             tallPreview = TallPreview(entry: entry)
             return
         }
-        guard downloadingId == nil else { return }
-        downloadingId = entry.attachmentId
+        guard !downloading else { return }
+        downloading = true
         Task {
             let url = await download(entry)
-            downloadingId = nil
+            downloading = false
             if let url { previewURL = url }
         }
     }
@@ -275,6 +368,14 @@ private struct SessionResultTile: View {
     }
 }
 
+/// EXP-1172: the shown run's raw synced `coding_sessions.results` — what a
+/// settled `sessions_show` row looks its picture up in (`preview.id`). Set by
+/// `AgentSessionView` off its LIVE row, so a picture that syncs after the call
+/// settled appears under it; nil elsewhere (the row then draws no tile).
+private struct SessionResultsRawKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
+
 /// EXP-933: switches the enclosing Work screen to its Results face — what the
 /// inline `sessions_results` card's `Open Results` button calls. nil outside a
 /// Work screen (the card then draws no button).
@@ -286,5 +387,10 @@ extension EnvironmentValues {
     var openResultsFace: (() -> Void)? {
         get { self[OpenResultsFaceKey.self] }
         set { self[OpenResultsFaceKey.self] = newValue }
+    }
+
+    var sessionResultsRaw: String? {
+        get { self[SessionResultsRawKey.self] }
+        set { self[SessionResultsRawKey.self] = newValue }
     }
 }

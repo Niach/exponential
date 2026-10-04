@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -49,6 +51,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -60,6 +64,7 @@ import coil3.request.ImageRequest
 import coil3.size.Size
 import com.exponential.app.domain.SessionResultEntry
 import com.exponential.app.domain.SessionResultGroup
+import com.exponential.app.domain.SESSION_RESULTS_EARLIER_LABEL
 import com.exponential.app.domain.sessionResultIsTall
 import com.exponential.app.domain.sessionResultTileHeightFitting
 import com.exponential.app.domain.sessionResultTileWidth
@@ -112,7 +117,9 @@ fun ResultsFace(
         // unmeasured page (zero width) renders at the base.
         val availableDp = (maxWidth - HorizontalPadding * 2).value.toInt()
         val tileHeight = remember(groups, availableDp) {
-            sessionResultTileHeightFitting(groups.flatMap { it.entries }, availableDp)
+            // EXP-1172: the folded `earlier` pictures count too, so expanding
+            // the band never resizes the page.
+            sessionResultTileHeightFitting(groups.flatMap { it.entries + it.earlier }, availableDp)
         }
         LazyColumn(
             modifier = Modifier.fillMaxSize().detailHazeSource().testTag("work-results"),
@@ -141,18 +148,26 @@ fun ResultsFace(
                         // The shots wrap rather than scroll sideways: a topic
                         // with an iOS, an Android and a web shot reads as one
                         // block, not three hidden behind a swipe.
-                        if (group.entries.isNotEmpty()) FlowRow(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            group.entries.forEach { entry ->
-                                ResultTile(
-                                    entry = entry,
-                                    tileHeight = tileHeight,
-                                    onOpen = { preview = entry },
-                                )
-                            }
+                        if (group.entries.isNotEmpty()) ResultTiles(
+                            entries = group.entries,
+                            tileHeight = tileHeight,
+                            onOpen = { preview = it },
+                        )
+                        // EXP-1172: the pictures the run SHOWED while it
+                        // worked fold under a collapsed `Earlier · N` band,
+                        // so the final report leads.
+                        if (group.earlier.isNotEmpty()) {
+                            var earlierOpen by remember { mutableStateOf(false) }
+                            EarlierBand(
+                                count = group.earlier.size,
+                                expanded = earlierOpen,
+                                onToggle = { earlierOpen = !earlierOpen },
+                            )
+                            if (earlierOpen) ResultTiles(
+                                entries = group.earlier,
+                                tileHeight = tileHeight,
+                                onOpen = { preview = it },
+                            )
                         }
                     }
                 }
@@ -165,6 +180,59 @@ fun ResultsFace(
     }
 }
 
+/** One topic's wrapping row of equal-height tiles. */
+@Composable
+private fun ResultTiles(
+    entries: List<SessionResultEntry>,
+    tileHeight: Int,
+    onOpen: (SessionResultEntry) -> Unit,
+) {
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        entries.forEach { entry ->
+            ResultTile(entry = entry, tileHeight = tileHeight, onOpen = { onOpen(entry) })
+        }
+    }
+}
+
+/**
+ * EXP-1172: the muted `Earlier · N` disclosure under a group's tiles — the
+ * chevron fold every collapsible row wears; it expands IN PLACE to the same
+ * tiles. Collapsed by default.
+ */
+@Composable
+private fun EarlierBand(count: Int, expanded: Boolean, onToggle: () -> Unit) {
+    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle)
+            .padding(vertical = 4.dp)
+            .semantics {
+                contentDescription = "$SESSION_RESULTS_EARLIER_LABEL, $count, ${if (expanded) "expanded" else "collapsed"}"
+            }
+            .testTag("work-results-earlier"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(
+            if (expanded) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
+            contentDescription = null,
+            modifier = Modifier.size(14.dp),
+            tint = muted,
+        )
+        Text(
+            "$SESSION_RESULTS_EARLIER_LABEL · $count",
+            style = MaterialTheme.typography.labelMedium,
+            color = muted,
+            maxLines = 1,
+        )
+    }
+}
+
 /**
  * One shot: the image at the shared height and its probed width, the label as
  * a one-line caption under it. The URL is DERIVED from the attachment id — the
@@ -173,7 +241,13 @@ fun ResultsFace(
  * attachments load.
  */
 @Composable
-private fun ResultTile(entry: SessionResultEntry, tileHeight: Int, onOpen: () -> Unit) {
+internal fun ResultTile(
+    entry: SessionResultEntry,
+    tileHeight: Int,
+    onOpen: () -> Unit,
+    // EXP-1172: the transcript's inline tile reads `sessionResultTileCaption`.
+    caption: String = entry.label,
+) {
     Column(
         modifier = Modifier
             .width(sessionResultTileWidth(entry, tileHeight).dp)
@@ -198,7 +272,7 @@ private fun ResultTile(entry: SessionResultEntry, tileHeight: Int, onOpen: () ->
             )
         }
         Text(
-            entry.label,
+            caption,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
             maxLines = 1,
@@ -279,7 +353,7 @@ private fun TallTileImage(entry: SessionResultEntry, tileHeight: Int, modifier: 
  *  A TALL shot (EXP-1128) instead fits to WIDTH and scrolls; only Close and
  *  Back dismiss it, since a scrim tap would fight the scroll. */
 @Composable
-private fun ResultPreviewDialog(entry: SessionResultEntry, onDismiss: () -> Unit) {
+internal fun ResultPreviewDialog(entry: SessionResultEntry, onDismiss: () -> Unit) {
     val tall = sessionResultIsTall(entry)
     val context = LocalContext.current
     Dialog(

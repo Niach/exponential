@@ -558,15 +558,17 @@ fun agentRows(
     // without an issue link.
     return live.map { session ->
         val issue = session.issueId?.let(issuesById::get)
+        // EXP-876: what names a batch row.
+        val batchIssues = batchRunIssues(session, issues)
         AgentRow(
             session = session,
             issue = issue,
-            // EXP-876: what names a batch row.
-            batchIssues = batchRunIssues(session, issues),
+            batchIssues = batchIssues,
             device = resolveSessionDevice(session, devices, nowMs, devicesFresh),
             // EXP-734/SLOP-3: an issue-less run (batch, chat, action) merges
-            // the PR on its own row through codingSessions.mergePr.
-            mergeTarget = resolveMergeTarget(session, issue),
+            // the PR on its own row through codingSessions.mergePr — unless a
+            // covered issue carries a batch's PR (EXP-1165: the issue path).
+            mergeTarget = resolveMergeTarget(session, issue, batchIssues),
         )
     }
 }

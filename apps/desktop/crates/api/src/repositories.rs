@@ -96,10 +96,21 @@ pub struct OpenPull {
     pub created_at: String,
 }
 
-/// Output of `repositories.mergePull` — `{"merged": true}` on success.
+/// Output of `repositories.mergePull` — `{"merged": true}` on success,
+/// `{"merged": false, "queued": true}` when GitHub's merge queue only took
+/// it (EXP-1165).
 #[derive(Clone, Copy, Debug, Deserialize)]
 pub struct MergePullResult {
     pub merged: bool,
+    #[serde(default)]
+    pub queued: bool,
+}
+
+impl MergePullResult {
+    /// The pull request is in: merged and not merely queued.
+    pub fn landed(&self) -> bool {
+        self.merged && !self.queued
+    }
 }
 
 /// `repositories.add` output: `{repository: <full row>}`. Only the fields the
@@ -469,6 +480,18 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/repositories.mergePull HTTP/1.1"));
         assert!(request.ends_with(r#"{"repositoryId":"repo-1","prNumber":42}"#));
+    }
+
+    #[test]
+    fn merge_pull_decodes_a_queued_merge_as_not_landed() {
+        let (base, _captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"merged":false,"queued":true,"note":"GitHub queued it"}}}"#,
+        );
+        let out = merge_pull(&client(&base), "repo-1", 42).unwrap();
+        assert!(!out.merged);
+        assert!(out.queued);
+        assert!(!out.landed());
     }
 
     #[test]

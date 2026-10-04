@@ -1,4 +1,5 @@
-// EXP-1145 (kept by SLOP-3): a PR whose recorded base (`issues.pr_base_branch`)
+// EXP-1145 (kept by SLOP-3): a PR whose recorded base (`issues.pr_base_branch`,
+// or for an issue-less run PR `coding_sessions.pr_base_branch`, EXP-1165)
 // is the head branch of ANOTHER open PR in the same repository is a follow-up
 // sitting on its parent. A plain squash merge would land it INTO the parent's
 // branch: the diff never reaches the default branch while the issue flips to
@@ -84,6 +85,34 @@ export async function loadRepoDefaultBranches(
   }
 }
 
+/**
+ * The guards' view of the branches a repo is developed on: the team's repo
+ * row when it has one, else (EXP-1165) GitHub's default branch, so a team
+ * with no `repositories` row still gets the default-branch exit. Null when
+ * neither answers.
+ */
+export async function loadGuardDefaultBranches(
+  db: Pick<Context[`db`], `select`>,
+  opts: { teamId: string; repoFullName: string }
+): Promise<RepoDefaultBranches | null> {
+  const row = await loadRepoDefaultBranches(db, opts)
+  if (row) return row
+  try {
+    // Lazy: keeps this module a leaf the routers load cheaply.
+    const { resolveRepoDefaultBranchCached } = await import(
+      `@/lib/integrations/github-app`
+    )
+    const defaultBranch = await resolveRepoDefaultBranchCached(
+      opts.repoFullName
+    )
+    return defaultBranch
+      ? { defaultBranch, defaultBranchOverride: null, boardDefaultBranches: [] }
+      : null
+  } catch {
+    return null
+  }
+}
+
 /** Is `branch` one the repo is developed on (never a follow-up's parent)? */
 export function isRepoDefaultBranch(
   branches: RepoDefaultBranches | null,
@@ -157,7 +186,7 @@ async function isDefaultBased(
 ): Promise<boolean> {
   if (!opts.prBaseBranch) return false
   return isRepoDefaultBranch(
-    await loadRepoDefaultBranches(db, opts),
+    await loadGuardDefaultBranches(db, opts),
     opts.prBaseBranch
   )
 }
@@ -260,6 +289,10 @@ export async function awaitRebaseOffMergedBranch(
       .update(issues)
       .set({ prBaseBranch: pull.baseRef })
       .where(eq(issues.prUrl, opts.prUrl))
+    await db
+      .update(codingSessions)
+      .set({ prBaseBranch: pull.baseRef })
+      .where(eq(codingSessions.prUrl, opts.prUrl))
   }
 }
 
@@ -346,7 +379,7 @@ export async function openStackThrough(
     // A base the repo is developed on ends the stack, even while a PR FROM
     // it is open (a `develop → main` release PR must never ride along).
     if (defaults === undefined) {
-      defaults = await loadRepoDefaultBranches(db, {
+      defaults = await loadGuardDefaultBranches(db, {
         teamId: opts.teamId,
         repoFullName,
       })

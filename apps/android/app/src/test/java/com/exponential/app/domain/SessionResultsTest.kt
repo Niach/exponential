@@ -2,6 +2,7 @@ package com.exponential.app.domain
 
 import java.io.File
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -224,13 +225,95 @@ class SessionResultsTest {
 }
 
 /** The contract fixture, located relative to the Gradle test working dir. */
-internal fun sessionResultsFixture(): JsonObject {
+internal fun sessionResultsFixture(): JsonObject = contractFixture("session-results.json")
+
+private fun contractFixture(name: String): JsonObject {
     val candidates = listOf(
-        "../../../packages/domain-contract/fixtures/session-results.json",
-        "../../packages/domain-contract/fixtures/session-results.json",
-        "packages/domain-contract/fixtures/session-results.json",
+        "../../../packages/domain-contract/fixtures/$name",
+        "../../packages/domain-contract/fixtures/$name",
+        "packages/domain-contract/fixtures/$name",
     )
     val file = candidates.map(::File).firstOrNull { it.isFile }
-        ?: error("session-results.json not found from ${File(".").absolutePath}")
+        ?: error("$name not found from ${File(".").absolutePath}")
     return Json.parseToJsonElement(file.readText()).jsonObject
+}
+
+// EXP-1172: inline pictures — `session-inline.json`, every case, ×4.
+class SessionInlineTest {
+    private val fixture = contractFixture("session-inline.json")
+
+    private fun JsonElement.textOrNull(): String? = takeUnless { it is JsonNull }?.jsonPrimitive?.content
+
+    private fun entryShape(entry: SessionResultEntry) =
+        listOf(entry.label, entry.attachmentId, entry.inline, entry.caption)
+
+    private fun expectedShape(element: JsonElement): List<Any?> {
+        val entry = element.jsonObject
+        return listOf(
+            entry["label"]!!.jsonPrimitive.content,
+            entry["attachmentId"]!!.jsonPrimitive.content,
+            entry["inline"]!!.jsonPrimitive.boolean,
+            entry["caption"]!!.textOrNull(),
+        )
+    }
+
+    @Test
+    fun `the constants match the fixture`() {
+        assertEquals(fixture["inlineTileHeight"]!!.jsonPrimitive.int, SESSION_INLINE_TILE_HEIGHT)
+        assertEquals(fixture["earlierLabel"]!!.jsonPrimitive.content, SESSION_RESULTS_EARLIER_LABEL)
+    }
+
+    @Test
+    fun `every fixture groups case folds inline pictures under earlier`() {
+        val cases = fixture["groups"]!!.jsonArray
+        assertTrue(cases.isNotEmpty())
+        for (element in cases) {
+            val case = element.jsonObject
+            val name = case["name"]!!.jsonPrimitive.content
+            val raw = case["raw"]!!.toString()
+            val actual = parseSessionResultGroups(raw).map { group ->
+                listOf(group.topic, group.text, group.entries.map(::entryShape), group.earlier.map(::entryShape))
+            }
+            val expected = case["expected"]!!.jsonArray.map { groupElement ->
+                val group = groupElement.jsonObject
+                listOf(
+                    group["topic"]!!.jsonPrimitive.content,
+                    group["text"]!!.textOrNull(),
+                    group["entries"]!!.jsonArray.map(::expectedShape),
+                    group["earlier"]!!.jsonArray.map(::expectedShape),
+                )
+            }
+            assertEquals(name, expected, actual)
+            // The picture-only reader folds the same way.
+            val pictures = groupSessionResults(parseSessionResults(raw)).map { group ->
+                group.topic to (group.entries.map(::entryShape) to group.earlier.map(::entryShape))
+            }
+            val expectedPictures = expected
+                .filter { (it[2] as List<*>).isNotEmpty() || (it[3] as List<*>).isNotEmpty() }
+                .map { it[0] to (it[2] to it[3]) }
+            assertEquals(name, expectedPictures, pictures)
+        }
+    }
+
+    @Test
+    fun `every fixture lookup case finds the call's picture by id`() {
+        val cases = fixture["lookup"]!!.jsonArray
+        assertTrue(cases.isNotEmpty())
+        for (element in cases) {
+            val case = element.jsonObject
+            val name = case["name"]!!.jsonPrimitive.content
+            val entry = sessionResultPicture(case["raw"]!!.toString(), case["attachmentId"]!!.textOrNull())
+            val expected = case["expected"]!!
+            if (expected is JsonNull) {
+                assertEquals(name, null, entry)
+                continue
+            }
+            val want = expected.jsonObject
+            requireNotNull(entry) { name }
+            assertEquals(name, want["label"]!!.jsonPrimitive.content, entry.label)
+            assertEquals(name, want["inline"]!!.jsonPrimitive.boolean, entry.inline)
+            assertEquals(name, want["caption"]!!.textOrNull(), entry.caption)
+            assertEquals(name, want["tileCaption"]!!.jsonPrimitive.content, sessionResultTileCaption(entry))
+        }
+    }
 }

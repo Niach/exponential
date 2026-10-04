@@ -27,14 +27,24 @@ import {
 import { batchRunIssues, isBatchRun } from "@/lib/batch-run"
 import { runChain } from "@/lib/sessions/run-chain"
 
-/** EXP-734: what a run's Merge control acts on. An issue-scoped run merges
- * through its issue; every issue-LESS run (batch, action or chat) that opened
- * a PR merges through the SESSION row itself, which carries
- * prUrl/prNumber/prState (a batch run's combined PR too — the server fans the
- * merge out to its linked issues). */
-export type SessionMergeTarget =
-  | { kind: `issue`; issue: Issue }
-  | { kind: `session`; session: CodingSession }
+export {
+  resolveSessionMergeTarget,
+  type SessionMergeTarget,
+} from "@/lib/session-merge-target"
+import {
+  resolveSessionMergeTarget,
+  type SessionMergeTarget,
+} from "@/lib/session-merge-target"
+
+/** A run's own PR as its merge target, whatever its subject: the fallback of
+ * the rows held past their live listing while their issue is not synced. */
+function sessionPrTarget(
+  session: CodingSession
+): SessionMergeTarget | undefined {
+  return session.prUrl && session.prNumber != null
+    ? { kind: `session`, session }
+    : undefined
+}
 
 /** The props both merge paths hand `SessionMergeButton` — one shape so the
  * three call sites (Agents row, steering strip, dock) never re-derive it.
@@ -226,32 +236,18 @@ export function useAgentsData(
     )
     const boardMap = new Map(boards.map((board) => [board.id, board]))
 
-    // EXP-734: issue run → the issue; any issue-less run that stamped its
-    // OWN PR (batch, action and chat runs) → the session row.
-    const resolveMergeTarget = (
-      session: CodingSession,
-      issue: Issue | undefined
-    ): SessionMergeTarget | undefined => {
-      if (session.issueId) {
-        return issue ? { kind: `issue`, issue } : undefined
-      }
-      if (session.prUrl && session.prNumber != null) {
-        return { kind: `session`, session }
-      }
-      return undefined
-    }
-
     const toRow = (session: CodingSession): AgentSessionRow => {
       // Batch-scoped sessions carry no issue — render issueless.
       const issue = session.issueId ? issueMap.get(session.issueId) : undefined
       const device = resolveSessionDevice(session, devices, now)
+      const batchIssues = resolveBatchIssues(session)
       return {
         session,
         issue,
-        batchIssues: resolveBatchIssues(session),
+        batchIssues,
         board: issue ? boardMap.get(issue.boardId) : undefined,
         user: userMap.get(session.userId),
-        mergeTarget: resolveMergeTarget(session, issue),
+        mergeTarget: resolveSessionMergeTarget(session, issue, batchIssues),
         device,
         paused: sessionIsPaused(
           sessionDisplayState(session, rowPrState(session, issue)),
@@ -373,19 +369,18 @@ export function useSessionRow(
       ? ((issueRows ?? [])[0] as Issue | undefined)
       : undefined
     const board = issue ? boards.find((b) => b.id === issue.boardId) : undefined
+    const batchIssues = resolveBatchIssues(session)
     return {
       session,
       issue,
-      batchIssues: resolveBatchIssues(session),
+      batchIssues,
       board,
       user: undefined,
       // EXP-734: an issue-less run held open past its live listing still
       // carries its OWN chore PR on the row — keep its Merge pill.
-      mergeTarget: issue
-        ? { kind: `issue`, issue }
-        : session.prUrl && session.prNumber != null
-          ? { kind: `session`, session }
-          : undefined,
+      mergeTarget:
+        resolveSessionMergeTarget(session, issue, batchIssues) ??
+        sessionPrTarget(session),
       // A row resolved past its live listing: the snapshot label suffices and
       // nothing there is "paused" — the session view resolves the live device
       // itself.
@@ -715,10 +710,11 @@ export function useSessionListRows(
     return sessions.map((session) => {
       const issue = session.issueId ? issueMap.get(session.issueId) : undefined
       const device = resolveSessionDevice(session, devices, now)
+      const batchIssues = resolveBatchIssues(session)
       return {
         session,
         issue,
-        batchIssues: resolveBatchIssues(session),
+        batchIssues,
         board: issue ? boardMap.get(issue.boardId) : undefined,
         device,
         paused:
@@ -727,11 +723,9 @@ export function useSessionListRows(
             sessionDisplayState(session, rowPrState(session, issue)),
             device
           ),
-        mergeTarget: issue
-          ? { kind: `issue`, issue }
-          : session.prUrl && session.prNumber != null
-            ? { kind: `session`, session }
-            : undefined,
+        mergeTarget:
+          resolveSessionMergeTarget(session, issue, batchIssues) ??
+          sessionPrTarget(session),
       } satisfies SessionListRow
     })
   }, [sessions, issueRows, deviceRows, resolveBatchIssues, boards, now])

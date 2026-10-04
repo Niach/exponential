@@ -23,6 +23,11 @@ const h = vi.hoisted(() => ({
     }> => ({ merged: true, queued: false, sha: `abc`, mergedBy: null })
   ),
   getPullRequest: vi.fn(),
+  // EXP-1165: GitHub's default branch, the guards' exit when the team has no
+  // repositories row for the repo.
+  resolveRepoDefaultBranchCached: vi.fn(
+    async (_repo: string): Promise<string | null> => null
+  ),
   applySessionPrState: vi.fn(async () => ({ endedSessionIds: [] })),
   applyPrMergeState: vi.fn(async () => {}),
   retargetChildrenOfMergedPr: vi.fn(
@@ -57,6 +62,7 @@ vi.mock(`@/lib/auth`, () => ({ auth: {} }))
 vi.mock(`@/lib/integrations/github-app`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/integrations/github-app")>()),
   githubAppConfigured: () => true,
+  resolveRepoDefaultBranchCached: h.resolveRepoDefaultBranchCached,
   resolveRepoInstallationTokenInfo: async () => ({
     token: `tok`,
     installationId: 77,
@@ -169,8 +175,8 @@ describe(`mergeRepositoryPull on a PR stacked on an open PR (EXP-1145)`, () => {
   })
 
   it(`merges an issue-less PR (no recorded base) without a parent lookup`, async () => {
-    h.selectQueue.push([])
-    h.selectQueue.push([])
+    // No issue on the PR, no run row recording a base, no linked issues.
+    h.selectQueue.push([], [], [])
 
     await expect(
       mergeRepositoryPull({ repo, prNumber: 300, userId: `actor`, viaAgent: true })
@@ -239,7 +245,11 @@ describe(`mergeRepositoryPull on a PR whose parent already merged`, () => {
       headBranch: `exp/EXP-11`,
       teamId: `ws-1`,
     })
-    expect(h.updates).toEqual([{ prBaseBranch: `master` }])
+    // The issue rows and (EXP-1165) the run rows carrying the PR.
+    expect(h.updates).toEqual([
+      { prBaseBranch: `master` },
+      { prBaseBranch: `master` },
+    ])
   })
 
   it(`refuses, before any claim, when the heal left the PR on the merged branch`, async () => {
@@ -285,7 +295,7 @@ describe(`mergeRepositoryPull on a queued merge`, () => {
     await expect(
       mergeRepositoryPull({ repo, prNumber: 242, userId: `actor`, viaAgent: true })
     ).resolves.toEqual({
-      merged: true,
+      merged: false,
       queued: true,
       note: `GitHub queued the merge of PR #242. Nothing is merged yet; it completes when the merge lands.`,
     })
@@ -314,5 +324,111 @@ describe(`mergeRepositoryPull squash title`, () => {
       commitTitle: `EXP-12: Upper (#242)`,
     })
     expect(h.applyPrMergeState).toHaveBeenCalledTimes(2)
+  })
+})
+
+// EXP-1165: an issue-less run's PR (a chat or action run) records its base on
+// the run row at pr_open, so the same guards hold on `pr_merge({repositoryId,
+// prNumber})` and `codingSessions.mergePr`.
+describe(`mergeRepositoryPull on an issue-less run PR with a recorded base`, () => {
+  it(`refuses a run PR stacked on an open issue PR`, async () => {
+    h.selectQueue.push([], [{ prBaseBranch: `exp/EXP-11` }])
+    h.selectQueue.push([{ identifier: `EXP-11` }])
+    // The base is no branch the repo is developed on.
+    h.selectQueue.push([
+      { id: `repo-1`, defaultBranch: `master`, defaultBranchOverride: null },
+    ])
+    h.selectQueue.push([])
+
+    await expect(
+      mergeRepositoryPull({ repo, prNumber: 300, userId: `actor`, viaAgent: true })
+    ).rejects.toMatchObject({
+      code: `PRECONDITION_FAILED`,
+      message: `This pull request is stacked on EXP-11; merge EXP-11 first`,
+    })
+    expect(h.mergePullRequestSmart).not.toHaveBeenCalled()
+    expect(takePrMergeClaim(`owner/repo`, 300)).toBeNull()
+  })
+
+  it(`refuses a run PR stacked on another run's open PR`, async () => {
+    h.selectQueue.push([], [{ prBaseBranch: `exp/chat-1a2b3c4d` }])
+    h.selectQueue.push([], [{ prNumber: 240 }])
+    h.selectQueue.push([
+      { id: `repo-1`, defaultBranch: `master`, defaultBranchOverride: null },
+    ])
+    h.selectQueue.push([])
+
+    await expect(
+      mergeRepositoryPull({ repo, prNumber: 300, userId: `actor`, viaAgent: true })
+    ).rejects.toMatchObject({
+      message: `This pull request is stacked on #240; merge #240 first`,
+    })
+    expect(h.mergePullRequestSmart).not.toHaveBeenCalled()
+  })
+
+  it(`awaits the heal when the run PR's parent already merged`, async () => {
+    let childBase = `exp/EXP-11`
+    h.getPullRequest.mockImplementation(async () => pull(childBase))
+    h.retargetChildrenOfMergedPr.mockImplementationOnce(async () => {
+      childBase = `master`
+    })
+    h.selectQueue.push(
+      [],
+      [{ prBaseBranch: `exp/EXP-11` }],
+      // No OPEN PR on the base (issue, run), the MERGED root on it, no pin.
+      [],
+      [],
+      [{ prUrl: `https://github.com/owner/repo/pull/241` }],
+      [{ id: `repo-1`, defaultBranch: `master`, defaultBranchOverride: null }],
+      []
+    )
+    // The linked-issue read after the merge.
+    h.selectQueue.push([])
+
+    await expect(
+      mergeRepositoryPull({ repo, prNumber: 300, userId: `actor`, viaAgent: true })
+    ).resolves.toEqual({ merged: true })
+    expect(h.retargetChildrenOfMergedPr).toHaveBeenCalledWith({
+      prUrl: `https://github.com/owner/repo/pull/241`,
+      headBranch: `exp/EXP-11`,
+      teamId: `ws-1`,
+    })
+    expect(h.mergePullRequestSmart).toHaveBeenCalledTimes(1)
+    h.getPullRequest.mockReset()
+  })
+})
+
+// EXP-1165: a team with no repositories row for the repo still gets the
+// default-branch exit, off GitHub's default branch.
+describe(`the merge guard's default-branch exit with no repositories row`, () => {
+  it(`merges a PR based on GitHub's default branch while a PR from it is open`, async () => {
+    h.resolveRepoDefaultBranchCached.mockResolvedValueOnce(`develop`)
+    h.selectQueue.push([onPr(`develop`)])
+    // A `develop → main` release PR is open on the base…
+    h.selectQueue.push([{ identifier: `EXP-1` }])
+    // …but the team has no repositories row (and so no pins).
+    h.selectQueue.push([])
+    // No MERGED PR on the base either.
+    h.selectQueue.push([], [])
+    h.selectQueue.push([{ id: `issue-12` }])
+
+    await expect(
+      mergeRepositoryPull({ repo, prNumber: 242, userId: `actor`, viaAgent: true })
+    ).resolves.toEqual({ merged: true })
+    expect(h.resolveRepoDefaultBranchCached).toHaveBeenCalledWith(`owner/repo`)
+    expect(h.mergePullRequestSmart).toHaveBeenCalledTimes(1)
+  })
+
+  it(`still refuses when GitHub's default is another branch`, async () => {
+    h.resolveRepoDefaultBranchCached.mockResolvedValueOnce(`main`)
+    h.selectQueue.push([onPr(`exp/EXP-11`)])
+    h.selectQueue.push([{ identifier: `EXP-11` }])
+    h.selectQueue.push([])
+
+    await expect(
+      mergeRepositoryPull({ repo, prNumber: 242, userId: `actor`, viaAgent: true })
+    ).rejects.toMatchObject({
+      message: `This pull request is stacked on EXP-11; merge EXP-11 first`,
+    })
   })
 })

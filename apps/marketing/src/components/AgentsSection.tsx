@@ -1,149 +1,122 @@
-/* ─── Agents — merged "Bring your own agents" + Mobile section (EXP-176) ───
-   One scripted, looping scene: the REAL mobile Agent page (the faithful
-   phone recreation of the iOS composer that launches every run since
-   EXP-825) hands off to an infographic that is deliberately NOT product UI
-   — your agent running on a MacBook with a phone connected for live watch +
-   steer. Stage is decorative (aria-hidden + inert); reduced motion renders
-   the composer and the finished infographic statically, side by side. */
-import { AnimatePresence, motion } from "motion/react"
-import { EASE_EXPO, sectionReveal } from "../lib/animations"
-import { useScenePlayer } from "../lib/use-scene-player"
+/* ─── Agents — your devices run your agents, you steer from anywhere ───
+   SLOP-6: the product in its four nouns (People · Devices · Apps · Actions),
+   one sentence each, over REAL captures from the committed store (shots/):
+   the same run on the desktop IDE and on an iPhone. No bespoke mockups and
+   no scripted stage; every claim maps onto a shipped surface. */
+import { motion } from "motion/react"
+import {
+  cardReveal,
+  sectionReveal,
+  staggerContainer,
+  viewportOnce,
+} from "../lib/animations"
 import { LINKS } from "../lib/links"
-import { IcArrow } from "./icons"
-import { MobileAgentComposer } from "../mobile/AgentComposer"
+import type { Platform } from "@exp/view-catalog"
+import { shotSrc } from "./DocShot"
+import { IcArrow, IcBot, IcInbox, IcMonitor, IcUserPlus } from "./icons"
 
-/* Beat script (~15.5s loop). Beat 0 is the SSR resting state — held long
-   so the phone's composer actually registers (EXP-217). */
-const B = {
-  composer: 0,
-  armed: 1,
-  handoff: 2,
-  running: 3,
-  steer: 4,
-  hold: 5,
-} as const
-const BEATS = [4400, 1000, 700, 3800, 3200, 2400]
+const NOUNS = [
+  {
+    icon: IcUserPlus,
+    title: `People`,
+    text: `Invite your team and everyone works on the same boards, synced in realtime on web, desktop, iOS and Android.`,
+  },
+  {
+    icon: IcMonitor,
+    title: `Devices`,
+    text: `Your desktop or a headless server runs Claude Code or Codex on your own subscription, and you steer every run from any of your devices.`,
+  },
+  {
+    icon: IcInbox,
+    title: `Apps`,
+    text: `Boards, issues, reviews and your inbox: start a run on an issue, then review and merge the pull request it opens.`,
+  },
+  {
+    icon: IcBot,
+    title: `Actions`,
+    text: `Save a task as an action and run it on demand, or give it a trigger so a device runs it on a schedule or when something changes on a board.`,
+  },
+]
 
-/* The agent→phone infographic — stylized devices (plain CSS shapes, not
-   product UI); every text label is fixed-px HTML so it stays readable at
-   any viewport width. */
-function DeviceLink() {
+function Shot({
+  view,
+  platform,
+  className,
+}: {
+  view: string
+  platform: Platform
+  className: string
+}) {
+  const { src, frame, title } = shotSrc(view, platform)
   return (
-    <div className={`aw-info`}>
-      <div className={`aw-device aw-laptopcol`}>
-        <span className={`aw-pr-chip`}>PR #214 opened</span>
-        <div className={`aw-laptop`}>
-          <div className={`aw-laptop-screen`}>
-            <span className={`aw-term-tag`}>agent · exp/EXP-8</span>
-            <span className={`aw-term-line is-w80`} />
-            <span className={`aw-term-line is-w60`} />
-            <span className={`aw-term-line is-w72`} />
-            <span className={`aw-term-line is-w45`} />
-          </div>
-          <div className={`aw-laptop-base`} />
-        </div>
-        <span className={`aw-device-caption`}>
-          Your agent runs in your desktop IDE
-        </span>
-      </div>
-
-      <div className={`aw-link`}>
-        <svg
-          className={`aw-link-svg`}
-          viewBox={`0 0 110 70`}
-          preserveAspectRatio={`none`}
-          aria-hidden
-        >
-          <path className={`aw-link-path`} d={`M4 54 C 32 16, 78 16, 106 54`} />
-        </svg>
-        <span className={`aw-link-dot`} />
-        <span className={`aw-steer-chip`}>Cap the backoff at 15s</span>
-      </div>
-
-      <div className={`aw-device aw-phonecol`}>
-        <div className={`aw-phone`}>
-          <span className={`aw-live-chip`}>
-            <span className={`aw-live-dot`} />
-            Live
-          </span>
-          <span className={`aw-msg is-w85`} />
-          <span className={`aw-msg is-w65`} />
-          <span className={`aw-msg is-reply`} />
-        </div>
-        <span className={`aw-device-caption`}>Steer from your phone</span>
-      </div>
-    </div>
+    <img
+      className={className}
+      src={src}
+      width={frame.w}
+      height={frame.h}
+      loading={`lazy`}
+      decoding={`async`}
+      alt={title}
+    />
   )
 }
 
 export function AgentsSection() {
-  const { ref, beat, reduced } = useScenePlayer(BEATS)
-
-  const showComposer = reduced || beat <= B.armed
-  const showInfo = reduced || beat >= B.handoff
-
-  const stageClass = [
-    `aw-stage`,
-    !reduced && beat === B.armed ? `is-armed` : ``,
-    reduced || beat >= B.running ? `is-running` : ``,
-    reduced || beat >= B.steer ? `is-steer` : ``,
-    reduced ? `is-static` : ``,
-  ]
-    .filter(Boolean)
-    .join(` `)
-
   return (
     <section id={`agents`} className={`home-agents`}>
       <div className={`shell`}>
         <div className={`aw-grid`}>
           <motion.div className={`aw-copy`} {...sectionReveal}>
-            <h2 className={`section-title`}>Bring your own agents</h2>
+            <h2 className={`section-title`}>Your devices run your agents</h2>
             <p className={`section-sub`}>
-              Connect the desktop app or your server and let your agents run
-              from there. Implement issues with one click from anywhere with
-              our mobile apps: your agent gets started with the relevant
-              context in a new worktree and opens a PR when it&rsquo;s done.
+              Start a run on an issue and your own machine works on it in a
+              fresh worktree with your own agent subscription, then opens a
+              pull request. Answer its questions and steer it live from your
+              desktop, the web or your phone.
             </p>
             <a className={`btn btn-ghost`} href={LINKS.downloadPage}>
               Get the apps <IcArrow size={12} />
             </a>
           </motion.div>
 
-          <div className={stageClass} ref={ref} aria-hidden inert>
-            <AnimatePresence initial={false}>
-              {showComposer && (
-                <motion.div
-                  key={`sheet`}
-                  className={`aw-sheet`}
-                  initial={reduced ? false : { opacity: 0, y: 16 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={
-                    reduced ? undefined : { opacity: 0, scale: 0.94, x: -32 }
-                  }
-                  transition={{ duration: 0.5, ease: EASE_EXPO }}
-                >
-                  <div className={`aw-sheetcol`}>
-                    <MobileAgentComposer />
-                    <span className={`aw-device-caption`}>
-                      Start coding from your phone
-                    </span>
-                  </div>
-                </motion.div>
-              )}
-              {showInfo && (
-                <motion.div
-                  key={`info`}
-                  className={`aw-infowrap`}
-                  initial={reduced ? false : { opacity: 0, y: 16 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.5, ease: EASE_EXPO, delay: 0.15 }}
-                >
-                  <DeviceLink />
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
+          <motion.figure className={`aw-shots`} {...sectionReveal}>
+            <Shot
+              view={`steering`}
+              platform={`desktop`}
+              className={`aw-shot aw-shot-desktop`}
+            />
+            <Shot
+              view={`steering`}
+              platform={`ios`}
+              className={`aw-shot aw-shot-phone`}
+            />
+            <figcaption className={`aw-shots-caption`}>
+              The same run on the desktop app and on iPhone
+            </figcaption>
+          </motion.figure>
         </div>
+
+        <motion.div
+          className={`aw-nouns`}
+          variants={staggerContainer}
+          initial={`hidden`}
+          whileInView={`visible`}
+          viewport={viewportOnce}
+        >
+          {NOUNS.map(({ icon: Icon, title, text }) => (
+            <motion.div
+              key={title}
+              className={`glass-card ac-card`}
+              variants={cardReveal}
+            >
+              <span className={`ac-card-icon`}>
+                <Icon size={17} stroke={1.7} />
+              </span>
+              <span className={`ac-card-title`}>{title}</span>
+              <span className={`ac-card-text`}>{text}</span>
+            </motion.div>
+          ))}
+        </motion.div>
       </div>
     </section>
   )

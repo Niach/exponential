@@ -184,25 +184,28 @@ impl MergeOp {
         }
     }
 
-    fn run(&self, trpc: &api::TrpcClient) -> Result<(), api::ApiError> {
+    /// `Ok(true)` = the pull request landed (or was already in); `Ok(false)`
+    /// = GitHub's merge queue only took it (EXP-1165: `merged: false,
+    /// queued: true`), so no echo is coming yet and the row stays.
+    fn run(&self, trpc: &api::TrpcClient) -> Result<bool, api::ApiError> {
         match self {
             MergeOp::MergeIssuePr {
                 issue_id,
                 stack_through,
             } => match stack_through {
-                Some(through) => api::issues::merge_pr(trpc, through, true).map(|_| ()),
-                None => api::issues::merge_pr(trpc, issue_id, false).map(|_| ()),
+                Some(through) => api::issues::merge_pr(trpc, through, true).map(|r| r.landed()),
+                None => api::issues::merge_pr(trpc, issue_id, false).map(|r| r.landed()),
             },
             MergeOp::CloseIssuePr { issue_id } => {
-                api::issues::close_pr(trpc, issue_id).map(|_| ())
+                api::issues::close_pr(trpc, issue_id).map(|_| true)
             }
             MergeOp::MergeSessionPr { session_id } => {
-                api::coding_sessions::merge_pr(trpc, session_id).map(|_| ())
+                api::coding_sessions::merge_pr(trpc, session_id).map(|r| r.landed())
             }
             MergeOp::MergePull {
                 repository_id,
                 number,
-            } => api::repositories::merge_pull(trpc, repository_id, *number).map(|_| ()),
+            } => api::repositories::merge_pull(trpc, repository_id, *number).map(|r| r.landed()),
         }
     }
 }
@@ -513,6 +516,9 @@ pub(crate) fn stack_merge_choice_for(
     domain::pr_stack::stack_merge_choice(&issue, &issues)
 }
 
+/// EXP-1167: the stack dialog's window width: room for the three-button
+/// footer once the primary leads with the merge glyph.
+const STACK_MERGE_CHOICE_WIDTH: f32 = 456.;
 /// The stack dialog's window height: the listing, a blank line and two
 /// sentences (the second wraps) above the three-button footer.
 const STACK_MERGE_CHOICE_HEIGHT: f32 = 290.;
@@ -572,6 +578,10 @@ pub(crate) fn stack_merge_alert(
         choice.body.clone(),
         MERGE_STACK_LABEL,
     )
+    // EXP-1167: the primary wears the merge glyph, as on web, and the
+    // window widens so the three buttons keep their row.
+    .ok_icon(crate::icons::registry::PR_MERGED)
+    .width(gpui::px(STACK_MERGE_CHOICE_WIDTH))
     .height(gpui::px(STACK_MERGE_CHOICE_HEIGHT))
     .secondary(MERGE_THIS_PR_LABEL, move |_, cx| {
         fire_confirmed(this_op.clone(), cx);
@@ -629,7 +639,13 @@ pub fn two_click(
                 .await;
             let _ = this.update(cx, |this, cx| {
                 match result {
-                    Ok(()) => {
+                    Ok(false) => {
+                        // Queued on GitHub: nothing landed, no echo will
+                        // settle it now; release the spinner, keep the row.
+                        this.merging.remove(&key);
+                        cx.notify();
+                    }
+                    Ok(true) => {
                         if call_op.echo_settled() {
                             // The issues-collection observer clears the key
                             // when the echo flips `pr_state`.

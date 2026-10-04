@@ -18,6 +18,8 @@ import {
   SESSION_RESULTS_MAX,
   SESSION_RESULT_REPORT_MAX,
   SESSION_RESULTS_REPORT_TOTAL_MAX,
+  SESSION_RESULT_CAPTION_MAX,
+  SESSION_SHOW_DEFAULT_TOPIC,
   UUID_RE,
 } from "@exp/db-schema/domain"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
@@ -125,6 +127,8 @@ import {
   upsertSessionResultText,
   resultsSummary,
 } from "@/lib/session-result-writes"
+import { publishSessionResultPicture } from "@/lib/session-result-publish"
+import { prepareSessionImageBytes } from "@/lib/storage/session-attachment-upload"
 import { appBaseUrl } from "@/lib/notification-email-policy"
 import { assertWithinStorageLimit } from "@/lib/billing"
 import { appRouter } from "@/routes/api/trpc/$"
@@ -791,6 +795,9 @@ export function registerExponentialTools(
       callerSessionId: string | null
       prTeamId: string
       headBranch: string
+      // EXP-1165: the base the PR was opened against (a reused PR's real
+      // one), so the merge guards see an issue-less run PR's stack too.
+      baseBranch: string
       pr: { url: string; number: number }
     }
   ): Promise<void> {
@@ -813,6 +820,7 @@ export function registerExponentialTools(
         prUrl: opts.pr.url,
         prNumber: opts.pr.number,
         prState: `open` as const,
+        prBaseBranch: opts.baseBranch,
         updatedAt: now,
       })
       .where(
@@ -2009,7 +2017,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_comments_create`,
     {
-      description: `Post a regular comment on an issue (by UUID or human identifier, e.g. "MET-12") authored by the MCP user; it shows as "via MCP". Body is plain text. Pass parentId (a comment id from exponential_comments_list) to reply under that comment — threads are one level deep, so a reply to a reply lands under the same top-level comment. audience "reporter" (top-level only, on a widget-filed issue whose reporter left an email) also emails the comment to the reporter; the result's reporterEmailed says whether it went out.`,
+      description: `Comment on an issue (UUID or identifier, e.g. "MET-12") as the MCP user ("via MCP"); body = plain GFM. parentId (from exponential_comments_list) replies under that comment; threads are one level deep. audience "reporter" (top-level, a widget issue with a reporter email) also emails it; reporterEmailed says whether it went out.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         issueId: z.string().min(1),
@@ -2433,6 +2441,8 @@ export function registerExponentialTools(
                 callerSessionId: callerSession.id,
                 prTeamId: repo.teamId,
                 headBranch: head!,
+                baseBranch:
+                  createdPr.reusedBase ?? base ?? repo.defaultBranch,
                 pr: { url: createdPr.url, number: createdPr.number },
               })
             })
@@ -2682,6 +2692,7 @@ export function registerExponentialTools(
             callerSessionId: callerSession?.id ?? null,
             prTeamId: teamIdByIssue.get(ids[0]!)!,
             headBranch,
+            baseBranch,
             pr: { url: created.url, number: created.number },
           })
 
@@ -2751,7 +2762,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_open`,
     {
-      description: `Open a GitHub PR on the linked repository via the GitHub App (no 'gh' or token) and link it to the issue(s). Pass EXACTLY ONE of 'issueId', 'issueIds' (batch: ONE combined PR, same repo; 'head' then REQUIRED, e.g. 'exp/batch-<id>'), or 'repositoryId' + 'head' for an issue-less PR (nothing linked or moved). Single issue: 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>'; 'base' to the repo default branch; a 'base' that is another issue's open PR branch marks that issue as blocking yours. A 'head' with an open PR links the issues to it. Linked issues record prUrl/prNumber/prState/branch and move to the team's PR-open status (default 'in_review'), on merge to its PR-merge status (default 'done'). Accepts UUIDs or identifiers ("MET-12").`,
+      description: `Open a GitHub PR via the GitHub App (never 'gh') and link it to the issue(s). Pass EXACTLY ONE of 'issueId', 'issueIds' (ONE combined PR, same repo; 'head' REQUIRED, e.g. 'exp/batch-<id>') or 'repositoryId' + 'head' (issue-less, nothing linked). 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>', 'base' to the default branch; a 'base' that is another issue's open PR branch marks that issue as blocking yours. Linked issues record the PR and move to the team's PR-open status (default 'in_review'). UUIDs or identifiers ("MET-12").`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: prOpenInput,
     },
@@ -2845,8 +2856,9 @@ export function registerExponentialTools(
             }
           }
           if (ownChorePr) await stampMergedOwnPr()
+          let chore: { merged: boolean; queued?: boolean }
           try {
-            await caller(user, request).repositories.mergePull({
+            chore = await caller(user, request).repositories.mergePull({
               repositoryId,
               prNumber: prNumber!,
               ...endSessionsInput,
@@ -2855,8 +2867,17 @@ export function registerExponentialTools(
             if (ownChorePr) await revertMergedOwnPr()
             throw e
           }
+          // EXP-1165: an enqueued merge has not landed (merged=false).
+          const choreQueued = chore.queued === true
           return ok({
-            results: [{ repositoryId, prNumber: prNumber!, merged: true }],
+            results: [
+              {
+                repositoryId,
+                prNumber: prNumber!,
+                merged: chore.merged && !choreQueued,
+                ...(choreQueued ? { queued: true } : {}),
+              },
+            ],
           })
         }
 
@@ -3035,7 +3056,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_merge`,
     {
-      description: `Squash-merge open PRs via the GitHub App (no 'gh' or token). Pass EXACTLY ONE of 'issueId', 'issueIds' (one merge per distinct prUrl, so issues sharing a batch PR merge once), or 'repositoryId' + 'prNumber' for a PR with no issue. Linked issues flip to merged and the team's PR-merge status (default 'done'); their live sessions end unless the team's "end sessions on merge" setting is off; 'endSessions' overrides it (false keeps them running), and YOUR OWN session always keeps running. 'mergeStack' also lands the open PRs it is stacked on, bottom-up. Each results[] element carries 'merged' + optional 'error' or 'queued' (GitHub's merge queue; merged=false until it lands), plus issueId/identifier (issue path) or repositoryId/prNumber (chore path); one unmergeable PR never blocks the rest. A merge rejected for a stale base: fix with exponential_pr_retarget first. Idempotent: an already-merged PR answers merged=true.`,
+      description: `Squash-merge open PRs via the GitHub App (never 'gh'). Pass EXACTLY ONE of 'issueId', 'issueIds' (one merge per distinct prUrl) or 'repositoryId' + 'prNumber' (a PR with no issue). Linked issues flip to merged and the team's PR-merge status (default 'done'); their live sessions end unless the team setting is off or 'endSessions' overrides it; YOUR OWN session keeps running. 'mergeStack' also lands the open PRs it is stacked on, bottom-up. Each results[] element: 'merged' + optional 'error' or 'queued' (merge queue) + its issueId/identifier or repositoryId/prNumber; one unmergeable PR never blocks the rest. Stale base: exponential_pr_retarget first. Idempotent.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: prMergeInput,
     },
@@ -3330,7 +3351,7 @@ export function registerExponentialTools(
     server.registerTool(
       `exponential_sessions_ask_parent`,
       {
-        description: `Ask a question only your starter or the person can answer. 'to': 'parent' (default; the run that started this one) or 'user' (the person who owns this run; works from any run, parks yours as needing input and notifies them). Non-blocking: on success STOP working and end your turn — the answer arrives later as a user message. If delivery fails, finish anyway and note the open question in your summary.`,
+        description: `Ask a question only your starter or the person can answer. 'to': 'parent' (default; the run that started this one) or 'user' (the person who owns this run; parks yours as needing input and notifies them). Non-blocking: on success STOP and end your turn; the answer arrives as a user message. If delivery fails, finish anyway and note the open question in your summary.`,
         _meta: ALWAYS_LOAD_META,
         inputSchema: strictInput({
           question: z.string().min(1).max(4_000),
@@ -3456,7 +3477,7 @@ export function registerExponentialTools(
     server.registerTool(
       `exponential_sessions_results`,
       {
-        description: `Publish your run's REPORT on the issue's Results face: per topic, a GFM text (what you did, #IDENT refs) above its screenshots, topics in first-seen order ('Summary' first). text sets the topic's text. label asks for a picture (web/ios/android): an uploadUrl, its expiry and a curl line (PNG/JPEG/WebP, 10 MB); the same topic+label REPLACES it. remove: true deletes that label, the text (text: ''), or the whole topic. Returns the run's list. Prefer viewport-sized shots: a full page crops to its top.`,
+        description: `Publish your run's REPORT on the issue's Results face: per topic a GFM text (what you did, #IDENT refs) above its screenshots, 'Summary' first. text sets it; label asks for a picture (web/ios/android): an uploadUrl, its expiry and a curl line (PNG/JPEG/WebP, 10 MB); the same topic+label REPLACES it. remove: true deletes that label, the text (text: ''), or the whole topic. Returns the run's list. Prefer viewport-sized shots.`,
         _meta: ALWAYS_LOAD_META,
         inputSchema: strictInput({
           topic: z.string().trim().min(1).max(SESSION_RESULT_TEXT_MAX),
@@ -3661,6 +3682,132 @@ export function registerExponentialTools(
             topic,
             label,
             results: resultsSummary(current),
+          })
+        } catch (e) {
+          return err(e)
+        }
+      }
+    )
+  }
+
+  // EXP-1172: the EARLY form of sessions_results: one picture into the same
+  // `coding_sessions.results` list (topic default `Progress`) with `inline:
+  // true` + the caption, so the run's transcript renders it at this call (the
+  // answer's `id` = the attachment id, which the engine's preview carries)
+  // and the Results face folds it under "Earlier". ONE write behind both
+  // tools (`publishSessionResultPicture`): `dataBase64` lands now, `file`
+  // mints the same HMAC upload grant with a pre-allocated id.
+  if (gates.sessionResults) {
+    server.registerTool(
+      `exponential_sessions_show`,
+      {
+        description: `Show a screenshot in your run's transcript now (after each visible change): file = a local image path, answers a curl line to run; or dataBase64 + contentType. text = caption. Also filed under Results (topic default 'Progress', folded under Earlier).`,
+        _meta: ALWAYS_LOAD_META,
+        inputSchema: strictInput({
+          file: z.string().trim().min(1).max(1024).optional(),
+          dataBase64: z.string().min(1).optional(),
+          contentType: z.string().max(100).optional(),
+          topic: z.string().trim().min(1).max(SESSION_RESULT_TEXT_MAX).optional(),
+          label: z.string().trim().min(1).max(SESSION_RESULT_TEXT_MAX).optional(),
+          text: z.string().max(SESSION_RESULT_CAPTION_MAX).optional(),
+        }),
+      },
+      async ({ file, dataBase64, contentType, topic: topicInput, label, text }) => {
+        try {
+          if (!sessionId) {
+            return err(
+              new Error(
+                `No coding session: exponential_sessions_show only works inside a session started by the Exponential launcher (missing X-Exp-Session-Id).`
+              )
+            )
+          }
+          if ((file === undefined) === (dataBase64 === undefined)) {
+            return err(new Error(`Pass exactly one of file or dataBase64.`))
+          }
+          if (dataBase64 !== undefined && !contentType) {
+            return err(new Error(`dataBase64 needs contentType (image/png, image/jpeg or image/webp).`))
+          }
+          const [row] = await db
+            .select({
+              id: codingSessions.id,
+              teamId: codingSessions.teamId,
+              userId: codingSessions.userId,
+              hostUserId: codingSessions.hostUserId,
+              status: codingSessions.status,
+              results: codingSessions.results,
+            })
+            .from(codingSessions)
+            .where(eq(codingSessions.id, sessionId))
+            .limit(1)
+          if (!row?.teamId) return err(new Error(`Session not found`))
+          if (row.userId !== user.id && row.hostUserId !== user.id) {
+            return err(new Error(`This is not your run.`))
+          }
+          if (row.status === `ended`) {
+            return err(new Error(`This run has ended, so it can no longer show pictures.`))
+          }
+          const topic = topicInput ?? SESSION_SHOW_DEFAULT_TOPIC
+          const caption = text?.trim() || null
+          const published = row.results ?? []
+          const replaces =
+            label !== undefined &&
+            published.some((result) => result?.topic === topic && result?.label === label)
+          if (!replaces && published.length >= SESSION_RESULTS_MAX) {
+            return err(
+              new Error(
+                `This run already published ${SESSION_RESULTS_MAX} results. Remove one first (exponential_sessions_results with remove: true).`
+              )
+            )
+          }
+
+          if (dataBase64 !== undefined) {
+            const prepared = await prepareSessionImageBytes(
+              {
+                filename: `show.${contentType?.split(`/`)[1] ?? `png`}`,
+                contentType: contentType ?? ``,
+                body: new Uint8Array(Buffer.from(dataBase64, `base64`)),
+              },
+              { teamId: row.teamId, sessionId }
+            )
+            const written = await publishSessionResultPicture(
+              {
+                sessionId,
+                teamId: row.teamId,
+                topic,
+                label: label ?? null,
+                uploaderId: user.id,
+                inline: { caption },
+              },
+              prepared
+            )
+            return ok({
+              id: prepared.attachmentId,
+              topic,
+              label: written.label,
+              results: resultsSummary(written.results),
+            })
+          }
+
+          const attachmentId = crypto.randomUUID()
+          const { token, expiresAt } = mintSessionResultToken({
+            sessionId,
+            topic,
+            label: label ?? ``,
+            userId: user.id,
+            show: { attachmentId, caption },
+          })
+          const origin = process.env.BETTER_AUTH_URL
+            ? appBaseUrl()
+            : new URL(request.url).origin
+          const uploadUrl = `${origin}/api/session-results/${token}`
+          const path = `'${(file ?? ``).replace(/'/g, `'\\''`)}'`
+          return ok({
+            id: attachmentId,
+            uploadUrl,
+            expiresAt: expiresAt.toISOString(),
+            curl: `curl -sS -F file=@${path} "${uploadUrl}"`,
+            topic,
+            results: resultsSummary(published),
           })
         } catch (e) {
           return err(e)
