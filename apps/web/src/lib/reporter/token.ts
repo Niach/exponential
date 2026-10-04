@@ -8,7 +8,7 @@ import { createHmac, timingSafeEqual } from "crypto"
 // /support/<token> link for the issue's whole life: minting is a recompute,
 // verification is a recompute + constant-time compare. Never log the token
 // or persist a URL containing it anywhere (including email_deliveries
-// metadata). Same HMAC scheme as lib/integrations/github-setup-state.ts;
+// metadata). HMAC over the issue id with BETTER_AUTH_SECRET;
 // rotating BETTER_AUTH_SECRET invalidates all emailed links.
 
 // Domain separation from the other BETTER_AUTH_SECRET HMAC uses (and from

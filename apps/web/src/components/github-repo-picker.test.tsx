@@ -1,16 +1,18 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { GithubRepoPicker } from "@/components/github-repo-picker"
 
-// FEED-30: the Add-repository picker lists exactly the viewer's grant
-// snapshot and used to say nothing about WHY a repo was missing or where to
-// fix it. It now explains itself: per-account GitHub configure links, an
-// install-another-account button, a refresh, and a by-name escape hatch whose
-// server error names the real reason.
+// SLOP-7: the Add-repository picker lists the viewer's push-able repos LIVE
+// and, when a prerequisite is missing, says which one and offers the ONE fix:
+// Connect GitHub (the guided page in a popup), or Install the app (GitHub's
+// install page in a popup). The list explains itself with per-account
+// Configure links, Install on another account, Refresh and a by-name escape
+// hatch whose server error names the real reason.
 
 const mockState = vi.hoisted(() => ({
   reposQuery: vi.fn(),
   lookupQuery: vi.fn(),
+  openGithubConnect: vi.fn(() => true),
+  openGithubPopup: vi.fn(() => true),
 }))
 
 vi.mock(`@/lib/trpc-client`, () => ({
@@ -23,6 +25,13 @@ vi.mock(`@/lib/trpc-client`, () => ({
     },
   },
 }))
+vi.mock(`@/lib/github-connect`, () => ({
+  openGithubConnect: mockState.openGithubConnect,
+  openGithubPopup: mockState.openGithubPopup,
+  POPUP_BLOCKED_MESSAGE: `blocked`,
+}))
+
+import { GithubRepoPicker } from "@/components/github-repo-picker"
 
 class ResizeObserverStub {
   observe() {}
@@ -30,11 +39,15 @@ class ResizeObserverStub {
   disconnect() {}
 }
 
-const INSTALL_URL = `https://github.com/apps/test/installations/new?state=s`
-const CONNECT_URL = `https://github.com/login/oauth/authorize?x=1`
+const INSTALL_URL = `https://github.com/apps/test/installations/new`
+const CONNECT_URL = `https://app.example.com/integrations/github?team=team-1`
 
 const reposResult = (overrides: Record<string, unknown> = {}) => ({
   configured: true as const,
+  connectConfigured: true,
+  linked: true,
+  needsReconnect: false,
+  login: `octocat`,
   installed: true,
   installUrl: INSTALL_URL,
   connectUrl: CONNECT_URL,
@@ -55,6 +68,7 @@ const reposResult = (overrides: Record<string, unknown> = {}) => ({
       manageUrl: `https://github.com/organizations/acme/settings/installations/1`,
       suspended: false,
       needsReauth: false,
+      stale: false,
       hasMore: false,
     },
     {
@@ -64,6 +78,7 @@ const reposResult = (overrides: Record<string, unknown> = {}) => ({
       manageUrl: `https://github.com/settings/installations/2`,
       suspended: false,
       needsReauth: false,
+      stale: false,
       hasMore: false,
     },
   ],
@@ -77,88 +92,104 @@ function renderPicker(onSelect = vi.fn()) {
   return onSelect
 }
 
-describe(`GithubRepoPicker (FEED-30)`, () => {
+describe(`GithubRepoPicker (SLOP-7)`, () => {
   beforeEach(() => {
-    mockState.reposQuery.mockReset().mockResolvedValue(reposResult())
+    mockState.reposQuery.mockReset()
     mockState.lookupQuery.mockReset()
+    mockState.openGithubConnect.mockClear()
+    mockState.openGithubPopup.mockClear()
+    mockState.reposQuery.mockResolvedValue(reposResult())
   })
 
   it(`renders one configure link per installation under the list`, async () => {
     renderPicker()
-
-    await screen.findByText(`acme/app`)
-    const footer = screen.getByTestId(`repo-picker-footer`)
-    expect(footer.textContent).toContain(
-      `Only repositories your GitHub installation grants appear here.`
+    const footer = await screen.findByTestId(`repo-picker-footer`)
+    const links = [...footer.querySelectorAll(`a`)]
+    expect(links.map((a) => a.textContent)).toEqual([`acme`, `octocat`])
+    expect(links[0]!.getAttribute(`href`)).toBe(
+      `https://github.com/organizations/acme/settings/installations/1`
     )
-    const links = screen.getAllByRole(`link`)
-    expect(links.map((a) => [a.textContent, a.getAttribute(`href`)])).toEqual([
-      [`acme`, `https://github.com/organizations/acme/settings/installations/1`],
-      [`octocat`, `https://github.com/settings/installations/2`],
-    ])
   })
 
-  // FEED-42 through EXP-958's shared picker body: a row tap IS the add, so it
-  // reports the repo and leaves no selection marker behind.
-  it(`a row tap adds the repo and marks nothing`, async () => {
+  it(`a row tap adds the repo (tap adds, ×4)`, async () => {
     const onSelect = renderPicker()
-
-    const row = (await screen.findByText(`acme/app`)).closest(
-      `[data-slot=command-item]`
-    )
-    expect(row).toBeTruthy()
-    fireEvent.click(row!)
-
-    expect(onSelect).toHaveBeenCalledWith(reposResult().repos[0])
-    expect(document.querySelector(`[data-selected-glyph]`)).toBeNull()
+    fireEvent.click(await screen.findByText(`acme/app`))
+    expect(onSelect).toHaveBeenCalledWith({
+      fullName: `acme/app`,
+      private: true,
+      defaultBranch: `main`,
+      installationId: 1,
+    })
   })
 
-  it(`"Install on another account" opens the install URL; "Refresh" the OAuth re-auth`, async () => {
-    const popup = { focus: vi.fn(), closed: true }
-    const open = vi
-      .spyOn(window, `open`)
-      .mockReturnValue(popup as unknown as Window)
+  it(`not linked → Connect GitHub opens the guided page`, async () => {
+    mockState.reposQuery.mockResolvedValue(
+      reposResult({ linked: false, installed: false, repos: [], installations: [] })
+    )
     renderPicker()
-
-    fireEvent.click(
-      await screen.findByRole(`button`, { name: `Install on another account` })
+    await screen.findByText(
+      `Connect your GitHub account to pick a repository. You’ll come right back here.`
     )
-    expect(open).toHaveBeenLastCalledWith(
-      INSTALL_URL,
-      `gh-install`,
-      expect.any(String)
-    )
-
-    fireEvent.click(screen.getByRole(`button`, { name: `Refresh` }))
-    expect(open).toHaveBeenLastCalledWith(
-      CONNECT_URL,
-      `gh-install`,
-      expect.any(String)
-    )
-    open.mockRestore()
+    fireEvent.click(screen.getByRole(`button`, { name: `Connect GitHub` }))
+    expect(mockState.openGithubConnect).toHaveBeenCalledWith({ teamId: `team-1` })
   })
 
-  it(`"Refresh" re-lists directly when the instance has no OAuth hop`, async () => {
-    mockState.reposQuery.mockResolvedValue(reposResult({ connectUrl: null }))
-    const open = vi.spyOn(window, `open`)
+  it(`an expired connection → Reconnect GitHub opens the guided page`, async () => {
+    mockState.reposQuery.mockResolvedValue(
+      reposResult({ needsReconnect: true, installed: false, repos: [], installations: [] })
+    )
     renderPicker()
+    await screen.findByText(`Your GitHub connection expired. Reconnect to list your repositories.`)
+    fireEvent.click(screen.getByRole(`button`, { name: `Reconnect GitHub` }))
+    expect(mockState.openGithubConnect).toHaveBeenCalledWith({ teamId: `team-1` })
+  })
 
-    fireEvent.click(await screen.findByRole(`button`, { name: `Refresh` }))
+  it(`linked but nothing installed → Install the app opens GitHub's install page`, async () => {
+    mockState.reposQuery.mockResolvedValue(
+      reposResult({ installed: false, repos: [], installations: [] })
+    )
+    renderPicker()
+    await screen.findByText(
+      `Install the Exponential app on the GitHub account that owns the repository. You’ll come right back here.`
+    )
+    fireEvent.click(screen.getByRole(`button`, { name: `Install the app` }))
+    expect(mockState.openGithubPopup).toHaveBeenCalledWith(INSTALL_URL)
+    expect(mockState.openGithubConnect).not.toHaveBeenCalled()
+  })
 
+  it(`"I’ve done that" re-lists with refresh`, async () => {
+    mockState.reposQuery.mockResolvedValue(
+      reposResult({ linked: false, installed: false, repos: [], installations: [] })
+    )
+    renderPicker()
+    fireEvent.click(await screen.findByRole(`button`, { name: `I’ve done that` }))
     await waitFor(() =>
       expect(mockState.reposQuery).toHaveBeenLastCalledWith({
         teamId: `team-1`,
         refresh: true,
       })
     )
-    expect(open).not.toHaveBeenCalled()
-    open.mockRestore()
+  })
+
+  it(`"Install on another account" opens the install URL; "Refresh" re-lists`, async () => {
+    renderPicker()
+    fireEvent.click(
+      await screen.findByRole(`button`, { name: `Install on another account` })
+    )
+    expect(mockState.openGithubPopup).toHaveBeenLastCalledWith(INSTALL_URL)
+
+    fireEvent.click(screen.getByRole(`button`, { name: `Refresh` }))
+    await waitFor(() =>
+      expect(mockState.reposQuery).toHaveBeenLastCalledWith({
+        teamId: `team-1`,
+        refresh: true,
+      })
+    )
   })
 
   it(`notes the page cap when the listing was truncated`, async () => {
     mockState.reposQuery.mockResolvedValue(reposResult({ hasMore: true }))
     renderPicker()
-
     await screen.findByText(/Showing the first 500 repositories per account/)
   })
 
@@ -190,7 +221,7 @@ describe(`GithubRepoPicker (FEED-30)`, () => {
 
   it(`a failed lookup shows the server's message inline`, async () => {
     mockState.lookupQuery.mockRejectedValue(
-      new Error(`You don't have access to acme/hidden on GitHub`)
+      new Error(`You need push access to acme/hidden on GitHub to connect it.`)
     )
     const onSelect = renderPicker()
 
@@ -198,7 +229,7 @@ describe(`GithubRepoPicker (FEED-30)`, () => {
     fireEvent.change(input, { target: { value: `acme/hidden` } })
     fireEvent.keyDown(input, { key: `Enter` })
 
-    await screen.findByText(`You don't have access to acme/hidden on GitHub`)
+    await screen.findByText(`You need push access to acme/hidden on GitHub to connect it.`)
     expect(onSelect).not.toHaveBeenCalled()
   })
 
@@ -207,8 +238,30 @@ describe(`GithubRepoPicker (FEED-30)`, () => {
     renderPicker()
 
     await screen.findByText(
-      `None of your connected GitHub accounts grants a repository yet.`
+      `The app is installed, but none of its repositories lets you push. Grant one on GitHub, then refresh.`
     )
     expect(screen.getByTestId(`repo-picker-footer`)).toBeTruthy()
+  })
+
+  it(`a suspended installation explains itself instead of an empty list`, async () => {
+    mockState.reposQuery.mockResolvedValue(
+      reposResult({
+        repos: [],
+        installations: [
+          {
+            installationId: 1,
+            accountLogin: `acme`,
+            accountType: `Organization`,
+            manageUrl: `https://github.com/organizations/acme/settings/installations/1`,
+            suspended: true,
+            needsReauth: false,
+            stale: false,
+            hasMore: false,
+          },
+        ],
+      })
+    )
+    renderPicker()
+    await screen.findByText(/GitHub suspended the Exponential app for acme/)
   })
 })

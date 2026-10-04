@@ -30,7 +30,7 @@ describe(`the four sections`, () => {
 
   test(`every registered id has an owner and a placeholder file`, () => {
     for (const id of SECTION_ENTRY_IDS) {
-      expect(ENTRY_OWNERS[id]).toMatch(/^EXP-\d+$/)
+      expect(ENTRY_OWNERS[id]).toMatch(/^[A-Z]+-\d+$/)
       expect(existsSync(path.resolve(import.meta.dir, `..`, `entries`, `${id}.tsx`))).toBe(true)
     }
   })

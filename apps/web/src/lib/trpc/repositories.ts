@@ -49,10 +49,7 @@ import {
   patchPullDescription,
   prUpdateFields,
 } from "@/lib/trpc/pr-update"
-import {
-  assertRepoInstallationAccess,
-  isInstallationLinkedToTeam,
-} from "@/lib/trpc/integrations"
+import { resolveRepoForConnect } from "@/lib/trpc/integrations"
 
 // The default branch-name prefix for issue worktrees: `exp/<IDENTIFIER>`.
 export const BRANCH_PREFIX_DEFAULT = `exp/`
@@ -111,17 +108,14 @@ type Db = typeof db
 type Tx = Parameters<Parameters<Db[`transaction`]>[0]>[0]
 
 // The exact `repositories.add` validation + upsert, reusable inside another
-// transaction (boards.create's inline connect path). Verifies the repo
-// resolves to a GitHub App installation LINKED to the target team — the
-// App JWT can reach every installation of the App, so this check (not mere
-// installed-ness) is what stops an owner binding an unrelated account's
-// private repo to their team. Upserts + un-archives, returns the
-// repository id. Owner/admin + plan-cap checks are the caller's responsibility
-// (done before opening the tx). The persisted installation id is the
-// authoritative one resolved from GitHub, never the client-supplied claim.
-// The gate runs on THIS transaction (EXP-371) and leaves the resolved
-// installation's link row locked FOR UPDATE, so a concurrent unlink can't drop
-// the token path out from under the repository row written below.
+// transaction (boards.create's inline connect path). SLOP-7: the gate is
+// `resolveRepoForConnect` — the CALLER's own GitHub token must see the repo
+// with push access and the App must be installed on it; the installation it
+// resolves is what the row persists (never a client-supplied id), and its
+// default branch wins over a client-supplied one (GitHub is authoritative,
+// L30). Upserts + un-archives, returns the repository id. Plan-cap checks are
+// the caller's responsibility (done before opening the tx). The gate talks to
+// GitHub BEFORE any row is written, so a GitHub hang never sits on a lock.
 export async function connectRepositoryInTx(
   tx: Tx,
   input: {
@@ -132,41 +126,9 @@ export async function connectRepositoryInTx(
     private?: boolean
   }
 ): Promise<string> {
-  // Never blind-seed `main` (L30): when the caller didn't supply a branch, ask
-  // GitHub for the authoritative default. Only fall back to `main` when the live
-  // lookup yields nothing (App unconfigured / repo gone / transient failure), and
-  // log so a wrong-fallback row is traceable.
-  // Resolved BEFORE the access gate below on purpose: the gate returns with the
-  // installation's link row locked FOR UPDATE, and this lookup is up to two
-  // unbounded GitHub round-trips (token mint + repo GET) — a GitHub hang under
-  // that lock would stall the team's unlink/claim/connect writers. Pre-lock
-  // matches the gate's own GitHub calls, and the lookup doesn't depend on the
-  // gate's result (it mints its own repo-scoped token).
-  let defaultBranch = input.defaultBranch
-  if (!defaultBranch) {
-    try {
-      defaultBranch =
-        (await resolveRepoDefaultBranch(input.fullName)) ?? undefined
-    } catch (err) {
-      console.warn(
-        `[repositories] default-branch lookup threw for ${input.fullName}; falling back to main`,
-        err
-      )
-    }
-    if (!defaultBranch) {
-      console.warn(
-        `[repositories] could not resolve default branch for ${input.fullName}; falling back to main`
-      )
-      defaultBranch = `main`
-    }
-  }
-
-  const installationId = await assertRepoInstallationAccess(
-    tx,
-    input.teamId,
-    input.userId,
-    input.fullName
-  )
+  const resolved = await resolveRepoForConnect(input.userId, input.fullName)
+  const installationId = resolved.installationId
+  const defaultBranch = resolved.defaultBranch || input.defaultBranch || `main`
 
   const [inserted] = await tx
     .insert(repositories)
@@ -174,7 +136,7 @@ export async function connectRepositoryInTx(
       teamId: input.teamId,
       fullName: input.fullName,
       defaultBranch,
-      private: input.private ?? false,
+      private: resolved.private || (input.private ?? false),
       installationId,
       inaccessibleAt: null,
       // EXP-557: the connector becomes the repo's sharer (manages it
@@ -435,11 +397,10 @@ interface CachedOpenPulls {
 }
 const openPullsCache = new Map<string, CachedOpenPulls>()
 
-// Resolve the App installation token for a repo row, honoring the same
-// link-gate as installationToken: a token is only used when the installation
-// serving the repo is still claimed by the repo's team. Returns null when
-// no gated token is available (callers may still read public repos
-// unauthenticated / via GITHUB_TOKEN).
+// Resolve the App installation token for a repo row. The row's existence IS
+// the team's authorization (SLOP-7: a member with push access connected it);
+// the token is repo-scoped at mint. Returns null when no token is available
+// (callers may still read public repos unauthenticated / via GITHUB_TOKEN).
 async function resolveGatedRepoToken(repo: {
   teamId: string
   fullName: string
@@ -449,13 +410,7 @@ async function resolveGatedRepoToken(repo: {
   const resolved = await resolveRepoInstallationTokenInfo(repo.fullName, {
     fallbackInstallationId: repo.installationId,
   })
-  if (!resolved) return null
-  if (
-    !(await isInstallationLinkedToTeam(repo.teamId, resolved.installationId))
-  ) {
-    return null
-  }
-  return resolved.token
+  return resolved?.token ?? null
 }
 
 // The repo row `codingSessions.mergePr` needs (EXP-734): a run's chore PR
@@ -1170,25 +1125,11 @@ export const repositoriesRouter = router({
       const cached = peekBranchDiff(repo.fullName, repo.defaultBranch, branch)
       if (cached) return cached
 
+      // An unresolved installation degrades to an unauthenticated public-repo
+      // read.
       const resolved = await resolveRepoInstallationTokenInfo(repo.fullName, {
         fallbackInstallationId: repo.installationId,
       })
-      // Link-gate (mirrors issues.prFiles): the installation serving this repo
-      // must still be claimed by the issue's team — a deliberately severed
-      // GitHub connection must not keep exposing private-repo branch diffs. An
-      // unresolved installation degrades to an unauthenticated public-repo read.
-      if (
-        resolved &&
-        !(await isInstallationLinkedToTeam(
-          issueCtx.teamId,
-          resolved.installationId
-        ))
-      ) {
-        throw new TRPCError({
-          code: `PRECONDITION_FAILED`,
-          message: `${repo.fullName} resolves to a GitHub account that isn't connected to this team. Reconnect it in team settings → Repositories.`,
-        })
-      }
       return fetchBranchDiff({
         repo: repo.fullName,
         base: repo.defaultBranch,
@@ -1217,10 +1158,10 @@ export const repositoriesRouter = router({
       // (assertRepoCapability = plain team membership).
       // Per-installer attribution is intentionally NOT required here: the repo
       // is only present in this team because a member legitimately
-      // connected it, and connectRepositoryInTx already enforced
-      // assertRepoInstallationAccess at connect time. The team's ownership
-      // of the repo row is the authorization; requiring the caller to also be
-      // the original installer would break coding for every other teammate.
+      // connected it (connectRepositoryInTx proved their push access). The
+      // team's ownership of the repo row is the authorization; requiring the
+      // caller to also be the original connector would break coding for every
+      // other teammate.
       await assertRepoCapability(ctx.session.user.id, repo.teamId)
       if (!githubAppConfigured()) {
         throw new TRPCError({
@@ -1252,20 +1193,6 @@ export const repositoriesRouter = router({
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
           message: `The GitHub App no longer has access to ${repo.fullName}. Re-grant it on GitHub (team settings → Repositories), then retry.`,
-        })
-      }
-      // Link-gate: the installation serving this repo must still be claimed by
-      // the repo's team — a team must not keep minting through a
-      // GitHub account it never connected (or disconnected).
-      if (
-        !(await isInstallationLinkedToTeam(
-          repo.teamId,
-          resolved.installationId
-        ))
-      ) {
-        throw new TRPCError({
-          code: `PRECONDITION_FAILED`,
-          message: `${repo.fullName} resolves to a GitHub account that isn't connected to this team. Reconnect it in team settings → Repositories.`,
         })
       }
       const token = resolved.token

@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-04-one-github-flow`,
+    date: `2026-10-04`,
+    title: `One way to connect GitHub`,
+    summary: `Connect GitHub, install the app, pick a repository: one guided page that every Start coding checklist, board form and settings section opens, listing the repositories you can push to.`,
+    body: `- **One flow**: Connect GitHub links your GitHub account to your Exponential account (any login works), installs the Exponential app on the accounts you choose, and lists the repositories you can push to. The team claim step, the install round-trip and the stale-access banners are gone.
+- **Start coding**: the checklist's Connect GitHub fix opens that page over the issue; coming back ticks the row off.
+- **Settings → Repositories**: your GitHub connection with its accounts and a Configure link per account, Install on another account, and Add repository from the live list or by name.
+- **Self-hosting**: the GitHub App now needs its OAuth client id and secret, and its callback URL is the login callback; INSTALL.md walks through it.`,
+  },
+  {
     id: `2026-10-03-nav-audit`,
     date: `2026-10-03`,
     title: `A shorter navigation`,

@@ -47,7 +47,10 @@ vi.mock(`@/components/add-device-dialog`, () => ({
 }))
 vi.mock(`@/components/github-repo-picker`, () => ({
   GithubRepoPicker: () => <div data-testid="github-repo-picker" />,
-  openGithubPopup: vi.fn(() => true),
+}))
+const openGithubConnect = vi.hoisted(() => vi.fn(() => true))
+vi.mock(`@/lib/github-connect`, () => ({
+  openGithubConnect,
   POPUP_BLOCKED_MESSAGE: `blocked`,
 }))
 
@@ -113,7 +116,7 @@ function state(
     teamId: `t1`,
     isOwner: true,
     repos,
-    githubConnectUrl: `https://github.com/apps/x`,
+    githubLinked: true,
     ownDevices: [],
     reload: vi.fn(),
     ...extra,
@@ -160,6 +163,17 @@ describe(`ReadinessSteps`, () => {
       boardId: `b-app`,
       repositoryId: `r-app`,
     })
+  })
+
+  it(`Connect GitHub opens the guided page for the board (SLOP-7)`, () => {
+    openGithubConnect.mockClear()
+    render(
+      <ReadinessSteps
+        state={state({ github: { connected: false, label: null } }, { githubLinked: false })}
+      />
+    )
+    fireEvent.click(screen.getByTestId(`readiness-fix-connect_github`))
+    expect(openGithubConnect).toHaveBeenCalledWith({ teamId: `t1`, boardId: `b-app` })
   })
 
   it(`opens the add-device dialog from Set up a server`, () => {

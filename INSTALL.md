@@ -85,7 +85,14 @@ All configured by appending vars to `.env` (the whole file reaches the web conta
 
 - **Email** (password reset, invites, notification digest, widget reporter magic links): `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS` + `EMAIL_FROM`, or Amazon SES via `AWS_SES_REGION` + AWS credentials. Without a transport, email features are silently off; everything else works.
 - **Sign-in providers**: `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`/`GOOGLE_LOGIN_ENABLED=true`; Sign in with Apple via `APPLE_CLIENT_ID` (an Apple *Services ID*) + `APPLE_PRIVATE_KEY`/`APPLE_KEY_ID`/`APPLE_TEAM_ID` + `APPLE_LOGIN_ENABLED=true`; or any OIDC IdP via `OIDC_PROVIDERS` (JSON array: Authentik, Keycloak, Zitadel, …).
-- **GitHub App** (only needed for coding, which means repo-backed boards, coding sessions and PRs): create a GitHub App and set `GITHUB_APP_ID`/`GITHUB_APP_SLUG`/`GITHUB_APP_PRIVATE_KEY` (+ `GITHUB_WEBHOOK_SECRET`, or `GITHUB_POLLING=true` behind NAT). Setup walkthrough in the [self-host docs](https://exponential.at/docs/self-host/#github-app). Optional: `GITHUB_TOKEN`, a scopeless personal access token used **only** for public-repo reads (PR diffs, the Reviews queue) on repos the App isn't installed on — it lifts GitHub's anonymous 60 requests/hour per IP to 5000.
+- **GitHub App** (only needed for coding, which means repo-backed boards, coding sessions and PRs). Members connect their own GitHub account from Settings → Repositories (or from the Start coding checklist), install the App on the accounts whose repositories they want, and add repositories they can push to. Create the App at GitHub → Settings → Developer settings → GitHub Apps → New GitHub App:
+  1. **Callback URL**: `https://issues.example.com/api/auth/callback/github`. Leave "Request user authorization (OAuth) during installation" unchecked.
+  2. **Setup URL**: `https://issues.example.com/integrations/github`, with "Redirect on update" ticked. It is a plain redirect back to the guided page after an install.
+  3. **Webhook**: `https://issues.example.com/api/webhooks/github` with a secret (`GITHUB_WEBHOOK_SECRET`), or leave the webhook inactive and set `GITHUB_POLLING=true` when GitHub cannot reach your server (behind NAT).
+  4. **Permissions**: Repository → Contents (read and write), Pull requests (read and write), Metadata (read); subscribe to the Pull request event. Add Account → Email addresses (read) only if GitHub should also be a login method (`GITHUB_LOGIN_ENABLED=true`).
+  5. Generate a private key and a client secret, then set `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY` (the PEM, base64-encoded: `base64 -w0 app.private-key.pem`), `GITHUB_APP_CLIENT_ID` and `GITHUB_APP_CLIENT_SECRET`.
+
+  Optional: `GITHUB_TOKEN`, a scopeless personal access token used **only** for public-repo reads (PR diffs, the Reviews queue) on repos the App isn't installed on — it lifts GitHub's anonymous 60 requests/hour per IP to 5000.
 - **Steer relay** (start coding sessions from your phone, watch/steer live): set `STEER_RELAY_SECRET` (any random string) and `STEER_RELAY_URL=wss://issues.example.com/steer` in `.env`, then
 
   ```sh

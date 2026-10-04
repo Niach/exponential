@@ -1666,11 +1666,11 @@ export const cliInstallTokens = pgTable(
   (table) => [index(`idx_cli_install_tokens_user`).on(table.userId)]
 )
 
-// GitHub App installations (server-only, not synced). Mirrored from the setup
-// redirect, the OAuth claim callback, and installation webhooks; token
-// resolution itself is storage-free (the App JWT looks up a repo's installation
-// on demand). Visibility is granted per team via githubInstallationLinks —
-// an unlinked row is invisible to every picker.
+// GitHub App installations (server-only, not synced). Mirrored from the
+// installation webhooks for bookkeeping (the admin console, the suspension
+// mark); token resolution itself is storage-free (the App JWT looks up a
+// repo's installation on demand). SLOP-7: discovery lists a member's
+// installations LIVE off their GitHub token — nothing reads this for access.
 export const githubInstallations = pgTable(`github_installations`, {
   id: uuidPk(),
   installationId: bigint(`installation_id`, { mode: `number` })
@@ -1693,6 +1693,12 @@ export const githubInstallations = pgTable(`github_installations`, {
   ...timestamps,
 })
 
+// RETIRED (SLOP-7): the per-team claim model. Nothing reads or writes these
+// three tables anymore — a member's GitHub connection is their Better Auth
+// `github` account row and discovery is live. The tables stay ONE release
+// behind the new flow (additive only, never dropped in SLOP-7's PR) and go
+// with the "compat cleanup: drop the GitHub claim tables" follow-up.
+//
 // Team ↔ GitHub App installation claims (SERVER-ONLY, never synced).
 // A link means "this team may browse/connect this installation's repos".
 // Created by the OAuth claim flow (or the install-page round-trip fallback) —

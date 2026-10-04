@@ -86,6 +86,10 @@ export * from "./pr-github-button"
 export * from "./progress"
 // EXP-1097: the sub-issue completion ring.
 export * from "./progress-ring"
+// SLOP-7: the "Ready to code?" checklist chrome and the repository picker
+// body, shared by the web app and the styleguide specimens.
+export * from "./readiness-checklist"
+export * from "./repository-picker"
 // EXP-1170: THE phone properties sheet row.
 export * from "./property-row"
 export * from "./rich-tab"

@@ -2,10 +2,13 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { TeamRepositoriesSection } from "@/components/team/repositories-section"
 
-// EXP-365/FEED-42 regressions under test: picking a repo row adds it at once
-// (tap adds, ×4) and closes the dialog, a failed add must stay visible inside
-// the open dialog, and the status line must keep the account list (with its
-// confirm-first unlink ✕) visible alongside the named reconnect warning.
+// EXP-365/FEED-42/SLOP-7 regressions under test: picking a repo row adds it
+// at once (tap adds, ×4) and closes the dialog, a failed add must stay
+// visible inside the open dialog, and the connection block renders the
+// viewer's own GitHub connection (not linked → Connect GitHub opens the
+// guided page; linked → the login, the installed accounts with Configure
+// links, Install on another account; expired → Reconnect) with a
+// confirm-first Disconnect.
 
 const mockState = vi.hoisted(() => ({
   listQuery: vi.fn(),
@@ -15,6 +18,8 @@ const mockState = vi.hoisted(() => ({
   unlinkMutate: vi.fn(),
   listBranchesQuery: vi.fn(),
   setDefaultBranchMutate: vi.fn(),
+  openGithubConnect: vi.fn(() => true),
+  openGithubPopup: vi.fn(() => true),
 }))
 
 vi.mock(`@/lib/trpc-client`, () => ({
@@ -31,9 +36,15 @@ vi.mock(`@/lib/trpc-client`, () => ({
         status: { query: mockState.statusQuery },
         repos: { query: mockState.reposQuery },
         unlink: { mutate: mockState.unlinkMutate },
+        disconnect: { mutate: mockState.unlinkMutate },
       },
     },
   },
+}))
+vi.mock(`@/lib/github-connect`, () => ({
+  openGithubConnect: mockState.openGithubConnect,
+  openGithubPopup: mockState.openGithubPopup,
+  POPUP_BLOCKED_MESSAGE: `blocked`,
 }))
 
 vi.mock(`@tanstack/react-router`, () => ({
@@ -52,15 +63,20 @@ const installation = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 })
 
-const githubStatus = (installations: Array<Record<string, unknown>>) => ({
+const githubStatus = (
+  installations: Array<Record<string, unknown>>,
+  overrides: Record<string, unknown> = {}
+) => ({
   configured: true as const,
-  installed: true,
+  connectConfigured: true,
+  linked: true,
+  needsReconnect: false,
+  login: `octocat`,
+  installed: installations.length > 0,
   installUrl: `https://github.com/apps/test/installations/new`,
-  connectUrl: `https://github.com/login/oauth/authorize?x=1`,
-  accounts: installations
-    .map((inst) => inst.accountLogin)
-    .filter(Boolean) as string[],
+  connectUrl: `https://app.example.com/integrations/github?team=team-1`,
   installations,
+  ...overrides,
 })
 
 const githubRepos = (installations: Array<Record<string, unknown>>) => ({
@@ -134,6 +150,8 @@ describe(`TeamRepositoriesSection`, () => {
     mockState.setDefaultBranchMutate
       .mockReset()
       .mockResolvedValue({ repository: {} })
+    mockState.openGithubConnect.mockClear()
+    mockState.openGithubPopup.mockClear()
   })
 
   it(`tapping a row adds it immediately and closes the dialog`, async () => {
@@ -169,49 +187,47 @@ describe(`TeamRepositoriesSection`, () => {
     expect(screen.getByPlaceholderText(`Search repositories…`)).toBeTruthy()
   })
 
-  it(`needsReauth keeps the account list + unlink visible and names the stale account`, async () => {
-    const stale = installation({
-      installationId: 2,
-      accountLogin: `Niach`,
-      needsReauth: true,
-    })
+  it(`not linked → Connect GitHub opens the guided page for the team`, async () => {
     mockState.statusQuery.mockResolvedValue(
-      githubStatus([installation(), stale])
+      githubStatus([], { linked: false, login: null })
     )
     renderSection()
 
-    // Both accounts stay listed (the unlink ✕ lives on this line)…
-    await screen.findByText(/siteviewer-app/)
-    expect(screen.getAllByText(/Niach/).length).toBeGreaterThan(0)
-    const unlinks = screen.getAllByTitle(
-      `Disconnect this GitHub account from the team`
-    )
-    expect(unlinks).toHaveLength(2)
-    // …and the warning names the offending account.
-    expect(
-      screen.getByText(/which repositories you can access.*from Niach/)
-    ).toBeTruthy()
-    expect(screen.getByRole(`button`, { name: `Reconnect` })).toBeTruthy()
+    await screen.findByText(`No GitHub account connected`)
+    fireEvent.click(screen.getByRole(`button`, { name: `Connect GitHub` }))
+    expect(mockState.openGithubConnect).toHaveBeenCalledWith({ teamId: `team-1` })
+  })
 
-    // FEED-42: the ✕ confirms with the live-link copy before unlinking.
-    fireEvent.click(unlinks[1]!)
+  it(`an expired connection offers Reconnect, never a per-account nag`, async () => {
+    mockState.statusQuery.mockResolvedValue(
+      githubStatus([], { needsReconnect: true })
+    )
+    renderSection()
+
+    await screen.findByText(`Your GitHub connection expired.`)
+    fireEvent.click(screen.getByRole(`button`, { name: `Reconnect` }))
+    expect(mockState.openGithubConnect).toHaveBeenCalledWith({ teamId: `team-1` })
+  })
+
+  it(`Disconnect confirms first, then unlinks the viewer's GitHub account`, async () => {
+    renderSection()
+
+    await screen.findByText(`Connected as octocat`)
+    fireEvent.click(screen.getByRole(`button`, { name: `Disconnect` }))
     expect(mockState.unlinkMutate).not.toHaveBeenCalled()
     await screen.findByText(
-      `This disconnects Niach from the team. Repositories connected through it must be removed first.`
+      `This unlinks GitHub from your account. Repositories already added keep working; adding more needs a reconnect.`
     )
-    fireEvent.click(screen.getByRole(`button`, { name: `Disconnect` }))
+    fireEvent.click(screen.getAllByRole(`button`, { name: `Disconnect` }).at(-1)!)
     await waitFor(() =>
       expect(mockState.unlinkMutate).toHaveBeenCalledTimes(1)
     )
-    expect(mockState.unlinkMutate.mock.calls[0][0]).toMatchObject({
-      installationId: 2,
-    })
   })
 
   it(`a GitHub-grant FORBIDDEN add shows the reconnect arm inline`, async () => {
     const { TRPCClientError } = await import(`@trpc/client`)
     const err = new TRPCClientError(
-      `You don't have access to siteviewer-app/app on GitHub, or your connection is stale. Reconnect GitHub in team settings.`
+      `You need push access to siteviewer-app/app on GitHub to connect it. Reconnect GitHub in team settings.`
     )
     ;(err as { data?: unknown }).data = { code: `FORBIDDEN` }
     mockState.addMutate.mockRejectedValue(err)
@@ -222,7 +238,7 @@ describe(`TeamRepositoriesSection`, () => {
     fireEvent.click(await screen.findByText(`siteviewer-app/app`))
 
     await screen.findByText(
-      `GitHub says you don’t have access to this repository, or your connection is stale. Reconnect GitHub and try again.`
+      `GitHub says you can’t push to this repository, or your connection expired. Reconnect GitHub and try again.`
     )
     expect(
       screen.getAllByRole(`button`, { name: `Reconnect GitHub` }).length
@@ -292,36 +308,17 @@ describe(`TeamRepositoriesSection`, () => {
 
   // EXP-557: a stale link (zero grants from anyone) renders a visible
   // Disconnect button behind a confirm dialog, instead of the reconnect nag.
-  it(`a stale account offers Disconnect (confirm-first) instead of Reconnect`, async () => {
-    mockState.statusQuery.mockResolvedValue(
-      githubStatus([
-        installation(),
-        installation({
-          installationId: 2,
-          accountLogin: `exponential-play-review`,
-          needsReauth: false,
-          stale: true,
-        }),
-      ])
-    )
+  it(`linked but nothing installed → Install the app opens GitHub's install page`, async () => {
+    mockState.statusQuery.mockResolvedValue(githubStatus([]))
     renderSection()
 
-    const disconnect = await screen.findByRole(`button`, {
-      name: `Disconnect account`,
-    })
-    expect(screen.queryByRole(`button`, { name: `Reconnect` })).toBeNull()
-
-    fireEvent.click(disconnect)
-    // Confirm-first: nothing mutates until the dialog's Disconnect.
-    expect(mockState.unlinkMutate).not.toHaveBeenCalled()
-    fireEvent.click(await screen.findByRole(`button`, { name: `Disconnect` }))
-    await waitFor(() =>
-      expect(mockState.unlinkMutate).toHaveBeenCalledTimes(1)
+    await screen.findByText(
+      `The Exponential app isn’t installed on any of your GitHub accounts yet.`
     )
-    expect(mockState.unlinkMutate.mock.calls[0][0]).toMatchObject({
-      teamId: `team-1`,
-      installationId: 2,
-    })
+    fireEvent.click(screen.getByRole(`button`, { name: `Install the app` }))
+    expect(mockState.openGithubPopup).toHaveBeenCalledWith(
+      `https://github.com/apps/test/installations/new`
+    )
   })
 
   // EXP-557 sharer-or-owner rows: a non-manager sees "Shared by X" but gets
@@ -368,54 +365,30 @@ describe(`TeamRepositoriesSection`, () => {
     // FEED-42: Retry refetches the connect state.
     mockState.statusQuery.mockResolvedValue(githubStatus([installation()]))
     fireEvent.click(screen.getByRole(`button`, { name: `Retry` }))
-    await screen.findByText(`GitHub accounts connected to this team`)
+    await screen.findByText(`GitHub accounts with the app installed`)
   })
 
-  it(`suspension outranks reconnect and never offers it`, async () => {
+  it(`a suspended account says so and links its GitHub page`, async () => {
     mockState.statusQuery.mockResolvedValue(
-      githubStatus([
-        installation({ suspended: true, needsReauth: false }),
-        installation({
-          installationId: 2,
-          accountLogin: `Niach`,
-          needsReauth: true,
-        }),
-      ])
+      githubStatus([installation({ suspended: true })])
     )
     renderSection()
 
-    await screen.findByText(/GitHub suspended the Exponential app/)
-    expect(screen.queryByRole(`button`, { name: `Reconnect` })).toBeNull()
+    await screen.findByText(/GitHub suspended the Exponential app for siteviewer-app/)
+    expect(screen.getByRole(`link`, { name: /Manage/ }).getAttribute(`href`)).toBe(
+      `https://github.com/settings/installations/1`
+    )
   })
 
-  // FEED-31: with one account already linked the OAuth hop auto-redirects and
-  // re-links the same account — the ONLY way to a second org is GitHub's
-  // account picker (installations/new), so it must stay offered as its own
-  // button while a link exists.
-  it(`offers "Connect another account" with an existing link and opens the install URL`, async () => {
-    const popup = { focus: vi.fn(), closed: true }
-    const open = vi
-      .spyOn(window, `open`)
-      .mockReturnValue(popup as unknown as Window)
+  it(`offers "Install on another account" with an existing installation and opens the install URL`, async () => {
     renderSection()
 
     fireEvent.click(
-      await screen.findByRole(`button`, { name: `Connect another account` })
+      await screen.findByRole(`button`, { name: `Install on another account` })
     )
-
-    expect(open).toHaveBeenCalledWith(
-      `https://github.com/apps/test/installations/new`,
-      `gh-install`,
-      expect.any(String)
+    expect(mockState.openGithubPopup).toHaveBeenCalledWith(
+      `https://github.com/apps/test/installations/new`
     )
-    // The OAuth re-auth stays available as the separate refresh action.
-    fireEvent.click(screen.getByRole(`button`, { name: `Refresh access` }))
-    expect(open).toHaveBeenLastCalledWith(
-      `https://github.com/login/oauth/authorize?x=1`,
-      `gh-install`,
-      expect.any(String)
-    )
-    open.mockRestore()
   })
 
   it(`renders one row per account with its Configure link`, async () => {
@@ -439,7 +412,7 @@ describe(`TeamRepositoriesSection`, () => {
       `https://github.com/settings/installations/2`,
     ])
     expect(
-      screen.getByText(/An installation is per GitHub account or organization/)
+      screen.getByText(/Repositories come from these accounts/)
     ).toBeTruthy()
   })
 })

@@ -79,9 +79,6 @@ const h = vi.hoisted(() => {
 })
 
 vi.mock(`@/db/connection`, () => ({ db: h.fakeDb }))
-vi.mock(`@/lib/trpc/integrations`, () => ({
-  invalidateRepoCacheForInstallation: vi.fn(async () => {}),
-}))
 vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applyPrClosedState: vi.fn(async () => {}),
   applyPrMergeState: vi.fn(async () => {}),
@@ -97,28 +94,10 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
 vi.mock(`@/lib/integrations/github-identity`, () => ({
   resolveAppUserForGithubActor: vi.fn(async () => null),
 }))
-// FEED-30: the installation_repositories grant sync reads membership and the
-// repo's default branch; both are stubbed so the test asserts the rows only.
-const getTeamMember = vi.hoisted(() =>
-  vi.fn(async (_userId: string, _teamId: string) => ({ role: `member` }))
-)
-vi.mock(`@/lib/team-membership`, () => ({
-  getTeamMember: (userId: string, teamId: string) =>
-    getTeamMember(userId, teamId),
-}))
-vi.mock(`@/lib/integrations/github-app`, () => ({
-  resolveRepoDefaultBranchCached: vi.fn(async () => `develop`),
-}))
 
 import * as prSync from "@/lib/integrations/pr-sync"
 import { resolveAppUserForGithubActor } from "@/lib/integrations/github-identity"
-import { resolveRepoDefaultBranchCached } from "@/lib/integrations/github-app"
-import * as integrations from "@/lib/trpc/integrations"
-import {
-  githubInstallationRepoGrants,
-  githubInstallations,
-  repositories,
-} from "@/db/schema"
+import { githubInstallations, repositories } from "@/db/schema"
 // Deliberately the REAL module (in-memory, no I/O): these tests exercise the
 // claim → webhook handoff end to end.
 import {
@@ -572,9 +551,6 @@ describe(`github webhook — installation lifecycle (suspend/unsuspend/deleted)`
     // Repos under it are flagged so the settings UI stops showing them healthy.
     expect(repositoryUpdates()).toHaveLength(1)
     expect(repositoryUpdates()[0].set.inaccessibleAt).toBeInstanceOf(Date)
-    expect(
-      vi.mocked(integrations.invalidateRepoCacheForInstallation)
-    ).toHaveBeenCalledWith(INSTALLATION_ID)
   })
 
   it(`unsuspend CLEARS the marker on the surviving row (self-heal)`, async () => {
@@ -615,11 +591,6 @@ describe(`github webhook — installation lifecycle (suspend/unsuspend/deleted)`
     expect(repositoryUpdates()[0].set.inaccessibleAt).toBeInstanceOf(Date)
     expect(installationUpdates()).toHaveLength(0)
     expect(h.deletes).toEqual([{ table: githubInstallations }])
-    // The cache invalidation must run BEFORE the delete — it resolves the
-    // linked teams through the links that cascade away with the row.
-    expect(
-      vi.mocked(integrations.invalidateRepoCacheForInstallation)
-    ).toHaveBeenCalled()
   })
 
   it(`ignores an installation event with no installation id`, async () => {
@@ -637,9 +608,9 @@ describe(`github webhook — installation lifecycle (suspend/unsuspend/deleted)`
 // full_name ALONE, so any installation of the App could rebind another team's
 // registry row (clear its no-access flag + repoint installation_id) just by
 // adding a same-named repo — reachable from outside via a renamed-then-
-// squatted account. The heal's where clause must now also scope by tenant:
-// same installation, still-unbound, or a team that actually CLAIMED this
-// installation (resolved via the claiming-teams subquery).
+// squatted account. The heal's where clause must also scope by installation:
+// the same installation, or a still-unbound row (SLOP-7: the claim subquery
+// went with the claim tables).
 describe(`github webhook — installation_repositories heal scoping`, () => {
   const INSTALLATION_ID = 515151
 
@@ -678,7 +649,7 @@ describe(`github webhook — installation_repositories heal scoping`, () => {
     expect(repositoryUpdates()[0].set.inaccessibleAt).toBeInstanceOf(Date)
   })
 
-  it(`added heals with the claim-scoped where clause, not by full_name alone`, async () => {
+  it(`added heals with the installation-scoped where clause, not by full_name alone`, async () => {
     const res = await postHandler({
       request: webhookRequest(
         `installation_repositories`,
@@ -692,162 +663,9 @@ describe(`github webhook — installation_repositories heal scoping`, () => {
       inaccessibleAt: null,
       installationId: INSTALLATION_ID,
     })
-    // The tenant scoping resolves the claiming teams through a subquery — the
-    // old full_name-only heal never touched db.select at all.
-    expect(h.select).toHaveBeenCalled()
     expect(repositoryUpdates()[0].where).toBeDefined()
   })
 
-  // FEED-30: the sender changed the selection, so they control the
-  // installation and can access what they picked — their grant rows land for
-  // every linked team they belong to, and the picker's Refresh shows the repo
-  // without an OAuth re-auth.
-  const grantInserts = () =>
-    h.inserts.filter((i) => i.table === githubInstallationRepoGrants)
-  const grantDeletes = () =>
-    h.deletes.filter((d) => d.table === githubInstallationRepoGrants)
-
-  function addedPayload(added: Array<{ full_name: string; private: boolean }>) {
-    return {
-      ...(repoSelectionPayload({}) as Record<string, unknown>),
-      repositories_added: added,
-      sender: { id: 4242, login: `octocat`, type: `User` },
-    }
-  }
-
-  it(`added writes the sender's grant rows for every linked team they belong to`, async () => {
-    vi.mocked(resolveAppUserForGithubActor).mockResolvedValue(`user-1`)
-    getTeamMember.mockImplementation(async (_userId, teamId) =>
-      teamId === `team-b` ? (undefined as never) : { role: `member` }
-    )
-    // Select order: #1 the heal's claiming-teams subquery, #2 the linked
-    // teams the grant sync walks.
-    h.selectQueue.push([])
-    h.selectQueue.push([{ teamId: `team-a` }, { teamId: `team-b` }])
-
-    const res = await postHandler({
-      request: webhookRequest(
-        `installation_repositories`,
-        addedPayload([
-          { full_name: `acme/app`, private: true },
-          { full_name: `acme/site`, private: false },
-        ])
-      ),
-    })
-
-    expect(res.status).toBe(200)
-    expect(grantInserts()).toHaveLength(1)
-    expect(grantInserts()[0].values).toEqual([
-      {
-        teamId: `team-a`,
-        installationId: INSTALLATION_ID,
-        fullName: `acme/app`,
-        private: true,
-        defaultBranch: `develop`,
-        grantedByUserId: `user-1`,
-      },
-      {
-        teamId: `team-a`,
-        installationId: INSTALLATION_ID,
-        fullName: `acme/site`,
-        private: false,
-        defaultBranch: `develop`,
-        grantedByUserId: `user-1`,
-      },
-    ])
-    // One GitHub read per ADDED REPO, not per team × repo.
-    expect(resolveRepoDefaultBranchCached).toHaveBeenCalledTimes(2)
-  })
-
-  it(`added writes nothing for a sender who never connected a GitHub account here`, async () => {
-    vi.mocked(resolveAppUserForGithubActor).mockResolvedValue(null)
-    h.selectQueue.push([])
-    h.selectQueue.push([{ teamId: `team-a` }])
-
-    const res = await postHandler({
-      request: webhookRequest(
-        `installation_repositories`,
-        addedPayload([{ full_name: `acme/app`, private: true }])
-      ),
-    })
-
-    expect(res.status).toBe(200)
-    expect(grantInserts()).toHaveLength(0)
-  })
-
-  it(`added skips the default-branch fetch when the sender belongs to no linked team`, async () => {
-    vi.mocked(resolveAppUserForGithubActor).mockResolvedValue(`user-1`)
-    getTeamMember.mockResolvedValueOnce(undefined as never)
-    h.selectQueue.push([])
-    h.selectQueue.push([{ teamId: `team-a` }])
-
-    const res = await postHandler({
-      request: webhookRequest(
-        `installation_repositories`,
-        addedPayload([
-          { full_name: `acme/app`, private: true },
-          { full_name: `acme/site`, private: false },
-        ])
-      ),
-    })
-
-    expect(res.status).toBe(200)
-    expect(getTeamMember).toHaveBeenCalledWith(`user-1`, `team-a`)
-    // Membership is decided BEFORE any GitHub call: a non-member sender costs
-    // nothing per repo and gets no rows.
-    expect(resolveRepoDefaultBranchCached).not.toHaveBeenCalled()
-    expect(grantInserts()).toHaveLength(0)
-  })
-
-  it(`a failing grant insert neither fails the delivery nor skips the cache invalidation`, async () => {
-    vi.mocked(resolveAppUserForGithubActor).mockResolvedValue(`user-1`)
-    getTeamMember.mockResolvedValueOnce({ role: `member` })
-    h.selectQueue.push([])
-    h.selectQueue.push([{ teamId: `team-a` }])
-    // Fail the GRANT insert specifically: the installation mirror upsert runs
-    // before the guarded block, and breaking that one would prove nothing.
-    const realInsert = h.fakeDb.insert.getMockImplementation()!
-    h.fakeDb.insert.mockImplementation((table: unknown) => {
-      if (table === githubInstallationRepoGrants) {
-        throw new Error(`grant insert failed`)
-      }
-      return realInsert(table)
-    })
-    const error = vi.spyOn(console, `error`).mockImplementation(() => {})
-
-    const res = await postHandler({
-      request: webhookRequest(
-        `installation_repositories`,
-        addedPayload([{ full_name: `acme/app`, private: true }])
-      ),
-    })
-
-    // Best-effort means GitHub still sees success (no retry storm) and the
-    // repo-listing cache is invalidated exactly as on the happy path.
-    expect(res.status).toBe(200)
-    expect(
-      vi.mocked(integrations.invalidateRepoCacheForInstallation)
-    ).toHaveBeenCalledWith(INSTALLATION_ID)
-    expect(error).toHaveBeenCalledWith(
-      expect.stringContaining(`grant sync for installation ${INSTALLATION_ID}`),
-      expect.any(Error)
-    )
-    error.mockRestore()
-    h.fakeDb.insert.mockImplementation(realInsert)
-  })
-
-  it(`removed deletes the grant rows for those repos on this installation`, async () => {
-    const res = await postHandler({
-      request: webhookRequest(
-        `installation_repositories`,
-        repoSelectionPayload({ removed: [`acme/app`] })
-      ),
-    })
-
-    expect(res.status).toBe(200)
-    expect(grantDeletes()).toHaveLength(1)
-    expect(grantInserts()).toHaveLength(0)
-  })
 })
 
 // EXP-617: the merge-side answer to "the webhook is all we get". GitHub tells

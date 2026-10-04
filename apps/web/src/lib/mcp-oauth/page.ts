@@ -2,9 +2,7 @@
 // provider redirects the user's browser here after consent; a sign-in
 // started without a return path (the desktop, the CLI) has nothing to hand
 // off once the server exchanged the code, so the page only confirms and
-// tells the user to close the tab. Same look as the
-// GitHub return page (lib/integrations/github-return-page.ts) minus the
-// deep link.
+// tells the user to close the tab.
 
 export function escapeHtml(value: string): string {
   return value

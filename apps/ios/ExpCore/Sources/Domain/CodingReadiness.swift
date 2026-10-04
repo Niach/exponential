@@ -172,7 +172,7 @@ public enum CodingReadiness {
         public static let githubMet = "GitHub connected"
         public static let githubUnmet = "Connect GitHub"
         public static let githubBody =
-            "Start coding clones a repository from a GitHub account or organization connected to the team."
+            "Connect your GitHub account so Exponential can list the repositories you can push to. Install the Exponential app on the accounts that own them."
         public static let repositoryMet = "Repository connected"
         public static let deviceMet = "Device online"
         public static let deviceUnmet = "A device online"

@@ -133,7 +133,7 @@ pub mod copy {
     pub const CAPTION_DEVICE: &str = "No device online";
     pub const GITHUB_MET: &str = "GitHub connected";
     pub const GITHUB_UNMET: &str = "Connect GitHub";
-    pub const GITHUB_BODY: &str = "Start coding clones a repository from a GitHub account or organization connected to the team.";
+    pub const GITHUB_BODY: &str = "Connect your GitHub account so Exponential can list the repositories you can push to. Install the Exponential app on the accounts that own them.";
     pub const REPOSITORY_MET: &str = "Repository connected";
     pub const DEVICE_MET: &str = "Device online";
     pub const DEVICE_UNMET: &str = "A device online";

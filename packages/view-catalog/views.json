@@ -155,12 +155,8 @@
       "reason": "Global admin console (user detail)."
     },
     {
-      "route": "/integrations/github/claim",
-      "reason": "GitHub App install round-trip landing page; only reachable as a redirect target from github.com."
-    },
-    {
-      "route": "/integrations/github/installed",
-      "reason": "GitHub App install round-trip landing page; only reachable as a redirect target from github.com."
+      "route": "/integrations/github",
+      "reason": "The guided GitHub page (connect, install the app, pick a repository); opened as a popup from the app, from a native's browser, or as the GitHub App's setup redirect. Needs a live GitHub round-trip to progress."
     }
   ],
   "views": [

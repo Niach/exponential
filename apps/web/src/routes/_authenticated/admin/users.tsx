@@ -120,9 +120,8 @@ function SortHeader({
   )
 }
 
-// EXP-835: did the user get through the GitHub connect flow? The login when
-// the identity was verified (EXP-617+), else a plain "connected" for older
-// claims; the repo count is the repos their connection put into a team.
+// EXP-835/SLOP-7: did the user connect GitHub (the `github` account row)?
+// The repo count is the repos their connection put into a team.
 function GithubStatus({ user }: { user: AdminUser }) {
   if (!user.githubConnected) {
     return <span className="text-xs text-muted-foreground">not connected</span>
@@ -133,9 +132,7 @@ function GithubStatus({ user }: { user: AdminUser }) {
       className="flex min-w-0 flex-col gap-0.5"
       title={`GitHub connected · ${repos} shared`}
     >
-      <Pill className="max-w-full truncate whitespace-nowrap">
-        {user.githubLogins[0] ?? `connected`}
-      </Pill>
+      <Pill className="max-w-full truncate whitespace-nowrap">connected</Pill>
       <span className="text-[11px] text-muted-foreground">{repos}</span>
     </div>
   )

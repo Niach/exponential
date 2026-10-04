@@ -46,14 +46,14 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
-    id: "2026-10-03-nav-audit",
-    date: "2026-10-03",
-    title: "A shorter navigation",
-    summary: "The sidebar and the tab bar show Inbox, Devices, Reviews, Agent and your boards; Actions, Drafts and the desktop's Files and Source Control sit behind one More entry, and every client says run.",
-    body: r#"- **More**: Actions, the Drafts pile and (on the desktop app) Files and Source Control moved behind one More entry at the end of the main navigation on web, desktop, iOS and Android. On a phone, More also opens Settings.
-- **Inbox**: the iOS and Android tab called My Work is called Inbox, like the web and the desktop app.
-- **Settings**: Storage, Import and Archived boards sit in an Advanced group at the end of the settings navigation on web and desktop. The desktop's Sessions section is called Runs.
-- **One word**: a coding run is a run everywhere: Stop run, Resume previous run, Run ended, and the merge notes say the run ends."#,
+    id: "2026-10-04-one-github-flow",
+    date: "2026-10-04",
+    title: "One way to connect GitHub",
+    summary: "Connect GitHub, install the app, pick a repository: one guided page that every Start coding checklist, board form and settings section opens, listing the repositories you can push to.",
+    body: r#"- **One flow**: Connect GitHub links your GitHub account to your Exponential account (any login works), installs the Exponential app on the accounts you choose, and lists the repositories you can push to. The team claim step, the install round-trip and the stale-access banners are gone.
+- **Start coding**: the checklist's Connect GitHub fix opens that page over the issue; coming back ticks the row off.
+- **Settings → Repositories**: your GitHub connection with its accounts and a Configure link per account, Install on another account, and Add repository from the live list or by name.
+- **Self-hosting**: the GitHub App now needs its OAuth client id and secret, and its callback URL is the login callback; INSTALL.md walks through it."#,
 };
 
 /// The previous head entry, kept so the mirror's history reads in place.
