@@ -65,6 +65,11 @@ struct PendingLink {
 pub(crate) struct SignInLinkOutcome {
     pub seq: u64,
     pub account_id: Option<String>,
+    /// The provider the attempt was for (SLOP-25: a failure names it too, so
+    /// the GitHub connection surfaces can tell their hop from a sign-in
+    /// method's). `None` only for a hand-back no attempt in this process
+    /// started.
+    pub provider_id: Option<String>,
     pub result: Option<Result<String, SharedString>>,
 }
 
@@ -131,6 +136,10 @@ fn finish_link(result: Result<String, SharedString>, cx: &mut App) {
     }
     let outcome = cx.default_global::<SignInLinkOutcome>();
     outcome.seq += 1;
+    outcome.provider_id = link
+        .as_ref()
+        .map(|link| link.provider_id.clone())
+        .or_else(|| result.as_ref().ok().cloned());
     outcome.account_id = link.map(|link| link.account_id);
     outcome.result = Some(result);
 }

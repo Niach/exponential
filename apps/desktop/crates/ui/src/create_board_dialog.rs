@@ -42,7 +42,9 @@ use sync::Store;
 
 use crate::controls::{glass_input, WebControl as _};
 use crate::actions::NewBoard;
-use crate::github_connect::{fetch_github_repos, GithubRepo, GithubReposResult};
+use crate::github_connect::{
+    copy as gh_copy, fetch_github_repos, GithubRepo, GithubReposResult, Prerequisite,
+};
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::navigation::{active_team_id, nav_for_window};
 use crate::queries;
@@ -291,6 +293,20 @@ impl CreateBoardDialogView {
                 }
             }),
         );
+        // SLOP-25: the Connect/Reconnect GitHub hop's own hand-back
+        // (`exponential://oauth-return?linked=github`).
+        subscriptions.push(
+            cx.observe_global::<crate::oauth::SignInLinkOutcome>(|this, cx| {
+                match crate::github_connect::github_link_outcome(cx) {
+                    Some(Ok(())) => this.spawn_fetches(true, cx),
+                    Some(Err(message)) => {
+                        this.connect_error = Some(message);
+                        cx.notify();
+                    }
+                    None => {}
+                }
+            }),
+        );
 
         let mut this = Self {
             team_id,
@@ -489,11 +505,7 @@ impl CreateBoardDialogView {
                         // Grant-model FORBIDDEN checked first: its copy pairs
                         // with the reconnect hand-off, never the generic box.
                         if is_grant_forbidden(&err) {
-                            this.error = Some(
-                                "GitHub says you don't have access to this repository, or \
-                                 your connection is stale. Reconnect GitHub and try again."
-                                    .into(),
-                            );
+                            this.error = Some(gh_copy::ADD_FORBIDDEN.into());
                             this.grant_reconnect = true;
                             this.submitting = false;
                             cx.notify();
@@ -832,17 +844,23 @@ impl CreateBoardDialogView {
         .detach();
     }
 
-    /// The connect/picker flow the select's trailing action expands: the
-    /// user's installable GitHub repos (connected inline by `boards.create`),
-    /// plus the browser hand-offs the GitHub App needs (connect, unsuspend,
-    /// reconnect) and the manual refresh.
+    /// The connect/picker flow the select's trailing action expands (SLOP-7,
+    /// web `GithubRepoPicker`): a missing prerequisite names itself with its
+    /// ONE fix — not linked → Connect GitHub, expired → Reconnect GitHub
+    /// (the in-app link hop), not installed → Install the app (GitHub's
+    /// install page) — then the viewer's push-able repos (connected inline by
+    /// `boards.create`), the suspended notice, Refresh and Install on another
+    /// account.
     fn connect_section(
         &self,
         github_result: Option<&GithubReposResult>,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let mut column = v_flex().gap_2();
+        let prerequisite = github_result.map(GithubReposResult::prerequisite);
+        let ready = prerequisite == Some(Prerequisite::Ready);
         let github_repos: Vec<GithubRepo> = github_result
+            .filter(|_| ready)
             .map(|result| result.repos.clone())
             .unwrap_or_default();
 
@@ -882,141 +900,98 @@ impl CreateBoardDialogView {
             );
         }
 
-        // Connect-GitHub affordance: the App is configured on the server but
-        // not installed for this user. Install is a browser hand-off; Refresh
-        // re-runs both fetches once the user returns.
-        let configured_not_installed = github_result
-            .map(|result| result.configured && !result.installed)
-            .unwrap_or(false);
-        if configured_not_installed {
-            // Connect claims the account for the team: prefer the
-            // single-consent connect URL, fall back to the App install page.
-            let connect_url = github_result.and_then(|result| {
-                result
-                    .connect_url
-                    .clone()
-                    .or_else(|| result.install_url.clone())
-            });
-            if let Some(url) = connect_url {
-                column = column.child(
-                    h_flex().flex_wrap().gap_2().items_center().child(
+        // A prerequisite is missing: one sentence naming it, one button
+        // fixing it (the "I've done that" re-list rides the actions row).
+        if let (Some(result), Some(prerequisite)) = (github_result, prerequisite) {
+            let (sentence, fix) = match prerequisite {
+                Prerequisite::NotLinked => (
+                    Some(gh_copy::PICKER_NOT_LINKED),
+                    Some(
                         Button::new("board-repo-connect-gh")
                             .outline()
                             .cursor_pointer()
                             .small()
                             .icon(registry::UI_GITHUB)
-                            .label("Connect GitHub")
-                            .on_click(move |_, _, cx| open_url(cx, url.clone())),
+                            .label(gh_copy::CONNECT_GITHUB)
+                            .on_click(cx.listener(|this, _, _, cx| this.connect_github(cx))),
                     ),
-                );
+                ),
+                Prerequisite::Expired => (
+                    Some(gh_copy::PICKER_RECONNECT_BANNER),
+                    Some(
+                        Button::new("board-repo-reconnect-gh")
+                            .outline()
+                            .cursor_pointer()
+                            .small()
+                            .icon(registry::UI_GITHUB)
+                            .label(gh_copy::RECONNECT_GITHUB)
+                            .on_click(cx.listener(|this, _, _, cx| this.connect_github(cx))),
+                    ),
+                ),
+                Prerequisite::NotInstalled => (
+                    Some(gh_copy::PICKER_NOT_INSTALLED),
+                    result.install_url.clone().map(|url| {
+                        Button::new("board-repo-install-gh")
+                            .outline()
+                            .cursor_pointer()
+                            .small()
+                            .icon(registry::UI_GITHUB)
+                            .label(gh_copy::INSTALL_APP)
+                            .on_click(move |_, _, cx| open_url(cx, url.clone()))
+                    }),
+                ),
+                Prerequisite::NotConfigured | Prerequisite::Ready => (None, None),
+            };
+            if let Some(sentence) = sentence {
+                let mut notice = notice_row(cx.theme().muted_foreground, sentence.into(), cx);
+                if let Some(fix) = fix {
+                    notice = notice.child(fix);
+                }
+                column = column.child(notice);
             }
         }
 
-        // EXP-368: the browser connect hand-off deep-linked back with an
-        // error — same dashed-danger notice shape as the suspension one
-        // below. Cleared by any refetch (deep-link success or manual refresh).
+        // EXP-368: the browser hand-off deep-linked back with an error —
+        // same dashed-danger notice shape as the suspension one below.
+        // Cleared by any refetch (deep-link success or manual refresh).
         if let Some(message) = self.connect_error.clone() {
             column = column.child(notice_row(cx.theme().danger, message, cx));
         }
 
-        // Suspension outranks reconnect (REV2-29, EXP-365): a suspended
-        // installation lists no repos and mints no tokens, and a reconnect
-        // CANNOT fix it — only unsuspending on GitHub can.
-        let suspended_installs: Vec<&crate::github_connect::GithubInstallation> = github_result
-            .map(|result| {
-                result
+        // A suspended installation lists no repos and mints no tokens, and a
+        // reconnect CANNOT fix it — only unsuspending on GitHub can (REV2-29).
+        if let Some(result) = github_result.filter(|_| ready) {
+            let suspended = result.suspended_picker_labels();
+            if !suspended.is_empty() {
+                let manage_url = result
                     .installations
                     .iter()
-                    .filter(|inst| inst.suspended)
-                    .collect()
-            })
-            .unwrap_or_default();
-        if !suspended_installs.is_empty() {
-            let names = suspended_installs
-                .iter()
-                .map(|inst| inst.label())
-                .collect::<Vec<_>>()
-                .join(", ");
-            let manage_url = suspended_installs
-                .first()
-                .map(|inst| inst.manage_url.clone())
-                .filter(|url| !url.is_empty());
-            let mut notice = notice_row(
-                cx.theme().danger,
-                SharedString::from(format!(
-                    "GitHub suspended the Exponential app for {names}. Its repositories \
-                     can't be connected until you unsuspend it on GitHub."
-                )),
-                cx,
-            );
-            if let Some(url) = manage_url {
-                notice = notice.child(
-                    Button::new("board-repo-unsuspend-gh")
-                        .outline()
-                        .cursor_pointer()
-                        .xsmall()
-                        .label("Manage")
-                        .on_click(move |_, _, cx| open_url(cx, url.clone())),
+                    .find(|inst| inst.suspended)
+                    .map(|inst| inst.manage_url.clone())
+                    .filter(|url| !url.is_empty());
+                let mut notice = notice_row(
+                    cx.theme().danger,
+                    SharedString::from(gh_copy::picker_suspended_banner(&suspended)),
+                    cx,
                 );
+                if let Some(url) = manage_url {
+                    notice = notice.child(
+                        Button::new("board-repo-unsuspend-gh")
+                            .outline()
+                            .cursor_pointer()
+                            .xsmall()
+                            .label(gh_copy::MANAGE)
+                            .on_click(move |_, _, cx| open_url(cx, url.clone())),
+                    );
+                }
+                column = column.child(notice);
+            } else if result.repos.is_empty() {
+                column = column.child(notice_row(
+                    cx.theme().muted_foreground,
+                    gh_copy::NONE_PUSHABLE.into(),
+                    cx,
+                ));
             }
-            column = column.child(notice);
-        }
-
-        // Grant-model reconnect: installed but the per-user grant snapshot is
-        // missing/stale. Reconnect must run the OAuth connect (it re-captures
-        // grants); the App install page does NOT (web parity).
-        let github_repos_empty = github_result
-            .map(|result| result.repos.is_empty())
-            .unwrap_or(true);
-        // EXP-557: STALE links are excluded — no reconnect can refresh them.
-        let needs_reconnect = github_result
-            .map(|result| {
-                result.installed
-                    && result
-                        .installations
-                        .iter()
-                        .any(|inst| inst.needs_reconnect())
-            })
-            .unwrap_or(false);
-        if needs_reconnect {
-            let suffix = github_result
-                .map(|result| {
-                    crate::github_connect::reauth_account_suffix(
-                        &result.installations,
-                        if github_repos_empty { "from" } else { "for" },
-                    )
-                })
-                .unwrap_or_default();
-            let mut notice = notice_row(
-                cx.theme().muted_foreground,
-                SharedString::from(if github_repos_empty {
-                    format!("Reconnect GitHub to load the repositories you can access{suffix}.")
-                } else {
-                    format!(
-                        "Reconnect GitHub{suffix} to refresh. Repos created or shared \
-                         with you since your last connect won't appear until you do."
-                    )
-                }),
-                cx,
-            );
-            let reconnect_url = github_result.and_then(|result| {
-                result
-                    .connect_url
-                    .clone()
-                    .or_else(|| result.install_url.clone())
-            });
-            if let Some(url) = reconnect_url {
-                notice = notice.child(
-                    Button::new("board-repo-reconnect-gh")
-                        .outline()
-                        .cursor_pointer()
-                        .xsmall()
-                        .icon(registry::UI_GITHUB)
-                        .label("Reconnect GitHub")
-                        .on_click(move |_, _, cx| open_url(cx, url.clone())),
-                );
-            }
-            column = column.child(notice);
         }
 
         // A genuine fetch failure still has to say so — it is the difference
@@ -1024,66 +999,57 @@ impl CreateBoardDialogView {
         let failure: Option<SharedString> = match (&self.repos, &self.github) {
             (RepoLoad::Failed(message), _) => Some(message.clone()),
             (_, GithubLoad::Failed(message)) => Some(message.clone()),
-            (_, GithubLoad::Ready(result)) if !result.configured => Some(
-                "GitHub isn't configured on this server, so repositories can't be connected."
-                    .into(),
-            ),
+            (_, GithubLoad::Ready(result)) if !result.configured => {
+                Some(gh_copy::PICKER_NOT_CONFIGURED.into())
+            }
             _ => None,
         };
         if let Some(message) = failure {
             column = column.child(notice_row(cx.theme().muted_foreground, message, cx));
         }
 
-        // Always offer a manual Refresh (re-detect after a browser install),
-        // plus — once installed — a "Refresh from GitHub" re-auth and a
-        // "manage on GitHub" link when the installed repo list was truncated.
+        // Always offer the re-detect ("I've done that" while a prerequisite
+        // is missing, Refresh once the list is live), plus — once installed —
+        // the way to a second account/org.
+        let prerequisite_missing = matches!(
+            prerequisite,
+            Some(Prerequisite::NotLinked | Prerequisite::Expired | Prerequisite::NotInstalled)
+        );
         let mut actions = h_flex().gap_2().items_center().child(
             Button::new("board-repo-refresh")
                 .ghost()
                 .cursor_pointer()
                 .xsmall()
-                .label(if configured_not_installed {
-                    "I've connected"
+                .label(if prerequisite_missing {
+                    gh_copy::PICKER_CONNECTED_CHECK
                 } else {
-                    "Refresh"
+                    gh_copy::REFRESH
                 })
                 .on_click(cx.listener(|this, _, _, cx| this.spawn_fetches(true, cx))),
         );
-        if let Some(url) = github_result.and_then(|result| {
-            result
-                .installed
-                .then(|| {
-                    result
-                        .connect_url
-                        .clone()
-                        .or_else(|| result.install_url.clone())
-                })
-                .flatten()
-        }) {
+        if let Some(url) = github_result
+            .filter(|_| ready)
+            .and_then(|result| result.install_url.clone())
+        {
             actions = actions.child(
-                Button::new("board-repo-refresh-gh")
+                Button::new("board-repo-install-another-gh")
                     .link()
                     .xsmall()
-                    .label("Refresh from GitHub")
-                    .icon(registry::UI_EXTERNAL_LINK)
-                    .on_click(move |_, _, cx| open_url(cx, url.clone())),
-            );
-        }
-        if let Some(url) = github_result.and_then(|result| {
-            (result.installed && result.has_more)
-                .then(|| result.install_url.clone())
-                .flatten()
-        }) {
-            actions = actions.child(
-                Button::new("board-repo-manage-gh")
-                    .link()
-                    .xsmall()
-                    .label("Add more on GitHub")
+                    .label(gh_copy::INSTALL_ANOTHER)
                     .icon(registry::UI_EXTERNAL_LINK)
                     .on_click(move |_, _, cx| open_url(cx, url.clone())),
             );
         }
         column.child(actions).into_any_element()
+    }
+
+    /// Connect / Reconnect GitHub: the in-app link hop; the outcome lands as a
+    /// [`crate::oauth::SignInLinkOutcome`] the constructor observes.
+    fn connect_github(&mut self, cx: &mut gpui::Context<Self>) {
+        self.connect_error = None;
+        self.grant_reconnect = false;
+        cx.notify();
+        crate::github_connect::connect_github(cx);
     }
 }
 
@@ -1135,29 +1101,20 @@ impl Render for CreateBoardDialogView {
                     .text_color(cx.theme().danger)
                     .child(error.clone()),
             );
-            // Grant-model FORBIDDEN: pair the message with the OAuth
-            // reconnect hand-off (`connect_url` re-captures grants; the App
-            // install page does not).
+            // FORBIDDEN with the server's "reconnect GitHub" hint: pair the
+            // message with the Reconnect GitHub hop.
             if self.grant_reconnect {
-                let url = match &self.github {
-                    GithubLoad::Ready(result) => result
-                        .connect_url
-                        .clone()
-                        .or_else(|| result.install_url.clone()),
-                    _ => None,
-                };
-                if let Some(url) = url {
-                    error_block = error_block.child(
-                        h_flex().child(
-                            Button::new("board-grant-reconnect-gh")
-                                .outline().cursor_pointer()
-                                .xsmall()
-                                .icon(registry::UI_GITHUB)
-                                .label("Reconnect GitHub")
-                                .on_click(move |_, _, cx| open_url(cx, url.clone())),
-                        ),
-                    );
-                }
+                error_block = error_block.child(
+                    h_flex().child(
+                        Button::new("board-grant-reconnect-gh")
+                            .outline()
+                            .cursor_pointer()
+                            .xsmall()
+                            .icon(registry::UI_GITHUB)
+                            .label(gh_copy::RECONNECT_GITHUB)
+                            .on_click(cx.listener(|this, _, _, cx| this.connect_github(cx))),
+                    ),
+                );
             }
             form = form.child(error_block);
         }

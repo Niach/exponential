@@ -172,6 +172,22 @@ impl SignInMethodsSection {
         let Some(result) = outcome.result.clone() else {
             return;
         };
+        // SLOP-25: the GitHub connection (Settings → Repositories) rides the
+        // same link hop; unless this section started it or lists the
+        // provider, the outcome is that surface's to report.
+        let provider_id = outcome
+            .provider_id
+            .clone()
+            .or_else(|| result.as_ref().ok().cloned());
+        let mine = provider_id.as_deref().is_some_and(|provider_id| {
+            self.pending_link.as_deref() == Some(provider_id)
+                || self
+                    .methods()
+                    .is_some_and(|methods| methods.providers.iter().any(|p| p.id == provider_id))
+        });
+        if !mine {
+            return;
+        }
         self.pending_link = None;
         self.copy_url = None;
         let toast = match result {
@@ -416,6 +432,8 @@ impl SignInMethodsSection {
         let leading = match provider.kind.as_str() {
             // Apple's mark is monochrome — the tinted Icon pipeline (login.rs).
             "apple" => Some(glyph(Icon::from(ExpIcon::Apple), cx)),
+            // SLOP-7: GitHub as a sign-in method (GITHUB_LOGIN_ENABLED).
+            "github" => Some(glyph(Icon::from(registry::UI_GITHUB), cx)),
             // The full-colour "G" goes through `img()` (login.rs, EXP-9).
             "google" => Some(
                 gpui::img("icons/google.svg")

@@ -6,7 +6,11 @@
 //!
 //! - **GitHub** — `integrations.github.status` + `repositories.list` for the
 //!   board's team, asked only while the board has no repository (a failed
-//!   read counts as CONNECTED: never a false "not connected");
+//!   read counts as CONNECTED: never a false "not connected"). SLOP-7/25: the
+//!   step is met once the viewer's GitHub is linked, alive and the app
+//!   installed somewhere; its fix is the ONE missing prerequisite's — not
+//!   linked → Connect GitHub, expired → Reconnect GitHub (both the in-app
+//!   link hop), not installed → Install the app (GitHub's install page);
 //! - **Repository** — the synced board row's `repository_id`, labelled by the
 //!   control's `repositories.forIssue` probe (`""` until it lands);
 //! - **Device** — THIS machine, always online: the IDE can always start a
@@ -45,6 +49,7 @@ use domain::coding_readiness::{
 
 use crate::coding_flow::StartCodingControl;
 use crate::controls::{search_field, SearchFieldSize};
+use crate::github_connect::{copy as gh_copy, Prerequisite};
 use crate::icons::registry;
 
 /// The popover's width (the mockup's card).
@@ -86,10 +91,38 @@ fn fetch_team_repos(trpc: &api::TrpcClient, team_id: &str) -> Result<Vec<TeamRep
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct GithubFacts {
     pub connected: bool,
-    /// The connected account (`acme-inc`), the met row's detail.
+    /// The viewer's GitHub login (`octocat`), the met row's detail.
     pub label: Option<String>,
     /// `None` = the read failed (the picker offers a retry).
     pub repos: Option<Vec<TeamRepo>>,
+    /// SLOP-7: which prerequisite the GitHub step's fix addresses.
+    pub prerequisite: Prerequisite,
+    /// GitHub's install page, the not-installed fix's target.
+    pub install_url: Option<String>,
+}
+
+/// `octocat`: the viewer's linked GitHub login, else the first installed
+/// account, else the owner half of the first team repository (web
+/// `githubLabel`).
+fn github_label(status: &crate::github_connect::GithubStatus, repos: &[TeamRepo]) -> Option<String> {
+    status
+        .login
+        .clone()
+        .filter(|login| !login.is_empty())
+        .or_else(|| {
+            status
+                .installations
+                .iter()
+                .find_map(|inst| inst.account_login.clone())
+                .filter(|login| !login.is_empty())
+        })
+        .or_else(|| {
+            repos
+                .first()
+                .and_then(|repo| repo.full_name.split('/').next())
+                .filter(|owner| !owner.is_empty())
+                .map(str::to_string)
+        })
 }
 
 /// Blocking: both reads for `team_id` (background executor only).
@@ -97,15 +130,16 @@ pub(crate) fn fetch_github_facts(trpc: &api::TrpcClient, team_id: &str) -> Githu
     let status = crate::github_connect::fetch_github_status(trpc, team_id);
     let repos = fetch_team_repos(trpc, team_id);
     match (status, repos) {
-        (Ok(status), Ok(repos)) => GithubFacts {
-            connected: status.installed || !status.installations.is_empty() || !repos.is_empty(),
-            label: status
-                .installations
-                .iter()
-                .find_map(|inst| inst.account_login.clone())
-                .filter(|login| !login.is_empty()),
-            repos: Some(repos),
-        },
+        (Ok(status), Ok(repos)) => {
+            let prerequisite = status.prerequisite();
+            GithubFacts {
+                connected: prerequisite == Prerequisite::Ready,
+                label: github_label(&status, &repos),
+                repos: Some(repos),
+                prerequisite,
+                install_url: status.install_url.clone(),
+            }
+        }
         (status, repos) => {
             if let Err(err) = &status {
                 log::warn!("[ui] readiness: integrations.github.status failed: {err}");
@@ -116,6 +150,8 @@ pub(crate) fn fetch_github_facts(trpc: &api::TrpcClient, team_id: &str) -> Githu
                 connected: true,
                 label: None,
                 repos: repos.ok(),
+                prerequisite: Prerequisite::Ready,
+                install_url: None,
             }
         }
     }
@@ -398,6 +434,9 @@ pub(crate) struct PopoverFacts {
     pub picker_open: bool,
     pub linking: bool,
     pub link_error: Option<SharedString>,
+    /// The GitHub facts behind the GitHub step's fix (SLOP-7); `None` while
+    /// loading.
+    pub github: Option<GithubFacts>,
     pub repos: Option<Option<Vec<TeamRepo>>>,
     pub query: Option<Entity<InputState>>,
     pub launch_blocked: Option<SharedString>,
@@ -594,6 +633,29 @@ fn render_step(
     row.into_any_element()
 }
 
+/// The GitHub step's fix for the ONE missing prerequisite (SLOP-7, ×4 in
+/// spirit: the web opens the guided page, which shows the same step): the
+/// label, its glyph, and whether it is the Install hop (GitHub's install page)
+/// rather than the connect hop.
+fn github_fix(facts: &PopoverFacts) -> (SharedString, crate::icons::ExpIcon, Option<String>) {
+    match facts.github.as_ref().map(|github| github.prerequisite) {
+        Some(Prerequisite::Expired) => (
+            gh_copy::RECONNECT_GITHUB.into(),
+            registry::UI_REFRESH,
+            None,
+        ),
+        Some(Prerequisite::NotInstalled) => (
+            gh_copy::INSTALL_APP.into(),
+            registry::UI_DOWNLOAD,
+            facts
+                .github
+                .as_ref()
+                .and_then(|github| github.install_url.clone()),
+        ),
+        _ => (ReadinessFix::ConnectGithub.label().into(), registry::UI_GITHUB, None),
+    }
+}
+
 /// One fix button: the first primary (white), the rest glass; Board settings
 /// trails a chevron.
 fn fix_button(
@@ -611,9 +673,10 @@ fn fix_button(
     } else {
         crate::surface::glass_pill_button(id, size, cx)
     };
+    let (github_label, github_glyph, github_install_url) = github_fix(facts);
     let glyph = match fix {
         ReadinessFix::ChooseRepository => Some(registry::UI_BRANCH),
-        ReadinessFix::ConnectGithub => Some(registry::UI_GITHUB),
+        ReadinessFix::ConnectGithub => Some(github_glyph),
         ReadinessFix::OpenDevices => Some(registry::NAV_DEVICES),
         ReadinessFix::SetUpServer => Some(registry::UI_SERVER),
         _ => None,
@@ -621,17 +684,21 @@ fn fix_button(
     if let Some(glyph) = glyph {
         button = button.icon(Icon::new(glyph).with_size(px(size.glyph())));
     }
-    button = if fix == ReadinessFix::BoardSettings {
-        button.child(
+    button = match fix {
+        ReadinessFix::BoardSettings => button.child(
             h_flex()
                 .gap_1()
                 .items_center()
                 .child(fix.label())
                 .child(Icon::new(registry::UI_CHEVRON_RIGHT).size_3()),
-        )
-    } else {
-        button.label(fix.label())
+        ),
+        ReadinessFix::ConnectGithub => button.label(github_label),
+        _ => button.label(fix.label()),
     };
+    let github_not_configured = facts
+        .github
+        .as_ref()
+        .is_some_and(|github| github.prerequisite == Prerequisite::NotConfigured);
     let board_id = facts.subject.board_id.clone();
     let control = control.clone();
     let popover = popover.clone();
@@ -641,13 +708,23 @@ fn fix_button(
             ReadinessFix::ChooseRepository => {
                 control.update(cx, |this, cx| this.open_repo_picker(window, cx));
             }
+            // SLOP-7: the ONE missing prerequisite's fix. The hops finish in
+            // the browser; the control re-reads the facts on the deep link
+            // back, so the rows tick in place.
             ReadinessFix::ConnectGithub => {
-                popover.update(cx, |state, cx| state.dismiss(window, cx));
-                crate::sidebar::select_settings_section(
-                    window,
-                    cx,
-                    crate::settings::SettingsSection::Repositories,
-                );
+                if github_not_configured {
+                    // Nothing to connect here: Settings › Repositories says so.
+                    popover.update(cx, |state, cx| state.dismiss(window, cx));
+                    crate::sidebar::select_settings_section(
+                        window,
+                        cx,
+                        crate::settings::SettingsSection::Repositories,
+                    );
+                } else if let Some(url) = github_install_url.clone() {
+                    crate::settings::open_url(cx, url);
+                } else {
+                    crate::github_connect::connect_github(cx);
+                }
             }
             ReadinessFix::BoardSettings => {
                 popover.update(cx, |state, cx| state.dismiss(window, cx));
@@ -905,6 +982,8 @@ mod tests {
             connected: true,
             label: Some("acme-inc".into()),
             repos: Some(vec![]),
+            prerequisite: Prerequisite::Ready,
+            install_url: None,
         };
         let loading = coding_readiness(&readiness_input(&subject(None), None, None, "Mac", 0));
         assert!(loading.visible && loading.loading && loading.caption.is_none());

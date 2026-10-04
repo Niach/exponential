@@ -192,9 +192,14 @@ export const usersRouter = router({
     .input(z.object({ provider: z.string().min(1).max(120) }))
     .mutation(async ({ ctx, input }) => {
       await assertNotApiKeySession(ctx.db, ctx.session)
-      const known = configuredProviders(buildAuthConfig()).some(
-        (p) => p.id === input.provider
-      )
+      const config = buildAuthConfig()
+      // SLOP-7: the natives connect GitHub for repositories through this
+      // same link hop (SLOP-25: desktop `github_connect::connect_github`),
+      // so `github` is mintable whenever the App's OAuth client is configured
+      // — GitHub LOGIN being off only keeps it out of the sign-in methods.
+      const known =
+        configuredProviders(config).some((p) => p.id === input.provider) ||
+        (input.provider === `github` && config.githubConnectEnabled)
       if (!known) {
         throw new TRPCError({
           code: `BAD_REQUEST`,
