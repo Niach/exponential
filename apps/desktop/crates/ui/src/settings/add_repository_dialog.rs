@@ -1,19 +1,20 @@
-//! Settings → Repositories → "Add repository" (EXP-329).
+//! Settings → Repositories → "Add repository" (EXP-329, SLOP-7 one flow).
 //!
-//! Web parity: the `GithubRepoPicker` half of
-//! `components/team/repositories-section.tsx`. Until EXP-329 the desktop's
-//! Repositories pane was READ-ONLY — connecting a repo was only possible as a
-//! side effect of creating a board — so this dialog is the desktop's direct
-//! connect surface: pick one of the repos the signed-in user proved access to
-//! at OAuth-connect time, and `repositories.add` registers it for the team.
+//! Web parity: `components/github-repo-picker.tsx`. The desktop's direct
+//! connect surface: it lists the repositories the VIEWER can push to, LIVE
+//! off GitHub (`integrations.github.repos`), and `repositories.add` shares
+//! the picked one with the team (tap adds, ×4).
 //!
-//! Everything here reads the live server truth through
-//! [`crate::github_connect::fetch_github_repos`]; the App connect/install
-//! itself stays a browser hand-off. The one signal that a hand-off finished is
-//! this window regaining focus, so an activation while the list is unusable
-//! (not installed / grantless / empty) re-fetches with `refresh` — the server
-//! caches the repo list per team, and a just-completed install would otherwise
-//! stay invisible for a minute.
+//! When a prerequisite is missing it says which one and offers the ONE fix —
+//! not linked → Connect GitHub, expired → Reconnect GitHub (both the in-app
+//! link hop, [`crate::github_connect::connect_github`]), not installed →
+//! Install the app (GitHub's install page in the browser) — plus the
+//! "I've done that" re-list. Everything reads the live server truth through
+//! [`crate::github_connect::fetch_github_repos`]. The hops finish OUTSIDE the
+//! app: the `oauth-return?linked=github` and `github-connected` deep links
+//! re-list definitively, and this window regaining focus while the list is
+//! unusable re-fetches with `refresh` as the fallback (the server caches
+//! discovery per user for a minute).
 
 use gpui::{
     div, prelude::FluentBuilder as _, px, size, App, AppContext as _, Entity,
@@ -30,8 +31,8 @@ use gpui_component::{
 
 use crate::controls::{glass_input, search_field, SearchFieldSize, WebControl as _};
 use crate::github_connect::{
-    copy, fetch_github_repos, is_repo_full_name, lookup_repo, reauth_logins, GithubRepo,
-    GithubReposResult,
+    copy, fetch_github_repos, is_repo_full_name, lookup_repo, GithubRepo, GithubReposResult,
+    Prerequisite,
 };
 use crate::icons::registry;
 use crate::native_dialog::{self, DialogContent, DialogSpec};
@@ -58,7 +59,7 @@ pub(super) fn open(
     // Same width as the other settings dialogs; the list owns the height, so
     // cap against the opener's viewport and let it scroll inside.
     let height = (window.viewport_size().height * 0.85).min(px(480.));
-    let spec = DialogSpec::new("Add repository", size(px(416.), height));
+    let spec = DialogSpec::new(copy::PICKER_TITLE, size(px(416.), height));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         let view = cx.new(|cx| AddRepositoryDialogView::new(team_id, pane, window, cx));
         let busy = view.clone();
@@ -82,8 +83,8 @@ pub struct AddRepositoryDialogView {
     /// The add failed a plan cap — the server's own message, rendered with
     /// the neutral "Upgrade on the web" pointer (§4.9).
     plan_limited: Option<SharedString>,
-    /// The add failed the grant-model FORBIDDEN — pair the error with the
-    /// OAuth reconnect hand-off.
+    /// The add failed FORBIDDEN with the server's "reconnect GitHub" hint —
+    /// pair the error with the Reconnect GitHub hop.
     grant_reconnect: bool,
     focused_once: bool,
     /// FEED-30: the footer's "Add by name" escape hatch — `owner/name`, looked
@@ -157,6 +158,23 @@ impl AddRepositoryDialogView {
                     }
                 }
             }),
+            // SLOP-25: the Connect/Reconnect GitHub hop's own hand-back
+            // (`oauth-return?linked=github`) — definitive, like the one above.
+            cx.observe_global::<crate::oauth::SignInLinkOutcome>(|this, cx| {
+                match crate::github_connect::github_link_outcome(cx) {
+                    Some(Ok(())) => {
+                        this.error = None;
+                        this.grant_reconnect = false;
+                        let show_loading = !matches!(this.load, Load::Ready(_));
+                        this.fetch(true, show_loading, cx);
+                    }
+                    Some(Err(message)) => {
+                        this.error = Some(message);
+                        cx.notify();
+                    }
+                    None => {}
+                }
+            }),
         ];
         let mut this = Self {
             team_id,
@@ -178,20 +196,19 @@ impl AddRepositoryDialogView {
         this
     }
 
-    /// FEED-30: on OAuth instances the list IS the viewer's grant snapshot,
-    /// which only the OAuth re-auth (or the installation_repositories webhook)
-    /// rewrites — a bare cache refresh can't surface a repo granted since. So
-    /// "Refresh" runs the re-auth hop there (the deep link / window activation
-    /// re-lists on return) and a plain forced re-list where there is no OAuth.
+    /// Refresh: a forced re-list (SLOP-7 lists LIVE off GitHub, so a repo
+    /// granted since simply appears), keeping the current rows on screen.
     fn refresh_access(&mut self, cx: &mut gpui::Context<Self>) {
-        let connect_url = match &self.load {
-            Load::Ready(result) => result.connect_url.clone(),
-            _ => None,
-        };
-        match connect_url {
-            Some(url) => open_url(cx, url),
-            None => self.fetch(true, false, cx),
-        }
+        self.fetch(true, false, cx);
+    }
+
+    /// Connect / Reconnect GitHub: the in-app link hop; the outcome lands as a
+    /// [`crate::oauth::SignInLinkOutcome`] the constructor observes.
+    fn connect_github(&mut self, cx: &mut gpui::Context<Self>) {
+        self.error = None;
+        self.grant_reconnect = false;
+        cx.notify();
+        crate::github_connect::connect_github(cx);
     }
 
     /// FEED-30: `integrations.github.lookupRepo` for the typed `owner/name`;
@@ -257,14 +274,15 @@ impl AddRepositoryDialogView {
         let loading = matches!(self.load, Load::Loading);
         let lookup_valid = is_repo_full_name(self.lookup.read(cx).value().trim());
 
-        // The sentence, then one Configure link per account (`accountLogin`
-        // or "installation {id}") with a trailing external glyph, comma-
+        // The sentence (its own full-width block, so it wraps instead of
+        // clipping), then one Configure link per account (`accountLogin` or
+        // "installation {id}") with a trailing external glyph, comma-
         // separated (FEED-42 ×4).
         let mut sentence = h_flex()
             .flex_wrap()
             .items_center()
             .gap_x_1()
-            .child(copy::FOOTER_SENTENCE);
+            .child(div().w_full().child(copy::FOOTER_EXPLAIN));
         let link_count = manage_links.len();
         for (index, (label, url)) in manage_links.into_iter().enumerate() {
             sentence = sentence.child(
@@ -304,7 +322,7 @@ impl AddRepositoryDialogView {
             .text_xs()
             .text_color(cx.theme().muted_foreground)
             .child(sentence)
-            .when(has_more, |column| column.child(copy::HAS_MORE))
+            .when(has_more, |column| column.child(copy::CAP_NOTE))
             .child(
                 h_flex()
                     .flex_wrap()
@@ -320,7 +338,7 @@ impl AddRepositoryDialogView {
                     .children(install_url.map(|url| {
                         pill("add-repo-install-another", cx)
                             .icon(registry::UI_ADD)
-                            .label(copy::INSTALL_ON_ANOTHER_ACCOUNT)
+                            .label(copy::INSTALL_ANOTHER)
                             .on_click(move |_, _, cx| open_url(cx, url.clone()))
                     })),
             )
@@ -345,16 +363,15 @@ impl AddRepositoryDialogView {
     }
 
     /// Re-detect after a browser hand-off: only when the current list is
-    /// unusable, and always with `refresh` so the server's per-team repo cache
-    /// can't hide a just-completed install.
+    /// unusable (a prerequisite missing, or nothing listed), and always with
+    /// `refresh` so the server's discovery cache can't hide a just-completed
+    /// hop.
     fn refetch_after_connect(&mut self, cx: &mut gpui::Context<Self>) {
         let Load::Ready(result) = &self.load else {
             return;
         };
         let repos_empty = result.repos.is_empty();
-        let stale = !result.installed
-            || repos_empty
-            || result.installations.iter().any(|inst| inst.needs_reconnect());
+        let stale = result.prerequisite() != Prerequisite::Ready || repos_empty;
         if stale {
             self.fetch(true, repos_empty, cx);
         }
@@ -461,18 +478,6 @@ impl AddRepositoryDialogView {
         .detach();
     }
 
-    /// The OAuth connect target — it re-captures the per-user repo grants; the
-    /// App install page does NOT (web parity: `github-repo-picker.tsx`).
-    fn connect_url(&self) -> Option<String> {
-        match &self.load {
-            Load::Ready(result) => result
-                .connect_url
-                .clone()
-                .or_else(|| result.install_url.clone()),
-            _ => None,
-        }
-    }
-
     fn message(&self, message: &'static str, cx: &gpui::App) -> impl IntoElement {
         div()
             .text_sm()
@@ -480,41 +485,67 @@ impl AddRepositoryDialogView {
             .child(message)
     }
 
-    /// The inline "Reconnect GitHub" pill (re-auth banner + FORBIDDEN add).
-    fn reconnect_pill(&self, id: &'static str, cx: &gpui::App) -> Option<impl IntoElement> {
-        self.connect_url().map(|url| {
-            pill(id, cx)
-                .icon(registry::UI_REFRESH)
-                .label(copy::RECONNECT_GITHUB)
-                .on_click(move |_, _, cx| open_url(cx, url.clone()))
-        })
+    /// The inline "Reconnect GitHub" pill (a FORBIDDEN add) — the link hop.
+    fn reconnect_pill(&self, id: &'static str, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        pill(id, cx)
+            .icon(registry::UI_REFRESH)
+            .label(copy::RECONNECT_GITHUB)
+            .on_click(cx.listener(|this, _, _, cx| this.connect_github(cx)))
     }
 
-    /// The re-auth banner — shown INDEPENDENTLY of the suspended one (FEED-42),
-    /// over an empty list (the load-your-repos variant) or a list that still
-    /// has rows (the possibly-incomplete variant). Names the reconnectable
-    /// accounts when known (EXP-365); STALE links are excluded (EXP-557).
-    fn reconnect_banner(
+    /// A missing prerequisite (web `GithubRepoPicker`, ×4): one sentence
+    /// naming it, ONE button fixing it, and the "I've done that" re-list.
+    fn prerequisite_block(
         &self,
+        prerequisite: Prerequisite,
         result: &GithubReposResult,
-        cx: &gpui::App,
+        cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
-        let logins = reauth_logins(&result.installations);
-        let message = if result.repos.is_empty() {
-            copy::picker_reauth_empty(&logins)
-        } else {
-            copy::picker_reauth(&logins)
+        let github_glyph = Icon::new(registry::UI_GITHUB).small().into_any_element();
+        let sentence = match prerequisite {
+            Prerequisite::Expired => copy::PICKER_RECONNECT_BANNER,
+            Prerequisite::NotInstalled => copy::PICKER_NOT_INSTALLED,
+            _ => copy::PICKER_NOT_LINKED,
         };
-        banner(crate::controls::AlertVariant::Default, cx)
-            .text_color(cx.theme().muted_foreground)
+        let fix = Button::new("add-repo-prerequisite-fix")
+            .primary()
+            .cursor_pointer()
+            .web_sm()
+            .icon(registry::UI_GITHUB);
+        let fix = match prerequisite {
+            Prerequisite::NotInstalled => {
+                let install_url = result.install_url.clone();
+                fix.label(copy::INSTALL_APP)
+                    .disabled(install_url.is_none())
+                    .on_click(move |_, _, cx| {
+                        if let Some(url) = install_url.clone() {
+                            open_url(cx, url);
+                        }
+                    })
+            }
+            Prerequisite::Expired => fix
+                .label(copy::RECONNECT_GITHUB)
+                .on_click(cx.listener(|this, _, _, cx| this.connect_github(cx))),
+            _ => fix
+                .label(copy::CONNECT_GITHUB)
+                .on_click(cx.listener(|this, _, _, cx| this.connect_github(cx))),
+        };
+        v_flex()
+            .gap_3()
+            .child(state_box(github_glyph, sentence, cx))
             .child(
-                Icon::new(registry::UI_WARNING)
-                    .xsmall()
-                    .flex_shrink_0()
-                    .text_color(theme::tokens::YELLOW.to_hsla()),
+                h_flex()
+                    .flex_wrap()
+                    .gap_2()
+                    .items_center()
+                    .child(fix)
+                    .child(
+                        pill("add-repo-connected-refresh", cx)
+                            .icon(registry::UI_REFRESH)
+                            .label(copy::PICKER_CONNECTED_CHECK)
+                            .on_click(cx.listener(|this, _, _, cx| this.fetch(true, true, cx))),
+                    ),
             )
-            .child(div().flex_1().min_w_0().child(SharedString::from(message)))
-            .children(self.reconnect_pill("add-repo-reconnect", cx))
     }
 
     /// One pickable repo row. The name ellipsizes, so the whole definite-width
@@ -606,29 +637,12 @@ fn state_box(glyph: gpui::AnyElement, message: &'static str, cx: &gpui::App) -> 
 /// mints no tokens until it's unsuspended ON GITHUB. Explanation only — no
 /// button (FEED-42 ×4); the Repositories pane carries Manage. An account
 /// without a login reads "a connected account".
-fn suspended_notice(
-    installations: &[crate::github_connect::GithubInstallation],
-    cx: &gpui::App,
-) -> impl IntoElement {
-    let names = installations
-        .iter()
-        .filter(|inst| inst.suspended)
-        .map(|inst| {
-            inst.account_login
-                .clone()
-                .filter(|login| !login.is_empty())
-                .unwrap_or_else(|| copy::SUSPENDED_FALLBACK.to_string())
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
+fn suspended_notice(result: &GithubReposResult, cx: &gpui::App) -> impl IntoElement {
     banner(crate::controls::AlertVariant::Destructive, cx)
-        .child(Icon::new(registry::UI_GITHUB).xsmall().flex_shrink_0())
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .child(SharedString::from(copy::picker_suspended(&names))),
-        )
+        .child(Icon::new(registry::UI_WARNING).xsmall().flex_shrink_0())
+        .child(div().flex_1().min_w_0().child(SharedString::from(
+            copy::picker_suspended_banner(&result.suspended_picker_labels()),
+        )))
 }
 
 impl Render for AddRepositoryDialogView {
@@ -648,7 +662,7 @@ impl Render for AddRepositoryDialogView {
                         .icon(registry::UI_LOADING)
                         .small()
                         .into_any_element(),
-                    copy::LOADING_REPOS,
+                    copy::PICKER_LOADING,
                     cx,
                 ));
             }
@@ -664,57 +678,25 @@ impl Render for AddRepositoryDialogView {
                             .child(message.clone()),
                     );
             }
-            Load::Ready(result) if !result.configured => {
+            Load::Ready(result) if result.prerequisite() == Prerequisite::NotConfigured => {
                 body = body.child(state_box(github_glyph(), copy::PICKER_NOT_CONFIGURED, cx));
             }
-            Load::Ready(result) if !result.installed => {
-                body = body
-                    .child(state_box(github_glyph(), copy::PICKER_NOT_INSTALLED, cx))
-                    .child(
-                        h_flex()
-                            .flex_wrap()
-                            .gap_2()
-                            .items_center()
-                            .children(self.connect_url().map(|url| {
-                                Button::new("add-repo-connect")
-                                    .primary()
-                                    .cursor_pointer()
-                                    .web_sm()
-                                    .icon(registry::UI_GITHUB)
-                                    .label(copy::CONNECT_GITHUB)
-                                    .on_click(move |_, _, cx| open_url(cx, url.clone()))
-                            }))
-                            .child(
-                                pill("add-repo-connected-refresh", cx)
-                                    .icon(registry::UI_REFRESH)
-                                    .label(copy::I_HAVE_CONNECTED)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.fetch(true, true, cx)
-                                    })),
-                            ),
-                    );
+            Load::Ready(result) if result.prerequisite() != Prerequisite::Ready => {
+                body = body.child(self.prerequisite_block(result.prerequisite(), result, cx));
             }
             Load::Ready(result) => {
-                // Installed. The suspended and re-auth banners are
-                // INDEPENDENT (FEED-42): a suspended installation needs an
-                // UNSUSPEND on GitHub (a reconnect cannot fix it), an
-                // uncaptured grant snapshot on another account still needs
-                // the OAuth reconnect (EXP-557: STALE links excluded).
+                // Installed → the live, searchable list of push-able repos.
+                // A suspended installation lists nothing at all — say why,
+                // or the empty state reads as "you have no repositories"
+                // (REV2-29).
                 let any_suspended = result.installations.iter().any(|inst| inst.suspended);
-                let needs_reauth = result
-                    .installations
-                    .iter()
-                    .any(|inst| inst.needs_reconnect());
                 if any_suspended {
-                    body = body.child(suspended_notice(&result.installations, cx));
-                }
-                if needs_reauth {
-                    body = body.child(self.reconnect_banner(result, cx));
+                    body = body.child(suspended_notice(result, cx));
                 }
 
                 if result.repos.is_empty() {
-                    if !needs_reauth && !any_suspended {
-                        body = body.child(self.message(copy::NO_GRANTS, cx));
+                    if !any_suspended {
+                        body = body.child(self.message(copy::NONE_PUSHABLE, cx));
                     }
                 } else {
                     let filter = self.query.read(cx).value().trim().to_lowercase();
@@ -729,7 +711,7 @@ impl Render for AddRepositoryDialogView {
 
                     body = body.child(search_field(&self.query, SearchFieldSize::Sm, window, cx));
                     if visible.is_empty() {
-                        body = body.child(self.message(copy::NO_REPOS_FOUND, cx));
+                        body = body.child(self.message(copy::NO_MATCH, cx));
                     } else {
                         // Tap adds (FEED-42 ×4) — no select step, no check.
                         let mut list = v_flex()
@@ -774,9 +756,7 @@ impl Render for AddRepositoryDialogView {
         if let Some(error) = &self.error {
             body = body.child(error_notice(error.clone(), cx));
             if self.grant_reconnect {
-                body = body.child(
-                    h_flex().children(self.reconnect_pill("add-repo-grant-reconnect", cx)),
-                );
+                body = body.child(h_flex().child(self.reconnect_pill("add-repo-grant-reconnect", cx)));
             }
         }
 

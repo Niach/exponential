@@ -914,7 +914,10 @@ pub fn link_start_url(
     let base = normalize_instance_url(instance_url);
     let ticket = percent_encode(ticket);
     match provider {
-        "google" | "apple" => format!(
+        // The social providers go by `provider=`; SLOP-7 made GitHub one of
+        // them (the GitHub App's OAuth client), so connecting GitHub for
+        // repositories is this same link hop.
+        "google" | "apple" | "github" => format!(
             "{base}/api/mobile-oauth-start?link={ticket}&provider={provider}&code_challenge={code_challenge}"
         ),
         _ => format!(
@@ -1396,6 +1399,10 @@ mod tests {
         assert_eq!(
             link_start_url("https://x.test", "t.1", "apple", "chal"),
             "https://x.test/api/mobile-oauth-start?link=t.1&provider=apple&code_challenge=chal"
+        );
+        assert_eq!(
+            link_start_url("https://x.test", "t.1", "github", "chal"),
+            "https://x.test/api/mobile-oauth-start?link=t.1&provider=github&code_challenge=chal"
         );
         assert_eq!(
             link_start_url("https://x.test", "t.1", "my idp", "chal"),

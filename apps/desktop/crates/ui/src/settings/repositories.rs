@@ -1,34 +1,36 @@
-//! Settings → Repositories (masterplan-v3 §4.2 + §7.9).
+//! Settings → Repositories (masterplan-v3 §4.2 + §7.9, SLOP-7 one flow).
 //!
 //! Web parity: `components/team/repositories-section.tsx`. This pane
 //! shows the **live server truth** for GitHub connect state — never a local
 //! guess (the old native app falsely said "not connected"):
 //!
-//! - the GitHub-App install banner off `integrations.github.status`
-//!   (`{configured, installed, installUrl, accounts[]}`) — "Installed as
-//!   @acme" vs. the install nudge;
+//! - the VIEWER's own GitHub connection off `integrations.github.status`
+//!   (SLOP-7: not connected → Connect GitHub; connected as `login` with
+//!   Disconnect; an expired token → Reconnect), then the accounts where the
+//!   app is installed with a Configure link each and Install on another
+//!   account. Nothing is per team: the connection is the person's, the
+//!   repositories below are the team's;
 //! - the team's connected repos + their board links off
 //!   `repositories.list` (server-only tables — read via tRPC, never synced).
 //!
-//! The GitHub-App **install** is a browser hand-off: the buttons open the
-//! install/manage URL in the system browser through the robust opener chain
-//! (the App's install OAuth flow can't run in-process). EXP-329 gave the pane
-//! the two mutations the web card has had all along — "Add repository"
-//! (the [`super::add_repository_dialog`] picker over `repositories.add`) and
-//! the per-row remove — so connecting a repo no longer requires creating a
-//! board to hang it off. The shared status/repo fetches live in
+//! Connect/Reconnect = the in-app link hop ([`crate::github_connect::connect_github`]:
+//! a link ticket, the system browser, `exponential://oauth-return?linked=github`
+//! back); Install the app = GitHub's install page in the browser (the App's
+//! setup URL lands on the web page, which hands back through
+//! `exponential://github-connected`). EXP-329 gave the pane the two mutations
+//! the web card has had all along — "Add repository" (the
+//! [`super::add_repository_dialog`] picker over `repositories.add`) and the
+//! per-row remove. The shared status/repo fetches live in
 //! [`crate::github_connect`].
 //!
-//! A browser hand-off finishes OUTSIDE the app, so window activation is the
-//! refetch trigger: coming back re-reads the connect state without flashing
-//! the skeleton over a list that is already up.
+//! A browser hand-off finishes OUTSIDE the app, so the two deep links above
+//! are the definitive refetch triggers and window activation the fallback:
+//! coming back re-reads the connect state without flashing the skeleton over
+//! a list that is already up.
 //!
-//! EXP-557 per-user sharing: the pane is MEMBER-visible — the status line and
-//! the add dialog show the VIEWER's own GitHub connections/repos (the server
-//! scopes them), connecting a repo shares it with the team, and per-row
-//! management (remove, branch pin) is sharer-or-owner. STALE linked accounts
-//! (zero grants from anyone — no reconnect can ever refresh them) get a
-//! Disconnect affordance via `integrations.github.unlink`.
+//! EXP-557 per-user sharing: the pane is MEMBER-visible — connecting a repo
+//! shares it with the team, and per-row management (remove, branch pin) is
+//! sharer-or-owner.
 
 use std::collections::HashMap;
 
@@ -47,7 +49,7 @@ use serde::{Deserialize, Serialize};
 use sync::Store;
 
 use crate::controls::{search_field, SearchFieldSize};
-use crate::github_connect::{copy, fetch_github_status, GithubStatus};
+use crate::github_connect::{copy, fetch_github_status, GithubInstallation, GithubStatus, Prerequisite};
 use crate::native_dialog::{open_alert, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
@@ -254,6 +256,27 @@ impl RepositoriesPane {
                             Some(crate::github_connect::connect_error_message(&code).into());
                         cx.notify();
                     }
+                }
+            }),
+            // SLOP-25: the Connect/Reconnect GitHub hop ends on
+            // `exponential://oauth-return?linked=github` — refetch on success,
+            // the web's link-error line otherwise.
+            cx.observe_global::<crate::oauth::SignInLinkOutcome>(|this, cx| {
+                match crate::github_connect::github_link_outcome(cx) {
+                    Some(Ok(())) => {
+                        this.connect_error = None;
+                        if matches!(this.load, Load::Ready(_)) {
+                            this.refetch_stale(cx);
+                        } else {
+                            this.load = Load::Idle;
+                            cx.notify();
+                        }
+                    }
+                    Some(Err(message)) => {
+                        this.connect_error = Some(message);
+                        cx.notify();
+                    }
+                    None => {}
                 }
             }),
         ];
@@ -528,33 +551,17 @@ impl RepositoriesPane {
         open_alert(window, cx, spec);
     }
 
-    /// EXP-557: confirm + `integrations.github.unlink` → refetch. Offered on
-    /// STALE links only (zero grants from anyone — a reconnect can never
-    /// refresh them, so disconnecting is the one real fix). The server
-    /// enforces link-creator-or-owner and refuses (CONFLICT) while a
-    /// connected repo still rides the installation — both messages are
-    /// user-presentable and surface verbatim.
-    fn confirm_disconnect(
-        &mut self,
-        installation_id: i64,
-        label: String,
-        // FEED-31: the per-account row's ✕ reaches here too; a LIVE link gets
-        // honest copy (the server refuses while a connected repo still rides
-        // it) instead of the stale row's "nothing is lost".
-        stale: bool,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        let Some(team_id) = self.loaded_team.clone() else {
-            return;
-        };
+    /// SLOP-7: confirm + `integrations.github.disconnect` → refetch. Unlinks
+    /// the viewer's GitHub account; repositories already added keep working
+    /// (their tokens mint off the App installation). The server's refusal
+    /// (GitHub login on and no other way in) is user-presentable verbatim.
+    fn confirm_disconnect(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let view = cx.entity().downgrade();
-        let message = if stale {
-            copy::disconnect_stale_confirm(&label)
-        } else {
-            copy::disconnect_live_confirm(&label)
-        };
-        let spec = AlertSpec::new(copy::DISCONNECT_TITLE, message, copy::DISCONNECT)
+        let spec = AlertSpec::new(
+            copy::DISCONNECT_CONFIRM_TITLE,
+            copy::DISCONNECT_BODY,
+            copy::DISCONNECT,
+        )
         .on_ok(move |_, cx| {
             let Some(trpc) = queries::trpc_client(cx) else {
                 return true;
@@ -564,20 +571,13 @@ impl RepositoriesPane {
                 cx.notify();
             });
             let view = view.clone();
-            let team_id = team_id.clone();
-            let label = label.clone();
             cx.spawn(async move |cx| {
-                let unlink_team = team_id.clone();
                 let result = cx
                     .background_executor()
-                    .spawn(async move {
-                        crate::github_connect::github_unlink(&trpc, &unlink_team, installation_id)
-                    })
+                    .spawn(async move { crate::github_connect::github_disconnect(&trpc) })
                     .await;
                 if let Err(error) = &result {
-                    log::warn!(
-                        "[ui] integrations.github.unlink({installation_id}) failed: {error}"
-                    );
+                    log::warn!("[ui] integrations.github.disconnect failed: {error}");
                 }
                 let _ = view.update(cx, |this, cx| {
                     this.busy = false;
@@ -592,7 +592,7 @@ impl RepositoriesPane {
                                     SharedString::from(message.clone())
                                 }
                                 other => SharedString::from(format!(
-                                    "Could not disconnect {label}: {other}"
+                                    "Could not disconnect GitHub: {other}"
                                 )),
                             });
                         }
@@ -604,6 +604,14 @@ impl RepositoriesPane {
             true
         });
         open_alert(window, cx, spec);
+    }
+
+    /// Connect / Reconnect GitHub: the in-app link hop. The outcome lands as a
+    /// [`crate::oauth::SignInLinkOutcome`] the constructor observes.
+    fn connect_github(&mut self, cx: &mut gpui::Context<Self>) {
+        self.connect_error = None;
+        cx.notify();
+        crate::github_connect::connect_github(cx);
     }
 }
 
@@ -646,7 +654,7 @@ impl Render for RepositoriesPane {
                 div()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
-                    .child(copy::INTRO),
+                    .child(copy::SECTION_INTRO),
             );
 
         match &self.load {
@@ -733,12 +741,14 @@ impl Render for RepositoriesPane {
 }
 
 impl RepositoriesPane {
-    /// The GitHub connection block (FEED-42 canonical spec §A, ×4): ONE
+    /// The GitHub connection block (SLOP-7, web `GithubStatusLine`, ×4): ONE
     /// precedence-ordered state — failed (+ Retry), not configured, not
-    /// installed, suspended, or the installed per-account block with its
-    /// stale lines. Loading renders nothing (the caller only reaches here once
-    /// the fetch settled). Stale lines only ride the installed state: a
-    /// suspension outranks them (REV2-29) and a not-installed team has none.
+    /// linked (+ Connect GitHub), expired (+ Reconnect, ✕), or the linked
+    /// block: "Connected as login" with ✕ Disconnect, a suspended line
+    /// (REV2-29), then the accounts where the app is installed (one row per
+    /// account with a Configure link) and Install on another account — or,
+    /// with no installation, Install the app. Loading renders nothing (the
+    /// caller only reaches here once the fetch settled).
     fn github_status_line(
         &self,
         status: Option<&GithubStatus>,
@@ -769,259 +779,153 @@ impl RepositoriesPane {
                 )
                 .into_any_element();
         };
-        if !status.configured {
-            return line()
+
+        match status.prerequisite() {
+            Prerequisite::NotConfigured => line()
                 .child(Icon::new(registry::UI_GITHUB).xsmall().flex_shrink_0())
                 .child(copy::NOT_CONFIGURED)
-                .into_any_element();
-        }
-
-        if !status.installed {
-            // Primary = the OAuth hop (finds installations the viewer already
-            // controls; the callback sends a zero-installation user on to
-            // GitHub's install page itself). The secondary goes straight to
-            // the account picker — only when both URLs exist (FEED-31).
-            let connect_url = status
-                .connect_url
-                .clone()
-                .or_else(|| status.install_url.clone());
-            let install_secondary = status
-                .connect_url
-                .as_ref()
-                .and(status.install_url.clone());
-            return line()
+                .into_any_element(),
+            Prerequisite::NotLinked => line()
                 .child(Icon::new(registry::UI_GITHUB).xsmall().flex_shrink_0())
-                .child(div().flex_1().min_w_0().child(copy::NOT_INSTALLED))
-                .children(connect_url.map(|url| {
-                    pill("gh-connect", cx)
+                .child(div().flex_1().min_w_0().child(copy::NOT_LINKED))
+                .child(
+                    primary_pill("gh-connect")
                         .icon(registry::UI_GITHUB)
                         .label(copy::CONNECT_GITHUB)
-                        .on_click(move |_, _, cx| open_url(cx, url.clone()))
-                }))
-                .children(install_secondary.map(|url| {
-                    pill("gh-install-account", cx)
-                        .icon(registry::UI_ADD)
-                        .label(copy::INSTALL_ON_AN_ACCOUNT)
-                        .on_click(move |_, _, cx| open_url(cx, url.clone()))
-                }))
-                .into_any_element();
-        }
-
-        // Suspension outranks reconnect (REV2-29): a suspended installation
-        // mints no tokens and lists no repos, and a reconnect CANNOT fix it —
-        // only unsuspending on GitHub can. The WHOLE line reads destructive.
-        let suspended: Vec<&crate::github_connect::GithubInstallation> = status
-            .installations
-            .iter()
-            .filter(|inst| inst.suspended)
-            .collect();
-        if !suspended.is_empty() {
-            let names = suspended
-                .iter()
-                .map(|inst| inst.label())
-                .collect::<Vec<_>>()
-                .join(", ");
-            let manage_url = suspended
-                .first()
-                .map(|inst| inst.manage_url.clone())
-                .filter(|url| !url.is_empty())
-                .or_else(|| status.install_url.clone());
-            return line()
-                .text_color(cx.theme().danger)
-                .child(Icon::new(registry::UI_WARNING).xsmall().flex_shrink_0())
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .child(SharedString::from(copy::suspended_status(&names))),
+                        .disabled(self.busy)
+                        .on_click(cx.listener(|this, _, _, cx| this.connect_github(cx))),
                 )
-                .children(manage_url.map(|url| {
-                    pill("gh-unsuspend", cx)
-                        .label(copy::MANAGE)
-                        .child(external_glyph())
-                        .on_click(move |_, _, cx| open_url(cx, url.clone()))
-                }))
-                .into_any_element();
+                .into_any_element(),
+            Prerequisite::Expired => line()
+                .child(
+                    Icon::new(registry::UI_WARNING)
+                        .xsmall()
+                        .flex_shrink_0()
+                        .text_color(theme::tokens::YELLOW.to_hsla()),
+                )
+                .child(div().flex_1().min_w_0().child(copy::RECONNECT_NEEDED))
+                .child(
+                    primary_pill("gh-reconnect")
+                        .icon(registry::UI_REFRESH)
+                        .label(copy::RECONNECT)
+                        .disabled(self.busy)
+                        .on_click(cx.listener(|this, _, _, cx| this.connect_github(cx))),
+                )
+                .child(self.disconnect_button(cx))
+                .into_any_element(),
+            Prerequisite::NotInstalled | Prerequisite::Ready => {
+                self.linked_block(status, cx).into_any_element()
+            }
         }
-
-        let mut column = v_flex()
-            .w_full()
-            .gap_2()
-            .child(self.installed_accounts_block(status, cx));
-        for (index, inst) in status
-            .installations
-            .iter()
-            .enumerate()
-            .filter(|(_, inst)| inst.is_stale())
-        {
-            column = column.child(self.stale_account_line(index, inst, cx));
-        }
-        column.into_any_element()
     }
 
-    /// One stale linked account (EXP-557): name the dead link and offer the
-    /// only real fix — disconnecting it (confirmed). The server shows foreign
-    /// stale links to owners only; a member sees just their own.
-    fn stale_account_line(
-        &self,
-        index: usize,
-        inst: &crate::github_connect::GithubInstallation,
-        cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
-        let installation_id = inst.installation_id;
-        let label = inst.label();
-        let label_for_click = label.clone();
-        h_flex()
+    /// The ✕ that unlinks the viewer's GitHub account (confirmed).
+    fn disconnect_button(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        crate::controls::ghost_icon_button("gh-disconnect", Icon::new(registry::UI_CLOSE), cx)
+            .xsmall()
+            .tooltip(copy::DISCONNECT)
+            .disabled(self.busy)
+            .on_click(cx.listener(|this, _, window, cx| this.confirm_disconnect(window, cx)))
+    }
+
+    /// Linked (web `GithubStatusLine`, linked state): the live dot and
+    /// "Connected as login" with the ✕; a suspended line when GitHub
+    /// suspended the app for an account (REV2-29: unsuspend, never
+    /// reconnect); then the installed accounts — ONE ROW PER ACCOUNT (glyph,
+    /// login, Configure → that installation's GitHub settings page), the
+    /// caption and Install on another account — or, with none, the
+    /// not-installed line with Install the app.
+    fn linked_block(&self, status: &GithubStatus, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let muted = cx.theme().muted_foreground;
+        let connection = h_flex()
             .w_full()
-            .flex_wrap()
             .gap_2()
             .items_center()
             .text_xs()
-            .text_color(cx.theme().muted_foreground)
-            .child(
-                Icon::new(registry::UI_WARNING)
-                    .xsmall()
-                    .flex_shrink_0()
-                    .text_color(theme::tokens::YELLOW.to_hsla()),
-            )
+            .child(crate::surface::live_dot(theme::tokens::GREEN.to_hsla(), false))
             .child(
                 div()
                     .flex_1()
                     .min_w_0()
-                    .child(SharedString::from(copy::stale_line(&label))),
-            )
-            .child(
-                pill(("gh-disconnect-stale", index), cx)
-                    .label(copy::DISCONNECT_ACCOUNT)
-                    .disabled(self.busy)
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.confirm_disconnect(
-                            installation_id,
-                            label_for_click.clone(),
-                            true,
-                            window,
-                            cx,
-                        );
+                    .whitespace_nowrap()
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .text_color(muted)
+                    .child(SharedString::from(match status.login.as_deref() {
+                        Some(login) if !login.is_empty() => copy::connected_as(login),
+                        _ => copy::CONNECTED.to_string(),
                     })),
             )
-    }
+            .child(self.disconnect_button(cx));
 
-    /// FEED-31 (web `GithubStatusLine`, installed state): an installation is
-    /// per GitHub account/organization, so list ONE ROW PER ACCOUNT — icon,
-    /// login, a Configure link to that installation's GitHub settings page,
-    /// the always-visible unlink ✕ (confirmed) — then the helper sentence and
-    /// the two SEPARATE actions: "Connect another account" opens GitHub's
-    /// account picker (`install_url`, installations/new — the ONLY way to a
-    /// second org once one is linked) and "Refresh access" the OAuth re-auth
-    /// (`connect_url`, which re-links what the viewer already controls and
-    /// re-captures their grants). The needs-reauth nag keeps its own line
-    /// below the actions.
-    fn installed_accounts_block(
-        &self,
-        status: &GithubStatus,
-        cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
-        let muted = cx.theme().muted_foreground;
-        let needing_reauth: Vec<String> = status
-            .installations
-            .iter()
-            .filter(|inst| inst.needs_reconnect())
-            .map(|inst| inst.label())
-            .collect();
-        let connect_hop = status
-            .connect_url
-            .clone()
-            .or_else(|| status.install_url.clone());
+        let mut column = v_flex().w_full().gap_2().child(connection);
 
-        let header = h_flex()
-            .w_full()
-            .gap_2()
-            .items_center()
-            .text_xs()
-            .text_color(muted)
-            .child(if needing_reauth.is_empty() {
-                div()
-                    .size_2()
-                    .flex_shrink_0()
-                    .rounded_full()
-                    .bg(theme::tokens::GREEN.to_hsla())
-                    .into_any_element()
-            } else {
-                Icon::new(registry::UI_WARNING)
-                    .xsmall()
-                    .flex_shrink_0()
-                    .text_color(theme::tokens::YELLOW.to_hsla())
-                    .into_any_element()
-            })
-            .child(copy::ACCOUNTS_HEADER);
-
-        let mut rows = v_flex().w_full().gap_1().pl_5();
-        for (index, inst) in status.installations.iter().enumerate() {
-            let glyph = if inst.account_type.as_deref() == Some("Organization") {
-                registry::UI_ORGANIZATION
-            } else {
-                registry::UI_AVATAR_PLACEHOLDER
-            };
-            let label = inst.label();
-            let installation_id = inst.installation_id;
-            let label_for_click = label.clone();
-            let manage_url = Some(inst.manage_url.clone()).filter(|url| !url.is_empty());
-            rows = rows.child(
+        let suspended = status.suspended_labels();
+        if !suspended.is_empty() {
+            let manage_url = status
+                .installations
+                .iter()
+                .find(|inst| inst.suspended)
+                .map(|inst| inst.manage_url.clone())
+                .filter(|url| !url.is_empty())
+                .or_else(|| status.install_url.clone());
+            column = column.child(
                 h_flex()
                     .w_full()
+                    .flex_wrap()
                     .gap_2()
+                    .pl_5()
                     .items_center()
-                    .text_sm()
-                    .child(
-                        Icon::new(glyph)
-                            .xsmall()
-                            .flex_shrink_0()
-                            .text_color(muted),
-                    )
+                    .text_xs()
+                    .text_color(cx.theme().danger)
+                    .child(Icon::new(registry::UI_WARNING).xsmall().flex_shrink_0())
                     .child(
                         div()
                             .flex_1()
                             .min_w_0()
-                            .whitespace_nowrap()
-                            .overflow_hidden()
-                            .text_ellipsis()
-                            .text_color(cx.theme().foreground)
-                            .child(SharedString::from(label)),
+                            .child(SharedString::from(copy::suspended_line(&suspended))),
                     )
                     .children(manage_url.map(|url| {
-                        Button::new(("gh-configure", index))
-                            .link()
-                            .cursor_pointer()
-                            .xsmall()
-                            .label(copy::CONFIGURE)
+                        pill("gh-unsuspend", cx)
+                            .label(copy::MANAGE)
                             .child(external_glyph())
                             .on_click(move |_, _, cx| open_url(cx, url.clone()))
-                    }))
-                    .child(
-                        crate::controls::ghost_icon_button(
-                            ("gh-unlink", index),
-                            Icon::new(registry::UI_CLOSE),
-                            cx,
-                        )
-                        .xsmall()
-                        .disabled(self.busy)
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.confirm_disconnect(
-                                installation_id,
-                                label_for_click.clone(),
-                                false,
-                                window,
-                                cx,
-                            );
-                        })),
-                    ),
+                    })),
             );
         }
 
-        let mut column = v_flex()
-            .w_full()
-            .gap_2()
-            .child(header)
+        if status.installations.is_empty() {
+            return column.child(
+                h_flex()
+                    .w_full()
+                    .flex_wrap()
+                    .gap_2()
+                    .pl_5()
+                    .items_center()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(div().flex_1().min_w_0().child(copy::NOT_INSTALLED))
+                    .children(status.install_url.clone().map(|url| {
+                        primary_pill("gh-install")
+                            .icon(registry::UI_ADD)
+                            .label(copy::INSTALL_APP)
+                            .on_click(move |_, _, cx| open_url(cx, url.clone()))
+                    })),
+            );
+        }
+
+        let mut rows = v_flex().w_full().gap_1().pl_5();
+        for (index, inst) in status.installations.iter().enumerate() {
+            rows = rows.child(installation_row(index, inst, cx));
+        }
+        column = column
+            .child(
+                div()
+                    .pl_5()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(copy::ACCOUNTS_HEADER),
+            )
             .child(rows)
             .child(
                 div()
@@ -1030,58 +934,63 @@ impl RepositoriesPane {
                     .text_color(muted)
                     .child(copy::INSTALLATION_CAPTION),
             );
-
-        if status.install_url.is_some() || status.connect_url.is_some() {
+        if let Some(url) = status.install_url.clone() {
             column = column.child(
-                h_flex()
-                    .w_full()
-                    .flex_wrap()
-                    .gap_2()
-                    .pl_5()
-                    .items_center()
-                    .children(status.install_url.clone().map(|url| {
-                        pill("gh-connect-another", cx)
-                            .icon(registry::UI_ADD)
-                            .label(copy::CONNECT_ANOTHER_ACCOUNT)
-                            .on_click(move |_, _, cx| open_url(cx, url.clone()))
-                    }))
-                    .children(status.connect_url.clone().map(|url| {
-                        pill("gh-refresh-access", cx)
-                            .icon(registry::UI_REFRESH)
-                            .label(copy::REFRESH_ACCESS)
-                            .on_click(move |_, _, cx| open_url(cx, url.clone()))
-                    })),
+                h_flex().w_full().flex_wrap().gap_2().pl_5().items_center().child(
+                    pill("gh-install-another", cx)
+                        .icon(registry::UI_ADD)
+                        .label(copy::INSTALL_ANOTHER)
+                        .on_click(move |_, _, cx| open_url(cx, url.clone())),
+                ),
             );
         }
-
-        // A linked installation whose per-user repo grants were never
-        // captured lists no repos until the user re-runs the OAuth connect.
-        // STALE accounts are excluded (EXP-557): they get their own
-        // Disconnect line instead of this nag.
-        if !needing_reauth.is_empty() {
-            column = column.child(
-                h_flex()
-                    .w_full()
-                    .flex_wrap()
-                    .gap_2()
-                    .pl_5()
-                    .items_center()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(div().flex_1().min_w_0().child(SharedString::from(
-                        copy::reauth_status(&needing_reauth.join(", ")),
-                    )))
-                    .children(connect_hop.map(|url| {
-                        pill("gh-reconnect", cx)
-                            .icon(registry::UI_REFRESH)
-                            .label(copy::RECONNECT)
-                            .on_click(move |_, _, cx| open_url(cx, url.clone()))
-                    })),
-            );
-        }
-
         column
     }
+}
+
+/// One installed account: the organization/person glyph, the login, and the
+/// Configure link to that installation's GitHub settings page.
+fn installation_row(index: usize, inst: &GithubInstallation, cx: &gpui::App) -> impl IntoElement {
+    let muted = cx.theme().muted_foreground;
+    let glyph = if inst.is_organization() {
+        registry::UI_ORGANIZATION
+    } else {
+        registry::UI_AVATAR_PLACEHOLDER
+    };
+    let label = inst.label();
+    let manage_url = Some(inst.manage_url.clone()).filter(|url| !url.is_empty());
+    let configure_title = copy::configure_title(&label);
+    h_flex()
+        .w_full()
+        .gap_2()
+        .items_center()
+        .text_sm()
+        .child(Icon::new(glyph).xsmall().flex_shrink_0().text_color(muted))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .whitespace_nowrap()
+                .overflow_hidden()
+                .text_ellipsis()
+                .text_color(cx.theme().foreground)
+                .child(SharedString::from(label)),
+        )
+        .children(manage_url.map(|url| {
+            Button::new(("gh-configure", index))
+                .link()
+                .cursor_pointer()
+                .xsmall()
+                .label(copy::CONFIGURE)
+                .child(external_glyph())
+                .tooltip(SharedString::from(configure_title))
+                .on_click(move |_, _, cx| open_url(cx, url.clone()))
+        }))
+}
+
+/// The ONE primary action of a state (web `Pill mode="action" primary`).
+fn primary_pill(id: impl Into<gpui::ElementId>) -> Button {
+    crate::surface::glass_pill_button_primary(id, crate::surface::PillSize::Sm)
 }
 
 /// Every inline action of the connection block is an `sm action` pill
