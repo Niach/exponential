@@ -1,5 +1,8 @@
-- Runs: Workflows gibt es nicht mehr, ein Lauf plant und teilt seine Arbeit selbst auf und startet Folgeläufe von sich aus
-- Blockierte Issues: beim Starten fragt die App Cancel, Start anyway oder Stacked PR, das die ganze Reihe von Pull Requests von unten nach oben aufbaut
-- Mergen: Merge bei einem gestapelten Pull Request fragt nach Merge stack oder Merge this pull request
-- Arbeitsansicht: Auswahllisten, das Nutzungsblatt und das Dateiblatt öffnen sich beim ersten Tippen
-- Run-Tab: der Verlauf scrollt unter das Eingabefeld, sodass seine letzten Zeilen erreichbar bleiben
+- GitHub: eine geführte Seite verbindet dein GitHub-Konto, installiert die App und listet die Repositories, in die du pushen kannst
+- Feedback: eine Widget-Meldung ist ein Issue, antworte der meldenden Person aus dem Kommentarfeld, ihre Antworten kommen als Kommentare zurück
+- Neues Issue: das Anlegen öffnet eine ganze Seite mit allen Eigenschaften, die beim Tippen als Entwurf gespeichert wird
+- Navigation: Tabs Inbox, Devices, Reviews, Agent und Actions; Reviews, Läufe, Actions und Geräte zeigen alle deine Teams
+- Pull Requests: der Diff ist die Changes-Ansicht des Issues, Results liest sich als nummerierte Anleitung, Merge sitzt in der unteren Leiste
+- Runs: das Agent-Zeichen dreht sich, während er arbeitet, Gelb wartet auf dich, Grün hat einen offenen Pull Request, Blau ist fertig
+- Issue-Ansicht: der Titel klappt beim Scrollen in die Kopfzeile, der Inhalt gleitet unter einen unscharfen Rand
+- Team beitreten: die Einladung bietet den Schritt zur Geräteeinrichtung an, wenn du noch kein Gerät hast

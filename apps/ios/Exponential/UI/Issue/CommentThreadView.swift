@@ -820,13 +820,10 @@ private struct CommentCardContent: View {
         getCommentBodyText(comment.body)
     }
 
-    /// The caption after the time: `reporter` / `to reporter` (SLOP-4) /
-    /// `via MCP` (EXP-741), or none.
+    /// The caption after the time: `reporter`, then `to reporter` (SLOP-4),
+    /// then `via MCP` (EXP-741); every part that applies shows, or none.
     private var sourceCaption: String? {
-        if comment.isFromReporter { return ReporterReply.reporterCaption }
-        if comment.isToReporter { return ReporterReply.toReporterCaption }
-        if comment.isViaMcp { return "via MCP" }
-        return nil
+        ReporterReply.caption(source: comment.source, audience: comment.audience)
     }
 
     var body: some View {
@@ -1121,15 +1118,19 @@ private struct CommentCardContent: View {
 // MARK: - Shared helpers
 
 /// The name a comment card reads (SLOP-4, pinned ×4): a reporter's reply
-/// names the submission's reporter (else the anonymous visitor); a member
-/// row whose author is gone reads "Former member"; everyone else resolves
-/// through the shared member display rule (name, email, pseudonym).
+/// names the submission's reporter (else the anonymous visitor); a comment
+/// with no synced author row (left the team, deleted) reads "Former member";
+/// a synced author resolves through the shared member display rule.
 private func commentAuthorName(
     _ comment: CommentEntity, users: [String: UserEntity], reporterName: String?
 ) -> String {
-    if comment.isFromReporter { return ReporterReply.reporterName(reporterName) }
-    guard let authorId = comment.authorId else { return ReporterReply.formerMemberName }
-    return memberDisplayName(users[authorId], id: authorId)
+    let author = comment.authorId.flatMap { users[$0] }
+    if let override = ReporterReply.authorNameOverride(
+        source: comment.source, authorSynced: author != nil, reporterName: reporterName
+    ) {
+        return override
+    }
+    return memberDisplayName(author, id: comment.authorId)
 }
 
 // EXP-698 r4: the shared `UserAvatar` — a commenter's PICTURE when there is
@@ -1141,8 +1142,8 @@ private func commentAuthorName(
 private func commentAvatarView(
     _ comment: CommentEntity, users: [String: UserEntity], reporterName: String?, size: CGFloat
 ) -> some View {
-    if let authorId = comment.authorId, !comment.isFromReporter {
-        UserAvatar(user: users[authorId], id: authorId, size: size)
+    if let authorId = comment.authorId, let user = users[authorId], !comment.isFromReporter {
+        UserAvatar(user: user, id: authorId, size: size)
     } else {
         let name = commentAuthorName(comment, users: users, reporterName: reporterName)
         UserAvatar(image: nil, initials: memberInitials(forDisplayName: name), hueKey: name, size: size)

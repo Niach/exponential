@@ -231,6 +231,46 @@ describe(`fireAndForgetReporterReplyNotify push payload (SLOP-4)`, () => {
   })
 })
 
+describe(`fireAndForgetReporterReplyNotify member fallback (SLOP-4)`, () => {
+  beforeEach(() => {
+    h.selectQueue.length = 0
+    h.executeRows.length = 0
+    h.sendToUsers.mockClear()
+    mockedDb.select.mockClear()
+    mockedDb.execute.mockClear()
+  })
+
+  it(`reaches every team member when nobody follows the issue`, async () => {
+    h.selectQueue.push(
+      // loadIssueMeta: unassigned
+      [issueMeta],
+      [{ body: `Hello?` }],
+      [{ reporterName: `Ada` }],
+      // subscriberRecipients: no member subscribers
+      [],
+      // the team member fallback
+      [{ userId: `u1` }, { userId: `u2` }],
+      // deliverableRecipients
+      [{ id: `u1` }, { id: `u2` }]
+    )
+    h.executeRows.push(
+      { id: `n1`, user_id: `u1` },
+      { id: `n2`, user_id: `u2` }
+    )
+
+    fireAndForgetReporterReplyNotify({
+      issueId: issueMeta.id,
+      commentId: `c-1`,
+    })
+
+    await vi.waitFor(() => expect(h.sendToUsers).toHaveBeenCalledTimes(1))
+    expect((h.sendToUsers.mock.calls[0] as unknown[])[0]).toEqual([
+      { userId: `u1`, data: { notificationId: `n1` } },
+      { userId: `u2`, data: { notificationId: `n2` } },
+    ])
+  })
+})
+
 describe(`fireAndForgetAssignmentNotify self-filter (EXP-50 guarantee)`, () => {
   beforeEach(() => {
     h.selectQueue.length = 0

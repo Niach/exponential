@@ -1,5 +1,8 @@
-- Runs: arbeidsflyter er borte, en kjøring planlegger og deler opp arbeidet sitt selv og starter oppfølgingskjøringer på egen hånd
-- Blokkerte issues: når du starter et, får du valget Cancel, Start anyway eller Stacked PR, som bygger hele rekken av pull requests nedenfra og opp
-- Sammenslåing: Merge på en stablet pull request spør om Merge stack eller Merge this pull request
-- Arbeidsskjerm: velgere, bruksarket og filarket åpnes ved første trykk
-- Run-fanen: transkripsjonen ruller inn under skrivefeltet, så de siste linjene alltid kan nås
+- GitHub: én veiledet side kobler til GitHub-kontoen din, installerer appen og viser repositoriene du kan pushe til
+- Tilbakemelding: en innsending fra widgeten er et issue, svar innsenderen fra kommentarfeltet, og svarene kommer tilbake som kommentarer
+- Nytt issue: å opprette et issue åpner en hel side med alle egenskaper, lagret som utkast mens du skriver
+- Navigasjon: fanene Inbox, Devices, Reviews, Agent og Actions; Reviews, kjøringer, handlinger og enheter viser alle teamene dine
+- Pull requests: diffen er issuets Changes-visning, Results leses som en nummerert guide, Merge sitter i bunnlinjen
+- Runs: agentens merke snurrer mens den jobber, gul venter på deg, grønn har en åpen pull request, blå er ferdig
+- Issue-skjerm: tittelen trekkes inn i toppfeltet når du ruller, og innholdet glir under en uskarp kant
+- Bli med i et team: invitasjonen tilbyr trinnet for oppsett av enhet når du ennå ikke har en enhet

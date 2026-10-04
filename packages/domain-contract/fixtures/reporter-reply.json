@@ -1,5 +1,5 @@
 {
-  "_doc": "SLOP-4: a widget submission IS an issue; the conversation with its reporter is COMMENTS. One pinned spec x4 (web comment-composer + comment-rows/regular, desktop comments.rs + issue composer, iOS CommentThreadView, Android RegularCommentRow + CommentThread). (1) A comment with source `reporter` has author_id NULL: the card names the submission's reporter (`widgets.submissionForIssue` reporterName, else `anonymousName`) and carries the `reporterCaption` after the time, exactly where `via MCP` sits for source `mcp`; its avatar is the initials fallback of that name. A member comment with audience `reporter` carries `toReporterCaption` in the same slot (the words left the team). A comment whose author row is missing and whose source is not `reporter` reads `formerMemberName`. (2) The composer offers the `toggleLabel` pill in the EXISTING composer's leading row (the slot the helpdesk Reply/Note pills used: web `Composer leading`, desktop `GlassComposer::leading`, iOS/Android GlassComposer leading) ONLY on an issue whose submission has a reporter email; the pill is OFF by default, toggles per composer, and never shows on reply composers under a card (replies are team-only). While ON the field placeholder is `placeholderOn` with `{name}` = the reporter name (else `anonymousName`), and submit sends `comments.create({audience: 'reporter'})`. (3) The create result carries `reporterEmailed` (true | false | null): true toasts `sentToast`, false toasts `notSentToast` (the comment is saved and shows on the reporter page either way), null = a team comment, no toast. (4) The reporter page (`/support/$token`, web only) lists the issue's reporter-audience comments; a reporter reply on a completed issue reopens it (status backlog). Notification `reporter_reply` rows use `notificationLabel`.",
+  "_doc": "SLOP-4: a widget submission IS an issue; the conversation with its reporter is COMMENTS. One pinned spec x4 (web comment-composer + comment-rows/regular, desktop comments.rs + issue composer, iOS CommentThreadView, Android RegularCommentRow + CommentThread). (1) A comment with source `reporter` has author_id NULL: the card names the submission's reporter (`widgets.submissionForIssue` reporterName, else `anonymousName`) and carries the `reporterCaption` after the time, exactly where `via MCP` sits for source `mcp`; its avatar is the initials fallback of that name. A member comment with audience `reporter` carries `toReporterCaption` in the same slot (the words left the team); `captions` pins the order when several apply and `authorNames` the name rules. A comment whose author row is missing and whose source is not `reporter` reads `formerMemberName`. (2) The composer offers the `toggleLabel` pill in the EXISTING composer's leading row (the slot the helpdesk Reply/Note pills used: web `Composer leading`, desktop `GlassComposer::leading`, iOS/Android GlassComposer leading) ONLY on an issue whose submission has a reporter email; the pill is OFF by default, toggles per composer, and never shows on reply composers under a card (replies are team-only). While ON the field placeholder is `placeholderOn` with `{name}` = the reporter name (else `anonymousName`), and submit sends `comments.create({audience: 'reporter'})`. (3) The create result carries `reporterEmailed` (true | false | null): true toasts `sentToast`, false toasts `notSentToast` (the comment is saved and shows on the reporter page either way), null = a team comment, no toast. (4) The reporter page (`/support/$token`, web only) lists the issue's reporter-audience comments; a reporter reply on a completed issue reopens it (status backlog). Notification `reporter_reply` rows use `notificationLabel`.",
   "copy": {
     "toggleLabel": "Reply to reporter",
     "placeholderOn": "Reply to {name}… (emailed to them)",
@@ -10,5 +10,77 @@
     "sentToast": "Reply emailed to the reporter.",
     "notSentToast": "Reply saved. No email was sent: this server has no mail transport.",
     "notificationLabel": "Reporter replied"
+  },
+  "captions": {
+    "_doc": "The muted caption after the time. Parts in this ORDER: `reporterCaption` (source reporter), `toReporterCaption` (audience reporter on a non-reporter comment), `viaMcp` (source mcp); every part that applies shows, joined by `separator`; none = no caption. `copy` stays exactly nine keys; the caption-only strings live here.",
+    "viaMcp": "via MCP",
+    "separator": " · ",
+    "cases": [
+      {
+        "source": "user",
+        "audience": "team",
+        "caption": null
+      },
+      {
+        "source": "mcp",
+        "audience": "team",
+        "caption": "via MCP"
+      },
+      {
+        "source": "reporter",
+        "audience": "reporter",
+        "caption": "reporter"
+      },
+      {
+        "source": "user",
+        "audience": "reporter",
+        "caption": "to reporter"
+      },
+      {
+        "source": "mcp",
+        "audience": "reporter",
+        "caption": "to reporter · via MCP"
+      }
+    ]
+  },
+  "authorNames": {
+    "_doc": "The name a comment card carries. Source `reporter` (author_id NULL) = the submission's reporterName, else `anonymousName`. Any other source: a synced users row = that member's display name (`{author}` below); author_id set but no synced users row (left the team, deleted) = `formerMemberName`.",
+    "cases": [
+      {
+        "source": "reporter",
+        "authorId": null,
+        "authorSynced": false,
+        "reporterName": "Emma Fischer",
+        "name": "Emma Fischer"
+      },
+      {
+        "source": "reporter",
+        "authorId": null,
+        "authorSynced": false,
+        "reporterName": null,
+        "name": "Anonymous visitor"
+      },
+      {
+        "source": "user",
+        "authorId": "u1",
+        "authorSynced": true,
+        "reporterName": "Emma Fischer",
+        "name": "{author}"
+      },
+      {
+        "source": "user",
+        "authorId": "gone",
+        "authorSynced": false,
+        "reporterName": null,
+        "name": "Former member"
+      },
+      {
+        "source": "mcp",
+        "authorId": "gone",
+        "authorSynced": false,
+        "reporterName": null,
+        "name": "Former member"
+      }
+    ]
   }
 }

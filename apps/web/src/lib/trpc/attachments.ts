@@ -2,7 +2,7 @@ import { TRPCError } from "@trpc/server"
 import { z } from "zod"
 import { and, desc, eq, ilike, inArray, isNotNull, or } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { attachments, comments, issues } from "@/db/schema"
+import { attachments, comments, issueDrafts, issues } from "@/db/schema"
 import { assertTeamMember, assertTeamOwner } from "@/lib/team-membership"
 import {
   collectAttachmentStorageKeys,
@@ -96,7 +96,7 @@ export const attachmentsRouter = router({
       // board join): listForTeam shows trashed-board rows, and owners must be
       // able to reclaim them instead of dead-ending on "not found".
       const [membershipRow] = await ctx.db
-        .select({ teamId: attachments.teamId })
+        .select({ teamId: attachments.teamId, draftId: attachments.draftId })
         .from(attachments)
         .where(eq(attachments.id, input.id))
         .limit(1)
@@ -109,6 +109,27 @@ export const attachmentsRouter = router({
       }
 
       await assertTeamMember(ctx.session.user.id, membershipRow.teamId)
+
+      // EXP-878: a draft's attachment belongs to the draft's author alone,
+      // like the draft itself (`issueDrafts.listAttachments`).
+      if (membershipRow.draftId) {
+        const [draft] = await ctx.db
+          .select({ id: issueDrafts.id })
+          .from(issueDrafts)
+          .where(
+            and(
+              eq(issueDrafts.id, membershipRow.draftId),
+              eq(issueDrafts.userId, ctx.session.user.id)
+            )
+          )
+          .limit(1)
+        if (!draft) {
+          throw new TRPCError({
+            code: `NOT_FOUND`,
+            message: `Attachment not found`,
+          })
+        }
+      }
 
       const origin = ctx.request.url
 

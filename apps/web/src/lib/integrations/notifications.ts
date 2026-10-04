@@ -1032,7 +1032,7 @@ export async function notifySessionBlocked(
 /**
  * SLOP-4: the widget reporter of an issue answered through their magic-link
  * page (a comment with source `reporter`, audience `reporter`). ISSUE-scoped
- * like `issue_comment` — subscribers + the assignee get a `reporter_reply`
+ * like `issue_comment` — subscribers + the assignee (else every member) get a `reporter_reply`
  * row + push routed to the issue; there is no actor to exclude. The preview
  * is reporter-authored UNTRUSTED text, server-escaped GFM: it is written as
  * a plain string and the digest email escapes bodies, so no extra sanitizing
@@ -1064,6 +1064,16 @@ export function fireAndForgetReporterReplyNotify(args: {
         await subscriberRecipients(args.issueId, EMPTY_EXCLUSION)
       )
       if (issue.assigneeId) recipients.add(issue.assigneeId)
+      // Nobody follows the issue yet (a fresh unassigned widget issue, or a
+      // migrated helpdesk thread): fall back to every team member, the same
+      // set a new widget issue reaches, so the reply never lands in a void.
+      if (recipients.size === 0) {
+        const memberRows = await db
+          .select({ userId: teamMembers.userId })
+          .from(teamMembers)
+          .where(eq(teamMembers.teamId, issue.teamId))
+        for (const row of memberRows) recipients.add(row.userId)
+      }
       if (recipients.size === 0) return
 
       const previewSource = comment.body.trim()

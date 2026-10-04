@@ -195,33 +195,35 @@ pub(crate) struct CommentRowProps<'a> {
     pub emoji_open: bool,
 }
 
-/// Display name for a comment's author (row present or not). SLOP-4: a
-/// reporter's comment (no author) names the submission's reporter; any other
-/// author-less comment is a former member's; an author whose row has not
-/// synced keeps the `Member <LAST4>` fallback.
+/// Display name for a comment's author (web `comment-rows/format.ts`
+/// `authorLabel`). SLOP-4: a reporter's comment (no author) names the
+/// submission's reporter; any other comment with no synced author row (left
+/// the team, deleted) is a former member's.
 fn comment_author_name(comment: &Comment, author: Option<&User>, reporter_name: &str) -> String {
     if comment.is_from_reporter() {
         return reporter_name.to_string();
     }
-    match comment.author_id.as_deref() {
-        Some(id) => user_label(id, author),
+    match author {
+        Some(user) => author_label(Some(user)),
         None => domain::reporter_reply::FORMER_MEMBER_NAME.to_string(),
     }
 }
 
-/// The caption after the time (web `comment-rows/regular.tsx`): an agent's
-/// MCP post, a reporter's words, or a member's words that left the team.
-fn comment_caption(comment: &Comment) -> Option<&'static str> {
+/// The caption after the time (web `comment-rows/format.ts`
+/// `commentCaption`, fixture `captions`): `reporter` (a reporter's words),
+/// then `to reporter` (a member's words emailed out), then `via MCP` (an
+/// agent posted it). Every part that applies shows, joined by ` · `.
+fn comment_caption(comment: &Comment) -> Option<String> {
+    let mut parts: Vec<&str> = Vec::new();
     if comment.is_from_reporter() {
-        return Some(domain::reporter_reply::REPORTER_CAPTION);
-    }
-    if comment.is_to_reporter() {
-        return Some(domain::reporter_reply::TO_REPORTER_CAPTION);
+        parts.push(domain::reporter_reply::REPORTER_CAPTION);
+    } else if comment.is_to_reporter() {
+        parts.push(domain::reporter_reply::TO_REPORTER_CAPTION);
     }
     if comment.source.as_deref() == Some(domain::contract::COMMENT_SOURCE_MCP) {
-        return Some("via MCP");
+        parts.push("via MCP");
     }
-    None
+    (!parts.is_empty()).then(|| parts.join(" · "))
 }
 
 /// The avatar's hue key: the author id, or the reporter's NAME for a
@@ -257,7 +259,7 @@ fn comment_card_content(
     // reporter` on a member's words that were emailed out.
     if let Some(caption) = comment_caption(card.comment) {
         meta.push_str(" · ");
-        meta.push_str(caption);
+        meta.push_str(&caption);
     }
 
     // EXP-723: the name reads at the body size (`text_sm`, medium) with the
@@ -872,20 +874,25 @@ mod tests {
             comment_author_name(&reporter, None, domain::reporter_reply::ANONYMOUS_NAME),
             "Anonymous visitor"
         );
-        assert_eq!(comment_caption(&reporter), Some("reporter"));
+        assert_eq!(comment_caption(&reporter).as_deref(), Some("reporter"));
         // The avatar keys on the name — no user row exists.
         assert_eq!(avatar_key(&reporter, "Ada"), "Ada");
 
         let to_reporter = comment("user", "reporter", Some("u-1"));
-        assert_eq!(comment_caption(&to_reporter), Some("to reporter"));
+        assert_eq!(comment_caption(&to_reporter).as_deref(), Some("to reporter"));
         assert_eq!(avatar_key(&to_reporter, "Ada"), "u-1");
 
         let former = comment("user", "team", None);
         assert_eq!(comment_author_name(&former, None, "Ada"), "Former member");
         assert_eq!(comment_caption(&former), None);
+        // An author id with no synced row (left the team) reads the same.
+        let gone = comment("user", "team", Some("gone"));
+        assert_eq!(comment_author_name(&gone, None, "Ada"), "Former member");
 
         let mcp = comment("mcp", "team", Some("u-1"));
-        assert_eq!(comment_caption(&mcp), Some("via MCP"));
+        assert_eq!(comment_caption(&mcp).as_deref(), Some("via MCP"));
+        let mcp_out = comment("mcp", "reporter", Some("u-1"));
+        assert_eq!(comment_caption(&mcp_out).as_deref(), Some("to reporter · via MCP"));
         assert_eq!(comment_caption(&comment("user", "team", Some("u-1"))), None);
 
         // Missing/NULL audience hydrates as `team`.
@@ -895,6 +902,41 @@ mod tests {
         .unwrap();
         assert_eq!(legacy.audience, "team");
         assert!(!legacy.is_to_reporter());
+    }
+
+    /// `reporter-reply.json` `captions.cases` + `authorNames.cases`, read
+    /// straight from the fixture so a new case lands here too.
+    #[test]
+    fn captions_and_author_names_follow_the_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/reporter-reply.json"
+        ))
+        .unwrap();
+        for case in fixture["captions"]["cases"].as_array().unwrap() {
+            let comment: Comment = serde_json::from_value(json!({
+                "id": "c-1", "issue_id": "i-1", "source": case["source"],
+                "audience": case["audience"], "author_id": "u-1"
+            }))
+            .unwrap();
+            assert_eq!(
+                comment_caption(&comment).as_deref(),
+                case["caption"].as_str(),
+                "{case}"
+            );
+        }
+        let user: User = serde_json::from_value(json!({ "id": "u1", "name": "Ada" })).unwrap();
+        for case in fixture["authorNames"]["cases"].as_array().unwrap() {
+            let comment: Comment = serde_json::from_value(json!({
+                "id": "c-1", "issue_id": "i-1", "source": case["source"],
+                "audience": "team", "author_id": case["authorId"]
+            }))
+            .unwrap();
+            let author = case["authorSynced"].as_bool().unwrap().then_some(&user);
+            let reporter_name =
+                domain::reporter_reply::reporter_display_name(case["reporterName"].as_str());
+            let expected = case["name"].as_str().unwrap().replace("{author}", "Ada");
+            assert_eq!(comment_author_name(&comment, author, reporter_name), expected, "{case}");
+        }
     }
 
     #[test]

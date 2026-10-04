@@ -1,5 +1,8 @@
-- Runs: workflowy sú preč, beh si sám naplánuje a rozdelí prácu a sám spúšťa nadväzujúce behy
-- Blokované issues: pri spustení sa zobrazí voľba Cancel, Start anyway alebo Stacked PR, ktorá zostaví celý rad pull requestov zdola nahor
-- Zlučovanie: Merge pri nadväzujúcom pull requeste ponúkne Merge stack alebo Merge this pull request
-- Pracovná obrazovka: výbery, prehľad využitia a prehľad súborov sa otvoria hneď na prvé ťuknutie
-- Karta Run: prepis sa posúva pod editor správ, takže jeho posledné riadky zostanú dostupné
+- GitHub: jedna sprievodná stránka prepojí váš účet GitHub, nainštaluje aplikáciu a zobrazí repozitáre, do ktorých môžete pushovať
+- Spätná väzba: odoslanie z widgetu je issue, nahlasovateľovi odpoviete z editora komentárov a jeho odpovede sa vrátia ako komentáre
+- Nové issue: vytvorenie issue otvorí celú stránku so všetkými vlastnosťami, ktorá sa počas písania ukladá ako koncept
+- Navigácia: karty Inbox, Devices, Reviews, Agent a Actions; Reviews, behy, akcie a zariadenia zobrazujú všetky vaše tímy
+- Pull requesty: diff je pohľad Changes pri issue, Results sa číta ako očíslovaný sprievodca, Merge je na spodnej lište
+- Runs: značka agenta sa točí, keď pracuje, oranžová čaká na vás, zelená má otvorený pull request, modrá je hotovo
+- Obrazovka issue: pri posúvaní sa názov zbalí do hlavičky a obsah zachádza pod rozmazaný okraj
+- Pripojenie k tímu: pozvánka ponúkne krok nastavenia zariadenia, ak ešte žiadne zariadenie nemáte

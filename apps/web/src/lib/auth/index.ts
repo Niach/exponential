@@ -51,7 +51,15 @@ import { mintAppleClientSecret } from "./apple"
 import { githubOAuthClient } from "@/lib/integrations/github-app"
 import { withAuthDbFailureSignal } from "./db-failure-signal"
 import { askNameBeforeHook, fallbackUserName } from "./ask-name"
-import { emailChangeNotice, signInMethodsGuardPlugin } from "./sign-in-methods"
+import {
+  DISABLED_AUTH_PATHS,
+  emailChangeNotice,
+  signInMethodsGuardPlugin,
+} from "./sign-in-methods"
+import {
+  fetchGithubUserInfo,
+  refreshGithubAccessToken,
+} from "@/lib/integrations/github-user"
 import {
   resolveDesktopCardDismissal,
   resolveOnboardingCompletedAt,
@@ -156,6 +164,8 @@ if (
 const EMAIL_OTP_ALLOWED_ATTEMPTS = 5
 
 export const auth = betterAuth({
+  // The token endpoints are server-only (see DISABLED_AUTH_PATHS).
+  disabledPaths: DISABLED_AUTH_PATHS,
   database: withAuthDbFailureSignal(
     drizzleAdapter(db, {
       provider: `pg`,
@@ -316,6 +326,17 @@ export const auth = betterAuth({
             // A GitHub App ignores OAuth scopes (its permissions are fixed on
             // the App); the defaults (`read:user user:email`) only matter for
             // a classic OAuth App and are harmless here.
+            // Sign-up through GitHub follows the public-signup switch; the
+            // login itself is gated by GITHUB_LOGIN_ENABLED in the guard
+            // plugin (lib/auth/sign-in-methods.ts).
+            disableSignUp: isPasswordSignupDisabled(),
+            // Only a verified primary email may come through: `github` is a
+            // trusted provider, so Better Auth would link by any address.
+            getUserInfo: (token) => fetchGithubUserInfo(token),
+            // GitHub answers a used refresh token with HTTP 200 + `error`;
+            // this refresh throws on it instead of storing the dead token.
+            refreshAccessToken: (refreshToken) =>
+              refreshGithubAccessToken(refreshToken, githubOAuth),
           },
         }
       : {}),

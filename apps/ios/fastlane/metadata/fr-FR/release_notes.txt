@@ -1,5 +1,8 @@
-- Runs : les workflows disparaissent, une exécution planifie et découpe elle-même son travail et lance seule les exécutions de suivi
-- Issues bloquées : en démarrer une propose Cancel, Start anyway ou Stacked PR, qui construit toute la chaîne de pull requests de bas en haut
-- Fusion : Merge sur une pull request empilée propose Merge stack ou Merge this pull request
-- Écran de travail : les sélecteurs, la fiche d'utilisation et la fiche des fichiers s'ouvrent dès le premier appui
-- Onglet Run : la transcription défile sous la zone de saisie, ses dernières lignes restent donc accessibles
+- GitHub : une page guidée connecte votre compte GitHub, installe l'app et liste les dépôts sur lesquels vous pouvez pousser
+- Retours : un envoi du widget est une issue, répondez à l'auteur depuis la zone de commentaire et ses réponses reviennent en commentaires
+- Nouvelle issue : la création ouvre une page complète avec toutes les propriétés, enregistrée en brouillon pendant la saisie
+- Navigation : onglets Inbox, Devices, Reviews, Agent et Actions ; Reviews, exécutions, actions et appareils affichent toutes vos équipes
+- Pull requests : le diff est la vue Changes de l'issue, Results se lit comme un guide numéroté, Merge est dans la barre du bas
+- Runs : le symbole de l'agent tourne pendant qu'il travaille, ambre vous attend, vert a une pull request ouverte, bleu est terminé
+- Écran d'issue : le titre se replie dans l'en-tête au défilement et le contenu glisse sous un bord flouté
+- Rejoindre une équipe : l'invitation propose l'étape de configuration d'un appareil si vous n'en avez pas encore

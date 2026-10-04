@@ -329,6 +329,20 @@ export function normalizedWidgetFormToggles(
 // `description` are what pre-SLOP-4 cached bundles send — both land as the
 // same escaped reporter text (title derived from the first line when no
 // title came along).
+// issues.title is varchar(500), and escaping can double a title's length,
+// so the cap lands AFTER the escape (like titleFromReporterMessage). A cut
+// never leaves a dangling backslash in front of the ellipsis.
+const ISSUE_TITLE_MAX = 500
+
+function legacyReporterTitle(raw: string): string {
+  const escaped = escapeReporterText(raw)
+  if (escaped.length <= ISSUE_TITLE_MAX) return escaped
+  let cut = escaped.slice(0, ISSUE_TITLE_MAX - 1).trimEnd()
+  const trailing = cut.length - cut.replace(/\\+$/, ``).length
+  if (trailing % 2 === 1) cut = cut.slice(0, -1)
+  return `${cut}…`
+}
+
 const submitFieldsSchema = z.object({
   message: z.string().max(MAX_REPORTER_MESSAGE_CHARS).default(``),
   title: z.string().trim().max(500).default(``),
@@ -470,7 +484,7 @@ export async function createWidgetSubmission(args: {
     throw new WidgetRequestError(400, `Invalid submission fields`)
   }
   const title = fields.data.title
-    ? escapeReporterText(fields.data.title)
+    ? legacyReporterTitle(fields.data.title)
     : titleFromReporterMessage(reporterText)
 
   // The panel's required-email gate is advisory only — it vanishes when the

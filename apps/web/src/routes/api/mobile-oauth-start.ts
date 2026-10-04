@@ -9,6 +9,8 @@ import {
   stateCookieSecureAttribute,
 } from "@/lib/auth/mobile-oauth-code"
 import { redeemSignInLinkTicket } from "@/lib/auth/sign-in-link-ticket"
+import { buildAuthConfig } from "@/lib/auth/config"
+import { isRefusedSocialSignIn } from "@/lib/auth/sign-in-methods"
 
 // Custom Tabs only emit GETs, but Better Auth's /sign-in/oauth2 and
 // /sign-in/social are POST-only. Bridge: client opens this GET endpoint,
@@ -63,6 +65,20 @@ async function handle({ request }: { request: Request }) {
   const linkReturnURL = `${originForRequest(request)}/api/mobile-oauth-return?linked=${encodeURIComponent(requestedProvider)}`
   const linkFailure = (reason: string) =>
     Response.redirect(`${linkReturnURL}&error=${encodeURIComponent(reason)}`, 302)
+
+  // SLOP-7: the `github` provider exists for linking; signing IN with it
+  // needs GITHUB_LOGIN_ENABLED. The guard plugin refuses the POST as well;
+  // answering here keeps the refusal on the return route so the native auth
+  // sheet completes.
+  if (
+    linkTicket === null &&
+    isRefusedSocialSignIn({ provider: social }, buildAuthConfig())
+  ) {
+    return Response.redirect(
+      `${originForRequest(request)}/api/mobile-oauth-return?error=provider_disabled`,
+      302
+    )
+  }
 
   let linkHeaders: Headers | null = null
   if (linkTicket !== null) {

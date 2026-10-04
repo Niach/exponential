@@ -55,7 +55,11 @@ const state = {
   issueRows: [] as { id: string; description: string | null }[],
   commentRows: [] as { id: string; body: string }[],
   // EXP-878: draft descriptions are rewritten by the same helper.
-  draftRows: [] as { id: string; description: string | null }[],
+  draftRows: [] as {
+    id: string
+    description: string | null
+    userId?: string
+  }[],
   issueUpdates: [] as Record<string, unknown>[],
   commentUpdates: [] as Record<string, unknown>[],
   draftUpdates: [] as Record<string, unknown>[],
@@ -252,6 +256,26 @@ describe(`attachments.delete`, () => {
     expect(state.draftUpdates).toEqual([
       { description: `wip *(deleted image: alt)*` },
     ])
+  })
+
+  // A draft's attachment is its author's alone: another member must not be
+  // able to delete it by id. (The fake ignores predicates, so the draft
+  // lookup's rows stand in for "the draft is mine".)
+  it(`refuses a draft attachment unless the draft is the caller's`, async () => {
+    state.attachmentRows = [
+      imageRow({ issueId: null, boardId: null, draftId: `draft-1` }),
+    ]
+    state.draftRows = []
+
+    await expect(caller.delete({ id: ATT_A })).rejects.toMatchObject({
+      code: `NOT_FOUND`,
+    })
+    expect(state.deletedTables).toEqual([])
+    expect(h.deleteStorageObjects).not.toHaveBeenCalled()
+
+    state.draftRows = [{ id: `draft-1`, description: null, userId: `actor` }]
+    await caller.delete({ id: ATT_A })
+    expect(state.deletedTables).toEqual([`attachments`])
   })
 
   it(`leaves untouched bodies alone`, async () => {

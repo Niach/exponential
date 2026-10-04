@@ -1,0 +1,6 @@
+- GitHub: one guided page connects your account, installs the app and lists the repositories you can push to
+- Feedback: a widget submission is an issue; reply to the reporter from the composer, their answers come back as comments
+- New issue: a full page with every property, saved as a draft while you type
+- Navigation: Inbox, Devices, Reviews, Agent and Actions tabs; lists span every team you belong to
+- Pull requests: the diff is the issue's Changes tab, Results reads as a guide
+- Runs: the agent's mark spins while it works, amber waits on you, green has a pull request open

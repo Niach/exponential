@@ -407,6 +407,32 @@ describe(`sendNotificationDigestEmail over the SES transport (mocked)`, () => {
     expect(html).toContain(`a &amp; b &lt;img&gt;`)
   })
 
+  it(`mails the reporter's title as plain words, not escaped GFM`, async () => {
+    const email = await importEmail({ AWS_SES_REGION: `eu-central-1` })
+
+    await email.sendReporterResolutionEmail({
+      to: `reporter@example.com`,
+      issueTitle: `Checkout on example\\.com fails \\#2`,
+    })
+    expect(sesCallInput().Content.Simple.Body.Text.Data).toContain(
+      `"Checkout on example.com fails #2"`
+    )
+  })
+
+  it(`keeps the attacker-typed title out of the confirmation subject`, async () => {
+    const email = await importEmail({ AWS_SES_REGION: `eu-central-1` })
+
+    await email.sendReporterConfirmationEmail({
+      to: `reporter@example.com`,
+      teamName: `Acme`,
+      issueTitle: `Win at evil\\.example`,
+      conversationUrl: `https://app.example.com/support/t`,
+    })
+    const input = sesCallInput()
+    expect(input.Content.Simple.Subject.Data).toBe(`Acme: we got your report`)
+    expect(input.Content.Simple.Body.Text.Data).toContain(`"Win at evil.example"`)
+  })
+
   it(`keeps the reporter resolution email clean (no app links, no metadata)`, async () => {
     const email = await importEmail({ AWS_SES_REGION: `eu-central-1` })
 
@@ -416,7 +442,9 @@ describe(`sendNotificationDigestEmail over the SES transport (mocked)`, () => {
     })
 
     const input = sesCallInput()
-    expect(input.Content.Simple.Subject.Data).toContain(`Broken button`)
+    expect(input.Content.Simple.Subject.Data).toBe(
+      `Your report has been resolved`
+    )
     expect(input.Content.Simple.Body.Text.Data).toContain(`has been resolved`)
     // Clean template: no deep links into the team, no unsubscribe pref
     // link (reporters have no account), no metadata block.

@@ -57,14 +57,6 @@
                 <data android:scheme="exponential" android:host="invite" />
             </intent-filter>
 
-            <!-- support_reply push taps (EXP-180): the ticket conversation. -->
-            <intent-filter android:autoVerify="false">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="exponential" android:host="support" />
-            </intent-filter>
-
             <!-- agent_message push taps (EXP-801): the My Work inbox. The
                  foreground FcmService has always built this ACTION_VIEW
                  intent; without a filter for it the tap resolved to nothing

@@ -50,8 +50,13 @@ internal val DROPPED_WORKFLOW_TABLES = listOf("workflows", "workflow_nodes", "wo
  * SQLite cannot relax a NOT NULL constraint in place, so `comments` is REBUILT
  * exactly like v79 rebuilt `coding_sessions` (Room validates the table against
  * the entity after an explicit migration); `teams` takes the same route for
- * the dropped column. Every row survives, and so does every Electric offset —
- * the comments and teams shapes resume where they were.
+ * the dropped column. Every row survives. The teams offset survives too, but
+ * the comments shape is marked for the atomic refetch (the inline
+ * must-refetch recipe in [com.exponential.app.data.electric.ShapeClient]): an
+ * older build may already have synced the new comments shape and dropped
+ * every NULL-author reporter row it could not decode, and that handle never
+ * 409s, so only a fresh snapshot brings those rows back. The old rows stay
+ * visible until it lands.
  */
 val MIGRATION_79_80: Migration = object : Migration(79, 80) {
     override fun migrate(db: SupportSQLiteDatabase) {
@@ -61,6 +66,10 @@ val MIGRATION_79_80: Migration = object : Migration(79, 80) {
             selectOverrides = mapOf("audience" to "'team'"),
         )
         rebuild(db, "teams", TEAMS_V80, TEAM_COLUMNS_V80, emptyList())
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'comments'",
+        )
     }
 }
 

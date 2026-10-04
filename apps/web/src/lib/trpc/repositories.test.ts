@@ -10,9 +10,25 @@ vi.mock(`@/lib/integrations/github-app`, async (importOriginal) => {
   return {
     ...actual,
     resolveRepoInstallationToken: vi.fn(),
+    resolveRepoInstallationTokenInfo: vi.fn(),
     resolveRepoDefaultBranch: vi.fn(),
+    githubAppConfigured: vi.fn(() => true),
   }
 })
+
+// resolveGatedRepoToken flags a drifted row through the module-level db.
+const dbWrites = vi.hoisted(() => [] as Array<Record<string, unknown>>)
+vi.mock(`@/db/connection`, () => ({
+  db: {
+    update: () => ({
+      set: (values: Record<string, unknown>) => ({
+        where: async () => {
+          dbWrites.push(values)
+        },
+      }),
+    }),
+  },
+}))
 
 // The connect gate (SLOP-7: the caller's own GitHub token must see the repo
 // with push access, and the App must be installed on it) lives in the
@@ -40,13 +56,16 @@ import {
   effectiveBoardBranch,
   effectiveDefaultBranch,
   healRepoDefaultBranches,
+  installationDrifted,
   isForeignKeyViolation,
   issueBranchName,
   repoInUseMessage,
+  resolveGatedRepoToken,
 } from "@/lib/trpc/repositories"
 import {
   fetchBranchDiff,
   peekBranchDiff,
+  resolveRepoInstallationTokenInfo,
   type CompareFetch,
 } from "@/lib/integrations/github-app"
 import { resolveRepoForConnect } from "@/lib/trpc/integrations"
@@ -600,5 +619,40 @@ describe(`assertRepoManager (EXP-557)`, () => {
     await expect(
       assertRepoManager(`stranger`, { teamId: `ws1`, sharedByUserId: `stranger` })
     ).rejects.toThrow(/FORBIDDEN/)
+  })
+})
+
+describe(`installation drift (SLOP-7 review)`, () => {
+  const repo = { id: `r1`, teamId: `t1`, fullName: `acme/app`, installationId: 11 }
+  const mockResolve = vi.mocked(resolveRepoInstallationTokenInfo)
+
+  beforeEach(() => {
+    dbWrites.length = 0
+    mockResolve.mockReset()
+  })
+
+  it(`a different stored installation is drift; a NULL one heals`, () => {
+    expect(installationDrifted(11, 11)).toBe(false)
+    expect(installationDrifted(11, 22)).toBe(true)
+    expect(installationDrifted(null, 22)).toBe(false)
+  })
+
+  it(`resolveGatedRepoToken hands out the token of the stored installation`, async () => {
+    mockResolve.mockResolvedValue({ token: `tok`, expiresAt: 0, installationId: 11 })
+    expect(await resolveGatedRepoToken(repo)).toBe(`tok`)
+    expect(dbWrites).toEqual([])
+  })
+
+  it(`resolveGatedRepoToken refuses a drifted installation and flags the row`, async () => {
+    mockResolve.mockResolvedValue({ token: `foreign`, expiresAt: 0, installationId: 22 })
+    expect(await resolveGatedRepoToken(repo)).toBeNull()
+    expect(dbWrites).toHaveLength(1)
+    expect(dbWrites[0]!.inaccessibleAt).toBeInstanceOf(Date)
+  })
+
+  it(`resolveGatedRepoToken still serves a legacy NULL row`, async () => {
+    mockResolve.mockResolvedValue({ token: `tok`, expiresAt: 0, installationId: 22 })
+    expect(await resolveGatedRepoToken({ ...repo, installationId: null })).toBe(`tok`)
+    expect(dbWrites).toEqual([])
   })
 })

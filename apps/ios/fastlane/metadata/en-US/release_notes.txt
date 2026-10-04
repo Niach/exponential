@@ -1,5 +1,8 @@
-- Runs: workflows are gone, a run plans and splits its own work and starts follow-up runs by itself
-- Blocked issues: starting one asks Cancel, Start anyway or Stacked PR, which builds the whole line of pull requests bottom-up
-- Merging: Merge on a stacked pull request asks Merge stack or Merge this pull request
-- Work screen: pickers, the usage sheet and the file sheet open on the first tap
-- Run tab: the transcript scrolls under the composer, so its last lines stay reachable
+- GitHub: one guided page connects your GitHub account, installs the app and lists the repositories you can push to
+- Feedback: a widget submission is an issue; reply to the reporter from the comment composer and their answers come back as comments
+- New issue: creating an issue opens a full page with every property, saved as a draft while you type
+- Navigation: Inbox, Devices, Reviews, Agent and Actions tabs; Reviews, runs, actions and devices list every team you belong to
+- Pull requests: the diff is the issue's Changes face, Results reads as a numbered guide, Merge sits on the bottom bar
+- Runs: the agent's mark spins while it works, amber waits on you, green has a pull request open, blue is done
+- Issue screen: the title collapses into the header as you scroll and content slides under a blurred edge
+- Joining a team: the invite flow offers the device setup step when you own no device yet

@@ -577,6 +577,21 @@ describe(`createWidgetSubmission reporter text + confirmation (SLOP-4)`, () => {
     expect(issueInsert()?.values.description).toBe(`Clicking does nothing.`)
   })
 
+  it(`caps a legacy title AFTER escaping so it fits issues.title`, async () => {
+    const form = new FormData()
+    // 500 chars that escape to 1000.
+    form.set(`title`, `*`.repeat(500))
+    form.set(`description`, `Clicking does nothing.`)
+
+    await createWidgetSubmission({ config, formData: form, userAgent: null })
+
+    const title = issueInsert()?.values.title as string
+    expect(title.length).toBeLessThanOrEqual(500)
+    expect(title.endsWith(`…`)).toBe(true)
+    // Whole escapes only: no lone backslash before the ellipsis.
+    expect(title).toMatch(/^(\\\*)+…$/)
+  })
+
   it(`message wins over a legacy description when both arrive`, async () => {
     const form = new FormData()
     form.set(`message`, `the message`)

@@ -271,6 +271,9 @@ export function CommentComposer({
       }
       await onSubmit(text.trim(), ids, audience)
       setText(``)
+      // SLOP-4: every send drops back to a team comment, so an internal
+      // follow-up never mails the reporter (iOS and Android do the same).
+      setToReporter(false)
       for (const item of items) {
         if (item.previewUrl) URL.revokeObjectURL(item.previewUrl)
       }

@@ -350,7 +350,11 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
           baseBranch: pr.base?.ref ?? null,
         })
       }
-      await applySessionPrState({ prUrl: htmlUrl, state: `open` })
+      await applySessionPrState({
+        prUrl: htmlUrl,
+        state: `open`,
+        baseBranch: pr.base?.ref ?? null,
+      })
       return jsonResponse(200, { ok: true })
     }
 

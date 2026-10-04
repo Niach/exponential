@@ -1,5 +1,6 @@
 import { formatDistanceToNowStrict } from "date-fns"
 import type { Comment, User } from "@/db/schema"
+import fixture from "@exp/domain-contract/fixtures/reporter-reply.json"
 import { displayUserName } from "@/lib/user-display"
 import {
   REPORTER_REPLY_COPY,
@@ -29,14 +30,19 @@ export function authorLabel(
   return displayUserName(author, comment.authorId)
 }
 
-/** The muted caption after the time — exactly one of "via MCP" (an agent
- *  posted it), "reporter" (the widget reporter wrote it) or "to reporter" (a
- *  member's reply that was emailed out), else none. */
+/** The muted caption after the time (fixture `captions`): "reporter" (the
+ *  widget reporter wrote it), then "to reporter" (a reply that was emailed
+ *  out), then "via MCP" (an agent posted it). Every part that applies shows,
+ *  joined by the fixture separator; none = null. */
 export function commentCaption(
   comment: Pick<Comment, `source` | `audience`>
 ): string | null {
-  if (comment.source === `reporter`) return REPORTER_REPLY_COPY.reporterCaption
-  if (comment.source === `mcp`) return `via MCP`
-  if (comment.audience === `reporter`) return REPORTER_REPLY_COPY.toReporterCaption
-  return null
+  const parts: Array<string> = []
+  if (comment.source === `reporter`) {
+    parts.push(REPORTER_REPLY_COPY.reporterCaption)
+  } else if (comment.audience === `reporter`) {
+    parts.push(REPORTER_REPLY_COPY.toReporterCaption)
+  }
+  if (comment.source === `mcp`) parts.push(fixture.captions.viaMcp)
+  return parts.length ? parts.join(fixture.captions.separator) : null
 }

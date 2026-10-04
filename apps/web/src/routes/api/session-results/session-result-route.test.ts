@@ -11,7 +11,9 @@ const h = vi.hoisted(() => {
   const locked: { current: unknown[] } = { current: [] }
   const deletedRows: { current: Array<{ storageKey: string }> } = { current: [] }
   const select = vi.fn()
-  const insertValues = vi.fn(async () => undefined)
+  const insertValues = vi.fn()
+  // Rows the insert's RETURNING yields; empty = the id was already taken.
+  const insertedRows: { current: unknown[] | null } = { current: null }
   const deleteWhere = vi.fn()
   const updateSet = vi.fn()
   const transaction = vi.fn()
@@ -24,6 +26,7 @@ const h = vi.hoisted(() => {
     deletedRows,
     select,
     insertValues,
+    insertedRows,
     deleteWhere,
     updateSet,
     transaction,
@@ -49,7 +52,16 @@ function builder(rows: () => unknown[]) {
 vi.mock(`@/db/connection`, () => {
   const tx = {
     select: () => builder(() => h.locked.current),
-    insert: () => ({ values: h.insertValues }),
+    insert: () => ({
+      values: (values: { id: string }) => {
+        h.insertValues(values)
+        return {
+          onConflictDoNothing: () => ({
+            returning: async () => h.insertedRows.current ?? [{ id: values.id }],
+          }),
+        }
+      },
+    }),
     delete: () => ({
       where: (...args: unknown[]) => {
         h.deleteWhere(...args)
@@ -154,6 +166,7 @@ beforeEach(() => {
   h.unlocked.current = [{ id: SESSION, teamId: TEAM }]
   h.locked.current = [{ id: SESSION, results: null }]
   h.deletedRows.current = []
+  h.insertedRows.current = null
   h.prepareSessionImage.mockResolvedValue(prepared)
 })
 
@@ -262,6 +275,18 @@ describe(`POST /api/session-results/$token`, () => {
     expect(response.status).toBe(409)
     expect(h.insertValues).not.toHaveBeenCalled()
     expect(h.rollbackSessionImage).toHaveBeenCalledWith(prepared.storageKey)
+  })
+
+  // EXP-1172: two concurrent curls of one show line both pass the pre-check
+  // and put the same key; the loser must not delete the winner's object.
+  it(`409s a twin upload whose row lost the race and keeps the shared object`, async () => {
+    h.insertedRows.current = []
+    const response = await post(token())
+    expect(response.status).toBe(409)
+    expect(h.insertValues).toHaveBeenCalledTimes(1)
+    expect(h.updateSet).not.toHaveBeenCalled()
+    expect(h.rollbackSessionImage).not.toHaveBeenCalled()
+    expect(h.deleteObject).not.toHaveBeenCalled()
   })
 
   it(`surfaces a rejected file as its own status and stores nothing`, async () => {

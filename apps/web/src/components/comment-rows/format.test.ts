@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/reporter-reply.json"
-import type { User } from "@/db/schema"
+import type { Comment, User } from "@/db/schema"
 import { authorLabel, commentCaption } from "./format"
 
 // SLOP-4: the comment card's name and caption follow the pinned ×4 spec
@@ -37,14 +37,35 @@ describe(`authorLabel`, () => {
 })
 
 describe(`commentCaption`, () => {
-  it(`is exactly one of via MCP, reporter, to reporter, or none`, () => {
-    expect(commentCaption({ source: `user`, audience: `team` })).toBeNull()
-    expect(commentCaption({ source: `mcp`, audience: `team` })).toBe(`via MCP`)
-    expect(commentCaption({ source: `reporter`, audience: `reporter` })).toBe(
-      fixture.copy.reporterCaption
+  it(`follows every pinned caption case`, () => {
+    for (const c of fixture.captions.cases) {
+      expect(
+        commentCaption({
+          source: c.source as Comment[`source`],
+          audience: c.audience as Comment[`audience`],
+        })
+      ).toBe(c.caption)
+    }
+  })
+
+  it(`shows "to reporter" before "via MCP" when an agent replied to the reporter`, () => {
+    expect(commentCaption({ source: `mcp`, audience: `reporter` })).toBe(
+      `${fixture.copy.toReporterCaption}${fixture.captions.separator}${fixture.captions.viaMcp}`
     )
-    expect(commentCaption({ source: `user`, audience: `reporter` })).toBe(
-      fixture.copy.toReporterCaption
-    )
+  })
+})
+
+describe(`authorLabel cases`, () => {
+  it(`follows every pinned author name case`, () => {
+    for (const c of fixture.authorNames.cases) {
+      const author = c.authorSynced ? ada : undefined
+      expect(
+        authorLabel(
+          { authorId: c.authorId, source: c.source as Comment[`source`] },
+          author,
+          c.reporterName
+        )
+      ).toBe(c.name === `{author}` ? `Ada Lovelace` : c.name)
+    }
   })
 })

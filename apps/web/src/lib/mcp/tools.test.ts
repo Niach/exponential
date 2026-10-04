@@ -2573,6 +2573,67 @@ describe(`exponential_pr_open batch session parking`, () => {
 // ownership is re-checked per tool.
 const SESSION = `66666666-6666-4666-8666-666666666666`
 
+// SLOP-4: a reporter reply emails an outside address, so only a person's
+// full-access key may send one: never a confined OAuth grant, never an
+// unattended run. A person-started run keeps it.
+describe(`exponential_comments_create audience reporter`, () => {
+  const args = { issueId: UUID, body: `Fixed.`, audience: `reporter` }
+  const ownRun = (startedReason: string | null) => ({
+    id: SESSION,
+    teamId: `ws-1`,
+    status: `running`,
+    startedReason,
+    userId: `user-1`,
+    hostUserId: null,
+  })
+
+  it(`refuses a board-confined OAuth grant`, async () => {
+    const confined: McpAccess = {
+      full: false,
+      fullTeamIds: new Set(),
+      grantedBoardIds: new Set([`proj-1`]),
+      visibleTeamIds: new Set([`ws-1`]),
+    }
+    const result = await collectTools(USER, null, ALL_MCP_TOOL_GATES, confined)
+      .get(`exponential_comments_create`)!(args)
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`confined`)
+    expect(caller.comments.create).not.toHaveBeenCalled()
+  })
+
+  it.each([`schedule`, `event`, `agent`])(
+    `refuses an unattended run (%s)`,
+    async (startedReason) => {
+      dbRows.current = [ownRun(startedReason)]
+      const result = await collectTools(USER, SESSION).get(
+        `exponential_comments_create`
+      )!(args)
+      expect(result.isError).toBe(true)
+      expect(result.content[0].text).toContain(`unattended`)
+      expect(caller.comments.create).not.toHaveBeenCalled()
+    }
+  )
+
+  it(`keeps it for a person-started run, and a team comment for anyone`, async () => {
+    caller.comments.create.mockResolvedValue({
+      comment: { id: UUID },
+      reporterEmailed: true,
+    })
+    dbRows.current = [ownRun(null)]
+    const attended = await collectTools(USER, SESSION).get(
+      `exponential_comments_create`
+    )!(args)
+    expect(attended.isError).toBeFalsy()
+
+    dbRows.current = [ownRun(`schedule`)]
+    const team = await collectTools(USER, SESSION).get(
+      `exponential_comments_create`
+    )!({ issueId: UUID, body: `Note.` })
+    expect(team.isError).toBeFalsy()
+    expect(caller.comments.create).toHaveBeenCalledTimes(2)
+  })
+})
+
 describe(`exponential_sessions_end`, () => {
   // EXP-679: the tool only registers for an unattended run, so these cases
   // hand in the gate the route would have resolved for one.

@@ -1,5 +1,8 @@
-- Runs: työnkulut on poistettu, ajo suunnittelee ja jakaa työnsä itse ja käynnistää jatkoajot omin päin
-- Estetyt issuet: käynnistettäessä kysytään Cancel, Start anyway tai Stacked PR, joka rakentaa koko pull request -ketjun alhaalta ylös
-- Yhdistäminen: Merge pinotussa pull requestissa kysyy Merge stack tai Merge this pull request
-- Työnäkymä: valitsimet, käyttöpaneeli ja tiedostopaneeli aukeavat ensimmäisellä napautuksella
-- Run-välilehti: tekstikopio vierii kirjoituskentän alle, joten sen viimeiset rivit pysyvät ulottuvilla
+- GitHub: yksi opastettu sivu yhdistää GitHub-tilisi, asentaa sovelluksen ja listaa repositoriot, joihin voit pushata
+- Palaute: widgetin lähetys on issue, vastaa ilmoittajalle kommenttikentästä ja hänen vastauksensa palaavat kommentteina
+- Uusi issue: luominen avaa koko sivun kaikkine ominaisuuksineen, ja se tallentuu luonnoksena kirjoittaessasi
+- Navigointi: välilehdet Inbox, Devices, Reviews, Agent ja Actions; Reviews, ajot, toiminnot ja laitteet näyttävät kaikki tiimisi
+- Pull requestit: diff on issuen Changes-näkymä, Results luetaan numeroituna oppaana, Merge on alapalkissa
+- Runs: agentin merkki pyörii sen työskennellessä, oranssi odottaa sinua, vihreällä on avoin pull request, sininen on valmis
+- Issue-näkymä: otsikko painuu yläpalkkiin vierittäessä ja sisältö liukuu sumennetun reunan alle
+- Tiimiin liittyminen: kutsu tarjoaa laitteen määritysvaiheen, jos sinulla ei vielä ole laitetta

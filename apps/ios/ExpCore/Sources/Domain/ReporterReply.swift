@@ -23,6 +23,35 @@ public enum ReporterReply {
     public static let notSentToast = "Reply saved. No email was sent: this server has no mail transport."
     /// The `reporter_reply` inbox row.
     public static let notificationLabel = "Reporter replied"
+    /// The caption-only strings (fixture `captions`).
+    public static let viaMcpCaption = "via MCP"
+    public static let captionSeparator = " · "
+
+    /// The muted caption after a comment's time (fixture `captions`):
+    /// `reporter` (source reporter), then `to reporter` (audience reporter on
+    /// a non-reporter comment), then `via MCP` (source mcp). Every part that
+    /// applies shows; none = nil.
+    public static func caption(source: String?, audience: String?) -> String? {
+        var parts: [String] = []
+        if source == DomainContract.commentSourceReporter {
+            parts.append(reporterCaption)
+        } else if audience == DomainContract.commentAudienceReporter {
+            parts.append(toReporterCaption)
+        }
+        if source == DomainContract.commentSourceMcp { parts.append(viaMcpCaption) }
+        return parts.isEmpty ? nil : parts.joined(separator: captionSeparator)
+    }
+
+    /// The name a comment card carries when it is NOT the synced member's own
+    /// (fixture `authorNames`): a reporter comment names the reporter, a
+    /// comment with no synced author row reads `formerMemberName`. nil = the
+    /// author is synced, use the member display rule.
+    public static func authorNameOverride(
+        source: String?, authorSynced: Bool, reporterName: String?
+    ) -> String? {
+        if source == DomainContract.commentSourceReporter { return self.reporterName(reporterName) }
+        return authorSynced ? nil : formerMemberName
+    }
 
     /// `placeholderOn` with the reporter's name filled in.
     public static func placeholder(name: String?) -> String {

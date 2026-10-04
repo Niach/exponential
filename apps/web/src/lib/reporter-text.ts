@@ -36,6 +36,16 @@ export function escapeReporterText(text: string): string {
     .join(`\n`)
 }
 
+// The plain text back out of the escaped GFM, for places that are not
+// markdown (email copy). Every escape above is a backslash before ASCII
+// punctuation, so dropping that backslash undoes it; the stripped indent is
+// the only loss.
+const ESCAPED_PUNCTUATION = /\\([!-/:-@[-`{-~])/g
+
+export function unescapeReporterText(text: string): string {
+  return text.replace(ESCAPED_PUNCTUATION, `$1`)
+}
+
 export const REPORTER_TITLE_MAX = 120
 export const REPORTER_TITLE_FALLBACK: string = fixture.title.fallback
 
