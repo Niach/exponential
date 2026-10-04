@@ -43,8 +43,8 @@ const UiRefreshIcon = conceptIcon(`ui-refresh`)
  *  hugging its label (28px padding, a 20px glyph), carrying
  *  `SessionMergePill`'s confirm, stack choice and Fix-conflicts swap. It
  *  self-hides unless the PR is open. The Changes and Results faces put it in
- *  the bar's centred cluster; the Issue and Run faces float it above their
- *  composer bar (`MobileMergeFloat`). */
+ *  the bar's centred cluster; the Issue and Run faces'
+ *  composer bars get the Merge circle instead (`MobileMergeCircle`). */
 export function MergeCapsule(props: {
   issueId?: string
   sessionId?: string

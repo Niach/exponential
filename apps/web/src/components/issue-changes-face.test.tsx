@@ -2,20 +2,13 @@ import { fireEvent, render, screen } from "@testing-library/react"
 import { useState, type ReactNode } from "react"
 import { describe, expect, it, vi } from "vitest"
 import { fromPullFile, type DiffFile } from "@exp/domain-contract/diff"
-import {
-  MOBILE_MERGE_FLOAT_CLEARANCE,
-  MOBILE_WORK_BAR_CLEARANCE,
-} from "@exp/ui"
 import type { Board, Issue } from "@/db/schema"
 import {
   IssueChangesBody,
   IssueChangesFace,
   MergeCapsule,
 } from "@/components/issue-changes-face"
-import {
-  MobileMergeFloat,
-  mobileFaceClearance,
-} from "@/components/mobile-merge-float"
+import { MobileMergeCircle } from "@/components/mobile-merge-circle"
 import type { ReviewFilesState } from "@/hooks/use-review-files"
 
 // EXP-952: the route fetches the files and hands the state down; the test
@@ -33,6 +26,16 @@ vi.mock(`@/components/agent-session`, () => ({
 // The merge control's own behaviour (confirm, stack choice, Fix conflicts) is
 // `SessionMergePill`'s; the capsule only dresses it.
 vi.mock(`@/components/session-merge-button`, () => ({
+  SessionMergeButton: ({
+    as,
+    prState,
+  }: {
+    as?: string
+    prState: string | null
+  }) =>
+    prState === `open` ? (
+      <button type="button" data-testid="merge-button" data-as={as} />
+    ) : null,
   SessionMergePill: ({
     label,
     className,
@@ -226,25 +229,15 @@ describe(`IssueChangesBody`, () => {
   })
 })
 
-describe(`MobileMergeFloat`, () => {
-  it(`floats the capsule above the bar while the PR is open`, () => {
-    const { rerender } = render(<MobileMergeFloat {...MERGE} />)
-    const float = screen.getByTestId(`mobile-merge-float`)
-    expect(float.style.bottom).toContain(`safe-area-inset-bottom`)
-    expect(float.querySelector(`[data-testid="merge-pill"]`)).not.toBeNull()
-    rerender(<MobileMergeFloat {...MERGE} hidden />)
-    expect(screen.queryByTestId(`mobile-merge-float`)).toBeNull()
-    rerender(<MobileMergeFloat {...MERGE} prState="merged" />)
-    expect(screen.queryByTestId(`mobile-merge-float`)).toBeNull()
-  })
-})
-
-// EXP-1154: a face scroller under the bar reserves the float's 52px + 10px
-// gap on top of the bar's clearance while the float is mounted.
-describe(`mobileFaceClearance`, () => {
-  it(`switches to the float clearance only while the float shows`, () => {
-    expect(mobileFaceClearance(false)).toBe(MOBILE_WORK_BAR_CLEARANCE)
-    expect(mobileFaceClearance(true)).toBe(MOBILE_MERGE_FLOAT_CLEARANCE)
-    expect(MOBILE_MERGE_FLOAT_CLEARANCE).toContain(`62px`)
+// EXP-1191: the Issue / Run bars' merge is the bar's own glass circle — the
+// merge glyph alone, the full merge flow, gone unless the PR is open.
+describe(`MobileMergeCircle`, () => {
+  it(`renders the icon-only circle while the PR is open`, () => {
+    const { rerender } = render(<MobileMergeCircle {...MERGE} />)
+    const circle = screen.getByTestId(`merge-button`)
+    expect(circle.getAttribute(`data-as`)).toBe(`fab`)
+    expect(circle.textContent).toBe(``)
+    rerender(<MobileMergeCircle {...MERGE} prState="merged" />)
+    expect(screen.queryByTestId(`merge-button`)).toBeNull()
   })
 })

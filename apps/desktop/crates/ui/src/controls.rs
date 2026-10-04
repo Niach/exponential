@@ -18,7 +18,7 @@ use gpui::{
     anchored, bounce, deferred, div, point, prelude::FluentBuilder as _, px, Anchor, Animation,
     AnimationExt as _, AnyElement, App, Div, ElementId, Entity, Focusable as _, FontWeight,
     InteractiveElement as _, IntoElement, ParentElement as _, Pixels, SharedString, Stateful,
-    Styled, Window,
+    StatefulInteractiveElement as _, Styled, Window,
 };
 use gpui_component::{
     input::{Input, InputState, TextareaState},
@@ -445,6 +445,69 @@ pub(crate) fn ghost_icon_button(
         .rounded(px(t::radius::MD))
         .cursor_pointer()
         .icon(icon)
+}
+
+/// EXP-1191 — the jump-to-bottom button's box and glyph (px), the spec all
+/// four clients share: a 32px circle, a 16px `ui-arrow-down`.
+pub(crate) const JUMP_TO_BOTTOM_SIZE: f32 = 32.;
+const JUMP_TO_BOTTOM_GLYPH: f32 = 16.;
+/// Its gap to the top edge of whatever sits under the scroller (the composer
+/// card on the run view).
+pub(crate) const JUMP_TO_BOTTOM_GAP: f32 = 12.;
+pub(crate) const JUMP_TO_BOTTOM_LABEL: &str = "Jump to bottom";
+
+/// EXP-1191 — the ONE jump-to-bottom button (web `JumpToBottomButton`, iOS
+/// `JumpToBottomButton`, Android twin): a 32px round icon-only button on the
+/// ELEVATED surface (`theme.popover`, opaque — it floats over the text it
+/// covers), a hairline stroke, a barely-there shadow, the `ui-arrow-down`
+/// glyph at 70% foreground. Tooltip "Jump to bottom". It fades in with the
+/// FAST motion token each time it mounts (gpui drops a keyed animation's
+/// state when the element leaves the tree, so a re-show replays the fade).
+///
+/// Positioning is the CALLER's (absolute, centred over its scroller,
+/// [`JUMP_TO_BOTTOM_GAP`] above the bottom chrome), as is `on_click`: scroll
+/// to the newest row and re-arm tail follow. A plain element rather than a
+/// `Button`: a custom button variant paints its fill at a fifth of the
+/// handed-in alpha, and this surface must be opaque.
+pub(crate) fn jump_to_bottom_button(
+    id: impl Into<ElementId>,
+    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+    cx: &App,
+) -> AnyElement {
+    let colors = cx.theme();
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .justify_center()
+        .size(px(JUMP_TO_BOTTOM_SIZE))
+        .rounded_full()
+        .bg(colors.popover)
+        .border_1()
+        .border_color(t::glass::STROKE_CARD.to_hsla())
+        .hover(|style| style.border_color(t::glass::STROKE_STRONG.to_hsla()))
+        .shadow(vec![gpui::BoxShadow {
+            color: gpui::black().opacity(0.12),
+            offset: point(px(0.), px(1.)),
+            blur_radius: px(4.),
+            spread_radius: px(0.),
+            inset: false,
+        }])
+        .cursor_pointer()
+        .text_color(colors.foreground.opacity(0.7))
+        .child(
+            Icon::from(crate::icons::registry::UI_ARROW_DOWN).size(px(JUMP_TO_BOTTOM_GLYPH)),
+        )
+        .tooltip(|window, cx| {
+            gpui_component::tooltip::Tooltip::new(JUMP_TO_BOTTOM_LABEL).build(window, cx)
+        })
+        .on_click(on_click)
+        .with_animation(
+            "jump-to-bottom-fade",
+            Animation::new(theme::motion::FAST).with_easing(theme::motion::standard()),
+            |button, delta| button.opacity(delta),
+        )
+        .into_any_element()
 }
 
 /// The size of a back glyph on every client (EXP-862): 16px, the `icon-sm`

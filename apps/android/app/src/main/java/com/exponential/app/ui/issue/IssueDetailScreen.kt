@@ -73,7 +73,6 @@ import com.exponential.app.ui.components.toPickerMember
 import com.exponential.app.ui.components.toPickerRow
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.FloatingBarEdge
-import com.exponential.app.ui.work.MergeCapsuleAboveBarHeight
 import com.exponential.app.ui.components.detailHazeSource
 import com.exponential.app.ui.work.LocalTitleCollapse
 import com.exponential.app.ui.work.reportsTitleRow
@@ -258,9 +257,9 @@ fun IssueFace(
     onOpenChanges: () -> Unit,
     /** The bar's right circle — the host's Start play, else empty. */
     trailingBarSlot: @Composable () -> Unit,
-    /** EXP-1154: floats centred directly ABOVE the bar (the white Merge PR),
-     *  riding the keyboard with it; hidden while the composer is expanded. */
-    aboveBar: (@Composable () -> Unit)? = null,
+    /** EXP-1191: the bar's Merge circle, directly right of the Comment
+     *  capsule; hidden with the other circles while the composer is expanded. */
+    mergeBarSlot: (@Composable () -> Unit)? = null,
     /** EXP-1097: the Sub-issues `+` — the create screen with this issue as
      *  the parent. Null hides it (and the empty "Add sub-issues" band). */
     onAddSubIssue: (() -> Unit)? = null,
@@ -809,10 +808,7 @@ fun IssueFace(
                 // floating bar (kept in sync with the nav pill inset, EXP-36),
                 // plus the navigation bar the column now runs under.
                 Spacer(
-                    Modifier.height(
-                        BottomBarInset + bottomInset +
-                            (if (aboveBar != null) MergeCapsuleAboveBarHeight else 0.dp),
-                    ),
+                    Modifier.height(BottomBarInset + bottomInset),
                 )
             }
 
@@ -840,8 +836,6 @@ fun IssueFace(
                     exit = fadeOut(Motion.standard()),
                 ) {
                   Column {
-                    // EXP-1154: the white Merge PR, centred over the bar.
-                    if (aboveBar != null && !composerExpanded) aboveBar()
                     IssueDetailBottomBar(
                         expanded = composerExpanded,
                         onExpandedChange = {
@@ -857,6 +851,7 @@ fun IssueFace(
                         showProperties = isModerator,
                         onOpenProperties = { controller.propertiesOpen = true },
                         trailing = trailingBarSlot,
+                        merge = mergeBarSlot,
                         draft = commentDraft,
                         onDraftChange = commentViewModel::updateDraft,
                         sending = commentSending,

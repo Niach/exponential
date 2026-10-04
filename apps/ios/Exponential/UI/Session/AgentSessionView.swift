@@ -72,10 +72,10 @@ struct AgentSessionView: View {
     /// bar's only trailing circle.
     var startReadiness: CodingReadiness.Readiness? = nil
     var onStartCoding: () -> Void = {}
-    /// EXP-1154: the Work screen's white Merge PR capsule, floating centred
-    /// just ABOVE the folded composer bar (riding the keyboard with it);
-    /// gone while the composer is open. nil = none.
-    var mergeAccessory: AnyView? = nil
+    /// EXP-1191: the Work screen's Merge PR circle (`WorkMergePill`, circle
+    /// style), right of the folded composer capsule and before the Start
+    /// circle; gone with the folded bar while the composer is open. nil = none.
+    var mergeCircle: AnyView? = nil
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.openURL) private var openURL
@@ -668,7 +668,8 @@ struct AgentSessionView: View {
 
     /// Bottom-anchored feed (a short feed sits above the input bar, not at the
     /// top of the screen) with follow-scroll: pinned to the bottom until the
-    /// user scrolls up, then a "Jump to bottom ↓" pill re-pins.
+    /// user scrolls up, then the round "Jump to bottom" button
+    /// (`JumpToBottomButton`, EXP-1191) re-pins.
     ///
     /// Follow state is derived from scroll GEOMETRY and the pin is an explicit
     /// scrollTo — NOT from onAppear/onDisappear of a lazy sentinel and NOT
@@ -826,33 +827,35 @@ struct AgentSessionView: View {
                     proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
                 }
                 .overlay(alignment: .bottom) {
-                    if !atBottom {
-                        // Opaque: the feed scrolls beneath this pill
-                        // (EXP-165 Android parity, EXP-242).
-                        GlassPill(
-                            "Jump to bottom ↓",
-                            size: .md,
-                            mode: .select(isSelected: true) {
+                    // EXP-1191: the shared 32pt round jump button, centred
+                    // 12pt above the bottom band's top edge (the overlay
+                    // sits inside the band's safe-area inset). Only while
+                    // scrolled away from the newest row of a non-empty feed.
+                    ZStack {
+                        if !atBottom, !model.feed.isEmpty {
+                            JumpToBottomButton {
                                 // Re-arm follow directly (Android parity: the
-                                // pill tap sets follow=true) instead of waiting
+                                // tap sets follow=true) instead of waiting
                                 // for the scroll geometry to flip atBottom —
                                 // while the agent streams, the animated
                                 // scrollTo targets the bottom as of the tap,
                                 // the content keeps growing underneath it, and
                                 // the animation lands short of the moving max
-                                // offset, so the pill never vanished
-                                // (EXP-306). With atBottom set here the pill
+                                // offset, so the button never vanished
+                                // (EXP-306). With atBottom set here the button
                                 // hides at once and the growth observer keeps
                                 // chasing the bottom.
                                 atBottom = true
                                 withAnimation {
                                     proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
                                 }
-                            },
-                            isOpaque: true
-                        )
-                        .padding(.bottom, 8)
+                            }
+                            .jumpToBottomTransition(motion)
+                            .padding(.bottom, JumpToBottomButton.bottomGap)
+                            .accessibilityIdentifier("agent-jump-to-bottom")
+                        }
                     }
+                    .animation(motion.standard, value: atBottom)
                 }
             }
         }
@@ -1374,28 +1377,15 @@ struct AgentSessionView: View {
     @ViewBuilder
     private func bottomBar(_ model: AgentSessionModel) -> some View {
         if bandRetired(model) {
-            // EXP-1150: the trailing circle alone, or no bar — the faces are
-            // the screen's tab strip.
-            if startReadiness != nil {
-                VStack(spacing: WorkBarAccessory.gap) {
-                    if let mergeAccessory { mergeAccessory }
-                    FloatingBottomBar {
-                        EmptyView()
-                    } center: {
-                        EmptyView()
-                    } trailing: {
-                        runTrailingCircle(model)
-                    }
-                }
-            } else if let mergeAccessory {
-                // EXP-1154: no bar left to float over: the capsule sits in
-                // the bar's own place, centred.
-                FloatingBarCluster {
+            // EXP-1150: the trailing circles alone (EXP-1191: Merge, then
+            // Start), or no bar — the faces are the screen's tab strip.
+            if startReadiness != nil || mergeCircle != nil {
+                FloatingBottomBar {
                     EmptyView()
                 } center: {
-                    mergeAccessory
-                } trailing: {
                     EmptyView()
+                } trailing: {
+                    runTrailingCircle(model)
                 }
             }
         } else {
@@ -1413,10 +1403,7 @@ struct AgentSessionView: View {
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
                 } else {
-                    VStack(spacing: WorkBarAccessory.gap) {
-                        if let mergeAccessory { mergeAccessory }
-                        collapsedComposerBar(model)
-                    }
+                    collapsedComposerBar(model)
                 }
             }
             .animation(motion.standard, value: composerExpanded)
@@ -1464,8 +1451,7 @@ struct AgentSessionView: View {
     /// EXP-893: the folded composer on the shared bar — the usage ring on the
     /// left (the Usage sheet), the capsule wearing the placeholder the open
     /// field would, and (EXP-1150) the Start circle once the run ended for
-    /// good, else nothing (EXP-1154: Merge PR floats above the bar,
-    /// `mergeAccessory`). The separate
+    /// good, after (EXP-1191) the Merge PR circle while a PR can merge. The separate
     /// interrupt circle is gone: Stop stays the expanded composer's own glyph.
     private func collapsedComposerBar(_ model: AgentSessionModel) -> some View {
         FloatingBottomBar {
@@ -1484,11 +1470,12 @@ struct AgentSessionView: View {
         }
     }
 
-    /// EXP-1150: the Run bar's ONE trailing circle — Start coding once the
-    /// shown run ended for good, else nothing. Merge PR floats above the bar
-    /// (`mergeAccessory`, the Work screen's `WorkMergePill`).
+    /// EXP-1150: the Run bar's trailing circles — EXP-1191: the Merge PR
+    /// circle (`mergeCircle`, the Work screen's `WorkMergePill`) while a PR
+    /// can merge, then Start coding once the shown run ended for good.
     @ViewBuilder
     private func runTrailingCircle(_ model: AgentSessionModel) -> some View {
+        if let mergeCircle { mergeCircle }
         if let startReadiness {
             StartCodingCircle(readiness: startReadiness, onStart: onStartCoding)
         }

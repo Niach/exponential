@@ -1697,13 +1697,14 @@ pub(crate) fn scrolling_title_rows(
     (header, rows)
 }
 
-/// EXP-417/EXP-568 — the property TRAY under the title: ONE glass tray, the
+/// EXP-417/EXP-568 — the property TRAY under the title: ONE plain row
+/// (EXP-1191: no card chrome, the first chip on the title's left edge), the
 /// property chips growing from the left, `actions` floating on its right
 /// edge (`ml_auto`, so they keep their distance even after wrapping).
 /// `flex_1 + min_w_0` give the tray the column's definite width, which is
 /// what its own `flex_wrap` wraps the chips against.
 pub(crate) fn property_tray(chips: Vec<AnyElement>, actions: Vec<AnyElement>) -> AnyElement {
-    let properties = crate::surface::glass_tray()
+    let properties = crate::surface::property_row()
         .children(chips)
         .when(!actions.is_empty(), |tray| {
             tray.child(
@@ -1816,7 +1817,7 @@ mod tests {
                 };
                 // The real tray, the real chips, the real trailing cluster
                 // (`issue_header::chip_row`).
-                crate::surface::glass_tray()
+                crate::surface::property_row()
                     .child(probe(
                         self.0.chip.clone(),
                         crate::pickers::chip_button("prop-status", cx)

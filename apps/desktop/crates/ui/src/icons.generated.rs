@@ -156,6 +156,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "activity" => ExpIcon::Activity,
         "anchor" => ExpIcon::Anchor,
         "archive" => ExpIcon::Archive,
+        "arrow-down" => ExpIcon::ArrowDown,
         "arrow-down-left" => ExpIcon::ArrowDownLeft,
         "arrow-left" => ExpIcon::ArrowLeft,
         "arrow-left-right" => ExpIcon::ArrowLeftRight,
@@ -678,6 +679,8 @@ pub const UI_ADD: ExpIcon = ExpIcon::Plus;
 pub const UI_AGENT_SOURCE: ExpIcon = ExpIcon::Bot;
 /// Registry concept `ui-archive` -> Lucide `archive`.
 pub const UI_ARCHIVE: ExpIcon = ExpIcon::Archive;
+/// Registry concept `ui-arrow-down` -> Lucide `arrow-down`.
+pub const UI_ARROW_DOWN: ExpIcon = ExpIcon::ArrowDown;
 /// Registry concept `ui-arrow-right` -> Lucide `arrow-right`.
 pub const UI_ARROW_RIGHT: ExpIcon = ExpIcon::ArrowRight;
 /// Registry concept `ui-assignee` -> Lucide `circle-user`.

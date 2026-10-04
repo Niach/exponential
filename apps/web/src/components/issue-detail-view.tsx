@@ -5,6 +5,7 @@ import {
   CollapsedTitle,
   conceptIcon,
   useIsMobile,
+  MOBILE_WORK_BAR_CLEARANCE,
   Pill,
   WORK_BAR_HEIGHT,
   WORK_COLUMN_CLASS,
@@ -21,7 +22,6 @@ import { issueMemoryOwner } from "@/lib/work-tab-memory"
 import { useRememberedScroll } from "@/hooks/use-remembered-scroll"
 import { useMeasuredSize, useTitleCollapsed } from "@/hooks/use-detail-chrome"
 import { MOBILE_DETAIL_SCREEN_CLASS } from "@/components/team/mobile-detail-header"
-import { mobileFaceClearance } from "@/components/mobile-merge-float"
 import { trpc } from "@/lib/trpc-client"
 import {
   getIssueDescriptionText,
@@ -107,8 +107,8 @@ interface IssueDetailViewProps {
   mobileWork?: {
     tabs?: React.ReactNode
     swipe?: FaceSwipeHandlers
-    /** EXP-1154: the white Merge capsule floating above the bar
-     *  (`MobileMergeFloat`) while the PR is open. */
+    /** EXP-1191: the bar's Merge circle right of the Comment capsule
+     *  (`MobileMergeCircle`) while the PR is open. */
     merge?: React.ReactNode
   }
   /** EXP-1154: md+ — the work header's face action after the toggle (GitHub
@@ -767,13 +767,12 @@ export function IssueDetailView({
         {/* EXP-698: clearance for the floating bar below, so the last comment
             scrolls clear of it instead of ending under the glass
             (`MOBILE_WORK_BAR_CLEARANCE`); the tab bar itself is hidden on this
-            route, so nothing else is reserved here. EXP-1154: the floating
-            Merge capsule above the bar reserves its own height too. */}
+            route, so nothing else is reserved here. */}
         <div
           ref={bodyScrollRef}
           className={cn(
             `flex-1 overflow-y-auto`,
-            mobileFaceClearance(Boolean(mobileWork?.merge)),
+            MOBILE_WORK_BAR_CLEARANCE,
             mobileWork?.swipe && FACE_BODY_TOUCH_CLASS
           )}
           /* EXP-1152: the pager's body — it follows the finger between
@@ -805,7 +804,7 @@ export function IssueDetailView({
             onSubmitComment={handleCommentSubmit}
             reporter={reporter}
             hidden={descriptionFocused}
-            above={mobileWork?.merge}
+            merge={mobileWork?.merge}
           />
         )}
         {/* No `addRelation.dialog` here: the phone reaches relations through

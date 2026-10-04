@@ -35,9 +35,10 @@ import com.exponential.app.ui.theme.TextEmphasis
 // issue bar and the tab bar already draw (near-opaque pill fill + hairline).
 // Every face fills the slots differently (EXP-1150, the faces are tabs now:
 // Issue: properties · comment · start; Run: usage ring · steer · start;
-// Changes: files · Merge PR; Results: Merge PR; EXP-1154: the white Merge
-// capsule floats above the Issue / Run bar), so the chrome is shared
-// and only the slots move. A missing slot simply leaves its space empty.
+// Changes: files · Merge PR; Results: Merge PR; EXP-1191: the Issue / Run
+// bar carries Merge as a glyph-only circle right after the capsule,
+// [FloatingBottomBar]'s `afterCentre`), so the chrome is shared and only the
+// slots move. A missing slot simply leaves its space empty.
 //
 // EXP-916: the CHANGES bars (the Reviews page and the Work screen's Changes
 // face) are a [FloatingBarCluster] instead — nothing stretches, the circles
@@ -50,14 +51,17 @@ val FloatingBarRung: Dp = 52.dp
 
 /**
  * The bar itself. [left] and [right] are optional circles (or anything else
- * 52dp tall); [centre] is the capsule that takes the remaining width. Padded
- * to the screen's 20dp gutter like the issue bar it replaces.
+ * 52dp tall); [centre] is the capsule that takes the remaining width.
+ * [afterCentre] (EXP-1191: the Merge circle) sits directly right of the
+ * capsule, before [right]. Padded to the screen's 20dp gutter like the issue
+ * bar it replaces; every slot 10dp apart.
  */
 @Composable
 fun FloatingBottomBar(
     modifier: Modifier = Modifier,
     left: (@Composable () -> Unit)? = null,
     right: (@Composable () -> Unit)? = null,
+    afterCentre: (@Composable () -> Unit)? = null,
     centre: @Composable RowScope.() -> Unit,
 ) {
     Row(
@@ -69,6 +73,7 @@ fun FloatingBottomBar(
     ) {
         left?.invoke()
         centre()
+        afterCentre?.invoke()
         right?.invoke()
     }
 }

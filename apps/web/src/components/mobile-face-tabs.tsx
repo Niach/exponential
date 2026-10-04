@@ -487,7 +487,7 @@ export function MobileFaceTabs({
   const hasTabs = items.length >= 2 || hasRunMenu
   if (!hasTabs) return null
   // EXP-1154: the tabs sit centred; the phone's Merge rides the floating bar
-  // again (`MergeCapsule` / `MobileMergeFloat`), never this row.
+  // again (`MergeCapsule` / `MobileMergeCircle`), never this row.
   return (
     <div
       className="flex shrink-0 items-center justify-center gap-2 px-4 pb-2"

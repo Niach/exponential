@@ -121,13 +121,15 @@ export function IssuePropertiesTray({
 }
 
 /** EXP-1170: the tray's card — the issue detail's and the New issue page's
- *  properties row sit in the very same chrome. */
+ *  properties row sit in the very same chrome. EXP-1191: a card on phones
+ *  only; md+ (like the IDE) sets the properties straight on the page, under
+ *  the title. */
 export function PropertiesTrayCard({ children }: { children: ReactNode }) {
   return (
     <div className={`${WORK_COLUMN_CLASS} px-4 pt-3`}>
       {/* The IDE's `glass_tray`: the section fill inside the card hairline
           (`bg-popover/40` vanished against the panel). */}
-      <div className="flex items-center gap-1.5 rounded-xl border border-glass-stroke-card bg-glass-section">
+      <div className="flex items-center gap-1.5 md:-mx-1.5 max-md:rounded-xl max-md:border max-md:border-glass-stroke-card max-md:bg-glass-section">
         {children}
       </div>
     </div>

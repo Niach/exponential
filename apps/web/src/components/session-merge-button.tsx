@@ -8,6 +8,7 @@ import {
 import {
   conceptIcon,
   Button,
+  FabButton,
   Pill,
   type buttonVariants,
   Dialog,
@@ -99,8 +100,9 @@ const UiBranchIcon = conceptIcon(`ui-branch`)
 /** EXP-895: the two SHAPES the one merge control comes in. `pill` is the
  *  `Pill mode="action" primary` every Changes surface uses (the review's top
  *  bar, the run's, the phone capsule); `button` is the shadcn Button the list
- *  rows and the icon-only slots keep. */
-export type MergeControlShape = `button` | `pill`
+ *  rows and the icon-only slots keep. EXP-1191: `fab` = the phone Work bar's
+ *  52px glass circle (`FabButton`), the merge glyph alone. */
+export type MergeControlShape = `button` | `pill` | `fab`
 
 /** EXP-889: the pill arm's size. `md` = the Changes surfaces' capsule; `sm`
  *  = the property tray / run header, where it stands in a row of `sm`
@@ -131,6 +133,20 @@ function MergeControl({
   onClick: (e: MouseEvent) => void
   children: ReactNode
 }) {
+  if (as === `fab`) {
+    return (
+      <FabButton
+        emphasis="primary"
+        className={className}
+        disabled={disabled}
+        aria-label={ariaLabel}
+        title={title}
+        onClick={onClick}
+      >
+        {children}
+      </FabButton>
+    )
+  }
   if (as === `pill`) {
     return (
       <Pill

@@ -3986,7 +3986,10 @@ impl SteerSessionView {
             cx.processor(|this, ix: usize, window, cx| this.render_list_row(ix, window, cx)),
         )
         .px_3()
-        .py_2();
+        .pt_2()
+        // EXP-1191: at the tail the last line rests just clear of the
+        // composer fade rather than under it.
+        .pb(px(crate::surface::COMPOSER_EDGE_FADE_H - 8.));
         crate::scroll_pane::v_list_pane(list, &self.list).into_any_element()
     }
 
@@ -6798,6 +6801,68 @@ impl SteerSessionView {
         banners
     }
 
+    /// EXP-1191 — the transcript's jump-to-bottom button
+    /// ([`crate::controls::jump_to_bottom_button`]): shown while the reader
+    /// is scrolled up off the tail of a non-empty feed, centred over the
+    /// column, [`crate::controls::JUMP_TO_BOTTOM_GAP`] above the composer
+    /// card (the band's `p_2` already gives 8 of it). A click scrolls to the
+    /// newest row and re-arms tail follow.
+    ///
+    /// gpui re-arms the follow itself when a scroll lands back on the end,
+    /// but in LAYOUT, after this frame rendered — so a paint-only probe
+    /// compares the list's state with what was drawn and asks for ONE
+    /// repaint when they differ (the button would otherwise linger).
+    fn render_jump_to_bottom(
+        &self,
+        composer_visible: bool,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        let following = self.list.is_following_tail();
+        let shown = !self.feed.is_empty() && !following;
+        let list = self.list.clone();
+        let entity_id = cx.entity_id();
+        let probe = gpui::canvas(
+            move |_, _, cx| {
+                if list.is_following_tail() != following {
+                    cx.defer(move |cx| cx.notify(entity_id));
+                }
+            },
+            |_, _: (), _, _| {},
+        )
+        .absolute()
+        .size_0();
+        let button = shown.then(|| {
+            let gap = if composer_visible {
+                crate::controls::JUMP_TO_BOTTOM_GAP - 8.
+            } else {
+                crate::controls::JUMP_TO_BOTTOM_GAP
+            };
+            h_flex()
+                .absolute()
+                .left_0()
+                .right_0()
+                .bottom(px(gap))
+                .justify_center()
+                .child(crate::controls::jump_to_bottom_button(
+                    "steer-jump-to-bottom",
+                    cx.listener(|this, _: &ClickEvent, _window, cx| {
+                        this.list.set_follow_mode(FollowMode::Tail);
+                        this.list.scroll_to_end();
+                        cx.notify();
+                    }),
+                    cx,
+                ))
+        });
+        div()
+            .absolute()
+            .left_0()
+            .right_0()
+            .bottom_0()
+            .child(probe)
+            .children(button)
+            .into_any_element()
+    }
+
     fn render_composer(&self, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let can_send = self.can_send(cx);
         let stop = self.shows_stop(cx);
@@ -7911,6 +7976,9 @@ impl Render for SteerSessionView {
             None => self.render_results_pane(window, cx),
         };
         let width_probe = self.view_width.clone();
+        let jump = pane
+            .is_none()
+            .then(|| self.render_jump_to_bottom(composer_visible, cx));
         let conversation = pane.is_none().then(|| {
             v_flex()
                 .flex_1()
@@ -7931,7 +7999,8 @@ impl Render for SteerSessionView {
                         .min_h_0()
                         .min_w_0()
                         .child(feed)
-                        .child(crate::surface::edge_fade_bottom()),
+                        .child(crate::surface::composer_edge_fade())
+                        .children(jump),
                 )
                 .children(banners)
                 .children(compacting)

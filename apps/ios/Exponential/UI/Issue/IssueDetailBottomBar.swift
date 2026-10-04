@@ -45,10 +45,10 @@ struct IssueDetailBottomBar: View {
     /// by the detail view model). A reporter EMAIL on it offers the "Reply to
     /// reporter" pill; its name fills the placeholder.
     var widgetSubmission: WidgetSubmissionRow? = nil
-    /// EXP-1154: the Work screen's white Merge PR capsule, floating centred
-    /// just ABOVE the collapsed bar (so it rides the keyboard with it); gone
-    /// while the composer is expanded. nil = none.
-    var mergeAccessory: AnyView? = nil
+    /// EXP-1191: the Work screen's Merge PR circle (`WorkMergePill`, circle
+    /// style), right of the Comment capsule and before the Start circle;
+    /// gone with the collapsed bar while the composer is expanded. nil = none.
+    var mergeCircle: AnyView? = nil
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -106,13 +106,8 @@ struct IssueDetailBottomBar: View {
                     // EXP-1162: the bottom edge strip rides the COLLAPSED bar
                     // alone — the expanded composer is an opaque card over the
                     // keyboard and needs no wash behind it.
-                    VStack(spacing: WorkBarAccessory.gap) {
-                        if let mergeAccessory {
-                            mergeAccessory
-                        }
-                        collapsedBar
-                    }
-                    .floatingBarEdge()
+                    collapsedBar
+                        .floatingBarEdge()
                 }
             } else {
                 Color.clear.frame(height: 0)
@@ -193,6 +188,9 @@ struct IssueDetailBottomBar: View {
 
     @ViewBuilder
     private var trailingSlot: some View {
+        if let mergeCircle {
+            mergeCircle
+        }
         switch trailing {
         case .hidden:
             EmptyView()

@@ -20,9 +20,9 @@ export const DETAIL_EDGE_TOP_CARD_CLASS = `pointer-events-none absolute inset-x-
 /** The bottom edge behind the phone's floating bar: the bar plus 32px above. */
 export const DETAIL_EDGE_BOTTOM_CLASS = `pointer-events-none absolute inset-x-0 bottom-0 -top-8 -z-10 glass-edge-bottom`
 
-/** The bottom edge over a docked md+ footer (the run composer): a 32px strip
- *  on the bottom of the scroller's positioned wrapper, over its last rows. */
-export const DETAIL_EDGE_BOTTOM_CARD_CLASS = `pointer-events-none absolute inset-x-0 bottom-0 h-8 glass-edge-bottom-card`
+/** EXP-1191: the bottom edge over a docked md+ footer (the run composer):
+ *  the SCROLLER's class — its last 48px fade out (`feed-fade-bottom`). */
+export const DETAIL_FADE_BOTTOM_CLASS = `feed-fade-bottom`
 
 /** The collapse itself: 160ms, rising 4px (the contract's `collapseMs` /
  *  `collapseRise`). */

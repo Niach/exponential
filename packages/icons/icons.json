@@ -344,6 +344,7 @@
     "ui-error": "circle-x",
     "ui-swap": "arrow-left-right",
     "ui-arrow-right": "arrow-right",
+    "ui-arrow-down": "arrow-down",
     "ui-permission": "shield-question-mark",
     "ui-cloud": "cloud",
     "ui-staging": "flask-conical",

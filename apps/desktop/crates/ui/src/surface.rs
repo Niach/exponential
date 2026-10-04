@@ -496,30 +496,17 @@ pub(crate) fn glass_tab_item(active: bool, cx: &App) -> Div {
         .py(px(6.))
 }
 
-/// EXP-568: a horizontal glass TRAY — the card recipe at row scale, holding a
-/// WRAPPING group of chips as one object. The issue header's property cluster
-/// wears it so the properties read as a unit beside the leading Start-coding
-/// launcher.
-///
-/// The fill is `FILL_SECTION`, not the card's `FILL_CARD`: most chips inside
-/// are ghost buttons (transparent at rest), but the static ones ([`glass_chip`]
-/// — Origin, a single-board team's Board) already carry `FILL_CARD`, and
-/// stacking that on itself composites near-opaque and reads as a different
-/// material. The `STROKE_CARD` hairline keeps the tray's edge card-crisp.
-///
-/// Insets are the web tray's (`issue-properties-panel.tsx`: `px-3 py-2
-/// gap-1.5`) — 12 / 8 / 6 px, as `px()` literals because gpui's rem is 14.
-pub(crate) fn glass_tray() -> Div {
+/// EXP-568 / EXP-1191: the property ROW — a WRAPPING group of chips read as
+/// one object by its spacing alone. EXP-1191 dropped the card chrome (fill,
+/// hairline, radius, insets) it used to wear: the props sit plainly on the
+/// page, the first chip on the title column's left edge (all four clients).
+/// Gap = the web row's `gap-1.5` — 6 px, a `px()` literal because gpui's rem
+/// is 14.
+pub(crate) fn property_row() -> Div {
     gpui_component::h_flex()
         .flex_wrap()
         .items_center()
         .gap(px(6.))
-        .px(px(12.))
-        .py(px(8.))
-        .rounded(px(t::radius::LG))
-        .border_1()
-        .border_color(t::glass::STROKE_CARD.to_hsla())
-        .bg(t::glass::FILL_SECTION.to_hsla())
 }
 
 /// EXP-698 round 5 — the ONE bulk-action bar chrome, shared with web
@@ -607,8 +594,8 @@ fn edge_fade_top_from(alpha: f32) -> Div {
 }
 
 /// EXP-1162 — the BOTTOM edge strip (`edgeBottom`): the top strip mirrored,
-/// fading upwards from the pane's bottom edge (the run's composer band, or
-/// the issue face's end). Same contract as [`edge_fade_top`].
+/// fading upwards from the pane's bottom edge (the issue face's end; the
+/// run's composer wears [`composer_edge_fade`]). Same contract as [`edge_fade_top`].
 pub(crate) fn edge_fade_bottom() -> Div {
     let fill = panel_fill_at(EDGE_BOTTOM_RAMP_T);
     div()
@@ -622,6 +609,46 @@ pub(crate) fn edge_fade_bottom() -> Div {
             gpui::linear_color_stop(fill.opacity(0.), 0.),
             gpui::linear_color_stop(fill, 1.),
         ))
+}
+
+/// EXP-1191 — the height of the run transcript's bottom fade (px): the
+/// Claude-app edge, taller than the contract's 32px `edgeBottom` so the last
+/// lines dissolve rather than clip.
+pub(crate) const COMPOSER_EDGE_FADE_H: f32 = 48.;
+
+/// EXP-1191 — the run transcript's COMPOSER edge: its last lines
+/// fade softly into the panel just above the composer. A clean vertical
+/// ramp from transparent to the panel colour, NO hairline, band or shadow.
+/// gpui's gradients take two stops, so the soft (eased) curve is two
+/// layers: the full-height ramp, and a second over its lower half that
+/// lands the bottom fully opaque while the top stays a whisper. Paint-only,
+/// like the top strip; the caller's box must be `relative()`.
+pub(crate) fn composer_edge_fade() -> Div {
+    let fill = panel_fill_at(EDGE_BOTTOM_RAMP_T);
+    div()
+        .absolute()
+        .bottom_0()
+        .left_0()
+        .right_0()
+        .h(px(COMPOSER_EDGE_FADE_H))
+        .bg(gpui::linear_gradient(
+            180.,
+            gpui::linear_color_stop(fill.opacity(0.), 0.),
+            gpui::linear_color_stop(fill.opacity(0.7), 1.),
+        ))
+        .child(
+            div()
+                .absolute()
+                .bottom_0()
+                .left_0()
+                .right_0()
+                .h(px(COMPOSER_EDGE_FADE_H / 2.))
+                .bg(gpui::linear_gradient(
+                    180.,
+                    gpui::linear_color_stop(fill.opacity(0.), 0.),
+                    gpui::linear_color_stop(fill, 1.),
+                )),
+        )
 }
 
 /// Shared markdown `TextView` style (EXP-282): code blocks get a glass

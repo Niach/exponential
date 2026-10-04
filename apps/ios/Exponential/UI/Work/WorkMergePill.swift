@@ -5,8 +5,10 @@ import SwiftUI
 /// EXP-1150: the Work screen's ONE Merge PR. EXP-1154: back on the FLOATING
 /// BOTTOM BAR as the SOLID WHITE capsule (`FloatingBarSolidPill`, hugging its
 /// label, 52pt: the EXP-916 Reviews look), on every face — the centre of the
-/// Changes bar's cluster `[files] [Merge PR]`, alone on the Results bar, and
-/// floating centred just above the Issue and Run composer bars. The same flow
+/// Changes bar's cluster `[files] [Merge PR]` and alone on the Results bar.
+/// EXP-1191: the Issue and Run bars wear it as a 52pt glass CIRCLE (`style:
+/// .circle`, the merge glyph alone) right of their centre capsule, the
+/// floating capsule above them retired. The same flow
 /// everywhere: the confirm alert, or the stack dialog for a member of an open
 /// PR stack (EXP-1145 `PrStack.stackMergeChoice`) and, after a merge the
 /// server refused on a REAL content conflict, the "Fix conflicts" recovery
@@ -35,6 +37,10 @@ struct WorkMergePill: View {
     /// store slide's pop-out), suffixed with the face elsewhere, since the
     /// pager keeps neighbouring faces mounted.
     var identifier = "work-merge-pr"
+    /// EXP-1191: the white capsule (Changes / Results clusters) or the
+    /// icon-only bar circle (Issue / Run bars).
+    var style: Style = .capsule
+    enum Style { case capsule, circle }
     @State private var showMergeConfirm = false
     @State private var stackChoice: PrStack.StackMergeChoice?
 
@@ -42,7 +48,12 @@ struct WorkMergePill: View {
     private var mergeFailure: MergeFailure? { state.failure }
 
     var body: some View {
-        pill
+        Group {
+            switch style {
+            case .capsule: pill
+            case .circle: circle
+            }
+        }
         .alert("Merge pull request?", isPresented: $showMergeConfirm) {
             Button("Merge", role: .destructive) { merge() }
             Button("Cancel", role: .cancel) {}
@@ -95,6 +106,30 @@ struct WorkMergePill: View {
                 .lineLimit(1)
         }
         .fixedSize()
+        .accessibilityIdentifier(identifier)
+    }
+
+    /// EXP-1191: the bar circle — the SAME chrome as the bar's other circles,
+    /// the merge glyph alone (the branch glyph once a conflict swaps in Fix
+    /// conflicts), a spinner while the merge is in flight.
+    private var circle: some View {
+        let fix = canFixConflicts
+        return FloatingBarCircle(
+            accessibilityLabel: fix ? "Fix merge conflicts" : "Merge PR",
+            enabled: !merging,
+            action: fix ? { openFixConflicts() } : { requestMerge() }
+        ) {
+            if merging {
+                ProgressView().controlSize(.small).tint(.white)
+            } else {
+                AppIcon(
+                    fix ? AppIcons.uiBranch : AppIcons.prMerged,
+                    size: FloatingBarTokens.glyph,
+                    weight: .medium
+                )
+                .foregroundStyle(.white.opacity(TextOpacity.primary))
+            }
+        }
         .accessibilityIdentifier(identifier)
     }
 
@@ -183,14 +218,6 @@ struct WorkMergePill: View {
             )
         ))
     }
-}
-
-/// EXP-1154: the Merge capsule floating above the Issue and Run composer
-/// bars. `gap` is the stack spacing that leaves 10pt (`FloatingBarTokens
-/// .spacing`) between the capsule and the bar's slots, the bar's own top
-/// padding included.
-enum WorkBarAccessory {
-    static let gap: CGFloat = FloatingBarTokens.spacing - FloatingBarTokens.topPadding
 }
 
 /// EXP-1154: what every face's Merge capsule shares — the merge in flight and

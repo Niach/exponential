@@ -17,7 +17,7 @@ import { editCard } from "@exp/domain-contract/edit-card"
 import { expToolGroupCaption } from "@exp/domain-contract/exp-tool-group"
 import { linkSegments } from "@/lib/linkify"
 import { splitIssueRefs } from "@/lib/issue-refs"
-import { ArrowDown, Check, X } from "lucide-react"
+import { Check, X } from "lucide-react"
 import type { PastRunRow } from "@/hooks/use-agents-data"
 import {
   FACE_BODY_TOUCH_CLASS,
@@ -32,6 +32,7 @@ import {
   EditedFilesCard,
   FAB_CHROME_CLASS,
   FabButton,
+  JumpToBottomButton,
   GlassCard,
   useIsMobile,
   Button,
@@ -59,7 +60,7 @@ import {
   WORK_COLUMN_CLASS,
   WorkHeader,
   CollapsedTitle,
-  DETAIL_EDGE_BOTTOM_CARD_CLASS,
+  DETAIL_FADE_BOTTOM_CLASS,
   Composer,
   ComposerSubmit,
   ExponentialLogo,
@@ -183,9 +184,8 @@ import {
 } from "@/components/run-action-pills"
 import { MergeCapsule } from "@/components/issue-changes-face"
 import {
-  MobileMergeFloat,
-  mobileFaceClearance,
-} from "@/components/mobile-merge-float"
+  MobileMergeCircle,
+} from "@/components/mobile-merge-circle"
 import {
   ISSUE_FACE_LABEL,
   RESULTS_FACE_LABEL,
@@ -1178,15 +1178,14 @@ export function AgentSessionView({
   ) : null
   /** EXP-1154: the ONE merge of the phone Work screen is the white capsule
    *  on the floating bar again (no longer beside the tabs): in the cluster on
-   *  Changes and Results, floating above the composer bar on Run. */
+   *  Changes and Results (EXP-1191: a circle beside the composer on Run). */
   const phoneMerge =
     isMobile && canMerge && mergeProps ? (
       <MergeCapsule {...mergeProps} steerEnabled={steerEnabled} />
     ) : undefined
 
   /** EXP-1150: the Run face's bar keeps ONE circle on its right — Start
-   *  coding once the run ended for good, else nothing (EXP-1154: Merge
-   *  floats above the bar). */
+   *  coding once the run ended for good, else nothing. */
   const phoneTrailingNode =
     Boolean(onStart) && sessionEnded && !canResumeAny ? (
       <FabButton
@@ -1200,22 +1199,17 @@ export function AgentSessionView({
       </FabButton>
     ) : undefined
 
-  /** EXP-1154: the white Merge floats above the Run face's bar (the branch
-   *  of `mobileBar` below that draws `MobileMergeFloat`); the transcript then
-   *  reserves the float's height too. */
-  const mergeFloats =
-    isMobile &&
-    !showResultsFace &&
-    !showDiffFace &&
-    Boolean(composerVisible || phoneTrailingNode) &&
-    canMerge &&
-    Boolean(mergeProps) &&
-    !(composerVisible && composerOpen)
+  /** EXP-1191: the Merge circle right of the composer capsule while the PR
+   *  is open (no longer the white capsule floating above the bar). */
+  const phoneMergeCircle =
+    isMobile && canMerge && mergeProps ? (
+      <MobileMergeCircle {...mergeProps} steerEnabled={steerEnabled} />
+    ) : undefined
 
   /** EXP-893: the phone bar by face. Run + open session: the usage ring, the
    *  composer capsule (expanding into the composer), the Start circle once
-   *  the run ended for good, and (EXP-1154) the white Merge floating above
-   *  it. Run over: that circle alone, else Merge alone, or no bar. Changes:
+   *  the run ended for good, and (EXP-1191) the Merge circle right of the
+   *  capsule. Run over: that circle alone, else Merge alone, or no bar. Changes:
    *  the file sheet + Merge. EXP-879 Results: Merge alone, else no bar —
    *  only the Run face owns Stop / Resume. */
   const mobileBar = !isMobile ? null : showResultsFace ? (
@@ -1240,13 +1234,6 @@ export function AgentSessionView({
     phoneMerge ? <MobileWorkBar cluster capsule={phoneMerge} /> : null
   ) : (
     <>
-      {canMerge && mergeProps && (
-        <MobileMergeFloat
-          {...mergeProps}
-          steerEnabled={steerEnabled}
-          hidden={composerVisible && composerOpen}
-        />
-      )}
       <MobileWorkBar
         /* EXP-916: the ring belongs to the composer band — while a card holds
            the keyboard, or once the run is over, the bar is the trailing circle
@@ -1279,6 +1266,7 @@ export function AgentSessionView({
             </MobileWorkCapsule>
           ) : undefined
         }
+        afterCapsule={phoneMergeCircle}
         expanded={
           composerVisible && composerOpen ? (
             <div className={cn(`rounded-2xl p-1.5`, FAB_CHROME_CLASS)}>
@@ -1479,9 +1467,8 @@ export function AgentSessionView({
         className={cn(
           `flex min-w-0 flex-1 flex-col overflow-hidden bg-card/40`,
           // EXP-893: the phone's floating bar owns the bottom edge — the
-          // strips and the last row stop above it (EXP-1154: and above the
-          // floating Merge while it shows).
-          isMobile && mobileFaceClearance(mergeFloats)
+          // strips and the last row stop above it.
+          isMobile && MOBILE_WORK_BAR_CLEARANCE
         )}
       >
           {/* EXP-356: conversation tabs — Main plus one per RUNNING subagent
@@ -1526,6 +1513,10 @@ export function AgentSessionView({
               // comment bodies render that way too.
               className={cn(
                 `agent-feed h-full overflow-y-auto overscroll-contain`,
+                // EXP-1162/1191: the bottom edge on md+ — the last rows fade
+                // out over the composer (a phone's floating bar carries its
+                // own edge).
+                !isMobile && DETAIL_FADE_BOTTOM_CLASS,
                 // EXP-1152: `touch-action` stops at a scroller, so the
                 // feed itself leaves the sideways pan to the pager.
                 isMobile && FACE_BODY_TOUCH_CLASS
@@ -1838,23 +1829,12 @@ export function AgentSessionView({
                 </div>
               )}
             </div>
-            {/* EXP-1162: the bottom edge on md+ — the transcript's last rows
-                fade out over the composer instead of meeting a hairline (a
-                phone's floating bar carries its own). */}
-            {!isMobile && (
-              <span aria-hidden className={DETAIL_EDGE_BOTTOM_CARD_CLASS} />
-            )}
-            {!atBottom && feed.length > 0 && (
-              <Button
-                variant="secondary"
-                size="sm"
-                className="absolute bottom-2 left-1/2 h-7 -translate-x-1/2 border border-border shadow-md"
-                onClick={jumpToBottom}
-              >
-                Jump to bottom
-                <ArrowDown />
-              </Button>
-            )}
+            {/* EXP-1191: the arrow-only circle ×4, 12px above the composer. */}
+            <JumpToBottomButton
+              visible={!atBottom && feed.length > 0}
+              className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2"
+              onClick={jumpToBottom}
+            />
           </div>
 
           {/* Status banners (feed retained above). EXP-877: no "ended" strip

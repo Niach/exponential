@@ -261,6 +261,7 @@ import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassMenuSurface
 import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.JumpToBottomButton
 import com.exponential.app.ui.components.PillMode
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.GlassSheet
@@ -349,7 +350,7 @@ private val AgentPhase.isWaitingForStream: Boolean
  * the bare bar with only the trailing circle — or no bar without one — once it
  * ended or a card holds the input. The host (`WorkScreen`) owns the Scaffold,
  * the title dot, Stop / Resume, the kill and resume confirms, the merge
- * (EXP-1154: the white capsule it floats above this bar, [aboveBar]) and the
+ * (EXP-1191: the glyph-only circle right of this bar's capsule, [mergeBarSlot]) and the
  * ended-edge navigation; this renders INSIDE its
  * content slot, one instance per shown run (`key(shownSessionId)`).
  */
@@ -362,9 +363,10 @@ fun RunFace(
     /** The bar's right circle (EXP-1150: the Start circle once the run
      *  ended for good); null = none. */
     trailingBarSlot: (@Composable () -> Unit)?,
-    /** EXP-1154: floats centred directly ABOVE the bar (the white Merge PR),
-     *  riding the keyboard with it; hidden while the composer is expanded. */
-    aboveBar: (@Composable () -> Unit)? = null,
+    /** EXP-1191: the bar's Merge circle, directly right of the capsule and
+     *  before [trailingBarSlot]; hidden with the circles while the composer
+     *  is expanded. */
+    mergeBarSlot: (@Composable () -> Unit)? = null,
     /** EXP-933: switches the host to its Results face — the inline
      *  `sessions_results` card's `Open Results` button. Null hides it. */
     onOpenResults: (() -> Unit)? = null,
@@ -377,7 +379,7 @@ fun RunFace(
         LocalOpenResults provides onOpenResults,
         LocalSessionResults provides results,
     ) {
-        RunFaceContent(viewModel, padding, onOpenIssue, trailingBarSlot, aboveBar)
+        RunFaceContent(viewModel, padding, onOpenIssue, trailingBarSlot, mergeBarSlot)
     }
 }
 
@@ -395,7 +397,7 @@ private fun RunFaceContent(
     padding: PaddingValues,
     onOpenIssue: (String) -> Unit,
     trailingBarSlot: (@Composable () -> Unit)?,
-    aboveBar: (@Composable () -> Unit)?,
+    mergeBarSlot: (@Composable () -> Unit)?,
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     val phase by viewModel.phase.collectAsStateWithLifecycle()
@@ -1280,8 +1282,6 @@ private fun RunFaceContent(
             }
         }
 
-        // EXP-1154: the white Merge PR, centred directly over the bar.
-        if (aboveBar != null && !composerExpanded) aboveBar()
         // ── The floating bottom bar / steering input ─────────────────────────
         // Fully seamless (EXP-312): no captions, no operator state; live
         // implies ownership, input just sends. EXP-621: the composer is
@@ -1420,9 +1420,12 @@ private fun RunFaceContent(
                 hasUsage = hasUsage,
                 onOpenUsage = { usageSheetOpen = true },
                 trailing = trailingBarSlot,
+                merge = mergeBarSlot,
             )
-        } else if (trailingBarSlot != null) {
-            FloatingBottomBar(right = trailingBarSlot) { Spacer(Modifier.weight(1f)) }
+        } else if (trailingBarSlot != null || mergeBarSlot != null) {
+            FloatingBottomBar(right = trailingBarSlot, afterCentre = mergeBarSlot) {
+                Spacer(Modifier.weight(1f))
+            }
         }
         }
         }
@@ -1997,6 +2000,7 @@ private fun ActivityFeed(
     // visually IS the bottom. Near-bottom counts as bottom, so the chip only
     // appears after a real scroll-up and hides again within the same slack.
     val followSlackPx = with(LocalDensity.current) { 96.dp.toPx() }
+    val jumpScope = rememberCoroutineScope()
     LaunchedEffect(listState, followSlackPx) {
         snapshotFlow { listState.isScrollInProgress to listState.isNearBottom(followSlackPx) }
             .distinctUntilChanged()
@@ -2259,20 +2263,26 @@ private fun ActivityFeed(
             }
             }
         }
-        if (!follow) {
-            GlassPill(
-                "Jump to bottom ↓",
-                size = PillSize.Sm,
-                mode = PillMode.Select,
-                selected = true,
-                // opaque: the feed scrolls beneath this pill (EXP-165).
-                opaque = true,
-                onClick = { onFollowChange(true) },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 8.dp + bottomInset),
-            )
-        }
+        // EXP-1191: the shared round scroll-to-bottom button, centred 12dp
+        // above the bar's rung ([bottomInset] = the floating band, whose top
+        // 8dp is the bar's own padding). The tap animates to the true end,
+        // then re-pins follow-mode.
+        JumpToBottomButton(
+            visible = !follow && feed.isNotEmpty(),
+            onClick = {
+                jumpScope.launch {
+                    val last = listState.layoutInfo.totalItemsCount - 1
+                    if (last >= 0) {
+                        listState.animateScrollToItem(last)
+                        listState.scrollBy(1_000_000f)
+                    }
+                    onFollowChange(true)
+                }
+            },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = bottomInset + 4.dp),
+        )
         // EXP-1162: the EXP-698 top fade is the header band's edge strip now
         // (`HeaderEdgeChrome`), over every face alike. With the subagent tabs
         // up the list starts below them, so its own head still dissolves.
@@ -4868,6 +4878,8 @@ private fun SteerComposer(
      *  null = none. The expanded composer carries no switcher:
      *  the face tabs sit above it, under the top bar. */
     trailing: (@Composable () -> Unit)?,
+    /** EXP-1191: the collapsed bar's Merge circle, right of the capsule. */
+    merge: (@Composable () -> Unit)? = null,
 ) {
     // EXP-893: ONE placeholder ×4 (`STEER_COMPOSER_PLACEHOLDER`); typing is
     // always allowed while the stream is down, the message just waits for it
@@ -4994,6 +5006,7 @@ private fun SteerComposer(
                     null
                 },
                 right = trailing,
+                afterCentre = merge,
             ) {
                 BarCapsule(
                     label = placeholder,

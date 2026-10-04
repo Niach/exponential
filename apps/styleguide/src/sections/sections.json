@@ -6,7 +6,8 @@
       "picker", "picker-board", "picker-issue", "picker-action", "picker-account", "picker-device", "picker-assignee", "picker-icon", "picker-status", "picker-priority", "picker-label", "picker-mcp", "picker-repository",
       "sub-shell",
       "menu",
-      "toast"
+      "toast",
+      "jump-to-bottom"
     ] },
     { "id": "special", "order": 3, "title": "3 Special components", "blurb": "Compositions with one owner: a dialog, a tree, a settings surface.", "entries": [
       "composer-dialog", "issue-context-menu", "session-tree", "pr-graph-badge", "device-settings",
@@ -33,6 +34,7 @@
     "menu": "EXP-1074",
     "issue-context-menu": "EXP-1074",
     "toast": "EXP-1031",
+    "jump-to-bottom": "EXP-1191",
     "composer-dialog": "EXP-1019",
     "session-tree": "EXP-996",
     "pr-graph-badge": "EXP-1058",
