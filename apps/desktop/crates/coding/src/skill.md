@@ -37,7 +37,7 @@ One branch `exp/<IDENT>` and one PR per issue; a PR may link several issues (a b
 
 ## Results
 
-While you work, `exponential_sessions_show` a screenshot after each visible change: it appears in your run's transcript. Your close-out report goes to `exponential_sessions_results`, not chat: a short GFM `text` (what you did, `#IDENT` refs) per `topic`, `Summary` first, then one per screen with `label`ed pictures (`web`, `ios`) via the returned `curl` line, before the PR. Viewport size, never a full page; name any screen you could not run. `exponential_attachments_upload` does the same for an issue file; `exponential_attachments_list` lists them.
+While you work, `exponential_sessions_show` a screenshot when a picture helps: it appears in your run's transcript. Your close-out report goes to `exponential_sessions_results`, not chat: a short GFM `text` (what you did, `#IDENT` refs) per `topic`, `Summary` first, then one per screen with `label`ed pictures (`web`, `ios`) via the returned `curl` line, before the PR. Viewport size, never a full page; name any screen you could not run. `exponential_attachments_upload` does the same for an issue file; `exponential_attachments_list` lists them.
 
 Ping a person with `exponential_notifications_send` when a long task finished, a decision waits or they asked; `recipients` default to you.
 
