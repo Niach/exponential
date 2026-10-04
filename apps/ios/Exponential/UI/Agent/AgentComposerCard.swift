@@ -14,7 +14,7 @@ import UIKit
 /// - field: the one-block markdown field with the `@` / `#` / `:` typeahead
 ///   (the host mounts `EditorAutocompleteMenu` under the card);
 /// - strip: the pending images (the steer composer's tiles + markers);
-/// - tools: `#` opens the issue picker, ▶ the action picker, the image glyph
+/// - tools: `#` opens the issue picker, the rocket the action picker, the image glyph
 ///   the photo picker; the submit is the round send GLYPH (EXP-827: icon-only
 ///   on every client), whose contract title ("Start chat" / "Start coding" /
 ///   "Start batch · N" / "Run action") is its accessibility name.
@@ -64,7 +64,7 @@ struct AgentComposerCard: View {
                     .padding(.bottom, 4)
             }
         } tools: {
-            // EXP-825 ×4: `#` for issues, ▶ for actions, the image glyph
+            // EXP-825 ×4: `#` for issues, the rocket for actions, the image glyph
             // every other composer wears. EXP-1030: both picks are the SHARED
             // picker, host-driven — the button opens it and the picker owns
             // its own sheet, so it hangs off ITS button (stacking
@@ -78,7 +78,7 @@ struct AgentComposerCard: View {
                 AgentIssuePickerSheet(model: model, isPresented: $showIssuePicker)
             }
 
-            GlassComposerToolButton(AppIcons.actionRun, accessibilityLabel: "Pick an action") {
+            GlassComposerToolButton(AppIcons.navActions, accessibilityLabel: "Pick an action") {
                 showActionPicker = true
             }
             .accessibilityIdentifier("agent-composer-actions-button")

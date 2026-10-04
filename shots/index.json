@@ -760,15 +760,6 @@
         "sha256": "90d8d434dbeb4b491eeeade699a5ec70a2dc3984500a7534adc2015d870cc832"
       }
     },
-    "more": {
-      "web": {
-        "file": "shots/more/web.webp",
-        "width": 1800,
-        "height": 1200,
-        "bytes": 33296,
-        "sha256": "1121995f9f2305dbee94e2379b182c411f87c0f665c386966f8053cadb0010d1"
-      }
-    },
     "my-issues": {
       "android": {
         "file": "shots/my-issues/android.webp",

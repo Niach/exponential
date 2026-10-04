@@ -838,7 +838,7 @@
       "id": "actions-mobile",
       "group": "coding",
       "title": "Actions",
-      "blurb": "The action catalog: one row per reusable agent run, each with its play button. Phones reach it through its own Actions tab and list every team's actions grouped by team (EXP-1186/1187); web md+ and desktop through the sidebar's More entry.",
+      "blurb": "The action catalog: one row per reusable agent run, each with its play button. Phones reach it through its own Actions tab and list every team's actions grouped by team (EXP-1186/1187); web md+ and desktop through the sidebar's Actions entry.",
       "order": 2,
       "web": {
         "route": "/t/$teamSlug/actions",
@@ -872,28 +872,6 @@
           "kind": "screen",
           "value": "actions"
         }
-      }
-    },
-    {
-      "id": "more",
-      "group": "coding",
-      "title": "More",
-      "blurb": "The sidebar's one advanced entry (SLOP-5): a menu on the styleguide's menu surface holding Actions and the Drafts pile while any (web md+ and desktop). Phones have no More: Actions is a tab of its own (EXP-1187).",
-      "order": 3,
-      "web": {
-        "route": "/t/$teamSlug/agent",
-        "anchor": {
-          "testId": "menu-actions",
-          "timeoutMs": 30000
-        },
-        "recipe": "openMoreMenu",
-        "settleMs": 600
-      },
-      "notes": {
-        "desktop": "Not captured yet — the rail's More button opens a gpui popup menu and has no EXP_DEV_* drive for an open menu.",
-        "web-mobile": "EXP-1187: the phone tab bar has no More; Actions is its own tab and Settings lives behind the Issues gear / avatar menu.",
-        "ios": "EXP-1187: the phone tab bar has no More; Actions is its own tab and Settings lives behind the Issues gear.",
-        "android": "EXP-1187: the phone tab bar has no More; Actions is its own tab and Settings lives behind the Issues gear."
       }
     },
     {

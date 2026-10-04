@@ -20,6 +20,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  Badge,
   ResizeHandle,
   Separator,
   Sidebar,
@@ -63,11 +64,12 @@ import {
 } from "@/components/team/sidebar-rail"
 import { useOpenNewDraft } from "@/hooks/use-open-new-draft"
 import {
-  MORE_LABEL,
-  MoreMenu,
-  NavMoreIcon,
-  useMoreActive,
-} from "@/components/team/sidebar-more"
+  ACTIONS_LABEL,
+  DRAFTS_LABEL,
+  NavActionsIcon,
+  NavDraftsIcon,
+  useDraftCount,
+} from "@/components/team/sidebar-nav-entries"
 import { useTeamLiveRuns } from "@/hooks/use-team-live-runs"
 import { otherTeamsLive } from "@/lib/sessions/team-live-runs"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
@@ -168,9 +170,8 @@ export function TeamSidebar({
   const teamLive = useTeamLiveRuns(session?.user?.id)
   const otherLive = otherTeamsLive(teamLive, team?.id)
   const openNewDraft = useOpenNewDraft(teamSlug)
-  // SLOP-5: the More entry reads active while one of its destinations
-  // (Actions, Drafts) is up.
-  const moreActive = useMoreActive()
+  // EXP-878: the Drafts entry lists only while a draft is parked.
+  const draftCount = useDraftCount(team?.id)
   const showsReviews = useShowsReviews(team ?? undefined, boards)
   // The guarded /t/$teamSlug layout is the only render site, so a session is
   // guaranteed — the reactive useSession store may still be pending on cold
@@ -374,11 +375,8 @@ export function TeamSidebar({
                   >
                     <SidebarGroup>
                       <SidebarGroupContent>
-                        {/* SLOP-5 nav order ×4: Inbox, Devices,
-                            Reviews, Agent, More. The four nouns (People /
-                            Devices / Apps / Actions) plus Reviews and Inbox
-                            are the rows; everything advanced sits behind
-                            More. */}
+                        {/* Nav order ×4 with the IDE rail: Inbox, Devices,
+                            Reviews, Agent, Actions, Drafts (while any). */}
                         <SidebarMenu>
                           <SidebarMenuItem>
                             <SidebarMenuButton asChild density="compact">
@@ -434,28 +432,36 @@ export function TeamSidebar({
                               </Link>
                             </SidebarMenuButton>
                           </SidebarMenuItem>
-                          {/* SLOP-5: More — Actions (authoring) and the
-                              Drafts pile (EXP-878, while any) behind one
-                              entry, as on desktop. Phones have none
-                              (EXP-1187). */}
+                          {/* Actions (authoring; the composer's action
+                              chip RUNS one) and the Drafts pile (EXP-878,
+                              while any) are root entries, as on desktop. */}
                           <SidebarMenuItem>
-                            <MoreMenu
-                              teamSlug={teamSlug}
-                              teamId={team?.id}
-                              drafts
-                              side="right"
-                            >
-                              <SidebarMenuButton
-                                density="compact"
-                                isActive={moreActive}
-                                aria-label={MORE_LABEL}
-                                data-testid="nav-more"
+                            <SidebarMenuButton asChild density="compact">
+                              <Link
+                                to="/t/$teamSlug/actions"
+                                params={{ teamSlug }}
+                                data-testid="nav-actions"
                               >
-                                <NavMoreIcon className="h-4 w-4" />
-                                <span>{MORE_LABEL}</span>
-                              </SidebarMenuButton>
-                            </MoreMenu>
+                                <NavActionsIcon className="h-4 w-4" />
+                                <span>{ACTIONS_LABEL}</span>
+                              </Link>
+                            </SidebarMenuButton>
                           </SidebarMenuItem>
+                          {draftCount > 0 && (
+                            <SidebarMenuItem>
+                              <SidebarMenuButton asChild density="compact">
+                                <Link
+                                  to="/t/$teamSlug/drafts"
+                                  params={{ teamSlug }}
+                                  data-testid="nav-drafts"
+                                >
+                                  <NavDraftsIcon className="h-4 w-4" />
+                                  <span className="flex-1">{DRAFTS_LABEL}</span>
+                                  <Badge count={draftCount} data-testid="drafts-count-badge" />
+                                </Link>
+                              </SidebarMenuButton>
+                            </SidebarMenuItem>
+                          )}
                         </SidebarMenu>
                       </SidebarGroupContent>
                     </SidebarGroup>

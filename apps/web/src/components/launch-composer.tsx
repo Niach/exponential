@@ -40,7 +40,7 @@ import {
 // Icons are CONCEPTS — this is a multi-client surface (`lib/icons.test.ts`).
 
 const IssueRefIcon = conceptIcon(`editor-issue-ref`)
-const ActionRunIcon = conceptIcon(`action-run`)
+const NavActionsIcon = conceptIcon(`nav-actions`)
 // EXP-850 §13: the STEER composers (this one and the session composer)
 // attach with the `ui-add` plus ×4; comment and description editors keep
 // `editor-image`.
@@ -236,7 +236,7 @@ export function LaunchComposer({
                 data-testid="agent-composer-actions-button"
                 className={actionSubject ? `text-foreground` : undefined}
               >
-                <ActionRunIcon />
+                <NavActionsIcon />
               </ComposerTool>
             </ActionPicker>
             <input

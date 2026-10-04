@@ -169,8 +169,8 @@ internal fun AgentComposer(
             }
         },
         tools = {
-            // EXP-825 ×4: `#` for issues, ▶ for actions, the image glyph every
-            // other composer wears.
+            // EXP-825 ×4: `#` for issues, the actions rocket for actions, the
+            // image glyph every other composer wears.
             ComposerToolButton(
                 ExpIcons.editorIssueRef,
                 contentDescription = "Pick issues",
@@ -179,7 +179,7 @@ internal fun AgentComposer(
                 modifier = Modifier.testTag("agent-composer-issues-button"),
             )
             ComposerToolButton(
-                ExpIcons.actionRun,
+                ExpIcons.navActions,
                 contentDescription = "Pick an action",
                 onClick = onPickActions,
                 enabled = !sending,

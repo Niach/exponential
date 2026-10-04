@@ -13,7 +13,7 @@
 //! │ [the action's pick inputs]                     │
 //! │ the mention field (@ members, # issues, :emoji)│
 //! │ [pending images]                               │
-//! │ #  ▶  🖼                       ( Start batch · 2 ) │
+//! │ #  🚀  🖼                      ( Start batch · 2 ) │
 //! └───────────────────────────────────────────────┘
 //!  Device ▾ · Agent ▾ · Model ▾ · Plan ○ · Resume ○ · Repository ▾ · ⋯
 //! ```
@@ -2250,7 +2250,7 @@ impl ChatScreenView {
         .into_any_element()
     }
 
-    /// The ▶ tool: the actions picker (builtins pinned first, Create action
+    /// The rocket tool: the actions picker (builtins pinned first, Create action
     /// included; Chat is never listed) — THE action picker (EXP-1030), whose
     /// rows are the curated icon, the name and the muted description.
     fn action_tool(&self, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
@@ -2278,7 +2278,7 @@ impl ChatScreenView {
         let view = cx.entity().downgrade();
         let slot = self.action_tool_bounds.clone();
         let view_id = cx.entity_id();
-        let trigger = crate::composer::composer_tool("chat-tool-actions", registry::ACTION_RUN, cx)
+        let trigger = crate::composer::composer_tool("chat-tool-actions", registry::NAV_ACTIONS, cx)
             .tooltip("Run an action")
             // Same as the issue tool: a moved trigger repaints once.
             .on_prepaint(move |bounds, _, cx| {

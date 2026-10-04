@@ -25,11 +25,12 @@ import { useReviewsOpenPrCount, useShowsReviews } from "@/hooks/use-nav-counts"
 import { SidebarPinnedIcons } from "@/components/team/sidebar-pinned"
 import { SidebarRunningIcons } from "@/components/team/sidebar-running"
 import {
-  MORE_LABEL,
-  MoreMenu,
-  NavMoreIcon,
-  useMoreActive,
-} from "@/components/team/sidebar-more"
+  ACTIONS_LABEL,
+  DRAFTS_LABEL,
+  NavActionsIcon,
+  NavDraftsIcon,
+  useDraftCount,
+} from "@/components/team/sidebar-nav-entries"
 
 // EXP-870: the rail never leaves. Beside a list nav or the settings nav the
 // main menu MORPHS into this 48px icon column instead of sliding away —
@@ -233,45 +234,6 @@ function RailItem({
   )
 }
 
-/** SLOP-5: the rail's More button — the same menu the expanded row opens
- *  (Actions, the Drafts pile while any). Lit while one of those is on
- *  screen. */
-function MoreRailItem({
-  teamSlug,
-  teamId,
-}: {
-  teamSlug: string
-  teamId?: string
-}) {
-  const active = useMoreActive()
-  return (
-    <MoreMenu
-      teamSlug={teamSlug}
-      teamId={teamId}
-      drafts
-      side="right"
-    >
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn(
-              RAIL_BUTTON,
-              active && `bg-sidebar-accent text-sidebar-accent-foreground`
-            )}
-            aria-label={MORE_LABEL}
-            data-testid="nav-more"
-          >
-            <NavMoreIcon className="size-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="right">{MORE_LABEL}</TooltipContent>
-      </Tooltip>
-    </MoreMenu>
-  )
-}
-
 export function TeamSidebarRail({
   teamSlug,
   team,
@@ -286,6 +248,7 @@ export function TeamSidebarRail({
   const params = { teamSlug }
   const { data: session } = useSession()
   const showsReviews = useShowsReviews(team ?? undefined, boards)
+  const draftCount = useDraftCount(team?.id)
   // EXP-862: while a pinned action seeds the composer, its pin owns the
   // highlight — the Agent icon must not claim the page too.
   const composerSeeded = useRouterState({
@@ -302,7 +265,7 @@ export function TeamSidebarRail({
   return (
     <div className="flex h-full w-12 flex-col" data-testid="sidebar-compact-rail">
       <div className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-x-hidden overflow-y-auto py-2 [scrollbar-width:none]">
-        {/* SLOP-5 order ×4: Inbox, Devices, Reviews, Agent, More. */}
+        {/* Order ×4: Inbox, Devices, Reviews, Agent, Actions, Drafts. */}
         <RailItem label="Inbox" link={{ to: `/t/$teamSlug/inbox`, params }}>
           <NavInboxIcon className="size-4" />
           <InboxUnreadBadge placement="icon" />
@@ -326,7 +289,14 @@ export function TeamSidebarRail({
         >
           <NavAgentIcon className="size-4" />
         </RailItem>
-        <MoreRailItem teamSlug={teamSlug} teamId={team?.id} />
+        <RailItem label={ACTIONS_LABEL} link={{ to: `/t/$teamSlug/actions`, params }}>
+          <NavActionsIcon className="size-4" />
+        </RailItem>
+        {draftCount > 0 && (
+          <RailItem label={DRAFTS_LABEL} link={{ to: `/t/$teamSlug/drafts`, params }}>
+            <NavDraftsIcon className="size-4" />
+          </RailItem>
+        )}
 
         {team && (
           <PinnedIconGroup teamId={team.id} teamSlug={teamSlug} />

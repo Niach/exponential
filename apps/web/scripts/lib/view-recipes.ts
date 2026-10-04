@@ -549,24 +549,6 @@ async function recipeOpenWidgetEditor(page: Page): Promise<void> {
  * entry entirely once every checklist item is done — and while the signals are
  * still loading — so an absent entry is a seed problem, not a flake, and says so.
  */
-/**
- * SLOP-5: the More menu — the one advanced entry of the navigation. The
- * trigger is the sidebar row from md up and the tab bar's last tab below, both
- * `data-testid="nav-more"`; the recipe ends on the open menu's Actions row.
- */
-async function recipeOpenMoreMenu(page: Page): Promise<void> {
-  const trigger = page.getByTestId(`nav-more`)
-  if (!(await appears(trigger.first(), 20_000))) {
-    throw new Error(
-      `no More entry — the sidebar row (md+) and the tab bar's last tab both ` +
-        `carry data-testid="nav-more"; capture this view on a route that shows ` +
-        `the team chrome`
-    )
-  }
-  await trigger.first().click()
-  await page.getByTestId(`menu-actions`).waitFor({ timeout: 10_000 })
-}
-
 async function recipeOpenGettingStarted(page: Page): Promise<void> {
   const trigger = page.getByRole(`button`, { name: `Getting started`, exact: true })
   if (!(await appears(trigger, 15_000))) {
@@ -606,5 +588,4 @@ export const RECIPES: Record<string, Recipe> = {
   openTriggerEditor: recipeOpenTriggerEditor,
   openWidgetEditor: recipeOpenWidgetEditor,
   openGettingStarted: recipeOpenGettingStarted,
-  openMoreMenu: recipeOpenMoreMenu,
 }
