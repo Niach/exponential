@@ -123,6 +123,7 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   exponential_issues_get: [`issue`],
   exponential_issues_list: [`list`, `issue`],
   exponential_issues_pr_files: [`issue`],
+  exponential_issues_show: [`list`, `issue`],
   exponential_issues_subscribe: [`issue`],
   exponential_issues_unsubscribe: [`issue`],
   exponential_issues_update: [`issue`],

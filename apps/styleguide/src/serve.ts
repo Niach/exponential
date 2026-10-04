@@ -13,6 +13,7 @@
 import path from "node:path"
 
 import { compileUiCss } from "@exp/ui/island"
+import { MCP_APPS_CSS_SOURCE } from "./entries/mcp-app-views.tsx"
 
 import { COMPONENTS } from "./components.tsx"
 import { renderHtml } from "./render.ts"
@@ -25,7 +26,10 @@ let uiCssError: string | null = null
 
 async function recompile(): Promise<void> {
   try {
-    uiCss = await compileUiCss({ base: import.meta.dir })
+    uiCss = await compileUiCss({
+      base: import.meta.dir,
+      sources: [MCP_APPS_CSS_SOURCE],
+    })
     uiCssError = null
   } catch (error) {
     uiCssError = error instanceof Error ? error.message : String(error)

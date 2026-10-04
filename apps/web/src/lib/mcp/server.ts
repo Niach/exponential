@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { users } from "@/db/auth-schema"
 import { registerExponentialTools } from "./tools"
+import { registerExponentialApps } from "./apps"
 import { mcpServerInstructions } from "./instructions"
 import { buildRuntimeConfig } from "@/lib/runtime-config"
 import type { McpAccess } from "./scope"
@@ -41,5 +42,7 @@ export function createExponentialMcpServer(
     }
   )
   registerExponentialTools(server, user, request, access, sessionId, gates)
+  // EXP-1183: the MCP Apps views the issue/run tools point at.
+  registerExponentialApps(server)
   return server
 }

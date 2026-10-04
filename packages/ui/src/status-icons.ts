@@ -13,6 +13,7 @@
 
 import type { IconName } from "@exp/icons"
 import type {
+  IssuePriority,
   IssueStatus,
   IssueStatusCategory,
 } from "@exp/db-schema/domain"
@@ -87,4 +88,28 @@ export const BUILTIN_STATUS_COLOR_CLASS: Record<IssueStatus, string> = {
   done: `text-blue-500`,
   cancelled: `text-muted-foreground`,
   duplicate: `text-muted-foreground`,
+}
+
+// The builtin rows' GROUP BAND wash — the status hue at 10% (EXP-314: custom
+// rows wash their own hex through `hexWithAlpha`). EXP-1183 moved it here
+// beside the glyph colours: the app's `issue-group-header.tsx` and the MCP
+// Apps issue list (`@exp/mcp-apps`) both band a group by status.
+export const BUILTIN_STATUS_WASH_CLASS: Record<IssueStatus, string> = {
+  backlog: `bg-zinc-500/10`,
+  in_progress: `bg-yellow-500/10`,
+  in_review: `bg-green-500/10`,
+  done: `bg-blue-500/10`,
+  cancelled: `bg-zinc-500/10`,
+  duplicate: `bg-zinc-500/10`,
+}
+
+// The priority glyph colours (the app's `issuePriorityOptions`). They moved
+// into the package with the first package-side renderer (EXP-1183, the MCP
+// Apps issue list), for the same Tailwind-scan reason as the status classes.
+export const BUILTIN_PRIORITY_COLOR_CLASS: Record<IssuePriority, string> = {
+  urgent: `text-red-500`,
+  high: `text-orange-500`,
+  medium: `text-yellow-500`,
+  low: `text-blue-500`,
+  none: `text-muted-foreground`,
 }

@@ -1,6 +1,10 @@
 import type { LucideIcon } from "lucide-react"
 import type { IssuePriority, IssueStatus } from "@exp/db-schema/domain"
-import { BUILTIN_STATUS_COLOR_CLASS, conceptIcon } from "@exp/ui"
+import {
+  BUILTIN_PRIORITY_COLOR_CLASS,
+  BUILTIN_STATUS_COLOR_CLASS,
+  conceptIcon,
+} from "@exp/ui"
 import type { PickerOption } from "@exp/ui"
 
 export * from "@exp/db-schema/domain"
@@ -37,8 +41,8 @@ export interface IssueOption<TValue extends string = string>
 // EXP-887: the `color` strings live in @exp/ui's `status-icons.ts` — Tailwind
 // v4 only emits a palette utility it can SEE in a scanned file, and a class
 // named only here would stop being generated once the last package-side
-// consumer needed it. The PRIORITY palette stays below: nothing in the package
-// renders a priority.
+// consumer needed it. EXP-1183: the PRIORITY colours followed once the MCP
+// Apps issue list (`@exp/mcp-apps`) rendered a priority from the package.
 export const issueStatusOptions = [
   {
     value: `backlog`,
@@ -83,31 +87,31 @@ export const issuePriorityOptions = [
     value: `urgent`,
     label: `Urgent`,
     icon: conceptIcon(`priority-urgent`),
-    color: `text-red-500`,
+    color: BUILTIN_PRIORITY_COLOR_CLASS.urgent,
   },
   {
     value: `high`,
     label: `High`,
     icon: conceptIcon(`priority-high`),
-    color: `text-orange-500`,
+    color: BUILTIN_PRIORITY_COLOR_CLASS.high,
   },
   {
     value: `medium`,
     label: `Medium`,
     icon: conceptIcon(`priority-medium`),
-    color: `text-yellow-500`,
+    color: BUILTIN_PRIORITY_COLOR_CLASS.medium,
   },
   {
     value: `low`,
     label: `Low`,
     icon: conceptIcon(`priority-low`),
-    color: `text-blue-500`,
+    color: BUILTIN_PRIORITY_COLOR_CLASS.low,
   },
   {
     value: `none`,
     label: `No priority`,
     icon: conceptIcon(`priority-none`),
-    color: `text-muted-foreground`,
+    color: BUILTIN_PRIORITY_COLOR_CLASS.none,
   },
 ] as const satisfies readonly IssueOption<IssuePriority>[]
 

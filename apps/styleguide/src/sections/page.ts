@@ -130,6 +130,7 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   toast: `Feedback`,
   [`session-tree`]: `Lists & rows`,
   [`results-guide`]: `Lists & rows`,
+  [`mcp-app-views`]: `Lists & rows`,
   [`pr-graph-badge`]: `Buttons & chips`,
 }
 

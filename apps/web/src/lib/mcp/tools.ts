@@ -203,6 +203,7 @@ import {
 } from "./handlers/attachments-upload"
 import { requestSessionCompaction } from "./handlers/sessions-compact"
 import { ALWAYS_LOAD_META } from "./always-load"
+import { mcpAppToolMeta } from "./apps"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "./gates"
 import type { McpUser } from "./server"
 import {
@@ -715,6 +716,44 @@ const issueListSort = z
 // an order anyone wants to sort by.
 const issuePriorityRank = sql<number>`case ${issues.priority} when 'urgent' then 4 when 'high' then 3 when 'medium' then 2 when 'low' then 1 else 0 end`
 
+// EXP-1183: shared by exponential_issues_list and exponential_issues_show.
+const issuesListInput = strictInput({
+  boardId: uuidString.optional(),
+  boardIds: z.array(uuidString).optional(),
+  teamId: uuidString.optional(),
+  status: z.array(looseEnum(issueStatusValues)).optional(),
+  statusId: z.array(uuidString).optional(),
+  statusCategory: z.array(looseEnum(issueStatusCategoryValues)).optional(),
+  excludeStatus: z.array(looseEnum(issueStatusValues)).optional(),
+  excludeStatusId: z.array(uuidString).optional(),
+  excludeStatusCategory: z
+    .array(looseEnum(issueStatusCategoryValues))
+    .optional(),
+  includeClosed: z.boolean().default(false),
+  priority: z.array(looseEnum(issuePriorityValues)).optional(),
+  assigneeId: z.string().nullable().optional(),
+  source: looseEnum([`user`, `widget`] as const).optional(),
+  labelIds: z.array(uuidString).optional(),
+  labelMatch: z.enum([`any`, `all`]).optional(),
+  unlabeled: z.boolean().optional(),
+  hasComments: z.boolean().optional(),
+  commentedBy: z.string().optional(),
+  notCommentedBy: z.string().optional(),
+  createdAfter: isoDateTime.optional(),
+  createdBefore: isoDateTime.optional(),
+  updatedAfter: isoDateTime.optional(),
+  updatedBefore: isoDateTime.optional(),
+  dueAfter: dateOnlyLoose.optional(),
+  dueBefore: dateOnlyLoose.optional(),
+  search: z
+    .string()
+    .refine((v) => v.length >= 1 && v.length <= 256, `1-256 chars`)
+    .optional(),
+  sort: issueListSort,
+  limit: z.number().int().min(1).max(1000).default(50),
+  offset: z.number().int().min(0).default(0),
+})
+
 export function registerExponentialTools(
   server: McpServer,
   user: McpUser,
@@ -1060,6 +1099,255 @@ export function registerExponentialTools(
   // Issues
   // -----------------------------------------------------------------------
 
+  const listIssues = async ({
+    boardId,
+    boardIds,
+    teamId,
+    status,
+    statusId,
+    statusCategory,
+    excludeStatus,
+    excludeStatusId,
+    excludeStatusCategory,
+    includeClosed,
+    priority,
+    assigneeId,
+    source,
+    labelIds,
+    labelMatch,
+    unlabeled,
+    hasComments,
+    commentedBy,
+    notCommentedBy,
+    createdAfter,
+    createdBefore,
+    updatedAfter,
+    updatedBefore,
+    dueAfter,
+    dueBefore,
+    search,
+    sort,
+    limit,
+    offset,
+  }: z.output<typeof issuesListInput>) => {
+    try {
+      let allowedBoardIds: Array<string>
+
+      // EXP-684: boardIds is the multi-board form of boardId — every named
+      // board is access-checked exactly like the single one.
+      const requestedBoardIds = boardId
+        ? [boardId]
+        : boardIds && boardIds.length > 0
+          ? [...new Set(boardIds)]
+          : null
+
+      if (requestedBoardIds) {
+        for (const id of requestedBoardIds) {
+          const board = await getBoardTeamId(id)
+          assertBoardGranted(access, board.id, board.teamId)
+          await resolveTeamAccess(user.id, board.teamId)
+        }
+        allowedBoardIds = requestedBoardIds
+      } else {
+        let teamIds: Array<string>
+        if (teamId) {
+          assertTeamVisible(access, teamId)
+          await resolveTeamAccess(user.id, teamId)
+          teamIds = [teamId]
+        } else {
+          teamIds = filterVisibleTeamIds(
+            access,
+            await getUserTeamIds(user.id)
+          )
+        }
+        if (teamIds.length === 0) return ok([])
+        const boardRows = await db
+          .select({ id: boards.id, teamId: boards.teamId })
+          .from(boards)
+          .where(
+            and(inArray(boards.teamId, teamIds), boardVisible())
+          )
+        allowedBoardIds = boardRows
+          .filter((r) => isBoardGranted(access, r.id, r.teamId))
+          .map((r) => r.id)
+      }
+
+      if (allowedBoardIds.length === 0) return ok([])
+
+      const conditions: Array<SQL> = [
+        inArray(issues.boardId, allowedBoardIds),
+      ]
+
+      // Status: the builtin anchor enum, the precise per-team row, or the
+      // row's category (a custom "Ideas" has no builtin key, so only the
+      // latter two can name it). status_id is trigger-populated for every
+      // writer (populate_issue_status_id), so the row filters key on it
+      // alone; an exclude keeps the (theoretical) NULL row rather than
+      // dropping it into nowhere.
+      const statusIdsInCategories = (
+        categories: Array<(typeof issueStatusCategoryValues)[number]>
+      ) =>
+        sql`(select ${issueStatuses.id} from ${issueStatuses} where ${inArray(issueStatuses.category, categories)})`
+      if (status && status.length > 0) {
+        conditions.push(inArray(issues.status, status))
+      }
+      if (statusId && statusId.length > 0) {
+        conditions.push(inArray(issues.statusId, statusId))
+      }
+      if (statusCategory && statusCategory.length > 0) {
+        conditions.push(
+          sql`${issues.statusId} in ${statusIdsInCategories(statusCategory)}`
+        )
+      }
+      if (excludeStatus && excludeStatus.length > 0) {
+        conditions.push(notInArray(issues.status, excludeStatus))
+      }
+      if (excludeStatusId && excludeStatusId.length > 0) {
+        conditions.push(
+          or(
+            isNull(issues.statusId),
+            notInArray(issues.statusId, excludeStatusId)
+          )!
+        )
+      }
+      if (excludeStatusCategory && excludeStatusCategory.length > 0) {
+        conditions.push(
+          or(
+            isNull(issues.statusId),
+            sql`${issues.statusId} not in ${statusIdsInCategories(excludeStatusCategory)}`
+          )!
+        )
+      }
+      // EXP-847: a listing is about OPEN work. With no status filter of any
+      // kind the closed categories drop out — `includeClosed: true` (or any
+      // explicit status/statusId/statusCategory) asks for them back. The
+      // predicate keys on the status ROW's category (customs included) and
+      // falls back to the dual-written anchor for a (theoretical) NULL
+      // status_id, so nothing is silently hidden or silently kept.
+      const statusFiltered =
+        (status && status.length > 0) ||
+        (statusId && statusId.length > 0) ||
+        (statusCategory && statusCategory.length > 0)
+      if (!includeClosed && !statusFiltered) {
+        conditions.push(
+          or(
+            sql`${issues.statusId} not in ${statusIdsInCategories([
+              ...CLOSED_STATUS_CATEGORIES,
+            ])}`,
+            and(
+              isNull(issues.statusId),
+              notInArray(issues.status, [...CLOSED_STATUS_ANCHORS])
+            )
+          )!
+        )
+      }
+
+      if (priority && priority.length > 0) {
+        conditions.push(inArray(issues.priority, priority))
+      }
+      if (assigneeId === null) {
+        conditions.push(isNull(issues.assigneeId))
+      } else if (assigneeId !== undefined) {
+        conditions.push(eq(issues.assigneeId, assigneeId))
+      }
+      // SLOP-4: widget-filed reports vs member-created issues.
+      if (source) {
+        conditions.push(eq(issues.source, source))
+      }
+
+      // Labels: any-of / all-of over issue_labels, plus the explicit
+      // "no labels at all" the triage sweeps key on.
+      const labelLink = sql`select 1 from ${issueLabels} where ${issueLabels.issueId} = ${issues.id}`
+      if (unlabeled === true) {
+        conditions.push(sql`not exists (${labelLink})`)
+      } else if (unlabeled === false) {
+        conditions.push(sql`exists (${labelLink})`)
+      }
+      if (labelIds && labelIds.length > 0) {
+        const wanted = [...new Set(labelIds)]
+        if (labelMatch === `all`) {
+          conditions.push(
+            sql`(select count(distinct ${issueLabels.labelId}) from ${issueLabels} where ${issueLabels.issueId} = ${issues.id} and ${inArray(issueLabels.labelId, wanted)}) = ${wanted.length}`
+          )
+        } else {
+          conditions.push(
+            sql`exists (${labelLink} and ${inArray(issueLabels.labelId, wanted)})`
+          )
+        }
+      }
+
+      // Comments: presence, and "has/hasn't this user already replied"
+      // so a recurring run does not comment on the same issue twice.
+      const commentLink = sql`select 1 from ${comments} where ${comments.issueId} = ${issues.id}`
+      if (hasComments === true) {
+        conditions.push(sql`exists (${commentLink})`)
+      } else if (hasComments === false) {
+        conditions.push(sql`not exists (${commentLink})`)
+      }
+      if (commentedBy) {
+        conditions.push(
+          sql`exists (${commentLink} and ${eq(comments.authorId, commentedBy)})`
+        )
+      }
+      if (notCommentedBy) {
+        conditions.push(
+          sql`not exists (${commentLink} and ${eq(comments.authorId, notCommentedBy)})`
+        )
+      }
+
+      if (createdAfter) {
+        conditions.push(gte(issues.createdAt, new Date(createdAfter)))
+      }
+      if (createdBefore) {
+        conditions.push(lte(issues.createdAt, new Date(createdBefore)))
+      }
+      if (updatedAfter) {
+        conditions.push(gte(issues.updatedAt, new Date(updatedAfter)))
+      }
+      if (updatedBefore) {
+        conditions.push(lte(issues.updatedAt, new Date(updatedBefore)))
+      }
+      if (dueAfter) conditions.push(gte(issues.dueDate, dueAfter))
+      if (dueBefore) conditions.push(lte(issues.dueDate, dueBefore))
+      // EXP-892: the same full-text + identifier predicate every client's
+      // search box runs (lib/issue-search-sql.ts), over the boards this
+      // call may see. Capped: unlike the team-scoped search box this spans
+      // EVERY granted board, and a limit-1000 list must not scan them all.
+      if (search) {
+        conditions.push(
+          sql`${issues.id} in (${issueSearchMatchIds(
+            search,
+            { boardIds: allowedBoardIds },
+            { limit: ISSUE_SEARCH_SCAN_CAP }
+          )})`
+        )
+      }
+
+      const dir = sort.startsWith(`-`) ? desc : asc
+      const sortField = sort.replace(/^-/, ``)
+      const sortExpr =
+        sortField === `updatedAt`
+          ? issues.updatedAt
+          : sortField === `priority`
+            ? issuePriorityRank
+            : issues.createdAt
+
+      const rows = await db
+        .select(issueWireColumns)
+        .from(issues)
+        .where(and(...conditions))
+        // createdAt then id break ties so pages never overlap.
+        .orderBy(dir(sortExpr), dir(issues.createdAt), dir(issues.id))
+        .limit(limit)
+        .offset(offset)
+
+      // EXP-847: list rows carry a description HEAD, never whole bodies.
+      return ok(withTruncatedDescriptions(rows))
+    } catch (e) {
+      return err(e)
+    }
+  }
+
   server.registerTool(
     `exponential_issues_list`,
     {
@@ -1070,291 +1358,35 @@ export function registerExponentialTools(
       // twins and priority all validate at runtime (the refusal names the
       // values; issues_create spells the status enum out).
       description: `List issues, OPEN only: completed/cancelled/duplicate need includeClosed or a status* filter. Descriptions cut at 200. statusId: exponential_statuses_list; exclude* invert. created*/updated*: ISO. sort: [-]createdAt|updatedAt|priority. search: text + identifier; assigneeId null = unassigned; source: user|widget.`,
+      inputSchema: issuesListInput,
+    },
+    listIssues
+  )
+
+  // EXP-1183: the issue list as an MCP Apps view (lib/mcp/apps.ts) — its
+  // own small tool because exponential_issues_list has no per-tool budget
+  // left for the `_meta.ui` binding. Same query, same rows.
+  server.registerTool(
+    `exponential_issues_show`,
+    {
+      // The app's name in an MCP Apps host's catalog (OpenClaw's Apps page).
+      title: `Exponential issues`,
+      annotations: READ_ONLY,
+      description: `Show issues as an interactive list where the client renders MCP Apps (OpenClaw, Claude, ChatGPT); elsewhere the same JSON as exponential_issues_list. OPEN only unless includeClosed.`,
+      _meta: mcpAppToolMeta(`issues`),
       inputSchema: strictInput({
         boardId: uuidString.optional(),
-        boardIds: z.array(uuidString).optional(),
         teamId: uuidString.optional(),
-        status: z.array(looseEnum(issueStatusValues)).optional(),
-        statusId: z.array(uuidString).optional(),
-        statusCategory: z.array(looseEnum(issueStatusCategoryValues)).optional(),
-        excludeStatus: z.array(looseEnum(issueStatusValues)).optional(),
-        excludeStatusId: z.array(uuidString).optional(),
-        excludeStatusCategory: z
-          .array(looseEnum(issueStatusCategoryValues))
-          .optional(),
-        includeClosed: z.boolean().default(false),
-        priority: z.array(looseEnum(issuePriorityValues)).optional(),
         assigneeId: z.string().nullable().optional(),
-        source: looseEnum([`user`, `widget`] as const).optional(),
-        labelIds: z.array(uuidString).optional(),
-        labelMatch: z.enum([`any`, `all`]).optional(),
-        unlabeled: z.boolean().optional(),
-        hasComments: z.boolean().optional(),
-        commentedBy: z.string().optional(),
-        notCommentedBy: z.string().optional(),
-        createdAfter: isoDateTime.optional(),
-        createdBefore: isoDateTime.optional(),
-        updatedAfter: isoDateTime.optional(),
-        updatedBefore: isoDateTime.optional(),
-        dueAfter: dateOnlyLoose.optional(),
-        dueBefore: dateOnlyLoose.optional(),
         search: z
           .string()
           .refine((v) => v.length >= 1 && v.length <= 256, `1-256 chars`)
           .optional(),
-        sort: issueListSort,
-        limit: z.number().int().min(1).max(1000).default(50),
-        offset: z.number().int().min(0).default(0),
+        includeClosed: z.boolean().default(false),
+        limit: z.number().int().min(1).max(200).default(50),
       }),
     },
-    async ({
-      boardId,
-      boardIds,
-      teamId,
-      status,
-      statusId,
-      statusCategory,
-      excludeStatus,
-      excludeStatusId,
-      excludeStatusCategory,
-      includeClosed,
-      priority,
-      assigneeId,
-      source,
-      labelIds,
-      labelMatch,
-      unlabeled,
-      hasComments,
-      commentedBy,
-      notCommentedBy,
-      createdAfter,
-      createdBefore,
-      updatedAfter,
-      updatedBefore,
-      dueAfter,
-      dueBefore,
-      search,
-      sort,
-      limit,
-      offset,
-    }) => {
-      try {
-        let allowedBoardIds: Array<string>
-
-        // EXP-684: boardIds is the multi-board form of boardId — every named
-        // board is access-checked exactly like the single one.
-        const requestedBoardIds = boardId
-          ? [boardId]
-          : boardIds && boardIds.length > 0
-            ? [...new Set(boardIds)]
-            : null
-
-        if (requestedBoardIds) {
-          for (const id of requestedBoardIds) {
-            const board = await getBoardTeamId(id)
-            assertBoardGranted(access, board.id, board.teamId)
-            await resolveTeamAccess(user.id, board.teamId)
-          }
-          allowedBoardIds = requestedBoardIds
-        } else {
-          let teamIds: Array<string>
-          if (teamId) {
-            assertTeamVisible(access, teamId)
-            await resolveTeamAccess(user.id, teamId)
-            teamIds = [teamId]
-          } else {
-            teamIds = filterVisibleTeamIds(
-              access,
-              await getUserTeamIds(user.id)
-            )
-          }
-          if (teamIds.length === 0) return ok([])
-          const boardRows = await db
-            .select({ id: boards.id, teamId: boards.teamId })
-            .from(boards)
-            .where(
-              and(inArray(boards.teamId, teamIds), boardVisible())
-            )
-          allowedBoardIds = boardRows
-            .filter((r) => isBoardGranted(access, r.id, r.teamId))
-            .map((r) => r.id)
-        }
-
-        if (allowedBoardIds.length === 0) return ok([])
-
-        const conditions: Array<SQL> = [
-          inArray(issues.boardId, allowedBoardIds),
-        ]
-
-        // Status: the builtin anchor enum, the precise per-team row, or the
-        // row's category (a custom "Ideas" has no builtin key, so only the
-        // latter two can name it). status_id is trigger-populated for every
-        // writer (populate_issue_status_id), so the row filters key on it
-        // alone; an exclude keeps the (theoretical) NULL row rather than
-        // dropping it into nowhere.
-        const statusIdsInCategories = (
-          categories: Array<(typeof issueStatusCategoryValues)[number]>
-        ) =>
-          sql`(select ${issueStatuses.id} from ${issueStatuses} where ${inArray(issueStatuses.category, categories)})`
-        if (status && status.length > 0) {
-          conditions.push(inArray(issues.status, status))
-        }
-        if (statusId && statusId.length > 0) {
-          conditions.push(inArray(issues.statusId, statusId))
-        }
-        if (statusCategory && statusCategory.length > 0) {
-          conditions.push(
-            sql`${issues.statusId} in ${statusIdsInCategories(statusCategory)}`
-          )
-        }
-        if (excludeStatus && excludeStatus.length > 0) {
-          conditions.push(notInArray(issues.status, excludeStatus))
-        }
-        if (excludeStatusId && excludeStatusId.length > 0) {
-          conditions.push(
-            or(
-              isNull(issues.statusId),
-              notInArray(issues.statusId, excludeStatusId)
-            )!
-          )
-        }
-        if (excludeStatusCategory && excludeStatusCategory.length > 0) {
-          conditions.push(
-            or(
-              isNull(issues.statusId),
-              sql`${issues.statusId} not in ${statusIdsInCategories(excludeStatusCategory)}`
-            )!
-          )
-        }
-        // EXP-847: a listing is about OPEN work. With no status filter of any
-        // kind the closed categories drop out — `includeClosed: true` (or any
-        // explicit status/statusId/statusCategory) asks for them back. The
-        // predicate keys on the status ROW's category (customs included) and
-        // falls back to the dual-written anchor for a (theoretical) NULL
-        // status_id, so nothing is silently hidden or silently kept.
-        const statusFiltered =
-          (status && status.length > 0) ||
-          (statusId && statusId.length > 0) ||
-          (statusCategory && statusCategory.length > 0)
-        if (!includeClosed && !statusFiltered) {
-          conditions.push(
-            or(
-              sql`${issues.statusId} not in ${statusIdsInCategories([
-                ...CLOSED_STATUS_CATEGORIES,
-              ])}`,
-              and(
-                isNull(issues.statusId),
-                notInArray(issues.status, [...CLOSED_STATUS_ANCHORS])
-              )
-            )!
-          )
-        }
-
-        if (priority && priority.length > 0) {
-          conditions.push(inArray(issues.priority, priority))
-        }
-        if (assigneeId === null) {
-          conditions.push(isNull(issues.assigneeId))
-        } else if (assigneeId !== undefined) {
-          conditions.push(eq(issues.assigneeId, assigneeId))
-        }
-        // SLOP-4: widget-filed reports vs member-created issues.
-        if (source) {
-          conditions.push(eq(issues.source, source))
-        }
-
-        // Labels: any-of / all-of over issue_labels, plus the explicit
-        // "no labels at all" the triage sweeps key on.
-        const labelLink = sql`select 1 from ${issueLabels} where ${issueLabels.issueId} = ${issues.id}`
-        if (unlabeled === true) {
-          conditions.push(sql`not exists (${labelLink})`)
-        } else if (unlabeled === false) {
-          conditions.push(sql`exists (${labelLink})`)
-        }
-        if (labelIds && labelIds.length > 0) {
-          const wanted = [...new Set(labelIds)]
-          if (labelMatch === `all`) {
-            conditions.push(
-              sql`(select count(distinct ${issueLabels.labelId}) from ${issueLabels} where ${issueLabels.issueId} = ${issues.id} and ${inArray(issueLabels.labelId, wanted)}) = ${wanted.length}`
-            )
-          } else {
-            conditions.push(
-              sql`exists (${labelLink} and ${inArray(issueLabels.labelId, wanted)})`
-            )
-          }
-        }
-
-        // Comments: presence, and "has/hasn't this user already replied"
-        // so a recurring run does not comment on the same issue twice.
-        const commentLink = sql`select 1 from ${comments} where ${comments.issueId} = ${issues.id}`
-        if (hasComments === true) {
-          conditions.push(sql`exists (${commentLink})`)
-        } else if (hasComments === false) {
-          conditions.push(sql`not exists (${commentLink})`)
-        }
-        if (commentedBy) {
-          conditions.push(
-            sql`exists (${commentLink} and ${eq(comments.authorId, commentedBy)})`
-          )
-        }
-        if (notCommentedBy) {
-          conditions.push(
-            sql`not exists (${commentLink} and ${eq(comments.authorId, notCommentedBy)})`
-          )
-        }
-
-        if (createdAfter) {
-          conditions.push(gte(issues.createdAt, new Date(createdAfter)))
-        }
-        if (createdBefore) {
-          conditions.push(lte(issues.createdAt, new Date(createdBefore)))
-        }
-        if (updatedAfter) {
-          conditions.push(gte(issues.updatedAt, new Date(updatedAfter)))
-        }
-        if (updatedBefore) {
-          conditions.push(lte(issues.updatedAt, new Date(updatedBefore)))
-        }
-        if (dueAfter) conditions.push(gte(issues.dueDate, dueAfter))
-        if (dueBefore) conditions.push(lte(issues.dueDate, dueBefore))
-        // EXP-892: the same full-text + identifier predicate every client's
-        // search box runs (lib/issue-search-sql.ts), over the boards this
-        // call may see. Capped: unlike the team-scoped search box this spans
-        // EVERY granted board, and a limit-1000 list must not scan them all.
-        if (search) {
-          conditions.push(
-            sql`${issues.id} in (${issueSearchMatchIds(
-              search,
-              { boardIds: allowedBoardIds },
-              { limit: ISSUE_SEARCH_SCAN_CAP }
-            )})`
-          )
-        }
-
-        const dir = sort.startsWith(`-`) ? desc : asc
-        const sortField = sort.replace(/^-/, ``)
-        const sortExpr =
-          sortField === `updatedAt`
-            ? issues.updatedAt
-            : sortField === `priority`
-              ? issuePriorityRank
-              : issues.createdAt
-
-        const rows = await db
-          .select(issueWireColumns)
-          .from(issues)
-          .where(and(...conditions))
-          // createdAt then id break ties so pages never overlap.
-          .orderBy(dir(sortExpr), dir(issues.createdAt), dir(issues.id))
-          .limit(limit)
-          .offset(offset)
-
-        // EXP-847: list rows carry a description HEAD, never whole bodies.
-        return ok(withTruncatedDescriptions(rows))
-      } catch (e) {
-        return err(e)
-      }
-    }
+    (args) => listIssues(issuesListInput.parse({ ...args, sort: `-updatedAt` }))
   )
 
   server.registerTool(
@@ -1362,6 +1394,9 @@ export function registerExponentialTools(
     {
       annotations: READ_ONLY,
       description: `Get a single issue by UUID or identifier (e.g. "MET-12"), including its label ids and latest comments (newest first, capped at 50; commentsLimit overrides).`,
+      // EXP-1183: no MCP Apps view here — the always-loaded set has no room
+      // for the `_meta.ui` binding (context-budget.test.ts); the issues view
+      // opens an issue itself through the host's tools/call.
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         id: z.string().min(1),
@@ -1407,8 +1442,21 @@ export function registerExponentialTools(
           (relation) =>
             isBoardGranted(access, relation.otherBoardId, relation.otherTeamId)
         )
+        // EXP-1183: the issue's page in the app (the MCP Apps view's "Open").
+        const [slugs] = await db
+          .select({ teamSlug: teams.slug, boardSlug: boards.slug })
+          .from(boards)
+          .innerJoin(teams, eq(teams.id, boards.teamId))
+          .where(eq(boards.id, ctxIssue.boardId))
+          .limit(1)
+        const origin = process.env.BETTER_AUTH_URL
+          ? appBaseUrl()
+          : new URL(request.url).origin
         return ok({
           ...issue,
+          url: slugs
+            ? `${origin}/t/${encodeURIComponent(slugs.teamSlug)}/boards/${encodeURIComponent(slugs.boardSlug)}/issues/${encodeURIComponent(issue.identifier)}`
+            : null,
           labelIds: labelRows.map((r) => r.labelId),
           relations,
           recentComments,
@@ -4031,6 +4079,7 @@ export function registerExponentialTools(
       annotations: READ_ONLY,
       description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open, still live) → ended; endedBy = who ended it; agentBusy = working now. ackedAt = the device's liveness ack, stamped seconds after launch; null for minutes = the launch died. blocked is set only when the agent itself REFUSED a call at its usage wall (never for a usage warning): blocked.window (session = 5h, weekly, model) and blocked.resetsAt describe the SAME window; the run stays running and clears it on its next successful turn.`,
       inputSchema: strictInput({ id: uuidString }),
+      _meta: mcpAppToolMeta(`run`),
     },
     async ({ id }) => {
       try {
@@ -4081,7 +4130,15 @@ export function registerExponentialTools(
           // when set.
           results: (results ?? []).map((result) =>
             isTextEntry(result)
-              ? { topic: result.topic, text: result.text ?? `` }
+              ? {
+                  topic: result.topic,
+                  text: result.text ?? ``,
+                  // EXP-1183: the paths the topic touched (the Guide's file
+                  // rows, here and in the MCP Apps run view).
+                  ...(Array.isArray(result.files) && result.files.length > 0
+                    ? { files: result.files }
+                    : {}),
+                }
               : {
                   topic: result.topic,
                   ...(typeof result.label === `string` ? { label: result.label } : {}),
