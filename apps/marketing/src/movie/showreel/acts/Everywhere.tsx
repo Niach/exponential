@@ -53,8 +53,8 @@ const MiniBoard: React.FC<{ f: number; flipAt: number; hero: StatusKind; kind: K
   const scalePop = flipped ? 1 + 0.5 * (1 - seg(f, flipAt, flipAt + 10)) : 1
   const rows: { ident: string; title: string; status: StatusKind; hue: number | null }[] = [
     { ident: `EXP-1100`, title: `Ship the 15-second showreel`, status: flipped ? `review` : hero, hue: 6 },
-    { ident: `EXP-1097`, title: `Review wave clears its layer`, status: `progress`, hue: 4 },
-    { ident: `EXP-1102`, title: `Workflow host state on the device`, status: `backlog`, hue: null },
+    { ident: `EXP-1097`, title: `Offline queue for issue edits`, status: `progress`, hue: 4 },
+    { ident: `EXP-1102`, title: `Reduce cold start below 800 ms`, status: `backlog`, hue: null },
   ]
   const phone = kind === `ios` || kind === `android`
   return (

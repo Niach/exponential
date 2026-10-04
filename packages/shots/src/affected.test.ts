@@ -78,7 +78,9 @@ describe(`web attribution`, () => {
 
   test(`the recipe registry re-drives the recipe views only`, () => {
     const result = scope(`apps/web/scripts/lib/view-recipes.ts`)
-    expect(views(result, `web`)).toContain(`issue-create`)
+    // SLOP-23: EXP-1170 turned the create dialog into the draft page and
+    // dropped its recipe; `issue-comments` is a recipe view that stays.
+    expect(views(result, `web`)).toContain(`issue-comments`)
     expect(views(result, `web`)).not.toContain(`board`)
     expect(views(result, `desktop`)).toEqual([])
   })
