@@ -5,9 +5,9 @@
 //! Layout, top to bottom, mirroring the web card with the native
 //! instance-picker addition (§4.2):
 //!
-//! - the **logo + "Exponential" wordmark** centered above the card
-//!   (web `AuthFormShell`: `ExponentialLogo size=32` + text-xl semibold),
-//! - a centered `Card`: title "Continue to Exponential" + description,
+//! - the **brand head** (web `BrandHeading`, EXP-1176): the 56px mark over
+//!   the title "Continue to Exponential", no wordmark, no blurb, no card —
+//!   the form sits on the bare page gradient,
 //! - the **native instance picker the web does not need** — the
 //! **Exponential Cloud choice comes FIRST** (the Linux login was
 //!   missing the leading cloud button), then Self-hosted with a base-URL
@@ -791,7 +791,8 @@ impl LoginView {
             return None;
         }
 
-        let mut section = v_flex().gap_3();
+        // EXP-1176: 10px between the methods (web `space-y-2.5`).
+        let mut section = v_flex().gap_2p5();
         if config.apple_login_enabled {
             let pending = self.pending_provider.as_deref() == Some("apple");
             section = section.child(
@@ -1161,29 +1162,10 @@ impl Render for LoginView {
             .clone()
             .unwrap_or_else(default_auth_config);
 
-        // -- card header (web AuthFormShell: title + description) -----------
-        // EXP-857: the wording is shared by all four clients — the title never
-        // says "Sign in" again, and the one sentence below it covers both
-        // halves of the truth (an unknown address signs up).
-        let mut form = v_flex()
-            .w(gpui::px(360.))
-            .gap_4()
-            .child(
-                v_flex()
-                    .gap_1()
-                    .child(
-                        div()
-                            .text_xl()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("Continue to Exponential"),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("Sign in or create your account"),
-                    ),
-            );
+        // -- the form column (web AuthFormShell's children) -----------------
+        // EXP-1176: the title lives in the brand head above; the "Sign in or
+        // create your account" line is gone (it restated the buttons).
+        let mut form = v_flex().w(gpui::px(360.)).gap_4();
 
         if expired {
             // The dead-token surface: it routed HERE, with the
@@ -1235,21 +1217,24 @@ impl Render for LoginView {
         // -- instance toggle (self-host demoted to a small link) -----
         form = form.child(self.render_instance_toggle(cx));
 
-        // Web `AuthFormShell`: logo + wordmark centered above the card.
-        let brand = h_flex()
-            .gap_2()
+        // Web `BrandHeading` (EXP-1176): the 56px mark over the title. The
+        // title is 24px on a 32px line, the web `text-2xl` (gpui's `text_2xl`
+        // is 21px on the 14px rem).
+        let brand = v_flex()
+            .gap_3()
             .items_center()
             .justify_center()
             .child(
                 Icon::from(ExpIcon::Logo)
-                    .with_size(gpui::px(32.))
+                    .with_size(gpui::px(56.))
                     .text_color(cx.theme().foreground),
             )
             .child(
                 div()
-                    .text_xl()
+                    .text_size(gpui::px(24.))
+                    .line_height(gpui::px(32.))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child("Exponential"),
+                    .child("Continue to Exponential"),
             );
 
         div()
@@ -1258,16 +1243,10 @@ impl Render for LoginView {
             .items_center()
             .justify_center()
             // EXP-269: no opaque fill — LoginView renders inside the Shell,
-            // whose page gradient already sits behind it; the form floats as a
-            // glass card on it.
+            // whose page gradient already sits behind it. EXP-1176: no card
+            // either; the form sits on the gradient under the brand head.
             .text_color(cx.theme().foreground)
-            .child(
-                v_flex()
-                    .gap_6()
-                    .items_center()
-                    .child(brand)
-                    .child(crate::surface::glass_card().p_6().child(form)),
-            )
+            .child(v_flex().gap_6().items_center().child(brand).child(form))
     }
 }
 

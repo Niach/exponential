@@ -1,10 +1,11 @@
 import type { LucideIcon } from "lucide-react"
 import { GlassGroup, IconDisc } from "@exp/ui"
 
-// The wizard card every step shares (EXP-698 r6 style contract: this is the
-// desktop IDE's reference, `onboarding.rs` mirrors the chrome): a primary-
+// The wizard card the form steps share (EXP-698 r6 style contract: this is
+// the desktop IDE's reference, `onboarding.rs` mirrors the chrome): a primary-
 // tinted disc with the step's concept icon, the title, a muted subtitle,
-// then the body section.
+// then the body section. The welcome step does NOT wear it (EXP-1176): it
+// opens like the login page, `BrandHeading` over two buttons.
 export function StepCard({
   icon: Icon,
   title,

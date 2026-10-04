@@ -11,7 +11,15 @@ import {
 } from "lucide-react"
 import type { BoardIcon } from "@exp/db-schema/domain"
 import { trpc } from "@/lib/trpc-client"
-import { conceptIcon, Button, Pill, Input, Label, GlassGroup } from "@exp/ui"
+import {
+  conceptIcon,
+  BrandHeading,
+  Button,
+  Pill,
+  Input,
+  Label,
+  GlassGroup,
+} from "@exp/ui"
 import { useSession } from "@/hooks/use-session"
 import { useSignOut } from "@/hooks/use-sign-out"
 import { isPlanLimitError } from "@/lib/plan-limit-error"
@@ -179,41 +187,22 @@ function ChoiceStep({
   onCreate: () => void
   onJoin: () => void
 }) {
+  // EXP-1176: the same frame as the login page. The mark over the title,
+  // two standard buttons, no card and no line explaining what a team is.
   return (
-    <StepCard
-      icon={Users}
-      title="Welcome to Exponential"
-      subtitle="Teams hold your boards and teammates. Create your own, or join one you've been invited to."
-    >
-      <div className="space-y-3 p-6">
-        <Button
-          variant="outline"
-          className="h-auto w-full justify-start gap-3 px-4 py-3 text-left"
-          onClick={onCreate}
-        >
-          <Plus className="h-5 w-5 shrink-0 text-primary" />
-          <span className="min-w-0">
-            <span className="block font-medium">Create a team</span>
-            <span className="block text-xs font-normal text-muted-foreground">
-              Start fresh. You&apos;ll be the owner.
-            </span>
-          </span>
+    <div className="mx-auto w-full max-w-sm space-y-6">
+      <BrandHeading title="Welcome to Exponential" />
+      <div className="space-y-2.5">
+        <Button variant="outline" className="w-full" onClick={onCreate}>
+          <Plus />
+          Create a team
         </Button>
-        <Button
-          variant="outline"
-          className="h-auto w-full justify-start gap-3 px-4 py-3 text-left"
-          onClick={onJoin}
-        >
-          <LinkIcon className="h-5 w-5 shrink-0 text-primary" />
-          <span className="min-w-0">
-            <span className="block font-medium">Join a team</span>
-            <span className="block text-xs font-normal text-muted-foreground">
-              Use an invite link a teammate sent you
-            </span>
-          </span>
+        <Button variant="outline" className="w-full" onClick={onJoin}>
+          <LinkIcon />
+          Join a team
         </Button>
       </div>
-    </StepCard>
+    </div>
   )
 }
 

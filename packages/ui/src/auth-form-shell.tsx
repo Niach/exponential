@@ -1,12 +1,5 @@
 import type { ReactNode } from "react"
-import { ExponentialLogo } from "./exponential-logo"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "./card"
+import { BrandHeading } from "./brand-heading"
 
 interface AuthFormShellProps {
   children: ReactNode
@@ -17,6 +10,8 @@ interface AuthFormShellProps {
   title?: string
 }
 
+// EXP-1176: no card. The logo sits over the title (BrandHeading), the flow's
+// fields follow on the bare page gradient, the legal pair closes it.
 export function AuthFormShell({
   children,
   description,
@@ -26,22 +21,11 @@ export function AuthFormShell({
   return (
     <div className="min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-sm space-y-6">
-        <div className="flex items-center justify-center gap-2">
-          <ExponentialLogo variant="light" size={32} />
-          <span className="text-xl font-semibold">Exponential</span>
+        <BrandHeading title={title} description={description} />
+        <div>
+          {children}
+          {footer}
         </div>
-        <Card>
-          {(title || description) && (
-            <CardHeader className="text-center">
-              {title && <CardTitle className="text-2xl">{title}</CardTitle>}
-              {description && <CardDescription>{description}</CardDescription>}
-            </CardHeader>
-          )}
-          <CardContent>
-            {children}
-            {footer}
-          </CardContent>
-        </Card>
         <p className="text-center text-xs text-muted-foreground">
           <a
             href="https://exponential.at/privacy/"

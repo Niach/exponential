@@ -3600,13 +3600,13 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `auth-shell`,
     title: `Auth form shell`,
     kind: `Surfaces`,
-    blurb: `The frame every signed-out page wears: the logo and wordmark centred above a card, a centred title and one line of description inside it, the flow's own fields, then a footer line under them and the Privacy · Terms pair below the card. Login, signup, the OTP step, the invite page, the device-code page and the MCP consent screen all open in it, which is why the column is capped at 24rem — a sign-in form that spans a desktop viewport reads as a settings page.`,
+    blurb: `The frame every signed-out page wears (EXP-1176: no card, no wordmark): the 56px mark over the title (\`BrandHeading\`), a description line ONLY when it carries state (the OTP step's "We sent a 6-digit code to …"), the flow's own fields on the bare page gradient, then a footer line under them and the Privacy · Terms pair below. Login, signup, the OTP step, the invite page, the device-code page and the MCP consent screen all open in it, which is why the column is capped at 24rem — a sign-in form that spans a desktop viewport reads as a settings page. The onboarding welcome step wears the same head over two standard buttons.`,
     status: {
       web: ok(`AuthFormShell`, `packages/ui/src/auth-form-shell.tsx`),
       desktop: ok(
         `LoginView::render`,
         `apps/desktop/crates/ui/src/login.rs`,
-        `the brand block + glass_card at l.1151 mirror this shell; it is inlined in the screen, not a symbol of its own`
+        `the brand head + bare form column in LoginView::render mirror this shell, inlined in the screen, not a symbol of its own`
       ),
       ios: leftover(
         `LoginView`,

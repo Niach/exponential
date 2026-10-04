@@ -809,8 +809,8 @@
         "file": "shots/onboarding/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 14744,
-        "sha256": "98faad0f209f98819eb2d5b42578dedd4e02510906da9f8e64022765baed0eec"
+        "bytes": 11396,
+        "sha256": "b60d56c8599215bd5d25357604b4d297a1d141473a505d9a7e27abe689fcac3a"
       },
       "ios": {
         "file": "shots/onboarding/ios.webp",
@@ -823,15 +823,15 @@
         "file": "shots/onboarding/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 19304,
-        "sha256": "4a80d2f951b476d11987736951d50be6b4727e11ce7f0e23b85b8ff708eb57c0"
+        "bytes": 12772,
+        "sha256": "ee0667eb095c11c28703dcd00b72d80c00d7d1908a6c1dc9b9ae96502bedc2c8"
       },
       "web-mobile": {
         "file": "shots/onboarding/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 25778,
-        "sha256": "10e77d0dc6b928b9a9a4e23832a9b4604b3de4438d9a91b2079aa4f59b3924b9"
+        "bytes": 16410,
+        "sha256": "bc3d29430edabc06461dc4e8dc41cc6e52d1a141037d7bcd1e0a291df25de394"
       }
     },
     "onboarding-create-team": {
@@ -1483,8 +1483,8 @@
         "file": "shots/sign-in/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 16052,
-        "sha256": "3ce0fd458fc989b68c70640e778b00a572edaace884e502fc5929ccd097cac1d"
+        "bytes": 15266,
+        "sha256": "3f52923742f2fe017a526e1f50b7914f3aeab0e756b1e3e1ab04719bfbdfd756"
       },
       "ios": {
         "file": "shots/sign-in/ios.webp",
@@ -1497,15 +1497,15 @@
         "file": "shots/sign-in/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 17782,
-        "sha256": "b2ed1bc34f581e6aecbf1363b0831933a443d974cd2cc6a2d885b0f656bda0c7"
+        "bytes": 15738,
+        "sha256": "7fe536df197e45f752959e7ec4825bbb4f0047579c92676c5a8bd54162530cfa"
       },
       "web-mobile": {
         "file": "shots/sign-in/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 23614,
-        "sha256": "45fa39acdf5aed77cea5a533f83fa933bdced77058d715cef748abe4c4322d57"
+        "bytes": 20958,
+        "sha256": "51bc5bd63672782f68bd5ef4303667407e53da649fdd6f4688d175a22eab2a9a"
       }
     },
     "source-control": {
