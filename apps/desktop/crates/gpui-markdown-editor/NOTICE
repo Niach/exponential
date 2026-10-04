@@ -455,6 +455,14 @@ plus the maintenance UI the issue asks for)
   asserted on the serialized bytes). The host's byte-parity gate
   (`crates/ui/src/markdown/wysiwyg_parity.rs`) gained nine table fixtures that
   must survive this engine's round-trip unchanged.
+- EXP-1185, src/editor/context_menu.rs + src/strings.rs: the rendered-mode
+  right-click menu leads with Cut / Copy / Paste / Delete (shortcut hints,
+  disabled without a selection or, for Paste, without a focused block), a
+  separator, then the upstream Insert row. The rows dispatch the editor's own
+  `Copy`/`Cut`/`Paste`/`Delete` actions to the focused block, so they behave
+  exactly like the keyboard. Table cells and blocks that refuse a table insert
+  (code, math) now open the edit rows alone instead of no menu. The submenu
+  opens level with the Insert row. Tests: `edit_rows_*` in the same file.
 
 (This list is kept current as further vendoring changes land; see git history
 of this directory for the precise diffs.)
