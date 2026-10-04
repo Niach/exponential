@@ -1,8 +1,8 @@
 //! EXP-895/EXP-916 — THE Changes layout, on every desktop surface that shows
 //! a diff.
 //!
-//! One anatomy, three hosts (the review screen [`crate::pr_diff`], the run's
-//! Changes face [`crate::steer_viewer`], and anything else that grows one):
+//! One anatomy, every host (the issue's Changes face [`crate::pr_diff`], the
+//! run's Changes face [`crate::steer_viewer`], and anything else that grows one):
 //!
 //! ```text
 //! ┌───────────────────┐  ┌──────────────────────────────────────────────┐
@@ -19,8 +19,8 @@
 //! EXP-916 took the pane's own `Changes +N −M · K files · branch · state` bar
 //! away: the pane IS the changes, and everything that bar said about the PR
 //! (its branch, its state, the merge and the GitHub link) belongs to the
-//! header ABOVE the pane — the work header on a run or an issue, the review's
-//! own header row on the Reviews detail. What is left here is the diff and
+//! header ABOVE the pane — the work header on a run or an issue (EXP-1154:
+//! the review of a PR is the issue's Changes face). What is left here is the diff and
 //! the way around it: the file TREE
 //! ([`domain::diff_tree::diff_file_tree`], hand-mirrored ×4) over a
 //! `Filter files` field.
@@ -42,19 +42,13 @@ use gpui::{
     InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Window,
 };
-use gpui_component::{
-    button::{Button, ButtonVariants as _},
-    h_flex,
-    input::InputState,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
-};
+use gpui_component::{h_flex, input::InputState, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
 use coding::scm::DiffFile;
 use domain::diff::{additions_label, deletions_label, summary_label, DiffStatus, Totals};
 use domain::diff_tree::{diff_file_tree, DiffTreeKind, DiffTreeNode};
 
-use crate::changes_bar::MergeTarget;
-use crate::controls::{search_field, SearchFieldSize, WebControl as _, WebText as _};
+use crate::controls::{search_field, SearchFieldSize, WebText as _};
 use crate::diff::{status_color, status_letter};
 use crate::icons::registry;
 
@@ -105,28 +99,6 @@ impl PaneFile {
     }
 }
 
-/// What the bar's merge slot holds. EXACTLY one control: a diff surface never
-/// shows two ways to merge the same PR.
-pub(crate) enum MergeSlot {
-    /// The plain control — the shared [`crate::work_header::merge_pill`] at
-    /// `PillSize::Sm`, two-click armed like every other merge on the app.
-    Merge(MergeTarget),
-    /// EXP-533/EXP-799: a REAL content conflict on a failed MERGE hands the
-    /// slot to the recovery run (the builtin "Fix merge conflicts" action on
-    /// this PR). `retry` keeps Merge reachable beside it as a ghost — the
-    /// conflict may be resolved outside that run (a teammate rebases and
-    /// pushes), and the swap must never be a dead end.
-    FixConflicts {
-        /// The issue whose open PR the recovery run rebases.
-        issue_id: String,
-        /// A fix run for this branch is already going.
-        fixing: bool,
-        /// EXP-367: no agent CLI on this machine — the reason, verbatim.
-        blocked: Option<SharedString>,
-        retry: Option<MergeTarget>,
-    },
-}
-
 /// A file row was picked: its index into the pane's `files`.
 pub(crate) type PickFile<V> = std::rc::Rc<dyn Fn(&mut V, usize, &mut Context<V>) + 'static>;
 
@@ -137,11 +109,6 @@ pub(crate) type ToggleDir<V> = std::rc::Rc<dyn Fn(&mut V, String, &mut Context<V
 /// like [`crate::changes_bar`] was, so the pane's selection and fold state
 /// stays the caller's.
 pub(crate) struct DiffPaneSpec<V: Render> {
-    /// EXP-916: the surface's OWN header row above the diff — the review's
-    /// identifier/branch/state/merge cluster. `None` wherever a work header
-    /// already sits above the pane (a run's Changes face, an embedded issue
-    /// tab), which is the only header those surfaces get.
-    pub(crate) header: Option<AnyElement>,
     pub(crate) files: Vec<PaneFile>,
     /// The file the tree highlights (an index into `files`).
     pub(crate) selected: usize,
@@ -157,7 +124,7 @@ pub(crate) struct DiffPaneSpec<V: Render> {
     /// default — a tree that opens closed is a list of folders, not a
     /// review — so this set is what is shut, keyed by the node's path.
     pub(crate) folded_dirs: HashSet<String>,
-    /// A failure line under the header (the review's merge/close refusal).
+    /// A failure line over the diff (the issue's merge/close refusal).
     pub(crate) caption: Option<SharedString>,
     pub(crate) diff: Entity<crate::diff::DiffView>,
     pub(crate) on_pick: PickFile<V>,
@@ -482,76 +449,7 @@ fn dir_row(
         })
 }
 
-/// The merge slot — exactly one primary control, plus the ghost "Retry merge"
-/// the swap leaves standing. EXP-916: the surface's own header hosts it (the
-/// pane has no bar of its own any more).
-pub(crate) fn render_merge_slot<V: Render>(merge: MergeSlot, cx: &mut Context<V>) -> AnyElement {
-    match merge {
-        // EXP-917: the shared SLOT — a conflict-refused ISSUE target swaps
-        // here too, so a run's Changes bar (which never builds the explicit
-        // arm below) offers the recovery run like the review page's does.
-        MergeSlot::Merge(target) => {
-            crate::work_header::merge_slot(
-                "diff-bar-merge",
-                &target,
-                true,
-                crate::surface::PillSize::Sm,
-                cx,
-            )
-        }
-        MergeSlot::FixConflicts {
-            issue_id,
-            fixing,
-            blocked,
-            retry,
-        } => {
-            // Merge steps down to a ghost beside the recovery run rather than
-            // vanishing until the PR closes.
-            // Secondary paint and the shared "Retry merge" label, like the
-            // run header and the review page (EXP-917 parity).
-            let retry = retry.map(|target| {
-                crate::work_header::merge_pill_labeled(
-                    "diff-bar-merge",
-                    &target,
-                    false,
-                    Some(crate::work_header::RETRY_MERGE_LABEL),
-                    crate::surface::PillSize::Sm,
-                    cx,
-                )
-            });
-            let mut fix = Button::new("diff-bar-fix").primary().web_sm();
-            if fixing {
-                fix = fix.label("Fixing…").disabled(true);
-            } else if let Some(reason) = blocked {
-                fix = fix.label("Fix conflicts").tooltip(reason).disabled(true);
-            } else {
-                fix = fix.label("Fix conflicts");
-            }
-            let fix = fix.on_click(move |_: &ClickEvent, window, cx| {
-                // Same board/team guard as `work_header::fix_conflicts_pill`.
-                if !crate::work_header::fix_conflicts_target_resolves(&issue_id, window, cx) {
-                    log::warn!("[ui] fix conflicts skipped: {issue_id} is outside the active team");
-                    return;
-                }
-                crate::navigation::navigate_to_chat(
-                    window,
-                    cx,
-                    crate::navigation::ChatSeed::fix_conflicts(issue_id.clone()),
-                );
-            });
-            h_flex()
-                .flex_shrink_0()
-                .items_center()
-                .gap_1()
-                .children(retry)
-                .child(fix)
-                .into_any_element()
-        }
-    }
-}
-
-/// EXP-877/EXP-895/EXP-916 — the pane: the surface's own header (when it has
-/// one) over the file TREE and the shared [`crate::diff::DiffView`], whose
+/// EXP-877/EXP-895/EXP-916 — the pane: the file TREE and the shared [`crate::diff::DiffView`], whose
 /// column is centred at [`crate::work_header::WORK_COLUMN_W`].
 ///
 /// The tree only appears where the window has room for it BESIDE that column
@@ -563,7 +461,6 @@ pub(crate) fn render<V: Render>(
     cx: &mut Context<V>,
 ) -> AnyElement {
     let DiffPaneSpec {
-        header,
         files,
         selected,
         tree,
@@ -593,7 +490,6 @@ pub(crate) fn render<V: Render>(
         .h_full()
         .min_w_0()
         .overflow_hidden()
-        .children(header)
         .children(caption.map(|message| {
             div()
                 .w_full()
@@ -700,30 +596,6 @@ mod tests {
         let root = pane_file("README.md", 0, 0);
         assert_eq!(root.name.as_ref(), "README.md");
         assert_eq!(root.dir.as_ref(), "");
-    }
-
-    /// EXP-895: the bar holds EXACTLY one merge control. `Merge` is the
-    /// plain pill; the conflict swap replaces it (and only then offers Merge
-    /// again, as the secondary "retry").
-    #[test]
-    fn the_merge_slot_holds_exactly_one_control() {
-        let target = MergeTarget::Issue {
-            issue_id: "i-1".to_string(),
-        };
-        let plain = MergeSlot::Merge(target.clone());
-        assert!(matches!(plain, MergeSlot::Merge(_)));
-        let swapped = MergeSlot::FixConflicts {
-            issue_id: "i-1".to_string(),
-            fixing: false,
-            blocked: None,
-            retry: Some(target),
-        };
-        match swapped {
-            MergeSlot::FixConflicts { retry, .. } => {
-                assert!(retry.is_some(), "Merge stays reachable beside the swap")
-            }
-            MergeSlot::Merge(_) => panic!("the swap took the slot"),
-        }
     }
 
     /// The counts on a file row are the CONTRACT's labels — U+2212, never an

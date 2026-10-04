@@ -1,0 +1,345 @@
+{
+  "$comment": "EXP-1154: the PR body = a TEXT projection of the run's Results report (apps/web lib/pr-body-from-results.ts). Text sections only (non-blank text, first text per topic, first-seen order, files cleaned like session-results.json files); null without one (the caller keeps its fallback). The first Summary (trimmed, case-insensitive) leads with no heading; every other topic = '### <topic>' (whitespace runs collapsed to one space; a trailing ' #' run's last '#' escaped as '\\\\#'), a blank line, its text; a section's files follow as '- `path`' bullets after a blank line (newlines stripped; the fence one backtick longer than the longest backtick run in the path, padded with a space when the path starts or ends with a backtick); sections join with a blank line; resultsUrl adds '\\n\\n---\\n\\n[Report and screenshots in Exponential](<url>)'. Over max (default 60000) the sections cut at the last newline that fits and end in a '\\n…' line; the footer is always kept. Pictures are never embedded.",
+  "cases": [
+    {
+      "name": "null blob",
+      "raw": null,
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=results",
+      "expected": null
+    },
+    {
+      "name": "pictures only has no body",
+      "raw": [
+        {
+          "topic": "nav",
+          "label": "web",
+          "attachmentId": "a1",
+          "width": 100,
+          "height": 50
+        }
+      ],
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=results",
+      "expected": null
+    },
+    {
+      "name": "blank text has no body",
+      "raw": [
+        {
+          "topic": "Summary",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "   "
+        }
+      ],
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=results",
+      "expected": null
+    },
+    {
+      "name": "summary only",
+      "raw": [
+        {
+          "topic": "Summary",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "  Fixed the nav bar for #EXP-1.  "
+        }
+      ],
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=results",
+      "expected": "Fixed the nav bar for #EXP-1.\n\n---\n\n[Report and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=results)"
+    },
+    {
+      "name": "summary filed last still leads",
+      "raw": [
+        {
+          "topic": "nav",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "The nav bar moved."
+        },
+        {
+          "topic": "nav",
+          "label": "web",
+          "attachmentId": "a1",
+          "width": 100,
+          "height": 50
+        },
+        {
+          "topic": "Summary",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Did it."
+        }
+      ],
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=results",
+      "expected": "Did it.\n\n### nav\n\nThe nav bar moved.\n\n---\n\n[Report and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=results)"
+    },
+    {
+      "name": "a topic's files become backticked bullets",
+      "raw": [
+        {
+          "topic": "Summary",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Did it.",
+          "files": [
+            "apps/web/src/a.ts"
+          ]
+        },
+        {
+          "topic": "nav",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "The nav bar.",
+          "files": [
+            "apps/web/src/__init__.py",
+            " packages/ui/src/b.ts ",
+            "",
+            7,
+            "apps/web/src/__init__.py"
+          ]
+        }
+      ],
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=results",
+      "expected": "Did it.\n\n- `apps/web/src/a.ts`\n\n### nav\n\nThe nav bar.\n\n- `apps/web/src/__init__.py`\n- `packages/ui/src/b.ts`\n\n---\n\n[Report and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=results)"
+    },
+    {
+      "name": "no Summary opens with a heading",
+      "raw": [
+        {
+          "topic": "nav",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "The nav bar."
+        },
+        {
+          "topic": "chat",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "The chat."
+        }
+      ],
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=results",
+      "expected": "### nav\n\nThe nav bar.\n\n### chat\n\nThe chat.\n\n---\n\n[Report and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=results)"
+    },
+    {
+      "name": "SUMMARY counts, only the first one leads",
+      "raw": [
+        {
+          "topic": "chat",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "The chat."
+        },
+        {
+          "topic": "SUMMARY",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Lead."
+        },
+        {
+          "topic": " summary ",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Second."
+        }
+      ],
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=results",
+      "expected": "Lead.\n\n### chat\n\nThe chat.\n\n### summary\n\nSecond.\n\n---\n\n[Report and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=results)"
+    },
+    {
+      "name": "the first text per topic wins, its files only",
+      "raw": [
+        {
+          "topic": "nav",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "first",
+          "files": [
+            "x.ts"
+          ]
+        },
+        {
+          "topic": "nav",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "second",
+          "files": [
+            "y.ts"
+          ]
+        },
+        {
+          "topic": "nav",
+          "label": "web",
+          "attachmentId": "a9",
+          "text": "ignored on a picture"
+        }
+      ],
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=results",
+      "expected": "### nav\n\nfirst\n\n- `x.ts`\n\n---\n\n[Report and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=results)"
+    },
+    {
+      "name": "no results url, no footer",
+      "raw": [
+        {
+          "topic": "Summary",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Did it."
+        }
+      ],
+      "resultsUrl": null,
+      "expected": "Did it."
+    },
+    {
+      "name": "a JSON string blob parses like the array",
+      "raw": "[{\"topic\":\"Summary\",\"label\":null,\"attachmentId\":null,\"width\":null,\"height\":null,\"text\":\"Hi\"}]",
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=results",
+      "expected": "Hi\n\n---\n\n[Report and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=results)"
+    },
+    {
+      "name": "over max cuts at the last fitting line and keeps the footer",
+      "raw": [
+        {
+          "topic": "Summary",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Line one of the lead.\nLine two of the lead.\nLine three of the lead."
+        },
+        {
+          "topic": "nav",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "More words here."
+        }
+      ],
+      "resultsUrl": "https://e.x/r",
+      "max": 120,
+      "expected": "Line one of the lead.\nLine two of the lead.\n…\n\n---\n\n[Report and screenshots in Exponential](https://e.x/r)"
+    },
+    {
+      "name": "a topic's whitespace runs, newlines included, collapse to one space",
+      "raw": [
+        {
+          "topic": "Summary",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Did it."
+        },
+        {
+          "topic": "nav\n  bar\tfix",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Moved."
+        }
+      ],
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=results",
+      "expected": "Did it.\n\n### nav bar fix\n\nMoved.\n\n---\n\n[Report and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=results)"
+    },
+    {
+      "name": "a topic ending in ' #' keeps its '#' escaped",
+      "raw": [
+        {
+          "topic": "Summary",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Did it."
+        },
+        {
+          "topic": "Issue #",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Numbered."
+        },
+        {
+          "topic": "C#",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Kept as is."
+        }
+      ],
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=results",
+      "expected": "Did it.\n\n### Issue \\#\n\nNumbered.\n\n### C#\n\nKept as is.\n\n---\n\n[Report and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=results)"
+    },
+    {
+      "name": "a path with backticks gets a longer, padded fence",
+      "raw": [
+        {
+          "topic": "Summary",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Did it.",
+          "files": [
+            "a`b.ts",
+            "`odd``.ts"
+          ]
+        }
+      ],
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=results",
+      "expected": "Did it.\n\n- ``a`b.ts``\n- ``` `odd``.ts ```\n\n---\n\n[Report and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=results)"
+    },
+    {
+      "name": "a path's newlines are stripped",
+      "raw": [
+        {
+          "topic": "Summary",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Did it.",
+          "files": [
+            "apps/web/\r\na.ts",
+            "apps/web/\r\na.ts",
+            "b\n.ts"
+          ]
+        }
+      ],
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=results",
+      "expected": "Did it.\n\n- `apps/web/a.ts`\n- `b.ts`\n\n---\n\n[Report and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=results)"
+    }
+  ]
+}

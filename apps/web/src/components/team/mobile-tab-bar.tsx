@@ -50,10 +50,6 @@ export function useMobileChromeVisible(): boolean {
     to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
     fuzzy: true,
   })
-  const onReviewDetail = matchRoute({
-    to: `/t/$teamSlug/reviews/$issueIdentifier`,
-    fuzzy: true,
-  })
   // EXP-740/EXP-739: the two session pages are full-screen steering views
   // with their own back header — the native apps push them bar-less too.
   const onSessionDetail = matchRoute({
@@ -74,7 +70,6 @@ export function useMobileChromeVisible(): boolean {
   // Recent in one scroller), so it keeps the standard phone chrome.
   return (
     !onIssueDetail &&
-    !onReviewDetail &&
     !onSessionDetail &&
     !onActionDetail &&
     !onDraftPage

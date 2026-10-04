@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { contract } from "@exp/domain-contract"
 import {
   conceptIcon,
   Button,
@@ -24,6 +25,7 @@ const UiCopyIcon = conceptIcon(`ui-copy`)
 const NavBoardsIcon = conceptIcon(`nav-boards`)
 const UiUndoIcon = conceptIcon(`ui-undo`)
 const UiDeleteIcon = conceptIcon(`ui-delete`)
+const PrClosedIcon = conceptIcon(`pr-closed`)
 
 interface IssueDetailMobileMenuProps {
   issueTitle: string
@@ -37,6 +39,9 @@ interface IssueDetailMobileMenuProps {
   onDelete: () => void | Promise<void>
   onMoveBoard: (boardId: string) => void | Promise<void>
   onUnmarkDuplicate: () => void
+  /** EXP-1154: Close PR without merging (`useClosePr`), above Delete; absent
+   *  unless a member is looking at an open PR. */
+  closePr?: { onSelect: () => void; disabled?: boolean }
 }
 
 // The phone issue-detail overflow menu (EXP-687). The desktop breadcrumb keeps
@@ -55,6 +60,7 @@ export function IssueDetailMobileMenu({
   onDelete,
   onMoveBoard,
   onUnmarkDuplicate,
+  closePr,
 }: IssueDetailMobileMenuProps) {
   const [moveOpen, setMoveOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -116,6 +122,17 @@ export function IssueDetailMobileMenu({
             </DropdownMenuItem>
           )}
           {/* No separator above a destructive item (EXP-687). */}
+          {closePr && (
+            <DropdownMenuItem
+              variant="destructive"
+              disabled={closePr.disabled}
+              data-testid="issue-close-pr"
+              onSelect={closePr.onSelect}
+            >
+              <PrClosedIcon />
+              {contract.diffUi.closePr}
+            </DropdownMenuItem>
+          )}
           {!readOnly && (
             <DropdownMenuItem
               variant="destructive"

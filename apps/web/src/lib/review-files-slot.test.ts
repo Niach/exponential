@@ -13,6 +13,7 @@ const slot = (subjectId: string): ReviewFilesSlot => ({
   files: [],
   selected: null,
   onSelect: () => {},
+  back: { label: subjectId, onBack: () => {} },
 })
 
 // EXP-916: the page publishes, the sidebar reads — and a cleared slot

@@ -72,6 +72,10 @@ struct AgentSessionView: View {
     /// bar's only trailing circle.
     var startReadiness: CodingReadiness.Readiness? = nil
     var onStartCoding: () -> Void = {}
+    /// EXP-1154: the Work screen's white Merge PR capsule, floating centred
+    /// just ABOVE the folded composer bar (riding the keyboard with it);
+    /// gone while the composer is open. nil = none.
+    var mergeAccessory: AnyView? = nil
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.openURL) private var openURL
@@ -1373,12 +1377,25 @@ struct AgentSessionView: View {
             // EXP-1150: the trailing circle alone, or no bar — the faces are
             // the screen's tab strip.
             if startReadiness != nil {
-                FloatingBottomBar {
+                VStack(spacing: WorkBarAccessory.gap) {
+                    if let mergeAccessory { mergeAccessory }
+                    FloatingBottomBar {
+                        EmptyView()
+                    } center: {
+                        EmptyView()
+                    } trailing: {
+                        runTrailingCircle(model)
+                    }
+                }
+            } else if let mergeAccessory {
+                // EXP-1154: no bar left to float over: the capsule sits in
+                // the bar's own place, centred.
+                FloatingBarCluster {
                     EmptyView()
                 } center: {
-                    EmptyView()
+                    mergeAccessory
                 } trailing: {
-                    runTrailingCircle(model)
+                    EmptyView()
                 }
             }
         } else {
@@ -1396,7 +1413,10 @@ struct AgentSessionView: View {
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
                 } else {
-                    collapsedComposerBar(model)
+                    VStack(spacing: WorkBarAccessory.gap) {
+                        if let mergeAccessory { mergeAccessory }
+                        collapsedComposerBar(model)
+                    }
                 }
             }
             .animation(motion.standard, value: composerExpanded)
@@ -1444,7 +1464,8 @@ struct AgentSessionView: View {
     /// EXP-893: the folded composer on the shared bar — the usage ring on the
     /// left (the Usage sheet), the capsule wearing the placeholder the open
     /// field would, and (EXP-1150) the Start circle once the run ended for
-    /// good, else nothing (Merge PR is the header band's). The separate
+    /// good, else nothing (EXP-1154: Merge PR floats above the bar,
+    /// `mergeAccessory`). The separate
     /// interrupt circle is gone: Stop stays the expanded composer's own glyph.
     private func collapsedComposerBar(_ model: AgentSessionModel) -> some View {
         FloatingBottomBar {
@@ -1464,8 +1485,8 @@ struct AgentSessionView: View {
     }
 
     /// EXP-1150: the Run bar's ONE trailing circle — Start coding once the
-    /// shown run ended for good, else nothing. Merge PR lives in the Work
-    /// screen's header band (`WorkMergePill`).
+    /// shown run ended for good, else nothing. Merge PR floats above the bar
+    /// (`mergeAccessory`, the Work screen's `WorkMergePill`).
     @ViewBuilder
     private func runTrailingCircle(_ model: AgentSessionModel) -> some View {
         if let startReadiness {

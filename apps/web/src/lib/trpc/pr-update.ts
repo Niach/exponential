@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server"
 import { z } from "zod"
+import { PR_BODY_MAX } from "@/lib/pr-body-from-results"
 import {
   GitHubMergeError,
   updatePullRequest,
@@ -12,11 +13,16 @@ import {
 // (membership, open-state, repo-from-prUrl, the installation link-gate) and
 // hand the resolved repo + token here; this maps GitHub's refusal onto the
 // same error vocabulary `retargetPr`/`closePr` use.
+//
+// EXP-1154: a run's OWN PR body is its Results report (`pr-body-from-results.ts`,
+// re-synced by `run-pr-body.ts` on every report text write); MCP `pr_update`
+// drops `body` for such a run. A person's edit through `issues.updatePr`
+// still lands and holds until the run's next report write.
 
 /** The `pr_open` limits, so an update can never be refused for a size the
  *  open accepted. */
 export const PR_TITLE_MAX = 255
-export const PR_BODY_MAX = 60_000
+export { PR_BODY_MAX }
 
 export const prUpdateFields = {
   title: z.string().trim().min(1).max(PR_TITLE_MAX).optional(),

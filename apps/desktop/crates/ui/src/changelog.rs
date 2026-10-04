@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-04-review-on-the-issue",
+    date: "2026-10-04",
+    title: "Review the pull request on the issue",
+    summary: "A pull request's diff is the issue's Changes face now, and Results reads as a numbered guide whose text is also the pull request's description on GitHub.",
+    body: r#"- **One page**: a Reviews row, the issue's pull request row and the Related work rows open the issue on its Changes face, with the file tree beside it, Merge PR in the properties and GitHub in the header. The separate review screen is gone on web, desktop, iOS and Android.
+- **Close PR**: closing a pull request without merging moved into the issue's actions menu.
+- **Results as a guide**: the summary leads, then one numbered section per change with the files it touched and its screenshots. A file opens the Changes face on that file. An open pull request without a report shows its GitHub description.
+- **Pull request description**: the agent's report is the pull request's description, so the two never disagree; screenshots stay in Exponential.
+- **Phones**: Merge PR is the white button on the bottom bar again, on every face."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_000: ChangelogEntry = ChangelogEntry {
     id: "2026-10-04-run-status",
     date: "2026-10-04",
     title: "Run status at a glance",

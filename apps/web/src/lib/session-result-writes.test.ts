@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest"
-import type { CodingSessionResult } from "@exp/db-schema/domain"
+import {
+  SESSION_RESULT_FILES_MAX,
+  SESSION_RESULT_REPORT_MAX,
+  SESSION_RESULTS_FILES_TOTAL_MAX,
+  SESSION_RESULTS_REPORT_TOTAL_MAX,
+  type CodingSessionResult,
+} from "@exp/db-schema/domain"
 import {
   exceedsSessionResultsCap,
   removeSessionResults,
+  reportFileCount,
   resultsSummary,
   upsertSessionResult,
   upsertSessionResultText,
@@ -154,9 +161,71 @@ describe(`upsertSessionResultText`, () => {
 
   it(`refuses a list whose report text outgrows the total cap`, () => {
     let results: CodingSessionResult[] | null = null
-    for (let i = 0; i < 3; i++) results = upsertSessionResultText(results, `t${i}`, `x`.repeat(4000))
+    const per = SESSION_RESULT_REPORT_MAX
+    const count = SESSION_RESULTS_REPORT_TOTAL_MAX / per
+    for (let i = 0; i < Math.floor(count); i++) {
+      results = upsertSessionResultText(results, `t${i}`, `x`.repeat(per))
+    }
+    results = upsertSessionResultText(
+      results,
+      `rest`,
+      `x`.repeat(SESSION_RESULTS_REPORT_TOTAL_MAX - Math.floor(count) * per)
+    )
     expect(results).not.toBeNull()
-    expect(upsertSessionResultText(results, `t3`, `x`)).toBeNull()
+    expect(upsertSessionResultText(results, `t-over`, `x`)).toBeNull()
+  })
+
+  // EXP-1154: a run filed under the older, larger caps may still shorten.
+  it(`lets a list already over the total cap shrink, never grow`, () => {
+    const big = (topic: string, n: number): CodingSessionResult => ({
+      topic,
+      label: null,
+      attachmentId: null,
+      width: null,
+      height: null,
+      text: `x`.repeat(n),
+    })
+    const over = [big(`a`, 3000), big(`b`, 3000)]
+    expect(upsertSessionResultText(over, `a`, `short`)?.[0]?.text).toBe(`short`)
+    expect(upsertSessionResultText(over, `a`, `x`.repeat(3001))).toBeNull()
+  })
+})
+
+// EXP-1154: a text entry's files.
+describe(`upsertSessionResultText files`, () => {
+  it(`cleans, dedupes and stores files only when there are any`, () => {
+    const results = upsertSessionResultText(null, `t`, `r`, [` a.ts `, ``, `b.ts`, `a.ts`])
+    expect(results?.[0]?.files).toEqual([`a.ts`, `b.ts`])
+    expect(upsertSessionResultText(null, `t`, `r`, [])?.[0]).not.toHaveProperty(`files`)
+    expect(upsertSessionResultText(null, `t`, `r`)?.[0]).not.toHaveProperty(`files`)
+  })
+
+  it(`undefined keeps the replaced entry's files, [] clears them`, () => {
+    const first = upsertSessionResultText(null, `t`, `one`, [`a.ts`])
+    expect(upsertSessionResultText(first, `t`, `two`)?.[0]?.files).toEqual([`a.ts`])
+    expect(upsertSessionResultText(first, `t`, `two`, [])?.[0]).not.toHaveProperty(`files`)
+    expect(upsertSessionResultText(first, `t`, `two`, [`b.ts`])?.[0]?.files).toEqual([`b.ts`])
+  })
+
+  it(`caps a topic's files`, () => {
+    const many = Array.from({ length: SESSION_RESULT_FILES_MAX + 5 }, (_, i) => `f${i}.ts`)
+    expect(upsertSessionResultText(null, `t`, `r`, many)?.[0]?.files).toHaveLength(
+      SESSION_RESULT_FILES_MAX
+    )
+  })
+
+  it(`refuses a write that grows the run past the files cap, allows a shrink`, () => {
+    const many = (prefix: string) =>
+      Array.from({ length: SESSION_RESULT_FILES_MAX }, (_, i) => `${prefix}${i}.ts`)
+    let results: CodingSessionResult[] | null = null
+    const topics = SESSION_RESULTS_FILES_TOTAL_MAX / SESSION_RESULT_FILES_MAX
+    for (let i = 0; i < topics; i++) {
+      results = upsertSessionResultText(results, `t${i}`, `r`, many(`t${i}/`))
+    }
+    expect(reportFileCount(results ?? [])).toBe(SESSION_RESULTS_FILES_TOTAL_MAX)
+    expect(upsertSessionResultText(results, `extra`, `r`, [`x.ts`])).toBeNull()
+    expect(upsertSessionResultText(results, `extra`, `r`)).not.toBeNull()
+    expect(upsertSessionResultText(results, `t0`, `r`, [`x.ts`])).not.toBeNull()
   })
 
   it(`a picture upsert never replaces the topic's text`, () => {

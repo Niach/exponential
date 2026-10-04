@@ -40,9 +40,6 @@ enum AppRoute: Hashable {
         statusId: String? = nil,
         parentId: String? = nil
     )
-    /// The dedicated per-issue diff page (EXP-34) — pushed from the issue
-    /// detail's Changes card.
-    case changes(accountId: String, issueId: String)
     /// The live agent-session (steering) screen — pushed from the Agents tab
     /// or the issue detail's coding card. A pushed destination (EXP-221), not
     /// a fullScreenCover, so it gets the native back button + swipe-back.
@@ -733,9 +730,6 @@ struct MainNavigator: View {
                 }
             )
             .environment(\.accountId, accountId)
-        case let .changes(accountId, issueId):
-            ChangesView(issueId: issueId)
-                .environment(\.accountId, accountId)
         case let .agentSession(accountId, sessionId):
             // EXP-893: the Work screen on its Run face.
             WorkScreen(subject: .session(id: sessionId))

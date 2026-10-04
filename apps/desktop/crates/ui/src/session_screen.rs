@@ -558,7 +558,7 @@ impl SessionScreenView {
         // EXP-879: a Results face whose pictures went away is not a face —
         // the run reads as its transcript again, exactly like the viewer's
         // own fallback.
-        let results = self.results_count(cx) > 0;
+        let has_results = self.results_count(cx) > 0;
         let pr_open = {
             let row = self.inner.read(cx).session_row().cloned();
             let issue_pr = issue_id.as_deref().and_then(|issue_id| {
@@ -575,6 +575,11 @@ impl SessionScreenView {
             };
             state.as_deref() == Some("open")
         };
+        // EXP-1154: an issue-bound run with an open PR always lists Results —
+        // with no report of its own, the pick opens the ISSUE's Results face
+        // (the GitHub PR body).
+        let results = has_results || (issue_id.is_some() && pr_open);
+        let results_issue = (!has_results).then(|| issue_id.clone()).flatten();
         let spec = FaceToggle {
             issue: issue_id.is_some(),
             run: Some(self.session_id.clone()),
@@ -588,7 +593,7 @@ impl SessionScreenView {
             results,
             active: match self.run_face(cx) {
                 RunFace::Diff => Face::Diff,
-                RunFace::Results if results => Face::Results,
+                RunFace::Results if has_results => Face::Results,
                 _ => Face::Run,
             },
             runs,
@@ -613,9 +618,19 @@ impl SessionScreenView {
                 }
                 Face::Run => inner.update(cx, |view, cx| view.set_run_face(RunFace::Run, cx)),
                 Face::Diff => inner.update(cx, |view, cx| view.set_run_face(RunFace::Diff, cx)),
-                Face::Results => {
-                    inner.update(cx, |view, cx| view.set_run_face(RunFace::Results, cx))
-                }
+                Face::Results => match &results_issue {
+                    Some(issue_id) => {
+                        crate::screens::request_issue_results(issue_id, window, cx);
+                        crate::screens::set_tab_face(
+                            issue_id,
+                            crate::screens::TabFace::Issue,
+                            None,
+                            window,
+                            cx,
+                        );
+                    }
+                    None => inner.update(cx, |view, cx| view.set_run_face(RunFace::Results, cx)),
+                },
             }),
             // EXP-950: picking a run flips this tab's Run face to it — the
             // same `set_tab_face` the toggle uses, so the tab rebinds and

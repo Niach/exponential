@@ -2,9 +2,20 @@ import * as React from "react"
 import { act, fireEvent, render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { Board, Issue } from "@/db/schema"
+import {
+  MOBILE_MERGE_FLOAT_CLEARANCE,
+  MOBILE_WORK_BAR_CLEARANCE,
+} from "@exp/ui"
 import { IssueDetailView } from "@/components/issue-detail-view"
 
 const updateMutate = vi.hoisted(() => vi.fn(async () => ({})))
+const mobileState = vi.hoisted(() => ({ mobile: false }))
+
+vi.mock(`@exp/ui`, async (importOriginal) => ({
+  // eslint-disable-next-line quotes -- esbuild rejects template literals inside typeof import()
+  ...(await importOriginal<typeof import("@exp/ui")>()),
+  useIsMobile: () => mobileState.mobile,
+}))
 
 vi.mock(`@/lib/trpc-client`, () => ({
   trpc: {
@@ -258,5 +269,69 @@ describe(`IssueDetailView description`, () => {
     view.show(makeIssue(`i7`, `other issue`))
     view.show(makeIssue(`i6`, `old text`))
     expect(editor().value).toBe(`old text`)
+  })
+})
+
+// EXP-1154: the md+ work header carries the face's own action (GitHub on the
+// Changes face) after the toggle, and a face body replaces the issue body.
+describe(`IssueDetailView faces`, () => {
+  it(`draws the header action and the face body in place of the issue`, () => {
+    render(
+      <IssueDetailView
+        issue={makeIssue(`met-1`, `Body`)}
+        users={[]}
+        board={board}
+        teamSlug="acme"
+        teamId="t1"
+        faceToggle={<div data-testid="toggle" />}
+        headerAction={<button type="button" data-testid="header-github" />}
+        faceBody={<div data-testid="changes-body" />}
+      />
+    )
+    expect(screen.getByTestId(`header-github`)).toBeTruthy()
+    expect(screen.getByTestId(`changes-body`)).toBeTruthy()
+    expect(screen.queryByTestId(`description-editor`)).toBeNull()
+    // The action follows the toggle in the cluster.
+    const toggle = screen.getByTestId(`toggle`)
+    expect(
+      toggle.compareDocumentPosition(screen.getByTestId(`header-github`)) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
+})
+
+// EXP-1154: the floating Merge capsule sits 62px above the bar, so the Issue
+// face's scroller reserves that too while it is mounted.
+describe(`IssueDetailView phone clearance`, () => {
+  const scroller = (container: HTMLElement) =>
+    container.querySelector(`[data-face-body]`) as HTMLElement
+
+  it(`reserves the float's height only while the float is mounted`, () => {
+    mobileState.mobile = true
+    try {
+      const props = {
+        issue: makeIssue(`met-2`, `Body`),
+        users: [],
+        board,
+        teamSlug: `acme`,
+        teamId: `t1`,
+      }
+      const view = render(<IssueDetailView {...props} mobileWork={{}} />)
+      const plain = scroller(view.container).className
+      expect(plain).toContain(MOBILE_WORK_BAR_CLEARANCE)
+      expect(plain).not.toContain(MOBILE_MERGE_FLOAT_CLEARANCE)
+
+      view.rerender(
+        <IssueDetailView
+          {...props}
+          mobileWork={{ merge: <div data-testid="float" /> }}
+        />
+      )
+      const floated = scroller(view.container).className
+      expect(floated).toContain(MOBILE_MERGE_FLOAT_CLEARANCE)
+      expect(floated.split(` `)).not.toContain(MOBILE_WORK_BAR_CLEARANCE)
+    } finally {
+      mobileState.mobile = false
+    }
   })
 })

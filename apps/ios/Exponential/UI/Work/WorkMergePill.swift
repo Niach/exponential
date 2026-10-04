@@ -2,14 +2,17 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-1150: the Work screen's ONE Merge PR — a compact primary pill at the
-/// face tabs' height, trailing the tab row in the header band on EVERY face.
-/// It took over the Changes bar's pill (and the Run bar's circle): the same
-/// flow (the confirm alert, or the stack dialog for a member of an open PR
-/// stack, EXP-1145 `PrStack.stackMergeChoice`) and, after a merge the server refused on a REAL
-/// content conflict, the same "Fix conflicts" recovery run (EXP-706) in its
-/// place. The host resolves WHAT it merges (`target`): the run's own merge
-/// target while the run can merge, else the issue's open PR.
+/// EXP-1150: the Work screen's ONE Merge PR. EXP-1154: back on the FLOATING
+/// BOTTOM BAR as the SOLID WHITE capsule (`FloatingBarSolidPill`, hugging its
+/// label, 52pt: the EXP-916 Reviews look), on every face — the centre of the
+/// Changes bar's cluster `[files] [Merge PR]`, alone on the Results bar, and
+/// floating centred just above the Issue and Run composer bars. The same flow
+/// everywhere: the confirm alert, or the stack dialog for a member of an open
+/// PR stack (EXP-1145 `PrStack.stackMergeChoice`) and, after a merge the
+/// server refused on a REAL content conflict, the "Fix conflicts" recovery
+/// run (EXP-706) in its place. The host resolves WHAT it merges (`target`):
+/// the run's own merge target while the run can merge, else the issue's open
+/// PR, and mounts the capsule only then.
 struct WorkMergePill: View {
     let target: MergeTarget
     /// The issue behind an `.issue` target — its PR number and branch.
@@ -24,10 +27,19 @@ struct WorkMergePill: View {
     @Environment(\.accountId) private var accountId
     @Environment(\.pushRoute) private var pushRoute
     @Environment(\.toaster) private var toaster
+    /// EXP-1154: the merge in flight and the last refusal are the SCREEN's
+    /// (`WorkMergeState`): each face mounts its own capsule, and a conflict
+    /// met on one face must offer Fix conflicts on all of them.
+    @Binding var state: WorkMergeState
+    /// The capsule's UI-test handle: `work-merge-pr` on the Changes face (the
+    /// store slide's pop-out), suffixed with the face elsewhere, since the
+    /// pager keeps neighbouring faces mounted.
+    var identifier = "work-merge-pr"
     @State private var showMergeConfirm = false
     @State private var stackChoice: PrStack.StackMergeChoice?
-    @State private var merging = false
-    @State private var mergeFailure: MergeFailure?
+
+    private var merging: Bool { state.merging }
+    private var mergeFailure: MergeFailure? { state.failure }
 
     var body: some View {
         pill
@@ -64,27 +76,17 @@ struct WorkMergePill: View {
 
     private var pill: some View {
         let fix = canFixConflicts
-        let action: () -> Void = fix ? { openFixConflicts() } : { requestMerge() }
-        return Button(action: action) {
-            pillLabel(fix: fix)
-        }
-        .buttonStyle(.plain)
-        .disabled(merging)
-        .fixedSize()
-        .accessibilityLabel(fix ? "Fix merge conflicts" : DomainContract.diffUiMergePr)
-        .accessibilityIdentifier("work-merge-pr")
-    }
-
-    private func pillLabel(fix: Bool) -> some View {
-        HStack(spacing: 6) {
+        return FloatingBarSolidPill(
+            accessibilityLabel: fix ? "Fix merge conflicts" : DomainContract.diffUiMergePr,
+            enabled: !merging,
+            action: fix ? { openFixConflicts() } : { requestMerge() }
+        ) {
             if merging {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(DesignTokens.Palette.primaryForeground)
+                ProgressView().controlSize(.small).tint(.black.opacity(0.6))
             } else {
                 AppIcon(
                     fix ? AppIcons.uiBranch : AppIcons.prMerged,
-                    size: AppIcon.Size.small,
+                    size: FloatingBarTokens.glyph,
                     weight: .medium
                 )
             }
@@ -92,11 +94,8 @@ struct WorkMergePill: View {
                 .font(.subheadline.weight(.medium))
                 .lineLimit(1)
         }
-        .foregroundStyle(DesignTokens.Palette.primaryForeground)
-        .padding(.horizontal, 14)
-        .frame(height: GlassSegmentedControlTokens.height)
-        .background(DesignTokens.Palette.primary, in: Capsule())
-        .contentShape(Capsule())
+        .fixedSize()
+        .accessibilityIdentifier(identifier)
     }
 
     /// Only a REAL content conflict on an ISSUE-linked PR with a recorded
@@ -133,8 +132,8 @@ struct WorkMergePill: View {
     /// No local surgery on success: the server ends the run and flips
     /// `pr_state`, and the pill leaves when that syncs back.
     private func merge() {
-        mergeFailure = nil
-        merging = true
+        state.failure = nil
+        state.merging = true
         let target = target
         Task {
             do {
@@ -146,10 +145,10 @@ struct WorkMergePill: View {
                 }
             } catch {
                 let failure = MergeFailure(error: error)
-                mergeFailure = failure
+                state.failure = failure
                 toaster.error(failure.message)
             }
-            merging = false
+            state.merging = false
         }
     }
 
@@ -158,8 +157,8 @@ struct WorkMergePill: View {
     /// message and never swaps the pill: the member that stopped the chain
     /// may not be this pull request.
     private func mergeStack(issueId: String) {
-        mergeFailure = nil
-        merging = true
+        state.failure = nil
+        state.merging = true
         Task {
             do {
                 try await deps.issuesApi.mergePr(
@@ -168,7 +167,7 @@ struct WorkMergePill: View {
             } catch {
                 toaster.error(MergeFailure(error: error, stackMerge: true).message)
             }
-            merging = false
+            state.merging = false
         }
     }
 
@@ -184,4 +183,20 @@ struct WorkMergePill: View {
             )
         ))
     }
+}
+
+/// EXP-1154: the Merge capsule floating above the Issue and Run composer
+/// bars. `gap` is the stack spacing that leaves 10pt (`FloatingBarTokens
+/// .spacing`) between the capsule and the bar's slots, the bar's own top
+/// padding included.
+enum WorkBarAccessory {
+    static let gap: CGFloat = FloatingBarTokens.spacing - FloatingBarTokens.topPadding
+}
+
+/// EXP-1154: what every face's Merge capsule shares — the merge in flight and
+/// the last refusal (a REAL conflict swaps Merge for Fix conflicts). The
+/// screen resets it when the merge target changes.
+struct WorkMergeState: Equatable {
+    var merging = false
+    var failure: MergeFailure?
 }

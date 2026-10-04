@@ -1,4 +1,6 @@
 import {
+  SESSION_RESULT_FILES_MAX,
+  SESSION_RESULTS_FILES_TOTAL_MAX,
   SESSION_RESULTS_MAX,
   SESSION_RESULTS_REPORT_TOTAL_MAX,
   type CodingSessionResult,
@@ -64,19 +66,58 @@ export function reportTextLength(results: readonly CodingSessionResult[]): numbe
   return total
 }
 
+/** EXP-1154: every text entry's `files` count, the run-level files cap. */
+export function reportFileCount(results: readonly CodingSessionResult[]): number {
+  let total = 0
+  for (const row of results) {
+    if (isTextEntry(row) && Array.isArray(row.files)) total += row.files.length
+  }
+  return total
+}
+
+/** EXP-1154: a topic's files as stored: strings only, trimmed, blanks and
+ *  duplicates dropped (first position kept), capped per topic. */
+export function cleanSessionResultFiles(files: readonly unknown[]): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const raw of files) {
+    if (typeof raw !== `string`) continue
+    const path = raw.trim()
+    if (!path || seen.has(path)) continue
+    seen.add(path)
+    out.push(path)
+    if (out.length >= SESSION_RESULT_FILES_MAX) break
+  }
+  return out
+}
+
 /**
  * EXP-933: file (or replace) a topic's report text. One text entry per topic:
  * replaced IN PLACE, else appended, so an agent that writes its `Summary`
  * first gets it at the top. A new topic's text therefore opens that topic;
  * pictures filed later under it join the same group. Returns null when the
- * list would outgrow the count cap or the report-total cap.
+ * list would outgrow the count cap, the report-total cap or the files cap.
+ *
+ * EXP-1154 `files`: `undefined` keeps the replaced entry's files, `[]` clears
+ * them, anything else is cleaned (`cleanSessionResultFiles`). The total caps
+ * refuse only a write that GROWS past them, so a run filed under the older,
+ * larger caps can still shorten its report.
  */
 export function upsertSessionResultText(
   current: CodingSessionResult[] | null,
   topic: string,
-  text: string
+  text: string,
+  files?: readonly string[]
 ): CodingSessionResult[] | null {
-  const results = [...(current ?? [])]
+  const before = current ?? []
+  const results = [...before]
+  const index = results.findIndex((row) => isTextEntry(row) && row.topic === topic)
+  const kept =
+    files === undefined
+      ? index === -1 || !Array.isArray(results[index]?.files)
+        ? []
+        : cleanSessionResultFiles(results[index]!.files!)
+      : cleanSessionResultFiles(files)
   const entry: CodingSessionResult = {
     topic,
     label: null,
@@ -84,8 +125,8 @@ export function upsertSessionResultText(
     width: null,
     height: null,
     text,
+    ...(kept.length ? { files: kept } : {}),
   }
-  const index = results.findIndex((row) => isTextEntry(row) && row.topic === topic)
   if (index === -1) {
     // A topic that already has pictures gets its text at the topic's FIRST
     // position, so the report reads above its tiles in every reader.
@@ -96,7 +137,17 @@ export function upsertSessionResultText(
     results[index] = entry
   }
   if (exceedsSessionResultsCap(results)) return null
-  if (reportTextLength(results) > SESSION_RESULTS_REPORT_TOTAL_MAX) return null
+  const textTotal = reportTextLength(results)
+  if (
+    textTotal > SESSION_RESULTS_REPORT_TOTAL_MAX &&
+    textTotal > reportTextLength(before)
+  ) {
+    return null
+  }
+  const fileTotal = reportFileCount(results)
+  if (fileTotal > SESSION_RESULTS_FILES_TOTAL_MAX && fileTotal > reportFileCount(before)) {
+    return null
+  }
   return results
 }
 

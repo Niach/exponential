@@ -4033,7 +4033,7 @@ impl ListPanel {
     }
 
     /// The Reviews `ListNav` body: the open-PR queue's rows, each opening its
-    /// diff (the Reviews page's own click target).
+    /// issue on the Changes face (the Reviews page's own click target).
     fn render_reviews_nav(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let Some(team_id) = active_team_id(&self.nav, cx) else {
             return self.list_note("No team selected.", cx);
@@ -4047,7 +4047,7 @@ impl ListPanel {
                 })
         };
         let open_issue = match resolved_screen(&self.nav, cx) {
-            Some(Screen::PrDiff { issue_id }) => Some(issue_id),
+            Some(Screen::IssueDetail { issue_id }) => Some(issue_id),
             _ => None,
         };
         let rows: Vec<gpui::AnyElement> = groups
@@ -4056,9 +4056,11 @@ impl ListPanel {
             .enumerate()
             .map(|(index, entry)| {
                 let issue = entry.representative();
-                let screen = Screen::PrDiff {
+                // EXP-1154: the row opens the issue on its Changes face.
+                let screen = Screen::IssueDetail {
                     issue_id: issue.id.clone(),
                 };
+                let changes_for = issue.id.clone();
                 let active = open_issue.as_deref() == Some(issue.id.as_str());
                 let lead = div()
                     .flex_shrink_0()
@@ -4077,6 +4079,7 @@ impl ListPanel {
                     cx,
                 )
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    crate::screens::request_issue_changes(&changes_for, None, window, cx);
                     this.open_from_list(screen.clone(), window, cx);
                 }))
                 .into_any_element()

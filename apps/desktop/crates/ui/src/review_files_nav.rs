@@ -1,25 +1,19 @@
-//! EXP-916 — the window's left column beside a REVIEW: the review's file
-//! tree, where every other detail keeps its context.
+//! EXP-916/EXP-945 — the window's left column beside a RUN on its Changes
+//! face: the run's file tree, where every other detail keeps its context.
 //!
 //! EXP-870 made the left column the rail plus ONE panel slot — the list an
 //! open detail was picked from ([`crate::sidebar::ListPanel`] in Nav mode),
-//! or the settings nav. A review's context is not a list of reviews: it is
-//! the files the pull request touches. So the review screen
-//! ([`crate::pr_diff`]) hands its tree to this panel ([`Shell`]'s fourth
-//! [`crate::shell::LeftOccupant`]) instead of painting it beside its own
-//! column — the web twin moves `FileDiffTree` into the sidebar's panel slot
-//! the same way (`ReviewFilesNav`). Back row → the Reviews page.
-//!
-//! EXP-945: a RUN's Changes face publishes the SAME slot. A run's diff is the
-//! same kind of context a review's is — its files, not the list it was opened
-//! from — so the two share this one channel and this one panel rather than the
-//! run growing a floating tree of its own inside the reading column. Only the
-//! back row differs, which is why the source names its own: a review goes back
-//! to Reviews, a run back to its Run face.
+//! or the settings nav. A run's diff context is not the list it was opened
+//! from: it is the files it touched. So the run hands its tree to this panel
+//! ([`Shell`]'s fourth [`crate::shell::LeftOccupant`]) instead of growing a
+//! floating tree of its own inside the reading column. Back row → its Run
+//! face. (EXP-1154 retired the standalone review screen that shared this
+//! slot: the review of a PR is the issue tab's Changes face, whose pane
+//! paints its own tree beside the Reviews list it was opened from.)
 //!
 //! The panel owns NOTHING: the files, the selection, the folded folders and
-//! the `Filter files` field are all the SOURCE's ([`crate::pr_diff::
-//! PrDiffView`] or the run's [`crate::steer_viewer::SteerSessionView`]), read
+//! the `Filter files` field are all the run's
+//! ([`crate::steer_viewer::SteerSessionView`]), read
 //! through the window's [`crate::screens::ScreensPanel`]; a pick scrolls that
 //! view's diff exactly like a pick in its own tree did. An undocked window has
 //! no left column and keeps the tree in its pane.
@@ -27,29 +21,24 @@
 //! [`Shell`]: crate::shell::Shell
 
 use gpui::{
-    div, AnyElement, ClickEvent, Entity, IntoElement, ParentElement as _, Render, SharedString,
+    div, AnyElement, ClickEvent, IntoElement, ParentElement as _, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, WeakEntity, Window,
 };
 use gpui_component::{v_flex, ActiveTheme as _};
 
 use crate::navigation::Screen;
-use crate::pr_diff::PrDiffView;
 use crate::session_screen::SessionScreenView;
 
-/// EXP-945 — whose files the panel is painting. Both sources hand over the
-/// same six things (files, selection, filter, folds, a pick, a fold toggle);
-/// only the back row differs.
+/// EXP-945 — whose files the panel is painting.
 #[derive(Clone, PartialEq)]
 enum FilesSource {
-    /// The review screen's shared diff view (EXP-916).
-    Review(Entity<PrDiffView>),
     /// A run sitting on its Changes face (EXP-945). Held WEAK: the panel
     /// mirrors the screen, it must not keep a closed one alive (release
     /// review R5); a source that no longer upgrades clears the watch.
     Run(WeakEntity<SessionScreenView>),
 }
 
-/// The review's (or the run's) file tree as the left column's panel.
+/// The run's file tree as the left column's panel.
 pub struct ReviewFilesNav {
     /// The view this panel mirrors, and the repaint subscription on it.
     /// Resolved lazily: the screens panel is built after the shell's chrome,
@@ -91,17 +80,13 @@ impl ReviewFilesNav {
                 }
             })
             .flatten();
-        let source = match run {
-            Some(view) => FilesSource::Run(view.downgrade()),
-            None => FilesSource::Review(panel.read(cx).pr_diff().clone()),
-        };
+        let source = FilesSource::Run(run?.downgrade());
         let stale = self
             .watched
             .as_ref()
             .is_none_or(|(watched, _)| watched != &source);
         if stale {
             let subscription = match &source {
-                FilesSource::Review(view) => cx.observe(view, |_, _, cx| cx.notify()),
                 // EXP-945: the run's own viewer, not the screen wrapper — the
                 // selection, the filter and the folds all live there.
                 FilesSource::Run(view) => {
@@ -114,20 +99,11 @@ impl ReviewFilesNav {
         Some(source)
     }
 
-    /// The back row for `source`: a review returns to the Reviews queue, a run
-    /// to its own Run face (the Changes face is a face, not a screen, so there
-    /// is no history entry to pop).
+    /// The back row for `source`: a run returns to its own Run face (the
+    /// Changes face is a face, not a screen, so there is no history entry to
+    /// pop).
     fn back_row(&self, source: &FilesSource, cx: &mut gpui::Context<Self>) -> AnyElement {
         match source {
-            FilesSource::Review(_) => crate::settings::nav_back_row(
-                "review-files-back",
-                SharedString::from("Reviews"),
-                cx,
-            )
-            .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
-                crate::navigation::go_back_to(window, cx, Screen::Reviews);
-            }))
-            .into_any_element(),
             FilesSource::Run(view) => {
                 let view = view.clone();
                 crate::settings::nav_back_row(
@@ -157,34 +133,6 @@ impl Render for ReviewFilesNav {
             None => div().into_any_element(),
         };
         let tree = match source {
-            Some(FilesSource::Review(view)) => {
-                let (files, selected, filter, folded) = {
-                    let view = view.read(cx);
-                    (
-                        view.pane_files(cx),
-                        view.selected(),
-                        view.filter().clone(),
-                        view.folded_dirs().clone(),
-                    )
-                };
-                let pick_view = view.clone();
-                let toggle_view = view;
-                crate::diff_pane::file_tree(
-                    &files,
-                    selected,
-                    Some(&filter),
-                    &folded,
-                    std::rc::Rc::new(move |_: &mut Self, index, cx| {
-                        pick_view.update(cx, |view, cx| view.select_file(index, cx));
-                    }),
-                    std::rc::Rc::new(move |_: &mut Self, path: String, cx| {
-                        toggle_view.update(cx, |view, cx| view.toggle_dir(path, cx));
-                    }),
-                    crate::diff_pane::TreeChrome::Panel,
-                    window,
-                    cx,
-                )
-            }
             // EXP-945: the SAME tree, the same chrome, the same callbacks —
             // only the owner of the state changed.
             // A screen that is gone since `source()` ran: nothing to paint,

@@ -58,6 +58,11 @@ vi.mock(`@/lib/integrations/activity`, () => ({ recordIssueEvent: vi.fn() }))
 vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applyPrLifecycleStatusInTx: vi.fn(),
 }))
+vi.mock(`@/lib/run-pr-body`, () => ({
+  runPrBody: vi.fn(),
+  runHasReportBody: vi.fn(),
+  syncRunPrBody: vi.fn(),
+}))
 vi.mock(`@/lib/integrations/notifications`, () => ({
   fireAndForgetPrNotify: vi.fn(),
 }))

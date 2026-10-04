@@ -787,18 +787,21 @@ const SESSION_RESULT_GROUPS_FIXTURE: SessionResultGroup[] = [
     text: `Moved the issue header onto the shared \`WorkHeader\` and gave the emoji picker a Recent row.\n\n- Header: one row on every width\n- Picker: recents persist per device`,
     entries: [],
     earlier: [],
+    files: [],
   },
   {
     topic: `Issue header`,
     text: `The title wraps at two lines; the face toggle stays right-aligned.`,
     entries: SESSION_RESULTS_FIXTURE.slice(0, 2),
     earlier: SESSION_INLINE_FIXTURE,
+    files: [`packages/ui/src/work-header.tsx`],
   },
   {
     topic: `Emoji picker`,
     text: null,
     entries: SESSION_RESULTS_FIXTURE.slice(2),
     earlier: [],
+    files: [],
   },
 ]
 
@@ -1338,7 +1341,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `work-face-tabs`,
     title: `Work face tabs`,
     kind: `Inputs & pickers`,
-    blurb: `EXP-1152: the ONE strip every Work screen wears (the md+ work header, the phone's header band, the desktop IDE, iOS, Android): Issue · Run/Runs · +N −M · Results in that fixed order, the segmented capsule above. The Changes segment wears the diff's counts once its files are known and the word Changes until then (the desktop FaceToggle::diff rule); the Runs segment carries a caret to the run menu with several runs; an unavailable face is HIDDEN, never disabled, and the strip is absent under two faces. On phones the body under it is a PAGER: iOS TabView(.page), Android HorizontalPager, and on the web the face's body follows the finger and the next face slides in (the header band and the bar never move). EXP-1162 (contract \`detail-chrome.json\` face marks): the tabs carry the STATE, the header title never does. The Run tab wears the run's mark while it is live (the sidebar Running row's \`AgentRunMark\`, leading the label: Claude's working spark while the agent works, else the brand mark with its run-state badge), never a dot; an open pull request puts a 6px dot on Results, or on Changes when there is no Results face.`,
+    blurb: `EXP-1152: the ONE strip every Work screen wears (the md+ work header, the phone's header band, the desktop IDE, iOS, Android): Issue · Run/Runs · +N −M · Results in that fixed order, the segmented capsule above. The Changes segment wears the diff's counts once its files are known and the word Changes until then (the desktop FaceToggle::diff rule); the Runs segment carries a caret to the run menu with several runs; an unavailable face is HIDDEN, never disabled, and the strip is absent under two faces. On phones the body under it is a PAGER: iOS TabView(.page), Android HorizontalPager, and on the web the face's body follows the finger and the next face slides in (the header band and the bar never move). EXP-1162 (contract \`detail-chrome.json\` face marks): the tabs carry the STATE, the header title never does. The Run tab wears the run's mark while it is live (the sidebar Running row's \`AgentRunMark\`, leading the label: Claude's working spark while the agent works, else the brand mark with its run-state badge), never a dot; an open pull request puts a 6px dot on Results, or on Changes when there is no Results face. EXP-1154: on phones the strip sits centred, nothing beside it (Merge rides the floating bar), and an issue's Changes segment is the review of its pull request (the Reviews detail screen is gone).`,
     status: {
       web: ok(
         `WorkFaceStrip`,
@@ -3413,7 +3416,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `search-field`,
     title: `Search field`,
     kind: `Inputs & pickers`,
-    blurb: `The ONE "filter this list" field: the text field with the search glyph INSIDE it and a ghost clear that appears only once there is something to clear — and puts the caret back in the field, so typing continues. Eight of them existed at five heights, most a bare Input re-dressed by hand and none with either affordance, while both natives had drawn exactly this for years. Two rungs: md is the stock 36 field, sm the 28 one dense columns use — the Reviews file filter, a sidebar filter. It is an Input, not a new box: every chrome decision still comes from there.`,
+    blurb: `The ONE "filter this list" field: the text field with the search glyph INSIDE it and a ghost clear that appears only once there is something to clear — and puts the caret back in the field, so typing continues. Eight of them existed at five heights, most a bare Input re-dressed by hand and none with either affordance, while both natives had drawn exactly this for years. Two rungs: md is the stock 36 field, sm the 28 one dense columns use — the Changes file tree's filter, a sidebar filter. It is an Input, not a new box: every chrome decision still comes from there.`,
     status: {
       web: ok(`SearchField`, `packages/ui/src/search-field.tsx`),
       desktop: ok(
@@ -3861,7 +3864,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `work-bar`,
     title: `Work bar`,
     kind: `Surfaces`,
-    blurb: `EXP-893: the phone's ONE floating bottom bar, \`[circle] [capsule] [circle]\` in the floating-glass recipe, shared by every face of the Work screen — the issue (Properties · Comment · Start), the run (usage ring · composer · Start once the run ended for good) and the changes (the file sheet); the results face has none. EXP-1150: the face SWITCHER circle is gone — the faces are the segmented tabs INSIDE the header band (the Work header's own \`WorkFaceToggle\`, iOS/Android \`GlassSegmentedControl\`) with the Merge PR pill beside them on every face, and the body swipes between them; the bar keeps only the face's own controls (the Reviews page keeps its Merge capsule). EXP-916 locked the geometry to Android's: a 20px screen inset, 10px between the slots, 52px circles with 20px glyphs, a capsule padded 18px. Expanding the composer replaces the left circle and the capsule while the trailing circle stays MOUNTED. EXP-1162: the last rows pass BEHIND the bar through the bottom edge layer (contract \`detail-chrome.json\`: a blurred scrim fading upwards from the screen edge to 32px above the bar) instead of ending hard under the slots. The real bar is \`fixed … md:hidden\`, so the specimen is its SLOTS in a row.`,
+    blurb: `EXP-893: the phone's ONE floating bottom bar, \`[circle] [capsule] [circle]\` in the floating-glass recipe, shared by every face of the Work screen — the issue (Properties · Comment · Start), the run (usage ring · composer · Start once the run ended for good), the changes (the file sheet + the white Merge capsule, a centred cluster) and the results (the Merge capsule alone). EXP-1150: the face SWITCHER circle is gone — the faces are the segmented tabs INSIDE the header band (the Work header's own \`WorkFaceToggle\`, iOS/Android \`GlassSegmentedControl\`), and the body swipes between them. EXP-1154: the ONE merge is the SOLID white capsule on this bar again on all four faces: in the cluster on Changes and Results, floating centred 10px above the composer bar on Issue and Run (hidden while the composer is open). EXP-916 locked the geometry to Android's: a 20px screen inset, 10px between the slots, 52px circles with 20px glyphs, a capsule padded 18px. Expanding the composer replaces the left circle and the capsule while the trailing circle stays MOUNTED. EXP-1162: the last rows pass BEHIND the bar through the bottom edge layer (contract \`detail-chrome.json\`: a blurred scrim fading upwards from the screen edge to 32px above the bar) instead of ending hard under the slots. The real bar is \`fixed … md:hidden\`, so the specimen is its SLOTS in a row.`,
     status: {
       web: ok(
         `MobileWorkBar / MobileWorkCapsule`,
@@ -3872,7 +3875,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       ios: ok(
         `FloatingBottomBar / FloatingBarCircle / FloatingBarCapsule`,
         `apps/ios/ExpUI/Sources/FloatingBottomBar.swift`,
-        `FloatingBarCluster is the Reviews layout, where the slots hug their content`
+        `FloatingBarCluster is the Changes/Results layout, where the slots hug their content`
       ),
       android: ok(
         `FloatingBottomBar / BarCircle / BarCapsule`,
@@ -3897,7 +3900,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     leftovers: [
       {
         file: `apps/web/src/components/issue-changes-face.tsx`,
-        note: `the Reviews page's Merge capsule wears MOBILE_WORK_CAPSULE_CLASS on a SessionMergePill instead of MobileWorkCapsule`,
+        note: `the white MergeCapsule wears MOBILE_WORK_CAPSULE_CLASS on a SessionMergePill, not MobileWorkCapsule`,
       },
     ],
   },
@@ -4009,7 +4012,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `pr-github-button`,
     title: `Open on GitHub`,
     kind: `Buttons & chips`,
-    blurb: `EXP-916: THE GitHub control of every diff surface — the PR page in a new tab — as one component in three shapes, so the words (the contract's) and the behaviour are written once. \`ghost\` is the work header's action slot beside Merge; \`circle\` is a phone work-bar slot, for a run with no issue header to hang it on, and takes its chrome whole from the bar's circle recipe; \`glass\` is the Reviews header's action row beside Close PR and Merge PR. Each shape keeps the \`data-testid\` its surface had before they were merged.`,
+    blurb: `EXP-916: THE GitHub control of every diff surface — the PR page in a new tab — as one component in two shapes, so the words (the contract's) and the behaviour are written once. \`ghost\` is the work header's action slot beside Merge; \`circle\` is a phone work-bar slot, for a run with no issue header to hang it on, and takes its chrome whole from the bar's circle recipe (EXP-1154: the Reviews header's \`glass\` shape went with that page). Each shape keeps the \`data-testid\` its surface had before they were merged.`,
     status: {
       web: ok(`PrGithubButton`, `packages/ui/src/pr-github-button.tsx`),
       desktop: ok(`work_header::github_button`, `apps/desktop/crates/ui/src/work_header.rs`),
@@ -4030,10 +4033,6 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         <PrGithubButton
           prUrl="https://github.com/niach/exponential/pull/961"
           variant="circle"
-        />
-        <PrGithubButton
-          prUrl="https://github.com/niach/exponential/pull/961"
-          variant="glass"
         />
       </div>
     ),
@@ -4265,7 +4264,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `session-results`,
     title: `Session results`,
     kind: `Lists & rows`,
-    blurb: `EXP-879: the screenshots a run published with \`exponential_sessions_results\`, read off the synced jsonb — EXP-933: and each topic's GFM report text (\`text\` entries), drawn above its tiles by the app's markdown renderer (\`renderText\`; plain pre-wrapped prose without one), so a text-only \`Summary\` topic reads as the run's report. One group band per topic over a wrapping strip of tiles, so an iOS, an Android and a web shot of ONE screen read as one row — which only works because every tile is the same height and takes its width from the probed aspect (a 4:3 desktop frame stands in when the upload could not be measured). On a narrow column the whole page scales down by ONE factor, the widest tile's overflow, rather than letting a row clip or each row pick its own size. Tapping a tile opens the shared lightbox. The tile URL is passed in: this package owns the tiles, the app owns the route.`,
+    blurb: `EXP-879: the screenshots a run published with \`exponential_sessions_results\`, read off the synced jsonb — EXP-933: and each topic's GFM report text (\`text\` entries), drawn above its tiles by the app's markdown renderer (\`renderText\`; plain pre-wrapped prose without one), so a text-only \`Summary\` topic reads as the run's report. One group band per topic over a wrapping strip of tiles, so an iOS, an Android and a web shot of ONE screen read as one row — which only works because every tile is the same height and takes its width from the probed aspect (a 4:3 desktop frame stands in when the upload could not be measured). On a narrow column the whole page scales down by ONE factor, the widest tile's overflow, rather than letting a row clip or each row pick its own size. Tapping a tile opens the shared lightbox. The tile URL is passed in: this package owns the tiles, the app owns the route. EXP-1154: the face reads as the GUIDE (the Results guide entry): Summary leads unbanded, every other band wears a \`01 / 04\` caption and lists the files its topic touched.`,
     status: {
       web: ok(
         `SessionResultsView`,

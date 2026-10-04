@@ -79,6 +79,107 @@ pub struct SessionResultGroup {
     /// EXP-1172 — the topic's INLINE pictures, folded under the `Earlier`
     /// band (publish order); empty when the topic has a single picture.
     pub earlier: Vec<SessionResultEntry>,
+    /// EXP-1154 — the repo paths the topic's report touched, off the SAME
+    /// entry its text came from (trimmed, deduped first-seen, capped at
+    /// [`SESSION_RESULT_FILES_MAX`]); empty without.
+    pub files: Vec<String>,
+}
+
+/// EXP-1154 — the most paths one topic lists (fixture `files.maxFiles`).
+pub const SESSION_RESULT_FILES_MAX: usize = 40;
+
+/// EXP-1154 — the topic that leads the Guide unnumbered.
+pub const SESSION_RESULTS_SUMMARY_TOPIC: &str = "Summary";
+
+/// EXP-1154 — a text entry's `files`: strings only, trimmed, blanks and
+/// duplicates dropped (first position kept), capped; a non-array = none.
+fn result_files(value: Option<&Value>) -> Vec<String> {
+    let Some(Value::Array(items)) = value else {
+        return Vec::new();
+    };
+    let mut out: Vec<String> = Vec::new();
+    for item in items {
+        let Some(path) = item.as_str().map(str::trim).filter(|path| !path.is_empty()) else {
+            continue;
+        };
+        if out.iter().any(|seen| seen == path) {
+            continue;
+        }
+        out.push(path.to_string());
+        if out.len() >= SESSION_RESULT_FILES_MAX {
+            break;
+        }
+    }
+    out
+}
+
+/// EXP-1154 — true for the Summary topic: trimmed, case-insensitive.
+pub fn is_summary_topic(topic: &str) -> bool {
+    topic.trim().eq_ignore_ascii_case(SESSION_RESULTS_SUMMARY_TOPIC)
+}
+
+/// EXP-1154 — one numbered Guide section: the group, its 1-based index and
+/// the section count (the lead never counts).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GuideSection<'a, G> {
+    pub group: &'a G,
+    pub index: usize,
+    pub total: usize,
+}
+
+/// EXP-1154 — the Results face as the GUIDE: the lead (the FIRST Summary
+/// group wherever it sits, else `None`) and every other group as a numbered
+/// section, in order. The twin of `@exp/ui` `guideSections`, fixture
+/// `session-results.json` `guide.sections` (×4).
+pub fn session_results_guide<'a, G>(
+    groups: &'a [G],
+    topic: impl Fn(&G) -> &str,
+) -> (Option<&'a G>, Vec<GuideSection<'a, G>>) {
+    let lead_index = groups.iter().position(|group| is_summary_topic(topic(group)));
+    let rest: Vec<&G> = groups
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| Some(*index) != lead_index)
+        .map(|(_, group)| group)
+        .collect();
+    let total = rest.len();
+    let sections = rest
+        .into_iter()
+        .enumerate()
+        .map(|(index, group)| GuideSection { group, index: index + 1, total })
+        .collect();
+    (lead_index.map(|index| &groups[index]), sections)
+}
+
+/// EXP-1154 — `01 / 04`: both numbers two-digit zero-padded.
+pub fn guide_section_caption(index: usize, total: usize) -> String {
+    format!("{index:02} / {total:02}")
+}
+
+/// EXP-1154 — one Guide file row: the path and, when the loaded diff has the
+/// file, its `(additions, deletions)`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GuideFileRow {
+    pub path: String,
+    pub counts: Option<(u32, u32)>,
+}
+
+/// EXP-1154 — one row per path in order; counts from the diff file whose
+/// path matches EXACTLY (`diff` = `(path, additions, deletions)`), else
+/// `None` (an unknown path, or no diff loaded).
+pub fn guide_file_rows(paths: &[String], diff: Option<&[(String, u32, u32)]>) -> Vec<GuideFileRow> {
+    paths
+        .iter()
+        .map(|path| GuideFileRow {
+            path: path.clone(),
+            counts: diff.and_then(|files| {
+                files
+                    .iter()
+                    .find(|(candidate, _, _)| candidate == path)
+                    .map(|(_, additions, deletions)| (*additions, *deletions))
+            }),
+        })
+        .collect()
 }
 
 /// EXP-1172 — a topic with more than one picture moves its inline ones into
@@ -128,6 +229,7 @@ pub fn parse_session_result_groups(raw: Option<&Value>) -> Vec<SessionResultGrou
                     text: None,
                     entries: Vec::new(),
                     earlier: Vec::new(),
+                    files: Vec::new(),
                 });
                 groups.len() - 1
             }
@@ -158,6 +260,7 @@ pub fn parse_session_result_groups(raw: Option<&Value>) -> Vec<SessionResultGrou
         let group = open(&mut groups, &topic);
         if group.text.is_none() {
             group.text = Some(body);
+            group.files = result_files(object.get("files"));
         }
     }
     fold_inline(groups)
@@ -209,6 +312,7 @@ pub fn group_session_results(entries: &[SessionResultEntry]) -> Vec<SessionResul
                 text: None,
                 entries: vec![entry.clone()],
                 earlier: Vec::new(),
+                files: Vec::new(),
             }),
         }
     }
@@ -471,6 +575,136 @@ mod tests {
             );
         }
         assert!(!has_session_results(None));
+    }
+
+    /// EXP-1154 — the fixture's `files` block: a group's files ride the
+    /// entry its text came from.
+    #[test]
+    fn parse_session_result_groups_carries_files_off_the_winning_text() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/session-results.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            fixture["files"]["maxFiles"].as_u64().unwrap() as usize,
+            SESSION_RESULT_FILES_MAX
+        );
+        let cases = fixture["files"]["cases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let actual: Vec<Value> = parse_session_result_groups(Some(&case["raw"]))
+                .iter()
+                .map(|group| serde_json::json!({"topic": group.topic, "files": group.files}))
+                .collect();
+            assert_eq!(Value::Array(actual), case["expected"], "fixture case: {name}");
+        }
+    }
+
+    /// EXP-1154 — the over-cap rule: the 41st distinct path is dropped.
+    #[test]
+    fn parse_session_result_groups_caps_files() {
+        let files: Vec<String> = (0..50).map(|index| format!("f{index}.ts")).collect();
+        let raw = serde_json::json!([{"topic": "t", "text": "x", "files": files}]);
+        let groups = parse_session_result_groups(Some(&raw));
+        assert_eq!(groups[0].files.len(), SESSION_RESULT_FILES_MAX);
+        assert_eq!(groups[0].files[39], "f39.ts");
+    }
+
+    /// EXP-1154 — the fixture's `guide.sections`: Summary leads wherever it
+    /// sits; every other topic is numbered.
+    #[test]
+    fn session_results_guide_matches_the_shared_fixture() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/session-results.json"
+        ))
+        .unwrap();
+        let cases = fixture["guide"]["sections"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let topics: Vec<String> = case["topics"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|topic| topic.as_str().unwrap().to_string())
+                .collect();
+            let (lead, sections) = session_results_guide(&topics, |topic| topic.as_str());
+            assert_eq!(
+                lead.map_or(Value::Null, |topic| Value::String(topic.clone())),
+                case["lead"],
+                "fixture case: {name}"
+            );
+            let actual: Vec<Value> = sections
+                .iter()
+                .map(|section| serde_json::json!([section.group, section.index, section.total]))
+                .collect();
+            assert_eq!(Value::Array(actual), case["sections"], "fixture case: {name}");
+        }
+    }
+
+    /// EXP-1154 — the fixture's `guide.captions`.
+    #[test]
+    fn guide_section_caption_matches_the_shared_fixture() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/session-results.json"
+        ))
+        .unwrap();
+        let cases = fixture["guide"]["captions"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            assert_eq!(
+                guide_section_caption(
+                    case["index"].as_u64().unwrap() as usize,
+                    case["total"].as_u64().unwrap() as usize,
+                ),
+                case["text"].as_str().unwrap()
+            );
+        }
+    }
+
+    /// EXP-1154 — the fixture's `guide.fileRows`: counts only for an exact
+    /// path match in the loaded diff.
+    #[test]
+    fn guide_file_rows_matches_the_shared_fixture() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/session-results.json"
+        ))
+        .unwrap();
+        let cases = fixture["guide"]["fileRows"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let paths: Vec<String> = case["paths"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|path| path.as_str().unwrap().to_string())
+                .collect();
+            let diff: Option<Vec<(String, u32, u32)>> = case["diff"].as_array().map(|files| {
+                files
+                    .iter()
+                    .map(|file| {
+                        (
+                            file["path"].as_str().unwrap().to_string(),
+                            file["additions"].as_u64().unwrap() as u32,
+                            file["deletions"].as_u64().unwrap() as u32,
+                        )
+                    })
+                    .collect()
+            });
+            let actual: Vec<Value> = guide_file_rows(&paths, diff.as_deref())
+                .iter()
+                .map(|row| {
+                    serde_json::json!({
+                        "path": row.path,
+                        "additions": row.counts.map(|(additions, _)| additions),
+                        "deletions": row.counts.map(|(_, deletions)| deletions),
+                    })
+                })
+                .collect();
+            assert_eq!(Value::Array(actual), case["expected"], "fixture case: {name}");
+        }
     }
 
     /// EXP-933 — the 60 cap counts PICTURES only: a topic's text filed after

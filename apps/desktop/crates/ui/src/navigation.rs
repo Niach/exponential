@@ -63,10 +63,6 @@ pub enum Screen {
     /// `routes/t/$ws/settings/` — team, device AND personal sections
     /// (EXP-238 folded the old Account screen into the settings nav).
     Settings,
-    /// Read-only PR diff for an issue's linked PR (EXP-181 — the Reviews
-    /// page's rows open this instead of the issue detail; data via
-    /// `issues.prFiles`, rendered by the shared unified `DiffView`).
-    PrDiff { issue_id: String },
     /// The Devices page (EXP-686 — the web `t/$teamSlug/devices` page: the
     /// user's machines and nothing else). Tab-less full-page mode like
     /// Settings (no sidebar, no tab chip), opened from the rail.
@@ -160,7 +156,7 @@ impl Screen {
     /// path (`undock::open_undocked_terminal_tab`, the manager keeps the tab),
     /// offered from the session bar chip's context menu.
     pub(crate) fn undockable(&self) -> bool {
-        matches!(self, Screen::IssueDetail { .. } | Screen::PrDiff { .. })
+        matches!(self, Screen::IssueDetail { .. })
     }
 
     /// EXP-769: whether the screen's tab lives in the BOTTOM bar rather than
@@ -179,10 +175,9 @@ impl Screen {
     /// driven by the sidebar selection, never tabs. EXP-480: Actions is a
     /// tab-less full-page mode too — the rail stays (its Actions entry
     /// highlights like a tool window's) but the tool column unmounts, and
-    /// any rail-tool click or tab click leaves it. EXP-525: PrDiff stopped
-    /// being a tab — review diffs are transient center views driven by the
-    /// Reviews page (a merged PR used to leave a stale diff tab behind);
-    /// `ScreensPanel::dismiss_stale_pr_diff` retires them. EXP-746: a coding
+    /// any rail-tool click or tab click leaves it. (EXP-1154: the review of
+    /// a PR is the issue tab's Changes face; there is no review screen.)
+    /// EXP-746: a coding
     /// session is a detail tab too — several run at once, and an ended one
     /// keeps its tab as a read-only transcript instead of closing. EXP-769: so
     /// is a PTY terminal (its chip sits in the bottom bar, [`Self::is_dock_tab`]).
@@ -196,10 +191,8 @@ impl Screen {
     }
 
     /// EXP-851: whether this screen can sit BESIDE a list — every tab detail,
-    /// plus two tab-less centre views:
+    /// plus the tab-less centre views:
     ///
-    /// * the PR diff (EXP-525 took its tab away so a merged PR can't leave a
-    ///   stale chip), which is opened FROM the Reviews queue and carries it;
     /// * the Agent page, which is BOTH a list of its own AND a step on the
     ///   way from an issue to its coding run — "start coding" on an issue
     ///   that sits beside its board must keep that board all the way into the
@@ -214,7 +207,7 @@ impl Screen {
         (self.is_detail() && !matches!(self, Screen::Terminal { .. }))
             || matches!(
                 self,
-                Screen::PrDiff { .. } | Screen::Chat | Screen::IssueDraft { .. }
+                Screen::Chat | Screen::IssueDraft { .. }
             )
     }
 
@@ -372,15 +365,6 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
             .map(issue_tab_title)
             .unwrap_or_else(|| "Issue".into()),
         Screen::Settings => "Settings".into(),
-        // "· Diff" keeps the tab distinguishable from the same issue's
-        // detail tab.
-        Screen::PrDiff { issue_id } => Store::global(cx)
-            .collections()
-            .issues
-            .read(cx)
-            .get(issue_id)
-            .map(|issue| gpui::SharedString::from(format!("{} · Diff", issue_tab_title(issue))))
-            .unwrap_or_else(|| "Diff".into()),
         Screen::Session { session_id } => session_tab_title(session_id, cx),
         // EXP-769: the manager's live tab title (OSC-updated), looked up
         // across this process's windows — a tab id is process-unique.
@@ -766,9 +750,9 @@ impl Navigation {
 /// list screens the rail's tool windows became) | `chat` | `chat?<seed>` (EXP-825:
 /// `issues=<a>,<b>&action=<id>&pr=<issue>&device=<id>&text=<url-encoded>`
 /// &icon=<name>`, any subset — [`parse_dev_chat_seed`]) | `reviews` |
-/// `getting-started` | `issue:<uuid>` |
-/// `pr:<issue-uuid>` (the PR-diff screen, keyed by the ISSUE whose linked PR
-/// it shows) | `session:<uuid>` (a coding session, keyed by
+/// `getting-started` | `issue:<uuid>` | `issue:<uuid>?face=changes|diff|results`
+/// (EXP-1154: the issue tab on that face — the review of its PR is the
+/// Changes face, [`parse_dev_issue_face`]) | `session:<uuid>` (a coding session, keyed by
 /// its `coding_sessions` ROW id — EXP-746) (anything else = no pre-route).
 /// `getting-started` additionally reads `EXP_DEV_GETTING_STARTED_TAB`
 /// ([`parse_getting_started_tab`]) so a capture run can land on the
@@ -823,13 +807,10 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
                 .unwrap_or_default(),
         }),
         _ => {
-            if let Some(id) = spec.strip_prefix("issue:") {
+            if let Some(rest) = spec.strip_prefix("issue:") {
+                // EXP-1154: `?face=…` picks the tab's face, never the id.
+                let id = rest.split_once('?').map_or(rest, |(id, _)| id);
                 return Some(Screen::IssueDetail {
-                    issue_id: id.to_string(),
-                });
-            }
-            if let Some(id) = spec.strip_prefix("pr:") {
-                return Some(Screen::PrDiff {
                     issue_id: id.to_string(),
                 });
             }
@@ -843,6 +824,33 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
                 action_id: id.to_string(),
             })
         }
+    }
+}
+
+/// EXP-1154 (DEV-ONLY): the face an `issue:<uuid>?face=<face>` spec opens
+/// the issue tab on — `changes`/`diff` = the Changes face (the review of its
+/// PR), `results` = the Results face (the shared
+/// [`crate::screens::parse_run_face`] vocabulary). `None` for any other spec,
+/// no `face`, or `run`/`transcript` (an issue tab's own face is the issue).
+pub(crate) fn parse_dev_issue_face(spec: &str) -> Option<crate::screens::RunFace> {
+    let (_, query) = spec.strip_prefix("issue:")?.split_once('?')?;
+    let face = query
+        .split('&')
+        .find_map(|pair| pair.strip_prefix("face="))?;
+    match crate::screens::parse_run_face(Some(face))? {
+        crate::screens::RunFace::Run => None,
+        face => Some(face),
+    }
+}
+
+/// EXP-1154 (DEV-ONLY): [`parse_dev_issue_face`] over `EXP_DEV_SCREEN`, with
+/// the issue id it applies to.
+pub(crate) fn dev_issue_face() -> Option<(String, crate::screens::RunFace)> {
+    let spec = std::env::var("EXP_DEV_SCREEN").ok()?;
+    let face = parse_dev_issue_face(spec.trim())?;
+    match parse_dev_screen(spec.trim())? {
+        Screen::IssueDetail { issue_id } => Some((issue_id, face)),
+        _ => None,
     }
 }
 
@@ -2176,7 +2184,7 @@ mod tests {
 
     /// EXP-851: Reviews is a LIST screen — a detail opened from it inherits
     /// the Reviews rows in the left column. Neither a tab nor undockable
-    /// (the DIFF its rows open is both).
+    /// (the ISSUE its rows open, EXP-1154, is both).
     #[test]
     fn reviews_is_a_list_screen() {
         assert!(Screen::Reviews.list_origin().is_some());
@@ -2186,14 +2194,46 @@ mod tests {
         );
         assert!(!Screen::Reviews.is_detail());
         assert!(!Screen::Reviews.undockable());
-        assert!(Screen::PrDiff {
+        assert!(Screen::IssueDetail {
             issue_id: "i1".into()
         }
         .undockable());
     }
 
+    /// EXP-1154: `issue:<uuid>?face=…` keeps a clean id — the query picks the
+    /// tab's face, never the screen.
+    #[test]
+    fn an_issue_spec_with_a_query_keeps_a_clean_id() {
+        for spec in ["issue:i1", "issue:i1?face=changes", "issue:i1?face=results&x=1"] {
+            assert_eq!(
+                parse_dev_screen(spec),
+                Some(Screen::IssueDetail {
+                    issue_id: "i1".into()
+                }),
+                "{spec}"
+            );
+        }
+        // The retired review screen's spec opens nothing.
+        assert_eq!(parse_dev_screen("pr:i1"), None);
+    }
+
+    /// EXP-1154: the face query maps through the shared run-face vocabulary;
+    /// the issue's own face (run/transcript) and junk are no face.
+    #[test]
+    fn parse_dev_issue_face_reads_the_face_query() {
+        use crate::screens::RunFace;
+        assert_eq!(parse_dev_issue_face("issue:i1?face=changes"), Some(RunFace::Diff));
+        assert_eq!(parse_dev_issue_face("issue:i1?face=diff"), Some(RunFace::Diff));
+        assert_eq!(parse_dev_issue_face("issue:i1?face=results"), Some(RunFace::Results));
+        assert_eq!(parse_dev_issue_face("issue:i1?x=1&face=results"), Some(RunFace::Results));
+        assert_eq!(parse_dev_issue_face("issue:i1?face=run"), None);
+        assert_eq!(parse_dev_issue_face("issue:i1?face=nonsense"), None);
+        assert_eq!(parse_dev_issue_face("issue:i1"), None);
+        assert_eq!(parse_dev_issue_face("session:s1?face=changes"), None);
+    }
+
     /// EXP-746: a capture run (and a debug session) reaches ONE coding
-    /// session's screen by its row id, the same shape as `issue:` / `pr:`.
+    /// session's screen by its row id, the same shape as `issue:`.
     #[test]
     fn dev_screen_parses_a_session_id() {
         assert_eq!(
@@ -2284,9 +2324,6 @@ mod tests {
                 tab: GettingStartedTab::FirstSteps,
             },
             Screen::IssueDetail {
-                issue_id: "i1".into(),
-            },
-            Screen::PrDiff {
                 issue_id: "i1".into(),
             },
             Screen::Session {
@@ -2409,9 +2446,6 @@ mod tests {
         let session = Screen::Session {
             session_id: "s1".into(),
         };
-        let diff = Screen::PrDiff {
-            issue_id: "i1".into(),
-        };
         let board_screen = Screen::BoardIssues {
             board_id: "b1".into(),
         };
@@ -2431,9 +2465,9 @@ mod tests {
             derive_origin(Some(&inbox_screen), None, &issue),
             Some(inbox.clone())
         );
-        // Reviews → a diff.
+        // Reviews → an issue (EXP-1154: on its Changes face).
         assert_eq!(
-            derive_origin(Some(&Screen::Reviews), None, &diff).map(|origin| origin.tool),
+            derive_origin(Some(&Screen::Reviews), None, &issue).map(|origin| origin.tool),
             Some(ToolWindow::Reviews)
         );
         // EXP-923: the Agent page reached from the RAIL (carrying nothing) →
@@ -2453,11 +2487,6 @@ mod tests {
         );
         // The rail's own Agent entry is a `navigate_from_rail`, so nothing is
         // derived for it at all — the marker wins (screens::resolve_tab_origin).
-        // Reviews → the PR diff.
-        assert_eq!(
-            derive_origin(Some(&Screen::Reviews), None, &diff).map(|origin| origin.tool),
-            Some(ToolWindow::Reviews)
-        );
         // Detail → detail INHERITS: an issue (opened from a board) starting a
         // coding run keeps the board beside the session.
         assert_eq!(
@@ -2576,7 +2605,7 @@ mod tests {
     /// the back stack alone left go-forward re-entering the screen.
     #[test]
     fn purge_history_covers_both_stacks() {
-        let diff = Screen::PrDiff { issue_id: "i1".into() };
+        let diff = Screen::IssueDetail { issue_id: "i1".into() };
         let mut nav = Navigation::new();
         nav.screen = Some(Screen::Reviews);
         nav.back_stack = vec![Screen::Devices, diff.clone(), Screen::Actions];
@@ -2588,34 +2617,6 @@ mod tests {
         assert_eq!(nav.screen, Some(Screen::Reviews));
         // idempotent: a second purge changes nothing
         assert!(!nav.purge_history(|screen| *screen == diff));
-    }
-
-    /// EXP-525/EXP-818: `screens::dismiss_stale_pr_diff` purges, goes back,
-    /// then purges again — the go-back parks the dismissed diff on the
-    /// forward stack, and the second purge is what keeps Forward alive
-    /// (before it, Forward re-entered the diff, the dismiss fired again and
-    /// the diff landed forward again: a dead button for the window's life).
-    #[test]
-    fn dismissed_pr_diff_never_survives_on_the_forward_stack() {
-        let diff = Screen::PrDiff { issue_id: "i1".into() };
-        let mut nav = Navigation::new();
-        // Reviews → diff → back to Reviews → forward into the diff again:
-        // the diff sits on the current slot, nothing on the back stack but
-        // Reviews, and an unrelated screen is parked forward.
-        nav.screen = Some(diff.clone());
-        nav.back_stack = vec![Screen::Devices, Screen::Reviews];
-        nav.forward_stack = vec![Screen::Settings];
-        // the dismiss sequence
-        nav.purge_history(|screen| *screen == diff);
-        assert_eq!(nav.step_back(), Some(Screen::Reviews));
-        assert_eq!(nav.forward_stack, vec![Screen::Settings, diff.clone()]);
-        nav.purge_history(|screen| *screen == diff);
-        assert!(!nav.forward_stack.contains(&diff));
-        assert!(!nav.back_stack.contains(&diff));
-        // Forward still works and lands somewhere real
-        assert!(nav.can_go_forward());
-        assert_eq!(nav.step_forward(), Some(Screen::Settings));
-        assert_eq!(nav.back_stack, vec![Screen::Devices, Screen::Reviews]);
     }
 
     /// EXP-769/EXP-818: a closed terminal is purged from history as a whole
@@ -2648,9 +2649,6 @@ mod tests {
     #[test]
     fn only_undockable_screens_reveal_an_undocked_window() {
         assert!(reveals_undocked_window(&Screen::IssueDetail {
-            issue_id: "i1".into()
-        }));
-        assert!(reveals_undocked_window(&Screen::PrDiff {
             issue_id: "i1".into()
         }));
         assert!(!reveals_undocked_window(&Screen::Session {

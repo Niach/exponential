@@ -338,10 +338,12 @@ export function SessionMergeButton({
           />
           {/* The swap must never be a dead end: the conflict may have been
               resolved outside the recovery run, so Merge stays one click
-              away as a quiet secondary. */}
+              away as a quiet secondary. `pointer-events-auto`: the phone's
+              bar and Merge float are `pointer-events-none` shells. */}
           <Button
             variant="glass"
             size="icon-sm"
+            className="pointer-events-auto"
             disabled={merging}
             aria-label={merging ? `Merging…` : `Retry merge`}
             title={merging ? `Merging…` : `Retry merge`}

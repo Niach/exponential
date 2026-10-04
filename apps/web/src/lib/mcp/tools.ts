@@ -19,6 +19,9 @@ import {
   SESSION_RESULT_REPORT_MAX,
   SESSION_RESULTS_REPORT_TOTAL_MAX,
   SESSION_RESULT_CAPTION_MAX,
+  SESSION_RESULT_FILE_PATH_MAX,
+  SESSION_RESULT_FILES_MAX,
+  SESSION_RESULTS_FILES_TOTAL_MAX,
   SESSION_SHOW_DEFAULT_TOPIC,
   UUID_RE,
 } from "@exp/db-schema/domain"
@@ -128,6 +131,7 @@ import {
   resultsSummary,
 } from "@/lib/session-result-writes"
 import { publishSessionResultPicture } from "@/lib/session-result-publish"
+import { runHasReportBody, runPrBody, syncRunPrBody } from "@/lib/run-pr-body"
 import { prepareSessionImageBytes } from "@/lib/storage/session-attachment-upload"
 import { appBaseUrl } from "@/lib/notification-email-policy"
 import { assertWithinStorageLimit } from "@/lib/billing"
@@ -336,7 +340,7 @@ async function getActionContext(id: string) {
 }
 
 const REUSED_PR_NOTE = (head: string) =>
-  `${head} already had an open PR: linked to it (its title, body and base are unchanged; exponential_pr_update rewrites the title or body).`
+  `${head} already had an open PR: linked to it (title and base unchanged; its body follows your report when you have one).`
 
 // FEED-59: open the PR, or hand back the one already OPEN on `head` (a
 // multi-issue run that implemented more issues on its branch) so the caller links the
@@ -2411,6 +2415,10 @@ export function registerExponentialTools(
             )
           }
 
+          // EXP-1154: the run's report IS the PR body ('body' only without one).
+          const callerSession = await loadCallerSession()
+          const prBody = await runPrBody(callerSession?.id ?? null, body)
+
           claimPrOpen(repo.fullName, head!, {
             userId: user.id,
             viaAgent: true,
@@ -2422,7 +2430,7 @@ export function registerExponentialTools(
               head: head!,
               base: base ?? repo.defaultBranch,
               title,
-              body: body ?? ``,
+              body: prBody.body ?? ``,
               token: resolvedRepo.token,
             })
           } catch (e) {
@@ -2434,7 +2442,6 @@ export function registerExponentialTools(
             releasePrOpenClaim(repo.fullName, head!)
           }
 
-          const callerSession = await loadCallerSession()
           if (callerSession) {
             await db.transaction(async (tx) => {
               await parkSessionInReview(tx, {
@@ -2446,11 +2453,19 @@ export function registerExponentialTools(
                 pr: { url: createdPr.url, number: createdPr.number },
               })
             })
+            // A reused PR kept its old body: bring it to the report.
+            // Only the PR the row actually got (a team mismatch skips the stamp).
+            if (createdPr.reusedBase != null && prBody.fromResults) {
+              await syncRunPrBody(callerSession.id, {
+                expectPrUrl: createdPr.url,
+              })
+            }
           }
 
           return ok({
             url: createdPr.url,
             number: createdPr.number,
+            ...(prBody.fromResults ? { body: `report` } : {}),
             ...(createdPr.reusedBase != null
               ? { reused: true, note: REUSED_PR_NOTE(head!) }
               : {}),
@@ -2574,6 +2589,10 @@ export function registerExponentialTools(
           }
         }
 
+        // EXP-1154: the run's report IS the PR body ('body' only without one).
+        const callerSession = await loadCallerSession()
+        const prBody = await runPrBody(callerSession?.id ?? null, body)
+
         // EXP-494: record the initiator BEFORE creating the PR — GitHub's
         // `opened` webhook reliably beats this handler's own DB write, and
         // without the claim it fans out anonymously (self-notifying the very
@@ -2595,7 +2614,7 @@ export function registerExponentialTools(
             head: headBranch,
             base: baseBranch,
             title,
-            body: body ?? ``,
+            body: prBody.body ?? ``,
             token,
           })
         } catch (e) {
@@ -2625,7 +2644,6 @@ export function registerExponentialTools(
           baseBranch = created.reusedBase!
         }
 
-        const callerSession = await loadCallerSession()
         // FEED-59: an issue already linked to the reused PR stays as it is —
         // no second `pr_opened` event, status move or notification.
         const alreadyLinked = new Set<string>()
@@ -2734,6 +2752,12 @@ export function registerExponentialTools(
           }
         })
 
+        // EXP-1154: a reused PR kept its old body: bring it to the report.
+        // Only the PR the row actually got (a team mismatch skips the stamp).
+        if (reused && prBody.fromResults && callerSession) {
+          await syncRunPrBody(callerSession.id, { expectPrUrl: created.url })
+        }
+
         // Away/phone flow: "PR opened" reaches assignee + subscribers on
         // in-app + push + email (deliver()'s dedupe window absorbs the
         // near-simultaneous GitHub webhook `opened` fan-out).
@@ -2751,6 +2775,7 @@ export function registerExponentialTools(
           url: created.url,
           number: created.number,
           base: baseBranch,
+          ...(prBody.fromResults ? { body: `report` } : {}),
           ...(reused ? { reused: true, note: REUSED_PR_NOTE(headBranch) } : {}),
         })
       } catch (e) {
@@ -2762,7 +2787,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_open`,
     {
-      description: `Open a GitHub PR via the GitHub App (never 'gh') and link it to the issue(s). Pass EXACTLY ONE of 'issueId', 'issueIds' (ONE combined PR, same repo; 'head' REQUIRED, e.g. 'exp/batch-<id>') or 'repositoryId' + 'head' (issue-less, nothing linked). 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>', 'base' to the default branch; a 'base' that is another issue's open PR branch marks that issue as blocking yours. Linked issues record the PR and move to the team's PR-open status (default 'in_review'). UUIDs or identifiers ("MET-12").`,
+      description: `Open a GitHub PR via the GitHub App (never 'gh') and link it to the issue(s). Body = your run's report ('body' only without one). Pass EXACTLY ONE of 'issueId', 'issueIds' (ONE combined PR, same repo; 'head' REQUIRED) or 'repositoryId' + 'head' (issue-less). 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>', 'base' to the default branch; a 'base' that is another issue's open PR branch marks that issue as blocking yours. Linked issues move to the team's PR-open status (default 'in_review'). UUIDs or identifiers ("MET-12").`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: prOpenInput,
     },
@@ -3112,7 +3137,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_update`,
     {
-      description: `Rewrite the title and/or body of an open PR via the GitHub App: the fix for a description later commits made stale (pr_open never edits an existing PR). Subjects as exponential_pr_merge: EXACTLY ONE of 'issueId', 'issueIds' (one update per distinct PR) or 'repositoryId' + 'prNumber'; omit all to edit the PR of the run this call comes from. Pass 'title', 'body' (max 60000) or both; an omitted field keeps its value. results[]: issueId/identifier or repositoryId/prNumber, 'updated', optional 'error'. Accepts identifiers ("MET-12").`,
+      description: `Rewrite the title and/or body of an open PR via the GitHub App: the fix for a description later commits made stale (pr_open never edits an existing PR). Subjects as exponential_pr_merge: EXACTLY ONE of 'issueId', 'issueIds' (one update per distinct PR) or 'repositoryId' + 'prNumber'; omit all for this run's own PR, whose body is its report ('body' ignored: edit exponential_sessions_results). Pass 'title', 'body' (max 60000) or both; an omitted field keeps its value. results[]: issueId/identifier or repositoryId/prNumber, 'updated', optional 'error'. Accepts identifiers ("MET-12").`,
       inputSchema: prUpdateInput,
     },
     async ({ issueId, issueIds, repositoryId, prNumber, title, body }) => {
@@ -3120,7 +3145,7 @@ export function registerExponentialTools(
         if (title === undefined && body === undefined) {
           throw new Error(`Pass a title, a body, or both.`)
         }
-        const fields = {
+        let fields: { title?: string; body?: string } = {
           ...(title !== undefined ? { title } : {}),
           ...(body !== undefined ? { body } : {}),
         }
@@ -3149,6 +3174,16 @@ export function registerExponentialTools(
             throw new Error(
               `Provide issueId, issueIds or repositoryId + prNumber: no run header names a pull request here.`
             )
+          }
+          // EXP-1154: this run's PR body IS its report; 'body' never lands.
+          if (body !== undefined && (await runHasReportBody(callerSession.id))) {
+            if (title === undefined) {
+              return ok({
+                results: [],
+                note: `This run's PR body is its report: edit it with exponential_sessions_results (each text write re-syncs the PR).`,
+              })
+            }
+            fields = { title }
           }
           if (callerSession.issueId) {
             rawIds = [callerSession.issueId]
@@ -3477,21 +3512,42 @@ export function registerExponentialTools(
     server.registerTool(
       `exponential_sessions_results`,
       {
-        description: `Publish your run's REPORT on the issue's Results face: per topic a GFM text (what you did, #IDENT refs) above its screenshots, 'Summary' first. text sets it; label asks for a picture (web/ios/android): an uploadUrl, its expiry and a curl line (PNG/JPEG/WebP, 10 MB); the same topic+label REPLACES it. remove: true deletes that label, the text (text: ''), or the whole topic. Returns the run's list. Prefer viewport-sized shots.`,
+        description: `Publish your run's REPORT; it IS the PR body (text writes re-sync it). Per topic: text = 2-3 sentences of GFM (#IDENT refs), files = repo paths it touched; 'Summary' first. label asks for a picture (web/ios/android, Results only): an uploadUrl + curl line (PNG/JPEG/WebP, 10 MB); the same topic+label REPLACES it. remove: true deletes that label, the text (text: ''), or the whole topic. Viewport-sized shots.`,
         _meta: ALWAYS_LOAD_META,
         inputSchema: strictInput({
           topic: z.string().trim().min(1).max(SESSION_RESULT_TEXT_MAX),
           label: z.string().trim().min(1).max(SESSION_RESULT_TEXT_MAX).optional(),
           text: z.string().max(SESSION_RESULT_REPORT_MAX).optional(),
+          // Limits checked in the handler: the schema is always-loaded bytes.
+          files: z.array(z.string()).optional(),
           remove: z.boolean().optional(),
         }),
       },
-      async ({ topic, label, text, remove }) => {
+      async ({ topic, label, text, files, remove }) => {
         try {
           if (!sessionId) {
             return err(
               new Error(
                 `No coding session: exponential_sessions_results only works inside a session started by the Exponential launcher (missing X-Exp-Session-Id).`
+              )
+            )
+          }
+          // EXP-1154: files belong to a topic's text (its report section).
+          if (files !== undefined && (text === undefined || remove)) {
+            return err(
+              new Error(
+                `files rides a topic's text: pass it with text (the section it belongs to).`
+              )
+            )
+          }
+          if (
+            files &&
+            (files.length > SESSION_RESULT_FILES_MAX ||
+              files.some((path) => path.length > SESSION_RESULT_FILE_PATH_MAX))
+          ) {
+            return err(
+              new Error(
+                `files takes at most ${SESSION_RESULT_FILES_MAX} paths of at most ${SESSION_RESULT_FILE_PATH_MAX} characters each.`
               )
             )
           }
@@ -3538,6 +3594,7 @@ export function registerExponentialTools(
                 return {
                   results: locked.results,
                   removedAttachmentIds,
+                  textGone,
                   gone: [] as Array<{ storageKey: string | null }>,
                 }
               }
@@ -3552,6 +3609,7 @@ export function registerExponentialTools(
                 return {
                   results,
                   removedAttachmentIds,
+                  textGone,
                   gone: [] as Array<{ storageKey: string | null }>,
                 }
               }
@@ -3559,9 +3617,17 @@ export function registerExponentialTools(
                 .delete(sessionAttachments)
                 .where(inArray(sessionAttachments.id, removedAttachmentIds))
                 .returning({ storageKey: sessionAttachments.storageKey })
-              return { results, removedAttachmentIds, gone: gone ?? [] }
+              return {
+                results,
+                removedAttachmentIds,
+                textGone,
+                gone: gone ?? [],
+              }
             })
-            const { results, removedAttachmentIds, gone } = outcome
+            const { results, removedAttachmentIds, textGone, gone } = outcome
+            // EXP-1154: a removed text changes the report, so the PR body
+            // (decided under the row lock, not off the unlocked pre-read).
+            if (textGone) await syncRunPrBody(sessionId, { removal: true })
             if (removedAttachmentIds.length === 0) {
               return ok({
                 removed:
@@ -3611,6 +3677,7 @@ export function registerExponentialTools(
           // EXP-933: the report text lands right here, under the same row
           // lock the upload route and remove take (jsonb read-modify-write).
           let current = row.results
+          let prSync: `synced` | `skipped` | `failed` = `skipped`
           if (text !== undefined) {
             const trimmed = text.trim()
             if (!trimmed) {
@@ -3628,7 +3695,12 @@ export function registerExponentialTools(
                 .limit(1)
                 .for(`update`)
               if (!locked) throw new Error(`Session not found`)
-              const next = upsertSessionResultText(locked.results, topic, trimmed)
+              const next = upsertSessionResultText(
+                locked.results,
+                topic,
+                trimmed,
+                files
+              )
               if (!next) return null
               await tx
                 .update(codingSessions)
@@ -3639,13 +3711,20 @@ export function registerExponentialTools(
             if (!written) {
               return err(
                 new Error(
-                  `This run's results are full (${SESSION_RESULTS_MAX} entries or ${SESSION_RESULTS_REPORT_TOTAL_MAX} characters of text in all). Shorten the text or remove a topic first.`
+                  `This run's results are full (${SESSION_RESULTS_MAX} entries, ${SESSION_RESULTS_REPORT_TOTAL_MAX} characters of text or ${SESSION_RESULTS_FILES_TOTAL_MAX} files in all). Shorten the text or remove a topic first.`
                 )
               )
             }
             current = written
+            // EXP-1154: the report IS the PR body; an open PR follows it.
+            prSync = await syncRunPrBody(sessionId)
             if (!label) {
-              return ok({ topic, text: trimmed.length, results: resultsSummary(current) })
+              return ok({
+                topic,
+                text: trimmed.length,
+                ...(prSync === `synced` ? { pr: `synced` } : {}),
+                results: resultsSummary(current),
+              })
             }
           }
           if (!label) throw new Error(`unreachable: label checked above`)
@@ -3681,6 +3760,7 @@ export function registerExponentialTools(
             curl: `curl -sS -F file=@screenshot.png "${uploadUrl}"`,
             topic,
             label,
+            ...(prSync === `synced` ? { pr: `synced` } : {}),
             results: resultsSummary(current),
           })
         } catch (e) {

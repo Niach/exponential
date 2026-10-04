@@ -18,8 +18,11 @@ import {
   Button,
   CollapsedTitle,
   PrGithubButton,
+  parseSessionResultGroups,
   useIsMobile,
+  WORK_COLUMN_CLASS,
 } from "@exp/ui"
+import { IssueResultsBody } from "@/components/issue-results-face"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import type { WorkFace } from "@/components/team/work-face-toggle"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
@@ -58,8 +61,17 @@ import { pageTitle, usePageTitle } from "@/lib/page-title"
 // relay ticket mint refuses everyone else). A teammate's session id therefore
 // renders an identity stub with the synced status badge and NO view mount —
 // mounting it would try to mint a ticket the server will refuse.
+// EXP-1154: `?view=results` is the exception: the report rides the synced
+// row (results sync team-wide), and a run without an issue links its PR body
+// footer here, so a teammate reads it read-only (`TeammateRunResults`).
 
-type SessionSearch = { from?: string; view?: `diff` | `results` }
+type SessionSearch = {
+  from?: string
+  view?: `diff` | `results`
+  /** EXP-1154: the file the diff face opens on (a Guide file row, the
+   *  issue route's live-diff handoff); read once, never written back. */
+  file?: string
+}
 
 export const Route = createFileRoute(`/t/$teamSlug/sessions/$sessionId`)({
   head: () => ({ meta: [{ title: pageTitle(`Agent`) }] }),
@@ -74,6 +86,7 @@ export const Route = createFileRoute(`/t/$teamSlug/sessions/$sessionId`)({
       search.view === `diff` || search.view === `results`
         ? search.view
         : undefined,
+    file: typeof search.file === `string` && search.file ? search.file : undefined,
   }),
   beforeLoad: async ({ context, location }) => {
     if (!context.session) {
@@ -88,7 +101,7 @@ export const Route = createFileRoute(`/t/$teamSlug/sessions/$sessionId`)({
 
 function SessionPage() {
   const { teamSlug, sessionId } = Route.useParams()
-  const { from, view } = Route.useSearch()
+  const { from, view, file } = Route.useSearch()
   const navigate = useNavigate()
   const team = useTeamBySlug(teamSlug)
   const { data: authSession } = useSession()
@@ -155,6 +168,15 @@ function SessionPage() {
   // EXP-312: a teammate's run — the synced row is all this client may ever
   // see. No AgentSessionView, so no ticket is minted.
   if (session.userId !== currentUserId) {
+    if (view === `results`) {
+      return (
+        <TeammateRunResults
+          session={session}
+          title={identity.subject}
+          onBack={goBack}
+        />
+      )
+    }
     return (
       <div className="flex h-full min-h-0 flex-col">
         <SessionStubHeader onBack={goBack} title={identity.subject} />
@@ -191,6 +213,7 @@ function SessionPage() {
       currentUserId={currentUserId}
       from={from}
       face={view === `diff` || view === `results` ? view : `run`}
+      diffFile={view === `diff` ? file ?? null : null}
       onBack={goBack}
     />
   )
@@ -207,6 +230,7 @@ function OwnSessionPage({
   currentUserId,
   from,
   face,
+  diffFile,
   onBack,
 }: {
   team: Team
@@ -216,6 +240,8 @@ function OwnSessionPage({
   currentUserId: string
   from: string | undefined
   face: WorkFace
+  /** EXP-1154: `?file=` on the diff face. */
+  diffFile: string | null
   onBack: () => void
 }) {
   const navigate = useNavigate()
@@ -443,6 +469,7 @@ function OwnSessionPage({
           />
         }
         face={face}
+        diffFile={diffFile}
         onFace={onFace}
         onIssueFace={issue && board ? openIssue : undefined}
         issueHeader={issueHeader}
@@ -465,6 +492,42 @@ function OwnSessionPage({
         onBack={onBack}
       />
       {handlers.duplicatePicker}
+    </div>
+  )
+}
+
+/** EXP-1154: a teammate's run on `?view=results`: the report the owner sees
+ *  (`coding_sessions.results`, synced team-wide), read-only under the stub's
+ *  header. No face toggle and no view mount, so no ticket is minted. */
+export function TeammateRunResults({
+  session,
+  title,
+  onBack,
+}: {
+  session: CodingSession
+  title: string
+  onBack: () => void
+}) {
+  const groups = useMemo(
+    () => parseSessionResultGroups(session.results),
+    [session.results]
+  )
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <SessionStubHeader onBack={onBack} title={title} />
+      {groups.length > 0 ? (
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-card/40">
+          <div className={WORK_COLUMN_CLASS}>
+            <IssueResultsBody groups={groups} />
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+          <p className="text-sm text-muted-foreground">
+            This run has no report yet.
+          </p>
+        </div>
+      )}
     </div>
   )
 }

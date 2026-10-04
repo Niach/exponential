@@ -197,16 +197,79 @@ pub(crate) fn set_tab_face(
     set_screen(window, cx, Some(target));
 }
 
+/// EXP-1154 — whether `issue_id` lives in an UNDOCKED window, so the
+/// navigation that follows a face request is a REVEAL of that window
+/// (`undock::reveal_screen`, the same check `navigation::navigate` makes)
+/// and never lands on this window's shared detail view. The request is then
+/// skipped: recording it here would leave this window's detail parked on a
+/// face for an issue it is not showing. The undocked window mounts its own
+/// fixed view with no accessor, so it opens on its own face.
+fn face_request_goes_undocked(issue_id: &str, cx: &mut App) -> bool {
+    let screen = Screen::IssueDetail {
+        issue_id: issue_id.to_string(),
+    };
+    crate::navigation::reveals_undocked_window(&screen) && crate::undock::reveal_screen(&screen, cx)
+}
+
 /// EXP-933 — ask this window's issue detail to open `issue_id` on its
 /// RESULTS face (a teammate's run report). Made before the navigation
 /// re-points the shared view; the switch keeps it for that issue only.
 pub(crate) fn request_issue_results(issue_id: &str, window: &mut Window, cx: &mut App) {
+    if face_request_goes_undocked(issue_id, cx) {
+        return;
+    }
     let Some(panel) = screens_for_window(window, cx) else {
         return;
     };
     let detail = panel.read(cx).issue_detail.clone();
     let wanted = issue_id.to_string();
     detail.update(cx, |detail, cx| detail.set_results_open_for(Some(wanted), cx));
+}
+
+/// EXP-1154 — ask this window's issue detail to open `issue_id` on its
+/// CHANGES face (the review of its open PR), with `path` selected once the
+/// files land (a Results Guide row). Made before the navigation re-points the
+/// shared view; the switch keeps it for that issue only.
+pub(crate) fn request_issue_changes(
+    issue_id: &str,
+    path: Option<String>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    if face_request_goes_undocked(issue_id, cx) {
+        return;
+    }
+    let Some(panel) = screens_for_window(window, cx) else {
+        return;
+    };
+    let detail = panel.read(cx).issue_detail.clone();
+    let wanted = issue_id.to_string();
+    detail.update(cx, |detail, cx| {
+        detail.set_changes_open_for(Some(wanted), cx);
+        if let Some(path) = path {
+            detail.select_changes_path(path, cx);
+        }
+    });
+}
+
+/// EXP-1154 — open `issue_id` on its CHANGES face: the review of a PR IS the
+/// issue's Work screen on that face (there is no review screen). `origin`
+/// names the list it opens beside (the Reviews queue); `None` = a plain
+/// navigation.
+pub(crate) fn open_issue_changes(
+    issue_id: &str,
+    origin: Option<crate::navigation::TabOrigin>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    request_issue_changes(issue_id, None, window, cx);
+    let screen = Screen::IssueDetail {
+        issue_id: issue_id.to_string(),
+    };
+    match origin {
+        Some(origin) => crate::navigation::navigate_from(window, cx, screen, origin),
+        None => crate::navigation::navigate(window, cx, screen),
+    }
 }
 
 /// EXP-877/EXP-879 — put `run_id` on one of its SUB-FACES (the transcript,
@@ -253,12 +316,6 @@ pub(crate) fn build_screen_content(
             let view = cx.new(|cx| IssueDetailView::new(window, cx));
             let issue_id = issue_id.clone();
             view.update(cx, |detail, cx| detail.set_issue(issue_id, window, cx));
-            view.into()
-        }
-        Screen::PrDiff { issue_id } => {
-            let view = cx.new(|cx| crate::pr_diff::PrDiffView::new(window, cx));
-            let issue_id = issue_id.clone();
-            view.update(cx, |diff, cx| diff.set_issue(issue_id, cx));
             view.into()
         }
         // EXP-746: a fresh view is always the REMOTE one — a second view over
@@ -1086,9 +1143,6 @@ pub struct ScreensPanel {
     settings: Entity<crate::settings::SettingsView>,
     source_control: Entity<crate::source_control::SourceControlView>,
     file_viewer: Entity<crate::file_viewer::FileViewerView>,
-    /// One shared PR diff view, re-pointed on tab switch (EXP-181 — the
-    /// Reviews rows' target).
-    pr_diff: Entity<crate::pr_diff::PrDiffView>,
     /// The Devices page (EXP-686 — the user's machines; the same tab-less
     /// full-page mode).
     devices: Entity<crate::devices_view::DevicesView>,
@@ -1213,9 +1267,6 @@ impl ScreensPanel {
         let settings = cx.new(|cx| crate::settings::SettingsView::new(window, cx));
         let source_control = cx.new(|cx| crate::source_control::SourceControlView::new(window, cx));
         let file_viewer = cx.new(|cx| crate::file_viewer::FileViewerView::new(window, cx));
-        // EXP-916: the review header carries no undock button any more —
-        // its cluster is reject / merge / GitHub, and nothing else.
-        let pr_diff = cx.new(|cx| crate::pr_diff::PrDiffView::new(window, cx));
         let devices = cx.new(|cx| crate::devices_view::DevicesView::new(window, cx));
         let drafts = cx.new(|cx| crate::drafts_view::DraftsView::new(window, cx));
         let issue_draft =
@@ -1240,9 +1291,6 @@ impl ScreensPanel {
             // EXP-1170: point the New issue page at its draft, or pay the
             // draft out when the navigation left it.
             this.sync_issue_draft(window, cx);
-            // A go-back can land on a diff whose PR merged while the entry
-            // sat on the stack (EXP-525) — retire it immediately.
-            this.dismiss_stale_pr_diff(window, cx);
             cx.notify();
         }));
         // EXP-288: the rail drives the tab-less center — tool switches swap
@@ -1268,7 +1316,6 @@ impl ScreensPanel {
             window,
             |this, _, window, cx| {
                 this.prune_missing_issue_tabs(window, cx);
-                this.dismiss_stale_pr_diff(window, cx);
                 cx.notify();
             },
         ));
@@ -1318,7 +1365,6 @@ impl ScreensPanel {
             settings,
             source_control,
             file_viewer,
-            pr_diff,
             devices,
             drafts,
             issue_draft,
@@ -1355,6 +1401,16 @@ impl ScreensPanel {
         this.sync_active_screen(cx);
         this.sync_issue_draft(window, cx);
         this.sync_file_viewer(cx);
+        // DEV-ONLY (EXP-1154): `EXP_DEV_SCREEN=issue:<uuid>?face=changes|
+        // results` opens the issue tab on that face, so a capture run reaches
+        // the review of a PR (its Changes face) without synthetic input.
+        if let Some((issue_id, face)) = crate::navigation::dev_issue_face() {
+            this.issue_detail.update(cx, |detail, cx| match face {
+                RunFace::Diff => detail.set_changes_open_for(Some(issue_id), cx),
+                RunFace::Results => detail.set_results_open_for(Some(issue_id), cx),
+                RunFace::Run => {}
+            });
+        }
         this
     }
 
@@ -1416,14 +1472,6 @@ impl ScreensPanel {
                 self.reviews
                     .update(cx, |reviews, cx| reviews.mark_pulls_stale(cx));
             }
-        }
-        // EXP-525: PrDiff is a transient (tab-less) center view — re-point
-        // the shared diff view here instead of in `sync_tabs`. Same-id
-        // re-points are no-ops, so a forced pass costs nothing once loaded.
-        if let Some(Screen::PrDiff { issue_id }) = &self.active_screen {
-            let issue_id = issue_id.clone();
-            self.pr_diff
-                .update(cx, |diff, cx| diff.set_issue(issue_id, cx));
         }
     }
 
@@ -1627,8 +1675,7 @@ impl ScreensPanel {
                     host.update(cx, |host, cx| host.activate_tab_by_id(tab, window, cx));
                 }
             }
-            Screen::PrDiff { .. }
-            | Screen::BoardIssues { .. }
+            Screen::BoardIssues { .. }
             | Screen::Inbox { .. }
             | Screen::Files
             | Screen::SourceControl
@@ -1687,7 +1734,7 @@ impl ScreensPanel {
 
     /// EXP-746: reconcile the open session tabs with the synced rows.
     ///
-    /// Deliberately NOT `dismiss_stale_pr_diff`'s model: an ended run KEEPS
+    /// Deliberately NOT a stale-screen purge: an ended run KEEPS
     /// its tab (it becomes a read-only transcript, and Past reopens it), so
     /// this only (a) marks the ended edge on the view, and (b) performs the
     /// resume swap — a resume mints a NEW row id, which would otherwise open
@@ -1812,12 +1859,6 @@ impl ScreensPanel {
                 }
             }
         }
-    }
-
-    /// EXP-916: the shared PR diff view — the review screen's, whose file
-    /// tree the window's left column paints ([`crate::review_files_nav`]).
-    pub(crate) fn pr_diff(&self) -> &Entity<crate::pr_diff::PrDiffView> {
-        &self.pr_diff
     }
 
     /// EXP-945 — THIS window's run screen for `session_id`. The left column
@@ -2070,63 +2111,6 @@ impl ScreensPanel {
         self.sessions.get(session_id).cloned()
     }
 
-    /// EXP-525: review diffs are transient center views (no tab). The
-    /// moment the PR stops being reviewable — merged or closed, arriving as
-    /// the Electric echo flipping `pr_state` on every linked issue (batch
-    /// PRs included), or the issue disappearing outright — the diff view
-    /// retires itself: matching history entries are purged so go-back
-    /// can't resurrect it, then the center falls back — go-back if possible,
-    /// else the Reviews PAGE the diff was opened from (EXP-706; it used to be
-    /// "clear the center", which under a tool-window Reviews left the list
-    /// showing and now would leave a blank page). EXP-818: the go-back parks
-    /// the diff on the FORWARD stack, so the purge runs again after it —
-    /// otherwise Forward re-entered the diff, this dismiss fired again and
-    /// the forward button was dead for the rest of the window's life.
-    fn dismiss_stale_pr_diff(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some(Screen::PrDiff { issue_id }) = resolved_screen(&self.nav, cx) else {
-            return;
-        };
-        let stale = {
-            let issues = Store::global(cx).collections().issues.read(cx);
-            if !issues.is_ready() {
-                return;
-            }
-            match issues.get(&issue_id) {
-                Some(issue) => !crate::queries::is_reviewable(issue),
-                None => true,
-            }
-        };
-        if !stale {
-            return;
-        }
-        // EXP-882: deferred — this runs inside THIS panel's own observers, and
-        // `go_back` restores the landed screen's origin through
-        // `screens_for_window(..).read`, a read of the panel mid-update (a
-        // panic: the IDE died on merging from the diff). Both the nav and the
-        // issues observer can schedule it, so the closure re-checks that the
-        // diff is still up.
-        let nav = self.nav.clone();
-        window.defer(cx, move |window, cx| {
-            let this_diff = Screen::PrDiff { issue_id };
-            if resolved_screen(&nav, cx).as_ref() != Some(&this_diff) {
-                return;
-            }
-            let is_this_diff = |screen: &Screen| *screen == this_diff;
-            crate::navigation::purge_from_history(window, cx, is_this_diff);
-            // The last review merged: the queue beside the diff is empty, so
-            // go one layer up to the Reviews page (its empty state, the root
-            // sidebar) rather than back into whatever preceded the diff.
-            let queue_empty = active_team_id(&nav, cx)
-                .is_none_or(|team_id| crate::queries::review_groups(cx, &team_id).is_empty());
-            if !queue_empty && nav.read(cx).can_go_back() {
-                crate::navigation::go_back(window, cx);
-            } else {
-                set_screen(window, cx, Some(Screen::Reviews));
-            }
-            crate::navigation::purge_from_history(window, cx, is_this_diff);
-        });
-    }
-
     /// Activate the tab at `ix`: re-select its origin sidebar entry (and
     /// board), then show its screen (EXP-288). Order matters — tool, board,
     /// then screen — so observers reading tool/board during the nav notify
@@ -2228,9 +2212,8 @@ impl ScreensPanel {
         // or undocked (it paints in its own window now) — must not come back
         // through go-back OR go-forward (EXP-818: went back from it, then
         // closed it): `sync_tabs` would see a screen with no tab and push a
-        // ghost chip over "This terminal was closed". Same rule as the stale
-        // PR diff ([`Self::dismiss_stale_pr_diff`]); an issue tab is different
-        // — its screen is still openable, so its history stays.
+        // ghost chip over "This terminal was closed". An issue tab is
+        // different — its screen is still openable, so its history stays.
         if matches!(closed.screen, Screen::Terminal { .. }) {
             crate::navigation::purge_from_history(window, cx, |screen| *screen == closed.screen);
         }
@@ -3615,7 +3598,6 @@ impl Render for ScreensPanel {
         let content = match &screen {
             Some(Screen::IssueDetail { .. }) => self.issue_detail.clone().into_any_element(),
             Some(Screen::Settings) => self.settings.clone().into_any_element(),
-            Some(Screen::PrDiff { .. }) => self.pr_diff.clone().into_any_element(),
             // EXP-746: built by `sync_tabs` on activation — the fallback only
             // shows for the frame between a navigation and that observer.
             Some(Screen::Session { session_id }) => self

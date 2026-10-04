@@ -135,6 +135,12 @@ class StoreScreenshotsTest {
         flow.settle()
         flow.screenshot("1_board", popRects = true)
 
+        // EXP-1154: from here on the flow drives the clock. Every screen below
+        // is a Work screen whose pager keeps a live run's Run face composed
+        // beside Issue/Changes, and its animations never let an
+        // auto-advancing clock go idle.
+        flow.pauseClock()
+
         // --- Issue detail: open APP-5 and wait for its markdown description.
         // The live session row above the thread is what makes this shot read
         // "an agent is coding on this right now" instead of "live steering is
@@ -190,9 +196,11 @@ class StoreScreenshotsTest {
         flow.settle(longer = true)
         composeRule.onNode(hasContentDescription("Back")).performClick()
 
-        // --- PR review: the Reviews rows open the Changes page directly. The
-        // file list comes from GitHub via issues.prFiles — the seed points
-        // APP-14 at a real public PR so there is an actual diff to show.
+        // --- PR review: EXP-1154 — a Reviews row opens the issue's Work
+        // screen on its Changes face (the review IS the issue; the white Merge
+        // capsule sits on the floating bar beside the files circle). The file
+        // list comes from GitHub via issues.prFiles — the seed points APP-14
+        // at a real public PR so there is an actual diff to show.
         flow.waitFor(hasContentDescription("Reviews"), NAV_TIMEOUT)
         composeRule.onNode(hasContentDescription("Reviews")).performClick()
         flow.waitFor(hasText(REVIEW_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)

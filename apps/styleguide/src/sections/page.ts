@@ -129,6 +129,7 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`readiness-checklist`]: `Surfaces`,
   toast: `Feedback`,
   [`session-tree`]: `Lists & rows`,
+  [`results-guide`]: `Lists & rows`,
   [`pr-graph-badge`]: `Buttons & chips`,
 }
 

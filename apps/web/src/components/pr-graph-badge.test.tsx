@@ -13,18 +13,21 @@ vi.mock(`@tanstack/react-router`, () => ({
     children,
     to,
     params,
+    search,
     className,
     onClick,
   }: {
     children: React.ReactNode
     to: string
     params: Record<string, string>
+    search?: Record<string, string>
     className?: string
     onClick?: () => void
   }) => (
     <a
       data-to={to}
       data-issue={params.issueIdentifier}
+      data-view={search?.view}
       className={className}
       onClick={onClick}
     >
@@ -241,7 +244,8 @@ describe(`PrGraphOverlay`, () => {
     expect(onClose).toHaveBeenCalled()
   })
 
-  it(`draws a stack row as #n, the pr glyph and its state pill, opening review`, () => {
+  // EXP-1154: a PR row opens the issue on its Changes face.
+  it(`draws a stack row as #n, the pr glyph and its state pill, opening the changes face`, () => {
     const onClose = vi.fn()
     overlay({ issue: upper, issues: [lower, upper] }, onClose)
     const row = screen.getByTestId(`relation-row-LOWER`)
@@ -250,8 +254,11 @@ describe(`PrGraphOverlay`, () => {
     expect(within(row).getByTestId(`pr-state`).textContent).toBe(`merged`)
     expect(row.getAttribute(`data-assignee`)).toBe(`false`)
     const link = within(row).getByText(`Issue lower`).parentElement!
-    expect(link.getAttribute(`data-to`)).toBe(`/t/$teamSlug/reviews/$issueIdentifier`)
+    expect(link.getAttribute(`data-to`)).toBe(
+      `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`
+    )
     expect(link.getAttribute(`data-issue`)).toBe(`LOWER`)
+    expect(link.getAttribute(`data-view`)).toBe(`diff`)
     fireEvent.click(link)
     expect(onClose).toHaveBeenCalled()
   })

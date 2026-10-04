@@ -416,6 +416,9 @@ pub(crate) struct SteerSessionView {
     /// names.
     run_face: RunFace,
     diff_selected: usize,
+    /// EXP-1154: a Guide file pick made before the Changes files landed (the
+    /// PR-files fallback arrives after the face opens), applied when they do.
+    pending_diff_path: Option<String>,
     /// EXP-895: the file tree's `Filter files` field.
     diff_filter: Entity<InputState>,
     /// EXP-916: the tree's FOLDED directories, keyed by path. Every
@@ -697,6 +700,7 @@ impl SteerSessionView {
             }),
             run_face: RunFace::Run,
             diff_selected: 0,
+            pending_diff_path: None,
             diff_filter,
             folded_dirs: HashSet::new(),
             pr_changes: None,
@@ -2608,6 +2612,7 @@ impl SteerSessionView {
         );
         self.changes_diff
             .update(cx, |diff, cx| diff.set_prepared(prepared, cx));
+        self.apply_pending_diff_path(cx);
     }
 
     /// `+N −M` over the whole published diff — the header's Diff pill.
@@ -2656,6 +2661,8 @@ impl SteerSessionView {
             return;
         }
         self.run_face = face;
+        // A pick held for the face being left must not land later.
+        self.pending_diff_path = None;
         if face == RunFace::Diff {
             self.diff_selected = 0;
             // EXP-895: the face may be opening onto the FALLBACK files.
@@ -2673,6 +2680,30 @@ impl SteerSessionView {
         cx.notify();
     }
 
+    /// EXP-1154 — name the file at `path` and scroll the diff to it (a
+    /// Results Guide row). The files may not have landed yet (the PR-files
+    /// fallback arrives after the face opens): the path is held and applied
+    /// when they do. An unknown path selects nothing.
+    pub(crate) fn select_diff_path(&mut self, path: &str, cx: &mut gpui::Context<Self>) {
+        self.pending_diff_path = Some(path.to_string());
+        self.apply_pending_diff_path(cx);
+    }
+
+    fn apply_pending_diff_path(&mut self, cx: &mut gpui::Context<Self>) {
+        let outcome = crate::pr_diff::resolve_pending_path(
+            self.pending_diff_path.as_deref(),
+            self.changes_files_ref().iter().map(|file| file.path.as_str()),
+        );
+        match outcome {
+            crate::pr_diff::PendingPath::Hold => {}
+            crate::pr_diff::PendingPath::Drop => self.pending_diff_path = None,
+            crate::pr_diff::PendingPath::Select(index) => {
+                self.pending_diff_path = None;
+                self.select_diff_file(index, cx);
+            }
+        }
+    }
+
     /// EXP-945 — fold or unfold one directory of the Changes tree. A method,
     /// not an inline closure, because the tree is painted from TWO places now:
     /// the window's left column ([`crate::review_files_nav`]) and — in a
@@ -2684,8 +2715,7 @@ impl SteerSessionView {
         cx.notify();
     }
 
-    /// EXP-945 — the four things a file tree needs, in the shape
-    /// [`crate::pr_diff::PrDiffView`] hands over: the run's Changes files, the
+    /// EXP-945 — the four things a file tree needs: the run's Changes files, the
     /// selected one, the `Filter files` field and the folded directories. The
     /// sidebar panel reads them; the run stays the owner.
     pub(crate) fn diff_pane_files(&self) -> Vec<crate::diff_pane::PaneFile> {
@@ -2727,16 +2757,13 @@ impl SteerSessionView {
             .iter()
             .map(crate::diff_pane::PaneFile::new)
             .collect();
-        // EXP-945: the run's Changes files are the same kind of context a
-        // review's are, so they go where a review's go — the window's LEFT
-        // COLUMN ([`crate::review_files_nav`]), not a floating tree inside the
-        // reading column. The pane paints its own only where no such column
-        // exists (an undocked run window), the identical test
-        // `pr_diff::render` makes.
+        // EXP-945: the run's Changes files are its context, so they go in the
+        // window's LEFT COLUMN ([`crate::review_files_nav`]), not a floating
+        // tree inside the reading column. The pane paints its own only where
+        // no such column exists (an undocked run window).
         let tree_in_sidebar = crate::screens::screens_for_window(window, cx).is_some();
         Some(crate::diff_pane::render(
             crate::diff_pane::DiffPaneSpec {
-                header: None,
                 files,
                 selected: self.diff_selected,
                 tree: !tree_in_sidebar,
@@ -2777,11 +2804,26 @@ impl SteerSessionView {
             return None;
         }
         let team_id = self.ref_team_id(cx);
+        // EXP-1154: the Guide's file rows count off this run's Changes files
+        // and a row opens that face on the file.
+        let loaded = self.diff_pane_files();
+        let this = cx.entity().downgrade();
+        let guide = crate::session_results::GuideFiles {
+            loaded: (!loaded.is_empty()).then_some(loaded),
+            on_open: Some(std::rc::Rc::new(move |path: &str, _window: &mut Window, cx: &mut App| {
+                let path = path.to_string();
+                let _ = this.update(cx, |this, cx| {
+                    this.set_run_face(RunFace::Diff, cx);
+                    this.select_diff_path(&path, cx);
+                });
+            })),
+        };
         Some(crate::session_results::render(
             &groups,
             self.results_row_width(window),
             &self.images,
             team_id.as_deref(),
+            Some(guide),
             cx,
         ))
     }

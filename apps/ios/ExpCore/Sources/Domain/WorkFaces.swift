@@ -233,6 +233,28 @@ public enum WorkFaces {
         return order.first { available.contains($0) } ?? available.first
     }
 
+    /// EXP-1154: whether a requested `initialFace` that is not available yet
+    /// keeps HOLDING the fallback off. It lets go once the face is there or
+    /// the reader moved elsewhere; otherwise it waits for the runs AND, for
+    /// Changes and Results, for the issue row too: both read it (the open PR,
+    /// the pushed branch), and it usually lands after the runs, so a Reviews
+    /// row would otherwise fall back to the Issue face. `issueResolved` =
+    /// true when the subject names no issue.
+    public static func holdsPendingFace(
+        pending: WorkFaceKind,
+        shown: WorkFaceKind,
+        available: [WorkFaceKind],
+        runsResolved: Bool,
+        issueResolved: Bool
+    ) -> Bool {
+        if available.contains(pending) || shown != pending { return false }
+        if !runsResolved { return true }
+        switch pending {
+        case .changes, .results: return !issueResolved
+        case .issue, .run: return false
+        }
+    }
+
     /// The composer footer's model — the `model` config option's value, nil
     /// when the engine reported none or a blank (web `lib/agent-feed.ts`).
     public static func sessionModel(_ config: AgentSessionConfig?) -> String? {

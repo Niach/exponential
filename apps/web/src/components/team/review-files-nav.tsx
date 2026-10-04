@@ -1,4 +1,3 @@
-import { useNavigate } from "@tanstack/react-router"
 import { conceptIcon, FileDiffTree } from "@exp/ui"
 import { useReviewFilesSlot } from "@/lib/review-files-slot"
 import { SidebarBackRow } from "@/components/team/sidebar-back-row"
@@ -8,8 +7,9 @@ import { SidebarBackRow } from "@/components/team/sidebar-back-row"
 // A review's context is the files it touches, not the queue: the same
 // `FileDiffTree` the page used to draw beside its cards, now in the 17rem
 // panel slot under the fixed header (EXP-870), with the same back row the
-// list nav wears, aimed at Reviews. The desktop's `ReviewFilesNav` is the
-// twin (`LeftOccupant::ReviewFiles`).
+// list nav wears, aimed at the face the diff was opened from (EXP-1154: the
+// issue's own face, a run's Run face; the review page is gone). The
+// desktop's `ReviewFilesNav` is the twin (`LeftOccupant::ReviewFiles`).
 //
 // The files are the page's (`review-files-slot.ts`): it fetches them and
 // owns the selection, so a pick here scrolls ITS diff — this panel holds no
@@ -17,21 +17,14 @@ import { SidebarBackRow } from "@/components/team/sidebar-back-row"
 
 const UiLoadingIcon = conceptIcon(`ui-loading`)
 
-export function ReviewFilesNav({ teamSlug }: { teamSlug: string }) {
-  const navigate = useNavigate()
+export function ReviewFilesNav() {
   const slot = useReviewFilesSlot()
   return (
     <>
-      {/* EXP-945: the run's Changes face names its own way back (the Run
-          face); a review falls back to the Reviews queue. */}
-      <SidebarBackRow
-        label={slot?.back?.label ?? `Reviews`}
-        onBack={() =>
-          slot?.back
-            ? slot.back.onBack()
-            : void navigate({ to: `/t/$teamSlug/reviews`, params: { teamSlug } })
-        }
-      />
+      {/* EXP-945: every publisher names its own way back. */}
+      {slot && (
+        <SidebarBackRow label={slot.back.label} onBack={slot.back.onBack} />
+      )}
       <div
         className="flex min-h-0 flex-1 flex-col"
         data-testid="review-files-nav"

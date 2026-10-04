@@ -33,7 +33,7 @@ export function mcpServerInstructions(gates: {
     // nothing" means exactly that (the agent never compensates). Direct
     // status writes remain for one case only: the user explicitly asks.
     `Exponential is this team's issue tracker: issues on boards with comments, labels and the PRs that close them. In a coding session the flow is exponential_issues_get, exponential_comments_list, implement, commit and push, then exponential_pr_open. Status changes are automatic (PR tools apply the team's automation); set one only if asked. Search for exponential_* tools for boards, members, attachments, notifications, actions, sessions, devices, repos and teams.`,
-    `exponential_pr_open takes 'issueId', 'issueIds' plus 'head' for one combined PR, or 'repositoryId' plus 'head' for a chore PR; exponential_pr_merge mirrors it ('repositoryId' plus 'prNumber'). Merging your own PR never ends your session. Merge a tree root first; the root's merge retargets its children. Stale description after later commits: exponential_pr_update.`,
+    `exponential_pr_open takes 'issueId', 'issueIds' plus 'head' for one combined PR, or 'repositoryId' plus 'head' for a chore PR; exponential_pr_merge mirrors it ('repositoryId' plus 'prNumber'). Merging your own PR never ends your session. Merge a tree root first; the root's merge retargets its children.`,
     // EXP-792: the one registry. An agent asked to "add the Linear MCP"
     // would otherwise write a repo .mcp.json the launcher never reads.
     `Team MCP servers (Linear, Sentry...) live in exponential_mcp_servers_*, not a repo .mcp.json.`,
@@ -67,9 +67,10 @@ export function mcpServerInstructions(gates: {
   // only a run has an issue whose Results a notification can open.
   // EXP-1144: the screenshot half is a RULE with a deadline (before the PR),
   // not a description — the descriptive line was read and skipped.
+  // EXP-1154: the report IS the PR body (`pr-body-from-results.ts`).
   if (gates.sessionResults) {
     paragraphs.push(
-      `Close out with a report, never a chat summary: exponential_sessions_results files GFM text per topic ('Summary' first: what you did) over screenshots (one topic per screen, one label each) on the issue's Results; screenshot every visible change BEFORE exponential_pr_open. exponential_notifications_send pings a person (default you) when a long task ends or a decision waits.`
+      `Close out with a report, never a chat summary: exponential_sessions_results files per topic 2-3 sentences of GFM plus the files it touched ('Summary' first: what you did) and screenshots (one topic per screen, one label each). The report IS your PR body: write it and screenshot every visible change BEFORE exponential_pr_open. exponential_notifications_send pings a person (default you) when a long task ends or a decision waits.`
     )
   }
   return paragraphs.join(`\n\n`)

@@ -203,7 +203,7 @@ export function TeamSidebar({
   const occupant = useSidebarOccupant()
   const inSettings = occupant.kind === `settings`
   const listOrigin = occupant.kind === `list` ? occupant.origin : null
-  // EXP-916: a review detail's panel is its file tree, not a list.
+  // EXP-916: a Changes face's panel is its file tree, not a list.
   const reviewFiles = occupant.kind === `review`
   // EXP-923: the Agent page's Recent runs panel.
   const recentRuns = occupant.kind === `recent`
@@ -659,9 +659,10 @@ export function TeamSidebar({
                 )}
               </PanelLayer>
 
-              {/* EXP-916: the REVIEW's file tree — a review's context is the
-                  files its pull request touches, so that panel sits beside
-                  it where another detail keeps its list. Same depth as the
+              {/* EXP-916: the DIFF's file tree (EXP-1154: an issue's or a
+                  run's Changes face) — a diff's context is the files it
+                  touches, so that panel sits beside it where another detail
+                  keeps its list. Same depth as the
                   list nav, so the two never slide over each other. */}
               <PanelLayer
                 panel="review"
@@ -671,7 +672,7 @@ export function TeamSidebar({
                   OFFSET_CLASS[panelOffset(`review`, occupant.kind)]
                 )}
               >
-                {reviewFiles && <ReviewFilesNav teamSlug={teamSlug} />}
+                {reviewFiles && <ReviewFilesNav />}
               </PanelLayer>
 
               {/* EXP-923: the Agent page's RECENT runs, behind that page's

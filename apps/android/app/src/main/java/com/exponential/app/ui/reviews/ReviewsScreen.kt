@@ -47,7 +47,7 @@ import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.issue.RelationIssueRow
-import com.exponential.app.ui.issue.StackMergeDialog
+import com.exponential.app.ui.work.StackMergeDialog
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeFailure
@@ -72,9 +72,10 @@ import com.exponential.app.ui.theme.glassCard
  * "Reviews" (EXP-131): the open pull requests across every member team
  * (EXP-1186), grouped by board. Its own bottom-bar destination beside My Work (EXP-147 — it used
  * to be a PersonalScreen segment). A batch coding run's combined PR shows as
- * ONE entry ("N issues"), never one row per linked issue. Rows open the Review
- * detail (EXP-168 — web parity: the reviews queue reviews PRs, not issues);
- * the long-press sheet keeps an "Open issue" path.
+ * ONE entry ("N issues"), never one row per linked issue. Rows open the
+ * issue's Work screen on its Changes face (EXP-1154: the review IS the issue,
+ * the standalone review page is gone); the long-press sheet keeps an
+ * "Open issue" path.
  */
 @Composable
 fun ReviewsScreen(
@@ -289,8 +290,8 @@ private fun RunsHeader(teamName: String?) {
 }
 
 /**
- * One run's OWN pull request (EXP-734). There is no issue and no Review detail
- * to open, so the row opens the PR on GitHub; merging goes through
+ * One run's OWN pull request (EXP-734). There is no issue and so no Changes
+ * face to open, so the row opens the PR on GitHub; merging goes through
  * `codingSessions.mergePr` and completes nothing. No "Fix conflicts" here —
  * the recovery run takes an issue-linked PR as its input.
  */
@@ -516,8 +517,8 @@ private fun ReviewRow(
             },
             onDismiss = { showActions = false },
         ) {
-            // Row taps open the Review detail (EXP-168), so issue access
-            // moves here — the representative issue for a batch entry.
+            // Row taps open the issue on its Changes face (EXP-1154), so the
+            // plain issue lives here — the representative issue for a batch entry.
             GlassSheetRow(
                 label = "Open issue",
                 onClick = {

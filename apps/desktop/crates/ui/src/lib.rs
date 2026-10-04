@@ -120,7 +120,6 @@ mod pickers;
 // EXP-1029: the shared picker API (primitive + typed pickers, EXP-1021).
 mod picker;
 mod pins;
-mod pr_description_dialog;
 mod pr_diff;
 mod pr_graph;
 mod pr_merge;

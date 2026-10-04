@@ -110,7 +110,6 @@ import { Route as TTeamSlugSettingsBillingRouteImport } from './routes/t/$teamSl
 import { Route as TTeamSlugSettingsApiKeysRouteImport } from './routes/t/$teamSlug/settings/api-keys'
 import { Route as TTeamSlugSettingsAccountRouteImport } from './routes/t/$teamSlug/settings/account'
 import { Route as TTeamSlugSessionsSessionIdRouteImport } from './routes/t/$teamSlug/sessions/$sessionId'
-import { Route as TTeamSlugReviewsIssueIdentifierRouteImport } from './routes/t/$teamSlug/reviews/$issueIdentifier'
 import { Route as TTeamSlugDraftsDraftIdRouteImport } from './routes/t/$teamSlug/drafts/$draftId'
 import { Route as TTeamSlugActionsActionIdRouteImport } from './routes/t/$teamSlug/actions/$actionId'
 import { Route as ApiTeamsTeamIdSessionFilesRouteImport } from './routes/api/teams/$teamId/session-files'
@@ -654,12 +653,6 @@ const TTeamSlugSessionsSessionIdRoute =
     path: '/sessions/$sessionId',
     getParentRoute: () => TTeamSlugRouteRoute,
   } as any)
-const TTeamSlugReviewsIssueIdentifierRoute =
-  TTeamSlugReviewsIssueIdentifierRouteImport.update({
-    id: '/reviews/$issueIdentifier',
-    path: '/reviews/$issueIdentifier',
-    getParentRoute: () => TTeamSlugRouteRoute,
-  } as any)
 const TTeamSlugDraftsDraftIdRoute = TTeamSlugDraftsDraftIdRouteImport.update({
   id: '/drafts/$draftId',
   path: '/drafts/$draftId',
@@ -831,7 +824,6 @@ export interface FileRoutesByFullPath {
   '/api/teams/$teamId/session-files': typeof ApiTeamsTeamIdSessionFilesRoute
   '/t/$teamSlug/actions/$actionId': typeof TTeamSlugActionsActionIdRoute
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
-  '/t/$teamSlug/reviews/$issueIdentifier': typeof TTeamSlugReviewsIssueIdentifierRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
   '/t/$teamSlug/settings/api-keys': typeof TTeamSlugSettingsApiKeysRoute
@@ -945,7 +937,6 @@ export interface FileRoutesByTo {
   '/api/teams/$teamId/session-files': typeof ApiTeamsTeamIdSessionFilesRoute
   '/t/$teamSlug/actions/$actionId': typeof TTeamSlugActionsActionIdRoute
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
-  '/t/$teamSlug/reviews/$issueIdentifier': typeof TTeamSlugReviewsIssueIdentifierRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
   '/t/$teamSlug/settings/api-keys': typeof TTeamSlugSettingsApiKeysRoute
@@ -1064,7 +1055,6 @@ export interface FileRoutesById {
   '/api/teams/$teamId/session-files': typeof ApiTeamsTeamIdSessionFilesRoute
   '/t/$teamSlug/actions/$actionId': typeof TTeamSlugActionsActionIdRoute
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
-  '/t/$teamSlug/reviews/$issueIdentifier': typeof TTeamSlugReviewsIssueIdentifierRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
   '/t/$teamSlug/settings/api-keys': typeof TTeamSlugSettingsApiKeysRoute
@@ -1183,7 +1173,6 @@ export interface FileRouteTypes {
     | '/api/teams/$teamId/session-files'
     | '/t/$teamSlug/actions/$actionId'
     | '/t/$teamSlug/drafts/$draftId'
-    | '/t/$teamSlug/reviews/$issueIdentifier'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
     | '/t/$teamSlug/settings/api-keys'
@@ -1297,7 +1286,6 @@ export interface FileRouteTypes {
     | '/api/teams/$teamId/session-files'
     | '/t/$teamSlug/actions/$actionId'
     | '/t/$teamSlug/drafts/$draftId'
-    | '/t/$teamSlug/reviews/$issueIdentifier'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
     | '/t/$teamSlug/settings/api-keys'
@@ -1415,7 +1403,6 @@ export interface FileRouteTypes {
     | '/api/teams/$teamId/session-files'
     | '/t/$teamSlug/actions/$actionId'
     | '/t/$teamSlug/drafts/$draftId'
-    | '/t/$teamSlug/reviews/$issueIdentifier'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
     | '/t/$teamSlug/settings/api-keys'
@@ -2228,13 +2215,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugSessionsSessionIdRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
-    '/t/$teamSlug/reviews/$issueIdentifier': {
-      id: '/t/$teamSlug/reviews/$issueIdentifier'
-      path: '/reviews/$issueIdentifier'
-      fullPath: '/t/$teamSlug/reviews/$issueIdentifier'
-      preLoaderRoute: typeof TTeamSlugReviewsIssueIdentifierRouteImport
-      parentRoute: typeof TTeamSlugRouteRoute
-    }
     '/t/$teamSlug/drafts/$draftId': {
       id: '/t/$teamSlug/drafts/$draftId'
       path: '/drafts/$draftId'
@@ -2438,7 +2418,6 @@ interface TTeamSlugRouteRouteChildren {
   TTeamSlugIndexRoute: typeof TTeamSlugIndexRoute
   TTeamSlugActionsActionIdRoute: typeof TTeamSlugActionsActionIdRoute
   TTeamSlugDraftsDraftIdRoute: typeof TTeamSlugDraftsDraftIdRoute
-  TTeamSlugReviewsIssueIdentifierRoute: typeof TTeamSlugReviewsIssueIdentifierRoute
   TTeamSlugSessionsSessionIdRoute: typeof TTeamSlugSessionsSessionIdRoute
   TTeamSlugWorkflowsSplatRoute: typeof TTeamSlugWorkflowsSplatRoute
   TTeamSlugActionsIndexRoute: typeof TTeamSlugActionsIndexRoute
@@ -2456,7 +2435,6 @@ const TTeamSlugRouteRouteChildren: TTeamSlugRouteRouteChildren = {
   TTeamSlugIndexRoute: TTeamSlugIndexRoute,
   TTeamSlugActionsActionIdRoute: TTeamSlugActionsActionIdRoute,
   TTeamSlugDraftsDraftIdRoute: TTeamSlugDraftsDraftIdRoute,
-  TTeamSlugReviewsIssueIdentifierRoute: TTeamSlugReviewsIssueIdentifierRoute,
   TTeamSlugSessionsSessionIdRoute: TTeamSlugSessionsSessionIdRoute,
   TTeamSlugWorkflowsSplatRoute: TTeamSlugWorkflowsSplatRoute,
   TTeamSlugActionsIndexRoute: TTeamSlugActionsIndexRoute,

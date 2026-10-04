@@ -9,16 +9,14 @@ import SwiftUI
 /// face; tapping the `Runs` tab while it is ALREADY selected asks for the run
 /// menu, which the host anchors under that tab (`runsAnchor`).
 ///
-/// The row is `[strip …][trailing]`: with a trailing control (the Work
-/// screen's Merge PR pill) the strip gives up the width it needs and the
-/// control sits at the row's end; without one the strip spans the row as
-/// before. The strip is drawn only with two or more faces, the row only with
-/// a strip or a trailing control.
+/// EXP-1154: the strip alone, centred — the Merge PR pill that trailed it
+/// (EXP-1150) went back to the floating bottom bar. Drawn only with two or
+/// more faces.
 ///
 /// EXP-1152: the Changes tab wears the diff's `+N −M` once its counts are
 /// known (`WorkFaces.changesFaceCounts`, the desktop's `FaceToggle::diff`),
 /// the word until then; the body under the strip is `WorkFacePager`.
-struct WorkFaceTabs<Trailing: View>: View {
+struct WorkFaceTabs: View {
     let faces: [WorkFaceKind]
     let shown: WorkFaceKind
     /// Two or more own runs: the Run tab reads `Runs` and reselecting it opens
@@ -41,26 +39,15 @@ struct WorkFaceTabs<Trailing: View>: View {
     @Binding var runsAnchor: CGRect
     let onSelect: (WorkFaceKind) -> Void
     var onReselectRuns: () -> Void = {}
-    /// Whether `trailing` draws anything (a generic view cannot say).
-    var showsTrailing: Bool = false
-    @ViewBuilder var trailing: () -> Trailing
 
     private var showsStrip: Bool { faces.count >= 2 }
 
     var body: some View {
-        if showsStrip || showsTrailing {
-            HStack(spacing: 8) {
-                if showsStrip {
-                    strip
-                } else {
-                    Spacer(minLength: 0)
-                }
-                if showsTrailing {
-                    trailing()
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+        if showsStrip {
+            strip
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
         }
     }
 

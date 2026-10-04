@@ -495,12 +495,24 @@ pub struct IssueDetailView {
     /// registry (a file) — cached per run id
     /// (`work_header::resume_path_cached`), cleared on every issue switch.
     resumable: Option<(String, bool)>,
-    /// EXP-889: the tab's CHANGES face is up — the issue's own open PR read
-    /// as the shared diff pane instead of the issue body. View state, like
-    /// the run's `RunFace`: it is a face of this tab, not a navigation, so
-    /// nothing goes on the history stack. Cleared on every issue switch and
-    /// the moment the PR stops being open (the web `fallbackFace`).
-    changes_open: bool,
+    /// EXP-889: the tab's CHANGES face is up on THIS issue — the issue's own
+    /// open PR read as the shared diff pane instead of the issue body. View
+    /// state, like the run's `RunFace`: it is a face of this tab, not a
+    /// navigation, so nothing goes on the history stack. EXP-1154: keyed by
+    /// the issue id (the `results_open_for` pattern) because the Reviews rows
+    /// ask for it BEFORE the navigation re-points this view — the review of
+    /// a PR IS this face. Kept across a switch only for the incoming issue,
+    /// cleared the moment the PR stops being open (the web `fallbackFace`).
+    changes_open_for: Option<String>,
+    /// EXP-1154: the file a Results Guide row asked the Changes face to
+    /// select, handed to the pane on its next paint.
+    pending_changes_path: Option<String>,
+    /// EXP-1154: the GitHub PR body (`issues.prDescription`, never synced)
+    /// the Results face falls back to for an open PR with no run report,
+    /// keyed by the issue it was fetched for.
+    pr_body: Option<(String, PrBodyState)>,
+    /// Bumped per fetch so a slow answer for the PREVIOUS issue never lands.
+    pr_body_seq: u64,
     /// EXP-933: the tab's RESULTS face is up on THIS issue — a TEAMMATE's run
     /// report (`work_header::issue_results_run`) read inside the issue
     /// surface, never by opening their run. Keyed by the issue id rather than
@@ -528,6 +540,13 @@ pub struct IssueDetailView {
     /// entry when the tab closes ([`Self::forget_tab_state`]).
     tab_states: crate::tab_state::TabStateStore<IssueTabState>,
     _subscriptions: Vec<Subscription>,
+}
+
+/// EXP-1154: the Results face's PR-body fallback, per fetch.
+enum PrBodyState {
+    Loading,
+    Ready(api::issues::PrDescription),
+    Error(String),
 }
 
 /// EXP-894: one issue tab's switch-surviving state.
@@ -632,7 +651,10 @@ impl IssueDetailView {
             widget_submission: None,
             sub_issue_composer: None,
             resumable: None,
-            changes_open: false,
+            changes_open_for: None,
+            pending_changes_path: None,
+            pr_body: None,
+            pr_body_seq: 0,
             results_open_for: None,
             results_images: None,
             changes: None,
@@ -645,21 +667,43 @@ impl IssueDetailView {
     /// EXP-889 — put this tab on its Changes face (the issue's open pull
     /// request) or back on the issue. View state, exactly like a run's
     /// `RunFace`: the faces of one tab are not navigations, so nothing lands
-    /// on the history stack. Driven by the work header's toggle.
-    pub(crate) fn set_changes_open(&mut self, open: bool, cx: &mut gpui::Context<Self>) {
-        if self.changes_open == open {
+    /// on the history stack. Driven by the work header's toggle, the issue
+    /// body's PR row, and (EXP-1154) the Reviews rows and every other way
+    /// into the review of a PR, which ask BEFORE the navigation re-points
+    /// this view — hence `issue_id`, kept across the switch for that issue.
+    pub(crate) fn set_changes_open_for(
+        &mut self,
+        issue_id: Option<String>,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if self.changes_open_for == issue_id {
             return;
         }
         // Leaving the issue face unmounts the description editor without a
         // blur — flush a pending edit first (`set_tab_face`'s rule, EXP-68).
-        if open {
+        if issue_id.is_some() {
             self.flush_title(cx);
             self.flush_description(cx);
             // Re-opening the face is a fresh attempt at the pane's fetch.
             self.changes_requested = None;
             self.results_open_for = None;
+        } else {
+            self.pending_changes_path = None;
         }
-        self.changes_open = open;
+        self.changes_open_for = issue_id;
+        cx.notify();
+    }
+
+    /// Whether the Changes face is up on `issue_id`.
+    fn changes_open_on(&self, issue_id: &str) -> bool {
+        self.changes_open_for.as_deref() == Some(issue_id)
+    }
+
+    /// EXP-1154 — select `path` on the Changes face (a Results Guide row);
+    /// handed to the pane on its next paint, which holds it until the PR's
+    /// files land.
+    pub(crate) fn select_changes_path(&mut self, path: String, cx: &mut gpui::Context<Self>) {
+        self.pending_changes_path = Some(path);
         cx.notify();
     }
 
@@ -678,7 +722,8 @@ impl IssueDetailView {
         if issue_id.is_some() {
             self.flush_title(cx);
             self.flush_description(cx);
-            self.changes_open = false;
+            self.changes_open_for = None;
+            self.pending_changes_path = None;
         }
         self.results_open_for = issue_id;
         cx.notify();
@@ -692,18 +737,50 @@ impl IssueDetailView {
     /// EXP-933 — the issue's Results face: the teammate run's report through
     /// the SAME page a run's own Results face renders. `None` when that run
     /// has nothing (any more) to show.
+    ///
+    /// EXP-1154: the page is the GUIDE — its file rows read their counts off
+    /// this tab's Changes pane (fetched, never shown, while the PR is open)
+    /// and a row click opens the Changes face on that file. An OPEN PR with
+    /// no report shows the GitHub PR body instead
+    /// ([`crate::session_results::render_pr_body`]).
     fn render_results_face(
         &mut self,
         issue: &Issue,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Option<AnyElement> {
-        let row = crate::work_header::issue_results_row(&issue.id, None, cx)?;
-        let groups =
-            domain::session_results::parse_session_result_groups(row.results.as_ref());
+        let reviewable = crate::queries::is_reviewable(issue);
+        let row = crate::work_header::issue_results_row(&issue.id, None, cx);
+        let groups = row
+            .as_ref()
+            .map(|row| domain::session_results::parse_session_result_groups(row.results.as_ref()))
+            .unwrap_or_default();
         if groups.is_empty() {
-            return None;
+            if !reviewable {
+                return None;
+            }
+            return Some(self.render_pr_body_face(issue, cx));
         }
+        let row = row?;
+        let guide = if reviewable {
+            let changes = self.ensure_changes(issue, window, cx);
+            let loaded = changes.read(cx).pane_files(cx);
+            let this = cx.entity().downgrade();
+            let issue_id = issue.id.clone();
+            Some(crate::session_results::GuideFiles {
+                loaded: (!loaded.is_empty()).then_some(loaded),
+                on_open: Some(Rc::new(move |path: &str, _window: &mut Window, cx: &mut App| {
+                    let path = path.to_string();
+                    let issue_id = issue_id.clone();
+                    let _ = this.update(cx, |this, cx| {
+                        this.set_changes_open_for(Some(issue_id), cx);
+                        this.select_changes_path(path, cx);
+                    });
+                })),
+            })
+        } else {
+            None
+        };
         let images = self
             .results_images
             .get_or_insert_with(|| {
@@ -720,16 +797,72 @@ impl IssueDetailView {
             width.max(200.),
             &images,
             team_id.as_deref(),
+            guide,
             cx,
         ))
     }
 
+    /// EXP-1154 — the Results face of an open PR with no run report: the
+    /// GitHub PR body as one unnumbered group. Fetched once per issue (the
+    /// sequence guard drops a slow answer for the previous one).
+    fn render_pr_body_face(&mut self, issue: &Issue, cx: &mut gpui::Context<Self>) -> AnyElement {
+        if self.pr_body.as_ref().map(|(id, _)| id.as_str()) != Some(issue.id.as_str()) {
+            self.fetch_pr_body(issue.id.clone(), cx);
+        }
+        use crate::session_results::{render_pr_body, PrBodyContent};
+        let team_id = queries::issue_team_id(cx, &issue.id);
+        let team_id = team_id.as_deref();
+        match self.pr_body.as_ref().map(|(_, state)| state) {
+            Some(PrBodyState::Ready(description)) => render_pr_body(
+                description.title.as_deref(),
+                PrBodyContent::Ready(description.body.as_deref().unwrap_or("")),
+                team_id,
+                cx,
+            ),
+            Some(PrBodyState::Error(message)) => {
+                render_pr_body(None, PrBodyContent::Error(message), team_id, cx)
+            }
+            Some(PrBodyState::Loading) | None => {
+                render_pr_body(None, PrBodyContent::Loading, team_id, cx)
+            }
+        }
+    }
+
+    fn fetch_pr_body(&mut self, issue_id: String, cx: &mut gpui::Context<Self>) {
+        let Some(client) = queries::trpc_client(cx) else {
+            // No account yet: stay unfetched; the session observer's notify
+            // re-renders and tries again.
+            return;
+        };
+        self.pr_body_seq += 1;
+        let seq = self.pr_body_seq;
+        self.pr_body = Some((issue_id.clone(), PrBodyState::Loading));
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::issues::pr_description(&client, &issue_id) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.pr_body_seq != seq {
+                    return;
+                }
+                if let Some((_, state)) = this.pr_body.as_mut() {
+                    *state = match result {
+                        Ok(description) => PrBodyState::Ready(description),
+                        Err(err) => PrBodyState::Error(err.user_message()),
+                    };
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     /// EXP-889 — the Changes face's pane, built on first open and re-pointed
     /// at `issue` (a same-id `set_issue` is a no-op, so a repaint refetches
-    /// nothing). It is the review screen's own view
-    /// ([`crate::pr_diff::PrDiffView`], `issues.prFiles` through the shared
-    /// [`crate::diff_pane`]) in its EMBEDDED shape: the work header above it
-    /// already names the issue, so the pane drops its identifier link.
+    /// nothing). [`crate::pr_diff::PrDiffView`] = `issues.prFiles` through
+    /// the shared [`crate::diff_pane`], no header of its own: the work header
+    /// above it names the issue.
     fn ensure_changes(
         &mut self,
         issue: &Issue,
@@ -739,11 +872,7 @@ impl IssueDetailView {
         let changes = match self.changes.clone() {
             Some(changes) => changes,
             None => {
-                let changes = cx.new(|cx| {
-                    let mut view = crate::pr_diff::PrDiffView::new(window, cx);
-                    view.embedded = true;
-                    view
-                });
+                let changes = cx.new(|cx| crate::pr_diff::PrDiffView::new(window, cx));
                 self.changes = Some(changes.clone());
                 changes
             }
@@ -859,7 +988,12 @@ impl IssueDetailView {
         // EXP-889: every tab opens on its ISSUE face — the Changes face is
         // the OUTGOING issue's PR. (The pane itself is kept and re-pointed
         // when the face opens again: `set_issue` on it is the refetch.)
-        self.changes_open = false;
+        // EXP-1154: unless the request was made FOR the incoming issue (a
+        // Reviews row, the related-work overlay).
+        if self.changes_open_for.as_deref() != Some(issue_id.as_str()) {
+            self.changes_open_for = None;
+            self.pending_changes_path = None;
+        }
         self.changes_requested = None;
         // EXP-933: a Results request survives the switch only when it was
         // made FOR the incoming issue (the inbox/notification deep link).
@@ -1348,8 +1482,8 @@ impl IssueDetailView {
     /// a delete or another client's change lands without any refetch.
     /// EXP-525: the web `PrRow` (`issue-coding-rows.tsx`) — the issue's linked
     /// PR as a clickable row: state badge · `PR #N` · branch · chevron. An
-    /// OPEN PR opens the in-app diff; a merged/closed one opens GitHub (the
-    /// diff view retires itself for non-open PRs).
+    /// OPEN PR opens this tab's Changes face (EXP-1154); a merged/closed one
+    /// opens GitHub.
     fn render_pr_row(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
         let pr_url = issue.pr_url.clone()?;
         let number = issue.pr_number?;
@@ -1374,15 +1508,11 @@ impl IssueDetailView {
                 .cursor_pointer()
                 .hover(|style| style.bg(theme.list_hover))
                 .rounded(px(theme::tokens::radius::SM))
-                .on_click(cx.listener(move |_, _, window, cx| {
+                .on_click(cx.listener(move |this, _, _window, cx| {
                     if is_open {
-                        navigate(
-                            window,
-                            cx,
-                            Screen::PrDiff {
-                                issue_id: issue_id.clone(),
-                            },
-                        );
+                        // EXP-1154: the review of the PR is this tab's
+                        // Changes face — opened in place.
+                        this.set_changes_open_for(Some(issue_id.clone()), cx);
                     } else if let Err(error) = api::opener::open_in_browser(&pr_url) {
                         log::warn!("[ui] issue detail: open PR link failed: {error}");
                     }
@@ -2137,7 +2267,7 @@ impl IssueDetailView {
     /// EXP-889: the toggle's CHANGES item is offered whenever there is a
     /// diff to read — my run's worktree diff (which opens the run's Changes
     /// face, as before) or, with no such diff, the issue's own OPEN pull
-    /// request, which opens right here ([`Self::set_changes_open`]). The web
+    /// request, which opens right here ([`Self::set_changes_open_for`]). The web
     /// rule verbatim (`lib/work-faces.ts`): `hasChanges = diffStats.fileCount
     /// > 0 || issue.prState === 'open'`, and `availableFaces` pushes
     /// `changes` outside the `hasRun` branch.
@@ -2186,7 +2316,10 @@ impl IssueDetailView {
         // mine when my target has any, else the newest teammate run with
         // some (`issue_results_run`), text-only reports included.
         let results_row = crate::work_header::issue_results_row(&issue.id, run_id.as_deref(), cx);
-        let results = results_row.is_some();
+        // EXP-1154: an open PR always has a Results face — the report, else
+        // the GitHub PR body.
+        let pr_changes = crate::queries::is_reviewable(issue);
+        let results = results_row.is_some() || pr_changes;
         // Mine = today's path (the run's own Results sub-face); a teammate's
         // opens right here, as this tab's face.
         let me = crate::queries::active_account(cx).map(|account| account.user_id);
@@ -2197,8 +2330,10 @@ impl IssueDetailView {
         let results_open = self.results_open_on(&issue.id);
         // EXP-889: the issue's own open pull request IS a Changes face, with
         // or without a run of mine (the web `hasChanges`).
-        let pr_changes = crate::queries::is_reviewable(issue);
-        let active = match (self.changes_open, face_state.as_ref().map(|state| state.active)) {
+        let active = match (
+            self.changes_open_on(&issue.id),
+            face_state.as_ref().map(|state| state.active),
+        ) {
             _ if results_open => Face::Results,
             (true, _) => Face::Diff,
             (_, Some(crate::screens::TabFace::Run)) => Face::Run,
@@ -2247,9 +2382,10 @@ impl IssueDetailView {
                     // this toggle only renders while the tab IS on its issue
                     // screen.)
                     if face == Face::Issue || (face == Face::Diff && !run_diff) {
+                        let open = (face == Face::Diff).then(|| issue_id.clone());
                         let _ = this.update(cx, |this, cx| {
                             this.set_results_open_for(None, cx);
-                            this.set_changes_open(face == Face::Diff, cx);
+                            this.set_changes_open_for(open, cx);
                         });
                         return;
                     }
@@ -2276,7 +2412,7 @@ impl IssueDetailView {
                     // Leaving for the RUN puts the issue side back on its
                     // issue face: the session screen's own `Issue` pick must
                     // land on the issue, never back on its PR files.
-                    let _ = this.update(cx, |this, cx| this.set_changes_open(false, cx));
+                    let _ = this.update(cx, |this, cx| this.set_changes_open_for(None, cx));
                     match face {
                         Face::Issue => {}
                         Face::Run | Face::Diff | Face::Results => {
@@ -2307,7 +2443,7 @@ impl IssueDetailView {
                 Rc::new(move |run_id, window, cx| {
                     let _ = menu_this.update(cx, |this, cx| {
                         this.set_results_open_for(None, cx);
-                        this.set_changes_open(false, cx);
+                        this.set_changes_open_for(None, cx);
                     });
                     crate::screens::set_tab_face(
                         &menu_issue_id,
@@ -2334,7 +2470,7 @@ impl IssueDetailView {
         // fixed.
         let collapsed = !has_title_row
             || crate::work_header::title_collapsed(&self.body_scroll, &self.title_bottom);
-        let changes_open = self.changes_open;
+        let changes_open = self.changes_open_on(&issue.id);
         let (right, tray, extra) = header.update(cx, |header, cx| {
             // EXP-916: the Changes pane has no bar of its own any more, so
             // the tray keeps the ONE merge control on every face. (The
@@ -2462,11 +2598,13 @@ impl Render for IssueDetailView {
         // EXP-889: the Changes face vanishes with the PR it reads (the web
         // `fallbackFace`) — a merged or closed PR drops the tab back onto
         // its issue instead of leaving a dead pane up.
-        if self.changes_open && !crate::queries::is_reviewable(&issue) {
+        let changes_open = self.changes_open_on(&issue.id);
+        if changes_open && !crate::queries::is_reviewable(&issue) {
             // A proper state transition, not a silent field poke in `render`:
             // closing the face notifies, exactly as the toggle does.
-            self.set_changes_open(false, cx);
+            self.set_changes_open_for(None, cx);
         }
+        let changes_open = self.changes_open_on(&issue.id);
         // EXP-933: the RESULTS face (a teammate's run report) — built before
         // the header so a report that vanished drops the toggle back onto
         // the issue in the same frame.
@@ -2480,7 +2618,7 @@ impl Render for IssueDetailView {
             None
         };
         // EXP-1162: only the Issue face has a title row of its own.
-        let has_title_row = results_face.is_none() && !self.changes_open;
+        let has_title_row = results_face.is_none() && !changes_open;
         let (header, title_rows) = self.render_header(&issue, has_title_row, window, cx);
         if let Some(results_face) = results_face {
             return view
@@ -2489,11 +2627,14 @@ impl Render for IssueDetailView {
                 .into_any_element();
         }
         // EXP-889: the CHANGES face — the issue's open PR read through the
-        // SAME pane as a review and a run's diff (`pr_diff` over
+        // SAME pane as a run's diff (`pr_diff` over
         // `issues.prFiles`), under the same work header. No run of mine is
         // needed: the PR's files are the issue's.
-        if self.changes_open {
+        if changes_open {
             let changes = self.ensure_changes(&issue, window, cx);
+            if let Some(path) = self.pending_changes_path.take() {
+                changes.update(cx, |pane, cx| pane.select_path(path, cx));
+            }
             return view
                 .child(header)
                 .child(crate::work_header::work_body(

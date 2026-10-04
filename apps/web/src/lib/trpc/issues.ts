@@ -2029,7 +2029,9 @@ export const issuesRouter = router({
   // Member-gated on the PR's team (every member reviews); a batch PR is
   // reached through ANY of its linked issues (one prUrl). Nothing is
   // persisted locally: the DB carries no title/body, GitHub stays the source
-  // of truth.
+  // of truth. EXP-1154: a run-opened PR's body is its Results report
+  // (`run-pr-body.ts` re-patches it on each report text write), so an edit
+  // here holds only until the run's next report write.
   updatePr: authedProcedure
     .input(
       z.object({

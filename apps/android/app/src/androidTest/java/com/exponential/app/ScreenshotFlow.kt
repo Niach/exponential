@@ -26,10 +26,10 @@ import tools.fastlane.screengrab.UiAutomatorScreenshotStrategy
  * password login flow, the polling helpers and the diff expansion.
  *
  * Synchronization notes:
- * - [waitFor] polls semantics without requiring Compose idleness, so infinite
- *   animations (indeterminate progress spinners while auth-config / Electric
- *   sync load) cannot hang it — this is why every step gates on content
- *   appearing rather than on waitForIdle.
+ * - [waitFor] polls semantics, gating on content appearing rather than on
+ *   waitForIdle. With an auto-advancing clock every query still waits for
+ *   idleness, which an infinite animation never grants; [pauseClock] hands
+ *   time to the flow so it cannot hang (EXP-1154).
  * - Screenshots use [UiAutomatorScreenshotStrategy]: the default reflection
  *   -based strategy renders a blank window for Compose surfaces.
  */
@@ -76,6 +76,12 @@ class ScreenshotFlow(private val composeRule: ComposeTestRule) {
 
         /** InstanceScreen's demoted self-hosting entry (EXP-14). */
         const val SELF_HOST_LINK = "Use a self-hosted instance"
+
+        /** One [pump] step: a few frames of the paused main clock. */
+        const val FRAME_PUMP_MS = 64L
+
+        /** Real-time pause between polls (and between [settle]'s pumps). */
+        const val POLL_SLEEP_MS = 50L
 
         const val NAV_TIMEOUT = 30_000L
         const val SYNC_TIMEOUT = 60_000L
@@ -187,6 +193,7 @@ class ScreenshotFlow(private val composeRule: ComposeTestRule) {
             android.util.Log.i("EXP-642", "shots: skipping $name — not in the `shots` allowlist")
             return
         }
+        pump()
         if (popRects) PopRects.dump(composeRule, name)
         Screengrab.screenshot(name)
     }
@@ -250,10 +257,55 @@ class ScreenshotFlow(private val composeRule: ComposeTestRule) {
         submitLogin()
     }
 
-    /** Poll (without requiring Compose idleness) until [matcher] matches a node. */
+    /**
+     * Hands the main test clock to the flow (EXP-1154): `autoAdvance = false`.
+     *
+     * With the clock auto-advancing, Compose only reports idle once nothing
+     * awaits a frame, so ANY infinite animation on screen (or on a composed
+     * neighbour page, e.g. the Work screen's pager keeps the Run face beside
+     * Issue/Changes, with its spinners and working marks) times out every
+     * semantics query and click with ComposeNotIdleException. With the clock
+     * paused, idleness ignores frame awaiters and the flow drives time itself:
+     * [waitFor], [waitForGone], [exists], [settle] and [screenshot] each
+     * [pump] frames, so the UI still advances between steps. Product code is
+     * untouched.
+     */
+    fun pauseClock() {
+        composeRule.mainClock.autoAdvance = false
+    }
+
+    /**
+     * Advances the main clock by [millis] of frames. Harmless with an
+     * auto-advancing clock; essential after [pauseClock], where nothing else
+     * moves time (recomposition, layout and animations all wait on it).
+     */
+    fun pump(millis: Long = FRAME_PUMP_MS) {
+        composeRule.mainClock.advanceTimeBy(millis)
+    }
+
+    /** Poll (pumping frames, never requiring idleness) until [matcher] matches a node. */
     fun waitFor(matcher: SemanticsMatcher, timeoutMillis: Long) {
-        composeRule.waitUntil(timeoutMillis) {
+        pollUntil(timeoutMillis, "waiting for $matcher") {
             composeRule.onAllNodes(matcher).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    /**
+     * The one poll loop: pump, check, sleep. Own loop rather than
+     * `composeRule.waitUntil`, which only moves time on an auto-advancing
+     * clock and so would spin on a frozen UI after [pauseClock].
+     */
+    private fun pollUntil(timeoutMillis: Long, what: String, condition: () -> Boolean) {
+        val deadline = System.currentTimeMillis() + timeoutMillis
+        while (true) {
+            pump()
+            if (condition()) return
+            if (System.currentTimeMillis() > deadline) {
+                throw androidx.compose.ui.test.ComposeTimeoutException(
+                    "Condition still not satisfied after $timeoutMillis ms: $what",
+                )
+            }
+            Thread.sleep(POLL_SLEEP_MS)
         }
     }
 
@@ -267,17 +319,26 @@ class ScreenshotFlow(private val composeRule: ComposeTestRule) {
 
     /** Poll until no node matches [matcher] anymore. */
     fun waitForGone(matcher: SemanticsMatcher, timeoutMillis: Long) {
-        composeRule.waitUntil(timeoutMillis) {
+        pollUntil(timeoutMillis, "waiting for $matcher to disappear") {
             composeRule.onAllNodes(matcher).fetchSemanticsNodes().isEmpty()
         }
     }
 
     /** True if [matcher] currently matches at least one node (no waiting). */
-    fun exists(matcher: SemanticsMatcher): Boolean =
-        composeRule.onAllNodes(matcher).fetchSemanticsNodes().isNotEmpty()
+    fun exists(matcher: SemanticsMatcher): Boolean {
+        pump()
+        return composeRule.onAllNodes(matcher).fetchSemanticsNodes().isNotEmpty()
+    }
 
-    /** Let animations / async images finish before capturing. */
+    /**
+     * Let animations / async images finish before capturing: real time passes
+     * (images decode, sync lands) while frames are pumped in step with it.
+     */
     fun settle(longer: Boolean = false) {
-        Thread.sleep(if (longer) 2_000 else 1_000)
+        val until = System.currentTimeMillis() + if (longer) 2_000 else 1_000
+        while (System.currentTimeMillis() < until) {
+            pump()
+            Thread.sleep(POLL_SLEEP_MS)
+        }
     }
 }

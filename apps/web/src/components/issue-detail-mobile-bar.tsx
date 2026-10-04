@@ -33,6 +33,7 @@ export function IssueDetailMobileBar({
   onSubmitComment,
   hidden = false,
   reporter = null,
+  above,
 }: {
   issueId: string
   users: User[]
@@ -51,6 +52,9 @@ export function IssueDetailMobileBar({
   /** Hidden while the description editor is focused — the keyboard rail owns
    *  the bottom edge then. */
   hidden?: boolean
+  /** EXP-1154: the floating white Merge capsule (`MobileMergeFloat`), drawn
+   *  above the bar only while the bar is up and the composer closed. */
+  above?: ReactNode
 }) {
   const [propertiesOpen, setPropertiesOpen] = useState(false)
   const [composing, setComposing] = useState(false)
@@ -63,6 +67,7 @@ export function IssueDetailMobileBar({
 
   return (
     <>
+      {!hidden && !composing && above}
       <MobileWorkBar
         hidden={hidden}
         leading={

@@ -281,6 +281,16 @@ vi.mock(`@/lib/pr-merge-guard`, async (importOriginal) => ({
   ...(await importOriginal<object>()),
   openStackThrough: vi.fn(async () => []),
 }))
+// EXP-1154: the PR body follows the run's report; all of its I/O lives in
+// one module. Default = no report (pr_open keeps the agent's body).
+vi.mock(`@/lib/run-pr-body`, () => ({
+  runPrBody: vi.fn(async (_id: string | null, fallback: string | undefined) => ({
+    body: fallback,
+    fromResults: false,
+  })),
+  runHasReportBody: vi.fn(async () => false),
+  syncRunPrBody: vi.fn(async () => `skipped`),
+}))
 
 import {
   loadRepositoryByFullName,
@@ -302,6 +312,7 @@ import {
 import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
 import { maybeMergeYoloTree } from "@/lib/yolo-tree-merge"
 import { openStackThrough } from "@/lib/pr-merge-guard"
+import { runHasReportBody, runPrBody, syncRunPrBody } from "@/lib/run-pr-body"
 import { retiredIdentifiers } from "@/lib/issue-resolver"
 import {
   branchExists,
@@ -902,6 +913,37 @@ describe(`exponential_pr_update`, () => {
       repositoryId: REPO,
       prNumber: 7,
       title: `chore: the real scope`,
+    })
+  })
+
+  // EXP-1154: a run's own PR body IS its report.
+  it(`with no subject, a body-only call is a no-op once the run has a report`, async () => {
+    dbRows.current = [
+      { ...runRow({ issueId: UUID }), identifier: `EXP-1`, prUrl: PR_URL },
+    ]
+    vi.mocked(runHasReportBody).mockResolvedValueOnce(true)
+    const result = await collectTools(USER, SESSION).get(
+      `exponential_pr_update`
+    )!({ body: `Hand-written body` })
+    expect(parseOk(result)).toMatchObject({
+      results: [],
+      note: expect.stringContaining(`exponential_sessions_results`),
+    })
+    expect(caller.issues.updatePr).not.toHaveBeenCalled()
+  })
+
+  it(`with no subject and a report, a title + body call lands only the title`, async () => {
+    dbRows.current = [
+      { ...runRow({ issueId: UUID }), identifier: `EXP-1`, prUrl: PR_URL },
+    ]
+    vi.mocked(runHasReportBody).mockResolvedValueOnce(true)
+    await collectTools(USER, SESSION).get(`exponential_pr_update`)!({
+      title: `New title`,
+      body: `Hand-written body`,
+    })
+    expect(caller.issues.updatePr).toHaveBeenCalledWith({
+      issueId: UUID,
+      title: `New title`,
     })
   })
 
@@ -2278,6 +2320,22 @@ describe(`exponential_pr_open batch session parking`, () => {
     }
   })
 
+  // EXP-1154: the issue path sends the report too.
+  it(`sends the body derived from the run's report on the issue path`, async () => {
+    armPrOpen()
+    vi.mocked(runPrBody).mockResolvedValueOnce({ body: `From the report`, fromResults: true })
+    const result = await tool(`exponential_pr_open`)({
+      issueIds: [UUID, PROJ],
+      title: `Batch PR`,
+      head: `exp/batch-abcd1234`,
+      body: `Agent body`,
+    })
+    expect(createPullRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ body: `From the report` })
+    )
+    expect(parseOk(result)).toMatchObject({ number: 7, body: `report` })
+  })
+
   it(`parks NOTHING without a session header (EXP-710)`, async () => {
     const updates = armPrOpen()
     const result = await tool(`exponential_pr_open`)({
@@ -2338,6 +2396,43 @@ describe(`exponential_pr_open batch session parking`, () => {
       undefined,
       undefined
     )
+  })
+
+  // EXP-1154: a reused PR's body follows the report, but only the PR the
+  // caller's row actually got stamped with.
+  it(`re-syncs a reused issue PR's body, pinned to that PR's url`, async () => {
+    armPrOpen()
+    vi.mocked(findOpenPullByHead).mockResolvedValue({
+      url: `https://github.com/acme/app/pull/5`,
+      number: 5,
+      baseRef: `main`,
+    })
+    vi.mocked(runPrBody).mockResolvedValueOnce({ body: `From the report`, fromResults: true })
+    dbRows.current = [
+      {
+        id: SESSION,
+        teamId: WS,
+        issueId: null,
+        branch: null,
+        status: `running`,
+        needsInput: false,
+        mergedOwnPr: false,
+        userId: `user-1`,
+        hostUserId: null,
+      },
+    ]
+
+    const result = await collectTools(USER, SESSION).get(`exponential_pr_open`)!({
+      issueIds: [UUID, PROJ],
+      title: `Batch PR`,
+      head: `exp/batch-abcd1234`,
+    })
+
+    expect(parseOk(result)).toMatchObject({ number: 5, reused: true })
+    expect(syncRunPrBody).toHaveBeenCalledTimes(1)
+    expect(syncRunPrBody).toHaveBeenCalledWith(SESSION, {
+      expectPrUrl: `https://github.com/acme/app/pull/5`,
+    })
   })
 
   it(`falls back to the base-filtered lookup when a create races into a 422`, async () => {
@@ -3011,6 +3106,41 @@ describe(`exponential_sessions_results`, () => {
     )
   })
 
+  // EXP-1154: the report IS the PR body.
+  it(`re-syncs the run's open PR after a text write and stores the files`, async () => {
+    dbRows.current = [runRow({ results: [] })]
+    vi.mocked(syncRunPrBody).mockResolvedValueOnce(`synced`)
+    const result = await collectTools(USER, SESSION, OWN_RUN).get(
+      `exponential_sessions_results`
+    )!({ topic: `Summary`, text: `Did it`, files: [`apps/web/a.ts`, ` apps/web/a.ts `] })
+    expect(parseOk(result)).toMatchObject({ topic: `Summary`, pr: `synced` })
+    expect(syncRunPrBody).toHaveBeenCalledWith(SESSION)
+    expect(updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        results: [expect.objectContaining({ topic: `Summary`, files: [`apps/web/a.ts`] })],
+      })
+    )
+  })
+
+  it(`never syncs the PR for a picture`, async () => {
+    dbRows.current = [runRow({ results: [] })]
+    await collectTools(USER, SESSION, OWN_RUN).get(`exponential_sessions_results`)!({
+      topic: `nav`,
+      label: `web`,
+    })
+    expect(syncRunPrBody).not.toHaveBeenCalled()
+  })
+
+  it(`refuses files without text`, async () => {
+    dbRows.current = [runRow({ results: [] })]
+    const result = await collectTools(USER, SESSION, OWN_RUN).get(
+      `exponential_sessions_results`
+    )!({ topic: `nav`, label: `web`, files: [`a.ts`] })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`files rides a topic's text`)
+    expect(h.db.update).not.toHaveBeenCalled()
+  })
+
   it(`files text and mints a picture link in one call`, async () => {
     dbRows.current = [runRow({ results: [] })]
     const result = await collectTools(USER, SESSION, OWN_RUN).get(
@@ -3035,6 +3165,9 @@ describe(`exponential_sessions_results`, () => {
     )!({ topic: `nav`, text: ``, remove: true })
     expect(parseOk(result)).toMatchObject({ removed: 1, results: [{ topic: `nav`, label: `web` }] })
     expect(h.deleteObject).not.toHaveBeenCalled()
+    // EXP-1154: the report changed, so the PR body follows (a last text
+    // gone shrinks it to the footer link).
+    expect(syncRunPrBody).toHaveBeenCalledWith(SESSION, { removal: true })
   })
 
   it(`removes one label, reclaiming its row and its object`, async () => {
@@ -3064,6 +3197,8 @@ describe(`exponential_sessions_results`, () => {
       })
     )
     expect(h.deleteObject).toHaveBeenCalledWith(`sessions/att-2.png`)
+    // No text went away under the lock: the PR body is untouched.
+    expect(syncRunPrBody).not.toHaveBeenCalled()
   })
 
   it(`removes a whole topic when no label is given`, async () => {
@@ -3671,6 +3806,55 @@ describe(`exponential_pr_open — repositoryId path`, () => {
       undefined
     )
     expect(updates[1]!.set).toMatchObject({ prUrl: `https://github.com/acme/app/pull/5`, prNumber: 5 })
+  })
+
+  // EXP-1154: the run's report IS the PR body.
+  it(`opens the PR with the body derived from the run's report`, async () => {
+    armRepoPr()
+    dbRows.current = [
+      { id: SESSION, teamId: WS, status: `running`, userId: `user-1`, hostUserId: null },
+    ]
+    vi.mocked(runPrBody).mockResolvedValueOnce({ body: `From the report`, fromResults: true })
+
+    const result = await collectTools(USER, SESSION).get(`exponential_pr_open`)!({
+      repositoryId: REPO,
+      head: `exp/chat-1a2b3c4d`,
+      title: `Chore`,
+      body: `Agent body`,
+    })
+
+    expect(runPrBody).toHaveBeenCalledWith(SESSION, `Agent body`)
+    expect(createPullRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ body: `From the report` })
+    )
+    expect(parseOk(result)).toMatchObject({ number: 9, body: `report` })
+    // A NEW PR already carries the report: nothing to re-sync.
+    expect(syncRunPrBody).not.toHaveBeenCalled()
+  })
+
+  it(`re-syncs a reused PR's body to the report`, async () => {
+    armRepoPr()
+    vi.mocked(findOpenPullByHead).mockResolvedValue({
+      url: `https://github.com/acme/app/pull/5`,
+      number: 5,
+      baseRef: `main`,
+    })
+    dbRows.current = [
+      { id: SESSION, teamId: WS, status: `running`, userId: `user-1`, hostUserId: null },
+    ]
+    vi.mocked(runPrBody).mockResolvedValueOnce({ body: `From the report`, fromResults: true })
+
+    const result = await collectTools(USER, SESSION).get(`exponential_pr_open`)!({
+      repositoryId: REPO,
+      head: `exp/chat-1a2b3c4d`,
+      title: `Chore`,
+    })
+
+    expect(parseOk(result)).toMatchObject({ number: 5, reused: true, body: `report` })
+    // Only the PR the row got: never another PR on a skipped stamp.
+    expect(syncRunPrBody).toHaveBeenCalledWith(SESSION, {
+      expectPrUrl: `https://github.com/acme/app/pull/5`,
+    })
   })
 
   it(`requires head, and refuses more than one subject`, async () => {

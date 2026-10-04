@@ -252,6 +252,10 @@ describe(`SessionMergeButton`, () => {
     fireEvent.click(screen.getByRole(`button`, { name: `Merge pull request` }))
     fireEvent.click(screen.getByRole(`button`, { name: `Merge` }))
     await screen.findByRole(`button`, { name: `Fix merge conflicts` })
+    // EXP-1154: clickable inside the phone's pointer-events-none bar/float.
+    expect(
+      screen.getByRole(`button`, { name: `Retry merge` }).className
+    ).toContain(`pointer-events-auto`)
 
     mockState.mergeMutate.mockReset()
     mockState.mergeMutate.mockResolvedValue({ merged: true })

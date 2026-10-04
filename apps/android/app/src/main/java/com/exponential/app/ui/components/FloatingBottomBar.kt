@@ -35,7 +35,8 @@ import com.exponential.app.ui.theme.TextEmphasis
 // issue bar and the tab bar already draw (near-opaque pill fill + hairline).
 // Every face fills the slots differently (EXP-1150, the faces are tabs now:
 // Issue: properties · comment · start; Run: usage ring · steer · start;
-// Changes: files; Results: no bar — Merge PR rides the header), so the chrome is shared
+// Changes: files · Merge PR; Results: Merge PR; EXP-1154: the white Merge
+// capsule floats above the Issue / Run bar), so the chrome is shared
 // and only the slots move. A missing slot simply leaves its space empty.
 //
 // EXP-916: the CHANGES bars (the Reviews page and the Work screen's Changes

@@ -82,7 +82,7 @@ do not set issue statuses yourself.
 4. Open ONE combined pull request for the whole batch by calling the \
 `exponential_pr_open` MCP tool with `issueIds: [{issue_ids}]` and \
 `head: \"{branch}\"` (base defaults to `{default_branch}`).
-5. End with a short per-issue summary (what changed, anything left open). {close_out}
+5. In the report, give each issue its own topic naming it as `#IDENT` (what changed, anything left open). {close_out}
 
 ## Issue context
 "

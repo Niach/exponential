@@ -27,6 +27,7 @@ pub(crate) mod device_settings;
 pub(crate) mod blocked_start_dialog;
 pub(crate) mod stack_merge_choice_dialog;
 pub(crate) mod readiness_checklist;
+pub(crate) mod results_guide;
 
 /// EXP-1030: whether `id`'s file is still the one-line placeholder rather
 /// than a demo. None is any more: EXP-1031 filled the last one (`toast`).
@@ -74,4 +75,5 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: blocked_start_dialog::ID, owner: blocked_start_dialog::OWNER, render: blocked_start_dialog::render },
     Entry { id: stack_merge_choice_dialog::ID, owner: stack_merge_choice_dialog::OWNER, render: stack_merge_choice_dialog::render },
     Entry { id: readiness_checklist::ID, owner: readiness_checklist::OWNER, render: readiness_checklist::render },
+    Entry { id: results_guide::ID, owner: results_guide::OWNER, render: results_guide::render },
 ];

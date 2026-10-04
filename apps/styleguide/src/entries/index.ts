@@ -27,6 +27,7 @@ import { entry as deviceSettings } from "./device-settings.tsx"
 import { entry as blockedStartDialog } from "./blocked-start-dialog.tsx"
 import { entry as stackMergeChoiceDialog } from "./stack-merge-choice-dialog.tsx"
 import { entry as readinessChecklist } from "./readiness-checklist.tsx"
+import { entry as resultsGuide } from "./results-guide.tsx"
 import type { StyleguideEntry } from "./types.ts"
 
 export type { StyleguideEntry } from "./types.ts"
@@ -56,6 +57,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   blockedStartDialog,
   stackMergeChoiceDialog,
   readinessChecklist,
+  resultsGuide,
 ]
 
 export function entryById(id: string): StyleguideEntry | undefined {

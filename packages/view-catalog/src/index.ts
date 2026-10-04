@@ -26,8 +26,9 @@
  *     fixed id the seed stamps on the demo user's running showcase session
  *     (EXP-740 gave a session its own page).
  *   - `$NAME` inside a `DesktopDrive.value` is a runtime lookup: `issue:$APP-5`
- *     means "the UUID of the issue whose identifier is APP-5", `pr:$APP-14` the
- *     same for a PR diff. `$emptyBoard` is the seeded board with no issues on
+ *     means "the UUID of the issue whose identifier is APP-5",
+ *     `issue:$APP-14?face=changes` the same for the review of its PR (EXP-1154:
+ *     the issue tab on its Changes face). `$emptyBoard` is the seeded board with no issues on
  *     it, and `$supportToken` (in `web.route`) the reporter magic link minted
  *     for the seeded widget issue. A value with no `$` is literal. `desktop.env` VALUES are
  *     substituted the same way, so `EXP_DEV_BOARD_ID: "$emptyBoard"` works.
@@ -133,7 +134,8 @@ export interface NativeCapture {
  *
  *   - `screen`  → `EXP_DEV_SCREEN` (`navigation::parse_dev_screen`): `settings`,
  *                 `devices`, `actions`, `action:<uuid>`, `getting-started`,
- *                 `issue:<uuid>`, `pr:<uuid>`, `draft` (EXP-1170: a fresh
+ *                 `issue:<uuid>`, `issue:<uuid>?face=changes|results`
+ *                 (EXP-1154: the issue tab on that face), `draft` (EXP-1170: a fresh
  *                 new-issue draft on the active board).
  *   - `tool`    → a sidebar tool window (`sidebar::ToolWindow`): `board`,
  *                 `inbox`, `my-issues`, `reviews`, `files`,

@@ -2,10 +2,9 @@ import { FileDiffList } from "@exp/ui"
 import type { DiffFile } from "@exp/domain-contract/diff"
 
 // EXP-895/EXP-916: the CHANGES face — a thin wrapper over `@exp/ui`'s
-// `FileDiffList`. The review page, the run's Changes face and an issue's
-// Changes face all draw THIS, differing only in `nav`. Nothing sits above the
-// cards any more: the merge, the PR state and GitHub live in the surface's own
-// header (the work header on a run, `ChangesTopBar` on Reviews).
+// `FileDiffList`. The run's Changes face and an issue's Changes face (EXP-1154:
+// the review of a PR) both draw THIS, differing only in `nav`. Nothing sits
+// above the cards: the merge, the PR state and GitHub live in the work header.
 
 export function ChangesView({
   files,

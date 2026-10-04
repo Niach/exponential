@@ -298,6 +298,37 @@ public struct PrFilesResult: Decodable, Sendable {
     public let files: [PrFile]
 }
 
+// MARK: - PR description (issues.prDescription)
+
+/// EXP-1154: the issue's pull request as GitHub has it — the Results face's
+/// fallback while an open PR has no run report. Every field is nil when the
+/// issue has no PR (or no resolvable repo).
+public struct PrDescription: Decodable, Sendable, Equatable {
+    public let repo: String?
+    public let prNumber: Int?
+    public let url: String?
+    public let title: String?
+    public let body: String?
+    /// `open` / `closed` / `merged`.
+    public let state: String?
+
+    public init(
+        repo: String? = nil,
+        prNumber: Int? = nil,
+        url: String? = nil,
+        title: String? = nil,
+        body: String? = nil,
+        state: String? = nil
+    ) {
+        self.repo = repo
+        self.prNumber = prNumber
+        self.url = url
+        self.title = title
+        self.body = body
+        self.state = state
+    }
+}
+
 // MARK: - Server search (issues.search)
 
 public struct SearchIssuesInput: Encodable, Sendable {
@@ -500,6 +531,14 @@ public final class IssuesApi: Sendable {
     /// helper. Returns `repo == nil` / empty `files` when there's no PR yet.
     public func prFiles(accountId: String, issueId: String) async throws -> PrFilesResult {
         try await trpc.query(accountId: accountId, path: "issues.prFiles", input: PrFilesInput(issueId: issueId))
+    }
+
+    /// EXP-1154: the PR's GitHub title + body (`issues.prDescription`, a
+    /// `.query`, same GET-with-input helper as `prFiles`).
+    public func prDescription(accountId: String, issueId: String) async throws -> PrDescription {
+        try await trpc.query(
+            accountId: accountId, path: "issues.prDescription", input: PrFilesInput(issueId: issueId)
+        )
     }
 
     /// Server-side full-text search (title + description + comment text) over

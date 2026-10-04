@@ -25,7 +25,6 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,16 +41,13 @@ import com.exponential.app.domain.Diff
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.PrStack
 import com.exponential.app.ui.components.BarCircle
-import com.exponential.app.ui.components.GlassPill
-import com.exponential.app.ui.components.LocalToaster
-import com.exponential.app.ui.components.PillSize
+import com.exponential.app.ui.components.BarSolidPill
 import com.exponential.app.ui.components.BottomBarInset
+import com.exponential.app.ui.components.FloatingBarRung
 import com.exponential.app.ui.components.FloatingBarCluster
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.issue.ChangesLoadState
 import com.exponential.app.ui.issue.DiffFileCard
 import com.exponential.app.ui.issue.DiffFileListSheet
-import com.exponential.app.ui.issue.StackMergeDialog
 import com.exponential.app.ui.issue.diffOpensByDefault
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -59,21 +55,22 @@ import kotlinx.coroutines.launch
 
 // EXP-893/EXP-895: the Work screen's CHANGES FACE — a full page of the ONE diff
 // view: the summary row (`N files  +A −D`) over one [DiffFileCard] per file,
-// and the floating bar `[file sheet]` (EXP-1150: Merge PR moved into the
-// header band beside the face tabs, [MergePrHeaderPill]). Two sources,
-// one look: source A is the shown session's LIVE worktree diff (`latest_diff`,
-// already parsed by the host), source B is the issue's open PR's files off
-// `ChangesViewModel`. GitHub is NOT on this bar — it sits in the header's
-// action slot, so the leading circle can open the file list (EXP-895).
+// and the floating bar's centred cluster `[files circle] [Merge PR]`
+// (EXP-1154: the white [MergeCapsule] came back from the header band). Two
+// sources, one look: source A is the shown session's LIVE worktree diff
+// (`latest_diff`, already parsed by the host), source B is the issue's open
+// PR's (or pushed branch's) files off [ChangesViewModel]. GitHub is NOT on
+// this bar — it sits in the header's action slot (EXP-895). EXP-1154: this
+// face IS the review of a PR; the standalone review page is gone.
 
-/** What the header's Merge PR pill merges — the PR, or the recovery run.
- *  EXP-1150: the host builds ONE (off the live run or the issue's PR) and the
- *  header draws it on every face ([MergePrHeaderPill]). */
+/** What the Merge capsule merges — the PR, or the recovery run.
+ *  The host builds ONE (off the live run or the issue's PR) and every face
+ *  draws it in or above its floating bar ([MergeCapsule], EXP-1154). */
 data class ChangesMergeControl(
     val label: String,
     val fixConflicts: Boolean,
     val loading: Boolean,
-    /** The refusal a failed merge left behind — toasted by the pill. */
+    /** The refusal a failed merge left behind, toasted once by the host. */
     val error: String?,
     /** The confirm dialog's body (a run's own PR completes no issue). */
     val confirmText: String,
@@ -99,11 +96,33 @@ fun ChangesFace(
     files: List<Diff.File>,
     /** Source B's load state — what captions an empty [files]. */
     prLoad: ChangesLoadState?,
+    /** EXP-1154: the bar's white Merge PR beside the files circle; null hides it. */
+    merge: ChangesMergeControl? = null,
+    /**
+     * EXP-1154: a file a Results row asked for — opened and scrolled to once
+     * it is in [files], then [onFocusConsumed] clears it.
+     */
+    focusPath: String? = null,
+    onFocusConsumed: () -> Unit = {},
 ) {
     var sheetOpen by remember { mutableStateOf(false) }
     val expanded = remember(files) { mutableStateMapOf<String, Boolean>() }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    // EXP-1154: a Guide file row's tap lands here — open that card and bring
+    // it up (+1 for the summary row), the file sheet's pick without the sheet.
+    LaunchedEffect(focusPath, files) {
+        val path = focusPath ?: return@LaunchedEffect
+        val index = files.indexOfFirst { it.path == path }
+        if (index < 0) {
+            // Not loaded yet: wait for the files, unless they settled without it.
+            if (files.isNotEmpty() || prLoad !is ChangesLoadState.Loading) onFocusConsumed()
+            return@LaunchedEffect
+        }
+        expanded[path] = true
+        listState.animateScrollToItem(index + 1)
+        onFocusConsumed()
+    }
 
     // EXP-1162: the page runs under the header band and the floating bar —
     // the host's insets are the list's CONTENT padding, not the face's.
@@ -158,20 +177,20 @@ fun ChangesFace(
         // EXP-1162: the bottom edge strip fades the list out under the bar.
         FloatingBarEdge(
             bottomInset = bottomInset,
-            visible = files.isNotEmpty(),
+            visible = files.isNotEmpty() || merge != null,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .padding(bottom = bottomInset),
         ) {
-            // EXP-916/EXP-1150: the files circle alone — Merge PR sits in
-            // the header band beside the face tabs.
+            // EXP-916/EXP-1154: `[files circle] [Merge PR]`, centred.
             FloatingBarCluster(
                 left = if (files.isNotEmpty()) {
                     { FileListCircle(count = files.size, onClick = { sheetOpen = true }) }
                 } else {
                     null
                 },
+                centre = merge?.let { control -> { MergeCapsule(control) } },
             )
         }
     }
@@ -193,43 +212,62 @@ fun ChangesFace(
 }
 
 /**
- * EXP-1150: the header's Merge PR — the [ChangesMergeControl] as a compact
- * primary pill at the face strip's end, on every face, running the confirm
- * (or the stack dialog). With a real conflict it becomes Fix conflicts (the
- * branch glyph) and opens the recovery run. A refusal toasts.
+ * EXP-1154: the ONE Merge PR on a phone — the SOLID WHITE capsule (the
+ * EXP-916 [BarSolidPill], 52dp, hugging its label) in or above every face's
+ * floating bar, running the confirm (or the stack dialog). With a real
+ * conflict it becomes Fix conflicts (the branch glyph) and opens the
+ * recovery run. A refusal toasts. The host builds it only while the PR is
+ * open, so it self-hides with the PR.
  */
 @Composable
-fun MergePrHeaderPill(merge: ChangesMergeControl, modifier: Modifier = Modifier) {
+fun MergeCapsule(
+    merge: ChangesMergeControl,
+    modifier: Modifier = Modifier,
+    /**
+     * Every pager page keeps its own capsule composed, so only the Changes
+     * face's carries the bare `work-merge-pr` (the store slide's pop-out rect
+     * reads the first match); the others suffix their face, like iOS.
+     */
+    tag: String = MergeCapsuleTag,
+) {
     var mergeConfirmOpen by remember { mutableStateOf(false) }
-    val toaster = LocalToaster.current
-    // The refusal toasts ONCE: the error itself stays in its model (it also
-    // drives the Fix conflicts verb and the Changes screen's notice), so the
-    // pill remembers what it already showed across rotation and re-toasts
-    // only a NEW refusal (a retry clears the error first).
-    var toastedError by rememberSaveable { mutableStateOf<String?>(null) }
-    LaunchedEffect(merge.error) {
-        val error = merge.error
-        if (error == null) {
-            toastedError = null
-        } else if (error != toastedError) {
-            toastedError = error
-            toaster.error(error)
-        }
-    }
-    GlassPill(
+    // A refusal toasts ONCE in the host (WorkScreen), never per capsule: the
+    // pager keeps neighbouring faces composed, so a per-capsule toast fired
+    // two or three times and again on every swipe.
+    BarSolidPill(
         label = merge.label,
         icon = if (merge.fixConflicts) ExpIcons.uiBranch else ExpIcons.prMerged,
-        size = PillSize.Sm,
-        primary = true,
         loading = merge.loading,
         enabled = !merge.loading,
         onClick = { if (merge.fixConflicts) merge.onFixConflicts() else mergeConfirmOpen = true },
-        modifier = modifier.testTag("work-merge-pr"),
+        // EXP-627: the store slide's pop-out rect is measured off this tag.
+        modifier = modifier.testTag(tag),
     )
     if (mergeConfirmOpen) {
         MergeConfirmDialog(merge = merge, onDismiss = { mergeConfirmOpen = false })
     }
 }
+
+/**
+ * EXP-1154: the Merge capsule floating centred directly ABOVE a composer bar
+ * (the Issue and Run faces): 10dp clear of the bar's rung (its own 8dp
+ * vertical padding plus 2dp here).
+ */
+@Composable
+fun MergeCapsuleAboveBar(merge: ChangesMergeControl, tag: String, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier.fillMaxWidth().padding(top = 8.dp, bottom = 2.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        MergeCapsule(merge, tag = tag)
+    }
+}
+
+/** The Changes face's capsule tag; the other faces append `-issue`/`-run`/`-results`. */
+const val MergeCapsuleTag = "work-merge-pr"
+
+/** The extra list clearance a [MergeCapsuleAboveBar] adds above a bar. */
+val MergeCapsuleAboveBarHeight = FloatingBarRung + 10.dp
 
 /**
  * EXP-498: merging always closes the session too, so the merge is

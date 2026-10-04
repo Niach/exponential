@@ -7,6 +7,7 @@ import { CollapsedTitle } from "@exp/ui"
 import { faceShowsContextMenu, type WorkFaceKind } from "@/lib/work-faces"
 import { issueUrlFor } from "@/components/issue-actions-menu"
 import { IssueDetailMobileMenu } from "@/components/issue-detail-mobile-menu"
+import { useClosePr } from "@/components/close-pr-dialog"
 import { PinToggleButton } from "@/components/pin-toggle-button"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import type { useIssuePropertyHandlers } from "@/hooks/use-issue-property-handlers"
@@ -15,7 +16,8 @@ import type { useIssuePropertyHandlers } from "@/hooks/use-issue-property-handle
 // its Work screen so nothing jumps when the face flips: round back on the
 // left (to the list the issue was opened from), the mono identifier
 // centred, then the face's own action (Stop / Resume on the
-// Run face) and the `…` (Share · Move to board · Unmark duplicate · Delete).
+// Run face) and the `…` (Share · Move to board · Unmark duplicate · Close PR
+// · Delete).
 // Lifted out of `issue-detail-view.tsx` so the session route and the changes
 // face render the very same bar. EXP-1150: the face TABS ride directly under
 // it (`tabs`, `MobileFaceTabs`), in the same slot on every face.
@@ -71,6 +73,8 @@ export function IssueMobileHeader({
   headerRef?: Ref<HTMLDivElement>
 }) {
   const navigate = useNavigate()
+  // EXP-1154: the `…` carries Close PR (EXP-248's control, once the review page's).
+  const closePr = useClosePr(issue, { readOnly })
 
   // EXP-851 / EXP-870: back returns to the LIST this issue was opened from
   // (`originListNavigation`, the list nav's own back row), else the board.
@@ -96,57 +100,65 @@ export function IssueMobileHeader({
   }
 
   return (
-    <MobileDetailHeader
-      below={tabs}
-      overlay={overlay}
-      ref={headerRef}
-      /* EXP-1162: no state dot on the title — the face tabs carry it
-         (`faceDots`). */
-      title={
-        collapsed ? (
-          <CollapsedTitle
-            align="center"
-            // Only the Issue face BREAKS; the others never showed less.
-            animate={face === `issue`}
-            identifier={issue.identifier}
-            title={issue.title}
-          />
-        ) : (
-          <span className="font-mono">{issue.identifier}</span>
-        )
-      }
-      backLabel="Back"
-      onBack={goBackToList}
-      menu={
-        <div className="flex shrink-0 items-center gap-1">
-          {graphBadge}
-          {action}
-          {/* EXP-934: the issue's own controls, on the issue's own face. */}
-          {faceShowsContextMenu(face) && (
-            <>
-              {/* EXP-850 §10: ghost everywhere a pin toggle renders. */}
-              <PinToggleButton
-                teamId={teamId}
-                kind="issue"
-                targetId={issue.id}
-                variant="ghost"
-              />
-              <IssueDetailMobileMenu
-                issueTitle={issue.title}
-                issueUrl={issueUrlFor(teamSlug, board.slug, issue.identifier)}
-                teamId={teamId}
-                boardId={issue.boardId}
-                issueIdentifier={issue.identifier}
-                duplicateOfId={issue.duplicateOfId ?? null}
-                readOnly={readOnly}
-                onDelete={handleDeleteIssue}
-                onMoveBoard={handlers.handleBoardChange}
-                onUnmarkDuplicate={handlers.handleUnmarkDuplicate}
-              />
-            </>
-          )}
-        </div>
-      }
-    />
+    <>
+      <MobileDetailHeader
+        below={tabs}
+        overlay={overlay}
+        ref={headerRef}
+        /* EXP-1162: no state dot on the title — the face tabs carry it
+           (`faceDots`). */
+        title={
+          collapsed ? (
+            <CollapsedTitle
+              align="center"
+              // Only the Issue face BREAKS; the others never showed less.
+              animate={face === `issue`}
+              identifier={issue.identifier}
+              title={issue.title}
+            />
+          ) : (
+            <span className="font-mono">{issue.identifier}</span>
+          )
+        }
+        backLabel="Back"
+        onBack={goBackToList}
+        menu={
+          <div className="flex shrink-0 items-center gap-1">
+            {graphBadge}
+            {action}
+            {/* EXP-934: the issue's own controls, on the issue's own face. */}
+            {faceShowsContextMenu(face) && (
+              <>
+                {/* EXP-850 §10: ghost everywhere a pin toggle renders. */}
+                <PinToggleButton
+                  teamId={teamId}
+                  kind="issue"
+                  targetId={issue.id}
+                  variant="ghost"
+                />
+                <IssueDetailMobileMenu
+                  issueTitle={issue.title}
+                  issueUrl={issueUrlFor(teamSlug, board.slug, issue.identifier)}
+                  teamId={teamId}
+                  boardId={issue.boardId}
+                  issueIdentifier={issue.identifier}
+                  duplicateOfId={issue.duplicateOfId ?? null}
+                  readOnly={readOnly}
+                  onDelete={handleDeleteIssue}
+                  onMoveBoard={handlers.handleBoardChange}
+                  onUnmarkDuplicate={handlers.handleUnmarkDuplicate}
+                  closePr={
+                    closePr.canClose
+                      ? { onSelect: closePr.request, disabled: closePr.closing }
+                      : undefined
+                  }
+                />
+              </>
+            )}
+          </div>
+        }
+      />
+      {closePr.dialog}
+    </>
   )
 }

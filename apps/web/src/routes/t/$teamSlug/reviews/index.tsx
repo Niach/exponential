@@ -130,8 +130,8 @@ function ReviewsPage() {
   // merge (keyed by entry.key). A successful merge keeps its spinner until the
   // Electric echo flips prState and the entry leaves the list; external PRs
   // have no echo and are removed locally on success.
-  // Closing without merging lives on the review-detail page (EXP-248) — list
-  // rows offer merge only, matching the iOS/Android review rows.
+  // Closing without merging lives in the issue's actions menu (EXP-248,
+  // EXP-1154) — list rows offer merge only, matching the iOS/Android rows.
   const [mergeTarget, setMergeTarget] = useState<ReviewEntry | null>(null)
   // EXP-1145: a row whose PR is a member of an open stack asks first (the
   // list itself stays FLAT). Holds the entry and what the dialog says.
@@ -212,15 +212,20 @@ function ReviewsPage() {
       actionId: BUILTIN_FIX_CONFLICTS_ID,
       prIssueId: entry.issue.id,
     })
-  // The row opens the review-detail page (PR/branch diff + Merge/Close), not the
-  // issue itself — a batch entry's representative identifier stands for the PR.
+  // EXP-1154: the row opens the ISSUE on its Changes face (the PR's diff,
+  // Merge in the tray, Close PR in the `…`); the review-detail page is gone.
+  // A batch entry's representative issue stands for the PR.
   // EXP-1186: under the row's OWN team's slug (the inbox rule).
-  const openReview = (issueIdentifier: string, rowTeamSlug: string) => {
+  const openReview = (
+    rowTeamSlug: string,
+    boardSlug: string,
+    issueIdentifier: string,
+  ) => {
     void navigate({
-      to: `/t/$teamSlug/reviews/$issueIdentifier`,
-      params: { teamSlug: rowTeamSlug, issueIdentifier },
-      // EXP-851: the queue stays in the sidebar beside the review.
-      search: { from: `reviews` },
+      to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
+      params: { teamSlug: rowTeamSlug, boardSlug, issueIdentifier },
+      // EXP-851: the queue stays the Back target beside the review.
+      search: { from: `reviews`, view: `diff` },
     })
   }
 
@@ -444,7 +449,11 @@ function ReviewsPage() {
                         issue={issue}
                         issues={entry.issues}
                         onOpen={() =>
-                          openReview(issue.identifier, rowTeam.slug)
+                          openReview(
+                            rowTeam.slug,
+                            group.board.slug,
+                            issue.identifier,
+                          )
                         }
                         /* A PR linking several issues wears the batch glyph;
                             the overlay on it lists the issues it closes

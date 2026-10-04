@@ -1150,10 +1150,10 @@
       "id": "review-diff",
       "group": "reviews",
       "title": "Review diff",
-      "blurb": "A PR's real diff in the one unified diff view: the file TREE beside the file cards, every card open. APP-14 fetches a genuine patch from GitHub.",
+      "blurb": "A PR's real diff on the issue's Changes face (EXP-1154: the review IS the issue's Work screen): the file TREE beside the file cards, every card open. APP-14 fetches a genuine patch from GitHub.",
       "order": 2,
       "web": {
-        "route": "/t/$teamSlug/reviews/APP-14",
+        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-14?view=diff",
         "anchor": {
           "text": "Unable to load topic",
           "timeoutMs": 60000
@@ -1173,12 +1173,12 @@
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "pr:$APP-14"
+          "value": "issue:$APP-14?face=changes"
         }
       },
       "notes": {
-        "web": "The diff is fetched live from GitHub, so this view is the slowest in the catalog and the most network-flaky. Keep the generous anchor timeout. EXP-916: every file card now starts OPEN (only a file past contract.diffUi.collapseThresholdLines folds itself), so the recipe only WAITS for the first hunk row of the first card and clicks its header just in case; the anchor stays a line of the first card's own patch (strings.xml's added feature_topic_api_error string). On md+ the file TREE is the SIDEBAR's panel (the review's context, beside the compact rail, the way a list sits beside any other detail — desktop parity), so the cards take the whole column; the phone has no column at all (the list is a sheet off the work bar), and the page's own header carries the identifier, the PR state, reject, Merge PR and GitHub.",
-        "desktop": "Deep-linking straight into a PR diff used to race the session bootstrap and latch \"Not signed in\"; the fetch now stays pending and retries when the session lands. EXP-916: the file tree is the window's LEFT COLUMN (`LeftOccupant::ReviewFiles`, back row → Reviews), not a card beside the diff column."
+        "web": "The diff is fetched live from GitHub, so this view is the slowest in the catalog and the most network-flaky. Keep the generous anchor timeout. EXP-916: every file card now starts OPEN (only a file past contract.diffUi.collapseThresholdLines folds itself), so the recipe only WAITS for the first hunk row of the first card and clicks its header just in case; the anchor stays a line of the first card's own patch (strings.xml's added feature_topic_api_error string). On md+ the file TREE is the SIDEBAR's panel (the diff's context, beside the compact rail, back row = the identifier), so the cards take the whole column; the phone has no column at all (the list is a sheet off the work bar, beside the white Merge capsule). EXP-1154: the standalone review page is gone; this is the issue's Changes face (the toggle's +N −M segment, GitHub in the header, Merge PR in the tray, Close PR in the issue's actions menu).",
+        "desktop": "Deep-linking straight into a PR diff used to race the session bootstrap and latch \"Not signed in\"; the fetch now stays pending and retries when the session lands. The Changes face draws its own file tree beside the diff. EXP-1154: the drive opens the issue on its Changes face (`issue:<id>?face=changes`); `Screen::PrDiff` is gone."
       }
     },
     {

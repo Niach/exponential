@@ -436,9 +436,14 @@ function ReviewsListNav({
                 className="h-7 gap-2 px-2 py-0"
               >
                 <Link
-                  to="/t/$teamSlug/reviews/$issueIdentifier"
-                  params={{ teamSlug, issueIdentifier: entry.issue.identifier }}
-                  search={{ from: `reviews` }}
+                  to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
+                  params={{
+                    teamSlug,
+                    boardSlug: group.board.slug,
+                    issueIdentifier: entry.issue.identifier,
+                  }}
+                  /* EXP-1154: the review = the issue's Changes face. */
+                  search={{ from: `reviews`, view: `diff` }}
                 >
                   <GitPullRequest className="size-3.5 shrink-0 text-emerald-500" />
                   <span className="shrink-0 font-mono text-xs text-muted-foreground">

@@ -11,9 +11,18 @@ import SwiftUI
 /// the diff is its own view over the SAME retained model: it takes its own
 /// ref-counted claim (`attachSteerModel`) while it is up, so a finished run's
 /// model survives whichever page the pager unmounts first.
-struct RunChangesFace: View {
+///
+/// EXP-1154: the bar is the centred cluster `[files circle] [Merge PR]`, the
+/// centre the host's white Merge capsule (`merge`); the picked file is the
+/// screen's (`focusPath`), so a Results file row can pick it too.
+struct RunChangesFace<Merge: View>: View {
     let accountId: String
     let session: CodingSessionEntity
+    /// The file the sheet (or a Results file row) picked.
+    @Binding var focusPath: String?
+    /// Whether `merge` draws anything (a generic view cannot say).
+    var showsMerge: Bool = false
+    @ViewBuilder var merge: () -> Merge
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.openURL) private var openURL
@@ -23,10 +32,8 @@ struct RunChangesFace: View {
     /// (a leaked claim keeps a finished run's socket, a lost one reaps a
     /// model still shown).
     @State private var claimed = false
-    /// The phone's file list, off the Changes bar's leading slot, and the path
-    /// it last picked.
+    /// The phone's file list, off the Changes bar's leading slot.
     @State private var diffFileSheet = false
-    @State private var selectedDiffPath: String?
 
     /// EXP-895: the model's ONE memoised parse (`AgentSessionModel.parsedDiff`)
     /// — the page and the file sheet read the same `Diff.Parsed`.
@@ -43,7 +50,7 @@ struct RunChangesFace: View {
         }
         // Off the edge, only the file selection has to follow a vanished diff.
         .onChange(of: model?.latestDiff) { _, diff in
-            if diff == nil { selectedDiffPath = nil }
+            if diff == nil { focusPath = nil }
         }
         .onAppear {
             guard !claimed else { return }
@@ -69,14 +76,14 @@ struct RunChangesFace: View {
             SessionDiffList(
                 files: parsedDiff.files,
                 truncatedLines: parsedDiff.truncatedLines,
-                focusPath: selectedDiffPath
+                focusPath: focusPath
             )
             .safeAreaInset(edge: .bottom, spacing: 0) { changesFaceBar(model) }
             .sheet(isPresented: $diffFileSheet) {
                 DiffFileListSheet(
                     files: parsedDiff.files,
-                    selected: selectedDiffPath,
-                    onSelect: { selectedDiffPath = $0 }
+                    selected: focusPath,
+                    onSelect: { focusPath = $0 }
                 )
             }
         } else {
@@ -91,11 +98,11 @@ struct RunChangesFace: View {
         (model.mergeIssue?.prUrl ?? model.session?.prUrl).flatMap { URL(string: $0) }
     }
 
-    /// The file list (else GitHub), alone — EXP-1150 moved Merge PR up into
-    /// the Work screen's header band (`WorkMergePill`).
+    /// The file list (else GitHub) beside the host's Merge capsule
+    /// (EXP-1154: back from the header band to the bar).
     @ViewBuilder
     private func changesFaceBar(_ model: AgentSessionModel) -> some View {
-        if !parsedDiff.files.isEmpty || prURL(model) != nil {
+        if !parsedDiff.files.isEmpty || prURL(model) != nil || showsMerge {
             FloatingBarCluster {
                 // EXP-895: the leading slot is the file list. GitHub keeps the
                 // slot only where there is no list to put there — an
@@ -112,7 +119,7 @@ struct RunChangesFace: View {
                     }
                 }
             } center: {
-                EmptyView()
+                merge()
             } trailing: {
                 EmptyView()
             }

@@ -16,7 +16,7 @@ import { cn } from "./cn"
 // EXP-916: the geometry is ANDROID's `FloatingBottomBar` (the reference the
 // three phones are locked to): a 20px screen inset, 10px between the slots,
 // 52px circles with 20px white glyphs, a capsule padded 18px whose glyph and
-// label sit 8px apart. `cluster` is the Reviews page's layout (Android's
+// label sit 8px apart. `cluster` is the Changes / Results layout (Android's
 // `ChangesBottomBar`): no capsule stretches there — the circles and the
 // white Merge pill hug their content, 12px apart, centred.
 
@@ -39,6 +39,11 @@ export const MOBILE_WORK_CAPSULE_CLASS = cn(
  *  bar's own safe-area padding + a gap), so the last row scrolls clear of
  *  the glass instead of ending under it. */
 export const MOBILE_WORK_BAR_CLEARANCE = `pb-[calc(5.5rem+env(safe-area-inset-bottom))]`
+
+/** EXP-1154: the clearance while the white Merge capsule floats above the bar
+ *  (`MobileMergeFloat`): the bar's clearance + the 52px capsule + its 10px
+ *  gap, so the last row also scrolls clear of the float. */
+export const MOBILE_MERGE_FLOAT_CLEARANCE = `pb-[calc(5.5rem+env(safe-area-inset-bottom)+62px)]`
 
 export function MobileWorkCapsule({
   className,
@@ -74,7 +79,7 @@ export function MobileWorkBar({
   /** A full-width node that REPLACES leading + capsule (the expanded
    *  composer). Null/undefined = the three-slot layout. */
   expanded?: ReactNode
-  /** EXP-916: the Reviews page's layout — the slots hug their content and
+  /** EXP-916: the Changes / Results layout — the slots hug their content and
    *  sit centred, 12px apart (Android's review bar). Default: the capsule
    *  stretches between the circles at the screen's edges. */
   cluster?: boolean

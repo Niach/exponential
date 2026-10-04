@@ -271,9 +271,10 @@ export type SidebarOccupant =
   | { kind: `main` }
   | { kind: `settings` }
   | { kind: `list`; origin: DetailOrigin }
-  /** EXP-916: a review detail — the panel is the pull request's FILE TREE
-   *  (`ReviewFilesNav`), a review's context, whatever list it was opened
-   *  from. The desktop's `LeftOccupant::ReviewFiles`. */
+  /** EXP-916: a diff face — the panel is the FILE TREE (`ReviewFilesNav`),
+   *  the diff's context, whatever list it was opened from (EXP-1154: an
+   *  issue's or a run's Changes face, `?view=diff`). The desktop's
+   *  `LeftOccupant::ReviewFiles`. */
   | { kind: `review` }
   /** EXP-923: the Agent page's RECENT runs, behind that page's history
    *  toggle. The one occupant that is NOT a function of the URL: it is a
@@ -287,7 +288,6 @@ export type SidebarOccupant =
 function isDetailRest(rest: string): boolean {
   if (/^\/boards\/[^/]+\/issues\/[^/]+$/.test(rest)) return true
   if (/^\/sessions\/[^/]+$/.test(rest)) return true
-  if (/^\/reviews\/[^/]+$/.test(rest)) return true
   // EXP-1170: the New issue page is the issue detail in draft mode.
   if (/^\/drafts\/[^/]+$/.test(rest)) return true
   return false
@@ -295,9 +295,8 @@ function isDetailRest(rest: string): boolean {
 
 /**
  * EXP-851: the sidebar's occupant, from the URL alone — settings while any
- * `/settings` route is active, (EXP-916) the review's file tree on a review
- * detail, (EXP-945) the RUN's file tree while its Changes face is up
- * (`?view=diff`), the LIST NAV on any other detail route that carries a
+ * `/settings` route is active, (EXP-945) the file tree while a run's or
+ * (EXP-1154) an issue's Changes face is up (`?view=diff`), the LIST NAV on any other detail route that carries a
  * parseable `?from=`, the main menu otherwise. Derived (never click state) so
  * a deep link lands settled and every entry point drives the same swap.
  */
@@ -312,10 +311,13 @@ export function sidebarOccupant(
   if (rest === `/settings` || rest.startsWith(`/settings/`)) {
     return { kind: `settings` }
   }
-  if (/^\/reviews\/[^/]+$/.test(rest)) return { kind: `review` }
-  // EXP-945: a run's diff is a review's diff — same panel, same slot
-  // (`review-files-slot.ts`), so the file tree never floats in the column.
-  if (/^\/sessions\/[^/]+$/.test(rest) && view === `diff`) {
+  // EXP-945: a run's diff and (EXP-1154) an issue's PR diff take the file
+  // tree panel (`review-files-slot.ts`), so it never floats in the column.
+  if (
+    view === `diff` &&
+    (/^\/sessions\/[^/]+$/.test(rest) ||
+      /^\/boards\/[^/]+\/issues\/[^/]+$/.test(rest))
+  ) {
     return { kind: `review` }
   }
   if (!isDetailRest(rest)) return { kind: `main` }
