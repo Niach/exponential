@@ -259,6 +259,8 @@ fun IssueDetailBottomBar(
     onOpenProperties: () -> Unit,
     /** EXP-893: the right circle — the host's Start (EXP-1150), else empty. */
     trailing: @Composable () -> Unit,
+    /** EXP-1191: the Merge circle right of the Comment capsule; null = none. */
+    merge: (@Composable () -> Unit)? = null,
     draft: String,
     onDraftChange: (String) -> Unit,
     sending: Boolean,
@@ -404,6 +406,7 @@ fun IssueDetailBottomBar(
                 showProperties = showProperties,
                 onOpenProperties = onOpenProperties,
                 trailing = trailing,
+                merge = merge,
                 onExpand = { onExpandedChange(true) },
             )
         }
@@ -415,6 +418,7 @@ private fun CollapsedBar(
     showProperties: Boolean,
     onOpenProperties: () -> Unit,
     trailing: @Composable () -> Unit,
+    merge: (@Composable () -> Unit)?,
     onExpand: () -> Unit,
 ) {
     // EXP-893: the shared Work-screen bar chrome — properties circle, the
@@ -435,6 +439,7 @@ private fun CollapsedBar(
             null
         },
         right = trailing,
+        afterCentre = merge,
     ) {
         BarCapsule(
             label = "Comment",

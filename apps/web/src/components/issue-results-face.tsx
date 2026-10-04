@@ -78,13 +78,13 @@ export function IssueResultsBody({
   return (
     <div data-testid="issue-results-face">
       {groups.length === 0 && loading && (
-        <div className="flex items-center gap-2 px-7 py-6 text-sm text-muted-foreground md:px-9">
+        <div className="flex items-center gap-2 px-7 py-6 text-sm text-muted-foreground md:px-5">
           <UiLoadingIcon className="size-4 animate-spin" />
           Loading the pull request…
         </div>
       )}
       {groups.length === 0 && error && (
-        <p className="px-7 py-6 text-sm text-destructive md:px-9">{error}</p>
+        <p className="px-7 py-6 text-sm text-destructive md:px-5">{error}</p>
       )}
       {groups.length > 0 && (
         <SessionResultsView

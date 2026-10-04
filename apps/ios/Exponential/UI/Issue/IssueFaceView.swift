@@ -95,8 +95,8 @@ struct IssueFaceView: View {
     let onStartCoding: () -> Void
     /// The PR / branch row switches the screen to its Changes face.
     let onOpenChanges: () -> Void
-    /// EXP-1154: the screen's white Merge PR capsule, floated above the bar.
-    var mergeAccessory: AnyView? = nil
+    /// EXP-1191: the screen's Merge PR circle, right of the bar's capsule.
+    var mergeCircle: AnyView? = nil
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -371,7 +371,7 @@ struct IssueFaceView: View {
                     replyTarget: $commentReplyTarget,
                     // SLOP-4: the reporter-reply pill keys off the submission.
                     widgetSubmission: vm.widgetSubmission,
-                    mergeAccessory: mergeAccessory
+                    mergeCircle: mergeCircle
                 )
             }
         }

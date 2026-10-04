@@ -19,6 +19,7 @@ pub(crate) mod picker_repository;
 pub(crate) mod sub_shell;
 pub(crate) mod menu;
 pub(crate) mod toast;
+pub(crate) mod jump_to_bottom;
 pub(crate) mod composer_dialog;
 pub(crate) mod issue_context_menu;
 pub(crate) mod session_tree;
@@ -67,6 +68,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: sub_shell::ID, owner: sub_shell::OWNER, render: sub_shell::render },
     Entry { id: menu::ID, owner: menu::OWNER, render: menu::render },
     Entry { id: toast::ID, owner: toast::OWNER, render: toast::render },
+    Entry { id: jump_to_bottom::ID, owner: jump_to_bottom::OWNER, render: jump_to_bottom::render },
     Entry { id: composer_dialog::ID, owner: composer_dialog::OWNER, render: composer_dialog::render },
     Entry { id: issue_context_menu::ID, owner: issue_context_menu::OWNER, render: issue_context_menu::render },
     Entry { id: session_tree::ID, owner: session_tree::OWNER, render: session_tree::render },

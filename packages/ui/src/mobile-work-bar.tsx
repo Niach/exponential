@@ -8,7 +8,8 @@ import { cn } from "./cn"
 // capsule] [right circle]`, the glass recipe of EXP-568's issue bar and the
 // tab bar, now shared by every face of the Work screen: the issue (Properties
 // · Comment · Start/switcher), the run (usage ring · composer · switcher) and
-// the changes (GitHub · Merge · switcher). `expanded` replaces the left circle
+// the changes (GitHub · Merge · switcher). EXP-1191: the Issue and Run bars
+// add the Merge circle right of the capsule while the PR is open. `expanded` replaces the left circle
 // and the capsule with a full-width composer while the trailing circle stays
 // MOUNTED (a `contents`/`hidden` swap), because the switcher owns lookups
 // that must not re-run on every expand.
@@ -40,11 +41,6 @@ export const MOBILE_WORK_CAPSULE_CLASS = cn(
  *  the glass instead of ending under it. */
 export const MOBILE_WORK_BAR_CLEARANCE = `pb-[calc(5.5rem+env(safe-area-inset-bottom))]`
 
-/** EXP-1154: the clearance while the white Merge capsule floats above the bar
- *  (`MobileMergeFloat`): the bar's clearance + the 52px capsule + its 10px
- *  gap, so the last row also scrolls clear of the float. */
-export const MOBILE_MERGE_FLOAT_CLEARANCE = `pb-[calc(5.5rem+env(safe-area-inset-bottom)+62px)]`
-
 export function MobileWorkCapsule({
   className,
   children,
@@ -64,6 +60,7 @@ export function MobileWorkCapsule({
 export function MobileWorkBar({
   leading,
   capsule,
+  afterCapsule,
   trailing,
   expanded,
   cluster = false,
@@ -73,6 +70,9 @@ export function MobileWorkBar({
   leading?: ReactNode
   /** The centre capsule (`+ Comment`, the composer prompt, Merge PR). */
   capsule?: ReactNode
+  /** EXP-1191: a circle right of the capsule (the Merge circle while the PR
+   *  is open) — hidden with the capsule while `expanded` shows. */
+  afterCapsule?: ReactNode
   /** The right circle: Start coding or the face switcher. Stays mounted
    *  while `expanded` shows. */
   trailing?: ReactNode
@@ -114,6 +114,7 @@ export function MobileWorkBar({
         <>
           {leading}
           {capsule ?? (cluster ? null : <span className="min-w-0 flex-1" />)}
+          {afterCapsule}
         </>
       )}
       {/* `hidden` beats `contents` through tailwind-merge, so this is

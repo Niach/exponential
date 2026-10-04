@@ -131,6 +131,7 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`session-tree`]: `Lists & rows`,
   [`results-guide`]: `Lists & rows`,
   [`pr-graph-badge`]: `Buttons & chips`,
+  [`jump-to-bottom`]: `Buttons & chips`,
 }
 
 /** The band an unregistered entry falls back to, so the page always draws it. */

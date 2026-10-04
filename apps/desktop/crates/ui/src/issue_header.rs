@@ -47,7 +47,8 @@ use domain::rows::{Issue, Label, Board, User};
 use crate::coding_flow::{LocalSessions, StartCodingControl};
 use crate::icons::{option_icon, registry, ExpIcon};
 use crate::pickers::{chip_button, PICKER_MENU_MIN_WIDTH};
-use crate::issue_detail::{issue_web_url, set_duplicate_of, DETAIL_GUTTER};
+use crate::issue_detail::{issue_web_url, set_duplicate_of};
+use crate::work_header::WORK_GUTTER;
 use crate::navigation::go_back;
 use crate::queries;
 use crate::surface::{glass_pill, PillMode, PillSize};
@@ -610,7 +611,7 @@ impl IssueHeader {
         if !pr_open {
             return None;
         }
-        let mut column = v_flex().w_full().gap_2().px(px(DETAIL_GUTTER)).pb_2();
+        let mut column = v_flex().w_full().gap_2().px(px(WORK_GUTTER)).pb_2();
         let has_card = false;
 
         let mut controls = h_flex().w_full().flex_wrap().gap_2().items_center();
@@ -835,7 +836,13 @@ impl IssueHeader {
                 .into_any_element(),
             );
         }
-        cluster.push(self.render_actions_menu(issue, cx).into_any_element());
+        // EXP-1191: the `…` glyph, not its hit box, ends on the content edge.
+        cluster.push(
+            div()
+                .mr(px(-crate::work_header::GHOST_ICON_HANG))
+                .child(self.render_actions_menu(issue, cx))
+                .into_any_element(),
+        );
         cluster
     }
 
@@ -883,41 +890,6 @@ impl IssueHeader {
                 crate::work_header::header_action_size(true),
                 cx,
             )),
-        }
-        actions
-    }
-
-    /// EXP-1162: what the compact bar carries once the issue face's tray has
-    /// scrolled away — Merge PR and Stop / Resume at the TOGGLE's rung
-    /// (EXP-926: the placement decides the size), so scrolling never loses
-    /// them. Start coding stays in the tray: it is a launcher entity with a
-    /// readiness popover of its own, and one instance renders once.
-    pub(crate) fn bar_actions(
-        &mut self,
-        issue: &Issue,
-        action: crate::work_header::CodingAction,
-        cx: &mut gpui::Context<Self>,
-    ) -> Vec<gpui::AnyElement> {
-        let pr_open = issue.pr_state.as_deref() == Some("open");
-        let mut actions = Vec::with_capacity(2);
-        if pr_open && !self.merge_suppressed {
-            actions.push(crate::work_header::merge_slot(
-                "bar-merge-pr",
-                &crate::changes_bar::MergeTarget::Issue {
-                    issue_id: issue.id.clone(),
-                },
-                true,
-                crate::work_header::header_action_size(false),
-                cx,
-            ));
-        }
-        if !matches!(action, crate::work_header::CodingAction::Start) {
-            actions.extend(crate::work_header::coding_action_button(
-                action,
-                None,
-                crate::work_header::header_action_size(false),
-                cx,
-            ));
         }
         actions
     }

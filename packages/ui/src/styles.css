@@ -649,20 +649,23 @@ html {
   mask-image: linear-gradient(to top, black, transparent);
 }
 
-@utility glass-edge-bottom-card {
-  background-color: color-mix(
-    in oklab,
-    var(--glass-background-top) 72%,
+/* EXP-1191: the run transcript's edge above the md+ composer — the Claude
+   app's clean fade, not a frosted band: the scroller's own content is masked
+   out over its last 48px, so the newest lines dissolve into whatever panel
+   is behind them (a painted fade could never match the card's gradient). */
+@utility feed-fade-bottom {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    black calc(100% - 48px),
+    rgb(0 0 0 / 0.6) calc(100% - 24px),
     transparent
   );
-  background-image: linear-gradient(
-    var(--glass-fill-panel),
-    var(--glass-fill-panel)
+  mask-image: linear-gradient(
+    to bottom,
+    black calc(100% - 48px),
+    rgb(0 0 0 / 0.6) calc(100% - 24px),
+    transparent
   );
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
-  -webkit-mask-image: linear-gradient(to top, black, transparent);
-  mask-image: linear-gradient(to top, black, transparent);
 }
 
 /* Full-viewport gradient repaint for full-screen covers that would otherwise

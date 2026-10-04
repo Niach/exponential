@@ -19,6 +19,7 @@ import { entry as pickerRepository } from "./picker-repository.tsx"
 import { entry as subShell } from "./sub-shell.tsx"
 import { entry as menu } from "./menu.tsx"
 import { entry as toast } from "./toast.tsx"
+import { entry as jumpToBottom } from "./jump-to-bottom.tsx"
 import { entry as composerDialog } from "./composer-dialog.tsx"
 import { entry as issueContextMenu } from "./issue-context-menu.tsx"
 import { entry as sessionTree } from "./session-tree.tsx"
@@ -49,6 +50,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   subShell,
   menu,
   toast,
+  jumpToBottom,
   composerDialog,
   issueContextMenu,
   sessionTree,

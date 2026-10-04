@@ -6,7 +6,7 @@ import SwiftUI
 /// (`IssueFaceView` as hosted by `WorkScreen`), identical ×4. The differences
 /// are the whole spec: the header's identifier slot reads
 /// `IssueDraftPage.header` (collapsing over the typed title), the trailing
-/// cluster is `Create` + a `…` holding only `Discard draft`, and the body is
+/// cluster is `Create` + an `×` labelled `Discard draft` (EXP-1191), and the body is
 /// title → property chips → description → Files, nothing else. The draft
 /// autosaves (`IssueDraftViewModel`); Back never asks.
 struct IssueDraftPageView: View {
@@ -42,8 +42,6 @@ struct IssueDraftPageView: View {
     @FocusState private var titleFocused: Bool
     /// The picker a chip opened (the face's direct path).
     @State private var child: IssuePropertyChild?
-    @State private var menuAnchor: CGRect = .zero
-    @State private var menuOpen = false
     /// EXP-1162: the header title's collapse, flipped only on the edge.
     @State private var titleScrolledAway = false
     @State private var titleEdges = TitleCollapseTracker()
@@ -67,12 +65,6 @@ struct IssueDraftPageView: View {
         // The page owns its Back: leaving runs the draft's final write.
         .navigationBarBackButtonHidden(true)
         .toolbar { toolbarContent }
-        .glassMenuOverlay(isPresented: $menuOpen, anchor: menuAnchor, presentation: .inline) {
-            GlassMenuItem(IssueDraftPage.discard, icon: AppIcons.uiDelete, destructive: true) {
-                vm.discard()
-                onClose()
-            }
-        }
         // Lifecycle on the always-present root (never an empty Group).
         .onAppear {
             vm.start(deps: deps, accountId: accountId)
@@ -157,13 +149,23 @@ struct IssueDraftPageView: View {
             .disabled(!vm.canCreate)
             .accessibilityIdentifier("issue-draft-create")
         }
+        // EXP-1191: Discard is the draft's only action — a bare `×`, not a
+        // one-item `…` menu; its label (and pointer tooltip) says what it does.
         ToolbarItem(placement: .topBarTrailing) {
-            GlassMenuBarButton(
-                icon: AppIcons.uiMore,
-                accessibilityLabel: "More",
-                anchor: $menuAnchor,
-                isPresented: $menuOpen
-            )
+            Button {
+                vm.discard()
+                onClose()
+            } label: {
+                AppIcon(AppIcons.uiClose, size: AppIcon.Size.medium, weight: .medium)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .frame(width: 32, height: 32)
+                    .contentShape(Circle().inset(by: -GlassMenuTokens.triggerHitInset))
+            }
+            .buttonStyle(.plain)
+            .disabled(vm.creating)
+            .help(IssueDraftPage.discard)
+            .accessibilityLabel(IssueDraftPage.discard)
+            .accessibilityIdentifier("issue-draft-discard")
         }
     }
 

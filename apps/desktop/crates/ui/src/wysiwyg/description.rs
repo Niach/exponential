@@ -39,6 +39,10 @@ use crate::markdown::{
 };
 use crate::queries;
 
+/// EXP-1191: the insert bar's Medium ghost buttons are 28px boxes around a
+/// 16px glyph — the glyph's inset inside its box.
+const INSERT_BAR_ICON_INSET: f32 = 6.;
+
 /// Save hook: current markdown at save time (same shape as
 /// [`crate::issue_detail::OnSaveDescription`]).
 pub(crate) type OnSave = Rc<dyn Fn(String, &mut Window, &mut App)>;
@@ -1687,6 +1691,9 @@ impl WysiwygDescription {
             .items_center()
             .gap_1()
             .pt_1p5()
+            // EXP-1191: the first GLYPH sits on the text edge (the blocks'
+            // own padding), its ghost hover fill hanging outside it.
+            .pl(px(super::WYSIWYG_BLOCK_PADDING_X - INSERT_BAR_ICON_INSET))
             .text_color(muted)
             .child(crate::emoji_picker::emoji_picker_popover(
                 "wysiwyg-insert-emoji-popover",

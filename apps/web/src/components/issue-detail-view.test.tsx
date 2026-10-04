@@ -3,7 +3,6 @@ import { act, fireEvent, render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { Board, Issue } from "@/db/schema"
 import {
-  MOBILE_MERGE_FLOAT_CLEARANCE,
   MOBILE_WORK_BAR_CLEARANCE,
 } from "@exp/ui"
 import { IssueDetailView } from "@/components/issue-detail-view"
@@ -300,13 +299,13 @@ describe(`IssueDetailView faces`, () => {
   })
 })
 
-// EXP-1154: the floating Merge capsule sits 62px above the bar, so the Issue
-// face's scroller reserves that too while it is mounted.
+// EXP-1191: the Merge circle rides IN the bar (no float above it), so the
+// Issue face's scroller keeps the bar's clearance alone either way.
 describe(`IssueDetailView phone clearance`, () => {
   const scroller = (container: HTMLElement) =>
     container.querySelector(`[data-face-body]`) as HTMLElement
 
-  it(`reserves the float's height only while the float is mounted`, () => {
+  it(`reserves the bar's clearance with or without the Merge circle`, () => {
     mobileState.mobile = true
     try {
       const props = {
@@ -317,19 +316,18 @@ describe(`IssueDetailView phone clearance`, () => {
         teamId: `t1`,
       }
       const view = render(<IssueDetailView {...props} mobileWork={{}} />)
-      const plain = scroller(view.container).className
-      expect(plain).toContain(MOBILE_WORK_BAR_CLEARANCE)
-      expect(plain).not.toContain(MOBILE_MERGE_FLOAT_CLEARANCE)
-
+      expect(scroller(view.container).className).toContain(
+        MOBILE_WORK_BAR_CLEARANCE
+      )
       view.rerender(
         <IssueDetailView
           {...props}
-          mobileWork={{ merge: <div data-testid="float" /> }}
+          mobileWork={{ merge: <div data-testid="merge" /> }}
         />
       )
-      const floated = scroller(view.container).className
-      expect(floated).toContain(MOBILE_MERGE_FLOAT_CLEARANCE)
-      expect(floated.split(` `)).not.toContain(MOBILE_WORK_BAR_CLEARANCE)
+      expect(scroller(view.container).className).toContain(
+        MOBILE_WORK_BAR_CLEARANCE
+      )
     } finally {
       mobileState.mobile = false
     }

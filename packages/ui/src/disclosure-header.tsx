@@ -40,7 +40,15 @@ export function DisclosureHeader({
   children: React.ReactNode
 }) {
   const Glyph = open ? ChevronDownGlyph : ChevronRightGlyph
-  const glyph = <Glyph data-slot="disclosure-chevron" className="size-3 shrink-0" />
+  // EXP-1191: a trailing glyph parks itself with `ml-auto` — a flex-1
+  // spacer split the free space with a row's own `flex-1` label and left its
+  // trailing count mid-row.
+  const glyph = (
+    <Glyph
+      data-slot="disclosure-chevron"
+      className={cn(`size-3 shrink-0`, chevron === `trailing` && `ml-auto`)}
+    />
+  )
   return (
     <button
       type="button"
@@ -56,12 +64,7 @@ export function DisclosureHeader({
     >
       {chevron === `leading` && glyph}
       {children}
-      {chevron === `trailing` && (
-        <>
-          <span className="min-w-0 flex-1" />
-          {glyph}
-        </>
-      )}
+      {chevron === `trailing` && glyph}
     </button>
   )
 }

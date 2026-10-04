@@ -82,6 +82,7 @@ export function IssuePropertiesTray({
     <PropertiesTrayCard>
         <div className="min-w-0 flex-1">
           <IssuePropertiesPanel
+            className="md:px-0"
             status={statusOption}
             onStatusChange={handlers.handleStatusChange}
             priority={issue.priority}
@@ -111,7 +112,7 @@ export function IssuePropertiesTray({
         {/* min-w-0, not shrink-0: the "No desktop online" caption beside the
             capsule truncates rather than squeezing the property pills. */}
         {(mergeButton || codingAction) && (
-          <div className="flex min-w-0 items-center gap-1.5 pr-3">
+          <div className="flex min-w-0 items-center gap-1.5 pr-3 md:pr-0">
             {mergeButton}
             {codingAction}
           </div>
@@ -121,13 +122,15 @@ export function IssuePropertiesTray({
 }
 
 /** EXP-1170: the tray's card — the issue detail's and the New issue page's
- *  properties row sit in the very same chrome. */
+ *  properties row sit in the very same chrome. EXP-1191: a card on phones
+ *  only; md+ (like the IDE) sets the properties straight on the page, under
+ *  the title. */
 export function PropertiesTrayCard({ children }: { children: ReactNode }) {
   return (
-    <div className={`${WORK_COLUMN_CLASS} px-4 pt-3`}>
+    <div className={`${WORK_COLUMN_CLASS} px-4 pt-3 md:px-5`}>
       {/* The IDE's `glass_tray`: the section fill inside the card hairline
           (`bg-popover/40` vanished against the panel). */}
-      <div className="flex items-center gap-1.5 rounded-xl border border-glass-stroke-card bg-glass-section">
+      <div className="flex items-center gap-1.5 max-md:rounded-xl max-md:border max-md:border-glass-stroke-card max-md:bg-glass-section">
         {children}
       </div>
     </div>

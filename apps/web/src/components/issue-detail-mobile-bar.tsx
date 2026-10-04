@@ -19,7 +19,8 @@ import { issueMemoryOwner } from "@/lib/work-tab-memory"
 // bottom of a long scroll. Properties (a sheet), Comment (expands into the
 // composer in place), and the trailing circle (passed in — EXP-893: the
 // Start coding circle while the issue has no run of mine, else the face
-// switcher of the Work screen). EXP-893: a composition over the ONE
+// switcher of the Work screen; EXP-1191: the Merge circle sits between
+// Comment and it while the PR is open). EXP-893: a composition over the ONE
 // `MobileWorkBar` every face of the Work screen shares.
 
 const PropertiesIcon = conceptIcon(`ui-properties`)
@@ -33,7 +34,7 @@ export function IssueDetailMobileBar({
   onSubmitComment,
   hidden = false,
   reporter = null,
-  above,
+  merge,
 }: {
   issueId: string
   users: User[]
@@ -52,9 +53,9 @@ export function IssueDetailMobileBar({
   /** Hidden while the description editor is focused — the keyboard rail owns
    *  the bottom edge then. */
   hidden?: boolean
-  /** EXP-1154: the floating white Merge capsule (`MobileMergeFloat`), drawn
-   *  above the bar only while the bar is up and the composer closed. */
-  above?: ReactNode
+  /** EXP-1191: the Merge circle (`MobileMergeCircle`) right of the Comment
+   *  capsule, hidden with it while the composer is open. */
+  merge?: ReactNode
 }) {
   const [propertiesOpen, setPropertiesOpen] = useState(false)
   const [composing, setComposing] = useState(false)
@@ -67,7 +68,6 @@ export function IssueDetailMobileBar({
 
   return (
     <>
-      {!hidden && !composing && above}
       <MobileWorkBar
         hidden={hidden}
         leading={
@@ -85,6 +85,7 @@ export function IssueDetailMobileBar({
             Comment
           </MobileWorkCapsule>
         }
+        afterCapsule={merge}
         trailing={trailingNode}
         expanded={
           composing ? (

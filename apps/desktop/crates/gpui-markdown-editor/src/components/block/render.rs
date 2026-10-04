@@ -207,7 +207,7 @@ fn effective_table_width(block: &Block, viewport_width: f32, d: &ThemeDimensions
         0.0
     };
 
-    (centered_width - quote_inset - callout_inset)
+    (centered_width - d.block_padding_x * 2.0 - quote_inset - callout_inset)
         .max((d.table_cell_padding_x * 2.0 + 80.0).max(120.0))
 }
 
@@ -3576,21 +3576,30 @@ impl Render for Block {
                         }
                     };
 
+                    // EXP-1191: the table's outer border sits on the SAME
+                    // edges as the text blocks around it (the block padding
+                    // either side), never hanging into the host's gutter.
                     div()
-                        .id(block_id)
                         .w_full()
-                        .relative()
-                        .flex()
-                        .flex_col()
-                        .pr(right_gutter)
-                        .pb(bottom_gutter)
-                        .gap(px(0.0))
-                        .children(rows)
-                        .children(column_axis_row)
-                        .child(column_edge_band)
-                        .child(row_edge_band)
-                        .child(column_control)
-                        .child(row_control)
+                        .pl(px(depth_padding))
+                        .pr(px(d.block_padding_x))
+                        .child(
+                            div()
+                                .id(block_id)
+                                .w_full()
+                                .relative()
+                                .flex()
+                                .flex_col()
+                                .pr(right_gutter)
+                                .pb(bottom_gutter)
+                                .gap(px(0.0))
+                                .children(rows)
+                                .children(column_axis_row)
+                                .child(column_edge_band)
+                                .child(row_edge_band)
+                                .child(column_control)
+                                .child(row_control),
+                        )
                         .into_any_element()
                 }
             }

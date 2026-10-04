@@ -47,7 +47,7 @@ import {
   IssueResultsFace,
   prDescriptionGroups,
 } from "@/components/issue-results-face"
-import { MobileMergeFloat } from "@/components/mobile-merge-float"
+import { MobileMergeCircle } from "@/components/mobile-merge-circle"
 import { publishReviewFiles } from "@/lib/review-files-slot"
 import { MobileFaceTabs, useFaceSwipe } from "@/components/mobile-face-tabs"
 import { selectIssueRuns } from "@/lib/past-runs"
@@ -764,7 +764,7 @@ function MobileIssuePage({
       mobileWork={{
         tabs,
         swipe,
-        merge: canMerge ? <MobileMergeFloat {...mergeTarget} /> : undefined,
+        merge: canMerge ? <MobileMergeCircle {...mergeTarget} /> : undefined,
       }}
     />
   )

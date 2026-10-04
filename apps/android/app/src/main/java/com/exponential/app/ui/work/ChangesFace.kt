@@ -35,6 +35,8 @@ import com.exponential.app.ui.components.FloatingBarEdge
 import com.exponential.app.ui.components.detailHazeSource
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.Diff
@@ -43,7 +45,6 @@ import com.exponential.app.domain.PrStack
 import com.exponential.app.ui.components.BarCircle
 import com.exponential.app.ui.components.BarSolidPill
 import com.exponential.app.ui.components.BottomBarInset
-import com.exponential.app.ui.components.FloatingBarRung
 import com.exponential.app.ui.components.FloatingBarCluster
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.DiffFileCard
@@ -65,7 +66,7 @@ import kotlinx.coroutines.launch
 
 /** What the Merge capsule merges — the PR, or the recovery run.
  *  The host builds ONE (off the live run or the issue's PR) and every face
- *  draws it in or above its floating bar ([MergeCapsule], EXP-1154). */
+ *  draws it on its floating bar ([MergeCapsule] / [MergeCircle], EXP-1154/1191). */
 data class ChangesMergeControl(
     val label: String,
     val fixConflicts: Boolean,
@@ -213,11 +214,12 @@ fun ChangesFace(
 
 /**
  * EXP-1154: the ONE Merge PR on a phone — the SOLID WHITE capsule (the
- * EXP-916 [BarSolidPill], 52dp, hugging its label) in or above every face's
- * floating bar, running the confirm (or the stack dialog). With a real
+ * EXP-916 [BarSolidPill], 52dp, hugging its label) in the Changes / Results
+ * bar cluster, running the confirm (or the stack dialog). With a real
  * conflict it becomes Fix conflicts (the branch glyph) and opens the
  * recovery run. A refusal toasts. The host builds it only while the PR is
- * open, so it self-hides with the PR.
+ * open, so it self-hides with the PR. The Issue / Run bars carry the same
+ * control as the glyph-only [MergeCircle] (EXP-1191).
  */
 @Composable
 fun MergeCapsule(
@@ -230,44 +232,78 @@ fun MergeCapsule(
      */
     tag: String = MergeCapsuleTag,
 ) {
+    MergeTrigger(merge) { onClick ->
+        BarSolidPill(
+            label = merge.label,
+            icon = mergeGlyph(merge),
+            loading = merge.loading,
+            enabled = !merge.loading,
+            onClick = onClick,
+            // EXP-627: the store slide's pop-out rect is measured off this tag.
+            modifier = modifier.testTag(tag),
+        )
+    }
+}
+
+/**
+ * EXP-1191: the Issue / Run faces' Merge — the bar's own 52dp glass
+ * [BarCircle] carrying only the merge glyph (white), directly right of the
+ * composer capsule. Same control, same confirm / stack / fix-conflicts flow
+ * as [MergeCapsule]; a merging circle spins in place of its glyph.
+ */
+@Composable
+fun MergeCircle(merge: ChangesMergeControl, tag: String, modifier: Modifier = Modifier) {
+    MergeTrigger(merge) { onClick ->
+        BarCircle(
+            onClick = onClick,
+            enabled = !merge.loading,
+            modifier = modifier
+                .testTag(tag)
+                .semantics { contentDescription = if (merge.fixConflicts) merge.label else MERGE_CIRCLE_LABEL },
+        ) {
+            if (merge.loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                    color = Color.White,
+                )
+            } else {
+                Icon(
+                    mergeGlyph(merge),
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = Color.White,
+                )
+            }
+        }
+    }
+}
+
+private const val MERGE_CIRCLE_LABEL = "Merge PR"
+
+private fun mergeGlyph(merge: ChangesMergeControl) =
+    if (merge.fixConflicts) ExpIcons.uiBranch else ExpIcons.prMerged
+
+/**
+ * The ONE tap behaviour both Merge shapes share: Fix conflicts opens the
+ * recovery run, a merge asks first ([MergeConfirmDialog], the stack choice
+ * included). A refusal toasts ONCE in the host (WorkScreen), never per
+ * control: the pager keeps neighbouring faces composed.
+ */
+@Composable
+private fun MergeTrigger(
+    merge: ChangesMergeControl,
+    content: @Composable (onClick: () -> Unit) -> Unit,
+) {
     var mergeConfirmOpen by remember { mutableStateOf(false) }
-    // A refusal toasts ONCE in the host (WorkScreen), never per capsule: the
-    // pager keeps neighbouring faces composed, so a per-capsule toast fired
-    // two or three times and again on every swipe.
-    BarSolidPill(
-        label = merge.label,
-        icon = if (merge.fixConflicts) ExpIcons.uiBranch else ExpIcons.prMerged,
-        loading = merge.loading,
-        enabled = !merge.loading,
-        onClick = { if (merge.fixConflicts) merge.onFixConflicts() else mergeConfirmOpen = true },
-        // EXP-627: the store slide's pop-out rect is measured off this tag.
-        modifier = modifier.testTag(tag),
-    )
+    content { if (merge.fixConflicts) merge.onFixConflicts() else mergeConfirmOpen = true }
     if (mergeConfirmOpen) {
         MergeConfirmDialog(merge = merge, onDismiss = { mergeConfirmOpen = false })
     }
 }
 
-/**
- * EXP-1154: the Merge capsule floating centred directly ABOVE a composer bar
- * (the Issue and Run faces): 10dp clear of the bar's rung (its own 8dp
- * vertical padding plus 2dp here).
- */
-@Composable
-fun MergeCapsuleAboveBar(merge: ChangesMergeControl, tag: String, modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier.fillMaxWidth().padding(top = 8.dp, bottom = 2.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        MergeCapsule(merge, tag = tag)
-    }
-}
-
 /** The Changes face's capsule tag; the other faces append `-issue`/`-run`/`-results`. */
 const val MergeCapsuleTag = "work-merge-pr"
-
-/** The extra list clearance a [MergeCapsuleAboveBar] adds above a bar. */
-val MergeCapsuleAboveBarHeight = FloatingBarRung + 10.dp
 
 /**
  * EXP-498: merging always closes the session too, so the merge is

@@ -304,7 +304,10 @@ export function IssueTimeline({
   // the border and the centered body are ONE element (the detail view mounts
   // this inside its `max-w-4xl` column; desktop-app parity).
   return (
-    <div className="mx-auto max-w-4xl border-t border-border px-4 py-3">
+    // EXP-1191: the gutter outside the rule, so the rule, the heading and
+    // the composer all run edge to edge of the column's content box.
+    <div className="mx-auto max-w-4xl px-4 md:px-5">
+    <div className="border-t border-border py-3">
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="text-sm font-medium text-foreground">
           Activity {activityCount > 0 ? `(${activityCount})` : ``}
@@ -397,6 +400,7 @@ export function IssueTimeline({
           />
         </div>
       )}
+    </div>
     </div>
   )
 }

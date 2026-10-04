@@ -17,7 +17,7 @@ import { editCard } from "@exp/domain-contract/edit-card"
 import { expToolGroupCaption } from "@exp/domain-contract/exp-tool-group"
 import { linkSegments } from "@/lib/linkify"
 import { splitIssueRefs } from "@/lib/issue-refs"
-import { ArrowDown, Check, X } from "lucide-react"
+import { Check, X } from "lucide-react"
 import type { PastRunRow } from "@/hooks/use-agents-data"
 import {
   FACE_BODY_TOUCH_CLASS,
@@ -32,6 +32,8 @@ import {
   EditedFilesCard,
   FAB_CHROME_CLASS,
   FabButton,
+  JumpToBottomButton,
+  TaskListProgress,
   GlassCard,
   useIsMobile,
   Button,
@@ -50,16 +52,17 @@ import {
   PrGithubButton,
   ChangesFileSheet,
   AgentMark,
-  AgentBrandMark,
+  AgentWorkingMark,
   ContextRing,
   SessionInlineResultTile,
   SessionResultsView,
   parseSessionResultGroups,
   sessionResultPicture,
   WORK_COLUMN_CLASS,
+  WORK_GUTTER_CLASS,
   WorkHeader,
   CollapsedTitle,
-  DETAIL_EDGE_BOTTOM_CARD_CLASS,
+  DETAIL_FADE_BOTTOM_CLASS,
   Composer,
   ComposerSubmit,
   ExponentialLogo,
@@ -183,9 +186,8 @@ import {
 } from "@/components/run-action-pills"
 import { MergeCapsule } from "@/components/issue-changes-face"
 import {
-  MobileMergeFloat,
-  mobileFaceClearance,
-} from "@/components/mobile-merge-float"
+  MobileMergeCircle,
+} from "@/components/mobile-merge-circle"
 import {
   ISSUE_FACE_LABEL,
   RESULTS_FACE_LABEL,
@@ -276,10 +278,11 @@ const UiUnselectedIcon = conceptIcon(`ui-unselected`)
 // derived ONCE in lib/agent-feed.ts). The renderer only maps a ladder token
 // onto its custom property, so no number is restated here.
 
-/** The centred reading column every transcript row sits in: the measure plus
- *  one gutter either side, with the gutter as padding from `sm:` up (a phone
- *  cannot afford 48px of it, so it keeps the old 12). */
-const TRANSCRIPT_COLUMN = `${WORK_COLUMN_CLASS} px-3 sm:px-[var(--transcript-gutter)]`
+/** The centred reading column every transcript row sits in. EXP-1191: on
+ *  md+ its gutter is the work column's (`WORK_GUTTER_CLASS`), so the run's
+ *  rows, strips and composer share the issue face's edges; a phone keeps
+ *  its 12. */
+const TRANSCRIPT_COLUMN = `${WORK_COLUMN_CLASS} px-3 md:px-5`
 
 /** Prose scale — agent narration and the sender's own bubbles. Markdown
  *  bodies get the same size/leading from the `.agent-feed .tiptap-content`
@@ -1178,15 +1181,14 @@ export function AgentSessionView({
   ) : null
   /** EXP-1154: the ONE merge of the phone Work screen is the white capsule
    *  on the floating bar again (no longer beside the tabs): in the cluster on
-   *  Changes and Results, floating above the composer bar on Run. */
+   *  Changes and Results (EXP-1191: a circle beside the composer on Run). */
   const phoneMerge =
     isMobile && canMerge && mergeProps ? (
       <MergeCapsule {...mergeProps} steerEnabled={steerEnabled} />
     ) : undefined
 
   /** EXP-1150: the Run face's bar keeps ONE circle on its right — Start
-   *  coding once the run ended for good, else nothing (EXP-1154: Merge
-   *  floats above the bar). */
+   *  coding once the run ended for good, else nothing. */
   const phoneTrailingNode =
     Boolean(onStart) && sessionEnded && !canResumeAny ? (
       <FabButton
@@ -1200,22 +1202,17 @@ export function AgentSessionView({
       </FabButton>
     ) : undefined
 
-  /** EXP-1154: the white Merge floats above the Run face's bar (the branch
-   *  of `mobileBar` below that draws `MobileMergeFloat`); the transcript then
-   *  reserves the float's height too. */
-  const mergeFloats =
-    isMobile &&
-    !showResultsFace &&
-    !showDiffFace &&
-    Boolean(composerVisible || phoneTrailingNode) &&
-    canMerge &&
-    Boolean(mergeProps) &&
-    !(composerVisible && composerOpen)
+  /** EXP-1191: the Merge circle right of the composer capsule while the PR
+   *  is open (no longer the white capsule floating above the bar). */
+  const phoneMergeCircle =
+    isMobile && canMerge && mergeProps ? (
+      <MobileMergeCircle {...mergeProps} steerEnabled={steerEnabled} />
+    ) : undefined
 
   /** EXP-893: the phone bar by face. Run + open session: the usage ring, the
    *  composer capsule (expanding into the composer), the Start circle once
-   *  the run ended for good, and (EXP-1154) the white Merge floating above
-   *  it. Run over: that circle alone, else Merge alone, or no bar. Changes:
+   *  the run ended for good, and (EXP-1191) the Merge circle right of the
+   *  capsule. Run over: that circle alone, else Merge alone, or no bar. Changes:
    *  the file sheet + Merge. EXP-879 Results: Merge alone, else no bar —
    *  only the Run face owns Stop / Resume. */
   const mobileBar = !isMobile ? null : showResultsFace ? (
@@ -1240,13 +1237,6 @@ export function AgentSessionView({
     phoneMerge ? <MobileWorkBar cluster capsule={phoneMerge} /> : null
   ) : (
     <>
-      {canMerge && mergeProps && (
-        <MobileMergeFloat
-          {...mergeProps}
-          steerEnabled={steerEnabled}
-          hidden={composerVisible && composerOpen}
-        />
-      )}
       <MobileWorkBar
         /* EXP-916: the ring belongs to the composer band — while a card holds
            the keyboard, or once the run is over, the bar is the trailing circle
@@ -1279,6 +1269,7 @@ export function AgentSessionView({
             </MobileWorkCapsule>
           ) : undefined
         }
+        afterCapsule={phoneMergeCircle}
         expanded={
           composerVisible && composerOpen ? (
             <div className={cn(`rounded-2xl p-1.5`, FAB_CHROME_CLASS)}>
@@ -1479,9 +1470,8 @@ export function AgentSessionView({
         className={cn(
           `flex min-w-0 flex-1 flex-col overflow-hidden bg-card/40`,
           // EXP-893: the phone's floating bar owns the bottom edge — the
-          // strips and the last row stop above it (EXP-1154: and above the
-          // floating Merge while it shows).
-          isMobile && mobileFaceClearance(mergeFloats)
+          // strips and the last row stop above it.
+          isMobile && MOBILE_WORK_BAR_CLEARANCE
         )}
       >
           {/* EXP-356: conversation tabs — Main plus one per RUNNING subagent
@@ -1526,6 +1516,10 @@ export function AgentSessionView({
               // comment bodies render that way too.
               className={cn(
                 `agent-feed h-full overflow-y-auto overscroll-contain`,
+                // EXP-1162/1191: the bottom edge on md+ — the last rows fade
+                // out over the composer (a phone's floating bar carries its
+                // own edge).
+                !isMobile && DETAIL_FADE_BOTTOM_CLASS,
                 // EXP-1152: `touch-action` stops at a scroller, so the
                 // feed itself leaves the sideways pan to the pager.
                 isMobile && FACE_BODY_TOUCH_CLASS
@@ -1838,29 +1832,18 @@ export function AgentSessionView({
                 </div>
               )}
             </div>
-            {/* EXP-1162: the bottom edge on md+ — the transcript's last rows
-                fade out over the composer instead of meeting a hairline (a
-                phone's floating bar carries its own). */}
-            {!isMobile && (
-              <span aria-hidden className={DETAIL_EDGE_BOTTOM_CARD_CLASS} />
-            )}
-            {!atBottom && feed.length > 0 && (
-              <Button
-                variant="secondary"
-                size="sm"
-                className="absolute bottom-2 left-1/2 h-7 -translate-x-1/2 border border-border shadow-md"
-                onClick={jumpToBottom}
-              >
-                Jump to bottom
-                <ArrowDown />
-              </Button>
-            )}
+            {/* EXP-1191: the arrow-only circle ×4, 12px above the composer. */}
+            <JumpToBottomButton
+              visible={!atBottom && feed.length > 0}
+              className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2"
+              onClick={jumpToBottom}
+            />
           </div>
 
           {/* Status banners (feed retained above). EXP-877: no "ended" strip
               — the hidden composer and the header's Resume say it. */}
           {paused && feed.length > 0 && (
-            <div className="border-t border-border/60 py-2">
+            <div className="py-2">
               <div
                 className={cn(
                   TRANSCRIPT_COLUMN,
@@ -1875,7 +1858,7 @@ export function AgentSessionView({
             </div>
           )}
           {phase.kind === `closed` && !paused && (
-            <div className="border-t border-border/60 py-2">
+            <div className="py-2">
               <div
                 className={cn(
                   TRANSCRIPT_COLUMN,
@@ -1906,7 +1889,7 @@ export function AgentSessionView({
               run looks healthy. */}
           {blockedLabel && (
             <div
-              className="border-t border-border/60 py-1.5"
+              className="py-1.5"
               data-testid="session-blocked-strip"
             >
               <div
@@ -1960,7 +1943,7 @@ export function AgentSessionView({
             />
           )}
           {phase.kind === `starting` && !paused && feed.length > 0 && (
-            <div className="border-t border-border/60 py-2">
+            <div className="py-2">
               <div
                 className={cn(
                   TRANSCRIPT_COLUMN,
@@ -1977,11 +1960,6 @@ export function AgentSessionView({
               diff is the pane beside the transcript. The phone's floating
               version renders inside the scroll wrapper above. */}
 
-          {/* EXP-850 §1/§2: monitors and background shell commands, right
-              above the composer. EXP-927: led by the agent's own task list;
-              background AGENTS are the tabs above, never lines here. */}
-          <BackgroundStrip lines={stripLines} taskList={taskList} />
-
           {/* EXP-861: the messages the agent has not read yet — held behind a
               compaction (an X revokes one and hands the text back to an
               empty draft, the CLI's "edit queued message") or sent mid-turn
@@ -1997,11 +1975,17 @@ export function AgentSessionView({
             }}
           />
 
+          {/* EXP-850 §1/§2: monitors and background shell commands, right
+              above the composer, then (EXP-927) the agent's own task list —
+              EXP-1191: the LAST block, directly on the composer, under the
+              queued steer messages. Background AGENTS are the tabs above,
+              never lines here. */}
+          <BackgroundStrip lines={stripLines} taskList={taskList} />
           {/* Steering composer. Steering is fully seamless (EXP-312) — no
               captions, no operator state; live implies ownership. */}
           {composerVisible && !isMobile && (
-            <div className="p-2">
-              <div className={WORK_COLUMN_CLASS}>
+            <div className="py-2">
+              <div className={cn(WORK_COLUMN_CLASS, WORK_GUTTER_CLASS)}>
                 <SteerComposer
                   store={store}
                   // `connected` matters beyond the phase: a silent
@@ -2194,8 +2178,8 @@ function CenteredState({ children }: { children: React.ReactNode }) {
 /** Assistant prose — a chat bubble with a small glyph, selectable text. */
 /** The trailing "agent is busy" row (EXP-389, rewritten by EXP-850 §5): the
  *  turn's verb, its clock and the tokens it has produced —
- *  `Pondering… (2m 04s · ↓ 12.4k tokens)` — beside the RUNNING AGENT's brand
- *  mark, pulsing. While a workflow runs the text is that workflow's caption
+ *  `Pondering… (2m 04s · ↓ 12.4k tokens)` — beside the RUNNING AGENT's
+ *  working mark (EXP-1191: Claude's spark, the sidebar's; others pulse). While a workflow runs the text is that workflow's caption
  *  (§7) with the same suffix. A publisher that sends no turn start (codex,
  *  and every pre-EXP-850 desktop) degrades to the old bare "Working…", which
  *  is why the group is optional.
@@ -2227,7 +2211,7 @@ function WorkingIndicatorRow({
   })
   return (
     <div className={cn(`flex items-center gap-2`, TRANSCRIPT_TOOL_TEXT)}>
-      <AgentBrandMark agent={agent} pulse />
+      <AgentWorkingMark agent={agent} />
       <span className="min-w-0 truncate text-muted-foreground">{caption}</span>
     </div>
   )
@@ -2251,13 +2235,10 @@ function BackgroundStrip({
   if (lines.length === 0 && summary === null) return null
   return (
     <div
-      className="border-t border-border/60 py-1.5"
+      className="py-1.5"
       data-testid="session-background-strip"
     >
       <div className={cn(TRANSCRIPT_COLUMN, `flex flex-col gap-0.5`)}>
-        {summary !== null && (
-          <TaskListBlock entries={taskList} summary={summary} />
-        )}
         {lines.map((line) => (
           <div
             key={line.key}
@@ -2276,6 +2257,10 @@ function BackgroundStrip({
             </span>
           </div>
         ))}
+        {/* EXP-1191: the task list closes the strip, right on the composer. */}
+        {summary !== null && (
+          <TaskListBlock entries={taskList} summary={summary} />
+        )}
       </div>
     </div>
   )
@@ -2304,6 +2289,9 @@ function TaskListBlock({
         <span className="min-w-0 flex-1 truncate" title={summary.current}>
           {summary.current}
         </span>
+        {/* EXP-1191: its own mark, so the line never reads as a queued
+            message or the composer. */}
+        <TaskListProgress statuses={entries.map((entry) => entry.status)} />
         <span className="shrink-0 tabular-nums">
           {summary.completed}/{summary.total}
         </span>
@@ -2362,7 +2350,7 @@ function QueueStrip({
   if (messages.length === 0) return null
   return (
     <div
-      className="border-t border-border/60 py-1.5"
+      className="py-1.5"
       aria-label={QUEUE_STRIP_TITLE}
       data-testid="session-queue-strip"
     >
@@ -3239,7 +3227,7 @@ function RateLimitBanner({
   if (!banner) return null
   const { text, resets } = banner
   return (
-    <div className="border-t border-border/60 py-2">
+    <div className="py-2">
       <div
         className={cn(
           TRANSCRIPT_COLUMN,

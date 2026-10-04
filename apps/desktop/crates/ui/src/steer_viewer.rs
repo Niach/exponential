@@ -2843,7 +2843,7 @@ impl SteerSessionView {
         } else {
             f32::from(window.viewport_size().width)
         };
-        pane.min(crate::work_header::WORK_COLUMN_W) - 2. * crate::issue_detail::DETAIL_GUTTER
+        pane.min(crate::work_header::WORK_COLUMN_W) - 2. * crate::work_header::WORK_GUTTER
     }
 
     /// The Merge target this run offers, or `None` once it is over
@@ -3718,6 +3718,73 @@ fn restore_unread_to_draft(draft: &str, held: &str) -> String {
     }
 }
 
+/// EXP-1191: a segment per entry above this many becomes ONE track (web
+/// `TASK_LIST_PROGRESS_MAX_SEGMENTS`).
+const TASK_LIST_PROGRESS_MAX_SEGMENTS: usize = 12;
+
+/// EXP-1191 — the task list's own progress mark ×4 (web `TaskListProgress`):
+/// one 10×4 pill per entry, 3px apart — done solid (foreground 70%), the
+/// current one half (35%), the rest faint (12%). Past
+/// [`TASK_LIST_PROGRESS_MAX_SEGMENTS`] one 80×4 track filled to done/total.
+/// `None` for an empty list.
+pub(crate) fn task_list_progress(
+    statuses: &[steer::TaskListStatus],
+    cx: &gpui::App,
+) -> Option<AnyElement> {
+    let total = statuses.len();
+    if total == 0 {
+        return None;
+    }
+    let foreground = cx.theme().foreground;
+    if total > TASK_LIST_PROGRESS_MAX_SEGMENTS {
+        let done = statuses
+            .iter()
+            .filter(|status| **status == steer::TaskListStatus::Completed)
+            .count();
+        let track = px(80.);
+        return Some(
+            div()
+                .flex_shrink_0()
+                .relative()
+                .w(track)
+                .h(px(4.))
+                .rounded_full()
+                .overflow_hidden()
+                .bg(foreground.opacity(0.12))
+                .child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .h_full()
+                        .w(track * (done as f32 / total as f32))
+                        .rounded_full()
+                        .bg(foreground.opacity(0.7)),
+                )
+                .into_any_element(),
+        );
+    }
+    Some(
+        h_flex()
+            .flex_shrink_0()
+            .items_center()
+            .gap(px(3.))
+            .children(statuses.iter().map(|status| {
+                let alpha = match status {
+                    steer::TaskListStatus::Completed => 0.7,
+                    steer::TaskListStatus::InProgress => 0.35,
+                    _ => 0.12,
+                };
+                div()
+                    .w(px(10.))
+                    .h(px(4.))
+                    .rounded_full()
+                    .bg(foreground.opacity(alpha))
+            }))
+            .into_any_element(),
+    )
+}
+
 /// EXP-861 — whether the queue strip renders: something is held AND the run
 /// is still open. Deliberately NOT a function of the composer's visibility
 /// (a pending card hides the composer, never the strip) — Android
@@ -3878,35 +3945,128 @@ pub(crate) fn rate_limit_detail(countdown: Option<String>) -> String {
     }
 }
 
-/// EXP-788 — the numbered chip on an option row: the digit that picks it
-/// (1-9, by position). `live` = the keyboard is on this card, so the chip
-/// reads as a key; otherwise it is a quiet ordinal. Options past the ninth
-/// carry no chip (there is no key for them).
-fn key_chip(index: usize, live: bool, cx: &App) -> AnyElement {
-    let muted = cx.theme().muted_foreground;
-    let Some(digit) = (index < 9).then(|| (index + 1).to_string()) else {
-        return div().w(px(18.)).into_any_element();
+/// EXP-1191: an option row's number key — the web `kbd` at the RIGHT end of
+/// the row: a 4px-rounded hairline chip, monospace 10px on a 16px line,
+/// muted (on the primary row the primary foreground at 30% / 80%).
+fn key_chip(index: usize, primary: bool, cx: &App) -> Option<AnyElement> {
+    let digit = (index < 9).then(|| (index + 1).to_string())?;
+    let (border, text) = if primary {
+        let fg = cx.theme().primary_foreground;
+        (fg.opacity(0.3), fg.opacity(0.8))
+    } else {
+        (
+            theme::tokens::glass::STROKE_CARD.to_hsla(),
+            cx.theme().muted_foreground,
+        )
     };
-    div()
-        .flex_shrink_0()
-        .w(px(18.))
-        .h(px(18.))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(theme::tokens::radius::SM))
-        .border_1()
-        .border_color(if live {
-            theme::tokens::glass::STROKE_ACTIVE.to_hsla()
-        } else {
-            theme::tokens::glass::STROKE_CARD.to_hsla()
-        })
-        .bg(theme::tokens::glass::FILL_CARD.to_hsla())
-        .text_2xs()
-        .font_family(theme::terminal::FONT_FAMILY)
-        .text_color(if live { cx.theme().foreground } else { muted })
-        .child(SharedString::from(digit))
+    Some(
+        div()
+            .flex_shrink_0()
+            .px_1()
+            .rounded(px(4.))
+            .border_1()
+            .border_color(border)
+            .text_size(px(10.))
+            .line_height(px(16.))
+            .font_family(theme::terminal::FONT_FAMILY)
+            .text_color(text)
+            .child(SharedString::from(digit))
+            .into_any_element(),
+    )
+}
+
+/// EXP-1191: the shared question / plan card (web `AskCard`) — the glass
+/// card, 12px padding, ONE top-aligned row: the 14px accent glyph beside a
+/// column holding the optional heading (12px medium, accent; `meta` = the
+/// stepper's "k of n" caption), then `body`. The glyph sits on the first
+/// text line, the options indent under the text.
+fn ask_card(
+    plan: bool,
+    heading: Option<SharedString>,
+    meta: Option<String>,
+    body: gpui::Div,
+    cx: &App,
+) -> AnyElement {
+    let accent = if plan {
+        cx.theme().primary
+    } else {
+        theme::tokens::YELLOW.to_hsla()
+    };
+    let has_heading = heading.is_some() || meta.is_some();
+    crate::surface::glass_card()
+        .w_full()
+        .min_w_0()
+        .p_3()
+        .child(
+            h_flex()
+                .w_full()
+                .min_w_0()
+                .gap_2()
+                .items_start()
+                .child(
+                    // Centred on the first line: the 16px heading line, or
+                    // the body's 22px one.
+                    div()
+                        .flex_shrink_0()
+                        .mt(px(if has_heading { 1. } else { 4. }))
+                        .child(
+                            Icon::new(if plan {
+                                registry::CODING_PLAN
+                            } else {
+                                registry::UI_HELP
+                            })
+                            .with_size(px(14.))
+                            .text_color(accent),
+                        ),
+                )
+                .child(
+                    v_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .when(has_heading, |this| {
+                            this.child(
+                                h_flex()
+                                    .w_full()
+                                    .min_w_0()
+                                    .mb_1()
+                                    .gap_2()
+                                    .items_center()
+                                    .when_some(heading, |this, heading| {
+                                        this.child(
+                                            div()
+                                                .min_w_0()
+                                                .truncate()
+                                                .text_xs()
+                                                .font_weight(gpui::FontWeight::MEDIUM)
+                                                .text_color(accent)
+                                                .child(heading),
+                                        )
+                                    })
+                                    .when_some(meta, |this, meta| {
+                                        this.child(
+                                            // EXP-698: 11px — a caption beside
+                                            // the heading, never a peer of it.
+                                            div()
+                                                .flex_shrink_0()
+                                                .text_2xs()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child(SharedString::from(meta)),
+                                        )
+                                    }),
+                            )
+                        })
+                        .child(body),
+                ),
+        )
         .into_any_element()
+}
+
+/// The question body (web `text-sm text-foreground/90`).
+fn ask_body_text(cx: &App) -> gpui::Div {
+    body_text(div())
+        .w_full()
+        .min_w_0()
+        .text_color(cx.theme().foreground.opacity(0.9))
 }
 
 // ---------------------------------------------------------------------------
@@ -3975,18 +4135,20 @@ impl SteerSessionView {
         // for each one it paints by index; the padding is the old column's,
         // honoured by the list as its own (`last_padding`).
         //
-        // EXP-787: the list keeps the pane's 12px inset (the header, banners
-        // and composer sit at the same `px_3`); the token GUTTER and the
-        // reading column are laid out per ROW ([`Self::transcript_row`])
-        // rather than by wrapping the list in a narrower box, so the list
-        // keeps measuring and scrolling over the full pane width exactly as
-        // before.
+        // EXP-787: the reading column (and, EXP-1191, the work gutter) is
+        // laid out per ROW ([`Self::transcript_row`]) rather than by wrapping
+        // the list in a narrower box, so the list keeps measuring and
+        // scrolling over the full pane width; it carries no side inset of
+        // its own, so its rows centre on the pane exactly as the header's
+        // column does.
         let list = list(
             self.list.clone(),
             cx.processor(|this, ix: usize, window, cx| this.render_list_row(ix, window, cx)),
         )
-        .px_3()
-        .py_2();
+        .pt_2()
+        // EXP-1191: at the tail the last line rests just clear of the
+        // composer fade rather than under it.
+        .pb(px(crate::surface::COMPOSER_EDGE_FADE_H - 8.));
         crate::scroll_pane::v_list_pane(list, &self.list).into_any_element()
     }
 
@@ -4400,7 +4562,7 @@ impl SteerSessionView {
             view.min(crate::work_header::WORK_COLUMN_W)
         } else {
             crate::work_header::WORK_COLUMN_W
-        };
+        } - 2. * crate::work_header::WORK_GUTTER;
         let cap = px((column * USER_BUBBLE_MAX_FRACTION).max(USER_BUBBLE_MIN_W));
         // px_3 both sides + the 1px stroke each side.
         let padded = longest + px(2. * 12. + 2.);
@@ -4578,15 +4740,15 @@ impl SteerSessionView {
             self.row.as_ref().and_then(|row| row.results.as_ref()),
             attachment_id,
         )?;
-        // The transcript column (the work column, narrowed by a pane too
-        // small for it, inside the pane's 12px insets) minus the row's `pl_5`
-        // indent. The unmeasured first frame takes the full column.
+        // The transcript column's content box (the work column, narrowed by
+        // a pane too small for it, inside the work gutter) minus the row's
+        // `pl_5` indent. The unmeasured first frame takes the full column.
         let view = f32::from(self.view_width.get());
         let column = if view > 0. {
-            (view - 24.).min(crate::work_header::WORK_COLUMN_W)
+            view.min(crate::work_header::WORK_COLUMN_W)
         } else {
             crate::work_header::WORK_COLUMN_W
-        };
+        } - 2. * crate::work_header::WORK_GUTTER;
         let height = results::session_result_tile_height_fitting_from(
             std::slice::from_ref(&entry),
             column - 20.,
@@ -5234,24 +5396,15 @@ impl SteerSessionView {
 
     /// §5 — the synthetic trailing row: the turn's verb (or the running
     /// workflow's caption) with its duration and token count, under the
-    /// RUNNING AGENT's own brand mark, pulsing.
+    /// RUNNING AGENT's working mark — EXP-1191: the very spark the sidebar's
+    /// Running rows and the tabs draw ([`crate::coding_selects::agent_working_mark`];
+    /// codex and an external agent keep the pulse).
     ///
     /// gpui exposes no OS reduce-motion signal (see `theme::motion`), so the
-    /// pulse is unconditional here; the hook, if one is ever wanted, is the
-    /// shared settings file, not a speculative flag.
+    /// animation is unconditional here; the hook, if one is ever wanted, is
+    /// the shared settings file, not a speculative flag.
     fn render_working_row(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
-        // EXP-877: the brand mark in its own colour (claude orange, like the
-        // web's `AgentBrandMark`); codex and the fallback ride `muted`.
-        let mark = match self.builtin_agent() {
-            Some(coding::CodingAgent::Claude) => {
-                crate::coding_selects::agent_mark(coding::CodingAgent::Claude)
-            }
-            Some(agent) => crate::coding_selects::agent_mark(agent).text_color(muted),
-            // An external agent has no brand mark — the generic AGENT
-            // concept, the same fallback every run list uses.
-            None => Icon::new(registry::SETTINGS_AGENTS).text_color(muted),
-        };
         tool_text(h_flex())
             .w_full()
             .min_w_0()
@@ -5259,15 +5412,8 @@ impl SteerSessionView {
             .items_center()
             .child(
                 div()
-                    .flex_shrink_0()
-                    .child(mark.xsmall())
-                    .with_animation(
-                        "steer-working-pulse",
-                        gpui::Animation::new(WORKING_PULSE)
-                            .repeat()
-                            .with_easing(bounce(ease_in_out)),
-                        |mark, delta| mark.opacity(0.4 + 0.6 * delta),
-                    ),
+                    .text_color(muted)
+                    .child(crate::coding_selects::agent_working_mark(self.builtin_agent(), 12.)),
             )
             .child(
                 div()
@@ -5590,15 +5736,23 @@ impl SteerSessionView {
                     .truncate()
                     .child(SharedString::from(summary.current.clone())),
             )
+            // EXP-1191: the list's own mark between the label and the count,
+            // so the line never reads as a queued message or the composer.
+            .children(task_list_progress(
+                &entries.iter().map(|entry| entry.status).collect::<Vec<_>>(),
+                cx,
+            ))
             .child(div().flex_shrink_0().child(SharedString::from(format!(
                 "{}/{}",
                 summary.completed, summary.total
             ))))
+            // EXP-1191: the shared disclosure glyph (web `DisclosureHeader`):
+            // right while folded, down while open.
             .child(
                 Icon::new(if expanded {
                     registry::UI_CHEVRON_DOWN
                 } else {
-                    registry::UI_CHEVRON_UP
+                    registry::UI_CHEVRON_RIGHT
                 })
                 .xsmall()
                 .text_color(muted.opacity(0.7)),
@@ -5796,7 +5950,6 @@ impl SteerSessionView {
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let muted = cx.theme().muted_foreground;
-        let amber = theme::tokens::YELLOW.to_hsla();
         let complete = ask_complete(items);
         // The re-opened step, if it is one of THIS ask's rows.
         let editing = self
@@ -5839,43 +5992,9 @@ impl SteerSessionView {
             total,
         );
 
-        // EXP-698: the stepper wears the SAME neutral glass card chrome as
-        // `render_question` — a tinted border plus a tinted fill made the two
-        // question surfaces read as two different materials in one feed. Only
-        // the glyph and the heading carry the amber accent.
-        let mut card = crate::surface::glass_card()
-            .w_full()
-            .min_w_0()
-            .gap_1()
-            .p_3()
-            .child(
-                h_flex()
-                    .w_full()
-                    .min_w_0()
-                    .gap_1p5()
-                    .items_center()
-                    .child(Icon::new(registry::UI_HELP).xsmall().text_color(amber))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_xs()
-                            .text_color(amber)
-                            .child(SharedString::from(header)),
-                    )
-                    .when_some(counter, |this, counter| {
-                        this.child(
-                            // EXP-698: 11px — "2 of 3" is a caption beside the
-                            // heading, never a peer of it.
-                            div()
-                                .flex_shrink_0()
-                                .text_2xs()
-                                .text_color(muted)
-                                .child(SharedString::from(counter)),
-                        )
-                    }),
-            );
+        // EXP-698/1191: the stepper wears the SAME card as `render_question`
+        // (web `AskCard`): the glyph beside one column of steps.
+        let mut card = v_flex().w_full().min_w_0();
         for item in answered {
             if editing == Some(item.id) {
                 card = card.child(self.render_editing_step(item, active, window, cx));
@@ -5891,6 +6010,7 @@ impl SteerSessionView {
                 card = card.child(
                     h_flex()
                         .id(("steer-step-current", item.id as usize))
+                        .mt_1()
                         .w_full()
                         .min_w_0()
                         .gap_1p5()
@@ -5911,19 +6031,21 @@ impl SteerSessionView {
             }
             Some(item) => {
                 let text = item.question().map(|card| card.text.clone()).unwrap_or_default();
-                card = card
-                    .child(body_text(div()).w_full().min_w_0().child(self.render_body(
-                        item.id,
-                        &text,
-                        cx,
-                    )))
-                    .child(self.render_prompt(item, active, submit_step, false, window, cx));
+                card = card.child(
+                    v_flex()
+                        .w_full()
+                        .min_w_0()
+                        .mt_1p5()
+                        .child(ask_body_text(cx).child(self.render_body(item.id, &text, cx)))
+                        .child(self.render_prompt(item, active, submit_step, false, window, cx)),
+                );
             }
             // EXP-820: the spinner only while a next step is actually owed —
             // a finished ask is just its answered rows.
             None if !complete => {
                 card = card.child(
                     h_flex()
+                        .mt_2()
                         .gap_1p5()
                         .items_center()
                         .child(Spinner::new().xsmall())
@@ -5937,7 +6059,7 @@ impl SteerSessionView {
             }
             None => {}
         }
-        card.into_any_element()
+        ask_card(false, Some(SharedString::from(header)), counter, card, cx)
     }
 
     /// EXP-820: the re-opened step — its prompt and options, answerable
@@ -5953,11 +6075,8 @@ impl SteerSessionView {
         v_flex()
             .w_full()
             .min_w_0()
-            .child(body_text(div()).w_full().min_w_0().child(self.render_body(
-                item.id,
-                &text,
-                cx,
-            )))
+            .mt_1p5()
+            .child(ask_body_text(cx).child(self.render_body(item.id, &text, cx)))
             .child(self.render_prompt(item, active, false, true, window, cx))
             .child(
                 div().mt_1p5().child(
@@ -6091,54 +6210,24 @@ impl SteerSessionView {
         let Some(card) = item.question() else {
             return div().into_any_element();
         };
-        let accent = if card.plan_mode {
-            cx.theme().primary
-        } else {
-            theme::tokens::YELLOW.to_hsla()
-        };
         let heading = if card.plan_mode {
             Some(SharedString::from("Plan ready"))
         } else {
             card.header.clone().map(SharedString::from)
         };
-        // EXP-698: NEUTRAL card chrome — the shared glass card, radius XL.
-        // Only the glyph and the heading carry the accent (primary for a
-        // ready plan, yellow for a question); a tinted border + tinted fill
-        // made these read as two more materials in the feed.
-        crate::surface::glass_card()
+        // EXP-698/1191: the shared `AskCard` — neutral glass chrome, only the
+        // glyph and the heading carry the accent (primary for a ready plan,
+        // yellow for a question).
+        let body = v_flex()
             .w_full()
             .min_w_0()
-            .gap_1()
-            .p_3()
-            .child(
-                h_flex()
-                    .gap_1p5()
-                    .items_center()
-                    .child(
-                        Icon::new(if card.plan_mode {
-                            registry::CODING_PLAN
-                        } else {
-                            registry::UI_HELP
-                        })
-                        .xsmall()
-                        .text_color(accent),
-                    )
-                    .when_some(heading, |this, heading| {
-                        this.child(div().text_xs().text_color(accent).child(heading))
-                    }),
-            )
-            .child(
-                body_text(div())
-                    .w_full()
-                    .min_w_0()
-                    .child(if card.plan_mode {
-                        self.render_unfolded_body(item.id, &card.text, cx)
-                    } else {
-                        self.render_body(item.id, &card.text, cx)
-                    }),
-            )
-            .child(self.render_prompt(item, active, false, false, window, cx))
-            .into_any_element()
+            .child(ask_body_text(cx).child(if card.plan_mode {
+                self.render_unfolded_body(item.id, &card.text, cx)
+            } else {
+                self.render_body(item.id, &card.text, cx)
+            }))
+            .child(self.render_prompt(item, active, false, false, window, cx));
+        ask_card(card.plan_mode, heading, None, body, cx)
     }
 
     /// The interactive half of a card (EXP-788): the options as a numbered
@@ -6235,7 +6324,14 @@ impl SteerSessionView {
                         .items_center()
                         .text_xs()
                         .text_color(muted)
-                        .child(key_chip(index, false, cx))
+                        .when(index < 9, |this| {
+                            this.child(
+                                div()
+                                    .flex_shrink_0()
+                                    .font_family(theme::terminal::FONT_FAMILY)
+                                    .child(SharedString::from((index + 1).to_string())),
+                            )
+                        })
                         .child(div().min_w_0().truncate().child(SharedString::from(option.label.clone())))
                 }))
                 .child(div().text_xs().text_color(muted).child(note))
@@ -6247,10 +6343,6 @@ impl SteerSessionView {
         let recorded = editing.then(|| card.answer.clone()).flatten();
         let promote_first = card.plan_mode || submit_step;
         let item_id = item.id;
-        // Only THE pending card takes the keyboard; an older active card (a
-        // second question the agent asked before the first was answered)
-        // renders its chips dimmed and answers by click.
-        let keyboard = self.pending_card_id() == Some(item_id);
         let cursor = self.answer_cursor_on(item_id);
         let inline = self
             .inline
@@ -6268,7 +6360,6 @@ impl SteerSessionView {
                     || recorded.as_deref() == Some(option.label.as_str())
                     || inline_here.is_some(),
                 index,
-                keyboard,
                 cursor == Some(index),
                 cx,
             ));
@@ -6329,8 +6420,7 @@ impl SteerSessionView {
             .min_w_0()
             .gap_1()
             .items_center()
-            // Indented under the row's label (chip 18px + gap 8px).
-            .pl(px(26.))
+            .mt_0p5()
             .capture_action(cx.listener(Self::on_inline_escape))
             .child(
                 div()
@@ -6353,8 +6443,9 @@ impl SteerSessionView {
             .into_any_element()
     }
 
-    /// One option row (EXP-788): a full-width button carrying its numbered
-    /// key chip, its label and — under the label — its description. EXP-820
+    /// One option row (EXP-788): a full-width button carrying its label,
+    /// under it its description, and its number key chip at the right end
+    /// (EXP-1191, web parity). EXP-820
     /// styleguide: NO blue. The promoted option (a plan card's "Yes", the
     /// stepper's submit) is the app's PRIMARY button; a picked row (a
     /// multi-select pick, the recorded answer of a re-opened step, the row
@@ -6370,7 +6461,6 @@ impl SteerSessionView {
         option: &QuestionOption,
         picked: bool,
         index: usize,
-        keyboard: bool,
         highlighted: bool,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
@@ -6389,7 +6479,8 @@ impl SteerSessionView {
             .cursor_pointer()
             .w_full()
             .h_auto()
-            .px_2()
+            .min_h(px(32.))
+            .px_3()
             .py_1p5()
             .rounded(px(theme::tokens::radius::MD));
         button = if primary {
@@ -6416,12 +6507,13 @@ impl SteerSessionView {
         let description = option.description.clone().filter(|text| !text.trim().is_empty());
         button
             .child(
+                // EXP-1191: web — the label column, then the key chip at
+                // the RIGHT end of the row.
                 h_flex()
                     .w_full()
                     .min_w_0()
                     .gap_2()
-                    .items_start()
-                    .child(div().mt_px().child(key_chip(index, keyboard && !primary, cx)))
+                    .items_center()
                     .child(
                         v_flex()
                             .flex_1()
@@ -6434,6 +6526,7 @@ impl SteerSessionView {
                                     .min_w_0()
                                     .text_left()
                                     .text_xs()
+                                    .font_weight(gpui::FontWeight::MEDIUM)
                                     .text_color(label_color)
                                     .child(SharedString::from(label)),
                             )
@@ -6452,7 +6545,8 @@ impl SteerSessionView {
                                         .child(SharedString::from(description)),
                                 )
                             }),
-                    ),
+                    )
+                    .children(key_chip(index, primary, cx)),
             )
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 cx.stop_propagation();
@@ -6544,8 +6638,8 @@ impl SteerSessionView {
             .as_deref()
             .and_then(|id| self.subagents.iter().find(|agent| agent.subagent_id == id));
         // EXP-927: the tabs sit in the transcript's reading column, like
-        // every strip block ([`work_column_row`]); only the hairline under
-        // them still spans the panel.
+        // every strip block ([`work_column_row`]). EXP-1191: no hairline
+        // under them (web parity).
         let column = v_flex()
             .w_full()
             .min_w_0()
@@ -6611,9 +6705,6 @@ impl SteerSessionView {
             div()
                 .w_full()
                 .flex_shrink_0()
-                .px_3()
-                .border_b_1()
-                .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
                 .child(work_column_row(column.into_any_element()))
                 .into_any_element(),
         )
@@ -6814,6 +6905,68 @@ impl SteerSessionView {
         banners
     }
 
+    /// EXP-1191 — the transcript's jump-to-bottom button
+    /// ([`crate::controls::jump_to_bottom_button`]): shown while the reader
+    /// is scrolled up off the tail of a non-empty feed, centred over the
+    /// column, [`crate::controls::JUMP_TO_BOTTOM_GAP`] above the composer
+    /// card (the band's `p_2` already gives 8 of it). A click scrolls to the
+    /// newest row and re-arms tail follow.
+    ///
+    /// gpui re-arms the follow itself when a scroll lands back on the end,
+    /// but in LAYOUT, after this frame rendered — so a paint-only probe
+    /// compares the list's state with what was drawn and asks for ONE
+    /// repaint when they differ (the button would otherwise linger).
+    fn render_jump_to_bottom(
+        &self,
+        composer_visible: bool,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        let following = self.list.is_following_tail();
+        let shown = !self.feed.is_empty() && !following;
+        let list = self.list.clone();
+        let entity_id = cx.entity_id();
+        let probe = gpui::canvas(
+            move |_, _, cx| {
+                if list.is_following_tail() != following {
+                    cx.defer(move |cx| cx.notify(entity_id));
+                }
+            },
+            |_, _: (), _, _| {},
+        )
+        .absolute()
+        .size_0();
+        let button = shown.then(|| {
+            let gap = if composer_visible {
+                crate::controls::JUMP_TO_BOTTOM_GAP - 8.
+            } else {
+                crate::controls::JUMP_TO_BOTTOM_GAP
+            };
+            h_flex()
+                .absolute()
+                .left_0()
+                .right_0()
+                .bottom(px(gap))
+                .justify_center()
+                .child(crate::controls::jump_to_bottom_button(
+                    "steer-jump-to-bottom",
+                    cx.listener(|this, _: &ClickEvent, _window, cx| {
+                        this.list.set_follow_mode(FollowMode::Tail);
+                        this.list.scroll_to_end();
+                        cx.notify();
+                    }),
+                    cx,
+                ))
+        });
+        div()
+            .absolute()
+            .left_0()
+            .right_0()
+            .bottom_0()
+            .child(probe)
+            .children(button)
+            .into_any_element()
+    }
+
     fn render_composer(&self, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let can_send = self.can_send(cx);
         let stop = self.shows_stop(cx);
@@ -6885,12 +7038,15 @@ impl SteerSessionView {
             .flex()
             .flex_col()
             .items_center()
-            .p_2()
+            .py_2()
             .child(
+                // EXP-1191: the card's outer edges on the work column's
+                // content box, like the transcript above it.
                 v_flex()
                     .w_full()
                     .min_w_0()
                     .max_w(px(crate::work_header::WORK_COLUMN_W))
+                    .px(px(crate::work_header::WORK_GUTTER))
                     .child(
                         crate::composer::glass_composer(composer)
                             .capture_action(cx.listener(Self::on_paste)),
@@ -7222,7 +7378,6 @@ impl SteerSessionView {
         div()
             .w_full()
             .flex_shrink_0()
-            .px_3()
             .py_1()
             .child(work_column_row(row.into_any_element()))
             .into_any_element()
@@ -7456,25 +7611,23 @@ fn body_text<E: Styled>(element: E) -> E {
 const TASK_LIST_MAX_ROWS: f32 = 8.;
 
 /// EXP-927 — one block of the strip above the composer (the task list, the
-/// background tasks and waits, the queue bar): a hairline and the pane's
-/// padding spanning the PANEL, its content in the reading column
-/// ([`work_column_row`]). Every block shares the recipe, so they stack into
-/// one surface instead of three.
+/// background tasks and waits, the queue bar): the pane's padding spanning
+/// the PANEL, its content in the reading column ([`work_column_row`]). Every
+/// block shares the recipe, so they stack into one surface instead of three.
+/// EXP-1191: NO hairline above it (web parity) — the transcript's fade
+/// ([`crate::surface::composer_edge_fade`]) is the only edge.
 fn strip_block(content: AnyElement) -> gpui::Div {
     div()
         .w_full()
         .flex_shrink_0()
-        .px_3()
         .py_1p5()
-        .border_t_1()
-        .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
         .child(work_column_row(content))
 }
 
 /// The status banners under the transcript (the rate-limit wall, replay,
 /// connection and ended lines, the notice, the compaction strip): the
-/// [`strip_block`] recipe at the banners' own `py_2` — the hairline and the
-/// pane's padding span the panel, the content sits in the reading column.
+/// [`strip_block`] recipe at the banners' own `py_2` — the pane's padding
+/// spans the panel, the content sits in the reading column, no hairline.
 /// They ran edge to edge and read as a different surface, like the strips
 /// before EXP-927.
 /// EXP-1157: the compaction strip's indeterminate track — a short accent
@@ -7485,49 +7638,34 @@ fn banner_block(content: AnyElement) -> gpui::Div {
     div()
         .w_full()
         .flex_shrink_0()
-        .px_3()
         .py_2()
-        .border_t_1()
-        .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
         .child(work_column_row(content))
 }
 
-/// EXP-787/EXP-927 — the reading column every part of the conversation takes:
-/// the work column ([`crate::work_header::WORK_COLUMN_W`], the same measure as
-/// the run header, the issue body and the diff page) centred between the
-/// transcript's two gutters, inside the pane's own 12px inset.
-///
-/// The gutters are flex SPACERS, not padding: on a pane wide enough for the
-/// whole measure they hold the token GUTTER (minus that inset) either side of
-/// the column, and on a narrow IDE split they give way in proportion with it
-/// instead of eating 96px of a 400px pane — the web's `sm:` fallback, done the
-/// way gpui can.
+/// EXP-787/EXP-927/EXP-1191 — the reading column every part of the
+/// conversation takes: the work column ([`crate::work_header::WORK_COLUMN_W`],
+/// the same measure as the run header, the issue body and the diff page)
+/// centred on the PANE exactly like [`crate::issue_detail::centered_column`],
+/// its content inset by [`crate::work_header::WORK_GUTTER`]. So transcript
+/// text, the user bubbles' right edge, tool / subagent cards, the working
+/// row, the conversation tabs, every strip block and the composer box all
+/// sit on the header's content box — the same left and right edges as its
+/// collapsed title, chips and trailing cluster, at every pane width.
 ///
 /// EXP-927 (§2c "Alignment"): the transcript rows
 /// ([`SteerSessionView::transcript_row`]) were the only thing that took it.
 /// The conversation TABS and every strip block (task list, tasks and waits,
-/// the queue bar) ran edge to edge under an 896px transcript and read as a
-/// different surface; they wrap their CONTENT in this now. Only the hairline
-/// borders and the backgrounds still span the panel.
+/// the queue bar) wrap their CONTENT in this too. Only the backgrounds
+/// still span the panel.
 fn work_column_row(element: AnyElement) -> gpui::Div {
-    let gutter = || {
+    h_flex().w_full().justify_center().child(
         div()
-            .flex_basis(px(transcript::GUTTER - 12.))
+            .flex_basis(px(crate::work_header::WORK_COLUMN_W))
             .flex_shrink(1.)
             .min_w_0()
-    };
-    h_flex()
-        .w_full()
-        .justify_center()
-        .child(gutter())
-        .child(
-            div()
-                .flex_basis(px(crate::work_header::WORK_COLUMN_W))
-                .flex_shrink(1.)
-                .min_w_0()
-                .child(element),
-        )
-        .child(gutter())
+            .px(px(crate::work_header::WORK_GUTTER))
+            .child(element),
+    )
 }
 
 /// EXP-787 — the transcript's TOOL rung: tool rows, group captions, permission
@@ -7902,11 +8040,9 @@ impl Render for SteerSessionView {
             .then(|| self.render_rate_limit_banner(cx))
             .flatten();
         let composer = composer_visible.then(|| self.render_composer(window, cx));
-        // EXP-850 §1/§2: the background-task / waiting strip sits directly
-        // above the composer, under everything else. EXP-861: the queue bar
-        // goes between it and the composer — the last thing above the field.
-        // EXP-927 §2c: the agent's own task list is the FIRST block of that
-        // strip, above the tasks and waits.
+        // EXP-1191 (web order): banners → the queue bar (EXP-861) → the
+        // background tasks / waits (EXP-850) → the agent's task list
+        // (EXP-927), which is ALWAYS the last block, directly on the composer.
         let task_list = self.render_task_list_strip(cx);
         let tasks = self.render_task_strip(cx);
         // The strip follows the RUN, not the composer: with a question or
@@ -7927,6 +8063,9 @@ impl Render for SteerSessionView {
             None => self.render_results_pane(window, cx),
         };
         let width_probe = self.view_width.clone();
+        let jump = pane
+            .is_none()
+            .then(|| self.render_jump_to_bottom(composer_visible, cx));
         let conversation = pane.is_none().then(|| {
             v_flex()
                 .flex_1()
@@ -7947,14 +8086,15 @@ impl Render for SteerSessionView {
                         .min_h_0()
                         .min_w_0()
                         .child(feed)
-                        .child(crate::surface::edge_fade_bottom()),
+                        .child(crate::surface::composer_edge_fade())
+                        .children(jump),
                 )
                 .children(banners)
                 .children(compacting)
                 .children(rate_limit)
-                .children(task_list)
-                .children(tasks)
                 .children(queue)
+                .children(tasks)
+                .children(task_list)
                 .children(composer)
         });
         v_flex()

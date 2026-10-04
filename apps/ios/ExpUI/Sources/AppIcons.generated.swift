@@ -151,6 +151,7 @@ public enum AppIcons {
         "activity",
         "anchor",
         "archive",
+        "arrow-down",
         "arrow-down-left",
         "arrow-left",
         "arrow-left-right",
@@ -677,6 +678,8 @@ public enum AppIcons {
     public static let uiAgentSource: String = "bot"
     /// Concept `ui-archive`.
     public static let uiArchive: String = "archive"
+    /// Concept `ui-arrow-down`.
+    public static let uiArrowDown: String = "arrow-down"
     /// Concept `ui-arrow-right`.
     public static let uiArrowRight: String = "arrow-right"
     /// Concept `ui-assignee`.

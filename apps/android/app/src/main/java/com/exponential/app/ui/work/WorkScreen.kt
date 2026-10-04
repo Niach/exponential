@@ -87,9 +87,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 // tapped again opens the run menu. The host owns the Scaffold, the top bar
 // (title dot + verbs + the issue menu, Close PR included), the kill / resume /
 // close confirms, the ended edge, the ONE Merge PR control and each face's
-// trailing circle. EXP-1154: the Merge is the white [MergeCapsule] on the
-// floating bar of EVERY face — in the Changes / Results bar's centred cluster,
-// floating directly above the Issue / Run composer bar — and the review of a
+// trailing circle. EXP-1154: the Merge rides the floating bar of EVERY face —
+// the white [MergeCapsule] in the Changes / Results bar's centred cluster,
+// EXP-1191: the glyph-only [MergeCircle] right of the Issue / Run composer
+// capsule — and the review of a
 // PR IS this screen on its Changes face (the standalone review page is gone).
 
 /** What a Work screen is about — the route decides, the screen resolves. */
@@ -511,13 +512,14 @@ fun WorkScreen(
     val runTrailing: (@Composable () -> Unit)? = startUi?.takeIf { offerStart }?.let { ui ->
         { StartCircle(ui = ui, onClick = { startCoding() }) }
     }
-    // EXP-1154: the Issue and Run faces float the white Merge PR directly
-    // above their composer bar.
-    val issueMergeAboveBar: (@Composable () -> Unit)? = mergeControl?.let { merge ->
-        { MergeCapsuleAboveBar(merge, tag = "$MergeCapsuleTag-issue") }
+    // EXP-1191: the Issue and Run faces carry Merge as the bar's glyph-only
+    // circle right of the composer capsule (Changes / Results keep the white
+    // capsule in their cluster).
+    val issueMergeSlot: (@Composable () -> Unit)? = mergeControl?.let { merge ->
+        { MergeCircle(merge, tag = "$MergeCapsuleTag-issue") }
     }
-    val runMergeAboveBar: (@Composable () -> Unit)? = mergeControl?.let { merge ->
-        { MergeCapsuleAboveBar(merge, tag = "$MergeCapsuleTag-run") }
+    val runMergeSlot: (@Composable () -> Unit)? = mergeControl?.let { merge ->
+        { MergeCircle(merge, tag = "$MergeCapsuleTag-run") }
     }
     // The Issue face's right circle: Start coding whenever the issue can be
     // started — the only trailing candidate now the switcher is gone.
@@ -719,7 +721,7 @@ fun WorkScreen(
                                 faceName = WorkFaceKind.Changes.name
                             },
                             trailingBarSlot = issueTrailing,
-                            aboveBar = issueMergeAboveBar,
+                            mergeBarSlot = issueMergeSlot,
                             onAddSubIssue = onCreateSubIssue?.let { create ->
                                 issue?.let { parent -> { create(parent.boardId, parent.id) } }
                             },
@@ -732,7 +734,7 @@ fun WorkScreen(
                                 padding = padding,
                                 onOpenIssue = onOpenIssue,
                                 trailingBarSlot = runTrailing,
-                                aboveBar = runMergeAboveBar,
+                                mergeBarSlot = runMergeSlot,
                                 // EXP-1154: the transcript card's Open Results
                                 // means the run's REPORT, never the PR body.
                                 onOpenResults = if (WorkFaceKind.Results in faces && resultGroups.isNotEmpty()) {

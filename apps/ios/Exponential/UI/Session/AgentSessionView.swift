@@ -72,10 +72,10 @@ struct AgentSessionView: View {
     /// bar's only trailing circle.
     var startReadiness: CodingReadiness.Readiness? = nil
     var onStartCoding: () -> Void = {}
-    /// EXP-1154: the Work screen's white Merge PR capsule, floating centred
-    /// just ABOVE the folded composer bar (riding the keyboard with it);
-    /// gone while the composer is open. nil = none.
-    var mergeAccessory: AnyView? = nil
+    /// EXP-1191: the Work screen's Merge PR circle (`WorkMergePill`, circle
+    /// style), right of the folded composer capsule and before the Start
+    /// circle; gone with the folded bar while the composer is open. nil = none.
+    var mergeCircle: AnyView? = nil
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.openURL) private var openURL
@@ -183,10 +183,6 @@ struct AgentSessionView: View {
             banners(model)
             rateLimitBanner(model)
             compactionStrip(model)
-            // EXP-850 §1/§2: the monitors and background shell commands,
-            // directly above the composer. Absent when there is nothing running.
-            // EXP-927 §2c: the agent's own task list is the strip's first block.
-            AgentBottomStrip(lines: model.visibleStripLines, taskList: model.visibleTaskList)
             // EXP-861: the messages the device holds until the turn ends, each
             // with an X that revokes it. Absent when nothing is queued or the run
             // is over.
@@ -195,6 +191,10 @@ struct AgentSessionView: View {
                     model.unqueue(id)
                 }
             }
+            // EXP-850 §1/§2: the monitors and background shell commands.
+            // Absent when there is nothing running. EXP-1191: the agent's own
+            // task list closes it — ALWAYS the last block, on the composer.
+            AgentBottomStrip(lines: model.visibleStripLines, taskList: model.visibleTaskList)
             bottomBar(model)
         }
         // EXP-1162: the bottom edge strip behind the band — not behind an
@@ -668,7 +668,8 @@ struct AgentSessionView: View {
 
     /// Bottom-anchored feed (a short feed sits above the input bar, not at the
     /// top of the screen) with follow-scroll: pinned to the bottom until the
-    /// user scrolls up, then a "Jump to bottom ↓" pill re-pins.
+    /// user scrolls up, then the round "Jump to bottom" button
+    /// (`JumpToBottomButton`, EXP-1191) re-pins.
     ///
     /// Follow state is derived from scroll GEOMETRY and the pin is an explicit
     /// scrollTo — NOT from onAppear/onDisappear of a lazy sentinel and NOT
@@ -826,33 +827,35 @@ struct AgentSessionView: View {
                     proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
                 }
                 .overlay(alignment: .bottom) {
-                    if !atBottom {
-                        // Opaque: the feed scrolls beneath this pill
-                        // (EXP-165 Android parity, EXP-242).
-                        GlassPill(
-                            "Jump to bottom ↓",
-                            size: .md,
-                            mode: .select(isSelected: true) {
+                    // EXP-1191: the shared 32pt round jump button, centred
+                    // 12pt above the bottom band's top edge (the overlay
+                    // sits inside the band's safe-area inset). Only while
+                    // scrolled away from the newest row of a non-empty feed.
+                    ZStack {
+                        if !atBottom, !model.feed.isEmpty {
+                            JumpToBottomButton {
                                 // Re-arm follow directly (Android parity: the
-                                // pill tap sets follow=true) instead of waiting
+                                // tap sets follow=true) instead of waiting
                                 // for the scroll geometry to flip atBottom —
                                 // while the agent streams, the animated
                                 // scrollTo targets the bottom as of the tap,
                                 // the content keeps growing underneath it, and
                                 // the animation lands short of the moving max
-                                // offset, so the pill never vanished
-                                // (EXP-306). With atBottom set here the pill
+                                // offset, so the button never vanished
+                                // (EXP-306). With atBottom set here the button
                                 // hides at once and the growth observer keeps
                                 // chasing the bottom.
                                 atBottom = true
                                 withAnimation {
                                     proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
                                 }
-                            },
-                            isOpaque: true
-                        )
-                        .padding(.bottom, 8)
+                            }
+                            .jumpToBottomTransition(motion)
+                            .padding(.bottom, JumpToBottomButton.bottomGap)
+                            .accessibilityIdentifier("agent-jump-to-bottom")
+                        }
                     }
+                    .animation(motion.standard, value: atBottom)
                 }
             }
         }
@@ -1123,7 +1126,7 @@ struct AgentSessionView: View {
     private func stepLabel(for question: AgentQuestion, in group: AgentAskGroup) -> String? {
         guard let index = question.index else { return nil }
         let total = question.total ?? group.stepCount
-        return total > 1 ? "Question \(index) of \(total)" : nil
+        return total > 1 ? "\(index) of \(total)" : nil
     }
 
     /// The picked labels (a typed free-text reply wins over its row's "Type
@@ -1374,28 +1377,15 @@ struct AgentSessionView: View {
     @ViewBuilder
     private func bottomBar(_ model: AgentSessionModel) -> some View {
         if bandRetired(model) {
-            // EXP-1150: the trailing circle alone, or no bar — the faces are
-            // the screen's tab strip.
-            if startReadiness != nil {
-                VStack(spacing: WorkBarAccessory.gap) {
-                    if let mergeAccessory { mergeAccessory }
-                    FloatingBottomBar {
-                        EmptyView()
-                    } center: {
-                        EmptyView()
-                    } trailing: {
-                        runTrailingCircle(model)
-                    }
-                }
-            } else if let mergeAccessory {
-                // EXP-1154: no bar left to float over: the capsule sits in
-                // the bar's own place, centred.
-                FloatingBarCluster {
+            // EXP-1150: the trailing circles alone (EXP-1191: Merge, then
+            // Start), or no bar — the faces are the screen's tab strip.
+            if startReadiness != nil || mergeCircle != nil {
+                FloatingBottomBar {
                     EmptyView()
                 } center: {
-                    mergeAccessory
-                } trailing: {
                     EmptyView()
+                } trailing: {
+                    runTrailingCircle(model)
                 }
             }
         } else {
@@ -1413,10 +1403,7 @@ struct AgentSessionView: View {
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
                 } else {
-                    VStack(spacing: WorkBarAccessory.gap) {
-                        if let mergeAccessory { mergeAccessory }
-                        collapsedComposerBar(model)
-                    }
+                    collapsedComposerBar(model)
                 }
             }
             .animation(motion.standard, value: composerExpanded)
@@ -1464,8 +1451,7 @@ struct AgentSessionView: View {
     /// EXP-893: the folded composer on the shared bar — the usage ring on the
     /// left (the Usage sheet), the capsule wearing the placeholder the open
     /// field would, and (EXP-1150) the Start circle once the run ended for
-    /// good, else nothing (EXP-1154: Merge PR floats above the bar,
-    /// `mergeAccessory`). The separate
+    /// good, after (EXP-1191) the Merge PR circle while a PR can merge. The separate
     /// interrupt circle is gone: Stop stays the expanded composer's own glyph.
     private func collapsedComposerBar(_ model: AgentSessionModel) -> some View {
         FloatingBottomBar {
@@ -1484,11 +1470,12 @@ struct AgentSessionView: View {
         }
     }
 
-    /// EXP-1150: the Run bar's ONE trailing circle — Start coding once the
-    /// shown run ended for good, else nothing. Merge PR floats above the bar
-    /// (`mergeAccessory`, the Work screen's `WorkMergePill`).
+    /// EXP-1150: the Run bar's trailing circles — EXP-1191: the Merge PR
+    /// circle (`mergeCircle`, the Work screen's `WorkMergePill`) while a PR
+    /// can merge, then Start coding once the shown run ended for good.
     @ViewBuilder
     private func runTrailingCircle(_ model: AgentSessionModel) -> some View {
+        if let mergeCircle { mergeCircle }
         if let startReadiness {
             StartCodingCircle(readiness: startReadiness, onStart: onStartCoding)
         }
@@ -2243,7 +2230,8 @@ private struct MarkedUpUserText: View {
 /// what claude writes.
 private struct QuestionCard: View {
     let question: AgentQuestion
-    /// "Question 2 of 3" for a step of a multi-question ask; nil for a lone card.
+    /// "2 of 3" for a step of a multi-question ask — the muted caption beside
+    /// the heading (web `AskCard` `meta`); nil for a lone card.
     var stepLabel: String? = nil
     /// The ask's already-answered steps, summarized above this one.
     var priorSteps: [AgentQuestion] = []
@@ -2335,16 +2323,22 @@ private struct QuestionCard: View {
         option.freeText || option.key == rejectKey
     }
 
+    /// The tinted heading line (web `AskCard` `label`): "Plan ready" for a
+    /// plan, the step's header inside a stepper (else "Question" / "Review
+    /// answers"), a lone question's header when it has one.
     private var headerText: String? {
         if question.planMode { return "Plan ready" }
-        var parts: [String] = []
-        if let stepLabel {
-            parts.append(stepLabel)
-        } else if question.isSubmitStep {
-            parts.append("Review")
+        if stepLabel != nil || question.isSubmitStep {
+            if let header = question.header, !header.isEmpty { return header }
+            return question.isSubmitStep ? "Review answers" : "Question"
         }
-        if let header = question.header { parts.append(header) }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+        if let header = question.header, !header.isEmpty { return header }
+        return nil
+    }
+
+    /// EXP-1191: the card's one tint — a plan's primary, a question's yellow.
+    private var tint: Color {
+        question.planMode ? DesignTokens.Palette.primary : DesignTokens.Semantic.yellow
     }
 
     /// Multi-select answers batch into one submit; everything else answers on
@@ -2354,24 +2348,52 @@ private struct QuestionCard: View {
     private var submitTitle: String { AgentFeed.submitLabel }
 
     var body: some View {
+        // EXP-1191 (web `AskCard` parity): ONE top-aligned row — the 14pt
+        // glyph beside a column holding the heading, the body and the
+        // options, so the options indent under the text, never the glyph.
         HStack(alignment: .top, spacing: 8) {
             // EXP-820: no blue on the card — a plan's glyph and header are the
-            // primary white, a question's stay the semantic yellow.
-            AppIcon(question.planMode ? AppIcons.codingPlan : AppIcons.uiHelp, size: AppIcon.Size.small)
-                .foregroundStyle(
-                    question.planMode ? Color.white : DesignTokens.Semantic.yellow
-                )
-                .padding(.top, 4)
-            VStack(alignment: .leading, spacing: 8) {
-                if let headerText {
-                    Text(headerText)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(
-                            question.planMode
-                                ? Color.white
-                                : Color.white.opacity(TextOpacity.secondary)
-                        )
+            // primary, a question's the semantic yellow.
+            AppIcon(question.planMode ? AppIcons.codingPlan : AppIcons.uiHelp, size: 14)
+                .foregroundStyle(tint)
+                // Onto the first text line: the 12pt heading, else the
+                // larger prompt body.
+                .padding(.top, headerText != nil || stepLabel != nil ? 1 : 4)
+            VStack(alignment: .leading, spacing: 0) {
+                if headerText != nil || stepLabel != nil {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        if let headerText {
+                            Text(headerText)
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(tint)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                        if let stepLabel {
+                            Text(stepLabel)
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                                .fixedSize()
+                        }
+                    }
+                    .padding(.bottom, 4)
                 }
+                cardContent
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(12)
+        // A bordered card, not a group container: the ask is one free-content
+        // block that has to stand off the transcript behind it.
+        .glassCard()
+        .onAppear(perform: preselectEditingAnswer)
+    }
+
+    /// Everything under the heading: answered steps, the body, then the
+    /// options 8pt below it (web `mt-2`).
+    @ViewBuilder
+    private var cardContent: some View {
+            VStack(alignment: .leading, spacing: 8) {
                 priorStepSummary
                 prompt
                 if showsResolution {
@@ -2392,13 +2414,6 @@ private struct QuestionCard: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        // A bordered card, not a group container: the ask is one free-content
-        // block that has to stand off the transcript behind it.
-        .glassCard()
-        .onAppear(perform: preselectEditingAnswer)
     }
 
     /// EXP-820: an edited step starts from its recorded answer — the row whose
@@ -2574,7 +2589,7 @@ private struct QuestionCard: View {
     /// are drawn too and EXPAND into an inline field under themselves.
     @ViewBuilder
     private var optionList: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             ForEach(Array(question.options.enumerated()), id: \.element.key) { index, option in
                 let primary = (question.planMode || question.isSubmitStep) && index == 0
                 let selected = picked.contains(option.key)
@@ -2766,7 +2781,8 @@ private struct QuestionCard: View {
         let quietColor: Color = primary
             ? DesignTokens.Palette.primaryForeground.opacity(TextOpacity.secondary)
             : .white.opacity(TextOpacity.tertiary)
-        let row = HStack(alignment: .top, spacing: 8) {
+        // Web parity: the Button's row centers its checkbox, text and keycap.
+        let row = HStack(alignment: .center, spacing: 8) {
             if let checked {
                 // Multi-select rows carry an explicit checkbox (EXP-529) —
                 // the glassRow tint alone was too subtle to read the picked
@@ -2775,9 +2791,6 @@ private struct QuestionCard: View {
                     .foregroundStyle(
                         .white.opacity(checked ? TextOpacity.primary : TextOpacity.tertiary)
                     )
-                    .padding(.top, 2)
-            } else if number <= Self.numberedRows {
-                numberChip(number, primary: primary)
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(option.label)
@@ -2796,40 +2809,58 @@ private struct QuestionCard: View {
                 // EXP-820: this row types — the chevron says it unfolds.
                 AppIcon(inlineOpen ? AppIcons.uiChevronUp : AppIcons.uiChevronDown, size: 11)
                     .foregroundStyle(quietColor)
-                    .padding(.top, 2)
+            }
+            if checked == nil, number <= Self.numberedRows {
+                // EXP-1191 (web parity): the number key sits at the row's
+                // TRAILING end as a small keycap chip.
+                numberChip(number, primary: primary)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .frame(minHeight: 32)
         .contentShape(Rectangle())
+        let shape = RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
+        let active = selected || inlineOpen
         return Group {
             if primary {
-                row.background(
-                    DesignTokens.Palette.primary,
-                    in: RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
-                )
+                row.background(DesignTokens.Palette.primary, in: shape)
             } else {
-                row.glassRow(isActive: selected || inlineOpen)
+                // The web's outline option: a row fill under the card
+                // hairline; a pick (or an open field) the active glass.
+                row
+                    .background(active ? GlassTokens.fillActive : GlassTokens.fillRow, in: shape)
+                    .overlay(
+                        shape.stroke(
+                            active ? GlassTokens.strokeActive : GlassTokens.strokeCard,
+                            lineWidth: GlassTokens.hairline
+                        )
+                    )
             }
         }
     }
 
-    /// The 1..9 chip — the keystroke the desktop would take. On the primary
-    /// row it inverts onto the solid fill; a quiet glass square elsewhere.
+    /// The 1..9 keycap — the keystroke the desktop would take (web `kbd`
+    /// parity, EXP-1191): a 16pt-tall outlined chip, monospaced 10pt, muted;
+    /// on the primary row its border is the primary foreground at 30%.
     private func numberChip(_ number: Int, primary: Bool) -> some View {
         Text("\(number)")
-            .font(.caption2.weight(.semibold).monospacedDigit())
+            .font(.system(size: 10, design: .monospaced))
             .foregroundStyle(
-                primary ? DesignTokens.Palette.primaryForeground : .white.opacity(TextOpacity.secondary)
-            )
-            .frame(width: 18, height: 18)
-            .background(
                 primary
-                    ? DesignTokens.Palette.primaryForeground.opacity(0.12)
-                    : GlassTokens.fillActive,
-                // EXP-850 §13: the number-key chip wears `radius.sm` ×4 (the
-                // option row itself is `radius.md`, never a capsule).
-                in: RoundedRectangle(cornerRadius: DesignTokens.Radius.sm)
+                    ? DesignTokens.Palette.primaryForeground.opacity(0.8)
+                    : .white.opacity(TextOpacity.tertiary)
+            )
+            .padding(.horizontal, 4)
+            .frame(minWidth: 16, minHeight: 16, maxHeight: 16)
+            .overlay(
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(
+                        primary
+                            ? DesignTokens.Palette.primaryForeground.opacity(0.3)
+                            : GlassTokens.strokeCard,
+                        lineWidth: 1
+                    )
             )
             .accessibilityHidden(true)
     }

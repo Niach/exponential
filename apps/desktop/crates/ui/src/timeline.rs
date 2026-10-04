@@ -1541,10 +1541,8 @@ impl Render for IssueTimeline {
         // Content re-centers to the detail column; the centering must ride
         // `centered_column` — `max_w` + `mx_auto` here made taffy size the
         // column fit-content, mis-measuring wrapped comment text (EXP-179).
-        // `px_4` is the shared detail-body left edge (title / description /
-        // activity all align on it — EXP-282).
+        // The gutter rides the wrapper below (EXP-1191), outside the rule.
         let mut body = v_flex()
-            .px_4()
             .py_3()
             .child(
                 // EXP-417: a real section title (was `text_xs` muted) — the
@@ -1730,6 +1728,10 @@ impl Render for IssueTimeline {
             .child(crate::issue_detail::centered_column(
                 v_flex()
                     .w_full()
+                    // EXP-1191: the work gutter OUTSIDE the rule, so the
+                    // rule, the heading, the rows and the composer all run
+                    // edge to edge of the column's content box.
+                    .px(px(crate::work_header::WORK_GUTTER))
                     // flex_shrink_0: a 1px main-axis child in a column is
                     // otherwise free to be squeezed to nothing (the same guard
                     // the rail divider uses).

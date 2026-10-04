@@ -43,8 +43,8 @@ const UiRefreshIcon = conceptIcon(`ui-refresh`)
  *  hugging its label (28px padding, a 20px glyph), carrying
  *  `SessionMergePill`'s confirm, stack choice and Fix-conflicts swap. It
  *  self-hides unless the PR is open. The Changes and Results faces put it in
- *  the bar's centred cluster; the Issue and Run faces float it above their
- *  composer bar (`MobileMergeFloat`). */
+ *  the bar's centred cluster; the Issue and Run faces'
+ *  composer bars get the Merge circle instead (`MobileMergeCircle`). */
 export function MergeCapsule(props: {
   issueId?: string
   sessionId?: string
@@ -84,18 +84,18 @@ export function IssueChangesBody({
   return (
     <div data-testid="issue-changes-body">
       {state.kind === `loading` && (
-        <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted-foreground">
+        <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted-foreground md:px-5">
           <UiLoadingIcon className="size-4 animate-spin" />
           Loading changes…
         </div>
       )}
       {state.kind === `none` && (
-        <p className="px-4 py-6 text-sm text-muted-foreground">
+        <p className="px-4 py-6 text-sm text-muted-foreground md:px-5">
           No changes yet. Nothing has been pushed for this issue.
         </p>
       )}
       {state.kind === `error` && (
-        <div className="flex flex-wrap items-center gap-2 px-4 py-6 text-sm text-destructive">
+        <div className="flex flex-wrap items-center gap-2 px-4 py-6 text-sm text-destructive md:px-5">
           {`Couldn’t load changes: ${state.message}`}
           {onRetry && (
             <Pill mode="action" onClick={onRetry}>

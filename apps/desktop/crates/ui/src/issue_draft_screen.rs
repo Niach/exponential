@@ -9,7 +9,7 @@
 //! over the scrolling body, the large title row, the property tray, the
 //! description, the Files — with only these differences: the collapsed title
 //! reads "New issue" over the typed title (or "Untitled draft"), the bar's
-//! cluster is a primary Create plus a `…` holding only "Discard draft", the
+//! cluster is a primary Create plus an `×` tooltipped "Discard draft", the
 //! tray is the [`IssueDraft`] chip row (no estimate) plus a board chip when
 //! the team has another board, and nothing follows the Files (no relations,
 //! composer, PR row or timeline).
@@ -35,7 +35,6 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{InputEvent, TextareaState},
-    menu::DropdownMenu as _,
     v_flex, ActiveTheme as _, Disableable as _, Icon,
 };
 use sync::Store;
@@ -47,7 +46,8 @@ use crate::controls::WebControl as _;
 use crate::draft_editor::{DraftEditor, DraftEditorEvent, LeaveAction};
 use crate::drafts::DraftSave;
 use crate::icons::registry;
-use crate::issue_detail::{centered_column, DETAIL_GUTTER, WYSIWYG_BLOCK_PADDING_X};
+use crate::issue_detail::{centered_column, WYSIWYG_BLOCK_PADDING_X};
+use crate::work_header::WORK_GUTTER;
 use crate::issue_draft::IssueDraft;
 use crate::markdown::image_paste::{markdown_for_save, strip_draft_images};
 use crate::navigation::{nav_for_window, resolved_screen, Navigation, Screen};
@@ -147,6 +147,9 @@ pub(crate) struct IssueDraftView {
     /// EXP-1162: the title row's measured content bottom / the bar cluster's
     /// measured width (`work_header::scrolling_title_rows`).
     title_bottom: Rc<std::cell::Cell<Option<f32>>>,
+    /// EXP-1191: the tray slot's top and height (it pins under the bar).
+    tray_top: Rc<std::cell::Cell<Option<f32>>>,
+    tray_h: Rc<std::cell::Cell<Option<f32>>>,
     cluster_w: Rc<std::cell::Cell<Option<f32>>>,
     title: Entity<TextareaState>,
     parts: Option<DraftParts>,
@@ -274,6 +277,8 @@ impl IssueDraftView {
             focus_handle: cx.focus_handle(),
             body_scroll: gpui::ScrollHandle::new(),
             title_bottom: Rc::new(std::cell::Cell::new(None)),
+            tray_top: Rc::new(std::cell::Cell::new(None)),
+            tray_h: Rc::new(std::cell::Cell::new(None)),
             cluster_w: Rc::new(std::cell::Cell::new(None)),
             title,
             parts: None,
@@ -464,6 +469,8 @@ impl IssueDraftView {
         self.focused_once = false;
         self.busy_files.clear();
         self.title_bottom.set(None);
+        self.tray_top.set(None);
+        self.tray_h.set(None);
         self.body_scroll.set_offset(gpui::Point::default());
         cx.notify();
     }
@@ -868,7 +875,9 @@ impl IssueDraftView {
 
     // -- render -----------------------------------------------------------------
 
-    /// The bar's right cluster: Create, then the `…` holding only Discard.
+    /// The bar's right cluster: Create, then an `×` that discards (EXP-1191:
+    /// the draft's only action, so no one-item `…` menu; its tooltip says
+    /// what it does).
     fn cluster(&self, cx: &mut gpui::Context<Self>) -> Vec<AnyElement> {
         let enabled = self.can_create(cx);
         let create = Button::new("draft-create")
@@ -877,26 +886,18 @@ impl IssueDraftView {
             .label(copy::CREATE)
             .disabled(!enabled)
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.create(window, cx)));
-        let view = cx.entity().downgrade();
-        let menu = crate::controls::ghost_icon_button(
-            "draft-actions",
-            Icon::new(registry::UI_MORE),
+        let discard = crate::controls::ghost_icon_button(
+            "draft-discard",
+            Icon::new(registry::UI_CLOSE),
             cx,
         )
-        .dropdown_menu(move |menu, _window, cx| {
-            let view = view.clone();
-            menu.item(
-                crate::controls::danger_menu_item(
-                    copy::DISCARD,
-                    Icon::from(registry::UI_DELETE),
-                    cx,
-                )
-                .on_click(move |_, window, cx| {
-                    let _ = view.update(cx, |this, cx| this.discard(window, cx));
-                }),
-            )
-        });
-        vec![create.into_any_element(), menu.into_any_element()]
+        .tooltip(copy::DISCARD)
+        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.discard(window, cx)));
+        // EXP-1191: the `×` glyph, not its hit box, ends on the content edge.
+        let discard = div()
+            .mr(px(-crate::work_header::GHOST_ICON_HANG))
+            .child(discard);
+        vec![create.into_any_element(), discard.into_any_element()]
     }
 
     /// The property tray: the [`IssueDraft`] chips plus the board chip.
@@ -936,7 +937,7 @@ impl IssueDraftView {
     /// The description slot (the detail's insets and textarea floor).
     fn description_slot(&self, parts: &DraftParts) -> AnyElement {
         div()
-            .px(px(DETAIL_GUTTER - WYSIWYG_BLOCK_PADDING_X))
+            .px(px(WORK_GUTTER - WYSIWYG_BLOCK_PADDING_X))
             .min_h(px(96.))
             .flex()
             .flex_col()
@@ -975,10 +976,15 @@ impl IssueDraftView {
                     .text_color(cx.theme().muted_foreground)
                     .child("Files"),
             )
-            .child(attach);
+            // EXP-1191: the paperclip GLYPH ends on the content edge.
+            .child(
+                div()
+                    .mr(px(-crate::work_header::GHOST_ICON_HANG))
+                    .child(attach),
+            );
         let mut section = v_flex()
             .w_full()
-            .px(px(DETAIL_GUTTER))
+            .px(px(WORK_GUTTER))
             .pt_2()
             .gap_1()
             .child(header);
@@ -1113,19 +1119,27 @@ impl Render for IssueDraftView {
                 true
             }
         })
+        // EXP-1191: a little air above the title (web `pt-4`) — with no
+        // parent line or identifier above it, it hugged the pane's top.
+        .mt(px(16.))
         .into_any_element();
+        let pinned = crate::work_header::tray_pinned(&self.body_scroll, &self.tray_top);
         let (header, rows) = crate::work_header::scrolling_title_rows(
             crate::work_header::TitleChrome {
                 body_scroll: &self.body_scroll,
                 title_bottom: &self.title_bottom,
+                tray_top: &self.tray_top,
+                tray_h: &self.tray_h,
                 cluster_w: &self.cluster_w,
                 entity_id: cx.entity_id(),
             },
             collapsed,
             vec![title_row],
-            vec![tray],
+            tray,
+            Vec::new(),
             compact,
             right,
+            pinned,
         );
         let column = v_flex()
             .child(rows)

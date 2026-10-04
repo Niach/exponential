@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
@@ -149,6 +150,7 @@ import com.exponential.app.ui.components.BarCapsule
 import com.exponential.app.ui.components.BarCircle
 import com.exponential.app.ui.components.ContextRing
 import com.exponential.app.ui.components.FloatingBottomBar
+import com.exponential.app.ui.components.TaskListProgress
 import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.components.modelOptionsFor
 import androidx.lifecycle.Lifecycle
@@ -261,6 +263,7 @@ import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassMenuSurface
 import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.JumpToBottomButton
 import com.exponential.app.ui.components.PillMode
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.GlassSheet
@@ -349,7 +352,7 @@ private val AgentPhase.isWaitingForStream: Boolean
  * the bare bar with only the trailing circle — or no bar without one — once it
  * ended or a card holds the input. The host (`WorkScreen`) owns the Scaffold,
  * the title dot, Stop / Resume, the kill and resume confirms, the merge
- * (EXP-1154: the white capsule it floats above this bar, [aboveBar]) and the
+ * (EXP-1191: the glyph-only circle right of this bar's capsule, [mergeBarSlot]) and the
  * ended-edge navigation; this renders INSIDE its
  * content slot, one instance per shown run (`key(shownSessionId)`).
  */
@@ -362,9 +365,10 @@ fun RunFace(
     /** The bar's right circle (EXP-1150: the Start circle once the run
      *  ended for good); null = none. */
     trailingBarSlot: (@Composable () -> Unit)?,
-    /** EXP-1154: floats centred directly ABOVE the bar (the white Merge PR),
-     *  riding the keyboard with it; hidden while the composer is expanded. */
-    aboveBar: (@Composable () -> Unit)? = null,
+    /** EXP-1191: the bar's Merge circle, directly right of the capsule and
+     *  before [trailingBarSlot]; hidden with the circles while the composer
+     *  is expanded. */
+    mergeBarSlot: (@Composable () -> Unit)? = null,
     /** EXP-933: switches the host to its Results face — the inline
      *  `sessions_results` card's `Open Results` button. Null hides it. */
     onOpenResults: (() -> Unit)? = null,
@@ -377,7 +381,7 @@ fun RunFace(
         LocalOpenResults provides onOpenResults,
         LocalSessionResults provides results,
     ) {
-        RunFaceContent(viewModel, padding, onOpenIssue, trailingBarSlot, aboveBar)
+        RunFaceContent(viewModel, padding, onOpenIssue, trailingBarSlot, mergeBarSlot)
     }
 }
 
@@ -395,7 +399,7 @@ private fun RunFaceContent(
     padding: PaddingValues,
     onOpenIssue: (String) -> Unit,
     trailingBarSlot: (@Composable () -> Unit)?,
-    aboveBar: (@Composable () -> Unit)?,
+    mergeBarSlot: (@Composable () -> Unit)?,
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     val phase by viewModel.phase.collectAsStateWithLifecycle()
@@ -1199,12 +1203,13 @@ private fun RunFaceContent(
                 Spacer(Modifier.height(8.dp))
             }
 
-            // EXP-927: the strip's FIRST block — the agent's own plan, one
-            // collapsed line until somebody opens it. Same live gate as the
-            // blocks below: a finished run has no plan left to work.
-            if (phase == AgentPhase.Live && !sessionEnded && taskList != null) {
+            // EXP-861: what the device holds for the agent's next turn — one
+            // line per queued message, each with the X that revokes it.
+            // Never while the run is over: an ended run delivers nothing. The
+            // composer stays live beneath it.
+            if (phase == AgentPhase.Live && !sessionEnded && activity.queue.isNotEmpty()) {
                 ReadingColumn {
-                    TaskListBlock(summary = taskList, entries = activity.taskList)
+                    QueueStrip(messages = activity.queue, onRemove = viewModel::unqueue)
                 }
                 Spacer(Modifier.height(8.dp))
             }
@@ -1217,17 +1222,6 @@ private fun RunFaceContent(
                 (stripTasks.isNotEmpty() || openWaits.isNotEmpty())
             ) {
                 ReadingColumn { BackgroundWorkStrip(tasks = stripTasks, waits = openWaits) }
-                Spacer(Modifier.height(8.dp))
-            }
-
-            // EXP-861: what the device holds for the agent's next turn — one
-            // line per queued message, each with the X that revokes it.
-            // Never while the run is over: an ended run delivers nothing. The
-            // composer stays live beneath it.
-            if (phase == AgentPhase.Live && !sessionEnded && activity.queue.isNotEmpty()) {
-                ReadingColumn {
-                    QueueStrip(messages = activity.queue, onRemove = viewModel::unqueue)
-                }
                 Spacer(Modifier.height(8.dp))
             }
 
@@ -1269,6 +1263,17 @@ private fun RunFaceContent(
                 }
                 ComposerMenu.None -> Unit
             }
+            // EXP-927/EXP-1191: the agent's own plan — ALWAYS the last block,
+            // directly on the composer, under the queued steer messages and
+            // the background lines (a menu opens above it). One collapsed
+            // line until somebody opens it. Same live gate as the blocks
+            // above: a finished run has no plan left to work.
+            if (phase == AgentPhase.Live && !sessionEnded && taskList != null) {
+                ReadingColumn {
+                    TaskListBlock(summary = taskList, entries = activity.taskList)
+                }
+                Spacer(Modifier.height(4.dp))
+            }
             // Escape has no hardware key on most phones — Back dismisses
             // the menu, and only the menu (EXP-724). One handler per menu,
             // and [composerMenu] guarantees at most one is ever enabled.
@@ -1280,8 +1285,6 @@ private fun RunFaceContent(
             }
         }
 
-        // EXP-1154: the white Merge PR, centred directly over the bar.
-        if (aboveBar != null && !composerExpanded) aboveBar()
         // ── The floating bottom bar / steering input ─────────────────────────
         // Fully seamless (EXP-312): no captions, no operator state; live
         // implies ownership, input just sends. EXP-621: the composer is
@@ -1420,9 +1423,12 @@ private fun RunFaceContent(
                 hasUsage = hasUsage,
                 onOpenUsage = { usageSheetOpen = true },
                 trailing = trailingBarSlot,
+                merge = mergeBarSlot,
             )
-        } else if (trailingBarSlot != null) {
-            FloatingBottomBar(right = trailingBarSlot) { Spacer(Modifier.weight(1f)) }
+        } else if (trailingBarSlot != null || mergeBarSlot != null) {
+            FloatingBottomBar(right = trailingBarSlot, afterCentre = mergeBarSlot) {
+                Spacer(Modifier.weight(1f))
+            }
         }
         }
         }
@@ -1997,6 +2003,7 @@ private fun ActivityFeed(
     // visually IS the bottom. Near-bottom counts as bottom, so the chip only
     // appears after a real scroll-up and hides again within the same slack.
     val followSlackPx = with(LocalDensity.current) { 96.dp.toPx() }
+    val jumpScope = rememberCoroutineScope()
     LaunchedEffect(listState, followSlackPx) {
         snapshotFlow { listState.isScrollInProgress to listState.isNearBottom(followSlackPx) }
             .distinctUntilChanged()
@@ -2259,20 +2266,26 @@ private fun ActivityFeed(
             }
             }
         }
-        if (!follow) {
-            GlassPill(
-                "Jump to bottom ↓",
-                size = PillSize.Sm,
-                mode = PillMode.Select,
-                selected = true,
-                // opaque: the feed scrolls beneath this pill (EXP-165).
-                opaque = true,
-                onClick = { onFollowChange(true) },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 8.dp + bottomInset),
-            )
-        }
+        // EXP-1191: the shared round scroll-to-bottom button, centred 12dp
+        // above the bar's rung ([bottomInset] = the floating band, whose top
+        // 8dp is the bar's own padding). The tap animates to the true end,
+        // then re-pins follow-mode.
+        JumpToBottomButton(
+            visible = !follow && feed.isNotEmpty(),
+            onClick = {
+                jumpScope.launch {
+                    val last = listState.layoutInfo.totalItemsCount - 1
+                    if (last >= 0) {
+                        listState.animateScrollToItem(last)
+                        listState.scrollBy(1_000_000f)
+                    }
+                    onFollowChange(true)
+                }
+            },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = bottomInset + 4.dp),
+        )
         // EXP-1162: the EXP-698 top fade is the header band's edge strip now
         // (`HeaderEdgeChrome`), over every face alike. With the subagent tabs
         // up the list starts below them, so its own head still dissolves.
@@ -2487,12 +2500,14 @@ private const val TASK_LIST_VISIBLE_ROWS = 8
 private const val TASK_LIST_SPIN_MS = 1_200
 
 /**
- * EXP-927 (wire doc §2c): the agent's OWN task list — the FIRST block of the
- * strip above the composer, above the background tasks and the waits.
- * Collapsed (the default) it is ONE line: the checklist glyph, the current
- * entry and `{completed}/{total}`, with the chevron that says it opens; the
- * whole line toggles. Expanded it is one line per entry in wire order. The
- * expansion is view state, never persisted — a rejoin opens collapsed.
+ * EXP-927 (wire doc §2c): the agent's OWN task list — EXP-1191: the LAST
+ * block above the composer, and deliberately NOT a box (no fill, no border),
+ * so it never reads as a queued steer message or as the composer itself.
+ * Collapsed (the default) it is ONE plain line: the checklist glyph, the
+ * current entry, the segmented [TaskListProgress] mark, `{completed}/{total}`
+ * and the disclosure chevron; the whole line toggles. Expanded it is one line
+ * per entry in wire order. The expansion is view state, never persisted — a
+ * rejoin opens collapsed.
  */
 @Composable
 private fun TaskListBlock(summary: TaskListSummary, entries: List<TaskListEntry>) {
@@ -2502,7 +2517,6 @@ private fun TaskListBlock(summary: TaskListSummary, entries: List<TaskListEntry>
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .glassRow()
             .testTag("task-list-block"),
     ) {
         // The header is the toggle, so its own tag is the one a test may read:
@@ -2511,7 +2525,7 @@ private fun TaskListBlock(summary: TaskListSummary, entries: List<TaskListEntry>
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable(role = Role.Button) { expanded = !expanded }
-                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .padding(horizontal = 4.dp, vertical = 6.dp)
                 .testTag("task-list-toggle"),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -2530,14 +2544,15 @@ private fun TaskListBlock(summary: TaskListSummary, entries: List<TaskListEntry>
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
+            TaskListProgress(statuses = entries.map { it.status })
             Text(
                 "${summary.completed}/${summary.total}",
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                 color = tertiary,
                 maxLines = 1,
             )
             Icon(
-                imageVector = if (expanded) ExpIcons.uiChevronDown else ExpIcons.uiChevronUp,
+                imageVector = if (expanded) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
                 contentDescription = null,
                 modifier = Modifier.size(12.dp),
                 tint = tertiary,
@@ -2549,7 +2564,7 @@ private fun TaskListBlock(summary: TaskListSummary, entries: List<TaskListEntry>
                     .fillMaxWidth()
                     .heightIn(max = TaskListEntryHeight * TASK_LIST_VISIBLE_ROWS)
                     .verticalScroll(rememberScrollState())
-                    .padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
+                    .padding(start = 4.dp, end = 4.dp, bottom = 6.dp),
             ) {
                 entries.forEach { entry -> TaskListEntryLine(entry) }
             }
@@ -3296,7 +3311,8 @@ private fun QuestionStepperCard(
             active = true,
             answerEnabled = answerEnabled,
             state = answerStates[editing.wireId],
-            stepLabel = editing.index?.let { "Question $it of $total" },
+            stepLabel = editing.index?.takeIf { total > 1 }?.let { "$it of $total" },
+            stepHeading = "Question",
             priorSteps = before,
             priorAnswers = before.map { stepAnswer(it, answerLabels) },
             trailingSteps = after,
@@ -3326,11 +3342,14 @@ private fun QuestionStepperCard(
         active = current.id in activeQuestionIds,
         answerEnabled = answerEnabled,
         state = answerStates[current.wireId],
+        // Web `AskStepperCard`: "k of n" beside the heading, the review step
+        // (no index) says how many questions it closes.
         stepLabel = when {
-            current.index != null && total > 0 -> "Question ${current.index} of $total"
-            // No index: the ask's final review step.
-            else -> "Review your answers"
+            total <= 1 -> null
+            current.index != null -> "${current.index} of $total"
+            else -> "$total questions"
         },
+        stepHeading = if (current.index != null) "Question" else "Review answers",
         priorSteps = prior,
         priorAnswers = prior.map { stepAnswer(it, answerLabels) },
         editableSteps = editable,
@@ -3452,24 +3471,12 @@ private fun AnsweredAskCard(
     editable: Set<String>,
     onEditStep: (AgentFeedItem.Question) -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    AskCard(
+        plan = false,
+        heading = "Question",
+        meta = steps.size.takeIf { it > 1 }?.let { "$it questions" },
     ) {
-        Icon(
-            ExpIcons.uiHelp,
-            contentDescription = null,
-            modifier = Modifier.size(13.dp).padding(top = 1.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .glassCard()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             steps.forEach { step ->
                 val onEdit = if (step.wireId in editable) ({ onEditStep(step) }) else null
                 Column(
@@ -3533,6 +3540,75 @@ private fun AnsweredAskCard(
     }
 }
 
+/**
+ * EXP-1191: the ask's chrome, web `AskCard` parity — ONE glass card (12dp
+ * padding) holding ONE top-aligned row: the 14dp glyph (a question's semantic
+ * yellow help, a plan's glyph in the primary paint — EXP-820: never blue)
+ * nudged 2dp down onto the first text line, then the column every line of
+ * the card lives in, so the options indent under the text, not the glyph.
+ * [heading] (12sp medium, tinted like the glyph) and the stepper's [meta]
+ * caption sit 4dp above the content.
+ */
+@Composable
+private fun AskCard(
+    plan: Boolean,
+    heading: String?,
+    meta: String?,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val tint = if (plan) MaterialTheme.colorScheme.primary else DesignTokens.Semantic.Yellow
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .glassCard()
+            .padding(12.dp),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            if (plan) ExpIcons.codingPlan else ExpIcons.uiHelp,
+            contentDescription = null,
+            modifier = Modifier.padding(top = 2.dp).size(14.dp),
+            tint = tint,
+        )
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            if (heading != null || meta != null) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (heading != null) {
+                        Text(
+                            heading,
+                            modifier = Modifier.weight(1f, fill = false),
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                            ),
+                            color = tint,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (meta != null) {
+                        Text(
+                            meta,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+            content()
+        }
+    }
+}
+
 // An interactive question (EXP-78): AskUserQuestion step / plan approval. While
 // the card is answerable, option rows send their keys in ONE semantic `answer`
 // frame keyed by the card's wire id; stale, view-only and id-less cards render
@@ -3554,7 +3630,7 @@ private fun QuestionCard(
     answerEnabled: Boolean,
     /** This client's send state — non-null means the card is locked. */
     state: AnswerState?,
-    /** "Question 2 of 3" when the card is one step of a stepper. */
+    /** The stepper's "2 of 3" caption beside the heading (web `meta`). */
     stepLabel: String?,
     onAnswer: (List<String>, String?) -> Unit,
     /** EXP-820: (reject key, feedback) — a plan rejected WITH text: the key
@@ -3581,6 +3657,9 @@ private fun QuestionCard(
     /** What this client picked for THIS card — the resolved row's fallback
      *  when the desktop's resolution carried no answer text (EXP-588). */
     localAnswer: String? = null,
+    /** A stepper step's heading when the question carries no header (web
+     *  `Question` / `Review answers`). */
+    stepHeading: String? = null,
 ) {
     // Both keyed on the card id: the stepper reuses ONE card slot across the
     // ask's steps, so an unkeyed `expanded` leaked a "Show more" from a long
@@ -3602,222 +3681,194 @@ private fun QuestionCard(
     // and renders the retry hint below instead of the sent row.
     val locked = state.locksCard()
     val answerable = active && answerEnabled && !locked
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            // EXP-627: the store slide's pop-out rect is measured off the
-            // question card (`PopRects`), iOS parity.
-            .testTag("agent-feed-question"),
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    // Web `AskCard` parity (EXP-1191): ONE glass card, the glyph INSIDE it
+    // beside the text, everything else — heading, body, options, status
+    // lines — in the column the glyph leads, so options indent under the text.
+    AskCard(
+        plan = item.planMode,
+        heading = if (item.planMode) "Plan ready" else item.header?.takeIf { it.isNotBlank() } ?: stepHeading,
+        meta = stepLabel,
+        // EXP-627: the store slide's pop-out rect is measured off the
+        // question card (`PopRects`), iOS parity.
+        modifier = Modifier.testTag("agent-feed-question"),
     ) {
-        // EXP-820: no blue on this card — a question's cue is the semantic
-        // yellow, a plan's the plain foreground (styleguide).
-        Icon(
-            if (item.planMode) ExpIcons.codingPlan else ExpIcons.uiHelp,
-            contentDescription = null,
-            modifier = Modifier.size(13.dp).padding(top = 1.dp),
-            tint = if (item.planMode) MaterialTheme.colorScheme.onSurface else DesignTokens.Semantic.Yellow,
-        )
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .glassCard()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            if (stepLabel != null) {
-                Text(
-                    stepLabel,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                )
-            }
-            if (priorSteps.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    priorSteps.forEachIndexed { position, step ->
-                        AnsweredStepRow(
-                            step,
-                            priorAnswers.getOrNull(position),
-                            onEdit = if (step.wireId in editableSteps) ({ onEditStep(step) }) else null,
-                        )
-                    }
-                }
-            }
-            if (item.planMode) {
-                Text(
-                    "Plan ready",
-                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                // The plan is GFM markdown — always fully rendered, never
-                // folded behind a Show more (EXP-197).
-                MarkdownView(item.text)
-            } else {
-                item.header?.takeIf { it.isNotBlank() }?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
-                        color = MaterialTheme.colorScheme.onSurface,
+        if (priorSteps.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                priorSteps.forEachIndexed { position, step ->
+                    AnsweredStepRow(
+                        step,
+                        priorAnswers.getOrNull(position),
+                        onEdit = if (step.wireId in editableSteps) ({ onEditStep(step) }) else null,
                     )
                 }
-                FoldableMarkdown(item.text, expanded) { expanded = !expanded }
             }
-            if (item.resolved && !editing) {
-                // Resolved (EXP-197/EXP-249): the answer replaces the options.
-                AnsweredRow(recorded)
-            } else {
-                // EXP-788: ONE option list on every client — full-width
-                // buttons with a numbered chip (1..9, the row's POSITION, the
-                // digit a keyboard client presses), the description under the
-                // label, and the plan's plain "Yes" (index 0 since EXP-788)
-                // promoted as the primary button. EXP-820: a free-text row
-                // and the plan's reject row (its LAST option) open an inline
-                // field under themselves instead of sending at once.
-                val options = item.options
-                options.forEachIndexed { index, option ->
-                    val selected = option.key in picked
-                    val planReject = item.planMode && index == options.lastIndex
-                    val inline = option.freeText || planReject
-                    val fieldOpen = inline && inlineKey == option.key
-                    QuestionOptionButton(
-                        option = option,
-                        ordinal = index + 1,
-                        primary = item.planMode && index == 0,
-                        selected = selected || fieldOpen,
-                        checked = if (item.multiSelect) selected else null,
-                        enabled = answerable,
-                        dimmed = locked,
-                        onClick = {
+        }
+        if (item.planMode) {
+            // The plan is GFM markdown — always fully rendered, never
+            // folded behind a Show more (EXP-197).
+            MarkdownView(item.text)
+        } else {
+            FoldableMarkdown(item.text, expanded) { expanded = !expanded }
+        }
+        if (item.resolved && !editing) {
+            // Resolved (EXP-197/EXP-249): the answer replaces the options.
+            Box(Modifier.padding(top = 4.dp)) { AnsweredRow(recorded) }
+        } else Column(
+            // Web `mt-2 gap-1`: the options 8dp under the body (the
+            // column's 4dp + this 4dp), stacked 4dp apart.
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            // EXP-788: ONE option list on every client — full-width
+            // buttons with a numbered chip (1..9, the row's POSITION, the
+            // digit a keyboard client presses), the description under the
+            // label, and the plan's plain "Yes" (index 0 since EXP-788)
+            // promoted as the primary button. EXP-820: a free-text row
+            // and the plan's reject row (its LAST option) open an inline
+            // field under themselves instead of sending at once.
+            val options = item.options
+            options.forEachIndexed { index, option ->
+                val selected = option.key in picked
+                val planReject = item.planMode && index == options.lastIndex
+                val inline = option.freeText || planReject
+                val fieldOpen = inline && inlineKey == option.key
+                QuestionOptionButton(
+                    option = option,
+                    ordinal = index + 1,
+                    primary = item.planMode && index == 0,
+                    selected = selected || fieldOpen,
+                    checked = if (item.multiSelect) selected else null,
+                    enabled = answerable,
+                    dimmed = locked,
+                    onClick = {
+                        when {
+                            // Tapping the row again folds its field.
+                            inline -> inlineKey = if (fieldOpen) null else option.key
+                            item.multiSelect -> {
+                                // Every picked key goes out at once when the
+                                // card submits.
+                                picked = if (selected) picked - option.key
+                                else picked + option.key
+                            }
+                            else -> {
+                                picked = setOf(option.key)
+                                onAnswer(listOf(option.key), null)
+                            }
+                        }
+                    },
+                )
+                if (fieldOpen) {
+                    val text = inlineText.trim()
+                    InlineAnswerField(
+                        value = inlineText,
+                        onValueChange = { inlineText = it },
+                        placeholder = if (planReject) PLAN_FEEDBACK_PLACEHOLDER else FREE_TEXT_ANSWER_PLACEHOLDER,
+                        // A plan's reject sends with or without feedback
+                        // (empty = the plain reject the row used to be); a
+                        // typed answer needs text.
+                        sendEnabled = answerable && (planReject || text.isNotEmpty()),
+                        onSend = {
                             when {
-                                // Tapping the row again folds its field.
-                                inline -> inlineKey = if (fieldOpen) null else option.key
-                                item.multiSelect -> {
-                                    // Every picked key goes out at once when the
-                                    // card submits.
-                                    picked = if (selected) picked - option.key
-                                    else picked + option.key
-                                }
-                                else -> {
-                                    picked = setOf(option.key)
-                                    onAnswer(listOf(option.key), null)
-                                }
+                                planReject && text.isNotEmpty() -> onPlanFollowUp(option.key, text)
+                                planReject -> onAnswer(listOf(option.key), null)
+                                item.multiSelect -> onAnswer((picked + option.key).toList(), text)
+                                else -> onAnswer(listOf(option.key), text)
                             }
                         },
                     )
-                    if (fieldOpen) {
-                        val text = inlineText.trim()
-                        InlineAnswerField(
-                            value = inlineText,
-                            onValueChange = { inlineText = it },
-                            placeholder = if (planReject) PLAN_FEEDBACK_PLACEHOLDER else FREE_TEXT_ANSWER_PLACEHOLDER,
-                            // A plan's reject sends with or without feedback
-                            // (empty = the plain reject the row used to be); a
-                            // typed answer needs text.
-                            sendEnabled = answerable && (planReject || text.isNotEmpty()),
-                            onSend = {
-                                when {
-                                    planReject && text.isNotEmpty() -> onPlanFollowUp(option.key, text)
-                                    planReject -> onAnswer(listOf(option.key), null)
-                                    item.multiSelect -> onAnswer((picked + option.key).toList(), text)
-                                    else -> onAnswer(listOf(option.key), text)
-                                }
-                            },
-                        )
-                    }
-                }
-                if (item.multiSelect && (answerable || locked)) {
-                    // One frame carrying every picked key — plus the free-text
-                    // row when its field holds a reply (EXP-820).
-                    val freeKey = inlineKey?.takeIf { inlineText.isNotBlank() }
-                    val keys = picked.toList() + listOfNotNull(freeKey)
-                    val enabled = answerable && keys.isNotEmpty()
-                    GlassPill(
-                        "Submit",
-                        size = PillSize.Sm,
-                        mode = PillMode.Select,
-                        selected = true,
-                        enabled = enabled,
-                        onClick = { onAnswer(keys, freeKey?.let { inlineText.trim() }) },
-                    )
-                }
-                if (editing && onBackToCurrent != null) {
-                    TextButton(
-                        onClick = onBackToCurrent,
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                        modifier = Modifier.height(28.dp),
-                    ) {
-                        Text(
-                            BACK_TO_CURRENT_STEP_LABEL,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                        )
-                    }
                 }
             }
-            if (trailingSteps.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    trailingSteps.forEachIndexed { position, step ->
-                        AnsweredStepRow(
-                            step,
-                            trailingAnswers.getOrNull(position),
-                            onEdit = if (step.wireId in editableSteps) ({ onEditStep(step) }) else null,
-                        )
-                    }
-                }
-            }
-            if (foldedCurrent != null) {
-                FoldedStepRow(foldedCurrent, onClick = onBackToCurrent)
-            }
-            if (locked) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    if (state == AnswerState.Sending) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(12.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                    } else {
-                        Icon(
-                            ExpIcons.uiCheck,
-                            contentDescription = null,
-                            modifier = Modifier.size(12.dp),
-                            tint = LiveGreen,
-                        )
-                    }
-                    Text(
-                        if (state == AnswerState.Sending) {
-                            "Sending your answer…"
-                        } else {
-                            "Answer sent. Waiting for the agent."
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    )
-                }
-            } else if (state == AnswerState.Failed && answerable) {
-                // The optimistic lock expired with no `answer_ack` — say WHY
-                // the step re-surfaced instead of silently rolling back
-                // (EXP-334, web parity).
-                Text(
-                    "No confirmation from the desktop. Pick again to retry.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = ConnectingYellow,
+            if (item.multiSelect && (answerable || locked)) {
+                // One frame carrying every picked key — plus the free-text
+                // row when its field holds a reply (EXP-820).
+                val freeKey = inlineKey?.takeIf { inlineText.isNotBlank() }
+                val keys = picked.toList() + listOfNotNull(freeKey)
+                val enabled = answerable && keys.isNotEmpty()
+                GlassPill(
+                    "Submit",
+                    size = PillSize.Sm,
+                    mode = PillMode.Select,
+                    selected = true,
+                    enabled = enabled,
+                    onClick = { onAnswer(keys, freeKey?.let { inlineText.trim() }) },
                 )
-            } else if (active && !answerEnabled) {
+            }
+            if (editing && onBackToCurrent != null) {
+                TextButton(
+                    onClick = onBackToCurrent,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier.height(28.dp),
+                ) {
+                    Text(
+                        BACK_TO_CURRENT_STEP_LABEL,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    )
+                }
+            }
+        }
+        if (trailingSteps.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                trailingSteps.forEachIndexed { position, step ->
+                    AnsweredStepRow(
+                        step,
+                        trailingAnswers.getOrNull(position),
+                        onEdit = if (step.wireId in editableSteps) ({ onEditStep(step) }) else null,
+                    )
+                }
+            }
+        }
+        if (foldedCurrent != null) {
+            FoldedStepRow(foldedCurrent, onClick = onBackToCurrent)
+        }
+        if (locked) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (state == AnswerState.Sending) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(12.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                } else {
+                    Icon(
+                        ExpIcons.uiCheck,
+                        contentDescription = null,
+                        modifier = Modifier.size(12.dp),
+                        tint = LiveGreen,
+                    )
+                }
                 Text(
-                    if (item.planMode) {
-                        "Waiting for approval. You're viewing read-only."
+                    if (state == AnswerState.Sending) {
+                        "Sending your answer…"
                     } else {
-                        "Waiting for an answer. You're viewing read-only."
+                        "Answer sent. Waiting for the agent."
                     },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                 )
             }
+        } else if (state == AnswerState.Failed && answerable) {
+            // The optimistic lock expired with no `answer_ack` — say WHY
+            // the step re-surfaced instead of silently rolling back
+            // (EXP-334, web parity).
+            Text(
+                "No confirmation from the desktop. Pick again to retry.",
+                style = MaterialTheme.typography.labelSmall,
+                color = ConnectingYellow,
+            )
+        } else if (active && !answerEnabled) {
+            Text(
+                if (item.planMode) {
+                    "Waiting for approval. You're viewing read-only."
+                } else {
+                    "Waiting for an answer. You're viewing read-only."
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
         }
     }
 }
@@ -3921,7 +3972,7 @@ private fun AnsweredRow(answer: String?) {
  * plan's plain "Yes") is the app's ONE emphatic paint — the solid primary fill
  * with dark content, like `glassButton(primary = true)` — and a [selected]
  * row lifts to the glass active fill + stroke. A multi-select row leads with
- * its checkbox ([checked]); a plan or single-select row leads with the chip.
+ * its checkbox ([checked]); the number chip TRAILS every row (EXP-1191).
  */
 @Composable
 private fun QuestionOptionButton(
@@ -3951,13 +4002,14 @@ private fun QuestionOptionButton(
                 shape,
             )
             .then(
-                // The solid primary fill has no hairline (the pill's rule).
+                // The solid primary fill has no hairline (the pill's rule);
+                // an outline row wears the glass card stroke (web `outline`).
                 if (primary) {
                     Modifier
                 } else {
                     Modifier.border(
                         GlassTokens.Hairline,
-                        if (selected) GlassTokens.StrokeActive else GlassTokens.StrokeRow,
+                        if (selected) GlassTokens.StrokeActive else GlassTokens.StrokeCard,
                         shape,
                     )
                 },
@@ -3965,41 +4017,22 @@ private fun QuestionOptionButton(
             .then(
                 if (enabled) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier,
             )
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.Top,
+            .heightIn(min = 32.dp)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (checked != null) {
             Icon(
                 if (checked) ExpIcons.uiSelected else ExpIcons.uiUnselected,
                 contentDescription = null,
-                modifier = Modifier.size(14.dp).padding(top = 2.dp),
+                modifier = Modifier.size(14.dp),
                 tint = if (checked) content else content.copy(alpha = TextEmphasis.Tertiary),
             )
-        } else if (ordinal in 1..9) {
-            Box(
-                modifier = Modifier
-                    .size(18.dp)
-                    // EXP-850 (S13): the number key wears radius.sm ×4; the
-                    // option row around it wears radius.md, never a capsule.
-                    .clip(RoundedCornerShape(DesignTokens.Radius.Sm))
-                    .background(
-                        if (primary) content.copy(alpha = PrimaryChipAlpha) else GlassTokens.RowFillActive,
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    "$ordinal",
-                    // The digit a keyboard client presses — monospace, like
-                    // every other key in the app (web `font-mono`).
-                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-                    color = content.copy(alpha = TextEmphasis.Secondary),
-                )
-            }
         }
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(1.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
                 option.label,
@@ -4014,12 +4047,38 @@ private fun QuestionOptionButton(
                 )
             }
         }
+        if (ordinal in 1..9) {
+            // EXP-1191 (web `kbd` parity): the number key TRAILS the row — a
+            // small outlined chip (radius 4, 1dp stroke), monospace 10sp,
+            // 16dp tall, muted; on the primary row primary-foreground /30.
+            val chipShape = RoundedCornerShape(4.dp)
+            Box(
+                modifier = Modifier
+                    .height(16.dp)
+                    .border(
+                        1.dp,
+                        if (primary) content.copy(alpha = 0.3f) else GlassTokens.StrokeCard,
+                        chipShape,
+                    )
+                    .padding(horizontal = 4.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "$ordinal",
+                    // The digit a keyboard client presses — monospace, like
+                    // every other key in the app (web `font-mono`).
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Normal,
+                        fontSize = 10.sp,
+                        lineHeight = 16.sp,
+                    ),
+                    color = if (primary) content.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
-
-/** The numbered chip's wash over the solid primary row — the glass active
- *  fill would vanish against it. */
-private const val PrimaryChipAlpha = 0.12f
 
 // A permission prompt the agent hit (EXP-249) — the card itself has nothing to
 // press (the desktop TUI owns the decision), but a reply typed below reaches
@@ -4868,6 +4927,8 @@ private fun SteerComposer(
      *  null = none. The expanded composer carries no switcher:
      *  the face tabs sit above it, under the top bar. */
     trailing: (@Composable () -> Unit)?,
+    /** EXP-1191: the collapsed bar's Merge circle, right of the capsule. */
+    merge: (@Composable () -> Unit)? = null,
 ) {
     // EXP-893: ONE placeholder ×4 (`STEER_COMPOSER_PLACEHOLDER`); typing is
     // always allowed while the stream is down, the message just waits for it
@@ -4994,6 +5055,7 @@ private fun SteerComposer(
                     null
                 },
                 right = trailing,
+                afterCentre = merge,
             ) {
                 BarCapsule(
                     label = placeholder,

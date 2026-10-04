@@ -22,8 +22,8 @@ import SwiftUI
 /// ended for good]`, Changes `[files][Merge PR]`, Results `[Merge PR]`.
 /// EXP-1154: the ONE Merge PR (`WorkMergePill`, the solid white capsule) is
 /// on the bar of EVERY face while there is a PR to merge: in the Changes and
-/// Results clusters, and floating centred just above the Issue and Run
-/// composer bars. A Reviews row opens this screen on its Changes face; Close
+/// Results clusters; EXP-1191: on the Issue and Run bars as a 52pt glass
+/// circle right of the centre capsule (`style: .circle`). A Reviews row opens this screen on its Changes face; Close
 /// PR is the `…` menu's.
 struct WorkScreen: View {
     let subject: WorkSubject
@@ -568,7 +568,10 @@ struct WorkScreen: View {
     /// The white Merge capsule on `page`, or nothing while there is no PR to
     /// merge.
     @ViewBuilder
-    private func mergeCapsule(on page: WorkFaceKind) -> some View {
+    private func mergeCapsule(
+        on page: WorkFaceKind,
+        style: WorkMergePill.Style = .capsule
+    ) -> some View {
         if let mergeTarget {
             let mergeRow = mergeIssue(for: mergeTarget)
             WorkMergePill(
@@ -577,15 +580,17 @@ struct WorkScreen: View {
                 prIssues: mergeRow.flatMap { prGraphModel?.stackPool(for: $0) } ?? [],
                 steerEnabled: steerEnabled,
                 state: $mergeState,
-                identifier: page == .changes ? "work-merge-pr" : "work-merge-pr-\(page.rawValue)"
+                identifier: page == .changes ? "work-merge-pr" : "work-merge-pr-\(page.rawValue)",
+                style: style
             )
             .id(mergeTargetKey(mergeTarget))
         }
     }
 
-    /// The capsule for the Issue and Run bars to float above themselves.
-    private func mergeAccessory(on page: WorkFaceKind) -> AnyView? {
-        mergeTarget == nil ? nil : AnyView(mergeCapsule(on: page))
+    /// EXP-1191: the Issue and Run bars' Merge CIRCLE, right of their
+    /// centre capsule.
+    private func mergeCircle(on page: WorkFaceKind) -> AnyView? {
+        mergeTarget == nil ? nil : AnyView(mergeCapsule(on: page, style: .circle))
     }
 
     /// What the Merge capsule merges: the shown run's own target while the
@@ -672,7 +677,7 @@ struct WorkScreen: View {
                 barTrailing: issueBarTrailing,
                 onStartCoding: startCodingTapped,
                 onOpenChanges: { selectFace(.changes) },
-                mergeAccessory: mergeAccessory(on: .issue)
+                mergeCircle: mergeCircle(on: .issue)
             )
         } else if let vm = issueVM, vm.loadTimedOut {
             unavailableState(vm: vm)
@@ -808,7 +813,7 @@ struct WorkScreen: View {
             continuation: continuation,
             startReadiness: offerStart ? readiness : nil,
             onStartCoding: startCodingTapped,
-            mergeAccessory: mergeAccessory(on: .run)
+            mergeCircle: mergeCircle(on: .run)
         )
         .id(session.id)
         // EXP-933: the inline `sessions_results` card opens THIS screen's

@@ -60,9 +60,14 @@ struct WorkingIndicatorRow: View {
 /// {detail}`). Absent when both are empty; the wait row itself stays an
 /// ordinary tool row in the transcript.
 ///
-/// EXP-927 §2c: the agent's own task list is the FIRST block of the same strip,
-/// above those lines — and a background task of kind `agent` is a conversation
-/// TAB, so `stripLines` never hands one down.
+/// EXP-927 §2c: the agent's own task list closes the same strip — EXP-1191:
+/// the LAST block, under the queued steer messages and the lines, right on the
+/// composer — and a background task of kind `agent` is a conversation TAB, so
+/// `stripLines` never hands one down.
+///
+/// EXP-1191: NO box — no fill, border or capsule, so it never reads as the
+/// composer or a queued message; plain rows in the reading column over the
+/// band's floating-bar edge ground (web `BackgroundStrip`).
 struct AgentBottomStrip: View {
     let lines: [AgentStripLine]
     let taskList: [AgentTaskListEntry]
@@ -70,7 +75,6 @@ struct AgentBottomStrip: View {
     var body: some View {
         if !lines.isEmpty || AgentFeed.taskListSummary(taskList) != nil {
             VStack(alignment: .leading, spacing: 4) {
-                AgentTaskListBlock(entries: taskList)
                 ForEach(lines) { line in
                     HStack(spacing: 8) {
                         AppIcon(glyph(line), size: 11)
@@ -83,10 +87,10 @@ struct AgentBottomStrip: View {
                         Spacer(minLength: 0)
                     }
                 }
+                // EXP-1191: the task list closes the strip, right on the composer.
+                AgentTaskListBlock(entries: taskList)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .glassRow(isOpaque: true)
+            .padding(.vertical, 6)
             // EXP-927 §2c "Alignment": the strip reads in the transcript's
             // column, not the panel's full width.
             .transcriptColumn()
@@ -106,7 +110,7 @@ struct AgentBottomStrip: View {
 }
 
 /// EXP-927 §2c: the agent's OWN task list (claude's TodoWrite, codex's plan) —
-/// the first block of the bottom strip. Hidden while the list is empty or every
+/// the last block of the bottom strip (EXP-1191). Hidden while the list is empty or every
 /// entry is done. Collapsed by default: ONE line with the current entry and a
 /// trailing `{completed}/{total}`, the whole line toggling it open; expanded:
 /// one line per entry in wire order, eight tall at most and then it scrolls.
@@ -152,12 +156,17 @@ struct AgentTaskListBlock: View {
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .lineLimit(1)
                 .truncationMode(.tail)
-            Spacer(minLength: 0)
-            Text("\(summary.completed)/\(summary.total)")
-                .font(.caption)
-                .monospacedDigit()
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            AppIcon(expanded ? AppIcons.uiChevronDown : AppIcons.uiChevronUp, size: 10)
+            Spacer(minLength: 8)
+            // EXP-1191: the list's own segmented mark, then the count.
+            HStack(spacing: 6) {
+                TaskListProgress(statuses: entries.map(\.status))
+                Text("\(summary.completed)/\(summary.total)")
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+            // The shared disclosure glyph: right while folded, down while open.
+            AppIcon(expanded ? AppIcons.uiChevronDown : AppIcons.uiChevronRight, size: 10)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
         }
         .frame(height: Self.rowHeight)
@@ -228,8 +237,9 @@ private struct SpinningGlyph: View {
 }
 
 /// EXP-861: the queued-messages strip directly above the composer — one line
-/// per message the agent has not read yet, the same recipe as
-/// `AgentBottomStrip` plus a trailing ghost X that revokes a HELD message
+/// per message the agent has not read yet in a filled box (EXP-1191: the
+/// queue's mark alone; the task-list strip under it has none), each with a
+/// trailing ghost X that revokes a HELD message
 /// (`{"t":"unqueue","id"}`). EXP-873: a `sent` line (already with the agent,
 /// awaiting its replay) draws no X — only Stop takes it back. The caller
 /// hides the strip when the queue is empty or the run is over.

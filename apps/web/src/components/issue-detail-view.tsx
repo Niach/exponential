@@ -5,10 +5,13 @@ import {
   CollapsedTitle,
   conceptIcon,
   useIsMobile,
+  MOBILE_WORK_BAR_CLEARANCE,
   Pill,
   WORK_BAR_HEIGHT,
   WORK_COLUMN_CLASS,
+  WORK_STICKY_TOP_VAR,
   WorkHeader,
+  WorkStickyTray,
   toast,
 } from "@exp/ui"
 import { eq, useLiveQuery } from "@tanstack/react-db"
@@ -19,7 +22,6 @@ import { issueMemoryOwner } from "@/lib/work-tab-memory"
 import { useRememberedScroll } from "@/hooks/use-remembered-scroll"
 import { useMeasuredSize, useTitleCollapsed } from "@/hooks/use-detail-chrome"
 import { MOBILE_DETAIL_SCREEN_CLASS } from "@/components/team/mobile-detail-header"
-import { mobileFaceClearance } from "@/components/mobile-merge-float"
 import { trpc } from "@/lib/trpc-client"
 import {
   getIssueDescriptionText,
@@ -105,8 +107,8 @@ interface IssueDetailViewProps {
   mobileWork?: {
     tabs?: React.ReactNode
     swipe?: FaceSwipeHandlers
-    /** EXP-1154: the white Merge capsule floating above the bar
-     *  (`MobileMergeFloat`) while the PR is open. */
+    /** EXP-1191: the bar's Merge circle right of the Comment capsule
+     *  (`MobileMergeCircle`) while the PR is open. */
     merge?: React.ReactNode
   }
   /** EXP-1154: md+ — the work header's face action after the toggle (GitHub
@@ -193,6 +195,7 @@ export function IssueDetailView({
   // breaks into the collapsed title once that row scrolled away under it.
   const [mobileHeaderRef, mobileHeaderSize] = useMeasuredSize()
   const [clusterRef, clusterSize] = useMeasuredSize()
+  const [trayRef, traySize] = useMeasuredSize()
   const {
     scrollRef: collapseScrollRef,
     titleRef,
@@ -652,11 +655,15 @@ export function IssueDetailView({
   const parentLine = <IssueParentLine issueId={issue.id} phone={isMobile} />
 
   const editor = (
-    <div className="px-1">
+    <div className="max-md:px-1">
       <MarkdownEditor
         ref={editorRef}
         markdown={description}
         editable={!readOnly}
+        // EXP-1191: the caret scrolls clear of the sticky bar + tray.
+        topScrollInset={
+          isMobile ? undefined : WORK_BAR_HEIGHT + traySize.height
+        }
         onChange={setDescriptionValue}
         onBlur={() => void handleDescriptionBlur()}
         placeholder="Add description..."
@@ -760,13 +767,12 @@ export function IssueDetailView({
         {/* EXP-698: clearance for the floating bar below, so the last comment
             scrolls clear of it instead of ending under the glass
             (`MOBILE_WORK_BAR_CLEARANCE`); the tab bar itself is hidden on this
-            route, so nothing else is reserved here. EXP-1154: the floating
-            Merge capsule above the bar reserves its own height too. */}
+            route, so nothing else is reserved here. */}
         <div
           ref={bodyScrollRef}
           className={cn(
             `flex-1 overflow-y-auto`,
-            mobileFaceClearance(Boolean(mobileWork?.merge)),
+            MOBILE_WORK_BAR_CLEARANCE,
             mobileWork?.swipe && FACE_BODY_TOUCH_CLASS
           )}
           /* EXP-1152: the pager's body — it follows the finger between
@@ -798,7 +804,7 @@ export function IssueDetailView({
             onSubmitComment={handleCommentSubmit}
             reporter={reporter}
             hidden={descriptionFocused}
-            above={mobileWork?.merge}
+            merge={mobileWork?.merge}
           />
         )}
         {/* No `addRelation.dialog` here: the phone reaches relations through
@@ -820,6 +826,13 @@ export function IssueDetailView({
             ref={bodyScrollRef}
             className="flex-1 min-h-0 overflow-y-auto"
             data-detail-scroll=""
+            /* EXP-1191: sticky rows inside (a diff's file headers) stick
+               below the bar and the tray. */
+            style={
+              {
+                [WORK_STICKY_TOP_VAR]: `${WORK_BAR_HEIGHT + traySize.height}px`,
+              } as React.CSSProperties
+            }
           >
             {/* EXP-877: the ONE work header the session route renders too
                 (the IDE's `work_header.rs`). EXP-1162: a compact bar
@@ -828,6 +841,7 @@ export function IssueDetailView({
                 once the title row below scrolled away under it. */}
             <WorkHeader
               floating
+              edge={false}
               collapsed={titleCollapsed}
               title={
                 <CollapsedTitle
@@ -862,7 +876,8 @@ export function IssueDetailView({
             />
             {/* The title row: the large editable title, clear of the bar's
                 cluster on its right. The tray (Merge and the coding action
-                inside it) follows as the next row and scrolls with it. */}
+                inside it) follows as the next row; EXP-1191: it sticks under
+                the bar once the title scrolled away, on every face. */}
             <div className={WORK_COLUMN_CLASS}>
               <div
                 ref={titleRef}
@@ -872,7 +887,9 @@ export function IssueDetailView({
                 {titleField}
               </div>
             </div>
-            <div className="pb-3">{propsTray(true)}</div>
+            <WorkStickyTray ref={trayRef} collapsed={titleCollapsed}>
+              {propsTray(true)}
+            </WorkStickyTray>
             <div className={WORK_COLUMN_CLASS}>
               {faceBody ?? (
                 <>

@@ -164,6 +164,31 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `arrow-down`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "arrow-down",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M12 5v14"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("m19 12-7 7-7-7"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `arrow-down-left`: ImageVector by lazy {
         ImageVector.Builder(
             name = "arrow-down-left",
@@ -7813,6 +7838,7 @@ public object ExpIcons {
         "activity" -> `activity`
         "anchor" -> `anchor`
         "archive" -> `archive`
+        "arrow-down" -> `arrow-down`
         "arrow-down-left" -> `arrow-down-left`
         "arrow-left" -> `arrow-left`
         "arrow-left-right" -> `arrow-left-right`
@@ -8335,6 +8361,8 @@ public object ExpIcons {
     public val uiAgentSource: ImageVector get() = `bot`
     /** Concept `ui-archive`. */
     public val uiArchive: ImageVector get() = `archive`
+    /** Concept `ui-arrow-down`. */
+    public val uiArrowDown: ImageVector get() = `arrow-down`
     /** Concept `ui-arrow-right`. */
     public val uiArrowRight: ImageVector get() = `arrow-right`
     /** Concept `ui-assignee`. */

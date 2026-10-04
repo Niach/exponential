@@ -11,6 +11,31 @@ use crate::components::{
 };
 use crate::theme::Theme;
 
+/// EXP-1191: how close a context menu may come to the window's edge.
+const MENU_WINDOW_MARGIN: f32 = 8.0;
+
+/// EXP-1191: where a context menu of `menu` size opens for a click at
+/// `click` (WINDOW coordinates; the overlay is a window-sized layer): at the
+/// click, shifted left to stay inside the window, flipped above the click
+/// when it would run off the bottom (a native menu's rule). Pure.
+pub(super) fn menu_origin(
+    click: Point<Pixels>,
+    menu: Size<Pixels>,
+    viewport: Size<Pixels>,
+) -> Point<Pixels> {
+    let margin = px(MENU_WINDOW_MARGIN);
+    let x = click
+        .x
+        .min(viewport.width - menu.width - margin)
+        .max(margin);
+    let y = if click.y + menu.height > viewport.height - margin {
+        (click.y - menu.height).max(margin)
+    } else {
+        click.y
+    };
+    point(x, y)
+}
+
 /// Target block position for inserting a native table.
 #[derive(Clone, Copy)]
 pub(super) enum TableInsertTarget {
@@ -917,6 +942,7 @@ impl Editor {
     pub(super) fn render_context_menu_overlay(
         &self,
         theme: &Theme,
+        viewport: Size<Pixels>,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let menu = self.context_menu.as_ref()?;
@@ -934,10 +960,24 @@ impl Editor {
                 can_paste,
                 ..
             } => {
-                let panel_x = position.x;
-                let panel_y = position.y;
                 let panel_width = px(d.context_menu_panel_width);
                 let allows_insert = *allows_insert;
+                // EXP-1191: open AT the click, kept inside the window — four
+                // edit rows, then (with Insert) the separator and its row.
+                let rows = if allows_insert { 5.0 } else { 4.0 };
+                let gaps = if allows_insert { 5.0 } else { 3.0 };
+                let separator = if allows_insert {
+                    d.menu_separator_height + 2.0 * d.menu_separator_margin_y
+                } else {
+                    0.0
+                };
+                let panel_height = px(rows * d.menu_item_height
+                    + gaps * d.menu_panel_gap
+                    + separator
+                    + 2.0 * (d.menu_panel_padding + d.dialog_border_width));
+                let origin = menu_origin(*position, size(panel_width, panel_height), viewport);
+                let panel_x = origin.x;
+                let panel_y = origin.y;
                 let mod_key = if cfg!(target_os = "macos") {
                     "⌘"
                 } else {
@@ -994,11 +1034,22 @@ impl Editor {
                     + 2.0 * d.menu_separator_margin_y
                     + d.menu_panel_gap);
 
+                // The submenu flips to the panel's left when the right has no
+                // room for it.
+                let submenu_width = px(d.context_menu_submenu_width);
+                let submenu_gap = px(d.context_menu_submenu_gap);
+                let submenu_x = if panel_x + panel_width + submenu_gap + submenu_width
+                    > viewport.width - px(MENU_WINDOW_MARGIN)
+                {
+                    panel_x - submenu_gap - submenu_width
+                } else {
+                    panel_x + panel_width + submenu_gap
+                };
                 let submenu = (allows_insert && *submenu_open).then(|| {
                     div()
                         .id("editor-context-menu-submenu")
                         .absolute()
-                        .left(panel_x + panel_width + px(d.context_menu_submenu_gap))
+                        .left(submenu_x)
                         .top(panel_y + insert_row_top)
                         .w(px(d.context_menu_submenu_width))
                         .p(px(d.menu_panel_padding))
@@ -1327,6 +1378,14 @@ impl Editor {
                     }
                 };
 
+                // EXP-1191: at the click, inside the window.
+                let axis_height = px(items.len() as f32 * (d.menu_item_height + d.menu_panel_gap)
+                    + 2.0 * (d.menu_panel_padding + d.dialog_border_width));
+                let axis_origin = menu_origin(
+                    *position,
+                    size(px(d.context_menu_axis_panel_width), axis_height),
+                    viewport,
+                );
                 Some(
                     div()
                         .id("table-axis-context-menu-overlay")
@@ -1344,8 +1403,8 @@ impl Editor {
                             div()
                                 .id("table-axis-context-menu-panel")
                                 .absolute()
-                                .left(position.x)
-                                .top(position.y)
+                                .left(axis_origin.x)
+                                .top(axis_origin.y)
                                 .w(px(d.context_menu_axis_panel_width))
                                 .p(px(d.menu_panel_padding))
                                 .flex()
@@ -1593,6 +1652,21 @@ mod tests {
     use super::{ContextMenuState, Editor, TableInsertTarget};
     use crate::components::{Copy, Cut, Delete, Paste};
     use gpui::{ClipboardItem, Point, TestAppContext, VisualTestContext, px};
+
+    /// EXP-1191: the menu opens at the click, shifted/flipped into the window.
+    #[test]
+    fn menu_origin_stays_inside_the_window() {
+        use super::menu_origin;
+        use gpui::{point, size};
+        let viewport = size(px(1000.), px(800.));
+        let menu = size(px(200.), px(180.));
+        // Room everywhere: exactly at the click.
+        assert_eq!(menu_origin(point(px(100.), px(100.)), menu, viewport), point(px(100.), px(100.)));
+        // Near the right edge: shifted left, 8px clear.
+        assert_eq!(menu_origin(point(px(950.), px(100.)), menu, viewport), point(px(792.), px(100.)));
+        // Near the bottom: flipped above the click.
+        assert_eq!(menu_origin(point(px(100.), px(700.)), menu, viewport), point(px(100.), px(520.)));
+    }
 
     const AT: Point<gpui::Pixels> = Point {
         x: px(24.0),
