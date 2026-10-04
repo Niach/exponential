@@ -45,7 +45,7 @@ data class ActionsState(
 class ActionsViewModel @Inject constructor(
     auth: AuthRepository,
     holder: DatabaseHolder,
-    selection: TeamSelection,
+    private val selection: TeamSelection,
     private val json: Json,
 ) : ViewModel() {
 
@@ -54,6 +54,9 @@ class ActionsViewModel @Inject constructor(
 
     // The selected team, for the screen's "New action" entry point (EXP-431).
     val selectedTeamId: StateFlow<String?> = selection.selectedId
+
+    /** EXP-1186: a team band's "New action" creates in THAT team. */
+    fun selectTeam(teamId: String) = selection.select(teamId)
 
     /** EXP-1186: the member teams (name order) the list bands by. */
     val teams: StateFlow<List<TeamEntity>> =

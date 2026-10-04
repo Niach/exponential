@@ -98,15 +98,18 @@ fun ActionsScreen(
     // EXP-1186: cross-team — one band per team once there are several.
     val teams by viewModel.teams.collectAsStateWithLifecycle()
     val multiTeam = teams.size > 1
-    val newActionPill: @Composable () -> Unit = {
+    // EXP-1186: with several teams each team band carries its own "New
+    // action", creating in THAT team (web + iOS parity).
+    val newActionPill: @Composable (teamId: String?) -> Unit = { teamId ->
         GlassPill(
             "New action",
             icon = ExpIcons.actionCreate,
-            enabled = selectedTeamId != null,
+            enabled = (teamId ?: selectedTeamId) != null,
             onClick = {
+                teamId?.let(viewModel::selectTeam)
                 onOpenAgent(AgentComposerSeed(actionId = DomainContract.builtinCreateActionId))
             },
-            modifier = Modifier.testTag("new-action"),
+            modifier = Modifier.testTag(if (teamId == null) "new-action" else "new-action-$teamId"),
         )
     }
 
@@ -116,8 +119,6 @@ fun ActionsScreen(
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             // The root screens' header (AgentsScreen / SearchScreen parity):
             // a plain large title, no back button — this is a tab now.
-            // EXP-1186: with several teams the rows sit under TEAM bands, so
-            // "New action" (the selected team's) moves up beside the title.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -130,7 +131,6 @@ fun ActionsScreen(
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
                 )
-                if (multiTeam && segment != SEGMENT_SUGGESTIONS) newActionPill()
             }
             GlassSegmentedControl(
                 options = listOf(SEGMENT_ACTIONS, SEGMENT_SUGGESTIONS),
@@ -187,7 +187,7 @@ fun ActionsScreen(
                             // control.
                             if (!multiTeam) {
                                 item(key = "__actions_header__") {
-                                    SectionHeader(title = "Actions") { newActionPill() }
+                                    SectionHeader(title = "Actions") { newActionPill(null) }
                                 }
                             }
                             // Server order (sort_order, then name) — since
@@ -196,7 +196,9 @@ fun ActionsScreen(
                             // team avatar + name) with several teams.
                             teamBands(state.actions, teams) { it.teamId }.forEach { band ->
                                 band.team?.let { team ->
-                                    item(key = "__actions_team_${team.id}__") { TeamSectionHeader(team) }
+                                    item(key = "__actions_team_${team.id}__") {
+                                        TeamSectionHeader(team) { newActionPill(team.id) }
+                                    }
                                 }
                                 items(band.items, key = { it.id }) { action ->
                                     ActionRow(
