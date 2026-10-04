@@ -224,6 +224,8 @@ vi.mock(`@/lib/issue-resolver`, async (importOriginal) => ({
 vi.mock(`@/lib/integrations/github-app`, () => ({
   resolveRepoInstallationToken: vi.fn(),
   resolveRepoInstallationTokenInfo: vi.fn(),
+  // SLOP-7: lib/auth/index.ts reads the App's OAuth client at import time.
+  githubOAuthClient: () => null,
 }))
 vi.mock(`@/lib/trpc/integrations`, () => ({
   isInstallationLinkedToTeam: vi.fn(),
