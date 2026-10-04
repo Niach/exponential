@@ -1,7 +1,6 @@
 import {
   createFileRoute,
   Outlet,
-  notFound,
   redirect,
   useParams,
 } from "@tanstack/react-router"
@@ -99,7 +98,10 @@ export const Route = createFileRoute(`/t/$teamSlug`)({
           search: { redirect: location.href },
         })
       }
-      throw notFound()
+      // Signed in but not a member (e.g. a link from another account,
+      // EXP-1177): a bare "Not Found" page is a dead end, so go home — the
+      // root redirect resolves this user's own last-used or default team.
+      throw redirect({ to: `/` })
     }
   },
   component: TeamLayout,
