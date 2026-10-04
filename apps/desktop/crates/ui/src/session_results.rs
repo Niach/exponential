@@ -21,20 +21,30 @@
 //! resolved against `team_id`) rendered between its band and its tiles; a
 //! text-only topic is a band + text.
 //!
+//! EXP-1172: a topic's INLINE pictures (`exponential_sessions_show` shots
+//! the run filed while it worked) fold under the group's tiles into a
+//! collapsed `Earlier · N` disclosure ([`EarlierBand`]) that expands IN PLACE
+//! to the same tiles; the same tile ([`tile`]) also renders one such picture
+//! under its call in the transcript.
+//!
 //! This face carries NO Stop/Resume (the Run face owns it) and NO merge bar
 //! (Changes owns it) — it is a page you look at.
 
 use gpui::{
     div, hsla, img, linear_color_stop, linear_gradient, prelude::FluentBuilder as _, px,
-    AnyElement, App, Entity, InteractiveElement as _, IntoElement, ObjectFit, ParentElement as _,
-    SharedString, StatefulInteractiveElement as _, Styled as _, StyledImage as _,
+    AnyElement, App, ElementId, Entity, InteractiveElement as _, IntoElement, ObjectFit,
+    ParentElement as _, RenderOnce, SharedString, StatefulInteractiveElement as _, Styled as _,
+    StyledImage as _, Window,
 };
 use gpui_component::{h_flex, v_flex, ActiveTheme as _};
 
 use domain::session_results::{
     session_result_is_tall, session_result_tile_height_fitting, session_result_tile_width,
-    SessionResultEntry, SessionResultGroup, SESSION_RESULT_TILE_HEIGHT,
+    SessionResultEntry, SessionResultGroup, SESSION_RESULTS_EARLIER_LABEL,
+    SESSION_RESULT_TILE_HEIGHT,
 };
+
+use crate::controls::{disclosure_header, ChevronSide};
 
 use crate::issue_detail::{centered_column, DETAIL_GUTTER};
 use crate::markdown::{placeholder_box, ImageCache, ImageSlot, MarkdownView, RefResolver};
@@ -59,9 +69,15 @@ pub(crate) fn render(
     // NEXT topic has to sit on the same baseline too. The per-group minimum
     // IS the whole page's factor: the rule never grows a tile, so the group
     // holding the widest tile is the one that decides.
+    // EXP-1172: the folded `earlier` pictures count too — expanding the
+    // band never resizes the page.
     let height = groups
         .iter()
-        .map(|group| session_result_tile_height_fitting(&group.entries, available_width))
+        .map(|group| {
+            let pictures: Vec<SessionResultEntry> =
+                group.entries.iter().chain(group.earlier.iter()).cloned().collect();
+            session_result_tile_height_fitting(&pictures, available_width)
+        })
         .fold(SESSION_RESULT_TILE_HEIGHT, f32::min);
     let mut page = v_flex()
         .w_full()
@@ -75,7 +91,14 @@ pub(crate) fn render(
     for (group_ix, group) in groups.iter().enumerate() {
         let mut tiles = h_flex().w_full().min_w_0().flex_wrap().items_start().gap_3();
         for (tile_ix, entry) in group.entries.iter().enumerate() {
-            tiles = tiles.child(tile(entry, height, (group_ix, tile_ix), images, cx));
+            tiles = tiles.child(tile(
+                entry,
+                height,
+                SharedString::from(format!("session-result-{group_ix}-{tile_ix}")),
+                entry.label.clone(),
+                images,
+                cx,
+            ));
         }
         let text = group.text.as_ref().map(|text| {
             let mut view = MarkdownView::new(
@@ -108,7 +131,17 @@ pub(crate) fn render(
                     cx,
                 ))
                 .children(text)
-                .when(!group.entries.is_empty(), |band| band.child(tiles)),
+                .when(!group.entries.is_empty(), |band| band.child(tiles))
+                .when(!group.earlier.is_empty(), |band| {
+                    band.child(EarlierBand {
+                        // Keyed by topic, so a fold survives a re-snapshot
+                        // that moves the group.
+                        id: SharedString::from(format!("session-results-earlier-{}", group.topic)),
+                        entries: group.earlier.clone(),
+                        height,
+                        images: images.clone(),
+                    })
+                }),
         );
     }
     div()
@@ -120,7 +153,68 @@ pub(crate) fn render(
         .into_any_element()
 }
 
-/// One tile: the picture at the page's shared `height`, its label under it.
+/// EXP-1172 — a group's folded INLINE pictures: a muted one-line
+/// `Earlier · N` disclosure (the shared [`disclosure_header`]), collapsed by
+/// default, that expands IN PLACE to the same tiles at the page's height.
+/// The open flag lives in the window's keyed element state, so it survives
+/// repaints without either host (the run's face, the issue's face) owning it.
+#[derive(IntoElement)]
+struct EarlierBand {
+    id: SharedString,
+    entries: Vec<SessionResultEntry>,
+    height: f32,
+    images: Entity<ImageCache>,
+}
+
+impl RenderOnce for EarlierBand {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let state = window.use_keyed_state(
+            ElementId::from(SharedString::from(format!("{}-open", self.id))),
+            cx,
+            |_, _| false,
+        );
+        let open = *state.read(cx);
+        let header = disclosure_header(
+            ElementId::from(self.id.clone()),
+            open,
+            ChevronSide::Leading,
+            div().min_w_0().truncate().text_xs().child(SharedString::from(format!(
+                "{SESSION_RESULTS_EARLIER_LABEL} · {}",
+                self.entries.len()
+            ))),
+            cx,
+        )
+        .on_click(move |_, _, cx| {
+            state.update(cx, |open, cx| {
+                *open = !*open;
+                cx.notify();
+            });
+        });
+        let mut band = v_flex().w_full().min_w_0().gap_2().child(header);
+        if open {
+            let mut tiles = h_flex().w_full().min_w_0().flex_wrap().items_start().gap_3();
+            for (tile_ix, entry) in self.entries.iter().enumerate() {
+                tiles = tiles.child(tile(
+                    entry,
+                    self.height,
+                    SharedString::from(format!("{}-{tile_ix}", self.id)),
+                    // Results tiles keep the LABEL (×4); the caption line is
+                    // the transcript tile's alone.
+                    entry.label.clone(),
+                    &self.images,
+                    cx,
+                ));
+            }
+            band = band.child(tiles);
+        }
+        band
+    }
+}
+
+/// One tile: the picture at the page's shared `height`, `caption` under it
+/// (a Results tile's label, the Earlier band's included; EXP-1172: a
+/// transcript tile's `session_result_tile_caption`). `id` is unique per position — an
+/// attachment may be published under two topics.
 /// The loading and unavailable states paint the neutral placeholder at the
 /// SAME box, so the row never reflows when the bytes land.
 ///
@@ -128,10 +222,11 @@ pub(crate) fn render(
 /// gets the 4:3 frame from [`session_result_tile_width`] and is laid out at
 /// the tile's WIDTH, so its top shows (a top crop, never a sliver), under a
 /// bottom fade and a `Tall` pill; the lightbox scrolls the whole of it.
-fn tile(
+pub(crate) fn tile(
     entry: &SessionResultEntry,
     height: f32,
-    index: (usize, usize),
+    id: SharedString,
+    caption: String,
     images: &Entity<ImageCache>,
     cx: &mut App,
 ) -> AnyElement {
@@ -150,10 +245,7 @@ fn tile(
         .map(|(w, h)| w / h)
         .unwrap_or(4. / 3.);
     let slot = images.update(cx, |cache, cx| cache.slot(&url, cx));
-    let label = entry.label.clone();
-    // The attachment may be published under two topics, so the id carries
-    // the position rather than the attachment alone.
-    let (group_ix, tile_ix) = index;
+    let label = caption;
     let muted = cx.theme().muted_foreground;
     v_flex()
         .flex_shrink_0()
@@ -161,9 +253,7 @@ fn tile(
         .gap_1()
         .child(
             div()
-                .id(SharedString::from(format!(
-                    "session-result-{group_ix}-{tile_ix}"
-                )))
+                .id(id)
                 .w(px(width))
                 .h(px(height))
                 .flex_shrink_0()

@@ -481,6 +481,12 @@ export const SESSION_RESULT_TEXT_MAX = 80
 export const SESSION_RESULTS_MAX = 60
 export const SESSION_RESULT_REPORT_MAX = 4000
 export const SESSION_RESULTS_REPORT_TOTAL_MAX = 12000
+// EXP-1172: a picture may carry `inline: true` (filed by
+// `exponential_sessions_show` while the run worked: it renders in the run's
+// transcript at the call and folds under "Earlier" on the Results face) and a
+// short `caption` (the call's `text`). Old readers ignore both fields.
+export const SESSION_RESULT_CAPTION_MAX = 200
+export const SESSION_SHOW_DEFAULT_TOPIC = `Progress`
 
 export interface CodingSessionResult {
   topic: string
@@ -492,6 +498,10 @@ export interface CodingSessionResult {
   height: number | null
   /** EXP-933: the topic's GFM report text; absent/null on a picture. */
   text?: string | null
+  /** EXP-1172: a `sessions_show` picture; absent on every other entry. */
+  inline?: boolean
+  /** EXP-1172: the show call's caption; absent without one. */
+  caption?: string | null
 }
 
 // Tolerant for the same reason codingSessionBlockedSchema is: a malformed
@@ -503,6 +513,8 @@ export const codingSessionResultSchema = z.object({
   width: z.number().int().nullish(),
   height: z.number().int().nullish(),
   text: z.string().max(SESSION_RESULT_REPORT_MAX).nullish(),
+  inline: z.boolean().nullish(),
+  caption: z.string().max(SESSION_RESULT_CAPTION_MAX).nullish(),
 })
 
 // Why a user is subscribed to an issue (issue_subscribers.source, pg enum).

@@ -28,6 +28,13 @@ export interface SessionResultTokenPayload {
   l: string // label
   u: string // user the MCP layer authorized at mint time (the uploader)
   exp: number // unix ms expiry
+  // EXP-1172: an `exponential_sessions_show` grant. `a` = the attachment id
+  // the tool already answered with (the transcript anchors the tile on it),
+  // `i` = file it inline, `c` = its caption. `l` may then be `` = the next
+  // `Shot N` of the topic, picked under the upload's row lock.
+  a?: string
+  i?: 1
+  c?: string
 }
 
 function secret(): string | null {
@@ -42,7 +49,14 @@ function sign(body: string, key: string): string {
 }
 
 export function mintSessionResultToken(
-  input: { sessionId: string; topic: string; label: string; userId: string },
+  input: {
+    sessionId: string
+    topic: string
+    label: string
+    userId: string
+    /** EXP-1172: the sessions_show extras. */
+    show?: { attachmentId: string; caption: string | null }
+  },
   now: number = Date.now()
 ): { token: string; expiresAt: Date } {
   const key = secret()
@@ -57,6 +71,13 @@ export function mintSessionResultToken(
     l: input.label,
     u: input.userId,
     exp: now + SESSION_RESULT_TOKEN_TTL_MS,
+    ...(input.show
+      ? {
+          a: input.show.attachmentId,
+          i: 1 as const,
+          ...(input.show.caption ? { c: input.show.caption } : {}),
+        }
+      : {}),
   }
   const body = Buffer.from(JSON.stringify(payload)).toString(`base64url`)
   return {
@@ -90,7 +111,9 @@ export function verifySessionResultToken(
       typeof payload?.t !== `string` ||
       typeof payload?.l !== `string` ||
       typeof payload?.u !== `string` ||
-      typeof payload?.exp !== `number`
+      typeof payload?.exp !== `number` ||
+      (payload.a !== undefined && typeof payload.a !== `string`) ||
+      (payload.c !== undefined && typeof payload.c !== `string`)
     ) {
       return null
     }

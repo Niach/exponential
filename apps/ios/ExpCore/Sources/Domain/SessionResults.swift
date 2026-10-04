@@ -30,6 +30,15 @@ public let sessionResultTileHeight: CGFloat = 320
 /// is not tall. Fixture `session-results.json` `tiles` (×4).
 public let sessionResultTallAspect: CGFloat = 1.0 / 3.0
 
+/// EXP-1172: an `exponential_sessions_show` picture's tile in the run
+/// transcript, one base height lower than a Results tile so a shot sits in the
+/// conversation without swallowing it. Fixture `session-inline.json`.
+public let sessionInlineTileHeight: CGFloat = 240
+
+/// EXP-1172: the collapsed band a Results group folds its inline pictures
+/// under (`Earlier · 3`).
+public let sessionResultsEarlierLabel = "Earlier"
+
 public struct SessionResultEntry: Equatable, Sendable {
     public let topic: String
     public let label: String
@@ -37,20 +46,33 @@ public struct SessionResultEntry: Equatable, Sendable {
     /// Probed at upload; nil when the image could not be measured.
     public let width: Int?
     public let height: Int?
+    /// EXP-1172: filed by `exponential_sessions_show` while the run worked
+    /// (true only for a JSON true).
+    public let inline: Bool
+    /// EXP-1172: the show call's `text`, trimmed; nil when blank.
+    public let caption: String?
 
     public init(
         topic: String,
         label: String,
         attachmentId: String,
         width: Int? = nil,
-        height: Int? = nil
+        height: Int? = nil,
+        inline: Bool = false,
+        caption: String? = nil
     ) {
         self.topic = topic
         self.label = label
         self.attachmentId = attachmentId
         self.width = width
         self.height = height
+        self.inline = inline
+        self.caption = caption
     }
+
+    /// EXP-1172: the line under a transcript tile — the show call's caption,
+    /// else the picture's label.
+    public var tileCaption: String { caption ?? label }
 
     /// The stored, RELATIVE attachment URL — the same member-gated path a
     /// comment's image carries, so the shared loader (and its process cache)
@@ -103,7 +125,12 @@ private func resultPicture(_ record: [String: Any]) -> SessionResultEntry? {
         label: label,
         attachmentId: attachmentId,
         width: resultDimension(record["width"]),
-        height: resultDimension(record["height"])
+        height: resultDimension(record["height"]),
+        // EXP-1172: a JSON true only — `"true"` and `1` read as false.
+        inline: (record["inline"] as? NSNumber).map {
+            CFGetTypeID($0) == CFBooleanGetTypeID() && $0.boolValue
+        } ?? false,
+        caption: resultText(record["caption"])
     )
 }
 
@@ -128,14 +155,35 @@ public struct SessionResultGroup: Equatable, Sendable, Identifiable {
     /// without one.
     public let text: String?
     public let entries: [SessionResultEntry]
+    /// EXP-1172: the topic's INLINE pictures, folded under the `Earlier` band
+    /// (publish order); empty when the topic has a single picture.
+    public let earlier: [SessionResultEntry]
 
-    public init(topic: String, text: String? = nil, entries: [SessionResultEntry]) {
+    public init(
+        topic: String,
+        text: String? = nil,
+        entries: [SessionResultEntry],
+        earlier: [SessionResultEntry] = []
+    ) {
         self.topic = topic
         self.text = text
         self.entries = entries
+        self.earlier = earlier
     }
 
     public var id: String { topic }
+}
+
+/// EXP-1172: a topic with more than one picture moves its inline ones into
+/// `earlier`, so the final report leads; a topic's only picture stays.
+private func foldInline(_ group: SessionResultGroup) -> SessionResultGroup {
+    guard group.entries.count >= 2 else { return group }
+    return SessionResultGroup(
+        topic: group.topic,
+        text: group.text,
+        entries: group.entries.filter { !$0.inline },
+        earlier: group.entries.filter(\.inline)
+    )
 }
 
 /// Groups by topic in FIRST-SEEN order, keeping each group's entries in the
@@ -152,7 +200,7 @@ public func groupSessionResults(
         }
         byTopic[entry.topic]?.append(entry)
     }
-    return topics.map { SessionResultGroup(topic: $0, entries: byTopic[$0] ?? []) }
+    return topics.map { foldInline(SessionResultGroup(topic: $0, entries: byTopic[$0] ?? [])) }
 }
 
 /// EXP-933: the Results face as a REPORT — pictures AND each topic's text
@@ -186,7 +234,7 @@ public func parseSessionResultGroups(_ raw: String?) -> [SessionResultGroup] {
         if texts[topic] == nil { texts[topic] = body }
     }
     return topics.map {
-        SessionResultGroup(topic: $0, text: texts[$0], entries: byTopic[$0] ?? [])
+        foldInline(SessionResultGroup(topic: $0, text: texts[$0], entries: byTopic[$0] ?? []))
     }
 }
 
@@ -195,9 +243,20 @@ public func hasSessionResults(_ raw: String?) -> Bool {
     !parseSessionResultGroups(raw).isEmpty
 }
 
-/// Every picture of a set of groups, in order — what the tile sizing reads.
+/// Every picture of a set of groups, in order — what the tile sizing reads
+/// (the folded `earlier` ones too: expanding the band never resizes).
 public func sessionResultPictures(_ groups: [SessionResultGroup]) -> [SessionResultEntry] {
-    groups.flatMap(\.entries)
+    groups.flatMap { $0.entries + $0.earlier }
+}
+
+/// EXP-1172: the picture an `exponential_sessions_show` call filed, by the
+/// attachment id its answer carried (`preview.id`); nil while the upload is
+/// still in flight, once it was removed, or for a blank id.
+public func sessionResultPicture(_ raw: String?, attachmentId: String?) -> SessionResultEntry? {
+    guard let id = attachmentId?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !id.isEmpty
+    else { return nil }
+    return parseSessionResults(raw).first { $0.attachmentId == id }
 }
 
 /// EXP-1128: true when the probed aspect is under `sessionResultTallAspect`;

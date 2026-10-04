@@ -353,11 +353,22 @@ pub fn issues_bulk_delete(
 // issues.mergePr
 // ---------------------------------------------------------------------------
 
-/// Output of `issues.mergePr` — `{"merged": true}` on success. The server is
-/// idempotent: an already-merged PR also returns `merged: true` (no error).
+/// Output of `issues.mergePr` (and `codingSessions.mergePr`) — `{"merged":
+/// true}` on success. The server is idempotent: an already-merged PR also
+/// returns `merged: true` (no error). A merge GitHub's merge queue only
+/// ENQUEUED answers `{"merged": false, "queued": true}` (EXP-1165).
 #[derive(Debug, Deserialize)]
 pub struct MergeResult {
     pub merged: bool,
+    #[serde(default)]
+    pub queued: bool,
+}
+
+impl MergeResult {
+    /// The pull request is in: merged and not merely queued.
+    pub fn landed(&self) -> bool {
+        self.merged && !self.queued
+    }
 }
 
 /// `issues.mergePr` — squash-merges the issue's open PR server-side through

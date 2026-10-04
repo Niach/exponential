@@ -6,6 +6,7 @@ package com.exponential.app.ui.theme
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -150,6 +151,57 @@ object DesignTokens {
         const val BodyLineHeight: Int = 22
         const val ToolSize: Int = 12
         const val ToolLineHeight: Int = 18
+    }
+
+    // The shared spacing scale (SLOP-18), in dp — padding, gaps and insets.
+    object Spacing {
+        val Xxs: Dp = 2.dp
+        val Xs: Dp = 4.dp
+        val Sm: Dp = 8.dp
+        val Md: Dp = 12.dp
+        val Lg: Dp = 16.dp
+        val Xl: Dp = 24.dp
+        val Xl2: Dp = 32.dp
+    }
+
+    // The shared type scale (SLOP-18): Size/LineHeight in sp (the call site
+    // adds the unit), the four weights, and the text Emphasis alpha ladder
+    // (ui/theme/Glass.kt TextEmphasis reads it).
+    object Typography {
+        const val FontFamily: String = "Inter"
+        const val BaseSize: Int = 16
+
+        object Size {
+            const val Xs: Int = 12
+            const val Sm: Int = 14
+            const val Base: Int = 16
+            const val Lg: Int = 18
+            const val Xl: Int = 20
+            const val Xl2: Int = 24
+        }
+
+        object LineHeight {
+            const val Xs: Int = 16
+            const val Sm: Int = 20
+            const val Base: Int = 24
+            const val Lg: Int = 28
+            const val Xl: Int = 28
+            const val Xl2: Int = 32
+        }
+
+        object Weight {
+            val Regular: FontWeight = FontWeight(400)
+            val Medium: FontWeight = FontWeight(500)
+            val Semibold: FontWeight = FontWeight(600)
+            val Bold: FontWeight = FontWeight(700)
+        }
+
+        object Emphasis {
+            const val Primary: Float = 1.0f
+            const val Secondary: Float = 0.7f
+            const val Tertiary: Float = 0.5f
+            const val Quaternary: Float = 0.3f
+        }
     }
 
     // Motion (EXP-523) — durations in MILLISECONDS (Compose's `tween` unit),

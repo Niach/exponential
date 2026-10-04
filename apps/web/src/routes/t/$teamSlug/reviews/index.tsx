@@ -343,8 +343,10 @@ function ReviewsPage() {
         repositoryId: target.repositoryId,
         prNumber: target.pull.number,
       })
-      .then(() => {
-        removeExternalPull(target.repositoryId, target.pull.number)
+      .then((result) => {
+        // EXP-1165: a queued merge has not landed; the row stays until the
+        // pull request actually closes.
+        if (result.merged) removeExternalPull(target.repositoryId, target.pull.number)
       })
       .catch(() => {
         // Toast already shown — unstick the spinner for a retry.

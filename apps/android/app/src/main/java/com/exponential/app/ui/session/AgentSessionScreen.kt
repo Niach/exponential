@@ -80,6 +80,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.calculateEndPadding
@@ -135,6 +137,12 @@ import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.domain.isSessionLive
 import com.exponential.app.domain.OPEN_RESULTS_LABEL
+import com.exponential.app.domain.SESSION_INLINE_TILE_HEIGHT
+import com.exponential.app.domain.sessionResultPicture
+import com.exponential.app.domain.sessionResultTileCaption
+import com.exponential.app.domain.sessionResultTileHeightFitting
+import com.exponential.app.ui.work.ResultPreviewDialog
+import com.exponential.app.ui.work.ResultTile
 import com.exponential.app.domain.runHasEnded
 import com.exponential.app.domain.sessionModel
 import com.exponential.app.ui.components.BarCapsule
@@ -356,10 +364,21 @@ fun RunFace(
      *  `sessions_results` card's `Open Results` button. Null hides it. */
     onOpenResults: (() -> Unit)? = null,
 ) {
-    CompositionLocalProvider(LocalOpenResults provides onOpenResults) {
+    // EXP-1172: the run's synced `coding_sessions.results`, read by a settled
+    // `exponential_sessions_show` row to draw its picture; live, so the tile
+    // appears the moment the upload syncs.
+    val results = viewModel.session.collectAsStateWithLifecycle().value?.results
+    CompositionLocalProvider(
+        LocalOpenResults provides onOpenResults,
+        LocalSessionResults provides results,
+    ) {
         RunFaceContent(viewModel, padding, onOpenIssue, trailingBarSlot)
     }
 }
+
+/** EXP-1172: the shown run's raw results blob, for the transcript's inline
+ *  pictures. Dynamic: only the rows that read it recompose on a sync. */
+private val LocalSessionResults = compositionLocalOf<String?> { null }
 
 /** EXP-933: the host's "show the Results face" hop, read by the transcript's
  *  `sessions_results` card deep inside the feed. */
@@ -4462,11 +4481,46 @@ private fun ExpToolCallRow(
                         )
                     }
                 }
+            } else if (display.result == ExpToolDisplay.RESULT_PICTURE) {
+                ExpToolPicture(attachmentId = item.preview?.id)
             } else {
                 ExpToolPreview(display = display, preview = item.preview)
             }
         }
     }
+}
+
+/**
+ * EXP-1172: the picture an `exponential_sessions_show` call filed — ONE tile
+ * under the row, the run's synced results looked up by the call's answer id
+ * (`preview.id`). The Results face's tile at the inline base height, fitted to
+ * the column by the same one-factor rule; caption = the call's text, else the
+ * label; a tap opens the same full-size viewer. Nothing until the picture
+ * synced (an upload in flight) or once it was removed.
+ */
+@Composable
+private fun ExpToolPicture(attachmentId: String?) {
+    val results = LocalSessionResults.current
+    val entry = remember(results, attachmentId) { sessionResultPicture(results, attachmentId) } ?: return
+    var open by remember { mutableStateOf(false) }
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = EXP_TOOL_PREVIEW_INSET, top = 6.dp)
+            .testTag("exp-tool-picture"),
+    ) {
+        val available = maxWidth.value.toInt()
+        val tileHeight = remember(entry, available) {
+            sessionResultTileHeightFitting(listOf(entry), available, SESSION_INLINE_TILE_HEIGHT)
+        }
+        ResultTile(
+            entry = entry,
+            tileHeight = tileHeight,
+            onOpen = { open = true },
+            caption = sessionResultTileCaption(entry),
+        )
+    }
+    if (open) ResultPreviewDialog(entry = entry, onDismiss = { open = false })
 }
 
 /** How much of a subject a row shows before it middle-truncates — a title is
@@ -4541,8 +4595,9 @@ private fun ExpToolPreview(display: ExpToolRow, preview: ToolResultPreview?) {
                 )
             }
         }
-        // `results` renders its `Open Results` button in [ExpToolCallRow].
-        ExpToolDisplay.RESULT_RESULTS -> Unit
+        // `results` renders its `Open Results` button in [ExpToolCallRow],
+        // `picture` its tile (EXP-1172).
+        ExpToolDisplay.RESULT_RESULTS, ExpToolDisplay.RESULT_PICTURE -> Unit
         // `none`, and any result kind a newer contract invents: the caption
         // already said what happened.
         else -> Unit
@@ -4703,6 +4758,17 @@ private fun ExpToolGroupRow(items: List<AgentFeedItem.Tool>, nested: Boolean = f
         if (expanded) {
             Column(modifier = Modifier.padding(start = 22.dp)) {
                 items.forEach { ToolRow(it, nested = true) }
+            }
+        } else {
+            // EXP-1172: a picture never hides in a fold — a folded run of
+            // `exponential_sessions_show` calls draws its calls' tiles in call
+            // order under the caption (expanded, each row draws its own).
+            items.forEach { item ->
+                if (!item.settled || item.failed) return@forEach
+                val display = ExpToolDisplay.forName(item.name, settled = true) ?: return@forEach
+                if (display.result == ExpToolDisplay.RESULT_PICTURE) {
+                    ExpToolPicture(attachmentId = item.preview?.id)
+                }
             }
         }
     }

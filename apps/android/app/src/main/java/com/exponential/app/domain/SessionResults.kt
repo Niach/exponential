@@ -45,6 +45,16 @@ const val SESSION_RESULT_TILE_HEIGHT = 320
 const val SESSION_RESULT_TALL_ASPECT = 1.0 / 3.0
 
 /**
+ * EXP-1172: an `exponential_sessions_show` picture's tile in the run
+ * transcript, one base height lower than a Results tile so a shot sits in the
+ * conversation without swallowing it. Fixture `session-inline.json`.
+ */
+const val SESSION_INLINE_TILE_HEIGHT = 240
+
+/** EXP-1172: the collapsed band a Results group folds its inline pictures under (`Earlier · 3`). */
+const val SESSION_RESULTS_EARLIER_LABEL = "Earlier"
+
+/**
  * One published screenshot. [width]/[height] are probed at upload and null
  * whenever the image could not be measured — the renderer then falls back to
  * 4:3 rather than guessing.
@@ -55,6 +65,10 @@ data class SessionResultEntry(
     val attachmentId: String,
     val width: Int? = null,
     val height: Int? = null,
+    /** EXP-1172: filed by `exponential_sessions_show` while the run worked (true only for a JSON true). */
+    val inline: Boolean = false,
+    /** EXP-1172: the show call's `text`, trimmed; null when blank. */
+    val caption: String? = null,
 )
 
 /**
@@ -66,7 +80,22 @@ data class SessionResultGroup(
     val topic: String,
     val entries: List<SessionResultEntry>,
     val text: String? = null,
+    /**
+     * EXP-1172: the topic's INLINE pictures, folded under the `Earlier` band
+     * (publish order); empty when the topic has a single picture.
+     */
+    val earlier: List<SessionResultEntry> = emptyList(),
 )
+
+/**
+ * EXP-1172: a topic with more than one picture moves its inline ones into
+ * [SessionResultGroup.earlier], so the final report leads; a topic's only
+ * picture stays.
+ */
+private fun SessionResultGroup.foldInline(): SessionResultGroup {
+    if (entries.size < 2) return this
+    return copy(entries = entries.filterNot { it.inline }, earlier = entries.filter { it.inline })
+}
 
 private val resultsJson = Json { ignoreUnknownKeys = true; isLenient = true }
 
@@ -112,6 +141,8 @@ private fun picture(row: JsonObject): SessionResultEntry? {
         attachmentId = attachmentId,
         width = row.dimension("width"),
         height = row.dimension("height"),
+        inline = (row["inline"] as? JsonPrimitive)?.let { !it.isString && it.content == "true" } == true,
+        caption = row.text("caption"),
     )
 }
 
@@ -154,7 +185,7 @@ fun parseSessionResultGroups(raw: String?): List<SessionResultGroup> {
         open(topic)
         if (topic !in texts) texts[topic] = body
     }
-    return order.map { topic -> SessionResultGroup(topic, entries.getValue(topic).toList(), texts[topic]) }
+    return order.map { topic -> SessionResultGroup(topic, entries.getValue(topic).toList(), texts[topic]).foldInline() }
 }
 
 /** True when the blob has anything for the Results face to show. */
@@ -174,8 +205,21 @@ fun groupSessionResults(entries: List<SessionResultEntry>): List<SessionResultGr
         }
         bucket += entry
     }
-    return order.map { topic -> SessionResultGroup(topic, byTopic.getValue(topic).toList()) }
+    return order.map { topic -> SessionResultGroup(topic, byTopic.getValue(topic).toList()).foldInline() }
 }
+
+/**
+ * EXP-1172: the picture an `exponential_sessions_show` call filed, by the
+ * attachment id its answer carried (`preview.id`); null while the upload is
+ * still in flight, once it was removed, or for a blank id.
+ */
+fun sessionResultPicture(raw: String?, attachmentId: String?): SessionResultEntry? {
+    val id = attachmentId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    return parseSessionResults(raw).firstOrNull { it.attachmentId == id }
+}
+
+/** EXP-1172: the line under a transcript tile — the show call's caption, else the picture's label. */
+fun sessionResultTileCaption(entry: SessionResultEntry): String = entry.caption ?: entry.label
 
 /**
  * EXP-1128: true when the probed aspect is under [SESSION_RESULT_TALL_ASPECT];

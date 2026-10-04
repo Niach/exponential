@@ -29,12 +29,9 @@ export type DocShotProps = {
   priority?: boolean
 }
 
-export function DocShot({
-  view,
-  platform = `web`,
-  caption,
-  priority = false,
-}: DocShotProps) {
+/* Resolves a store image through the catalog, throwing on a view or platform
+   the catalog does not declare. The home page's real-shot stages use it too. */
+export function shotSrc(view: string, platform: Platform = `web`) {
   const entry = viewById(view)
   if (!entry) {
     throw new Error(
@@ -46,8 +43,20 @@ export function DocShot({
       `DocShot: view "${view}" declares no ${platform} capture — the store holds no ${platform} shot for it (see views.json${entry.notes?.[platform] ? `: ${entry.notes[platform]}` : ``})`
     )
   }
+  return {
+    src: `/shots/${view}/${platform}.webp`,
+    frame: PLATFORM_FRAME[platform],
+    title: entry.title,
+  }
+}
 
-  const frame = PLATFORM_FRAME[platform]
+export function DocShot({
+  view,
+  platform = `web`,
+  caption,
+  priority = false,
+}: DocShotProps) {
+  const { src, frame, title } = shotSrc(view, platform)
   /* Portrait frames (phones, web-mobile) get the centered phone treatment the
      mockup embeds already use. */
   const portrait = frame.h > frame.w
@@ -57,12 +66,12 @@ export function DocShot({
       className={`docs-embed docs-shot${portrait ? ` docs-embed-phone` : ``}`}
     >
       <img
-        src={`/shots/${view}/${platform}.webp`}
+        src={src}
         width={frame.w}
         height={frame.h}
         loading={priority ? `eager` : `lazy`}
         decoding="async"
-        alt={entry.title}
+        alt={title}
       />
       {caption ? (
         <figcaption className="docs-embed-caption">{caption}</figcaption>

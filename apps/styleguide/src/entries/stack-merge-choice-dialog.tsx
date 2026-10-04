@@ -43,7 +43,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1145`,
   title: `Stack merge dialog`,
-  blurb: `What a plain Merge asks when its pull request is a member of an OPEN stack (EXP-1145), instead of the one-line confirm: the issue header, the Changes face, the review page, the run view and, since SLOP-3, every Reviews row. The title says so; the body lists the chain bottom to top joined by arrows, the pressed one marked "(this one)" and a batch pull request named with its count (\`EXP-874 +2\`), then one sentence per answer saying exactly what lands. Three answers, in this order: "${labels.cancel}", "${labels.mergeThis}" (outline: the bottom member merges alone, any other one lands itself and everything below, and what sits above is retargeted onto the base branch and stays open), "${labels.mergeStack}" (primary, with the merge glyph: the whole open chain, bottom-up). While a merge is in flight all three are disabled and the primary's glyph spins. A pull request with no other OPEN member in its chain never sees this dialog. The decision and every word are ONE pure function ×4 (\`stack-merge-choice.json\`).`,
+  blurb: `What a plain Merge asks when its pull request is a member of an OPEN stack (EXP-1145), instead of the one-line confirm: the issue header, the Changes face, the review page, the run view and, since SLOP-3, every Reviews row. The title says so; the body lists the chain bottom to top joined by arrows, the pressed one marked "(this one)" and a batch pull request named with its count (\`EXP-874 +2\`), then one sentence per answer saying exactly what lands. Three answers, in this order: "${labels.cancel}", "${labels.mergeThis}" (outline: the bottom member merges alone, any other one lands itself and everything below, and what sits above is retargeted onto the base branch and stays open), "${labels.mergeStack}" (primary, the whole open chain, bottom-up). The primary LEADS with the merge glyph on every client that draws button glyphs: web and the desktop alert (EXP-1167 settled it: the desktop alert was label-only); the phones' stock confirmation dialogs carry text actions only. While a merge is in flight all three are disabled and the primary's glyph spins. A pull request with no other OPEN member in its chain never sees this dialog. The decision and every word are ONE pure function ×4 (\`stack-merge-choice.json\`).`,
   status: {
     web: {
       state: `ok`,
@@ -55,7 +55,7 @@ export const entry: StyleguideEntry = {
       state: `ok`,
       symbol: `pr_merge::ask_stack_merge`,
       file: `apps/desktop/crates/ui/src/pr_merge.rs`,
-      note: `a native alert; the copy is domain pr_stack::stack_merge_choice`,
+      note: `a native alert whose primary wears the merge glyph (AlertSpec::ok_icon); the copy is domain pr_stack::stack_merge_choice`,
     },
     ios: {
       state: `ok`,
@@ -75,7 +75,7 @@ export const entry: StyleguideEntry = {
     // context. Cancel is the outline button `AlertDialogCancel` paints: the
     // real one only mounts inside the portalled content.
     <AlertDialog open>
-      <DialogSpecimen className="max-w-md">
+      <DialogSpecimen className="max-w-lg">
         <AlertDialogHeader>
           <AlertDialogTitle>{labels.title}</AlertDialogTitle>
           <AlertDialogDescription className="whitespace-pre-line">

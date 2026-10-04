@@ -132,6 +132,10 @@ pub mod result {
     /// EXP-933: `sessions_results` — the run's Results face (the report the
     /// agent is filing); a settled row offers `Open Results`.
     pub const RESULTS: &str = "results";
+    /// EXP-1172: `sessions_show` — ONE picture the run filed mid-work; a
+    /// settled row renders it as a tile under the call (`preview.id` = the
+    /// attachment, looked up in the run's synced results).
+    pub const PICTURE: &str = "picture";
 }
 
 #[cfg(test)]

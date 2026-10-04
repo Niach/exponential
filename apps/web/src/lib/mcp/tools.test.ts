@@ -2761,6 +2761,93 @@ describe(`exponential_sessions_ask_parent — to: 'user' (EXP-1089)`, () => {
 })
 
 // ── EXP-879: the run publishes pictures of its own work ──────────────────────
+// EXP-1172: the early form of sessions_results — one inline picture, the
+// same grant + write, the attachment id in the answer's `id`.
+describe(`exponential_sessions_show`, () => {
+  const OWN_RUN = {
+    sessionsEnd: false,
+    askParent: false,
+    sessionResults: true,
+  }
+  const runRow = (over: Record<string, unknown> = {}) => ({
+    id: SESSION,
+    teamId: `team-1`,
+    userId: `user-1`,
+    hostUserId: null,
+    status: `running`,
+    results: null,
+    ...over,
+  })
+
+  beforeEach(() => {
+    vi.stubEnv(`BETTER_AUTH_SECRET`, `mcp-tools-test-secret`)
+    vi.stubEnv(`BETTER_AUTH_URL`, ``)
+  })
+
+  it(`rides the sessions_results gate`, () => {
+    const closed = collectTools(USER, SESSION, { ...OWN_RUN, sessionResults: false })
+    expect(closed.has(`exponential_sessions_show`)).toBe(false)
+    expect(collectTools(USER, SESSION, OWN_RUN).has(`exponential_sessions_show`)).toBe(
+      true
+    )
+  })
+
+  it(`refuses outside a launched session and without exactly one source`, async () => {
+    const outside = await collectTools(USER, null, OWN_RUN).get(
+      `exponential_sessions_show`
+    )!({ file: `shot.png` })
+    expect(outside.content[0].text).toContain(`X-Exp-Session-Id`)
+    dbRows.current = [runRow()]
+    const tool = collectTools(USER, SESSION, OWN_RUN).get(`exponential_sessions_show`)!
+    expect((await tool({})).content[0].text).toContain(`exactly one of file or dataBase64`)
+    expect(
+      (await tool({ file: `a.png`, dataBase64: `AA==`, contentType: `image/png` }))
+        .content[0].text
+    ).toContain(`exactly one`)
+    expect((await tool({ dataBase64: `AA==` })).content[0].text).toContain(
+      `needs contentType`
+    )
+  })
+
+  it(`refuses another member's run and an ended one`, async () => {
+    dbRows.current = [runRow({ userId: `user-2` })]
+    const tool = collectTools(USER, SESSION, OWN_RUN).get(`exponential_sessions_show`)!
+    expect((await tool({ file: `a.png` })).content[0].text).toContain(`not your run`)
+    dbRows.current = [runRow({ status: `ended` })]
+    expect((await tool({ file: `a.png` })).content[0].text).toContain(`ended`)
+  })
+
+  it(`answers the pre-allocated id with an inline grant and a quoted curl line`, async () => {
+    dbRows.current = [runRow()]
+    const result = await collectTools(USER, SESSION, OWN_RUN).get(
+      `exponential_sessions_show`
+    )!({ file: `/tmp/it's here.png`, text: `  The empty state  ` })
+    const payload = parseOk(result) as {
+      id: string
+      uploadUrl: string
+      curl: string
+      topic: string
+      results: unknown
+    }
+    expect(payload.topic).toBe(`Progress`)
+    expect(payload.curl).toBe(
+      `curl -sS -F file=@'/tmp/it'\\''s here.png' "${payload.uploadUrl}"`
+    )
+    const token = payload.uploadUrl.split(`/`).pop()!
+    expect(verifySessionResultToken(token)).toMatchObject({
+      s: SESSION,
+      t: `Progress`,
+      l: ``,
+      u: `user-1`,
+      a: payload.id,
+      i: 1,
+      c: `The empty state`,
+    })
+    expect(payload.results).toEqual([])
+    expect(h.db.update).not.toHaveBeenCalled()
+  })
+})
+
 describe(`exponential_sessions_results`, () => {
   // Any run of the caller's gets the tool — attended included, unlike the
   // close-out.
@@ -3453,6 +3540,8 @@ describe(`exponential_pr_open — repositoryId path`, () => {
       prUrl: `https://github.com/acme/app/pull/9`,
       prNumber: 9,
       prState: `open`,
+      // EXP-1165: with its base, so the merge guards see a stacked run PR.
+      prBaseBranch: `main`,
     })
     for (const update of updates) {
       const { sql, params } = new PgDialect().sqlToQuery(update.where as never)
@@ -3617,6 +3706,23 @@ describe(`exponential_pr_merge — repository path and the self-merge spare`, ()
     expect(caller.repositories.mergePull).toHaveBeenCalledWith({
       repositoryId: REPO,
       prNumber: 9,
+    })
+  })
+
+  // EXP-1165: GitHub's merge queue only took it, nothing landed yet.
+  it(`reports a queued chore merge as merged=false, queued`, async () => {
+    caller.repositories.mergePull.mockResolvedValue({
+      merged: false,
+      queued: true,
+      note: `GitHub queued the merge of PR #9.`,
+    })
+
+    const result = await collectTools(USER, null).get(
+      `exponential_pr_merge`
+    )!({ repositoryId: REPO, prNumber: 9 })
+
+    expect(parseOk(result)).toEqual({
+      results: [{ repositoryId: REPO, prNumber: 9, merged: false, queued: true }],
     })
   })
 
