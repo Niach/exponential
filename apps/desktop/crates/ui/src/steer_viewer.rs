@@ -3878,35 +3878,128 @@ pub(crate) fn rate_limit_detail(countdown: Option<String>) -> String {
     }
 }
 
-/// EXP-788 — the numbered chip on an option row: the digit that picks it
-/// (1-9, by position). `live` = the keyboard is on this card, so the chip
-/// reads as a key; otherwise it is a quiet ordinal. Options past the ninth
-/// carry no chip (there is no key for them).
-fn key_chip(index: usize, live: bool, cx: &App) -> AnyElement {
-    let muted = cx.theme().muted_foreground;
-    let Some(digit) = (index < 9).then(|| (index + 1).to_string()) else {
-        return div().w(px(18.)).into_any_element();
+/// EXP-1191: an option row's number key — the web `kbd` at the RIGHT end of
+/// the row: a 4px-rounded hairline chip, monospace 10px on a 16px line,
+/// muted (on the primary row the primary foreground at 30% / 80%).
+fn key_chip(index: usize, primary: bool, cx: &App) -> Option<AnyElement> {
+    let digit = (index < 9).then(|| (index + 1).to_string())?;
+    let (border, text) = if primary {
+        let fg = cx.theme().primary_foreground;
+        (fg.opacity(0.3), fg.opacity(0.8))
+    } else {
+        (
+            theme::tokens::glass::STROKE_CARD.to_hsla(),
+            cx.theme().muted_foreground,
+        )
     };
-    div()
-        .flex_shrink_0()
-        .w(px(18.))
-        .h(px(18.))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(theme::tokens::radius::SM))
-        .border_1()
-        .border_color(if live {
-            theme::tokens::glass::STROKE_ACTIVE.to_hsla()
-        } else {
-            theme::tokens::glass::STROKE_CARD.to_hsla()
-        })
-        .bg(theme::tokens::glass::FILL_CARD.to_hsla())
-        .text_2xs()
-        .font_family(theme::terminal::FONT_FAMILY)
-        .text_color(if live { cx.theme().foreground } else { muted })
-        .child(SharedString::from(digit))
+    Some(
+        div()
+            .flex_shrink_0()
+            .px_1()
+            .rounded(px(4.))
+            .border_1()
+            .border_color(border)
+            .text_size(px(10.))
+            .line_height(px(16.))
+            .font_family(theme::terminal::FONT_FAMILY)
+            .text_color(text)
+            .child(SharedString::from(digit))
+            .into_any_element(),
+    )
+}
+
+/// EXP-1191: the shared question / plan card (web `AskCard`) — the glass
+/// card, 12px padding, ONE top-aligned row: the 14px accent glyph beside a
+/// column holding the optional heading (12px medium, accent; `meta` = the
+/// stepper's "k of n" caption), then `body`. The glyph sits on the first
+/// text line, the options indent under the text.
+fn ask_card(
+    plan: bool,
+    heading: Option<SharedString>,
+    meta: Option<String>,
+    body: gpui::Div,
+    cx: &App,
+) -> AnyElement {
+    let accent = if plan {
+        cx.theme().primary
+    } else {
+        theme::tokens::YELLOW.to_hsla()
+    };
+    let has_heading = heading.is_some() || meta.is_some();
+    crate::surface::glass_card()
+        .w_full()
+        .min_w_0()
+        .p_3()
+        .child(
+            h_flex()
+                .w_full()
+                .min_w_0()
+                .gap_2()
+                .items_start()
+                .child(
+                    // Centred on the first line: the 16px heading line, or
+                    // the body's 22px one.
+                    div()
+                        .flex_shrink_0()
+                        .mt(px(if has_heading { 1. } else { 4. }))
+                        .child(
+                            Icon::new(if plan {
+                                registry::CODING_PLAN
+                            } else {
+                                registry::UI_HELP
+                            })
+                            .with_size(px(14.))
+                            .text_color(accent),
+                        ),
+                )
+                .child(
+                    v_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .when(has_heading, |this| {
+                            this.child(
+                                h_flex()
+                                    .w_full()
+                                    .min_w_0()
+                                    .mb_1()
+                                    .gap_2()
+                                    .items_center()
+                                    .when_some(heading, |this, heading| {
+                                        this.child(
+                                            div()
+                                                .min_w_0()
+                                                .truncate()
+                                                .text_xs()
+                                                .font_weight(gpui::FontWeight::MEDIUM)
+                                                .text_color(accent)
+                                                .child(heading),
+                                        )
+                                    })
+                                    .when_some(meta, |this, meta| {
+                                        this.child(
+                                            // EXP-698: 11px — a caption beside
+                                            // the heading, never a peer of it.
+                                            div()
+                                                .flex_shrink_0()
+                                                .text_2xs()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child(SharedString::from(meta)),
+                                        )
+                                    }),
+                            )
+                        })
+                        .child(body),
+                ),
+        )
         .into_any_element()
+}
+
+/// The question body (web `text-sm text-foreground/90`).
+fn ask_body_text(cx: &App) -> gpui::Div {
+    body_text(div())
+        .w_full()
+        .min_w_0()
+        .text_color(cx.theme().foreground.opacity(0.9))
 }
 
 // ---------------------------------------------------------------------------
@@ -5784,7 +5877,6 @@ impl SteerSessionView {
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let muted = cx.theme().muted_foreground;
-        let amber = theme::tokens::YELLOW.to_hsla();
         let complete = ask_complete(items);
         // The re-opened step, if it is one of THIS ask's rows.
         let editing = self
@@ -5827,43 +5919,9 @@ impl SteerSessionView {
             total,
         );
 
-        // EXP-698: the stepper wears the SAME neutral glass card chrome as
-        // `render_question` — a tinted border plus a tinted fill made the two
-        // question surfaces read as two different materials in one feed. Only
-        // the glyph and the heading carry the amber accent.
-        let mut card = crate::surface::glass_card()
-            .w_full()
-            .min_w_0()
-            .gap_1()
-            .p_3()
-            .child(
-                h_flex()
-                    .w_full()
-                    .min_w_0()
-                    .gap_1p5()
-                    .items_center()
-                    .child(Icon::new(registry::UI_HELP).xsmall().text_color(amber))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_xs()
-                            .text_color(amber)
-                            .child(SharedString::from(header)),
-                    )
-                    .when_some(counter, |this, counter| {
-                        this.child(
-                            // EXP-698: 11px — "2 of 3" is a caption beside the
-                            // heading, never a peer of it.
-                            div()
-                                .flex_shrink_0()
-                                .text_2xs()
-                                .text_color(muted)
-                                .child(SharedString::from(counter)),
-                        )
-                    }),
-            );
+        // EXP-698/1191: the stepper wears the SAME card as `render_question`
+        // (web `AskCard`): the glyph beside one column of steps.
+        let mut card = v_flex().w_full().min_w_0();
         for item in answered {
             if editing == Some(item.id) {
                 card = card.child(self.render_editing_step(item, active, window, cx));
@@ -5879,6 +5937,7 @@ impl SteerSessionView {
                 card = card.child(
                     h_flex()
                         .id(("steer-step-current", item.id as usize))
+                        .mt_1()
                         .w_full()
                         .min_w_0()
                         .gap_1p5()
@@ -5899,19 +5958,21 @@ impl SteerSessionView {
             }
             Some(item) => {
                 let text = item.question().map(|card| card.text.clone()).unwrap_or_default();
-                card = card
-                    .child(body_text(div()).w_full().min_w_0().child(self.render_body(
-                        item.id,
-                        &text,
-                        cx,
-                    )))
-                    .child(self.render_prompt(item, active, submit_step, false, window, cx));
+                card = card.child(
+                    v_flex()
+                        .w_full()
+                        .min_w_0()
+                        .mt_1p5()
+                        .child(ask_body_text(cx).child(self.render_body(item.id, &text, cx)))
+                        .child(self.render_prompt(item, active, submit_step, false, window, cx)),
+                );
             }
             // EXP-820: the spinner only while a next step is actually owed —
             // a finished ask is just its answered rows.
             None if !complete => {
                 card = card.child(
                     h_flex()
+                        .mt_2()
                         .gap_1p5()
                         .items_center()
                         .child(Spinner::new().xsmall())
@@ -5925,7 +5986,7 @@ impl SteerSessionView {
             }
             None => {}
         }
-        card.into_any_element()
+        ask_card(false, Some(SharedString::from(header)), counter, card, cx)
     }
 
     /// EXP-820: the re-opened step — its prompt and options, answerable
@@ -5941,11 +6002,8 @@ impl SteerSessionView {
         v_flex()
             .w_full()
             .min_w_0()
-            .child(body_text(div()).w_full().min_w_0().child(self.render_body(
-                item.id,
-                &text,
-                cx,
-            )))
+            .mt_1p5()
+            .child(ask_body_text(cx).child(self.render_body(item.id, &text, cx)))
             .child(self.render_prompt(item, active, false, true, window, cx))
             .child(
                 div().mt_1p5().child(
@@ -6079,54 +6137,24 @@ impl SteerSessionView {
         let Some(card) = item.question() else {
             return div().into_any_element();
         };
-        let accent = if card.plan_mode {
-            cx.theme().primary
-        } else {
-            theme::tokens::YELLOW.to_hsla()
-        };
         let heading = if card.plan_mode {
             Some(SharedString::from("Plan ready"))
         } else {
             card.header.clone().map(SharedString::from)
         };
-        // EXP-698: NEUTRAL card chrome — the shared glass card, radius XL.
-        // Only the glyph and the heading carry the accent (primary for a
-        // ready plan, yellow for a question); a tinted border + tinted fill
-        // made these read as two more materials in the feed.
-        crate::surface::glass_card()
+        // EXP-698/1191: the shared `AskCard` — neutral glass chrome, only the
+        // glyph and the heading carry the accent (primary for a ready plan,
+        // yellow for a question).
+        let body = v_flex()
             .w_full()
             .min_w_0()
-            .gap_1()
-            .p_3()
-            .child(
-                h_flex()
-                    .gap_1p5()
-                    .items_center()
-                    .child(
-                        Icon::new(if card.plan_mode {
-                            registry::CODING_PLAN
-                        } else {
-                            registry::UI_HELP
-                        })
-                        .xsmall()
-                        .text_color(accent),
-                    )
-                    .when_some(heading, |this, heading| {
-                        this.child(div().text_xs().text_color(accent).child(heading))
-                    }),
-            )
-            .child(
-                body_text(div())
-                    .w_full()
-                    .min_w_0()
-                    .child(if card.plan_mode {
-                        self.render_unfolded_body(item.id, &card.text, cx)
-                    } else {
-                        self.render_body(item.id, &card.text, cx)
-                    }),
-            )
-            .child(self.render_prompt(item, active, false, false, window, cx))
-            .into_any_element()
+            .child(ask_body_text(cx).child(if card.plan_mode {
+                self.render_unfolded_body(item.id, &card.text, cx)
+            } else {
+                self.render_body(item.id, &card.text, cx)
+            }))
+            .child(self.render_prompt(item, active, false, false, window, cx));
+        ask_card(card.plan_mode, heading, None, body, cx)
     }
 
     /// The interactive half of a card (EXP-788): the options as a numbered
@@ -6223,7 +6251,14 @@ impl SteerSessionView {
                         .items_center()
                         .text_xs()
                         .text_color(muted)
-                        .child(key_chip(index, false, cx))
+                        .when(index < 9, |this| {
+                            this.child(
+                                div()
+                                    .flex_shrink_0()
+                                    .font_family(theme::terminal::FONT_FAMILY)
+                                    .child(SharedString::from((index + 1).to_string())),
+                            )
+                        })
                         .child(div().min_w_0().truncate().child(SharedString::from(option.label.clone())))
                 }))
                 .child(div().text_xs().text_color(muted).child(note))
@@ -6235,10 +6270,6 @@ impl SteerSessionView {
         let recorded = editing.then(|| card.answer.clone()).flatten();
         let promote_first = card.plan_mode || submit_step;
         let item_id = item.id;
-        // Only THE pending card takes the keyboard; an older active card (a
-        // second question the agent asked before the first was answered)
-        // renders its chips dimmed and answers by click.
-        let keyboard = self.pending_card_id() == Some(item_id);
         let cursor = self.answer_cursor_on(item_id);
         let inline = self
             .inline
@@ -6256,7 +6287,6 @@ impl SteerSessionView {
                     || recorded.as_deref() == Some(option.label.as_str())
                     || inline_here.is_some(),
                 index,
-                keyboard,
                 cursor == Some(index),
                 cx,
             ));
@@ -6317,8 +6347,7 @@ impl SteerSessionView {
             .min_w_0()
             .gap_1()
             .items_center()
-            // Indented under the row's label (chip 18px + gap 8px).
-            .pl(px(26.))
+            .mt_0p5()
             .capture_action(cx.listener(Self::on_inline_escape))
             .child(
                 div()
@@ -6341,8 +6370,9 @@ impl SteerSessionView {
             .into_any_element()
     }
 
-    /// One option row (EXP-788): a full-width button carrying its numbered
-    /// key chip, its label and — under the label — its description. EXP-820
+    /// One option row (EXP-788): a full-width button carrying its label,
+    /// under it its description, and its number key chip at the right end
+    /// (EXP-1191, web parity). EXP-820
     /// styleguide: NO blue. The promoted option (a plan card's "Yes", the
     /// stepper's submit) is the app's PRIMARY button; a picked row (a
     /// multi-select pick, the recorded answer of a re-opened step, the row
@@ -6358,7 +6388,6 @@ impl SteerSessionView {
         option: &QuestionOption,
         picked: bool,
         index: usize,
-        keyboard: bool,
         highlighted: bool,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
@@ -6377,7 +6406,8 @@ impl SteerSessionView {
             .cursor_pointer()
             .w_full()
             .h_auto()
-            .px_2()
+            .min_h(px(32.))
+            .px_3()
             .py_1p5()
             .rounded(px(theme::tokens::radius::MD));
         button = if primary {
@@ -6404,12 +6434,13 @@ impl SteerSessionView {
         let description = option.description.clone().filter(|text| !text.trim().is_empty());
         button
             .child(
+                // EXP-1191: web — the label column, then the key chip at
+                // the RIGHT end of the row.
                 h_flex()
                     .w_full()
                     .min_w_0()
                     .gap_2()
-                    .items_start()
-                    .child(div().mt_px().child(key_chip(index, keyboard && !primary, cx)))
+                    .items_center()
                     .child(
                         v_flex()
                             .flex_1()
@@ -6422,6 +6453,7 @@ impl SteerSessionView {
                                     .min_w_0()
                                     .text_left()
                                     .text_xs()
+                                    .font_weight(gpui::FontWeight::MEDIUM)
                                     .text_color(label_color)
                                     .child(SharedString::from(label)),
                             )
@@ -6440,7 +6472,8 @@ impl SteerSessionView {
                                         .child(SharedString::from(description)),
                                 )
                             }),
-                    ),
+                    )
+                    .children(key_chip(index, primary, cx)),
             )
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 cx.stop_propagation();
