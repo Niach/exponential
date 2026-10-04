@@ -6,7 +6,7 @@ import { useSession } from "@/hooks/use-session"
 import { useTeamById } from "@/hooks/use-team-data"
 import { boardCollection } from "@/lib/collections"
 import { githubConnectedDeepLink } from "@/lib/deep-link"
-import { isSameOriginPath } from "@/lib/github-connect"
+import { isSameOriginPath, isSignedOutConnectStart } from "@/lib/github-connect"
 import { pageTitle } from "@/lib/page-title"
 import {
   GH_CLOSE_WINDOW,
@@ -78,6 +78,14 @@ export const Route = createFileRoute(`/integrations/github`)({
 })
 
 const CheckIcon = conceptIcon(`ui-check`)
+
+// Compat shim: iOS 0.14.45 and Android <=0.14.52 open the connect URL itself
+// (`?return=app`, no install redirect yet) in a browser with no web session.
+// Those people have not installed anything, so they are asked to sign in
+// rather than told the app is installed. Retired by the first App Store build
+// with SLOP-26. Copy stays here so the shim leaves in one piece.
+const SHIM_SIGN_IN_TITLE = `Sign in to connect GitHub`
+const SHIM_SIGN_IN_BODY = `Sign in to your Exponential account in this browser to connect GitHub and pick a repository.`
 
 /** Where to go back to when the flow ends in a plain tab: the opener's path
  * (`?from=`), else what this tab remembered before GitHub's redirects, else a
@@ -198,6 +206,31 @@ function GithubConnectPage() {
       typeof window === `undefined`
         ? `/integrations/github`
         : `${window.location.pathname}${window.location.search}`
+    const signInLink = (
+      <Link to="/auth/login" search={{ redirect: here }}>
+        {GH_SIGN_IN}
+      </Link>
+    )
+    if (
+      isSignedOutConnectStart(
+        search.return,
+        typeof window === `undefined` ? `` : window.location.search
+      )
+    ) {
+      return (
+        <WizardFrame>
+          <GlassGroup>
+            <div className="flex flex-col gap-1.5 p-6 text-center">
+              <h2 className="text-xl font-semibold">{SHIM_SIGN_IN_TITLE}</h2>
+              <p className="text-sm text-muted-foreground">{SHIM_SIGN_IN_BODY}</p>
+            </div>
+            <div className="flex flex-wrap items-center justify-center gap-2 p-6">
+              <Button asChild>{signInLink}</Button>
+            </div>
+          </GlassGroup>
+        </WizardFrame>
+      )
+    }
     return (
       <WizardFrame>
         <GlassGroup>
@@ -211,9 +244,7 @@ function GithubConnectPage() {
               <a href={githubConnectedDeepLink()}>{GH_RETURN_TO_APP}</a>
             </Button>
             <Button asChild variant="outline">
-              <Link to="/auth/login" search={{ redirect: here }}>
-                {GH_SIGN_IN}
-              </Link>
+              {signInLink}
             </Button>
           </div>
         </GlassGroup>

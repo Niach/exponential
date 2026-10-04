@@ -1,5 +1,8 @@
-- Runs: los flujos de trabajo desaparecen, una ejecución planifica y reparte su propio trabajo y lanza por sí sola las ejecuciones de seguimiento
-- Issues bloqueadas: al iniciar una se pregunta Cancel, Start anyway o Stacked PR, que construye toda la cadena de pull requests de abajo arriba
-- Fusionar: Merge en una pull request apilada pregunta Merge stack o Merge this pull request
-- Pantalla de trabajo: los selectores, la hoja de uso y la hoja de archivos se abren al primer toque
-- Pestaña Run: la transcripción se desplaza bajo el cuadro de redacción, así que sus últimas líneas siguen accesibles
+- GitHub: una página guiada conecta tu cuenta de GitHub, instala la app y muestra los repositorios en los que puedes hacer push
+- Feedback: un envío del widget es una issue, responde a quien lo reportó desde el cuadro de comentarios y sus respuestas vuelven como comentarios
+- Nueva issue: crear una issue abre una página completa con todas las propiedades, guardada como borrador mientras escribes
+- Navegación: pestañas Inbox, Devices, Reviews, Agent y Actions; Reviews, ejecuciones, acciones y dispositivos muestran todos tus equipos
+- Pull requests: el diff es la vista Changes de la issue, Results se lee como una guía numerada, Merge está en la barra inferior
+- Runs: la marca del agente gira mientras trabaja, ámbar te espera, verde tiene una pull request abierta, azul está terminada
+- Pantalla de issue: el título se recoge en la cabecera al desplazarte y el contenido pasa bajo un borde difuminado
+- Unirse a un equipo: la invitación ofrece el paso de configurar un dispositivo cuando aún no tienes ninguno

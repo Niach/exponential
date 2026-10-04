@@ -327,6 +327,28 @@ const IDENTITY_PATHS = new Set([
   `/unlink-account`,
 ])
 
+// Better Auth endpoints that hand a linked provider's tokens to the caller.
+// SLOP-7 keeps the member's GitHub App user token (Contents write on every
+// installed repo) on the `accounts` row, and the api-key plugin mocks a
+// session for every endpoint, so an `expu_` key could read it over HTTP. No
+// client calls them; `disabledPaths` 404s the HTTP route while the server-side
+// `auth.api.getAccessToken` (lib/integrations/github-user.ts) keeps working.
+export const DISABLED_AUTH_PATHS = [`/get-access-token`, `/refresh-token`]
+
+export const PROVIDER_LOGIN_DISABLED_CODE = `PROVIDER_LOGIN_DISABLED`
+
+/** Pure: is this `/sign-in/social` body a GitHub sign-in the instance does
+ * not offer? The `github` provider is registered whenever the App's OAuth
+ * client exists (linking needs it), so `GITHUB_LOGIN_ENABLED` must be
+ * enforced here, not only by hiding the button. `/link-social` stays open. */
+export function isRefusedSocialSignIn(
+  body: unknown,
+  config: Pick<AuthConfig, `githubLoginEnabled`>
+): boolean {
+  const provider = (body as { provider?: unknown } | null | undefined)?.provider
+  return provider === `github` && !config.githubLoginEnabled
+}
+
 /** Pure: is `path` an identity-changing endpoint (`/passkey/*` included)? */
 export function isIdentityPath(path: string | undefined): boolean {
   if (!path) return false
@@ -377,7 +399,8 @@ export function emailChangeNotice(
 }
 
 /** Better Auth flavour: the same rules in front of the endpoints a direct
- *  API caller could still reach (the clients go through tRPC): no identity
+ *  API caller could still reach (the clients go through tRPC): no GitHub
+ *  sign-in while that login is off, no identity
  *  change on an API key, the placeholder refusal on a requested email change,
  *  and the last-way-in rule on the two removals. Registered as a plugin so
  *  it composes with the config-level `hooks.before`. */
@@ -386,6 +409,17 @@ export function signInMethodsGuardPlugin(): BetterAuthPlugin {
     id: `exp-sign-in-methods-guard`,
     hooks: {
       before: [
+        {
+          matcher: (ctx) => ctx.path === `/sign-in/social`,
+          handler: createAuthMiddleware(async (ctx) => {
+            if (isRefusedSocialSignIn(ctx.body, buildAuthConfig())) {
+              throw new APIError(`FORBIDDEN`, {
+                code: PROVIDER_LOGIN_DISABLED_CODE,
+                message: `Sign-in with GitHub is not enabled on this instance.`,
+              })
+            }
+          }),
+        },
         {
           matcher: (ctx) => isIdentityPath(ctx.path),
           handler: createAuthMiddleware(async (ctx) => {

@@ -35,9 +35,7 @@ struct InviteAcceptView: View {
                 try await deps.teamInvitesApi.accept(accountId: accountId, token: token)
                 // Own rows are local and survive the pipeline restart below,
                 // so the read never waits on the network.
-                let owns = await DeviceQueries.ownsDevice(
-                    db: deps.db, accountId: accountId, userId: deps.auth.userId
-                )
+                var owns = await ownsDevice()
                 accepted = owns
                 loading = !owns
                 // Membership just changed: every shape's server-derived where
@@ -45,7 +43,17 @@ struct InviteAcceptView: View {
                 // the OLD scope for up to ~60s. Relaunch the pipeline so the
                 // joined team syncs in seconds (EXP-43 drain-lag fix).
                 await deps.syncManager.restartPipeline(accountId: accountId)
+                // A fresh install may not have its devices rows yet: give the
+                // shape up to 2s before offering the join step (web waits 4s).
+                var waited = 0
+                while !owns && waited < 8 {
+                    try? await Task.sleep(for: .milliseconds(250))
+                    waited += 1
+                    owns = await ownsDevice()
+                }
+                accepted = owns
                 if owns {
+                    loading = false
                     try? await Task.sleep(for: .seconds(1.5))
                     dismiss()
                 } else {
@@ -57,6 +65,10 @@ struct InviteAcceptView: View {
                 loading = false
             }
         }
+    }
+
+    private func ownsDevice() async -> Bool {
+        await DeviceQueries.ownsDevice(db: deps.db, accountId: accountId, userId: deps.auth.userId)
     }
 
     private var statusCard: some View {

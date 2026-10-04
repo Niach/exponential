@@ -151,6 +151,7 @@ export async function runPrPollPass(now: Date = new Date()): Promise<void> {
             await applyPrReopenedState({
               issueId: row.issueId,
               prUrl: row.prUrl,
+              baseBranch: state.baseRef,
             })
             break
           case `none`:
@@ -207,7 +208,11 @@ export async function runPrPollPass(now: Date = new Date()): Promise<void> {
             await applySessionPrState({ prUrl: row.prUrl, state: `closed` })
             break
           case `reopen`:
-            await applySessionPrState({ prUrl: row.prUrl, state: `open` })
+            await applySessionPrState({
+              prUrl: row.prUrl,
+              state: `open`,
+              baseBranch: state.baseRef,
+            })
             break
           case `none`:
             break

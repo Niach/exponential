@@ -394,6 +394,25 @@ describe(`applySessionPrState`, () => {
     expect(h.relayPostKill).not.toHaveBeenCalled()
   })
 
+  it(`a close clears the base and a reopen writes the live one back`, async () => {
+    await applySessionPrState({ prUrl: PR_URL, state: `closed` })
+    expect(h.updates[0]!.set).toMatchObject({ prBaseBranch: null })
+
+    await applySessionPrState({
+      prUrl: PR_URL,
+      state: `open`,
+      baseBranch: `exp/EXP-1`,
+    })
+    expect(h.updates[1]!.set).toMatchObject({
+      prState: `open`,
+      prBaseBranch: `exp/EXP-1`,
+    })
+
+    // Unknown base (omitted) leaves the column alone.
+    await applySessionPrState({ prUrl: PR_URL, state: `open` })
+    expect(h.updates[2]!.set).not.toHaveProperty(`prBaseBranch`)
+  })
+
   // SLOP-3: an issue-less PR has no applyPrMergeState to retarget its
   // children, so the run row's merge flip does — once.
   it(`retargets an issue-less PR's children from the row that flipped`, async () => {

@@ -231,6 +231,7 @@ describe(`runPrPollPass`, () => {
     expect(applyPrReopenedState).toHaveBeenCalledWith({
       issueId: `i1`,
       prUrl: PR_URL,
+      baseBranch: null,
     })
     expect(applyPrMergeState).not.toHaveBeenCalled()
     expect(applyPrClosedState).not.toHaveBeenCalled()
@@ -250,6 +251,27 @@ describe(`runPrPollPass`, () => {
       expect.objectContaining({ issueId: `i1`, prUrl: PR_URL })
     )
     expect(applyPrReopenedState).not.toHaveBeenCalled()
+  })
+
+  // The close cleared the base on both rows; the reopen restores the live one
+  // so a stacked PR is guarded again.
+  it(`reopens with the live base on the issue and the session rows`, async () => {
+    mockRows = [row({ prState: `closed` })]
+    mockSessionRows = [
+      { sessionId: `s1`, prUrl: PR_URL, prNumber: 7, prState: `closed`, teamId: `t1` },
+    ]
+    vi.mocked(fetchPullState).mockResolvedValue(openOnGitHub(`exp/EXP-1`))
+    await runPrPollPass()
+    expect(applyPrReopenedState).toHaveBeenCalledWith({
+      issueId: `i1`,
+      prUrl: PR_URL,
+      baseBranch: `exp/EXP-1`,
+    })
+    expect(applySessionPrState).toHaveBeenCalledWith({
+      prUrl: PR_URL,
+      state: `open`,
+      baseBranch: `exp/EXP-1`,
+    })
   })
 
   it(`flips an open PR closed without merging`, async () => {

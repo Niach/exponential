@@ -25,6 +25,21 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-04-release-train`,
+    date: `2026-10-04`,
+    title: `Fixes on top of the one-path wave`,
+    summary: `Reporter replies reach the team, Reply to reporter switches off after each send, the GitHub connection stays signed in, phone lists span every team, and the issue title collapses into the header as you scroll.`,
+    body: `- **Reporter replies**: a widget reporter's answer reaches every team member when nobody is assigned to or following the issue, and the Reply to reporter toggle switches off after each send on web and desktop, so a follow-up note stays inside the team. A comment an agent sent to the reporter reads "to reporter · via MCP", and comments from people who left the team read "Former member" on every client.
+- **GitHub connection**: refreshing the connection no longer signs you out when two screens refresh at once, the GitHub user token stays on the server (API keys cannot read it), Continue with GitHub only works when the instance enables it, and the connect page never leaves the site after the flow.
+- **Pull requests**: an issue-less run's pull request keeps its base branch across a close and reopen, old links to the separate review page open the issue's Changes face, and opening an issue with an open pull request no longer asks GitHub for the diff on every visit.
+- **Phones**: Reviews, runs, actions and devices list every team you belong to, grouped by team; the Actions tab replaces the More menu; the issue title collapses into the header as you scroll and content slides under a blurred edge on iOS, Android, web and desktop.
+- **Runs**: a run shows a screenshot while it works, filed under its Results; queued merges report as queued; the Run face collapses to a status row when there is nothing live.
+- **Joining a team**: the invite flow offers the device setup step when you own no device yet, on web, iOS and Android.
+- **Emails**: report confirmation and resolution emails show the title as plain text, and the resolution subject no longer repeats it.
+- **Android**: reporter comments an earlier version failed to show appear after updating.
+- **Older apps**: apps from before this release keep working. App Store iOS and current Android builds do not show reporter comments until they update; older desktops' email settings save again.`,
+  },
+  {
     id: `2026-10-04-review-on-the-issue`,
     date: `2026-10-04`,
     title: `Review the pull request on the issue`,

@@ -11,12 +11,29 @@ import {
 } from "@/lib/notification-prefs"
 
 // Per-type email opt-outs: keys are notification_type values, value false =
-// opted out (absent/true = on). partialRecord: zod v4 records with enum keys
-// are exhaustive by default.
-const typePrefsSchema = z.partialRecord(
-  z.enum(notificationTypeValues),
-  z.boolean()
-)
+// opted out (absent/true = on). The stored shape stays a partial record of
+// known types only.
+// Compat shim (release train 2026-10-04): desktop <= 0.14.60 sends support_reply; retire when CLIENT_MIN_VERSION_DESKTOP/CLI > 0.14.60.
+// Those builds still list "Support reply", and a strict enum record rejected
+// that key and with it every later toggle in the pane. So: accept any key,
+// map support_reply to its successor reporter_reply (unless the payload names
+// reporter_reply itself), and drop whatever is not a known type.
+const knownNotificationTypes = new Set<string>(notificationTypeValues)
+
+type TypePrefs = Partial<Record<(typeof notificationTypeValues)[number], boolean>>
+
+const typePrefsSchema = z
+  .record(z.string(), z.boolean())
+  .transform((raw): TypePrefs => {
+    const prefs: Record<string, boolean> = {}
+    for (const [key, value] of Object.entries(raw)) {
+      if (knownNotificationTypes.has(key)) prefs[key] = value
+    }
+    if (`support_reply` in raw && !(`reporter_reply` in raw)) {
+      prefs.reporter_reply = raw.support_reply!
+    }
+    return prefs as TypePrefs
+  })
 
 // Inbox mark-read. Ownership-guarded on user_id so a caller can only touch their
 // own rows. read_at updates re-stream over the per-user notifications shape.

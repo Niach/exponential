@@ -455,6 +455,17 @@ impl IssueTimeline {
         cx.notify();
     }
 
+    /// The bottom composer after a successful send: empty, no pending picks,
+    /// and the "Reply to reporter" pill back OFF (SLOP-4: per message, like
+    /// iOS/Android, so a follow-up note stays internal).
+    fn reset_composer_after_send(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.composer
+            .update(cx, |input, cx| input.set_value("", window, cx));
+        self.pending_attachments.clear();
+        self.reply_to_reporter = false;
+        self.sync_composer_placeholder(window, cx);
+    }
+
     /// The bottom composer's placeholder follows the pill: the contract's
     /// `placeholderOn` with the reporter's name while ON, the plain one
     /// otherwise.
@@ -813,9 +824,7 @@ impl IssueTimeline {
                     Ok(reporter_emailed) => {
                         match scope {
                             PendingScope::Composer => {
-                                this.composer
-                                    .update(cx, |input, cx| input.set_value("", window, cx));
-                                this.pending_attachments.clear();
+                                this.reset_composer_after_send(window, cx);
                             }
                             PendingScope::Reply => this.reply = None,
                             PendingScope::Edit => {}
@@ -2126,6 +2135,34 @@ mod tests {
         view.read_with(cx, |view, _| {
             assert!(view.emoji_open(PendingScope::Composer));
         });
+    }
+
+    /// SLOP-4: the "Reply to reporter" pill is per message. A send turns it
+    /// back OFF, so the next comment on the issue stays internal.
+    #[gpui::test]
+    async fn a_composer_send_turns_the_reporter_pill_off(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+        });
+        let (view, cx) = cx.add_window_view(|window, cx| IssueTimeline::new(window, cx));
+        cx.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                view.set_reporter(
+                    Some(ReporterContact { name: "Ada".to_string(), has_email: true }),
+                    window,
+                    cx,
+                );
+                view.toggle_reply_to_reporter(window, cx);
+            });
+        });
+        view.read_with(cx, |view, _| assert!(view.reply_to_reporter));
+        cx.update(|window, cx| {
+            view.update(cx, |view, cx| view.reset_composer_after_send(window, cx));
+        });
+        view.read_with(cx, |view, _| assert!(!view.reply_to_reporter));
     }
 
     /// The separator must vanish with the time — `relative_time` returns `""`

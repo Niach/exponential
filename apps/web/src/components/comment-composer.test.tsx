@@ -211,4 +211,34 @@ describe(`CommentComposer reply-to-reporter toggle`, () => {
       expect(onSubmit).toHaveBeenCalledWith(`on it`, [], `reporter`)
     )
   })
+
+  it(`turns the pill off after a send so a follow-up stays internal`, async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
+    render(
+      <CommentComposer
+        issueId="issue-1"
+        users={[]}
+        onSubmit={onSubmit}
+        reporter={{ name: `Emma Fischer` }}
+      />
+    )
+    const pill = screen.getByText(`Reply to reporter`).closest(`button`)!
+    fireEvent.click(pill)
+    fireEvent.change(screen.getByRole(`textbox`), {
+      target: { value: `on it` },
+    })
+    fireEvent.click(screen.getByLabelText(`Send comment`))
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith(`on it`, [], `reporter`)
+    )
+    await waitFor(() => expect(pill.getAttribute(`aria-pressed`)).toBe(`false`))
+
+    fireEvent.change(screen.getByPlaceholderText(`Leave a reply…`), {
+      target: { value: `internal note` },
+    })
+    fireEvent.click(screen.getByLabelText(`Send comment`))
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenLastCalledWith(`internal note`, [], `team`)
+    )
+  })
 })

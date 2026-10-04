@@ -397,11 +397,36 @@ interface CachedOpenPulls {
 }
 const openPullsCache = new Map<string, CachedOpenPulls>()
 
+/** Pure: GitHub now names a DIFFERENT installation for the row's full name
+ * than the one it was connected through (the repo was transferred, or deleted
+ * and re-created under someone else's installation). The row's authorization
+ * came from the old installation, so it is not healed onto the new one: the
+ * team reconnects it. A NULL stored id (legacy rows) still heals. */
+export function installationDrifted(
+  storedInstallationId: number | null,
+  resolvedInstallationId: number
+): boolean {
+  return (
+    storedInstallationId != null &&
+    storedInstallationId !== resolvedInstallationId
+  )
+}
+
+async function markRepoInaccessible(repoId: string): Promise<void> {
+  const { db } = await import(`@/db/connection`)
+  await db
+    .update(repositories)
+    .set({ inaccessibleAt: new Date() })
+    .where(and(eq(repositories.id, repoId), isNull(repositories.inaccessibleAt)))
+}
+
 // Resolve the App installation token for a repo row. The row's existence IS
 // the team's authorization (SLOP-7: a member with push access connected it);
 // the token is repo-scoped at mint. Returns null when no token is available
-// (callers may still read public repos unauthenticated / via GITHUB_TOKEN).
-async function resolveGatedRepoToken(repo: {
+// (callers may still read public repos unauthenticated / via GITHUB_TOKEN),
+// including a drifted installation, which also flags the row.
+export async function resolveGatedRepoToken(repo: {
+  id: string
   teamId: string
   fullName: string
   installationId: number | null
@@ -410,7 +435,12 @@ async function resolveGatedRepoToken(repo: {
   const resolved = await resolveRepoInstallationTokenInfo(repo.fullName, {
     fallbackInstallationId: repo.installationId,
   })
-  return resolved?.token ?? null
+  if (!resolved) return null
+  if (installationDrifted(repo.installationId, resolved.installationId)) {
+    await markRepoInaccessible(repo.id)
+    return null
+  }
+  return resolved.token
 }
 
 // The repo row `codingSessions.mergePr` needs (EXP-734): a run's chore PR
@@ -1130,11 +1160,14 @@ export const repositoriesRouter = router({
       const resolved = await resolveRepoInstallationTokenInfo(repo.fullName, {
         fallbackInstallationId: repo.installationId,
       })
+      const drifted =
+        resolved != null &&
+        installationDrifted(repo.installationId, resolved.installationId)
       return fetchBranchDiff({
         repo: repo.fullName,
         base: repo.defaultBranch,
         branch,
-        token: resolved?.token ?? null,
+        token: drifted ? null : (resolved?.token ?? null),
       })
     }),
 
@@ -1176,11 +1209,16 @@ export const repositoriesRouter = router({
       // fallback token is VERIFIED against the repo, so a null here means the
       // App genuinely lost access (repo removed from the installation's
       // selection, or uninstalled) — stamp the row so the settings UI shows the
-      // no-access badge, and tell the caller how to fix it.
+      // no-access badge, and tell the caller how to fix it. A repo GitHub now
+      // places under a DIFFERENT installation is refused the same way
+      // (installationDrifted): the team reconnects it.
       const resolved = await resolveRepoInstallationTokenInfo(repo.fullName, {
         fallbackInstallationId: repo.installationId,
       })
-      if (!resolved) {
+      if (
+        !resolved ||
+        installationDrifted(repo.installationId, resolved.installationId)
+      ) {
         await ctx.db
           .update(repositories)
           .set({ inaccessibleAt: new Date() })
@@ -1192,16 +1230,16 @@ export const repositoriesRouter = router({
           )
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
-          message: `The GitHub App no longer has access to ${repo.fullName}. Re-grant it on GitHub (team settings → Repositories), then retry.`,
+          message: resolved
+            ? `${repo.fullName} now belongs to a different GitHub App installation. Reconnect it in team settings → Repositories, then retry.`
+            : `The GitHub App no longer has access to ${repo.fullName}. Re-grant it on GitHub (team settings → Repositories), then retry.`,
         })
       }
       const token = resolved.token
-      // The mint just proved access — heal a drifted stored installation id and
-      // clear a stale no-access flag (best-effort bookkeeping).
-      if (
-        repo.installationId !== resolved.installationId ||
-        repo.inaccessibleAt != null
-      ) {
+      // The mint just proved access — fill a legacy NULL installation id and
+      // clear a stale no-access flag (best-effort bookkeeping). A different
+      // stored id was refused above.
+      if (repo.installationId == null || repo.inaccessibleAt != null) {
         await ctx.db
           .update(repositories)
           .set({

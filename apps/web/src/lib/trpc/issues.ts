@@ -39,6 +39,7 @@ import {
   mergedByPerson,
   mergedByPersonNote,
   mergePullRequestSmart,
+  type PullFile,
   resolvePrBaseState,
   retargetPullRequest,
 } from "@/lib/integrations/github-pr"
@@ -123,6 +124,20 @@ import {
   syncDuplicateMirror,
   syncReferenceRelations,
 } from "@/lib/issue-relations"
+import { TtlPromiseCache } from "@/lib/ttl-promise-cache"
+
+// EXP-1154: every md+ issue view with an open PR asks `prFiles`, so a warm
+// answer must not first resolve an installation token (an uncached App-JWT
+// round-trip). Keyed by PR, same 60s as `fetchPullFiles`' own cache, which
+// still holds the per-auth-posture answers underneath. Rejections evict.
+const prFilesAnswerCache = new TtlPromiseCache<PullFile[]>({
+  ttlMs: 60_000,
+  maxEntries: 200,
+})
+
+export function _clearPrFilesAnswerCache() {
+  prFilesAnswerCache.clear()
+}
 
 // Extract `owner/repo` from a GitHub PR URL
 // (https://github.com/owner/repo/pull/123). Returns null if it doesn't match.
@@ -2418,12 +2433,18 @@ export const issuesRouter = router({
       // Link-gate (mirrors repositories.installationToken): the installation
       // serving this repo must still be claimed by the issue's team — a
       // deliberately severed GitHub connection must not keep exposing
-      // private-repo PR contents through an old prUrl.
-      const resolved = await resolveRepoInstallationTokenInfo(repo)
-
+      // private-repo PR contents through an old prUrl. The token is resolved
+      // only on a miss of the per-PR answer cache.
+      const prNumber = row.prNumber
       try {
-        const files = await fetchPullFiles(repo, row.prNumber, resolved?.token)
-        return { repo, prNumber: row.prNumber, files }
+        const files = await prFilesAnswerCache.get(
+          `${repo}#${prNumber}`,
+          async () => {
+            const resolved = await resolveRepoInstallationTokenInfo(repo)
+            return fetchPullFiles(repo, prNumber, resolved?.token)
+          }
+        )
+        return { repo, prNumber, files }
       } catch (err) {
         throw new TRPCError({
           code: `BAD_GATEWAY`,

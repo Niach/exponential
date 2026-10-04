@@ -123,6 +123,10 @@
       "reason": "SLOP-3: Workflows are gone; old links and native deep links redirect to /t/$teamSlug/agent."
     },
     {
+      "route": "/t/$teamSlug/reviews/$issueIdentifier",
+      "reason": "EXP-1154: the review page is the issue's Changes face; old links redirect to boards/$boardSlug/issues/$issueIdentifier?view=diff."
+    },
+    {
       "route": "/admin",
       "reason": "Global admin console. Operator surface, not a product view; gated by INITIAL_ADMIN_EMAILS."
     },

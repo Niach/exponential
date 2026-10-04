@@ -49,6 +49,9 @@ export async function publishSessionResultPicture(
   let displacedStorageKey: string | null = null
   let results: CodingSessionResult[] = []
   let label = input.label ?? ``
+  // A twin upload of the same show line shares this object's key: its
+  // failure must not delete what the winner's row points at.
+  let keyOwnedByAnotherRow = false
 
   try {
     await db.transaction(async (tx) => {
@@ -94,9 +97,18 @@ export async function publishSessionResultPicture(
       results = upsert.results
       displacedAttachmentId = upsert.displacedAttachmentId
 
-      await tx
+      const inserted = await tx
         .insert(sessionAttachments)
         .values(sessionAttachmentValues(prepared, scope, input.uploaderId))
+        .onConflictDoNothing({ target: sessionAttachments.id })
+        .returning({ id: sessionAttachments.id })
+      if (inserted.length === 0) {
+        keyOwnedByAnotherRow = true
+        throw new TRPCError({
+          code: `CONFLICT`,
+          message: `This picture was already uploaded. Call exponential_sessions_show again for another one.`,
+        })
+      }
 
       if (upsert.displacedAttachmentId) {
         const [gone] = await tx
@@ -112,8 +124,9 @@ export async function publishSessionResultPicture(
         .where(eq(codingSessions.id, input.sessionId))
     })
   } catch (error) {
-    // The row never landed, so the object it points at is garbage.
-    await rollbackSessionImage(prepared.storageKey)
+    // The row never landed, so the object it points at is garbage, unless
+    // a concurrent twin's row already owns that key.
+    if (!keyOwnedByAnotherRow) await rollbackSessionImage(prepared.storageKey)
     throw error
   }
 

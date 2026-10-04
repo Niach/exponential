@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { betterAuth } from "better-auth"
 import { memoryAdapter } from "better-auth/adapters/memory"
 import { emailOTP } from "better-auth/plugins"
@@ -26,7 +26,9 @@ vi.mock(`@/db/connection`, () => ({
 import { createFakeDb } from "@/lib/mcp-oauth/test-db"
 
 import {
+  DISABLED_AUTH_PATHS,
   PLACEHOLDER_EMAIL_CHANGE_MESSAGE,
+  PROVIDER_LOGIN_DISABLED_CODE,
   signInMethodsGuardPlugin,
 } from "./sign-in-methods"
 import { API_KEY_IDENTITY_CODE } from "./api-key-kind"
@@ -48,8 +50,15 @@ function makeAuth() {
     database: memoryAdapter(db),
     rateLimit: { enabled: false },
     logger: { disabled: true },
+    // As production configures it (lib/auth/index.ts).
+    disabledPaths: DISABLED_AUTH_PATHS,
     emailAndPassword: { enabled: true },
-    account: { accountLinking: { allowUnlinkingAll: true } },
+    socialProviders: {
+      github: { clientId: `gh-client`, clientSecret: `gh-secret` },
+    },
+    account: {
+      accountLinking: { allowUnlinkingAll: true, trustedProviders: [`github`] },
+    },
     plugins: [
       emailOTP({
         otpLength: 6,
@@ -240,5 +249,77 @@ describe(`signInMethodsGuardPlugin — a placeholder's address cannot be adopted
       { cookie }
     )
     expect(result.status).toBe(200)
+  })
+})
+
+describe(`token endpoints are server-only (SLOP-7 review)`, () => {
+  it(`get-access-token and refresh-token 404 over HTTP, even on a key`, async () => {
+    const { cookie, key } = await signedUp(harness)
+    for (const path of [`/get-access-token`, `/refresh-token`]) {
+      for (const headers of [{ "x-api-key": key }, { cookie }] as Array<
+        Record<string, string>
+      >) {
+        const res = await post(harness, path, { providerId: `github` }, headers)
+        expect([path, res.status]).toEqual([path, 404])
+      }
+    }
+  })
+
+  it(`the server-side call still works`, async () => {
+    const { userId } = await signedUp(harness)
+    // No github row for this user: the endpoint itself answers, not a 404.
+    await expect(
+      harness.auth.api.getAccessToken({ body: { providerId: `github`, userId } })
+    ).rejects.toMatchObject({ body: { code: `ACCOUNT_NOT_FOUND` } })
+  })
+})
+
+describe(`GitHub sign-in follows GITHUB_LOGIN_ENABLED (SLOP-7 review)`, () => {
+  const configured = {
+    GITHUB_APP_ID: `1`,
+    GITHUB_APP_PRIVATE_KEY: `pem`,
+    GITHUB_APP_SLUG: `exp`,
+    GITHUB_APP_CLIENT_ID: `gh-client`,
+    GITHUB_APP_CLIENT_SECRET: `gh-secret`,
+  }
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it(`refuses /sign-in/social for github while login is off`, async () => {
+    for (const [name, value] of Object.entries(configured)) vi.stubEnv(name, value)
+    vi.stubEnv(`GITHUB_LOGIN_ENABLED`, `false`)
+    const res = await post(harness, `/sign-in/social`, {
+      provider: `github`,
+      callbackURL: `/`,
+    })
+    expect(res.status).toBe(403)
+    expect(res.json.code).toBe(PROVIDER_LOGIN_DISABLED_CODE)
+  })
+
+  it(`allows it once login is on`, async () => {
+    for (const [name, value] of Object.entries(configured)) vi.stubEnv(name, value)
+    vi.stubEnv(`GITHUB_LOGIN_ENABLED`, `true`)
+    const res = await post(harness, `/sign-in/social`, {
+      provider: `github`,
+      callbackURL: `/`,
+    })
+    expect(res.status).toBe(200)
+    expect(String(res.json.url)).toContain(`https://github.com/login/oauth/authorize`)
+  })
+
+  it(`linking stays open while login is off`, async () => {
+    for (const [name, value] of Object.entries(configured)) vi.stubEnv(name, value)
+    vi.stubEnv(`GITHUB_LOGIN_ENABLED`, `false`)
+    const { cookie } = await signedUp(harness)
+    const res = await post(
+      harness,
+      `/link-social`,
+      { provider: `github`, callbackURL: `/` },
+      { cookie }
+    )
+    expect(res.status).toBe(200)
+    expect(String(res.json.url)).toContain(`https://github.com/login/oauth/authorize`)
   })
 })

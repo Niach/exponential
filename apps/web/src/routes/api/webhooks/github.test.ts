@@ -323,12 +323,14 @@ describe(`github webhook — batch PR fan-out (multi-issue pr_url resolution)`, 
     await postHandler({
       request: webhookRequest(
         `pull_request`,
-        pullRequestPayload({ action: `reopened` })
+        pullRequestPayload({ action: `reopened`, base: `exp/EXP-1` })
       ),
     })
+    // The close cleared the run row's base too; the reopen restores it.
     expect(prSyncMock.applySessionPrState).toHaveBeenCalledWith({
       prUrl: HTML_URL,
       state: `open`,
+      baseBranch: `exp/EXP-1`,
     })
   })
 

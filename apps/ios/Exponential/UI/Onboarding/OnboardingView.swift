@@ -375,11 +375,23 @@ struct OnboardingView: View {
     /// machine sees the join step first, and the local flip waits for its
     /// advance (it swaps this view out).
     private func enterJoinedTeam() async {
-        let owns = await DeviceQueries.ownsDevice(
+        var owns = await DeviceQueries.ownsDevice(
             db: deps.db,
             accountId: deps.auth.activeAccountId ?? "",
             userId: deps.auth.userId
         )
+        // A fresh install may not have its devices rows yet: give the
+        // shape up to 2s before offering the join step (web waits 4s).
+        var waited = 0
+        while !owns && waited < 8 {
+            try? await Task.sleep(for: .milliseconds(250))
+            waited += 1
+            owns = await DeviceQueries.ownsDevice(
+                db: deps.db,
+                accountId: deps.auth.activeAccountId ?? "",
+                userId: deps.auth.userId
+            )
+        }
         if owns {
             deps.auth.markOnboardingCompleted(ISO8601DateFormatter().string(from: Date()))
         } else {

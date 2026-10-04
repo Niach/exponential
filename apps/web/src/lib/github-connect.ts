@@ -62,9 +62,37 @@ export function openGithubConnect(opts: {
   )
 }
 
-/** A path on this origin: starts with ONE slash (`//host` would leave). */
-export function isSameOriginPath(value: unknown): value is string {
-  return typeof value === `string` && /^\/(?!\/)/.test(value) && !value.includes(`\n`)
+/** A path on this origin: starts with ONE slash (`//host` would leave), no
+ * backslash or control character (browsers read `/\host` and `/<TAB>/host`
+ * as `//host`), and it still resolves to this origin. `origin` defaults to
+ * the page's own; tests pass one. */
+export function isSameOriginPath(
+  value: unknown,
+  origin: string = typeof window === `undefined`
+    ? `http://same-origin.invalid`
+    : window.location.origin
+): value is string {
+  if (typeof value !== `string` || !/^\/(?!\/)/.test(value)) return false
+  if (/[\\\u0000-\u001f\u007f]/.test(value)) return false
+  try {
+    return new URL(value, origin).origin === new URL(origin).origin
+  } catch {
+    return false
+  }
+}
+
+/** Pure: a signed-out native arrival (`?return=app`) that has not been
+ * through GitHub's install redirect (no `installation_id`). Compat shim for
+ * natives that open the connect URL in a session-less browser
+ * (routes/integrations/github.tsx); retired with it. */
+export function isSignedOutConnectStart(
+  returnTo: string | undefined,
+  locationSearch: string
+): boolean {
+  return (
+    returnTo === `app` &&
+    !new URLSearchParams(locationSearch).has(`installation_id`)
+  )
 }
 
 // The message callers show when openGithubPopup returns false with a URL at

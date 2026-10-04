@@ -849,6 +849,9 @@ export async function applySessionPrState(opts: {
   prUrl: string
   state: `open` | `closed` | `merged`
   endSessions?: boolean
+  // A reopen restores the live base (cleared on close), like the issue
+  // path's `applyPrReopenedState`, so the merge guard sees a stack again.
+  baseBranch?: string | null
 }): Promise<{ endedSessionIds: string[] }> {
   if (!opts.prUrl) return { endedSessionIds: [] }
   let retargetHead: string | null = null
@@ -867,7 +870,11 @@ export async function applySessionPrState(opts: {
         prState: opts.state,
         // Like the issue column: a landed or closed PR targets nothing, and
         // a stale edge would read as "stacked" to the merge guard.
-        ...(opts.state === `open` ? {} : { prBaseBranch: null }),
+        ...(opts.state !== `open`
+          ? { prBaseBranch: null }
+          : opts.baseBranch !== undefined
+            ? { prBaseBranch: opts.baseBranch }
+            : {}),
         updatedAt: new Date(),
       })
       .where(

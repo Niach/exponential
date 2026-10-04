@@ -1,5 +1,8 @@
-- Runs: workflowy zniknęły, uruchomienie samo planuje i dzieli swoją pracę oraz samo startuje kolejne uruchomienia
-- Zablokowane issues: przy starcie pojawia się wybór Cancel, Start anyway lub Stacked PR, który buduje cały ciąg pull requestów od dołu do góry
-- Scalanie: Merge na pull requeście ze stosu pyta o Merge stack lub Merge this pull request
-- Ekran pracy: selektory, arkusz użycia i arkusz plików otwierają się przy pierwszym dotknięciu
-- Karta Run: zapis przewija się pod polem pisania, więc jego ostatnie linie są zawsze dostępne
+- GitHub: jedna strona z przewodnikiem łączy konto GitHub, instaluje aplikację i pokazuje repozytoria, do których możesz pushować
+- Feedback: zgłoszenie z widgetu to issue, odpowiadasz zgłaszającemu z pola komentarza, a jego odpowiedzi wracają jako komentarze
+- Nowe issue: tworzenie otwiera pełną stronę ze wszystkimi właściwościami, zapisywaną jako szkic podczas pisania
+- Nawigacja: karty Inbox, Devices, Reviews, Agent i Actions; Reviews, uruchomienia, akcje i urządzenia pokazują wszystkie twoje zespoły
+- Pull requesty: diff to widok Changes issue, Results czyta się jak numerowany przewodnik, Merge jest na dolnym pasku
+- Runs: znak agenta kręci się, gdy pracuje, bursztynowy czeka na ciebie, zielony ma otwarty pull request, niebieski jest gotowy
+- Ekran issue: tytuł zwija się do nagłówka podczas przewijania, a treść wsuwa się pod rozmytą krawędź
+- Dołączanie do zespołu: zaproszenie proponuje krok konfiguracji urządzenia, gdy nie masz jeszcze żadnego

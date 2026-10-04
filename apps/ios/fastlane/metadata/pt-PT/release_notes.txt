@@ -1,5 +1,8 @@
-- Runs: os fluxos de trabalho desapareceram, uma execução planeia e divide o seu próprio trabalho e inicia sozinha as execuções seguintes
-- Issues bloqueados: ao iniciar um, surge Cancel, Start anyway ou Stacked PR, que constrói toda a cadeia de pull requests de baixo para cima
-- Integração: Merge num pull request empilhado pergunta Merge stack ou Merge this pull request
-- Ecrã de trabalho: os seletores, a folha de utilização e a folha de ficheiros abrem ao primeiro toque
-- Separador Run: a transcrição desliza por baixo da caixa de escrita, por isso as últimas linhas continuam acessíveis
+- GitHub: uma página guiada liga a sua conta GitHub, instala a app e lista os repositórios onde pode fazer push
+- Feedback: um envio do widget é um issue, responda a quem reportou a partir da caixa de comentários e as respostas regressam como comentários
+- Novo issue: criar um issue abre uma página completa com todas as propriedades, guardada como rascunho enquanto escreve
+- Navegação: separadores Inbox, Devices, Reviews, Agent e Actions; Reviews, execuções, ações e dispositivos mostram todas as suas equipas
+- Pull requests: o diff é a vista Changes do issue, Results lê-se como um guia numerado, Merge está na barra inferior
+- Runs: a marca do agente gira enquanto trabalha, âmbar espera por si, verde tem um pull request aberto, azul está concluído
+- Ecrã do issue: o título recolhe-se no cabeçalho ao deslizar e o conteúdo passa sob uma margem desfocada
+- Entrar numa equipa: o convite oferece o passo de configuração do dispositivo quando ainda não tem nenhum

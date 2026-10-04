@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/reporter-text.json"
 import { extractIssueRefs } from "@/lib/issue-refs"
 import { extractMentionEmails } from "@/lib/mention-refs"
-import { escapeReporterText, titleFromReporterMessage } from "./reporter-text"
+import {
+  escapeReporterText,
+  titleFromReporterMessage,
+  unescapeReporterText,
+} from "./reporter-text"
 
 describe(`escapeReporterText (SLOP-4, fixture-locked)`, () => {
   for (const c of fixture.cases) {
@@ -35,4 +39,25 @@ describe(`titleFromReporterMessage`, () => {
       expect(titleFromReporterMessage(c.input)).toBe(c.output)
     })
   }
+})
+
+describe(`unescapeReporterText`, () => {
+  it(`undoes the escape for unindented lines`, () => {
+    const inputs = [
+      `Checkout on example.com fails`,
+      `a *b* _c_ [d](e) <f> #EXP-1 @ada@x.test ~g~ | h & i \\ j`,
+      `- item`,
+      `1. first`,
+      `= heading`,
+    ]
+    for (const input of inputs) {
+      expect(unescapeReporterText(escapeReporterText(input))).toBe(input)
+    }
+  })
+
+  it(`leaves plain text alone`, () => {
+    expect(unescapeReporterText(`Login button unresponsive`)).toBe(
+      `Login button unresponsive`
+    )
+  })
 })

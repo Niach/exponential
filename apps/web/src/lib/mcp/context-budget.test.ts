@@ -349,7 +349,7 @@ it(`keeps the run playbook in budget and naming only registered tools`, () => {
     // EXP-933: when to notify, and the close-out report's tool.
     `exponential_notifications_send`,
     `exponential_sessions_results`,
-    // EXP-1172: a screenshot after each visible change, while it works.
+    // EXP-1172: a screenshot when a picture helps, while it works.
     `exponential_sessions_show`,
   ]) {
     expect(mentioned.has(name), `playbook never names ${name}`).toBe(true)

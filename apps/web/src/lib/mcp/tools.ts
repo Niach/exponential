@@ -749,6 +749,8 @@ export function registerExponentialTools(
     status: string
     needsInput: boolean
     mergedOwnPr: boolean
+    // schedule | event | agent = an UNATTENDED run; null = person-started.
+    startedReason: string | null
   } | null> {
     if (!sessionId) return null
     const [row] = await db
@@ -762,6 +764,7 @@ export function registerExponentialTools(
         status: codingSessions.status,
         needsInput: codingSessions.needsInput,
         mergedOwnPr: codingSessions.mergedOwnPr,
+        startedReason: codingSessions.startedReason,
         userId: codingSessions.userId,
         hostUserId: codingSessions.hostUserId,
       })
@@ -780,6 +783,7 @@ export function registerExponentialTools(
       status: row.status,
       needsInput: Boolean(row.needsInput),
       mergedOwnPr: Boolean(row.mergedOwnPr),
+      startedReason: row.startedReason ?? null,
     }
   }
 
@@ -2033,6 +2037,22 @@ export function registerExponentialTools(
     },
     async ({ issueId: issueIdInput, body, attachmentIds, parentId, audience }) => {
       try {
+        // SLOP-4: a reporter reply EMAILS an outside address with text the
+        // reporter chose, so it needs a person behind it: never a
+        // board-confined OAuth grant, never an unattended run.
+        if (audience === `reporter`) {
+          if (!access.full) {
+            throw new Error(
+              `audience "reporter" needs a full-access key: this OAuth grant is confined to chosen boards. Post a team comment instead.`
+            )
+          }
+          const run = await loadCallerSession()
+          if (run?.startedReason) {
+            throw new Error(
+              `audience "reporter" is refused in an unattended run: a person must send replies to a reporter. Post a team comment instead.`
+            )
+          }
+        }
         const issueId = await resolveIssueId(issueIdInput, user.id, access)
         if (!access.full) {
           const ctxIssue = await getIssueTeamContext(issueId)
@@ -3781,7 +3801,7 @@ export function registerExponentialTools(
     server.registerTool(
       `exponential_sessions_show`,
       {
-        description: `Show a screenshot in your run's transcript now (after each visible change): file = a local image path, answers a curl line to run; or dataBase64 + contentType. text = caption. Also filed under Results (topic default 'Progress', folded under Earlier).`,
+        description: `Show a screenshot in your run's transcript now (when a picture helps): file = a local image path, answers a curl line to run; or dataBase64 + contentType. text = caption. Also filed under Results (topic default 'Progress', folded under Earlier).`,
         _meta: ALWAYS_LOAD_META,
         inputSchema: strictInput({
           file: z.string().trim().min(1).max(1024).optional(),

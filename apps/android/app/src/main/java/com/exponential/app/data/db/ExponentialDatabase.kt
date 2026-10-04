@@ -375,8 +375,9 @@ import androidx.room.TypeConverters
     //      (a reporter's comment has no users row) and comments gains
     //      `audience` (team | reporter, NOT NULL, existing rows = team);
     //      the EXP-180 team support switch drops (the Support tab is gone). Explicit
-    //      [MIGRATION_79_80]: both tables are rebuilt in place, every row
-    //      and every shape offset survives, no resync.
+    //      [MIGRATION_79_80]: both tables are rebuilt in place and every row
+    //      survives; the comments shape is refetched (its offset resets), because
+    //      an older build dropped the reporter rows with a NULL author_id.
     // Older versions still fall back to destructive + resync (DatabaseHolder).
     version = 80,
     exportSchema = false,

@@ -1,9 +1,10 @@
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { issues, teams, widgetSubmissions } from "@/db/schema"
+import { boards, issues, teams, widgetSubmissions } from "@/db/schema"
 import type { Issue, WidgetSubmission } from "@/db/schema"
 import { verifyReporterToken } from "@/lib/reporter/token"
 import { appBaseUrl } from "@/lib/notification-email-policy"
+import { boardVisible } from "@/lib/board-visibility"
 import { TokenBucketLimiter, envInt } from "@/lib/widget/rate-limit"
 
 // SLOP-4: shared bits of the reporter conversation — the anonymous
@@ -32,7 +33,8 @@ export interface ResolvedReporterIssue {
 // Resolve a magic-link token to its issue: verify the HMAC by recompute
 // (rejecting garbage before any DB work), then load the issue it names. Only
 // a widget-filed issue (one with a submission row) resolves — a token forged
-// for a member-created issue answers 404 like any other. Returns null for
+// for a member-created issue answers 404 like any other, and so does one on
+// a trashed or archived board (no read, reply or reopen). Returns null for
 // anything that doesn't resolve — callers answer 404 without distinguishing
 // why.
 export async function findIssueByReporterToken(
@@ -48,8 +50,9 @@ export async function findIssueByReporterToken(
     })
     .from(widgetSubmissions)
     .innerJoin(issues, eq(issues.id, widgetSubmissions.issueId))
+    .innerJoin(boards, eq(boards.id, issues.boardId))
     .leftJoin(teams, eq(teams.id, issues.teamId))
-    .where(eq(widgetSubmissions.issueId, issueId))
+    .where(and(eq(widgetSubmissions.issueId, issueId), boardVisible()))
     .limit(1)
   if (!row) return null
   return { issue: row.issue, submission: row.submission, teamName: row.teamName }

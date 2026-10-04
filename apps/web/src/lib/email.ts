@@ -32,6 +32,7 @@ import { eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { emailBounces, emailDeliveries } from "@/db/schema"
 import { suppressesEmail } from "@/lib/email-bounces"
+import { unescapeReporterText } from "@/lib/reporter-text"
 
 export type EmailProvider = `ses` | `smtp`
 
@@ -573,7 +574,8 @@ export async function sendReporterConfirmationEmail(args: {
   conversationUrl: string
 }): Promise<EmailSendResult> {
   const subject = `${args.teamName}: we got your report`
-  const intro = `Thanks for your report "${args.issueTitle}". We'll get back to you as soon as we can. Follow the conversation and reply from the link below.`
+  // The title is the escaped GFM the issue stores; mail wants the plain words.
+  const intro = `Thanks for your report "${unescapeReporterText(args.issueTitle)}". We'll get back to you as soon as we can. Follow the conversation and reply from the link below.`
   return await sendEmail({
     to: args.to,
     subject,
@@ -606,10 +608,12 @@ export async function sendReporterResolutionEmail(args: {
   issueTitle: string
 }): Promise<EmailSendResult> {
   const heading = `Your report has been resolved`
-  const body = `Your report "${args.issueTitle}" has been resolved. Thanks for the feedback!`
+  // The title (reporter-written, stored as escaped GFM) stays in the body
+  // only: a fixed subject keeps the most visible line out of their hands.
+  const body = `Your report "${unescapeReporterText(args.issueTitle)}" has been resolved. Thanks for the feedback!`
   return await sendEmail({
     to: args.to,
-    subject: `Your report "${args.issueTitle}" has been resolved`,
+    subject: heading,
     html: `<!doctype html>
 <html>
   <body style="margin:0;padding:32px 16px;background:#fafafa;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#18181b;">

@@ -172,7 +172,8 @@ function CommentCardContent({
 }
 
 /** SLOP-4: a reporter comment (no users row) draws the initials fallback of
- *  the reporter's name; the id only seeds the fallback colour. */
+ *  the reporter's name, its colour keyed on that name so every comment from
+ *  one reporter matches (as on iOS and desktop). */
 function CommentAvatar({
   author,
   comment,
@@ -186,13 +187,14 @@ function CommentAvatar({
   size: UserAvatarSize
   className?: string
 }) {
+  const name = authorLabel(comment, author, reporterName)
   return (
     <UserAvatar
       size={size}
       className={cn(`shrink-0`, className)}
       user={{
-        id: comment.authorId ?? `comment:${comment.id}`,
-        name: authorLabel(comment, author, reporterName),
+        id: comment.authorId ?? `reporter:${name}`,
+        name,
         image: author?.image,
       }}
     />

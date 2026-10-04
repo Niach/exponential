@@ -415,25 +415,21 @@ enum EntityRefResolver {
                 open: .issue(issue.id)
             ))
         }
-        // SLOP-4: a reporter's reply has no member author — it reads as the
-        // anonymous reporter here (the issue card names the submission's
-        // reporter); a member's reporter-audience comment says so.
-        let eyebrow: String = comment.isFromReporter
-            ? "Comment · \(ReporterReply.reporterCaption)"
-            : comment.isToReporter
-                ? "Comment · \(ReporterReply.toReporterCaption)"
-                : comment.isViaMcp ? "Comment · via MCP" : "Comment"
+        // SLOP-4: the same caption and name the comment card carries. A
+        // reporter's reply reads as the anonymous reporter here (the issue
+        // card names the submission's reporter).
+        let caption = ReporterReply.caption(source: comment.source, audience: comment.audience)
+        let eyebrow = caption.map { "Comment · \($0)" } ?? "Comment"
         let title: String
         let icon: EntityPreviewModel.Icon
-        if comment.isFromReporter {
-            title = ReporterReply.anonymousName
+        if let override = ReporterReply.authorNameOverride(
+            source: comment.source, authorSynced: author != nil, reporterName: nil
+        ) {
+            title = override
             icon = .initials(title)
-        } else if let authorId = comment.authorId {
-            title = memberDisplayName(author, id: authorId)
-            icon = .user(author, id: authorId)
         } else {
-            title = ReporterReply.formerMemberName
-            icon = .initials(title)
+            title = memberDisplayName(author, id: comment.authorId)
+            icon = .user(author, id: comment.authorId)
         }
         return EntityPreviewModel(
             icon: icon,
