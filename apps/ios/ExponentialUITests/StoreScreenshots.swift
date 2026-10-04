@@ -167,7 +167,8 @@ final class StoreScreenshots: XCTestCase {
         goBack(app)
 
         // ── 05: PR review (real diff + merge bar) ───────────────────────────
-        // The Reviews tab rows open the Changes page directly. The file list
+        // EXP-1154: a Reviews row opens the issue's Work screen on its
+        // Changes face (the diff over `[files][Merge PR]`). The file list
         // comes from GitHub via issues.prFiles — the seed points APP-14 at a
         // real public PR so there is an actual diff to show.
         let reviewsTab = app.buttons["tab-reviews"]

@@ -85,7 +85,32 @@ data class SessionResultGroup(
      * (publish order); empty when the topic has a single picture.
      */
     val earlier: List<SessionResultEntry> = emptyList(),
+    /**
+     * EXP-1154: the repo paths the topic's report touched, off the SAME entry
+     * its [text] came from (trimmed, deduped first-seen, capped at
+     * [SESSION_RESULT_FILES_MAX]); empty without.
+     */
+    val files: List<String> = emptyList(),
 )
+
+/** EXP-1154: the most paths one topic lists (fixture `files.maxFiles`). */
+const val SESSION_RESULT_FILES_MAX = 40
+
+/**
+ * EXP-1154: a text entry's `files`: strings only, trimmed, blanks and
+ * duplicates dropped (first position kept), capped; a non-array is none.
+ */
+private fun JsonObject.resultFiles(): List<String> {
+    val array = this["files"] as? JsonArray ?: return emptyList()
+    val out = mutableListOf<String>()
+    for (item in array) {
+        val path = (item as? JsonPrimitive)?.takeIf { it.isString }?.content?.trim()
+        if (path.isNullOrEmpty() || path in out) continue
+        out += path
+        if (out.size >= SESSION_RESULT_FILES_MAX) break
+    }
+    return out
+}
 
 /**
  * EXP-1172: a topic with more than one picture moves its inline ones into
@@ -166,6 +191,7 @@ fun parseSessionResultGroups(raw: String?): List<SessionResultGroup> {
     val order = mutableListOf<String>()
     val entries = linkedMapOf<String, MutableList<SessionResultEntry>>()
     val texts = mutableMapOf<String, String>()
+    val files = mutableMapOf<String, List<String>>()
     fun open(topic: String): MutableList<SessionResultEntry> =
         entries.getOrPut(topic) {
             order += topic
@@ -183,10 +209,72 @@ fun parseSessionResultGroups(raw: String?): List<SessionResultGroup> {
         val topic = row.text("topic") ?: continue
         val body = row.text("text") ?: continue
         open(topic)
-        if (topic !in texts) texts[topic] = body
+        if (topic !in texts) {
+            texts[topic] = body
+            files[topic] = row.resultFiles()
+        }
     }
-    return order.map { topic -> SessionResultGroup(topic, entries.getValue(topic).toList(), texts[topic]).foldInline() }
+    return order.map { topic ->
+        SessionResultGroup(
+            topic = topic,
+            entries = entries.getValue(topic).toList(),
+            text = texts[topic],
+            files = files[topic].orEmpty(),
+        ).foldInline()
+    }
 }
+
+// EXP-1154: the Results face as the GUIDE (Linear's shape): the `Summary`
+// topic leads as a plain paragraph, every other topic is a numbered section
+// (`01 / 04`) with its text, the files it touched and its pictures. Fixture
+// `session-results.json` `guide` (x4, web `session-results.ts`).
+
+/** The topic that leads the Guide unnumbered. */
+const val SESSION_RESULTS_SUMMARY_TOPIC = "Summary"
+
+/** True for the Summary topic: trimmed, case-insensitive. */
+fun isSummaryTopic(topic: String): Boolean =
+    topic.trim().equals(SESSION_RESULTS_SUMMARY_TOPIC, ignoreCase = true)
+
+/** One numbered Guide section: [index] is 1-based, the lead never counts. */
+data class GuideSection<G>(val group: G, val index: Int, val total: Int)
+
+/** The lead (the FIRST Summary group wherever it sits) and the numbered rest. */
+data class SessionResultsGuide<G>(val lead: G?, val sections: List<GuideSection<G>>)
+
+/** Splits [groups] into the Guide's lead and its numbered sections, in order. */
+fun <G> sessionResultsGuide(groups: List<G>, topic: (G) -> String): SessionResultsGuide<G> {
+    val leadIndex = groups.indexOfFirst { isSummaryTopic(topic(it)) }
+    val rest = groups.filterIndexed { index, _ -> index != leadIndex }
+    return SessionResultsGuide(
+        lead = groups.getOrNull(leadIndex),
+        sections = rest.mapIndexed { index, group -> GuideSection(group, index + 1, rest.size) },
+    )
+}
+
+/** The Results groups as the Guide. */
+fun sessionResultsGuide(groups: List<SessionResultGroup>): SessionResultsGuide<SessionResultGroup> =
+    sessionResultsGuide(groups) { it.topic }
+
+/** `01 / 04`: both numbers two-digit zero-padded. */
+fun guideSectionCaption(index: Int, total: Int): String =
+    "${index.toString().padStart(2, '0')} / ${total.toString().padStart(2, '0')}"
+
+/** One file row of a Guide section; [counts] null for a path the diff does not list. */
+data class GuideFileRow(val path: String, val counts: GuideFileCounts?)
+
+/** A matched file's `+N −M`. */
+data class GuideFileCounts(val additions: Int, val deletions: Int)
+
+/**
+ * One row per path in order; `+N −M` from the diff file whose path matches
+ * EXACTLY, else null (an unknown path, or no diff loaded).
+ */
+fun guideFileRows(paths: List<String>, files: List<Diff.File>?): List<GuideFileRow> =
+    paths.map { path ->
+        val file = files?.firstOrNull { it.path == path }
+        GuideFileRow(path, file?.let { GuideFileCounts(it.additions, it.deletions) })
+    }
 
 /** True when the blob has anything for the Results face to show. */
 fun hasSessionResults(raw: String?): Boolean = parseSessionResultGroups(raw).isNotEmpty()

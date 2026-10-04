@@ -141,13 +141,11 @@ fn card_vertical_gaps(client_chrome: bool, bar_visible: bool, bottom_resize_inse
 /// EXP-851: who owns the window's leftmost column. FOUR occupants — the
 /// rail (the default), the settings nav (Settings replaces the rail
 /// outright, EXP-456), the `ListNav` (the list an open detail was picked
-/// from, EXP-851) and (EXP-916) the review's file tree
-/// ([`crate::review_files_nav`]): a review's context is the files its pull
-/// request touches, so THAT sits beside it instead of the Reviews queue.
-///
-/// EXP-945: a RUN on its Changes face takes the same occupant. Its files are
-/// the same kind of context, so they go in the same slot and through the same
-/// panel — only the back row differs.
+/// from, EXP-851) and (EXP-945) a RUN's file tree on its Changes face
+/// ([`crate::review_files_nav`]): its files are its context, so THAT sits
+/// beside it instead of the list it was opened from. (EXP-1154: the review
+/// screen that first took this slot is gone — a PR's review is the issue
+/// tab's Changes face, beside the Reviews list.)
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum LeftOccupant {
     Rail,
@@ -161,8 +159,8 @@ pub(crate) enum LeftOccupant {
     RecentRuns,
 }
 
-/// EXP-851: the pure occupant rule — Settings wins, then (EXP-916) the
-/// review screen's file tree, then (EXP-945) a run sitting on its Changes
+/// EXP-851: the pure occupant rule — Settings wins, then (EXP-945) a run
+/// sitting on its Changes
 /// face, then (EXP-923) the Agent page's history panel, then a list origin,
 /// else the rail. `origin` is the list the ACTIVE
 /// screen carries ([`list_nav_origin`]); `run_diff` = the active screen is a
@@ -176,9 +174,6 @@ pub(crate) fn left_occupant_for(
 ) -> LeftOccupant {
     if matches!(screen, Some(Screen::Settings)) {
         return LeftOccupant::Settings;
-    }
-    if matches!(screen, Some(Screen::PrDiff { .. })) {
-        return LeftOccupant::ReviewFiles;
     }
     if run_diff && matches!(screen, Some(Screen::Session { .. })) {
         return LeftOccupant::ReviewFiles;
@@ -419,7 +414,7 @@ pub struct Shell {
     /// EXP-851: the `ListNav` — the third occupant of that same slot, the
     /// simplified list an open detail was picked from.
     list_nav: Entity<crate::sidebar::ListPanel>,
-    /// EXP-916: the fourth — the review screen's file tree.
+    /// EXP-916/EXP-945: the fourth — a run's Changes file tree.
     review_files: Entity<crate::review_files_nav::ReviewFilesNav>,
     /// EXP-923: the Agent page's Recent-runs panel, built once per window.
     recent_runs: Entity<crate::sessions_section::RecentRunsNav>,
@@ -1962,18 +1957,13 @@ mod tests {
             left_occupant_for(Some(&issue), None, false, false),
             LeftOccupant::Rail
         );
-        // EXP-916: a review's context is its file tree — with or without the
-        // Reviews list it was opened from.
-        let review = Screen::PrDiff {
-            issue_id: "i1".into(),
-        };
+        // EXP-1154: the review of a PR is the issue tab's Changes face — the
+        // issue keeps the Reviews list it was opened from (its pane paints
+        // its own file tree), never the files occupant.
+        let reviews = crate::navigation::Screen::Reviews.list_origin().unwrap();
         assert_eq!(
-            left_occupant_for(Some(&review), Some(&board), false, false),
-            LeftOccupant::ReviewFiles
-        );
-        assert_eq!(
-            left_occupant_for(Some(&review), None, false, false),
-            LeftOccupant::ReviewFiles
+            left_occupant_for(Some(&issue), Some(&reviews), false, false),
+            LeftOccupant::ListNav
         );
         // EXP-945: a run on its CHANGES face takes the same occupant — its
         // files are its context, so they go where a review's go, over the

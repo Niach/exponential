@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react"
+import type { ReactNode } from "react"
 import type { Board, Issue } from "@/db/schema"
 import {
   conceptIcon,
@@ -7,6 +7,7 @@ import {
   MOBILE_WORK_CAPSULE_CLASS,
   MobileWorkBar,
   ChangesFileSheet,
+  Pill,
   PrGithubButton,
 } from "@exp/ui"
 import { cn } from "@/lib/utils"
@@ -26,23 +27,24 @@ import { useIssuePropertyHandlers } from "@/hooks/use-issue-property-handlers"
 
 // EXP-893: the Changes FACE of an issue subject with NO shown run — the
 // issue has an open PR (or a pushed branch), so its files are the face
-// (`useReviewFiles`, the review route's own loader — EXP-952: called by the
-// ISSUE ROUTE, which hands the state down, so the face switcher counts the
-// same files before this face was ever opened). Same header as the
-// Issue face, the diff in the column, and the bar: the file SHEET on the left
-// (EXP-895 — GitHub moved up into the header's action slot, where a phone
-// header has room for it). EXP-1150: no switcher circle and no Merge capsule
-// — the face TABS sit in the header band with the Merge PR pill beside them
-// on every face, and the body swipes between faces. A run's live diff draws
-// the same face inside the session view.
+// (`useReviewFiles` — EXP-952: called by the ISSUE ROUTE, which hands the
+// state down, so the face tabs count the same files before this face was
+// ever opened). Same header as the Issue face, the diff in the column, GitHub
+// in the header's action slot. EXP-1154: this IS the review of the PR (the
+// Reviews detail page is gone), and Merge is back on the floating bar on
+// every phone face: here the bar's centred cluster = the file SHEET + the
+// white Merge capsule. md+ draws `IssueChangesBody` in the issue's work
+// column. A run's live diff draws the same face inside the session view.
 
 const UiLoadingIcon = conceptIcon(`ui-loading`)
+const UiRefreshIcon = conceptIcon(`ui-refresh`)
 
-/** EXP-916: the phone's Merge PR capsule of the REVIEWS page — a SOLID white
- *  pill hugging its label (28px padding, a 20px glyph) in the bar's centred
- *  cluster, carrying `SessionMergePill`'s confirm and Fix-conflicts swap. It
- *  self-hides unless the PR is open. EXP-1150: the Work screen's Changes face
- *  no longer draws it — there the Merge pill rides the header band. */
+/** EXP-916 / EXP-1154: the phone's Merge PR capsule — a SOLID white pill
+ *  hugging its label (28px padding, a 20px glyph), carrying
+ *  `SessionMergePill`'s confirm, stack choice and Fix-conflicts swap. It
+ *  self-hides unless the PR is open. The Changes and Results faces put it in
+ *  the bar's centred cluster; the Issue and Run faces float it above their
+ *  composer bar (`MobileMergeFloat`). */
 export function MergeCapsule(props: {
   issueId?: string
   sessionId?: string
@@ -65,6 +67,57 @@ export function MergeCapsule(props: {
   )
 }
 
+/** EXP-1154: the Changes body of an issue — the PR / branch files
+ *  (`useReviewFiles`), the cards alone (the file list is the sidebar's tree
+ *  on md+, the bar's sheet on a phone). Every card starts OPEN (EXP-916). */
+export function IssueChangesBody({
+  state,
+  selected,
+  onSelect,
+  onRetry,
+}: {
+  state: ReviewFilesState
+  selected: string | null
+  onSelect: (path: string) => void
+  onRetry?: () => void
+}) {
+  return (
+    <div data-testid="issue-changes-body">
+      {state.kind === `loading` && (
+        <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted-foreground">
+          <UiLoadingIcon className="size-4 animate-spin" />
+          Loading changes…
+        </div>
+      )}
+      {state.kind === `none` && (
+        <p className="px-4 py-6 text-sm text-muted-foreground">
+          No changes yet. Nothing has been pushed for this issue.
+        </p>
+      )}
+      {state.kind === `error` && (
+        <div className="flex flex-wrap items-center gap-2 px-4 py-6 text-sm text-destructive">
+          {`Couldn’t load changes: ${state.message}`}
+          {onRetry && (
+            <Pill mode="action" onClick={onRetry}>
+              <UiRefreshIcon className="size-3" />
+              Retry
+            </Pill>
+          )}
+        </div>
+      )}
+      {state.kind === `files` && (
+        <ChangesView
+          files={state.files}
+          nav="none"
+          selected={selected}
+          onSelect={onSelect}
+          emptyLabel="No changes in this pull request."
+        />
+      )}
+    </div>
+  )
+}
+
 export function IssueChangesFace({
   issue,
   board,
@@ -73,6 +126,10 @@ export function IssueChangesFace({
   readOnly,
   origin,
   filesState: state,
+  onRetry,
+  selected,
+  onSelect,
+  merge,
   tabs,
   swipe,
 }: {
@@ -83,14 +140,21 @@ export function IssueChangesFace({
   readOnly: boolean
   origin?: string
   /** EXP-952: the issue's PR / branch files, fetched by the route
-   *  (`useReviewFiles`) — the switcher's `+N −M` reads the same list. */
+   *  (`useReviewFiles`) — the tabs' `+N −M` reads the same list. */
   filesState: ReviewFilesState
+  onRetry?: () => void
+  /** EXP-1154: the file in focus, owned by the route so a Results file row
+   *  (and `?file=`) can open this face on it. */
+  selected: string | null
+  onSelect: (path: string) => void
+  /** EXP-1154: the bar's white Merge capsule (`MergeCapsule`), absent when
+   *  the viewer may not merge. */
+  merge?: ReactNode
   /** EXP-1150: the face strip (`MobileFaceTabs`) and the pager the root
    *  spreads (`useFaceSwipe`; EXP-1152: it moves the `data-face-body`). */
   tabs: ReactNode
   swipe?: FaceSwipeHandlers
 }) {
-  const [selected, setSelected] = useState<string | null>(null)
   // The `…` menu's Move to board / Unmark duplicate, the same handlers the
   // issue face binds (`use-issue-property-handlers.ts`).
   const handlers = useIssuePropertyHandlers({ issue, teamSlug, readOnly })
@@ -140,46 +204,28 @@ export function IssueChangesFace({
         data-face-body=""
         style={{ paddingTop: headerSize.height }}
       >
-        {state.kind === `loading` && (
-          <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted-foreground">
-            <UiLoadingIcon className="size-4 animate-spin" />
-            Loading changes…
-          </div>
-        )}
-        {state.kind === `none` && (
-          <p className="px-4 py-6 text-sm text-muted-foreground">
-            No changes yet — nothing has been pushed for this issue.
-          </p>
-        )}
-        {state.kind === `error` && (
-          <p className="px-4 py-6 text-sm text-destructive">{state.message}</p>
-        )}
-        {state.kind === `files` && (
-          /* The file LIST is the bar's sheet on a phone, so the cards stand
-             alone here (`nav="none"`). EXP-916: they start OPEN, like every
-             other diff surface — only a file past the contract's collapse
-             threshold folds itself. */
-          <ChangesView
-            files={files}
-            nav="none"
-            selected={selected}
-            onSelect={setSelected}
-            emptyLabel="No changes in this pull request."
-          />
-        )}
+        <IssueChangesBody
+          state={state}
+          selected={selected}
+          onSelect={onSelect}
+          onRetry={onRetry}
+        />
       </div>
-      {files.length > 0 && (
+      {(files.length > 0 || merge) && (
         <MobileWorkBar
-          /* EXP-916: the Reviews page's cluster — the file sheet alone here
-             (EXP-1150: Merge rides the header band). */
+          /* EXP-916: the review cluster — the file sheet and (EXP-1154) the
+             white Merge capsule, centred. */
           cluster
           leading={
-            <ChangesFileSheet
-              files={files}
-              selected={selected}
-              onSelect={setSelected}
-            />
+            files.length > 0 ? (
+              <ChangesFileSheet
+                files={files}
+                selected={selected}
+                onSelect={onSelect}
+              />
+            ) : undefined
           }
+          capsule={merge}
         />
       )}
       {handlers.duplicatePicker}

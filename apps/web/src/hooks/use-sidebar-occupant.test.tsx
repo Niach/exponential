@@ -9,13 +9,14 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 const location = vi.hoisted(() => ({
   value: { pathname: `/t/acme/agent`, search: {} as Record<string, unknown> },
 }))
+const published = vi.hoisted(() => ({ subjectId: null as string | null }))
 
 vi.mock(`@tanstack/react-router`, () => ({
   useRouterState: ({ select }: { select: (s: unknown) => unknown }) =>
     select({ location: location.value }),
 }))
 vi.mock(`@/lib/review-files-slot`, () => ({
-  useReviewFilesSubjectId: () => null,
+  useReviewFilesSubjectId: () => published.subjectId,
 }))
 
 import { useSidebarOccupant } from "@/hooks/use-sidebar-occupant"
@@ -27,6 +28,7 @@ import {
 afterEach(() => {
   setRecentRunsPanelOpen(false)
   location.value = { pathname: `/t/acme/agent`, search: {} }
+  published.subjectId = null
 })
 
 describe(`useSidebarOccupant (EXP-923)`, () => {
@@ -60,10 +62,35 @@ describe(`useSidebarOccupant (EXP-923)`, () => {
     expect(renderHook(() => useSidebarOccupant()).result.current).toEqual({
       kind: `settings`,
     })
-    location.value = { pathname: `/t/acme/reviews/MET-1`, search: {} }
+    location.value = {
+      pathname: `/t/acme/sessions/s1`,
+      search: { view: `diff` },
+    }
+    published.subjectId = `s1`
     expect(renderHook(() => useSidebarOccupant()).result.current).toEqual({
       kind: `review`,
     })
+  })
+
+  // EXP-1154: an issue's Changes face takes the tree only once THAT issue
+  // published it (keyed by identifier); a phone never publishes.
+  it(`gives an issue's changes face the tree it published`, () => {
+    location.value = {
+      pathname: `/t/acme/boards/web/issues/MET-1`,
+      search: { view: `diff`, from: `inbox` },
+    }
+    expect(renderHook(() => useSidebarOccupant()).result.current).toEqual({
+      kind: `list`,
+      origin: { kind: `inbox` },
+    })
+    published.subjectId = `MET-1`
+    expect(renderHook(() => useSidebarOccupant()).result.current).toEqual({
+      kind: `review`,
+    })
+    published.subjectId = `MET-2`
+    expect(renderHook(() => useSidebarOccupant()).result.current.kind).toBe(
+      `list`
+    )
   })
 
   // EXP-923: a run opened from the sidebar's Running section keeps the main

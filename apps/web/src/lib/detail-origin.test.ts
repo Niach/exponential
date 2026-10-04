@@ -258,19 +258,12 @@ describe(`sidebarOccupant`, () => {
     })
   })
 
-  // EXP-916: a review's panel is its file tree — whatever list it came from,
-  // and with no token at all (a deep link).
-  it(`gives a review detail its file tree`, () => {
+  // EXP-1154: the review detail page is gone — its old URL is no detail,
+  // and the queue itself is a list screen: the main menu.
+  it(`keeps the main menu on the Reviews queue`, () => {
     expect(sidebarOccupant(`/t/acme/reviews/MET-12`, `reviews`)).toEqual({
-      kind: `review`,
+      kind: `main`,
     })
-    expect(sidebarOccupant(`/t/acme/reviews/MET-12`, `inbox`)).toEqual({
-      kind: `review`,
-    })
-    expect(sidebarOccupant(`/t/acme/reviews/MET-12`, null)).toEqual({
-      kind: `review`,
-    })
-    // The queue itself is a list screen: the main menu.
     expect(sidebarOccupant(`/t/acme/reviews`, null)).toEqual({ kind: `main` })
   })
 
@@ -293,10 +286,14 @@ describe(`sidebarOccupant`, () => {
       kind: `list`,
       origin: { kind: `action`, actionId: `a1` },
     })
-    // An ISSUE's `?view=diff` is the phone's own face — there is no sidebar
-    // beside it, and the panel stays the list.
+    // EXP-1154: an ISSUE's `?view=diff` is the PR's review — the same file
+    // tree, whatever list it came from (the hook only passes `diff` once the
+    // issue really published its tree, so a phone keeps its list).
     expect(
       sidebarOccupant(`/t/acme/boards/web/issues/MET-12`, `inbox`, `diff`)
+    ).toEqual({ kind: `review` })
+    expect(
+      sidebarOccupant(`/t/acme/boards/web/issues/MET-12`, `inbox`, `results`)
     ).toEqual({ kind: `list`, origin: { kind: `inbox` } })
   })
 

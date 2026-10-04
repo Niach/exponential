@@ -1,4 +1,5 @@
 import { Link2 } from "lucide-react"
+import { contract } from "@exp/domain-contract"
 import { useNavigate } from "@tanstack/react-router"
 import type { Board, Issue } from "@/db/schema"
 import {
@@ -20,11 +21,13 @@ import {
   pickLabel,
   useAddRelation,
 } from "@/components/issue-relations-card"
+import { useClosePr } from "@/components/close-pr-dialog"
 
 const UiMoreIcon = conceptIcon(`ui-more`)
 const RelationSectionIcon = conceptIcon(`relation-section`)
 const UiDeleteIcon = conceptIcon(`ui-delete`)
 const UiUndoIcon = conceptIcon(`ui-undo`)
+const PrClosedIcon = conceptIcon(`pr-closed`)
 
 /** The issue's canonical URL, for Copy link and the phone's share sheet. */
 export function issueUrlFor(
@@ -37,7 +40,8 @@ export function issueUrlFor(
 }
 
 // EXP-760: ONE round `…` beside the title — Copy link · Add relation ▸ ·
-// Unmark duplicate (conditional) · Delete issue ▸ Confirm delete. It replaces
+// Unmark duplicate (conditional) · Close PR (EXP-1154, an open PR) · Delete
+// issue ▸ Confirm delete. It replaces
 // the copy-link / unmark / trash trio: three permanent circles for actions
 // taken once a week, where the IDE (`work_header.rs`) and both natives already
 // collapse everything but the switcher into one menu. EXP-877: lifted out of
@@ -59,6 +63,8 @@ export function IssueActionsMenu({
   // menu — one hook, one picker (issue-relations-card.tsx).
   const addRelation = useAddRelation(issue.id)
   const issueUrl = issueUrlFor(teamSlug, board.slug, issue.identifier)
+  // EXP-1154: Close PR without merging (EXP-248), once the review page's.
+  const closePr = useClosePr(issue, { readOnly })
 
   // Delete is a hard delete (issues.delete cleans up attachments server-side);
   // once it commits, land back on the board.
@@ -139,8 +145,22 @@ export function IssueActionsMenu({
           )}
 
           {/* No separator above a destructive item (EXP-687): the red is the
-              divider, on every client. Confirm on a second step, matching the
-              list row's context menu. */}
+              divider, on every client. EXP-1154: Close PR confirms in a
+              dialog (`close-pr.json`). */}
+          {closePr.canClose && (
+            <DropdownMenuItem
+              variant="destructive"
+              disabled={closePr.closing}
+              data-testid="issue-close-pr"
+              onSelect={closePr.request}
+            >
+              <PrClosedIcon className="size-4" />
+              {contract.diffUi.closePr}
+            </DropdownMenuItem>
+          )}
+
+          {/* Delete confirms on a second step, matching the list row's
+              context menu. */}
           {!readOnly && (
             <DropdownMenuSub>
               <DropdownMenuSubTrigger variant="destructive">
@@ -163,6 +183,7 @@ export function IssueActionsMenu({
         </DropdownMenuContent>
       </DropdownMenu>
       {addRelation.dialog}
+      {closePr.dialog}
     </>
   )
 }

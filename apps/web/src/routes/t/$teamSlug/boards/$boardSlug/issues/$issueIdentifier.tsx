@@ -1,4 +1,10 @@
-import { useCallback, useMemo } from "react"
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
@@ -6,8 +12,8 @@ import { useBoardViewData } from "@/hooks/use-board-view-data"
 import {
   ChangesFaceLabel,
   parseSessionResultGroups,
+  PrGithubButton,
   useIsMobile,
-  type SessionResultGroup,
 } from "@exp/ui"
 import { useNow } from "@/hooks/use-now"
 import {
@@ -16,9 +22,10 @@ import {
   type PastRunRow,
 } from "@/hooks/use-agents-data"
 import { useIsTeamMember } from "@/components/issue-coding-rows"
-import { MergePrPill } from "@/components/run-action-pills"
 import { useReviewFiles, type ReviewFilesState } from "@/hooks/use-review-files"
-import { totals } from "@exp/domain-contract/diff"
+import { usePrDescription } from "@/hooks/use-pr-description"
+import { runFaceSearch, useLiveDiffHandoff } from "@/hooks/use-issue-face-nav"
+import { totals, type DiffFile } from "@exp/domain-contract/diff"
 import { useSession } from "@/hooks/use-session"
 import {
   shouldConnectSessionDiff,
@@ -29,12 +36,19 @@ import { useWorkTabs } from "@/hooks/use-work-tabs"
 import type { CodingSession, Issue } from "@/db/schema"
 import { useSteerConfig } from "@/components/agent-session"
 import { BoardNotFound } from "@/components/board-not-found"
-import { IssueChangesFace } from "@/components/issue-changes-face"
+import {
+  IssueChangesBody,
+  IssueChangesFace,
+  MergeCapsule,
+} from "@/components/issue-changes-face"
 import { IssueDetailView } from "@/components/issue-detail-view"
 import {
   IssueResultsBody,
   IssueResultsFace,
+  prDescriptionGroups,
 } from "@/components/issue-results-face"
+import { MobileMergeFloat } from "@/components/mobile-merge-float"
+import { publishReviewFiles } from "@/lib/review-files-slot"
 import { MobileFaceTabs, useFaceSwipe } from "@/components/mobile-face-tabs"
 import { selectIssueRuns } from "@/lib/past-runs"
 import {
@@ -57,7 +71,10 @@ import {
 import { pageTitle, usePageTitle } from "@/lib/page-title"
 import { runFaceMark } from "@/lib/coding-session-display"
 
-type IssueSearch = { from?: string; view?: `diff` | `results` }
+type IssueSearch = { from?: string; view?: `diff` | `results`; file?: string }
+
+/** One stable empty list, so a loading diff is not a new array per render. */
+const EMPTY_FILES: DiffFile[] = []
 
 export const Route = createFileRoute(
   `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`
@@ -74,11 +91,15 @@ export const Route = createFileRoute(
   // EXP-851: `?from=` is the LIST this issue was opened from
   // (`lib/detail-origin.ts`) — the sidebar keeps it beside the issue, and
   // absent means the main menu stays.
-  // EXP-893: `?view=diff` is the phone's Changes face over the issue's PR
-  // files (a run's live diff lives on the session route instead).
+  // EXP-893: `?view=diff` is the Changes face over the issue's PR / branch
+  // files (a run's live diff lives on the session route instead). EXP-1154:
+  // at every width — it IS the review of the PR (the Reviews detail page is
+  // gone), always honoured ("No changes yet" when nothing was pushed);
+  // `?file=` seeds the file in focus.
   // EXP-933: `?view=results` is the issue's Results face — the report of the
-  // run `issueResultsRun` picks (any member's), drawn on the issue itself;
-  // an agent message deep-links here. No results = the issue face.
+  // run `issueResultsRun` picks (any member's), drawn on the issue itself as
+  // the Guide (EXP-1154); an agent message deep-links here. No report and no
+  // open PR = the issue face.
   validateSearch: (search: Record<string, unknown>): IssueSearch => ({
     from:
       typeof search.from === `string` && search.from ? search.from : undefined,
@@ -86,6 +107,8 @@ export const Route = createFileRoute(
       search.view === `diff` || search.view === `results`
         ? search.view
         : undefined,
+    file:
+      typeof search.file === `string` && search.file ? search.file : undefined,
   }),
   component: IssueDetailPage,
 })
@@ -193,17 +216,47 @@ function IssueDetailPage() {
     }),
     status: runTarget?.status,
   })
-  const hasChanges = diffStats.fileCount > 0 || issue?.prState === `open`
-  // EXP-952: source B — the issue's open PR files, read only when there is
-  // no live diff. Resolved HERE, not inside the Changes face, because the
-  // switcher has to count the very files that face draws — otherwise its
-  // Changes row printed no `+N −M` until the face had been opened once
-  // (Android's `WorkScreen` owns its `ChangesViewModel` the same way, and
-  // the session route hoists `useReviewFiles` for the run's Changes face).
-  // A phone thing: md+ has no PR-files face on this route.
-  const { state: prFilesState } = useReviewFiles(issue ?? null, {
-    enabled: isMobile && hasChanges && diffStats.fileCount === 0,
-  })
+  const showChanges = search.view === `diff`
+  // EXP-1154: a pushed branch with no PR yet counts too (the ×4 rule); the
+  // branch diff answering `none` (never pushed) drops the face again.
+  const branchOnly =
+    issue?.prNumber == null && Boolean(issue?.branch?.trim())
+  // EXP-952: source B — the issue's PR / branch files, read only when there
+  // is no live diff (or the face is asked for). Resolved HERE, not inside the
+  // Changes face, because the tabs have to count the very files that face
+  // draws — otherwise its Changes row printed no `+N −M` until the face had
+  // been opened once (Android's `WorkScreen` owns its `ChangesViewModel` the
+  // same way, and the session route hoists `useReviewFiles` for the run's
+  // Changes face). EXP-1154: every width — md+ draws the face too now.
+  const { state: prFilesState, reload: reloadPrFiles } = useReviewFiles(
+    issue ?? null,
+    {
+      enabled:
+        showChanges ||
+        (diffStats.fileCount === 0 &&
+          (issue?.prState === `open` || branchOnly)),
+    }
+  )
+  const hasChanges =
+    diffStats.fileCount > 0 ||
+    issue?.prState === `open` ||
+    (branchOnly && prFilesState.kind !== `none`)
+  const prFiles = prFilesState.kind === `files` ? prFilesState.files : EMPTY_FILES
+  // EXP-1154: the file in focus on the Changes face — seeded by `?file=`
+  // (a Results file row), then the tree / sheet / cards own it.
+  const [selectedFile, setSelectedFile] = useState<string | null>(
+    search.file ?? null
+  )
+  // The route is reused across issues (no remount on a param change): issue
+  // B must never open on issue A's file. Reset during render, before use.
+  const [selectedFor, setSelectedFor] = useState(issue?.id ?? null)
+  if (selectedFor !== (issue?.id ?? null)) {
+    setSelectedFor(issue?.id ?? null)
+    setSelectedFile(search.file ?? null)
+  }
+  useEffect(() => {
+    if (search.file) setSelectedFile(search.file)
+  }, [search.file])
   // EXP-1152: the phone's Changes tab wears the `+N −M` of the very files
   // that face draws — the run's live diff, else the PR's — the word until
   // either is known (the desktop `FaceToggle::diff` rule).
@@ -245,28 +298,44 @@ function IssueDetailPage() {
     () => parseSessionResultGroups(resultsRun?.results),
     [resultsRun?.results]
   )
-  const hasResults = resultsRun !== null && resultGroups.length > 0
+  const hasRunResults = resultsRun !== null && resultGroups.length > 0
   const resultsMine =
-    hasResults && Boolean(currentUserId) && resultsRun.userId === currentUserId
-  /** A stale or result-less `?view=results` falls back to the issue face. */
-  const showResults = search.view === `results` && hasResults
+    hasRunResults &&
+    Boolean(currentUserId) &&
+    resultsRun.userId === currentUserId
+  // EXP-1154: an open PR with no report still has a Results face — the
+  // GitHub PR body as one unnumbered group.
+  const hasGuide = hasRunResults || issue?.prState === `open`
+  /** A stale or guide-less `?view=results` falls back to the issue face. */
+  const showResults = search.view === `results` && hasGuide
+  const { state: prDescriptionState } = usePrDescription(issue ?? null, {
+    enabled: showResults && !hasRunResults,
+  })
+  const guideGroups = useMemo(
+    () =>
+      hasRunResults ? resultGroups : prDescriptionGroups(prDescriptionState),
+    [hasRunResults, resultGroups, prDescriptionState]
+  )
 
   const goRun = useCallback(
-    (sessionId: string, view?: `diff` | `results`) => {
+    (
+      sessionId: string,
+      view?: `diff` | `results`,
+      /** EXP-1154: the file in focus on the run's Changes face. */
+      file?: string,
+      replace: boolean = isMobile
+    ) => {
       void navigate({
         to: `/t/$teamSlug/sessions/$sessionId`,
         params: { teamSlug, sessionId },
-        search: {
-          ...(search.from ? { from: search.from } : {}),
-          ...(view ? { view } : {}),
-        },
-        replace: isMobile,
+        search: runFaceSearch({ from: search.from, view, file }),
+        replace,
       })
     },
     [navigate, teamSlug, search.from, isMobile]
   )
   const goFace = useCallback(
-    (view?: `diff` | `results`) => {
+    (view?: `diff` | `results`, file?: string) => {
       if (!board) return
       void navigate({
         to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
@@ -274,12 +343,61 @@ function IssueDetailPage() {
         search: {
           ...(search.from ? { from: search.from } : {}),
           ...(view ? { view } : {}),
+          ...(file ? { file } : {}),
         },
         replace: isMobile,
       })
     },
     [navigate, teamSlug, board, issueIdentifier, search.from, isMobile]
   )
+  /** EXP-1154: a Guide file row — the Changes face on that file. The run's
+   *  live diff when there is one, else the PR's right here. */
+  const liveDiff = diffStats.fileCount > 0
+  const openFile = useCallback(
+    (path: string) => {
+      setSelectedFile(path)
+      if (liveDiff && runTarget) goRun(runTarget.id, `diff`, path)
+      else goFace(`diff`, path)
+    },
+    [liveDiff, runTarget, goRun, goFace]
+  )
+  /** The Guide's rows count off the files that tap opens: the live diff when
+   *  the run has one, else the PR's. */
+  const guideFiles = liveDiff ? diffStats.files : prFiles
+  // EXP-1154: a `?view=diff` deep link while the run has a live diff hands
+  // off to the run (it owns that diff), replacing the entry so Back skips it;
+  // the issue's PR-files face is only for the no-live-diff case.
+  const handoffToRun = useCallback(
+    (sessionId: string, view: `diff`, file?: string) =>
+      goRun(sessionId, view, file, true),
+    [goRun]
+  )
+  useLiveDiffHandoff(
+    { showChanges, liveDiff, runId: runTarget?.id, file: search.file },
+    handoffToRun
+  )
+  const backToIssue = useCallback(() => goFace(), [goFace])
+
+  // EXP-916/945/1154: on md+ the Changes face's file TREE is the sidebar's
+  // panel (`ReviewFilesNav`), keyed by the identifier the occupant matches,
+  // its back row the issue itself. Cleared whenever the face is not up.
+  const publishTree = showChanges && !isMobile && Boolean(issue)
+  useEffect(() => {
+    if (!publishTree) return
+    publishReviewFiles({
+      subjectId: issueIdentifier,
+      status: prFilesState.kind,
+      files: prFiles,
+      selected: selectedFile,
+      onSelect: setSelectedFile,
+      back: { label: issueIdentifier, onBack: backToIssue },
+    })
+  }, [publishTree, issueIdentifier, prFilesState.kind, prFiles, selectedFile, backToIssue])
+  useEffect(() => {
+    if (publishTree) return
+    publishReviewFiles(null)
+  }, [publishTree])
+  useEffect(() => () => publishReviewFiles(null), [])
 
   if (!team || !board) {
     // Ready-and-empty boards means the slug is dead (trashed board, rename,
@@ -319,10 +437,23 @@ function IssueDetailPage() {
 
   const readOnly = !permissions.canMutateIssue(issue)
   const openResults = () => {
-    if (!resultsRun) return
-    if (resultsMine) goRun(resultsRun.id, `results`)
+    if (resultsRun && resultsMine) goRun(resultsRun.id, `results`)
     else goFace(`results`)
   }
+  const guideBody = (
+    <IssueResultsBody
+      groups={guideGroups}
+      files={guideFiles}
+      onOpenFile={hasChanges ? openFile : undefined}
+      numbered={hasRunResults}
+      loading={!hasRunResults && prDescriptionState.kind === `loading`}
+      error={
+        !hasRunResults && prDescriptionState.kind === `error`
+          ? prDescriptionState.message
+          : null
+      }
+    />
+  )
 
   // EXP-893: the phone. Faces are screen state behind `replace` navigations,
   // so Back always leaves the issue. The Changes face: the run's live diff
@@ -346,12 +477,15 @@ function IssueDetailPage() {
         runLive={runTarget ? isSessionLive(runTarget, now) : false}
         issueRuns={issueRuns}
         hasChanges={hasChanges}
-        liveDiff={diffStats.fileCount > 0}
+        liveDiff={liveDiff}
         changesCounts={changesCounts}
         prFilesState={prFilesState}
-        hasResults={hasResults}
+        reloadPrFiles={reloadPrFiles}
+        selectedFile={selectedFile}
+        onSelectFile={setSelectedFile}
+        hasResults={hasGuide}
         showResults={showResults}
-        resultGroups={resultGroups}
+        guideBody={guideBody}
         goFace={goFace}
         goRun={goRun}
         openResults={openResults}
@@ -372,23 +506,36 @@ function IssueDetailPage() {
       readOnly={readOnly}
       origin={search.from}
       faceBody={
-        showResults ? <IssueResultsBody groups={resultGroups} /> : undefined
+        showChanges ? (
+          <IssueChangesBody
+            state={prFilesState}
+            selected={selectedFile}
+            onSelect={setSelectedFile}
+            onRetry={reloadPrFiles}
+          />
+        ) : showResults ? (
+          guideBody
+        ) : undefined
+      }
+      /* EXP-949/1154: GitHub only while the Changes face shows. */
+      headerAction={
+        showChanges && issue.prUrl ? (
+          <PrGithubButton prUrl={issue.prUrl} />
+        ) : undefined
       }
       faceToggle={
         <WorkFaceToggle
-          face={showResults ? `results` : `issue`}
+          face={showChanges ? `diff` : showResults ? `results` : `issue`}
           /* EXP-1162: the tabs carry the state — live run, open PR. */
           run={runFaceMark(runTarget, issue.prState)}
           dots={toggleFaceDots(
             faceDots({
-              faces: [
-                `issue`,
-                ...(runTarget ? ([`run`] as const) : []),
-                ...(runTarget && diffStats.fileCount > 0
-                  ? ([`changes`] as const)
-                  : []),
-                ...(hasResults ? ([`results`] as const) : []),
-              ],
+              faces: availableFaces({
+                hasIssue: true,
+                hasRun: Boolean(runTarget),
+                hasChanges: hasChanges || showChanges,
+                hasResults: hasGuide,
+              }),
               runLive: runTarget ? isSessionLive(runTarget, now) : false,
               needsInput: runTarget?.needsInput === true,
               prOpen: issue.prState === `open`,
@@ -404,7 +551,7 @@ function IssueDetailPage() {
               face: `issue`,
               label: ISSUE_FACE_LABEL,
               onSelect: () => {
-                if (showResults) goFace()
+                if (showResults || showChanges) goFace()
               },
             },
             ...(runTarget
@@ -416,21 +563,24 @@ function IssueDetailPage() {
                   },
                 ]
               : []),
-            // EXP-889: the run's diff, as on the run face (and the IDE's
-            // issue toggle) — opens the run on its Changes sub-face.
-            ...(runTarget && diffStats.fileCount > 0
+            // EXP-889: the run's live diff opens the run on its Changes
+            // sub-face; EXP-1154: else the PR / branch files right here.
+            ...(hasChanges || showChanges
               ? [
                   {
                     face: `diff` as const,
                     // EXP-1152: the counts recipe every face strip shares.
-                    label: <ChangesFaceLabel counts={diffStats} />,
-                    onSelect: () => goRun(runTarget.id, `diff`),
+                    label: <ChangesFaceLabel counts={changesCounts} />,
+                    onSelect: () => {
+                      if (liveDiff && runTarget) goRun(runTarget.id, `diff`)
+                      else if (!showChanges) goFace(`diff`)
+                    },
                   },
                 ]
               : []),
             // EXP-879/933: the report, last in the strip — mine opens on my
-            // run, a teammate's right here on the issue.
-            ...(hasResults
+            // run, a teammate's (EXP-1154: or the PR body) right here.
+            ...(hasGuide
               ? [
                   {
                     face: `results` as const,
@@ -447,9 +597,11 @@ function IssueDetailPage() {
 }
 
 /** EXP-893 / EXP-1150: the phone's Work screen over an ISSUE subject — the
- *  face on show (issue, its PR files, or a teammate's results), the face
- *  tabs every one of them wears under the header, and the swipe between
- *  them. A child so the swipe hook sits past the page's early returns. */
+ *  face on show (issue, its PR files, or the Guide), the face tabs every one
+ *  of them wears under the header, and the swipe between them. EXP-1154: the
+ *  ONE merge is the white capsule on the floating bar — in the Changes and
+ *  Results bars' cluster, floating above the Issue face's composer bar. A
+ *  child so the swipe hook sits past the page's early returns. */
 function MobileIssuePage({
   issue,
   board,
@@ -467,9 +619,12 @@ function MobileIssuePage({
   liveDiff,
   changesCounts,
   prFilesState,
+  reloadPrFiles,
+  selectedFile,
+  onSelectFile,
   hasResults,
   showResults,
-  resultGroups,
+  guideBody,
   goFace,
   goRun,
   openResults,
@@ -492,17 +647,25 @@ function MobileIssuePage({
   /** EXP-1152: the Changes tab's `+N −M` (null = the word). */
   changesCounts: ChangesFaceCounts | null
   prFilesState: ReviewFilesState
+  reloadPrFiles: () => void
+  /** EXP-1154: the file in focus on the Changes face (`?file=`). */
+  selectedFile: string | null
+  onSelectFile: (path: string) => void
+  /** EXP-1154: the Guide exists (a report, or an open PR's body). */
   hasResults: boolean
   showResults: boolean
-  resultGroups: readonly SessionResultGroup[]
+  /** The Guide (`IssueResultsBody`), built by the page. */
+  guideBody: ReactNode
   goFace: (view?: `diff` | `results`) => void
   goRun: (sessionId: string, view?: `diff` | `results`) => void
   openResults: () => void
 }) {
+  // EXP-1154: `?view=diff` is always honoured ("No changes yet").
+  const showChanges = view === `diff`
   const faces = availableFaces({
     hasIssue: true,
     hasRun: Boolean(runTarget),
-    hasChanges,
+    hasChanges: hasChanges || showChanges,
     hasResults,
   })
   // EXP-1162: the state lives on the TABS, never on the title — the Run tab
@@ -515,7 +678,6 @@ function MobileIssuePage({
     needsInput: runTarget?.needsInput === true,
     prOpen: issue.prState === `open`,
   })
-  const showChanges = view === `diff` && hasChanges
   const face: WorkFaceKind = showChanges
     ? `changes`
     : showResults
@@ -532,19 +694,16 @@ function MobileIssuePage({
     }
   }
   const swipe = useFaceSwipe(faces, face, onFace)
-  // EXP-1150: the ONE merge of the phone Work screen rides the header band
-  // beside the tabs — the tray's own gating (membership, the relay), the
-  // md+ header's own pill.
+  // EXP-1154: the white Merge capsule — the tray's own gating (membership,
+  // the relay); it self-hides unless the PR is open.
   const isMember = useIsTeamMember(team.id, currentUserId ?? ``)
   const steerConfig = useSteerConfig()
-  const mergePill =
-    currentUserId && isMember && issue.prState === `open` ? (
-      <MergePrPill
-        {...mergeTargetProps({ kind: `issue`, issue })}
-        steerEnabled={steerConfig?.enabled === true}
-        placement="header"
-      />
-    ) : undefined
+  const canMerge = Boolean(currentUserId) && isMember && issue.prState === `open`
+  const mergeTarget = {
+    ...mergeTargetProps({ kind: `issue`, issue }),
+    steerEnabled: steerConfig?.enabled === true,
+  }
+  const mergeCapsule = canMerge ? <MergeCapsule {...mergeTarget} /> : undefined
   const tabs = (
     <MobileFaceTabs
       faces={faces}
@@ -556,7 +715,6 @@ function MobileIssuePage({
       changesCounts={changesCounts}
       onFace={onFace}
       onOpenRun={(target) => goRun(target.id)}
-      trailing={mergePill}
     />
   )
   if (showChanges) {
@@ -569,6 +727,10 @@ function MobileIssuePage({
         readOnly={readOnly}
         origin={origin}
         filesState={prFilesState}
+        onRetry={reloadPrFiles}
+        selected={selectedFile}
+        onSelect={onSelectFile}
+        merge={mergeCapsule}
         tabs={tabs}
         swipe={swipe}
       />
@@ -583,7 +745,8 @@ function MobileIssuePage({
         teamId={team.id}
         readOnly={readOnly}
         origin={origin}
-        groups={resultGroups}
+        body={guideBody}
+        merge={mergeCapsule}
         tabs={tabs}
         swipe={swipe}
       />
@@ -598,7 +761,11 @@ function MobileIssuePage({
       teamId={team.id}
       readOnly={readOnly}
       origin={origin}
-      mobileWork={{ tabs, swipe }}
+      mobileWork={{
+        tabs,
+        swipe,
+        merge: canMerge ? <MobileMergeFloat {...mergeTarget} /> : undefined,
+      }}
     />
   )
 }

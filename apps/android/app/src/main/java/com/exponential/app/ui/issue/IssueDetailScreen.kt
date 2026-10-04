@@ -73,6 +73,7 @@ import com.exponential.app.ui.components.toPickerMember
 import com.exponential.app.ui.components.toPickerRow
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.FloatingBarEdge
+import com.exponential.app.ui.work.MergeCapsuleAboveBarHeight
 import com.exponential.app.ui.components.detailHazeSource
 import com.exponential.app.ui.work.LocalTitleCollapse
 import com.exponential.app.ui.work.reportsTitleRow
@@ -143,6 +144,9 @@ fun rememberIssueFaceController(): IssueFaceController = remember { IssueFaceCon
 fun IssueMenuActions(
     viewModel: IssueDetailViewModel,
     controller: IssueFaceController,
+    /** EXP-1154: Close PR without merging — the host passes it for a member
+     *  while the issue's PR is open (it hosts the confirm); null hides it. */
+    onClosePr: (() -> Unit)? = null,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val permissions by viewModel.permissions.collectAsStateWithLifecycle()
@@ -205,6 +209,20 @@ fun IssueMenuActions(
                     },
                 )
             }
+            // EXP-1154: the review page's Close PR, destructive, right
+            // above Delete issue (web + desktop + iOS parity).
+            if (onClosePr != null) {
+                GlassMenuItem(
+                    leadingIcon = { Icon(ExpIcons.prClosed, contentDescription = null) },
+                    text = { Text(DomainContract.diffUiClosePr) },
+                    destructive = true,
+                    onClick = {
+                        overflowOpen = false
+                        onClosePr()
+                    },
+                    modifier = Modifier.testTag("issue-menu-close-pr"),
+                )
+            }
             if (isModerator) {
                 GlassMenuItem(
                     leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
@@ -236,11 +254,13 @@ fun IssueFace(
     padding: PaddingValues,
     onBack: () -> Unit,
     onOpenIssue: (String) -> Unit,
-    /** The PR / branch row's tap — the host lands on its Changes face when it
-     *  has one, else the standalone route. */
+    /** The PR / branch row's tap — the host lands on its Changes face. */
     onOpenChanges: () -> Unit,
     /** The bar's right circle — the host's Start play, else empty. */
     trailingBarSlot: @Composable () -> Unit,
+    /** EXP-1154: floats centred directly ABOVE the bar (the white Merge PR),
+     *  riding the keyboard with it; hidden while the composer is expanded. */
+    aboveBar: (@Composable () -> Unit)? = null,
     /** EXP-1097: the Sub-issues `+` — the create screen with this issue as
      *  the parent. Null hides it (and the empty "Add sub-issues" band). */
     onAddSubIssue: (() -> Unit)? = null,
@@ -788,7 +808,12 @@ fun IssueFace(
                 // Clearance so the last timeline row scrolls out from under the
                 // floating bar (kept in sync with the nav pill inset, EXP-36),
                 // plus the navigation bar the column now runs under.
-                Spacer(Modifier.height(BottomBarInset + bottomInset))
+                Spacer(
+                    Modifier.height(
+                        BottomBarInset + bottomInset +
+                            (if (aboveBar != null) MergeCapsuleAboveBarHeight else 0.dp),
+                    ),
+                )
             }
 
             // The floating bottom bar / docked composer. Lives INSIDE the
@@ -814,6 +839,9 @@ fun IssueFace(
                     enter = fadeIn(Motion.standard()),
                     exit = fadeOut(Motion.standard()),
                 ) {
+                  Column {
+                    // EXP-1154: the white Merge PR, centred over the bar.
+                    if (aboveBar != null && !composerExpanded) aboveBar()
                     IssueDetailBottomBar(
                         expanded = composerExpanded,
                         onExpandedChange = {
@@ -855,6 +883,7 @@ fun IssueFace(
                         onClearReply = { commentViewModel.setReplyTarget(null) },
                         reporterToggle = reporterToggle,
                     )
+                  }
                 }
             }
         }

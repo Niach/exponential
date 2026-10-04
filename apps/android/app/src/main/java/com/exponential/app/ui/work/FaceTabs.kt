@@ -174,8 +174,6 @@ fun WorkFaceTabs(
     runs: List<PastRunRow> = emptyList(),
     shownRunId: String? = null,
     onPickRun: (String) -> Unit = {},
-    /** EXP-1150: the header's Merge PR ([MergePrHeaderPill]); null = none. */
-    trailing: (@Composable () -> Unit)? = null,
     /** EXP-1152: the Changes face's diff counts; null = the word `Changes`. */
     changesCounts: ChangesFaceCounts? = null,
     /** EXP-1162: the tabs' state dots (`DetailChrome.faceDots`). */
@@ -185,7 +183,9 @@ fun WorkFaceTabs(
     runAgent: String? = null,
     runState: CodingSessionDisplayState? = null,
 ) {
-    if (faces.size < 2 && trailing == null) return
+    // EXP-1154: the strip is the tabs alone, centred — Merge PR went back to
+    // the floating bar ([MergeCapsule]).
+    if (faces.size < 2) return
     val multipleRuns = runs.size >= 2
     var menuOpen by remember { mutableStateOf(false) }
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -277,7 +277,6 @@ fun WorkFaceTabs(
                     }
                 }
             }
-            trailing?.invoke()
         }
     }
 }

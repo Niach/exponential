@@ -73,10 +73,11 @@ const SHOTS: SocialShot[] = [
   // The cross-board open-PR queue.
   { name: `reviews`, route: `${T}/reviews`, anchor: `Batch-edit labels from the board` },
   // APP-14 renders a REAL diff fetched from GitHub; expand the biggest file so
-  // the shot shows an actual patch, not just the file list.
+  // the shot shows an actual patch, not just the file list. EXP-1154: the
+  // review IS the issue's Changes face.
   {
     name: `review-diff`,
-    route: `${T}/reviews/APP-14`,
+    route: `${T}/boards/mobile-app/issues/APP-14?view=diff`,
     anchor: `TopicScreen.kt`,
     anchorTimeoutMs: 60_000,
     recipe: `expandFirstDiffFile`,

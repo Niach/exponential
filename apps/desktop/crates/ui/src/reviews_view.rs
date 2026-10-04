@@ -211,7 +211,7 @@ impl ReviewsView {
 
         let selected = matches!(
             resolved_screen(&self.nav, cx),
-            Some(Screen::PrDiff { issue_id }) if issue_id == issue.id
+            Some(Screen::IssueDetail { issue_id }) if issue_id == issue.id
         );
         // EXP-325: the two-click arm/spinner/error live in the shared
         // app-global merge state — a merge driven from the PR diff header or a
@@ -341,17 +341,16 @@ impl ReviewsView {
         let on_click: crate::run_rows::RunRowAction = Box::new(cx.listener(move |_, _, window, cx| {
             // Any click outside the armed button disarms the confirm.
             MergeState::disarm(cx);
-            // The PR diff (EXP-181): a review click is about the CODE —
-            // the diff screen renders it, and its header links back to the
-            // issue detail for the body.
-            // EXP-870: explicitly beside the Reviews queue it came from.
-            let screen = crate::navigation::Screen::PrDiff {
-                issue_id: nav_id.clone(),
-            };
-            match crate::navigation::Screen::Reviews.list_origin() {
-                Some(origin) => crate::navigation::navigate_from(window, cx, screen, origin),
-                None => crate::navigation::navigate(window, cx, screen),
-            }
+            // EXP-1154: a review click is about the CODE — the issue opens
+            // on its Changes face (the review of a PR IS the issue's Work
+            // screen). EXP-870: explicitly beside the Reviews queue it came
+            // from.
+            crate::screens::open_issue_changes(
+                &nav_id,
+                crate::navigation::Screen::Reviews.list_origin(),
+                window,
+                cx,
+            );
         }));
         pr_row(
             PrRowSpec {

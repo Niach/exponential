@@ -45,6 +45,10 @@ struct IssueDetailBottomBar: View {
     /// by the detail view model). A reporter EMAIL on it offers the "Reply to
     /// reporter" pill; its name fills the placeholder.
     var widgetSubmission: WidgetSubmissionRow? = nil
+    /// EXP-1154: the Work screen's white Merge PR capsule, floating centred
+    /// just ABOVE the collapsed bar (so it rides the keyboard with it); gone
+    /// while the composer is expanded. nil = none.
+    var mergeAccessory: AnyView? = nil
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -102,8 +106,13 @@ struct IssueDetailBottomBar: View {
                     // EXP-1162: the bottom edge strip rides the COLLAPSED bar
                     // alone — the expanded composer is an opaque card over the
                     // keyboard and needs no wash behind it.
-                    collapsedBar
-                        .floatingBarEdge()
+                    VStack(spacing: WorkBarAccessory.gap) {
+                        if let mergeAccessory {
+                            mergeAccessory
+                        }
+                        collapsedBar
+                    }
+                    .floatingBarEdge()
                 }
             } else {
                 Color.clear.frame(height: 0)

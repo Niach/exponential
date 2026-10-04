@@ -76,7 +76,6 @@ import com.exponential.app.ui.personal.PersonalScreen
 import com.exponential.app.ui.reviews.ReviewsScreen
 import com.exponential.app.ui.issue.IssueListMode
 import com.exponential.app.ui.issue.IssueListScreen
-import com.exponential.app.ui.issue.ChangesScreen
 import com.exponential.app.ui.actions.ActionDetailScreen
 import com.exponential.app.ui.actions.ActionsScreen
 import com.exponential.app.ui.search.SearchScreen
@@ -592,11 +591,12 @@ private fun AuthenticatedNav(
         }
         composable("reviews") {
             // Reviews — its own bottom-bar destination beside My Work
-            // (EXP-147; it used to be a PersonalScreen segment). Rows open the
-            // Review detail (EXP-168); the long-press sheet keeps issue access.
+            // (EXP-147; it used to be a PersonalScreen segment). EXP-1154: rows
+            // open the issue's Work screen on its Changes face (the review IS
+            // the issue); the long-press sheet keeps issue access.
             ReviewsScreen(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
-                onOpenChanges = { id -> navController.navigate("issue/$id/changes") },
+                onOpenChanges = { id -> navController.navigate("issue/$id?face=changes") },
                 onOpenAgent = openAgent,
             )
         }
@@ -733,7 +733,8 @@ private fun AuthenticatedNav(
             // EXP-893: the Work screen on its Issue face — the run and the
             // diff are FACES of the same screen, never routes. EXP-933:
             // `?face=results` (an agent message's inbox row or push) opens it
-            // on the Results face instead.
+            // on the Results face instead; EXP-1154: `?face=changes` (a Reviews
+            // row) on the Changes face, the review of its PR.
             val issueId = entry.arguments?.getString("issueId").orEmpty()
             val initialFace = entry.arguments?.getString("face")?.let { face ->
                 WorkFaceKind.entries.firstOrNull { it.name.equals(face, ignoreCase = true) }
@@ -743,7 +744,7 @@ private fun AuthenticatedNav(
                 initialFace = initialFace,
                 onBack = { navController.popBackStack() },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
-                onOpenChanges = { id -> navController.navigate("issue/$id/changes") },
+                onOpenIssueChanges = { id -> navController.navigate("issue/$id?face=changes") },
                 onOpenAgent = openAgent,
                 onOpenTeamSettings = openReadinessTeamSettings,
                 onOpenDevices = openReadinessDevices,
@@ -751,16 +752,6 @@ private fun AuthenticatedNav(
                     // Single-top: a double-tap on `+` pushes ONE page.
                     navController.openIssueDraft(boardId, parentId = parentId, singleTop = true)
                 },
-            )
-        }
-        composable("issue/{issueId}/changes") { entry ->
-            // Dedicated diff page (EXP-34): PR/branch changes with per-file
-            // expandable unified patches — Reviews opens it directly.
-            val issueId = entry.arguments?.getString("issueId").orEmpty()
-            ChangesScreen(
-                issueId = issueId,
-                onBack = { navController.popBackStack() },
-                onOpenAgent = openAgent,
             )
         }
         composable("steer/{codingSessionId}") { entry ->
@@ -771,7 +762,7 @@ private fun AuthenticatedNav(
                 subject = WorkSubject.Session(sessionId),
                 onBack = { navController.popBackStack() },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
-                onOpenChanges = { id -> navController.navigate("issue/$id/changes") },
+                onOpenIssueChanges = { id -> navController.navigate("issue/$id?face=changes") },
                 onOpenAgent = openAgent,
                 onOpenTeamSettings = openReadinessTeamSettings,
                 onOpenDevices = openReadinessDevices,

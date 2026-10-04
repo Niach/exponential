@@ -458,7 +458,8 @@ function walk(dir: string, base = dir): string[] {
 /**
  * Does a declared path satisfy a route pattern? A `$param` segment in the
  * pattern matches any concrete value, so the manifest may name real seeded
- * identifiers (`/reviews/APP-14`) against `/reviews/$issueIdentifier`.
+ * identifiers (`/issues/APP-14`) against `/issues/$issueIdentifier`; a
+ * `?query` on the declared path is ignored.
  */
 function matchesRoute(pattern: string, declared: string): boolean {
   const patternParts = pattern.split(`/`)

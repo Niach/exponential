@@ -125,6 +125,26 @@ export interface SessionResultGroup {
   /** EXP-1172: the topic's INLINE pictures, folded under the `Earlier` band
    *  (publish order); empty when the topic has a single picture. */
   earlier: SessionResultEntry[]
+  /** EXP-1154: the repo paths the topic's report touched, off the SAME entry
+   *  its text came from (trimmed, deduped first-seen, capped); empty without. */
+  files: string[]
+}
+
+/** EXP-1154: the most paths one topic lists (fixture `files.maxFiles`). */
+export const SESSION_RESULT_FILES_MAX = 40
+
+/** EXP-1154: a text entry's `files`: strings only, trimmed, blanks and
+ *  duplicates dropped (first position kept), capped; non-array = []. */
+function resultFiles(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const out: string[] = []
+  for (const item of value) {
+    const path = text(item)
+    if (!path || out.includes(path)) continue
+    out.push(path)
+    if (out.length >= SESSION_RESULT_FILES_MAX) break
+  }
+  return out
 }
 
 /** EXP-1172: a topic with more than one picture moves its inline ones into
@@ -148,7 +168,7 @@ export function groupSessionResults(
   for (const entry of entries) {
     let group = byTopic.get(entry.topic)
     if (!group) {
-      group = { topic: entry.topic, text: null, entries: [], earlier: [] }
+      group = { topic: entry.topic, text: null, entries: [], earlier: [], files: [] }
       byTopic.set(entry.topic, group)
       groups.push(group)
     }
@@ -170,7 +190,7 @@ export function parseSessionResultGroups(raw: unknown): SessionResultGroup[] {
   const open = (topic: string) => {
     let group = byTopic.get(topic)
     if (!group) {
-      group = { topic, text: null, entries: [], earlier: [] }
+      group = { topic, text: null, entries: [], earlier: [], files: [] }
       byTopic.set(topic, group)
       groups.push(group)
     }
@@ -189,9 +209,79 @@ export function parseSessionResultGroups(raw: unknown): SessionResultGroup[] {
     const body = text(record.text)
     if (!topic || !body) continue
     const group = open(topic)
-    if (group.text === null) group.text = body
+    if (group.text === null) {
+      group.text = body
+      group.files = resultFiles(record.files)
+    }
   }
   return foldInline(groups)
+}
+
+// EXP-1154: the Results face as the GUIDE (Linear's shape): the `Summary`
+// topic leads as a plain paragraph, every other topic is a numbered section
+// (`01 / 04`) with its text, the files it touched and its pictures. Fixture
+// `session-results.json` `guide` (×4).
+
+/** The topic that leads the Guide unnumbered. */
+export const SESSION_RESULTS_SUMMARY_TOPIC = `Summary`
+
+/** True for the Summary topic: trimmed, case-insensitive. */
+export function isSummaryTopic(topic: string): boolean {
+  return topic.trim().toLowerCase() === SESSION_RESULTS_SUMMARY_TOPIC.toLowerCase()
+}
+
+export interface GuideSection<G> {
+  group: G
+  /** 1-based; the lead never counts. */
+  index: number
+  total: number
+}
+
+/** The lead (the FIRST Summary group wherever it sits, else null) and every
+ *  other group as a numbered section, in order. */
+export function guideSections<G extends { topic: string }>(
+  groups: readonly G[]
+): { lead: G | null; sections: GuideSection<G>[] } {
+  const leadIndex = groups.findIndex((group) => isSummaryTopic(group.topic))
+  const lead = leadIndex >= 0 ? groups[leadIndex] : null
+  const rest = groups.filter((_, index) => index !== leadIndex)
+  return {
+    lead,
+    sections: rest.map((group, index) => ({
+      group,
+      index: index + 1,
+      total: rest.length,
+    })),
+  }
+}
+
+/** `01 / 04`: both numbers two-digit zero-padded. */
+export function guideSectionCaption(index: number, total: number): string {
+  const pad = (value: number) => String(value).padStart(2, `0`)
+  return `${pad(index)} / ${pad(total)}`
+}
+
+export interface GuideFileRowModel {
+  path: string
+  counts: { additions: number; deletions: number } | null
+}
+
+/** One row per path in order; counts from the diff file whose path matches
+ *  EXACTLY, else null (an unknown path, or no diff loaded). */
+export function guideFileRows(
+  paths: readonly string[],
+  diffFiles:
+    | readonly { path: string; additions: number; deletions: number }[]
+    | null
+    | undefined
+): GuideFileRowModel[] {
+  return paths.map((path) => {
+    const file = diffFiles?.find((candidate) => candidate.path === path)
+    return {
+      path,
+      counts: file ? { additions: file.additions, deletions: file.deletions } : null,
+    }
+  })
 }
 
 /** True when the blob has anything for the Results face to show. */

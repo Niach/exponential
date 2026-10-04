@@ -32,10 +32,9 @@ describe(`ChangesView`, () => {
     expect(onSelect).toHaveBeenCalledWith(`src/b.ts`)
   })
 
-  it(`nothing sits above the cards — no chip, no bar`, () => {
+  it(`nothing sits above the cards — no chip`, () => {
     render(<ChangesView files={[file(`src/a.ts`)]} nav="auto" />)
     expect(screen.queryByTestId(`changes-scope-chip`)).toBeNull()
-    expect(screen.queryByTestId(`changes-top-bar`)).toBeNull()
   })
 
   it(`cards start OPEN (EXP-916), the file column is the tree`, () => {

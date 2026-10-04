@@ -14,14 +14,18 @@
 // the same kind of context a review's is — its files, not the list it was
 // opened from — so the two share this one channel and the one panel rather
 // than the run growing a floating tree of its own inside the column. Only the
-// back row differs, which is why a publisher may name its own.
+// back row differs, which is why a publisher names its own.
+//
+// EXP-1154: the review detail page is gone; the ISSUE's Changes face (md+)
+// publishes the slot for a PR, so every publisher names its back row now.
 
 import { useSyncExternalStore } from "react"
 import type { DiffFile } from "@exp/domain-contract/diff"
 
 export type ReviewFilesSlot = {
-  /** The subject the files belong to (a review's issue id, a run's session
-   *  id) — the tree re-keys on it. */
+  /** The subject the files belong to (an issue's identifier, a run's
+   *  session id) — the tree re-keys on it, and the sidebar occupant matches
+   *  it against the route's last segment. */
   subjectId: string
   /** `loading` until the fetch lands; `error` shows the message instead. */
   status: `loading` | `files` | `none` | `error`
@@ -30,9 +34,9 @@ export type ReviewFilesSlot = {
   selected: string | null
   /** A pick in the tree — the page scrolls its diff. */
   onSelect: (path: string) => void
-  /** EXP-945: where the panel's back row goes. Absent = back to Reviews, the
-   *  review detail's own row. */
-  back?: { label: string; onBack: () => void }
+  /** EXP-945: where the panel's back row goes (EXP-1154: required — the
+   *  issue's own face, the run's Run face). */
+  back: { label: string; onBack: () => void }
 }
 
 let current: ReviewFilesSlot | null = null

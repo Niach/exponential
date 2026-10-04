@@ -158,17 +158,22 @@ public struct SessionResultGroup: Equatable, Sendable, Identifiable {
     /// EXP-1172: the topic's INLINE pictures, folded under the `Earlier` band
     /// (publish order); empty when the topic has a single picture.
     public let earlier: [SessionResultEntry]
+    /// EXP-1154: the repo-relative paths the topic touched, off the SAME
+    /// entry its text came from; empty when none (or a picture-only topic).
+    public let files: [String]
 
     public init(
         topic: String,
         text: String? = nil,
         entries: [SessionResultEntry],
-        earlier: [SessionResultEntry] = []
+        earlier: [SessionResultEntry] = [],
+        files: [String] = []
     ) {
         self.topic = topic
         self.text = text
         self.entries = entries
         self.earlier = earlier
+        self.files = files
     }
 
     public var id: String { topic }
@@ -182,7 +187,8 @@ private func foldInline(_ group: SessionResultGroup) -> SessionResultGroup {
         topic: group.topic,
         text: group.text,
         entries: group.entries.filter { !$0.inline },
-        earlier: group.entries.filter(\.inline)
+        earlier: group.entries.filter(\.inline),
+        files: group.files
     )
 }
 
@@ -211,6 +217,7 @@ public func groupSessionResults(
 public func parseSessionResultGroups(_ raw: String?) -> [SessionResultGroup] {
     var topics: [String] = []
     var texts: [String: String] = [:]
+    var filesByTopic: [String: [String]] = [:]
     var byTopic: [String: [SessionResultEntry]] = [:]
     func open(_ topic: String) {
         if byTopic[topic] == nil {
@@ -231,10 +238,107 @@ public func parseSessionResultGroups(_ raw: String?) -> [SessionResultGroup] {
               let body = resultText(record["text"])
         else { continue }
         open(topic)
-        if texts[topic] == nil { texts[topic] = body }
+        if texts[topic] == nil {
+            texts[topic] = body
+            filesByTopic[topic] = resultFiles(record["files"])
+        }
     }
     return topics.map {
-        foldInline(SessionResultGroup(topic: $0, text: texts[$0], entries: byTopic[$0] ?? []))
+        foldInline(SessionResultGroup(
+            topic: $0,
+            text: texts[$0],
+            entries: byTopic[$0] ?? [],
+            files: filesByTopic[$0] ?? []
+        ))
+    }
+}
+
+/// EXP-1154: the cap on one topic's `files` (fixture `files.maxFiles`).
+public let maxSessionResultFiles = 40
+
+/// EXP-1154: a text entry's `files` — strings only, trimmed, blanks and
+/// duplicates dropped (first position kept), capped; a non-array is none.
+private func resultFiles(_ value: Any?) -> [String] {
+    guard let rows = value as? [Any] else { return [] }
+    var seen = Set<String>()
+    var files: [String] = []
+    for row in rows {
+        // A JSON number bridges to NSNumber, never String.
+        guard let path = resultText(row), !seen.contains(path) else { continue }
+        seen.insert(path)
+        files.append(path)
+        if files.count >= maxSessionResultFiles { break }
+    }
+    return files
+}
+
+// MARK: - EXP-1154: the Results face as the GUIDE
+
+/// The topic the Guide draws as its unnumbered lead paragraph.
+public let sessionResultsSummaryTopic = "Summary"
+
+/// The trimmed topic equals `Summary`, case-insensitively.
+public func isSummaryTopic(_ topic: String) -> Bool {
+    topic.trimmingCharacters(in: .whitespacesAndNewlines)
+        .caseInsensitiveCompare(sessionResultsSummaryTopic) == .orderedSame
+}
+
+public struct SessionResultsGuide: Equatable, Sendable {
+    public struct Section: Equatable, Sendable, Identifiable {
+        public let group: SessionResultGroup
+        /// 1-based; the lead never counts.
+        public let index: Int
+        public let total: Int
+
+        public var id: String { group.topic }
+    }
+
+    /// The FIRST Summary group wherever it sits, nil without one.
+    public let lead: SessionResultGroup?
+    public let sections: [Section]
+}
+
+/// The lead (the first Summary group) and every other group numbered in
+/// order. Fixture `session-results.json` `guide.sections` (×4).
+public func sessionResultsGuide(_ groups: [SessionResultGroup]) -> SessionResultsGuide {
+    let leadIndex = groups.firstIndex { isSummaryTopic($0.topic) }
+    let rest = groups.enumerated().filter { $0.offset != leadIndex }.map(\.element)
+    return SessionResultsGuide(
+        lead: leadIndex.map { groups[$0] },
+        sections: rest.enumerated().map { offset, group in
+            SessionResultsGuide.Section(group: group, index: offset + 1, total: rest.count)
+        }
+    )
+}
+
+/// A section's caption, two-digit zero-padded: `01 / 04`.
+public func guideSectionCaption(_ index: Int, _ total: Int) -> String {
+    String(format: "%02d / %02d", index, total)
+}
+
+/// One file row under a Guide section: counts only when the path matches a
+/// loaded diff file exactly.
+public struct GuideFileRow: Equatable, Sendable, Identifiable {
+    public let path: String
+    public let additions: Int?
+    public let deletions: Int?
+
+    public init(path: String, additions: Int? = nil, deletions: Int? = nil) {
+        self.path = path
+        self.additions = additions
+        self.deletions = deletions
+    }
+
+    public var id: String { path }
+}
+
+/// One row per path in order. Fixture `guide.fileRows` (×4).
+public func guideFileRows(_ paths: [String], files: [Diff.File]?) -> [GuideFileRow] {
+    paths.map { path in
+        guard let file = files?.first(where: { $0.path == path }) else {
+            return GuideFileRow(path: path)
+        }
+        return GuideFileRow(path: path, additions: file.additions, deletions: file.deletions)
     }
 }
 

@@ -230,6 +230,90 @@ final class SessionResultsTests: XCTestCase {
         }
     }
 
+    // MARK: EXP-1154 — files on a topic, and the Guide (`files` + `guide`).
+
+    func testATextEntrysFilesRideItsGroupPerTheFixture() throws {
+        let block = try XCTUnwrap(try fixture()["files"] as? [String: Any])
+        XCTAssertEqual(maxSessionResultFiles, block["maxFiles"] as? Int)
+        let cases = try XCTUnwrap(block["cases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let expected = try XCTUnwrap(testCase["expected"] as? [[String: Any]])
+            let groups = parseSessionResultGroups(try rawString(testCase["raw"]))
+            XCTAssertEqual(groups.map(\.topic), expected.map { $0["topic"] as? String }, name)
+            XCTAssertEqual(
+                groups.map(\.files), expected.map { $0["files"] as? [String] ?? [] }, name
+            )
+        }
+    }
+
+    func testCapsATopicsFilesAt40() {
+        let paths = (0..<50).map { #""f\#($0).ts""# }.joined(separator: ",")
+        let groups = parseSessionResultGroups(#"[{"topic":"t","text":"x","files":[\#(paths)]}]"#)
+        XCTAssertEqual(groups.first?.files.count, 40)
+        XCTAssertEqual(groups.first?.files.last, "f39.ts")
+    }
+
+    func testTheGuideLeadsWithTheFirstSummaryPerTheFixture() throws {
+        let guide = try XCTUnwrap(try fixture()["guide"] as? [String: Any])
+        let cases = try XCTUnwrap(guide["sections"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let topics = try XCTUnwrap(testCase["topics"] as? [String])
+            let result = sessionResultsGuide(
+                topics.map { SessionResultGroup(topic: $0, text: "t", entries: []) }
+            )
+            XCTAssertEqual(result.lead?.topic, testCase["lead"] as? String, name)
+            let expected = try XCTUnwrap(testCase["sections"] as? [[Any]])
+            XCTAssertEqual(
+                result.sections.map { "\($0.group.topic)|\($0.index)|\($0.total)" },
+                expected.map { "\($0[0] as? String ?? "")|\($0[1] as? Int ?? -1)|\($0[2] as? Int ?? -1)" },
+                name
+            )
+        }
+    }
+
+    func testCaptionsASectionTwoDigitPerTheFixture() throws {
+        let guide = try XCTUnwrap(try fixture()["guide"] as? [String: Any])
+        let cases = try XCTUnwrap(guide["captions"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            XCTAssertEqual(
+                guideSectionCaption(
+                    try XCTUnwrap(testCase["index"] as? Int), try XCTUnwrap(testCase["total"] as? Int)
+                ),
+                testCase["text"] as? String
+            )
+        }
+    }
+
+    func testResolvesFileRowCountsByExactPathPerTheFixture() throws {
+        let guide = try XCTUnwrap(try fixture()["guide"] as? [String: Any])
+        let cases = try XCTUnwrap(guide["fileRows"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let paths = try XCTUnwrap(testCase["paths"] as? [String])
+            let diff = (testCase["diff"] as? [[String: Any]])?.map {
+                Diff.File(
+                    path: $0["path"] as? String ?? "",
+                    additions: $0["additions"] as? Int ?? 0,
+                    deletions: $0["deletions"] as? Int ?? 0
+                )
+            }
+            let expected = try XCTUnwrap(testCase["expected"] as? [[String: Any]]).map {
+                GuideFileRow(
+                    path: $0["path"] as? String ?? "",
+                    additions: $0["additions"] as? Int,
+                    deletions: $0["deletions"] as? Int
+                )
+            }
+            XCTAssertEqual(guideFileRows(paths, files: diff), expected, name)
+        }
+    }
+
     func testTextEntriesDoNotCountTowardThe60PictureCap() {
         var rows: [String] = [#"{"topic":"Summary","text":"Report"}"#]
         for index in 0..<70 {

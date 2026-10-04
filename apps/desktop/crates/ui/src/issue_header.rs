@@ -681,7 +681,8 @@ impl IssueHeader {
     /// so the menu is always rendered, not just for a duplicate.
     ///
     /// Items, in web order and with NO dividers (EXP-697): Copy link · Add
-    /// relation ▸ · Unmark duplicate (only when it IS one) · Delete issue.
+    /// relation ▸ · Unmark duplicate (only when it IS one) · Close PR
+    /// (EXP-1154: only while the PR is open) · Delete issue.
     fn render_actions_menu(
         &mut self,
         issue: &Issue,
@@ -691,6 +692,22 @@ impl IssueHeader {
         let issue_id = issue.id.clone();
         let identifier = issue.identifier.clone();
         let is_duplicate = issue.duplicate_of_id.is_some();
+        // EXP-1154: closing the PR without merging lives here now (the review
+        // screen and its reject glyph are gone). Every viewer of an issue is
+        // a member (nothing is anonymously readable), so the open PR is the
+        // whole gate. A batch PR names how many other issues it closes for.
+        let close_pr = (issue.pr_state.as_deref() == Some("open")).then(|| {
+            let others = issue.pr_url.as_deref().map_or(0, |pr_url| {
+                Store::global(cx)
+                    .collections()
+                    .issues
+                    .read(cx)
+                    .iter()
+                    .filter(|other| other.id != issue.id && other.pr_url.as_deref() == Some(pr_url))
+                    .count()
+            });
+            close_pr_description(others)
+        });
         // EXP-862: the "..." is a GHOST glyph, never a circle.
         crate::controls::ghost_icon_button("issue-actions", Icon::new(registry::UI_MORE), cx)
             .tooltip("Issue actions")
@@ -728,6 +745,19 @@ impl IssueHeader {
                             .on_click(move |_, _, cx| {
                                 set_duplicate_of(issue_id.clone(), None, cx);
                             }),
+                    );
+                }
+                if let Some(description) = close_pr.clone() {
+                    let issue_id = issue_id.clone();
+                    menu = menu.item(
+                        crate::controls::danger_menu_item(
+                            domain::contract::DIFF_UI_CLOSE_PR,
+                            Icon::new(registry::PR_CLOSED),
+                            cx,
+                        )
+                        .on_click(move |_, window, cx| {
+                            prompt_close_pr(issue_id.clone(), description.clone(), window, cx);
+                        }),
                     );
                 }
                 let issue_id = issue_id.clone();
@@ -1145,9 +1175,68 @@ pub(crate) fn header_action_styles(start_visible: bool, pr_open: bool) -> Header
 }
 
 
+/// EXP-1154 — the Close PR confirm's copy (fixture `close-pr.json`, ×4).
+pub(crate) const CLOSE_PR_TITLE: &str = "Close pull request?";
+pub(crate) const CLOSE_PR_BODY: &str = "Closes the pull request on GitHub without merging. Use this when the issue was dropped even though the work exists. The branch is kept and the PR can be reopened on GitHub.";
+pub(crate) const CLOSE_PR_BATCH_LINE: &str = "It also closes the pull request for {n} linked issues.";
+pub(crate) const CLOSE_PR_CONFIRM: &str = "Close PR";
+
+/// EXP-1154 — the confirm's body: [`CLOSE_PR_BODY`], plus the batch line
+/// when the PR links `others` more issues.
+pub(crate) fn close_pr_description(others: usize) -> String {
+    if others == 0 {
+        return CLOSE_PR_BODY.to_string();
+    }
+    format!(
+        "{CLOSE_PR_BODY} {}",
+        CLOSE_PR_BATCH_LINE.replace("{n}", &others.to_string())
+    )
+}
+
+/// EXP-1154 — confirm, then close `issue_id`'s PR without merging through
+/// the shared [`crate::pr_merge`] machinery (a refusal captions under the
+/// header's merge slot, like a failed merge).
+fn prompt_close_pr(issue_id: String, description: String, window: &mut Window, cx: &mut App) {
+    let tall = description.len() > CLOSE_PR_BODY.len();
+    let spec = crate::native_dialog::AlertSpec::new(CLOSE_PR_TITLE, description, CLOSE_PR_CONFIRM)
+        .ok_variant(gpui_component::button::ButtonVariant::Danger)
+        .height(gpui::px(if tall { 280. } else { 250. }))
+        .on_ok(move |_, cx| {
+            crate::pr_merge::fire_confirmed(
+                crate::pr_merge::MergeOp::CloseIssuePr {
+                    issue_id: issue_id.clone(),
+                },
+                cx,
+            );
+            true
+        });
+    crate::native_dialog::open_alert(window, cx, spec);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-1154: the Close PR copy is the shared `close-pr.json` (×4), the
+    /// menu item the contract's `diffUi.closePr`, and the batch line names
+    /// the OTHER linked issues.
+    #[test]
+    fn close_pr_copy_matches_the_shared_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/close-pr.json"
+        ))
+        .unwrap();
+        assert_eq!(fixture["menuItem"], domain::contract::DIFF_UI_CLOSE_PR);
+        assert_eq!(fixture["title"], CLOSE_PR_TITLE);
+        assert_eq!(fixture["body"], CLOSE_PR_BODY);
+        assert_eq!(fixture["batchLine"], CLOSE_PR_BATCH_LINE);
+        assert_eq!(fixture["confirm"], CLOSE_PR_CONFIRM);
+        assert_eq!(close_pr_description(0), CLOSE_PR_BODY);
+        assert_eq!(
+            close_pr_description(2),
+            format!("{CLOSE_PR_BODY} It also closes the pull request for 2 linked issues.")
+        );
+    }
 
     /// EXP-760: exactly ONE emphasised pill in the tray. An open PR makes it
     /// Merge and demotes Start coding; without one, Start coding keeps it.

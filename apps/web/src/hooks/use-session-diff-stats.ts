@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react"
-import { parseDiff, totals } from "@exp/domain-contract/diff"
+import { parseDiff, totals, type DiffFile } from "@exp/domain-contract/diff"
 import type { CodingSession } from "@/db/schema"
 import { acquireSteerSession } from "@/lib/steer-session-store"
 
@@ -24,9 +24,17 @@ export interface SessionDiffStats {
   fileCount: number
   additions: number
   deletions: number
+  /** EXP-1154: the parsed files the counts sum, for the Guide's rows (one
+   *  parse serves both). */
+  files: DiffFile[]
 }
 
-const EMPTY: SessionDiffStats = { fileCount: 0, additions: 0, deletions: 0 }
+const EMPTY: SessionDiffStats = {
+  fileCount: 0,
+  additions: 0,
+  deletions: 0,
+  files: [],
+}
 
 const noSubscribe = () => () => {}
 const noDiff = () => null
@@ -100,11 +108,13 @@ export function useSessionDiffStats(
   )
   return useMemo(() => {
     if (!latestDiff) return EMPTY
-    const sum = totals(parseDiff(latestDiff).files)
+    const files = parseDiff(latestDiff).files
+    const sum = totals(files)
     return {
       fileCount: sum.files,
       additions: sum.additions,
       deletions: sum.deletions,
+      files,
     }
   }, [latestDiff])
 }

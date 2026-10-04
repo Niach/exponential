@@ -9,24 +9,39 @@ import UIKit
 /// `coding_sessions.results` blob. EXP-933: the run's REPORT — each topic's
 /// GFM text renders above its tiles.
 ///
-/// ONE scrolling page: a filled group band (EXP-818) per topic, then a
-/// WRAPPING ROW of equal-height tiles under it, each captioned with its label.
-/// A tap opens the platform preview (Quick Look) over the same
+/// EXP-1154: the report reads as the GUIDE (`sessionResultsGuide`, web
+/// `SessionResultsView`): the `Summary` topic is the lead paragraph with no
+/// band and no number; every other topic wears the shared `GlassSectionBand`
+/// with the muted `01 / 03` caption in its leading slot, then its text, the
+/// FILES it touched (flat hairline rows, the diff path + `+N −M` once the
+/// path matches a loaded diff file; a tap opens the Changes face on it), then
+/// a WRAPPING ROW of equal-height tiles, each captioned with its label. With
+/// no report yet, an open PR's GitHub body stands in (`prFallback`) as ONE
+/// band labelled with the PR title.
+///
+/// A tile tap opens the platform preview (Quick Look) over the same
 /// download-to-temp path the comment strips use; a TALL picture (EXP-1128, a
 /// full-page capture) opens `TallImageViewerSheet` instead, a width-fit
-/// vertical scroll. This face owns NEITHER Stop /
-/// Resume (the Run face's) NOR the merge bar (the Changes face's), and
-/// (EXP-1150) no bottom bar at all — the faces are the screen's tab strip.
+/// vertical scroll.
 ///
 /// EXP-1172: a group's folded `earlier` pictures (the `sessions_show` shots
 /// filed while the run worked) sit under its tiles behind a collapsed
 /// `Earlier · N` row that expands in place to the same tiles.
 ///
-/// The pure rules — parse, group, tile size — are `ExpCore/SessionResults`,
-/// mirrored by web `lib/session-results.ts`, desktop `session_results.rs` and
-/// Android `domain/SessionResults.kt`.
+/// The pure rules — parse, group, guide, tile size — are
+/// `ExpCore/SessionResults`, mirrored by web `session-results.ts`, desktop
+/// `session_results.rs` and Android `domain/SessionResults.kt`.
 struct SessionResultsFace: View {
     let groups: [SessionResultGroup]
+    /// EXP-1154: the Changes face's loaded files — what a file row's counts
+    /// resolve against. nil = no diff loaded (rows draw the path alone).
+    var files: [Diff.File]? = nil
+    /// EXP-1154: a file row's tap — the Changes face with that file
+    /// selected. nil = the rows are plain (no Changes face to open).
+    var onOpenFile: ((String) -> Void)? = nil
+    /// EXP-1154: the open PR's GitHub title + body, drawn when `groups` is
+    /// empty.
+    var prFallback: PrDescription? = nil
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -61,26 +76,35 @@ struct SessionResultsFace: View {
         )
     }
 
+    private var guide: SessionResultsGuide { sessionResultsGuide(groups) }
+
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 20) {
-                // By position: one topic can repeat.
-                ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
-                    VStack(alignment: .leading, spacing: 0) {
-                        GlassSectionBand(group.topic)
-                        // EXP-933: the topic's report text sits ABOVE its
-                        // tiles; a text-only topic is header + text.
-                        if let text = group.text {
-                            AgentMarkdownText(text: text, context: markdownContext)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.top, 8)
-                                .padding(.bottom, group.entries.isEmpty ? 0 : 12)
+            LazyVStack(alignment: .leading, spacing: 24) {
+                if groups.isEmpty, let prFallback {
+                    fallback(prFallback)
+                } else {
+                    let guide = guide
+                    if let lead = guide.lead {
+                        VStack(alignment: .leading, spacing: 0) {
+                            groupBody(lead)
                         }
-                        if !group.entries.isEmpty {
-                            tiles(group.entries)
-                        }
-                        if !group.earlier.isEmpty {
-                            earlierBand(group)
+                        .accessibilityIdentifier("guide-lead")
+                    }
+                    // By position: one topic can repeat.
+                    ForEach(Array(guide.sections.enumerated()), id: \.offset) { _, section in
+                        VStack(alignment: .leading, spacing: 0) {
+                            GlassSectionBand(section.group.topic) {
+                                Text(guideSectionCaption(section.index, section.total))
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                                    .padding(.trailing, 2)
+                                    .accessibilityIdentifier("guide-section-caption")
+                            } trailing: {
+                                EmptyView()
+                            }
+                            groupBody(section.group)
+                                .padding(.top, 4)
                         }
                     }
                 }
@@ -92,6 +116,91 @@ struct SessionResultsFace: View {
             contentWidth = width
         }
         .accessibilityIdentifier("session-results")
+    }
+
+    /// One topic under its band (or as the lead): the text, the files it
+    /// touched, the tiles, the `Earlier` fold.
+    @ViewBuilder
+    private func groupBody(_ group: SessionResultGroup) -> some View {
+        // EXP-933: the topic's report text sits ABOVE its tiles; a
+        // text-only topic is header + text.
+        if let text = group.text {
+            AgentMarkdownText(text: text, context: markdownContext)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 4)
+        }
+        if !group.files.isEmpty {
+            fileList(group.files)
+                .padding(.top, group.text == nil ? 4 : 12)
+        }
+        if !group.entries.isEmpty {
+            tiles(group.entries)
+                .padding(.top, group.text == nil && group.files.isEmpty ? 4 : 12)
+        }
+        if !group.earlier.isEmpty {
+            earlierBand(group)
+        }
+    }
+
+    /// EXP-1154: the files a topic touched — flat rows between hairlines,
+    /// the path and (when the loaded diff knows it) its `+N −M`.
+    private func fileList(_ paths: [String]) -> some View {
+        VStack(spacing: 0) {
+            GlassDivider()
+            ForEach(guideFileRows(paths, files: files)) { row in
+                fileRow(row)
+                GlassDivider()
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("session-results-files")
+    }
+
+    @ViewBuilder
+    private func fileRow(_ row: GuideFileRow) -> some View {
+        let label = HStack(spacing: 12) {
+            DiffPathLabel(path: row.path)
+            Spacer(minLength: 0)
+            if let additions = row.additions, let deletions = row.deletions {
+                DiffCountsLabel(additions: additions, deletions: deletions)
+            }
+        }
+        .padding(.horizontal, 4)
+        .frame(minHeight: 36)
+        .contentShape(Rectangle())
+        if let onOpenFile {
+            Button { onOpenFile(row.path) } label: { label }
+                .buttonStyle(.plain)
+                .flatRow()
+                .accessibilityLabel(row.path)
+                .accessibilityIdentifier("session-results-file-row")
+        } else {
+            label
+                .flatRow()
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("session-results-file-row")
+        }
+    }
+
+    /// EXP-1154: an open PR with no run report — its GitHub body as one band
+    /// labelled with the PR title.
+    private func fallback(_ description: PrDescription) -> some View {
+        let title = description.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let body = description.body?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return VStack(alignment: .leading, spacing: 0) {
+            GlassSectionBand(title.isEmpty ? "Pull request" : title)
+            if body.isEmpty {
+                Text("No description.")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .padding(.top, 4)
+            } else {
+                AgentMarkdownText(text: body, context: markdownContext)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 4)
+            }
+        }
+        .accessibilityIdentifier("session-results-pr-body")
     }
 
     private func tiles(_ entries: [SessionResultEntry]) -> some View {

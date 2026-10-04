@@ -89,6 +89,7 @@ describe(`session results`, () => {
           { topic: `chatui`, label: `ios`, attachmentId: `a3`, width: null, height: null, inline: false, caption: null },
         ],
         earlier: [],
+        files: [],
       },
       {
         topic: `nav`,
@@ -97,6 +98,7 @@ describe(`session results`, () => {
           { topic: `nav`, label: `web`, attachmentId: `a2`, width: null, height: null, inline: false, caption: null },
         ],
         earlier: [],
+        files: [],
       },
     ])
     expect(groupSessionResults([])).toEqual([])
@@ -222,4 +224,66 @@ describe(`session inline fixture`, () => {
       ).toEqual(c.expected)
     })
   }
+})
+
+// EXP-1154: a text entry's files + the Guide rules, the fixture's `files` and
+// `guide` blocks ×4.
+import {
+  SESSION_RESULT_FILES_MAX,
+  guideFileRows,
+  guideSectionCaption,
+  guideSections,
+  isSummaryTopic,
+} from "./session-results"
+
+describe(`session results guide fixture`, () => {
+  it(`pins the files cap`, () => {
+    expect(SESSION_RESULT_FILES_MAX).toBe(fixture.files.maxFiles)
+  })
+  for (const c of fixture.files.cases) {
+    it(`files: ${c.name}`, () => {
+      expect(
+        parseSessionResultGroups(c.raw).map((group) => ({
+          topic: group.topic,
+          files: group.files,
+        }))
+      ).toEqual(c.expected)
+    })
+  }
+  it(`caps a topic's files`, () => {
+    const many = Array.from({ length: 50 }, (_, index) => `f${index}.ts`)
+    const [group] = parseSessionResultGroups([{ topic: `t`, text: `x`, files: many }])
+    expect(group.files).toHaveLength(SESSION_RESULT_FILES_MAX)
+    expect(group.files[0]).toBe(`f0.ts`)
+  })
+  for (const c of fixture.guide.sections) {
+    it(`sections: ${c.name}`, () => {
+      const guide = guideSections(c.topics.map((topic) => ({ topic })))
+      expect(guide.lead?.topic ?? null).toBe(c.lead)
+      expect(
+        guide.sections.map((section) => [section.group.topic, section.index, section.total])
+      ).toEqual(c.sections)
+    })
+  }
+  it(`captions`, () => {
+    for (const c of fixture.guide.captions) {
+      expect(guideSectionCaption(c.index, c.total)).toBe(c.text)
+    }
+  })
+  for (const c of fixture.guide.fileRows) {
+    it(`file rows: ${c.name}`, () => {
+      expect(
+        guideFileRows(c.paths, c.diff).map((row) => ({
+          path: row.path,
+          additions: row.counts?.additions ?? null,
+          deletions: row.counts?.deletions ?? null,
+        }))
+      ).toEqual(c.expected)
+    })
+  }
+  it(`reads the Summary topic trimmed and case-insensitive`, () => {
+    expect(isSummaryTopic(` summary `)).toBe(true)
+    expect(isSummaryTopic(`SUMMARY`)).toBe(true)
+    expect(isSummaryTopic(`Summary of nav`)).toBe(false)
+  })
 })

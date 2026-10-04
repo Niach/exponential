@@ -1,0 +1,8 @@
+{
+  "$comment": "EXP-1154: the Close PR copy x4. The issue's actions menu item = contract diffUi.closePr (pr-closed glyph, destructive, members only while the PR is open); the confirm dialog = title, body, plus batchLine when the PR links more issues ({n} = how many others), confirm button = confirm; failure = the platform's toast with the merge-failure message. Read by one test per client: web, desktop, iOS, Android.",
+  "menuItem": "Close PR without merging",
+  "title": "Close pull request?",
+  "body": "Closes the pull request on GitHub without merging. Use this when the issue was dropped even though the work exists. The branch is kept and the PR can be reopened on GitHub.",
+  "batchLine": "It also closes the pull request for {n} linked issues.",
+  "confirm": "Close PR"
+}

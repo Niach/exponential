@@ -17,24 +17,26 @@ export function useSidebarOccupant(): SidebarOccupant {
       return typeof value === `string` ? value : null
     },
   })
-  // EXP-945: the run's Changes face (`?view=diff`) puts its file tree in the
-  // panel, exactly where a review's sits.
+  // EXP-945: a run's (EXP-1154: or an issue's) Changes face (`?view=diff`)
+  // puts its file tree in the panel.
   const viewToken = useRouterState({
     select: (s) => {
       const value = (s.location.search as { view?: unknown }).view
       return typeof value === `string` ? value : null
     },
   })
-  // A run publishes its tree only while its Changes face really draws (the
+  // A subject publishes its tree only while its Changes face really draws (the
   // owner's live view). A teammate's read-only run, or a run still loading,
   // has nothing to put in the panel, so the URL alone must not swap it in or
   // the panel would sit on "Loading changes" for good. Only the published
   // SUBJECT is read (a primitive), never the slot: the slot republishes a
   // fresh object on every diff tick and file pick, and this hook sits under
-  // the whole team layout. It must be THIS run's tree — a slot left over
-  // from the previous review would otherwise swap the panel in for a frame.
+  // the whole team layout. It must be THIS subject's tree (a run's id, an
+  // issue's identifier) — a slot left over from the previous one would
+  // otherwise swap the panel in for a frame.
   const subjectId = useReviewFilesSubjectId()
-  const sessionId = /\/sessions\/([^/]+)$/.exec(pathname)?.[1] ?? null
+  const subjectKey =
+    /\/(?:sessions|issues)\/([^/]+)$/.exec(pathname)?.[1] ?? null
   // EXP-923: the ONE occupant the URL does not decide — the Agent page's
   // Recent panel, opened by that page's history button and dropped when the
   // page unmounts (`lib/recent-runs-panel.ts`). It can only be up while that
@@ -44,6 +46,6 @@ export function useSidebarOccupant(): SidebarOccupant {
   return sidebarOccupant(
     pathname,
     fromToken,
-    sessionId !== null && subjectId !== sessionId ? null : viewToken
+    subjectKey !== null && subjectId !== subjectKey ? null : viewToken
   )
 }

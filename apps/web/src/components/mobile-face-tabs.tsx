@@ -3,11 +3,9 @@ import {
   useEffect,
   useRef,
   type CSSProperties,
-  type ReactNode,
   type TouchEvent,
 } from "react"
 import { ChangesFaceLabel, type WorkFaceStripRun } from "@exp/ui"
-import { cn } from "@/lib/utils"
 import type { CodingSession } from "@/db/schema"
 import type { PastRunRow } from "@/hooks/use-agents-data"
 import {
@@ -436,10 +434,6 @@ export interface MobileFaceTabsProps {
   changesCounts?: ChangesFaceCounts | null
   onFace: (face: WorkFaceKind) => void
   onOpenRun?: (session: CodingSession) => void
-  /** EXP-1150: the band's Merge PR pill (`MergePrPill placement="header"`),
-   *  at the row's trailing end on every face while the PR is open — the ONE
-   *  merge of the phone Work screen. The strip gives way to it. */
-  trailing?: ReactNode
 }
 
 export function MobileFaceTabs({
@@ -452,7 +446,6 @@ export function MobileFaceTabs({
   changesCounts = null,
   onFace,
   onOpenRun,
-  trailing,
 }: MobileFaceTabsProps) {
   const multipleRuns = runs.length > 1
   const shownIndex = faces.indexOf(face)
@@ -481,22 +474,15 @@ export function MobileFaceTabs({
   // caret alone earns it); the row must vanish with it or it leaves a gap.
   const hasRunMenu = multipleRuns && faces.includes(`run`) && Boolean(onOpenRun)
   const hasTabs = items.length >= 2 || hasRunMenu
-  const hasTrailing = trailing !== undefined && trailing !== null
-  if (!hasTabs && !hasTrailing) return null
+  if (!hasTabs) return null
+  // EXP-1154: the tabs sit centred; the phone's Merge rides the floating bar
+  // again (`MergeCapsule` / `MobileMergeFloat`), never this row.
   return (
     <div
-      className={cn(
-        `flex shrink-0 items-center gap-2 px-4 pb-2`,
-        hasTrailing ? `justify-between` : `justify-center`
-      )}
+      className="flex shrink-0 items-center justify-center gap-2 px-4 pb-2"
       data-testid="mobile-face-tabs"
     >
-      <div
-        className={cn(
-          `flex min-w-0 overflow-x-auto [scrollbar-width:none]`,
-          hasTrailing ? `justify-start` : `justify-center`
-        )}
-      >
+      <div className="flex min-w-0 justify-center overflow-x-auto [scrollbar-width:none]">
       <WorkFaceToggle
         face={toToggleFace(face)}
         items={items}
@@ -515,7 +501,6 @@ export function MobileFaceTabs({
         }
       />
       </div>
-      {trailing}
     </div>
   )
 }

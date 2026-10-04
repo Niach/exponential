@@ -461,11 +461,10 @@ fn stack_row(entry: &PrEntry, cx: &mut App) -> AnyElement {
         .cursor_pointer()
         .hover(|style| style.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
         .on_click(move |_: &ClickEvent, window, cx| {
-            let screen = crate::navigation::Screen::PrDiff {
-                issue_id: issue_id.clone(),
-            };
+            // EXP-1154: the PR's review = its issue's Changes face.
+            let issue_id = issue_id.clone();
             crate::native_dialog::close_then(window, cx, move |window, cx| {
-                crate::navigation::navigate(window, cx, screen);
+                crate::screens::open_issue_changes(&issue_id, None, window, cx);
             });
         })
         .child(Icon::new(glyph).small().flex_shrink_0().text_color(muted))

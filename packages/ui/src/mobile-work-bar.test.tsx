@@ -35,7 +35,7 @@ describe(`MobileWorkBar`, () => {
     expect(trailing.parentElement?.className).toContain(`hidden`)
   })
 
-  // EXP-916: the Reviews page's layout — Android's centred cluster, no
+  // EXP-916: the Changes / Results layout — Android's centred cluster, no
   // stretched placeholder where the capsule is missing.
   it(`cluster centres the slots and never pads an empty capsule`, () => {
     render(

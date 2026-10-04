@@ -54,7 +54,7 @@ object PopRects {
      * `agent-composer-headline` (EXP-1038: the run's subject moved out of the
      * card, so the pop-out has to take it in) + `agent-composer` +
      * `agent-options-row`, `agent-feed-question`,
-     * `pr-merge-bar`, `notification-row`, plus the pre-existing `action-row`,
+     * `work-merge-pr` (EXP-1154: the Changes face's white Merge capsule; the other faces' capsules carry `-issue`/`-run`/`-results` so the first match is the on-screen one), `notification-row`, plus the pre-existing `action-row`,
      * `support-thread-row` and the EXP-642 `issue-row-<identifier>`) and are
      * mirrored 1:1 as iOS accessibility identifiers.
      */
@@ -63,7 +63,7 @@ object PopRects {
         "2_issue-detail" to listOf("issue-description"),
         "3_start-coding" to listOf("agent-composer-headline", "agent-composer", "agent-options-row"),
         "4_steering" to listOf("agent-feed-question"),
-        "5_review" to listOf("pr-merge-bar"),
+        "5_review" to listOf("work-merge-pr"),
         "6_actions" to listOf("action-row"),
         "7_inbox" to listOf("notification-row"),
         "8_support" to listOf("support-thread-row"),

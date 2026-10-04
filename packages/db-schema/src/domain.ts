@@ -479,8 +479,15 @@ export const codingSessionBlockedSchema = z.object({
 // heartbeat reason as the count cap.
 export const SESSION_RESULT_TEXT_MAX = 80
 export const SESSION_RESULTS_MAX = 60
-export const SESSION_RESULT_REPORT_MAX = 4000
-export const SESSION_RESULTS_REPORT_TOTAL_MAX = 12000
+// EXP-1154: the report IS the PR body, so a topic's text is a SECTION (2-3
+// sentences), not a document: 600 per topic, 4000 per run. A text entry may
+// also carry `files` (repo-relative paths the topic touched; the Guide lists
+// them with their diff counts and the PR body bullets them).
+export const SESSION_RESULT_REPORT_MAX = 600
+export const SESSION_RESULTS_REPORT_TOTAL_MAX = 4000
+export const SESSION_RESULT_FILES_MAX = 40
+export const SESSION_RESULT_FILE_PATH_MAX = 300
+export const SESSION_RESULTS_FILES_TOTAL_MAX = 120
 // EXP-1172: a picture may carry `inline: true` (filed by
 // `exponential_sessions_show` while the run worked: it renders in the run's
 // transcript at the call and folds under "Earlier" on the Results face) and a
@@ -498,6 +505,8 @@ export interface CodingSessionResult {
   height: number | null
   /** EXP-933: the topic's GFM report text; absent/null on a picture. */
   text?: string | null
+  /** EXP-1154: the paths a TEXT entry's topic touched; absent without any. */
+  files?: string[] | null
   /** EXP-1172: a `sessions_show` picture; absent on every other entry. */
   inline?: boolean
   /** EXP-1172: the show call's caption; absent without one. */
@@ -513,6 +522,10 @@ export const codingSessionResultSchema = z.object({
   width: z.number().int().nullish(),
   height: z.number().int().nullish(),
   text: z.string().max(SESSION_RESULT_REPORT_MAX).nullish(),
+  files: z
+    .array(z.string().max(SESSION_RESULT_FILE_PATH_MAX))
+    .max(SESSION_RESULT_FILES_MAX)
+    .nullish(),
   inline: z.boolean().nullish(),
   caption: z.string().max(SESSION_RESULT_CAPTION_MAX).nullish(),
 })

@@ -184,7 +184,7 @@ family, one `drive` per view:
 | drive | env | opens |
 | ----- | --- | ----- |
 | `tool`     | `EXP_DEV_TOOL`                      | a rail tool window (board, inbox, reviews, files, source-control) |
-| `screen`   | `EXP_DEV_SCREEN`                    | a centre screen (`settings`, `devices`, `actions`, `action:<id>`, `getting-started`, `issue:<id>`, `pr:<id>`, `session:<coding-session-id>`) |
+| `screen`   | `EXP_DEV_SCREEN`                    | a centre screen (`settings`, `devices`, `actions`, `action:<id>`, `getting-started`, `issue:<id>`, `issue:<id>?face=changes\|results`, `session:<coding-session-id>`) |
 | `settings` | `EXP_DEV_SCREEN` + `EXP_DEV_SETTINGS` | one settings section |
 | `dialog`   | `EXP_DEV_DIALOG`                    | one dialog, fired once from the render path after the state it needs resolves |
 | `login`    | — (no session injected)             | the pre-login card, on its own throwaway data dir |

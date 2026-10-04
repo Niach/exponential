@@ -212,6 +212,101 @@ class SessionResultsTest {
         }
     }
 
+    // EXP-1154: a text entry's `files` ride its group — the fixture's
+    // `files` block, every case, x4.
+    @Test
+    fun `every fixture files case rides the winning text`() {
+        val block = sessionResultsFixture()["files"]!!.jsonObject
+        assertEquals(block["maxFiles"]!!.jsonPrimitive.int, SESSION_RESULT_FILES_MAX)
+        val cases = block["cases"]!!.jsonArray
+        assertTrue(cases.isNotEmpty())
+        for (element in cases) {
+            val case = element.jsonObject
+            val name = case["name"]!!.jsonPrimitive.content
+            val actual = parseSessionResultGroups(case["raw"]!!.toString()).map { it.topic to it.files }
+            val expected = case["expected"]!!.jsonArray.map { groupElement ->
+                val group = groupElement.jsonObject
+                group["topic"]!!.jsonPrimitive.content to
+                    group["files"]!!.jsonArray.map { it.jsonPrimitive.content }
+            }
+            assertEquals(name, expected, actual)
+        }
+    }
+
+    @Test
+    fun `caps a topic's files`() {
+        val paths = (0 until 50).joinToString(",") { "\"f$it.ts\"" }
+        val group = parseSessionResultGroups("""[{"topic":"t","text":"hi","files":[$paths]}]""").single()
+        assertEquals(SESSION_RESULT_FILES_MAX, group.files.size)
+        assertEquals("f39.ts", group.files.last())
+        // The picture-only reader never carries files.
+        assertTrue(groupSessionResults(parseSessionResults("""[{"topic":"t","label":"web","attachmentId":"a"}]""")).single().files.isEmpty())
+    }
+
+    // EXP-1154: the Guide — the fixture's `guide` block, x4.
+    @Test
+    fun `every fixture guide sections case leads with the first summary`() {
+        val cases = sessionResultsFixture()["guide"]!!.jsonObject["sections"]!!.jsonArray
+        assertTrue(cases.isNotEmpty())
+        for (element in cases) {
+            val case = element.jsonObject
+            val name = case["name"]!!.jsonPrimitive.content
+            val groups = case["topics"]!!.jsonArray.map { SessionResultGroup(it.jsonPrimitive.content, emptyList()) }
+            val guide = sessionResultsGuide(groups)
+            val lead = case["lead"]!!.takeUnless { it is JsonNull }?.jsonPrimitive?.content
+            assertEquals(name, lead, guide.lead?.topic)
+            val expected = case["sections"]!!.jsonArray.map { row ->
+                val cells = row.jsonArray
+                Triple(cells[0].jsonPrimitive.content, cells[1].jsonPrimitive.int, cells[2].jsonPrimitive.int)
+            }
+            assertEquals(name, expected, guide.sections.map { Triple(it.group.topic, it.index, it.total) })
+        }
+    }
+
+    @Test
+    fun `every fixture guide caption is two-digit zero-padded`() {
+        val cases = sessionResultsFixture()["guide"]!!.jsonObject["captions"]!!.jsonArray
+        assertTrue(cases.isNotEmpty())
+        for (element in cases) {
+            val case = element.jsonObject
+            assertEquals(
+                case["text"]!!.jsonPrimitive.content,
+                guideSectionCaption(case["index"]!!.jsonPrimitive.int, case["total"]!!.jsonPrimitive.int),
+            )
+        }
+        assertTrue(isSummaryTopic(" summary "))
+        assertFalse(isSummaryTopic("Summary of it"))
+    }
+
+    @Test
+    fun `every fixture guide file rows case matches paths exactly`() {
+        val cases = sessionResultsFixture()["guide"]!!.jsonObject["fileRows"]!!.jsonArray
+        assertTrue(cases.isNotEmpty())
+        for (element in cases) {
+            val case = element.jsonObject
+            val name = case["name"]!!.jsonPrimitive.content
+            val paths = case["paths"]!!.jsonArray.map { it.jsonPrimitive.content }
+            val diff = case["diff"]!!.takeUnless { it is JsonNull }?.jsonArray?.map { file ->
+                val f = file.jsonObject
+                Diff.File(
+                    path = f["path"]!!.jsonPrimitive.content,
+                    additions = f["additions"]!!.jsonPrimitive.int,
+                    deletions = f["deletions"]!!.jsonPrimitive.int,
+                )
+            }
+            val expected = case["expected"]!!.jsonArray.map { row ->
+                val r = row.jsonObject
+                val additions = r["additions"]!!.takeUnless { it is JsonNull }?.jsonPrimitive?.int
+                val deletions = r["deletions"]!!.takeUnless { it is JsonNull }?.jsonPrimitive?.int
+                GuideFileRow(
+                    r["path"]!!.jsonPrimitive.content,
+                    if (additions != null && deletions != null) GuideFileCounts(additions, deletions) else null,
+                )
+            }
+            assertEquals(name, expected, guideFileRows(paths, diff))
+        }
+    }
+
     @Test
     fun `report groups keep the 60 picture cap`() {
         val many = (0 until 80).joinToString(",") { index ->

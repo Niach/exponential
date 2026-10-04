@@ -48,7 +48,7 @@ function CodingRowStack({ children }: { children: ReactNode }) {
 // The coding affordances of the issue detail (EXP-106): a compact "coding now"
 // / remote-start control that NAVIGATES to the run's session page (EXP-740 —
 // it never mounts the live viewer itself), plus a PR / pushed-branch row that
-// links to the review-detail route. Membership + relay availability gate
+// opens the issue's Changes face (EXP-1154: the review of the PR). Membership + relay availability gate
 // them (the same signals the server enforces); EXP-1121: a missing repository
 // or device no longer hides Start coding — it turns the capsule into the
 // readiness checklist's entry point.
@@ -425,8 +425,14 @@ function PrRow({
       <CodingRowStack>
         <GlassRow asChild interactive className="min-w-0 gap-2 text-sm">
           <Link
-            to="/t/$teamSlug/reviews/$issueIdentifier"
-            params={{ teamSlug, issueIdentifier: issue.identifier }}
+            to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
+            params={{
+              teamSlug,
+              boardSlug: board.slug,
+              issueIdentifier: issue.identifier,
+            }}
+            /* EXP-1154: the review of the PR = this issue's Changes face. */
+            search={{ view: `diff` }}
           >
             <GitPullRequest className="size-4 shrink-0 text-muted-foreground" />
             <PrStateBadge state={issue.prState} />
@@ -448,8 +454,14 @@ function PrRow({
       <CodingRowStack>
         <GlassRow asChild interactive className="min-w-0 gap-2 text-sm">
           <Link
-            to="/t/$teamSlug/reviews/$issueIdentifier"
-            params={{ teamSlug, issueIdentifier: issue.identifier }}
+            to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
+            params={{
+              teamSlug,
+              boardSlug: board.slug,
+              issueIdentifier: issue.identifier,
+            }}
+            /* EXP-1154: the review of the PR = this issue's Changes face. */
+            search={{ view: `diff` }}
           >
             <GitBranch className="size-4 shrink-0 text-muted-foreground" />
             <span className="truncate">

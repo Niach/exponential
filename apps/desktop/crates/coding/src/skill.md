@@ -8,7 +8,7 @@ Your working directory is your whole subject: a worktree of the run's repository
 
 ## Issue refs and mentions
 
-- Write `#IDENT` (e.g. `#ABC-12`) whenever you name an issue in a comment, description or PR body: it renders as a pill with the title (never repeat it) and links the issues as related; a bare `ABC-12` links nothing.
+- Write `#IDENT` (e.g. `#ABC-12`) whenever you name an issue in a comment, description or report: it renders as a pill with the title (never repeat it) and links the issues as related; a bare `ABC-12` links nothing.
 - `@<email>` in a comment mentions and notifies that member (`exponential_members_list` resolves emails).
 
 ## Follow-ups and follow-up runs
@@ -17,7 +17,7 @@ Prefer a new issue over widening your PR for out-of-scope work, a bug you will n
 
 1. `exponential_issues_create` on the board of the issue you work on (`boardId`), a GFM description that names your issue as `#IDENT`, plus `priority`, `labelIds` or `assigneeId` when you know them. A sub-issue: pass `parentId` (the parent's UUID) in the same call.
 2. Any other relation via `exponential_issue_relations_add`: `parent`, `blocks` (ordering), `duplicate` or `related`; `issueId` is the first issue, `relatedIssueId` the other, `inverse: true` flips the direction.
-3. Name it (`#IDENT`) in your comment or PR body.
+3. Name it (`#IDENT`) in your comment or report.
 
 Never file an issue for what you can finish in your own PR.
 
@@ -33,11 +33,11 @@ A running subagent is never messaged: `SendMessage` to its id resumes a SECOND c
 
 ## Pull requests
 
-One branch `exp/<IDENT>` and one PR per issue; a PR may link several issues (a batch: `issueIds` plus `head`). The PR body names the issue and every related one as `#IDENT`. Open with `exponential_pr_open`; dependent work branches from the lower PR's branch and passes it as `base`. Merge with `exponential_pr_merge` only when the user asks. Merge a tree root first: `exponential_pr_merge({issueIds: [root, children..., grandchildren...]})` merges in that order and the root's merge retargets its children. A plain line of stacked PRs: `exponential_pr_merge({issueId: <top>, mergeStack: true})` merges it bottom-up. A child refused as dirty afterwards: `exponential_pr_retarget` if its base is gone, `git rebase --onto` the default branch dropping the parent's commits, push `--force-with-lease`, merge again. Never merge a mid-tree PR alone. Later commits changed the scope: `exponential_pr_update` rewrites the title or body. Never use `gh`.
+One branch `exp/<IDENT>` and one PR per issue; a PR may link several issues (a batch: `issueIds` plus `head`). Its body IS your report (Results below): file it first; a later scope change is a report edit. Open with `exponential_pr_open`; dependent work branches from the lower PR's branch and passes it as `base`. Merge with `exponential_pr_merge` only when the user asks. Merge a tree root first: `exponential_pr_merge({issueIds: [root, children..., grandchildren...]})` merges in that order and the root's merge retargets its children. A plain line of stacked PRs: `exponential_pr_merge({issueId: <top>, mergeStack: true})` merges it bottom-up. A child refused as dirty afterwards: `exponential_pr_retarget` if its base is gone, `git rebase --onto` the default branch dropping the parent's commits, push `--force-with-lease`, merge again. Never merge a mid-tree PR alone. Never use `gh`.
 
 ## Results
 
-While you work, `exponential_sessions_show` a screenshot when a picture helps: it appears in your run's transcript. Your close-out report goes to `exponential_sessions_results`, not chat: a short GFM `text` (what you did, `#IDENT` refs) per `topic`, `Summary` first, then one per screen with `label`ed pictures (`web`, `ios`) via the returned `curl` line, before the PR. Viewport size, never a full page; name any screen you could not run. `exponential_attachments_upload` does the same for an issue file; `exponential_attachments_list` lists them.
+While you work, `exponential_sessions_show` a screenshot when a picture helps: it appears in your run's transcript. Your report goes to `exponential_sessions_results`, not chat, before the PR: the report IS the PR body, so name related issues as `#IDENT` in its text. Per `topic` (a few words; `Summary` first, then one per change or screen): 2 or 3 sentences of `text`, the `files` it touched, and `label`ed pictures (`web`, `ios`) via the returned `curl` line, viewport size. Name any screen you could not run. `exponential_attachments_upload` does the same for an issue file; `exponential_attachments_list` lists them.
 
 Ping a person with `exponential_notifications_send` when a long task finished, a decision waits or they asked; `recipients` default to you.
 

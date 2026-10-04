@@ -17,11 +17,14 @@ import SwiftUI
 /// it the face TABS (`WorkFaceTabs`, two or more faces) sit at the same place
 /// on every face — tapping the selected `Runs` tab opens the run menu — and
 /// (EXP-1152) the faces are PAGES under it (`WorkFacePager`) that follow the
-/// finger to the neighbouring face. The tab row ends in the ONE Merge PR pill
-/// (`WorkMergePill`) on every face while there is a PR to merge. The floating
-/// bottom bar is per face: Issue `[Properties][+ Comment][Start]`, Run
-/// `[usage][composer][Start once ended for good]`, Changes `[files]`,
-/// Results none.
+/// finger to the neighbouring face. The floating bottom bar is per face:
+/// Issue `[Properties][+ Comment][Start]`, Run `[usage][composer][Start once
+/// ended for good]`, Changes `[files][Merge PR]`, Results `[Merge PR]`.
+/// EXP-1154: the ONE Merge PR (`WorkMergePill`, the solid white capsule) is
+/// on the bar of EVERY face while there is a PR to merge: in the Changes and
+/// Results clusters, and floating centred just above the Issue and Run
+/// composer bars. A Reviews row opens this screen on its Changes face; Close
+/// PR is the `…` menu's.
 struct WorkScreen: View {
     let subject: WorkSubject
 
@@ -31,6 +34,7 @@ struct WorkScreen: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @Environment(\.motion) private var motion
+    @Environment(\.toaster) private var toaster
     @State private var face: WorkFaceKind
     /// The run the Run and Changes faces show. Follows `WorkFaces.codingTarget`
     /// until the reader picks one from the run menu.
@@ -38,7 +42,8 @@ struct WorkScreen: View {
     @State private var userPickedRun = false
     /// EXP-933: the requested `initialFace` while it is not available YET
     /// (a Results push lands before the issue's runs synced): the fallback
-    /// holds off until the runs were read, then lets go either way.
+    /// holds off until the runs were read (and, for Changes / Results, the
+    /// issue row too), then lets go either way (`WorkFaces.holdsPendingFace`).
     @State private var pendingInitialFace: WorkFaceKind?
     @State private var issueVM: IssueDetailViewModel?
     @State private var subjectModel: WorkSubjectModel?
@@ -94,8 +99,24 @@ struct WorkScreen: View {
     /// no live diff to draw. The model lives HERE, not inside the Changes face
     /// (Android's `WorkScreen` owns its `ChangesViewModel` the same way), so
     /// the files load before the face was ever opened. Handed into
-    /// `PrChangesFace`; the Reviews page keeps creating its own.
+    /// `PrChangesFace`.
     @State private var prChangesModel: ChangesViewModel?
+    /// EXP-1154: the file the Changes face shows — picked in its file sheet,
+    /// or by a Results file row before it switches there.
+    @State private var changesFocusPath: String?
+    /// EXP-1154: the Merge capsule's shared state (every face mounts one).
+    @State private var mergeState = WorkMergeState()
+    /// EXP-1154: the Close PR confirm (the `…` menu's) and its flight.
+    @State private var showClosePrConfirm = false
+    @State private var closingPr = false
+    /// EXP-1154: the open PR's GitHub title + body, the Results face while
+    /// the PR has no run report yet. Fetched only while Results shows, once
+    /// per issue, and held while the screen lives (a failure retries on the
+    /// next Results visit).
+    @State private var prDescription = PrDescriptionLoad.idle
+    /// EXP-1154: the arrival asked for Changes (a Reviews row): honoured
+    /// for a merged / closed PR too, like Android's `changesRequested`.
+    private let changesRequested: Bool
     /// EXP-1162: whether the Issue face's title row has scrolled under the
     /// header band — flipped ONLY on the edge (`titleEdges`), so a scroll
     /// never re-renders the screen.
@@ -106,6 +127,7 @@ struct WorkScreen: View {
     /// Results); unavailable faces fall back as usual.
     init(subject: WorkSubject, initialFace: WorkFaceKind = .issue) {
         self.subject = subject
+        changesRequested = initialFace == .changes
         switch subject {
         case .issue:
             _face = State(initialValue: initialFace)
@@ -162,9 +184,21 @@ struct WorkScreen: View {
         issue?.prUrl.flatMap { URL(string: $0) }
     }
 
+    /// EXP-1154: the issue's own Changes source, web parity: an OPEN PR or
+    /// a pushed branch with no PR yet; a merged / closed PR only when the
+    /// arrival asked for Changes (a Reviews row's `initialFace`).
+    private var issueChangesAvailable: Bool {
+        guard let issue else { return false }
+        let hasPr = issue.prUrl?.isEmpty == false
+        let hasBranch = issue.branch?.isEmpty == false
+        if hasPr && issue.prState == DomainContract.prStateOpen { return true }
+        if !hasPr && hasBranch { return true }
+        return changesRequested && (hasPr || hasBranch)
+    }
+
     /// The run's live diff outranks the issue's PR files.
     private var hasChanges: Bool {
-        (hasRun && runHasDiff) || issueHasChanges
+        (hasRun && runHasDiff) || issueChangesAvailable
     }
 
     /// EXP-932: the shown run's CURRENT worktree diff, read straight off its
@@ -220,7 +254,28 @@ struct WorkScreen: View {
         parseSessionResultGroups(resultsSession?.results)
     }
 
-    private var hasResults: Bool { !sessionResultGroups.isEmpty }
+    private var hasRunResults: Bool { !sessionResultGroups.isEmpty }
+
+    /// EXP-1154: the issue's PR is open — Results then exists even without a
+    /// run report (the PR body stands in).
+    private var issuePrOpen: Bool {
+        issueId != nil
+            && issue?.prState == DomainContract.prStateOpen
+            && issue?.prUrl?.isEmpty == false
+    }
+
+    /// EXP-1154: Results = the run's report, else an open PR's body.
+    private var hasResults: Bool { hasRunResults || issuePrOpen }
+
+    /// EXP-1154: the files the Changes face draws — the run's live diff,
+    /// else the issue's loaded PR files; what a Results file row's counts
+    /// resolve against.
+    private var changesFiles: [Diff.File]? {
+        if runHasDiff, let model = shownModel, model.latestDiff != nil {
+            return model.parsedDiff.files
+        }
+        return prChangesModel?.loadedFiles
+    }
 
     private var availableFaces: [WorkFaceKind] {
         WorkFaces.availableFaces(
@@ -332,7 +387,7 @@ struct WorkScreen: View {
     /// `hasChanges && latestDiff == null && issueId != null`). The key the
     /// screen-owned `ChangesViewModel` lives by.
     private var wantsPrChangesModel: Bool {
-        issueId != nil && issueHasChanges && shownDiff == nil
+        issueId != nil && issueChangesAvailable && shownDiff == nil
     }
 
     /// The identifier for an issue subject, the session's own title for an
@@ -504,26 +559,36 @@ struct WorkScreen: View {
             runState: runState,
             runsAnchor: $runsMenuAnchor,
             onSelect: selectFace,
-            onReselectRuns: toggleRunsMenu,
-            showsTrailing: mergeTarget != nil
-        ) {
-            if let mergeTarget {
-                let mergeRow = mergeIssue(for: mergeTarget)
-                WorkMergePill(
-                    target: mergeTarget,
-                    issue: mergeRow,
-                    prIssues: mergeRow.flatMap { prGraphModel?.stackPool(for: $0) } ?? [],
-                    steerEnabled: steerEnabled
-                )
-                // A new target starts clean (no stale conflict caption).
-                .id(mergeTargetKey(mergeTarget))
-            }
+            onReselectRuns: toggleRunsMenu
+        )
+    }
+
+    // MARK: - Merge (EXP-1154: the bottom bar's white capsule, every face)
+
+    /// The white Merge capsule on `page`, or nothing while there is no PR to
+    /// merge.
+    @ViewBuilder
+    private func mergeCapsule(on page: WorkFaceKind) -> some View {
+        if let mergeTarget {
+            let mergeRow = mergeIssue(for: mergeTarget)
+            WorkMergePill(
+                target: mergeTarget,
+                issue: mergeRow,
+                prIssues: mergeRow.flatMap { prGraphModel?.stackPool(for: $0) } ?? [],
+                steerEnabled: steerEnabled,
+                state: $mergeState,
+                identifier: page == .changes ? "work-merge-pr" : "work-merge-pr-\(page.rawValue)"
+            )
+            .id(mergeTargetKey(mergeTarget))
         }
     }
 
-    // MARK: - Merge (EXP-1150: the header band's pill)
+    /// The capsule for the Issue and Run bars to float above themselves.
+    private func mergeAccessory(on page: WorkFaceKind) -> AnyView? {
+        mergeTarget == nil ? nil : AnyView(mergeCapsule(on: page))
+    }
 
-    /// What the band's Merge PR merges: the shown run's own target while the
+    /// What the Merge capsule merges: the shown run's own target while the
     /// run can merge (its retained model), else the issue's open PR for a
     /// member. nil = no pill.
     private var mergeTarget: MergeTarget? {
@@ -581,8 +646,15 @@ struct WorkScreen: View {
             }
         case .changes:
             if let shownSession, runHasDiff {
-                RunChangesFace(accountId: accountId, session: shownSession)
-                    .id(shownSession.id)
+                RunChangesFace(
+                    accountId: accountId,
+                    session: shownSession,
+                    focusPath: $changesFocusPath,
+                    showsMerge: mergeTarget != nil
+                ) {
+                    mergeCapsule(on: .changes)
+                }
+                .id(shownSession.id)
             } else {
                 changesFace
             }
@@ -599,7 +671,8 @@ struct WorkScreen: View {
                 issue: issue,
                 barTrailing: issueBarTrailing,
                 onStartCoding: startCodingTapped,
-                onOpenChanges: { selectFace(.changes) }
+                onOpenChanges: { selectFace(.changes) },
+                mergeAccessory: mergeAccessory(on: .issue)
             )
         } else if let vm = issueVM, vm.loadTimedOut {
             unavailableState(vm: vm)
@@ -613,22 +686,117 @@ struct WorkScreen: View {
     /// off the screen's own model.
     @ViewBuilder
     private var changesFace: some View {
-        if let issueId, issueHasChanges {
-            PrChangesFace(issueId: issueId, reviewMode: false, model: prChangesModel)
+        if let prChangesModel, issueHasChanges {
+            PrChangesFace(
+                model: prChangesModel,
+                focusPath: $changesFocusPath,
+                showsMerge: mergeTarget != nil
+            ) {
+                mergeCapsule(on: .changes)
+            }
         } else {
             ProgressView().tint(.white)
         }
     }
 
-    /// EXP-879: the shown run's published screenshots — one scrolling page,
-    /// a band per topic, no bottom bar (EXP-1150; no Stop / Resume, no merge:
-    /// those belong to Run and Changes).
-    @ViewBuilder
+    /// EXP-879/1154: the report as the Guide (`SessionResultsFace`), else an
+    /// open PR's GitHub body, else a spinner while that loads. Its bar is the
+    /// Merge capsule alone (no Stop / Resume: those belong to Run).
     private var resultsFace: some View {
-        if hasResults {
-            SessionResultsFace(groups: sessionResultGroups)
+        resultsBody
+            .safeAreaInset(edge: .bottom) { resultsBar }
+    }
+
+    /// A Results file row's tap, while there is a Changes face to open.
+    private var resultsOpenFile: ((String) -> Void)? {
+        guard hasChanges else { return nil }
+        return { path in openChangesFile(path) }
+    }
+
+    @ViewBuilder
+    private var resultsBody: some View {
+        if hasRunResults {
+            SessionResultsFace(
+                groups: sessionResultGroups,
+                files: changesFiles,
+                onOpenFile: resultsOpenFile
+            )
+        } else if issuePrOpen {
+            switch prDescription {
+            case let .loaded(forIssue, description) where forIssue == issueId:
+                SessionResultsFace(groups: [], prFallback: description)
+            case let .failed(forIssue, message) where forIssue == issueId:
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(DesignTokens.Palette.destructive)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .accessibilityIdentifier("results-pr-fallback-error")
+            default:
+                HStack(spacing: 8) {
+                    ProgressView().tint(.white).controlSize(.small)
+                    Text("Loading the pull request…")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .accessibilityIdentifier("results-pr-fallback-loading")
+            }
         } else {
             ProgressView().tint(.white)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    /// The Results bar: the Merge capsule alone.
+    @ViewBuilder
+    private var resultsBar: some View {
+        if mergeTarget != nil {
+            FloatingBarCluster {
+                EmptyView()
+            } center: {
+                mergeCapsule(on: .results)
+            } trailing: {
+                EmptyView()
+            }
+            .floatingBarEdge()
+        }
+    }
+
+    /// EXP-1154: a Results file row — the Changes face with that file picked.
+    private func openChangesFile(_ path: String) {
+        changesFocusPath = path
+        selectFace(.changes)
+    }
+
+    /// EXP-1154: the open PR's GitHub body, fetched only while Results
+    /// shows and needs it (no run report), once per issue. A failure keeps
+    /// its message (web / Android draw the refusal) and retries on the next
+    /// Results visit; leaving Results mid-flight cancels it back to idle.
+    private func loadPrDescription() async {
+        guard face == .results, issuePrOpen, !hasRunResults, let issueId else { return }
+        switch prDescription {
+        case let .loaded(forIssue, _) where forIssue == issueId: return
+        case let .loading(forIssue) where forIssue == issueId: return
+        default: break
+        }
+        prDescription = .loading(issueId: issueId)
+        do {
+            let description = try await deps.issuesApi.prDescription(
+                accountId: accountId, issueId: issueId
+            )
+            prDescription = .loaded(issueId: issueId, description)
+        } catch {
+            if Task.isCancelled || error is CancellationError {
+                prDescription = .idle
+            } else {
+                prDescription = .failed(issueId: issueId, error.userFacingMessage)
+            }
         }
     }
 
@@ -639,7 +807,8 @@ struct WorkScreen: View {
             request: $runRequest,
             continuation: continuation,
             startReadiness: offerStart ? readiness : nil,
-            onStartCoding: startCodingTapped
+            onStartCoding: startCodingTapped,
+            mergeAccessory: mergeAccessory(on: .run)
         )
         .id(session.id)
         // EXP-933: the inline `sessions_results` card opens THIS screen's
@@ -797,6 +966,17 @@ struct WorkScreen: View {
                 identifier: issue?.identifier,
                 onConfirm: { target in Task { await issueVM?.moveToBoard(target.id) } }
             )
+            // EXP-1154: Close PR, off the `…` menu — the fixture copy ×4.
+            .confirmationDialog(
+                ClosePrCopy.title,
+                isPresented: $showClosePrConfirm,
+                titleVisibility: .visible
+            ) {
+                Button(ClosePrCopy.confirm, role: .destructive) { closePr() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(ClosePrCopy.message(otherLinkedIssues: closePrOtherIssues))
+            }
             .alert("Delete Issue", isPresented: $showDeleteConfirm) {
                 Button("Delete", role: .destructive) { deleteIssue() }
                 Button("Cancel", role: .cancel) {}
@@ -888,6 +1068,11 @@ struct WorkScreen: View {
                         Task { await vm.unmarkDuplicate() }
                     }
                 }
+                if canClosePr {
+                    GlassMenuItem(ClosePrCopy.menuItem, icon: AppIcons.prClosed, destructive: true) {
+                        showClosePrConfirm = true
+                    }
+                }
                 GlassMenuItem("Delete issue", icon: AppIcons.uiDelete, destructive: true) {
                     showDeleteConfirm = true
                 }
@@ -965,12 +1150,26 @@ struct WorkScreen: View {
             .onChange(of: subjectModel?.runsResolved) { _, _ in
                 facesChanged(availableFaces)
             }
+            // EXP-1154: a pending Changes / Results arrival also waits for
+            // the issue row (`WorkFaces.holdsPendingFace`).
+            .onChange(of: issue != nil) { _, _ in
+                facesChanged(availableFaces)
+            }
             // EXP-952: the PR-files model follows its key — created and
             // started once the issue has changes and no live diff outranks
             // them, stopped and dropped once a live diff takes over (the
             // session view draws that one) or the changes go away.
             .onChange(of: wantsPrChangesModel, initial: true) { _, wanted in
                 prChangesModelWanted(wanted)
+            }
+            // EXP-1154: Results without a run report reads the open PR's
+            // GitHub body.
+            .task(id: "\(issueId ?? "")|\(issuePrOpen)|\(hasRunResults)|\(face == .results)") {
+                await loadPrDescription()
+            }
+            // A new merge target starts clean (no stale Fix conflicts).
+            .onChange(of: mergeTarget.map(mergeTargetKey)) { _, _ in
+                mergeState = WorkMergeState()
             }
             // EXP-934: the `…` is the Issue face's, so its overlay leaves with
             // the face — whichever path moved it (a tap, a vanished face, a
@@ -1042,8 +1241,7 @@ struct WorkScreen: View {
                 issueId: issueId,
                 db: deps.db,
                 issuesApi: deps.issuesApi,
-                repositoriesApi: deps.repositoriesApi,
-                auth: deps.auth
+                repositoriesApi: deps.repositoriesApi
             )
             prChangesModel = model
             model.startObserving()
@@ -1111,13 +1309,16 @@ struct WorkScreen: View {
 
     private func facesChanged(_ faces: [WorkFaceKind]) {
         if let pending = pendingInitialFace {
-            if faces.contains(pending) || face != pending {
-                pendingInitialFace = nil
-            } else if subjectModel?.runsResolved != true {
+            if WorkFaces.holdsPendingFace(
+                pending: pending,
+                shown: face,
+                available: faces,
+                runsResolved: subjectModel?.runsResolved == true,
+                issueResolved: issueId == nil || issue != nil
+            ) {
                 return
-            } else {
-                pendingInitialFace = nil
             }
+            pendingInitialFace = nil
         }
         guard !faces.isEmpty, !faces.contains(face) else { return }
         if let next = WorkFaces.fallbackFace(shown: face, available: faces) {
@@ -1285,6 +1486,31 @@ struct WorkScreen: View {
         }
     }
 
+    /// EXP-1154: Close PR shows for a member while the issue's PR is open.
+    private var canClosePr: Bool {
+        issueVM?.permissions.isMember == true && issuePrOpen
+    }
+
+    /// How many OTHER issues share the PR (a batch) — the confirm's extra line.
+    private var closePrOtherIssues: Int {
+        max(0, (prGraph?.entry?.issues.count ?? 1) - 1)
+    }
+
+    /// Close the PR WITHOUT merging (EXP-100, the drop path). The `prState`
+    /// flip arrives through Electric sync; a refusal toasts.
+    private func closePr() {
+        guard let issueId, !closingPr else { return }
+        closingPr = true
+        Task {
+            do {
+                try await deps.issuesApi.closePr(accountId: accountId, issueId: issueId)
+            } catch {
+                toaster.error(MergeFailure(error: error).message)
+            }
+            closingPr = false
+        }
+    }
+
     private func deleteIssue() {
         Task {
             if await issueVM?.deleteIssue() == true {
@@ -1304,4 +1530,13 @@ struct WorkScreen: View {
 private enum ReadinessFollowUp {
     case start
     case route(CodingReadinessRoute)
+}
+
+/// EXP-1154: the open PR's GitHub body for the Results fallback, keyed by
+/// the issue it was fetched for.
+private enum PrDescriptionLoad: Equatable {
+    case idle
+    case loading(issueId: String)
+    case loaded(issueId: String, PrDescription)
+    case failed(issueId: String, String)
 }

@@ -224,4 +224,33 @@ final class WorkFacesTests: XCTestCase {
         XCTAssertFalse(WorkFaces.faceShowsContextMenu(.changes))
         XCTAssertFalse(WorkFaces.faceShowsContextMenu(.results))
     }
+
+    // EXP-1154: a Reviews row's `.changes` arrival survives the runs landing
+    // before the issue row.
+    func testHoldsAPendingChangesOrResultsFaceUntilRunsAndTheIssueRowLanded() {
+        func holds(
+            _ pending: WorkFaceKind,
+            shown: WorkFaceKind? = nil,
+            available: [WorkFaceKind] = [.issue],
+            runs: Bool,
+            issue: Bool
+        ) -> Bool {
+            WorkFaces.holdsPendingFace(
+                pending: pending, shown: shown ?? pending, available: available,
+                runsResolved: runs, issueResolved: issue
+            )
+        }
+        // Runs not read yet: hold, whatever the face.
+        XCTAssertTrue(holds(.run, runs: false, issue: false))
+        XCTAssertTrue(holds(.changes, runs: false, issue: true))
+        // Runs read, issue row still missing: Changes / Results keep holding.
+        XCTAssertTrue(holds(.changes, runs: true, issue: false))
+        XCTAssertTrue(holds(.results, runs: true, issue: false))
+        XCTAssertFalse(holds(.run, runs: true, issue: false))
+        // Both landed and the face is still missing: let go (fall back).
+        XCTAssertFalse(holds(.changes, runs: true, issue: true))
+        // The face arrived, or the reader moved: let go.
+        XCTAssertFalse(holds(.changes, available: [.issue, .changes], runs: false, issue: false))
+        XCTAssertFalse(holds(.changes, shown: .issue, runs: false, issue: false))
+    }
 }

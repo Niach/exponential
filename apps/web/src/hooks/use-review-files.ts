@@ -30,6 +30,15 @@ export function useReviewFiles(
   const issueId = issue?.id ?? null
   const hasPr = issue?.prNumber != null
   const [state, setState] = useState<ReviewFilesState>({ kind: `loading` })
+  // EXP-1154: the route is reused across issues, so another issue's files
+  // must never outlive a param change, even while the fetch is disabled
+  // (issue B's Guide counting off A's files). Reset during render, before
+  // anyone reads the stale state.
+  const [stateFor, setStateFor] = useState(issueId)
+  if (stateFor !== issueId) {
+    setStateFor(issueId)
+    setState({ kind: `loading` })
+  }
 
   const load = useCallback(() => {
     if (!issueId || !enabled) return

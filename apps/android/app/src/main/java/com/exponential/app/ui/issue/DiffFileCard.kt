@@ -128,7 +128,7 @@ private val CountFontSize = 11.sp
  * path never breaks into two competing labels.
  */
 @Composable
-private fun diffPathText(path: String, dirChars: Int = DIR_CHARS): AnnotatedString {
+internal fun diffPathText(path: String, dirChars: Int = DIR_CHARS): AnnotatedString {
     val dim = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
     return remember(path, dim, dirChars) {
         val dir = diffPathDir(path)

@@ -51,9 +51,10 @@ class DeepLinkRoutesTest {
 
     @Test
     fun `fills a placeholder that is not the last segment`() {
+        // EXP-1154: the review is the issue's Changes FACE, a query arg.
         assertEquals(
-            "issue/abc/changes",
-            DeepLinkRoutes.concreteRoute("issue/{issueId}/changes", args("issueId" to "abc")),
+            "issue/abc?face=changes",
+            DeepLinkRoutes.concreteRoute("issue/{issueId}?face={face}", args("issueId" to "abc", "face" to "changes")),
         )
     }
 
@@ -131,9 +132,15 @@ class DeepLinkRoutesTest {
     }
 
     @Test
-    fun `the diff page of the same issue is not the issue route`() {
+    fun `the changes face of the same issue is not the plain issue route`() {
+        // EXP-1154: the standalone diff page is gone; its successor, the
+        // issue on its Changes face, is still a different concrete route.
         assertFalse(
-            DeepLinkRoutes.isOnTop("issue/{issueId}/changes", args("issueId" to "A"), "issue/A")
+            DeepLinkRoutes.isOnTop(
+                "issue/{issueId}?face={face}",
+                args("issueId" to "A", "face" to "changes"),
+                "issue/A",
+            )
         )
     }
 

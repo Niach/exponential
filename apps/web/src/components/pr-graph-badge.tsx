@@ -287,13 +287,16 @@ export function PrGraphOverlay({
 
   // EXP-930: EVERY issue the view lists opens: a real `<Link>`, so ⌘-click
   // and middle-click work like anywhere else; the dialog closes behind it.
-  const issueLink = (row: Issue) => {
+  // EXP-1154: a PR row opens the issue on its Changes face (`?view=diff`),
+  // the review of that PR; the Reviews detail page is gone.
+  const issueLink = (row: Issue, view?: `diff`) => {
     const boardSlug = boardSlugById?.get(row.boardId)
     if (!boardSlug) return undefined
     return ({ className, children }: RelationIssueRowLinkProps) => (
       <Link
         to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
         params={{ teamSlug, boardSlug, issueIdentifier: row.identifier }}
+        search={view ? { view } : {}}
         onClick={onClose}
         className={className}
       >
@@ -315,7 +318,8 @@ export function PrGraphOverlay({
   )
 
   /** A pull request as the relations card's row: PR glyph · `#n` · the
-   *  representative issue's title · its state pill; opens its review page. */
+   *  representative issue's title · its state pill; opens the issue's
+   *  Changes face (EXP-1154). */
   const prRow = (entry: PrGraphEntry<Issue>) => {
     const row = entry.issue
     const glyphClass = phone ? `size-4 shrink-0` : `size-3.5 shrink-0`
@@ -339,16 +343,7 @@ export function PrGraphOverlay({
         glyph={glyph}
         code={row.prNumber ? `#${row.prNumber}` : row.identifier}
         noAssignee
-        link={({ className, children }) => (
-          <Link
-            to="/t/$teamSlug/reviews/$issueIdentifier"
-            params={{ teamSlug, issueIdentifier: row.identifier }}
-            onClick={onClose}
-            className={className}
-          >
-            {children}
-          </Link>
-        )}
+        link={issueLink(row, `diff`)}
         trailing={
           <span className="flex shrink-0 items-center">
             <PrStateBadge state={row.prState} />

@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { PrGithubButton } from "./pr-github-button"
 
-// EXP-916: THE GitHub control of every diff surface. Three shapes, one set of
+// EXP-916: THE GitHub control of every diff surface. Two shapes, one set of
 // words and one behaviour — each shape keeping the `data-testid` its surface
 // had before they were merged.
 
@@ -18,8 +18,6 @@ describe(`PrGithubButton`, () => {
     expect(screen.getByTestId(`changes-github-action`)).toBeTruthy()
     rerender(<PrGithubButton prUrl={PR_URL} variant="circle" />)
     expect(screen.getByTestId(`changes-github-circle`)).toBeTruthy()
-    rerender(<PrGithubButton prUrl={PR_URL} variant="glass" />)
-    expect(screen.getByTestId(`changes-github-link`)).toBeTruthy()
   })
 
   it(`lets a surface override the test id`, () => {

@@ -96,14 +96,25 @@ struct DiffFileList<Header: View>: View {
             .overlay(alignment: .top) {
                 if headerFade { StickyHeaderFade() }
             }
-            .onChange(of: focusPath) { _, path in
-                guard let path, !path.isEmpty else { return }
+            // EXP-1154: keyed on the path AND whether its card exists, from
+            // the first render — a Results file row lands here with the path
+            // already set, often before the files have loaded.
+            .onChange(of: focusKey, initial: true) { _, key in
+                guard let path = key, !path.isEmpty else { return }
                 overrides[path] = true
-                withAnimation { proxy.scrollTo(path, anchor: .top) }
+                Task { @MainActor in
+                    withAnimation { proxy.scrollTo(path, anchor: .top) }
+                }
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(accessibilityId)
+    }
+
+    /// The focused path once its card is in the list, else nil.
+    private var focusKey: String? {
+        guard let focusPath, files.contains(where: { $0.path == focusPath }) else { return nil }
+        return focusPath
     }
 
     /// EXP-916: a file opens by ITSELF unless it is huge — the ONE size rule,

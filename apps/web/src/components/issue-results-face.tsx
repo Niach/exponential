@@ -1,11 +1,16 @@
 import type { ReactNode } from "react"
+import type { DiffFile } from "@exp/domain-contract/diff"
 import type { Board, Issue } from "@/db/schema"
 import {
+  conceptIcon,
   MOBILE_WORK_BAR_CLEARANCE,
+  MobileWorkBar,
   SessionResultsView,
+  useIsMobile,
   type SessionResultGroup,
 } from "@exp/ui"
 import { cn } from "@/lib/utils"
+import type { PrDescriptionState } from "@/hooks/use-pr-description"
 import { renderResultText } from "@/components/agent-session"
 import { IssueMobileHeader } from "@/components/issue-mobile-header"
 import { MOBILE_DETAIL_SCREEN_CLASS } from "@/components/team/mobile-detail-header"
@@ -20,27 +25,84 @@ import { useIssuePropertyHandlers } from "@/hooks/use-issue-property-handlers"
 // the run `issueResultsRun` picked, rendered ON the issue route. A teammate's
 // run is not openable on the session route, and an agent message deep-links
 // every recipient to the issue's `?view=results`, so the issue carries the
-// report itself.
+// report itself. EXP-1154: the report reads as the GUIDE (`SessionResultsView`:
+// Summary lead, numbered sections with the files they touched; a file row
+// opens the Changes face on it). An issue with an OPEN PR and no report shows
+// the GitHub PR body instead, as ONE unnumbered group (`prDescriptionGroups`).
 
-/** The md+ body: the report in the issue's work column. */
+const UiLoadingIcon = conceptIcon(`ui-loading`)
+
+/** The fallback's band label without a PR title. */
+export const PR_DESCRIPTION_FALLBACK_TOPIC = `Pull request`
+/** The fallback's body for a blank PR description. */
+export const PR_DESCRIPTION_EMPTY = `No description.`
+
+/** EXP-1154: the GitHub PR body as ONE Results group (band = the PR title,
+ *  else `Pull request`; `No description.` when blank); [] until loaded. */
+export function prDescriptionGroups(
+  state: PrDescriptionState
+): SessionResultGroup[] {
+  if (state.kind !== `ready`) return []
+  return [
+    {
+      topic: state.title.trim() || PR_DESCRIPTION_FALLBACK_TOPIC,
+      text: state.body.trim() || PR_DESCRIPTION_EMPTY,
+      entries: [],
+      earlier: [],
+      files: [],
+    },
+  ]
+}
+
+/** The md+ body (and the phone face's): the Guide in the work column. */
 export function IssueResultsBody({
   groups,
+  files,
+  onOpenFile,
+  numbered = true,
+  loading = false,
+  error = null,
 }: {
   groups: readonly SessionResultGroup[]
+  /** The loaded diff the file rows read their `+N −M` from. */
+  files?: readonly DiffFile[] | null
+  /** A file row opens the Changes face on that path. */
+  onOpenFile?: (path: string) => void
+  /** False for the PR-body fallback (one band, no `01 / 01`). */
+  numbered?: boolean
+  /** The PR-body fallback is still loading. */
+  loading?: boolean
+  error?: string | null
 }) {
+  const isMobile = useIsMobile()
   return (
     <div data-testid="issue-results-face">
-      <SessionResultsView
-        groups={groups}
-        attachmentSrc={(id) => `/api/attachments/${id}`}
-        renderText={renderResultText}
-      />
+      {groups.length === 0 && loading && (
+        <div className="flex items-center gap-2 px-7 py-6 text-sm text-muted-foreground md:px-9">
+          <UiLoadingIcon className="size-4 animate-spin" />
+          Loading the pull request…
+        </div>
+      )}
+      {groups.length === 0 && error && (
+        <p className="px-7 py-6 text-sm text-destructive md:px-9">{error}</p>
+      )}
+      {groups.length > 0 && (
+        <SessionResultsView
+          groups={groups}
+          attachmentSrc={(id) => `/api/attachments/${id}`}
+          renderText={renderResultText}
+          files={files}
+          onOpenFile={onOpenFile}
+          isMobile={isMobile}
+          numbered={numbered}
+        />
+      )}
     </div>
   )
 }
 
 /** The phone face: the issue's header with the face tabs under it, the
- *  report, and NO bar — the report has nothing to act on (EXP-1150). */
+ *  Guide, and (EXP-1154) the bar's centred white Merge capsule alone. */
 export function IssueResultsFace({
   issue,
   board,
@@ -48,7 +110,8 @@ export function IssueResultsFace({
   teamId,
   readOnly,
   origin,
-  groups,
+  body,
+  merge,
   tabs,
   swipe,
 }: {
@@ -58,7 +121,11 @@ export function IssueResultsFace({
   teamId: string
   readOnly: boolean
   origin?: string
-  groups: readonly SessionResultGroup[]
+  /** The Guide (`IssueResultsBody`), built by the route. */
+  body: ReactNode
+  /** EXP-1154: the white Merge capsule (`MergeCapsule`), absent when the
+   *  viewer may not merge. */
+  merge?: ReactNode
   /** EXP-1150: the face strip (`MobileFaceTabs`) and the pager the root
    *  spreads (`useFaceSwipe`; EXP-1152: it moves the `data-face-body`). */
   tabs: ReactNode
@@ -92,8 +159,9 @@ export function IssueResultsFace({
         data-face-body=""
         style={{ paddingTop: headerSize.height }}
       >
-        <IssueResultsBody groups={groups} />
+        {body}
       </div>
+      {merge && <MobileWorkBar cluster capsule={merge} />}
       {handlers.duplicatePicker}
     </div>
   )

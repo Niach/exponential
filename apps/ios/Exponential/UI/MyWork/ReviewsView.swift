@@ -432,9 +432,12 @@ struct ReviewsListContent: View {
 
     @ViewBuilder
     private func entryLink(_ entry: ReviewEntry) -> some View {
-        // The Review detail (the diff + Merge/Close screen) is what a reviewer
-        // wants first (EXP-168); the issue itself is one tap away in the menu.
-        NavigationLink(value: AppRoute.changes(accountId: accountId, issueId: entry.representative.id)) {
+        // The diff is what a reviewer wants first (EXP-168). EXP-1154: it is
+        // the issue's own Work screen on its Changes face (the review page
+        // is gone); Merge rides its bar, Close PR its `…` menu.
+        NavigationLink(value: AppRoute.issueFace(
+            accountId: accountId, id: entry.representative.id, face: .changes
+        )) {
             // SLOP-16 r3: the row CONTENT is shared with the Related work
             // sheet (`PrReviewRowContent`); only the card around it is ours.
             PrReviewRowContent(issues: entry.issues) {

@@ -43,6 +43,7 @@ import {
   MobilePopoverTrigger,
   IssueChip as IssueChipView,
   MOBILE_WORK_BAR_CLEARANCE,
+  guideFileOpener,
   MOBILE_WORK_CIRCLE_CLASS,
   MobileWorkBar,
   MobileWorkCapsule,
@@ -180,6 +181,11 @@ import {
   ResumeRunPill,
   StopRunPill,
 } from "@/components/run-action-pills"
+import { MergeCapsule } from "@/components/issue-changes-face"
+import {
+  MobileMergeFloat,
+  mobileFaceClearance,
+} from "@/components/mobile-merge-float"
 import {
   ISSUE_FACE_LABEL,
   RESULTS_FACE_LABEL,
@@ -353,6 +359,7 @@ export function AgentSessionView({
   mergeTarget,
   banner,
   face,
+  diffFile: requestedDiffFile = null,
   onFace,
   onIssueFace,
   issueHeader,
@@ -382,6 +389,8 @@ export function AgentSessionView({
    *  transcript) or `diff` (the run's changes, full column). `issue` is a
    *  navigation the route performs (`onIssueFace`). */
   face: WorkFace
+  /** EXP-1154: the file the diff face should open on (`?file=`). */
+  diffFile?: string | null
   onFace: (face: WorkFace) => void
   /** EXP-870: the run's linked issue is the same work tab's other face — its
    *  canonical URL. Absent on issue-less runs (no `Issue` face). */
@@ -473,8 +482,13 @@ export function AgentSessionView({
 
   /** EXP-893: the phone's composer is a capsule until tapped. */
   const [composerOpen, setComposerOpen] = useState(false)
-  /** EXP-877: the file the diff FACE is scrolled to (null = the top). */
-  const [diffFile, setDiffFile] = useState<string | null>(null)
+  /** EXP-877: the file the diff FACE is scrolled to (null = the top).
+   *  EXP-1154: seeded by the route's `?file=` (a Guide file row on the issue
+   *  hands its path over with the live-diff redirect). */
+  const [diffFile, setDiffFile] = useState<string | null>(requestedDiffFile)
+  useEffect(() => {
+    if (requestedDiffFile) setDiffFile(requestedDiffFile)
+  }, [requestedDiffFile])
   const [usageOpen, setUsageOpen] = useState(false)
   /** EXP-866: an account switch has been requested for THIS run — the live
    *  rate-limit notice stands down for good (the slot is cleared too, but a
@@ -962,7 +976,7 @@ export function AgentSessionView({
     mergeProps?.prState === `open`
 
   // EXP-945: on md+ the Changes face's file TREE is the SIDEBAR's panel, the
-  // same slot and the same `ReviewFilesNav` a review detail fills — a run's
+  // same slot and the same `ReviewFilesNav` an issue's Changes face fills — a run's
   // context is the files it touched, and a floating tree inside the column was
   // a second answer to a question already settled. The page owns the files and
   // the selection; the panel only picks. Cleared on the way out (and whenever
@@ -995,7 +1009,7 @@ export function AgentSessionView({
    *  (`placement="header"`) — a 24px Stop next to a 36px `Run +8870 −4` read
    *  as a stray. Inside the tray they stay chips (`placement="tray"`). */
   /** EXP-949: the way out to GitHub belongs to the CHANGES face alone (and
-   *  the Reviews page) — never beside the transcript, the issue or the
+   *  the issue's) — never beside the transcript, the issue or the
    *  results. Same rule on the issue route, the IDE and the phones. */
   const githubButton =
     showDiffFace && prUrl ? <PrGithubButton prUrl={prUrl} /> : null
@@ -1160,23 +1174,19 @@ export function AgentSessionView({
       changesCounts={phoneChangesCounts}
       onFace={onPhoneFace}
       onOpenRun={onOpenRun}
-      trailing={
-        /* EXP-1150: the ONE merge of the phone Work screen — the md+ header's
-           own pill, beside the tabs on every face while the PR is open. */
-        canMerge && mergeProps ? (
-          <MergePrPill
-            {...mergeProps}
-            steerEnabled={steerEnabled}
-            placement="header"
-          />
-        ) : undefined
-      }
     />
   ) : null
+  /** EXP-1154: the ONE merge of the phone Work screen is the white capsule
+   *  on the floating bar again (no longer beside the tabs): in the cluster on
+   *  Changes and Results, floating above the composer bar on Run. */
+  const phoneMerge =
+    isMobile && canMerge && mergeProps ? (
+      <MergeCapsule {...mergeProps} steerEnabled={steerEnabled} />
+    ) : undefined
 
   /** EXP-1150: the Run face's bar keeps ONE circle on its right — Start
-   *  coding once the run ended for good, else nothing (Merge rides the
-   *  header band). */
+   *  coding once the run ended for good, else nothing (EXP-1154: Merge
+   *  floats above the bar). */
   const phoneTrailingNode =
     Boolean(onStart) && sessionEnded && !canResumeAny ? (
       <FabButton
@@ -1190,17 +1200,32 @@ export function AgentSessionView({
       </FabButton>
     ) : undefined
 
+  /** EXP-1154: the white Merge floats above the Run face's bar (the branch
+   *  of `mobileBar` below that draws `MobileMergeFloat`); the transcript then
+   *  reserves the float's height too. */
+  const mergeFloats =
+    isMobile &&
+    !showResultsFace &&
+    !showDiffFace &&
+    Boolean(composerVisible || phoneTrailingNode) &&
+    canMerge &&
+    Boolean(mergeProps) &&
+    !(composerVisible && composerOpen)
+
   /** EXP-893: the phone bar by face. Run + open session: the usage ring, the
    *  composer capsule (expanding into the composer), the Start circle once
-   *  the run ended for good. Run over: that circle alone, or no bar.
-   *  Changes: the file sheet. EXP-879 Results: NO bar — only the Run face
-   *  owns Stop / Resume; Merge rides the header band on every face. */
-  const mobileBar = !isMobile ? null : showResultsFace ? null : showDiffFace ? (
+   *  the run ended for good, and (EXP-1154) the white Merge floating above
+   *  it. Run over: that circle alone, else Merge alone, or no bar. Changes:
+   *  the file sheet + Merge. EXP-879 Results: Merge alone, else no bar —
+   *  only the Run face owns Stop / Resume. */
+  const mobileBar = !isMobile ? null : showResultsFace ? (
+    phoneMerge ? <MobileWorkBar cluster capsule={phoneMerge} /> : null
+  ) : showDiffFace ? (
     <MobileWorkBar
       /* EXP-895: the file LIST is the leading slot on a phone; GitHub rides
          the header's action slot (EXP-949: on this face alone, issue-bound or
-         not). EXP-916: the Reviews page's cluster — the sheet alone here. The
-         face only stands with files, so the sheet is always there. */
+         not). EXP-916/1154: the review cluster — the sheet and the white
+         Merge. The face only stands with files, so the sheet is there. */
       cluster
       leading={
         <ChangesFileSheet
@@ -1209,63 +1234,75 @@ export function AgentSessionView({
           onSelect={setDiffFile}
         />
       }
+      capsule={phoneMerge}
     />
-  ) : composerVisible || phoneTrailingNode ? (
-    <MobileWorkBar
-      /* EXP-916: the ring belongs to the composer band — while a card holds
-         the keyboard, or once the run is over, the bar is the trailing circle
-         alone (Android's `FloatingBottomBar(right = …)`, iOS's
-         `bandRetired`). */
-      leading={
-        composerVisible && usageAvailable
-          ? usageOverlay(
-              <ContextRing
-                percent={contextPercent(sessionUsage)}
-                tone={severity(contextPercent(sessionUsage) ?? 0)}
-                showEmpty={showEmptyRing}
-                className={cn(
-                  MOBILE_WORK_CIRCLE_CLASS,
-                  `[&>svg]:size-6 [&>svg]:shrink-0`
-                )}
+  ) : !(composerVisible || phoneTrailingNode) ? (
+    phoneMerge ? <MobileWorkBar cluster capsule={phoneMerge} /> : null
+  ) : (
+    <>
+      {canMerge && mergeProps && (
+        <MobileMergeFloat
+          {...mergeProps}
+          steerEnabled={steerEnabled}
+          hidden={composerVisible && composerOpen}
+        />
+      )}
+      <MobileWorkBar
+        /* EXP-916: the ring belongs to the composer band — while a card holds
+           the keyboard, or once the run is over, the bar is the trailing circle
+           alone (Android's `FloatingBottomBar(right = …)`, iOS's
+           `bandRetired`). */
+        leading={
+          composerVisible && usageAvailable
+            ? usageOverlay(
+                <ContextRing
+                  percent={contextPercent(sessionUsage)}
+                  tone={severity(contextPercent(sessionUsage) ?? 0)}
+                  showEmpty={showEmptyRing}
+                  className={cn(
+                    MOBILE_WORK_CIRCLE_CLASS,
+                    `[&>svg]:size-6 [&>svg]:shrink-0`
+                  )}
+                />
+              )
+            : undefined
+        }
+        capsule={
+          composerVisible ? (
+            <MobileWorkCapsule
+              onClick={() => setComposerOpen(true)}
+              data-testid="steer-composer-capsule"
+            >
+              <span className="truncate text-muted-foreground">
+                {COMPOSER_PLACEHOLDER}
+              </span>
+            </MobileWorkCapsule>
+          ) : undefined
+        }
+        expanded={
+          composerVisible && composerOpen ? (
+            <div className={cn(`rounded-2xl p-1.5`, FAB_CHROME_CLASS)}>
+              <SteerComposer
+                store={store}
+                live={live && connected}
+                onSend={sendMessage}
+                working={working}
+                sessionId={session.id}
+                users={teamUsers}
+                agent={session.agent}
+                config={config}
+                usageSlot={usageSlot}
+                autoFocus
+                onEmptyBlur={() => setComposerOpen(false)}
               />
-            )
-          : undefined
-      }
-      capsule={
-        composerVisible ? (
-          <MobileWorkCapsule
-            onClick={() => setComposerOpen(true)}
-            data-testid="steer-composer-capsule"
-          >
-            <span className="truncate text-muted-foreground">
-              {COMPOSER_PLACEHOLDER}
-            </span>
-          </MobileWorkCapsule>
-        ) : undefined
-      }
-      expanded={
-        composerVisible && composerOpen ? (
-          <div className={cn(`rounded-2xl p-1.5`, FAB_CHROME_CLASS)}>
-            <SteerComposer
-              store={store}
-              live={live && connected}
-              onSend={sendMessage}
-              working={working}
-              sessionId={session.id}
-              users={teamUsers}
-              agent={session.agent}
-              config={config}
-              usageSlot={usageSlot}
-              autoFocus
-              onEmptyBlur={() => setComposerOpen(false)}
-            />
-          </div>
-        ) : null
-      }
-      /* The expanded composer covers the bar; its circle waits behind it. */
-      trailing={composerVisible && composerOpen ? undefined : phoneTrailingNode}
-    />
-  ) : null
+            </div>
+          ) : null
+        }
+        /* The expanded composer covers the bar; its circle waits behind it. */
+        trailing={composerVisible && composerOpen ? undefined : phoneTrailingNode}
+      />
+    </>
+  )
 
   return (
     <OpenResultsContext.Provider value={openResults}>
@@ -1393,6 +1430,15 @@ export function AgentSessionView({
               groups={resultGroups}
               attachmentSrc={(id) => `/api/attachments/${id}`}
               renderText={renderResultText}
+              /* EXP-1154: the Guide's file rows count off the diff the
+                 Changes face draws, and a row opens that face on it; with
+                 no files to draw the rows stay inert. */
+              files={changesFiles}
+              onOpenFile={guideFileOpener(changesFiles, (path) => {
+                setDiffFile(path)
+                onFace(`diff`)
+              })}
+              isMobile={isMobile}
             />
           </div>
         </div>
@@ -1433,8 +1479,9 @@ export function AgentSessionView({
         className={cn(
           `flex min-w-0 flex-1 flex-col overflow-hidden bg-card/40`,
           // EXP-893: the phone's floating bar owns the bottom edge — the
-          // strips and the last row stop above it.
-          isMobile && MOBILE_WORK_BAR_CLEARANCE
+          // strips and the last row stop above it (EXP-1154: and above the
+          // floating Merge while it shows).
+          isMobile && mobileFaceClearance(mergeFloats)
         )}
       >
           {/* EXP-356: conversation tabs — Main plus one per RUNNING subagent

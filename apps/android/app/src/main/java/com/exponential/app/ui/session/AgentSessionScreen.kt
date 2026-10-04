@@ -349,7 +349,8 @@ private val AgentPhase.isWaitingForStream: Boolean
  * the bare bar with only the trailing circle — or no bar without one — once it
  * ended or a card holds the input. The host (`WorkScreen`) owns the Scaffold,
  * the title dot, Stop / Resume, the kill and resume confirms, the merge
- * (Changes face) and the ended-edge navigation; this renders INSIDE its
+ * (EXP-1154: the white capsule it floats above this bar, [aboveBar]) and the
+ * ended-edge navigation; this renders INSIDE its
  * content slot, one instance per shown run (`key(shownSessionId)`).
  */
 @Composable
@@ -359,8 +360,11 @@ fun RunFace(
     // EXP-760: a chipped identifier in the feed opens that issue.
     onOpenIssue: (String) -> Unit,
     /** The bar's right circle (EXP-1150: the Start circle once the run
-     *  ended for good — Merge PR lives in the header); null = none. */
+     *  ended for good); null = none. */
     trailingBarSlot: (@Composable () -> Unit)?,
+    /** EXP-1154: floats centred directly ABOVE the bar (the white Merge PR),
+     *  riding the keyboard with it; hidden while the composer is expanded. */
+    aboveBar: (@Composable () -> Unit)? = null,
     /** EXP-933: switches the host to its Results face — the inline
      *  `sessions_results` card's `Open Results` button. Null hides it. */
     onOpenResults: (() -> Unit)? = null,
@@ -373,7 +377,7 @@ fun RunFace(
         LocalOpenResults provides onOpenResults,
         LocalSessionResults provides results,
     ) {
-        RunFaceContent(viewModel, padding, onOpenIssue, trailingBarSlot)
+        RunFaceContent(viewModel, padding, onOpenIssue, trailingBarSlot, aboveBar)
     }
 }
 
@@ -391,6 +395,7 @@ private fun RunFaceContent(
     padding: PaddingValues,
     onOpenIssue: (String) -> Unit,
     trailingBarSlot: (@Composable () -> Unit)?,
+    aboveBar: (@Composable () -> Unit)?,
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     val phase by viewModel.phase.collectAsStateWithLifecycle()
@@ -1275,6 +1280,8 @@ private fun RunFaceContent(
             }
         }
 
+        // EXP-1154: the white Merge PR, centred directly over the bar.
+        if (aboveBar != null && !composerExpanded) aboveBar()
         // ── The floating bottom bar / steering input ─────────────────────────
         // Fully seamless (EXP-312): no captions, no operator state; live
         // implies ownership, input just sends. EXP-621: the composer is
