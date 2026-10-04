@@ -40,8 +40,10 @@ function ActionDetailPage() {
 
   return (
     <div className="h-full overflow-y-auto">
+      {/* EXP-1190: fills the scroller so a swipe anywhere below the
+          phone's tabs pages them. */}
       <div
-        className={`mx-auto w-full max-w-3xl px-4 py-4 md:max-w-5xl ${TAB_BAR_CLEARANCE}`}
+        className={`mx-auto flex min-h-full w-full max-w-3xl flex-col px-4 py-4 md:max-w-5xl ${TAB_BAR_CLEARANCE}`}
       >
         {team ? (
           <ActionPage

@@ -1,8 +1,5 @@
 package com.exponential.app.ui.work
 
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.PagerDefaults
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,18 +14,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -57,6 +49,7 @@ import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassSegmentedControl
 import com.exponential.app.ui.components.GlassSegmentedControlDefaults
+import com.exponential.app.ui.components.TabPager
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.relativeTime
@@ -79,20 +72,10 @@ import com.exponential.app.ui.session.PastRunRow
 // <when>`, a check on the shown run).
 
 /**
- * EXP-1152: the face bodies as a native PAGER — the neighbour follows the
- * finger and settles with the platform fling, instead of the EXP-1150 swipe
- * that decided on release and cut over instantly. [beyondViewportPageCount]
- * = 1 composes the neighbours before a drag starts, so the first frame of a
- * swipe never stutters on a cold page. Nested horizontal scrollers (the
- * diff's code rows) and text selection keep priority through Compose's nested
- * scroll: the pager only moves once the child has nothing left to scroll.
- *
- * Two-way sync with the screen's [face]: a tab tap ANIMATES the pager there;
- * the pager's settled-past-half-way page reports back through [onFace], so the
- * strip follows the finger like native tabs. When [faces] itself changes (a
- * face appeared or vanished) the pager SNAPS to the shown face's new index
- * before anything reports back, so an index shift never names the wrong face.
- * [padding] passes straight through to [content], called per PAGE.
+ * EXP-1152: the face bodies as a native PAGER ([TabPager], EXP-1190 lifted the
+ * generic sync out of here) — the neighbour follows the finger, a tab tap
+ * animates there, a faces change snaps. [padding] passes straight through to
+ * [content], called per PAGE.
  */
 @Composable
 fun WorkFaceFrame(
@@ -102,62 +85,13 @@ fun WorkFaceFrame(
     onFace: (WorkFaceKind) -> Unit,
     content: @Composable (WorkFaceKind, PaddingValues) -> Unit,
 ) {
-    val pagerState = rememberPagerState(initialPage = faces.indexOf(face).coerceAtLeast(0)) { faces.size }
-    val latestFace by rememberUpdatedState(face)
-    val latestFaces by rememberUpdatedState(faces)
-    val latestOnFace by rememberUpdatedState(onFace)
-    // The faces the pager last laid out: a change means the indices moved.
-    var laidOut by remember { mutableStateOf(faces) }
-    // Scrolls WE drive (a tab tap's animation, a faces-change snap) in flight.
-    // A counter, not a flag: a relaunched effect's cancelled `finally` may run
-    // after its successor already started one.
-    var driving by remember { mutableIntStateOf(0) }
-    LaunchedEffect(face, faces) {
-        val target = faces.indexOf(face)
-        if (target < 0) return@LaunchedEffect
-        val snap = faces != laidOut
-        laidOut = faces
-        if (pagerState.currentPage == target) return@LaunchedEffect
-        driving++
-        try {
-            if (snap) pagerState.scrollToPage(target) else pagerState.animateScrollToPage(target)
-        } finally {
-            driving--
-        }
-    }
-    LaunchedEffect(pagerState) {
-        // Only the READER's drag or fling reports back — read in ONE snapshot
-        // with the page, so a tab tap's animation passing through the pages
-        // between (or a snap after a faces change) never re-picks them.
-        snapshotFlow {
-            if (pagerState.isScrollInProgress && driving == 0) pagerState.currentPage else null
-        }.collect { page ->
-            val picked = page?.let { latestFaces.getOrNull(it) } ?: return@collect
-            if (picked != latestFace) latestOnFace(picked)
-        }
-    }
-    // The neighbours stay composed, so a face change no longer disposes the
-    // old face's focused field: without this the keyboard stays up and types
-    // into the off-screen composer (iOS: `endEditing` in `switchFace`). Never
-    // on first composition — a face's own initial focus is its to take.
-    val focusManager = LocalFocusManager.current
-    var focusFace by remember { mutableStateOf(face) }
-    LaunchedEffect(face) {
-        if (face == focusFace) return@LaunchedEffect
-        focusFace = face
-        focusManager.clearFocus()
-    }
-    HorizontalPager(
-        state = pagerState,
+    TabPager(
+        pages = faces,
+        selected = face,
+        onSelect = onFace,
+        key = { it.name },
         modifier = Modifier.fillMaxSize(),
-        beyondViewportPageCount = 1,
-        userScrollEnabled = faces.size > 1,
-        key = { faces.getOrNull(it)?.name ?: it },
-        flingBehavior = PagerDefaults.flingBehavior(pagerState),
-    ) { page ->
-        val pageFace = faces.getOrNull(page) ?: return@HorizontalPager
-        Box(modifier = Modifier.fillMaxSize()) { content(pageFace, padding) }
-    }
+    ) { pageFace -> content(pageFace, padding) }
 }
 
 /**

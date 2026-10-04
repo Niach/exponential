@@ -212,14 +212,14 @@ export function primaryAction(input: {
  *  finger leftwards, so the NEXT face slides in; `right` = the previous. */
 export type SwipeDirection = `left` | `right`
 
-/** The face a horizontal swipe on the body lands on: the neighbour in the
- *  strip's order, `null` at either end (or when the shown face is not in the
- *  strip at all — nothing to swipe from). */
-export function swipeTarget(
-  faces: readonly WorkFaceKind[],
-  shown: WorkFaceKind,
+/** The face (or any phone tab, EXP-1190) a horizontal swipe on the body
+ *  lands on: the neighbour in the strip's order, `null` at either end (or
+ *  when the shown face is not in the strip at all — nothing to swipe from). */
+export function swipeTarget<T>(
+  faces: readonly T[],
+  shown: T,
   direction: SwipeDirection
-): WorkFaceKind | null {
+): T | null {
   const index = faces.indexOf(shown)
   if (index < 0) return null
   const next = direction === `left` ? index + 1 : index - 1

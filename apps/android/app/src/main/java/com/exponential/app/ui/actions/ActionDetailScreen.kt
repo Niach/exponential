@@ -17,8 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -35,7 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,6 +64,7 @@ import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSegmentedControl
 import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.components.SwitchThumb
+import com.exponential.app.ui.components.TabPager
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.components.actionGlyph
 import com.exponential.app.ui.components.agentLabel
@@ -79,7 +78,6 @@ import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
-import kotlinx.coroutines.launch
 
 // The action page (SLOP-2): ONE action — what it says, when it fires on its
 // own, and what it ran. An action row (and an `action` entity ref) opens it; it
@@ -127,9 +125,8 @@ fun ActionDetailScreen(
     val error by viewModel.triggerError.collectAsStateWithLifecycle()
     val action = state.action
 
-    // rememberPagerState is saveable: Back from a run lands on the same tab.
-    val pagerState = rememberPagerState { ACTION_TABS.size }
-    val scope = rememberCoroutineScope()
+    // Saveable: Back from a run lands on the same tab.
+    var tab by rememberSaveable { mutableStateOf(ACTION_TAB_PROMPT) }
 
     // The owner-only trigger form: true = adding, non-null = editing that one.
     var addingTrigger by remember { mutableStateOf(false) }
@@ -185,11 +182,9 @@ fun ActionDetailScreen(
                 if (action != null) {
                     GlassSegmentedControl(
                         options = ACTION_TABS,
-                        selected = ACTION_TABS[pagerState.targetPage],
+                        selected = tab,
                         label = ::actionTabLabel,
-                        onSelect = { tab ->
-                            scope.launch { pagerState.animateScrollToPage(ACTION_TABS.indexOf(tab)) }
-                        },
+                        onSelect = { tab = it },
                         modifier = Modifier
                             .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp)
                             .testTag("action-tabs"),
@@ -208,8 +203,11 @@ fun ActionDetailScreen(
                 icon = ExpIcons.actionDefault,
                 modifier = Modifier.padding(padding),
             )
-            else -> HorizontalPager(
-                state = pagerState,
+            else -> TabPager(
+                pages = ACTION_TABS,
+                selected = tab,
+                onSelect = { tab = it },
+                key = { it },
                 modifier = Modifier
                     .padding(padding)
                     // consumeWindowInsets keeps imePadding from re-adding the
@@ -221,9 +219,8 @@ fun ActionDetailScreen(
                 // a drag starts (Work parity), and an unsaved Prompt edit
                 // survives a visit to Runs, two pages away.
                 beyondViewportPageCount = ACTION_TABS.size - 1,
-                key = { ACTION_TABS[it] },
             ) { page ->
-                when (ACTION_TABS[page]) {
+                when (page) {
                     ACTION_TAB_TRIGGERS -> TriggersTab(
                         triggers = triggers,
                         devices = syncedDevices,

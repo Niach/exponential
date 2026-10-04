@@ -30,6 +30,10 @@ import { ActionTriggersSection } from "@/components/action-triggers-section"
 import { ActionRunsSection } from "@/components/action-runs-section"
 import { DeleteActionDialog } from "@/components/team-actions-panel"
 import { PinToggleButton } from "@/components/pin-toggle-button"
+import {
+  primeTabEnter,
+  useFaceSwipe,
+} from "@/components/mobile-face-tabs"
 import { useOpenComposer } from "@/hooks/use-open-composer"
 import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
@@ -67,6 +71,8 @@ export function ActionPage({
 }) {
   const navigate = useNavigate()
   const isMobile = useIsMobile()
+  // EXP-1190: the phone's tabs page with a swipe, like the Work faces.
+  const swipe = useFaceSwipe(ACTION_PAGE_TABS, tab, onTabChange)
   const { data: session } = useSession()
   const { isMember, isOwner } = useTeamPermissions(team)
   const steerConfig = useSteerConfig()
@@ -202,25 +208,36 @@ export function ActionPage({
       </header>
 
       {isMobile ? (
-        <Tabs
-          value={tab}
-          onValueChange={(value) => onTabChange(value as ActionPageTab)}
-        >
-          <TabsList className="w-full">
-            <TabsTrigger value="prompt" className="flex-1">
-              Prompt
-            </TabsTrigger>
-            <TabsTrigger value="triggers" className="flex-1">
-              Triggers
-            </TabsTrigger>
-            <TabsTrigger value="runs" className="flex-1">
-              Runs
-            </TabsTrigger>
-          </TabsList>
-          <TabsContent value="prompt">{prompt}</TabsContent>
-          <TabsContent value="triggers">{triggersSection(false)}</TabsContent>
-          <TabsContent value="runs">{runsSection(false)}</TabsContent>
-        </Tabs>
+        <div className="flex-1" {...swipe}>
+          <Tabs
+            value={tab}
+            onValueChange={(value) => {
+              primeTabEnter(ACTION_PAGE_TABS, tab, value as ActionPageTab)
+              onTabChange(value as ActionPageTab)
+            }}
+          >
+            <TabsList className="w-full">
+              <TabsTrigger value="prompt" className="flex-1">
+                Prompt
+              </TabsTrigger>
+              <TabsTrigger value="triggers" className="flex-1">
+                Triggers
+              </TabsTrigger>
+              <TabsTrigger value="runs" className="flex-1">
+                Runs
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="prompt" data-face-body="">
+              {prompt}
+            </TabsContent>
+            <TabsContent value="triggers" data-face-body="">
+              {triggersSection(false)}
+            </TabsContent>
+            <TabsContent value="runs" data-face-body="">
+              {runsSection(false)}
+            </TabsContent>
+          </Tabs>
+        </div>
       ) : (
         <div className="space-y-6">
           <div>

@@ -96,18 +96,33 @@ struct ActionsListView: View {
                 selection: segment,
                 label: { $0.label },
                 identifier: { "actions-segment-\($0.rawValue)" },
-                onSelect: { segmentRaw = $0.rawValue }
+                onSelect: selectSegment
             )
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
 
-            switch segment {
-            case .actions:
-                actionsContent(vm)
-            case .suggestions:
-                suggestionsContent
+            // EXP-1190: the segments are PAGES that follow the finger, like
+            // the action page's tabs.
+            FacePager(pages: Segment.allCases, selection: selection) { page in
+                switch page {
+                case .actions:
+                    VStack(spacing: 0) { actionsContent(vm) }
+                case .suggestions:
+                    suggestionsContent
+                }
             }
         }
+    }
+
+    /// The pager's selection: a drag onto a page writes the stored segment.
+    private var selection: Binding<Segment> {
+        Binding(get: { segment }, set: { segmentRaw = $0.rawValue })
+    }
+
+    /// A segment tap slides the pages.
+    private func selectSegment(_ next: Segment) {
+        guard next != segment else { return }
+        withAnimation { segmentRaw = next.rawValue }
     }
 
     @ViewBuilder

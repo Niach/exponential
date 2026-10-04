@@ -50,6 +50,7 @@ import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSegmentedControl
 import com.exponential.app.ui.components.SectionHeader
+import com.exponential.app.ui.components.TabPager
 import com.exponential.app.ui.components.TeamSectionHeader
 import com.exponential.app.ui.components.teamBands
 import com.exponential.app.ui.components.actionGlyph
@@ -83,6 +84,7 @@ import com.exponential.app.ui.theme.glassRow
 // rememberSaveable-friendly segment keys (plain strings, no custom Saver).
 private const val SEGMENT_ACTIONS = "actions"
 private const val SEGMENT_SUGGESTIONS = "suggestions"
+private val SEGMENTS = listOf(SEGMENT_ACTIONS, SEGMENT_SUGGESTIONS)
 
 @Composable
 fun ActionsScreen(
@@ -114,6 +116,7 @@ fun ActionsScreen(
     }
 
     var segment by rememberSaveable { mutableStateOf(SEGMENT_ACTIONS) }
+    val selectedSegment = if (segment == SEGMENT_SUGGESTIONS) SEGMENT_SUGGESTIONS else SEGMENT_ACTIONS
 
     Scaffold(containerColor = Color.Transparent) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
@@ -133,84 +136,94 @@ fun ActionsScreen(
                 )
             }
             GlassSegmentedControl(
-                options = listOf(SEGMENT_ACTIONS, SEGMENT_SUGGESTIONS),
-                selected = if (segment == SEGMENT_SUGGESTIONS) SEGMENT_SUGGESTIONS else SEGMENT_ACTIONS,
+                options = SEGMENTS,
+                selected = selectedSegment,
                 label = { if (it == SEGMENT_SUGGESTIONS) "Suggestions" else "Actions" },
                 onSelect = { segment = it },
                 modifier = Modifier.padding(horizontal = 16.dp),
                 testTag = { "actions-segment-$it" },
             )
             Spacer(Modifier.height(4.dp))
-            Box(modifier = Modifier.fillMaxSize()) {
-                when (segment) {
-                    SEGMENT_SUGGESTIONS -> SuggestionsContent(
-                        onUse = { suggestion ->
-                            // EXP-825: the creator run reads the request off
-                            // the composer text — the suggestion's
-                            // description, plus (SLOP-2) the machine-readable
-                            // trigger block the agent passes verbatim to
-                            // exponential_actions_update, bound to the
-                            // caller's default trigger-capable machine
-                            // (EXP-622) when one exists. The icon seeds the
-                            // builtin's `icon` pick.
-                            val trigger = suggestion.trigger
-                            val runner = triggerDevices.firstOrNull { it.isDefault }
-                                ?: triggerDevices.firstOrNull()
-                            val text = if (trigger != null && runner != null) {
-                                suggestion.description +
-                                    formatTriggerBlock(trigger, deviceId = runner.deviceId)
-                            } else {
-                                suggestion.description
-                            }
-                            onOpenAgent(
-                                AgentComposerSeed(
-                                    actionId = DomainContract.builtinCreateActionId,
-                                    text = text,
-                                    icon = suggestion.icon,
-                                ),
-                            )
-                        },
-                    )
-                    else -> when {
-                        state.actions.isEmpty() && state.loading ->
-                            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-                        state.actions.isEmpty() && state.error != null ->
-                            CenteredCaption(state.error ?: "")
-                        state.actions.isEmpty() -> ActionsEmptyState()
-                        else -> LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            // EXP-574 (web parity): the "Actions" header with
-                            // the "New action" entry (EXP-431) as its trailing
-                            // control.
-                            if (!multiTeam) {
-                                item(key = "__actions_header__") {
-                                    SectionHeader(title = "Actions") { newActionPill(null) }
+            // EXP-1190: the segments page with a horizontal swipe (the Work
+            // screen's faces), filling the column's remaining height.
+            TabPager(
+                pages = SEGMENTS,
+                selected = selectedSegment,
+                onSelect = { segment = it },
+                key = { it },
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+            ) { page ->
+                Box(modifier = Modifier.fillMaxSize()) {
+                    when (page) {
+                        SEGMENT_SUGGESTIONS -> SuggestionsContent(
+                            onUse = { suggestion ->
+                                // EXP-825: the creator run reads the request off
+                                // the composer text — the suggestion's
+                                // description, plus (SLOP-2) the machine-readable
+                                // trigger block the agent passes verbatim to
+                                // exponential_actions_update, bound to the
+                                // caller's default trigger-capable machine
+                                // (EXP-622) when one exists. The icon seeds the
+                                // builtin's `icon` pick.
+                                val trigger = suggestion.trigger
+                                val runner = triggerDevices.firstOrNull { it.isDefault }
+                                    ?: triggerDevices.firstOrNull()
+                                val text = if (trigger != null && runner != null) {
+                                    suggestion.description +
+                                        formatTriggerBlock(trigger, deviceId = runner.deviceId)
+                                } else {
+                                    suggestion.description
                                 }
-                            }
-                            // Server order (sort_order, then name) — since
-                            // EXP-686 the list carries no client builtins to
-                            // pin above it. EXP-1186: one band per team (the
-                            // team avatar + name) with several teams.
-                            teamBands(state.actions, teams) { it.teamId }.forEach { band ->
-                                band.team?.let { team ->
-                                    item(key = "__actions_team_${team.id}__") {
-                                        TeamSectionHeader(team) { newActionPill(team.id) }
+                                onOpenAgent(
+                                    AgentComposerSeed(
+                                        actionId = DomainContract.builtinCreateActionId,
+                                        text = text,
+                                        icon = suggestion.icon,
+                                    ),
+                                )
+                            },
+                        )
+                        else -> when {
+                            state.actions.isEmpty() && state.loading ->
+                                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                            state.actions.isEmpty() && state.error != null ->
+                                CenteredCaption(state.error ?: "")
+                            state.actions.isEmpty() -> ActionsEmptyState()
+                            else -> LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                // EXP-574 (web parity): the "Actions" header with
+                                // the "New action" entry (EXP-431) as its trailing
+                                // control.
+                                if (!multiTeam) {
+                                    item(key = "__actions_header__") {
+                                        SectionHeader(title = "Actions") { newActionPill(null) }
                                     }
                                 }
-                                items(band.items, key = { it.id }) { action ->
-                                    ActionRow(
-                                        action = action,
-                                        // EXP-1186: the composer resolves the
-                                        // ACTION's team off the seed.
-                                        onRun = { onOpenAgent(AgentComposerSeed(actionId = action.id)) },
-                                        // SLOP-2: the row (and its menu's Edit)
-                                        // opens the action page, which is
-                                        // read-only for non-owners.
-                                        onOpen = { onOpenAction(action.id) },
-                                    )
+                                // Server order (sort_order, then name) — since
+                                // EXP-686 the list carries no client builtins to
+                                // pin above it. EXP-1186: one band per team (the
+                                // team avatar + name) with several teams.
+                                teamBands(state.actions, teams) { it.teamId }.forEach { band ->
+                                    band.team?.let { team ->
+                                        item(key = "__actions_team_${team.id}__") {
+                                            TeamSectionHeader(team) { newActionPill(team.id) }
+                                        }
+                                    }
+                                    items(band.items, key = { it.id }) { action ->
+                                        ActionRow(
+                                            action = action,
+                                            // EXP-1186: the composer resolves the
+                                            // ACTION's team off the seed.
+                                            onRun = { onOpenAgent(AgentComposerSeed(actionId = action.id)) },
+                                            // SLOP-2: the row (and its menu's Edit)
+                                            // opens the action page, which is
+                                            // read-only for non-owners.
+                                            onOpen = { onOpenAction(action.id) },
+                                        )
+                                    }
                                 }
                             }
                         }

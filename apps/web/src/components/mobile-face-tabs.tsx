@@ -38,9 +38,11 @@ import {
 // so title and tabs read as one header. iOS `WorkFaceTabs` and Android
 // `FaceTabs` draw the same strip in the same place.
 //
-// EXP-1152: the body is a PAGER. iOS pages with `TabView(.page)` and Android
-// with `HorizontalPager`; on the web the faces are separate route trees (Run
-// is another route), so a neighbour cannot be pre-mounted. Instead the face's
+// EXP-1152: the body is a PAGER. iOS pages with `FacePager` and Android
+// with `HorizontalPager` (`TabPager`), and EXP-1190 pages every other top tab
+// strip on a phone (My Work, Actions, the action page) the same way; on the
+// web the faces are separate route trees (Run is another route), so a
+// neighbour cannot be pre-mounted. Instead the face's
 // BODY (`[data-face-body]`) follows the finger — `translateX` written straight
 // onto the node, no React render per move, rubber-banded where there is no
 // neighbour — and on release it either springs back or leaves to the side it
@@ -162,6 +164,14 @@ export function primeFaceEnter(direction: SwipeDirection): void {
   pendingEnter = { direction, at: Date.now() }
 }
 
+/** A tab TAP pages too: the new tab slides in from the side it sits on. */
+export function primeTabEnter<T>(tabs: readonly T[], from: T, to: T): void {
+  const shown = tabs.indexOf(from)
+  const next = tabs.indexOf(to)
+  if (shown < 0 || next < 0 || shown === next) return
+  primeFaceEnter(next > shown ? `left` : `right`)
+}
+
 function takeFaceEnter(): SwipeDirection | null {
   const pending = pendingEnter
   pendingEnter = null
@@ -236,6 +246,10 @@ const ROOT_STYLE: CSSProperties = {
  *  nearest scroll container, and the body IS one. */
 export const FACE_BODY_TOUCH_CLASS = `touch-pan-y touch-pinch-zoom`
 
+/** EXP-1190: a tab body whose lists scroll INSIDE it (My Work) hands the
+ *  same rule down to those scrollers. */
+export const TAB_BODY_TOUCH_CLASS = `${FACE_BODY_TOUCH_CLASS} [&_.overflow-y-auto]:touch-pan-y [&_.overflow-y-auto]:touch-pinch-zoom [&_.overflow-auto]:touch-pan-y [&_.overflow-auto]:touch-pinch-zoom`
+
 interface Gesture {
   x: number
   y: number
@@ -248,11 +262,12 @@ interface Gesture {
 }
 
 /** The pager a face's root element spreads (`FaceSwipeHandlers`): the body
- *  follows a horizontal drag and commits to the neighbour in the strip. */
-export function useFaceSwipe(
-  faces: readonly WorkFaceKind[],
-  face: WorkFaceKind,
-  onFace: (face: WorkFaceKind) => void
+ *  follows a horizontal drag and commits to the neighbour in the strip. Any
+ *  phone tab strip pages with it (EXP-1190): `faces` = its tabs in order. */
+export function useFaceSwipe<T>(
+  faces: readonly T[],
+  face: T,
+  onFace: (face: T) => void
 ): FaceSwipeHandlers {
   const root = useRef<HTMLElement | null>(null)
   const gesture = useRef<Gesture | null>(null)
@@ -448,8 +463,7 @@ export function MobileFaceTabs({
   onOpenRun,
 }: MobileFaceTabsProps) {
   const multipleRuns = runs.length > 1
-  const shownIndex = faces.indexOf(face)
-  const items: WorkFaceItem[] = faces.map((kind, index) => ({
+  const items: WorkFaceItem[] = faces.map((kind) => ({
     face: toToggleFace(kind),
     label:
       kind === `issue` ? (
@@ -462,11 +476,8 @@ export function MobileFaceTabs({
         RESULTS_FACE_LABEL
       ),
     onSelect: () => {
-      // EXP-1152: a tap pages too — the new face slides in from the side
-      // its tab sits on.
-      if (shownIndex >= 0 && index !== shownIndex) {
-        primeFaceEnter(index > shownIndex ? `left` : `right`)
-      }
+      // EXP-1152: a tap pages too.
+      primeTabEnter(faces, face, kind)
       onFace(kind)
     },
   }))

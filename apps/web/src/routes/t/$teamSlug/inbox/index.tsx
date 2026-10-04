@@ -4,6 +4,11 @@ import { DraftsList } from "@/components/drafts-list"
 import { InboxView } from "@/components/inbox/inbox-view"
 import { MyIssuesView } from "@/components/my-issues-view"
 import {
+  TAB_BODY_TOUCH_CLASS,
+  primeTabEnter,
+  useFaceSwipe,
+} from "@/components/mobile-face-tabs"
+import {
   Button,
   SEGMENTED_ROW,
   SEGMENTED_TAB,
@@ -135,6 +140,11 @@ function InboxPage() {
     requestedTab === `drafts` && !draftsTabAvailable ? `inbox` : requestedTab
   const [bulkSlot, setBulkSlot] = useState<HTMLDivElement | null>(null)
 
+  // EXP-1190: on a phone the body pages between the segments, like the Work
+  // screen's faces.
+  const tabs: InboxTab[] = draftsTabAvailable
+    ? [`inbox`, `my-issues`, `drafts`]
+    : [`inbox`, `my-issues`]
   const setTab = (next: InboxTab) => {
     void navigate({
       to: `/t/$teamSlug/inbox`,
@@ -146,6 +156,7 @@ function InboxPage() {
       replace: true,
     })
   }
+  const swipe = useFaceSwipe(tabs, tab, setTab)
 
   useEffect(() => {
     if (!draftsReady) return
@@ -162,7 +173,7 @@ function InboxPage() {
   if (!session?.user) return null
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col" {...(isMobile ? swipe : {})}>
       {/* EXP-851: `SEGMENTED_ROW` — the same padding the Support strip sits
           in, so the two read as one control at one size. */}
       <div className={SEGMENTED_ROW}>
@@ -171,7 +182,10 @@ function InboxPage() {
               controlled value is the parsed ?tab and every change navigates. */}
           <Tabs
             value={tab}
-            onValueChange={(next) => setTab(next as InboxTab)}
+            onValueChange={(next) => {
+              primeTabEnter(tabs, tab, next as InboxTab)
+              setTab(next as InboxTab)
+            }}
             className="w-fit shrink-0"
           >
             <TabsList>
@@ -207,7 +221,10 @@ function InboxPage() {
         {tab === `inbox` ? <MarkAllReadButton /> : null}
       </div>
 
-      <div className="min-h-0 flex-1">
+      <div
+        className={isMobile ? `min-h-0 flex-1 ${TAB_BODY_TOUCH_CLASS}` : `min-h-0 flex-1`}
+        data-face-body={isMobile ? `` : undefined}
+      >
         {tab === `inbox` ? (
           <InboxView from="inbox" />
         ) : tab === `drafts` ? (
