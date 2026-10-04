@@ -15,6 +15,11 @@
 //! header label, plain rows with their glyphs, a checked row, a submenu
 //! trigger, a disabled row and the red destructive row
 //! (`controls::danger_menu_item`) with no divider above it (EXP-697).
+//!
+//! EXP-1185: the description editor's right-click menu (Cut · Copy · Paste ·
+//! Delete, then Insert ›) is NOT this component: it lives inside the vendored
+//! `gpui-markdown-editor` and draws that crate's own menu recipe
+//! (`theme.dimensions.menu_*`, dialog colours), as its Insert menu always did.
 
 use gpui::{div, App, Context, Div, Entity, IntoElement, ParentElement as _, Render, Window};
 use gpui_component::{

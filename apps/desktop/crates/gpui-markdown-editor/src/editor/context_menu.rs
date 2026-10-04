@@ -6,7 +6,9 @@ use std::time::Duration;
 use gpui::*;
 
 use super::{Editor, TableAxisSelection, ViewMode};
-use crate::components::{DismissTransientUi, TableAxisKind, TableColumnAlignment, TableData};
+use crate::components::{
+    Copy, Cut, Delete, DismissTransientUi, Paste, TableAxisKind, TableColumnAlignment, TableData,
+};
 use crate::theme::Theme;
 
 /// Target block position for inserting a native table.
@@ -20,10 +22,18 @@ pub(super) enum TableInsertTarget {
 
 /// Rendered-mode context menu currently open in the editor.
 pub(super) enum ContextMenuState {
-    /// General block context menu with an insert submenu.
+    /// General block context menu: the EXP-1185 edit rows (Cut · Copy ·
+    /// Paste · Delete) over an insert submenu.
     Insert {
         position: Point<Pixels>,
         target: TableInsertTarget,
+        /// Whether the Insert row shows; table cells and code/math blocks
+        /// get the edit rows alone.
+        allows_insert: bool,
+        /// A selection to cut, copy or delete exists, sampled at open time.
+        has_selection: bool,
+        /// A focused block can take a paste.
+        can_paste: bool,
         insert_hovered: bool,
         submenu_hovered: bool,
         submenu_open: bool,
@@ -34,6 +44,9 @@ pub(super) enum ContextMenuState {
         selection: TableAxisSelection,
     },
 }
+
+/// Click handler of one context-menu edit row.
+type EditRowHandler = fn(&mut Editor, &ClickEvent, &mut Window, &mut Context<Editor>);
 
 /// State for the table insertion dialog opened from the context menu.
 pub(super) struct TableInsertDialogState {
@@ -58,16 +71,26 @@ impl Editor {
         &mut self,
         position: Point<Pixels>,
         target: TableInsertTarget,
+        allows_insert: bool,
+        window: &Window,
         cx: &mut Context<Self>,
     ) {
         if self.view_mode != ViewMode::Rendered {
             return;
         }
 
+        let focused = self.focused_edit_target(window, cx);
+        let has_selection = self.cross_block_selected_markdown(cx).is_some()
+            || focused
+                .as_ref()
+                .is_some_and(|block| block.read(cx).has_selection());
         self.context_menu_submenu_close_task = None;
         self.context_menu = Some(ContextMenuState::Insert {
             position,
             target,
+            allows_insert,
+            has_selection,
+            can_paste: focused.is_some(),
             insert_hovered: false,
             submenu_hovered: false,
             submenu_open: false,
@@ -203,21 +226,21 @@ impl Editor {
     pub(super) fn on_editor_context_menu_mouse_down(
         &mut self,
         event: &MouseDownEvent,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if self.view_mode != ViewMode::Rendered {
             return;
         }
         cx.stop_propagation();
-        self.open_insert_context_menu(event.position, TableInsertTarget::Append, cx);
+        self.open_insert_context_menu(event.position, TableInsertTarget::Append, true, window, cx);
     }
 
     pub(super) fn on_block_context_menu_mouse_down(
         &mut self,
         entity_id: EntityId,
         event: &MouseDownEvent,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if self.view_mode != ViewMode::Rendered {
@@ -237,18 +260,77 @@ impl Editor {
             }
         }
         // Right-clicking inside a table cell, or any block where inserting a
-        // table makes no sense (code, math, etc.), offers no insert menu.
-        if self.table_cell_binding(entity_id).is_some() {
-            return;
-        }
-        let allows_insert = self
-            .focusable_entity_by_id(entity_id)
-            .is_none_or(|block| block.read(cx).kind().allows_context_table_insert());
-        if !allows_insert {
-            return;
-        }
+        // table makes no sense (code, math, etc.), offers no insert row —
+        // EXP-1185: the edit rows still open there.
+        let allows_insert = self.table_cell_binding(entity_id).is_none()
+            && self
+                .focusable_entity_by_id(entity_id)
+                .is_none_or(|block| block.read(cx).kind().allows_context_table_insert());
         let target = TableInsertTarget::After(self.root_ancestor_entity_id(entity_id));
-        self.open_insert_context_menu(event.position, target, cx);
+        self.open_insert_context_menu(event.position, target, allows_insert, window, cx);
+    }
+
+    /// EXP-1185: the menu's edit rows run the SAME actions as the keyboard
+    /// (⌘X/⌘C/⌘V/⌫), dispatched to the focused block after the menu closes —
+    /// so a cross-block selection still goes through the editor's capture
+    /// handlers and a single block through its own. With no block focused
+    /// only a cross-block selection is left to act on, handled directly.
+    fn run_context_menu_edit(
+        &mut self,
+        action: Box<dyn Action>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_context_menu(cx);
+        if self.focused_edit_target(window, cx).is_some() {
+            window.dispatch_action(action, cx);
+            return;
+        }
+        let Some(markdown) = self.cross_block_selected_markdown(cx) else {
+            return;
+        };
+        if action.partial_eq(&Copy) || action.partial_eq(&Cut) {
+            cx.write_to_clipboard(ClipboardItem::new_string(markdown));
+        }
+        if action.partial_eq(&Cut) || action.partial_eq(&Delete) {
+            self.delete_cross_block_selection(cx);
+        }
+    }
+
+    pub(super) fn on_context_menu_cut(
+        &mut self,
+        _event: &ClickEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.run_context_menu_edit(Box::new(Cut), window, cx);
+    }
+
+    pub(super) fn on_context_menu_copy(
+        &mut self,
+        _event: &ClickEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.run_context_menu_edit(Box::new(Copy), window, cx);
+    }
+
+    pub(super) fn on_context_menu_paste(
+        &mut self,
+        _event: &ClickEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.run_context_menu_edit(Box::new(Paste), window, cx);
+    }
+
+    pub(super) fn on_context_menu_delete(
+        &mut self,
+        _event: &ClickEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.run_context_menu_edit(Box::new(Delete), window, cx);
     }
 
     pub(super) fn on_dismiss_context_menu_overlay(
@@ -736,6 +818,48 @@ impl Editor {
         }
     }
 
+    /// EXP-1185: an edit row — the axis-menu row recipe plus a muted
+    /// shortcut hint on the right; disabled rows dim and ignore clicks.
+    fn render_edit_menu_item(
+        theme: &Theme,
+        id: &'static str,
+        label: String,
+        shortcut: String,
+        enabled: bool,
+        on_click: EditRowHandler,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let c = &theme.colors;
+        let d = &theme.dimensions;
+        let t = &theme.typography;
+        let row = div()
+            .id(id)
+            .h(px(d.menu_item_height))
+            .px(px(d.menu_item_padding_x))
+            .flex()
+            .items_center()
+            .justify_between()
+            .rounded(px(d.menu_item_radius))
+            .bg(c.dialog_surface)
+            .text_size(px(d.menu_text_size))
+            .font_weight(t.dialog_body_weight.to_font_weight())
+            .text_color(if enabled {
+                c.dialog_secondary_button_text
+            } else {
+                c.dialog_muted
+            })
+            .child(label)
+            .child(div().text_color(c.dialog_muted).child(shortcut));
+        if enabled {
+            row.hover(|this| this.bg(c.dialog_secondary_button_hover))
+                .cursor_pointer()
+                .on_click(cx.listener(on_click))
+                .into_any_element()
+        } else {
+            row.into_any_element()
+        }
+    }
+
     fn render_axis_menu_item(
         theme: &Theme,
         id: &'static str,
@@ -805,18 +929,77 @@ impl Editor {
             ContextMenuState::Insert {
                 position,
                 submenu_open,
+                allows_insert,
+                has_selection,
+                can_paste,
                 ..
             } => {
                 let panel_x = position.x;
                 let panel_y = position.y;
                 let panel_width = px(d.context_menu_panel_width);
+                let allows_insert = *allows_insert;
+                let mod_key = if cfg!(target_os = "macos") {
+                    "⌘"
+                } else {
+                    "Ctrl+"
+                };
 
-                let submenu = submenu_open.then(|| {
+                // EXP-1185: the edit rows lead the menu, separated from Insert.
+                let edit_rows = [
+                    (
+                        "editor-context-menu-cut",
+                        s.context_menu_cut.clone(),
+                        format!("{mod_key}X"),
+                        *has_selection,
+                        Self::on_context_menu_cut as EditRowHandler,
+                    ),
+                    (
+                        "editor-context-menu-copy",
+                        s.context_menu_copy.clone(),
+                        format!("{mod_key}C"),
+                        *has_selection,
+                        Self::on_context_menu_copy as EditRowHandler,
+                    ),
+                    (
+                        "editor-context-menu-paste",
+                        s.context_menu_paste.clone(),
+                        format!("{mod_key}V"),
+                        *can_paste,
+                        Self::on_context_menu_paste as EditRowHandler,
+                    ),
+                    (
+                        "editor-context-menu-delete",
+                        s.context_menu_delete.clone(),
+                        if cfg!(target_os = "macos") {
+                            "⌫"
+                        } else {
+                            "Del"
+                        }
+                        .to_string(),
+                        *has_selection,
+                        Self::on_context_menu_delete as EditRowHandler,
+                    ),
+                ]
+                .into_iter()
+                .map(|(id, label, shortcut, enabled, on_click)| {
+                    Self::render_edit_menu_item(theme, id, label, shortcut, enabled, on_click, cx)
+                })
+                .collect::<Vec<_>>();
+                let edit_row_count = edit_rows.len() as f32;
+
+                // The submenu opens level with the Insert row, below the edit
+                // rows and the separator.
+                let insert_row_top = px(edit_row_count * (d.menu_item_height + d.menu_panel_gap)
+                    + d.menu_separator_height
+                    + 2.0 * d.menu_separator_margin_y
+                    + d.menu_panel_gap);
+
+                let submenu = (allows_insert && *submenu_open).then(|| {
                     div()
                         .id("editor-context-menu-submenu")
                         .absolute()
                         .left(panel_x + panel_width + px(d.context_menu_submenu_gap))
-                        .top(panel_y)
+                        .top(panel_y + insert_row_top)
                         .w(px(d.context_menu_submenu_width))
                         .p(px(d.menu_panel_padding))
                         .flex()
@@ -852,6 +1035,36 @@ impl Editor {
                         )
                 });
 
+                let insert_row = allows_insert.then(|| {
+                    div()
+                        .id("editor-context-menu-insert")
+                        .h(px(d.menu_item_height))
+                        .px(px(d.menu_item_padding_x))
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .rounded(px(d.menu_item_radius))
+                        .bg(if *submenu_open {
+                            c.dialog_secondary_button_hover
+                        } else {
+                            c.dialog_surface
+                        })
+                        .hover(|this| this.bg(c.dialog_secondary_button_hover))
+                        .text_size(px(d.menu_text_size))
+                        .font_weight(t.dialog_body_weight.to_font_weight())
+                        .text_color(c.dialog_secondary_button_text)
+                        .child(s.context_menu_insert.clone())
+                        .child("›")
+                        .on_hover(cx.listener(Self::on_context_menu_insert_hover))
+                });
+                let separator = allows_insert.then(|| {
+                    div()
+                        .mx(px(d.menu_separator_margin_x))
+                        .my(px(d.menu_separator_margin_y))
+                        .h(px(d.menu_separator_height))
+                        .bg(c.dialog_border)
+                });
+
                 let overlay = div()
                     .id("editor-context-menu-overlay")
                     .absolute()
@@ -862,6 +1075,10 @@ impl Editor {
                     .occlude()
                     .on_mouse_down(
                         MouseButton::Left,
+                        cx.listener(Self::on_dismiss_context_menu_overlay),
+                    )
+                    .on_mouse_down(
+                        MouseButton::Right,
                         cx.listener(Self::on_dismiss_context_menu_overlay),
                     )
                     .child(
@@ -883,28 +1100,12 @@ impl Editor {
                             .on_mouse_down(MouseButton::Left, |_event, _window, cx| {
                                 cx.stop_propagation()
                             })
-                            .child(
-                                div()
-                                    .id("editor-context-menu-insert")
-                                    .h(px(d.menu_item_height))
-                                    .px(px(d.menu_item_padding_x))
-                                    .flex()
-                                    .items_center()
-                                    .justify_between()
-                                    .rounded(px(d.menu_item_radius))
-                                    .bg(if *submenu_open {
-                                        c.dialog_secondary_button_hover
-                                    } else {
-                                        c.dialog_surface
-                                    })
-                                    .hover(|this| this.bg(c.dialog_secondary_button_hover))
-                                    .text_size(px(d.menu_text_size))
-                                    .font_weight(t.dialog_body_weight.to_font_weight())
-                                    .text_color(c.dialog_secondary_button_text)
-                                    .child(s.context_menu_insert.clone())
-                                    .child("›")
-                                    .on_hover(cx.listener(Self::on_context_menu_insert_hover)),
-                            ),
+                            .on_mouse_down(MouseButton::Right, |_event, _window, cx| {
+                                cx.stop_propagation()
+                            })
+                            .children(edit_rows)
+                            .children(separator)
+                            .children(insert_row),
                     );
 
                 Some(if let Some(submenu) = submenu {
@@ -1390,22 +1591,77 @@ impl Editor {
 #[cfg(test)]
 mod tests {
     use super::{ContextMenuState, Editor, TableInsertTarget};
-    use gpui::{AppContext, Point, TestAppContext, px};
+    use crate::components::{Copy, Cut, Delete, Paste};
+    use gpui::{ClipboardItem, Point, TestAppContext, VisualTestContext, px};
+
+    const AT: Point<gpui::Pixels> = Point {
+        x: px(24.0),
+        y: px(24.0),
+    };
+
+    fn redraw(cx: &mut VisualTestContext) {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.run_until_parked();
+    }
+
+    /// A window-hosted editor over `markdown` with its first block focused.
+    fn focused_editor<'a>(
+        cx: &'a mut TestAppContext,
+        markdown: &str,
+    ) -> (gpui::Entity<Editor>, &'a mut VisualTestContext) {
+        cx.update(|cx| cx.bind_keys(crate::actions::default_key_bindings()));
+        let markdown = markdown.to_string();
+        let (editor, cx) =
+            cx.add_window_view(move |_window, cx| Editor::from_markdown(cx, markdown, None));
+        editor.update(cx, |editor, cx| editor.focus_first_block(cx));
+        redraw(cx);
+        (editor, cx)
+    }
+
+    fn select_in_first_block(
+        editor: &gpui::Entity<Editor>,
+        range: std::ops::Range<usize>,
+        cx: &mut VisualTestContext,
+    ) {
+        let block = editor.read_with(cx, |editor, _cx| {
+            editor.document.visible_blocks()[0].entity.clone()
+        });
+        cx.update(|_window, app| {
+            block.update(app, |block, cx| {
+                block.selected_range = range;
+                cx.notify();
+            });
+        });
+        redraw(cx);
+    }
+
+    fn open_menu(editor: &gpui::Entity<Editor>, cx: &mut VisualTestContext) {
+        cx.update(|window, app| {
+            editor.update(app, |editor, cx| {
+                editor.open_insert_context_menu(AT, TableInsertTarget::Append, true, window, cx);
+            });
+        });
+    }
+
+    fn run(
+        editor: &gpui::Entity<Editor>,
+        action: Box<dyn gpui::Action>,
+        cx: &mut VisualTestContext,
+    ) {
+        cx.update(|window, app| {
+            editor.update(app, |editor, cx| {
+                editor.run_context_menu_edit(action, window, cx)
+            });
+        });
+        redraw(cx);
+    }
 
     #[gpui::test]
     async fn context_submenu_stays_open_while_crossing_hover_gap(cx: &mut TestAppContext) {
-        let editor = cx.new(|cx| Editor::from_markdown(cx, "alpha".to_string(), None));
+        let (editor, cx) = focused_editor(cx, "alpha");
+        open_menu(&editor, cx);
 
         editor.update(cx, |editor, cx| {
-            editor.open_insert_context_menu(
-                Point {
-                    x: px(24.0),
-                    y: px(24.0),
-                },
-                TableInsertTarget::Append,
-                cx,
-            );
-
             editor.set_context_menu_hover_state(true, false, cx);
             let Some(ContextMenuState::Insert { submenu_open, .. }) = editor.context_menu.as_ref()
             else {
@@ -1430,5 +1686,81 @@ mod tests {
             assert!(*submenu_open);
             assert!(editor.context_menu_submenu_close_task.is_none());
         });
+    }
+
+    /// EXP-1185: with nothing selected only Paste is live; a selection
+    /// enables Cut · Copy · Delete.
+    #[gpui::test]
+    async fn edit_rows_follow_the_selection(cx: &mut TestAppContext) {
+        let (editor, cx) = focused_editor(cx, "alpha bravo");
+
+        open_menu(&editor, cx);
+        editor.read_with(cx, |editor, _cx| {
+            let Some(ContextMenuState::Insert {
+                has_selection,
+                can_paste,
+                ..
+            }) = editor.context_menu.as_ref()
+            else {
+                panic!("expected the context menu");
+            };
+            assert!(!*has_selection);
+            assert!(*can_paste);
+        });
+
+        select_in_first_block(&editor, 0..5, cx);
+        open_menu(&editor, cx);
+        editor.read_with(cx, |editor, _cx| {
+            let Some(ContextMenuState::Insert { has_selection, .. }) = editor.context_menu.as_ref()
+            else {
+                panic!("expected the context menu");
+            };
+            assert!(*has_selection);
+        });
+    }
+
+    /// EXP-1185: the rows run the keyboard's own actions on the selection.
+    #[gpui::test]
+    async fn edit_rows_copy_cut_paste_and_delete(cx: &mut TestAppContext) {
+        let (editor, cx) = focused_editor(cx, "alpha bravo");
+
+        select_in_first_block(&editor, 0..5, cx);
+        open_menu(&editor, cx);
+        run(&editor, Box::new(Copy), cx);
+        assert!(editor.read_with(cx, |editor, _cx| editor.context_menu.is_none()));
+        assert_eq!(
+            cx.read_from_clipboard()
+                .and_then(|item| item.text())
+                .as_deref(),
+            Some("alpha")
+        );
+        assert_eq!(
+            editor.read_with(cx, |editor, cx| editor.markdown(cx)),
+            "alpha bravo"
+        );
+
+        select_in_first_block(&editor, 6..11, cx);
+        run(&editor, Box::new(Cut), cx);
+        assert_eq!(
+            cx.read_from_clipboard()
+                .and_then(|item| item.text())
+                .as_deref(),
+            Some("bravo")
+        );
+        assert_eq!(
+            editor.read_with(cx, |editor, cx| editor.markdown(cx)),
+            "alpha "
+        );
+
+        cx.write_to_clipboard(ClipboardItem::new_string("!".to_string()));
+        run(&editor, Box::new(Paste), cx);
+        assert_eq!(
+            editor.read_with(cx, |editor, cx| editor.markdown(cx)),
+            "alpha !"
+        );
+
+        select_in_first_block(&editor, 0..6, cx);
+        run(&editor, Box::new(Delete), cx);
+        assert_eq!(editor.read_with(cx, |editor, cx| editor.markdown(cx)), "!");
     }
 }

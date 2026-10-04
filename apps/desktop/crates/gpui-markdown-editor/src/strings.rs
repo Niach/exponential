@@ -246,6 +246,11 @@ pub struct I18nStrings {
     pub view_mode_rendered: String,
     /// Hover label shown when source mode can switch to rendered mode.
     pub view_mode_switch_to_rendered: String,
+    /// EXP-1185: root context-menu edit rows.
+    pub context_menu_cut: String,
+    pub context_menu_copy: String,
+    pub context_menu_paste: String,
+    pub context_menu_delete: String,
     /// Root context-menu insert label.
     pub context_menu_insert: String,
     /// Insert submenu item for tables.
@@ -473,6 +478,10 @@ struct I18nStringsDe {
     view_mode_switch_to_source: Option<String>,
     view_mode_rendered: Option<String>,
     view_mode_switch_to_rendered: Option<String>,
+    context_menu_cut: Option<String>,
+    context_menu_copy: Option<String>,
+    context_menu_paste: Option<String>,
+    context_menu_delete: Option<String>,
     context_menu_insert: Option<String>,
     context_menu_table: Option<String>,
     table_axis_align_column_left: Option<String>,
@@ -912,6 +921,14 @@ impl I18nStringsDe {
             view_mode_switch_to_rendered: self
                 .view_mode_switch_to_rendered
                 .unwrap_or(defaults.view_mode_switch_to_rendered),
+            context_menu_cut: self.context_menu_cut.unwrap_or(defaults.context_menu_cut),
+            context_menu_copy: self.context_menu_copy.unwrap_or(defaults.context_menu_copy),
+            context_menu_paste: self
+                .context_menu_paste
+                .unwrap_or(defaults.context_menu_paste),
+            context_menu_delete: self
+                .context_menu_delete
+                .unwrap_or(defaults.context_menu_delete),
             context_menu_insert: self
                 .context_menu_insert
                 .unwrap_or(defaults.context_menu_insert),
@@ -1180,6 +1197,10 @@ impl I18nStrings {
             view_mode_switch_to_source: "切换到源码".into(),
             view_mode_rendered: "渲染".into(),
             view_mode_switch_to_rendered: "切换到渲染".into(),
+            context_menu_cut: "剪切".into(),
+            context_menu_copy: "复制".into(),
+            context_menu_paste: "粘贴".into(),
+            context_menu_delete: "删除".into(),
             context_menu_insert: "插入".into(),
             context_menu_table: "表格".into(),
             table_axis_align_column_left: "左对齐此列".into(),
@@ -1398,6 +1419,10 @@ impl I18nStrings {
             view_mode_switch_to_source: "Switch to Source".into(),
             view_mode_rendered: "Rendered".into(),
             view_mode_switch_to_rendered: "Switch to Rendered".into(),
+            context_menu_cut: "Cut".into(),
+            context_menu_copy: "Copy".into(),
+            context_menu_paste: "Paste".into(),
+            context_menu_delete: "Delete".into(),
             context_menu_insert: "Insert".into(),
             context_menu_table: "Table".into(),
             table_axis_align_column_left: "Align Column Left".into(),

@@ -1053,7 +1053,7 @@ impl Editor {
             .unwrap_or_default()
     }
 
-    fn delete_cross_block_selection(&mut self, cx: &mut Context<Self>) -> bool {
+    pub(super) fn delete_cross_block_selection(&mut self, cx: &mut Context<Self>) -> bool {
         let Some(selection) = self.normalized_cross_block_selection(cx) else {
             return false;
         };
