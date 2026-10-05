@@ -164,11 +164,13 @@ fn main() -> ExitCode {
     // worker threads then resolve a chord's character keys from that read.
     // Only where the switch is on, so no other box ever touches the input
     // sources. A daemon whose switch is turned on later keeps the US
-    // positions until its next start.
+    // positions until its next start. It also asks every OS permission now
+    // (a Wayland desktop's dialogs), so none interrupts a run.
     if matches!(command, "code" | "run" | "daemon") {
         let data_dir = context::data_dir();
         if coding::Settings::load(&coding::Settings::default_path(&data_dir)).computer_use {
             coding::computer::refresh_key_layout();
+            coding::computer::prepare_in_background();
         }
     }
 

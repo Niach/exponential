@@ -92,14 +92,27 @@ fn open(cx: &mut App) -> Option<AnyWindowHandle> {
 /// against current: macOS only answers that on the main thread, which is
 /// where this loop's `cx.update` runs and where the server's worker threads
 /// never are.
+///
+/// And it asks the OS permissions up front: each time the device's switch
+/// reads ON after reading off (the app starting with it on, a toggle here,
+/// a synced one from another client), every dialog comes now, not mid-run.
 pub(crate) fn init(cx: &mut App) {
     coding::computer::refresh_key_layout();
     cx.spawn(async move |cx| {
         let mut pill: Option<AnyWindowHandle> = None;
         let mut ticks = 0u32;
+        let mut switch_on = false;
         loop {
             cx.background_executor().timer(TICK).await;
             ticks = ticks.wrapping_add(1);
+            let on = cx.update(|cx| {
+                crate::coding_flow::CodingHub::global_ref(cx)
+                    .is_some_and(|hub| hub.read(cx).settings.computer_use)
+            });
+            if on && !switch_on {
+                coding::computer::prepare_in_background();
+            }
+            switch_on = on;
             if ticks % LAYOUT_REFRESH_TICKS == 0 {
                 cx.update(|_| coding::computer::refresh_key_layout());
             }

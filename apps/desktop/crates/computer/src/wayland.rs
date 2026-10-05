@@ -469,6 +469,18 @@ impl Backend for WaylandBackend {
         }
     }
 
+    /// The remote-desktop dialog, then one screenshot for the screenshot
+    /// permission (GNOME and Cinnamon ask once per app).
+    fn prepare(&self) -> Readiness {
+        match self.readiness(true) {
+            Readiness::Ready => match self.shoot() {
+                Ok(_) => Readiness::Ready,
+                Err(reason) => Readiness::MissingPermission(reason),
+            },
+            other => other,
+        }
+    }
+
     fn capture(&self, target: Target) -> BackendResult<Frame> {
         let image = self.shoot()?;
         let whole = Rect { x: 0.0, y: 0.0, width: f64::from(image.width()), height: f64::from(image.height()) };

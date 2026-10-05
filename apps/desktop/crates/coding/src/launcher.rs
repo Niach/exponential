@@ -1318,7 +1318,7 @@ fn resolve_mcp_servers(deps: &CodingDeps, ids: &[String], session_id: &str) -> R
 /// is minted after the row exists like the team servers; the entry and its
 /// token then ride [`ResolvedMcp`] through the same config and env path.
 /// Returns whether the run got it. BEST-EFFORT: a machine that cannot do
-/// computer use (a Wayland or headless session) launches without, with a
+/// computer use (a headless session, a desktop without portals) launches without, with a
 /// warning in the log and no section in the prompt.
 fn attach_computer_use(deps: &CodingDeps, team_mcp: &mut ResolvedMcp, session_id: &str) -> bool {
     if !deps.settings.computer_use {

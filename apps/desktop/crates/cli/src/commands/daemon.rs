@@ -2499,6 +2499,7 @@ fn apply_server_defaults(
         }
     };
     let mut settings = coding::Settings::load(&settings_path);
+    let was_on = settings.computer_use;
     let changed = coding::apply_defaults_patch(&mut settings, &patch);
     if changed {
         if let Err(err) = settings.save(&settings_path) {
@@ -2506,6 +2507,11 @@ fn apply_server_defaults(
             return;
         }
         log::info!("launch defaults: applied the server copy");
+        // EXP-1201: the switch turned on from another client: ask this
+        // machine's permissions now, not in the middle of a run.
+        if settings.computer_use && !was_on {
+            coding::computer::prepare_in_background();
+        }
     }
     // Clamped/invalid fields are deliberately NOT pushed back (ping-pong);
     // recording the stamp stops a re-apply loop either way.

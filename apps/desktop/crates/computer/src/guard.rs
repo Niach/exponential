@@ -276,6 +276,12 @@ impl Guard {
         self.backend.readiness(prompt)
     }
 
+    /// See [`Backend::prepare`]; under the turn lock, so no action races it.
+    pub fn prepare(&self) -> Readiness {
+        let _turn = self.turn.lock().unwrap();
+        self.backend.prepare()
+    }
+
     fn ready(&self) -> Result<(), String> {
         match self.backend.readiness(true) {
             Readiness::Ready => Ok(()),

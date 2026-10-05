@@ -100,6 +100,38 @@ pub fn readiness() -> Readiness {
     }
 }
 
+/// Ask the OS for every permission computer use needs NOW (macOS Screen
+/// Recording + Accessibility, the Wayland remote-desktop and screenshot
+/// dialogs), so none interrupts a run. The hosts call it when the device's
+/// switch turns on, locally or synced in, and at start while it is on.
+/// Blocks while a dialog waits: off the UI thread, see
+/// [`prepare_in_background`]. Goes through the live host (starting it), so
+/// a Wayland session it opens is the one the runs then drive.
+pub fn prepare() -> Readiness {
+    match host() {
+        Ok(host) => host.hub.guard.prepare(),
+        Err(reason) => Readiness::Unsupported(reason),
+    }
+}
+
+/// [`prepare`] on its own thread, once at a time (a local toggle and its
+/// synced echo must not stack two dialogs).
+pub fn prepare_in_background() {
+    static PREPARING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if PREPARING.swap(true, std::sync::atomic::Ordering::AcqRel) {
+        return;
+    }
+    std::thread::spawn(|| {
+        match prepare() {
+            Readiness::Ready => log::info!("[computer] computer use is ready"),
+            Readiness::MissingPermission(reason) | Readiness::Unsupported(reason) => {
+                log::warn!("[computer] computer use is not ready: {reason}")
+            }
+        }
+        PREPARING.store(false, std::sync::atomic::Ordering::Release);
+    });
+}
+
 /// The session id of the run that acted within [`DRIVING_WINDOW`].
 pub fn driving() -> Option<String> {
     let (at, session_id) = HOST.get()?.as_ref().ok()?.hub.driving()?;

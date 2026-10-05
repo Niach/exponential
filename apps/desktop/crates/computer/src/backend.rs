@@ -113,6 +113,11 @@ pub trait Backend: Send + Sync {
     /// Whether capture and input can work; `prompt` also asks the OS to show
     /// its permission dialogs.
     fn readiness(&self, prompt: bool) -> Readiness;
+    /// Ask for EVERY permission now, while the person is at the switch,
+    /// so no dialog interrupts a run later. Blocks while a dialog waits.
+    fn prepare(&self) -> Readiness {
+        self.readiness(true)
+    }
     fn capture(&self, target: Target) -> BackendResult<Frame>;
     /// Top-level windows, front to back.
     fn windows(&self) -> BackendResult<Vec<WindowInfo>>;
