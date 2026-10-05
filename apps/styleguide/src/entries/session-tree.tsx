@@ -43,7 +43,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-996`,
   title: `Session tree`,
-  blurb: `Runs nested under their parent, resumes collapsed. ONE selector over the synced coding_sessions rows (\`sessionTree\`) that every sessions list draws: a resume succession is ONE row keyed by its newest, a \`sessions_start\` child nests under its parent's succession, an orphan whose parent is gone sits at top level. Top-level rows sort by last activity, newest first; children keep creation order; folding a parent takes its children with it. A run parked on an open question wears the red needs-you dot.`,
+  blurb: `Runs nested under their parent, resumes collapsed. ONE selector over the synced coding_sessions rows (\`sessionTree\`) that every sessions list draws: a resume succession is ONE row keyed by its newest, a \`sessions_start\` child nests under its parent's succession, an orphan whose parent is gone sits at top level. Top-level rows sort by last activity, newest first; children keep creation order; folding a parent takes its children with it.`,
   status: {
     web: {
       state: `ok`,

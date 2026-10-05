@@ -1,23 +1,14 @@
 package com.exponential.app.ui.agent
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.SessionDevicePresentation
-import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.SessionTreeNode
 import com.exponential.app.domain.TreeGuides
 import com.exponential.app.domain.sessionTree
@@ -27,10 +18,8 @@ import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.TeamSectionHeader
 import com.exponential.app.ui.components.teamBands
 import com.exponential.app.ui.components.TreeGuidesRow
-import com.exponential.app.ui.issue.StaticDot
 import com.exponential.app.ui.session.AgentRow
 import com.exponential.app.ui.session.RunningSessionRow
-import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
 
@@ -135,7 +124,6 @@ internal fun LazyListScope.agentSessionsList(
                             expandable = entry.hasChildren,
                             expanded = entry.key !in collapsedRunning,
                             onToggle = { onToggleRunning(entry.key) },
-                            dotAccessory = runNeedsYouDotAccessory(node),
                         )
                     }
                 }
@@ -143,28 +131,3 @@ internal fun LazyListScope.agentSessionsList(
         }
     }
 }
-
-/**
- * EXP-1108: the red "needs you" dot after a run's state dot — the run is
- * live and waits on an open question (`SessionTree.sessionNeedsYou`); null
- * otherwise, so a plain row draws nothing extra.
- */
-internal fun runNeedsYouDotAccessory(
-    node: SessionTreeNode.Session,
-): (@Composable RowScope.() -> Unit)? {
-    if (!SessionTree.sessionNeedsYou(node.session.status, node.session.pendingQuestion != null)) return null
-    return {
-        Spacer(Modifier.width(4.dp))
-        Box(
-            Modifier
-                .semantics { contentDescription = NEEDS_YOU_LABEL }
-                .testTag("session-needs-you"),
-        ) { StaticDot(NeedsYouRed, size = 6.dp) }
-    }
-}
-
-/** EXP-1108: the needs-you dot's spoken name. */
-internal const val NEEDS_YOU_LABEL = "needs you"
-
-/** EXP-1068: the "needs you" dot of a run with an open question. */
-private val NeedsYouRed = DesignTokens.Semantic.Red

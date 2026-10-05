@@ -24,9 +24,6 @@ struct RunningSessionRow<Footer: View>: View {
     var expandable: Bool = false
     var expanded: Bool = true
     var onToggle: (() -> Void)?
-    /// EXP-1108: the row marks (the needs-you dot). Empty on every other
-    /// surface.
-    var marks = RunningSessionRowMarks()
     @ViewBuilder let footer: () -> Footer
 
     var body: some View {
@@ -84,16 +81,6 @@ struct RunningSessionRow<Footer: View>: View {
         return HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    // EXP-1108: an open question to a person — red, beside
-                    // the state dot (the amber needs-input state stays).
-                    if SessionTree.sessionNeedsYou(
-                        status: session.status, hasPendingQuestion: marks.needsYou
-                    ) {
-                        Circle()
-                            .fill(DesignTokens.Semantic.red)
-                            .frame(width: 7, height: 7)
-                            .accessibilityLabel("Needs you")
-                    }
                     SessionRowTitle(
                         identifier: identifier,
                         title: title,
@@ -143,8 +130,7 @@ extension RunningSessionRow where Footer == EmptyView {
         open: RunningSessionRowOpen,
         expandable: Bool = false,
         expanded: Bool = true,
-        onToggle: (() -> Void)? = nil,
-        marks: RunningSessionRowMarks = RunningSessionRowMarks()
+        onToggle: (() -> Void)? = nil
     ) {
         self.init(
             session: session,
@@ -156,17 +142,9 @@ extension RunningSessionRow where Footer == EmptyView {
             expandable: expandable,
             expanded: expanded,
             onToggle: onToggle,
-            marks: marks,
             footer: { EmptyView() }
         )
     }
-}
-
-/// EXP-1108: what a run row adds to the plain row.
-struct RunningSessionRowMarks {
-    /// The run holds an open question to a person (`pendingQuestion`); the
-    /// dot shows only while the run is live (`SessionTree.sessionNeedsYou`).
-    var needsYou = false
 }
 
 /// Where a `RunningSessionRow`'s primary tap goes.

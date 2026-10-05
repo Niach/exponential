@@ -251,41 +251,4 @@ final class SessionTreeNodeTests: XCTestCase {
     func testKeysASessionByItsNewestRowsId() {
         XCTAssertEqual(nestedTree().first.map(SessionTree.nodeKey), "p")
     }
-
-    // MARK: - EXP-1108: row marks, replayed from the shared fixture
-
-    private struct MarksFixture: Decodable {
-        struct NeedsYouCase: Decodable {
-            let name: String
-            let status: String
-            let pendingQuestion: [String: String]?
-            let needsYou: Bool
-        }
-        let needsYou: [NeedsYouCase]
-    }
-
-    private func marksFixture() throws -> MarksFixture {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()          // ExpCore/Tests/
-            .deletingLastPathComponent()          // ExpCore/
-            .deletingLastPathComponent()          // apps/ios/
-            .deletingLastPathComponent()          // apps/
-            .deletingLastPathComponent()          // the repo root
-            .appendingPathComponent("packages/domain-contract/fixtures/session-tree-marks.json")
-        return try JSONDecoder().decode(MarksFixture.self, from: try Data(contentsOf: url))
-    }
-
-    func testNeedsYouFixtureCases() throws {
-        let fixture = try marksFixture()
-        XCTAssertFalse(fixture.needsYou.isEmpty)
-        for testCase in fixture.needsYou {
-            XCTAssertEqual(
-                SessionTree.sessionNeedsYou(
-                    status: testCase.status, hasPendingQuestion: testCase.pendingQuestion != nil
-                ),
-                testCase.needsYou,
-                testCase.name
-            )
-        }
-    }
 }

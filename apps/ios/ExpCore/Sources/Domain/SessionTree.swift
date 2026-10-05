@@ -342,13 +342,3 @@ extension SessionTree {
         return parent
     }
 }
-
-// MARK: - Row marks (EXP-1108, fixture `session-tree-marks.json`)
-
-extension SessionTree {
-    /// The needs-you dot: a LIVE row with an open question. The amber
-    /// needs-input/blocked flags are a separate mark, never this one.
-    public static func sessionNeedsYou(status: String, hasPendingQuestion: Bool) -> Bool {
-        sessionRowIsLive(status: status) && hasPendingQuestion
-    }
-}

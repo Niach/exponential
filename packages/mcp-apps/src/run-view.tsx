@@ -211,7 +211,6 @@ export function RunView({
           <AgentRunMark
             agent={run.agent}
             state={runMarkState(run)}
-            needsYou={Boolean(run.needsInput)}
             ringClassName="ring-background"
           />
           <h1 className="min-w-0 flex-1 truncate text-base font-semibold" title={runSubject(run)}>

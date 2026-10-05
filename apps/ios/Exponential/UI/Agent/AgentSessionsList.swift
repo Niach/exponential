@@ -162,10 +162,7 @@ struct AgentSessionsList: View {
             open: sessionRowOpen(row),
             expandable: expandable,
             expanded: expanded,
-            onToggle: onToggle,
-            marks: RunningSessionRowMarks(
-                needsYou: !(row.session.pendingQuestion ?? "").isEmpty
-            )
+            onToggle: onToggle
         )
         .accessibilityIdentifier("agent-session-row")
     }

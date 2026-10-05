@@ -395,7 +395,6 @@ data class CodingSessionEntity(
     @Serializable(with = JsonAsStringSerializer::class) val blocked: String? = null,
     // EXP-1082: the question the run asked its starter and still waits on
     // (`{question, askedAt}`), raw jsonb TEXT like `blocked`; NULL = none open.
-    // Read by the needs-you mark (SessionTree.sessionNeedsYou).
     @ColumnInfo(name = "pending_question") @SerialName("pending_question") @JsonNames("pendingQuestion")
     @Serializable(with = JsonAsStringSerializer::class) val pendingQuestion: String? = null,
     // EXP-879: the run's published RESULTS — the screenshots the agent filed

@@ -106,16 +106,6 @@ object SessionTree {
 
     /** A row is LIVE until the server ends it. */
     fun sessionRowIsLive(status: String?): Boolean = status != DomainContract.codingSessionStatusEnded
-
-    // ── EXP-1108: the needs-you mark, ONE rule ×4 (web `sessionNeedsYou`),
-    //    locked by `session-tree-marks.json`.
-
-    /**
-     * The RED needs-you dot = a LIVE row with an open question. The amber
-     * needs-input/blocked flags are a separate mark, never this one.
-     */
-    fun sessionNeedsYou(status: String?, hasPendingQuestion: Boolean): Boolean =
-        sessionRowIsLive(status) && hasPendingQuestion
 }
 
 // ── the node tree ──────────────────────────────────────────────────────
