@@ -175,18 +175,15 @@ struct IssueListView: View {
             // Never strand the tab bar hidden behind a pushed screen.
             tabBarChrome?.suppressed = false
         }
-        .alert(
-            selectedIds.count == 1 ? "Delete 1 issue" : "Delete \(selectedIds.count) issues",
-            isPresented: $showBulkDeleteConfirm
-        ) {
-            Button("Delete", role: .destructive) {
-                let ids = Array(selectedIds)
-                exitSelection()
-                Task { await viewModel?.bulkDelete(issueIds: ids) }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This action cannot be undone.")
+        // EXP-1215: the app's own alert card (`GlassAlert`), ×4.
+        .glassAlert(isPresented: $showBulkDeleteConfirm) {
+            GlassAlert(prompt: Prompts.DeleteIssues.copy(count: selectedIds.count), handlers: [
+                "delete": {
+                    let ids = Array(selectedIds)
+                    exitSelection()
+                    Task { await viewModel?.bulkDelete(issueIds: ids) }
+                },
+            ])
         }
     }
 

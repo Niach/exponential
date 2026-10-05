@@ -1,3 +1,4 @@
+import ExpCore
 import SwiftUI
 import UIKit
 
@@ -6,13 +7,17 @@ import UIKit
 // a dimmed, blurred scrim, a centred glass card, a left-aligned title (the
 // question; an optional muted body) and ONE compact row of `GlassPill` `.md`
 // buttons: a quiet destructive text answer set apart on the leading edge, the
-// rest trailing (Thunderbird's save prompt). The row stacks only when it does
-// not fit (large Dynamic Type). Never the system `.alert` /
+// rest trailing (Thunderbird's save prompt). When the row does not fit it
+// STACKS: one natural-width pill per line, trailing-aligned, the default
+// first and Cancel last (fixture `prompts.json` `_comment`); never a two-row
+// hybrid, never full-width blocks. Never the system `.alert` /
 // `.confirmationDialog`: iOS 26+ draws the latter as an arrowed popover over
 // whatever presented it, a look no other client has.
 //
 // Data-driven so any screen can adopt it: a title, an optional body, the
-// actions in reading order and the no-answer path. A tap on the scrim is that
+// actions in reading order and the no-answer path. A prompt with an entry in
+// `prompts.json` is built from its `PromptCopy` (`GlassAlert(prompt:)`), so
+// its words, roles, order and focus come from the contract. A tap on the scrim is that
 // path (`onDismiss`); no close ✕, as on every phone alert (EXP-687).
 
 /// One button of a `GlassAlert`.
@@ -38,9 +43,10 @@ public struct GlassAlertAction: Identifiable {
     public let role: Role
     /// A disabled action stays in place, dimmed (the pill's disabled paint).
     public let enabled: Bool
-    /// The default answer: it takes Return on a hardware keyboard. Defaults
-    /// to the `.primary` role; a caller moves it off a DISABLED primary onto
-    /// another answer (EXP-1212: Create issue disabled → Save draft).
+    /// The default answer: it takes Return on a hardware keyboard (the
+    /// prompt's `focus`). Defaults to the `.primary` role; never a destructive
+    /// answer; a caller moves it off a DISABLED primary onto another answer
+    /// (EXP-1212: Create issue disabled, then Save draft).
     public let isDefault: Bool
     public let handler: () -> Void
 
@@ -56,7 +62,8 @@ public struct GlassAlertAction: Identifiable {
         self.label = label
         self.role = role
         self.enabled = enabled
-        self.isDefault = isDefault ?? (role == .primary)
+        self.isDefault = (isDefault ?? (role == .primary))
+            && role != .destructive && role != .quietDestructive
         self.handler = handler
     }
 }
@@ -83,26 +90,62 @@ public enum GlassAlertMetrics {
     public static let scrimOpacity: Double = 0.6
 }
 
-/// The card itself, with no presentation: what `.glassAlert` hosts, and what
-/// a preview or a gallery draws in place.
-public struct GlassAlert: View {
-    let title: String
-    let message: String?
-    let actions: [GlassAlertAction]
-
-    public init(title: String, message: String? = nil, actions: [GlassAlertAction]) {
-        self.title = title
-        self.message = message
-        self.actions = actions
-    }
-
-    private var leadingActions: [GlassAlertAction] {
+/// Pure ordering of a `GlassAlert`'s row, unit-tested (`GlassAlertLayoutTests`).
+public enum GlassAlertLayout {
+    /// The quiet destructive answers, set apart on the LEADING edge.
+    public static func leading(_ actions: [GlassAlertAction]) -> [GlassAlertAction] {
         actions.filter { $0.role == .quietDestructive }
     }
 
-    private var trailingActions: [GlassAlertAction] {
+    /// Every other answer, packed on the trailing edge in reading order.
+    public static func trailing(_ actions: [GlassAlertAction]) -> [GlassAlertAction] {
         actions.filter { $0.role != .quietDestructive }
     }
+
+    /// The stacked fallback (the row does not fit): one pill per line in
+    /// REVERSE display order, so the default (last in reading order) sits on
+    /// top and Cancel at the bottom, the quiet one last of all.
+    public static func stacked(_ actions: [GlassAlertAction]) -> [GlassAlertAction] {
+        trailing(actions).reversed() + leading(actions)
+    }
+
+    /// The answer Return takes (the prompt's `focus`), never a destructive
+    /// one; none when nothing claims it.
+    public static func defaultActionId(_ actions: [GlassAlertAction]) -> String? {
+        actions.first { $0.isDefault }?.id
+    }
+}
+
+/// The card itself, with no presentation: what `.glassAlert` hosts, and what
+/// a preview or a gallery draws in place. `content` (EXP-1215) is the slot
+/// between the title and the row for a dialog that needs more than text (the
+/// blocked-start dependency graph).
+public struct GlassAlert<Content: View>: View {
+    let title: String
+    let message: String?
+    let actions: [GlassAlertAction]
+    let content: Content
+
+    public init(
+        title: String,
+        message: String? = nil,
+        actions: [GlassAlertAction],
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.message = message
+        self.actions = actions
+        self.content = content()
+    }
+
+    /// The same card with every action's handler rewrapped (the presenter
+    /// closes the alert before an answer runs).
+    func mapActions(_ transform: (GlassAlertAction) -> GlassAlertAction) -> GlassAlert {
+        GlassAlert(title: title, message: message, actions: actions.map(transform)) { content }
+    }
+
+    private var leading: [GlassAlertAction] { GlassAlertLayout.leading(actions) }
+    private var trailing: [GlassAlertAction] { GlassAlertLayout.trailing(actions) }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: GlassAlertMetrics.sectionGap) {
@@ -114,28 +157,42 @@ public struct GlassAlert: View {
                     ))
                     .foregroundStyle(DesignTokens.Palette.foreground)
                     .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("glass-alert-title")
                 if let message {
                     Text(message)
                         .font(.system(size: 15))
                         .foregroundStyle(DesignTokens.Palette.mutedForeground)
+                        .accessibilityIdentifier("glass-alert-message")
                 }
             }
             .multilineTextAlignment(.leading)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
 
+            if Content.self != EmptyView.self {
+                content
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("glass-alert-content")
+            }
+
             ViewThatFits(in: .horizontal) {
                 // ONE row: quiet destructive leading, the rest trailing.
+                // No Spacer without a leading answer: as an HStack child it
+                // would cost one more `itemGap` and push a row that fits
+                // into the stack.
                 HStack(spacing: GlassAlertMetrics.itemGap) {
-                    ForEach(leadingActions) { GlassAlertButton(action: $0) }
-                    Spacer(minLength: GlassAlertMetrics.itemGap)
-                    ForEach(trailingActions) { GlassAlertButton(action: $0) }
+                    if !leading.isEmpty {
+                        ForEach(leading) { GlassAlertButton(action: $0) }
+                        Spacer(minLength: GlassAlertMetrics.itemGap)
+                    }
+                    ForEach(trailing) { GlassAlertButton(action: $0) }
                 }
-                // Stacked fallback: the trailing answers, default last in
-                // reading order = on top, then the quiet one.
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                // Stacked fallback: natural-width pills, trailing-aligned,
+                // the default on top, Cancel under it, the quiet one last.
                 VStack(alignment: .trailing, spacing: 0) {
-                    ForEach(trailingActions.reversed()) { GlassAlertButton(action: $0) }
-                    ForEach(leadingActions) { GlassAlertButton(action: $0) }
+                    ForEach(GlassAlertLayout.stacked(actions)) { GlassAlertButton(action: $0) }
                 }
                 .frame(maxWidth: .infinity, alignment: .trailing)
             }
@@ -155,6 +212,14 @@ public struct GlassAlert: View {
         .frame(maxWidth: GlassAlertMetrics.maxWidth)
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isModal)
+        .accessibilityIdentifier("glass-alert")
+    }
+}
+
+public extension GlassAlert where Content == EmptyView {
+    /// A text-only alert: the question, an optional body, the row.
+    init(title: String, message: String? = nil, actions: [GlassAlertAction]) {
+        self.init(title: title, message: message, actions: actions) { EmptyView() }
     }
 }
 
@@ -230,12 +295,39 @@ public extension View {
         actions: [GlassAlertAction],
         onDismiss: (() -> Void)? = nil
     ) -> some View {
+        glassAlert(isPresented: isPresented, onDismiss: onDismiss) {
+            GlassAlert(title: title, message: message, actions: actions)
+        }
+    }
+
+    /// The same, with the card built by the caller (a `content` slot).
+    func glassAlert<C: View>(
+        isPresented: Binding<Bool>,
+        onDismiss: (() -> Void)? = nil,
+        alert: @escaping () -> GlassAlert<C>
+    ) -> some View {
         modifier(GlassAlertPresenter(
             isPresented: isPresented,
-            title: title,
-            message: message,
-            actions: actions,
-            onDismiss: onDismiss
+            onDismiss: onDismiss,
+            alert: { alert() }
+        ))
+    }
+
+    /// Item-bound (EXP-1215): shown while `item` is non-nil, built from it;
+    /// an answer or a scrim tap sets it back to nil first. Handlers capture
+    /// the item they were built with, never re-read the binding.
+    func glassAlert<Item, C: View>(
+        item: Binding<Item?>,
+        onDismiss: (() -> Void)? = nil,
+        alert: @escaping (Item) -> GlassAlert<C>
+    ) -> some View {
+        modifier(GlassAlertPresenter(
+            isPresented: Binding(
+                get: { item.wrappedValue != nil },
+                set: { if !$0 { item.wrappedValue = nil } }
+            ),
+            onDismiss: onDismiss,
+            alert: { item.wrappedValue.map(alert) }
         ))
     }
 }
@@ -244,12 +336,10 @@ public extension View {
 /// SwiftUI surface that paints over a navigation bar and the keyboard), whose
 /// present and dismiss run animation-free so the system slide never shows;
 /// the scrim and card supply their own cross-dissolve.
-private struct GlassAlertPresenter: ViewModifier {
+private struct GlassAlertPresenter<C: View>: ViewModifier {
     @Binding var isPresented: Bool
-    let title: String
-    let message: String?
-    let actions: [GlassAlertAction]
     let onDismiss: (() -> Void)?
+    let alert: () -> GlassAlert<C>?
 
     private func setPresented(_ value: Bool) {
         var transaction = Transaction()
@@ -272,11 +362,9 @@ private struct GlassAlertPresenter: ViewModifier {
                 }
             }
             .fullScreenCover(isPresented: coverBinding) {
-                GlassAlertHost(
-                    alert: GlassAlert(
-                        title: title,
-                        message: message,
-                        actions: actions.map { action in
+                if let card = alert() {
+                    GlassAlertHost(
+                        alert: card.mapActions { action in
                             GlassAlertAction(
                                 action.label,
                                 role: action.role,
@@ -287,14 +375,16 @@ private struct GlassAlertPresenter: ViewModifier {
                                 setPresented(false)
                                 action.handler()
                             }
+                        },
+                        dismiss: {
+                            setPresented(false)
+                            onDismiss?()
                         }
-                    ),
-                    dismiss: {
-                        setPresented(false)
-                        onDismiss?()
-                    }
-                )
-                .presentationBackground(.clear)
+                    )
+                    .presentationBackground(.clear)
+                } else {
+                    Color.clear.presentationBackground(.clear)
+                }
             }
             // A cover presented WITHOUT animation leaves the transaction to
             // the caller: flip the caller's own writes animation-free too.
@@ -304,8 +394,8 @@ private struct GlassAlertPresenter: ViewModifier {
 
 /// The full-window layer: the blurred, dimmed scrim (tap = dismiss) and the
 /// centred card, fading + zooming in from 95% like the web's `zoom-in-95`.
-private struct GlassAlertHost: View {
-    let alert: GlassAlert
+private struct GlassAlertHost<C: View>: View {
+    let alert: GlassAlert<C>
     let dismiss: () -> Void
 
     @Environment(\.motion) private var motion
@@ -333,6 +423,49 @@ private struct GlassAlertHost: View {
         .onAppear {
             withAnimation(motion.decelerate()) { appeared = true }
         }
+    }
+}
+
+// MARK: - Contract prompts (EXP-1215)
+
+public extension GlassAlertAction.Role {
+    /// The card paint for a contract role: `cancel` and `default` are the
+    /// plain pill.
+    init(_ role: PromptRole) {
+        switch role {
+        case .cancel, .default: self = .outline
+        case .primary: self = .primary
+        case .destructive: self = .destructive
+        case .quietDestructive: self = .quietDestructive
+        }
+    }
+}
+
+public extension GlassAlert where Content == EmptyView {
+    /// A prompt from `prompts.json`: its title, body, answers (labels,
+    /// roles, display order) and focus come from the filled `PromptCopy`;
+    /// the site passes only what each answer DOES, keyed by action id. An
+    /// answer with no handler only dismisses (Cancel); `enabled` dims one in
+    /// place.
+    init(
+        prompt: PromptCopy,
+        enabled: [String: Bool] = [:],
+        handlers: [String: () -> Void]
+    ) {
+        self.init(
+            title: prompt.title,
+            message: prompt.body,
+            actions: prompt.actions.map { action in
+                GlassAlertAction(
+                    action.label,
+                    role: GlassAlertAction.Role(action.role),
+                    enabled: enabled[action.id] ?? true,
+                    isDefault: action.id == prompt.focus,
+                    id: action.id,
+                    handler: handlers[action.id] ?? {}
+                )
+            }
+        )
     }
 }
 

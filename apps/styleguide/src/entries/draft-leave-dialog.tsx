@@ -1,7 +1,5 @@
 import issueDraft from "@exp/domain-contract/fixtures/issue-draft.json"
-import { Dialog, DialogFooter, DialogTitle, Pill } from "@exp/ui"
-
-import { DialogSpecimen } from "./dialog-shared.tsx"
+import { PromptSpecimen } from "./dialog-shared.tsx"
 import type { StyleguideEntry } from "./types.ts"
 
 // EXP-1212: the New issue page's two prompts — the `×`'s destructive discard
@@ -15,12 +13,6 @@ import type { StyleguideEntry } from "./types.ts"
 
 const { copy } = issueDraft
 
-// The page's DRAFT_PROMPT_* classes (issue-draft-page.tsx), byte for byte.
-const CARD = `max-w-md p-5`
-const ROW = `flex-row flex-wrap items-center justify-end`
-const DESTRUCTIVE_PILL = `border-destructive/40 text-destructive hover:text-destructive`
-const QUIET_DISCARD = `-ml-3 mr-auto border-transparent bg-transparent text-destructive hover:bg-transparent hover:text-destructive`
-
 export const entry: StyleguideEntry = {
   id: `draft-leave-dialog`,
   section: `special`,
@@ -32,7 +24,7 @@ export const entry: StyleguideEntry = {
       state: `ok`,
       symbol: `IssueDraftPage`,
       file: `apps/web/src/components/issue-draft-page.tsx`,
-      note: `a router useBlocker holds the navigation; the copy is lib/issue-draft-page.ts ISSUE_DRAFT_COPY`,
+      note: `the shared Prompt; a router useBlocker holds the navigation; the copy is lib/issue-draft-page.ts ISSUE_DRAFT_COPY`,
     },
     desktop: {
       state: `ok`,
@@ -55,38 +47,25 @@ export const entry: StyleguideEntry = {
   },
   island: () => (
     <div className="grid gap-6">
-      {/* Both prompts are the page's ONE structure: a \`Dialog\` card with the
-          DRAFT_PROMPT_* classes (one question, no body, no ✕, 20px padding)
-          over ONE row of \`size="md"\` action pills. */}
-      <Dialog open>
-        <DialogSpecimen caption="The close button, a draft with content" className={CARD}>
-          <DialogTitle>{copy.discardConfirm.title}</DialogTitle>
-          <DialogFooter className={ROW}>
-            <Pill size="md" mode="action">
-              Cancel
-            </Pill>
-            <Pill size="md" mode="action" className={DESTRUCTIVE_PILL}>
-              {copy.discardConfirm.confirm}
-            </Pill>
-          </DialogFooter>
-        </DialogSpecimen>
-      </Dialog>
-      <Dialog open>
-        <DialogSpecimen caption="Any other way off the page, held" className={CARD}>
-          <DialogTitle>{copy.leave.title}</DialogTitle>
-          <DialogFooter className={ROW}>
-            <Pill size="md" mode="action" className={QUIET_DISCARD}>
-              {copy.leave.discard}
-            </Pill>
-            <Pill size="md" mode="action">
-              {copy.leave.keep}
-            </Pill>
-            <Pill size="md" mode="action" primary>
-              {copy.leave.create}
-            </Pill>
-          </DialogFooter>
-        </DialogSpecimen>
-      </Dialog>
+      {/* Both prompts are the shared \`Prompt\` (EXP-1215): one question, no
+          body, no ✕, over ONE row of \`size="md"\` action pills. */}
+      <PromptSpecimen
+        caption="The close button, a draft with content"
+        title={copy.discardConfirm.title}
+        actions={[
+          { label: `Cancel` },
+          { label: copy.discardConfirm.confirm, role: `destructive` },
+        ]}
+      />
+      <PromptSpecimen
+        caption="Any other way off the page, held"
+        title={copy.leave.title}
+        actions={[
+          { label: copy.leave.discard, role: `quietDestructive` },
+          { label: copy.leave.keep },
+          { label: copy.leave.create, role: `primary` },
+        ]}
+      />
     </div>
   ),
 }

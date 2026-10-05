@@ -314,7 +314,6 @@ export function TeamBillingSection({
           <CancelSubscriptionDialog
             teamId={teamId}
             planLabel={PLAN_LABELS[plan]}
-            seats={subscription.seats}
             periodEnd={subscription.periodEnd}
             open={showCancelDialog}
             onOpenChange={setShowCancelDialog}

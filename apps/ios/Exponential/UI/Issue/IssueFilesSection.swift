@@ -65,20 +65,11 @@ struct IssueFilesSection: View {
         .sheet(item: $markdownPreview) { attachment in
             AttachmentMarkdownPreviewSheet(attachment: attachment)
         }
-        .confirmationDialog(
-            "Delete file?",
-            isPresented: Binding(
-                get: { pendingDelete != nil },
-                set: { if !$0 { pendingDelete = nil } }
-            ),
-            presenting: pendingDelete
-        ) { attachment in
-            Button("Delete", role: .destructive) {
-                Task { await viewModel.deleteAttachment(id: attachment.id) }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: { attachment in
-            Text("\(attachment.filename) will be permanently deleted.")
+        // EXP-1215: the app's own alert card (`GlassAlert`), ×4.
+        .glassAlert(item: $pendingDelete) { attachment in
+            GlassAlert(prompt: Prompts.DeleteFile.copy(filename: attachment.filename), handlers: [
+                "delete": { Task { await viewModel.deleteAttachment(id: attachment.id) } },
+            ])
         }
     }
 

@@ -82,21 +82,11 @@ struct ActionDetailView: View {
             Color.clear
                 .frame(width: 0, height: 0)
                 .allowsHitTesting(false)
-                .alert(
-                    TriggerCopy.deleteTitle,
-                    isPresented: Binding(
-                        get: { pendingDelete != nil },
-                        set: { if !$0 { pendingDelete = nil } }
-                    ),
-                    presenting: pendingDelete
-                ) { trigger in
-                    Button("Delete", role: .destructive) {
-                        viewModel?.delete(trigger)
-                        pendingDelete = nil
-                    }
-                    Button("Cancel", role: .cancel) { pendingDelete = nil }
-                } message: { _ in
-                    Text(TriggerCopy.deleteBody)
+                .glassAlert(item: $pendingDelete) { trigger in
+                    GlassAlert(
+                        prompt: Prompts.DeleteTrigger.copy(),
+                        handlers: ["delete": { viewModel?.delete(trigger) }]
+                    )
                 }
 
             if let vm = viewModel, let action = vm.action {

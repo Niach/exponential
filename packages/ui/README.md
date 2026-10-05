@@ -127,10 +127,10 @@ block is written `:root, :host` for the same reason, so both reach the tree.
 
 Duplication that looks removable and is not:
 
-- **`dialog` vs `sheet` vs `alert-dialog`** — three different Radix roots with
-  different a11y semantics (`alertdialog` traps and has no dismiss). `dialog`
-  already absorbs the mobile bottom-sheet arm; the standalone `sheet` is the
-  side/bottom panel primitive.
+- **`dialog` vs `sheet`** — two different Radix roots. `dialog` already absorbs
+  the mobile bottom-sheet arm; the standalone `sheet` is the side/bottom panel
+  primitive. Every confirm/choice prompt is `prompt.tsx` (EXP-1215, on the
+  `dialog` root, `role="alertdialog"`); `alert-dialog` is gone.
 - **`dropdown-menu` vs `context-menu`** — again different Radix roots (one is
   pointer-anchored, the other trigger-anchored). They share what they actually
   share: `MENU_SURFACE_CLASS` and, since EXP-1074, the whole row recipe

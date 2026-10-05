@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -57,6 +56,8 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import com.exponential.app.ui.theme.GlassTokens
+import com.exponential.app.ui.components.PromptAlert
+import com.exponential.app.domain.Prompts
 
 /**
  * EXP-1126: Settings › server › Sign-in methods (web `SignInMethodsSection` +
@@ -130,14 +131,11 @@ fun SignInMethodsSection(accountId: String, viewModel: ServerDetailViewModel) {
     unlinkTarget?.let { target ->
         val isPassword = target.kind == "password"
         ConfirmRemoveDialog(
-            title = if (isPassword) "Remove your password?" else "Unlink ${target.name}?",
-            body = if (isPassword) {
-                "You will no longer be able to sign in with a password. Your other sign-in methods keep working."
+            prompt = if (isPassword) {
+                Prompts.RemovePassword.prompt()
             } else {
-                "${target.name} will no longer sign you in. You can link it again any time; " +
-                    "your other sign-in methods keep working."
+                Prompts.UnlinkSignInMethod.prompt(target.name)
             },
-            confirmLabel = if (isPassword) "Remove" else "Unlink",
             busy = viewModel.removing,
             error = viewModel.removeError,
             onConfirm = { viewModel.unlink(accountId, target.id) { unlinkTarget = null } },
@@ -147,10 +145,7 @@ fun SignInMethodsSection(accountId: String, viewModel: ServerDetailViewModel) {
 
     passkeyTarget?.let { target ->
         ConfirmRemoveDialog(
-            title = "Remove this passkey?",
-            body = "\"${target.name?.takeIf { it.isNotBlank() } ?: "Passkey"}\" will no longer sign you in. " +
-                "The copy on your device stays until you delete it there.",
-            confirmLabel = "Remove",
+            prompt = Prompts.RemovePasskey.prompt(target.name),
             busy = viewModel.removing,
             error = viewModel.removeError,
             onConfirm = { viewModel.deletePasskey(accountId, target.id) { passkeyTarget = null } },
@@ -361,30 +356,29 @@ private fun MethodsHint(text: String, isError: Boolean = false) {
 
 @Composable
 private fun ConfirmRemoveDialog(
-    title: String,
-    body: String,
-    confirmLabel: String,
+    prompt: Prompts.Prompt,
     busy: Boolean,
     error: String?,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(body)
-                if (error != null) Text(error, color = MaterialTheme.colorScheme.error)
+    // EXP-1215: the call is awaited in the card (the pill spins); a refusal
+    // stays in it as an inline error under the body.
+    // Every prompt here = Cancel + ONE destructive answer.
+    val answer = prompt.actions.first { it.role != Prompts.Role.Cancel }.id
+    PromptAlert(
+        prompt = prompt,
+        onDismiss = onDismiss,
+        handlers = mapOf(answer to onConfirm),
+        loading = answer.takeIf { busy },
+        content = error?.let { message ->
+            {
+                Text(
+                    message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onConfirm, enabled = !busy) {
-                Text(if (busy) "Removing…" else confirmLabel, color = MaterialTheme.colorScheme.error)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
         },
     )
 }

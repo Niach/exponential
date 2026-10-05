@@ -9,18 +9,11 @@ import {
 import {
   AttachmentThumb,
   conceptIcon,
-  Button,
   Combobox,
-  Dialog,
-  DialogCancel,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
   Composer,
   ComposerSubmit,
   ComposerTool,
+  Prompt,
   toast,
 } from "@exp/ui"
 import type { User } from "@/db/schema"
@@ -490,35 +483,25 @@ export function SteerComposer({
       {/* EXP-724: `/clear` throws the conversation away, and the
           publisher runs whatever it receives — so every viewer confirms
           first, with the same copy. */}
-      <Dialog
+      <Prompt
         open={confirming !== null}
         onOpenChange={(open) => {
           if (!open) setConfirming(null)
         }}
-      >
-        <DialogContent mobile="alert" className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>
-              {steerCommandConfirmCopy(confirming?.name ?? ``).title}
-            </DialogTitle>
-            <DialogDescription>
-              {steerCommandConfirmCopy(confirming?.name ?? ``).body}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogCancel onClick={() => setConfirming(null)} />
-            <Button
-              variant="destructive"
-              onClick={() => {
-                setConfirming(null)
-                void send(true)
-              }}
-            >
-              {steerCommandConfirmCopy(confirming?.name ?? ``).confirm}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        title={steerCommandConfirmCopy(confirming?.name ?? ``).title}
+        body={steerCommandConfirmCopy(confirming?.name ?? ``).body}
+        actions={[
+          { label: steerCommandConfirmCopy(confirming?.name ?? ``).cancel },
+          {
+            label: steerCommandConfirmCopy(confirming?.name ?? ``).confirm,
+            role: `destructive`,
+            onSelect: () => {
+              setConfirming(null)
+              void send(true)
+            },
+          },
+        ]}
+      />
     </div>
   )
 }

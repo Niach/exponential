@@ -6,18 +6,17 @@ import {
   type ReactNode,
 } from "react"
 import {
+  mergeIssuePrPrompt,
+  mergeRunPrPrompt,
+  promptActions,
+} from "@/lib/prompts"
+import {
   conceptIcon,
   Button,
   FabButton,
   Pill,
   type buttonVariants,
-  Dialog,
-  DialogCancel,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  Prompt,
   toast,
 } from "@exp/ui"
 import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
@@ -26,6 +25,7 @@ import type { StackMergeChoice } from "@/lib/pr-stack"
 import { trpc } from "@/lib/trpc-client"
 import { useOpenComposer } from "@/hooks/use-open-composer"
 import { useStackMergeChoice } from "@/hooks/use-stack-merge-choice"
+import { useLinkedIssueCount } from "@/hooks/use-linked-issue-count"
 import {
   StackMergeChoiceDialog,
   type StackMergeInput,
@@ -227,6 +227,10 @@ export function SessionMergeButton({
   const [armed, setArmed] = useState(false)
   const [stackChoice, setStackChoice] = useState<StackMergeChoice | null>(null)
   const stack = useStackMergeChoice(issueId, armed)
+  const linkedCount = useLinkedIssueCount(issueId, confirmOpen)
+  const mergeCopy = issueId
+    ? mergeIssuePrPrompt({ number: prNumber, count: linkedCount })
+    : mergeRunPrPrompt(prNumber)
   const stamp =
     updatedAt instanceof Date ? updatedAt.toISOString() : (updatedAt ?? null)
 
@@ -412,41 +416,20 @@ export function SessionMergeButton({
           }}
         />
       ) : null}
-      <Dialog
-        open={confirmOpen}
-        onOpenChange={(next) => {
-          if (!merging) setConfirmOpen(next)
-        }}
-      >
-        <DialogContent
-          mobile="alert"
-          className="sm:max-w-sm"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <DialogHeader>
-            <DialogTitle>Merge pull request?</DialogTitle>
-            <DialogDescription>
-              {issueId
-                ? `Merge PR #${prNumber ?? ``} into the default branch? Every issue linked to it completes, and its coding session closes.`
-                : `Merge PR #${prNumber ?? ``} into the default branch? The run's coding session closes unless the team keeps sessions on merge.`}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogCancel
-              onClick={() => setConfirmOpen(false)}
-              disabled={merging}
-            />
-            <Button onClick={merge} disabled={merging}>
-              {merging ? (
-                <UiLoadingIcon className="animate-spin" />
-              ) : (
-                <PrMergedIcon />
-              )}
-              Merge
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* The card is portalled, but React still bubbles its clicks through
+          this tree: the span keeps them off the list row the button sits in. */}
+      <span className="contents" onClick={(e) => e.stopPropagation()}>
+        <Prompt
+          open={confirmOpen}
+          onOpenChange={setConfirmOpen}
+          busy={merging}
+          title={mergeCopy.title}
+          body={mergeCopy.body}
+          actions={promptActions(mergeCopy, {
+            merge: { busy: merging, leading: <PrMergedIcon />, onSelect: merge },
+          })}
+        />
+      </span>
     </>
   )
 }

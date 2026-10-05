@@ -50,19 +50,12 @@ private struct MoveBoardConfirm: ViewModifier {
     let onConfirm: (BoardEntity) -> Void
 
     func body(content: Content) -> some View {
-        content.alert(
-            "Move issue",
-            isPresented: Binding(
-                get: { target != nil },
-                set: { if !$0 { target = nil } }
-            ),
-            presenting: target
-        ) { board in
-            Button("Move") { onConfirm(board) }
-            Button("Cancel", role: .cancel) {}
-        } message: { board in
-            // Byte-shared with web, desktop and Android (EXP-426).
-            Text("Move \(identifier ?? "this issue") to \"\(board.name)\"? The issue will get a new identifier in that board.")
+        // EXP-1215: the app's own alert card (`GlassAlert`), ×4.
+        content.glassAlert(item: $target) { board in
+            GlassAlert(
+                prompt: Prompts.MoveIssue.copy(identifier: identifier ?? "this issue", board: board.name),
+                handlers: ["move": { onConfirm(board) }]
+            )
         }
     }
 }

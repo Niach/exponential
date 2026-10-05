@@ -12,6 +12,7 @@
 // Everything technical (auth override, transport, header/env names, scopes)
 // hides behind "Advanced".
 import { useEffect, useMemo, useRef, useState } from "react"
+import { promptActions, WEB_PROMPTS } from "@/lib/prompts"
 import type { McpAuth, McpTransport } from "@exp/db-schema/domain"
 import {
   conceptIcon,
@@ -28,6 +29,7 @@ import {
   GlassToggleRow,
   ListRow,
   PasswordInput,
+  Prompt,
   SETTINGS_LIST_CLASS,
   Dialog,
   DialogBody,
@@ -328,6 +330,10 @@ export function TeamMcpServersSection({
     setEditor({ mode: `add` })
   }
 
+  const removeCopy = WEB_PROMPTS.removeMcpServer(
+    removeTarget?.name ?? `this server`
+  )
+
   return (
     <div className="mb-6">
       <GlassSectionHeader
@@ -429,28 +435,18 @@ export function TeamMcpServersSection({
         }}
       />
 
-      <Dialog
+      <Prompt
         open={removeTarget !== null}
         onOpenChange={(open) => {
-          if (!open && !busy) setRemoveTarget(null)
+          if (!open) setRemoveTarget(null)
         }}
-      >
-        <DialogContent mobile="alert" className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Remove server</DialogTitle>
-            <DialogDescription>
-              {`Remove ${removeTarget?.name ?? `this server`} from the team? Runs stop offering it and every member's connection to it is deleted.`}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogCancel disabled={busy} onClick={() => setRemoveTarget(null)} />
-            <Button variant="destructive" disabled={busy} onClick={() => void remove()}>
-              {busy && <LoadingIcon className="animate-spin" />}
-              Remove
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        busy={busy}
+        title={removeCopy.title}
+        body={removeCopy.body}
+        actions={promptActions(removeCopy, {
+          remove: { busy, onSelect: remove },
+        })}
+      />
     </div>
   )
 }

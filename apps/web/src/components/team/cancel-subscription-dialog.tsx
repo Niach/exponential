@@ -1,16 +1,6 @@
 import { useState } from "react"
-import { LoaderCircle } from "lucide-react"
-import {
-  Button,
-  Dialog,
-  DialogCancel,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  toast,
-} from "@exp/ui"
+import { promptActions, WEB_PROMPTS } from "@/lib/prompts"
+import { Prompt, toast } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import { invalidateBillingCache } from "@/hooks/use-billing"
 
@@ -22,14 +12,12 @@ import { invalidateBillingCache } from "@/hooks/use-billing"
 export function CancelSubscriptionDialog({
   teamId,
   planLabel,
-  seats,
   periodEnd,
   open,
   onOpenChange,
 }: {
   teamId: string
   planLabel: string
-  seats: number
   periodEnd: string | null
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -67,41 +55,18 @@ export function CancelSubscriptionDialog({
     }
   }
 
+  const copy = WEB_PROMPTS.cancelSubscription(planLabel, endDate)
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent mobile="alert" className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Cancel subscription</DialogTitle>
-          <DialogDescription>
-            {endDate
-              ? `This team keeps ${planLabel} and all ${seats} seat${seats === 1 ? `` : `s`} until ${endDate}, then drops to the Free plan. You won't be charged again.`
-              : `This team keeps ${planLabel} until the end of the paid period, then drops to the Free plan. You won't be charged again.`}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-2 text-sm text-muted-foreground">
-          <p>
-            On Free the team is limited to 3 seats, 250 MB of attachment
-            storage and 1 feedback widget. Existing members keep working. Only
-            new invites are blocked.
-          </p>
-          <p>You can resume the subscription any time before it ends.</p>
-        </div>
-
-        <DialogFooter>
-          <DialogCancel onClick={() => onOpenChange(false)} disabled={saving}>
-            Keep subscription
-          </DialogCancel>
-          <Button
-            variant="destructive"
-            onClick={handleCancel}
-            disabled={saving}
-          >
-            {saving && <LoaderCircle className="mr-1.5 size-3.5 animate-spin" />}
-            {saving ? `Cancelling...` : `Cancel subscription`}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <Prompt
+      open={open}
+      onOpenChange={onOpenChange}
+      busy={saving}
+      title={copy.title}
+      body={copy.body}
+      actions={promptActions(copy, {
+        "cancel-subscription": { busy: saving, onSelect: handleCancel },
+      })}
+    />
   )
 }

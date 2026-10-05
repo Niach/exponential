@@ -9,10 +9,16 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -55,6 +61,10 @@ data class GlassAlertAction(
     val destructive: Boolean = false,
     val enabled: Boolean = true,
     val testTag: String? = null,
+    /** A call in flight (EXP-1215): the pill shows its spinner and stops
+     *  answering, keeping its width; the dialog stays up until the caller
+     *  closes it. */
+    val loading: Boolean = false,
 )
 
 /**
@@ -66,11 +76,19 @@ data class GlassAlertAction(
  * size="md"`): [leading] set apart on the leading edge as quiet destructive
  * text lined up with the title, [trailing] packed
  * on the trailing edge in reading order (the last = the primary). When the
- * row does not fit the card (large font scales) the buttons stack full-width,
- * primary on top. [defaultAction] (an index into [trailing]) takes the
+ * row does not fit the card (large font scales) the buttons stack, one
+ * natural-width pill per line aligned to the trailing edge, primary on top,
+ * Cancel below it and the leading answer last (`prompts.json` LAYOUT). While
+ * any answer is [GlassAlertAction.loading] the whole row and every dismiss
+ * path (scrim, back) stop answering. [defaultAction] (an index into [trailing]) takes the
  * initial focus where there is one (a hardware keyboard: Enter answers it);
  * never a destructive one. No close ✕; system back and a scrim tap call
  * [onDismiss].
+ *
+ * EXP-1215: every confirm and choice prompt on Android is this card. A prompt
+ * that needs more than text (the blocked-start graph, an inline error) puts it
+ * in [content], between the title/body and the row; it scrolls when the card
+ * would outgrow the screen, so the row always stays reachable.
  */
 @Composable
 fun GlassAlert(
@@ -81,9 +99,12 @@ fun GlassAlert(
     body: String? = null,
     leading: GlassAlertAction? = null,
     defaultAction: Int? = null,
+    content: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
+    val busy = (trailing + listOfNotNull(leading)).any { it.loading }
+    val dismiss = { if (!busy) onDismiss() }
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = dismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
         // The scrim is drawn here, so the window's own dim goes; the blur is
@@ -107,7 +128,9 @@ fun GlassAlert(
             modifier = Modifier
                 .fillMaxSize()
                 .background(ScrimColor)
-                .clickable(interactionSource = noRipple, indication = null, onClick = onDismiss)
+                .clickable(interactionSource = noRipple, indication = null, onClick = dismiss)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .padding(vertical = 24.dp)
                 .testTag("glass-alert-scrim"),
         ) {
             val shape = RoundedCornerShape(GlassTokens.CardRadius)
@@ -146,11 +169,21 @@ fun GlassAlert(
                         )
                     }
                 }
+                if (content != null) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .verticalScroll(rememberScrollState())
+                            .testTag("glass-alert-content"),
+                        content = content,
+                    )
+                }
                 AlertButtonRow(hasLeading = leading != null) {
-                    leading?.let { AlertQuietButton(it) }
+                    leading?.let { AlertQuietButton(if (busy) it.copy(enabled = false) else it) }
                     trailing.forEachIndexed { index, action ->
                         AlertButton(
-                            action,
+                            if (busy && !action.loading) action.copy(enabled = false) else action,
                             if (index == defaultAction) Modifier.focusRequester(focus) else Modifier,
                         )
                     }
@@ -168,7 +201,8 @@ private fun AlertButton(action: GlassAlertAction, modifier: Modifier = Modifier)
         size = PillSize.Md,
         primary = action.primary,
         tint = if (action.destructive) DesignTokens.Palette.Destructive else null,
-        enabled = action.enabled,
+        enabled = action.enabled && !action.loading,
+        loading = action.loading,
         // A 32dp capsule answering a 48dp touch target; the rest is layout.
         modifier = Modifier
             .minimumInteractiveComponentSize()
@@ -184,7 +218,7 @@ private fun AlertQuietButton(action: GlassAlertAction) {
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .minimumInteractiveComponentSize()
-            .clickable(enabled = action.enabled, role = Role.Button, onClick = action.onClick)
+            .clickable(enabled = action.enabled && !action.loading, role = Role.Button, onClick = action.onClick)
             .then(if (action.testTag != null) Modifier.testTag(action.testTag) else Modifier),
     ) {
         Text(
@@ -200,8 +234,8 @@ private fun AlertQuietButton(action: GlassAlertAction) {
  * ONE row: the leading text (when [hasLeading]) on the leading edge, in line
  * with the title, then
  * a flexible gap, then the rest packed trailing 8dp apart. When their natural
- * widths do not fit, every button goes full-width and stacks, the LAST
- * (primary) first and the leading one last.
+ * widths do not fit, they stack at their natural widths, each on the trailing
+ * edge, the LAST (primary) first and the leading one last.
  */
 @Composable
 private fun AlertButtonRow(hasLeading: Boolean, content: @Composable () -> Unit) {
@@ -209,10 +243,7 @@ private fun AlertButtonRow(hasLeading: Boolean, content: @Composable () -> Unit)
         val gap = 8.dp.roundToPx()
         val width = constraints.maxWidth
         val natural = measurables.map { it.maxIntrinsicWidth(constraints.maxHeight) }
-        val trailingCount = measurables.size - if (hasLeading) 1 else 0
-        val needed = natural.sum() + gap * (trailingCount - 1).coerceAtLeast(0) +
-            (if (hasLeading) gap * 2 else 0)
-        if (needed <= width) {
+        if (GlassAlertDefaults.rowFits(natural, hasLeading, gap, width)) {
             val placeables = measurables.mapIndexed { i, m ->
                 m.measure(Constraints(minWidth = natural[i], maxWidth = natural[i]))
             }
@@ -232,20 +263,52 @@ private fun AlertButtonRow(hasLeading: Boolean, content: @Composable () -> Unit)
                 }
             }
         } else {
-            val placeables = measurables.map { it.measure(Constraints.fixedWidth(width)) }
-            // Primary first: the trailing buttons in reverse, then the leading one.
-            val order = placeables.indices.reversed().filter { !(hasLeading && it == 0) } +
-                (if (hasLeading) listOf(0) else emptyList())
+            val placeables = measurables.mapIndexed { i, m ->
+                val w = GlassAlertDefaults.stackedWidth(natural[i], width)
+                m.measure(Constraints(minWidth = w, maxWidth = w))
+            }
+            val order = GlassAlertDefaults.stackOrder(placeables.size, hasLeading)
             val height = placeables.sumOf { it.height }
             layout(width, height) {
                 var y = 0
                 order.forEach { i ->
-                    placeables[i].placeRelative(0, y)
+                    placeables[i].placeRelative(width - placeables[i].width, y)
                     y += placeables[i].height
                 }
             }
         }
     }
+}
+
+/** The row's pure geometry, unit-tested (`GlassAlertDefaultsTest`). */
+internal object GlassAlertDefaults {
+    /**
+     * Whether the buttons' natural widths fit ONE row of [width]: the trailing
+     * ones [gap] apart, plus (with [hasLeading]) at least two gaps between the
+     * leading text and the trailing group.
+     */
+    fun rowFits(natural: List<Int>, hasLeading: Boolean, gap: Int, width: Int): Boolean {
+        val trailingCount = natural.size - if (hasLeading) 1 else 0
+        val needed = natural.sum() + gap * (trailingCount - 1).coerceAtLeast(0) +
+            (if (hasLeading) gap * 2 else 0)
+        return needed <= width
+    }
+
+    /**
+     * The stacked order, top to bottom, as indices into the row's children
+     * (leading first when [hasLeading]): the primary (last) on top, the
+     * trailing ones in reverse, the leading destructive one at the bottom.
+     */
+    fun stackOrder(count: Int, hasLeading: Boolean): List<Int> =
+        (count - 1 downTo 0).filter { !(hasLeading && it == 0) } +
+            (if (hasLeading && count > 0) listOf(0) else emptyList())
+
+    /**
+     * A stacked pill's width: its natural width (never a full-width block),
+     * capped at the card's [width] so an over-long label truncates instead of
+     * overflowing. It sits on the trailing edge (x = width - this).
+     */
+    fun stackedWidth(natural: Int, width: Int): Int = natural.coerceAtMost(width)
 }
 
 /** Web's overlay `bg-black/60`. */

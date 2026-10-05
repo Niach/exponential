@@ -81,61 +81,44 @@ struct ReviewsListContent: View {
         .onDisappear {
             viewModel?.stopObserving()
         }
-        .alert(
-            "Merge pull request?",
-            isPresented: Binding(
-                get: { mergeTarget != nil },
-                set: { if !$0 { mergeTarget = nil } }
-            ),
-            presenting: mergeTarget
-        ) { entry in
-            Button("Merge") { merge(entry) }
-            Button("Cancel", role: .cancel) { mergeTarget = nil }
-        } message: { entry in
-            Text(mergeMessage(entry))
+        // EXP-1215: the app's own alert card (`GlassAlert`), ×4.
+        .glassAlert(item: $mergeTarget) { entry in
+            GlassAlert(
+                prompt: Prompts.MergeIssuePr.copy(number: entry.prNumber, issueCount: entry.issues.count),
+                handlers: ["merge": { merge(entry) }]
+            )
         }
         // EXP-1145: a member of an open PR stack asks first. The list stays
-        // FLAT; only the dialog knows the stack.
-        .confirmationDialog(
-            PrStack.stackMergeChoiceTitle,
-            isPresented: Binding(
-                get: { stackTarget != nil },
-                set: { if !$0 { stackTarget = nil } }
-            ),
-            titleVisibility: .visible,
-            presenting: stackTarget
-        ) { target in
-            Button(PrStack.mergeStackLabel) {
-                merge(target.entry, issueId: target.choice.topIssueId, mergeStack: true)
-            }
-            Button(PrStack.mergeThisPrLabel) {
-                // The bottom merges plainly, any other member lands the chain
-                // bottom-up THROUGH itself.
-                merge(
-                    target.entry,
-                    issueId: target.entry.representative.id,
-                    mergeStack: target.choice.mergeThisUsesStack
-                )
-            }
-            Button(PrStack.stackMergeCancelLabel, role: .cancel) { stackTarget = nil }
-        } message: { target in
-            Text(target.choice.body)
+        // FLAT; only the dialog knows the stack. Copy byte-locked by the
+        // `stack-merge-choice.json` fixture.
+        .glassAlert(item: $stackTarget) { target in
+            GlassAlert(
+                title: PrStack.stackMergeChoiceTitle,
+                message: target.choice.body,
+                actions: [
+                    GlassAlertAction(PrStack.stackMergeCancelLabel, role: .outline, id: "cancel") {},
+                    GlassAlertAction(PrStack.mergeThisPrLabel, role: .outline, id: "merge-this") {
+                        // The bottom merges plainly, any other member lands
+                        // the chain bottom-up THROUGH itself.
+                        merge(
+                            target.entry,
+                            issueId: target.entry.representative.id,
+                            mergeStack: target.choice.mergeThisUsesStack
+                        )
+                    },
+                    GlassAlertAction(PrStack.mergeStackLabel, role: .primary, id: "merge-stack") {
+                        merge(target.entry, issueId: target.choice.topIssueId, mergeStack: true)
+                    },
+                ]
+            )
         }
-        // EXP-734: a run's own pull request completes no issue, so it confirms
+        // EXP-734: a run's own pull request links no issue, so it confirms
         // with its own copy.
-        .alert(
-            "Merge pull request?",
-            isPresented: Binding(
-                get: { runMergeTarget != nil },
-                set: { if !$0 { runMergeTarget = nil } }
-            ),
-            presenting: runMergeTarget
-        ) { entry in
-            Button("Merge") { merge(run: entry) }
-            Button("Cancel", role: .cancel) { runMergeTarget = nil }
-        } message: { entry in
-            let pr = entry.prNumber.map { "#\($0)" } ?? "this pull request"
-            Text("Squash-merges PR \(pr) via the GitHub App. Any live run for it ends.")
+        .glassAlert(item: $runMergeTarget) { entry in
+            GlassAlert(
+                prompt: Prompts.MergeRunPr.copy(number: entry.prNumber),
+                handlers: ["merge": { merge(run: entry) }]
+            )
         }
         // EXP-897 Part 4: a batch row's issues are the overlay's content.
         .sheet(item: $batchTarget) { entry in
@@ -572,15 +555,6 @@ struct ReviewsListContent: View {
     private func prURL(_ entry: ReviewEntry) -> URL? {
         guard let prUrl = entry.prUrl else { return nil }
         return URL(string: prUrl)
-    }
-
-    private func mergeMessage(_ entry: ReviewEntry) -> String {
-        let pr = entry.prNumber.map { "#\($0)" } ?? "this pull request"
-        var message = "Squash-merges PR \(pr) via the GitHub App. Any live run for it ends."
-        if entry.isBatch {
-            message += " Completes all \(entry.issues.count) linked issues."
-        }
-        return message
     }
 
     /// EXP-1145: a member of an open PR stack opens the stack dialog, any

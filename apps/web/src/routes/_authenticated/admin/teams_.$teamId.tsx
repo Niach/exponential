@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { deleteTeamPrompt, promptActions, WEB_PROMPTS } from "@/lib/prompts"
 import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-router"
 import { ArrowLeft, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
@@ -10,13 +11,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-  Dialog,
-  DialogCancel,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  Prompt,
   Select,
   SelectContent,
   SelectItem,
@@ -101,6 +96,12 @@ function AdminTeamDetail() {
       setBusy(false)
     }
   }
+
+  const compCopy =
+    pendingComp === `none`
+      ? WEB_PROMPTS.adminClearCompTier(ws.name)
+      : WEB_PROMPTS.adminCompTier(ws.name, pendingComp ?? ``)
+  const deleteCopy = deleteTeamPrompt(ws.name)
 
   return (
     <div className="mx-auto max-w-5xl space-y-4 p-4 md:p-6">
@@ -465,59 +466,31 @@ function AdminTeamDetail() {
       </Card>
 
       {/* Comp-tier confirm */}
-      <Dialog
+      <Prompt
         open={pendingComp !== null}
         onOpenChange={(open) => !open && setPendingComp(null)}
-      >
-        <DialogContent mobile="alert">
-          <DialogHeader>
-            <DialogTitle>
-              {pendingComp === `none`
-                ? `Clear the comp tier?`
-                : `Comp this team to ${pendingComp}?`}
-            </DialogTitle>
-            <DialogDescription>
-              {pendingComp === `none`
-                ? `${ws.name} falls back to its Creem-derived plan (or free).`
-                : `${ws.name} gets at least the ${pendingComp} tier's limits for free. An active subscription of a higher tier still wins.`}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogCancel
-              variant="outline"
-              onClick={() => setPendingComp(null)}
-              disabled={busy}
-            />
-            <Button onClick={handleSetComp} disabled={busy}>
-              Confirm
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        busy={busy}
+        title={compCopy.title}
+        body={compCopy.body}
+        actions={promptActions(compCopy, {
+          [pendingComp === `none` ? `clear` : `comp`]: {
+            busy,
+            onSelect: () => handleSetComp(),
+          },
+        })}
+      />
 
       {/* Delete confirm */}
-      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-        <DialogContent mobile="alert">
-          <DialogHeader>
-            <DialogTitle>Delete team?</DialogTitle>
-            <DialogDescription>
-              This permanently removes <strong>{ws.name}</strong> and cascades
-              to all of its boards, issues, labels, comments, and
-              attachments. This cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogCancel
-              variant="outline"
-              onClick={() => setConfirmDelete(false)}
-              disabled={busy}
-            />
-            <Button variant="destructive" onClick={handleDelete} disabled={busy}>
-              Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <Prompt
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        busy={busy}
+        title={deleteCopy.title}
+        body={deleteCopy.body}
+        actions={promptActions(deleteCopy, {
+          delete: { busy, onSelect: () => handleDelete() },
+        })}
+      />
     </div>
   )
 }

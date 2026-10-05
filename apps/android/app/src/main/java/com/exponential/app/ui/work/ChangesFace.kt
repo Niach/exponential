@@ -12,12 +12,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -53,6 +51,8 @@ import com.exponential.app.ui.issue.diffOpensByDefault
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import kotlinx.coroutines.launch
+import com.exponential.app.ui.components.PromptAlert
+import com.exponential.app.domain.Prompts
 
 // EXP-893/EXP-895: the Work screen's CHANGES FACE — a full page of the ONE diff
 // view: the summary row (`N files  +A −D`) over one [DiffFileCard] per file,
@@ -73,8 +73,9 @@ data class ChangesMergeControl(
     val loading: Boolean,
     /** The refusal a failed merge left behind, toasted once by the host. */
     val error: String?,
-    /** The confirm dialog's body (a run's own PR completes no issue). */
-    val confirmText: String,
+    /** EXP-1215: the confirm prompt, `merge-issue-pr` or (a run's own PR,
+     *  no issue linked) `merge-run-pr`. */
+    val confirmPrompt: Prompts.Prompt,
     val onConfirm: () -> Unit,
     val onFixConflicts: () -> Unit,
     /** EXP-1145: non-null = the merged PR is a stack member, so Merge asks first. */
@@ -324,21 +325,15 @@ private fun MergeConfirmDialog(merge: ChangesMergeControl, onDismiss: () -> Unit
         )
         return
     }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Merge pull request?") },
-        text = { Text(merge.confirmText) },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    onDismiss()
-                    merge.onConfirm()
-                },
-            ) { Text("Merge") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        },
+    PromptAlert(
+        prompt = merge.confirmPrompt,
+        onDismiss = onDismiss,
+        handlers = mapOf(
+            "merge" to {
+                onDismiss()
+                merge.onConfirm()
+            },
+        ),
     )
 }
 

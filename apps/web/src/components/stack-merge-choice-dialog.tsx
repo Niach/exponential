@@ -1,15 +1,4 @@
-import {
-  conceptIcon,
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  Button,
-} from "@exp/ui"
+import { conceptIcon, Prompt } from "@exp/ui"
 import {
   MERGE_STACK_LABEL,
   MERGE_THIS_PR_LABEL,
@@ -64,52 +53,45 @@ export function StackMergeChoiceDialog({
   onMerge: (input: StackMergeInput, which: `stack` | `this`) => void
 }) {
   return (
-    <AlertDialog
-      open={choice !== null}
-      onOpenChange={(next) => {
-        if (!next && !busy) onCancel()
-      }}
-    >
-      <AlertDialogContent
+    // The card is portalled, but React still bubbles its clicks through this
+    // tree: the span keeps them off the list row the Merge sits in.
+    <span className="contents" onClick={(e) => e.stopPropagation()}>
+      <Prompt
+        open={choice !== null}
+        onOpenChange={(next) => {
+          if (!next && !busy) onCancel()
+        }}
+        busy={busy}
         className="sm:max-w-lg"
-        onClick={(e) => e.stopPropagation()}
         data-testid="stack-merge-choice-dialog"
-      >
-        <AlertDialogHeader>
-          <AlertDialogTitle>{STACK_MERGE_CHOICE_TITLE}</AlertDialogTitle>
-          {choice ? (
-            <AlertDialogDescription className="whitespace-pre-line">
-              {choice.body}
-            </AlertDialogDescription>
-          ) : null}
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={busy}>
-            {STACK_MERGE_CANCEL_LABEL}
-          </AlertDialogCancel>
-          <Button
-            variant="outline"
-            disabled={busy}
-            onClick={(e) => {
-              e.stopPropagation()
+        title={STACK_MERGE_CHOICE_TITLE}
+        body={
+          choice ? (
+            <div className="whitespace-pre-line">{choice.body}</div>
+          ) : undefined
+        }
+        actions={[
+          { label: STACK_MERGE_CANCEL_LABEL },
+          {
+            label: MERGE_THIS_PR_LABEL,
+            onSelect: () => {
               if (choice) onMerge(mergeThisInput(choice, issueId), `this`)
-            }}
-          >
-            {MERGE_THIS_PR_LABEL}
-          </Button>
-          <AlertDialogAction
-            disabled={busy}
-            onClick={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
+            },
+          },
+          {
+            label: MERGE_STACK_LABEL,
+            role: `primary`,
+            leading: busy ? (
+              <UiLoadingIcon className="animate-spin" />
+            ) : (
+              <PrMergedIcon />
+            ),
+            onSelect: () => {
               if (choice) onMerge(mergeStackInput(choice), `stack`)
-            }}
-          >
-            {busy ? <UiLoadingIcon className="animate-spin" /> : <PrMergedIcon />}
-            {MERGE_STACK_LABEL}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+            },
+          },
+        ]}
+      />
+    </span>
   )
 }

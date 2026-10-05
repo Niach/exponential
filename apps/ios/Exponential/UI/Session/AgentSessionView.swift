@@ -205,30 +205,26 @@ struct AgentSessionView: View {
     /// The confirms: Kill, Merge, and a `/`-command's own.
     private func withAlerts(_ content: some View) -> some View {
         content
-            .alert("Stop this run?", isPresented: $showKillConfirm) {
-                Button("Stop run", role: .destructive) {
-                    Task { await model?.killSession() }
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("This stops the agent on the desktop and ends the run.")
+            // EXP-1215: the app's own alert card (`GlassAlert`), ×4.
+            .glassAlert(isPresented: $showKillConfirm) {
+                GlassAlert(
+                    prompt: Prompts.StopRun.copy(),
+                    handlers: ["stop": { Task { await model?.killSession() } }]
+                )
             }
             // EXP-724: `/clear` discards the conversation, so confirm rows
             // confirm before the frames go out. Copy is byte-identical ×4.
-            .alert(
-                slashConfirm.map { SlashCommands.confirmTitle($0) } ?? "",
-                isPresented: Binding(
-                    get: { slashConfirm != nil },
-                    set: { if !$0 { slashConfirm = nil } }
-                ),
-                presenting: slashConfirm
-            ) { command in
-                Button(SlashCommands.confirmButton(command), role: .destructive) {
-                    if let model { performSend(model) }
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: { _ in
-                Text(SlashCommands.confirmBody)
+            .glassAlert(item: $slashConfirm) { command in
+                GlassAlert(
+                    title: SlashCommands.confirmTitle(command),
+                    message: SlashCommands.confirmBody,
+                    actions: [
+                        GlassAlertAction("Cancel", role: .outline, id: "cancel") {},
+                        GlassAlertAction(SlashCommands.confirmButton(command), role: .destructive, id: "confirm") {
+                            if let model { performSend(model) }
+                        },
+                    ]
+                )
             }
     }
 

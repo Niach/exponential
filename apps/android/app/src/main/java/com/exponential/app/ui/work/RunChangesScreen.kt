@@ -20,6 +20,7 @@ import com.exponential.app.ui.components.LocalDetailHaze
 import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.issue.toDiffFile
 import dev.chrisbanes.haze.rememberHazeState
+import com.exponential.app.domain.Prompts
 
 // EXP-1194: the review of a RUN's own issue-less pull request (Reviews →
 // Agent runs) — the same Changes face an issue row opens, fed by
@@ -61,8 +62,7 @@ fun RunChangesScreen(
             fixConflicts = false,
             loading = merging,
             error = actionError,
-            confirmText = "Squash-merges PR #${run.prNumber ?: ""} via the GitHub App. " +
-                "Nothing is completed; the run ends unless the team keeps it.",
+            confirmPrompt = Prompts.MergeRunPr.prompt(run.prNumber),
             onConfirm = { viewModel.mergePr() },
             onFixConflicts = {},
         )

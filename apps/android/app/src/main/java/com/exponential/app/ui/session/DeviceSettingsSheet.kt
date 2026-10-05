@@ -11,11 +11,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -61,6 +59,8 @@ import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.glassGroup
 import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.components.PromptAlert
+import com.exponential.app.domain.Prompts
 
 // The device-settings sheet (EXP-481) — the mobile twin of the web dialog,
 // styled like the Start-coding sheet (EXP-208/EXP-211 chrome: full height,
@@ -460,27 +460,15 @@ fun DeviceSettingsSheet(
     // Removing drops the registry row only — say so, or an owner who removes a
     // machine that is still running the daemon reads its return as a bug.
     if (confirmRemove) {
-        AlertDialog(
-            onDismissRequest = { confirmRemove = false },
-            title = { Text("Remove device") },
-            text = {
-                Text(
-                    "Remove “${device.deviceLabel.ifBlank { device.deviceId }}” from your " +
-                        "devices? A device with the daemon still running will re-register " +
-                        "itself on its next heartbeat.",
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        agentsViewModel.removeDevice(device.deviceId)
-                        confirmRemove = false
-                    },
-                ) { Text("Remove") }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmRemove = false }) { Text("Cancel") }
-            },
+        PromptAlert(
+            prompt = Prompts.RemoveDevice.prompt(device.deviceLabel.ifBlank { device.deviceId }),
+            onDismiss = { confirmRemove = false },
+            handlers = mapOf(
+                "remove" to {
+                    agentsViewModel.removeDevice(device.deviceId)
+                    confirmRemove = false
+                },
+            ),
         )
     }
 }

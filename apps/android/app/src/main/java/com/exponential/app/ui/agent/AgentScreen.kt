@@ -5,8 +5,6 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -22,7 +20,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -30,7 +27,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -62,8 +58,9 @@ import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.ChatSuggestions
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.BlockedStart
+import com.exponential.app.ui.components.GlassAlert
+import com.exponential.app.ui.components.GlassAlertAction
 import com.exponential.app.ui.issue.StaticDot
-import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.domain.MAX_STEER_IMAGES
 import com.exponential.app.domain.resumeWorktreeFor
 import com.exponential.app.ui.components.BottomBarInset
@@ -93,6 +90,7 @@ import com.exponential.app.ui.markdown.withMention
 import com.exponential.app.ui.session.AgentsViewModel
 import com.exponential.app.ui.steer.ActionRunState
 import com.exponential.app.ui.steer.SteerRunCaptionRow
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
 import kotlinx.coroutines.Dispatchers
@@ -780,81 +778,71 @@ private fun BlockedStartDialog(
 ) {
     val isBatch = prompt.pickedIds.size > 1
     val stackable = prompt.stackable
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(if (isBatch) BlockedStart.BATCH_TITLE else BlockedStart.TITLE)
-        },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                if (isBatch) {
-                    Text(BlockedStart.BATCH_BODY)
-                } else {
-                    Text(BlockedStart.BODY_PREFIX.trimEnd())
-                    FlowRow(
-                        modifier = Modifier.testTag("blocked-start-blockers"),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        prompt.blockers.forEach { blocker ->
-                            IssueChip(
-                                identifier = blocker.identifier,
-                                title = blocker.title,
-                                status = null,
-                            )
-                        }
-                    }
-                    Text(
-                        (if (stackable) BlockedStart.BODY_SUFFIX_STACKABLE else BlockedStart.BODY_SUFFIX)
-                            .removePrefix(".").trim(),
-                    )
-                }
-                IssueGraphList(
-                    graph = prompt.graph,
-                    issuesById = prompt.issuesById,
-                    onOpenIssue = { id ->
-                        onDismiss()
-                        onOpenIssue(id)
-                    },
-                )
-                // SLOP-3: why the stacked start is off (the note under a
-                // disabled, never hidden button), else what it starts first.
-                val stackNote = prompt.stackNote
-                val planNote = prompt.planNote
-                when {
-                    stackNote != null -> Text(
-                        stackNote,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        modifier = Modifier.testTag("start-stacked-note"),
-                    )
-                    planNote != null -> Text(
-                        planNote,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        modifier = Modifier.testTag("start-stacked-plan"),
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = onStartStacked,
+    // EXP-1215: the shared prompt card; the blocker chips, the mini-graph and
+    // the stacked-start note ride its content slot (scrolling when tall).
+    GlassAlert(
+        title = if (isBatch) BlockedStart.BATCH_TITLE else BlockedStart.TITLE,
+        body = if (isBatch) BlockedStart.BATCH_BODY else BlockedStart.BODY_PREFIX.trimEnd(),
+        onDismiss = onDismiss,
+        trailing = listOf(
+            GlassAlertAction("Cancel", onClick = onDismiss),
+            GlassAlertAction(BlockedStart.START_ANYWAY, testTag = "start-anyway", onClick = onStartAnyway),
+            GlassAlertAction(
+                BlockedStart.STACKED_PR,
+                primary = true,
                 enabled = stackable,
-                modifier = Modifier.testTag("start-stacked"),
-            ) {
-                Text(BlockedStart.STACKED_PR)
-            }
-        },
-        dismissButton = {
-            Row {
-                TextButton(onClick = onDismiss) { Text("Cancel") }
-                TextButton(onClick = onStartAnyway, modifier = Modifier.testTag("start-anyway")) {
-                    Text(BlockedStart.START_ANYWAY)
+                testTag = "start-stacked",
+                onClick = onStartStacked,
+            ),
+        ),
+        defaultAction = if (stackable) 2 else 0,
+        content = {
+            if (!isBatch) {
+                FlowRow(
+                    modifier = Modifier.testTag("blocked-start-blockers"),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    prompt.blockers.forEach { blocker ->
+                        IssueChip(
+                            identifier = blocker.identifier,
+                            title = blocker.title,
+                            status = null,
+                        )
+                    }
                 }
+                Text(
+                    (if (stackable) BlockedStart.BODY_SUFFIX_STACKABLE else BlockedStart.BODY_SUFFIX)
+                        .removePrefix(".").trim(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = DesignTokens.Palette.MutedForeground,
+                )
+            }
+            IssueGraphList(
+                graph = prompt.graph,
+                issuesById = prompt.issuesById,
+                onOpenIssue = { id ->
+                    onDismiss()
+                    onOpenIssue(id)
+                },
+            )
+            // SLOP-3: why the stacked start is off (the note under a
+            // disabled, never hidden button), else what it starts first.
+            val stackNote = prompt.stackNote
+            val planNote = prompt.planNote
+            when {
+                stackNote != null -> Text(
+                    stackNote,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    modifier = Modifier.testTag("start-stacked-note"),
+                )
+                planNote != null -> Text(
+                    planNote,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    modifier = Modifier.testTag("start-stacked-plan"),
+                )
             }
         },
     )

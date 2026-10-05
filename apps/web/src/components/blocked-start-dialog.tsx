@@ -1,14 +1,5 @@
 import { Fragment } from "react"
-import {
-  Button,
-  Dialog,
-  DialogCancel,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@exp/ui"
+import { Prompt } from "@exp/ui"
 import { IssueChip } from "@/components/issue-chip"
 import { TeamIssueGraph } from "@/components/issue-graph"
 import type { Issue } from "@/db/schema"
@@ -37,7 +28,19 @@ import {
 // plan note says which starts first. The copy is byte-locked ×4
 // (`lib/blocked-start.ts`, fixture `blocked-start.json`).
 
-export function BlockedStartDialog(props: {
+export function BlockedStartDialog({
+  open,
+  teamId,
+  pickedIds,
+  blockers,
+  stackReason,
+  stackIdent = null,
+  stackRun = [],
+  busy = false,
+  onOpenChange,
+  onStartAnyway,
+  onStartStacked,
+}: {
   open: boolean
   teamId: string | undefined
   /** The checked issues, in pick order. */
@@ -55,39 +58,6 @@ export function BlockedStartDialog(props: {
   onStartAnyway: () => void
   onStartStacked: () => void
 }) {
-  return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      {/* The body queries the team graph, so it mounts only while open. */}
-      {props.open && props.teamId ? (
-        <BlockedStartBody {...props} teamId={props.teamId} />
-      ) : null}
-    </Dialog>
-  )
-}
-
-function BlockedStartBody({
-  teamId,
-  pickedIds,
-  blockers,
-  stackReason,
-  stackIdent = null,
-  stackRun = [],
-  busy = false,
-  onOpenChange,
-  onStartAnyway,
-  onStartStacked,
-}: {
-  teamId: string
-  pickedIds: readonly string[]
-  blockers: readonly Issue[]
-  stackReason: StackDisabledReason | null
-  stackIdent?: string | null
-  stackRun?: readonly string[]
-  busy?: boolean
-  onOpenChange: (open: boolean) => void
-  onStartAnyway: () => void
-  onStartStacked: () => void
-}) {
   const planNote = stackReason === null ? stackPlanNote(stackRun) : null
   const batch = pickedIds.length > 1
   const suffix =
@@ -96,77 +66,83 @@ function BlockedStartBody({
       : BLOCKED_START_BODY_SUFFIX
   const [, suffixGlue = ``, suffixRest = ``] = /^(\S*)(.*)$/s.exec(suffix) ?? []
   return (
-    <DialogContent mobile="alert" data-testid="blocked-start-dialog">
-      <DialogHeader>
-        <DialogTitle>
-          {batch ? BLOCKED_BATCH_TITLE : BLOCKED_START_TITLE}
-        </DialogTitle>
-        <DialogDescription asChild>
-          {batch ? (
-            <div>{BLOCKED_BATCH_BODY}</div>
-          ) : (
-            // The chips flow INLINE in the sentence (they are inline-flex,
-            // `align-middle`), and the last one carries the suffix's leading
-            // "." in a nowrap span, so a wrap never starts a line with it.
-            <div className="leading-6" data-testid="blocked-start-sentence">
-              {BLOCKED_START_BODY_PREFIX}
-              {blockers.map((blocker, index) => {
-                const chip = (
-                  <IssueChip
-                    issue={blocker}
-                    testId={`blocked-start-chip-${blocker.identifier}`}
-                  />
-                )
-                return index < blockers.length - 1 ? (
-                  <Fragment key={blocker.id}>
-                    {chip}
-                    {`, `}
-                  </Fragment>
-                ) : (
-                  <span key={blocker.id} className="whitespace-nowrap">
-                    {chip}
-                    {suffixGlue}
-                  </span>
-                )
-              })}
-              {suffixRest}
+    // EXP-1215: the ONE Prompt card. The sentence-with-chips is the body,
+    // the graph + note the content slot (the graph queries the team, and the
+    // card's content mounts only while open).
+    <Prompt
+      open={open && teamId !== undefined}
+      onOpenChange={onOpenChange}
+      busy={busy}
+      data-testid="blocked-start-dialog"
+      title={batch ? BLOCKED_BATCH_TITLE : BLOCKED_START_TITLE}
+      body={
+        batch ? (
+          BLOCKED_BATCH_BODY
+        ) : (
+          // The chips flow INLINE in the sentence (they are inline-flex,
+          // `align-middle`), and the last one carries the suffix's leading
+          // "." in a nowrap span, so a wrap never starts a line with it.
+          <div className="leading-6" data-testid="blocked-start-sentence">
+            {BLOCKED_START_BODY_PREFIX}
+            {blockers.map((blocker, index) => {
+              const chip = (
+                <IssueChip
+                  issue={blocker}
+                  testId={`blocked-start-chip-${blocker.identifier}`}
+                />
+              )
+              return index < blockers.length - 1 ? (
+                <Fragment key={blocker.id}>
+                  {chip}
+                  {`, `}
+                </Fragment>
+              ) : (
+                <span key={blocker.id} className="whitespace-nowrap">
+                  {chip}
+                  {suffixGlue}
+                </span>
+              )
+            })}
+            {suffixRest}
+          </div>
+        )
+      }
+      actions={[
+        { label: `Cancel` },
+        { label: START_ANYWAY_LABEL, onSelect: onStartAnyway },
+        {
+          label: STACKED_PR_LABEL,
+          role: `primary`,
+          disabled: stackReason !== null,
+          onSelect: onStartStacked,
+          testId: `blocked-start-stacked`,
+        },
+      ]}
+    >
+      {teamId !== undefined ? (
+        <div className="flex flex-col gap-2">
+          <TeamIssueGraph
+            teamId={teamId}
+            subjectIds={pickedIds}
+            onNavigate={() => onOpenChange(false)}
+          />
+          {stackReason !== null ? (
+            <div
+              className="text-xs text-muted-foreground"
+              data-testid="blocked-start-stack-note"
+            >
+              {stackDisabledNote(stackReason, stackIdent ?? ``)}
             </div>
-          )}
-        </DialogDescription>
-      </DialogHeader>
-      <TeamIssueGraph
-        teamId={teamId}
-        subjectIds={pickedIds}
-        onNavigate={() => onOpenChange(false)}
-      />
-      {stackReason !== null ? (
-        <div
-          className="text-xs text-muted-foreground"
-          data-testid="blocked-start-stack-note"
-        >
-          {stackDisabledNote(stackReason, stackIdent ?? ``)}
-        </div>
-      ) : planNote !== null ? (
-        <div
-          className="text-xs text-muted-foreground"
-          data-testid="blocked-start-plan-note"
-        >
-          {planNote}
+          ) : planNote !== null ? (
+            <div
+              className="text-xs text-muted-foreground"
+              data-testid="blocked-start-plan-note"
+            >
+              {planNote}
+            </div>
+          ) : null}
         </div>
       ) : null}
-      <DialogFooter>
-        <DialogCancel onClick={() => onOpenChange(false)} />
-        <Button variant="outline" disabled={busy} onClick={onStartAnyway}>
-          {START_ANYWAY_LABEL}
-        </Button>
-        <Button
-          disabled={busy || stackReason !== null}
-          onClick={onStartStacked}
-          data-testid="blocked-start-stacked"
-        >
-          {STACKED_PR_LABEL}
-        </Button>
-      </DialogFooter>
-    </DialogContent>
+    </Prompt>
   )
 }

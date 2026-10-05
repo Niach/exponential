@@ -1,6 +1,7 @@
 import { useState } from "react"
+import { deleteLabelPrompt, promptActions } from "@/lib/prompts"
 import { useLiveQuery, eq } from "@tanstack/react-db"
-import { Plus, Trash2, X, Check } from "lucide-react"
+import { Plus, Trash2 } from "lucide-react"
 import { labelCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import type { Label as LabelType } from "@/db/schema"
@@ -14,6 +15,7 @@ import {
   ColorPicker,
   LABEL_COLORS,
   ColorSwatchGrid,
+  Prompt,
 } from "@exp/ui"
 
 function LabelRow({
@@ -86,6 +88,8 @@ function LabelRow({
     }
   }
 
+  const deleteCopy = deleteLabelPrompt(label.name)
+
   return (
     <ListRow className="flex-col items-stretch gap-0 px-3 py-2">
       <div className="flex items-center gap-3">
@@ -131,43 +135,28 @@ function LabelRow({
           // the name reads as row text that happens to be editable.
           className="h-8 flex-1 rounded-none border-none bg-transparent px-1 shadow-none focus-visible:ring-0 dark:bg-transparent"
         />
-        {confirmingDelete ? (
-          <div className="flex items-center gap-1">
-            <span className="text-xs text-muted-foreground">Delete?</span>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="text-destructive"
-              onClick={handleDelete}
-              disabled={busy}
-              aria-label="Confirm delete"
-            >
-              <Check />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => setConfirmingDelete(false)}
-              disabled={busy}
-              aria-label="Cancel delete"
-            >
-              <X />
-            </Button>
-          </div>
-        ) : (
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="hover:text-destructive"
-            onClick={() => setConfirmingDelete(true)}
-            disabled={busy}
-            aria-label={`Delete label ${label.name}`}
-          >
-            <Trash2 />
-          </Button>
-        )}
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="hover:text-destructive"
+          onClick={() => setConfirmingDelete(true)}
+          disabled={busy}
+          aria-label={`Delete label ${label.name}`}
+        >
+          <Trash2 />
+        </Button>
       </div>
       {error && <p className="text-xs text-destructive mt-1 px-1">{error}</p>}
+      <Prompt
+        open={confirmingDelete}
+        onOpenChange={setConfirmingDelete}
+        busy={busy}
+        title={deleteCopy.title}
+        body={deleteCopy.body}
+        actions={promptActions(deleteCopy, {
+          delete: { busy, onSelect: handleDelete },
+        })}
+      />
     </ListRow>
   )
 }

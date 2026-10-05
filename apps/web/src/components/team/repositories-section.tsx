@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { promptActions, removeRepositoryPrompt } from "@/lib/prompts"
 import { Link, useParams } from "@tanstack/react-router"
 import {
   TriangleAlert,
@@ -57,14 +58,7 @@ import {
 import {
   Pill,
   Button,
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+  Prompt,
   ListRow,
   SETTINGS_LIST_CLASS,
   GlassSectionHeader,
@@ -290,6 +284,10 @@ export function TeamRepositoriesSection({
     installations.find((inst) => inst.installationId === repo.installationId)
       ?.suspended ?? false
 
+  const removeCopy = removeRepositoryPrompt(
+    removeTarget?.fullName ?? `this repository`
+  )
+
   return (
     <>
       <div>
@@ -430,61 +428,50 @@ export function TeamRepositoriesSection({
         </DialogContent>
       </Dialog>
 
-      <AlertDialog
+      <Prompt
         open={removeTarget !== null}
         onOpenChange={(open) => {
           if (!open) setRemoveTarget(null)
         }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove repository</AlertDialogTitle>
-            <AlertDialogDescription>
-              This disconnects {removeTarget?.fullName} from the team.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={busy}
-              onClick={() => {
-                const target = removeTarget
-                setRemoveTarget(null)
-                if (!target) return
-                void run(() =>
-                  trpc.repositories.remove.mutate(
-                    { repositoryId: target.id },
-                    { context: { skipErrorToast: true } }
-                  )
+        busy={busy}
+        title={removeCopy.title}
+        actions={promptActions(removeCopy, {
+          remove: {
+            onSelect: () => {
+              const target = removeTarget
+              setRemoveTarget(null)
+              if (!target) return
+              void run(() =>
+                trpc.repositories.remove.mutate(
+                  { repositoryId: target.id },
+                  { context: { skipErrorToast: true } }
                 )
-              }}
-            >
-              Remove
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+              )
+            },
+          },
+        })}
+      />
 
-      <AlertDialog open={disconnectOpen} onOpenChange={setDisconnectOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{GH_DISCONNECT_CONFIRM_TITLE}</AlertDialogTitle>
-            <AlertDialogDescription>{GH_DISCONNECT_BODY}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy}>{GH_CANCEL}</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={busy}
-              onClick={() => {
-                setDisconnectOpen(false)
-                void handleDisconnect()
-              }}
-            >
-              {GH_DISCONNECT}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* GH_* copy is mirrored by the natives and locked by
+          github-connect-copy.test.ts: kept byte-for-byte. */}
+      <Prompt
+        open={disconnectOpen}
+        onOpenChange={setDisconnectOpen}
+        busy={busy}
+        title={GH_DISCONNECT_CONFIRM_TITLE}
+        body={GH_DISCONNECT_BODY}
+        actions={[
+          { label: GH_CANCEL },
+          {
+            label: GH_DISCONNECT,
+            role: `destructive`,
+            onSelect: () => {
+              setDisconnectOpen(false)
+              void handleDisconnect()
+            },
+          },
+        ]}
+      />
     </>
   )
 }

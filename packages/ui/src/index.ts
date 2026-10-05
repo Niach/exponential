@@ -9,7 +9,6 @@ export * from "./agent-brand-mark"
 export * from "./account-picker"
 export * from "./agent-picker"
 export * from "./alert"
-export * from "./alert-dialog"
 export * from "./attachment-thumb"
 export * from "./auth-form-shell"
 export * from "./brand-heading"
@@ -89,6 +88,8 @@ export * from "./pill"
 export * from "./popover"
 export * from "./pr-github-button"
 export * from "./progress"
+// EXP-1215: THE confirm/choice prompt.
+export * from "./prompt"
 // EXP-1097: the sub-issue completion ring.
 export * from "./progress-ring"
 // SLOP-7: the "Ready to code?" checklist chrome and the repository picker

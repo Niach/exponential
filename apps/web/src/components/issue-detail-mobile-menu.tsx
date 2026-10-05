@@ -1,20 +1,14 @@
 import { useState } from "react"
+import { deleteIssuePrompt, promptActions } from "@/lib/prompts"
 import { contract } from "@exp/domain-contract"
 import {
   conceptIcon,
   Button,
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  Prompt,
   toast,
 } from "@exp/ui"
 import { BoardPicker } from "@/components/issue-properties/board-picker"
@@ -85,6 +79,8 @@ export function IssueDetailMobileMenu({
       }
     )
   }
+
+  const deleteCopy = deleteIssuePrompt(issueIdentifier)
 
   return (
     <>
@@ -161,27 +157,21 @@ export function IssueDetailMobileMenu({
         />
       )}
 
-      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <AlertDialogContent data-testid="issue-delete-confirm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete issue?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {`${issueIdentifier} and its comments, attachments and files are deleted permanently. This cannot be undone.`}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-white hover:bg-destructive/90"
-              onClick={() => {
-                void onDelete()
-              }}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <Prompt
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        data-testid="issue-delete-confirm"
+        title={deleteCopy.title}
+        body={deleteCopy.body}
+        actions={promptActions(deleteCopy, {
+          delete: {
+            onSelect: () => {
+              setDeleteOpen(false)
+              void onDelete()
+            },
+          },
+        })}
+      />
     </>
   )
 }

@@ -1,4 +1,9 @@
 import { useEffect, useRef, useState } from "react"
+import {
+  promptActions,
+  removePasswordPrompt,
+  unlinkSignInMethodPrompt,
+} from "@/lib/prompts"
 import { trpc } from "@/lib/trpc-client"
 import { authClient } from "@/lib/auth/client"
 import { authErrorMessage } from "@/lib/auth/error-messages"
@@ -11,16 +16,10 @@ import {
 import { ChangeEmailDialog } from "@/components/account/change-email-dialog"
 import {
   Button,
-  Dialog,
-  DialogCancel,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
   GlassSectionHeader,
   ListRow,
   SETTINGS_LIST_CLASS,
+  Prompt,
   conceptIcon,
   toast,
 } from "@exp/ui"
@@ -178,6 +177,11 @@ export function SignInMethodsSection({
 
   const onlyWayIn = methods.waysIn <= 1
 
+  const unlinkCopy =
+    unlinkTarget?.kind === `password`
+      ? removePasswordPrompt()
+      : unlinkSignInMethodPrompt(unlinkTarget?.name ?? `this method`)
+
   return (
     <div>
       <GlassSectionHeader label="Sign-in methods" />
@@ -270,40 +274,25 @@ export function SignInMethodsSection({
         }}
       />
 
-      <Dialog
+      <Prompt
         open={unlinkTarget !== null}
         onOpenChange={(open) => {
           if (!open) setUnlinkTarget(null)
         }}
+        busy={unlinking}
+        title={unlinkCopy.title}
+        body={unlinkCopy.body}
+        actions={promptActions(unlinkCopy, {
+          [unlinkTarget?.kind === `password` ? `remove` : `unlink`]: {
+            busy: unlinking,
+            onSelect: () => unlink(),
+          },
+        })}
       >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {unlinkTarget?.kind === `password`
-                ? `Remove your password?`
-                : `Unlink ${unlinkTarget?.name ?? `this method`}?`}
-            </DialogTitle>
-            <DialogDescription>
-              {unlinkTarget?.kind === `password`
-                ? `You will no longer be able to sign in with a password. Your other sign-in methods keep working.`
-                : `${unlinkTarget?.name ?? `It`} will no longer sign you in. You can link it again any time; your other sign-in methods keep working.`}
-            </DialogDescription>
-          </DialogHeader>
-          {unlinkError && (
-            <p className="px-6 text-sm text-destructive">{unlinkError}</p>
-          )}
-          <DialogFooter>
-            <DialogCancel variant="outline" onClick={() => setUnlinkTarget(null)} />
-            <Button variant="destructive" onClick={() => void unlink()} disabled={unlinking}>
-              {unlinking
-                ? `Removing…`
-                : unlinkTarget?.kind === `password`
-                  ? `Remove`
-                  : `Unlink`}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        {unlinkError ? (
+          <p className="text-sm text-destructive">{unlinkError}</p>
+        ) : null}
+      </Prompt>
     </div>
   )
 }
