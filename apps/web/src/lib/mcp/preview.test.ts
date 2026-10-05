@@ -110,6 +110,7 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   exponential_comments_delete: [],
   exponential_comments_list: [`list`, `comment`, `issue`],
   exponential_comments_update: [`comment`, `issue`],
+  exponential_devices_account_login: [],
   exponential_devices_list: [`list`, `device`],
   exponential_invites_create: [`invite`],
   exponential_invites_list: [`list`, `invite`],

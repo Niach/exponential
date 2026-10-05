@@ -663,6 +663,17 @@
         "result": "comment"
       },
       {
+        "name": "devices_account_login",
+        "title": "Sign in agent account",
+        "blurb": "Signs a Claude or Codex account in on one of your machines.",
+        "progressive": "Signing in account",
+        "done": "Signed in account",
+        "progressiveMany": "Signing in {n} accounts",
+        "doneMany": "Signed in {n} accounts",
+        "subjectKey": "deviceId",
+        "result": "none"
+      },
+      {
         "name": "devices_list",
         "title": "List devices",
         "blurb": "Lists the machines that can run coding sessions for you.",
@@ -1356,6 +1367,7 @@
       { "name": "comments_delete", "refs": "" },
       { "name": "comments_list", "refs": "list:comment@ issue@$issueId" },
       { "name": "comments_update", "refs": "comment@ issue@" },
+      { "name": "devices_account_login", "refs": "" },
       { "name": "devices_list", "refs": "list:device@" },
       { "name": "invites_create", "refs": "invite@invite" },
       { "name": "invites_list", "refs": "list:invite@" },
