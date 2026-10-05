@@ -485,12 +485,10 @@ struct MainNavigator: View {
                     agentsNeedInput: agentsNeedInput,
                     reviewsOpen: reviewsOpen,
                     showsReviews: showsReviews,
-                    // The New-issue circle rides every bar-visible surface
-                    // (EXP-973); only a team with no board leaves it inert.
+                    // The launcher capsule (chat | new issue) rides every
+                    // bar-visible surface (EXP-827/EXP-973); only a team with
+                    // no board leaves the New-issue arm inert.
                     composeEnabled: composeTarget != nil,
-                    // EXP-825: the Agent page with an empty seed IS the tab —
-                    // the composer is the launcher.
-                    onAgent: { if !isOnAgentTab { path = [agentTabRoot] } },
                     onIssues: { path = [] },
                     onDevices: { if !isOnAgents { path = [.agents] } },
                     // EXP-1187: Actions is a top-level tab; Settings is the
@@ -506,7 +504,10 @@ struct MainNavigator: View {
                             draftId: UUID().uuidString.lowercased(),
                             boardId: target.boardId
                         ))
-                    }
+                    },
+                    // EXP-825: the chat arm SWITCHES to the Agent root (the
+                    // empty-seed page, a bar-visible root) — never a push.
+                    onChat: { if !isOnAgentTab { path = [agentTabRoot] } }
                 )
                 // Slides out of the way when a screen claims its slot, so the
                 // bulk bar arrives in the space the bar just left rather than

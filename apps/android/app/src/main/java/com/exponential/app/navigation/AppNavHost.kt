@@ -103,8 +103,9 @@ import dagger.hilt.android.EntryPointAccessors
 /**
  * The single navigation surface, mirroring the iOS `AppNavigator`: a gradient
  * [AppBackground] behind one push-stack `NavHost`, with the floating bottom
- * pill (Agent · Issues · Inbox · Devices · Reviews · Actions + the New issue
- * circle) overlaid on the top-level routes; the app lands on the Agent tab. Replaces the inline graph + `MainScaffold` drawer
+ * pill (Issues · Inbox · Devices · Reviews · Actions + the Chat | New issue
+ * capsule) overlaid on the top-level routes; the app lands on the Agent page,
+ * which the Chat arm selects like a tab. Replaces the inline graph + `MainScaffold` drawer
  * shell that used to live in MainActivity.
  */
 @Composable
@@ -394,7 +395,7 @@ private fun AuthenticatedNav(
     // EXP-825: every launcher entry point is NAVIGATION onto the Agent page
     // with a preselection seed — every play button with what it acts on.
     // The seed rides the route string, so the concrete route differs per seed:
-    // an EMPTY seed IS the Agent tab (the bar's first tab), and a seeded tap reuses the
+    // an EMPTY seed IS the Agent tab (the bar's chat arm), and a seeded tap reuses the
     // deep-link rule — a no-op when that exact seeded route is already on top,
     // else a NEW entry whose ViewModel reads the new seed (single top would
     // keep the old entry's ViewModel, which read its seed once — EXP-528).
@@ -850,11 +851,14 @@ private fun AuthenticatedNav(
             agentsNeedInput = agentsNeedInput,
             reviewsOpen = reviewsOpen,
             showsReviews = showsReviews,
-            // The New issue circle rides every tab (EXP-973) — dimmed while
-            // the team has no board to file onto. The Agent page (sessions
-            // list + live dot) is the first tab.
+            // The Chat arm (the Agent page, with its sessions list and live
+            // dot) rides every top-level surface, with New issue beside it in
+            // one capsule (EXP-827/EXP-973) — dimmed while the team has no
+            // board to file onto. The arm SWITCHES to the Agent page like a
+            // tab (it is the start destination, never a push) and reads
+            // selected while it is up.
             composeEnabled = composeBoardId != null,
-            onAgent = {
+            onChat = {
                 if (currentRoute != AGENT_TAB_ROUTE) navController.openAgentTab()
             },
             // Back to the Issues root (keeping its state) when it is on the

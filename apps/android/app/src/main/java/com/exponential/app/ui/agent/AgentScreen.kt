@@ -107,7 +107,7 @@ import kotlinx.coroutines.withContext
  * sessions ([agentSessionsList], moved here from the Devices tab, which keeps
  * machines only — web parity, EXP-818).
  *
- * Two mounts: the Agent TAB (the bar's first tab and the app's landing
+ * Two mounts: the Agent TAB (the bar's chat arm and the app's landing
  * screen; empty seed, no back button, the floating bar overlays it — [onBack]
  * null) and a PUSHED detail (no tab bar, native back) reached from every play
  * button with a preselection ([AgentComposerSeed] on the `agent?…` route): the issue

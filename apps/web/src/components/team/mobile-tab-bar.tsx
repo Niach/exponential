@@ -1,5 +1,5 @@
 import { Link, useMatchRoute, useParams } from "@tanstack/react-router"
-import { FabButton, conceptIcon } from "@exp/ui"
+import { Button, FAB_CHROME_CLASS, conceptIcon } from "@exp/ui"
 import type { Board, Team } from "@/db/schema"
 import { cn } from "@/lib/utils"
 import { readLastVisited } from "@/lib/last-visited"
@@ -121,8 +121,8 @@ function ReviewsDot({
   return <TabDot className="bg-green-500" />
 }
 
-// Any of MY live coding sessions, on the Agent tab — the Agent page holds
-// the sessions list (EXP-818), so the dot rides its tab. Amber while one
+// Any of MY live coding sessions, on the Chat launcher — the Agent page holds
+// the sessions list (EXP-818), so the dot rides its button. Amber while one
 // waits on a plan approval / question (EXP-214). EXP-1186: in ANY member team
 // on the phone, matching the Agent page's cross-team Running list.
 function AgentDot({ teamIds }: { teamIds: readonly string[] }) {
@@ -143,13 +143,21 @@ function TabDot({ className }: { className: string }) {
   )
 }
 
-// The detached FAB beside the nav pill: ONE `FabButton` (EXP-962) — New
-// issue, the only screen pushed over the bar. The Agent page is a TAB now
-// (first in the pill, the screen the phone opens on), so the old chat arm is
-// gone. EXP-973: it rides every tab-bar route; with no board in the team the
-// circle dims (disabled, "New issue (no board)") instead of disappearing, so
-// the control never moves under the thumb. Same shape ×3 (iOS / Android
-// `composeEnabled`).
+// The detached FAB beside the nav pill: ONE 52px capsule with two 52px arms
+// — Start chat | New issue — split by a hairline (`FAB_GROUP_CLASS` +
+// `FAB_ARM_CLASS`). The capsule is the circle STRETCHED, so it says 52px the
+// same way the circle does, never `3.25rem`.
+// EXP-973: it is the SAME capsule on every tab-bar route. EXP-827 drew it
+// only on a board and left a lone chat circle everywhere else, so filing a
+// bug from Devices or Reviews meant a trip back to a board first. With no
+// board in the team at all there is nothing to file into — the arm then dims
+// (disabled, "New issue (no board)") instead of disappearing, so the control
+// never moves under the thumb. Same shape ×3 (iOS / Android `composeEnabled`).
+// The Agent page is the phone's FIRST screen and keeps the bar, so the chat
+// arm is SELECTED there — the tabs' active circle inside the arm — the way a
+// tab is lit on its own surface.
+const FAB_GROUP_CLASS = `pointer-events-auto flex h-[52px] shrink-0 items-stretch overflow-hidden rounded-full text-foreground ${FAB_CHROME_CLASS}`
+const FAB_ARM_CLASS = `relative flex w-[52px] items-center justify-center text-foreground transition-colors active:bg-glass-active`
 
 function tabClass(active: boolean): string {
   return cn(
@@ -170,8 +178,8 @@ interface MobileTabBarProps {
 // EXP-686: Search left the bar for the board header (`use-issue-search.tsx`).
 // EXP-1187: Issues · Inbox · Devices · Reviews · Actions — no More on the
 // phone: Actions is a tab of its own and Settings lives in the topbar's
-// avatar menu (×3 with the iOS and Android bars). The Agent tab leads the
-// pill: the phone opens on it (the team index redirects there).
+// avatar menu (×3 with the iOS and Android bars). The phone OPENS on the
+// Agent page (`routes/index.tsx`), whose entry is the FAB's chat arm.
 export function MobileTabBar({
   teamSlug,
   team,
@@ -230,16 +238,6 @@ export function MobileTabBar({
         aria-label="Primary"
         className="pointer-events-auto flex items-center rounded-full border border-glass-stroke-strong bg-glass-card-opaque p-1"
       >
-        <Link
-          to="/t/$teamSlug/agent"
-          params={{ teamSlug }}
-          aria-label="Agent"
-          data-testid="tab-agent"
-          className={tabClass(onAgent)}
-        >
-          <ActionChatIcon className="size-5" />
-          <AgentDot teamIds={scope.teamIds} />
-        </Link>
         {boardTarget ? (
           <Link
             to="/t/$teamSlug/boards/$boardSlug"
@@ -299,18 +297,58 @@ export function MobileTabBar({
           <NavActionsIcon className="size-5" />
         </Link>
       </nav>
-      {/* EXP-1170: a fresh draft id at TAP time, then the New issue page. */}
-      <FabButton
-        emphasis="primary"
-        aria-label={composeEnabled ? `New issue` : `New issue (no board)`}
-        data-testid="compose-button"
-        disabled={!composeEnabled}
-        onClick={() => {
-          if (boardTarget) openNewDraft({ boardId: boardTarget.id })
-        }}
-      >
-        <NavCreateIssueIcon className="size-5" />
-      </FabButton>
+      {/* EXP-631/694: the chat launcher started on Devices and Actions,
+          EXP-739 made it a LINK to the team's Agent page, EXP-827 merged it
+          with New issue on a board (×3 mobile), and EXP-973 made that one
+          capsule the whole story — it rides every top-level surface, live dot
+          and all, with the New-issue arm dimmed only when the team has no
+          board. */}
+      <div className={FAB_GROUP_CLASS} data-testid="fab-group">
+        <Link
+          to="/t/$teamSlug/agent"
+          params={{ teamSlug }}
+          aria-label="Start chat"
+          data-testid="chat-button"
+          aria-current={onAgent ? `page` : undefined}
+          className={FAB_ARM_CLASS}
+        >
+          <span
+            className={cn(
+              `flex size-11 items-center justify-center rounded-full transition-colors`,
+              onAgent && `bg-glass-active`
+            )}
+          >
+            <ActionChatIcon className="size-5" />
+          </span>
+          <AgentDot teamIds={scope.teamIds} />
+        </Link>
+        <span aria-hidden className="my-3 w-px shrink-0 bg-glass-stroke-card" />
+        {composeEnabled ? (
+          // EXP-1170: a fresh draft id at TAP time, then the New issue page.
+          <Button
+            variant="ghost"
+            aria-label="New issue"
+            data-testid="compose-button"
+            className={cn(FAB_ARM_CLASS, `h-auto rounded-none px-0`)}
+            onClick={() => openNewDraft({ boardId: boardTarget.id })}
+          >
+            <NavCreateIssueIcon className="size-5" />
+          </Button>
+        ) : (
+          <span
+            role="button"
+            aria-disabled
+            aria-label="New issue (no board)"
+            data-testid="compose-button"
+            className={cn(
+              FAB_ARM_CLASS,
+              `pointer-events-none text-muted-foreground opacity-50`
+            )}
+          >
+            <NavCreateIssueIcon className="size-5" />
+          </span>
+        )}
+      </div>
     </div>
   )
 }

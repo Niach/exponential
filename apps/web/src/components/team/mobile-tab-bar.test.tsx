@@ -90,7 +90,7 @@ describe(`MobileTabBar FAB (EXP-973)`, () => {
     route.value = ``
   })
 
-  it(`draws the New issue circle on every tab-bar route`, () => {
+  it(`draws both arms on every tab-bar route`, () => {
     for (const path of [
       ``,
       `/t/$teamSlug`,
@@ -103,9 +103,9 @@ describe(`MobileTabBar FAB (EXP-973)`, () => {
     ]) {
       route.value = path
       const view = renderBar()
+      expect(screen.getByTestId(`fab-group`), path).toBeTruthy()
+      expect(screen.getByTestId(`chat-button`), path).toBeTruthy()
       expect(screen.getByTestId(`compose-button`), path).toBeTruthy()
-      // The Agent page is a TAB now: no chat arm beside New issue.
-      expect(screen.queryByTestId(`chat-button`), path).toBeNull()
       view.unmount()
     }
   })
@@ -128,18 +128,24 @@ describe(`MobileTabBar FAB (EXP-973)`, () => {
   it(`dims the New issue arm in place when the team has no board`, () => {
     route.value = `/t/$teamSlug/devices`
     renderBar([])
-    // The circle stays — only the target is missing.
-    const compose = screen.getByTestId(`compose-button`) as HTMLButtonElement
-    expect(compose.disabled).toBe(true)
+    // The capsule and BOTH arms stay — only the target is missing.
+    expect(screen.getByTestId(`fab-group`)).toBeTruthy()
+    expect(screen.getByTestId(`chat-button`).getAttribute(`href`)).toBe(
+      `/t/$teamSlug/agent`
+    )
+    const compose = screen.getByTestId(`compose-button`)
+    expect(compose.getAttribute(`aria-disabled`)).toBe(`true`)
     expect(compose.getAttribute(`aria-label`)).toBe(`New issue (no board)`)
     expect(compose.getAttribute(`href`)).toBeNull()
+    expect(compose.className).toContain(`pointer-events-none`)
+    expect(compose.className).toContain(`opacity-50`)
   })
 
   it(`leaves the arm live wherever a board resolves`, () => {
     route.value = `/t/$teamSlug/reviews`
     renderBar()
-    const compose = screen.getByTestId(`compose-button`) as HTMLButtonElement
-    expect(compose.disabled).toBe(false)
+    const compose = screen.getByTestId(`compose-button`)
+    expect(compose.getAttribute(`aria-disabled`)).toBeNull()
     expect(compose.getAttribute(`aria-label`)).toBe(`New issue`)
   })
 })
@@ -188,31 +194,31 @@ describe(`MobileTabBar tabs (EXP-1187)`, () => {
     memberTeams.value = null
   })
 
-  it(`draws Agent · Issues · Inbox · Devices · Reviews · Actions and no More`, () => {
+  it(`draws Issues · Inbox · Devices · Reviews · Actions and no More`, () => {
     renderBar()
     const nav = screen.getByRole(`navigation`, { name: `Primary` })
     const labels = [...nav.querySelectorAll(`a, button`)].map((el) =>
       el.getAttribute(`aria-label`)
     )
-    expect(labels).toEqual([
-      `Agent`,
-      `Issues`,
-      `Inbox`,
-      `Devices`,
-      `Reviews`,
-      `Actions`,
-    ])
+    expect(labels).toEqual([`Issues`, `Inbox`, `Devices`, `Reviews`, `Actions`])
     expect(screen.queryByTestId(`nav-more`)).toBeNull()
     expect(screen.queryByLabelText(`More`)).toBeNull()
     expect(screen.queryByLabelText(`Settings`)).toBeNull()
   })
 
-  it(`leads with the Agent tab, lit on the Agent page`, () => {
+  it(`selects the chat arm on the Agent page only`, () => {
     route.value = `/t/$teamSlug/agent`
+    const view = renderBar()
+    const chat = screen.getByTestId(`chat-button`)
+    expect(chat.getAttribute(`aria-current`)).toBe(`page`)
+    expect(chat.innerHTML).toContain(`bg-glass-active`)
+    view.unmount()
+    route.value = `/t/$teamSlug/devices`
     renderBar()
-    const tab = screen.getByTestId(`tab-agent`)
-    expect(tab.getAttribute(`href`)).toBe(`/t/$teamSlug/agent`)
-    expect(tab.className).toContain(`bg-glass-active`)
+    expect(screen.getByTestId(`chat-button`).getAttribute(`aria-current`)).toBeNull()
+    expect(screen.getByTestId(`chat-button`).innerHTML).not.toContain(
+      `bg-glass-active`
+    )
   })
 
   it(`links the Actions tab to the team's actions`, () => {

@@ -355,7 +355,7 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_agents")
 
         // --- sg_chat / sg_chat-issues / sg_chat-action: the Agent page
-        // (EXP-825, the ONE launcher). The bottom bar's first tab opens it
+        // (EXP-825, the ONE launcher). The bottom bar's Chat arm switches to it
         // on the default machine (the EXP-909 follow-up retired the device
         // row's play glyph — a device list starts nothing): an empty composer
         // is a chat; the `#` tool checks issues (two chips, a batch); the ▶
@@ -364,7 +364,7 @@ class StyleguideScreenshotsTest {
         // Every step gates on the state it produced (a chip, a label), never on
         // the page alone, so a swallowed tap fails the run instead of
         // duplicating a shot.
-        composeRule.onNode(hasTestTag("tab-agent")).performClick()
+        composeRule.onNode(hasTestTag("chat-button")).performClick()
         flow.waitFor(hasTestTag("agent-composer"), NAV_TIMEOUT)
         // EXP-827: the submit is the round send glyph, so its contract label
         // ("Start chat") is its NAME — still the proof that the composer

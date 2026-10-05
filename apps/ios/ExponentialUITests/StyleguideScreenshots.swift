@@ -390,15 +390,18 @@ final class StyleguideScreenshots: XCTestCase {
 
         // ── sg_chat / sg_chat-issues / sg_chat-action: the Agent page ────────
         // EXP-825: the ONE launcher. EXP-909: a device row starts nothing any
-        // more (its one control is the settings gear), so the bar's Agent
-        // tab opens the Agent page on the default device: an empty
+        // more (its one control is the settings gear), so the bar's Chat
+        // arm opens the Agent page on the default device: an empty
         // composer is a chat; the `#` tool checks issues (two chips, a
         // batch); the ▶ tool picks an action (the Fix merge conflicts
         // builtin, with its PR input). Nothing is ever submitted — a run
         // would land on a real machine.
-        let agentTab = app.buttons["tab-agent"].firstMatch
-        XCTAssertTrue(agentTab.waitForExistence(timeout: 20), "The bar offers no Agent tab")
-        agentTab.tap()
+        let chatButton = app.buttons["chat-button"].firstMatch
+        XCTAssertTrue(
+            chatButton.waitForExistence(timeout: 20),
+            "The bar offers no Chat arm — is the demo team's device online with an agent?"
+        )
+        chatButton.tap()
         let composer = anyElement(app, identified: "agent-composer")
         XCTAssertTrue(composer.waitForExistence(timeout: 20), "Agent page did not open")
         // The submit label proves the composer resolved its subject (a chat).
@@ -440,7 +443,8 @@ final class StyleguideScreenshots: XCTestCase {
             "No action chip after picking"
         )
         snapshot("sg_chat-action", settle: 2)
-        // The Agent page is a tab now — back to Devices through the bar.
+        // The Agent page is a bar root now (the chat arm switches to it) —
+        // back to Devices through the bar.
         let devicesTabAgain = app.buttons["tab-devices"]
         XCTAssertTrue(devicesTabAgain.waitForExistence(timeout: 15), "Devices tab missing")
         devicesTabAgain.tap()

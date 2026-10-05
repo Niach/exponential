@@ -2411,7 +2411,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `tab-bar`,
     title: `Bottom tab bar`,
     kind: `Surfaces`,
-    blurb: `A floating capsule: padding 4 inside a strong hairline, over the OPAQUE card fill. Items are 44px circles; the active one takes the active fill. Agent leads the pill (Agent · Issues · Inbox · Devices · Reviews · Actions) and is the screen a phone opens on, so it keeps the bar; it wears the live-run dot. The detached slot is ONE 52px floating circle, New issue, the only screen pushed over the bar (dimmed with no board).`,
+    blurb: `A floating capsule: padding 4 inside a strong hairline, over the OPAQUE card fill. Items are 44px circles; the active one takes the active fill. The detached slot is one 52px capsule with two arms, Start chat | New issue, split by a hairline, on every tab-bar route (New issue dims with no board). The chat arm opens the Agent page, the screen a phone OPENS on: it keeps the bar, and the arm is SELECTED there (the tabs' active circle inside the arm). New issue is the only screen pushed over the bar.`,
     status: {
       web: ok(`MobileTabBar`, `apps/web/src/components/team/mobile-tab-bar.tsx`),
       desktop: na(`no bottom bar`),
@@ -2421,8 +2421,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     render: () =>
       [
         `<div class="cmp-tab-bar">`,
-        `<span class="item active">${svgMessageCircle}</span>`,
-        `<span class="item">${svgInbox}</span>`,
+        `<span class="item active">${svgInbox}</span>`,
         `<span class="item">${svgPlus}</span>`,
         `<span class="item">${svgGitMerge}</span>`,
         `<span class="item">${svgBell}</span>`,
