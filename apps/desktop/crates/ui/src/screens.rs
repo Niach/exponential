@@ -1,11 +1,11 @@
 //! The ONE main view (masterplan-v3 §4.2, reworked — EXP-288/EXP-851): a
-//! TAB-BASED area whose tabs are DETAIL VIEWS ONLY (issue detail, PR diff,
-//! coding session, terminal). Everything else is a plain
+//! TAB-BASED area whose tabs are DETAIL VIEWS ONLY (issue detail, coding
+//! session, terminal). Everything else is a plain
 //! full-width screen: the LIST screens (a board, the Inbox,
 //! Files, Source Control), the rail's pages and Settings. Every detail tab
-//! REMEMBERS the LIST it was opened from ([`TabEntry::origin`]) — that is
-//! what the shell's left column renders as the `ListNav`, so a tab click, a
-//! go-back and a go-forward all restore the column for free.
+//! REMEMBERS the LIST it was opened from ([`TabEntry::origin`]) — EXP-1192:
+//! the Inbox or Reviews, drawn as the card's second sidebar beside it, so a
+//! tab click, a go-back and a go-forward all restore the sidebar for free.
 //!
 //! One panel: a compact chip strip over content swapped on the per-window
 //! [`Navigation`] state. The heavyweight views (issue detail, file viewer,
@@ -40,9 +40,10 @@ use crate::icons::{registry, ExpIcon};
 use crate::issue_detail::IssueDetailView;
 use crate::navigation::{
     active_board_id, active_team_id, nav_for_window, resolved_screen, screen_title, set_screen,
-    shapes_ready, Navigation, PendingOrigin, Screen, TabOrigin,
+    second_sidebar_for, shapes_ready, Navigation, PendingOrigin, Screen, SecondSidebar, TabOrigin,
 };
-use crate::sidebar::{rail_shared_for_window, ListMode, ListPanel, RailShared};
+use crate::sidebar::{rail_shared_for_window, InboxTab, ListMode, ListPanel, RailShared};
+use crate::slide_swap::{self, SwapAnim};
 
 /// EXP-870: how often the live tabs re-derive what the CLOCK changes (a usage
 /// wall expiring) — the 5s the session lists ride.
@@ -126,8 +127,8 @@ pub(crate) fn session_views(
 }
 
 /// EXP-851: keep the window's active BOARD in step with the screen go-back /
-/// go-forward landed on — the left column follows the tab's own origin
-/// (`shell::list_nav_origin`), so nothing else needs restoring, but the
+/// go-forward landed on — the second sidebar follows the tab's own origin
+/// (EXP-1192), so nothing else needs restoring, but the
 /// repo-backed surfaces (files, git, the `+` shell cwd) still resolve through
 /// `active_board_id`.
 pub(crate) fn restore_origin_for_screen(window: &Window, cx: &mut App, screen: &Screen) {
@@ -366,20 +367,6 @@ pub(crate) fn build_screen_content(
     }
 }
 
-/// EXP-1170: is `stored` the transient slot's entry for `screen`? A New
-/// issue page is ONE page per draft whatever board its chip moved it to
-/// (`navigation::set_draft_board` rewrites the screen in place), so drafts
-/// match by id; everything else by equality.
-fn same_transient(stored: &Screen, screen: &Screen) -> bool {
-    match (stored, screen) {
-        (
-            Screen::IssueDraft { draft_id: a, .. },
-            Screen::IssueDraft { draft_id: b, .. },
-        ) => a == b,
-        _ => stored == screen,
-    }
-}
-
 /// The stand-in view for a screen kind that is never undocked
 /// (`Screen::undockable` is false for it) — `build_screen_content` stays a
 /// total match without inventing a real view for a path nothing takes.
@@ -392,8 +379,8 @@ impl Render for NeverUndocked {
 }
 
 /// One open tab: the detail screen it shows plus the LIST it was opened from
-/// (EXP-288/EXP-851 — the `ListNav` beside it). `None` = opened from the rail
-/// or from a context-free page: the rail stays up.
+/// (EXP-288/EXP-851; EXP-1192: the second sidebar beside it). `None` =
+/// opened from a board, the rail or a context-free page: nothing beside it.
 ///
 /// EXP-870: an issue and its coding run are ONE tab with two faces. `screen`
 /// is the face on show (`IssueDetail` or that issue's `Session`), `issue_id`
@@ -653,10 +640,9 @@ fn tabs_closed_by_merge(
 ///
 /// EXP-862: a `Derive` that derives NOTHING keeps the origin the tab already
 /// has. Deriving nothing means "this click named no list", not "this tab has
-/// no list": a row clicked in the left column while a rail-opened detail is
-/// up used to blank the column mid-click and throw the reader back to the
-/// rail. Only [`PendingOrigin::Rail`] clears an origin, because the rail
-/// really is the answer there.
+/// no list": a row clicked in a list while a rail-opened detail is up used to
+/// blank the list mid-click. Only [`PendingOrigin::Rail`] clears an origin,
+/// because the rail (and, EXP-1192, a board row) really is the answer there.
 fn resolve_tab_origin(
     pending: Option<&PendingOrigin>,
     existing: Option<&TabOrigin>,
@@ -1162,13 +1148,20 @@ pub struct ScreensPanel {
     /// drain), so it is created on first activation and lives exactly as long
     /// as its tab — every removal path shuts it down.
     sessions: HashMap<String, Entity<crate::session_screen::SessionScreenView>>,
-    /// EXP-851: the list a TAB-LESS centre view sits beside — today only the
-    /// PR diff (EXP-525 retired its tab). One slot: exactly one such view is
-    /// up at a time, and it is replaced the moment another navigation lands.
-    transient_origin: Option<(Screen, Option<TabOrigin>)>,
-    /// EXP-851: the LIST screens' view — a board and the Inbox, full
-    /// width. The same type the shell's `ListNav` mounts, in its Screen mode.
+    /// EXP-851: the board list screen's view, full width (EXP-1192: the
+    /// Inbox moved into [`Self::side_list`]).
     list: Entity<ListPanel>,
+    /// EXP-1192: the card's Inbox / Reviews second sidebar — the list an
+    /// open detail was picked from, beside it inside the card. Pushed its
+    /// kind every render ([`ListPanel::set_side`]).
+    side_list: Entity<ListPanel>,
+    /// EXP-1192: the Agent page's Recent runs second sidebar.
+    recent_runs: Entity<crate::sessions_section::RecentRunsNav>,
+    /// EXP-1192: the second sidebar's slide — [`second_sidebar_for`] of the
+    /// active screen, retargeted every render ([`Self::sync_side`]).
+    side_anim: SwapAnim<Option<SecondSidebar>>,
+    /// The settle timer of the running [`Self::side_anim`] swap.
+    _side_anim_task: Option<gpui::Task<()>>,
     /// EXP-851: the Source Control screen's commit history (it lived on the
     /// retired tool column). Its diff is [`Self::source_control`].
     history: Entity<crate::source_control::HistoryList>,
@@ -1206,8 +1199,8 @@ pub struct ScreensPanel {
     /// falls back to stretch.
     slot_width: std::rc::Rc<std::cell::Cell<f32>>,
     /// EXP-1156: the live edge drag of the Files / Source Control list
-    /// column (a list INSIDE a screen, so this panel hosts it, not the
-    /// Shell — [`crate::resize_edge`]).
+    /// column or (EXP-1192) the second sidebar — lists INSIDE the card, so
+    /// this panel hosts them, not the Shell ([`crate::resize_edge`]).
     resize_drag: Option<crate::resize_edge::ResizeDrag>,
     /// EXP-698 round 5: the "No boards yet" state scrolls — it carries the
     /// Getting-started cards under it.
@@ -1268,6 +1261,9 @@ impl ScreensPanel {
         let nav = nav_for_window(window, cx);
         let rail = rail_shared_for_window(window, cx);
         let list = cx.new(|cx| ListPanel::new(ListMode::Screen, window, cx));
+        let side_list = cx.new(|cx| ListPanel::new(ListMode::Nav, window, cx));
+        let recent_runs =
+            cx.new(|cx| crate::sessions_section::RecentRunsNav::new(window, cx));
         let history = cx.new(|cx| crate::source_control::HistoryList::new(window, cx));
 
         let mut subscriptions = Vec::new();
@@ -1362,8 +1358,11 @@ impl ScreensPanel {
             reviews,
             getting_started,
             sessions: HashMap::new(),
-            transient_origin: None,
             list,
+            side_list,
+            recent_runs,
+            side_anim: SwapAnim::new(None),
+            _side_anim_task: None,
             history,
             rail,
             tabs: Vec::new(),
@@ -1389,6 +1388,10 @@ impl ScreensPanel {
         this.sync_active_screen(cx);
         this.sync_issue_draft(window, cx);
         this.sync_file_viewer(cx);
+        // EXP-1192: seed the slide from the CURRENT state, so a window that
+        // opens straight onto the Inbox shows no entry animation (the shell
+        // does the same for a window opening into Settings).
+        this.side_anim = SwapAnim::new(this.current_side(window, cx));
         // DEV-ONLY (EXP-1154): `EXP_DEV_SCREEN=issue:<uuid>?face=changes|
         // results` opens the issue tab on that face, so a capture run reaches
         // the review of a PR (its Changes face) without synthetic input.
@@ -1487,9 +1490,17 @@ impl ScreensPanel {
         // never set it). EXP-791: so does the steer marker — consumed HERE,
         // unconditionally, so a marker left by a navigation that never
         // reached its issue can't survive to the next one.
-        let pending_origin = crate::navigation::take_pending_origin(&self.nav, cx);
+        let mut pending_origin = crate::navigation::take_pending_origin(&self.nav, cx);
         let team = active_team_id(&self.nav, cx);
         if team != self.tabs_team {
+            // EXP-1192: a window that opened on a detail BEFORE its team
+            // synced (a dev-seeded launch) rebuilds that tab below — it keeps
+            // the list it was seeded with, there was no other team to leave.
+            if self.tabs_team.is_none() && pending_origin.is_none() {
+                pending_origin = resolved_screen(&self.nav, cx)
+                    .and_then(|screen| self.origin_of(&screen))
+                    .map(PendingOrigin::Explicit);
+            }
             // Dropping the tabs tears the issue detail down without a blur —
             // flush a pending description edit first (EXP-68).
             self.issue_detail
@@ -1522,9 +1533,9 @@ impl ScreensPanel {
         let Some(screen) = resolved_screen(&self.nav, cx) else {
             return;
         };
-        // EXP-851: only a screen that can sit beside a list gets that far —
-        // a list screen and every full page show the rail and own no tab.
-        if !screen.carries_list() && !screen.is_detail() {
+        // EXP-851: only a detail gets a tab — a list screen and every full
+        // page own none (EXP-1192: and carry no list either).
+        if !screen.is_detail() {
             return;
         }
         // EXP-851: the breadcrumb rule — the list comes from the screen we
@@ -1538,20 +1549,6 @@ impl ScreensPanel {
                 .and_then(|previous| self.origin_of(previous));
             crate::navigation::derive_origin(previous.as_ref(), previous_origin, &screen)
         };
-        // EXP-525/EXP-851: the PR diff is a TAB-LESS centre view — it keeps
-        // its list in the transient slot instead of a tab entry.
-        if !screen.is_detail() {
-            let existing = self
-                .transient_origin
-                .as_ref()
-                .filter(|(stored, _)| same_transient(stored, &screen))
-                .and_then(|(_, origin)| origin.clone());
-            let origin =
-                resolve_tab_origin(pending_origin.as_ref(), existing.as_ref(), derived)
-                    .filter(|origin| !origin.is_list_of(&screen));
-            self.transient_origin = Some((screen, origin));
-            return;
-        }
         // EXP-870: an issue's run lands on the ISSUE's tab (one tab, two
         // faces), so the lookup is by face — and, for a run the tab is not
         // bound to yet, by the run's issue.
@@ -1849,27 +1846,14 @@ impl ScreensPanel {
         }
     }
 
-    /// EXP-945 — THIS window's run screen for `session_id`. The left column
-    /// paints the run's Changes tree the same way it paints a review's, so it
-    /// needs this window's viewer, not every window's ([`session_views`]).
-    pub(crate) fn run_screen(
-        &self,
-        session_id: &str,
-    ) -> Option<Entity<crate::session_screen::SessionScreenView>> {
-        self.session_view(session_id)
-    }
-
     /// EXP-818: the remembered origin of `screen`'s tab, if it has one.
+    /// EXP-1192: tabs only — no tab-less screen carries a list any more.
     pub(crate) fn origin_of(&self, screen: &Screen) -> Option<TabOrigin> {
-        let origin = match self.tabs.iter().find(|tab| tab.holds(screen)) {
-            Some(tab) => tab.origin.clone(),
-            // EXP-851: the tab-less PR diff keeps its list in its own slot.
-            None => self
-                .transient_origin
-                .as_ref()
-                .filter(|(stored, _)| stored == screen)
-                .and_then(|(_, origin)| origin.clone()),
-        };
+        let origin = self
+            .tabs
+            .iter()
+            .find(|tab| tab.holds(screen))
+            .and_then(|tab| tab.origin.clone());
         // EXP-890: a screen never sits beside ITSELF (whatever stamped it).
         origin.filter(|origin| !origin.is_list_of(screen))
     }
@@ -2116,8 +2100,8 @@ impl ScreensPanel {
             set_screen(window, cx, Some(entry.screen));
             return;
         }
-        // EXP-851: the tab CARRIES its list, so the shell's left column
-        // follows the screen by itself. Only the window's board scope (files,
+        // EXP-851: the tab CARRIES its list, so the card's second sidebar
+        // follows the screen by itself (EXP-1192). Only the window's board scope (files,
         // git, the `+` shell cwd) has to be put back; it degrades safely if
         // the board has since been trashed (`active_board_id` existence-checks
         // at query time).
@@ -2941,6 +2925,201 @@ impl ScreensPanel {
             .into_any_element()
     }
 
+    /// EXP-1192: the second sidebar the card shows right now — the pure
+    /// [`second_sidebar_for`] over the active screen, the list its tab
+    /// carries and the window's Recent-runs flag.
+    fn current_side(&self, window: &Window, cx: &App) -> Option<SecondSidebar> {
+        let screen = resolved_screen(&self.nav, cx);
+        let origin = screen
+            .as_ref()
+            .filter(|screen| screen.carries_list())
+            .and_then(|screen| self.origin_of(screen));
+        second_sidebar_for(
+            screen.as_ref(),
+            origin.as_ref(),
+            crate::navigation::recent_runs_open(window, cx),
+        )
+    }
+
+    /// EXP-1192: reconcile the second sidebar's slide with the active screen
+    /// at the top of every render (the shell's `sync_left_column` recipe):
+    /// retarget, and on a STARTED swap spawn the settle timer that unmounts
+    /// the outgoing child. The Inbox and a detail picked from it are the SAME
+    /// `Some(Inbox)`, so walking between them never re-slides — `retarget`
+    /// is a no-op and the list keeps its entity, rows and scroll.
+    fn sync_side(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let side = self.current_side(window, cx);
+        // Push the list its content first, so an incoming sidebar slides in
+        // already showing its rows. A no-op while nothing changed; never
+        // called for `None`, so an outgoing list keeps its rows through its
+        // slide out.
+        if let Some(kind @ (SecondSidebar::Inbox | SecondSidebar::Reviews)) = side {
+            let tab = self.side_inbox_tab(kind, cx);
+            self.side_list
+                .update(cx, |list, cx| list.set_side(kind, tab, cx));
+        }
+        if let Some(epoch) = self.side_anim.retarget(side) {
+            // EXP-1156: the edge being dragged belongs to the sidebar that
+            // is leaving — the swap's widths must not move under it.
+            self.resize_drag = None;
+            self._side_anim_task = Some(cx.spawn_in(window, async move |this, window| {
+                window
+                    .background_executor()
+                    .timer(theme::motion::STANDARD)
+                    .await;
+                _ = this.update_in(window, move |this, _window, cx| {
+                    if this.side_anim.finish(epoch) {
+                        cx.notify();
+                    }
+                });
+            }));
+        }
+    }
+
+    /// EXP-1192: the Inbox tab the Inbox sidebar opens on — the Inbox
+    /// screen's own, or the one the open detail was picked from. `None` for
+    /// the Reviews queue.
+    fn side_inbox_tab(&self, kind: SecondSidebar, cx: &App) -> Option<InboxTab> {
+        if kind != SecondSidebar::Inbox {
+            return None;
+        }
+        match resolved_screen(&self.nav, cx) {
+            Some(Screen::Inbox { tab }) => Some(tab),
+            Some(screen) => self.origin_of(&screen).and_then(|origin| origin.inbox_tab),
+            None => None,
+        }
+    }
+
+    /// EXP-1192: one second sidebar's content at its full `width` (the slot
+    /// clips it mid-slide; it never reflows). The sized wrapper is
+    /// load-bearing for entity children (the dock wrapper's flex-child rule).
+    fn side_child(&self, kind: SecondSidebar, width: f32) -> gpui::AnyElement {
+        let child = match kind {
+            SecondSidebar::Inbox | SecondSidebar::Reviews => {
+                self.side_list.clone().into_any_element()
+            }
+            SecondSidebar::RecentRuns => self.recent_runs.clone().into_any_element(),
+        };
+        v_flex()
+            .w(px(width))
+            .flex_shrink_0()
+            .h_full()
+            .min_h_0()
+            .child(child)
+            .into_any_element()
+    }
+
+    /// EXP-1192: the card content — `[second sidebar | active screen]`.
+    ///
+    /// At rest with a sidebar: the slot at its remembered width, a right
+    /// hairline, the drag handle on that edge, and the screen at a DEFINITE
+    /// width (`recorded - slot`, the `pinned_panel_root` fit-content guard,
+    /// EXP-492). Opening / closing (`None ⇄ Some`): the slot's width morphs
+    /// `0 ⇄ w` while the sidebar inside it slides `-w ⇄ 0` at its full width
+    /// (the shell's left-column recipe), the screen flexing beside it.
+    /// Switching between two sidebars swaps the child at once and morphs
+    /// only a width difference. No sidebar: the screen alone.
+    fn render_with_side(
+        &self,
+        main: gpui::AnyElement,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let anim = self.side_anim;
+        let extent = self.screen_list_extent();
+        let width = |side: Option<SecondSidebar>| side_slot_width(side, extent);
+        if anim.to.is_none() && !anim.swapping {
+            return main;
+        }
+        let transition = || {
+            gpui_component::animation::EffectTransition::new(theme::motion::STANDARD)
+                .ease(theme::motion::standard())
+        };
+        let (from_w, to_w) = (width(anim.from), width(anim.to));
+        let slot = div()
+            .h_full()
+            .flex_shrink_0()
+            .relative()
+            .overflow_hidden()
+            .border_r_1()
+            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla());
+        let slot = match (anim.swapping, anim.from, anim.to) {
+            // Opening / closing: the sidebar rides a slide inside the
+            // width-morphing clip.
+            (true, None, Some(kind)) | (true, Some(kind), None) => {
+                let full = width(Some(kind));
+                let (from_x, to_x) = if anim.to.is_some() { (-full, 0.) } else { (0., -full) };
+                let strip = div()
+                    .absolute()
+                    .top_0()
+                    .bottom_0()
+                    .left_0()
+                    .child(self.side_child(kind, full));
+                slot.child(
+                    transition()
+                        .slide_x(px(from_x), px(to_x))
+                        .apply(strip, slide_swap::anim_id("screens-side-slide", anim.epoch)),
+                )
+            }
+            // At rest, or one sidebar replacing another: the target at once.
+            (_, _, Some(kind)) => slot.child(self.side_child(kind, to_w)),
+            (_, _, None) => slot,
+        };
+        let slot = if anim.swapping && from_w != to_w {
+            transition()
+                .width(px(from_w), px(to_w))
+                .apply(slot, slide_swap::anim_id("screens-side-width", anim.epoch))
+                .into_any_element()
+        } else {
+            slot.w(px(to_w)).into_any_element()
+        };
+        let at_rest = !anim.swapping;
+        let main_w = main_width_beside(self.slot_width.get(), to_w).filter(|_| at_rest);
+        let main = div()
+            .h_full()
+            .min_w_0()
+            .map(|this| match main_w {
+                Some(main_w) => this.flex_shrink_0().w(px(main_w)),
+                None => this.flex_1(),
+            })
+            .child(main);
+        // The edge handle is not mounted mid-swap — the widths are animating
+        // then, and a press would start from a width about to change.
+        let handle = anim.to.filter(|_| at_rest).map(|kind| {
+            self.screen_list_handle(side_panel(kind), to_w, extent, cx)
+        });
+        h_flex()
+            .size_full()
+            .min_h_0()
+            .relative()
+            .overflow_hidden()
+            .child(slot)
+            .child(main)
+            .children(handle)
+            .children(
+                crate::resize_edge::drag_capture(self.resize_drag, cx).filter(|_| at_rest),
+            )
+            .into_any_element()
+    }
+
+    /// EXP-1192: the Inbox screen's main view — the notifications live in
+    /// the second sidebar beside it, so with none picked yet the main view
+    /// says so.
+    fn render_inbox_empty(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        v_flex()
+            .size_full()
+            .min_w_0()
+            .px_4()
+            .items_center()
+            .justify_center()
+            .child(crate::controls::empty_state(
+                Icon::new(registry::NAV_INBOX),
+                "No notification selected",
+                "Pick a notification to open its issue here.",
+                cx,
+            ))
+            .into_any_element()
+    }
+
     /// EXP-851: the Files SCREEN — the trunk tree beside the read-only
     /// viewer. It was a tool column plus a tool-default centre; one screen
     /// now, with the tree as its own list. EXP-1156: the `files` panel — its
@@ -3582,6 +3761,7 @@ impl Render for ScreensPanel {
         let screen = resolved_screen(&self.nav, cx);
 
         self.fire_dev_dialog(window, cx);
+        self.sync_side(window, cx);
 
         let content = match &screen {
             Some(Screen::IssueDetail { .. }) => self.issue_detail.clone().into_any_element(),
@@ -3606,10 +3786,10 @@ impl Render for ScreensPanel {
                     None => self.render_syncing(cx),
                 }
             }
-            // EXP-851: the LIST screens, full width.
-            Some(Screen::BoardIssues { .. }) | Some(Screen::Inbox { .. }) => {
-                self.list.clone().into_any_element()
-            }
+            // EXP-851: a board's list, full width.
+            Some(Screen::BoardIssues { .. }) => self.list.clone().into_any_element(),
+            // EXP-1192: the notifications are the second sidebar beside this.
+            Some(Screen::Inbox { .. }) => self.render_inbox_empty(cx),
             Some(Screen::Files) => self.render_files_screen(cx),
             Some(Screen::SourceControl) => self.render_source_control_screen(window, cx),
             Some(Screen::Devices) => self.devices.clone().into_any_element(),
@@ -3628,39 +3808,25 @@ impl Render for ScreensPanel {
             None if !shapes_ready(cx) => self.render_syncing(cx),
             None => self.render_empty(cx),
         };
+        // EXP-1192: the second sidebar sits INSIDE the card, under the
+        // fallback strip — the strip spans the card regardless.
+        let content = self.render_with_side(content, cx);
 
         // EXP-277: the tab strip lives in the titlebar (AppTitleBar) whenever
         // the window paints its own chrome; under Linux server-side
         // decorations the titlebar is hidden, so the strip renders here in
         // its legacy in-panel position (with its own EXP-288 divider — the
         // titlebar carries it otherwise).
+        // EXP-1192: Settings is tab-less — no strip there, like the band.
+        let in_settings = matches!(resolved_screen(&self.nav, cx), Some(Screen::Settings));
         let fallback_strip = (self.top_tab_count() > 0
+            && !in_settings
             && !crate::app_title_bar::client_chrome(window))
         .then(|| {
             // Width budget: the strip shares the row with nothing, but the
-            // panel sits right of the window's left column (EXP-862: ONE
-            // width for every occupant of it) and carries its own `px_2`.
-            // Resolved off `self`: this runs INSIDE the panel's render, and the
-            // window-level helper reads the panel entity back (a double lease).
-            let screen = resolved_screen(&self.nav, cx);
-            let origin = screen
-                .as_ref()
-                .filter(|screen| screen.carries_list())
-                .and_then(|screen| self.origin_of(screen));
-            // EXP-945: the same run-diff test `shell::window_run_diff` makes,
-            // answered off `self` for the same double-lease reason.
-            let run_diff = match screen.as_ref() {
-                Some(Screen::Session { session_id }) => self
-                    .session_view(session_id)
-                    .is_some_and(|view| view.read(cx).run_face(cx) == RunFace::Diff),
-                _ => false,
-            };
-            let occupant = crate::shell::left_occupant_for(
-                screen.as_ref(),
-                origin.as_ref(),
-                run_diff,
-                crate::navigation::recent_runs_open(window, cx),
-            );
+            // panel sits right of the window's left column (the rail — the
+            // strip is hidden in Settings) and carries its own `px_2`.
+            let occupant = crate::shell::LeftOccupant::Rail;
             let available = (window.viewport_size().width
                 - px(crate::shell::left_column_width_for(
                     occupant,
@@ -3685,6 +3851,29 @@ impl Render for ScreensPanel {
             content,
         )
     }
+}
+
+/// EXP-1192: the resize panel (and remembered width) of each second sidebar
+/// — the Inbox and Reviews share the `list` column, Recent runs has its own.
+fn side_panel(kind: SecondSidebar) -> crate::resize_edge::SidebarPanel {
+    match kind {
+        SecondSidebar::Inbox | SecondSidebar::Reviews => crate::resize_edge::SidebarPanel::List,
+        SecondSidebar::RecentRuns => crate::resize_edge::SidebarPanel::Recent,
+    }
+}
+
+/// EXP-1192: the second-sidebar slot's width — 0 with no sidebar, else its
+/// panel's remembered width clamped against the card (`extent`).
+fn side_slot_width(side: Option<SecondSidebar>, extent: f32) -> f32 {
+    side.map_or(0., |kind| crate::resize_edge::panel_width(side_panel(kind), extent))
+}
+
+/// EXP-1192: the DEFINITE width of the screen beside a second sidebar at rest
+/// — the card's recorded width minus the slot (the `pinned_panel_root`
+/// fit-content guard, EXP-492). `None` before the first paint, when the
+/// screen flexes instead.
+fn main_width_beside(recorded: f32, slot: f32) -> Option<f32> {
+    (recorded > 1.).then(|| (recorded - slot).max(0.))
 }
 
 /// EXP-492/EXP-499: the panel root — background, the optional fallback tab
@@ -3731,31 +3920,53 @@ fn pinned_panel_root(
 #[cfg(test)]
 mod tests {
     use super::{
-        lead_reserve_px, neighbor_in_strip, parse_dev_dialog, parse_run_face, partition_tabs,
-        resolve_tab_origin, resume_swaps, same_transient, takes_over_tab, ChipLead, DevDialog,
-        RunFace, DEV_DIALOG_SPECS,
+        lead_reserve_px, main_width_beside, neighbor_in_strip, parse_dev_dialog, parse_run_face,
+        partition_tabs, resolve_tab_origin, resume_swaps, side_panel, side_slot_width,
+        takes_over_tab, ChipLead, DevDialog, RunFace, DEV_DIALOG_SPECS,
     };
 
-    /// EXP-1170: the transient slot keeps a draft's list across a board
-    /// change (the chip rewrites the screen in place).
+    /// EXP-1192: the Inbox and Reviews sidebars share the `list` column's
+    /// remembered width; Recent runs keeps its own.
     #[test]
-    fn a_draft_keeps_its_transient_slot_across_a_board_change() {
-        let draft = |board: &str| crate::navigation::Screen::IssueDraft {
-            draft_id: "d1".into(),
-            board_id: board.into(),
-            status_id: None,
-        };
-        assert!(same_transient(&draft("b1"), &draft("b2")));
-        let other = crate::navigation::Screen::IssueDraft {
-            draft_id: "d2".into(),
-            board_id: "b1".into(),
-            status_id: None,
-        };
-        assert!(!same_transient(&draft("b1"), &other));
-        assert!(same_transient(
-            &crate::navigation::Screen::Reviews,
-            &crate::navigation::Screen::Reviews
-        ));
+    fn each_second_sidebar_resizes_its_panel() {
+        use crate::navigation::SecondSidebar;
+        use crate::resize_edge::SidebarPanel;
+        assert_eq!(side_panel(SecondSidebar::Inbox), SidebarPanel::List);
+        assert_eq!(side_panel(SecondSidebar::Reviews), SidebarPanel::List);
+        assert_eq!(side_panel(SecondSidebar::RecentRuns), SidebarPanel::Recent);
+    }
+
+    /// EXP-1192: the slot is 0 wide with no sidebar, and a sidebar's width
+    /// stays inside the clamp against the CARD (half of it, never below MIN)
+    /// whatever width is remembered.
+    #[test]
+    fn the_side_slot_width_rule() {
+        use crate::navigation::SecondSidebar;
+        use theme::tokens::sidebar as tokens;
+        assert_eq!(side_slot_width(None, 1200.), 0.);
+        for kind in [
+            SecondSidebar::Inbox,
+            SecondSidebar::Reviews,
+            SecondSidebar::RecentRuns,
+        ] {
+            for extent in [400., 800., 1200., 3000.] {
+                let width = side_slot_width(Some(kind), extent);
+                assert!(width >= tokens::MIN_WIDTH, "{kind:?} {extent}");
+                assert!(width <= (extent / 2.).min(tokens::MAX_WIDTH).max(tokens::MIN_WIDTH));
+            }
+        }
+    }
+
+    /// EXP-1192: beside a sidebar at rest the screen gets the card's
+    /// recorded width minus the slot, as a definite width; before the first
+    /// paint it flexes.
+    #[test]
+    fn the_screen_beside_a_sidebar_gets_a_definite_width() {
+        assert_eq!(main_width_beside(1200., 352.), Some(848.));
+        assert_eq!(main_width_beside(1200., 0.), Some(1200.));
+        assert_eq!(main_width_beside(0., 352.), None);
+        // A card narrower than the slot never goes negative.
+        assert_eq!(main_width_beside(300., 352.), Some(0.));
     }
 
     /// EXP-1170: the create dialog is gone, and so is its dev spelling —
@@ -3802,16 +4013,16 @@ mod tests {
     /// (latest wins), an explicit marker overrides, and a screen change that
     /// is not a navigation at all — a tab click, a go-back, the reactivation
     /// after a close — leaves the tab's list exactly as it was. That last
-    /// case is what makes tab activation restore the left column: the tab
-    /// keeps its origin, and the shell reads the occupant off it.
+    /// case is what makes tab activation restore the second sidebar: the
+    /// tab keeps its origin, and the card reads the sidebar off it.
     #[test]
     fn a_tab_keeps_its_list_unless_a_navigation_says_otherwise() {
-        let board = origin(ToolWindow::BoardIssues);
+        let reviews = origin(ToolWindow::Reviews);
         let inbox = origin(ToolWindow::Inbox);
         // Tab click / go-back: no marker, the tab keeps what it has.
         assert_eq!(
-            resolve_tab_origin(None, Some(&board), Some(inbox.clone())),
-            Some(board.clone())
+            resolve_tab_origin(None, Some(&reviews), Some(inbox.clone())),
+            Some(reviews.clone())
         );
         // … including "no list at all" (a rail-opened detail stays rail-side).
         assert_eq!(resolve_tab_origin(None, None, Some(inbox.clone())), None);
@@ -3819,34 +4030,34 @@ mod tests {
         assert_eq!(
             resolve_tab_origin(
                 Some(&PendingOrigin::Derive),
-                Some(&board),
+                Some(&reviews),
                 Some(inbox.clone())
             ),
             Some(inbox.clone())
         );
         // EXP-862: … and a breadcrumb with NO list keeps the tab's. Deriving
         // nothing means the click named no list, not that this tab has none:
-        // a row clicked in the left column beside a rail-opened detail used
+        // a row clicked in a list beside a rail-opened detail used
         // to blank the column and throw the reader back to the rail.
         assert_eq!(
-            resolve_tab_origin(Some(&PendingOrigin::Derive), Some(&board), None),
-            Some(board.clone())
+            resolve_tab_origin(Some(&PendingOrigin::Derive), Some(&reviews), None),
+            Some(reviews.clone())
         );
         // With nothing on either side there is still nothing.
         assert_eq!(resolve_tab_origin(Some(&PendingOrigin::Derive), None, None), None);
         // A RAIL row opens with no list, whatever is on screen.
         assert_eq!(
-            resolve_tab_origin(Some(&PendingOrigin::Rail), Some(&board), Some(inbox.clone())),
+            resolve_tab_origin(Some(&PendingOrigin::Rail), Some(&reviews), Some(inbox.clone())),
             None
         );
         // An explicit marker (deep link, OS notification) always wins.
         assert_eq!(
             resolve_tab_origin(
-                Some(&PendingOrigin::Explicit(board.clone())),
+                Some(&PendingOrigin::Explicit(reviews.clone())),
                 None,
                 Some(inbox)
             ),
-            Some(board)
+            Some(reviews)
         );
     }
 

@@ -216,10 +216,9 @@ fn open_issue_deep_link(identifier: &str, cx: &mut App) {
     };
     if let Some(window) = crate::navigation::active_or_primary_window(cx) {
         let _ = window.update(cx, |_, window, cx| {
-            // EXP-288/EXP-510: land fully scoped — rail tool + active board +
-            // tab origin all follow the issue's board (the rail may point
-            // anywhere when the link arrives).
-            crate::navigation::open_issue_scoped(window, cx, issue_id, board_id);
+            // EXP-510: land scoped on the issue's board; EXP-1192: with no
+            // list beside it (a deep link was opened from nowhere on screen).
+            crate::navigation::open_issue_scoped(window, cx, issue_id, board_id, None);
         });
     }
 }

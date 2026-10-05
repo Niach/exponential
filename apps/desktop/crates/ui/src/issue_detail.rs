@@ -102,7 +102,7 @@ pub(crate) fn centered_column(column: gpui::Div) -> gpui::Div {
 // description jumped issues and ate the letter. Bare-letter shortcuts are
 // one stale negation away from that failure by construction. EXP-791 then
 // retired the header arrows and EXP-870 settled it: no issue stepping at all
-// — the ListNav beside the detail is how you move between issues.
+// — the list a detail was opened from is how you move between issues.
 
 // ---------------------------------------------------------------------------
 // §4.5 editor seam

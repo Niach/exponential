@@ -639,15 +639,24 @@ fn land_issue(issue_id: String, results: bool, window: &mut Window, cx: &mut App
             if results {
                 let id = issue_id.clone();
                 crate::work_header::open_issue_results(&id, window, cx, move |window, cx| {
-                    navigation::open_issue_scoped(window, cx, issue_id, board_id);
+                    navigation::open_issue_scoped(window, cx, issue_id, board_id, inbox_origin());
                 });
             } else {
-                navigation::open_issue_scoped(window, cx, issue_id, board_id);
+                navigation::open_issue_scoped(window, cx, issue_id, board_id, inbox_origin());
             }
         }
         // Not synced (yet) — the Inbox row will resolve it later.
         None => sidebar::open_inbox_tab(window, cx, InboxTab::Inbox),
     }
+}
+
+/// EXP-1192: a notification opens its issue beside the Inbox — the second
+/// sidebar it came from, wherever the window was.
+fn inbox_origin() -> Option<navigation::TabOrigin> {
+    navigation::Screen::Inbox {
+        tab: InboxTab::Inbox,
+    }
+    .list_origin()
 }
 
 /// EXP-856 §4 — the duplicate-agent toast: a session-level alert that does

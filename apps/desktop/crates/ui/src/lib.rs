@@ -127,7 +127,6 @@ mod queries;
 mod repo_resolver;
 mod repo_scope;
 mod resize_edge;
-mod review_files_nav;
 mod reviews_view;
 // EXP-746: the ONE agent-run row (an action's Runs, Devices' Running and
 // Past) and the two Devices sections that render it.
@@ -145,6 +144,8 @@ mod session_rows;
 mod session_screen;
 mod settings;
 mod sidebar;
+// EXP-1192: the slide-swap state machine (left column + second sidebar).
+mod slide_swap;
 mod slash_commands;
 mod surface;
 mod tab_state;

@@ -69,7 +69,7 @@ mod widget;
 pub(crate) const NAV_BACK_ROW_H: f32 = 40.;
 
 /// EXP-851: the left column's BACK row — the settings nav's header row,
-/// shared with the `ListNav` (`sidebar::ListPanel::nav_back_row`) so the two
+/// shared with the Reviews side list (`sidebar::ListPanel::nav_back_row`) so the two
 /// occupants of that column wear the same affordance. Returns the row WITHOUT
 /// a click handler: where back goes is the caller's business. EXP-870: web
 /// `SidebarBackRow` geometry — an 8px inset, a 40px row, then the rule

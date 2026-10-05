@@ -55,10 +55,9 @@ pub(crate) fn macos_lights_in_strip(window: &Window) -> bool {
     cfg!(target_os = "macos") && client_chrome(window) && !window.is_fullscreen()
 }
 
-/// EXP-862 — the LEFT COLUMN's titlebar strip, one recipe for all three of
-/// its occupants (the rail, the settings nav, the `ListNav`). It used to be
-/// copied into each of them, which is how two of the three ended up with
-/// slightly different padding.
+/// EXP-862 — the LEFT COLUMN's titlebar strip, one recipe for both of
+/// its occupants (the rail, the settings nav). It used to be copied into
+/// each of them, which is how they ended up with slightly different padding.
 ///
 /// The strip is EMPTY chrome: since EXP-723 its only job is the 34px the
 /// macOS traffic lights float over, plus the drag/zoom wiring the vendored
@@ -214,8 +213,8 @@ impl Render for AppTitleBar {
         //           the rail), otherwise three `TITLE_BAR_HEIGHT`-wide buttons
         //           — `TitleBar` draws min + max + close here.
         let strip_available = {
-            // EXP-285/EXP-456: the full-height LEFT COLUMN (the rail, the
-            // settings nav, or the `ListNav`) sits left of this bar — its
+            // EXP-285/EXP-456: the full-height LEFT COLUMN (the rail or the
+            // settings nav) sits left of this bar — its
             // width is the budget's first term. macOS lights float over that
             // column, which is at least `theme::tokens::sidebar::MIN_WIDTH`
             // wide (EXP-1156: dragged, never narrower) and clears the

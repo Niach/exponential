@@ -1,6 +1,7 @@
 //! EXP-1156 — the ONE dragged column edge: every sidebar column in the IDE
-//! (the expanded rail, the `ListNav`, the review's file tree, the settings
-//! nav, Recent runs, and the Files / Source Control screens' own lists) is
+//! (the settings nav, the card's second sidebars — the Inbox / Reviews list
+//! and Recent runs, EXP-1192 — and the Files / Source Control screens' own
+//! lists) is
 //! resized by dragging its RIGHT edge, the width remembered PER PANEL in
 //! `ui-prefs.json` ([`crate::ui_prefs::sidebar_width`]), a double-click on the
 //! edge resetting it to the panel's default. No hover expansion, no collapse
@@ -33,18 +34,18 @@ use theme::tokens::sidebar as tokens;
 
 /// EXP-1156: the columns that remember a width. The pref KEYS are the
 /// vocabulary the web client's localStorage shares, so one name means one
-/// column on both clients.
+/// column on both clients (EXP-1192: the web's `review` key has no IDE
+/// column any more — a run's file tree lives in its pane).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum SidebarPanel {
-    /// The expanded rail (`LeftOccupant::Rail`).
+    /// The rail (`LeftOccupant::Rail`), fixed at its default.
     Main,
-    /// The `ListNav` — the list an open detail was picked from.
+    /// The card's Inbox / Reviews second sidebar (EXP-1192) — the list an
+    /// open detail was picked from.
     List,
-    /// The review's / a run's Changes file tree (`LeftOccupant::ReviewFiles`).
-    Review,
     /// The settings nav.
     Settings,
-    /// The Agent page's Recent runs.
+    /// The Agent page's Recent runs (a second sidebar in the card).
     Recent,
     /// The Files screen's tree (a list INSIDE a screen, not the left column).
     Files,
@@ -59,10 +60,9 @@ impl SidebarPanel {
     }
 
     #[cfg(test)]
-    pub(crate) const ALL: [Self; 7] = [
+    pub(crate) const ALL: [Self; 6] = [
         Self::Main,
         Self::List,
-        Self::Review,
         Self::Settings,
         Self::Recent,
         Self::Files,
@@ -74,7 +74,6 @@ impl SidebarPanel {
         match self {
             Self::Main => "main",
             Self::List => "list",
-            Self::Review => "review",
             Self::Settings => "settings",
             Self::Recent => "recent",
             Self::Files => "files",
@@ -87,38 +86,24 @@ impl SidebarPanel {
         match self {
             Self::Main => tokens::DEFAULT_MAIN,
             Self::List => tokens::DEFAULT_LIST,
-            Self::Review => tokens::DEFAULT_REVIEW,
             Self::Settings => tokens::DEFAULT_SETTINGS,
             Self::Recent => tokens::DEFAULT_RECENT,
             Self::Files => tokens::DEFAULT_FILES,
             Self::SourceControl => tokens::DEFAULT_SOURCE_CONTROL,
         }
     }
-
-    /// Whether the panel sits beside the FOLDED rail, so the left column it
-    /// shares is the rail's icon column plus this panel ([`clamp_width`]).
-    /// The expanded rail IS the column; the Files / Source Control lists are
-    /// not in it at all.
-    pub(crate) const fn beside_rail(self) -> bool {
-        matches!(
-            self,
-            Self::List | Self::Review | Self::Settings | Self::Recent
-        )
-    }
 }
 
 /// EXP-1156: the pure clamp. `width` lands in `[MIN_WIDTH, MAX_WIDTH]`, and
-/// the column it builds stays at most HALF of `extent` — for a left-column
-/// panel `extent` is the window width and the column is the panel plus,
-/// `beside_rail`, the folded rail's `RAIL_WIDTH`; for a screen's own list
-/// (Files, Source Control) `extent` is the SCREEN AREA (the panel the screen
-/// renders in, right of the left column) and the list alone stays at most
-/// half of it, so the viewer beside it always keeps the larger share. The
-/// half-bound never pushes below `MIN_WIDTH`: a window too narrow for both
-/// rules keeps the minimum and lets the content side give.
-pub(crate) fn clamp_width(width: f32, extent: f32, beside_rail: bool) -> f32 {
-    let reserved = if beside_rail { tokens::RAIL_WIDTH } else { 0. };
-    let max = (extent / 2. - reserved)
+/// the column stays at most HALF of `extent` — for the left column (the
+/// settings nav) `extent` is the window width; for a column inside the card
+/// (a second sidebar, the Files / Source Control lists) it is the SCREEN
+/// AREA, so the content beside it always keeps the larger share. EXP-1192:
+/// no column sits beside a folded rail any more, so nothing is reserved for
+/// one. The half-bound never pushes below `MIN_WIDTH`: a window too narrow
+/// for both rules keeps the minimum and lets the content side give.
+pub(crate) fn clamp_width(width: f32, extent: f32) -> f32 {
+    let max = (extent / 2.)
         .min(tokens::MAX_WIDTH)
         .max(tokens::MIN_WIDTH);
     if !width.is_finite() {
@@ -138,7 +123,7 @@ pub(crate) fn panel_width(panel: SidebarPanel, extent: f32) -> f32 {
         return panel.default_width();
     }
     let width = crate::ui_prefs::sidebar_width(panel.key()).unwrap_or(panel.default_width());
-    clamp_width(width, extent, panel.beside_rail())
+    clamp_width(width, extent)
 }
 
 /// EXP-1156: one live drag of a column edge, owned by the host view. Kept as
@@ -179,7 +164,6 @@ impl ResizeDrag {
         Some(clamp_width(
             self.start_width + (pointer_x - self.start_x),
             self.extent,
-            self.panel.beside_rail(),
         ))
     }
 }
@@ -364,52 +348,45 @@ mod tests {
     /// the web's localStorage keys and these numbers the generated tokens.
     #[test]
     fn keys_and_defaults_match_the_shared_table() {
-        let table: Vec<(&str, f32, bool)> = SidebarPanel::ALL
+        let table: Vec<(&str, f32)> = SidebarPanel::ALL
             .iter()
-            .map(|panel| (panel.key(), panel.default_width(), panel.beside_rail()))
+            .map(|panel| (panel.key(), panel.default_width()))
             .collect();
         assert_eq!(
             table,
             vec![
-                ("main", 272., false),
-                ("list", 352., true),
-                ("review", 272., true),
-                ("settings", 272., true),
-                ("recent", 272., true),
-                ("files", 320., false),
-                ("sourceControl", 320., false),
+                ("main", 272.),
+                ("list", 352.),
+                ("settings", 272.),
+                ("recent", 272.),
+                ("files", 320.),
+                ("sourceControl", 320.),
             ]
         );
-        assert_eq!(tokens::RAIL_WIDTH, 48.);
         assert_eq!((tokens::MIN_WIDTH, tokens::MAX_WIDTH), (272., 560.));
         assert_eq!(tokens::HANDLE_WIDTH, 8.);
         // Every default is a width the clamp keeps on a roomy window.
         for panel in SidebarPanel::ALL {
             let width = panel.default_width();
-            assert_eq!(clamp_width(width, 2000., panel.beside_rail()), width, "{panel:?}");
+            assert_eq!(clamp_width(width, 2000.), width, "{panel:?}");
         }
     }
 
-    /// The clamp: [MIN, MAX] on a wide window, the column held to half the
-    /// window (the rail's icon column counted beside it), and never below
-    /// MIN however narrow the window gets.
+    /// The clamp: [MIN, MAX] on a wide extent, the column held to half of
+    /// it, and never below MIN however narrow it gets.
     #[test]
     fn the_clamp_bounds_the_column() {
         // Plenty of room: only MIN/MAX bite.
-        assert_eq!(clamp_width(100., 2000., false), 272.);
-        assert_eq!(clamp_width(400., 2000., false), 400.);
-        assert_eq!(clamp_width(900., 2000., false), 560.);
-        assert_eq!(clamp_width(900., 2000., true), 560.);
-        // 1000px window: the expanded rail stops at 500, a panel beside the
-        // folded rail at 500 - 48 so the whole column is half the window.
-        assert_eq!(clamp_width(540., 1000., false), 500.);
-        assert_eq!(clamp_width(540., 1000., true), 452.);
+        assert_eq!(clamp_width(100., 2000.), 272.);
+        assert_eq!(clamp_width(400., 2000.), 400.);
+        assert_eq!(clamp_width(900., 2000.), 560.);
+        // 1000px extent: the column stops at half of it.
+        assert_eq!(clamp_width(540., 1000.), 500.);
         // Too narrow for half: the minimum holds.
-        assert_eq!(clamp_width(400., 500., true), 272.);
-        assert_eq!(clamp_width(400., 500., false), 272.);
+        assert_eq!(clamp_width(400., 500.), 272.);
         // Nonsense never escapes the range.
-        assert_eq!(clamp_width(f32::NAN, 2000., false), 272.);
-        assert_eq!(clamp_width(f32::INFINITY, 2000., false), 272.);
+        assert_eq!(clamp_width(f32::NAN, 2000.), 272.);
+        assert_eq!(clamp_width(f32::INFINITY, 2000.), 272.);
     }
 
     /// The edge moves by the pointer's TRAVEL from the rendered width — no
@@ -429,9 +406,9 @@ mod tests {
         assert_eq!(drag.track(400.), Some(352.), "back where it began, once moved");
         assert_eq!(drag.track(0.), Some(272.));
         assert_eq!(drag.track(2000.), Some(560.));
-        // On a 1000px window the same drag stops at half minus the rail.
+        // On a 1000px extent the same drag stops at half of it.
         let mut narrow = ResizeDrag { extent: 1000., ..drag };
-        assert_eq!(narrow.track(2000.), Some(452.));
+        assert_eq!(narrow.track(2000.), Some(500.));
     }
 
     /// EXP-1163: the left column's strip is CENTRED on the card's left
