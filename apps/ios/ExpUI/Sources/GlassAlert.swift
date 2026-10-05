@@ -3,30 +3,39 @@ import UIKit
 
 // The app's OWN alert (EXP-1212): the iOS twin of the web phone layout's
 // centred alert card (`packages/ui` `MOBILE_ALERT` + `AlertDialogFooter`) —
-// a dimmed, blurred scrim, a centred glass card, a left-aligned title and
-// muted body, then full-width stacked buttons. Never the system `.alert` /
+// a dimmed, blurred scrim, a centred glass card, a left-aligned title (the
+// question; an optional muted body) and ONE compact row of `GlassPill` `.md`
+// buttons: a quiet destructive text answer set apart on the leading edge, the
+// rest trailing (Thunderbird's save prompt). The row stacks only when it does
+// not fit (large Dynamic Type). Never the system `.alert` /
 // `.confirmationDialog`: iOS 26+ draws the latter as an arrowed popover over
 // whatever presented it, a look no other client has.
 //
-// Data-driven so any screen can adopt it: a title, a body, an ORDERED list of
-// actions (top to bottom) and the no-answer path. A tap on the scrim is that
+// Data-driven so any screen can adopt it: a title, an optional body, the
+// actions in reading order and the no-answer path. A tap on the scrim is that
 // path (`onDismiss`); no close ✕, as on every phone alert (EXP-687).
 
 /// One button of a `GlassAlert`.
 public struct GlassAlertAction: Identifiable {
     public enum Role: Sendable {
-        /// The light `primary` fill with dark text (web `default`).
+        /// The loud `primary` pill (web `size="sm"` `default`); the default
+        /// answer: it takes Return on a hardware keyboard.
         case primary
-        /// A hairline-outlined glass button (web `outline`).
+        /// The glass hairline pill (web `size="sm"` `outline`).
         case outline
-        /// The solid `destructive` fill with white text (web `destructive`).
+        /// The glass pill with the label + hairline in `destructive` (web
+        /// `outline` + `text-destructive`): a destructive CONFIRM, never a
+        /// solid red block.
         case destructive
+        /// Text only in `destructive`, no fill or hairline, set apart on the
+        /// row's LEADING edge (web `ghost` + `text-destructive`).
+        case quietDestructive
     }
 
     public let id: String
     public let label: String
     public let role: Role
-    /// A disabled action stays in place, dimmed (web `disabled:opacity-50`).
+    /// A disabled action stays in place, dimmed (the pill's disabled paint).
     public let enabled: Bool
     public let handler: () -> Void
 
@@ -55,12 +64,14 @@ public enum GlassAlertMetrics {
     public static let padding: CGFloat = 20
     /// `rounded-2xl`.
     public static let cornerRadius: CGFloat = DesignTokens.Radius.xl
-    /// `gap-4` between the header and the buttons.
+    /// `gap-4` between the title and the button row.
     public static let sectionGap: CGFloat = DesignTokens.Spacing.lg
     /// `gap-2`: title↔body and between buttons.
     public static let itemGap: CGFloat = DesignTokens.Spacing.sm
-    /// `h-10`, the phone dialog footer's button height.
-    public static let buttonHeight: CGFloat = 40
+    /// The compact button: `GlassPill` `.md` (web `size="sm"`, 32pt).
+    public static let buttonHeight: CGFloat = GlassPillTokens.heightMd
+    /// Each button's hit area grows to 44pt tall around the 32pt pill.
+    public static let minTapHeight: CGFloat = 44
     /// The scrim's `bg-black/60`.
     public static let scrimOpacity: Double = 0.6
 }
@@ -76,6 +87,14 @@ public struct GlassAlert: View {
         self.title = title
         self.message = message
         self.actions = actions
+    }
+
+    private var leadingActions: [GlassAlertAction] {
+        actions.filter { $0.role == .quietDestructive }
+    }
+
+    private var trailingActions: [GlassAlertAction] {
+        actions.filter { $0.role != .quietDestructive }
     }
 
     public var body: some View {
@@ -98,11 +117,24 @@ public struct GlassAlert: View {
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            VStack(spacing: GlassAlertMetrics.itemGap) {
-                ForEach(actions) { action in
-                    GlassAlertButton(action: action)
+            ViewThatFits(in: .horizontal) {
+                // ONE row: quiet destructive leading, the rest trailing.
+                HStack(spacing: GlassAlertMetrics.itemGap) {
+                    ForEach(leadingActions) { GlassAlertButton(action: $0) }
+                    Spacer(minLength: GlassAlertMetrics.itemGap)
+                    ForEach(trailingActions) { GlassAlertButton(action: $0) }
                 }
+                // Stacked fallback: the trailing answers, default last in
+                // reading order = on top, then the quiet one.
+                VStack(alignment: .trailing, spacing: 0) {
+                    ForEach(trailingActions.reversed()) { GlassAlertButton(action: $0) }
+                    ForEach(leadingActions) { GlassAlertButton(action: $0) }
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
+            // The 44pt hit areas overhang the 32pt pills; keep the VISUAL
+            // gap at `sectionGap` and the card's bottom padding at `padding`.
+            .padding(.vertical, -(GlassAlertMetrics.minTapHeight - GlassAlertMetrics.buttonHeight) / 2)
         }
         .padding(GlassAlertMetrics.padding)
         .background(
@@ -119,58 +151,63 @@ public struct GlassAlert: View {
     }
 }
 
-/// One full-width alert button. The fills are the web button variants', read
-/// off the same tokens `GlassSubmitLabel` (primary) and the outlined glass
-/// buttons use.
+/// One compact alert button: the app's `GlassPill` `.md` paint (primary,
+/// glass, or glass toned `destructive`), or bare destructive text for the
+/// quiet answer. The pill is drawn readonly inside OUR Button so the hit area
+/// can grow to 44pt tall without the pill growing.
 private struct GlassAlertButton: View {
     let action: GlassAlertAction
 
     var body: some View {
         Button(action: action.handler) {
-            Text(action.label)
-                .font(.system(size: 15, weight: DesignTokens.Typography.Weight.medium))
-                .foregroundStyle(foreground)
-                .frame(maxWidth: .infinity)
-                .frame(height: GlassAlertMetrics.buttonHeight)
-                .background(fill, in: shape)
-                .overlay(shape.stroke(stroke, lineWidth: GlassTokens.hairline * 2))
-                .contentShape(shape)
+            label
+                .frame(minHeight: GlassAlertMetrics.minTapHeight)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(GlassAlertPressStyle())
+        .buttonStyle(.glassPillPrimary)
         .disabled(!action.enabled)
-        .opacity(action.enabled ? 1 : 0.5)
+        .modifier(DefaultAction(isDefault: action.role == .primary))
         .accessibilityIdentifier("glass-alert-\(action.id)")
     }
 
-    private var shape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
-    }
-
-    private var foreground: Color {
+    @ViewBuilder
+    private var label: some View {
         switch action.role {
-        case .primary: DesignTokens.Palette.primaryForeground
-        case .outline: DesignTokens.Palette.foreground
-        case .destructive: .white
+        case .primary:
+            GlassPill(action.label, size: .md, primary: true, enabled: action.enabled)
+        case .outline:
+            GlassPill(action.label, size: .md, enabled: action.enabled)
+        case .destructive:
+            GlassPill(
+                action.label,
+                size: .md,
+                tint: DesignTokens.Palette.destructive,
+                enabled: action.enabled
+            )
+        case .quietDestructive:
+            // Text only; its padding is a hit margin, pulled back so the
+            // label lines up with the title's leading edge.
+            Text(action.label)
+                .font(GlassPillSize.md.font)
+                .lineLimit(1)
+                .foregroundStyle(DesignTokens.Palette.destructive.opacity(action.enabled ? 1 : 0.5))
+                .padding(.horizontal, GlassPillTokens.horizontalPaddingMd)
+                .frame(height: GlassAlertMetrics.buttonHeight)
+                .padding(.leading, -GlassPillTokens.horizontalPaddingMd)
         }
     }
 
-    private var fill: Color {
-        switch action.role {
-        case .primary: DesignTokens.Palette.primary
-        case .outline: DesignTokens.Palette.input.opacity(0.3)
-        case .destructive: DesignTokens.Palette.destructive
+    /// The primary answer takes Return on a hardware keyboard.
+    private struct DefaultAction: ViewModifier {
+        let isDefault: Bool
+
+        func body(content: Content) -> some View {
+            if isDefault {
+                content.keyboardShortcut(.defaultAction)
+            } else {
+                content
+            }
         }
-    }
-
-    private var stroke: Color {
-        action.role == .outline ? DesignTokens.Palette.input : .clear
-    }
-}
-
-/// Press feedback: the web's `hover:bg-*/90`, as a slight dim.
-private struct GlassAlertPressStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label.opacity(configuration.isPressed ? 0.85 : 1)
     }
 }
 
@@ -297,12 +334,11 @@ private struct GlassAlertHost: View {
     ZStack {
         GlassTokens.backgroundTop.ignoresSafeArea()
         GlassAlert(
-            title: "This issue is still a draft",
-            message: "Create it now, keep it as a draft or discard it.",
+            title: "Save this issue as a draft?",
             actions: [
-                GlassAlertAction("Create", role: .primary) {},
-                GlassAlertAction("Keep as draft", role: .outline) {},
-                GlassAlertAction("Discard", role: .destructive) {},
+                GlassAlertAction("Discard", role: .quietDestructive) {},
+                GlassAlertAction("Create issue", role: .outline) {},
+                GlassAlertAction("Save draft", role: .primary) {},
             ]
         )
         .padding(.horizontal, GlassAlertMetrics.screenInset)
@@ -313,11 +349,10 @@ private struct GlassAlertHost: View {
     ZStack {
         GlassTokens.backgroundTop.ignoresSafeArea()
         GlassAlert(
-            title: "Discard draft?",
-            message: "This draft and its files will be deleted.",
+            title: "Discard this draft and its files?",
             actions: [
-                GlassAlertAction("Discard", role: .destructive) {},
                 GlassAlertAction("Cancel", role: .outline) {},
+                GlassAlertAction("Discard", role: .destructive) {},
             ]
         )
         .padding(.horizontal, GlassAlertMetrics.screenInset)

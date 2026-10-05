@@ -23,15 +23,13 @@ describe(`issue draft page (contract fixture)`, () => {
       discard: `Discard draft`,
       untitled: `Untitled draft`,
       discardConfirm: {
-        title: `Discard draft?`,
-        body: `This draft and its files will be deleted.`,
+        title: `Discard this draft and its files?`,
         confirm: `Discard`,
       },
       leave: {
-        title: `This issue is still a draft`,
-        body: `Create it now, keep it as a draft or discard it.`,
-        create: `Create`,
-        keep: `Keep as draft`,
+        title: `Save this issue as a draft?`,
+        create: `Create issue`,
+        keep: `Save draft`,
         discard: `Discard`,
       },
     })

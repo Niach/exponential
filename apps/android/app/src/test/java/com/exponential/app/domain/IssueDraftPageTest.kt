@@ -52,7 +52,6 @@ class IssueDraftPageTest {
         assertCopy(
             mapOf(
                 "title" to IssueDraftPage.DISCARD_CONFIRM_TITLE,
-                "body" to IssueDraftPage.DISCARD_CONFIRM_BODY,
                 "confirm" to IssueDraftPage.DISCARD_CONFIRM,
             ),
             fixture().getValue("copy").jsonObject.getValue("discardConfirm").jsonObject,
@@ -64,7 +63,6 @@ class IssueDraftPageTest {
         assertCopy(
             mapOf(
                 "title" to IssueDraftPage.LEAVE_TITLE,
-                "body" to IssueDraftPage.LEAVE_BODY,
                 "create" to IssueDraftPage.LEAVE_CREATE,
                 "keep" to IssueDraftPage.LEAVE_KEEP,
                 "discard" to IssueDraftPage.LEAVE_DISCARD,

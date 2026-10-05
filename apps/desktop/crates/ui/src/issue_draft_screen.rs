@@ -24,11 +24,12 @@
 //! re-pointed per draft like the PR diff ([`IssueDraftView::set_draft`]).
 //!
 //! EXP-1212: a draft WITH content never goes silently
-//! ([`domain::issue_draft::exit_prompt`]). The `×` asks "Discard draft?"
+//! ([`domain::issue_draft::exit_prompt`]). The `×` asks "Discard this draft
+//! and its files?"
 //! first; every other way off the page is HELD at the ONE choke point all
 //! screen changes pass (`navigation::leave_hold`: navigate, replace, a tab
-//! click's `set_screen`, Back, Forward, a team switch) and asks Create · Keep
-//! as draft · Discard (ONE dialog; every move held meanwhile appends), the
+//! click's `set_screen`, Back, Forward, a team switch) and asks Discard ·
+//! Create issue · Save draft (ONE dialog; every move held meanwhile appends), the
 //! answer replaying the held moves in order. The page owns
 //! no tab, so there is no tab of its own to close; window close and quit are
 //! not held (the release hook above saves).
@@ -127,33 +128,39 @@ pub(crate) fn open_existing(window: &mut Window, cx: &mut App, draft: &IssueDraf
 // the view
 // ---------------------------------------------------------------------------
 
-/// EXP-1212: the leave question — Discard · Keep as draft · Create, no
-/// Cancel (Esc / the ✕ stay). ONE builder for the page and the styleguide's
-/// `draft-leave-dialog` specimen. Create stays pressable (R5: Enter = Create,
-/// never Discard); the page re-checks it at click time.
+/// EXP-1212: the draft alerts' window height (titlebar strip included): the
+/// one-line question over the button row, no empty band between them.
+const DRAFT_ALERT_HEIGHT: f32 = 136.;
+
+/// EXP-1212: the leave question — Discard (set apart, leading) · Create
+/// issue · Save draft (the primary, Enter), no Cancel (Esc / the ✕ stay).
+/// ONE builder for the page and the styleguide's `draft-leave-dialog`
+/// specimen. Like every other IDE alert, the window carries a SHORT title
+/// (the page's own "New issue") and the body slot the one-line question.
+/// Create issue stays pressable (it cannot follow a title typed after the
+/// dialog opened); the page re-checks it at click time.
 pub(crate) fn leave_alert(
     on_create: impl Fn(&mut Window, &mut App) -> bool + 'static,
     on_keep: impl Fn(&mut Window, &mut App) -> bool + 'static,
     on_discard: impl Fn(&mut Window, &mut App) -> bool + 'static,
 ) -> AlertSpec {
-    AlertSpec::new(copy::LEAVE_TITLE, copy::LEAVE_BODY, copy::LEAVE_CREATE)
+    AlertSpec::new(copy::HEADER, copy::LEAVE_TITLE, copy::LEAVE_KEEP)
         .without_cancel()
-        .on_ok(on_create)
-        .secondary(copy::LEAVE_KEEP, on_keep)
+        .height(px(DRAFT_ALERT_HEIGHT))
+        .on_ok(on_keep)
+        .secondary(copy::LEAVE_CREATE, on_create)
         .destructive(copy::LEAVE_DISCARD, on_discard)
 }
 
-/// EXP-1212: the `×`'s "Discard draft?" confirm (Cancel keeps the draft).
+/// EXP-1212: the `×`'s confirm (Cancel keeps the draft): the window carries
+/// the close button's own label ("Discard draft"), the body the question.
 pub(crate) fn discard_confirm_alert(
     on_discard: impl Fn(&mut Window, &mut App) -> bool + 'static,
 ) -> AlertSpec {
-    AlertSpec::new(
-        copy::DISCARD_CONFIRM_TITLE,
-        copy::DISCARD_CONFIRM_BODY,
-        copy::DISCARD_CONFIRM,
-    )
-    .ok_variant(ButtonVariant::Danger)
-    .on_ok(on_discard)
+    AlertSpec::new(copy::DISCARD, copy::DISCARD_CONFIRM_TITLE, copy::DISCARD_CONFIRM)
+        .height(px(DRAFT_ALERT_HEIGHT))
+        .ok_variant(ButtonVariant::Danger)
+        .on_ok(on_discard)
 }
 
 /// EXP-1212: the leave dialog's three answers.
@@ -228,7 +235,7 @@ pub(crate) struct IssueDraftView {
     /// EXP-1212: the leave dialog's Create — the held navigations, run
     /// instead of opening the new issue once the create succeeds.
     after_create: Vec<HeldNavigation>,
-    /// EXP-1212 (R3): a "Keep as draft" is waiting on its save.
+    /// EXP-1212 (R3): a "Save draft" is waiting on its save.
     keeping: bool,
     _subscriptions: Vec<Subscription>,
 }
@@ -1018,7 +1025,7 @@ impl IssueDraftView {
     }
 
     /// "Discard draft" (the `×`): EXP-1212 — a draft with content asks
-    /// "Discard draft?" first (Cancel keeps it); an empty one goes at once.
+    /// "Discard this draft and its files?" first (Cancel keeps it); an empty one goes at once.
     fn discard(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let Some(draft_id) = self.parts.as_ref().map(|parts| parts.target.draft_id.clone()) else {
             return;
@@ -1195,7 +1202,7 @@ impl IssueDraftView {
         }
     }
 
-    /// "Keep as draft" (R3): the save is awaited. Moves made meanwhile keep
+    /// "Save draft" (R3): the save is awaited. Moves made meanwhile keep
     /// appending (the question stays pending, no second dialog); success
     /// replays them all, a failure — or the page going any other way — drops
     /// them.

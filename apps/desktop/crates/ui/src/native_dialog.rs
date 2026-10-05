@@ -1054,9 +1054,10 @@ pub(crate) struct AlertSpec {
     /// Outline-styled like Cancel, because the primary answer stays the OK.
     /// `None` (every alert before it) draws the two-button footer unchanged.
     secondary: Option<(SharedString, OnOkFn)>,
-    /// EXP-1212: a DESTRUCTIVE choice leading the answers (the draft leave
-    /// question's Discard, beside Keep as draft and Create). Same contract
-    /// as [`Self::on_ok`]. `None` (every alert before it) changes nothing.
+    /// EXP-1212: a DESTRUCTIVE choice set apart on the footer's LEADING
+    /// edge, the rest pushed trailing (the draft leave question's Discard,
+    /// across from Create issue and Save draft). Same contract as
+    /// [`Self::on_ok`]. `None` (every alert before it) changes nothing.
     destructive: Option<(SharedString, OnOkFn)>,
     /// EXP-1212: runs once the alert's window is GONE, answered or not (Esc,
     /// the ✕, an answer). Lets a caller tell a dismiss from an answer.
@@ -1285,15 +1286,9 @@ impl Render for AlertView {
                     .flex_shrink_0()
                     .justify_end()
                     .gap_2()
-                    .when(self.spec.cancel, |this| {
-                        this.child(
-                            Button::new("native-alert-cancel")
-                                .outline().cursor_pointer()
-                                .web_sm()
-                                .label("Cancel")
-                                .on_click(|_, window, cx| close_dialog_window(window, cx)),
-                        )
-                    })
+                    // EXP-1212: the destructive answer stands APART on the
+                    // leading edge (a spacer pushes the rest trailing), the
+                    // Thunderbird save-prompt shape.
                     .children(self.spec.destructive.as_ref().map(|(label, on_click)| {
                         let on_click = on_click.clone();
                         Button::new("native-alert-destructive")
@@ -1306,6 +1301,18 @@ impl Render for AlertView {
                                 }
                             })
                     }))
+                    .when(self.spec.destructive.is_some(), |this| {
+                        this.child(div().flex_1())
+                    })
+                    .when(self.spec.cancel, |this| {
+                        this.child(
+                            Button::new("native-alert-cancel")
+                                .outline().cursor_pointer()
+                                .web_sm()
+                                .label("Cancel")
+                                .on_click(|_, window, cx| close_dialog_window(window, cx)),
+                        )
+                    })
                     .children(self.spec.secondary.as_ref().map(|(label, on_click)| {
                         let on_click = on_click.clone();
                         Button::new("native-alert-secondary")

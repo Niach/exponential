@@ -230,7 +230,7 @@ export function useIssueDraftEditor({
   }
 
   /** The leave write. EXP-1212 (R3): `false` = it failed (and said so), so
-   *  "Keep as draft" stays on the page. */
+   *  "Save draft" stays on the page. */
   const leave = () => flush(`leave`)
 
   // Property picks write at once — after the pick has rendered.

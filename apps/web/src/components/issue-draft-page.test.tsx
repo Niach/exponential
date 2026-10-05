@@ -140,7 +140,6 @@ describe(`IssueDraftPage discard`, () => {
     fireEvent.click(screen.getByTestId(`issue-draft-discard`))
     const confirm = await screen.findByTestId(`issue-draft-discard-confirm`)
     expect(confirm.textContent).toContain(ISSUE_DRAFT_COPY.discardConfirm.title)
-    expect(confirm.textContent).toContain(ISSUE_DRAFT_COPY.discardConfirm.body)
     expect(editor.discard).not.toHaveBeenCalled()
 
     fireEvent.click(
@@ -162,6 +161,16 @@ describe(`IssueDraftPage discard`, () => {
     )
     expect(editor.discard).not.toHaveBeenCalled()
     expect(navigate).not.toHaveBeenCalled()
+  })
+
+  it(`opens the confirm with focus on Cancel, never on Discard`, async () => {
+    renderPage()
+    fireEvent.click(screen.getByTestId(`issue-draft-discard`))
+    const confirm = await screen.findByTestId(`issue-draft-discard-confirm`)
+    expect(confirm.getAttribute(`role`)).toBe(`alertdialog`)
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe(`Cancel`)
+    )
   })
 
   it(`never leaves while a Create is in flight (the discard refused)`, async () => {
@@ -214,7 +223,7 @@ describe(`IssueDraftPage leaving`, () => {
     expect(blockerState.shouldBlockFn!(away)).toBe(false)
   })
 
-  it(`opens with focus on Keep as draft, never on Discard`, async () => {
+  it(`opens with focus on Save draft, never on Discard`, async () => {
     blockerState.status = `blocked`
     renderPage()
     await screen.findByTestId(`issue-draft-leave-dialog`)
@@ -228,7 +237,22 @@ describe(`IssueDraftPage leaving`, () => {
     )
   })
 
-  it(`Keep as draft whose save fails stays and drops the held navigation`, async () => {
+  it(`asks one question over Discard · Create issue · Save draft, no ✕`, async () => {
+    blockerState.status = `blocked`
+    renderPage()
+    const dialog = await screen.findByTestId(`issue-draft-leave-dialog`)
+    expect(dialog.querySelector(`[data-slot=dialog-description]`)).toBeNull()
+    expect(dialog.querySelector(`[data-slot=dialog-close]`)).toBeNull()
+    expect(
+      Array.from(dialog.querySelectorAll(`button`)).map((b) => b.textContent)
+    ).toEqual([
+      ISSUE_DRAFT_COPY.leave.discard,
+      ISSUE_DRAFT_COPY.leave.create,
+      ISSUE_DRAFT_COPY.leave.keep,
+    ])
+  })
+
+  it(`Save draft whose save fails stays and drops the held navigation`, async () => {
     editor.leave.mockImplementation(async () => false)
     blockerState.status = `blocked`
     renderPage()
@@ -262,7 +286,7 @@ describe(`IssueDraftPage leaving`, () => {
   })
 
   it.each([false, true])(
-    `Keep as draft saves, then continues (phone: %s)`,
+    `Save draft saves, then continues (phone: %s)`,
     async (phone) => {
       mobileState.mobile = phone
       blockerState.status = `blocked`

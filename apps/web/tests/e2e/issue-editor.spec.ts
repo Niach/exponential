@@ -255,7 +255,7 @@ test(`keeps a draft on Back, reopens it from Drafts, and discards it`, async ({
   await page.goBack()
   const leaveDialog = page.getByTestId(`issue-draft-leave-dialog`)
   await expect(leaveDialog).toBeVisible()
-  await leaveDialog.getByRole(`button`, { name: `Keep as draft` }).click()
+  await leaveDialog.getByRole(`button`, { name: `Save draft` }).click()
   const draftsEntry = page.getByRole(`link`, { name: `Drafts` })
   await expect(draftsEntry).toBeVisible()
   await draftsEntry.click()
@@ -275,7 +275,7 @@ test(`keeps a draft on Back, reopens it from Drafts, and discards it`, async ({
   // EXP-1212: the × on a draft with content confirms first.
   await reopened.getByTestId(`issue-draft-discard`).click()
   const discardConfirm = page.getByTestId(`issue-draft-discard-confirm`)
-  await expect(discardConfirm).toContainText(`Discard draft?`)
+  await expect(discardConfirm).toContainText(`Discard this draft and its files?`)
   await discardConfirm
     .getByRole(`button`, { name: `Discard`, exact: true })
     .click()

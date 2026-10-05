@@ -51,7 +51,6 @@ import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassAlert
 import com.exponential.app.ui.components.GlassAlertAction
-import com.exponential.app.ui.components.GlassButtonRole
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.LocalDetailHaze
 import com.exponential.app.ui.components.LocalToaster
@@ -430,14 +429,19 @@ fun IssueDraftScreen(
 
     // ── Confirms (EXP-1212) ─────────────────────────────────────────────────
     if (discardConfirmOpen) {
+        // One question; Cancel · Discard on the trailing edge, Discard in the
+        // destructive colour on the plain pill (never a solid red block).
         GlassAlert(
             title = IssueDraftPage.DISCARD_CONFIRM_TITLE,
-            body = IssueDraftPage.DISCARD_CONFIRM_BODY,
             onDismiss = { discardConfirmOpen = false },
-            actions = listOf(
+            trailing = listOf(
+                GlassAlertAction(
+                    label = "Cancel",
+                    onClick = { discardConfirmOpen = false },
+                ),
                 GlassAlertAction(
                     label = IssueDraftPage.DISCARD_CONFIRM,
-                    role = GlassButtonRole.Destructive,
+                    destructive = true,
                     testTag = "issue-draft-discard-confirm",
                     onClick = {
                         discardConfirmOpen = false
@@ -447,83 +451,73 @@ fun IssueDraftScreen(
                         }
                     },
                 ),
-                GlassAlertAction(
-                    label = "Cancel",
-                    role = GlassButtonRole.Outline,
-                    onClick = { discardConfirmOpen = false },
-                ),
             ),
+            defaultAction = 0,
         )
     }
     heldLeave?.let { proceed ->
-        // Web's phone alert: Create · Keep as draft · Discard, stacked top to
-        // bottom. Dismissing (scrim, back) cancels the navigation. No button
-        // takes initial focus, so Discard is never the default.
+        // One question: Discard (quiet, destructive) set apart on the leading
+        // edge; Create issue (plain pill) · Save draft (primary pill, the default) on
+        // the trailing edge. A mode with no Keep makes Create the primary.
+        // Dismissing (scrim, back) cancels the navigation.
+        val canKeep = IssueDraftPage.LeaveChoice.Keep in leaveChoices
+        val createAction = GlassAlertAction(
+            label = IssueDraftPage.LEAVE_CREATE,
+            primary = !canKeep,
+            enabled = canCreate,
+            testTag = "issue-draft-leave-create",
+            onClick = {
+                heldLeave = null
+                if (canCreate) {
+                    afterCreate = proceed
+                    viewModel.create()
+                }
+            },
+        )
+        val keepAction = GlassAlertAction(
+            label = IssueDraftPage.LEAVE_KEEP,
+            primary = true,
+            testTag = "issue-draft-leave-keep",
+            onClick = {
+                heldLeave = null
+                afterCreate = null
+                keeping = true
+                // Awaited: a failed save stays here (the model toasts it)
+                // and drops the navigation.
+                scope.launch {
+                    val kept = try {
+                        viewModel.keep()
+                    } finally {
+                        keeping = false
+                    }
+                    if (kept) proceed()
+                }
+            },
+        )
         GlassAlert(
             title = IssueDraftPage.LEAVE_TITLE,
-            body = IssueDraftPage.LEAVE_BODY,
             onDismiss = {
                 heldLeave = null
                 afterCreate = null
             },
-            actions = buildList {
-                add(
-                    GlassAlertAction(
-                        label = IssueDraftPage.LEAVE_CREATE,
-                        role = GlassButtonRole.Primary,
-                        enabled = canCreate,
-                        testTag = "issue-draft-leave-create",
-                        onClick = {
-                            heldLeave = null
-                            if (canCreate) {
-                                afterCreate = proceed
-                                viewModel.create()
-                            }
-                        },
-                    ),
+            leading = if (IssueDraftPage.LeaveChoice.Discard in leaveChoices) {
+                GlassAlertAction(
+                    label = IssueDraftPage.LEAVE_DISCARD,
+                    testTag = "issue-draft-leave-discard",
+                    onClick = {
+                        heldLeave = null
+                        afterCreate = null
+                        if (!state.creating) {
+                            discard()
+                            proceed()
+                        }
+                    },
                 )
-                if (IssueDraftPage.LeaveChoice.Keep in leaveChoices) {
-                    add(
-                        GlassAlertAction(
-                            label = IssueDraftPage.LEAVE_KEEP,
-                            role = GlassButtonRole.Outline,
-                            testTag = "issue-draft-leave-keep",
-                            onClick = {
-                                heldLeave = null
-                                afterCreate = null
-                                keeping = true
-                                // Awaited: a failed save stays here (the
-                                // model toasts it) and drops the navigation.
-                                scope.launch {
-                                    val kept = try {
-                                        viewModel.keep()
-                                    } finally {
-                                        keeping = false
-                                    }
-                                    if (kept) proceed()
-                                }
-                            },
-                        ),
-                    )
-                }
-                if (IssueDraftPage.LeaveChoice.Discard in leaveChoices) {
-                    add(
-                        GlassAlertAction(
-                            label = IssueDraftPage.LEAVE_DISCARD,
-                            role = GlassButtonRole.Destructive,
-                            testTag = "issue-draft-leave-discard",
-                            onClick = {
-                                heldLeave = null
-                                afterCreate = null
-                                if (!state.creating) {
-                                    discard()
-                                    proceed()
-                                }
-                            },
-                        ),
-                    )
-                }
+            } else {
+                null
             },
+            trailing = if (canKeep) listOf(createAction, keepAction) else listOf(createAction),
+            defaultAction = if (canKeep) 1 else null,
         )
     }
 

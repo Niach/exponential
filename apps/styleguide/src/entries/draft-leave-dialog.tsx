@@ -1,18 +1,5 @@
 import issueDraft from "@exp/domain-contract/fixtures/issue-draft.json"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  Button,
-  Dialog,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@exp/ui"
+import { Dialog, DialogFooter, DialogTitle, Pill } from "@exp/ui"
 
 import { DialogSpecimen } from "./dialog-shared.tsx"
 import type { StyleguideEntry } from "./types.ts"
@@ -28,12 +15,18 @@ import type { StyleguideEntry } from "./types.ts"
 
 const { copy } = issueDraft
 
+// The page's DRAFT_PROMPT_* classes (issue-draft-page.tsx), byte for byte.
+const CARD = `max-w-md p-5`
+const ROW = `flex-row flex-wrap items-center justify-end`
+const DESTRUCTIVE_PILL = `border-destructive/40 text-destructive hover:text-destructive`
+const QUIET_DISCARD = `-ml-3 mr-auto border-transparent bg-transparent text-destructive hover:bg-transparent hover:text-destructive`
+
 export const entry: StyleguideEntry = {
   id: `draft-leave-dialog`,
   section: `special`,
   owner: `EXP-1212`,
   title: `Draft leave dialog`,
-  blurb: `What leaving a New issue draft WITH content asks (EXP-1212; a title, a description or an attachment is content, and a reopened draft whose files are not known yet counts as content). Its close button first asks the destructive discard confirm: "${copy.discardConfirm.title}", the platform's Cancel and a destructive "${copy.discardConfirm.confirm}". Every other way off the page (back, a nav entry, another screen, closing the IDE tab) is HELD and asks "${copy.leave.title}" with three answers, in this order: "${copy.leave.discard}" (destructive, no second confirm), "${copy.leave.keep}" (outline: save, then continue; a failed save stays on the page with the save error) and "${copy.leave.create}" (primary, disabled without a title; the held navigation continues instead of opening the new issue). Initial keyboard focus sits on "${copy.leave.keep}", never on "${copy.leave.discard}"; dismissing stays. Nothing is asked while a Create is in flight, and a draft with no content leaves silently. A mode that never writes a draft row (a sub-issue or share compose on phones) offers Create and Discard only. The copy is the contract's (\`issue-draft.json\`, byte-locked ×4).`,
+  blurb: `What leaving a New issue draft WITH content asks (EXP-1212; a title, a description or an attachment is content, and a reopened draft whose files are not known yet counts as content). Each prompt is ONE question (no body line, no ✕; Esc and the scrim dismiss) over ONE row of the app's 32px \`Pill\` capsules, the same capsules the natives' alert card draws. Its close button first asks "${copy.discardConfirm.title}": Cancel and "${copy.discardConfirm.confirm}" (the plain pill with a destructive label and tinted border, no fill). Every other way off the page (back, a nav entry, another screen, closing the IDE tab) is HELD and asks "${copy.leave.title}", Thunderbird's save prompt: "${copy.leave.discard}" set apart on the leading edge (quiet destructive text, no second confirm), then "${copy.leave.create}" (the plain pill, disabled without a title; the held navigation continues instead of opening the new issue) and the default "${copy.leave.keep}" (the primary pill, initial focus and Enter: save, then continue; a failed save stays on the page with the save error). Dismissing stays. Nothing is asked while a Create is in flight, and a draft with no content leaves silently. A mode that never writes a draft row (a sub-issue or share compose on phones) offers Discard and Create issue only. The copy is the contract's (\`issue-draft.json\`, byte-locked ×4).`,
   status: {
     web: {
       state: `ok`,
@@ -51,49 +44,46 @@ export const entry: StyleguideEntry = {
       state: `ok`,
       symbol: `IssueDraftPageView`,
       file: `apps/ios/Exponential/UI/Issue/IssueDraftPageView.swift`,
-      note: `an alert and a confirmationDialog; IssueDraftLeaveGuard holds the navigation`,
+      note: `ExpUI GlassAlert (Pill row); IssueDraftLeaveGuard holds the navigation`,
     },
     android: {
       state: `ok`,
       symbol: `IssueDraftScreen`,
       file: `apps/android/app/src/main/java/com/exponential/app/ui/issue/IssueDraftScreen.kt`,
-      note: `two M3 AlertDialogs; navigation/LeaveGuard holds the navigation`,
+      note: `GlassAlert (Pill row); navigation/LeaveGuard holds the navigation`,
     },
   },
   island: () => (
     <div className="grid gap-6">
-      {/* The Radix roots give the titles, descriptions and the action their
-          context. Cancel is the outline button `AlertDialogCancel` paints:
-          the real one only mounts inside the portalled content. */}
-      <AlertDialog open>
-        <DialogSpecimen caption="The close button, a draft with content" className="max-w-md">
-          <AlertDialogHeader>
-            <AlertDialogTitle>{copy.discardConfirm.title}</AlertDialogTitle>
-            <AlertDialogDescription>{copy.discardConfirm.body}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <Button variant="outline">Cancel</Button>
-            <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90">
-              {copy.discardConfirm.confirm}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </DialogSpecimen>
-      </AlertDialog>
+      {/* Both prompts are the page's ONE structure: a \`Dialog\` card with the
+          DRAFT_PROMPT_* classes (one question, no body, no ✕, 20px padding)
+          over ONE row of \`size="md"\` action pills. */}
       <Dialog open>
-        <DialogSpecimen caption="Any other way off the page, held" showClose>
-          <DialogHeader>
-            <DialogTitle>{copy.leave.title}</DialogTitle>
-            <DialogDescription>{copy.leave.body}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="destructive"
-              className="bg-destructive text-white hover:bg-destructive/90 dark:bg-destructive"
-            >
+        <DialogSpecimen caption="The close button, a draft with content" className={CARD}>
+          <DialogTitle>{copy.discardConfirm.title}</DialogTitle>
+          <DialogFooter className={ROW}>
+            <Pill size="md" mode="action">
+              Cancel
+            </Pill>
+            <Pill size="md" mode="action" className={DESTRUCTIVE_PILL}>
+              {copy.discardConfirm.confirm}
+            </Pill>
+          </DialogFooter>
+        </DialogSpecimen>
+      </Dialog>
+      <Dialog open>
+        <DialogSpecimen caption="Any other way off the page, held" className={CARD}>
+          <DialogTitle>{copy.leave.title}</DialogTitle>
+          <DialogFooter className={ROW}>
+            <Pill size="md" mode="action" className={QUIET_DISCARD}>
               {copy.leave.discard}
-            </Button>
-            <Button variant="outline">{copy.leave.keep}</Button>
-            <Button>{copy.leave.create}</Button>
+            </Pill>
+            <Pill size="md" mode="action">
+              {copy.leave.create}
+            </Pill>
+            <Pill size="md" mode="action" primary>
+              {copy.leave.keep}
+            </Pill>
           </DialogFooter>
         </DialogSpecimen>
       </Dialog>

@@ -9,7 +9,8 @@
 //!
 //! EXP-1212: a draft WITH content never goes silently. The close button asks
 //! [`exit_prompt`]'s `DiscardConfirm` first; any other way off the page is
-//! HELD behind the `Leave` question (Create · Keep as draft · Discard).
+//! HELD behind the `Leave` question (Discard · Create issue · Save draft,
+//! Save draft the default). Each prompt is ONE question: there is no body.
 
 /// The identifier slot of the collapsed title.
 pub const HEADER: &str = "New issue";
@@ -24,17 +25,17 @@ pub const DISCARD: &str = "Discard draft";
 /// A draft with no title (the collapsed title, the Drafts list).
 pub const UNTITLED: &str = "Untitled draft";
 /// EXP-1212: the close button's confirmation on a draft with content —
-/// title, body and the destructive button (beside the platform's Cancel).
-pub const DISCARD_CONFIRM_TITLE: &str = "Discard draft?";
-pub const DISCARD_CONFIRM_BODY: &str = "This draft and its files will be deleted.";
+/// the one-line question and the destructive button (beside the platform's
+/// Cancel).
+pub const DISCARD_CONFIRM_TITLE: &str = "Discard this draft and its files?";
 pub const DISCARD_CONFIRM: &str = "Discard";
 /// EXP-1212: the question a HELD navigation off a draft with content asks.
-pub const LEAVE_TITLE: &str = "This issue is still a draft";
-pub const LEAVE_BODY: &str = "Create it now, keep it as a draft or discard it.";
-/// The page's Create, then the held navigation continues.
-pub const LEAVE_CREATE: &str = "Create";
-/// Save, then continue.
-pub const LEAVE_KEEP: &str = "Keep as draft";
+pub const LEAVE_TITLE: &str = "Save this issue as a draft?";
+/// The page's Create (the secondary button), then the held navigation
+/// continues.
+pub const LEAVE_CREATE: &str = "Create issue";
+/// Save, then continue: the DEFAULT answer (primary, Enter).
+pub const LEAVE_KEEP: &str = "Save draft";
 /// Delete (no second confirmation), then continue.
 pub const LEAVE_DISCARD: &str = "Discard";
 /// One coalesced `issueDrafts.upsert` this long after the last
@@ -57,9 +58,10 @@ pub enum DraftExit {
 pub enum DraftPrompt {
     /// Nothing: the exit goes at once (an empty draft is deleted as before).
     None,
-    /// "Discard draft?" with a destructive Discard and Cancel.
+    /// "Discard this draft and its files?" with a destructive Discard and
+    /// Cancel.
     DiscardConfirm,
-    /// The navigation is held: Create · Keep as draft · Discard.
+    /// The navigation is held: Discard · Create issue · Save draft.
     Leave,
 }
 
@@ -105,16 +107,14 @@ mod tests {
         assert_eq!(copy["untitled"].as_str(), Some(UNTITLED));
         let confirm = &copy["discardConfirm"];
         assert_eq!(confirm["title"].as_str(), Some(DISCARD_CONFIRM_TITLE));
-        assert_eq!(confirm["body"].as_str(), Some(DISCARD_CONFIRM_BODY));
         assert_eq!(confirm["confirm"].as_str(), Some(DISCARD_CONFIRM));
-        assert_eq!(confirm.as_object().unwrap().len(), 3, "a new string needs a test");
+        assert_eq!(confirm.as_object().unwrap().len(), 2, "a new string needs a test");
         let leave = &copy["leave"];
         assert_eq!(leave["title"].as_str(), Some(LEAVE_TITLE));
-        assert_eq!(leave["body"].as_str(), Some(LEAVE_BODY));
         assert_eq!(leave["create"].as_str(), Some(LEAVE_CREATE));
         assert_eq!(leave["keep"].as_str(), Some(LEAVE_KEEP));
         assert_eq!(leave["discard"].as_str(), Some(LEAVE_DISCARD));
-        assert_eq!(leave.as_object().unwrap().len(), 5, "a new string needs a test");
+        assert_eq!(leave.as_object().unwrap().len(), 4, "a new string needs a test");
         assert_eq!(copy.as_object().unwrap().len(), 8, "a new string needs a test");
     }
 

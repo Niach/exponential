@@ -14,15 +14,13 @@ object IssueDraftPage {
     const val UNTITLED = "Untitled draft"
 
     // EXP-1212: the close button's confirm (`copy.discardConfirm`).
-    const val DISCARD_CONFIRM_TITLE = "Discard draft?"
-    const val DISCARD_CONFIRM_BODY = "This draft and its files will be deleted."
+    const val DISCARD_CONFIRM_TITLE = "Discard this draft and its files?"
     const val DISCARD_CONFIRM = "Discard"
 
     // EXP-1212: the held-navigation prompt (`copy.leave`).
-    const val LEAVE_TITLE = "This issue is still a draft"
-    const val LEAVE_BODY = "Create it now, keep it as a draft or discard it."
-    const val LEAVE_CREATE = "Create"
-    const val LEAVE_KEEP = "Keep as draft"
+    const val LEAVE_TITLE = "Save this issue as a draft?"
+    const val LEAVE_CREATE = "Create issue"
+    const val LEAVE_KEEP = "Save draft"
     const val LEAVE_DISCARD = "Discard"
 
     /** Quiet time after the last title/description edit before the autosave. */
@@ -67,7 +65,7 @@ object IssueDraftPage {
         else -> Prompt.Leave
     }
 
-    /** The leave prompt's answers, in reading order. */
+    /** The leave prompt's answers (the dialog lays them out: Discard leading, Create · Save draft trailing). */
     enum class LeaveChoice { Create, Keep, Discard }
 
     /**

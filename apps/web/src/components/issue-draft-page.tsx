@@ -1,22 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useBlocker, useNavigate } from "@tanstack/react-router"
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
   Button,
   CollapsedTitle,
   conceptIcon,
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
-  DialogHeader,
   DialogTitle,
   Pill,
   toast,
@@ -76,10 +66,24 @@ const UiCloseIcon = conceptIcon(`ui-close`)
 // EXP-1212: a draft WITH content never goes silently (`draftExitPrompt`). The
 // `×` first asks the destructive discard confirm; every other in-app
 // navigation (Back, a sidebar or tab bar entry, another screen) is HELD by
-// the router blocker and asks Create · Keep as draft · Discard, then
+// the router blocker and asks Discard · Create issue · Save draft, then
 // continues to where the person was going. The page's own exits (a filed
 // Create, a confirmed Discard) bypass it; closing the browser tab does not
 // ask (the autosave keeps the draft).
+
+// EXP-1212: the two prompts are ONE structure (`Dialog` + `mobile="alert"`,
+// no ✕, no body) on phone AND desktop widths: a tight centred card (20px
+// padding, the panel's 16px gap between the one-line question and the row)
+// and ONE row of the app's 32px `Pill` capsules — the same capsules iOS and
+// Android draw (`GlassAlert`). `flex-wrap` stacks only what cannot fit;
+// `DialogFooter`'s phone stacking targets `data-slot=button`, never a pill.
+const DRAFT_PROMPT_CARD = `p-5 sm:max-w-md sm:p-5`
+const DRAFT_PROMPT_ROW = `flex-row flex-wrap items-center justify-end`
+/** The confirm's Discard: the plain pill, destructive label + tinted border. */
+const DRAFT_PROMPT_DESTRUCTIVE_PILL = `border-destructive/40 text-destructive hover:text-destructive`
+/** The leave prompt's leading Discard: pill-sized destructive TEXT, no
+ * chrome; `-ml-3` (the pill's `px-3`) lines the word up with the question. */
+const DRAFT_PROMPT_QUIET_DISCARD = `-ml-3 mr-auto border-transparent bg-transparent text-destructive hover:bg-transparent hover:text-destructive`
 
 export interface IssueDraftPageProps {
   draftId: string
@@ -248,9 +252,11 @@ export function IssueDraftPage({
     resolveLeave(async () => (await editor.create()) !== null)
   const leaveKeep = () => resolveLeave(() => editor.leave())
   const leaveDiscard = () => resolveLeave(() => editor.discard())
-  // R5: the dialog opens on "Keep as draft", never on the destructive
-  // Discard (Radix would focus the first button, and Enter would delete).
+  // R5: the dialog opens on its default "Save draft", never on the
+  // destructive Discard (Radix would focus the first button, and Enter
+  // would delete).
   const leaveKeepRef = useRef<HTMLButtonElement | null>(null)
+  const discardCancelRef = useRef<HTMLButtonElement | null>(null)
 
   // Cmd/Ctrl+Enter anywhere on the page files it. Capture phase, so the
   // description editor never sees it as its own hard break. Only for keys
@@ -496,40 +502,56 @@ export function IssueDraftPage({
   )
 
   // EXP-1212: the destructive confirm the `×` raises on a draft with content.
+  // ONE line (the question) over ONE trailing row: Cancel (initial focus, so
+  // Discard is never the default) and Discard, the plain pill in the
+  // destructive colour, no solid red block. An alert dialog by role.
   const discardConfirm = (
-    <AlertDialog
+    <Dialog
       open={discardConfirmOpen}
       onOpenChange={(open) => {
         if (!open) setDiscardConfirmOpen(false)
       }}
     >
-      <AlertDialogContent data-testid="issue-draft-discard-confirm">
-        <AlertDialogHeader>
-          <AlertDialogTitle>
-            {ISSUE_DRAFT_COPY.discardConfirm.title}
-          </AlertDialogTitle>
-          <AlertDialogDescription>
-            {ISSUE_DRAFT_COPY.discardConfirm.body}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            className="bg-destructive text-white hover:bg-destructive/90"
-            onClick={(event) => {
-              event.preventDefault()
-              void handleDiscard()
-            }}
+      <DialogContent
+        mobile="alert"
+        role="alertdialog"
+        showCloseButton={false}
+        aria-describedby={undefined}
+        className={DRAFT_PROMPT_CARD}
+        data-testid="issue-draft-discard-confirm"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault()
+          discardCancelRef.current?.focus()
+        }}
+      >
+        <DialogTitle>{ISSUE_DRAFT_COPY.discardConfirm.title}</DialogTitle>
+        <DialogFooter className={DRAFT_PROMPT_ROW}>
+          <Pill
+            ref={discardCancelRef}
+            size="md"
+            mode="action"
+            onClick={() => setDiscardConfirmOpen(false)}
+          >
+            Cancel
+          </Pill>
+          <Pill
+            size="md"
+            mode="action"
+            className={DRAFT_PROMPT_DESTRUCTIVE_PILL}
+            onClick={() => void handleDiscard()}
           >
             {ISSUE_DRAFT_COPY.discardConfirm.confirm}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+          </Pill>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 
-  // EXP-1212: the held navigation's three choices (the blocked-start
-  // dialog's shape). Dismissing it (Esc, scrim) stays on the page.
+  // EXP-1212: the held navigation's three answers, Thunderbird's save
+  // prompt: a quiet destructive Discard set apart on the leading edge, then
+  // Create issue (the plain pill) and the DEFAULT Save draft (the primary
+  // pill, initial focus, so Enter keeps). No ✕: dismissing (Esc, scrim)
+  // stays on the page.
   const leaveDialog = (
     <Dialog
       open={blocker.status === `blocked`}
@@ -539,39 +561,44 @@ export function IssueDraftPage({
     >
       <DialogContent
         mobile="alert"
+        showCloseButton={false}
+        aria-describedby={undefined}
+        className={DRAFT_PROMPT_CARD}
         data-testid="issue-draft-leave-dialog"
         onOpenAutoFocus={(event) => {
           event.preventDefault()
           leaveKeepRef.current?.focus()
         }}
       >
-        <DialogHeader>
-          <DialogTitle>{ISSUE_DRAFT_COPY.leave.title}</DialogTitle>
-          <DialogDescription>{ISSUE_DRAFT_COPY.leave.body}</DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <Button
-            variant="destructive"
-            className="bg-destructive text-white hover:bg-destructive/90 dark:bg-destructive"
+        <DialogTitle>{ISSUE_DRAFT_COPY.leave.title}</DialogTitle>
+        <DialogFooter className={DRAFT_PROMPT_ROW}>
+          <Pill
+            size="md"
+            mode="action"
+            className={DRAFT_PROMPT_QUIET_DISCARD}
             disabled={leaveBusy}
             onClick={() => void leaveDiscard()}
           >
             {ISSUE_DRAFT_COPY.leave.discard}
-          </Button>
-          <Button
-            ref={leaveKeepRef}
-            variant="outline"
-            disabled={leaveBusy}
-            onClick={() => void leaveKeep()}
-          >
-            {ISSUE_DRAFT_COPY.leave.keep}
-          </Button>
-          <Button
+          </Pill>
+          <Pill
+            size="md"
+            mode="action"
             disabled={leaveBusy || !editor.canCreate}
             onClick={() => void leaveCreate()}
           >
             {ISSUE_DRAFT_COPY.leave.create}
-          </Button>
+          </Pill>
+          <Pill
+            ref={leaveKeepRef}
+            size="md"
+            mode="action"
+            primary
+            disabled={leaveBusy}
+            onClick={() => void leaveKeep()}
+          >
+            {ISSUE_DRAFT_COPY.leave.keep}
+          </Pill>
         </DialogFooter>
       </DialogContent>
     </Dialog>

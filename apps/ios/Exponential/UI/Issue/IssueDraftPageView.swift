@@ -120,27 +120,27 @@ struct IssueDraftPageView: View {
             if focused == nil { vm.saveNow() }
         }
         // EXP-1212: the app's own centred alert card (`GlassAlert`), never
-        // the system alert / confirmation popover. Discard sits on top, the
-        // web phone order; a scrim tap = Cancel.
+        // the system alert / confirmation popover: one question, then one
+        // compact row, Cancel · Discard (destructive text on the outline
+        // pill) trailing; a scrim tap = Cancel.
         .glassAlert(
             isPresented: $confirmDiscard,
             title: IssueDraftPage.DiscardConfirm.title,
-            message: IssueDraftPage.DiscardConfirm.body,
             actions: [
+                GlassAlertAction("Cancel", role: .outline, id: "cancel") {},
                 GlassAlertAction(IssueDraftPage.DiscardConfirm.confirm, role: .destructive, id: "discard") {
                     discardAndClose()
                 },
-                GlassAlertAction("Cancel", role: .outline, id: "cancel") {},
             ]
         )
-        // The leave dialog: top to bottom Create · Keep as draft · Discard;
-        // a sub-issue draft offers no Keep (`IssueDraftPage.leaveChoices`),
-        // and Create without a title shows disabled, never hidden. A scrim
-        // tap is the no-answer path (Cancel).
+        // The leave dialog: Discard (quiet, leading) … Create issue · Save
+        // draft (the default, primary); a sub-issue draft offers no Keep
+        // (`IssueDraftPage.leaveChoices`), so Create issue is the primary
+        // there; Create without a title shows disabled, never hidden. A
+        // scrim tap is the no-answer path (Cancel).
         .glassAlert(
             isPresented: $leavePresented,
             title: IssueDraftPage.Leave.title,
-            message: IssueDraftPage.Leave.body,
             actions: leaveActions,
             onDismiss: { answerLeave(nil) }
         )
@@ -260,23 +260,28 @@ struct IssueDraftPageView: View {
         return true
     }
 
-    /// The leave dialog's buttons, in `vm.leaveChoices` order.
+    /// The leave dialog's buttons in reading order: Discard (leading), then
+    /// Create issue, then Save draft. Save draft is the primary; without it
+    /// Create issue is.
     private var leaveActions: [GlassAlertAction] {
-        vm.leaveChoices.map { choice in
+        let choices = vm.leaveChoices
+        let canKeep = choices.contains(.keep)
+        let order: [IssueDraftPage.LeaveChoice] = [.discard, .create, .keep]
+        return order.filter(choices.contains).map { choice in
             switch choice {
             case .create:
                 GlassAlertAction(
                     IssueDraftPage.Leave.create,
-                    role: .primary,
+                    role: canKeep ? .outline : .primary,
                     enabled: IssueDraftPage.leaveCreateEnabled(title: vm.title, creating: vm.creating),
                     id: "leave-create"
                 ) { answerLeave(.create) }
             case .keep:
-                GlassAlertAction(IssueDraftPage.Leave.keep, role: .outline, id: "leave-keep") {
+                GlassAlertAction(IssueDraftPage.Leave.keep, role: .primary, id: "leave-keep") {
                     answerLeave(.keep)
                 }
             case .discard:
-                GlassAlertAction(IssueDraftPage.Leave.discard, role: .destructive, id: "leave-discard") {
+                GlassAlertAction(IssueDraftPage.Leave.discard, role: .quietDestructive, id: "leave-discard") {
                     answerLeave(.discard)
                 }
             }

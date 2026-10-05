@@ -22,21 +22,23 @@ public enum IssueDraftPage {
 
     /// EXP-1212: the close button on a draft WITH content asks first.
     public enum DiscardConfirm {
-        public static let title = "Discard draft?"
-        public static let body = "This draft and its files will be deleted."
+        /// The prompt's ONE line: the question, no body.
+        public static let title = "Discard this draft and its files?"
         /// The destructive answer; the other is the platform's Cancel.
         public static let confirm = "Discard"
     }
 
     /// EXP-1212: leaving a draft WITH content any other way is HELD and asks.
     public enum Leave {
-        public static let title = "This issue is still a draft"
-        public static let body = "Create it now, keep it as a draft or discard it."
-        /// The page's Create; the held navigation then continues.
-        public static let create = "Create"
-        /// Save, then continue.
-        public static let keep = "Keep as draft"
-        /// Delete, then continue (destructive, no second confirmation).
+        /// The prompt's ONE line: the question, no body.
+        public static let title = "Save this issue as a draft?"
+        /// The page's Create (the secondary button); the held navigation
+        /// then continues.
+        public static let create = "Create issue"
+        /// Save, then continue: the DEFAULT answer (primary, Return).
+        public static let keep = "Save draft"
+        /// Delete, then continue (a quiet destructive text button on the
+        /// leading edge, never focused; no second confirmation).
         public static let discard = "Discard"
     }
 

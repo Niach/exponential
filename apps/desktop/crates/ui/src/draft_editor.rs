@@ -422,7 +422,7 @@ impl DraftEditor {
         action
     }
 
-    /// EXP-1212 (R3): the leave dialog's "Keep as draft" — save NOW and answer,
+    /// EXP-1212 (R3): the leave dialog's "Save draft" — save NOW and answer,
     /// once the write queue has drained, whether the last write succeeded
     /// (`false` = the page stays; the failure toasted as the normal "Could
     /// not save the draft" error, even after a quiet autosave failure). A

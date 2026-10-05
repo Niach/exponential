@@ -14,13 +14,11 @@ final class IssueDraftPageTests: XCTestCase {
 
         struct DiscardConfirm: Decodable, Equatable {
             let title: String
-            let body: String
             let confirm: String
         }
 
         struct Leave: Decodable, Equatable {
             let title: String
-            let body: String
             let create: String
             let keep: String
             let discard: String
@@ -81,10 +79,8 @@ final class IssueDraftPageTests: XCTestCase {
             "discard": IssueDraftPage.discard,
             "untitled": IssueDraftPage.untitled,
             "discardConfirm.title": IssueDraftPage.DiscardConfirm.title,
-            "discardConfirm.body": IssueDraftPage.DiscardConfirm.body,
             "discardConfirm.confirm": IssueDraftPage.DiscardConfirm.confirm,
             "leave.title": IssueDraftPage.Leave.title,
-            "leave.body": IssueDraftPage.Leave.body,
             "leave.create": IssueDraftPage.Leave.create,
             "leave.keep": IssueDraftPage.Leave.keep,
             "leave.discard": IssueDraftPage.Leave.discard,
@@ -97,10 +93,8 @@ final class IssueDraftPageTests: XCTestCase {
             "discard": copy.discard,
             "untitled": copy.untitled,
             "discardConfirm.title": copy.discardConfirm.title,
-            "discardConfirm.body": copy.discardConfirm.body,
             "discardConfirm.confirm": copy.discardConfirm.confirm,
             "leave.title": copy.leave.title,
-            "leave.body": copy.leave.body,
             "leave.create": copy.leave.create,
             "leave.keep": copy.leave.keep,
             "leave.discard": copy.leave.discard,
