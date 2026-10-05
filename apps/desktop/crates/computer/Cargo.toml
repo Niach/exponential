@@ -52,3 +52,6 @@ windows = { version = "0.61", features = [
 # message until the portal backend lands.
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 x11rb = { version = "0.13", features = ["xtest", "screensaver", "randr"] }
+# read_ui over AT-SPI: D-Bus in pure Rust (its own async-io thread, no tokio);
+# the version the IDE's gpui already resolves.
+zbus = "5"

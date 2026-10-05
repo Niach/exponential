@@ -1,6 +1,6 @@
 //! Manual probe of the real backend, off the main thread like the server:
 //! `cargo run -p computer --example probe -- [shot <path>] [display N <path>] [window ID <path>]
-//! [ui] [click X Y] [scroll X Y DY] [type TEXT] [key CHORD] [focus ID]`.
+//! [ui] [uiwindow ID] [click X Y] [scroll X Y DY] [type TEXT] [key CHORD] [focus ID]`.
 
 use computer::backend::{self, Button, Target};
 use computer::guard::Guard;
@@ -30,6 +30,7 @@ fn main() {
                     })
                 }
                 "ui" => guard.read_ui(mapping, None),
+                "uiwindow" => guard.read_ui(mapping, Some(next().parse().unwrap())),
                 "click" => {
                     let (x, y) = (next().parse().unwrap(), next().parse().unwrap());
                     guard.click(mapping, x, y, Button::Left, 1)

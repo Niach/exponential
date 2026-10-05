@@ -16,6 +16,8 @@ pub mod backend;
 pub mod guard;
 mod server;
 
+#[cfg(all(unix, not(target_os = "macos")))]
+mod atspi;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod desktop;
 #[cfg(test)]

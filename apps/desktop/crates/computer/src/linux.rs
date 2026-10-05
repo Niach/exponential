@@ -28,6 +28,8 @@ pub struct X11Backend {
     height: u16,
     min_keycode: u8,
     max_keycode: u8,
+    /// The server's image byte order.
+    lsb_first: bool,
     atoms: Atoms,
 }
 
@@ -68,6 +70,7 @@ impl X11Backend {
         let screen = &setup.roots[screen_index];
         let (root, width, height) = (screen.root, screen.width_in_pixels, screen.height_in_pixels);
         let (min_keycode, max_keycode) = (setup.min_keycode, setup.max_keycode);
+        let lsb_first = setup.image_byte_order == xproto::ImageOrder::LSB_FIRST;
         x(x(conn.xtest_get_version(2, 2))?.reply())
             .map_err(|_| "The X server has no XTEST extension, so input cannot be sent.".to_string())?;
         let atom = |name: &[u8]| -> BackendResult<Atom> {
@@ -81,7 +84,7 @@ impl X11Backend {
             wm_pid: atom(b"_NET_WM_PID")?,
             utf8_string: atom(b"UTF8_STRING")?,
         };
-        Ok(Self { conn, root, width, height, min_keycode, max_keycode, atoms })
+        Ok(Self { conn, root, width, height, min_keycode, max_keycode, lsb_first, atoms })
     }
 
     /// The monitors on the one X screen, primary first. Without RandR 1.5
@@ -313,24 +316,37 @@ impl Backend for X11Backend {
             }
         };
         let (width, height) = (area.width as u16, area.height as u16);
-        let reply = x(x(self.conn.get_image(
-            ImageFormat::Z_PIXMAP,
-            self.root,
-            area.x as i16,
-            area.y as i16,
-            width,
-            height,
-            u32::MAX,
-        ))?
-        .reply())?;
+        let image = |drawable: Window, x_pos: f64, y_pos: f64| {
+            x(x(self.conn.get_image(
+                ImageFormat::Z_PIXMAP,
+                drawable,
+                x_pos as i16,
+                y_pos as i16,
+                width,
+                height,
+                u32::MAX,
+            ))?
+            .reply())
+        };
+        // A window reads its own pixels (under a compositor even where it is
+        // covered); the screen region is the fallback.
+        let reply = match target {
+            Target::Window(id) => {
+                let rect = self.rect(id).unwrap_or(area);
+                image(id, area.x - rect.x, area.y - rect.y).or_else(|_| image(self.root, area.x, area.y))?
+            }
+            Target::Display(_) => image(self.root, area.x, area.y)?,
+        };
         let pixels = usize::from(width) * usize::from(height);
         if reply.depth < 24 || reply.data.len() < pixels * 4 {
             return Err(format!("The X server returned a {}-bit image this build cannot read.", reply.depth));
         }
-        // 24/32-bit ZPixmap is BGRX, four bytes a pixel.
+        // 24/32-bit ZPixmap is four bytes a pixel: B G R X in LSB-first
+        // order, X R G B in MSB-first.
+        let (r, g, b) = if self.lsb_first { (2, 1, 0) } else { (1, 2, 3) };
         let mut rgba = Vec::with_capacity(pixels * 4);
         for pixel in reply.data.chunks_exact(4).take(pixels) {
-            rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], 255]);
+            rgba.extend_from_slice(&[pixel[r], pixel[g], pixel[b], 255]);
         }
         let image = image::RgbaImage::from_raw(u32::from(width), u32::from(height), rgba)
             .ok_or("The captured image has an unexpected size.")?;
@@ -444,7 +460,18 @@ impl Backend for X11Backend {
         Some(Duration::from_millis(u64::from(reply.ms_since_user_input)))
     }
 
-    fn read_ui(&self, _window: Option<u32>) -> Option<BackendResult<Vec<UiNode>>> {
-        None
+    fn read_ui(&self, window: Option<u32>) -> Option<BackendResult<Vec<UiNode>>> {
+        let info = match window {
+            Some(id) => self.windows().and_then(|windows| {
+                windows
+                    .into_iter()
+                    .find(|info| info.id == id)
+                    .ok_or_else(|| format!("No window has id {id}; call list_windows."))
+            }),
+            None => self.focused().ok_or_else(|| {
+                "No window has focus; pass a window id from list_windows.".to_string()
+            }),
+        };
+        Some(info.and_then(|info| crate::atspi::read_ui(info.pid, &info.app, &info.title, Some(info.rect))))
     }
 }
