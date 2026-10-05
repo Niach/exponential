@@ -32,14 +32,12 @@ import { issueWireColumns } from "@/lib/issue-columns"
 import {
   closePullRequest,
   diagnoseUnmergeablePr,
-  fetchPullFiles,
   getPullRequest,
   GitHubAsyncMergePending,
   GitHubMergeError,
   mergedByPerson,
   mergedByPersonNote,
   mergePullRequestSmart,
-  type PullFile,
   resolvePrBaseState,
   retargetPullRequest,
 } from "@/lib/integrations/github-pr"
@@ -124,20 +122,9 @@ import {
   syncDuplicateMirror,
   syncReferenceRelations,
 } from "@/lib/issue-relations"
-import { TtlPromiseCache } from "@/lib/ttl-promise-cache"
+import { loadPrFiles } from "@/lib/integrations/pr-files"
 
-// EXP-1154: every md+ issue view with an open PR asks `prFiles`, so a warm
-// answer must not first resolve an installation token (an uncached App-JWT
-// round-trip). Keyed by PR, same 60s as `fetchPullFiles`' own cache, which
-// still holds the per-auth-posture answers underneath. Rejections evict.
-const prFilesAnswerCache = new TtlPromiseCache<PullFile[]>({
-  ttlMs: 60_000,
-  maxEntries: 200,
-})
-
-export function _clearPrFilesAnswerCache() {
-  prFilesAnswerCache.clear()
-}
+export { _clearPrFilesAnswerCache } from "@/lib/integrations/pr-files"
 
 // Extract `owner/repo` from a GitHub PR URL
 // (https://github.com/owner/repo/pull/123). Returns null if it doesn't match.
@@ -2423,37 +2410,9 @@ export const issuesRouter = router({
         .where(eq(issues.id, input.issueId))
         .limit(1)
 
-      // Derive owner/repo from the PR URL (repos no longer live on boards —
+      // The repo comes from the PR URL (repos no longer live on boards —
       // they moved to the server-only repositories registry).
-      const repo = row?.prUrl ? repoFromPrUrl(row.prUrl) : null
-      if (!row?.prNumber || !repo) {
-        return { repo: null as string | null, prNumber: null, files: [] }
-      }
-
-      // Link-gate (mirrors repositories.installationToken): the installation
-      // serving this repo must still be claimed by the issue's team — a
-      // deliberately severed GitHub connection must not keep exposing
-      // private-repo PR contents through an old prUrl. The token is resolved
-      // only on a miss of the per-PR answer cache.
-      const prNumber = row.prNumber
-      try {
-        const files = await prFilesAnswerCache.get(
-          `${repo}#${prNumber}`,
-          async () => {
-            const resolved = await resolveRepoInstallationTokenInfo(repo)
-            return fetchPullFiles(repo, prNumber, resolved?.token)
-          }
-        )
-        return { repo, prNumber, files }
-      } catch (err) {
-        throw new TRPCError({
-          code: `BAD_GATEWAY`,
-          message:
-            err instanceof Error
-              ? err.message
-              : `Failed to load changes from GitHub`,
-        })
-      }
+      return loadPrFiles(row?.prUrl ?? null, row?.prNumber ?? null)
     }),
 
   // Point read of ONE issue by row UUID or human identifier ("EXP-42").

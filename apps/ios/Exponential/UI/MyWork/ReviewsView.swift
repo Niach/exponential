@@ -285,63 +285,68 @@ struct ReviewsListContent: View {
         }
     }
 
-    /// EXP-734: one agent run's own pull request. There is no issue and no
-    /// diff screen behind it, so the row opens the PR on GitHub; Merge lives
-    /// on the swipe and in the context menu, like the issue rows'.
+    /// EXP-734: one agent run's own pull request. EXP-1194: the row opens
+    /// OUR review of it — the Changes face fed by `codingSessions.prFiles`
+    /// (`AppRoute.runChanges`), like an issue row opens its issue's; Merge
+    /// lives on the pill, the swipe and the context menu (with Open on GitHub),
+    /// like the issue rows'.
     @ViewBuilder
     private func runEntryRow(_ entry: RunReviewEntry) -> some View {
         let key = runKey(entry)
+        // The caption lives OUTSIDE the NavigationLink, like `entryRow`'s.
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .center, spacing: 10) {
-                AppIcon(AppIcons.prOpen, size: AppIcon.Size.small)
-                    .foregroundStyle(IssueStatus.inReview.color)
-                    .frame(width: 16)
+            NavigationLink(value: AppRoute.runChanges(
+                accountId: accountId, sessionId: entry.session.id
+            )) {
+                HStack(alignment: .center, spacing: 10) {
+                    AppIcon(AppIcons.prOpen, size: AppIcon.Size.small)
+                        .foregroundStyle(IssueStatus.inReview.color)
+                        .frame(width: 16)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        if let prNumber = entry.prNumber {
-                            Text("#\(prNumber)")
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            if let prNumber = entry.prNumber {
+                                Text("#\(prNumber)")
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            }
+                            Text(entry.title)
+                                .font(.subheadline)
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                        }
+
+                        if let branch = entry.branch, !branch.isEmpty {
+                            Text(branch)
                                 .font(.caption.monospaced())
+                                .lineLimit(1)
                                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         }
-                        Text(entry.title)
-                            .font(.subheadline)
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
                     }
 
-                    if let branch = entry.branch, !branch.isEmpty {
-                        Text(branch)
-                            .font(.caption.monospaced())
-                            .lineLimit(1)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    }
-                }
+                    Spacer(minLength: 8)
 
-                Spacer(minLength: 8)
-
-                GlassPill("Merge") {
-                    if merging.contains(key) {
-                        ProgressView().controlSize(.mini)
-                    } else {
-                        AppIcon(AppIcons.prMerged, size: GlassPillTokens.glyphSm)
+                    GlassPill("Merge") {
+                        if merging.contains(key) {
+                            ProgressView().controlSize(.mini)
+                        } else {
+                            AppIcon(AppIcons.prMerged, size: GlassPillTokens.glyphSm)
+                        }
                     }
+                    .contentShape(Capsule())
+                    .onTapGesture {
+                        guard !merging.contains(key) else { return }
+                        runMergeTarget = entry
+                    }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityLabel("Merge pull request")
                 }
-                .contentShape(Capsule())
-                .onTapGesture {
-                    guard !merging.contains(key) else { return }
-                    runMergeTarget = entry
-                }
-                .accessibilityAddTraits(.isButton)
-                .accessibilityLabel("Merge pull request")
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .glassRow()
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .glassRow()
-            .contentShape(Rectangle())
-            .onTapGesture {
-                if let url = entry.prUrl.flatMap(URL.init(string:)) { openURL(url) }
-            }
+            .buttonStyle(.plain)
             .swipeActions(edge: .trailing) {
                 Button { runMergeTarget = entry } label: {
                     Label("Merge", appIcon: AppIcons.prMerged)

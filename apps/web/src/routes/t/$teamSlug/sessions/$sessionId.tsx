@@ -1,4 +1,5 @@
-import { useCallback, useMemo, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
+import type { DiffFile } from "@exp/domain-contract/diff"
 import {
   createFileRoute,
   Link,
@@ -23,6 +24,7 @@ import {
   WORK_COLUMN_CLASS,
 } from "@exp/ui"
 import { IssueResultsBody } from "@/components/issue-results-face"
+import { IssueChangesBody } from "@/components/issue-changes-face"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import type { WorkFace } from "@/components/team/work-face-toggle"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
@@ -30,7 +32,8 @@ import { sessionDescendantIds, sessionTree } from "@/lib/sessions/session-tree"
 import { originListNavigation, parseOrigin } from "@/lib/detail-origin"
 import { useOpenComposer } from "@/hooks/use-open-composer"
 import { useOpenSession } from "@/hooks/use-open-session"
-import { useReviewFiles } from "@/hooks/use-review-files"
+import { useReviewFiles, useSessionPrFiles } from "@/hooks/use-review-files"
+import { publishReviewFiles } from "@/lib/review-files-slot"
 import type { Board, CodingSession, Issue, Team } from "@/db/schema"
 import {
   rowPrState,
@@ -168,6 +171,17 @@ function SessionPage() {
   // EXP-312: a teammate's run — the synced row is all this client may ever
   // see. No AgentSessionView, so no ticket is minted.
   if (session.userId !== currentUserId) {
+    // EXP-1194: the diff is the PR's, not the transcript's — a teammate
+    // reviews it read-only, like the report.
+    if (view === `diff` && session.prUrl) {
+      return (
+        <TeammateRunChanges
+          session={session}
+          title={identity.subject}
+          onBack={goBack}
+        />
+      )
+    }
     if (view === `results`) {
       return (
         <TeammateRunResults
@@ -332,8 +346,19 @@ function OwnSessionPage({
   const { state: prFilesState } = useReviewFiles(prIssue, {
     enabled: isMobile && (face === `diff` || prIssue?.prState === `open`),
   })
+  // EXP-1194: a run with no issue to key its PR on (a chat or action run's
+  // chore PR) reads it by the run — on EVERY width, since no issue route
+  // draws its Changes face on md+ (Reviews opens it here).
+  const { state: runPrFilesState } = useSessionPrFiles(
+    prIssue ? null : session,
+    {
+      enabled:
+        face === `diff` || (isMobile && session.prState === `open`),
+    }
+  )
+  const shownPrFilesState = prIssue ? prFilesState : runPrFilesState
   const prFiles =
-    prFilesState.kind === `files` ? prFilesState.files : null
+    shownPrFilesState.kind === `files` ? shownPrFilesState.files : null
   const prUrl = prIssue?.prUrl ?? session.prUrl ?? null
 
   // EXP-893: the switcher's `Start coding` row once this run ended for good
@@ -528,6 +553,59 @@ export function TeammateRunResults({
           </p>
         </div>
       )}
+    </div>
+  )
+}
+
+/** EXP-1194: a teammate's run on `?view=diff`: its PR files
+ *  (`codingSessions.prFiles`), read-only under the stub's header with the
+ *  GitHub button. Like `TeammateRunResults`, no view mount, no ticket. */
+const EMPTY_FILES: readonly DiffFile[] = []
+
+function TeammateRunChanges({
+  session,
+  title,
+  onBack,
+}: {
+  session: CodingSession
+  title: string
+  onBack: () => void
+}) {
+  const isMobile = useIsMobile()
+  const { state, reload } = useSessionPrFiles(session)
+  const [selected, setSelected] = useState<string | null>(null)
+  // EXP-945: on md+ the file TREE is the sidebar's panel, as on the owner's
+  // Changes face; its back row leaves the run like the header's.
+  const files = state.kind === `files` ? state.files : EMPTY_FILES
+  useEffect(() => {
+    if (isMobile) return
+    publishReviewFiles({
+      subjectId: session.id,
+      status: state.kind,
+      files,
+      selected,
+      onSelect: setSelected,
+      back: { label: title, onBack },
+    })
+  }, [isMobile, session.id, state.kind, files, selected, title, onBack])
+  useEffect(() => () => publishReviewFiles(null), [])
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <MobileDetailHeader
+        title={title}
+        onBack={onBack}
+        menu={session.prUrl ? <PrGithubButton prUrl={session.prUrl} /> : undefined}
+      />
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className={WORK_COLUMN_CLASS}>
+          <IssueChangesBody
+            state={state}
+            selected={selected}
+            onSelect={setSelected}
+            onRetry={reload}
+          />
+        </div>
+      </div>
     </div>
   )
 }

@@ -79,6 +79,7 @@ import com.exponential.app.ui.issue.IssueListScreen
 import com.exponential.app.ui.actions.ActionDetailScreen
 import com.exponential.app.ui.actions.ActionsScreen
 import com.exponential.app.ui.search.SearchScreen
+import com.exponential.app.ui.work.RunChangesScreen
 import com.exponential.app.ui.work.WorkScreen
 import com.exponential.app.domain.WorkFaceKind
 import com.exponential.app.ui.work.WorkSubject
@@ -608,7 +609,17 @@ private fun AuthenticatedNav(
             ReviewsScreen(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenChanges = { id -> navController.navigate("issue/$id?face=changes") },
+                // EXP-1194: an Agent runs row opens the run's own PR in OUR diff UI.
+                onOpenRunChanges = { id -> navController.navigate("runChanges/$id") },
                 onOpenAgent = openAgent,
+            )
+        }
+        composable("runChanges/{sessionId}") { entry ->
+            // EXP-1194: the Changes face of a run's own issue-less PR.
+            val sessionId = entry.arguments?.getString("sessionId").orEmpty()
+            RunChangesScreen(
+                sessionId = sessionId,
+                onBack = { navController.popBackStack() },
             )
         }
         composable("settings") {

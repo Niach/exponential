@@ -2,6 +2,7 @@ package com.exponential.app.ui.work
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.exponential.app.data.api.CodingSessionsApi
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.PrDescription
 import com.exponential.app.data.api.PrFilesApi
@@ -10,6 +11,7 @@ import com.exponential.app.data.api.RepositoriesApi
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.BoardEntity
+import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.accountDatabaseFlow
@@ -29,6 +31,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -38,6 +41,15 @@ import kotlinx.coroutines.launch
 // Merge / Close PR actions and the Results face's PR-body fallback
 // (issues.prDescription). The standalone review page it used to back is gone:
 // a review IS the issue's Work screen on its Changes face.
+// EXP-1194: a RUN's own issue-less PR (Reviews → Agent runs) loads through the
+// same model off `codingSessions.prFiles` — no branch-diff fallback, no
+// PR-body fallback, no Close PR, no stack (none of them exist for a run).
+
+/** What the Changes model reads — an issue's PR, or a run's own PR. */
+sealed interface ChangesSource {
+    data class Issue(val id: String) : ChangesSource
+    data class Session(val id: String) : ChangesSource
+}
 
 sealed interface ChangesLoadState {
     data object Loading : ChangesLoadState
@@ -54,24 +66,38 @@ sealed interface PrDescriptionState {
 
 @HiltViewModel(assistedFactory = ChangesViewModel.Factory::class)
 class ChangesViewModel @AssistedInject constructor(
-    /** EXP-893: assisted — the Work screen keys one per issue. */
-    @Assisted val issueId: String,
+    /** EXP-893: assisted — the Work screen keys one per issue; EXP-1194 one per run. */
+    @Assisted val source: ChangesSource,
     holder: DatabaseHolder,
     private val auth: AuthRepository,
     private val prFilesApi: PrFilesApi,
     private val repositoriesApi: RepositoriesApi,
     private val issuesApi: IssuesApi,
+    private val codingSessionsApi: CodingSessionsApi,
 ) : ViewModel() {
 
     @AssistedFactory
     interface Factory {
-        fun create(issueId: String): ChangesViewModel
+        fun create(source: ChangesSource): ChangesViewModel
     }
+
+    /** The issue subject's id; null for a run's own PR. */
+    val issueId: String? = (source as? ChangesSource.Issue)?.id
+
+    /** EXP-1194: the run subject's id; null for an issue. */
+    val sessionId: String? = (source as? ChangesSource.Session)?.id
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
     val issue: StateFlow<IssueEntity?> =
-        dbFlow.scopedQuery<IssueEntity?>(null) { it.issueDao().observeById(issueId) }
+        (issueId?.let { id -> dbFlow.scopedQuery<IssueEntity?>(null) { it.issueDao().observeById(id) } }
+            ?: flowOf(null))
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** EXP-1194: the run whose own PR this reviews (title, PR url + state). */
+    val session: StateFlow<CodingSessionEntity?> =
+        (sessionId?.let { id -> dbFlow.scopedQuery<CodingSessionEntity?>(null) { it.codingSessionDao().observeById(id) } }
+            ?: flowOf(null))
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // EXP-1145: the synced issues and boards, so a plain Merge on a stack
@@ -132,10 +158,12 @@ class ChangesViewModel @AssistedInject constructor(
     init {
         // Re-fetch when the diff source flips (a PR opens on a watched branch).
         viewModelScope.launch {
-            issue.filterNotNull()
-                .map { it.prUrl.isNullOrBlank() }
-                .distinctUntilChanged()
-                .collectLatest { refresh() }
+            val prMissing: Flow<Boolean> = if (sessionId != null) {
+                session.filterNotNull().map { it.prUrl.isNullOrBlank() }
+            } else {
+                issue.filterNotNull().map { it.prUrl.isNullOrBlank() }
+            }
+            prMissing.distinctUntilChanged().collectLatest { refresh() }
         }
     }
 
@@ -145,11 +173,17 @@ class ChangesViewModel @AssistedInject constructor(
             try {
                 val accountId = auth.activeAccountId.value
                     ?: throw IllegalStateException("No active account")
-                val hasPr = !issue.value?.prUrl.isNullOrBlank()
-                val files = if (hasPr) {
-                    prFilesApi.get(accountId, issueId).files
-                } else {
-                    repositoriesApi.branchDiff(accountId, issueId)?.files ?: emptyList()
+                val files = when (source) {
+                    // EXP-1194: the run's own PR only — no branch fallback.
+                    is ChangesSource.Session -> prFilesApi.forSession(accountId, source.id).files
+                    is ChangesSource.Issue -> {
+                        val hasPr = !issue.value?.prUrl.isNullOrBlank()
+                        if (hasPr) {
+                            prFilesApi.get(accountId, source.id).files
+                        } else {
+                            repositoriesApi.branchDiff(accountId, source.id)?.files ?: emptyList()
+                        }
+                    }
                 }
                 _load.value = ChangesLoadState.Loaded(files)
             } catch (t: Throwable) {
@@ -165,6 +199,7 @@ class ChangesViewModel @AssistedInject constructor(
      * later call retries it.
      */
     fun loadDescription() {
+        val issueId = issueId ?: return
         val current = _prDescription.value
         if (current is PrDescriptionState.Loading || current is PrDescriptionState.Loaded) return
         viewModelScope.launch {
@@ -182,8 +217,37 @@ class ChangesViewModel @AssistedInject constructor(
         }
     }
 
-    /** Squash-merge the issue's open PR via the GitHub App (batch PRs complete all linked issues). */
-    fun mergePr() = merge(issueId, mergeStack = false)
+    /**
+     * Squash-merge the issue's open PR via the GitHub App (batch PRs complete
+     * all linked issues); EXP-1194: a run's own PR via `codingSessions.mergePr`.
+     */
+    fun mergePr() {
+        when (source) {
+            is ChangesSource.Issue -> merge(source.id, mergeStack = false)
+            is ChangesSource.Session -> mergeSession(source.id)
+        }
+    }
+
+    /** EXP-734/EXP-1194: a run's own PR — nothing is completed. */
+    private fun mergeSession(sessionId: String) {
+        if (_merging.value || _closing.value) return
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            _merging.value = true
+            _actionError.value = null
+            _actionErrorFrom.value = null
+            _actionErrorIsConflict.value = false
+            runCatching { codingSessionsApi.mergePr(accountId, sessionId) }
+                .onFailure { t ->
+                    if (t is CancellationException) throw t
+                    val failure = MergeFailure.from(t, "The pull request could not be merged")
+                    _actionError.value = failure.message
+                    _actionErrorFrom.value = PrAction.Merge
+                    _actionErrorIsConflict.value = failure.isConflict
+                }
+            _merging.value = false
+        }
+    }
 
     /**
      * EXP-1145: merge the open stack bottom-up THROUGH [targetIssueId]
@@ -219,6 +283,7 @@ class ChangesViewModel @AssistedInject constructor(
 
     /** Close the issue's open PR WITHOUT merging (EXP-100 reject path). */
     fun closePr() {
+        val issueId = issueId ?: return
         if (_closing.value || _merging.value) return
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch

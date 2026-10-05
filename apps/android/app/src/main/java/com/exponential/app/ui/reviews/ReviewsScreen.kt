@@ -81,6 +81,8 @@ import com.exponential.app.ui.theme.glassCard
 fun ReviewsScreen(
     onOpenIssue: (String) -> Unit,
     onOpenChanges: (String) -> Unit,
+    /** EXP-1194: an Agent runs row — the run's own PR on the Changes face. */
+    onOpenRunChanges: (sessionId: String) -> Unit,
     // EXP-825: a row's "Fix conflicts" navigates to the Agent page composer
     // on the builtin action with this PR pre-picked (EXP-323).
     onOpenAgent: (AgentComposerSeed) -> Unit,
@@ -97,6 +99,7 @@ fun ReviewsScreen(
             ReviewsListContent(
                 onOpenIssue = onOpenIssue,
                 onOpenChanges = onOpenChanges,
+                onOpenRunChanges = onOpenRunChanges,
                 onOpenAgent = onOpenAgent,
             )
         }
@@ -108,6 +111,7 @@ fun ReviewsScreen(
 private fun ReviewsListContent(
     onOpenIssue: (String) -> Unit,
     onOpenChanges: (String) -> Unit,
+    onOpenRunChanges: (sessionId: String) -> Unit,
     onOpenAgent: (AgentComposerSeed) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ReviewsViewModel = hiltViewModel(),
@@ -179,6 +183,7 @@ private fun ReviewsListContent(
                         entry = entry,
                         failure = mergeErrors[entry.groupKey],
                         merging = entry.groupKey in merging,
+                        onClick = { onOpenRunChanges(entry.session.id) },
                         onMerge = { mergeRunTarget = entry },
                     )
                 }
@@ -290,8 +295,9 @@ private fun RunsHeader(teamName: String?) {
 }
 
 /**
- * One run's OWN pull request (EXP-734). There is no issue and so no Changes
- * face to open, so the row opens the PR on GitHub; merging goes through
+ * One run's OWN pull request (EXP-734). EXP-1194: the row opens OUR review of
+ * it — the Changes face fed by `codingSessions.prFiles` (GitHub sits in that
+ * screen's header), like an issue row opens its issue's; merging goes through
  * `codingSessions.mergePr` and completes nothing. No "Fix conflicts" here —
  * the recovery run takes an issue-linked PR as its input.
  */
@@ -300,20 +306,16 @@ private fun RunReviewRow(
     entry: RunReviewEntry,
     failure: MergeFailure?,
     merging: Boolean,
+    onClick: () -> Unit,
     onMerge: () -> Unit,
 ) {
-    val context = LocalContext.current
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .flatRow()
-                .clickable(enabled = entry.prUrl != null) {
-                    entry.prUrl?.let {
-                        CustomTabsIntent.Builder().build()
-                            .launchUrl(context, android.net.Uri.parse(it))
-                    }
-                }
+                .clickable(onClick = onClick)
+                .testTag("review-run-row")
                 .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
             verticalAlignment = Alignment.CenterVertically,
         ) {

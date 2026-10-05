@@ -289,6 +289,24 @@ struct PrChanges {
     files: Vec<coding::scm::DiffFile>,
 }
 
+/// Where [`SteerSessionView::load_pr_changes`] reads the fallback from: the
+/// bound issue (its PR, else its pushed branch), or — EXP-1194 — an
+/// issue-less run's OWN PR.
+enum PrChangesSource {
+    Issue { issue_id: String, has_pr: bool },
+    Run { session_id: String, pr_url: String },
+}
+
+impl PrChangesSource {
+    /// The [`PrChanges::key`] this fetch is held under.
+    fn key(&self) -> String {
+        match self {
+            Self::Issue { issue_id, has_pr } => format!("{issue_id}:{has_pr}"),
+            Self::Run { session_id, pr_url } => format!("run:{session_id}:{pr_url}"),
+        }
+    }
+}
+
 /// EXP-895 — how much of a tool row is SHOWN.
 ///
 /// The transcript runs inside the flow: exactly ONE row is expanded at a time
@@ -2505,6 +2523,11 @@ impl SteerSessionView {
     /// branch was never pushed). Only ever for a run that published NO diff
     /// of its own — a live local run's worktree is the better answer — and
     /// only once per issue+PR key, so a repaint never re-fetches.
+    ///
+    /// EXP-1194: an ISSUE-LESS run (chat, action, batch) holding a PR of its
+    /// own reads that PR's files by the RUN id (`codingSessions.prFiles`,
+    /// member-gated, so a teammate's run — no relay ticket, EXP-312 — still
+    /// has a Changes face; the Reviews "Agent runs" rows land on it).
     fn load_pr_changes(&mut self, cx: &mut gpui::Context<Self>) {
         if self.changes.is_some() {
             return;
@@ -2512,14 +2535,23 @@ impl SteerSessionView {
         let Some(row) = self.row.as_ref() else {
             return;
         };
-        let Some(issue_id) = row.issue_id.clone().filter(|id| !id.is_empty()) else {
-            return;
+        let source = match row.issue_id.clone().filter(|id| !id.is_empty()) {
+            Some(issue_id) => {
+                let has_pr = self
+                    .issue_row(cx)
+                    .and_then(|issue| issue.pr_number.clone())
+                    .is_some();
+                PrChangesSource::Issue { issue_id, has_pr }
+            }
+            None if row.pr_url.as_deref().is_some_and(|url| !url.is_empty()) => {
+                PrChangesSource::Run {
+                    session_id: row.id.clone(),
+                    pr_url: row.pr_url.clone().unwrap_or_default(),
+                }
+            }
+            None => return,
         };
-        let has_pr = self
-            .issue_row(cx)
-            .and_then(|issue| issue.pr_number.clone())
-            .is_some();
-        let key = format!("{issue_id}:{has_pr}");
+        let key = source.key();
         if self.pr_changes.as_ref().is_some_and(|held| held.key == key) {
             return;
         }
@@ -2532,15 +2564,23 @@ impl SteerSessionView {
             files: Vec::new(),
         });
         cx.spawn(async move |this, cx| {
-            let fetch_id = issue_id.clone();
             let files = cx
                 .background_executor()
                 .spawn(async move {
-                    if has_pr {
-                        api::issues::pr_files(&client, &fetch_id).map(|pr| pr.files)
-                    } else {
-                        api::repositories::branch_diff(&client, &fetch_id)
-                            .map(|diff| diff.map(|diff| diff.files).unwrap_or_default())
+                    match source {
+                        PrChangesSource::Issue {
+                            issue_id,
+                            has_pr: true,
+                        } => api::issues::pr_files(&client, &issue_id).map(|pr| pr.files),
+                        PrChangesSource::Issue {
+                            issue_id,
+                            has_pr: false,
+                        } => api::repositories::branch_diff(&client, &issue_id)
+                            .map(|diff| diff.map(|diff| diff.files).unwrap_or_default()),
+                        PrChangesSource::Run { session_id, .. } => {
+                            api::coding_sessions::pr_files(&client, &session_id)
+                                .map(|pr| pr.files)
+                        }
                     }
                 })
                 .await;

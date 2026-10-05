@@ -42,6 +42,9 @@ data class PrDescription(
 @Serializable
 private data class PrFilesInput(@SerialName("issueId") val issueId: String)
 
+@Serializable
+private data class SessionPrFilesInput(@SerialName("sessionId") val sessionId: String)
+
 @Singleton
 class PrFilesApi @Inject constructor(private val trpc: TrpcClient) {
 
@@ -52,6 +55,20 @@ class PrFilesApi @Inject constructor(private val trpc: TrpcClient) {
             path = "issues.prFiles",
             input = PrFilesInput(issueId),
             inputSerializer = PrFilesInput.serializer(),
+            outputSerializer = PrFilesResult.serializer(),
+        )
+
+    /**
+     * EXP-1194: a RUN's own issue-less pull request (an action or chat run's
+     * `pr_open({repositoryId, head})`) — `codingSessions.prFiles`, the same
+     * shape as [get]; empty files while the run has no PR.
+     */
+    suspend fun forSession(accountId: String, sessionId: String): PrFilesResult =
+        trpc.query(
+            accountId,
+            path = "codingSessions.prFiles",
+            input = SessionPrFilesInput(sessionId),
+            inputSerializer = SessionPrFilesInput.serializer(),
             outputSerializer = PrFilesResult.serializer(),
         )
 

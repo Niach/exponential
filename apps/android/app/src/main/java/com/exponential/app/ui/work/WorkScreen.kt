@@ -294,7 +294,7 @@ fun WorkScreen(
     val changesVm: ChangesViewModel? = if (issueChanges && issueId != null) {
         hiltViewModel<ChangesViewModel, ChangesViewModel.Factory>(
             key = "changes:$issueId",
-        ) { factory -> factory.create(issueId) }
+        ) { factory -> factory.create(ChangesSource.Issue(issueId)) }
     } else {
         null
     }
