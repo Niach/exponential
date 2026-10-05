@@ -3,7 +3,7 @@ import { join } from "node:path"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 
 // EXP-1183 — MCP Apps (the stable `io.modelcontextprotocol/ui` extension):
-// two tools name a `ui://` view in `_meta.ui.resourceUri`, and a host that
+// four tools name a `ui://` view in `_meta.ui.resourceUri`, and a host that
 // renders apps (OpenClaw's dashboard, Claude, ChatGPT…) reads the view and
 // mounts it in a sandbox beside the call, fed the call's result. Hosts
 // without the extension ignore the field; the tools answer exactly as before.
@@ -20,6 +20,8 @@ export const MCP_APP_MIME_TYPE = `text/html;profile=mcp-app`
 export const MCP_APP_RESOURCE_URIS = {
   issues: `ui://exponential/issues`,
   run: `ui://exponential/run`,
+  runs: `ui://exponential/runs`,
+  inbox: `ui://exponential/inbox`,
 } as const
 
 export type McpAppView = keyof typeof MCP_APP_RESOURCE_URIS
@@ -27,6 +29,8 @@ export type McpAppView = keyof typeof MCP_APP_RESOURCE_URIS
 const VIEW_TITLES: Record<McpAppView, string> = {
   issues: `Exponential issues`,
   run: `Exponential run`,
+  runs: `Exponential runs`,
+  inbox: `Exponential inbox`,
 }
 
 /** A tool's `_meta` binding to its view. `exponential_issues_list` also

@@ -4012,6 +4012,8 @@ export function registerExponentialTools(
     {
       annotations: READ_ONLY,
       description: `List coding sessions (newest first) across your teams or one team: status (in_review = PR open, still live), agentBusy (working now), issue, action, branch, device, blocked (usage-wall refusal, see exponential_sessions_get), parentSessionId (the run that started it), endedBy. mine = runs you started or host.`,
+      // EXP-1183: the MCP Apps run list (lib/mcp/apps.ts).
+      _meta: mcpAppToolMeta(`runs`),
       inputSchema: strictInput({
         teamId: uuidString.optional(),
         status: z.enum([`running`, `in_review`, `ended`]).optional(),
@@ -4665,6 +4667,8 @@ export function registerExponentialTools(
     {
       annotations: READ_ONLY,
       description: `List the MCP user's own notifications, newest first. Set unreadOnly to show only those not yet read.`,
+      // EXP-1183: the MCP Apps inbox (lib/mcp/apps.ts).
+      _meta: mcpAppToolMeta(`inbox`),
       inputSchema: strictInput({
         unreadOnly: z.boolean().default(false),
         limit: z.number().int().min(1).max(200).default(50),

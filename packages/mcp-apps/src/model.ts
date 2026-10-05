@@ -11,7 +11,7 @@ import type { ToolResult } from "./bridge"
 // and what the tool results the host forwards decode to. The tools answer
 // with `ok()` (apps/web/src/lib/mcp/helpers.ts): one text block of JSON.
 
-export const MCP_APP_VIEWS = [`issues`, `issue`, `run`] as const
+export const MCP_APP_VIEWS = [`issues`, `issue`, `run`, `runs`, `inbox`] as const
 export type McpAppView = (typeof MCP_APP_VIEWS)[number]
 
 /** The tool each view renders the result of (apps/web/src/lib/mcp/apps.ts
@@ -20,6 +20,8 @@ export const MCP_APP_VIEW_TOOL: Record<McpAppView, string> = {
   issues: `exponential_issues_list`,
   issue: `exponential_issues_get`,
   run: `exponential_sessions_get`,
+  runs: `exponential_sessions_list`,
+  inbox: `exponential_notifications_list`,
 }
 
 export function parseView(value: string | null | undefined): McpAppView {
@@ -97,6 +99,7 @@ export interface RunResult {
 
 export interface RunDetail {
   id: string
+  createdAt?: string
   issueIdentifier?: string | null
   issueTitle?: string | null
   actionName?: string | null
@@ -210,4 +213,59 @@ export function runStateLabel(run: RunDetail): string {
   if (run.needsInput) return `Needs input`
   if (run.status === `in_review`) return `In review`
   return run.agentBusy ? (run.agentCaption?.trim() || `Working`) : `Idle`
+}
+
+export interface NotificationRow {
+  id: string
+  issueId: string | null
+  type: string
+  title: string
+  body?: string | null
+  readAt: string | null
+  createdAt: string
+}
+
+export type RunTone = `live` | `attention` | `done` | `idle` | `muted`
+
+/** The run rows' dot: the clients' tones (LiveDot). */
+export function runTone(run: RunDetail): RunTone {
+  if (run.status === `ended`) return `muted`
+  if (run.needsInput) return `attention`
+  if (run.status === `in_review`) return `done`
+  return run.agentBusy ? `live` : `idle`
+}
+
+export function runIsWorking(run: RunDetail): boolean {
+  return run.status !== `ended` && Boolean(run.agentBusy) && !run.needsInput
+}
+
+/** What a run is about: its issue, its action, or a chat. */
+export function runSubject(run: RunDetail): string {
+  if (run.issueIdentifier) {
+    return `${run.issueIdentifier} ${run.issueTitle ?? ``}`.trim()
+  }
+  return run.actionName || `Chat`
+}
+
+const RUN_GROUPS = [
+  { status: `running`, label: `Running` },
+  { status: `in_review`, label: `In review` },
+  { status: `ended`, label: `Ended` },
+] as const
+
+export interface RunGroup {
+  label: string
+  runs: RunDetail[]
+}
+
+/** Live runs first, then open PRs, then history; the tool's order inside. */
+export function groupRuns(runs: readonly RunDetail[]): RunGroup[] {
+  return RUN_GROUPS.map((group) => ({
+    label: group.label,
+    runs: runs.filter((run) =>
+      group.status === `ended`
+        ? run.status !== `running` && run.status !== `in_review`
+        : run.status === group.status
+    ),
+  })).filter((group) => group.runs.length > 0)
 }

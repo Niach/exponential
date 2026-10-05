@@ -1,13 +1,20 @@
 import {
+  Button,
   LiveDot,
   Pill,
   SessionResultsView,
   conceptIcon,
   parseSessionResultGroups,
-  type LiveDotTone,
 } from "@exp/ui"
 import { Markdown } from "./markdown"
-import { prConcept, runStateLabel, type RunDetail } from "./model"
+import {
+  prConcept,
+  runIsWorking,
+  runStateLabel,
+  runSubject,
+  runTone,
+  type RunDetail,
+} from "./model"
 
 // EXP-1183 — `exponential_sessions_get` as the run's Results face: what the
 // run is about, its state dot (the run rows' tones), its PR, then the REPORT
@@ -15,11 +22,15 @@ import { prConcept, runStateLabel, type RunDetail } from "./model"
 // numbered topics). Text only: a published picture is an authenticated
 // `/api/attachments` URL the sandboxed view cannot load, so the pictures stay
 // a count.
+const BackIcon = conceptIcon(`ui-back`)
+
 export function RunView({
   run,
+  onBack,
   onOpenLink,
 }: {
   run: RunDetail
+  onBack?: () => void
   onOpenLink?: (url: string) => void
 }) {
   const textEntries = (run.results ?? []).filter(
@@ -29,15 +40,24 @@ export function RunView({
   const groups = parseSessionResultGroups(textEntries)
   const pr = prConcept(run.prState)
   const PrIcon = pr ? conceptIcon(pr) : null
-  const subject = run.issueIdentifier
-    ? `${run.issueIdentifier} ${run.issueTitle ?? ``}`.trim()
-    : run.actionName || `Chat`
+  const subject = runSubject(run)
   return (
     <article className="flex flex-col gap-4 py-3">
       <header className="flex flex-col gap-2 px-7">
+        {onBack && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="-ml-2"
+            aria-label="Back to the list"
+            onClick={onBack}
+          >
+            <BackIcon />
+          </Button>
+        )}
         <h1 className="text-xl font-semibold leading-tight">{subject}</h1>
         <div className="flex flex-wrap items-center gap-1.5">
-          <Pill leading={<LiveDot tone={runTone(run)} ping={isWorking(run)} />}>
+          <Pill leading={<LiveDot tone={runTone(run)} ping={runIsWorking(run)} />}>
             {runStateLabel(run)}
           </Pill>
           {run.agent && <Pill>{run.agent}</Pill>}
@@ -74,15 +94,4 @@ export function RunView({
       )}
     </article>
   )
-}
-
-function isWorking(run: RunDetail): boolean {
-  return run.status !== `ended` && Boolean(run.agentBusy) && !run.needsInput
-}
-
-function runTone(run: RunDetail): LiveDotTone {
-  if (run.status === `ended`) return `muted`
-  if (run.needsInput) return `attention`
-  if (run.status === `in_review`) return `done`
-  return run.agentBusy ? `live` : `idle`
 }

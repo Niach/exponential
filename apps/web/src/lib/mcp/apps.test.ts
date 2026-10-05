@@ -25,9 +25,11 @@ describe(`MCP Apps (EXP-1183)`, () => {
       ui: { resourceUri: `ui://exponential/issues` },
       "openai/ui": { entrypoints: [{ type: `global` }] },
     })
-    expect(mcpAppToolMeta(`run`)).toEqual({
-      ui: { resourceUri: `ui://exponential/run` },
-    })
+    for (const view of [`run`, `runs`, `inbox`] as const) {
+      expect(mcpAppToolMeta(view)).toEqual({
+        ui: { resourceUri: `ui://exponential/${view}` },
+      })
+    }
   })
 
   it(`registers every view as an mcp-app resource`, async () => {

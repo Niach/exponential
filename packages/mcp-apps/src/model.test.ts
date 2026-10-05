@@ -2,8 +2,12 @@ import {
   decodeToolResult,
   groupIssuesByStatus,
   parseView,
+  groupRuns,
   runStateLabel,
+  runSubject,
+  runTone,
   type IssueRow,
+  type RunDetail,
 } from "./model"
 
 const row = (id: string, status: string, priority = `none`): IssueRow =>
@@ -77,5 +81,35 @@ describe(`runStateLabel`, () => {
       runStateLabel({ id: `r`, status: `running`, agentBusy: true, agentCaption: `Editing` })
     ).toBe(`Editing`)
     expect(runStateLabel({ id: `r`, status: `running` })).toBe(`Idle`)
+  })
+})
+
+describe(`runs`, () => {
+  const run = (id: string, status: string, extra: object = {}) =>
+    ({ id, status, ...extra }) as RunDetail
+
+  it(`groups live runs first, then open PRs, then history`, () => {
+    const groups = groupRuns([
+      run(`a`, `ended`),
+      run(`b`, `running`),
+      run(`c`, `in_review`),
+      run(`d`, `running`),
+    ])
+    expect(groups.map((g) => g.label)).toEqual([`Running`, `In review`, `Ended`])
+    expect(groups[0].runs.map((r) => r.id)).toEqual([`b`, `d`])
+  })
+
+  it(`picks the clients' dot tones`, () => {
+    expect(runTone(run(`a`, `ended`))).toBe(`muted`)
+    expect(runTone(run(`a`, `running`, { needsInput: true }))).toBe(`attention`)
+    expect(runTone(run(`a`, `in_review`))).toBe(`done`)
+    expect(runTone(run(`a`, `running`, { agentBusy: true }))).toBe(`live`)
+    expect(runTone(run(`a`, `running`))).toBe(`idle`)
+  })
+
+  it(`names the subject`, () => {
+    expect(runSubject(run(`a`, `running`, { issueIdentifier: `EXP-1`, issueTitle: `Fix` }))).toBe(`EXP-1 Fix`)
+    expect(runSubject(run(`a`, `running`, { actionName: `Tidy up` }))).toBe(`Tidy up`)
+    expect(runSubject(run(`a`, `running`))).toBe(`Chat`)
   })
 })

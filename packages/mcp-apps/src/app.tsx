@@ -2,33 +2,48 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { ListEmpty, Skeleton } from "@exp/ui"
 import { AppBridge, type HostContext, type ToolResult } from "./bridge"
 import { IssueDetailView } from "./issue-detail-view"
+import { InboxView } from "./inbox-view"
 import { IssueListView } from "./issue-list-view"
 import { RunView } from "./run-view"
+import { RunsListView } from "./runs-list-view"
 import {
   MCP_APP_VIEW_TOOL,
   decodeToolResult,
   type IssueDetail,
   type IssueRow,
   type McpAppView,
+  type NotificationRow,
   type RunDetail,
 } from "./model"
+
+// A list screen a detail can return to.
+type ListScreen =
+  | { kind: `issues`; issues: IssueRow[] }
+  | { kind: `runs`; runs: RunDetail[] }
+  | { kind: `inbox`; notifications: NotificationRow[] }
 
 type Screen =
   | { kind: `waiting` }
   | { kind: `error`; message: string }
-  | { kind: `issues`; issues: IssueRow[] }
-  | { kind: `issue`; issue: IssueDetail; back?: IssueRow[] }
-  | { kind: `run`; run: RunDetail }
+  | ListScreen
+  | { kind: `issue`; issue: IssueDetail; back?: ListScreen }
+  | { kind: `run`; run: RunDetail; back?: ListScreen }
+
+function list<T>(view: McpAppView, result: ToolResult): Screen {
+  const decoded = decodeToolResult<T[]>(result)
+  if (decoded.kind === `error`) return decoded
+  const rows = Array.isArray(decoded.data) ? decoded.data : []
+  if (view === `runs`) return { kind: `runs`, runs: rows as RunDetail[] }
+  if (view === `inbox`) {
+    return { kind: `inbox`, notifications: rows as NotificationRow[] }
+  }
+  return { kind: `issues`, issues: rows as IssueRow[] }
+}
 
 /** What a view's own tool result decodes to. */
 export function screenFor(view: McpAppView, result: ToolResult): Screen {
-  if (view === `issues`) {
-    const decoded = decodeToolResult<IssueRow[]>(result)
-    if (decoded.kind === `error`) return decoded
-    return {
-      kind: `issues`,
-      issues: Array.isArray(decoded.data) ? decoded.data : [],
-    }
+  if (view === `issues` || view === `runs` || view === `inbox`) {
+    return list(view, result)
   }
   if (view === `issue`) {
     const decoded = decodeToolResult<IssueDetail>(result)
@@ -84,16 +99,20 @@ export function App({ view }: { view: McpAppView }) {
   }, [])
 
   const openLink = (url: string) => bridge.current?.openLink(url)
+  const backTo = (back: ListScreen | undefined) =>
+    back ? () => setScreen(back) : undefined
 
-  const openIssue = async (row: IssueRow, back: IssueRow[]) => {
+  // A list row opens its detail through the host (the detail tool), and the
+  // detail's back arrow returns to the list it came from.
+  const open = async (view: `issue` | `run`, id: string, back: ListScreen) => {
     const instance = bridge.current
     if (!instance) return
     try {
-      const result = await instance.callTool(MCP_APP_VIEW_TOOL.issue, {
-        id: row.id,
-      })
-      const next = screenFor(`issue`, result)
-      setScreen(next.kind === `issue` ? { ...next, back } : next)
+      const result = await instance.callTool(MCP_APP_VIEW_TOOL[view], { id })
+      const next = screenFor(view, result)
+      setScreen(
+        next.kind === `issue` || next.kind === `run` ? { ...next, back } : next
+      )
     } catch (error) {
       setScreen({
         kind: `error`,
@@ -115,21 +134,31 @@ export function App({ view }: { view: McpAppView }) {
       {screen.kind === `issues` && (
         <IssueListView
           issues={screen.issues}
-          onOpen={(row) => void openIssue(row, screen.issues)}
+          onOpen={(row) => void open(`issue`, row.id, screen)}
+        />
+      )}
+      {screen.kind === `runs` && (
+        <RunsListView
+          runs={screen.runs}
+          onOpen={(run) => void open(`run`, run.id, screen)}
+        />
+      )}
+      {screen.kind === `inbox` && (
+        <InboxView
+          notifications={screen.notifications}
+          onOpen={(row) => row.issueId && void open(`issue`, row.issueId, screen)}
         />
       )}
       {screen.kind === `issue` && (
         <IssueDetailView
           issue={screen.issue}
           onOpenLink={openLink}
-          onBack={
-            screen.back
-              ? () => setScreen({ kind: `issues`, issues: screen.back ?? [] })
-              : undefined
-          }
+          onBack={backTo(screen.back)}
         />
       )}
-      {screen.kind === `run` && <RunView run={screen.run} onOpenLink={openLink} />}
+      {screen.kind === `run` && (
+        <RunView run={screen.run} onOpenLink={openLink} onBack={backTo(screen.back)} />
+      )}
     </div>
   )
 }
