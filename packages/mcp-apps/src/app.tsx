@@ -135,7 +135,7 @@ export function App({ view }: { view: McpAppView }) {
 
   return (
     <McpActionsProvider value={actions}>
-      <div ref={root} className="bg-app-gradient font-sans text-foreground antialiased">
+      <div ref={root} className="bg-glass-bottom font-sans text-foreground antialiased">
         {screen.kind === `waiting` && (
           <div className="flex flex-col gap-2 p-4">
             <Skeleton className="h-6 w-1/3" />

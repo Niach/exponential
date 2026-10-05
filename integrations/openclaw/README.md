@@ -54,8 +54,9 @@ origin (`mcp.apps.sandboxOrigin`); see OpenClaw's
 
 ## Theme
 
-The plugin also ships an **Exponential** appearance theme (light and dark):
-Exponential's zinc palette, Inter, no lobster branding. Pick it in Settings →
+The plugin also ships an **Exponential** appearance theme: Exponential's dark
+glass look (the near-black zinc ground, white-alpha cards, hairline borders,
+white primary actions), Inter, no lobster branding. Pick it in Settings →
 Appearance, or ask the agent to switch to it. It is generated from the
 Exponential styleguide (`node integrations/openclaw/scripts/theme.mjs`), so it
 follows the app's tokens.

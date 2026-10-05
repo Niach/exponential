@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs"
 import { THEME_PATH, buildTheme, renderTheme } from "../../../integrations/openclaw/scripts/theme.mjs"
 
 // EXP-1183: the OpenClaw plugin's "Exponential" theme is generated from the
-// styleguide (packages/ui/src/styles.css + the contract's working verbs). A
+// styleguide (the design-tokens glass system + the contract's working verbs). A
 // token change that leaves it behind fails here, like the other generated
 // cross-client outputs.
 describe(`OpenClaw theme`, () => {
@@ -17,10 +17,14 @@ describe(`OpenClaw theme`, () => {
     expect(new TextEncoder().encode(JSON.stringify(theme)).length).toBeLessThan(4096)
     expect(theme.workingPhrases.length).toBeLessThanOrEqual(24)
     for (const phrase of theme.workingPhrases) expect(phrase.length).toBeLessThanOrEqual(24)
-    for (const mode of [`light`, `dark`] as const) {
-      for (const value of Object.values(theme[mode]) as string[]) {
-        expect(value.length).toBeLessThanOrEqual(120)
-      }
+    // Dark only, like every Exponential client.
+    expect(Object.keys(theme)).not.toContain(`light`)
+    for (const value of Object.values(theme.dark) as string[]) {
+      expect(value.length).toBeLessThanOrEqual(120)
+    }
+    // OpenClaw mixes its colours, so the surfaces are opaque.
+    for (const key of [`background`, `card`, `popover`, `secondary`, `muted`, `accent`, `border`, `input`]) {
+      expect(theme.dark[key]).toMatch(/^#[0-9a-f]{6}$/)
     }
   })
 })

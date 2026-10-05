@@ -6,6 +6,7 @@ import {
   EmptyState,
   IssueGroupBand,
   StatusGlyph,
+  UserAvatar,
   conceptIcon,
 } from "@exp/ui"
 import type { IssueStatus } from "@exp/db-schema/domain"
@@ -17,14 +18,28 @@ import {
   statusIcon,
   type IssueRow,
 } from "./model"
+import { useAssignees } from "./list-assignees"
+import {
+  DUE_DATE_TONE_CLASS,
+  dueDateTone,
+  formatDueDate,
+  issueListColumns,
+  localDay,
+  type IssueListRow,
+  type MemberRow,
+} from "./list-issue"
 
 const IssuesIcon = conceptIcon(`nav-issues`)
+const DueDateIcon = conceptIcon(`ui-due-date`)
+const AvatarPlaceholderIcon = conceptIcon(`ui-avatar-placeholder`)
 
 // EXP-1183 — `exponential_issues_list` as the board list: the web's group
 // band (`IssueGroupBand`, status glyph + name + count over the status wash)
 // over flat hairline rows in the web row's md+ column order — priority,
-// identifier, status, title, then the PR state. Read-only: a row opens the
-// issue (the host calls `exponential_issues_get` for it).
+// identifier, status, title, the PR, the assignee avatar (names resolved
+// through the host, `list-assignees.ts`) and the due date in its REV2-48
+// tone; a column nobody in the list fills collapses. Read-only: a row opens
+// the issue (the host calls `exponential_issues_get` for it).
 export function IssueListView({
   issues,
   onOpen,
@@ -33,6 +48,21 @@ export function IssueListView({
   onOpen?: (issue: IssueRow) => void
 }) {
   const groups = groupIssuesByStatus(issues)
+  const rows = issues as readonly IssueListRow[]
+  const columns = issueListColumns(rows)
+  const members = useAssignees(rows)
+  const today = localDay()
+  const gridTemplateColumns = [
+    `1.25rem`,
+    `4.5rem`,
+    `1.25rem`,
+    `minmax(0,1fr)`,
+    columns.pr ? `auto` : null,
+    columns.assignee ? `1.75rem` : null,
+    columns.due ? `4.5rem` : null,
+  ]
+    .filter(Boolean)
+    .join(` `)
   const [folded, setFolded] = useState<ReadonlySet<IssueStatus>>(new Set())
   if (groups.length === 0) {
     return (
@@ -68,8 +98,20 @@ export function IssueListView({
               wash={{ className: BUILTIN_STATUS_WASH_CLASS[group.status] }}
             />
             {open &&
-              group.issues.map((issue) => (
-                <IssueListRow key={issue.id} issue={issue} onOpen={onOpen} />
+              (group.issues as IssueListRow[]).map((issue) => (
+                <IssueLine
+                  key={issue.id}
+                  issue={issue}
+                  columns={columns}
+                  gridTemplateColumns={gridTemplateColumns}
+                  assignee={
+                    issue.assigneeId
+                      ? (members.get(issue.assigneeId) ?? { id: issue.assigneeId })
+                      : null
+                  }
+                  today={today}
+                  onOpen={onOpen}
+                />
               ))}
           </div>
         )
@@ -78,11 +120,19 @@ export function IssueListView({
   )
 }
 
-function IssueListRow({
+function IssueLine({
   issue,
+  columns,
+  gridTemplateColumns,
+  assignee,
+  today,
   onOpen,
 }: {
-  issue: IssueRow
+  issue: IssueListRow
+  columns: ReturnType<typeof issueListColumns>
+  gridTemplateColumns: string
+  assignee: MemberRow | null
+  today: string
   onOpen?: (issue: IssueRow) => void
 }) {
   const pr = prConcept(issue.prState)
@@ -99,7 +149,8 @@ function IssueListRow({
           onOpen?.(issue)
         }
       }}
-      className="grid h-10 cursor-pointer grid-cols-[1.25rem_4.5rem_1.25rem_minmax(0,1fr)_auto] items-center gap-x-2 border-b border-border/30 px-4 outline-none hover:bg-glass-row focus-visible:bg-glass-row"
+      style={{ gridTemplateColumns }}
+      className="grid h-10 cursor-pointer items-center gap-x-2 border-b border-border/30 px-4 outline-none hover:bg-glass-row focus-visible:bg-glass-row"
     >
       <StatusGlyph
         icon={priorityIcon(issue.priority)}
@@ -115,13 +166,41 @@ function IssueListRow({
         className="size-4"
       />
       <span className="truncate text-sm">{issue.title}</span>
-      <span className="flex items-center gap-1 text-xs text-muted-foreground">
-        {PrIcon && issue.prNumber != null && (
-          <>
-            <PrIcon className="size-3.5" />#{issue.prNumber}
-          </>
-        )}
-      </span>
+      {columns.pr && (
+        <span className="flex items-center gap-1 text-xs text-muted-foreground">
+          {PrIcon && issue.prNumber != null && (
+            <>
+              <PrIcon className="size-3.5" />#{issue.prNumber}
+            </>
+          )}
+        </span>
+      )}
+      {columns.assignee && (
+        <span
+          className="flex items-center justify-center"
+          title={assignee ? assignee.name || assignee.email || undefined : `Unassigned`}
+        >
+          {assignee ? (
+            <UserAvatar size={20} user={assignee} />
+          ) : (
+            <span className="flex size-5 items-center justify-center rounded-full border border-dashed border-border">
+              <AvatarPlaceholderIcon className="size-2.5 text-muted-foreground/50" />
+            </span>
+          )}
+        </span>
+      )}
+      {columns.due && (
+        <span className="flex items-center justify-end">
+          {issue.dueDate && (
+            <span
+              className={`flex items-center gap-1 px-1 ${DUE_DATE_TONE_CLASS[dueDateTone(issue.dueDate, today)]}`}
+            >
+              <DueDateIcon className="size-3 shrink-0" />
+              <span className="whitespace-nowrap text-xs">{formatDueDate(issue.dueDate)}</span>
+            </span>
+          )}
+        </span>
+      )}
     </div>
   )
 }

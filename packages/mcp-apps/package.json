@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@exp/db-schema": "workspace:*",
+    "@exp/domain-contract": "workspace:*",
     "@exp/icons": "workspace:*",
     "@exp/ui": "workspace:*",
     "markdown-it": "^14.1.0",

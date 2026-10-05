@@ -276,11 +276,9 @@ export function groupRuns(runs: readonly RunDetail[]): RunGroup[] {
 
 /** One `exponential_devices_list` row — only what the views read. */
 export interface DeviceRow {
-  id: string
-  name?: string | null
+  deviceId: string
   label?: string | null
-  icon?: string | null
-  platform?: string | null
+  kind?: string | null
   online?: boolean
   lastSeenAt?: string | null
   agents?: string[] | null

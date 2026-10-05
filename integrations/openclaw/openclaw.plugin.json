@@ -30,7 +30,7 @@
     {
       "id": "exponential",
       "name": "Exponential",
-      "description": "Exponential's zinc interface: near-black surfaces, white primary actions, hairline borders and Inter, generated from the Exponential styleguide.",
+      "description": "Exponential's dark glass interface: the near-black zinc ground, white-alpha cards and hairline borders, white primary actions and Inter, generated from the Exponential styleguide.",
       "source": "themes/exponential.json"
     }
   ]

@@ -35,22 +35,63 @@ export function useMcpActions(): McpActions {
   return useContext(McpActionsContext)
 }
 
+// Hosts throttle a view: OpenClaw allows 4 requests in flight and ~30 tool
+// calls a minute per view, refusing the rest ("concurrency limit reached").
+// A view fires pictures, the diff and its poll together, so calls queue
+// behind a small gate and a refusal is retried after a pause.
+export const MAX_CALLS_IN_FLIGHT = 2
+const BUSY_RETRIES = 3
+const BUSY_PATTERN = /concurrency limit|rate limit|too many/i
+
+/** Runs `task`s at most `limit` at a time, in call order. */
+export function createGate(limit: number) {
+  let active = 0
+  const waiting: Array<() => void> = []
+  return async <T,>(task: () => Promise<T>): Promise<T> => {
+    if (active >= limit) await new Promise<void>((resolve) => waiting.push(resolve))
+    active += 1
+    try {
+      return await task()
+    } finally {
+      active -= 1
+      waiting.shift()?.()
+    }
+  }
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
 /** Builds the actions off the bridge's raw `callTool`. */
 export function actionsFromBridge(
   callTool: (name: string, args: Record<string, unknown>) => Promise<ToolResult>,
-  openLink: (url: string) => void
+  openLink: (url: string) => void,
+  { retryDelayMs = 1_500 }: { retryDelayMs?: number } = {}
 ): McpActions {
-  return {
-    call: async <T,>(name: string, args: Record<string, unknown>) => {
-      try {
-        return decodeToolResult<T>(await callTool(name, args))
-      } catch (error) {
-        return {
-          kind: `error` as const,
-          message: error instanceof Error ? error.message : String(error),
-        }
+  const gate = createGate(MAX_CALLS_IN_FLIGHT)
+  const attempt = async <T,>(name: string, args: Record<string, unknown>) => {
+    try {
+      return decodeToolResult<T>(await callTool(name, args))
+    } catch (error) {
+      return {
+        kind: `error` as const,
+        message: error instanceof Error ? error.message : String(error),
       }
-    },
+    }
+  }
+  return {
+    call: <T,>(name: string, args: Record<string, unknown>) =>
+      gate(async () => {
+        let result = await attempt<T>(name, args)
+        for (
+          let retry = 1;
+          retry <= BUSY_RETRIES && result.kind === `error` && BUSY_PATTERN.test(result.message);
+          retry += 1
+        ) {
+          await sleep(retryDelayMs * retry)
+          result = await attempt<T>(name, args)
+        }
+        return result
+      }),
     openLink,
   }
 }
