@@ -268,8 +268,7 @@ test(`keeps a draft on Back, reopens it from Drafts, and discards it`, async ({
     app.issueTitle
   )
 
-  await reopened.getByRole(`button`, { name: `Draft actions` }).click()
-  await page.getByRole(`menuitem`, { name: `Discard draft` }).click()
+  await reopened.getByTestId(`issue-draft-discard`).click()
 
   // Back to the Drafts list it came from, which has emptied out.
   await expect(page).toHaveURL(/\/drafts\/?$/)

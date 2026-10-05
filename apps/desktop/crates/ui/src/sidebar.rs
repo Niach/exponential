@@ -407,6 +407,26 @@ pub(crate) fn row_origin_for(
     }
 }
 
+/// EXP-1194: what the Reviews side list lights — the open issue's row, or
+/// the open RUN's (an agent-run PR opens `Screen::Session`). `(issue, run)`.
+fn open_review(screen: Option<&Screen>) -> (Option<&str>, Option<&str>) {
+    match screen {
+        Some(Screen::IssueDetail { issue_id }) => (Some(issue_id.as_str()), None),
+        Some(Screen::Session { session_id }) => (None, Some(session_id.as_str())),
+        _ => (None, None),
+    }
+}
+
+/// EXP-1194: a Reviews side-list run row's `(lead, title)` — the Reviews
+/// page's "Agent runs" row texts: `#N` and the run's name (a chat run reads
+/// its auto-named title, else "Chat").
+fn review_run_texts(run: &domain::rows::CodingSession) -> (String, String) {
+    let number = run.pr_number.map(|number| format!("#{number}")).unwrap_or_default();
+    let title = domain::batch_run::action_run_subject(run)
+        .unwrap_or_else(|| domain::batch_run::CHAT_RUN_NAME.to_string());
+    (number, title)
+}
+
 /// EXP-1192: what one [`ListPanel::set_side`] push changes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SidePush {
@@ -420,16 +440,23 @@ enum SidePush {
 
 /// EXP-1192: [`ListPanel::set_side`]'s pure rule over the last push
 /// (`side`, `last_tab`) and this one. A `None` tab never counts as a change
-/// (only the Inbox kind carries one).
+/// (only the Inbox kind carries one). `screen_list_tab` is the tab the LIST
+/// shows while the Inbox SCREEN is up (`None` beside a detail): there the
+/// tab is the screen's, so a push that disagrees with the list always wins —
+/// a local flip made beside a detail must not outlive the walk back to the
+/// Inbox screen, whose tab equals the last push.
 fn side_push(
     side: Option<SecondSidebar>,
     last_tab: Option<InboxTab>,
     kind: SecondSidebar,
     tab: Option<InboxTab>,
+    screen_list_tab: Option<InboxTab>,
 ) -> SidePush {
     if side != Some(kind) {
         SidePush::NewKind
-    } else if tab.is_some() && tab != last_tab {
+    } else if tab.is_some()
+        && (tab != last_tab || screen_list_tab.is_some_and(|shown| Some(shown) != tab))
+    {
         SidePush::NewTab
     } else {
         SidePush::Same
@@ -2554,14 +2581,18 @@ impl ListPanel {
     /// and the same tab as the LAST push = a no-op, no notify. A pushed tab
     /// that CHANGED becomes the list's tab (the Inbox screen flipped, or a
     /// detail picked from the other tab opened); an unchanged one leaves a
-    /// local flip beside a detail alone. A new kind resets the list.
+    /// local flip beside a detail alone — but ON the Inbox screen the pushed
+    /// tab is the screen's and the list always shows it. A new kind resets
+    /// the list.
     pub(crate) fn set_side(
         &mut self,
         kind: SecondSidebar,
         inbox_tab: Option<InboxTab>,
         cx: &mut gpui::Context<Self>,
     ) {
-        match side_push(self.side, self.side_tab, kind, inbox_tab) {
+        let screen_list_tab = matches!(resolved_screen(&self.nav, cx), Some(Screen::Inbox { .. }))
+            .then_some(self.nav_inbox_tab);
+        match side_push(self.side, self.side_tab, kind, inbox_tab, screen_list_tab) {
             SidePush::Same => return,
             SidePush::NewKind => {}
             SidePush::NewTab => {
@@ -3835,7 +3866,9 @@ impl ListPanel {
     }
 
     /// The Reviews side list's body: the open-PR queue's rows, each opening
-    /// its issue on the Changes face (the Reviews page's own click target).
+    /// its issue on the Changes face (the Reviews page's own click target),
+    /// then the page's "Agent runs" (EXP-734/EXP-1194): the issue-less runs
+    /// holding a PR of their own, each opening the RUN on its Changes face.
     fn render_reviews_nav(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let Some(team_id) = active_team_id(&self.nav, cx) else {
             return self.list_note("No team selected.", cx);
@@ -3848,11 +3881,9 @@ impl ListPanel {
                     queries::review_groups(app, &team_id)
                 })
         };
-        let open_issue = match resolved_screen(&self.nav, cx) {
-            Some(Screen::IssueDetail { issue_id }) => Some(issue_id),
-            _ => None,
-        };
-        let rows: Vec<gpui::AnyElement> = groups
+        let screen = resolved_screen(&self.nav, cx);
+        let (open_issue, open_run) = open_review(screen.as_ref());
+        let mut rows: Vec<gpui::AnyElement> = groups
             .iter()
             .flat_map(|group| group.entries.iter())
             .enumerate()
@@ -3887,6 +3918,48 @@ impl ListPanel {
                 .into_any_element()
             })
             .collect();
+        // EXP-1194: the page's "Agent runs" — the same synced read, so the
+        // run a row there opened is listed (and lit) beside it.
+        for (index, run) in queries::review_runs(cx, &team_id).iter().enumerate() {
+            let (number, title) = review_run_texts(run);
+            let active = open_run == Some(run.id.as_str());
+            let lead = div()
+                .flex_shrink_0()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .font_family(theme::terminal::FONT_FAMILY)
+                .child(SharedString::from(number))
+                .into_any_element();
+            let run_id = run.id.clone();
+            rows.push(
+                rail_row_lead(
+                    ("list-nav-review-run", index),
+                    lead,
+                    SharedString::from(title),
+                    active,
+                    None,
+                    None,
+                    cx,
+                )
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    // The page's own click (`ReviewsView::run_row`): the run
+                    // on its Changes face, pinned to this list.
+                    crate::session_screen::open_session_with_origin(
+                        &run_id,
+                        this.row_origin(cx),
+                        window,
+                        cx,
+                    );
+                    crate::screens::set_run_face(
+                        &run_id,
+                        crate::screens::RunFace::Diff,
+                        window,
+                        cx,
+                    );
+                }))
+                .into_any_element(),
+            );
+        }
         if rows.is_empty() {
             return self.list_note("No open pull requests.", cx);
         }
@@ -4073,31 +4146,80 @@ mod tests {
         use InboxTab::{Inbox, MyIssues};
         use SecondSidebar::{Inbox as InboxSide, Reviews};
         // First push, and a kind change: reset.
-        assert_eq!(side_push(None, None, InboxSide, Some(Inbox)), SidePush::NewKind);
+        assert_eq!(side_push(None, None, InboxSide, Some(Inbox), None), SidePush::NewKind);
         assert_eq!(
-            side_push(Some(Reviews), None, InboxSide, Some(Inbox)),
+            side_push(Some(Reviews), None, InboxSide, Some(Inbox), None),
             SidePush::NewKind
         );
         assert_eq!(
-            side_push(Some(InboxSide), Some(Inbox), Reviews, None),
+            side_push(Some(InboxSide), Some(Inbox), Reviews, None, None),
             SidePush::NewKind
         );
         // The same push again: nothing (no notify).
         assert_eq!(
-            side_push(Some(InboxSide), Some(Inbox), InboxSide, Some(Inbox)),
+            side_push(Some(InboxSide), Some(Inbox), InboxSide, Some(Inbox), None),
             SidePush::Same
         );
-        assert_eq!(side_push(Some(Reviews), None, Reviews, None), SidePush::Same);
+        assert_eq!(side_push(Some(Reviews), None, Reviews, None, None), SidePush::Same);
         // The Inbox screen flipped tabs (or a detail from the other tab
         // opened): the list follows.
         assert_eq!(
-            side_push(Some(InboxSide), Some(Inbox), InboxSide, Some(MyIssues)),
+            side_push(Some(InboxSide), Some(Inbox), InboxSide, Some(MyIssues), None),
             SidePush::NewTab
+        );
+        // On the Inbox SCREEN the pushed tab is the screen's: a list left on
+        // the other tab by a local flip beside a detail follows it, even
+        // though the push itself did not change …
+        assert_eq!(
+            side_push(Some(InboxSide), Some(Inbox), InboxSide, Some(Inbox), Some(MyIssues)),
+            SidePush::NewTab
+        );
+        // … and an agreeing list is still a no-op.
+        assert_eq!(
+            side_push(Some(InboxSide), Some(Inbox), InboxSide, Some(Inbox), Some(Inbox)),
+            SidePush::Same
         );
         // A missing tab never counts as a change.
         assert_eq!(
-            side_push(Some(InboxSide), Some(MyIssues), InboxSide, None),
+            side_push(Some(InboxSide), Some(MyIssues), InboxSide, None, None),
             SidePush::Same
+        );
+    }
+
+    /// EXP-1194: the Reviews side list lights the open issue's row OR the
+    /// open run's — an agent-run PR opens `Screen::Session`, never an issue.
+    #[test]
+    fn the_reviews_side_list_lights_the_open_issue_or_run() {
+        let issue = Screen::IssueDetail {
+            issue_id: "issue-1".into(),
+        };
+        let run = Screen::Session {
+            session_id: "sess-1".into(),
+        };
+        assert_eq!(super::open_review(Some(&issue)), (Some("issue-1"), None));
+        assert_eq!(super::open_review(Some(&run)), (None, Some("sess-1")));
+        assert_eq!(super::open_review(Some(&Screen::Reviews)), (None, None));
+        assert_eq!(super::open_review(None), (None, None));
+    }
+
+    /// EXP-1194: a run row reads like the page's "Agent runs" row — `#N` and
+    /// the action's name; a chat run its agent title, else "Chat".
+    #[test]
+    fn a_review_run_row_reads_like_the_pages() {
+        let run = |value: serde_json::Value| -> domain::rows::CodingSession {
+            serde_json::from_value(value).unwrap()
+        };
+        let action = run(serde_json::json!({
+            "id": "sess-1", "pr_number": 42, "action_id": "a1", "action_name": "Release notes",
+        }));
+        assert_eq!(
+            super::review_run_texts(&action),
+            ("#42".to_string(), "Release notes".to_string())
+        );
+        let chat = run(serde_json::json!({ "id": "sess-2" }));
+        assert_eq!(
+            super::review_run_texts(&chat),
+            (String::new(), domain::batch_run::CHAT_RUN_NAME.to_string())
         );
     }
 

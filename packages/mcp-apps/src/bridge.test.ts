@@ -49,4 +49,30 @@ describe(`AppBridge`, () => {
     deliver({ jsonrpc: `2.0`, id: request.id, error: { message: `denied` } })
     await expect(call).rejects.toThrow(`denied`)
   })
+
+  it(`opens only http(s) links, on the host path and the fallback`, async () => {
+    const { self, posted, deliver } = fakeWindow()
+    const bridge = new AppBridge({}, self)
+    for (const url of [`javascript:alert(1)`, `data:text/html,x`, `/relative`]) {
+      bridge.openLink(url)
+    }
+    expect(posted).toHaveLength(0)
+
+    bridge.openLink(`https://exponential.at/x`)
+    const request = posted.at(-1) as { id: number }
+    expect(request).toMatchObject({
+      method: `ui/open-link`,
+      params: { url: `https://exponential.at/x` },
+    })
+    // A host without the capability: the fallback tab takes the same url.
+    deliver({ jsonrpc: `2.0`, id: request.id, error: { message: `Method not found` } })
+    await vi.waitFor(() =>
+      expect(self.open).toHaveBeenCalledWith(
+        `https://exponential.at/x`,
+        `_blank`,
+        `noopener`
+      )
+    )
+    expect(self.open).toHaveBeenCalledTimes(1)
+  })
 })

@@ -1,8 +1,5 @@
-- GitHub: jedna průvodcovská stránka propojí váš účet GitHub, nainstaluje aplikaci a vypíše repozitáře, do kterých můžete pushovat
-- Zpětná vazba: odeslání z widgetu je issue, reportérovi odpovíte z editoru komentářů a jeho odpovědi se vrátí jako komentáře
-- Nové issue: vytvoření issue otevře celou stránku se všemi vlastnostmi, která se během psaní ukládá jako koncept
-- Navigace: karty Inbox, Devices, Reviews, Agent a Actions; Reviews, běhy, akce a zařízení zobrazují všechny vaše týmy
-- Pull requesty: diff je pohled Changes u issue, Results se čte jako očíslovaný průvodce, Merge je na spodní liště
-- Runs: značka agenta se točí, když pracuje, oranžová čeká na vás, zelená má otevřený pull request, modrá je hotovo
-- Obrazovka issue: při posouvání se název sbalí do záhlaví a obsah zajíždí pod rozmazaný okraj
-- Připojení k týmu: pozvánka nabídne krok nastavení zařízení, pokud ještě žádné zařízení nemáte
+- Start: aplikace se otevře na stránce Agent a tlačítko chatu tam svítí
+- Karty: Inbox, My Issues a Drafts se přepínají přejetím do strany, stejně jako Actions a Suggestions
+- Reviews: pull request z běhu chatu nebo akce otevře své změny přímo v aplikaci
+- Runs: šipka skočí na nejnovější zprávu a seznam úkolů ukazuje svůj postup
+- Nové issue: jedno klepnutí na × zahodí koncept

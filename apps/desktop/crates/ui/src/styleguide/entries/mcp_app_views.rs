@@ -15,8 +15,10 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
         .text_sm()
         .text_color(cx.theme().muted_foreground)
         .child(
-            "Web only: the issue list and run report render inside the MCP host \
-             (OpenClaw, Claude, ChatGPT) beside an exponential_issues_show or \
-             exponential_sessions_get call. See the web styleguide.",
+            "Web only: five views render inside the MCP host (OpenClaw, Claude, \
+             ChatGPT) beside their call: the issue list (exponential_issues_show), \
+             the run list (exponential_sessions_list), the run report \
+             (exponential_sessions_get), the inbox (exponential_notifications_list) \
+             and the devices page (exponential_devices_list). See the web styleguide.",
         )
 }

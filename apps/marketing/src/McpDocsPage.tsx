@@ -135,6 +135,7 @@ const TOOL_GROUPS: {
     heading: `Coding sessions & devices`,
     tools: [
       { name: `exponential_devices_list`, desc: `List your machines (desktop app or CLI daemon) plus servers shared with the team, with their online state and the agents each can run.` },
+      { name: `exponential_devices_account_login`, desc: `Sign an agent account in on one of your own machines. The machine runs the agent's own login; only the sign-in link and the code you type travel, the credential never leaves it.` },
       { name: `exponential_sessions_start`, desc: `Start a run on an ONLINE device: an issue, a batch of issues, an action, or a resume. Offline devices are refused — starts are live, never queued.` },
       { name: `exponential_sessions_list`, desc: `List coding sessions newest first, with status, subject, branch, device, any usage wall, and who ended an ended run.` },
       { name: `exponential_sessions_get`, desc: `Get one session; poll it after a start to follow running → in review → ended.` },
@@ -334,12 +335,15 @@ openclaw mcp login exponential
 
             <h3>Interactive views (MCP Apps)</h3>
             <p>
-              Clients that render MCP Apps show two tools as Exponential views
-              instead of JSON: <code>exponential_issues_show</code> (the issue
-              list, grouped by status; a row opens the issue) and{` `}
+              Clients that render MCP Apps show five tools as Exponential
+              views instead of JSON: <code>exponential_issues_show</code> (the
+              issue list, grouped by status; a row opens the issue),{` `}
+              <code>exponential_sessions_list</code> (your runs),{` `}
               <code>exponential_sessions_get</code> (a coding run&apos;s
-              report). Self-hosted instances serve the same views; nothing to
-              configure on the server.
+              report), <code>exponential_notifications_list</code> (your
+              inbox) and <code>exponential_devices_list</code> (your machines
+              and their agent logins). Self-hosted instances serve the same
+              views; nothing to configure on the server.
             </p>
 
             <h3>Other clients</h3>

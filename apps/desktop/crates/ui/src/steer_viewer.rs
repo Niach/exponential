@@ -451,6 +451,9 @@ pub(crate) struct SteerSessionView {
     /// The view's own measured width (the recorded-px canvas recipe) — the
     /// transcript's bubble cap reads it.
     view_width: std::rc::Rc<std::cell::Cell<Pixels>>,
+    /// The Diff face's own painted width — [`crate::diff_pane`]'s tree gate
+    /// (it writes and reads it; 0 before the first paint).
+    diff_pane_width: std::rc::Rc<std::cell::Cell<f32>>,
     /// EXP-884/EXP-916: the memo behind the edited-files cards — a card's
     /// patches are parsed once, not once per frame.
     edit_memo: crate::session_rows::EditMemo,
@@ -723,6 +726,7 @@ impl SteerSessionView {
             folded_dirs: HashSet::new(),
             pr_changes: None,
             view_width: std::rc::Rc::new(std::cell::Cell::new(px(0.))),
+            diff_pane_width: std::rc::Rc::new(std::cell::Cell::new(0.)),
             edit_memo: Default::default(),
             expanded_edit_rows: HashMap::new(),
             derived_for: None,
@@ -2791,6 +2795,7 @@ impl SteerSessionView {
                 folded_dirs: self.folded_dirs.clone(),
                 caption: None,
                 diff: self.changes_diff.clone(),
+                pane_width: self.diff_pane_width.clone(),
                 on_pick: std::rc::Rc::new(|this: &mut Self, index, cx| {
                     this.select_diff_file(index, cx);
                 }),

@@ -1,8 +1,5 @@
-- GitHub: én guidet side forbinder din GitHub-konto, installerer appen og viser de repositories, du kan pushe til
-- Feedback: en indsendelse fra widgetten er et issue, svar rapportøren fra kommentarfeltet, og svarene kommer tilbage som kommentarer
-- Nyt issue: når du opretter et issue, åbner en hel side med alle egenskaber, som gemmes som kladde, mens du skriver
-- Navigation: fanerne Inbox, Devices, Reviews, Agent og Actions; Reviews, kørsler, actions og enheder viser alle dine teams
-- Pull requests: diffen er issuets Changes-visning, Results læses som en nummereret guide, Merge sidder på bundlinjen
-- Runs: agentens mærke drejer, mens den arbejder, ravgul venter på dig, grøn har en åben pull request, blå er færdig
-- Issue-skærm: titlen folder sig ind i headeren, når du scroller, og indholdet glider ind under en sløret kant
-- Bliv del af et team: invitationen tilbyder trinnet til opsætning af enhed, når du endnu ikke har en enhed
+- Start: appen åbner på Agent-siden, og chatknappen lyser, mens du er der
+- Faner: Inbox, My Issues og Drafts skifter med et swipe til siden, og det gør Actions og Suggestions også
+- Reviews: en pull request fra en chat- eller action-kørsel åbner sine ændringer i appen
+- Runs: en pil hopper til den nyeste besked, og opgavelisten viser sin fremdrift
+- Nyt issue: ét tryk på × kasserer en kladde

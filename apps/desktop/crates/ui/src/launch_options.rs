@@ -462,8 +462,8 @@ pub(crate) fn inline_pin_trigger_with(
 /// [`crate::icons::device_icon_name`] glyph (its owner's pick, else its kind
 /// — resolved HERE, because the typed constructor takes no `&App` and the
 /// kind lives on the synced row), and its picker line as the label. Every
-/// launch surface that offers a machine — the composer's Device pin, the
-/// workflow header's runner — builds its rows through this ONE function, so
+/// launch surface that offers a machine — the composer's Device pin, an
+/// action trigger's runner — builds its rows through this ONE function, so
 /// they can never list the same fleet differently.
 pub(crate) fn launch_device_rows(
     devices: &[crate::queries::LaunchDevice],

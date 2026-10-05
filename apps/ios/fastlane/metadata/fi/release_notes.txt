@@ -1,8 +1,5 @@
-- GitHub: yksi opastettu sivu yhdistää GitHub-tilisi, asentaa sovelluksen ja listaa repositoriot, joihin voit pushata
-- Palaute: widgetin lähetys on issue, vastaa ilmoittajalle kommenttikentästä ja hänen vastauksensa palaavat kommentteina
-- Uusi issue: luominen avaa koko sivun kaikkine ominaisuuksineen, ja se tallentuu luonnoksena kirjoittaessasi
-- Navigointi: välilehdet Inbox, Devices, Reviews, Agent ja Actions; Reviews, ajot, toiminnot ja laitteet näyttävät kaikki tiimisi
-- Pull requestit: diff on issuen Changes-näkymä, Results luetaan numeroituna oppaana, Merge on alapalkissa
-- Runs: agentin merkki pyörii sen työskennellessä, oranssi odottaa sinua, vihreällä on avoin pull request, sininen on valmis
-- Issue-näkymä: otsikko painuu yläpalkkiin vierittäessä ja sisältö liukuu sumennetun reunan alle
-- Tiimiin liittyminen: kutsu tarjoaa laitteen määritysvaiheen, jos sinulla ei vielä ole laitetta
+- Aloitus: sovellus avautuu Agent-sivulle, ja chat-painike palaa, kun olet siellä
+- Välilehdet: Inbox, My Issues ja Drafts vaihtuvat pyyhkäisemällä sivulle, samoin Actions ja Suggestions
+- Reviews: chat- tai toimintoajon pull request avaa muutoksensa sovelluksessa
+- Runs: nuoli hyppää uusimpaan viestiin, ja tehtävälista näyttää edistymisensä
+- Uusi issue: yksi napautus ×:ään hylkää luonnoksen

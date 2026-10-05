@@ -81,6 +81,9 @@ export class AppBridge {
   }
 
   openLink(url: string): void {
+    // Web links only: a `javascript:`/`data:` url from tool output never
+    // reaches the host, nor the fallback tab.
+    if (!/^https?:/i.test(url)) return
     void this.request(`ui/open-link`, { url }).catch(() => {
       // A host without the capability: fall back to a plain new tab.
       this.self.open(url, `_blank`, `noopener`)

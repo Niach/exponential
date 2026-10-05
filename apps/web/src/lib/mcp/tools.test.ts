@@ -50,6 +50,8 @@ const h = vi.hoisted(() => {
     // EXP-660: the deferred families.
     statuses: { create: vi.fn(), update: vi.fn(), delete: vi.fn() },
     steer: { killSession: vi.fn(), startSession: vi.fn() },
+    // EXP-1199: the device commands behind devices_account_login.
+    devices: { createCommand: vi.fn(), getCommand: vi.fn() },
   }
 
   // A chainable, thenable drizzle query stub. Every builder method returns the
@@ -5191,6 +5193,47 @@ describe(`exponential_devices_list`, () => {
     expect(denied.isError).toBe(true)
     expect(denied.content[0].text).toContain(`not a member`)
     expect(db.select).not.toHaveBeenCalled()
+  })
+})
+
+// EXP-1199: a sign-in on the user's own machine is no team's or board's to
+// grant, so only a full-access connection may queue one.
+describe(`exponential_devices_account_login`, () => {
+  const args = { deviceId: `mac-1`, agent: `claude`, code: `abc#123` }
+
+  it(`refuses a grant-scoped token before any device command`, async () => {
+    const result = await collectTools(
+      USER,
+      null,
+      ALL_MCP_TOOL_GATES,
+      SCOPED_TO_WS
+    ).get(`exponential_devices_account_login`)!(args)
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`not granted access`)
+    expect(db.select).not.toHaveBeenCalled()
+    expect(caller.devices.createCommand).not.toHaveBeenCalled()
+    expect(caller.devices.getCommand).not.toHaveBeenCalled()
+  })
+
+  it(`queues the command for a full-access connection`, async () => {
+    caller.devices.createCommand.mockResolvedValue({ id: UUID })
+    caller.devices.getCommand.mockResolvedValue({
+      id: UUID,
+      kind: `agent_login_code`,
+      status: `done`,
+      result: null,
+    })
+    const result = await tool(`exponential_devices_account_login`)(args)
+    expect(parseOk(result)).toMatchObject({
+      status: `signing_in`,
+      commandId: UUID,
+    })
+    expect(caller.devices.createCommand).toHaveBeenCalledWith({
+      deviceId: `mac-1`,
+      kind: `agent_login_code`,
+      agent: `claude`,
+      code: `abc#123`,
+    })
   })
 })
 

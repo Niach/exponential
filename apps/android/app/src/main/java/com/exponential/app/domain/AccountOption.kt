@@ -28,7 +28,7 @@ import com.exponential.app.data.api.SteerDevice
 //
 // Last used = per agent, the login a PERSON last started or switched a run
 // on, on that device (`agent_accounts[agent].profiles[].active`); the last
-// used agent = `launch_defaults.defaultAgent`. Automations, workflow nodes,
+// used agent = `launch_defaults.defaultAgent`. Triggered action runs,
 // agent-started runs and auto-rotation never move it. A launch naming no
 // account runs on it; `account: "system"` names the ambient login.
 //

@@ -25,6 +25,20 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-05-release-train`,
+    date: `2026-10-05`,
+    title: `Agent first, and run pull requests you can read in the app`,
+    summary: `Phones open on the Agent page, tabs swipe sideways, a chat or action run's pull request opens its changes in the app, Actions and Drafts are top-level entries again, and Exponential's MCP server draws issue, run and inbox views inside MCP clients.`,
+    body: `- **Phones open on the Agent page**: web, iOS and Android land on the Agent page with the tab bar kept, and the chat button is lit while you are there.
+- **Swipe between tabs**: Inbox, My Issues and Drafts page sideways like the issue tabs, and so do Actions and Suggestions and the action page on the phone web.
+- **Run pull requests**: a pull request from a chat or action run opens the run's Changes tab on web, desktop, iOS and Android instead of GitHub. Teammates get a read-only view of the diff.
+- **Navigation**: the More menu is gone on web and desktop. Actions and Drafts (while you have any) are top-level entries, actions wear a rocket, and the desktop footer has a Computer menu with Terminal, Files and Source Control.
+- **Desktop sidebar**: the sidebar stays expanded everywhere and the app opens on Agent. Inbox, a Reviews detail and the Agent page's recent runs open a second list inside the content card; the Reviews list there includes pull requests from agent runs, and the file tree only shows when the diff keeps enough room.
+- **Issue and run pages**: the properties stay in view under the header on every tab, the transcript fades into the composer, an arrow jumps to the newest message, the task list shows its progress, a plain × discards a draft, and Merge is a circle in the phone's bottom bar.
+- **MCP Apps**: in MCP clients that support MCP Apps, Exponential's server draws the issue list with issue detail, runs, the inbox and devices as interactive views. New tools: \`exponential_issues_show\` and \`exponential_devices_account_login\`. An OpenClaw plugin ships in the repository.
+- **Safer by default**: signing a machine's agent account in through MCP needs a full-access key, and a run's pull request diff is readable only when its repository belongs to the run's team.`,
+  },
+  {
     id: `2026-10-04-release-train`,
     date: `2026-10-04`,
     title: `Fixes on top of the one-path wave`,
