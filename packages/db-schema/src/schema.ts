@@ -1219,6 +1219,10 @@ export interface DeviceLaunchDefaults {
    * stored one). The last used ACCOUNT is that agent's `active` profile in
    * `agent_accounts`. */
   defaultAgent?: string
+  /** EXP-1196: runs on this device get a local computer-use MCP server
+   * (screen, click, type). Device-level, absent = off; a save without it
+   * keeps the stored one. */
+  computerUse?: boolean | null
   agents?: Record<string, DeviceAgentLaunchDefaults>
 }
 // Every field is `.nullish()`, not `.optional()`: 0.14.10 native builds
@@ -1231,6 +1235,8 @@ export interface DeviceLaunchDefaults {
 // register.
 export const deviceLaunchDefaultsSchema = z.object({
   defaultAgent: z.string().min(1).max(32).nullish(),
+  // EXP-1196: see DeviceLaunchDefaults.computerUse.
+  computerUse: z.boolean().nullish(),
   agents: z
     .record(
       z.string().min(1).max(32),

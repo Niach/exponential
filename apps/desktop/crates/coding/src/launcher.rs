@@ -1313,6 +1313,29 @@ fn resolve_mcp_servers(deps: &CodingDeps, ids: &[String], session_id: &str) -> R
     resolved
 }
 
+/// EXP-1196: give the run this device's computer-use server when its
+/// Computer use switch is on. The grant names the run by `session_id`, so it
+/// is minted after the row exists like the team servers; the entry and its
+/// token then ride [`ResolvedMcp`] through the same config and env path.
+/// Returns whether the run got it. BEST-EFFORT: a machine that cannot do
+/// computer use (a Wayland or headless session) launches without, with a
+/// warning in the log and no section in the prompt.
+fn attach_computer_use(deps: &CodingDeps, team_mcp: &mut ResolvedMcp, session_id: &str) -> bool {
+    if !deps.settings.computer_use {
+        return false;
+    }
+    match computer::grant(session_id) {
+        Ok(grant) => {
+            crate::mcp_servers::attach_computer(team_mcp, &grant);
+            true
+        }
+        Err(reason) => {
+            log::warn!("coding: computer use is on but unavailable, launching without it: {reason}");
+            false
+        }
+    }
+}
+
 /// EXP-792: the spawn-env half of the team servers, beside [`apply_mcp_env`]:
 /// every resolved secret under the launcher-minted name (`EXP_MCP_TOKEN_<n>`,
 /// `EXP_MCP_ENV_<n>_<NAME>`, a stdio server's own `<NAME>`) — the values the
@@ -1753,7 +1776,8 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
     )?;
     // EXP-792/1140: the team MCP server pick, resolved FOR the row just
     // created (unconnected or unpicked ones are skipped, never a blocker).
-    let team_mcp = resolve_mcp_servers(deps, &options.mcp_server_ids, &session.id);
+    let mut team_mcp = resolve_mcp_servers(deps, &options.mcp_server_ids, &session.id);
+    let computer_use = attach_computer_use(deps, &mut team_mcp, &session.id);
 
     // Step 6.5 (EXP-194) — the LAUNCHER parks backlog issues in
     // `in_progress`. Under plan mode the agent's MCP status call would only
@@ -2021,7 +2045,7 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
     // The row id the ACP arm hands the engine (the literal below moves
     // `session.id` into the launch).
     let session_id_for_acp = session.id.clone();
-    let system_append = system_append_for_team(deps, &team_id);
+    let system_append = system_append_for_team(deps, &team_id, computer_use);
     // EXP-1051: a fresh session carries no base from anywhere — every layer
     // is one this launch just built.
     let context_layers = context_layers_for(
@@ -2526,7 +2550,8 @@ fn prepare_action(
     )?;
     // EXP-792/1140: the team MCP server pick, resolved FOR the row just
     // created (unconnected or unpicked ones are skipped, never a blocker).
-    let team_mcp = resolve_mcp_servers(deps, &options.mcp_server_ids, &session.id);
+    let mut team_mcp = resolve_mcp_servers(deps, &options.mcp_server_ids, &session.id);
+    let computer_use = attach_computer_use(deps, &mut team_mcp, &session.id);
 
     // EXP-210: stamp THIS agent into the run worktree's recorded-agent
     // marker, exactly like the issue path — a later resume reads it to
@@ -2685,7 +2710,7 @@ fn prepare_action(
     );
 
     let session_id_for_acp = session.id.clone();
-    let system_append = system_append_for_team(deps, &req.team_id);
+    let system_append = system_append_for_team(deps, &req.team_id, computer_use);
     // EXP-1051: an action run's cwd is its own worktree or scratch dir, so
     // its project memory is whatever sits there — not the trunk clone's.
     let context_layers = context_layers_for(
@@ -3332,7 +3357,8 @@ fn prepare_resume_run(
     // EXP-792/1140: the RECORDED team MCP server pick, re-resolved now
     // (fresh tokens) FOR the continuation row it was just persisted on;
     // unconnected or unpicked ones are skipped, never a blocker.
-    let team_mcp = resolve_mcp_servers(deps, &options.mcp_server_ids, &session.id);
+    let mut team_mcp = resolve_mcp_servers(deps, &options.mcp_server_ids, &session.id);
+    let computer_use = attach_computer_use(deps, &mut team_mcp, &session.id);
 
     // Step 6 — the spawn spec, mirroring the fresh action path.
     if agent == CodingAgent::Codex {
@@ -3506,7 +3532,7 @@ fn prepare_resume_run(
                 .map(ResumeSeed::Native)
         });
     let session_id_for_acp = session.id.clone();
-    let system_append = system_append_for_team(deps, &record.team_id);
+    let system_append = system_append_for_team(deps, &record.team_id, computer_use);
     // EXP-1051: a NATIVE resume re-enters a transcript whose base context
     // this launch never built, so the predecessor's measured number is the
     // only honest one to carry. A resume that fell back to a fresh session
@@ -3569,15 +3595,19 @@ fn prepare_resume_run(
 /// a prompt or a failed fetch degrades to the bare playbook and is logged,
 /// never a refused launch — the prompt is a nicety of the run, not a
 /// precondition of it.
-fn system_append_for_team(deps: &CodingDeps, team_id: &str) -> String {
+///
+/// EXP-1196: `computer_use` = this launch carries the `computer` MCP server
+/// ([`attach_computer_use`]), so the append also teaches it. An agent shell
+/// never does.
+fn system_append_for_team(deps: &CodingDeps, team_id: &str, computer_use: bool) -> String {
     if team_id.trim().is_empty() {
-        return crate::skill::system_append(None);
+        return crate::skill::system_append_with(None, computer_use);
     }
     match api::teams::teams_get_agent_prompt(&deps.trpc, team_id) {
-        Ok(prompt) => crate::skill::system_append(Some(&prompt.agent_prompt)),
+        Ok(prompt) => crate::skill::system_append_with(Some(&prompt.agent_prompt), computer_use),
         Err(err) => {
             log::warn!("coding: team prompt for {team_id} unavailable, launching without it: {err}");
-            crate::skill::system_append(None)
+            crate::skill::system_append_with(None, computer_use)
         }
     }
 }
@@ -3607,7 +3637,7 @@ pub fn context_layers_for(
     carried_base: Option<CarriedBase>,
 ) -> ContextLayers {
     ContextLayers {
-        playbook_bytes: crate::skill::RUN_SKILL.len(),
+        playbook_bytes: context_layout::playbook_bytes(system_append),
         team_bytes: context_layout::team_bytes(system_append),
         task_bytes: prompt.map(str::len),
         project: context_layout::project_memory(agent, cwd, profile_dir),
@@ -3801,7 +3831,7 @@ pub fn prepare_agent_shell(
     if agent == CodingAgent::Claude {
         crate::claude_trust::ensure_onboarded(&cwd, true, profile_dir.as_deref());
     }
-    let system_append = system_append_for_team(deps, req.team_id.as_deref().unwrap_or(""));
+    let system_append = system_append_for_team(deps, req.team_id.as_deref().unwrap_or(""), false);
     let args = shell_args(options, &agent_mcp, &system_append);
     let tab_title = agent_shell_tab_title(agent, req, &cwd);
     let mut spawn = SpawnSpec::new(&deps.settings.resolved_path_for(agent))

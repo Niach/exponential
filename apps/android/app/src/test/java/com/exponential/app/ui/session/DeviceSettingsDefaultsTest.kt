@@ -245,6 +245,51 @@ class DeviceSettingsDefaultsTest {
         )
     }
 
+    /**
+     * EXP-1196: the device-level `computerUse` switch decodes leniently
+     * (absent/null = null = OFF), rides the save as an explicit boolean once
+     * set, and stays ABSENT (never a literal null) while unset so the server
+     * carries the stored value forward.
+     */
+    @Test
+    fun `computerUse round-trips and stays absent when unset`() {
+        val json = Json { ignoreUnknownKeys = true }
+        val absent = json.decodeFromString(
+            DeviceLaunchDefaults.serializer(),
+            """{"defaultAgent":"claude","agents":{}}""",
+        )
+        assertNull(absent.computerUse)
+        assertNull(
+            json.decodeFromString(
+                DeviceLaunchDefaults.serializer(),
+                """{"computerUse":null,"agents":{}}""",
+            ).computerUse,
+        )
+        val stored = json.decodeFromString(
+            DeviceLaunchDefaults.serializer(),
+            """{"computerUse":true,"agents":{"claude":{"model":"opus"}}}""",
+        )
+        assertEquals(true, stored.computerUse)
+
+        for (value in listOf(true, false)) {
+            val sent = setLaunchDefaultsInput(
+                deviceId = "dev-1",
+                defaults = buildDefaults(listOf("claude"), emptyMap(), computerUse = value),
+            ).getValue("launchDefaults").jsonObject
+            assertEquals(JsonPrimitive(value), sent["computerUse"])
+            // And it decodes back as itself.
+            assertEquals(
+                value,
+                json.decodeFromJsonElement(DeviceLaunchDefaults.serializer(), sent).computerUse,
+            )
+        }
+        val unset = setLaunchDefaultsInput(
+            deviceId = "dev-1",
+            defaults = buildDefaults(listOf("claude"), emptyMap()),
+        ).getValue("launchDefaults").jsonObject
+        assertFalse(unset.containsKey("computerUse"))
+    }
+
     /** EXP-773 deleted the "Start in terminal" preference. An older server
      *  still stamps `startInTerminal` onto `launchDefaults`; the decoder is
      *  `ignoreUnknownKeys`, so the key is skipped instead of failing the whole

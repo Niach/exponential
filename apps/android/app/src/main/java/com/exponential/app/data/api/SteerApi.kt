@@ -87,6 +87,13 @@ data class DeviceLaunchDefaults(
      */
     @SerialName("defaultAgent") val defaultAgent: String? = null,
     @SerialName("agents") val agents: Map<String, AgentLaunchDefaults> = emptyMap(),
+    /**
+     * EXP-1196: the DEVICE-level "Computer use" switch (agents may see the
+     * screen, click and type), off by default. Null = never set, which reads
+     * as OFF and stays ABSENT on the wire (`explicitNulls = false`) so the
+     * server carries the stored value forward; an explicit true/false wins.
+     */
+    @SerialName("computerUse") val computerUse: Boolean? = null,
 )
 
 /**

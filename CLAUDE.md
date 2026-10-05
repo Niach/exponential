@@ -33,7 +33,7 @@ packages/
 └── tsconfig/
 docs/ # third-party-licences.md + licences/
 shots/ # COMMITTED webp store, <view>/<platform>.webp
-docker-compose.yaml # DEV backend stack (not the self-host one)
+docker-compose.yaml # DEV backend stack
 selfhost/ # Pull-an-image compose; INSTALL.md = the runbook
 Dockerfile{,.push-relay,.steer-relay} # build context = repo root
 ```
@@ -64,8 +64,6 @@ The app = **noindex** (`__root.tsx` meta + `X-Robots-Tag`); marketing owns the i
 
 ## Commands
 
-From repo root.
-
 ```bash
 bun install
 bun run backend  # docker compose up -d + dev server (:3000 via Caddy)
@@ -93,11 +91,11 @@ Coolify (`coolify.home.straehhuber.com`, Hetzner), **home-LAN-only**: `coolify d
 
 Every user-facing release PREPENDS a `ChangelogEntry` to `lib/changelog.ts` (gated; mirrored by `crates/ui/src/changelog.rs`).
 
-After schema changes: `bun run migrate:generate && bun run migrate`. Custom triggers (`db/out/custom/0001_triggers.sql`) auto-apply at boot (`applyCustomSql`, idempotent).
+After schema changes: `bun run migrate:generate && bun run migrate`; custom triggers auto-apply at boot (`applyCustomSql`, idempotent).
 
 ## Web App Structure (`apps/web/src/`)
 
-The shadcn set, theme `styles.css`, `cn`, icon registry and shared primitives (`IssueChip`, `UserAvatar`, `LiveDot`, `StatusGlyph`, `Pill`, rows, toasts—`Toaster` + `toast-stack.json` ×4) = `@exp/ui` (`packages/ui/src`; `@exp/ui/island` = shadow-root islands for styleguide + marketing); app compositions stay flat in `components/` (`agent-session.tsx` = the steer view). `lib/trpc/` = one file per router (`routes/api/trpc/$.ts` lists them). `lib/auth/membership.ts` = data lookups; `access.ts` = authorization. `lib/notification-email-policy.ts`/`-digest.ts`: push fires on create, email = a DIGEST of still-unread (DAILY at a user-chosen local hour, hourly legacy, atomic `emailed_at` claim; `server-bun.ts` schedules). EXP-801: MCP `exponential_notifications_send` = issue-less team-scoped `agent_message` row + push to members/self (one inbox row each ×4); prefs `allow_agent_messages=false` BLOCKS other members' agents (own always pass). EXP-980: `setBlocked` null→set sends `session_blocked` to EVERY run's OWNER (issue-less + synced `session_id`; row + push open the run ×4). Team routes under `t/$teamSlug/`: inbox `?tab=my-issues` = a TAB, not a route (`?tab=drafts` phone-only; `drafts` route + sidebar entry only while drafts exist); `drafts/$draftId` = New issue AS the detail in draft mode, NO create dialog ×4 (EXP-1170: openers mint the id, ONE coalesced `issueDrafts.upsert`, copy `issue-draft.json`); `reviews` = the cross-board open-PR queue, a row opens the issue's Changes face `?view=diff` (EXP-1154); `agent` = the composer (play buttons route here with one-shot `?issues=|action=|pr=|device=|text=|icon=`; `?from=` = Back target), `sessions/$sessionId` steers inside it (EXP-818). Also `auth/consent.tsx`, `invite/$token`. Entry: `router.tsx`, `start.tsx` (`defaultSsr: false`), `server{,-bun}.ts`.
+The shadcn set, theme `styles.css`, `cn`, icon registry and shared primitives (`IssueChip`, `UserAvatar`, `LiveDot`, `StatusGlyph`, `Pill`, rows, toasts—`Toaster` + `toast-stack.json` ×4) = `@exp/ui` (`packages/ui/src`; `@exp/ui/island` = shadow-root islands for styleguide + marketing); app compositions stay flat in `components/` (`agent-session.tsx` = the steer view). `lib/trpc/` = one file per router (`routes/api/trpc/$.ts` lists them). `lib/auth/membership.ts` = data lookups; `access.ts` = authorization. `lib/notification-email-policy.ts`/`-digest.ts`: push fires on create, email = a DIGEST of still-unread (DAILY at a user-chosen local hour, hourly legacy, atomic `emailed_at` claim; `server-bun.ts` schedules). EXP-801: MCP `exponential_notifications_send` = issue-less team-scoped `agent_message` row + push to members/self (one inbox row each ×4); prefs `allow_agent_messages=false` BLOCKS other members' agents (own always pass). EXP-980: `setBlocked` null→set sends `session_blocked` to EVERY run's OWNER (issue-less + synced `session_id`; row + push open the run ×4). Team routes under `t/$teamSlug/`: inbox `?tab=my-issues` = a TAB, not a route (`?tab=drafts` phone-only; `drafts` route + sidebar entry only while drafts exist); `drafts/$draftId` = New issue AS the detail in draft mode, NO create dialog ×4 (EXP-1170: openers mint the id, ONE coalesced `issueDrafts.upsert`, copy `issue-draft.json`); `reviews` = the cross-board open-PR queue, a row opens the issue's Changes face `?view=diff` (EXP-1154); `agent` = the composer (play buttons route here with one-shot `?issues=|action=|pr=|device=|text=|icon=`; `?from=` = Back target), `sessions/$sessionId` steers inside it (EXP-818). Entry: `router.tsx`, `start.tsx` (`defaultSsr: false`), `server{,-bun}.ts`.
 
 ## Database
 
@@ -105,7 +103,7 @@ The shadcn set, theme `styles.css`, `cn`, icon registry and shared primitives (`
 
 ### Conventions
 
-Better Auth user IDs (so all user FKs) = `text`; app tables use UUID PKs (`gen_random_uuid()`) and timezone `created_at`/`updated_at`; sort orders = `doublePrecision` (fractional indexing).
+Better Auth user IDs (so all user FKs) = `text`; app tables use UUID PKs and timezone `created_at`/`updated_at`; sort orders = `doublePrecision` (fractional indexing).
 
 ### Non-obvious fields
 
@@ -113,7 +111,7 @@ Issues DUAL-WRITE `status` (the builtin ANCHOR enum) and `statusId` (nullable FK
 
 ### Enum behavior
 
-Values in `contract.json`. `issue_status`: `pr_open` flips linked issues to the team's PR-open target (default `in_review`), merge to the PR-merge target (default `done`). `coding_session_status` (running/in_review/ended): `in_review` = PR open; PR MERGE **ends** live sessions on EVERY path (EXP-498) unless the team's synced `endSessionsOnMerge` is false or MCP `pr_merge({endSessions})` overrides (EXP-711), never the session that merged its OWN PR (server-only `merged_own_pr`, EXP-637). Orphan PG labels: `merged`, `todo`; `ended` also via `killSession`/`codingSessions.end`. `ended_by` (agent|user|client|merge|system) records the path; `exponential_sessions_end` (report not stored, EXP-862) = REGISTERED only for UNATTENDED runs (`started_reason` schedule|event|`agent` = a `sessions_start` child; synced `parent_session_id` nests it, `session-tree` ×4; EXP-679/818) and ENDING them (EXP-673); a person-started run has NO idle bound (EXP-674) except a queued daemon update (FEED-36: idle ≥2h; `update_now`/cap `update-now` ends now); `needs_input` and `blocked` (EXP-804 jsonb, device-written, a walled run stays `running`; set ONLY by a refusal, never `allowed_warning`; `window` from claude's `rateLimitType`) land on every live status; `agent_busy` (device-written per turn edge, EXP-848) = the ONLY list-spinner input ×4; an action's Runs lists ALL its runs, Running/Recent person-started; `resumed_from_id` links a resume to its predecessor; EXP-906: a resume INHERITS `parent_session_id`+`started_reason` (`codingSessions.start`; the predecessor's reason wins), re-stamps its children; child messages follow the parent's resume succession (`resolveLiveParentSessionId`). Every `pr_open` form stamps the CALLER's row (`pr_*`), so a merge ends any run server-side.
+`issue_status`: `pr_open` flips linked issues to the team's PR-open target (default `in_review`), merge to the PR-merge target (default `done`). `coding_session_status` (running/in_review/ended): `in_review` = PR open; PR MERGE **ends** live sessions on EVERY path (EXP-498) unless the team's synced `endSessionsOnMerge` is false or MCP `pr_merge({endSessions})` overrides (EXP-711), never the session that merged its OWN PR (server-only `merged_own_pr`, EXP-637). Orphan PG labels: `merged`, `todo`; `ended` also via `killSession`/`codingSessions.end`. `ended_by` (agent|user|client|merge|system) records the path; `exponential_sessions_end` (report not stored, EXP-862) = REGISTERED only for UNATTENDED runs (`started_reason` schedule|event|`agent` = a `sessions_start` child; synced `parent_session_id` nests it, `session-tree` ×4; EXP-679/818) and ENDING them (EXP-673); a person-started run has NO idle bound (EXP-674) except a queued daemon update (FEED-36: idle ≥2h; `update_now`/cap `update-now` ends now); `needs_input` and `blocked` (EXP-804 jsonb, device-written, a walled run stays `running`; set ONLY by a refusal, never `allowed_warning`; `window` from claude's `rateLimitType`) land on every live status; `agent_busy` (device-written per turn edge, EXP-848) = the ONLY list-spinner input ×4; an action's Runs lists ALL its runs, Running/Recent person-started; `resumed_from_id` links a resume to its predecessor; EXP-906: a resume INHERITS `parent_session_id`+`started_reason` (`codingSessions.start`; the predecessor's reason wins), re-stamps its children; child messages follow the parent's resume succession (`resolveLiveParentSessionId`). Every `pr_open` form stamps the CALLER's row (`pr_*`), so a merge ends any run server-side.
 
 ### Custom triggers
 
@@ -144,7 +142,7 @@ Per-TEAM rows, six fixed categories (backlog/unstarted/started/completed/cancell
 
 ## Environment Variables
 
-**Root `.env.example` = the CANONICAL reference**, `selfhost/.env.example` its self-host subset, relays own `apps/*/.env.example`; read them. Not obvious from those:
+**Root `.env.example` = CANONICAL**, `selfhost/.env.example` its subset, relays own `apps/*/.env.example`. Not obvious from those:
 
 - `CLOUD_INSTANCE` = the opt-IN cloud marker (EXP-364): `'true'` = billing, plan limits, in-app widget, conversion tracking; unset = self-hosted, every FEATURE limit unlocked; `INITIAL_ADMIN_EMAILS` auto-promotes global admins.
 - `AUTH_PASSWORD_ENABLED`/`AUTH_SIGNUP_ENABLED`: password login defaults true, public signup on in dev, OFF in production builds (`selfhost/docker-compose.yaml` re-defaults `true`). Auth posture = BUILD-derived (`lib/production-build.ts` `isProductionBuild`, REV-5), never runtime `NODE_ENV`. EXP-857: `AUTH_EMAIL_OTP_ENABLED` defaults on WITH a mail transport, `AUTH_PASSKEY_ENABLED` WITH an https base (rpID = host; Android origins from `ANDROID_APP_LINK_FINGERPRINTS`); login = ONE "Continue with …" list ×4; `mobile-oauth-start?provider=browser` = the native browser handoff.
@@ -159,7 +157,7 @@ Per-TEAM rows, six fixed categories (backlog/unstarted/started/completed/cancell
 
 ### The launcher
 
-A thin launcher (`coding::prepare`, desktop + CLI): the issue's repo (tRPC) → a session-gated JIT GitHub-App token → a worktree + `exp/<IDENTIFIER>` branch with ambient git auth from a repo-local credential helper (EXP-73) → the `/api/mcp` MCP config with the user's `expu_` apikey, NOT `.mcp.json` → the system-prompt append (`skill::system_append`, claude `--append-system-prompt`/codex `developer_instructions`, rebuilt on EVERY start/resume/shell; the seed prompt never): the playbook `crates/coding/src/skill.md` (6 KiB) + the TEAM PROMPT (EXP-1025: server-only `teams.agent_prompt`, `teams.getAgentPrompt`/`update`, owner-edited in Settings → General web + IDE, cap contract `team.agentPromptMaxBytes`) → plan-first. The agent commits, pushes, opens its PR via MCP `open_pr` (the `X-Exp-Session-Id` MCP header names the run), unattended ones then `sessions_end`. Action and chat runs get their OWN worktree + branch (`exp/<slug>-<id8>` / `exp/chat-<id8>`); a repo-less chat runs in a scratch dir (EXP-739); agents never write to the trunk; clean worktrees go at end. Local deps: `git` + agent CLIs, never `gh`. Default branches resolve live (healed on `repositories.list`/`installationToken`), never assume `main`: `boards.default_branch` → team `default_branch_override` → GitHub.
+A thin launcher (`coding::prepare`, desktop + CLI): the issue's repo (tRPC) → a session-gated JIT GitHub-App token → a worktree + `exp/<IDENTIFIER>` branch with ambient git auth from a repo-local credential helper (EXP-73) → the `/api/mcp` MCP config with the user's `expu_` apikey, NOT `.mcp.json` → the system-prompt append (`skill::system_append`, claude `--append-system-prompt`/codex `developer_instructions`, rebuilt on EVERY start/resume/shell; the seed prompt never): the playbook `crates/coding/src/skill.md` (6 KiB) + the TEAM PROMPT (EXP-1025: server-only `teams.agent_prompt`, `teams.getAgentPrompt`/`update`, owner-edited in Settings → General web + IDE, cap contract `team.agentPromptMaxBytes`) → plan-first. The agent commits, pushes, opens its PR via MCP `open_pr` (the `X-Exp-Session-Id` MCP header names the run), unattended ones then `sessions_end`. Action and chat runs get their OWN worktree + branch (`exp/<slug>-<id8>` / `exp/chat-<id8>`); a repo-less chat runs in a scratch dir (EXP-739); agents never write to the trunk; clean worktrees go at end. Local deps: `git` + agent CLIs, never `gh`. EXP-1196 computer use: `crates/computer` = ONE loopback MCP server in the host; wired per run as `computer` when synced `launch_defaults.computerUse` (default OFF, ×4) is on; `guard.rs` = blocklist + person-input pause; Linux X11 only. Default branches resolve live (healed on `repositories.list`/`installationToken`), never assume `main`: `boards.default_branch` → team `default_branch_override` → GitHub.
 
 ### Agents & the engine
 
@@ -183,7 +181,7 @@ Desktop IDE = master-only + autopull (no branch switch; changes land via PRs or 
 
 Subscriptions bind to a TEAM (`creem_subscriptions.team_id` + `seats`; `billing.createSeatCheckout`, Creem `units` = seats), not the purchaser (REV2-55, `lib/billing/billing-handover.ts`): `reference_id` nullable/set-null; account deletion NEVER blocked by billing, it only cancels a SOLO team's subscription it destroys; team deletes REFUSE a live subscription (`PRECONDITION_FAILED`; a period-end cancellation passes), natives point at web. ONE subscription per team: `createSeatCheckout` refuses duplicates; `billing.updateSeats`/`changePlan` mutate the EXISTING subscription with `update_behavior: proration-charge-immediately`. Free = 3 seats, 250MB, 1 widget; **Team** = the ONE paid tier, €15/seat/mo or €12 yearly: 10GB, unlimited widgets (`PlanTier = free|team|unlimited`). Boards/repos/coding sessions, push + steer = never plan-gated; over-seat teams only block invites.
 
-**Limits exist only when `CLOUD_INSTANCE=true`** (a product switch, no licence gate). Enterprise Support: NO published pricing (EXP-218), marketing routes to `/contact/`. Self-host's one limit: no MOBILE push (store apps embed Firebase).
+**Limits exist only when `CLOUD_INSTANCE=true`**. Enterprise Support: NO published pricing (EXP-218), marketing routes to `/contact/`. Self-host's one limit: no MOBILE push (store apps embed Firebase).
 
 ## Feedback widget (SLOP-4: ONE path, a submission IS an issue)
 

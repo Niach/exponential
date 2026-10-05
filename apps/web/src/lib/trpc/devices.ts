@@ -101,7 +101,8 @@ const COMMANDS_PER_HEARTBEAT = 32
 // models/efforts, and capability-masked toggles are dropped. A save REPLACES
 // the whole object: an absent key is a clear, like an explicit null (every
 // client at the floors sends every key it knows, compat round 26) — except
-// `defaultAgent`, which `setLaunchDefaults` carries forward (EXP-1158).
+// `defaultAgent` and `computerUse`, which `setLaunchDefaults` carries forward
+// (EXP-1158, EXP-1196).
 function clampLaunchDefaults(
   input: z.infer<typeof deviceLaunchDefaultsSchema>
 ): DeviceLaunchDefaults {
@@ -109,6 +110,10 @@ function clampLaunchDefaults(
   const out: DeviceLaunchDefaults = {}
   if (input.defaultAgent && agentIds.includes(input.defaultAgent)) {
     out.defaultAgent = input.defaultAgent
+  }
+  // EXP-1196: a boolean passes, null (= off) is dropped like every toggle.
+  if (typeof input.computerUse === `boolean`) {
+    out.computerUse = input.computerUse
   }
   if (input.agents) {
     const agents: Record<string, DeviceAgentLaunchDefaults> = {}
@@ -837,6 +842,16 @@ export const devicesRouter = router({
         (contract.codingAgent.values as readonly string[]).includes(storedAgent)
       ) {
         clamped.defaultAgent = storedAgent
+      }
+      // EXP-1196: older clients never send `computerUse`, so a save that
+      // OMITS the key keeps the stored switch; an explicit true/false/null
+      // from a client that knows it wins.
+      const storedComputerUse = row.launchDefaults?.computerUse
+      if (
+        input.launchDefaults.computerUse === undefined &&
+        typeof storedComputerUse === `boolean`
+      ) {
+        clamped.computerUse = storedComputerUse
       }
       const now = new Date()
       const txid = await ctx.db.transaction(async (tx) => {

@@ -93,6 +93,8 @@ export interface SteerDevice {
  * contract `codingAgent` id, covering only the machine's RUNNABLE agents. */
 export interface DeviceLaunchDefaults {
   defaultAgent?: string
+  /** EXP-1196: device-level computer-use switch; absent = off. */
+  computerUse?: boolean | null
   agents?: Record<string, AgentLaunchDefaults>
 }
 

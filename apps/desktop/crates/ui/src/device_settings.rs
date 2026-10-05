@@ -327,6 +327,9 @@ pub struct DeviceSettingsView {
     claude_plan_mode: bool,
     /// EXP-1005: `Settings.auto_rotate_accounts` (claude-only).
     claude_auto_rotate: bool,
+    /// EXP-1196: `Settings.computer_use` — the DEVICE's switch (no agent
+    /// tab owns it), saved with the launch defaults it syncs in.
+    computer_use: bool,
     agent_tab: CodingAgent,
     editor_agents: Vec<CodingAgent>,
     /// The current baseline as a Settings value (drafts overlay it): the
@@ -532,6 +535,7 @@ impl DeviceSettingsView {
             claude_ultracode: seeded.claude_ultracode,
             claude_plan_mode: seeded.claude_plan_mode,
             claude_auto_rotate: seeded.auto_rotate_accounts,
+            computer_use: seeded.computer_use,
             agent_tab: seeded.default_agent,
             editor_agents,
             seeded_label: row.label.clone().unwrap_or_default(),
@@ -694,6 +698,7 @@ impl DeviceSettingsView {
         self.claude_ultracode = baseline.claude_ultracode;
         self.claude_plan_mode = baseline.claude_plan_mode;
         self.claude_auto_rotate = baseline.auto_rotate_accounts;
+        self.computer_use = baseline.computer_use;
         if !self.editor_agents.contains(&self.agent_tab) {
             self.agent_tab = baseline.default_agent;
         }
@@ -715,6 +720,7 @@ impl DeviceSettingsView {
         drafted.claude_ultracode = self.claude_ultracode;
         drafted.claude_plan_mode = self.claude_plan_mode;
         drafted.auto_rotate_accounts = self.claude_auto_rotate;
+        drafted.computer_use = self.computer_use;
         drafted
     }
 
@@ -1909,6 +1915,23 @@ impl Render for DeviceSettingsView {
 
         // Every group in the dialog sits on the SAME 8px rhythm (the ×4
         // parity look).
+        // EXP-1196: the device's Computer use switch, its own group above the
+        // per-agent defaults ×4 — it belongs to the machine, not to an
+        // agent, and saves with the launch defaults it syncs in.
+        let computer_use = surface::glass_toggle_row(
+            "Computer use",
+            Some(SharedString::from(COMPUTER_USE_HINT)),
+            crate::controls::web_switch("device-computer-use")
+                .checked(self.computer_use)
+                .on_click(cx.listener(|this, on: &bool, _, cx| {
+                    this.computer_use = *on;
+                    this.save_defaults(cx);
+                    cx.notify();
+                }))
+                .into_any_element(),
+            cx,
+        );
+        let body = body.child(surface::glass_group_rows(vec![computer_use]));
         let mut body = body.child(self.render_defaults_section(online, cx));
         // EXP-909: Update and Remove are the LAST two sections ×4 — the
         // device row carries one control now (the gear that opened this), so
@@ -1943,6 +1966,10 @@ impl Render for DeviceSettingsView {
             ))
     }
 }
+
+/// EXP-1196: the Computer use row's description, the same sentence ×4.
+const COMPUTER_USE_HINT: &str = "Let agents on this device see the screen, click and type. \
+Terminals, password managers and Exponential itself stay off limits.";
 
 #[cfg(test)]
 mod tests {

@@ -52,6 +52,7 @@ mod coding_selects;
 mod comment_attachments;
 mod comments;
 mod composer;
+mod computer_indicator;
 mod composer_dialog;
 mod composer_images;
 mod commit_graph;
@@ -215,6 +216,8 @@ pub fn init(cx: &mut App) {
     // EXP-65 multi-window undock: the observable registry the screens panel
     // and session bar filter against.
     undock::init(cx);
+    // EXP-1196: the always-on-top "an agent is driving this computer" pill.
+    computer_indicator::init(cx);
     // EXP-284: native dialog windows — Escape/Enter bindings + the
     // dialog-window → opener registry every dialog opens through.
     native_dialog::init(cx);

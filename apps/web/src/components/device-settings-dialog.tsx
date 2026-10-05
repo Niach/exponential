@@ -183,6 +183,8 @@ export function DeviceSettingsDialog({
     contract.codingAgent.values[0]
   )
   const [drafts, setDrafts] = useState<Record<string, AgentDraft>>({})
+  // EXP-1196: the device-level switch; absent on the row = off.
+  const [computerUse, setComputerUse] = useState(false)
 
   // ── Autosave state (EXP-490 — no Save buttons) ───────────────────────────
   // `*Pending` = edited but not yet written; `saving*` = a write is in flight.
@@ -231,6 +233,7 @@ export function DeviceSettingsDialog({
       )
     }
     setDrafts(seeded)
+    setComputerUse(source.launchDefaults?.computerUse ?? false)
     const stored = source.launchDefaults?.defaultAgent
     const agent =
       stored && agents.includes(stored)
@@ -370,6 +373,7 @@ export function DeviceSettingsDialog({
     label,
     nameDraft,
     drafts,
+    computerUse,
     namePending,
     defaultsPending,
   })
@@ -378,6 +382,7 @@ export function DeviceSettingsDialog({
     label,
     nameDraft,
     drafts,
+    computerUse,
     namePending,
     defaultsPending,
   }
@@ -458,7 +463,7 @@ export function DeviceSettingsDialog({
         deviceId: snapshot.deviceId,
         // EXP-1158: no `defaultAgent` — the device writes the last used
         // agent and the server carries it forward past this save.
-        launchDefaults: { agents },
+        launchDefaults: { computerUse: snapshot.computerUse, agents },
       })
       .then((result) => {
         const stamp = result.launchDefaultsUpdatedAt
@@ -809,6 +814,21 @@ export function DeviceSettingsDialog({
                 )}
               </div>
             )}
+            {/* ── Computer use (EXP-1196): the DEVICE's switch, not an
+                agent's — it sits above the agent tabs and rides the same
+                debounced launch-defaults save. */}
+            <GlassGroup>
+              <GlassToggleRow
+                id="device-settings-computer-use"
+                label="Computer use"
+                description="Let agents on this device see the screen, click and type. Terminals, password managers and Exponential itself stay off limits."
+                checked={computerUse}
+                onCheckedChange={(checked) => {
+                  setComputerUse(checked)
+                  scheduleDefaults()
+                }}
+              />
+            </GlassGroup>
             <AgentOptionsFields
               idPrefix="device-settings"
               agent={agentTab}

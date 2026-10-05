@@ -211,6 +211,41 @@ fn engine_child_exit(exit: &engine::EngineExit) -> ChildExit {
     }
 }
 
+/// EXP-1196: the headless host's "an agent is driving this computer"
+/// notice. The IDE draws an always-on-top pill; a daemon has no window, so
+/// each run's FIRST input action posts one OS notification through the
+/// desktop's own notifier. Best-effort: a box without one stays silent (the
+/// run's transcript still shows every action). Installed once per process.
+fn install_driving_notice() {
+    static INSTALLED: std::sync::Once = std::sync::Once::new();
+    INSTALLED.call_once(|| {
+        coding::computer::on_first_action(|_session_id| {
+            const TITLE: &str = "Exponential";
+            const BODY: &str = "An agent is driving this computer. Use the keyboard or mouse to pause it.";
+            let mut command = if cfg!(target_os = "macos") {
+                let mut command = std::process::Command::new("osascript");
+                command.args([
+                    "-e",
+                    &format!("display notification \"{BODY}\" with title \"{TITLE}\""),
+                ]);
+                command
+            } else {
+                let mut command = std::process::Command::new("notify-send");
+                command.args([TITLE, BODY]);
+                command
+            };
+            // Reaped on its own thread so a slow notifier never holds a tool call.
+            std::thread::spawn(move || {
+                let _ = command
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status();
+            });
+        });
+    });
+}
+
 /// Everything after `coding::prepare` said `Ready`. Spawn, publisher,
 /// heartbeat and end belong to the engine (D14); this function owns exactly
 /// the two facts that are the CLI's and not the engine's: the
@@ -224,6 +259,7 @@ pub fn launch(
     issue_id: Option<String>,
 ) -> anyhow::Result<RunningSession> {
     let session_id = prepared.session_id.clone();
+    install_driving_notice();
     // Unreachable by construction: `resolve_transport` only answers `Acp`
     // when `CodingDeps::acp_available` said this host has a runtime
     // (`launch::coding_deps`). There is deliberately no spawn-time fallback —

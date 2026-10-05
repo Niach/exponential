@@ -166,6 +166,11 @@ pub struct Settings {
     /// default, a missing key reads TRUE (the manual [`Default`], locked by a
     /// test). Claude-only: it rides `launch_defaults.agents.claude`.
     pub auto_rotate_accounts: bool,
+    /// EXP-1196: whether runs on THIS machine get the computer-use MCP
+    /// server (see the screen, click, type). OFF by default: the switch is
+    /// the person's consent. Device-level, so it rides the TOP of
+    /// `launch_defaults` (`computerUse`), not an agent's entry.
+    pub computer_use: bool,
     /// EXP-288: program name or absolute path of the shell new terminal tabs
     /// spawn (launched as a login shell on unix). Not a launcher knob — it
     /// lives here because this file is the app's ONE merge-preserving
@@ -264,6 +269,7 @@ impl Default for Settings {
             claude_ultracode: false,
             claude_plan_mode: true,
             auto_rotate_accounts: true,
+            computer_use: false,
             terminal_shell: None,
             changelog_seen_id: None,
             tools_setup_seen: false,
@@ -821,6 +827,7 @@ mod tests {
         assert!(!settings.claude_ultracode, "missing key must default FALSE");
         assert!(settings.claude_plan_mode, "missing key must default TRUE");
         assert!(settings.auto_rotate_accounts, "missing key must default TRUE");
+        assert!(!settings.computer_use, "missing key must default FALSE");
 
         fs::write(
             &path,
@@ -881,6 +888,7 @@ mod tests {
             claude_ultracode: true,
             claude_plan_mode: false,
             auto_rotate_accounts: false,
+            computer_use: true,
             terminal_shell: Some("/opt/homebrew/bin/fish".to_string()),
             changelog_seen_id: Some("2026-09-relations-and-design-refresh".to_string()),
             tools_setup_seen: true,

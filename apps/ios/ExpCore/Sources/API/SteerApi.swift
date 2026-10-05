@@ -116,17 +116,23 @@ public struct DeviceLaunchDefaults: Decodable, Equatable, Sendable {
     /// send it back. Clamped to what the machine actually runs by the reader.
     public let defaultAgent: String?
     public let agents: [String: AgentLaunchDefaults]?
+    /// EXP-1196: the DEVICE-level "Computer use" switch (agents may see the
+    /// screen, click and type). Off by default: nil = the key is absent (or
+    /// not a boolean) on the row, which every reader treats as off.
+    public let computerUse: Bool?
 
     public init(
         defaultAgent: String? = nil,
-        agents: [String: AgentLaunchDefaults]? = nil
+        agents: [String: AgentLaunchDefaults]? = nil,
+        computerUse: Bool? = nil
     ) {
         self.defaultAgent = defaultAgent
         self.agents = agents
+        self.computerUse = computerUse
     }
 
     private enum CodingKeys: String, CodingKey {
-        case defaultAgent, agents
+        case defaultAgent, agents, computerUse
     }
 
     /// Lenient like the rest of the device payload: a field of a shape this
@@ -136,6 +142,7 @@ public struct DeviceLaunchDefaults: Decodable, Equatable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         defaultAgent = try? c.decodeIfPresent(String.self, forKey: .defaultAgent)
         agents = try? c.decodeIfPresent([String: AgentLaunchDefaults].self, forKey: .agents)
+        computerUse = (try? c.decodeIfPresent(Bool.self, forKey: .computerUse)) ?? nil
     }
 }
 

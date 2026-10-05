@@ -54,6 +54,11 @@ pub struct DefaultsPatch {
     /// and the server carries the stored value forward.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_agent: Option<String>,
+    /// EXP-1196: `Settings.computer_use`, device-level. The device always
+    /// sends it; a client's save that omits it keeps the stored value (the
+    /// server carries it forward), and an absent key here changes nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub computer_use: Option<bool>,
     pub agents: BTreeMap<String, AgentDefaultsPatch>,
 }
 
@@ -83,6 +88,9 @@ pub fn apply_defaults_patch(settings: &mut Settings, patch: &DefaultsPatch) -> b
             settings.default_agent = agent;
             changed = true;
         }
+    }
+    if let Some(computer_use) = patch.computer_use {
+        set_bool(&mut settings.computer_use, computer_use, &mut changed);
     }
     for (agent_id, entry) in &patch.agents {
         let Some(agent) = CodingAgent::parse(agent_id) else {
@@ -169,6 +177,7 @@ pub fn overlay_launch_defaults(onto: &mut Settings, from: &Settings) {
     onto.claude_ultracode = from.claude_ultracode;
     onto.claude_plan_mode = from.claude_plan_mode;
     onto.auto_rotate_accounts = from.auto_rotate_accounts;
+    onto.computer_use = from.computer_use;
 }
 
 /// The PUSH direction: this machine's launch defaults as the full wire
@@ -199,6 +208,7 @@ pub fn defaults_wire(settings: &Settings) -> DefaultsPatch {
     }
     DefaultsPatch {
         default_agent: Some(settings.default_agent.id().to_string()),
+        computer_use: Some(settings.computer_use),
         agents,
     }
 }
@@ -262,6 +272,24 @@ mod tests {
         .unwrap();
         assert!(apply_defaults_patch(&mut settings, &claude));
         assert!(!settings.auto_rotate_accounts);
+    }
+
+    #[test]
+    fn computer_use_rides_the_top_of_the_wire_and_an_absent_key_keeps_it() {
+        // EXP-1196: off by default, and always stated by the device.
+        let wire = serde_json::to_value(defaults_wire(&Settings::default())).unwrap();
+        assert_eq!(wire["computerUse"], false);
+        let mut settings = Settings::default();
+        let on: DefaultsPatch =
+            serde_json::from_value(serde_json::json!({ "computerUse": true })).unwrap();
+        assert!(apply_defaults_patch(&mut settings, &on));
+        assert!(settings.computer_use);
+        // A save from a client that never heard of the key (or a null).
+        for silent in [serde_json::json!({ "agents": {} }), serde_json::json!({ "computerUse": null })] {
+            let patch: DefaultsPatch = serde_json::from_value(silent).unwrap();
+            assert!(!apply_defaults_patch(&mut settings, &patch));
+            assert!(settings.computer_use);
+        }
     }
 
     #[test]
@@ -369,6 +397,7 @@ mod tests {
             claude_ultracode: true,
             claude_plan_mode: false,
             auto_rotate_accounts: false,
+            computer_use: true,
             terminal_shell: Some("/bin/zsh".into()),
             changelog_seen_id: Some("2026-09-24".into()),
             emoji_recents: vec!["🎉".into()],

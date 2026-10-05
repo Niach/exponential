@@ -22,6 +22,9 @@ import SwiftUI
 //              row is the truth and the device's settings.json converges on its
 //              next heartbeat, so the only offline concession is a footer
 //              saying so.
+//              EXP-1196: a DEVICE-level "Computer use" toggle sits above the
+//              agent block (it belongs to the machine, not an agent) and rides
+//              the same debounced whole-object save as a top-level key.
 //              EXP-862 took the ACCOUNT and USAGE rows back out (×4). A login
 //              is a flow, not a setting: signing in lives on the account chips
 //              (`AgentLoginSheet`) and the numbers live on ONE surface, Devices
@@ -92,6 +95,9 @@ struct DeviceSettingsSheet: View {
     @State private var lastUsedAgent = "claude"
     @State private var selectedAgent = "claude"
     @State private var drafts: [String: AgentDraft] = [:]
+    /// EXP-1196: the device-level `launchDefaults.computerUse` draft. Off
+    /// when the row has no value; sent explicitly on every defaults save.
+    @State private var computerUse = false
     @State private var savingDefaults = false
     @State private var defaultsSaveTask: Task<Void, Never>?
     @State private var defaultsPending = false
@@ -135,6 +141,7 @@ struct DeviceSettingsSheet: View {
                     if device.isServer {
                         sharingSection(device)
                     }
+                    computerUseSection
                     defaultsSection(device)
                     if device.isServer {
                         updateSection(device)
@@ -225,6 +232,7 @@ struct DeviceSettingsSheet: View {
             next[agent] = Self.draft(from: device.agentDefaults(for: agent), agent: agent)
         }
         drafts = next
+        computerUse = device.launchDefaults?.computerUse ?? false
     }
 
     /// The advertised per-agent defaults as a draft, contract-validated with
@@ -464,6 +472,31 @@ struct DeviceSettingsSheet: View {
         }
     }
 
+    // MARK: - Computer use (EXP-1196)
+
+    /// The DEVICE's switch, outside the per-agent block: the same plain toggle
+    /// row as the agent toggles, the description in the section footer like
+    /// Sharing's. Saves through the debounced launch-defaults path.
+    private var computerUseSection: some View {
+        Section {
+            Toggle(
+                "Computer use",
+                isOn: Binding(
+                    get: { computerUse },
+                    set: { newValue in
+                        computerUse = newValue
+                        defaultsPending = true
+                        scheduleDefaultsAutosave()
+                    }
+                )
+            )
+            .accessibilityIdentifier("device-computer-use")
+        } footer: {
+            Text("Let agents on this device see the screen, click and type. Terminals, password managers and Exponential itself stay off limits.")
+        }
+        .listRowBackground(glassFormRowFill)
+    }
+
     // MARK: - Agent defaults
 
     /// EXP-694: the agent block is the SHARED `LaunchOptionsSection` — the
@@ -548,7 +581,8 @@ struct DeviceSettingsSheet: View {
         // later edit re-arms the debounce on its own.
         // EXP-1158: no `defaultAgent` — the device owns the last used agent
         // and the server carries it forward over this save.
-        let payload = DeviceLaunchDefaultsInput(agents: agents)
+        // EXP-1196: the device-level switch rides as an explicit boolean.
+        let payload = DeviceLaunchDefaultsInput(agents: agents, computerUse: computerUse)
         defaultsPending = false
         savingDefaults = true
         let api = deps.devicesApi

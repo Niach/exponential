@@ -1,0 +1,54 @@
+[package]
+name = "computer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+# EXP-1196: computer use for coding runs. gpui-free and tokio-free: both the
+# IDE and the headless `exponential` daemon host it in-process, and the
+# launcher (crates/coding) hands each run its own grant.
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = "0.4"
+uuid = { workspace = true }
+# PNG encode + downscale of a captured frame.
+image = { workspace = true, features = ["png"] }
+# The loopback MCP endpoint: a blocking HTTP/1.1 server on its own thread, no
+# async runtime (coding and cli carry none).
+tiny_http = { version = "0.12", default-features = false }
+# Image content blocks ride MCP as base64; already in the tree at this version.
+base64 = "0.22"
+
+# macOS + Windows share ONE backend: xcap captures and lists windows, enigo
+# injects (CGEvent / SendInput). Neither is compiled on Linux, where both
+# would pull system libraries (pipewire, xcb, xkbcommon) the CLI's build image
+# does not carry.
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+xcap = "0.9"
+enigo = { version = "0.6", default-features = false }
+
+# The versions enigo already resolves: the window list (layers, owners) and
+# the CF plumbing under the Accessibility FFI in `macos.rs`.
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = { workspace = true }
+core-graphics = "0.25"
+core-foundation = "0.10"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_UI_Accessibility",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+# Linux = X11 only, pure Rust (the rust connection, no libxcb): GetImage for
+# pixels, XTest for input, EWMH for windows. Wayland is refused with a clear
+# message until the portal backend lands.
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+x11rb = { version = "0.13", features = ["xtest", "screensaver"] }

@@ -100,11 +100,17 @@ public struct AgentLaunchDefaultsInput: Encodable, Sendable {
 /// EXP-1158: no `defaultAgent` and no account. The stored `defaultAgent` is
 /// the machine's LAST USED agent, which only the DEVICE writes; the server
 /// carries it forward when a save omits it. Fields ride only when set.
+///
+/// EXP-1196: `computerUse` = the DEVICE-level switch, a top-level key beside
+/// `agents`. The sheet sends what it shows (seeded from the row, explicit once
+/// toggled); nil writes no key and the server carries the stored value forward.
 public struct DeviceLaunchDefaultsInput: Encodable, Sendable {
     public let agents: [String: AgentLaunchDefaultsInput]?
+    public let computerUse: Bool?
 
-    public init(agents: [String: AgentLaunchDefaultsInput]? = nil) {
+    public init(agents: [String: AgentLaunchDefaultsInput]? = nil, computerUse: Bool? = nil) {
         self.agents = agents
+        self.computerUse = computerUse
     }
 }
 

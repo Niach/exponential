@@ -81,6 +81,24 @@ impl ResolvedMcp {
     }
 }
 
+/// EXP-1196: the device's own computer-use server as one more wired entry:
+/// loopback HTTP, the run's token behind [`computer::TOKEN_ENV`] like any
+/// bearer server (claude expands the header, codex reads
+/// `bearer_token_env_var`). The token joins [`ResolvedMcp::env`], so it
+/// reaches the spawn env and the steer redactor and nothing else.
+pub fn attach_computer(resolved: &mut ResolvedMcp, grant: &computer::Grant) {
+    let var = computer::TOKEN_ENV.to_string();
+    resolved.servers.push(McpServerWire {
+        id: computer::SERVER_NAME.to_string(),
+        name: computer::SERVER_NAME.to_string(),
+        transport: McpWireTransport::Http { url: grant.url.clone() },
+        headers: vec![("Authorization".to_string(), format!("Bearer ${{{var}}}"))],
+        token_env: Some(var.clone()),
+        env: Vec::new(),
+    });
+    resolved.env.push((var, grant.token.clone()));
+}
+
 // ---------------------------------------------------------------------------
 // Env var names
 // ---------------------------------------------------------------------------
@@ -153,8 +171,11 @@ pub fn resolve_with(resolution: &McpLaunchResolution, ids: &[String]) -> Resolve
     for server in servers {
         // `exponential` is the launcher's own entry in every rendered
         // config; a team server folding to that key would be dropped
-        // silently by the renderers, so skip it up front.
-        if McpServerWire::config_key(&server.name) == RESERVED_CONFIG_KEY {
+        // silently by the renderers, so skip it up front. `computer` is
+        // the device's own computer-use server (EXP-1196): a team row may
+        // not pose as it.
+        let key = McpServerWire::config_key(&server.name);
+        if key == RESERVED_CONFIG_KEY || key == computer::SERVER_NAME {
             resolved.warnings.push(format!(
                 "MCP server {}: the name is reserved; starting without it.",
                 server.name
@@ -271,6 +292,35 @@ mod tests {
             headers,
             env: Vec::new(),
         }
+    }
+
+    /// EXP-1196: the computer-use server rides like a bearer server, and a
+    /// team row cannot take its key.
+    #[test]
+    fn the_computer_server_is_wired_behind_its_token_env_and_its_key_is_reserved() {
+        let mut resolved = ResolvedMcp::default();
+        let grant = computer::Grant {
+            url: "http://127.0.0.1:4455/mcp".into(),
+            token: "secret-token".into(),
+        };
+        attach_computer(&mut resolved, &grant);
+        let wire = &resolved.servers[0];
+        assert_eq!(wire.name, "computer");
+        assert_eq!(wire.transport, McpWireTransport::Http { url: grant.url.clone() });
+        assert_eq!(
+            wire.headers,
+            vec![("Authorization".to_string(), "Bearer ${EXP_COMPUTER_TOKEN}".to_string())]
+        );
+        assert_eq!(wire.token_env.as_deref(), Some("EXP_COMPUTER_TOKEN"));
+        assert_eq!(resolved.secret_values(), vec!["secret-token".to_string()]);
+
+        let resolution = McpLaunchResolution {
+            servers: vec![http("s1", "Computer", Vec::new())],
+            ..McpLaunchResolution::default()
+        };
+        let resolved = resolve_with(&resolution, &["s1".to_string()]);
+        assert!(resolved.servers.is_empty());
+        assert!(resolved.warnings[0].contains("reserved"));
     }
 
     #[test]

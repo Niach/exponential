@@ -159,6 +159,19 @@ fn main() -> ExitCode {
         commands::update::maybe_auto_update_and_reexec();
     }
 
+    // EXP-1196: a host that may serve computer use reads the keyboard layout
+    // here, on the MAIN thread (the one place macOS allows it); the server's
+    // worker threads then resolve a chord's character keys from that read.
+    // Only where the switch is on, so no other box ever touches the input
+    // sources. A daemon whose switch is turned on later keeps the US
+    // positions until its next start.
+    if matches!(command, "code" | "run" | "daemon") {
+        let data_dir = context::data_dir();
+        if coding::Settings::load(&coding::Settings::default_path(&data_dir)).computer_use {
+            coding::computer::refresh_key_layout();
+        }
+    }
+
     let result = match command {
         "login" => commands::login::run(rest),
         "logout" => commands::account::logout(rest),

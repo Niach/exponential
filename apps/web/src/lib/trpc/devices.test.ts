@@ -1060,6 +1060,51 @@ describe(`devices.setLaunchDefaults`, () => {
     expect(result.launchDefaults).toEqual({})
   })
 
+  // EXP-1196: the device-level computer-use switch. A boolean passes the
+  // clamp; a save that OMITS the key (an older client) keeps the stored one;
+  // an explicit true/false wins and an explicit null clears it null-free.
+  it(`clamps computerUse and carries it forward only when the save omits the KEY`, async () => {
+    h.state.selectQueue = deviceRow()
+    let result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: { computerUse: true, agents: { claude: { model: `fable` } } },
+    })
+    expect(result.launchDefaults).toEqual({
+      computerUse: true,
+      agents: { claude: { model: `fable` } },
+    })
+
+    const stored = { defaultAgent: `claude`, computerUse: true }
+    h.state.selectQueue = deviceRow({ launchDefaults: stored })
+    result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: { agents: { claude: { model: `opus` } } },
+    })
+    expect(result.launchDefaults).toEqual({
+      defaultAgent: `claude`,
+      computerUse: true,
+      agents: { claude: { model: `opus` } },
+    })
+    expect(h.state.updates[0]?.set).toMatchObject({
+      launchDefaults: { computerUse: true },
+    })
+
+    h.state.selectQueue = deviceRow({ launchDefaults: stored })
+    result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: { computerUse: false },
+    })
+    expect(result.launchDefaults).toEqual({ defaultAgent: `claude`, computerUse: false })
+
+    h.state.selectQueue = deviceRow({ launchDefaults: stored })
+    result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: { computerUse: null },
+    })
+    expect(result.launchDefaults).toEqual({ defaultAgent: `claude` })
+    expect(JSON.stringify(result.launchDefaults)).not.toContain(`null`)
+  })
+
   it(`nudges regardless of registered caps (pre-EXP-481 frame parsers retired)`, async () => {
     h.state.selectQueue = deviceRow({ caps: [`actions`] })
     const result = await caller.setLaunchDefaults({

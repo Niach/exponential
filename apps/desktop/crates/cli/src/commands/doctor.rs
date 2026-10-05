@@ -33,6 +33,7 @@ pub fn run(args: &[String]) -> CommandResult {
     print_check("git", &report.git, &data_dir);
     print_check("claude", &report.claude, &data_dir);
     print_check("codex", &report.codex, &data_dir);
+    print_computer_use(&settings);
 
     if report.check_for(settings.default_agent).acp != Some(true) {
         println!();
@@ -53,6 +54,23 @@ pub fn run(args: &[String]) -> CommandResult {
         return Ok(ExitCode::FAILURE);
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// EXP-1196: the device's Computer use switch and whether this machine can
+/// honor it. Informational like the non-default agents: it never fails the
+/// doctor, a run simply launches without the tools.
+fn print_computer_use(settings: &coding::Settings) {
+    use coding::computer::Readiness;
+    if !settings.computer_use {
+        println!("  - computer use  off (turn it on in this device's settings)");
+        return;
+    }
+    match coding::computer::readiness() {
+        Readiness::Ready => println!("  ✓ computer use  on"),
+        Readiness::MissingPermission(reason) | Readiness::Unsupported(reason) => {
+            println!("  ✗ computer use  on, but unavailable — {reason}")
+        }
+    }
 }
 
 fn print_check(name: &str, check: &ToolCheck, data_dir: &std::path::Path) {

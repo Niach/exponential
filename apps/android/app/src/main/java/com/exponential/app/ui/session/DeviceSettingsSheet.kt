@@ -137,6 +137,9 @@ fun DeviceSettingsSheet(
     var drafts by remember {
         mutableStateOf(editableAgents.associateWith { agentDraft(device, it) })
     }
+    // EXP-1196: the device-level Computer use switch. Null = never set (OFF),
+    // echoed as absent so the server keeps whatever is stored.
+    var computerUse by remember { mutableStateOf(device.launchDefaults?.computerUse) }
     // "Remove device" waiting on its confirm. The sheet needs no dismiss of
     // its own afterwards: the caller re-resolves the live row, which is gone.
     var confirmRemove by remember { mutableStateOf(false) }
@@ -157,6 +160,7 @@ fun DeviceSettingsSheet(
             editableAgents = editableAgents(device)
             lastUsedAgent = seededDefaultAgent(device, editableAgents)
             drafts = editableAgents.associateWith { agentDraft(device, it) }
+            computerUse = device.launchDefaults?.computerUse
             if (agentTab !in editableAgents) agentTab = editableAgents.first()
         }
     }
@@ -168,8 +172,14 @@ fun DeviceSettingsSheet(
     }
 
     /** Queue the WHOLE edited struct — `setLaunchDefaults` replaces the stored object. */
-    fun queueDefaults(next: Map<String, AgentDraft> = drafts) {
-        viewModel.queueDefaults(device.deviceId, buildDefaults(editableAgents, next))
+    fun queueDefaults(
+        next: Map<String, AgentDraft> = drafts,
+        nextComputerUse: Boolean? = computerUse,
+    ) {
+        viewModel.queueDefaults(
+            device.deviceId,
+            buildDefaults(editableAgents, next, computerUse = nextComputerUse),
+        )
     }
 
     fun editDraft(agent: String, edit: (AgentDraft) -> AgentDraft) {
@@ -314,6 +324,28 @@ fun DeviceSettingsSheet(
                     ErrorCaption(shareError)
                     Spacer(Modifier.height(8.dp))
                 }
+
+                // ── Computer use (EXP-1196) ─────────────────────────────
+                // A DEVICE setting, not an agent one — so it sits above the
+                // per-agent card. Rides the same whole-object defaults save.
+                OptionGroup {
+                    SwitchRow(
+                        title = "Computer use",
+                        checked = computerUse == true,
+                        onCheckedChange = { next ->
+                            computerUse = next
+                            queueDefaults(nextComputerUse = next)
+                        },
+                    )
+                }
+                Text(
+                    "Let agents on this device see the screen, click and type. " +
+                        "Terminals, password managers and Exponential itself stay off limits.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
+                )
+                Spacer(Modifier.height(8.dp))
 
                 // ── Agent defaults (server-authoritative, EXP-481) ───────
                 if (!device.online) {
@@ -604,7 +636,10 @@ internal fun agentDraft(device: SteerDevice, agent: String): AgentDraft {
 internal fun buildDefaults(
     agents: List<String>,
     drafts: Map<String, AgentDraft>,
+    // EXP-1196: the device-level switch; null (never set) stays absent.
+    computerUse: Boolean? = null,
 ): DeviceLaunchDefaults = DeviceLaunchDefaults(
+    computerUse = computerUse,
     // EXP-1158: no `defaultAgent` — the last used agent is the device's to
     // write, and the request never carries it (`setLaunchDefaultsInput`).
     agents = agents.associateWith { agent ->
