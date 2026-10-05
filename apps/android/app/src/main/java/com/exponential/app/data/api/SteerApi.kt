@@ -329,7 +329,12 @@ data class SteerDevice(
      * ACP set, and there is no PTY path left. Nothing is FILTERED on it: the
      * agent stays pickable, the caption says why the start is blocked.
      */
-    fun agentNotReady(agent: String): Boolean = agent !in acpAgentIds
+    fun agentNotReady(agent: String): Boolean =
+        // EXP-1196: a device that reports its readiness is judged by it (Git
+        // ok and the agent's own row ok), like the web composer; an older
+        // build keeps the ACP rule.
+        doctor?.let { agent !in com.exponential.app.domain.DeviceReadiness.runnableAgents(it) }
+            ?: (agent !in acpAgentIds)
 
     /** EXP-409: agents installed but signed out — displayed, never offered. */
     val unauthedAgentIds: List<String>

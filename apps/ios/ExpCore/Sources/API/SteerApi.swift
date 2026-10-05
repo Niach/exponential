@@ -592,8 +592,15 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
 
     /// EXP-773: whether [agent] CANNOT start on this machine — it is outside
     /// the machine's ACP set and the PTY fallback is gone.
+    ///
+    /// EXP-1196: a device that reports its readiness is judged by it (Git ok
+    /// and the agent's own row ok), like the web composer; an older build
+    /// keeps the ACP rule.
     public func agentNotReady(_ agent: String) -> Bool {
-        !acpAgentIds.contains(agent)
+        if let doctor {
+            return !DeviceReadiness.runnableAgents(doctor).contains(agent)
+        }
+        return !acpAgentIds.contains(agent)
     }
 
     /// Whether anything can be launched here at all (EXP-409). A machine that
