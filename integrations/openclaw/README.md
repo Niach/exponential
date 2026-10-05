@@ -52,6 +52,14 @@ Restart the gateway. Behind a reverse proxy, give the apps sandbox its own
 origin (`mcp.apps.sandboxOrigin`); see OpenClaw's
 [MCP Apps docs](https://docs.openclaw.ai/cli/mcp/apps).
 
+## Theme
+
+The plugin also ships an **Exponential** appearance theme (light and dark):
+Exponential's zinc palette, Inter, no lobster branding. Pick it in Settings →
+Appearance, or ask the agent to switch to it. It is generated from the
+Exponential styleguide (`node integrations/openclaw/scripts/theme.mjs`), so it
+follows the app's tokens.
+
 ## Source
 
 This folder lives in the Exponential monorepo

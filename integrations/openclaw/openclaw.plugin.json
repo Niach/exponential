@@ -1,9 +1,11 @@
 {
   "id": "exponential",
   "name": "Exponential",
-  "description": "Exponential's issue tracker in OpenClaw: issues, boards, comments, pull requests and coding runs over MCP, with interactive MCP Apps views for the issue list and a run's report.",
+  "description": "Exponential's issue tracker in OpenClaw: issues, boards, comments, pull requests and coding runs over MCP, interactive MCP Apps views for the issue list and a run's report, and the Exponential theme.",
   "version": "0.1.0",
-  "categories": ["productivity"],
+  "categories": [
+    "productivity"
+  ],
   "activation": {
     "onStartup": true
   },
@@ -11,7 +13,9 @@
     "type": "object",
     "additionalProperties": false
   },
-  "skills": ["./skills"],
+  "skills": [
+    "./skills"
+  ],
   "mcpServers": {
     "exponential": {
       "url": "https://app.exponential.at/api/mcp",
@@ -21,5 +25,13 @@
       },
       "requestTimeoutMs": 60000
     }
-  }
+  },
+  "themes": [
+    {
+      "id": "exponential",
+      "name": "Exponential",
+      "description": "Exponential's zinc interface: near-black surfaces, white primary actions, hairline borders and Inter, generated from the Exponential styleguide.",
+      "source": "themes/exponential.json"
+    }
+  ]
 }
