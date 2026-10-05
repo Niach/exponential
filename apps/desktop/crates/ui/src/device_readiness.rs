@@ -384,9 +384,11 @@ fn glyph_icon(glyph: Glyph) -> crate::icons::ExpIcon {
     }
 }
 
-/// The band's trailing tag (`optional`).
-fn tag_pill(id: SharedString, tag: &'static str, cx: &App) -> AnyElement {
-    surface::glass_pill(id, surface::PillSize::Sm, surface::PillMode::Readonly, cx)
+/// The band's trailing tag (`optional`): plain muted text, like the web's.
+fn tag_pill(_id: SharedString, tag: &'static str, cx: &App) -> AnyElement {
+    div()
+        .text_xs()
+        .text_color(cx.theme().muted_foreground)
         .child(tag)
         .into_any_element()
 }

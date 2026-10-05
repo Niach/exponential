@@ -44,7 +44,7 @@ import com.exponential.app.ui.theme.TextEmphasis
 
 // EXP-1196/1218/1219: THE device readiness block, rendered off the row model
 // (`DeviceReadiness.groups`, fixture-locked): a filled group band per group
-// (the `optional` tag as a readonly pill on it), one flat row per item —
+// (the `optional` tag as plain muted text on it), one flat row per item —
 // state glyph, label, the device-written detail, at most ONE trailing pill —
 // and the `computer_use` item as a bare SwitchRow. No subtitles, no captions.
 
@@ -68,7 +68,13 @@ fun DeviceReadinessBlock(
                 group.label,
                 modifier = Modifier.padding(horizontal = 16.dp),
                 trailing = group.tag?.let { tag ->
-                    { GlassPill(tag, size = PillSize.Sm) }
+                    {
+                        Text(
+                            tag,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        )
+                    }
                 },
             )
             OptionGroup {
