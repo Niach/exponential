@@ -174,9 +174,8 @@ impl Hub {
 }
 
 const INSTRUCTIONS: &str = "Sees and drives this computer's desktop. Take a screenshot first; \
-click and scroll take pixel positions in the last screenshot. Terminals, password managers, \
-system authentication prompts and Exponential itself are off limits, and nothing happens while \
-the person is using the keyboard or mouse.";
+click and scroll take pixel positions in the last screenshot. Nothing happens while the person \
+is using the keyboard or mouse.";
 
 fn tool_result(outcome: Result<ToolOutput, String>) -> Value {
     match outcome {

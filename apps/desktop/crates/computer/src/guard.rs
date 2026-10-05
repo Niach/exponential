@@ -1,6 +1,8 @@
-//! The safety layer between the tools and the OS backend, the same on every
-//! OS: the app blocklist, the pause while the person is at the keyboard, one
-//! action at a time across runs, and the screenshot-space coordinate mapping.
+//! The layer between the tools and the OS backend, the same on every OS: the
+//! pause while the person is at the keyboard, one action at a time across
+//! runs, and the screenshot-space coordinate mapping. There is no app
+//! blocklist: the device switch is the one gate, and an agent it lets in may
+//! drive any app (EXP-1196, unrestricted by decision).
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -22,76 +24,6 @@ pub const UI_NODES_MAX: usize = 400;
 
 pub const PAUSED_MESSAGE: &str = "The person is using the keyboard or mouse right now, so \
 nothing was done. Wait a few seconds and try again; do not work around it.";
-
-// ---------------------------------------------------------------------------
-// blocklist
-// ---------------------------------------------------------------------------
-
-/// Apps the agent may look at but never click or type into, by normalized
-/// app or executable name ([`normalize`]). Fixed in the build: a run has a
-/// shell already, a terminal window would only launder commands past the
-/// transcript; the rest hold secrets or grant privileges.
-const TERMINALS: &[&str] = &[
-    "terminal", "iterm", "iterm2", "ghostty", "kitty", "alacritty", "wezterm", "wezterm-gui",
-    "warp", "hyper", "tabby", "rio", "windowsterminal", "windows terminal", "cmd", "powershell",
-    "pwsh", "conhost", "openconsole", "gnome-terminal", "gnome-terminal-server", "konsole",
-    "xterm", "xfce4-terminal", "tilix", "terminator", "foot", "urxvt", "st", "ptyxis", "kgx",
-];
-const SECRET_STORES: &[&str] = &[
-    "1password", "1password 7", "bitwarden", "keepassxc", "keepass", "keychain access",
-    "passwords", "lastpass", "dashlane", "enpass", "proton pass", "seahorse",
-];
-const AUTH_PROMPTS: &[&str] = &[
-    "securityagent", "coreautha", "loginwindow", "consent", "credentialuibroker",
-    "polkit-gnome-authentication-agent-1", "polkit-kde-authentication-agent-1", "lxpolkit",
-    "gcr-prompter", "pinentry", "pinentry-mac", "pinentry-gnome3", "pinentry-qt",
-];
-/// Exponential itself, by name prefix (the IDE, staging builds, the daemon;
-/// on Linux the IDE's WM_CLASS is its app id and an AppImage's exe `AppRun`).
-const SELF_PREFIXES: &[&str] = &["exponential", "exp-desktop", "at.exponential"];
-
-/// Lowercase, without a `.exe`/`.app` suffix.
-pub fn normalize(name: &str) -> String {
-    let lower = name.trim().to_lowercase();
-    lower
-        .strip_suffix(".exe")
-        .or_else(|| lower.strip_suffix(".app"))
-        .unwrap_or(&lower)
-        .to_string()
-}
-
-/// Why `window`'s app is off limits, or `None` when the agent may drive it.
-pub fn blocked_reason(window: &WindowInfo, own_pid: u32) -> Option<&'static str> {
-    if window.pid == own_pid {
-        return Some("Exponential itself");
-    }
-    for name in [normalize(&window.app), normalize(&window.exe)] {
-        if name.is_empty() {
-            continue;
-        }
-        if SELF_PREFIXES.iter().any(|prefix| name.starts_with(prefix)) {
-            return Some("Exponential itself");
-        }
-        if TERMINALS.contains(&name.as_str()) {
-            return Some("a terminal");
-        }
-        if SECRET_STORES.contains(&name.as_str()) {
-            return Some("a password manager");
-        }
-        if AUTH_PROMPTS.contains(&name.as_str()) {
-            return Some("a system authentication prompt");
-        }
-    }
-    None
-}
-
-fn refusal(window: &WindowInfo, reason: &str) -> String {
-    format!(
-        "{} is off limits for computer use ({reason}); nothing was done. Use your own shell \
-         and tools instead, or ask the person.",
-        if window.app.is_empty() { &window.exe } else { &window.app }
-    )
-}
 
 // ---------------------------------------------------------------------------
 // keys
@@ -251,7 +183,6 @@ pub struct Guard {
     /// this, in turn.
     turn: Mutex<()>,
     last_injection: Mutex<Option<Instant>>,
-    own_pid: u32,
     quiet_wait: Duration,
 }
 
@@ -261,7 +192,6 @@ impl Guard {
             backend,
             turn: Mutex::new(()),
             last_injection: Mutex::new(None),
-            own_pid: std::process::id(),
             quiet_wait: QUIET_WAIT,
         }
     }
@@ -318,32 +248,14 @@ impl Guard {
         result
     }
 
-    /// The window a click at this screen point lands in: the frontmost
-    /// ordinary one, or a system-layer surface of a blocked app above it.
+    /// The window a click at this screen point lands in (the frontmost
+    /// ordinary one), only to name its app in the answer.
     fn window_at(&self, x: f64, y: f64) -> Option<WindowInfo> {
-        self.backend.windows().ok()?.into_iter().find(|window| {
-            window.rect.contains(x, y)
-                && (window.layer == 0 || blocked_reason(window, self.own_pid).is_some())
-        })
-    }
-
-    fn focused_window(&self) -> Option<WindowInfo> {
-        self.backend.focused()
-    }
-
-    /// Keyboard input needs a known, allowed target where the OS can hide it.
-    fn refuse_keyboard(&self, window: Option<&WindowInfo>) -> Result<(), String> {
-        if window.is_none() && self.backend.blind_focus() {
-            return Err(BLIND_FOCUS.to_string());
-        }
-        self.refuse_blocked(window)
-    }
-
-    fn refuse_blocked(&self, window: Option<&WindowInfo>) -> Result<(), String> {
-        match window.and_then(|w| blocked_reason(w, self.own_pid).map(|reason| (w, reason))) {
-            Some((window, reason)) => Err(refusal(window, reason)),
-            None => Ok(()),
-        }
+        self.backend
+            .windows()
+            .ok()?
+            .into_iter()
+            .find(|window| window.layer == 0 && window.rect.contains(x, y))
     }
 
     pub fn screenshot(
@@ -386,7 +298,6 @@ impl Guard {
     ) -> Result<ToolOutput, String> {
         let (sx, sy) = mapping.ok_or(NO_SHOT)?.to_screen(x, y)?;
         let target = self.window_at(sx, sy);
-        self.refuse_blocked(target.as_ref())?;
         self.act(|| self.backend.click(sx, sy, button, count.clamp(1, 3)))?;
         Ok(ToolOutput::text(format!("Clicked ({x}, {y}){}.", in_app(target.as_ref()))))
     }
@@ -401,14 +312,12 @@ impl Guard {
     ) -> Result<ToolOutput, String> {
         let (sx, sy) = mapping.ok_or(NO_SHOT)?.to_screen(x, y)?;
         let target = self.window_at(sx, sy);
-        self.refuse_blocked(target.as_ref())?;
         self.act(|| self.backend.scroll(sx, sy, dx.clamp(-50, 50), dy.clamp(-50, 50)))?;
         Ok(ToolOutput::text(format!("Scrolled at ({x}, {y}){}.", in_app(target.as_ref()))))
     }
 
     pub fn type_text(&self, text: &str) -> Result<ToolOutput, String> {
-        let target = self.focused_window();
-        self.refuse_keyboard(target.as_ref())?;
+        let target = self.backend.focused();
         self.act(|| self.backend.type_text(text))?;
         Ok(ToolOutput::text(format!(
             "Typed {} characters{}.",
@@ -419,8 +328,7 @@ impl Guard {
 
     pub fn key(&self, keys: &str) -> Result<ToolOutput, String> {
         let chord = parse_chord(keys)?;
-        let target = self.focused_window();
-        self.refuse_keyboard(target.as_ref())?;
+        let target = self.backend.focused();
         self.act(|| self.backend.key(&chord))?;
         Ok(ToolOutput::text(format!("Pressed {keys}{}.", in_app(target.as_ref()))))
     }
@@ -446,9 +354,6 @@ impl Guard {
                 if window.focused {
                     line.push_str(" | focused");
                 }
-                if blocked_reason(window, self.own_pid).is_some() {
-                    line.push_str(" | off limits");
-                }
                 line
             })
             .collect();
@@ -465,7 +370,6 @@ impl Guard {
             .into_iter()
             .find(|window| window.id == id)
             .ok_or_else(|| format!("No window has id {id}; call list_windows."))?;
-        self.refuse_blocked(Some(&window))?;
         self.act(|| self.backend.focus_window(id))?;
         Ok(ToolOutput::text(format!("Focused {} ({}).", window.app, window.title)))
     }
@@ -479,10 +383,6 @@ impl Guard {
         Ok(ToolOutput::text(render_ui(&nodes, mapping)))
     }
 }
-
-const BLIND_FOCUS: &str = "Cannot tell which app has the keyboard (it exposes no \
-accessibility information, as terminals usually do), so nothing was typed. Click into the app \
-you mean first; if it still fails, that app cannot be typed into.";
 
 const NO_SHOT: &str = "Take a screenshot first: positions are pixels in the last screenshot.";
 
@@ -539,30 +439,6 @@ mod tests {
             focused: true,
             layer: 0,
         }
-    }
-
-    #[test]
-    fn the_blocklist_names_terminals_secrets_auth_and_exponential() {
-        for (app, exe, reason) in [
-            ("Terminal", "Terminal", "a terminal"),
-            ("iTerm2", "iTerm2", "a terminal"),
-            ("Windows Terminal", "WindowsTerminal.exe", "a terminal"),
-            ("", "gnome-terminal-server", "a terminal"),
-            ("1Password", "1Password", "a password manager"),
-            ("KeePassXC", "keepassxc.exe", "a password manager"),
-            ("SecurityAgent", "SecurityAgent", "a system authentication prompt"),
-            ("", "consent.exe", "a system authentication prompt"),
-            ("Exponential", "exp-desktop", "Exponential itself"),
-            ("Exponential Staging", "exp-desktop", "Exponential itself"),
-            ("at.exponential.staging", "AppRun", "Exponential itself"),
-        ] {
-            assert_eq!(blocked_reason(&window(app, exe, 7), 1), Some(reason), "{app}/{exe}");
-        }
-        for (app, exe) in [("Safari", "Safari"), ("TextEdit", "TextEdit"), ("firefox", "firefox.exe"), ("Console Game", "st-game")] {
-            assert_eq!(blocked_reason(&window(app, exe, 7), 1), None, "{app}/{exe}");
-        }
-        // Whatever it is called, the host's own windows are off limits.
-        assert_eq!(blocked_reason(&window("Anything", "anything", 1), 1), Some("Exponential itself"));
     }
 
     #[test]
@@ -636,57 +512,47 @@ mod tests {
     }
 
     #[test]
-    fn input_aimed_at_a_blocked_app_is_refused_before_anything_moves() {
+    fn every_app_takes_input_even_a_terminal() {
+        // Unrestricted by decision (EXP-1196): no app blocklist, the device
+        // switch is the one gate.
         let backend = FakeBackend::with_windows(vec![window("Terminal", "Terminal", 7)]);
         let log = backend.log();
         let guard = Guard::new(Box::new(backend));
         let (_, mapping) = guard.screenshot(Target::Display(0), None).unwrap();
-        for refused in [
-            guard.click(Some(mapping), 50.0, 50.0, Button::Left, 1),
-            guard.scroll(Some(mapping), 50.0, 50.0, 0, 3),
-            guard.type_text("rm -rf /"),
-            guard.key("enter"),
-            guard.focus_window(1),
-        ] {
-            assert!(refused.unwrap_err().contains("off limits"));
-        }
-        assert!(log.lock().unwrap().is_empty());
-        assert!(guard.list_windows().unwrap().text.contains("off limits"));
+        assert_eq!(
+            guard.click(Some(mapping), 50.0, 50.0, Button::Left, 1).unwrap().text,
+            "Clicked (50, 50) in Terminal."
+        );
+        guard.scroll(Some(mapping), 50.0, 50.0, 0, 3).unwrap();
+        assert_eq!(guard.type_text("ls").unwrap().text, "Typed 2 characters in Terminal.");
+        guard.key("enter").unwrap();
+        guard.focus_window(1).unwrap();
+        assert_eq!(log.lock().unwrap().len(), 5);
+        assert!(!guard.list_windows().unwrap().text.contains("off limits"));
     }
 
     #[test]
-    fn where_focus_can_hide_typing_needs_a_known_focused_app() {
-        let blind = FakeBackend::with_windows(vec![]).blind();
-        let log = blind.log();
-        let guard = Guard::new(Box::new(blind));
-        assert!(guard.type_text("ls").unwrap_err().contains("Cannot tell which app"));
-        assert!(guard.key("enter").unwrap_err().contains("Cannot tell which app"));
-        assert!(log.lock().unwrap().is_empty());
-        // Where the OS always names the focused window, nothing focused is fine.
-        let seeing = FakeBackend::with_windows(vec![]);
-        let log = seeing.log();
-        Guard::new(Box::new(seeing)).type_text("ls").unwrap();
+    fn typing_with_no_known_focused_app_still_types() {
+        let backend = FakeBackend::with_windows(vec![]);
+        let log = backend.log();
+        Guard::new(Box::new(backend)).type_text("ls").unwrap();
         assert_eq!(*log.lock().unwrap(), vec!["type ls".to_string()]);
     }
 
     #[test]
-    fn a_system_layer_surface_only_counts_when_its_app_is_blocked() {
-        // The Dock's screen-sized overlay sits above everything; it must not
-        // hide the terminal under the pointer, and an auth sheet must not
-        // hide behind an ordinary window.
+    fn a_click_names_the_frontmost_ordinary_window_under_it() {
+        // The Dock's screen-sized overlay sits above everything; the answer
+        // names the app window under the pointer, not the overlay.
         let mut dock = window("Dock", "Dock", 3);
         dock.layer = 20;
-        let backend = FakeBackend::with_windows(vec![dock, window("Terminal", "Terminal", 7)]);
+        let backend = FakeBackend::with_windows(vec![dock, window("TextEdit", "TextEdit", 7)]);
         let guard = Guard::new(Box::new(backend));
         let (_, mapping) = guard.screenshot(Target::Display(0), None).unwrap();
-        assert!(guard.click(Some(mapping), 5.0, 5.0, Button::Left, 1).unwrap_err().contains("Terminal"));
+        assert_eq!(
+            guard.click(Some(mapping), 5.0, 5.0, Button::Left, 1).unwrap().text,
+            "Clicked (5, 5) in TextEdit."
+        );
         assert!(!guard.list_windows().unwrap().text.contains("Dock"));
-
-        let mut sheet = window("SecurityAgent", "SecurityAgent", 4);
-        sheet.layer = 1000;
-        let backend = FakeBackend::with_windows(vec![sheet, window("TextEdit", "TextEdit", 7)]);
-        let guard = Guard::new(Box::new(backend));
-        assert!(guard.click(Some(mapping), 5.0, 5.0, Button::Left, 1).unwrap_err().contains("SecurityAgent"));
     }
 
     #[test]

@@ -304,7 +304,7 @@ pub fn windows() -> BackendResult<Vec<WindowInfo>> {
 }
 
 /// The app the keyboard goes to, even when it shows no ordinary window (a
-/// system prompt): named by pid, so the blocklist still sees it.
+/// system prompt): named by pid, so the answer can name it.
 pub fn focused() -> Option<WindowInfo> {
     let all = windows().ok()?;
     let Some(pid) = focused_pid() else {

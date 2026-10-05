@@ -1,7 +1,7 @@
 //! The per-OS seam: everything [`crate::guard`] and the tools need from a
 //! desktop, in GLOBAL screen coordinates (the unit the OS takes pointer
-//! positions in). Screenshot-space mapping, the blocklist and the input
-//! pause live above this trait, OS-independent, so a fake backend tests them.
+//! positions in). Screenshot-space mapping and the input pause
+//! live above this trait, OS-independent, so a fake backend tests them.
 
 use std::time::Duration;
 
@@ -28,14 +28,14 @@ pub struct WindowInfo {
     /// The owning app's display name (`Safari`, `firefox`).
     pub app: String,
     /// The owning process's executable file name, when the OS tells
-    /// (`Safari`, `firefox.exe`). The blocklist matches both.
+    /// (`Safari`, `firefox.exe`), for naming the app.
     pub exe: String,
     pub title: String,
     pub rect: Rect,
     pub focused: bool,
     /// 0 = an ordinary app window. macOS also reports system surfaces above
     /// it (the menu bar, the Dock's screen-sized overlay, auth sheets); the
-    /// guard only hit-tests those when they belong to a blocked app.
+    /// guard lists and hit-tests ordinary windows only.
     pub layer: i32,
 }
 
@@ -140,12 +140,6 @@ pub trait Backend: Send + Sync {
     /// then discounts its own injections), or counts hardware input only.
     fn idle_counts_injected(&self) -> bool {
         true
-    }
-    /// Whether an app can hold the keyboard without [`Self::focused`] seeing
-    /// it (Wayland: apps without AT-SPI). The guard then refuses to type
-    /// while no known app has focus.
-    fn blind_focus(&self) -> bool {
-        false
     }
     /// The accessibility tree of a window (the focused one when `None`), as
     /// indented text lines with element centers in global coordinates.

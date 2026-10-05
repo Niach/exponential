@@ -9,8 +9,9 @@
 //! turn lock serializes every run's input, and nothing has to locate a
 //! helper binary.
 //!
-//! Safety is [`guard`]: a fixed app blocklist, a pause while the person is at
-//! the keyboard, and the driving stamp the hosts turn into an indicator.
+//! Safety is [`guard`]: a pause while the person is at the keyboard and the
+//! driving stamp the hosts turn into an indicator. No app blocklist: the
+//! device switch is the one gate (unrestricted by decision).
 
 pub mod backend;
 pub mod guard;

@@ -821,7 +821,7 @@ export function DeviceSettingsDialog({
               <GlassToggleRow
                 id="device-settings-computer-use"
                 label="Computer use"
-                description="Let agents on this device see the screen, click and type. Terminals, password managers and Exponential itself stay off limits."
+                description="Let agents on this device see the screen, click and type in any app."
                 checked={computerUse}
                 onCheckedChange={(checked) => {
                   setComputerUse(checked)

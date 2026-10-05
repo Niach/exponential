@@ -1968,8 +1968,8 @@ impl Render for DeviceSettingsView {
 }
 
 /// EXP-1196: the Computer use row's description, the same sentence ×4.
-const COMPUTER_USE_HINT: &str = "Let agents on this device see the screen, click and type. \
-Terminals, password managers and Exponential itself stay off limits.";
+const COMPUTER_USE_HINT: &str =
+    "Let agents on this device see the screen, click and type in any app.";
 
 #[cfg(test)]
 mod tests {

@@ -339,8 +339,7 @@ fun DeviceSettingsSheet(
                     )
                 }
                 Text(
-                    "Let agents on this device see the screen, click and type. " +
-                        "Terminals, password managers and Exponential itself stay off limits.",
+                    "Let agents on this device see the screen, click and type in any app.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                     modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),

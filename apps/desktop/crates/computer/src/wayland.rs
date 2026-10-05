@@ -11,7 +11,7 @@
 //! - the person's idle time: GNOME's Mutter IdleMonitor.
 //!
 //! An app that exposes no AT-SPI tree (most terminals) cannot be seen holding
-//! the keyboard, so typing refuses whenever no known app has focus.
+//! the keyboard; typing still goes to it, the answer just names no app.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -624,10 +624,6 @@ impl Backend for WaylandBackend {
             .ok()?;
         let millis: u64 = reply.body().deserialize().ok()?;
         Some(Duration::from_millis(millis))
-    }
-
-    fn blind_focus(&self) -> bool {
-        true
     }
 
     fn read_ui(&self, window: Option<u32>) -> Option<BackendResult<Vec<UiNode>>> {

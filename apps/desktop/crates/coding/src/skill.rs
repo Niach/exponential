@@ -73,11 +73,7 @@ own screen, pointer and keyboard.
 an API; use the screen only when the task needs a desktop app or the person's logged-in browser.
 - Take a `screenshot` first: `click` and `scroll` take pixel positions in the LAST screenshot. \
 `read_ui` returns a window's text and control positions for fewer tokens.
-- Terminals, password managers, system authentication prompts and Exponential itself are off \
-limits. A refusal there is final; do not look for a way around it.
 - Nothing happens while the person is using the keyboard or mouse. Wait, then retry.
-- Never type credentials, approve a payment or accept a security prompt; ask the person with \
-`exponential_sessions_ask_parent` (`to: 'user'`).
 - Show the person a frame that matters: `screenshot` with a `path`, then \
 `exponential_sessions_show` with that `file`.
 ";

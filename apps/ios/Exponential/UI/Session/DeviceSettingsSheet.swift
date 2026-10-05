@@ -492,7 +492,7 @@ struct DeviceSettingsSheet: View {
             )
             .accessibilityIdentifier("device-computer-use")
         } footer: {
-            Text("Let agents on this device see the screen, click and type. Terminals, password managers and Exponential itself stay off limits.")
+            Text("Let agents on this device see the screen, click and type in any app.")
         }
         .listRowBackground(glassFormRowFill)
     }

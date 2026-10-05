@@ -5,8 +5,7 @@
 //! small always-on-top window at the top of the primary display, up while a
 //! run acted within [`coding::computer::DRIVING_WINDOW`] and gone a moment
 //! after the last action. It never takes focus (the agent's keys must keep
-//! landing where they were going), and being one of our own windows it is
-//! off limits to the agent like the rest of Exponential.
+//! landing where they were going).
 //!
 //! The headless daemon has no window to draw; it posts one OS notification
 //! per run instead (`crates/cli`).
