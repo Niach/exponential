@@ -2374,10 +2374,15 @@ impl IssueDetailView {
             // goFace(diff)`). Once THIS tab's own pane has the PR's files,
             // its counts label the item; until then it wears the word.
             let run_diff = diff.is_some();
+            // The pane is shared across tabs and keeps the LAST PR issue's
+            // files: its counts label the item only for THIS issue's open PR.
             let diff = diff.or_else(|| {
                 self.changes
                     .as_ref()
-                    .and_then(|changes| changes.read(cx).totals(cx))
+                    .filter(|_| pr_changes)
+                    .map(|changes| changes.read(cx))
+                    .filter(|pane| pane.issue_id() == Some(issue.id.as_str()))
+                    .and_then(|pane| pane.totals(cx))
             });
             let (menu_this, menu_issue_id) = (this.clone(), issue_id.clone());
             crate::work_header::face_toggle(
