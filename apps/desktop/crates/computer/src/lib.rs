@@ -27,6 +27,8 @@ mod fake;
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(target_os = "macos")]
+mod macos_background;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod wayland;
 #[cfg(target_os = "windows")]

@@ -85,6 +85,37 @@ impl Backend for FakeBackend {
         *self.idle.lock().unwrap()
     }
 
+    fn background_click(&self, window: &WindowInfo, x: f64, y: f64, button: Button, count: u8) -> BackendResult<()> {
+        self.record(format!("bg click {} {x},{y} {button:?} x{count}", window.id))
+    }
+
+    fn background_scroll(&self, window: &WindowInfo, x: f64, y: f64, dx: i32, dy: i32) -> BackendResult<()> {
+        self.record(format!("bg scroll {} {x},{y} {dx},{dy}", window.id))
+    }
+
+    fn background_type(&self, window: &WindowInfo, text: &str) -> BackendResult<()> {
+        self.record(format!("bg type {} {text}", window.id))
+    }
+
+    fn background_key(&self, window: &WindowInfo, chord: &Chord) -> BackendResult<()> {
+        let modifiers: Vec<&str> = chord
+            .modifiers
+            .iter()
+            .map(|modifier| match modifier {
+                Modifier::Meta => "cmd",
+                Modifier::Control => "ctrl",
+                Modifier::Alt => "alt",
+                Modifier::Shift => "shift",
+            })
+            .collect();
+        let key = match chord.key {
+            Key::Char(c) => c.to_string(),
+            other => format!("{other:?}"),
+        };
+        let chord = modifiers.into_iter().chain([key.as_str()]).collect::<Vec<_>>().join("+");
+        self.record(format!("bg key {} {chord}", window.id))
+    }
+
     fn read_ui(&self, _window: Option<u32>) -> Option<BackendResult<Vec<UiNode>>> {
         Some(Ok(vec![UiNode {
             depth: 0,

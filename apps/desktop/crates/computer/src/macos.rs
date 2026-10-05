@@ -60,6 +60,8 @@ extern "C" {
     fn AXUIElementGetPid(element: AXUIElementRef, pid: *mut i32) -> i32;
     fn AXUIElementSetMessagingTimeout(element: AXUIElementRef, seconds: f32) -> i32;
     fn AXValueGetValue(value: CFTypeRef, kind: u32, out: *mut c_void) -> bool;
+    /// Private but stable since 10.x: an AX window's CGWindowID.
+    fn _AXUIElementGetWindow(element: AXUIElementRef, window: *mut u32) -> i32;
 }
 
 /// The HID-state clock only moves on hardware events: our own CGEvents never
@@ -237,13 +239,20 @@ fn exe_name(pid: u32) -> String {
 }
 
 /// The pid of the app that has keyboard focus (needs Accessibility).
-fn focused_pid() -> Option<u32> {
+pub fn focused_pid() -> Option<u32> {
     unsafe {
         let system = Element::owned(AXUIElementCreateSystemWide())?;
         let app = system.attribute("AXFocusedApplication")?;
         let mut pid = 0;
         (AXUIElementGetPid(app.raw(), &mut pid) == AX_OK && pid > 0).then_some(pid as u32)
     }
+}
+
+/// The CGWindowID of `pid`'s key window (its `AXFocusedWindow`).
+pub fn key_window_of(pid: u32) -> Option<u32> {
+    let window = app_element(pid).ok()?.attribute("AXFocusedWindow")?;
+    let mut id = 0u32;
+    (unsafe { _AXUIElementGetWindow(window.raw(), &mut id) } == AX_OK && id != 0).then_some(id)
 }
 
 pub fn windows() -> BackendResult<Vec<WindowInfo>> {

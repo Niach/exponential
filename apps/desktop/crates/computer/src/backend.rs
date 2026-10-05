@@ -96,6 +96,31 @@ pub struct Chord {
     pub key: Key,
 }
 
+/// How an input action reaches its app (EXP-1196 spike).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Delivery {
+    /// The global input queue, like the person's own hands: the pointer
+    /// moves, keys go to the focused window. Every OS.
+    #[default]
+    Foreground,
+    /// Posted to ONE window's process: the pointer stays put and the app in
+    /// front stays in front, so the person keeps working. macOS only.
+    Background,
+}
+
+impl Delivery {
+    pub fn parse(text: Option<&str>) -> Result<Self, String> {
+        match text.unwrap_or("foreground") {
+            "foreground" => Ok(Self::Foreground),
+            "background" => Ok(Self::Background),
+            other => Err(format!("`{other}` is not a delivery (foreground, background).")),
+        }
+    }
+}
+
+pub const NO_BACKGROUND: &str =
+    "Background delivery is not available on this operating system; use foreground.";
+
 /// Why the backend cannot act right now, phrased for the agent.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Readiness {
@@ -145,6 +170,28 @@ pub trait Backend: Send + Sync {
     /// indented text lines with element centers in global coordinates.
     /// `None` = this OS has no reader.
     fn read_ui(&self, window: Option<u32>) -> Option<BackendResult<Vec<UiNode>>>;
+
+    // Background delivery: into `window` only, pointer and front app
+    // untouched. Defaults refuse; macOS overrides.
+    fn background_click(
+        &self,
+        _window: &WindowInfo,
+        _x: f64,
+        _y: f64,
+        _button: Button,
+        _count: u8,
+    ) -> BackendResult<()> {
+        Err(NO_BACKGROUND.to_string())
+    }
+    fn background_scroll(&self, _window: &WindowInfo, _x: f64, _y: f64, _dx: i32, _dy: i32) -> BackendResult<()> {
+        Err(NO_BACKGROUND.to_string())
+    }
+    fn background_type(&self, _window: &WindowInfo, _text: &str) -> BackendResult<()> {
+        Err(NO_BACKGROUND.to_string())
+    }
+    fn background_key(&self, _window: &WindowInfo, _chord: &Chord) -> BackendResult<()> {
+        Err(NO_BACKGROUND.to_string())
+    }
 }
 
 /// One accessibility element.

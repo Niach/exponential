@@ -1234,6 +1234,7 @@ dependencies = [
  "core-foundation 0.10.0",
  "core-graphics 0.25.0",
  "enigo",
+ "foreign-types",
  "image",
  "libc",
  "log",

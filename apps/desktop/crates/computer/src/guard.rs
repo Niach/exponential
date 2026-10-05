@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use crate::backend::{
-    Backend, Button, Chord, Key, Modifier, Readiness, Rect, Target, UiNode, WindowInfo,
+    Backend, Button, Chord, Delivery, Key, Modifier, Readiness, Rect, Target, UiNode, WindowInfo,
 };
 
 /// The long edge a frame is downscaled to before it reaches the model.
@@ -100,6 +100,9 @@ pub struct Mapping {
     pub area: Rect,
     pub width: u32,
     pub height: u32,
+    /// The window the screenshot showed, when it was one window: the
+    /// default target of a background action.
+    pub window: Option<u32>,
 }
 
 impl Mapping {
@@ -248,6 +251,30 @@ impl Guard {
         result
     }
 
+    /// Run one BACKGROUND action: readiness and the turn lock, but no wait
+    /// for the person's quiet. The events go to one process, not the queue
+    /// the person types into, so the two do not collide.
+    fn act_background(&self, act: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
+        let _turn = self.turn.lock().unwrap();
+        self.ready()?;
+        act()
+    }
+
+    /// The window a background action goes to: the one named, else the one
+    /// the last screenshot showed.
+    fn background_window(
+        &self,
+        window: Option<u32>,
+        mapping: Option<Mapping>,
+    ) -> Result<WindowInfo, String> {
+        let id = window.or(mapping.and_then(|mapping| mapping.window)).ok_or(NO_TARGET)?;
+        self.backend
+            .windows()?
+            .into_iter()
+            .find(|info| info.id == id)
+            .ok_or_else(|| format!("No window has id {id}; call list_windows."))
+    }
+
     /// The window a click at this screen point lands in (the frontmost
     /// ordinary one), only to name its app in the answer.
     fn window_at(&self, x: f64, y: f64) -> Option<WindowInfo> {
@@ -284,10 +311,15 @@ impl Guard {
                 Err(err) => text.push_str(&format!(" Could not save to {}: {err}.", path.display())),
             }
         }
-        let mapping = Mapping { area: frame.area, width, height };
+        let window = match target {
+            Target::Window(id) => Some(id),
+            Target::Display(_) => None,
+        };
+        let mapping = Mapping { area: frame.area, width, height, window };
         Ok((ToolOutput { text, png: Some(png) }, mapping))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn click(
         &self,
         mapping: Option<Mapping>,
@@ -295,13 +327,25 @@ impl Guard {
         y: f64,
         button: Button,
         count: u8,
+        delivery: Delivery,
+        window: Option<u32>,
     ) -> Result<ToolOutput, String> {
         let (sx, sy) = mapping.ok_or(NO_SHOT)?.to_screen(x, y)?;
+        let count = count.clamp(1, 3);
+        if delivery == Delivery::Background {
+            let target = self.background_window(window, mapping)?;
+            self.act_background(|| self.backend.background_click(&target, sx, sy, button, count))?;
+            return Ok(ToolOutput::text(format!(
+                "Posted a click at ({x}, {y}) to {} in the background.",
+                name(&target)
+            )));
+        }
         let target = self.window_at(sx, sy);
-        self.act(|| self.backend.click(sx, sy, button, count.clamp(1, 3)))?;
+        self.act(|| self.backend.click(sx, sy, button, count))?;
         Ok(ToolOutput::text(format!("Clicked ({x}, {y}){}.", in_app(target.as_ref()))))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn scroll(
         &self,
         mapping: Option<Mapping>,
@@ -309,14 +353,40 @@ impl Guard {
         y: f64,
         dx: i32,
         dy: i32,
+        delivery: Delivery,
+        window: Option<u32>,
     ) -> Result<ToolOutput, String> {
         let (sx, sy) = mapping.ok_or(NO_SHOT)?.to_screen(x, y)?;
+        let (dx, dy) = (dx.clamp(-50, 50), dy.clamp(-50, 50));
+        if delivery == Delivery::Background {
+            let target = self.background_window(window, mapping)?;
+            self.act_background(|| self.backend.background_scroll(&target, sx, sy, dx, dy))?;
+            return Ok(ToolOutput::text(format!(
+                "Posted a scroll at ({x}, {y}) to {} in the background.",
+                name(&target)
+            )));
+        }
         let target = self.window_at(sx, sy);
-        self.act(|| self.backend.scroll(sx, sy, dx.clamp(-50, 50), dy.clamp(-50, 50)))?;
+        self.act(|| self.backend.scroll(sx, sy, dx, dy))?;
         Ok(ToolOutput::text(format!("Scrolled at ({x}, {y}){}.", in_app(target.as_ref()))))
     }
 
-    pub fn type_text(&self, text: &str) -> Result<ToolOutput, String> {
+    pub fn type_text(
+        &self,
+        text: &str,
+        delivery: Delivery,
+        window: Option<u32>,
+        mapping: Option<Mapping>,
+    ) -> Result<ToolOutput, String> {
+        if delivery == Delivery::Background {
+            let target = self.background_window(window, mapping)?;
+            self.act_background(|| self.backend.background_type(&target, text))?;
+            return Ok(ToolOutput::text(format!(
+                "Posted {} characters to {} in the background.",
+                text.chars().count(),
+                name(&target)
+            )));
+        }
         let target = self.backend.focused();
         self.act(|| self.backend.type_text(text))?;
         Ok(ToolOutput::text(format!(
@@ -326,8 +396,22 @@ impl Guard {
         )))
     }
 
-    pub fn key(&self, keys: &str) -> Result<ToolOutput, String> {
+    pub fn key(
+        &self,
+        keys: &str,
+        delivery: Delivery,
+        window: Option<u32>,
+        mapping: Option<Mapping>,
+    ) -> Result<ToolOutput, String> {
         let chord = parse_chord(keys)?;
+        if delivery == Delivery::Background {
+            let target = self.background_window(window, mapping)?;
+            self.act_background(|| self.backend.background_key(&target, &chord))?;
+            return Ok(ToolOutput::text(format!(
+                "Posted {keys} to {} in the background.",
+                name(&target)
+            )));
+        }
         let target = self.backend.focused();
         self.act(|| self.backend.key(&chord))?;
         Ok(ToolOutput::text(format!("Pressed {keys}{}.", in_app(target.as_ref()))))
@@ -385,6 +469,16 @@ impl Guard {
 }
 
 const NO_SHOT: &str = "Take a screenshot first: positions are pixels in the last screenshot.";
+const NO_TARGET: &str = "Background delivery needs a target window: pass `window` (an id from \
+list_windows) or take a screenshot of that window first.";
+
+fn name(window: &WindowInfo) -> String {
+    if window.title.is_empty() {
+        window.app.clone()
+    } else {
+        format!("{} ({})", window.app, window.title)
+    }
+}
 
 fn in_app(window: Option<&WindowInfo>) -> String {
     window
@@ -469,6 +563,7 @@ mod tests {
             area: Rect { x: 100.0, y: 50.0, width: 2000.0, height: 1000.0 },
             width: 1000,
             height: 500,
+            window: None,
         };
         assert_eq!(mapping.to_screen(0.0, 0.0).unwrap(), (100.0, 50.0));
         assert_eq!(mapping.to_screen(500.0, 250.0).unwrap(), (1100.0, 550.0));
@@ -501,12 +596,12 @@ mod tests {
         let backend = FakeBackend::with_windows(vec![window("TextEdit", "TextEdit", 7)]);
         let log = backend.log();
         let guard = Guard::new(Box::new(backend));
-        assert!(guard.click(None, 1.0, 1.0, Button::Left, 1).unwrap_err().contains("screenshot"));
+        assert!(guard.click(None, 1.0, 1.0, Button::Left, 1, Delivery::Foreground, None).unwrap_err().contains("screenshot"));
         let (output, mapping) = guard.screenshot(Target::Display(0), None).unwrap();
         assert!(output.png.is_some());
         // The fake display is 3136x2000 at 2x: a 1568x1000 image over 1568x1000 points.
         assert_eq!((mapping.width, mapping.height), (1568, 1000));
-        let done = guard.click(Some(mapping), 50.0, 50.0, Button::Left, 2).unwrap();
+        let done = guard.click(Some(mapping), 50.0, 50.0, Button::Left, 2, Delivery::Foreground, None).unwrap();
         assert_eq!(done.text, "Clicked (50, 50) in TextEdit.");
         assert_eq!(log.lock().unwrap().as_slice(), ["click 50,50 Left x2"]);
     }
@@ -520,12 +615,12 @@ mod tests {
         let guard = Guard::new(Box::new(backend));
         let (_, mapping) = guard.screenshot(Target::Display(0), None).unwrap();
         assert_eq!(
-            guard.click(Some(mapping), 50.0, 50.0, Button::Left, 1).unwrap().text,
+            guard.click(Some(mapping), 50.0, 50.0, Button::Left, 1, Delivery::Foreground, None).unwrap().text,
             "Clicked (50, 50) in Terminal."
         );
-        guard.scroll(Some(mapping), 50.0, 50.0, 0, 3).unwrap();
-        assert_eq!(guard.type_text("ls").unwrap().text, "Typed 2 characters in Terminal.");
-        guard.key("enter").unwrap();
+        guard.scroll(Some(mapping), 50.0, 50.0, 0, 3, Delivery::Foreground, None).unwrap();
+        assert_eq!(guard.type_text("ls", Delivery::Foreground, None, None).unwrap().text, "Typed 2 characters in Terminal.");
+        guard.key("enter", Delivery::Foreground, None, None).unwrap();
         guard.focus_window(1).unwrap();
         assert_eq!(log.lock().unwrap().len(), 5);
         assert!(!guard.list_windows().unwrap().text.contains("off limits"));
@@ -535,7 +630,7 @@ mod tests {
     fn typing_with_no_known_focused_app_still_types() {
         let backend = FakeBackend::with_windows(vec![]);
         let log = backend.log();
-        Guard::new(Box::new(backend)).type_text("ls").unwrap();
+        Guard::new(Box::new(backend)).type_text("ls", Delivery::Foreground, None, None).unwrap();
         assert_eq!(*log.lock().unwrap(), vec!["type ls".to_string()]);
     }
 
@@ -549,10 +644,37 @@ mod tests {
         let guard = Guard::new(Box::new(backend));
         let (_, mapping) = guard.screenshot(Target::Display(0), None).unwrap();
         assert_eq!(
-            guard.click(Some(mapping), 5.0, 5.0, Button::Left, 1).unwrap().text,
+            guard.click(Some(mapping), 5.0, 5.0, Button::Left, 1, Delivery::Foreground, None).unwrap().text,
             "Clicked (5, 5) in TextEdit."
         );
         assert!(!guard.list_windows().unwrap().text.contains("Dock"));
+    }
+
+    #[test]
+    fn background_actions_go_to_the_shot_window_without_waiting_for_quiet() {
+        let backend = FakeBackend::with_windows(vec![window("TextEdit", "TextEdit", 7)]);
+        // The person is typing right now: background input does not collide.
+        backend.set_idle(Some(Duration::from_millis(10)));
+        let log = backend.log();
+        let guard = Guard::new(Box::new(backend)).with_quiet_wait(Duration::from_millis(50));
+        let bg = Delivery::Background;
+        // No target: neither a window id nor a window screenshot.
+        assert!(guard.type_text("hi", bg, None, None).unwrap_err().contains("target window"));
+        let (_, shot) = guard.screenshot(Target::Window(1), None).unwrap();
+        assert_eq!(shot.window, Some(1));
+        assert_eq!(
+            guard.click(Some(shot), 50.0, 50.0, Button::Left, 1, bg, None).unwrap().text,
+            "Posted a click at (50, 50) to TextEdit in the background."
+        );
+        guard.type_text("hi", bg, None, Some(shot)).unwrap();
+        guard.key("cmd+s", bg, Some(1), None).unwrap();
+        assert!(guard.type_text("x", bg, Some(99), None).unwrap_err().contains("No window has id 99"));
+        assert_eq!(
+            log.lock().unwrap().as_slice(),
+            ["bg click 1 50,50 Left x1", "bg type 1 hi", "bg key 1 cmd+s"]
+        );
+        // The foreground path still waits for the person.
+        assert_eq!(guard.type_text("hi", Delivery::Foreground, None, None).unwrap_err(), PAUSED_MESSAGE);
     }
 
     #[test]
@@ -561,7 +683,7 @@ mod tests {
         backend.set_idle(Some(Duration::from_millis(10)));
         let log = backend.log();
         let guard = Guard::new(Box::new(backend)).with_quiet_wait(Duration::from_millis(50));
-        assert_eq!(guard.type_text("hi").unwrap_err(), PAUSED_MESSAGE);
+        assert_eq!(guard.type_text("hi", Delivery::Foreground, None, None).unwrap_err(), PAUSED_MESSAGE);
         assert!(log.lock().unwrap().is_empty());
     }
 
@@ -571,7 +693,7 @@ mod tests {
         backend.set_readiness(Readiness::MissingPermission("Grant Screen Recording.".into()));
         let guard = Guard::new(Box::new(backend));
         assert_eq!(guard.screenshot(Target::Display(0), None).err().unwrap(), "Grant Screen Recording.");
-        assert_eq!(guard.type_text("hi").unwrap_err(), "Grant Screen Recording.");
+        assert_eq!(guard.type_text("hi", Delivery::Foreground, None, None).unwrap_err(), "Grant Screen Recording.");
     }
 
     #[test]
@@ -580,6 +702,7 @@ mod tests {
             area: Rect { x: 0.0, y: 0.0, width: 200.0, height: 100.0 },
             width: 100,
             height: 50,
+            window: None,
         };
         let nodes = vec![
             UiNode { depth: 0, role: "window".into(), label: "Untitled".into(), rect: None },

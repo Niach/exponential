@@ -11,7 +11,7 @@ use std::time::Instant;
 use base64::Engine as _;
 use serde_json::{json, Value};
 
-use crate::backend::{Button, Target};
+use crate::backend::{Button, Delivery, Target};
 use crate::guard::{Guard, Mapping, ToolOutput};
 
 /// The config key and server name the agents see (`mcp__computer__click`).
@@ -122,6 +122,7 @@ impl Hub {
             _ => Err("x and y are required.".to_string()),
         };
         let window = args.get("window").and_then(Value::as_u64).map(|id| id as u32);
+        let delivery = || Delivery::parse(args.get("delivery").and_then(Value::as_str));
         let output = match name {
             "screenshot" => {
                 let target = match window {
@@ -146,7 +147,7 @@ impl Hub {
                     other => return Err(format!("`{other}` is not a button (left, right, middle).")),
                 };
                 let count = number("count").unwrap_or(1.0) as u8;
-                self.guard.click(self.mapping(token), x, y, button, count)?
+                self.guard.click(self.mapping(token), x, y, button, count, delivery()?, window)?
             }
             "scroll" => {
                 let (x, y) = point()?;
@@ -155,15 +156,17 @@ impl Hub {
                 if dx == 0 && dy == 0 {
                     return Err("Give dx or dy, in wheel notches.".to_string());
                 }
-                self.guard.scroll(self.mapping(token), x, y, dx, dy)?
+                self.guard.scroll(self.mapping(token), x, y, dx, dy, delivery()?, window)?
             }
             "type" => {
                 let text = args.get("text").and_then(Value::as_str).filter(|text| !text.is_empty());
-                self.guard.type_text(text.ok_or("text is required.")?)?
+                let text = text.ok_or("text is required.")?;
+                self.guard.type_text(text, delivery()?, window, self.mapping(token))?
             }
             "key" => {
                 let keys = args.get("keys").and_then(Value::as_str).filter(|keys| !keys.is_empty());
-                self.guard.key(keys.ok_or("keys is required.")?)?
+                let keys = keys.ok_or("keys is required.")?;
+                self.guard.key(keys, delivery()?, window, self.mapping(token))?
             }
             "focus_window" => self.guard.focus_window(window.ok_or("window is required.")?)?,
             other => return Err(format!("Unknown tool: {other}")),
@@ -175,7 +178,8 @@ impl Hub {
 
 const INSTRUCTIONS: &str = "Sees and drives this computer's desktop. Take a screenshot first; \
 click and scroll take pixel positions in the last screenshot. Nothing happens while the person \
-is using the keyboard or mouse.";
+is using the keyboard or mouse, unless you pass delivery \"background\" (macOS): then input goes \
+to one window (a window screenshot's, or `window`) and the person keeps working.";
 
 fn tool_result(outcome: Result<ToolOutput, String>) -> Value {
     match outcome {
@@ -211,6 +215,13 @@ fn tool_definitions() -> Value {
     let x = json!({ "type": "number", "description": "Pixel x in the last screenshot" });
     let y = json!({ "type": "number", "description": "Pixel y in the last screenshot" });
     let window = |description: &str| json!({ "type": "integer", "description": description });
+    let delivery = json!({
+        "type": "string",
+        "enum": ["foreground", "background"],
+        "description": "foreground (default) = the real pointer and keyboard; background (macOS) \
+            = posted to one window, the person's pointer and front app untouched",
+    });
+    let target = window("background only: the window to send to (default: the last screenshot's)");
     json!([
         tool(
             "screenshot",
@@ -231,25 +242,29 @@ fn tool_definitions() -> Value {
                 "x": x, "y": y,
                 "button": { "type": "string", "enum": ["left", "right", "middle"] },
                 "count": { "type": "integer", "minimum": 1, "maximum": 3, "description": "2 = double click" },
+                "delivery": delivery, "window": target,
             }),
             &["x", "y"],
         ),
         tool(
             "scroll",
             "Scroll at a position of the last screenshot, in wheel notches (dy > 0 = down, dx > 0 = right).",
-            json!({ "x": x, "y": y, "dx": { "type": "integer" }, "dy": { "type": "integer" } }),
+            json!({
+                "x": x, "y": y, "dx": { "type": "integer" }, "dy": { "type": "integer" },
+                "delivery": delivery, "window": target,
+            }),
             &["x", "y"],
         ),
         tool(
             "type",
             "Type text into the focused window.",
-            json!({ "text": { "type": "string" } }),
+            json!({ "text": { "type": "string" }, "delivery": delivery, "window": target }),
             &["text"],
         ),
         tool(
             "key",
             "Press one key or chord in the focused window: `enter`, `cmd+shift+t`, `ctrl+c`, `F5`.",
-            json!({ "keys": { "type": "string" } }),
+            json!({ "keys": { "type": "string" }, "delivery": delivery, "window": target }),
             &["keys"],
         ),
         tool("list_windows", "List the open windows, front to back, with their ids.", json!({}), &[]),
