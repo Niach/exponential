@@ -42,10 +42,9 @@ export const entry: StyleguideEntry = {
       file: `packages/ui/src/device-readiness.tsx`,
     },
     desktop: {
-      state: `leftover`,
-      symbol: `coding::device_doctor`,
-      file: `apps/desktop/crates/coding/src/device_doctor.rs`,
-      note: `The report is built here; the IDE's block lands with EXP-1196.`,
+      state: `ok`,
+      symbol: `render_sections`,
+      file: `apps/desktop/crates/ui/src/device_readiness.rs`,
     },
     ios: {
       state: `ok`,

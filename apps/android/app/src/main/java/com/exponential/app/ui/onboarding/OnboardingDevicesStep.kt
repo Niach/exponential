@@ -19,7 +19,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.ui.components.DeviceSetup
 import com.exponential.app.ui.components.DeviceSetupViewModel
 import com.exponential.app.ui.components.GlassSubmitButton
-import com.exponential.app.ui.theme.TextEmphasis
 
 /**
  * "Set up your devices" (EXP-725): the [OnboardingCopy] header, the shared
@@ -53,13 +52,6 @@ fun OnboardingDevicesStep(
             OnboardingCopy.DEVICES_TITLE,
             style = MaterialTheme.typography.headlineSmall,
             color = MaterialTheme.colorScheme.onSurface,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(12.dp))
-        Text(
-            OnboardingCopy.DEVICES_SUBTITLE,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(28.dp))

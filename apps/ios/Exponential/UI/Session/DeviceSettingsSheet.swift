@@ -31,7 +31,8 @@ import SwiftUI
 //              → Accounts.
 //   Readiness — EXP-1196/1218/1219: the device's doctor report as THE
 //              readiness block (`DeviceReadinessView`, fixture
-//              `device-doctor.json`), only when the row carries one. A phone
+//              `device-doctor.json`), only when the row carries one; an
+//              older build's row (no doctor) gets the bare Computer use switch. A phone
 //              is always ANOTHER device: Update queues `agent_update {agent}`,
 //              Sign in opens the remote `AgentLoginSheet`; local-only actions
 //              render no pill.
@@ -153,6 +154,8 @@ struct DeviceSettingsSheet: View {
                     }
                     if let doctor = device.doctor {
                         readinessSection(device, doctor: doctor)
+                    } else {
+                        computerUseSection
                     }
                     defaultsSection(device)
                     if device.isServer {
@@ -516,6 +519,26 @@ struct DeviceSettingsSheet: View {
             .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
         }
         .listRowBackground(Color.clear)
+    }
+
+    /// An older build sends no doctor (fixture rule): no block, but the bare
+    /// Computer use switch row stays reachable. Label + switch, no footer.
+    private var computerUseSection: some View {
+        Section {
+            Toggle(
+                "Computer use",
+                isOn: Binding(
+                    get: { computerUse },
+                    set: { newValue in
+                        computerUse = newValue
+                        defaultsPending = true
+                        scheduleDefaultsAutosave()
+                    }
+                )
+            )
+            .accessibilityIdentifier("device-computer-use")
+        }
+        .listRowBackground(glassFormRowFill)
     }
 
     /// A phone only ever sees the REMOTE actions (`DeviceReadiness` drops the

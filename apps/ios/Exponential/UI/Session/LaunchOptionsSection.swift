@@ -75,6 +75,9 @@ struct LaunchOptionsSection: View {
     /// A sentence under the card (the device variant's offline notice). The
     /// resume note, when there is one, sits above it.
     var footerNote: String? = nil
+    /// EXP-1196/1219: runs the not-ready row's pill (Update / Sign in on the
+    /// picked machine). Nil = the row renders without its pill.
+    var onReadinessAction: ((DeviceReadiness.Row) -> Void)? = nil
 
     var body: some View {
         Group {
@@ -285,9 +288,20 @@ struct LaunchOptionsSection: View {
     }
 
     /// EXP-773: the picked agent is outside that machine's ACP set, so it
-    /// cannot start there.
+    /// cannot start there. A machine with a doctor shows its failing ROW
+    /// instead (the composer's single-row view); the sentence stays only for
+    /// an older build's row.
     private var notReadyNote: String? {
-        LaunchVocabulary.notReadyNote(device: resolvedDevice, agent: agent)
+        guard notReadyRow == nil else { return nil }
+        return LaunchVocabulary.notReadyNote(device: resolvedDevice, agent: agent)
+    }
+
+    /// EXP-1196/1219: that machine's failing doctor row (Git when Git is the
+    /// failure, else the agent's), same row the Agent composer shows.
+    private var notReadyRow: DeviceReadiness.Row? {
+        guard let device = resolvedDevice, !agent.isEmpty, device.agentNotReady(agent),
+              let doctor = device.doctor else { return nil }
+        return DeviceReadiness.failingRow(doctor, agent: agent, remote: true)
     }
 
     private var resumeNote: String? {
@@ -297,10 +311,20 @@ struct LaunchOptionsSection: View {
 
     @ViewBuilder
     private var optionsFooter: some View {
-        if resumeNote != nil || notReadyNote != nil || footerNote != nil {
+        if resumeNote != nil || notReadyRow != nil || notReadyNote != nil || footerNote != nil {
             VStack(alignment: .leading, spacing: 4) {
                 if let resumeNote {
                     Text(resumeNote)
+                }
+                if let notReadyRow {
+                    Group {
+                        if let onReadinessAction {
+                            DeviceReadinessView(row: notReadyRow, onAction: onReadinessAction)
+                        } else {
+                            DeviceReadinessView(compactRows: [notReadyRow])
+                        }
+                    }
+                    .accessibilityIdentifier("launch-not-ready-row")
                 }
                 if let notReadyNote {
                     Text(notReadyNote)

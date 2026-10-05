@@ -1,8 +1,10 @@
 //! Manual probe of the real backend, off the main thread like the server:
 //! `cargo run -p computer --example probe -- [shot <path>] [display N <path>] [window ID <path>]
 //! [ui] [uiwindow ID] [click X Y] [scroll X Y DY] [type TEXT] [key CHORD] [focus ID]
-//! [delivery foreground|background] [target ID] [sleep MS]`. `delivery` and `target` hold
-//! for the steps after them (target = the background window, default: the last window shot).
+//! [delivery auto|foreground|background] [target ID] [sleep MS]`. `delivery` and `target` hold
+//! for the steps after them (default auto, like the tools: background on macOS when a target
+//! window is known; target = the background window, default: the last window shot, else the
+//! one under the click or the focused one).
 
 use computer::backend::{self, Button, Delivery, Target};
 use computer::guard::Guard;
@@ -15,7 +17,7 @@ fn main() {
         println!("readiness: {:?}", guard.readiness(false));
         println!("{}", guard.list_windows().map(|o| o.text).unwrap_or_else(|e| e));
         let mut mapping = None;
-        let mut delivery = Delivery::Foreground;
+        let mut delivery = Delivery::Auto;
         let mut target: Option<u32> = None;
         let mut args = args.iter();
         while let Some(arg) = args.next() {
@@ -46,13 +48,17 @@ fn main() {
                 }
                 "type" => guard.type_text(&next(), delivery, target, mapping),
                 "key" => guard.key(&next(), delivery, target, mapping),
-                "delivery" => Delivery::parse(Some(&next())).map(|parsed| {
+                "delivery" => {
+                    let name = next();
+                    Delivery::parse(Some(name.as_str()).filter(|name| *name != "auto"))
+                }
+                .map(|parsed| {
                     delivery = parsed;
-                    computer::guard::ToolOutput { text: format!("{parsed:?}"), png: None }
+                    computer::guard::ToolOutput { text: format!("{parsed:?}"), ..Default::default() }
                 }),
                 "target" => {
                     target = next().parse().ok();
-                    Ok(computer::guard::ToolOutput { text: format!("{target:?}"), png: None })
+                    Ok(computer::guard::ToolOutput { text: format!("{target:?}"), ..Default::default() })
                 }
                 "sleep" => {
                     std::thread::sleep(std::time::Duration::from_millis(next().parse().unwrap()));

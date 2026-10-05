@@ -19522,6 +19522,102 @@ plus the maintenance UI the issue asks for)
 of this directory for the precise diffs.)
 
 
+------------------------------------------------------------------------------
+Ported source in the desktop application (computer use)
+------------------------------------------------------------------------------
+
+The computer crate's macOS background input
+(apps/desktop/crates/computer/src/macos_background.rs) ports code from
+cua-driver (trycua/cua, MIT, Copyright (c) 2025 Cua AI, Inc.) and yabai (MIT,
+Copyright (c) 2019 Åsmund Vikane). The crate's NOTICE records the provenance
+and changes; both MIT licences are reproduced in full below.
+
+..............................................................................
+apps/desktop/crates/computer/NOTICE
+..............................................................................
+
+computer — ported third-party code (EXP-1196)
+=============================================
+
+The `computer` crate is Exponential's own source, covered by the repository's
+Apache License 2.0 (see /LICENSE at the repo root), EXCEPT the ported code in
+the file listed below. Its upstream authors keep their copyright; their MIT
+licences are reproduced in LICENSE-cua.txt and LICENSE-yabai.txt in this
+directory.
+
+src/macos_background.rs
+-----------------------
+
+Provenance
+
+- Upstream: cua-driver, `libs/cua-driver/rust/crates/platform-macos/src/input/
+  {skylight,keyboard,mouse}.rs` (https://github.com/trycua/cua, rev
+  b0968e1b12834e485dda68789541a3cc57664a9f), MIT, Copyright (c) 2025 Cua AI,
+  Inc.: the recipe for posting mouse and keyboard events to one process.
+- The focus-without-raise record sequence is yabai's
+  (https://github.com/koekeishiya/yabai), MIT, Copyright (c) 2019 Åsmund
+  Vikane.
+
+Local modifications (Exponential, EXP-1196)
+
+- Cut down to the click, scroll, type and key actions the computer-use tools
+  need, and called synchronously.
+- The stamped window location is window-local, and command chords go through
+  a key-without-raise path.
+
+..............................................................................
+MIT License — Cua AI, Inc. (cua-driver)
+..............................................................................
+
+MIT License
+
+Copyright (c) 2025 Cua AI, Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+..............................................................................
+MIT License — Åsmund Vikane (yabai)
+..............................................................................
+
+The MIT License (MIT)
+
+Copyright (c) 2019 Åsmund Vikane
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
 ==============================================================================
 7. Mozilla Public License 2.0 — source availability
 ==============================================================================

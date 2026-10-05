@@ -71,7 +71,7 @@ struct DeviceReadinessView: View {
                     VStack(alignment: .leading, spacing: 0) {
                         GlassSectionBand(group.label) {
                             if let tag = group.tag {
-                                GlassPill(DeviceReadiness.tagLabel(tag))
+                                GlassPill(tag)
                             }
                         }
                         rowList(group.rows)

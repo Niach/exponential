@@ -140,9 +140,6 @@ object DeviceReadiness {
         ACTION_GRANT to Action("Open System Settings", remote = false),
     )
 
-    /** The tag pill's words (fixture tag `optional`). */
-    fun tagLabel(tag: String): String = tag.replaceFirstChar { it.uppercase() }
-
     fun label(key: String): String = LABELS[key] ?: key
 
     /** Fixture `states`; an unknown state reads as the muted dash. */

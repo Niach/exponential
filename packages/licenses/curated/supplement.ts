@@ -148,7 +148,8 @@ export const DATA: CuratedEntry[] = [
 // Vendored source
 // ---------------------------------------------------------------------------
 //
-// Neither of these is a package in any dependency graph. gpui-markdown-editor
+// None of these is a package in any dependency graph (the computer crate's
+// port is a file inside our own crate). gpui-markdown-editor
 // in particular is `publish = false`, so no cargo tool will ever emit it — this
 // entry is the only route by which Velotype / manyougz gets attributed at all.
 
@@ -167,6 +168,27 @@ export const VENDORED: CuratedEntry[] = [
       {
         label: `apps/desktop/crates/gpui-markdown-editor/NOTICE`,
         path: `apps/desktop/crates/gpui-markdown-editor/NOTICE`,
+      },
+    ],
+  },
+  {
+    title: `Ported source in the desktop application (computer use)`,
+    clients: [`desktop`],
+    body: [
+      `The computer crate's macOS background input (apps/desktop/crates/computer/src/macos_background.rs) ports code from cua-driver (trycua/cua, MIT, Copyright (c) 2025 Cua AI, Inc.) and yabai (MIT, Copyright (c) 2019 Åsmund Vikane). The crate's NOTICE records the provenance and changes; both MIT licences are reproduced in full below.`,
+    ],
+    reproduce: [
+      {
+        label: `apps/desktop/crates/computer/NOTICE`,
+        path: `apps/desktop/crates/computer/NOTICE`,
+      },
+      {
+        label: `MIT License — Cua AI, Inc. (cua-driver)`,
+        path: `apps/desktop/crates/computer/LICENSE-cua.txt`,
+      },
+      {
+        label: `MIT License — Åsmund Vikane (yabai)`,
+        path: `apps/desktop/crates/computer/LICENSE-yabai.txt`,
       },
     ],
   },

@@ -175,18 +175,28 @@ export function deviceAcpAgentIds(
   return contractAgents(reported)
 }
 
-/** EXP-773: `agent` cannot start on this device — the machine reported an ACP
- * set and this agent is outside it (the PTY fallback is gone, so there is no
- * other transport left). Unknown (an older build that never reported) =
- * false: assume the ACP path and say nothing. */
+/** EXP-773/1196: `agent` cannot start on this device. With a doctor report
+ * the report decides (device-doctor.json: Git not ok, or the agent's row not
+ * ok; `deviceReadinessRunnable` in `@exp/ui` is the same rule). Without one
+ * (an older build) the ACP fallback: the machine reported an ACP set and the
+ * agent is outside it; unknown = false, assume the ACP path. */
 export function deviceAgentNotReady(
   device: SteerDevice | undefined,
   agent: string
 ): boolean {
   if (!agent) return false
+  const doctor = device?.doctor
+  if (doctor) return !doctorAgentRunnable(doctor, agent)
   const acp = deviceAcpAgentIds(device)
   if (acp === null) return false
   return !acp.includes(agent)
+}
+
+/** The fixture's runnable rule for one agent: Git ok and the agent's row ok. */
+function doctorAgentRunnable(doctor: DeviceDoctor, agent: string): boolean {
+  const state = (key: string) =>
+    doctor.items.find((item) => item.key === key)?.state
+  return state(`git`) === `ok` && state(agent) === `ok`
 }
 
 /** EXP-409: agents installed but signed out on the device. */
@@ -208,11 +218,8 @@ export function deviceHasRunnableAgent(device: SteerDevice): boolean {
 export function deviceReadyForRuns(device: SteerDevice): boolean {
   const doctor = device.doctor
   if (!doctor) return deviceHasRunnableAgent(device)
-  const state = (key: string) =>
-    doctor.items.find((item) => item.key === key)?.state
-  return (
-    state(`git`) === `ok` &&
-    contract.codingAgent.values.some((agent) => state(agent) === `ok`)
+  return contract.codingAgent.values.some((agent) =>
+    doctorAgentRunnable(doctor, agent)
   )
 }
 

@@ -30,7 +30,6 @@ export const ONBOARDING_COPY = {
   },
   devices: {
     title: `Set up your devices`,
-    subtitle: `Runs happen on the desktop app or on a server with the Exponential CLI. Install one and sign your agents in. You can also do this later.`,
     yours: `Your devices`,
     none: `No devices yet. Sign in on the desktop app or a server and it shows up here.`,
   },

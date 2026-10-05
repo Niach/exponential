@@ -1698,7 +1698,27 @@ impl DeviceSettingsView {
         let doctor = if local {
             CodingHub::global(cx).read(cx).doctor.device.clone()?
         } else {
-            device_readiness::parse(row.and_then(|row| row.doctor.as_ref()))?
+            match device_readiness::parse(row.and_then(|row| row.doctor.as_ref())) {
+                Some(doctor) => doctor,
+                // An older build (no doctor): no block, but the bare
+                // Computer use switch row stays reachable.
+                None => {
+                    let view = cx.entity().downgrade();
+                    let props = device_readiness::BlockProps {
+                        id: "device-readiness".into(),
+                        on_toggle: Some(Rc::new(move |on, _window, cx| {
+                            let _ = view.update(cx, |this, cx| {
+                                this.computer_use = on;
+                                this.save_defaults(cx);
+                                cx.notify();
+                            });
+                        })),
+                        ..device_readiness::BlockProps::default()
+                    };
+                    let row = device_readiness::bare_switch_row(self.computer_use);
+                    return Some(device_readiness::render_single(&row, props, cx));
+                }
+            }
         };
         let view = cx.entity().downgrade();
         let toggle_view = view.clone();
@@ -1900,7 +1920,8 @@ impl Render for DeviceSettingsView {
         // parity look).
         // EXP-1196: the device readiness block for THIS row's machine (the
         // live local doctor for our own row, the synced `doctor` for any
-        // other; an older build's NULL draws nothing). Its Computer use band
+        // other; an older build's NULL draws only the bare Computer use
+        // switch row). Its Computer use band
         // carries the device's switch, saved with the launch defaults it
         // syncs in; its rows carry the agent Update / Sign in actions.
         let body = match self.render_readiness(row.as_ref(), cx) {

@@ -63,6 +63,46 @@ describe(`useLaunchOptions readiness`, () => {
     expect(result.current.agent).toBe(`claude`)
     expect(result.current.agentNotReady).toBe(true)
   })
+
+  // EXP-1196: a doctor report decides over the ACP set.
+  const doctor = (git: string, claude: string): SteerDevice[`doctor`] => ({
+    checkedAt: `2026-10-05T19:00:00.000Z`,
+    items: [
+      { key: `git`, group: `required`, state: git },
+      { key: `claude`, group: `agents`, state: claude },
+    ],
+  })
+
+  it(`uses the doctor when present: the picked agent's row not ok blocks`, () => {
+    const { result } = renderHook(() =>
+      useLaunchOptions({
+        open: true,
+        // The ACP set says yes; the doctor says the agent needs an update.
+        devices: [{ ...device, acpAgents: [`claude`], doctor: doctor(`ok`, `action`) }],
+      })
+    )
+    expect(result.current.agentNotReady).toBe(true)
+  })
+
+  it(`uses the doctor when present: Git not ok blocks`, () => {
+    const { result } = renderHook(() =>
+      useLaunchOptions({
+        open: true,
+        devices: [{ ...device, doctor: doctor(`error`, `ok`) }],
+      })
+    )
+    expect(result.current.agentNotReady).toBe(true)
+  })
+
+  it(`uses the doctor when present: Git + agent ok starts, whatever the ACP set`, () => {
+    const { result } = renderHook(() =>
+      useLaunchOptions({
+        open: true,
+        devices: [{ ...device, acpAgents: [`codex`], doctor: doctor(`ok`, `ok`) }],
+      })
+    )
+    expect(result.current.agentNotReady).toBe(false)
+  })
 })
 
 // EXP-872: ONE account picker — the flattened logins of the settled device

@@ -1,7 +1,9 @@
 //! EXP-1196 — the "an agent is driving this computer" pill.
 //!
-//! Computer use moves the person's OWN pointer and keyboard, usually in some
-//! other app's window, so the notice cannot live inside the IDE: it is a
+//! A FOREGROUND computer-use action moves the person's OWN pointer and
+//! keyboard, usually in some other app's window (a background one, posted to
+//! a window on macOS, leaves them alone and never shows the pill), so the
+//! notice cannot live inside the IDE: it is a
 //! small always-on-top window at the top of the primary display, up while a
 //! run acted within [`coding::computer::DRIVING_WINDOW`] and gone a moment
 //! after the last action. It never takes focus (the agent's keys must keep

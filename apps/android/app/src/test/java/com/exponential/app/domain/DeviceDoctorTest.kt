@@ -88,6 +88,8 @@ class DeviceDoctorTest {
             assertEquals(case.strOrNull("name"), expected.map { it.strOrNull("key") }, groups.map { it.key })
             assertEquals(expected.map { it.strOrNull("label") }, groups.map { it.label })
             assertEquals(expected.map { it.strOrNull("tag") }, groups.map { it.tag })
+            // The band renders the tag verbatim: lowercase, never "Optional".
+            assertTrue(groups.mapNotNull { it.tag }.all { it == "optional" })
         }
     }
 

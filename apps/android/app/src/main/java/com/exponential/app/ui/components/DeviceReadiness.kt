@@ -68,7 +68,7 @@ fun DeviceReadinessBlock(
                 group.label,
                 modifier = Modifier.padding(horizontal = 16.dp),
                 trailing = group.tag?.let { tag ->
-                    { GlassPill(DeviceReadiness.tagLabel(tag), size = PillSize.Sm) }
+                    { GlassPill(tag, size = PillSize.Sm) }
                 },
             )
             OptionGroup {

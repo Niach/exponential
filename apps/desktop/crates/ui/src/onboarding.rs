@@ -16,7 +16,8 @@
 //!    skippable, and REMOVED entirely when the plan has no seat left.
 //! 4. **Devices** — "Set up this device" (EXP-1196): the shared
 //!    [`crate::settings::doctor_section::DoctorPanel`], THIS device's
-//!    readiness block, alone; the footer (Skip for now · Check again) is
+//!    readiness block, alone; the footer (Skip for now, or a filled Continue
+//!    once an agent is runnable · Check again) is
 //!    pinned under it. LAST because it is the step that means leaving for
 //!    another machine. There is no download card: this IS the desktop app.
 //!
@@ -94,8 +95,6 @@ pub(crate) mod copy {
     // stay because the shared copy contract (and its drift test) covers them.
     #[allow(dead_code)]
     pub const DEVICES_TITLE: &str = "Set up your devices";
-    #[allow(dead_code)]
-    pub const DEVICES_SUBTITLE: &str = "Runs happen on the desktop app or on a server with the Exponential CLI. Install one and sign your agents in. You can also do this later.";
     #[allow(dead_code)]
     pub const DEVICES_YOURS: &str = "Your devices";
     #[allow(dead_code)]
@@ -787,37 +786,45 @@ impl Render for OnboardingView {
             }
             WizardStep::Devices { team_id } => {
                 let in_wizard = team_id.is_some();
-                let (report, running) = CodingHub::global_ref(cx)
+                let (report, device, running) = CodingHub::global_ref(cx)
                     .map(|hub| {
                         let hub = hub.read(cx);
-                        (hub.doctor.report.clone(), hub.doctor.running)
+                        (hub.doctor.report.clone(), hub.doctor.device.clone(), hub.doctor.running)
                     })
-                    .unwrap_or((None, false));
+                    .unwrap_or((None, None, false));
                 // EXP-369: git is a HARD gate — nothing the IDE does with a
                 // repository works without it, so there is no forward path
                 // out of this step (a still-running probe reads as not-ok and
                 // re-renders when it lands; `EXP_SKIP_ONBOARDING=1` is the
                 // dev/CI bypass for the whole wizard). A missing agent CLI
                 // only blocks coding, so it keeps the skip. EXP-1196: the
-                // footer is exactly the two pills, no sentence.
+                // footer is exactly the two pills, no sentence; the first one
+                // is a filled Continue once an agent is runnable.
                 let git_ok = report.as_ref().is_some_and(|report| report.git.ok);
+                let ready = crate::device_readiness::first_run_ready(device.as_ref());
+                let advance = if ready {
+                    crate::surface::glass_pill_button_primary(
+                        "onboarding-tools-continue",
+                        crate::surface::PillSize::Sm,
+                    )
+                    .label(crate::device_readiness::CONTINUE)
+                } else {
+                    crate::surface::glass_pill_button(
+                        "onboarding-tools-continue",
+                        crate::surface::PillSize::Sm,
+                        cx,
+                    )
+                    .label(crate::device_readiness::SKIP)
+                    .disabled(!git_ok)
+                };
                 Some(
                     h_flex()
                         .items_center()
                         .justify_end()
                         .gap_2()
-                        .child(
-                            crate::surface::glass_pill_button(
-                                "onboarding-tools-continue",
-                                crate::surface::PillSize::Sm,
-                                cx,
-                            )
-                            .label(crate::device_readiness::SKIP)
-                            .disabled(!git_ok)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.complete_devices_step(in_wizard, cx);
-                            })),
-                        )
+                        .child(advance.on_click(cx.listener(move |this, _, _, cx| {
+                            this.complete_devices_step(in_wizard, cx);
+                        })))
                         .child(crate::settings::doctor_section::recheck_button(
                             "onboarding-tools-recheck",
                             running,
@@ -1118,7 +1125,6 @@ mod tests {
             ("INVITE_COPY", copy::INVITE_COPY),
             ("INVITE_COPIED", copy::INVITE_COPIED),
             ("DEVICES_TITLE", copy::DEVICES_TITLE),
-            ("DEVICES_SUBTITLE", copy::DEVICES_SUBTITLE),
             ("DEVICES_YOURS", copy::DEVICES_YOURS),
             ("DEVICES_NONE", copy::DEVICES_NONE),
             ("SKIP", copy::SKIP),

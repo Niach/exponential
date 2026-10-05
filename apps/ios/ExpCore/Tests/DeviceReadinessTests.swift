@@ -56,6 +56,8 @@ final class DeviceReadinessTests: XCTestCase {
         XCTAssertEqual(DeviceReadiness.groups.map(\.key), f.groups.map(\.key))
         XCTAssertEqual(DeviceReadiness.groups.map(\.label), f.groups.map(\.label))
         XCTAssertEqual(DeviceReadiness.groups.map(\.tag), f.groups.map(\.tag))
+        // The band renders the tag verbatim: lowercase, never "Optional".
+        XCTAssertEqual(Set(DeviceReadiness.groups.compactMap(\.tag)), ["optional"])
         XCTAssertEqual(DeviceReadiness.labels, f.labels)
         XCTAssertEqual(Set(DeviceReadiness.states.keys), Set(f.states.keys))
         for (key, state) in f.states {

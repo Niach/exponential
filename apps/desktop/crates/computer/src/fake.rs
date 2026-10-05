@@ -10,6 +10,7 @@ pub struct FakeBackend {
     log: Arc<Mutex<Vec<String>>>,
     idle: Mutex<Option<Duration>>,
     readiness: Mutex<Readiness>,
+    background: Mutex<bool>,
 }
 
 impl FakeBackend {
@@ -19,6 +20,7 @@ impl FakeBackend {
             log: Arc::default(),
             idle: Mutex::new(Some(Duration::from_secs(60))),
             readiness: Mutex::new(Readiness::Ready),
+            background: Mutex::new(true),
         }
     }
 
@@ -32,6 +34,12 @@ impl FakeBackend {
 
     pub fn set_readiness(&self, readiness: Readiness) {
         *self.readiness.lock().unwrap() = readiness;
+    }
+
+    /// Whether this fake implements background delivery (default: yes,
+    /// like macOS).
+    pub fn set_background(&self, supported: bool) {
+        *self.background.lock().unwrap() = supported;
     }
 
     fn record(&self, line: String) -> BackendResult<()> {
@@ -83,6 +91,10 @@ impl Backend for FakeBackend {
 
     fn idle(&self) -> Option<Duration> {
         *self.idle.lock().unwrap()
+    }
+
+    fn supports_background(&self) -> bool {
+        *self.background.lock().unwrap()
     }
 
     fn background_click(&self, window: &WindowInfo, x: f64, y: f64, button: Button, count: u8) -> BackendResult<()> {

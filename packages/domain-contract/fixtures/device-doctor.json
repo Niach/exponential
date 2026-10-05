@@ -30,6 +30,7 @@
   "copy": {
     "localTitle": "Set up this device",
     "skip": "Skip for now",
+    "continue": "Continue",
     "recheck": "Check again",
     "notInstalled": "Not installed",
     "signedOut": "Signed out",
@@ -50,6 +51,7 @@
     "Rows that need attention = state `action` or `error`; `missing` and `off` never count as a problem.",
     "A missing optional agent is `missing` (grey dash), never red. `error` (red) is only for a missing REQUIRED item.",
     "The composer shows, for the picked device + agent when that agent cannot run there, ONLY that agent's row (same row, same action) under the composer; when Git is the failure, the Git row.",
+    "The first-run footer shows `continue` (filled) instead of `skip` when Git is ok and at least one agent is runnable; `recheck` always.",
     "A device row with doctor = null (an older build) renders no block; device settings then still shows the bare Computer use switch row (no description) so the switch stays reachable."
   ],
   "cases": [

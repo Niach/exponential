@@ -171,15 +171,21 @@ impl Hub {
             "focus_window" => self.guard.focus_window(window.ok_or("window is required.")?)?,
             other => return Err(format!("Unknown tool: {other}")),
         };
-        self.acted(token);
+        // Only the real pointer and keyboard count as driving: a background
+        // action leaves the person's input alone, so no pill and no notice.
+        if !output.background {
+            self.acted(token);
+        }
         Ok(output)
     }
 }
 
 const INSTRUCTIONS: &str = "Sees and drives this computer's desktop. Take a screenshot first; \
-click and scroll take pixel positions in the last screenshot. Nothing happens while the person \
-is using the keyboard or mouse, unless you pass delivery \"background\" (macOS): then input goes \
-to one window (a window screenshot's, or `window`) and the person keeps working.";
+click and scroll take pixel positions in the last screenshot. On macOS input goes to the target \
+window in the background by default, without touching the person's pointer or focus; pass \
+delivery \"foreground\" when an app ignores background input (games, canvas apps). A background \
+action only reports that it was posted: verify with a screenshot. Foreground input waits while \
+the person is using the keyboard or mouse.";
 
 fn tool_result(outcome: Result<ToolOutput, String>) -> Value {
     match outcome {
@@ -218,10 +224,12 @@ fn tool_definitions() -> Value {
     let delivery = json!({
         "type": "string",
         "enum": ["foreground", "background"],
-        "description": "foreground (default) = the real pointer and keyboard; background (macOS) \
-            = posted to one window, the person's pointer and front app untouched",
+        "description": "Default: background where the OS allows (macOS: posted to the target \
+            window, the person's pointer and focus untouched), else foreground. foreground = the \
+            real pointer and keyboard, for apps that ignore background input",
     });
-    let target = window("background only: the window to send to (default: the last screenshot's)");
+    let target = window("The window a background action goes to (default: the last screenshot's \
+        window, else the one under the point or the focused one)");
     json!([
         tool(
             "screenshot",
@@ -352,7 +360,8 @@ mod tests {
     use crate::backend::{Rect, WindowInfo};
     use crate::fake::FakeBackend;
 
-    fn hub() -> (Hub, Arc<Mutex<Vec<String>>>) {
+    /// `background` = whether the fake implements background delivery.
+    fn hub_with(background: bool) -> (Hub, Arc<Mutex<Vec<String>>>) {
         let backend = FakeBackend::with_windows(vec![WindowInfo {
             id: 9,
             pid: 7,
@@ -363,8 +372,14 @@ mod tests {
             focused: true,
             layer: 0,
         }]);
+        backend.set_background(background);
         let log = backend.log();
         (Hub::new(Guard::new(Box::new(backend))), log)
+    }
+
+    /// A backend without background delivery (every OS but macOS).
+    fn hub() -> (Hub, Arc<Mutex<Vec<String>>>) {
+        hub_with(false)
     }
 
     fn call(hub: &Hub, token: &str, name: &str, arguments: Value) -> Value {
@@ -435,6 +450,31 @@ mod tests {
         call(&hub, &token, "type", json!({ "text": "hi" }));
         call(&hub, &token, "key", json!({ "keys": "enter" }));
         assert_eq!(seen.lock().unwrap().as_slice(), ["first-action-run"]);
+    }
+
+    #[test]
+    fn a_background_action_is_not_driving_and_fires_no_hook() {
+        let (hub, log) = hub_with(true);
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let sink = seen.clone();
+        crate::on_first_action(move |session| {
+            if session == "background-run" {
+                sink.lock().unwrap().push(session.to_string());
+            }
+        });
+        let token = hub.grant("background-run");
+        call(&hub, &token, "screenshot", json!({}));
+        // No delivery given: the window under the point, in the background.
+        let clicked = call(&hub, &token, "click", json!({ "x": 10, "y": 10 }));
+        assert_eq!(clicked["content"][0]["text"], "Posted a click at (10, 10) to TextEdit (Untitled) in the background.");
+        call(&hub, &token, "type", json!({ "text": "hi" }));
+        assert_eq!(log.lock().unwrap().as_slice(), ["bg click 9 10,10 Left x1", "bg type 9 hi"]);
+        assert!(hub.driving().is_none());
+        assert!(seen.lock().unwrap().is_empty());
+        // Foreground = the real pointer: driving, and the hook fires.
+        call(&hub, &token, "key", json!({ "keys": "enter", "delivery": "foreground" }));
+        assert_eq!(hub.driving().unwrap().1, "background-run");
+        assert_eq!(seen.lock().unwrap().as_slice(), ["background-run"]);
     }
 
     #[test]

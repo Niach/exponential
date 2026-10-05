@@ -73,7 +73,8 @@ own screen, pointer and keyboard.
 an API; use the screen only when the task needs a desktop app or the person's logged-in browser.
 - Take a `screenshot` first: `click` and `scroll` take pixel positions in the LAST screenshot. \
 `read_ui` returns a window's text and control positions for fewer tokens.
-- Nothing happens while the person is using the keyboard or mouse. Wait, then retry.
+- Actions go to the target window in the background where the OS allows, so the person keeps \
+their pointer and focus; a foreground action waits while the person is typing.
 - Show the person a frame that matters: `screenshot` with a `path`, then \
 `exponential_sessions_show` with that `file`.
 ";

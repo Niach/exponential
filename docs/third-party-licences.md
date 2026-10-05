@@ -294,6 +294,17 @@ SVG under `brand/`, a row in `icons.json` `brand` (with `owner`), a row in
 `contract.json` `mcpCatalog`, a `TRADEMARKS` row in
 `packages/licenses/curated/supplement.ts`, then the three generators.
 
+### Ported code in computer use (2026-10-05)
+
+`apps/desktop/crates/computer/src/macos_background.rs` (EXP-1196, macOS
+background input) ports cua-driver's event-posting recipe (trycua/cua at
+b0968e1, MIT, Cua AI, Inc.) and yabai's focus-without-raise records (MIT,
+Åsmund Vikane). Both are permissive and need attribution only: the crate's
+`NOTICE` records provenance and changes, the upstream licences sit verbatim
+beside it (`LICENSE-cua.txt`, `LICENSE-yabai.txt`), and the desktop notice
+reproduces all three through the `VENDORED` entry in
+`packages/licenses/curated/supplement.ts`.
+
 ## How this is enforced — EXP-375
 
 The rule above is mechanical, not aspirational. `packages/licenses` generates

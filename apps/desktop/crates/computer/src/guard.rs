@@ -172,12 +172,26 @@ pub fn person_active(
 pub struct ToolOutput {
     pub text: String,
     pub png: Option<Vec<u8>>,
+    /// The action was posted to one window in the background: the person's
+    /// pointer and keyboard were never touched, so it does not count as
+    /// driving the computer.
+    pub background: bool,
 }
 
 impl ToolOutput {
     fn text(text: impl Into<String>) -> Self {
-        Self { text: text.into(), png: None }
+        Self { text: text.into(), ..Self::default() }
     }
+
+    fn posted(text: impl Into<String>) -> Self {
+        Self { text: text.into(), background: true, ..Self::default() }
+    }
+}
+
+/// Where one input action goes, [`Delivery`] resolved.
+enum Route {
+    Foreground,
+    Background(WindowInfo),
 }
 
 pub struct Guard {
@@ -275,6 +289,37 @@ impl Guard {
             .ok_or_else(|| format!("No window has id {id}; call list_windows."))
     }
 
+    /// Resolve `delivery`. Auto = background where the backend implements it
+    /// and a target is known (the named window, the last window screenshot,
+    /// else `fallback`: the window under the click or the focused one),
+    /// foreground otherwise. An explicit background with no target refuses.
+    fn route(
+        &self,
+        delivery: Delivery,
+        window: Option<u32>,
+        mapping: Option<Mapping>,
+        fallback: impl FnOnce() -> Option<WindowInfo>,
+    ) -> Result<Route, String> {
+        match delivery {
+            Delivery::Foreground => Ok(Route::Foreground),
+            Delivery::Background if !self.backend.supports_background() => {
+                Err(crate::backend::NO_BACKGROUND.to_string())
+            }
+            Delivery::Background => self.background_window(window, mapping).map(Route::Background),
+            Delivery::Auto if !self.backend.supports_background() => Ok(Route::Foreground),
+            Delivery::Auto => {
+                if window.is_some() || mapping.and_then(|mapping| mapping.window).is_some() {
+                    return self.background_window(window, mapping).map(Route::Background);
+                }
+                // A window the OS can address (macOS names a windowless
+                // focused app with id 0).
+                Ok(fallback()
+                    .filter(|target| target.id != 0 && target.layer == 0)
+                    .map_or(Route::Foreground, Route::Background))
+            }
+        }
+    }
+
     /// The window a click at this screen point lands in (the frontmost
     /// ordinary one), only to name its app in the answer.
     fn window_at(&self, x: f64, y: f64) -> Option<WindowInfo> {
@@ -316,7 +361,7 @@ impl Guard {
             Target::Display(_) => None,
         };
         let mapping = Mapping { area: frame.area, width, height, window };
-        Ok((ToolOutput { text, png: Some(png) }, mapping))
+        Ok((ToolOutput { text, png: Some(png), background: false }, mapping))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -332,10 +377,9 @@ impl Guard {
     ) -> Result<ToolOutput, String> {
         let (sx, sy) = mapping.ok_or(NO_SHOT)?.to_screen(x, y)?;
         let count = count.clamp(1, 3);
-        if delivery == Delivery::Background {
-            let target = self.background_window(window, mapping)?;
+        if let Route::Background(target) = self.route(delivery, window, mapping, || self.window_at(sx, sy))? {
             self.act_background(|| self.backend.background_click(&target, sx, sy, button, count))?;
-            return Ok(ToolOutput::text(format!(
+            return Ok(ToolOutput::posted(format!(
                 "Posted a click at ({x}, {y}) to {} in the background.",
                 name(&target)
             )));
@@ -358,10 +402,9 @@ impl Guard {
     ) -> Result<ToolOutput, String> {
         let (sx, sy) = mapping.ok_or(NO_SHOT)?.to_screen(x, y)?;
         let (dx, dy) = (dx.clamp(-50, 50), dy.clamp(-50, 50));
-        if delivery == Delivery::Background {
-            let target = self.background_window(window, mapping)?;
+        if let Route::Background(target) = self.route(delivery, window, mapping, || self.window_at(sx, sy))? {
             self.act_background(|| self.backend.background_scroll(&target, sx, sy, dx, dy))?;
-            return Ok(ToolOutput::text(format!(
+            return Ok(ToolOutput::posted(format!(
                 "Posted a scroll at ({x}, {y}) to {} in the background.",
                 name(&target)
             )));
@@ -378,10 +421,9 @@ impl Guard {
         window: Option<u32>,
         mapping: Option<Mapping>,
     ) -> Result<ToolOutput, String> {
-        if delivery == Delivery::Background {
-            let target = self.background_window(window, mapping)?;
+        if let Route::Background(target) = self.route(delivery, window, mapping, || self.backend.focused())? {
             self.act_background(|| self.backend.background_type(&target, text))?;
-            return Ok(ToolOutput::text(format!(
+            return Ok(ToolOutput::posted(format!(
                 "Posted {} characters to {} in the background.",
                 text.chars().count(),
                 name(&target)
@@ -404,10 +446,9 @@ impl Guard {
         mapping: Option<Mapping>,
     ) -> Result<ToolOutput, String> {
         let chord = parse_chord(keys)?;
-        if delivery == Delivery::Background {
-            let target = self.background_window(window, mapping)?;
+        if let Route::Background(target) = self.route(delivery, window, mapping, || self.backend.focused())? {
             self.act_background(|| self.backend.background_key(&target, &chord))?;
-            return Ok(ToolOutput::text(format!(
+            return Ok(ToolOutput::posted(format!(
                 "Posted {keys} to {} in the background.",
                 name(&target)
             )));
@@ -675,6 +716,47 @@ mod tests {
         );
         // The foreground path still waits for the person.
         assert_eq!(guard.type_text("hi", Delivery::Foreground, None, None).unwrap_err(), PAUSED_MESSAGE);
+    }
+
+    #[test]
+    fn auto_delivery_goes_background_when_supported_and_a_target_is_known() {
+        let backend = FakeBackend::with_windows(vec![window("TextEdit", "TextEdit", 7)]);
+        backend.set_idle(Some(Duration::from_millis(10)));
+        let log = backend.log();
+        let guard = Guard::new(Box::new(backend)).with_quiet_wait(Duration::from_millis(50));
+        let auto = Delivery::Auto;
+        // A display screenshot: the click's target is the window under it.
+        let (_, shot) = guard.screenshot(Target::Display(0), None).unwrap();
+        let clicked = guard.click(Some(shot), 50.0, 50.0, Button::Left, 1, auto, None).unwrap();
+        assert!(clicked.background);
+        guard.scroll(Some(shot), 50.0, 50.0, 0, 2, auto, None).unwrap();
+        // Typing and keys go to the focused window, even while the person types.
+        guard.type_text("hi", auto, None, None).unwrap();
+        guard.key("enter", auto, None, None).unwrap();
+        // Nothing under the point (outside every window): foreground, which waits.
+        assert_eq!(guard.click(Some(shot), 500.0, 500.0, Button::Left, 1, auto, None).unwrap_err(), PAUSED_MESSAGE);
+        assert_eq!(
+            log.lock().unwrap().as_slice(),
+            ["bg click 1 50,50 Left x1", "bg scroll 1 50,50 0,2", "bg type 1 hi", "bg key 1 Enter"]
+        );
+    }
+
+    #[test]
+    fn auto_delivery_is_foreground_where_the_backend_has_no_background() {
+        let backend = FakeBackend::with_windows(vec![window("TextEdit", "TextEdit", 7)]);
+        backend.set_background(false);
+        let log = backend.log();
+        let guard = Guard::new(Box::new(backend));
+        let (_, shot) = guard.screenshot(Target::Window(1), None).unwrap();
+        let clicked = guard.click(Some(shot), 50.0, 50.0, Button::Left, 1, Delivery::Auto, None).unwrap();
+        assert!(!clicked.background);
+        guard.type_text("hi", Delivery::Auto, Some(1), None).unwrap();
+        // An explicit background still refuses, typed.
+        assert_eq!(
+            guard.type_text("hi", Delivery::Background, Some(1), None).unwrap_err(),
+            crate::backend::NO_BACKGROUND
+        );
+        assert_eq!(log.lock().unwrap().as_slice(), ["click 50,50 Left x1", "type hi"]);
     }
 
     #[test]

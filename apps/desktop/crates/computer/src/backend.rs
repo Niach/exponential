@@ -96,12 +96,15 @@ pub struct Chord {
     pub key: Key,
 }
 
-/// How an input action reaches its app (EXP-1196 spike).
+/// How an input action reaches its app (EXP-1196).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Delivery {
+    /// The default: [`Self::Background`] where the backend implements it
+    /// and a target window is known, else [`Self::Foreground`].
+    #[default]
+    Auto,
     /// The global input queue, like the person's own hands: the pointer
     /// moves, keys go to the focused window. Every OS.
-    #[default]
     Foreground,
     /// Posted to ONE window's process: the pointer stays put and the app in
     /// front stays in front, so the person keeps working. macOS only.
@@ -110,10 +113,11 @@ pub enum Delivery {
 
 impl Delivery {
     pub fn parse(text: Option<&str>) -> Result<Self, String> {
-        match text.unwrap_or("foreground") {
-            "foreground" => Ok(Self::Foreground),
-            "background" => Ok(Self::Background),
-            other => Err(format!("`{other}` is not a delivery (foreground, background).")),
+        match text {
+            None => Ok(Self::Auto),
+            Some("foreground") => Ok(Self::Foreground),
+            Some("background") => Ok(Self::Background),
+            Some(other) => Err(format!("`{other}` is not a delivery (foreground, background).")),
         }
     }
 }
@@ -173,6 +177,11 @@ pub trait Backend: Send + Sync {
 
     // Background delivery: into `window` only, pointer and front app
     // untouched. Defaults refuse; macOS overrides.
+    /// Whether the `background_*` methods are implemented here (what
+    /// [`Delivery::Auto`] keys on).
+    fn supports_background(&self) -> bool {
+        false
+    }
     fn background_click(
         &self,
         _window: &WindowInfo,

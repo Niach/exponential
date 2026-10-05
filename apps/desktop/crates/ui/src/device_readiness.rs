@@ -42,6 +42,9 @@ use crate::surface;
 pub(crate) const LOCAL_TITLE: &str = "Set up this device";
 /// The fixture's `copy.skip`.
 pub(crate) const SKIP: &str = "Skip for now";
+/// The fixture's `copy.continue`: the first-run footer's filled pill once
+/// [`first_run_ready`].
+pub(crate) const CONTINUE: &str = "Continue";
 /// The fixture's `copy.recheck`.
 pub(crate) const RECHECK: &str = "Check again";
 /// The install row's second pill (THIS device only): reveals the CLI path
@@ -148,6 +151,29 @@ pub(crate) fn parse(value: Option<&serde_json::Value>) -> Option<DeviceDoctor> {
             .to_string(),
         items,
     })
+}
+
+/// The first-run footer rule: `continue` (filled) instead of `skip` once Git
+/// is ok and at least one agent is runnable.
+pub(crate) fn first_run_ready(doctor: Option<&DeviceDoctor>) -> bool {
+    doctor.is_some_and(|doctor| !device_doctor::runnable_agents(doctor).is_empty())
+}
+
+/// The bare Computer use switch row for a device with no doctor (an older
+/// build): no block, but the switch stays reachable (the fixture's last
+/// rule). Label + switch, nothing else.
+pub(crate) fn bare_switch_row(on: bool) -> ReadinessRow {
+    ReadinessRow {
+        key: KEY_COMPUTER_USE.to_string(),
+        label: device_doctor::label(KEY_COMPUTER_USE).to_string(),
+        state: if on { DoctorState::Ok } else { DoctorState::Off },
+        glyph: None,
+        detail: None,
+        detail_tone: Tone::Muted,
+        switch: Some(on),
+        indent: false,
+        pill: None,
+    }
 }
 
 /// Whether `action` is offered here (the fixture's `remote` rule).
@@ -906,12 +932,34 @@ mod tests {
         assert_eq!(doctor.items.len(), 1);
     }
 
+    /// The first-run footer: Continue exactly when the case has a runnable
+    /// agent (git ok + an ok agent row); no block yet = Skip.
+    #[test]
+    fn the_first_run_footer_continues_once_an_agent_is_runnable() {
+        for case in cases() {
+            let runnable = !case["runnable"].as_array().unwrap().is_empty();
+            assert_eq!(first_run_ready(Some(&doctor(&case))), runnable, "{}", case["name"]);
+        }
+        assert!(!first_run_ready(None));
+    }
+
+    #[test]
+    fn a_device_with_no_doctor_keeps_the_bare_switch_row() {
+        let fixture: Value = serde_json::from_str(FIXTURE).unwrap();
+        let row = bare_switch_row(true);
+        assert_eq!(row.label, fixture["labels"]["computer_use"].as_str().unwrap());
+        assert_eq!(row.switch, Some(true));
+        assert!(row.glyph.is_none() && row.detail.is_none() && row.pill.is_none());
+        assert_eq!(bare_switch_row(false).switch, Some(false));
+    }
+
     #[test]
     fn copy_matches_the_fixture() {
         let fixture: Value = serde_json::from_str(FIXTURE).unwrap();
         assert_eq!(fixture["copy"]["localTitle"], LOCAL_TITLE);
         assert_eq!(fixture["copy"]["skip"], SKIP);
         assert_eq!(fixture["copy"]["recheck"], RECHECK);
+        assert_eq!(fixture["copy"]["continue"], CONTINUE);
         for key in ["git", "claude", "codex"] {
             assert!(install_url(key).unwrap().starts_with("https://"));
         }

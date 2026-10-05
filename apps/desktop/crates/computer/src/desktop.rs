@@ -230,6 +230,11 @@ impl Backend for DesktopBackend {
     }
 
     #[cfg(target_os = "macos")]
+    fn supports_background(&self) -> bool {
+        true
+    }
+
+    #[cfg(target_os = "macos")]
     fn background_click(
         &self,
         window: &WindowInfo,

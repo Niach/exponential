@@ -93,7 +93,8 @@ public enum DeviceReadiness {
     public enum Glyph: String, Sendable { case check, alert, dash, x }
     public enum Tone: String, Sendable { case success, warning, muted, destructive }
 
-    /// Group order + labels + tag (fixture `groups`). Unknown groups follow,
+    /// Group order + labels + tag (fixture `groups`; the band shows the tag
+    /// VERBATIM, lowercase `optional`). Unknown groups follow,
     /// in report order, labelled by their key.
     public static let groups: [(key: String, label: String, tag: String?)] = [
         ("required", "Required", nil),
@@ -131,11 +132,6 @@ public enum DeviceReadiness {
 
     /// The item that IS the switch row (writes `launch_defaults.computerUse`).
     public static let switchKey = "computer_use"
-
-    /// The fixture tag as the band shows it.
-    public static func tagLabel(_ tag: String) -> String {
-        tag.prefix(1).uppercased() + tag.dropFirst()
-    }
 
     public struct Row: Equatable, Sendable, Identifiable {
         public let key: String
