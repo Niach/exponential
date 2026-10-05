@@ -12,10 +12,15 @@ describe(`renderMarkdown`, () => {
     expect(html).toContain(`<li class="exp-task" data-checked="true"><input type="checkbox" disabled checked /> done`)
     expect(html).toContain(`<li class="exp-task" data-checked="false"><input type="checkbox" disabled /> open`)
   })
-  it(`renders an image as its alt text`, () => {
-    const html = renderMarkdown(`![Contrast sweep](/api/attachments/1)`)
-    expect(html).toContain(`<span class="exp-markdown-image">Contrast sweep</span>`)
+  it(`renders an attachment image as a placeholder the view resolves`, () => {
+    const html = renderMarkdown(`![Contrast sweep](/api/attachments/01e45218-56c7-475c-9057-347943594a7d)`)
+    expect(html).toContain(`data-attachment-id="01e45218-56c7-475c-9057-347943594a7d"`)
     expect(html).not.toContain(`<img`)
+  })
+
+  it(`renders a foreign image as its alt text`, () => {
+    const html = renderMarkdown(`![x](https://example.com/a.png)`)
+    expect(html).toContain(`<span class="exp-markdown-image">x</span>`)
   })
   it(`wraps GFM tables in a scroller`, () => {
     const html = renderMarkdown(`| a | b |\n| --- | --- |\n| 1 | 2 |`)

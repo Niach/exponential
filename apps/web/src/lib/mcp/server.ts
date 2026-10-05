@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { users } from "@/db/auth-schema"
 import { registerExponentialTools } from "./tools"
 import { registerExponentialApps } from "./apps"
+import { appBaseUrl } from "@/lib/notification-email-policy"
 import { mcpServerInstructions } from "./instructions"
 import { buildRuntimeConfig } from "@/lib/runtime-config"
 import type { McpAccess } from "./scope"
@@ -43,6 +44,9 @@ export function createExponentialMcpServer(
   )
   registerExponentialTools(server, user, request, access, sessionId, gates)
   // EXP-1183: the MCP Apps views the issue/run tools point at.
-  registerExponentialApps(server)
+  registerExponentialApps(
+    server,
+    process.env.BETTER_AUTH_URL ? appBaseUrl() : new URL(request.url).origin
+  )
   return server
 }

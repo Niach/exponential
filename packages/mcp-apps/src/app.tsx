@@ -1,6 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { ListEmpty, Skeleton } from "@exp/ui"
-import { AppBridge, type HostContext, type ToolResult } from "./bridge"
+import { actionsFromBridge, McpActionsProvider } from "./actions"
+import { AppBridge, type ToolResult } from "./bridge"
+import { DevicesView } from "./devices-view"
 import { IssueDetailView } from "./issue-detail-view"
 import { InboxView } from "./inbox-view"
 import { IssueListView } from "./issue-list-view"
@@ -11,6 +13,7 @@ import {
   decodeToolResult,
   type IssueDetail,
   type IssueRow,
+  type DeviceRow,
   type McpAppView,
   type NotificationRow,
   type RunDetail,
@@ -21,6 +24,7 @@ type ListScreen =
   | { kind: `issues`; issues: IssueRow[] }
   | { kind: `runs`; runs: RunDetail[] }
   | { kind: `inbox`; notifications: NotificationRow[] }
+  | { kind: `devices`; devices: DeviceRow[] }
 
 type Screen =
   | { kind: `waiting` }
@@ -37,12 +41,13 @@ function list<T>(view: McpAppView, result: ToolResult): Screen {
   if (view === `inbox`) {
     return { kind: `inbox`, notifications: rows as NotificationRow[] }
   }
+  if (view === `devices`) return { kind: `devices`, devices: rows as DeviceRow[] }
   return { kind: `issues`, issues: rows as IssueRow[] }
 }
 
 /** What a view's own tool result decodes to. */
 export function screenFor(view: McpAppView, result: ToolResult): Screen {
-  if (view === `issues` || view === `runs` || view === `inbox`) {
+  if (view === `issues` || view === `runs` || view === `inbox` || view === `devices`) {
     return list(view, result)
   }
   if (view === `issue`) {
@@ -57,23 +62,16 @@ export function screenFor(view: McpAppView, result: ToolResult): Screen {
 
 export function App({ view }: { view: McpAppView }) {
   const [screen, setScreen] = useState<Screen>({ kind: `waiting` })
-  const [theme, setTheme] = useState<HostContext[`theme`]>(`dark`)
   const bridge = useRef<AppBridge | null>(null)
   const root = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const instance = new AppBridge({
       onToolResult: (result) => setScreen(screenFor(view, result)),
-      onHostContext: (context) => {
-        if (context.theme) setTheme(context.theme)
-      },
     })
     bridge.current = instance
     instance
       .connect()
-      .then((context) => {
-        if (context.theme) setTheme(context.theme)
-      })
       .catch(() => {
         // No host answered: the view stays on its waiting state.
       })
@@ -83,9 +81,11 @@ export function App({ view }: { view: McpAppView }) {
     }
   }, [view])
 
+  // Exponential is dark on every client (the web forces `html.dark`), so the
+  // views are too, whatever the host's own theme: they read as the app.
   useLayoutEffect(() => {
-    document.documentElement.classList.toggle(`dark`, theme !== `light`)
-  }, [theme])
+    document.documentElement.classList.add(`dark`)
+  }, [])
 
   // The host sizes the frame to the content.
   useEffect(() => {
@@ -99,6 +99,18 @@ export function App({ view }: { view: McpAppView }) {
   }, [])
 
   const openLink = (url: string) => bridge.current?.openLink(url)
+  // Stable for the view's lifetime: views key effects on `call`.
+  const actions = useMemo(
+    () =>
+      actionsFromBridge(
+        (name, args) =>
+          bridge.current
+            ? bridge.current.callTool(name, args)
+            : Promise.reject(new Error(`No MCP Apps host.`)),
+        (url) => bridge.current?.openLink(url)
+      ),
+    []
+  )
   const backTo = (back: ListScreen | undefined) =>
     back ? () => setScreen(back) : undefined
 
@@ -122,43 +134,46 @@ export function App({ view }: { view: McpAppView }) {
   }
 
   return (
-    <div ref={root} className="bg-background font-sans text-foreground antialiased">
-      {screen.kind === `waiting` && (
-        <div className="flex flex-col gap-2 p-4">
-          <Skeleton className="h-6 w-1/3" />
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-10 w-full" />
-        </div>
-      )}
-      {screen.kind === `error` && <ListEmpty>{screen.message}</ListEmpty>}
-      {screen.kind === `issues` && (
-        <IssueListView
-          issues={screen.issues}
-          onOpen={(row) => void open(`issue`, row.id, screen)}
-        />
-      )}
-      {screen.kind === `runs` && (
-        <RunsListView
-          runs={screen.runs}
-          onOpen={(run) => void open(`run`, run.id, screen)}
-        />
-      )}
-      {screen.kind === `inbox` && (
-        <InboxView
-          notifications={screen.notifications}
-          onOpen={(row) => row.issueId && void open(`issue`, row.issueId, screen)}
-        />
-      )}
-      {screen.kind === `issue` && (
-        <IssueDetailView
-          issue={screen.issue}
-          onOpenLink={openLink}
-          onBack={backTo(screen.back)}
-        />
-      )}
-      {screen.kind === `run` && (
-        <RunView run={screen.run} onOpenLink={openLink} onBack={backTo(screen.back)} />
-      )}
-    </div>
+    <McpActionsProvider value={actions}>
+      <div ref={root} className="bg-app-gradient font-sans text-foreground antialiased">
+        {screen.kind === `waiting` && (
+          <div className="flex flex-col gap-2 p-4">
+            <Skeleton className="h-6 w-1/3" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        )}
+        {screen.kind === `error` && <ListEmpty>{screen.message}</ListEmpty>}
+        {screen.kind === `issues` && (
+          <IssueListView
+            issues={screen.issues}
+            onOpen={(row) => void open(`issue`, row.id, screen)}
+          />
+        )}
+        {screen.kind === `runs` && (
+          <RunsListView
+            runs={screen.runs}
+            onOpen={(run) => void open(`run`, run.id, screen)}
+          />
+        )}
+        {screen.kind === `inbox` && (
+          <InboxView
+            notifications={screen.notifications}
+            onOpen={(row) => row.issueId && void open(`issue`, row.issueId, screen)}
+          />
+        )}
+        {screen.kind === `issue` && (
+          <IssueDetailView
+            issue={screen.issue}
+            onOpenLink={openLink}
+            onBack={backTo(screen.back)}
+          />
+        )}
+        {screen.kind === `run` && (
+          <RunView run={screen.run} onOpenLink={openLink} onBack={backTo(screen.back)} />
+        )}
+        {screen.kind === `devices` && <DevicesView devices={screen.devices} />}
+      </div>
+    </McpActionsProvider>
   )
 }

@@ -11,7 +11,7 @@ import type { ToolResult } from "./bridge"
 // and what the tool results the host forwards decode to. The tools answer
 // with `ok()` (apps/web/src/lib/mcp/helpers.ts): one text block of JSON.
 
-export const MCP_APP_VIEWS = [`issues`, `issue`, `run`, `runs`, `inbox`] as const
+export const MCP_APP_VIEWS = [`issues`, `issue`, `run`, `runs`, `inbox`, `devices`] as const
 export type McpAppView = (typeof MCP_APP_VIEWS)[number]
 
 /** The tool each view renders the result of (apps/web/src/lib/mcp/apps.ts
@@ -22,6 +22,7 @@ export const MCP_APP_VIEW_TOOL: Record<McpAppView, string> = {
   run: `exponential_sessions_get`,
   runs: `exponential_sessions_list`,
   inbox: `exponential_notifications_list`,
+  devices: `exponential_devices_list`,
 }
 
 export function parseView(value: string | null | undefined): McpAppView {
@@ -100,6 +101,9 @@ export interface RunResult {
 export interface RunDetail {
   id: string
   createdAt?: string
+  /** The run's page in the app (sessions_get only). */
+  url?: string
+  issueId?: string | null
   issueIdentifier?: string | null
   issueTitle?: string | null
   actionName?: string | null
@@ -268,4 +272,17 @@ export function groupRuns(runs: readonly RunDetail[]): RunGroup[] {
         : run.status === group.status
     ),
   })).filter((group) => group.runs.length > 0)
+}
+
+/** One `exponential_devices_list` row — only what the views read. */
+export interface DeviceRow {
+  id: string
+  name?: string | null
+  label?: string | null
+  icon?: string | null
+  platform?: string | null
+  online?: boolean
+  lastSeenAt?: string | null
+  agents?: string[] | null
+  [key: string]: unknown
 }

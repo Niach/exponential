@@ -1,19 +1,26 @@
+import { useEffect, useRef } from "react"
 import MarkdownIt from "markdown-it"
 import { cn } from "@exp/ui"
+import { attachmentIdFromUrl, signedAttachmentUrl, useMcpActions } from "./actions"
 
 // EXP-1183 — issue descriptions, comments and run reports are plain GFM
 // (CLAUDE.md "Markdown"). The views render it read-only through markdown-it
 // with raw HTML OFF (every tag in the source is escaped), painted by the
 // `.exp-markdown` rules in styles.css — the web editor's `.tiptap-content`
 // typography. Two departures, both forced by the sandbox: an image is an
-// authenticated `/api/attachments` URL the view cannot load, so it renders as
-// its alt text; links go through the host (`onOpenLink`), never a navigation.
+// authenticated `/api/attachments` URL, so it renders as a placeholder the
+// component swaps for the attachment's signed URL (`exponential_attachments_get`
+// through the host); links go through the host (`onOpenLink`), never a
+// navigation.
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: false })
 
 md.renderer.rules.image = (tokens, index) => {
   const alt = md.utils.escapeHtml(tokens[index].content || `image`)
-  return `<span class="exp-markdown-image">${alt}</span>`
+  const id = attachmentIdFromUrl(tokens[index].attrGet(`src`))
+  return id
+    ? `<span class="exp-markdown-image" data-attachment-id="${id}" data-alt="${alt}">${alt}</span>`
+    : `<span class="exp-markdown-image">${alt}</span>`
 }
 
 const defaultLinkOpen =
@@ -56,8 +63,32 @@ export function Markdown({
   onOpenLink?: (url: string) => void
   className?: string
 }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const { call } = useMcpActions()
+  // Attachment placeholders become pictures once their signed URL is back.
+  useEffect(() => {
+    const root = ref.current
+    if (!root) return
+    let live = true
+    for (const node of root.querySelectorAll<HTMLElement>(`[data-attachment-id]`)) {
+      const id = node.dataset.attachmentId
+      if (!id) continue
+      void signedAttachmentUrl(call, id).then((url) => {
+        if (!live || !url) return
+        const img = document.createElement(`img`)
+        img.src = url
+        img.alt = node.dataset.alt ?? ``
+        img.loading = `lazy`
+        node.replaceWith(img)
+      })
+    }
+    return () => {
+      live = false
+    }
+  }, [source, call])
   return (
     <div
+      ref={ref}
       className={cn(`exp-markdown`, className)}
       onClick={(event) => {
         const anchor = (event.target as HTMLElement).closest(`a`)

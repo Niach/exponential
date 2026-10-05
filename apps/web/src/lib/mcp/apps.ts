@@ -3,7 +3,7 @@ import { join } from "node:path"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 
 // EXP-1183 — MCP Apps (the stable `io.modelcontextprotocol/ui` extension):
-// four tools name a `ui://` view in `_meta.ui.resourceUri`, and a host that
+// five tools name a `ui://` view in `_meta.ui.resourceUri`, and a host that
 // renders apps (OpenClaw's dashboard, Claude, ChatGPT…) reads the view and
 // mounts it in a sandbox beside the call, fed the call's result. Hosts
 // without the extension ignore the field; the tools answer exactly as before.
@@ -22,6 +22,7 @@ export const MCP_APP_RESOURCE_URIS = {
   run: `ui://exponential/run`,
   runs: `ui://exponential/runs`,
   inbox: `ui://exponential/inbox`,
+  devices: `ui://exponential/devices`,
 } as const
 
 export type McpAppView = keyof typeof MCP_APP_RESOURCE_URIS
@@ -31,6 +32,7 @@ const VIEW_TITLES: Record<McpAppView, string> = {
   run: `Exponential run`,
   runs: `Exponential runs`,
   inbox: `Exponential inbox`,
+  devices: `Exponential devices`,
 }
 
 /** A tool's `_meta` binding to its view. `exponential_issues_list` also
@@ -83,10 +85,28 @@ export function mcpAppHtml(view: McpAppView, built = readBuiltApp()): string {
   )
 }
 
+/** What a view may load beyond its own document (MCP Apps `_meta.ui.csp`):
+ *  pictures from the app's signed attachment URLs and Inter from Google Fonts
+ *  (the web app's own font source). No connect or frame domains: data only
+ *  ever arrives through the host's tools/call. */
+export function mcpAppCsp(appOrigin: string) {
+  return {
+    resourceDomains: [
+      appOrigin,
+      `https://fonts.googleapis.com`,
+      `https://fonts.gstatic.com`,
+    ],
+  }
+}
+
 /** Registers the views. Outside `registerExponentialTools` on purpose:
  *  the context budget (context-budget.ts) measures TOOL definitions against a
- *  stand-in server that only implements `registerTool`. */
-export function registerExponentialApps(server: McpServer): void {
+ *  stand-in server that only implements `registerTool`. `appOrigin` is where
+ *  the signed attachment URLs point (`appBaseUrl()`, else the request's). */
+export function registerExponentialApps(
+  server: McpServer,
+  appOrigin: string
+): void {
   for (const view of Object.keys(MCP_APP_RESOURCE_URIS) as McpAppView[]) {
     const uri = MCP_APP_RESOURCE_URIS[view]
     server.registerResource(
@@ -102,9 +122,7 @@ export function registerExponentialApps(server: McpServer): void {
             uri,
             mimeType: MCP_APP_MIME_TYPE,
             text: mcpAppHtml(view),
-            // Self-contained: no network, no frame-ancestors beyond the
-            // host's own sandbox; the host draws the border.
-            _meta: { ui: { prefersBorder: true } },
+            _meta: { ui: { prefersBorder: true, csp: mcpAppCsp(appOrigin) } },
           },
         ],
       })

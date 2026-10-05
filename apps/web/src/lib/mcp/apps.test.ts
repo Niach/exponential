@@ -25,7 +25,7 @@ describe(`MCP Apps (EXP-1183)`, () => {
       ui: { resourceUri: `ui://exponential/issues` },
       "openai/ui": { entrypoints: [{ type: `global` }] },
     })
-    for (const view of [`run`, `runs`, `inbox`] as const) {
+    for (const view of [`run`, `runs`, `inbox`, `devices`] as const) {
       expect(mcpAppToolMeta(view)).toEqual({
         ui: { resourceUri: `ui://exponential/${view}` },
       })
@@ -38,7 +38,7 @@ describe(`MCP Apps (EXP-1183)`, () => {
       registerResource: (_name: string, uri: string, config: { mimeType?: string }, read: () => Promise<never>) => {
         registered.push({ uri, mimeType: config.mimeType, read })
       },
-    } as never)
+    } as never, `https://app.example`)
     expect(registered.map((r) => r.uri)).toEqual(
       Object.values(MCP_APP_RESOURCE_URIS)
     )
@@ -47,6 +47,7 @@ describe(`MCP Apps (EXP-1183)`, () => {
       const { contents } = await resource.read()
       expect(contents[0].mimeType).toBe(MCP_APP_MIME_TYPE)
       expect(contents[0].text).toContain(`<meta name="exp-view"`)
+      expect(JSON.stringify(contents[0])).toContain(`"resourceDomains":["https://app.example"`)
     }
   })
 })

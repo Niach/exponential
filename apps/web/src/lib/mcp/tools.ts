@@ -4124,8 +4124,19 @@ export function registerExponentialTools(
           if (!row.teamId) throw new Error(`Session not found`)
           await resolveTeamAccess(user.id, row.teamId)
         }
+        // EXP-1183: the run's page in the app (the MCP Apps view's "Open").
+        const [team] = row.teamId
+          ? await db
+              .select({ slug: teams.slug })
+              .from(teams)
+              .where(eq(teams.id, row.teamId))
+              .limit(1)
+          : []
         return ok({
           ...session,
+          url: team
+            ? `${resultsOrigin}/t/${encodeURIComponent(team.slug)}/sessions/${row.id}`
+            : null,
           // EXP-933: a topic's report text rides beside its pictures. A text
           // entry has no attachment, so it carries only `topic` + `text`, no
           // `label`/`url`/`attachmentId`; a picture's `label` is emitted
@@ -4499,6 +4510,8 @@ export function registerExponentialTools(
     {
       annotations: READ_ONLY,
       description: `List your registered machines (desktop app / CLI daemon), plus servers teammates shared with teamId. Pick an online device whose agents includes the agent you want; caps must include resume-run to resume an ended run. agentUsage.<agent> = its last used login: windows[] (percent + resetsAt), fetchedAt = when those numbers were read, stale: true = the last refresh failed and they are as old as fetchedAt; agentUsageAt = when the device last reported. A session running on another account moves that account's own row under agentAccounts.<agent>.profiles[].usage instead. A live session refreshes only the account it runs on, per turn; once it ends — or a window's resetsAt passes — that login returns to the polled cadence.`,
+      // EXP-1183: the MCP Apps devices view (lib/mcp/apps.ts).
+      _meta: mcpAppToolMeta(`devices`),
       inputSchema: strictInput({
         teamId: uuidString.optional(),
         ...pageInput,
