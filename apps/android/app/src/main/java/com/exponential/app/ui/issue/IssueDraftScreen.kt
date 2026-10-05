@@ -5,7 +5,6 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
@@ -16,11 +15,8 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -53,6 +49,9 @@ import com.exponential.app.domain.IssueStatusCategory
 import com.exponential.app.navigation.LocalLeaveGuard
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.CircleIconButton
+import com.exponential.app.ui.components.GlassAlert
+import com.exponential.app.ui.components.GlassAlertAction
+import com.exponential.app.ui.components.GlassButtonRole
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.LocalDetailHaze
 import com.exponential.app.ui.components.LocalToaster
@@ -431,12 +430,15 @@ fun IssueDraftScreen(
 
     // ── Confirms (EXP-1212) ─────────────────────────────────────────────────
     if (discardConfirmOpen) {
-        AlertDialog(
-            onDismissRequest = { discardConfirmOpen = false },
-            title = { Text(IssueDraftPage.DISCARD_CONFIRM_TITLE) },
-            text = { Text(IssueDraftPage.DISCARD_CONFIRM_BODY) },
-            confirmButton = {
-                TextButton(
+        GlassAlert(
+            title = IssueDraftPage.DISCARD_CONFIRM_TITLE,
+            body = IssueDraftPage.DISCARD_CONFIRM_BODY,
+            onDismiss = { discardConfirmOpen = false },
+            actions = listOf(
+                GlassAlertAction(
+                    label = IssueDraftPage.DISCARD_CONFIRM,
+                    role = GlassButtonRole.Destructive,
+                    testTag = "issue-draft-discard-confirm",
                     onClick = {
                         discardConfirmOpen = false
                         if (!state.creating) {
@@ -444,59 +446,48 @@ fun IssueDraftScreen(
                             onBack()
                         }
                     },
-                    modifier = Modifier.testTag("issue-draft-discard-confirm"),
-                ) {
-                    Text(IssueDraftPage.DISCARD_CONFIRM, color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { discardConfirmOpen = false }) { Text("Cancel") }
-            },
+                ),
+                GlassAlertAction(
+                    label = "Cancel",
+                    role = GlassButtonRole.Outline,
+                    onClick = { discardConfirmOpen = false },
+                ),
+            ),
         )
     }
     heldLeave?.let { proceed ->
-        // The blocked-start shape: the primary right, the rest beside it.
-        // Dismissing (scrim, back) cancels the navigation. No button takes
-        // initial focus, so Discard is never the default.
-        AlertDialog(
-            onDismissRequest = {
+        // Web's phone alert: Create · Keep as draft · Discard, stacked top to
+        // bottom. Dismissing (scrim, back) cancels the navigation. No button
+        // takes initial focus, so Discard is never the default.
+        GlassAlert(
+            title = IssueDraftPage.LEAVE_TITLE,
+            body = IssueDraftPage.LEAVE_BODY,
+            onDismiss = {
                 heldLeave = null
                 afterCreate = null
             },
-            title = { Text(IssueDraftPage.LEAVE_TITLE) },
-            text = { Text(IssueDraftPage.LEAVE_BODY) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        heldLeave = null
-                        if (canCreate) {
-                            afterCreate = proceed
-                            viewModel.create()
-                        }
-                    },
-                    enabled = canCreate,
-                    modifier = Modifier.testTag("issue-draft-leave-create"),
-                ) { Text(IssueDraftPage.LEAVE_CREATE) }
-            },
-            dismissButton = {
-                Row {
-                    if (IssueDraftPage.LeaveChoice.Discard in leaveChoices) {
-                        TextButton(
-                            onClick = {
-                                heldLeave = null
-                                afterCreate = null
-                                if (!state.creating) {
-                                    discard()
-                                    proceed()
-                                }
-                            },
-                            modifier = Modifier.testTag("issue-draft-leave-discard"),
-                        ) {
-                            Text(IssueDraftPage.LEAVE_DISCARD, color = MaterialTheme.colorScheme.error)
-                        }
-                    }
-                    if (IssueDraftPage.LeaveChoice.Keep in leaveChoices) {
-                        TextButton(
+            actions = buildList {
+                add(
+                    GlassAlertAction(
+                        label = IssueDraftPage.LEAVE_CREATE,
+                        role = GlassButtonRole.Primary,
+                        enabled = canCreate,
+                        testTag = "issue-draft-leave-create",
+                        onClick = {
+                            heldLeave = null
+                            if (canCreate) {
+                                afterCreate = proceed
+                                viewModel.create()
+                            }
+                        },
+                    ),
+                )
+                if (IssueDraftPage.LeaveChoice.Keep in leaveChoices) {
+                    add(
+                        GlassAlertAction(
+                            label = IssueDraftPage.LEAVE_KEEP,
+                            role = GlassButtonRole.Outline,
+                            testTag = "issue-draft-leave-keep",
                             onClick = {
                                 heldLeave = null
                                 afterCreate = null
@@ -512,9 +503,25 @@ fun IssueDraftScreen(
                                     if (kept) proceed()
                                 }
                             },
-                            modifier = Modifier.testTag("issue-draft-leave-keep"),
-                        ) { Text(IssueDraftPage.LEAVE_KEEP) }
-                    }
+                        ),
+                    )
+                }
+                if (IssueDraftPage.LeaveChoice.Discard in leaveChoices) {
+                    add(
+                        GlassAlertAction(
+                            label = IssueDraftPage.LEAVE_DISCARD,
+                            role = GlassButtonRole.Destructive,
+                            testTag = "issue-draft-leave-discard",
+                            onClick = {
+                                heldLeave = null
+                                afterCreate = null
+                                if (!state.creating) {
+                                    discard()
+                                    proceed()
+                                }
+                            },
+                        ),
+                    )
                 }
             },
         )

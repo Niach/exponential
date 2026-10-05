@@ -552,6 +552,7 @@ export function IssueDraftPage({
         <DialogFooter>
           <Button
             variant="destructive"
+            className="bg-destructive text-white hover:bg-destructive/90 dark:bg-destructive"
             disabled={leaveBusy}
             onClick={() => void leaveDiscard()}
           >

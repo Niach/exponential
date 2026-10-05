@@ -86,7 +86,12 @@ export const entry: StyleguideEntry = {
             <DialogDescription>{copy.leave.body}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="destructive">{copy.leave.discard}</Button>
+            <Button
+              variant="destructive"
+              className="bg-destructive text-white hover:bg-destructive/90 dark:bg-destructive"
+            >
+              {copy.leave.discard}
+            </Button>
             <Button variant="outline">{copy.leave.keep}</Button>
             <Button>{copy.leave.create}</Button>
           </DialogFooter>

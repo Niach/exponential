@@ -119,36 +119,33 @@ struct IssueDraftPageView: View {
         .onChange(of: vm.editor.focusedBlockId) { _, focused in
             if focused == nil { vm.saveNow() }
         }
-        .alert(IssueDraftPage.DiscardConfirm.title, isPresented: $confirmDiscard) {
-            Button(IssueDraftPage.DiscardConfirm.confirm, role: .destructive) { discardAndClose() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text(IssueDraftPage.DiscardConfirm.body)
-        }
-        // The stack-merge choice's three-answer dialog (`WorkMergePill`).
-        .confirmationDialog(
-            IssueDraftPage.Leave.title,
+        // EXP-1212: the app's own centred alert card (`GlassAlert`), never
+        // the system alert / confirmation popover. Discard sits on top, the
+        // web phone order; a scrim tap = Cancel.
+        .glassAlert(
+            isPresented: $confirmDiscard,
+            title: IssueDraftPage.DiscardConfirm.title,
+            message: IssueDraftPage.DiscardConfirm.body,
+            actions: [
+                GlassAlertAction(IssueDraftPage.DiscardConfirm.confirm, role: .destructive, id: "discard") {
+                    discardAndClose()
+                },
+                GlassAlertAction("Cancel", role: .outline, id: "cancel") {},
+            ]
+        )
+        // The leave dialog: top to bottom Create · Keep as draft · Discard;
+        // a sub-issue draft offers no Keep (`IssueDraftPage.leaveChoices`),
+        // and Create without a title shows disabled, never hidden. A scrim
+        // tap is the no-answer path (Cancel).
+        .glassAlert(
             isPresented: $leavePresented,
-            titleVisibility: .visible
-        ) {
-            // A sub-issue draft offers no Keep (`IssueDraftPage.leaveChoices`).
-            ForEach(vm.leaveChoices, id: \.self) { choice in
-                switch choice {
-                case .create:
-                    Button(IssueDraftPage.Leave.create) { answerLeave(.create) }
-                        .disabled(!IssueDraftPage.leaveCreateEnabled(title: vm.title, creating: vm.creating))
-                case .keep:
-                    Button(IssueDraftPage.Leave.keep) { answerLeave(.keep) }
-                case .discard:
-                    Button(IssueDraftPage.Leave.discard, role: .destructive) { answerLeave(.discard) }
-                }
-            }
-            Button("Cancel", role: .cancel) { answerLeave(nil) }
-        } message: {
-            Text(IssueDraftPage.Leave.body)
-        }
-        // Gone WITHOUT an answer (a tap outside that ran no button, the page
-        // torn down under it): the held navigation is dropped, the page
+            title: IssueDraftPage.Leave.title,
+            message: IssueDraftPage.Leave.body,
+            actions: leaveActions,
+            onDismiss: { answerLeave(nil) }
+        )
+        // Gone WITHOUT an answer (the page torn down under it; a scrim tap
+        // already answers nil above): the held navigation is dropped, the page
         // stays. Every button sets `leaveAnswered` synchronously in the tap
         // that also flips `isPresented`; `onChange` is delivered on the
         // following view update, so it always sees the flag.
@@ -263,7 +260,30 @@ struct IssueDraftPageView: View {
         return true
     }
 
-    /// A leave-dialog button; nil = Cancel.
+    /// The leave dialog's buttons, in `vm.leaveChoices` order.
+    private var leaveActions: [GlassAlertAction] {
+        vm.leaveChoices.map { choice in
+            switch choice {
+            case .create:
+                GlassAlertAction(
+                    IssueDraftPage.Leave.create,
+                    role: .primary,
+                    enabled: IssueDraftPage.leaveCreateEnabled(title: vm.title, creating: vm.creating),
+                    id: "leave-create"
+                ) { answerLeave(.create) }
+            case .keep:
+                GlassAlertAction(IssueDraftPage.Leave.keep, role: .outline, id: "leave-keep") {
+                    answerLeave(.keep)
+                }
+            case .discard:
+                GlassAlertAction(IssueDraftPage.Leave.discard, role: .destructive, id: "leave-discard") {
+                    answerLeave(.discard)
+                }
+            }
+        }
+    }
+
+    /// A leave-dialog button; nil = dismissed without an answer (scrim tap).
     private func answerLeave(_ answer: IssueDraftPage.LeaveChoice?) {
         leaveAnswered = true
         guard let held = heldLeave else { return }
