@@ -1,6 +1,7 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import {
   AgentMark,
+  Button,
   EmptyState,
   GlassSectionHeader,
   ListRow,
@@ -14,6 +15,9 @@ import type { DeviceRow } from "./model"
 import {
   DEVICE_AGENT_LABEL,
   NO_LOGIN_REPORTED,
+  SIGN_IN_LABEL,
+  canSignInOn,
+  loginSignsIn,
   deviceHasRunnableAgent,
   deviceLogins,
   deviceStatusText,
@@ -30,6 +34,7 @@ import {
   type DeviceLogin,
 } from "./device-usage"
 import { ago } from "./list-session"
+import { AccountLoginFlow, AddAccountRow } from "./device-account-login"
 
 const DevicesIcon = conceptIcon(`nav-devices`)
 const DefaultIcon = conceptIcon(`ui-device-default`)
@@ -41,11 +46,22 @@ const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
 // bands over flat rows — the device glyph, name + version (+ default star,
 // Shared, the worst login's health chip), Online / last seen, platform and
 // the agents it can run; a row folds open to the logins it holds, each with
-// its 5h / week / model bars. READ-ONLY: MCP has no account tools (sign-in,
-// add, remove stay on the machine's own settings), so no row carries a
-// control and there is no "Add account".
+// its 5h / week / model bars. EXP-1199: your own online machines take a
+// sign-in (`exponential_devices_account_login`): "Add account" under the
+// logins, "Sign in" on a signed-out login or a dead credential, the web's
+// `device-logins.tsx`. Sign out and remove stay on the clients.
 export function DevicesView({ devices }: { devices: readonly DeviceRow[] }) {
-  const rows = devices as readonly unknown[] as readonly DeviceListRow[]
+  const [rows, setRows] = useState<readonly DeviceListRow[]>(
+    () => devices as readonly unknown[] as readonly DeviceListRow[]
+  )
+  useEffect(() => {
+    setRows(devices as readonly unknown[] as readonly DeviceListRow[])
+  }, [devices])
+  // A sign-in re-reads YOUR machines: patch those rows, keep the rest.
+  const refresh = (fresh: readonly DeviceListRow[]) =>
+    setRows((current) =>
+      current.map((row) => fresh.find((next) => next.deviceId === row.deviceId) ?? row)
+    )
   const [folded, setFolded] = useState<ReadonlySet<string>>(new Set())
   if (rows.length === 0) {
     return (
@@ -66,7 +82,7 @@ export function DevicesView({ devices }: { devices: readonly DeviceRow[] }) {
     })
   const band = (label: string, list: readonly DeviceListRow[]) =>
     list.length > 0 && (
-      <section className="flex flex-col">
+      <div className="flex flex-col">
         <GlassSectionHeader label={label} count={list.length} />
         {list.map((device) => (
           <DeviceItem
@@ -74,9 +90,10 @@ export function DevicesView({ devices }: { devices: readonly DeviceRow[] }) {
             device={device}
             expanded={!folded.has(device.deviceId)}
             onToggle={() => toggle(device.deviceId)}
+            onDevices={refresh}
           />
         ))}
-      </section>
+      </div>
     )
   return (
     <div className="flex flex-col gap-3 p-2">
@@ -90,11 +107,14 @@ function DeviceItem({
   device,
   expanded,
   onToggle,
+  onDevices,
 }: {
   device: DeviceListRow
   expanded: boolean
   onToggle: () => void
+  onDevices: (rows: readonly DeviceListRow[]) => void
 }) {
+  const signsIn = canSignInOn(device)
   const logins = deviceLogins(device)
   const health = healthBadgeLabel(deviceWorstHealth(logins) ?? `ok`)
   const KindIcon = getDeviceIcon({ kind: device.kind })
@@ -184,8 +204,16 @@ function DeviceItem({
           ) : logins.length === 0 ? (
             <p className="text-[11px] text-muted-foreground">{NO_LOGIN_REPORTED}</p>
           ) : (
-            logins.map((login) => <LoginRow key={login.key} login={login} />)
+            logins.map((login) => (
+              <LoginRow
+                key={login.key}
+                login={login}
+                device={signsIn ? device : null}
+                onDevices={onDevices}
+              />
+            ))
           )}
+          {signsIn && <AddAccountRow device={device} onDevices={onDevices} />}
         </div>
       )}
     </div>
@@ -193,7 +221,17 @@ function DeviceItem({
 }
 
 /** One login: identity (+ plan) and health, then its numbers. */
-function LoginRow({ login }: { login: DeviceLogin }) {
+function LoginRow({
+  login,
+  device,
+  onDevices,
+}: {
+  login: DeviceLogin
+  /** The machine when it takes a sign-in (own, online, `agent-login`). */
+  device: DeviceListRow | null
+  onDevices: (rows: readonly DeviceListRow[]) => void
+}) {
+  const [signingIn, setSigningIn] = useState(false)
   const name = loginName(login)
   const health = healthBadgeLabel(login.health)
   const state = usageState(login)
@@ -214,6 +252,17 @@ function LoginRow({ login }: { login: DeviceLogin }) {
             {health}
           </span>
         )}
+        {device && loginSignsIn(login) && !signingIn && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto h-5 shrink-0 px-1 text-[11px] text-muted-foreground"
+            onClick={() => setSigningIn(true)}
+            data-testid={`sign-in-${login.key}`}
+          >
+            {SIGN_IN_LABEL}
+          </Button>
+        )}
       </div>
       <div className="flex min-w-0 items-start gap-2 pl-5">
         {state === `ready` ? (
@@ -233,6 +282,17 @@ function LoginRow({ login }: { login: DeviceLogin }) {
           </span>
         )}
       </div>
+      {device && signingIn && (
+        <div className="pt-1 pl-5">
+          <AccountLoginFlow
+            device={device}
+            agent={login.agent}
+            target={{ profileId: login.profileId }}
+            onDevices={onDevices}
+            onDone={() => setSigningIn(false)}
+          />
+        </div>
+      )}
     </div>
   )
 }

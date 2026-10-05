@@ -10,6 +10,12 @@ import {
   usageAge,
   usageState,
   type DeviceListRow,
+  addAccountTarget,
+  addableAgents,
+  canSignInOn,
+  loginLanded,
+  loginSignsIn,
+  parseLoginStep,
 } from "./device-usage"
 
 const NOW = Date.parse(`2026-10-05T12:00:00Z`)
@@ -105,5 +111,79 @@ describe(`login presentation`, () => {
     expect(deviceStatusText(device(), NOW)).toBe(`Offline`)
     expect(platformLabel(`macos`)).toBe(`macOS`)
     expect(platformLabel(`freebsd`)).toBe(`freebsd`)
+  })
+})
+
+describe(`sign-in rules (EXP-1199, agent-account-add.ts / device-agent-account.tsx)`, () => {
+  const own = { deviceId: `d`, online: true, caps: [`agent-login`], agents: [`claude`], unauthedAgents: [`codex`] }
+
+  it(`signs in only on your own online machine with the cap`, () => {
+    expect(canSignInOn(own)).toBe(true)
+    expect(canSignInOn({ ...own, online: false })).toBe(false)
+    expect(canSignInOn({ ...own, caps: [] })).toBe(false)
+    expect(canSignInOn({ ...own, owner: { id: `u`, name: `Ann` } })).toBe(false)
+    expect(addableAgents(own)).toEqual([`claude`, `codex`])
+  })
+
+  it(`lands a new login on the free ambient one, else the next free label`, () => {
+    expect(addAccountTarget({ ...own, agentAccounts: { codex: { signedIn: false } } }, `codex`)).toEqual({
+      profileId: `system`,
+    })
+    expect(
+      addAccountTarget(
+        {
+          ...own,
+          agentAccounts: {
+            claude: {
+              signedIn: true,
+              profiles: [
+                { id: `system`, signedIn: true },
+                { id: `a`, label: `Claude Code account 2`, signedIn: true },
+              ],
+            },
+          },
+        },
+        `claude`
+      )
+    ).toEqual({ name: `Claude Code account 3` })
+  })
+
+  it(`offers Sign in on a signed-out login or a dead credential`, () => {
+    expect(loginSignsIn({ signedIn: false, health: `signed_out` })).toBe(true)
+    expect(loginSignsIn({ signedIn: true, health: `needs_relogin` })).toBe(true)
+    expect(loginSignsIn({ signedIn: true, health: `ok` })).toBe(false)
+  })
+
+  it(`lands only when the TARGETED login is signed in and healthy`, () => {
+    const device = {
+      ...own,
+      agentAccounts: {
+        claude: {
+          signedIn: true,
+          profiles: [
+            { id: `system`, signedIn: true },
+            { id: `p`, label: `Work`, signedIn: true, health: `needs_relogin` },
+          ],
+        },
+      },
+    }
+    expect(loginLanded(device, `claude`, { name: `Work` })).toBe(false)
+    expect(loginLanded(device, `claude`, { profileId: `p` })).toBe(false)
+    expect(loginLanded(device, `claude`, { profileId: `system` })).toBe(true)
+    expect(loginLanded(device, `claude`, { name: `Other` })).toBe(false)
+    expect(loginLanded({ ...own, agentAccounts: { codex: { signedIn: true } } }, `codex`, { profileId: `system` })).toBe(true)
+  })
+
+  it(`parses the tool's steps tolerantly`, () => {
+    expect(parseLoginStep({ status: `url`, commandId: `c`, url: `https://x`, code: `AB-CD` })).toEqual({
+      status: `url`,
+      commandId: `c`,
+      url: `https://x`,
+      code: `AB-CD`,
+    })
+    expect(parseLoginStep({ status: `pending`, commandId: `c` })).toEqual({ status: `pending`, commandId: `c` })
+    expect(parseLoginStep({ status: `failed` })).toEqual({ status: `failed`, message: `The device reported a failure.` })
+    expect(parseLoginStep({ status: `url` })).toBeNull()
+    expect(parseLoginStep(`nope`)).toBeNull()
   })
 })

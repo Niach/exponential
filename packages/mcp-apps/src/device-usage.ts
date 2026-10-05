@@ -297,3 +297,103 @@ export function platformLabel(platform: string | null | undefined): string | nul
 export function deviceHasRunnableAgent(device: DeviceListRow): boolean {
   return (device.agents ?? []).length > 0
 }
+
+// ── EXP-1199: Add account / Sign in over MCP ────────────────────────────────
+// `exponential_devices_account_login` runs the clients' remote sign-in (the
+// `agent_login` → `agent_login_code` device commands). The rules below are
+// ported from `apps/web/src/lib/agent-account-add.ts` (where a new login
+// lands, its label) and `components/device-agent-account.tsx` (which login
+// offers Sign in, when a sign-in has landed), ×4 like the rest of this file.
+
+export const ACCOUNT_LOGIN_TOOL = `exponential_devices_account_login`
+export const ADD_ACCOUNT_LABEL = `Add account`
+export const SIGN_IN_LABEL = `Sign in`
+export const SIGNING_IN = `Signing in…`
+export const SIGNED_IN = `Signed in`
+export const SIGN_IN_TIMED_OUT = `The machine did not confirm the sign-in.`
+const MAX_PROFILE_LABEL = 64
+
+/** Where a sign-in lands: an existing login (`system` = the ambient one) or
+ *  a new one the machine creates first under `name`. */
+export type LoginTarget = { profileId: string } | { name: string }
+
+/** Every installed agent (runnable or signed out) can take a login. */
+export function addableAgents(device: DeviceListRow): string[] {
+  return [...new Set([...(device.agents ?? []), ...(device.unauthedAgents ?? [])])]
+}
+
+/** `accountChipActionable`: only your own, online machine with the
+ *  `agent-login` cap runs a sign-in. */
+export function canSignInOn(device: DeviceListRow): boolean {
+  return !device.owner && device.online === true && (device.caps ?? []).includes(`agent-login`)
+}
+
+/** `chipSignsIn`: a signed-out login or a dead credential offers Sign in. */
+export function loginSignsIn(login: Pick<DeviceLogin, `signedIn` | `health`>): boolean {
+  return !login.signedIn || login.health === `needs_relogin`
+}
+
+function accountOf(device: DeviceListRow, agent: string): Record<string, unknown> | null {
+  const accounts = isRecord(device.agentAccounts) ? device.agentAccounts : {}
+  return isRecord(accounts[agent]) ? (accounts[agent] as Record<string, unknown>) : null
+}
+
+function profilesOf(account: Record<string, unknown> | null): Record<string, unknown>[] {
+  return Array.isArray(account?.profiles)
+    ? (account.profiles as unknown[]).filter(isRecord).filter((p) => str(p.id))
+    : []
+}
+
+/** `addAccountLoginTarget` + `nextProfileLabel`: the ambient login while it
+ *  is signed out, else `<Agent> account N` (smallest N ≥ 2 not taken). */
+export function addAccountTarget(device: DeviceListRow, agent: string): LoginTarget {
+  const account = accountOf(device, agent)
+  const profiles = profilesOf(account)
+  const ambient = profiles.find((profile) => profile.id === SYSTEM_PROFILE_ID)
+  const ambientSignedIn = ambient ? ambient.signedIn === true : account?.signedIn === true
+  if (!ambientSignedIn) return { profileId: SYSTEM_PROFILE_ID }
+  const taken = new Set(profiles.map((profile) => str(profile.label) ?? ``))
+  const label = DEVICE_AGENT_LABEL[agent] ?? agent
+  let n = 2
+  while (taken.has(`${label} account ${n}`)) n += 1
+  return { name: `${label} account ${n}`.slice(0, MAX_PROFILE_LABEL) }
+}
+
+/** `agentLoginLanded`: the TARGETED login reads signed in and healthy. */
+export function loginLanded(device: DeviceListRow, agent: string, target: LoginTarget): boolean {
+  const account = accountOf(device, agent)
+  if (!account) return false
+  const usable = (entry: Record<string, unknown>) =>
+    entry.signedIn === true && loginHealth(entry) !== `needs_relogin`
+  const profiles = profilesOf(account)
+  if (`name` in target) {
+    const label = target.name.trim()
+    return profiles.some((profile) => (str(profile.label) ?? ``).trim() === label && usable(profile))
+  }
+  if (target.profileId !== SYSTEM_PROFILE_ID) {
+    return profiles.some((profile) => profile.id === target.profileId && usable(profile))
+  }
+  const ambient = profiles.find((profile) => profile.id === SYSTEM_PROFILE_ID)
+  return usable(ambient ?? account)
+}
+
+/** One `exponential_devices_account_login` answer (handlers/device-account-login.ts). */
+export type LoginStep =
+  | { status: `pending`; commandId: string }
+  | { status: `url`; commandId: string; url: string; code: string | null }
+  | { status: `signing_in`; commandId: string }
+  | { status: `failed`; message: string }
+
+export function parseLoginStep(value: unknown): LoginStep | null {
+  if (!isRecord(value)) return null
+  const commandId = str(value.commandId) ?? ``
+  if (value.status === `pending` && commandId) return { status: `pending`, commandId }
+  if (value.status === `signing_in`) return { status: `signing_in`, commandId }
+  if (value.status === `url` && str(value.url)) {
+    return { status: `url`, commandId, url: str(value.url)!, code: str(value.code) }
+  }
+  if (value.status === `failed`) {
+    return { status: `failed`, message: str(value.message) ?? `The device reported a failure.` }
+  }
+  return null
+}

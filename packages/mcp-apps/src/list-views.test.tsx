@@ -29,7 +29,7 @@ describe(`RunsListView`, () => {
 })
 
 describe(`DevicesView`, () => {
-  it(`lists a machine's logins read-only`, () => {
+  it(`lists a machine's logins; no sign-in without the agent-login cap`, () => {
     const devices = [
       {
         deviceId: `d1`,
@@ -50,6 +50,92 @@ describe(`DevicesView`, () => {
     expect(screen.getAllByText(`Needs re-login`).length).toBe(2)
     expect(screen.getByText(`No login reported`)).toBeTruthy()
     expect(screen.queryByText(/add account/i)).toBeNull()
+  })
+})
+
+describe(`DevicesView sign-in (EXP-1199)`, () => {
+  it(`adds an account through the tool, hands the code back and lands`, async () => {
+    const before = {
+      deviceId: `d1`,
+      label: `Studio`,
+      kind: `desktop`,
+      online: true,
+      caps: [`agent-login`],
+      agents: [`claude`],
+      agentAccounts: { claude: { signedIn: true, email: `me@x.test`, profiles: [{ id: `system`, signedIn: true, active: true }] } },
+    }
+    const after = {
+      ...before,
+      agentAccounts: {
+        claude: {
+          signedIn: true,
+          profiles: [
+            { id: `system`, signedIn: true, active: true },
+            { id: `p2`, label: `Claude Code account 2`, signedIn: true, email: `work@x.test` },
+          ],
+        },
+      },
+    }
+    const calls: Array<[string, Record<string, unknown>]> = []
+    const actions: McpActions = {
+      call: (async (name: string, args: Record<string, unknown>) => {
+        calls.push([name, args])
+        if (name === `exponential_devices_list`) return { kind: `ok`, data: [after] }
+        if (args.code) return { kind: `ok`, data: { status: `signing_in`, commandId: `c2` } }
+        return { kind: `ok`, data: { status: `url`, commandId: `c1`, url: `https://claude.com/x`, code: null } }
+      }) as McpActions[`call`],
+      openLink: vi.fn(),
+    }
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    render(
+      <McpActionsProvider value={actions}>
+        <DevicesView devices={[before] as unknown as DeviceRow[]} />
+      </McpActionsProvider>
+    )
+    fireEvent.click(screen.getByTestId(`add-account-d1`))
+    await waitFor(() => expect(screen.getByText(`Open sign-in page`)).toBeTruthy())
+    expect(calls[0]).toEqual([
+      `exponential_devices_account_login`,
+      { deviceId: `d1`, agent: `claude`, name: `Claude Code account 2` },
+    ])
+    fireEvent.click(screen.getByText(`Open sign-in page`))
+    expect(actions.openLink).toHaveBeenCalledWith(`https://claude.com/x`)
+    fireEvent.change(screen.getByLabelText(`Code from the browser`), { target: { value: `abc` } })
+    fireEvent.click(screen.getByText(`Enter code`))
+    await waitFor(() => expect(screen.getByText(`Signing in…`)).toBeTruthy())
+    expect(calls[1]).toEqual([`exponential_devices_account_login`, { deviceId: `d1`, agent: `claude`, code: `abc` }])
+    await vi.advanceTimersByTimeAsync(5_000)
+    await waitFor(() => expect(screen.getByText(`Signed in`)).toBeTruthy())
+    expect(screen.getByText(`work@x.test`)).toBeTruthy()
+    vi.useRealTimers()
+  })
+
+  it(`offers Sign in on a dead credential, re-signing that login`, async () => {
+    const device = {
+      deviceId: `d1`,
+      label: `Studio`,
+      online: true,
+      caps: [`agent-login`],
+      agents: [`codex`],
+      agentAccounts: { codex: { signedIn: true, profiles: [{ id: `p9`, label: `Work`, signedIn: true, health: `needs_relogin`, email: `w@x.test` }] } },
+    }
+    const calls: Array<Record<string, unknown>> = []
+    const actions: McpActions = {
+      call: (async (_name: string, args: Record<string, unknown>) => {
+        calls.push(args)
+        return { kind: `ok`, data: { status: `url`, commandId: `c1`, url: `https://auth.openai.com/codex/device`, code: `WDJB-MJHT` } }
+      }) as McpActions[`call`],
+      openLink: () => {},
+    }
+    render(
+      <McpActionsProvider value={actions}>
+        <DevicesView devices={[device] as unknown as DeviceRow[]} />
+      </McpActionsProvider>
+    )
+    fireEvent.click(screen.getByTestId(`sign-in-codex:p9`))
+    await waitFor(() => expect(screen.getByText(`WDJB-MJHT`)).toBeTruthy())
+    expect(calls[0]).toEqual({ deviceId: `d1`, agent: `codex`, profileId: `p9` })
+    expect(screen.queryByLabelText(`Code from the browser`)).toBeNull()
   })
 })
 

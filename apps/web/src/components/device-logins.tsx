@@ -18,6 +18,8 @@
 // Hand-mirrored ×4 (desktop `machines.rs` `render_login_rows`, iOS
 // `DeviceLogins.swift`, Android `DeviceLoginRows`); the ordering, the label and
 // the two empty strings live in `lib/agent-usage.ts`.
+// EXP-1199: the MCP Apps devices view (`packages/mcp-apps` `devices-view.tsx`)
+// mirrors Sign in + Add account through `exponential_devices_account_login`.
 import { useMemo, useState } from "react"
 import { AgentMark, conceptIcon, Button } from "@exp/ui"
 import {
