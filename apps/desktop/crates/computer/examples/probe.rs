@@ -1,8 +1,10 @@
 //! Manual probe of the real backend, off the main thread like the server:
 //! `cargo run -p computer --example probe -- [shot <path>] [display N <path>] [window ID <path>]
-//! [ui] [uiwindow ID] [click X Y] [scroll X Y DY] [type TEXT] [key CHORD] [focus ID]`.
+//! [ui] [uiwindow ID] [click X Y] [scroll X Y DY] [type TEXT] [key CHORD] [focus ID]
+//! [delivery foreground|background] [target ID] [sleep MS]`. `delivery` and `target` hold
+//! for the steps after them (target = the background window, default: the last window shot).
 
-use computer::backend::{self, Button, Target};
+use computer::backend::{self, Button, Delivery, Target};
 use computer::guard::Guard;
 
 fn main() {
@@ -13,6 +15,8 @@ fn main() {
         println!("readiness: {:?}", guard.readiness(false));
         println!("{}", guard.list_windows().map(|o| o.text).unwrap_or_else(|e| e));
         let mut mapping = None;
+        let mut delivery = Delivery::Foreground;
+        let mut target: Option<u32> = None;
         let mut args = args.iter();
         while let Some(arg) = args.next() {
             let mut next = || args.next().cloned().unwrap_or_default();
@@ -33,15 +37,27 @@ fn main() {
                 "uiwindow" => guard.read_ui(mapping, Some(next().parse().unwrap())),
                 "click" => {
                     let (x, y) = (next().parse().unwrap(), next().parse().unwrap());
-                    guard.click(mapping, x, y, Button::Left, 1)
+                    guard.click(mapping, x, y, Button::Left, 1, delivery, target)
                 }
                 "scroll" => {
                     let (x, y, dy) =
                         (next().parse().unwrap(), next().parse().unwrap(), next().parse().unwrap());
-                    guard.scroll(mapping, x, y, 0, dy)
+                    guard.scroll(mapping, x, y, 0, dy, delivery, target)
                 }
-                "type" => guard.type_text(&next()),
-                "key" => guard.key(&next()),
+                "type" => guard.type_text(&next(), delivery, target, mapping),
+                "key" => guard.key(&next(), delivery, target, mapping),
+                "delivery" => Delivery::parse(Some(&next())).map(|parsed| {
+                    delivery = parsed;
+                    computer::guard::ToolOutput { text: format!("{parsed:?}"), png: None }
+                }),
+                "target" => {
+                    target = next().parse().ok();
+                    Ok(computer::guard::ToolOutput { text: format!("{target:?}"), png: None })
+                }
+                "sleep" => {
+                    std::thread::sleep(std::time::Duration::from_millis(next().parse().unwrap()));
+                    Ok(computer::guard::ToolOutput::default())
+                }
                 "focus" => guard.focus_window(next().parse().unwrap()),
                 other => Err(format!("unknown step {other}")),
             };

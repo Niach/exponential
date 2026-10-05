@@ -228,4 +228,51 @@ impl Backend for DesktopBackend {
     fn read_ui(&self, window: Option<u32>) -> Option<BackendResult<Vec<UiNode>>> {
         Some(os::read_ui(window))
     }
+
+    #[cfg(target_os = "macos")]
+    fn background_click(
+        &self,
+        window: &WindowInfo,
+        x: f64,
+        y: f64,
+        button: Button,
+        count: u8,
+    ) -> BackendResult<()> {
+        let previous = os::focused_pid()
+            .and_then(|pid| os::key_window_of(pid).map(|window| (pid, window)));
+        crate::macos_background::click(window.pid, window.id, x, y, button, count, previous, (window.rect.x, window.rect.y))
+    }
+
+    #[cfg(target_os = "macos")]
+    fn background_scroll(&self, window: &WindowInfo, x: f64, y: f64, dx: i32, dy: i32) -> BackendResult<()> {
+        crate::macos_background::scroll(window.pid, window.id, x, y, dx, dy, (window.rect.x, window.rect.y))
+    }
+
+    #[cfg(target_os = "macos")]
+    fn background_type(&self, window: &WindowInfo, text: &str) -> BackendResult<()> {
+        crate::macos_background::type_text(window.pid, text)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn background_key(&self, window: &WindowInfo, chord: &Chord) -> BackendResult<()> {
+        let mut chord = chord.clone();
+        let keycode = match chord.key {
+            Key::Char(c) => {
+                let (keycode, shift) = os::key_spot(c).ok_or_else(|| {
+                    format!("This keyboard layout has no key for `{c}`; use the type tool for it.")
+                })?;
+                if shift && !chord.modifiers.contains(&Modifier::Shift) {
+                    chord.modifiers.push(Modifier::Shift);
+                }
+                keycode
+            }
+            key => crate::macos_background::named_keycode(key).expect("a named key"),
+        };
+        if chord.modifiers.contains(&Modifier::Meta) {
+            let previous = os::focused_pid()
+                .and_then(|pid| os::key_window_of(pid).map(|window| (pid, window)));
+            return crate::macos_background::shortcut(window.pid, window.id, &chord, keycode, previous);
+        }
+        crate::macos_background::key(window.pid, &chord, keycode)
+    }
 }
