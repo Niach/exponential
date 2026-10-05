@@ -65,6 +65,11 @@ final class StoreScreenshots: XCTestCase {
 
         signIn(app)
 
+        // The app lands on the Agent tab — switch to Issues for the board.
+        let issuesTab = app.buttons["tab-issues"]
+        XCTAssertTrue(issuesTab.waitForExistence(timeout: 60), "Tab bar never appeared")
+        issuesTab.tap()
+
         // Wait for the board: Electric sync can take a while right after the
         // first login. 01_board itself is captured LAST — the save-password
         // sheet pops at an unpredictable moment several seconds after login

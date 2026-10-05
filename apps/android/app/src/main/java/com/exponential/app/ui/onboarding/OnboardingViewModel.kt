@@ -190,7 +190,7 @@ class OnboardingViewModel @Inject constructor(
      * After the board is created: persist completion server-side and remember
      * the board as last-used. The LOCAL flag is deliberately deferred to
      * [finish] (the done step's button): flipping it changes the authenticated
-     * nav graph's startDestination, which resets the back stack straight to home
+     * nav graph's startDestination, which resets the back stack straight to the Agent tab
      * and would skip the done step. If the app dies on the done step the next
      * launch self-heals — the server flag is already set, so reconcile()'s
      * session read reports completedAt and exits the wizard.

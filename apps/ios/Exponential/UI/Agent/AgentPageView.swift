@@ -10,8 +10,9 @@ import SwiftUI
 /// the caller's Running and Recent sessions (`AgentSessionsList`, moved here
 /// from the Devices tab, which keeps machines only — web parity, EXP-818).
 ///
-/// A PUSHED detail (no tab bar, native back), reached from the Chat FAB on
-/// Devices/Actions with an empty seed and from every play button with a
+/// Two shapes: the Agent TAB (`isTabRoot`, an empty seed at the bottom of the
+/// stack — the app's landing screen, under the floating tab bar), and a
+/// PUSHED detail (no tab bar, native back) from every play button with a
 /// preselection (`AgentComposerSeed`): the issue detail's Start coding, the
 /// bulk bar, an action's Run, New action / a suggestion, a machine's play
 /// glyph, the Fix conflicts pills. A start is only a COMMAND — the shared
@@ -19,6 +20,10 @@ import SwiftUI
 /// session once (EXP-536).
 struct AgentPageView: View {
     let seed: AgentComposerSeed
+    /// The Agent tab root: the floating tab bar sits over it, so the scroller
+    /// reserves its clearance (`.tabBarBottomInset()`) — dropped while the
+    /// keyboard is up, when the navigator hides the bar.
+    var isTabRoot: Bool = false
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -40,6 +45,9 @@ struct AgentPageView: View {
     /// EXP-820: the chips THIS mount shows — drawn once, never reshuffled
     /// under the reader's finger (web `useState(() => pickChatSuggestions())`).
     @State private var suggestions = ChatSuggestions.pick()
+    @State private var keyboardVisible = false
+
+    private var reservesTabBar: Bool { isTabRoot && !keyboardVisible }
 
     var body: some View {
         ZStack {
@@ -100,11 +108,18 @@ struct AgentPageView: View {
                     }
                     .padding()
                     .frame(
-                        minHeight: centred ? proxy.size.height : nil,
+                        // The bar's clearance comes out of the centring
+                        // height, else the centred column overflows by it.
+                        minHeight: centred
+                            ? proxy.size.height - (reservesTabBar ? tabBarBottomClearance : 0)
+                            : nil,
                         alignment: centred ? .center : .top
                     )
                 }
                 .scrollDismissesKeyboard(.interactively)
+                // On the SCROLLER itself (EXP-36), so the composer and the
+                // sessions list clear the floating bar.
+                .tabBarBottomInset(reservesTabBar)
                 }
             } else {
                 ProgressView().tint(.white)
@@ -138,6 +153,12 @@ struct AgentPageView: View {
                 )
                 .environment(teamState)
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            keyboardVisible = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            keyboardVisible = false
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("agent-page")

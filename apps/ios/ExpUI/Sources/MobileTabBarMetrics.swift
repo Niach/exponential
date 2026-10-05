@@ -1,11 +1,11 @@
 import SwiftUI
 
-/// EXP-973: the phone tab bar's WIDTH budget. The split launcher (chat | new
-/// issue) rides every bar-visible route now, not just a board — so the widest
-/// bar the app can draw is five tabs (Issues · My Work · Devices · Actions ·
-/// Reviews; SLOP-4 retired the sixth, Support) beside the 104pt capsule, and
-/// that has to fit the narrowest phone (375pt: SE / mini) with its screen
-/// insets intact.
+/// EXP-973: the phone tab bar's WIDTH budget. The New-issue circle rides
+/// every bar-visible route, not just a board, and the Agent page is a tab now
+/// (it was the launcher's chat arm) — so the widest bar the app can draw is
+/// six tabs (Agent · Issues · Inbox · Devices · Reviews · Actions) beside the
+/// 52pt circle, and that has to fit the narrowest phone (375pt: SE / mini)
+/// with its screen insets intact.
 ///
 /// The numbers live here rather than inside `MobileTabBar` so the fit is
 /// TESTED (`MobileTabBarMetricsTests`) instead of eyeballed: the tab bar reads
@@ -27,12 +27,8 @@ public enum MobileTabBarMetrics {
     /// The bar's screen inset.
     public static let inset: CGFloat = 12
 
-    /// One launcher arm — the 52pt rung every floating slot wears.
-    public static let launcherArm: CGFloat = FloatingBarTokens.slot
-    /// The lone chat circle.
+    /// The New-issue circle — the 52pt rung every floating slot wears.
     public static var circleWidth: CGFloat { FloatingBarTokens.slot }
-    /// Two arms split by a hairline.
-    public static var capsuleWidth: CGFloat { 2 * launcherArm + GlassTokens.hairline }
 
     /// The pill holding the tabs.
     public static func pillWidth(tabs: Int) -> CGFloat {

@@ -6,16 +6,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -40,12 +37,12 @@ import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
 
 // Linear-style floating bottom navigation: a dark pill with the top-level
-// destinations (Issues, Inbox — the merged Inbox + My Issues personal tab,
-// with an unread dot — Devices — the machines surface — Reviews — and
-// Actions, a top-level tab since EXP-1187; Settings = the Issues gear) plus a detached launcher on the right: the Chat circle that
-// opens the Agent page on EVERY top-level surface (the sessions list lives
-// there since EXP-825, so it carries the green live dot the Devices tab used
-// to wear), joined by New issue in one capsule — on every tab since EXP-973. Search left the
+// destinations (Agent — the composer + sessions list, the app's landing tab,
+// wearing the live dot the Chat launcher used to — Issues, Inbox — the merged
+// Inbox + My Issues personal tab, with an unread dot — Devices — the machines
+// surface — Reviews — and Actions, a top-level tab since EXP-1187; Settings =
+// the Issues gear) plus ONE detached New issue circle on the right, on every
+// tab since EXP-973 (the only screen PUSHED from the bar). Search left the
 // bar in EXP-686: it is a button in the board header now.
 // Overlaid above the NavHost; AppNavHost shows it only on the top-level routes.
 // (Compose has no cheap backdrop blur, so the bar takes the shared OPAQUE glass
@@ -75,7 +72,7 @@ class BottomBarSuppression {
 /** Null outside the nav shell (previews, tests) — every read is optional. */
 val LocalBottomBarSuppression = staticCompositionLocalOf<BottomBarSuppression?> { null }
 
-// EXP-214 dot colors: the Agent launcher's dot escalates to amber while a
+// EXP-214 dot colors: the Agent tab's dot escalates to amber while a
 // session waits on a plan approval / question; the Reviews dot is the review
 // green (the in_review issue-status tint). EXP-699: the live dot shares the
 // semantic green — every platform's live dot is the same color now.
@@ -85,6 +82,8 @@ private val ReviewsGreen = DesignTokens.Semantic.Green
 
 @Composable
 fun BottomNavBar(
+    /** Lit while the plain (unseeded) Agent route is the current tab. */
+    agentActive: Boolean,
     issuesActive: Boolean,
     devicesActive: Boolean,
     /** EXP-1187: lit while the Actions route is up. */
@@ -97,13 +96,13 @@ fun BottomNavBar(
     reviewsOpen: Boolean,
     /** EXP-973: whether New issue has a board to file onto (it always shows). */
     composeEnabled: Boolean,
+    onAgent: () -> Unit,
     onIssues: () -> Unit,
     onDevices: () -> Unit,
     onActions: () -> Unit,
     onPersonal: () -> Unit,
     onReviews: () -> Unit,
     onCompose: () -> Unit,
-    onChat: () -> Unit,
     modifier: Modifier = Modifier,
     /**
      * EXP-1105: false while EVERY member team runs in yolo mode with no open
@@ -112,9 +111,9 @@ fun BottomNavBar(
      */
     showsReviews: Boolean = true,
 ) {
-    // Four fixed tabs (Issues, Inbox, Devices, Actions) + Reviews.
-    val tabCount = 4 + (if (showsReviews) 1 else 0)
-    // Every count must still fit a 360dp screen beside the compose circle:
+    // Five fixed tabs (Agent, Issues, Inbox, Devices, Actions) + Reviews.
+    val tabCount = 5 + (if (showsReviews) 1 else 0)
+    // Every count must still fit a 360dp screen beside the New issue circle:
     // the outer padding pulls in with the count. The tab itself is the shared
     // 44dp square on every count (EXP-698).
     Row(
@@ -135,6 +134,26 @@ fun BottomNavBar(
                 .padding(BottomNavDefaults.BarPadding),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // The Agent page (EXP-825's ONE launcher) is the first tab and
+            // where the app lands. It wears the live dot: amber while any of
+            // my sessions waits on a plan approval / question (EXP-214),
+            // green while one runs.
+            val agentDot = if (!agentsRunning) {
+                null
+            } else if (agentsNeedInput) {
+                AgentsNeedsInputAmber
+            } else {
+                AgentsLiveGreen
+            }
+            TabItem(
+                icon = ExpIcons.actionChat,
+                contentDescription = "Agent",
+                testTag = "tab-agent",
+                active = agentActive,
+                showDot = agentDot != null,
+                dotColor = agentDot,
+                onClick = onAgent,
+            )
             TabItem(
                 icon = ExpIcons.navMyIssues,
                 contentDescription = "Issues",
@@ -153,7 +172,7 @@ fun BottomNavBar(
                 onClick = onPersonal,
             )
             // Devices (EXP-686, the renamed Agents surface): the machine list.
-            // Its live dot moved to the Agent launcher with the sessions list.
+            // Its live dot moved to the Agent tab with the sessions list.
             TabItem(
                 icon = ExpIcons.navDevices,
                 contentDescription = "Devices",
@@ -189,122 +208,42 @@ fun BottomNavBar(
 
         Spacer(Modifier.weight(1f))
 
-        // The detached launcher beside the pill. The Chat circle opens the
-        // Agent page from every top-level surface (EXP-631/694/827, and the
-        // rest since the sessions list moved there): it wears the live dot —
-        // amber while any of my sessions waits on a plan approval / question
-        // (EXP-214), green while one runs. EXP-827: a board offers New issue
-        // too, so the slot becomes one capsule with two arms (chat | new issue).
-        val agentDot = if (!agentsRunning) {
-            null
-        } else if (agentsNeedInput) {
-            AgentsNeedsInputAmber
-        } else {
-            AgentsLiveGreen
-        }
-        // EXP-973: the capsule rides EVERY tab now — New issue was a thing
-        // the reader had to walk back to the board for. With no board in the
-        // team at all its arm dims rather than vanishing, so the launcher
-        // never changes shape under the thumb.
-        LauncherCapsule(
-            onChat = onChat,
-            onCompose = onCompose,
-            chatDot = agentDot,
-            composeEnabled = composeEnabled,
-        )
+        // EXP-973: New issue rides EVERY tab — it was a thing the reader had
+        // to walk back to the board for. With no board in the team at all it
+        // dims rather than vanishing, so the bar never changes shape under
+        // the thumb.
+        NewIssueCircle(onClick = onCompose, enabled = composeEnabled)
     }
 }
 
 /**
- * EXP-827: the merged launcher on a board — the circle's 52dp height, two
- * 52dp arms split by a hairline, each its own button with the labels and
- * tags the single circles carry.
+ * The detached launcher beside the pill: ONE 52dp circle in the bar's opaque
+ * fill + hairline. It used to be a two-arm capsule (Chat | New issue,
+ * EXP-827); the chat arm became the Agent tab.
  */
 @Composable
-private fun LauncherCapsule(
-    onChat: () -> Unit,
-    onCompose: () -> Unit,
-    chatDot: Color?,
-    /** EXP-973: false with no board to file onto — the arm dims and no-ops. */
-    composeEnabled: Boolean,
-) {
-    Row(
-        modifier = Modifier
-            .height(52.dp)
-            .clip(RoundedCornerShape(percent = 50))
-            .background(GlassTokens.OpaqueCardFill)
-            .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, RoundedCornerShape(percent = 50)),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        LauncherArm(
-            icon = ExpIcons.actionChat,
-            contentDescription = "Start chat",
-            testTag = "chat-button",
-            onClick = onChat,
-            dotColor = chatDot,
-        )
-        Box(
-            Modifier
-                .width(GlassTokens.Hairline)
-                .height(28.dp)
-                .background(GlassTokens.StrokeStrong),
-        )
-        LauncherArm(
-            icon = ExpIcons.navCreateIssue,
-            contentDescription = if (composeEnabled) "New issue" else "New issue (no board)",
-            testTag = "compose-button",
-            onClick = onCompose,
-            enabled = composeEnabled,
-        )
-    }
-}
-
-/**
- * One arm of [LauncherCapsule]: a 52dp square hit area, no chrome of its own.
- * [dotColor] draws the tab-style status dot in its top-end corner.
- */
-@Composable
-private fun LauncherArm(
-    icon: ImageVector,
-    contentDescription: String,
-    testTag: String,
+private fun NewIssueCircle(
     onClick: () -> Unit,
-    dotColor: Color? = null,
-    enabled: Boolean = true,
+    /** EXP-973: false with no board to file onto — the circle dims and no-ops. */
+    enabled: Boolean,
 ) {
     Box(
         modifier = Modifier
-            .size(52.dp)
-            .testTag(testTag)
+            .size(BottomNavDefaults.LauncherSize)
+            .clip(CircleShape)
+            .background(GlassTokens.OpaqueCardFill)
+            .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, CircleShape)
+            .testTag("compose-button")
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
-            icon,
-            contentDescription = contentDescription,
+            ExpIcons.navCreateIssue,
+            contentDescription = if (enabled) "New issue" else "New issue (no board)",
             modifier = Modifier.size(20.dp),
             tint = if (enabled) Color.White else Color.White.copy(alpha = TextEmphasis.Quaternary),
         )
-        LauncherDot(dotColor)
     }
-}
-
-/**
- * The launcher's status dot — the same 8dp disc a tab wears, at the same
- * spot relative to the 20dp glyph (its top-end corner), re-based on the
- * 52dp square.
- */
-@Composable
-private fun BoxScope.LauncherDot(color: Color?) {
-    if (color == null) return
-    Box(
-        modifier = Modifier
-            .align(Alignment.TopEnd)
-            .offset(x = (-18).dp, y = 12.dp)
-            .size(8.dp)
-            .clip(CircleShape)
-            .background(color),
-    )
 }
 
 @Composable
@@ -390,10 +329,17 @@ object BottomNavDefaults {
      */
     val HorizontalInset: Dp = 20.dp
 
-    /** Six tabs plus the compose circle need the tighter gutter to fit 360dp. */
+    /**
+     * Six tabs plus the New issue circle need the tighter gutter to fit 360dp:
+     * 6×44 tabs + 2×4 track + 52 circle = 324dp, leaving 36dp — 12dp per side
+     * and a 12dp gap between pill and circle.
+     */
     val HorizontalInsetCompact: Dp = 12.dp
 
-    /** The gutter for a bar showing [tabCount] tabs (4..6, EXP-1105). */
+    /** The detached New issue circle's diameter. */
+    val LauncherSize: Dp = 52.dp
+
+    /** The gutter for a bar showing [tabCount] tabs (5..6, EXP-1105). */
     fun horizontalInset(tabCount: Int): Dp =
         if (tabCount >= 6) HorizontalInsetCompact else HorizontalInset
 }

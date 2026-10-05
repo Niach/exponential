@@ -103,8 +103,8 @@ import dagger.hilt.android.EntryPointAccessors
 /**
  * The single navigation surface, mirroring the iOS `AppNavigator`: a gradient
  * [AppBackground] behind one push-stack `NavHost`, with the floating bottom
- * pill (Issues · My Work · Agents · Reviews · Search + compose FAB) overlaid
- * on the top-level routes. Replaces the inline graph + `MainScaffold` drawer
+ * pill (Agent · Issues · Inbox · Devices · Reviews · Actions + the New issue
+ * circle) overlaid on the top-level routes; the app lands on the Agent tab. Replaces the inline graph + `MainScaffold` drawer
  * shell that used to live in MainActivity.
  */
 @Composable
@@ -121,7 +121,7 @@ fun AppNavHost() {
     val startDestination = when {
         state.instanceUrl == null -> "instance"
         state.token == null -> "login"
-        else -> "home"
+        else -> AGENT_TAB_ROUTE
     }
 
     LaunchedEffect(pendingTarget, state.token) {
@@ -147,16 +147,16 @@ fun AppNavHost() {
             DeepLinkBus.Target.Inbox ->
                 navController.navigate("personal") {
                     launchSingleTop = true
-                    popUpTo("home")
+                    popUpTo(AGENT_TAB_ROUTE)
                 }
             // EXP-980: a blocked run's push tap lands on the run itself. Same
             // snapshot hazard as the issue route — the session screen reads
             // its id from SavedStateHandle once.
             is DeepLinkBus.Target.Session ->
                 navController.navigateDeepLink("steer/${target.id}")
-            // EXP-825: the web's `/t/{team}/agent` — the composer, empty.
-            DeepLinkBus.Target.Agent ->
-                navController.navigateDeepLink(agentRoute(AgentComposerSeed.EMPTY))
+            // EXP-825: the web's `/t/{team}/agent` — the composer, empty,
+            // which IS the Agent tab.
+            DeepLinkBus.Target.Agent -> navController.openAgentTab()
             is DeepLinkBus.Target.WebIssueRef ->
                 // Verified App Link (EXP-92): resolve slug+identifier against
                 // the local DB of the account matching the link's host (brief
@@ -244,7 +244,7 @@ fun AppNavHost() {
                     navController.navigate("login") { popUpTo("instance") { inclusive = true } }
                 },
                 onLogin = {
-                    navController.navigate("home") { popUpTo("login") { inclusive = true } }
+                    navController.navigate(AGENT_TAB_ROUTE) { popUpTo("login") { inclusive = true } }
                 },
                 onChangeInstance = {
                     viewModel.clearInstance()
@@ -365,7 +365,7 @@ private fun AuthenticatedNav(
     val currentRoute = backStackEntry?.destination?.route
     val barVisible = !needsOnboarding &&
         currentRoute in setOf(
-            "home", "actions", "agents", "personal", "reviews", "board/{boardId}",
+            AGENT_TAB_ROUTE, "home", "actions", "agents", "personal", "reviews", "board/{boardId}",
         )
     // EXP-698 r5 (Mechanism A): a screen may claim the tab bar's slot for a
     // bar of its own — today the issue list's multi-select bar. The switch is
@@ -392,17 +392,16 @@ private fun AuthenticatedNav(
         }
     }
     // EXP-825: every launcher entry point is NAVIGATION onto the Agent page
-    // with a preselection seed — the bottom bar's Chat FAB (EXP-631/EXP-694)
-    // with an empty one, every play button with what it acts on.
+    // with a preselection seed — every play button with what it acts on.
     // The seed rides the route string, so the concrete route differs per seed:
-    // an EMPTY seed (the FAB) goes single top, and a seeded tap reuses the
+    // an EMPTY seed IS the Agent tab (the bar's first tab), and a seeded tap reuses the
     // deep-link rule — a no-op when that exact seeded route is already on top,
     // else a NEW entry whose ViewModel reads the new seed (single top would
     // keep the old entry's ViewModel, which read its seed once — EXP-528).
     val openAgent: (AgentComposerSeed) -> Unit = { seed ->
         val route = agentRoute(seed)
         if (route == AGENT_ROUTE) {
-            navController.navigate(route) { launchSingleTop = true }
+            navController.openAgentTab()
         } else {
             navController.navigateDeepLink(route)
         }
@@ -446,16 +445,16 @@ private fun AuthenticatedNav(
                 is EntityTarget.Action -> navController.navigate("action/${target.id}")
                 EntityTarget.Actions -> navController.navigate("actions") {
                     launchSingleTop = true
-                    popUpTo("home")
+                    popUpTo(AGENT_TAB_ROUTE)
                 }
                 EntityTarget.Devices -> navController.navigate("agents") {
                     launchSingleTop = true
-                    popUpTo("home")
+                    popUpTo(AGENT_TAB_ROUTE)
                 }
                 EntityTarget.TeamSettings -> navController.navigate("team-settings")
                 EntityTarget.Inbox -> navController.navigate("personal") {
                     launchSingleTop = true
-                    popUpTo("home")
+                    popUpTo(AGENT_TAB_ROUTE)
                 }
             }
         }
@@ -468,7 +467,9 @@ private fun AuthenticatedNav(
     ) {
     NavHost(
         navController = navController,
-        startDestination = if (needsOnboarding) "onboarding" else "home",
+        // The Agent tab is the stack ROOT (where the app lands); every other
+        // tab is one entry above it, so Back from a tab returns to Agent.
+        startDestination = if (needsOnboarding) "onboarding" else AGENT_TAB_ROUTE,
         // iOS-style horizontal push/pop transitions.
         enterTransition = { slideIntoContainer(SlideDirection.Start, pushSpec) },
         exitTransition = { slideOutOfContainer(SlideDirection.Start, pushSpec) },
@@ -478,8 +479,17 @@ private fun AuthenticatedNav(
         composable("onboarding") {
             OnboardingScreen(
                 onDone = {
-                    navController.navigate("home") { popUpTo("onboarding") { inclusive = true } }
+                    navController.navigate(AGENT_TAB_ROUTE) { popUpTo("onboarding") { inclusive = true } }
                 },
+            )
+        }
+        composable(AGENT_TAB_ROUTE) {
+            // The Agent TAB: the composer with an EMPTY seed (its ViewModel
+            // finds no args on this route), no back button, the bar over it.
+            AgentScreen(
+                onBack = null,
+                onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
+                onOpenIssue = { id -> navController.navigate("issue/$id") },
             )
         }
         composable("home") {
@@ -506,13 +516,13 @@ private fun AuthenticatedNav(
                 onOpenDevices = {
                     navController.navigate("agents") {
                         launchSingleTop = true
-                        popUpTo("home")
+                        popUpTo(AGENT_TAB_ROUTE)
                     }
                 },
                 onOpenActions = {
                     navController.navigate("actions") {
                         launchSingleTop = true
-                        popUpTo("home")
+                        popUpTo(AGENT_TAB_ROUTE)
                     }
                 },
                 onNewIssue = {
@@ -552,8 +562,8 @@ private fun AuthenticatedNav(
             )
         }
         composable(
-            // EXP-825: the Agent page — the ONE launcher — a pushed detail
-            // whose six nullable query args carry the preselection seed
+            // EXP-825: the SEEDED Agent page — a pushed detail over any tab
+            // (the empty one is AGENT_TAB_ROUTE) whose six nullable query args carry the preselection seed
             // (`AgentComposerSeed.fromArgs` reads them off the ViewModel's
             // SavedStateHandle). The pattern is generated with the args so a
             // navigate() with fewer of them still matches.
@@ -639,7 +649,7 @@ private fun AuthenticatedNav(
             LoginScreen(
                 instanceUrl = "",
                 onLoggedIn = {
-                    navController.navigate("home") { popUpTo("home") { inclusive = true } }
+                    navController.navigate(AGENT_TAB_ROUTE) { popUpTo(AGENT_TAB_ROUTE) { inclusive = true } }
                 },
                 onChangeInstance = { navController.popBackStack() },
             )
@@ -778,7 +788,7 @@ private fun AuthenticatedNav(
                 token = token,
                 onBack = { navController.popBackStack() },
                 onAccepted = {
-                    navController.navigate("home") { popUpTo("home") { inclusive = true } }
+                    navController.navigate(AGENT_TAB_ROUTE) { popUpTo(AGENT_TAB_ROUTE) { inclusive = true } }
                 },
             )
         }
@@ -829,6 +839,7 @@ private fun AuthenticatedNav(
         modifier = Modifier.align(Alignment.BottomCenter),
     ) {
         BottomNavBar(
+            agentActive = currentRoute == AGENT_TAB_ROUTE,
             issuesActive = currentRoute == "home",
             devicesActive = currentRoute == "agents",
             actionsActive = currentRoute == "actions",
@@ -839,17 +850,28 @@ private fun AuthenticatedNav(
             agentsNeedInput = agentsNeedInput,
             reviewsOpen = reviewsOpen,
             showsReviews = showsReviews,
-            // The Chat launcher (the Agent page, with its sessions list and
-            // live dot) rides every top-level surface, with New issue beside
-            // it in one capsule (EXP-827/EXP-973) — dimmed while the team has
-            // no board to file onto.
+            // The New issue circle rides every tab (EXP-973) — dimmed while
+            // the team has no board to file onto. The Agent page (sessions
+            // list + live dot) is the first tab.
             composeEnabled = composeBoardId != null,
-            onIssues = { navController.popBackStack("home", inclusive = false) },
+            onAgent = {
+                if (currentRoute != AGENT_TAB_ROUTE) navController.openAgentTab()
+            },
+            // Back to the Issues root (keeping its state) when it is on the
+            // stack under a pushed board, else the tab like the others.
+            onIssues = {
+                if (!navController.popBackStack("home", inclusive = false)) {
+                    navController.navigate("home") {
+                        launchSingleTop = true
+                        popUpTo(AGENT_TAB_ROUTE)
+                    }
+                }
+            },
             onDevices = {
                 if (currentRoute != "agents") {
                     navController.navigate("agents") {
                         launchSingleTop = true
-                        popUpTo("home")
+                        popUpTo(AGENT_TAB_ROUTE)
                     }
                 }
             },
@@ -859,7 +881,7 @@ private fun AuthenticatedNav(
                 if (currentRoute != "actions") {
                     navController.navigate("actions") {
                         launchSingleTop = true
-                        popUpTo("home")
+                        popUpTo(AGENT_TAB_ROUTE)
                     }
                 }
             },
@@ -867,7 +889,7 @@ private fun AuthenticatedNav(
                 if (currentRoute != "personal") {
                     navController.navigate("personal") {
                         launchSingleTop = true
-                        popUpTo("home")
+                        popUpTo(AGENT_TAB_ROUTE)
                     }
                 }
             },
@@ -875,16 +897,30 @@ private fun AuthenticatedNav(
                 if (currentRoute != "reviews") {
                     navController.navigate("reviews") {
                         launchSingleTop = true
-                        popUpTo("home")
+                        popUpTo(AGENT_TAB_ROUTE)
                     }
                 }
             },
             onCompose = {
                 composeBoardId?.let { navController.openIssueDraft(it) }
             },
-            onChat = { openAgent(AgentComposerSeed.EMPTY) },
         )
     }
+    }
+}
+
+/**
+ * The Agent TAB — the stack root and launch landing. A distinct route from the
+ * seeded `agent?…` page (AGENT_ROUTE_PATTERN), so tab pops never land on a
+ * seeded entry.
+ */
+private const val AGENT_TAB_ROUTE = "agent-tab"
+
+/** Switch to the Agent tab: pop everything above the root. */
+private fun NavHostController.openAgentTab() {
+    navigate(AGENT_TAB_ROUTE) {
+        launchSingleTop = true
+        popUpTo(AGENT_TAB_ROUTE)
     }
 }
 

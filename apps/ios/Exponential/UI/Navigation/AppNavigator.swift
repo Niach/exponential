@@ -115,7 +115,7 @@ struct AppNavigator: View {
                 OnboardingView()
                     .id(deps.auth.activeAccountId ?? "none")
             } else {
-                MainNavigator()
+                MainNavigator(accountId: deps.auth.activeAccountId ?? "")
                     .id(deps.auth.activeAccountId ?? "none")
             }
         }
@@ -285,7 +285,14 @@ struct MainNavigator: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.motion) private var motion
     // Typed path (not NavigationPath) so the tab bar can inspect the top route.
-    @State private var path: [AppRoute] = []
+    // The app LANDS on the Agent tab: its root (`agentTabRoot`) is the initial
+    // path, so a cold start and an account switch (`.id(activeAccountId)`
+    // recreates this view) both open there. The Issues tab is `path = []`.
+    @State private var path: [AppRoute]
+
+    init(accountId: String) {
+        _path = State(initialValue: [.agent(accountId: accountId, seed: .empty)])
+    }
     @State private var teamState = TeamState()
     /// EXP-698 r5: the bulk-selection bar takes the tab bar's slot, so the
     /// list tells the bar to stand down while a selection is live.
@@ -317,6 +324,8 @@ struct MainNavigator: View {
     // delivered rows, so the active-team alignment couldn't look up its
     // team yet — re-run it on the next boards emission.
     @State private var pendingTeamAlign = false
+    /// The Agent tab hides the floating bar while the keyboard is up.
+    @State private var keyboardVisible = false
     var body: some View {
         ZStack {
             AppBackground()
@@ -423,14 +432,14 @@ struct MainNavigator: View {
         .onChange(of: deps.deepLinkBus.pendingAgentTeamSlug) { _, slug in
             if slug != nil { openAgentFromLink() }
         }
-        // A team was deleted in-app (EXP-43): pop to root so no pushed
-        // view (team settings, server detail) still targets it.
+        // A team was deleted in-app (EXP-43): back to the landing tab (Agent)
+        // so no pushed view (team settings, server detail) still targets it.
         .onReceive(NotificationCenter.default.publisher(for: .teamDeleted)) { _ in
-            path = []
+            path = [agentTabRoot]
         }
         // Drain links that arrived before this navigator mounted (cold launch).
-        // The Issues tab already lands in the last-used board, so there is no
-        // auto-push anymore — deep links are the only cold-launch navigation.
+        // They push ON TOP of the Agent tab the app lands on, so Back returns
+        // there — deep links are the only cold-launch navigation.
         .task {
             let pendingAccountId = deps.deepLinkBus.pendingIssueAccountId
             let userId = deps.deepLinkBus.pendingIssueUserId
@@ -465,6 +474,7 @@ struct MainNavigator: View {
         .overlay(alignment: .bottom) {
             if showsTabBar && !tabBarChrome.suppressed {
                 MobileTabBar(
+                    agentActive: isOnAgentTab,
                     issuesActive: path.isEmpty,
                     devicesActive: isOnAgents,
                     actionsActive: isOnActions,
@@ -475,10 +485,12 @@ struct MainNavigator: View {
                     agentsNeedInput: agentsNeedInput,
                     reviewsOpen: reviewsOpen,
                     showsReviews: showsReviews,
-                    // The launcher capsule (chat | new issue) rides every
-                    // bar-visible surface (EXP-827/EXP-973); only a team with
-                    // no board leaves the New-issue arm inert.
+                    // The New-issue circle rides every bar-visible surface
+                    // (EXP-973); only a team with no board leaves it inert.
                     composeEnabled: composeTarget != nil,
+                    // EXP-825: the Agent page with an empty seed IS the tab —
+                    // the composer is the launcher.
+                    onAgent: { if !isOnAgentTab { path = [agentTabRoot] } },
                     onIssues: { path = [] },
                     onDevices: { if !isOnAgents { path = [.agents] } },
                     // EXP-1187: Actions is a top-level tab; Settings is the
@@ -494,11 +506,6 @@ struct MainNavigator: View {
                             draftId: UUID().uuidString.lowercased(),
                             boardId: target.boardId
                         ))
-                    },
-                    // EXP-825: the Chat FAB pushes the Agent page with an
-                    // empty seed — the composer IS the launcher.
-                    onChat: {
-                        path.append(.agent(accountId: deps.auth.activeAccountId ?? "", seed: .empty))
                     }
                 )
                 // Slides out of the way when a screen claims its slot, so the
@@ -508,6 +515,12 @@ struct MainNavigator: View {
             }
         }
         .animation(motion.standard, value: tabBarChrome.suppressed)
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            keyboardVisible = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            keyboardVisible = false
+        }
         // EXP-1105: Reviews exists only until yolo mode hides it (the flag
         // flips on, or the last open PR in a yolo team merges) — then land
         // back on Issues instead of stranding a tab-less screen.
@@ -520,10 +533,14 @@ struct MainNavigator: View {
 
     // MARK: - Tab bar
 
-    /// The bar floats only over the top-level surfaces (Issues root, Devices,
-    /// Actions, Inbox, Reviews, pushed board lists); detail and settings
-    /// screens — Search among them since EXP-686 — get the full height back.
+    /// The bar floats only over the top-level surfaces (Agent tab root, Issues
+    /// root, Devices, Actions, Inbox, Reviews, pushed board lists); detail and
+    /// settings screens — Search among them since EXP-686, and a SEEDED Agent
+    /// page pushed by a play button — get the full height back. On the Agent
+    /// tab the bar also stands down while the keyboard is up, so it never
+    /// rides above the keyboard over the composer.
     private var showsTabBar: Bool {
+        if isOnAgentTab { return !keyboardVisible }
         guard let top = path.last else { return true }
         switch top {
         case .agents, .actions, .myWork, .reviews, .board:
@@ -560,6 +577,20 @@ struct MainNavigator: View {
         }
         // EXP-734: a run's own chore PR belongs to the team, not a board.
         return observedOpenPrSessions.contains { teamIds.contains($0.teamId) && $0.hasOpenPr }
+    }
+
+    /// The Agent tab's root: the empty-seed Agent page under the active
+    /// account. Seeded `.agent` pushes (issue play buttons, actions, Fix
+    /// conflicts) stay plain pushed details.
+    private var agentTabRoot: AppRoute {
+        .agent(accountId: deps.auth.activeAccountId ?? "", seed: .empty)
+    }
+
+    /// The Agent tab is up only when the path is EXACTLY its root — an
+    /// empty-seed Agent page pushed on top of another route is a detail.
+    private var isOnAgentTab: Bool {
+        guard path.count == 1, case let .agent(_, seed) = path[0] else { return false }
+        return seed == .empty
     }
 
     private var isOnMyWork: Bool {
@@ -735,8 +766,14 @@ struct MainNavigator: View {
             WorkScreen(subject: .session(id: sessionId))
                 .environment(\.accountId, accountId)
         case let .agent(accountId, seed):
-            AgentPageView(seed: seed)
-                .environment(\.accountId, accountId)
+            // The Agent TAB is the empty-seed page at the bottom of the
+            // stack; keyed off the route's position, not the live top, so it
+            // keeps its bar clearance while a detail sits on top of it.
+            AgentPageView(
+                seed: seed,
+                isTabRoot: seed == .empty && path.first == AppRoute.agent(accountId: accountId, seed: seed)
+            )
+            .environment(\.accountId, accountId)
         case .settings:
             SettingsView()
         case let .serverDetail(accountId):
@@ -1031,7 +1068,7 @@ struct MainNavigator: View {
     /// EXP-825: land on the linked team's Agent page — switch account first
     /// when the link's host matched another signed-in one (the page renders
     /// the ACTIVE team), point the active team at the slug when it synced,
-    /// and push an empty-seed composer.
+    /// and switch to the Agent TAB (the link carries no seed).
     private func openAgentFromLink() {
         guard let slug = deps.deepLinkBus.pendingAgentTeamSlug,
               let accountId = deps.deepLinkBus.pendingAgentAccountId else { return }
@@ -1046,7 +1083,7 @@ struct MainNavigator: View {
         if let team = teamState.teams.first(where: { $0.slug == slug }) {
             teamState.activeTeamId = team.id
         }
-        path.append(.agent(accountId: accountId, seed: .empty))
+        path = [.agent(accountId: accountId, seed: .empty)]
     }
 
     private func stopObserving() {

@@ -68,9 +68,9 @@ export const Route = createFileRoute(`/t/$teamSlug`)({
         throw redirect({ to: `/onboarding` })
       }
       if (team.slug !== `default`) {
+        // Keep the rest of the path (`/t/default/agent` = the phone landing).
         throw redirect({
-          to: `/t/$teamSlug`,
-          params: { teamSlug: team.slug },
+          href: location.href.replace(/^\/t\/default(?=\/|\?|#|$)/, `/t/${team.slug}`),
         })
       }
       return { session, user }
