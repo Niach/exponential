@@ -216,8 +216,16 @@ fn finish(auth_client: &AuthClient, instance: &str, token: String) -> CommandRes
         Some(_) => println!("The daemon is running: this machine is registered as a device."),
         None => {
             println!("{}", super::account::NOT_REGISTERED_HINT);
-            println!("Next: `exponential doctor`, then `exponential daemon install`.");
+            println!("Next: `exponential daemon install`.");
         }
+    }
+    // EXP-1196: end on the device readiness block (`exponential doctor`).
+    let data_dir = crate::context::data_dir();
+    let settings = coding::Settings::load(&coding::Settings::default_path(&data_dir));
+    let doctor = super::doctor::local_doctor(&settings, &data_dir, false);
+    println!();
+    for line in super::doctor::render_block(&doctor, Some(&api::users::hostname())) {
+        println!("{line}");
     }
     Ok(ExitCode::SUCCESS)
 }

@@ -378,8 +378,11 @@ import androidx.room.TypeConverters
     //      [MIGRATION_79_80]: both tables are rebuilt in place and every row
     //      survives; the comments shape is refetched (its offset resets), because
     //      an older build dropped the reporter rows with a NULL author_id.
+    // v81 (EXP-1196/1218/1219): devices.doctor — the machine's readiness
+    //      report (jsonb kept as raw text). Explicit [MIGRATION_80_81] adds
+    //      the nullable column and refetches only the devices shape.
     // Older versions still fall back to destructive + resync (DatabaseHolder).
-    version = 80,
+    version = 81,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

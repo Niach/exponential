@@ -101,6 +101,56 @@ pub fn readiness() -> Readiness {
     }
 }
 
+/// EXP-1196: one OS permission computer use needs on this machine.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Permission {
+    /// macOS Screen Recording.
+    ScreenRecording,
+    /// macOS Accessibility.
+    Accessibility,
+    /// The Wayland desktop portal's remote-desktop grant.
+    RemoteDesktop,
+}
+
+impl Permission {
+    /// The wire key (`device-doctor.json` labels).
+    pub fn key(self) -> &'static str {
+        match self {
+            Permission::ScreenRecording => "screen_recording",
+            Permission::Accessibility => "accessibility",
+            Permission::RemoteDesktop => "remote_desktop",
+        }
+    }
+}
+
+/// Every OS permission computer use needs here and whether it is granted,
+/// read WITHOUT prompting (the device doctor's rows). Empty where the OS asks
+/// for none (X11, Windows).
+pub fn permissions() -> Vec<(Permission, bool)> {
+    #[cfg(target_os = "macos")]
+    {
+        let (screen, accessibility) = macos::permissions();
+        vec![(Permission::ScreenRecording, screen), (Permission::Accessibility, accessibility)]
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        if !wayland::is_wayland_session() {
+            return Vec::new();
+        }
+        // A live portal session (this process already holds it) counts as
+        // granted even before its restore token lands on disk.
+        let live = matches!(
+            HOST.get(),
+            Some(Ok(host)) if matches!(host.hub.guard.readiness(false), Readiness::Ready)
+        );
+        vec![(Permission::RemoteDesktop, live || wayland::remote_desktop_granted())]
+    }
+    #[cfg(not(unix))]
+    {
+        Vec::new()
+    }
+}
+
 /// Ask the OS for every permission computer use needs NOW (macOS Screen
 /// Recording + Accessibility, the Wayland remote-desktop and screenshot
 /// dialogs), so none interrupts a run. The hosts call it when the device's

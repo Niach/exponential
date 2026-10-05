@@ -442,6 +442,11 @@ fn register_device(
     // copy within one interval, so it is deliberately dropped here.
     let launch_defaults = serde_json::to_value(coding::defaults_wire(settings))
         .expect("defaults serialize cannot fail");
+    // EXP-1196: the readiness block, always on register (once the doctor
+    // probe has landed).
+    let doctor = report.and_then(|report| {
+        serde_json::to_value(coding::device_doctor::current(settings, data_dir, report)).ok()
+    });
     executor
         .spawn(async move {
             let _ = api::devices::register(
@@ -458,6 +463,7 @@ fn register_device(
                     launch_defaults: Some(&launch_defaults),
                     agent_accounts: agent_accounts.as_ref(),
                     version: Some(domain::client_version::current_version()),
+                    doctor: doctor.as_ref(),
                 },
             );
         })

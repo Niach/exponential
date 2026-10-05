@@ -38,6 +38,7 @@ import {
   deviceAgentHealthValues,
   deviceAgentUsageSchema,
   deviceCommands,
+  deviceDoctorSchema,
   deviceLaunchDefaultsSchema,
   devices,
   deviceWorktrees,
@@ -45,6 +46,7 @@ import {
   teamMembers,
   users,
   type DeviceAgentAccount,
+  type DeviceDoctor,
   type DeviceAgentAccounts,
   type DeviceAgentHealth,
   type DeviceAgentLaunchDefaults,
@@ -196,6 +198,25 @@ function isoStampOrNull(value: unknown): string | null {
   if (typeof value !== `string` || value.length === 0) return null
   const at = new Date(value)
   return Number.isNaN(at.getTime()) ? null : at.toISOString()
+}
+
+// EXP-1196: the stored readiness report is null-free. Vocabulary stays
+// lenient (unknown keys/states survive as strings; clients skip what they
+// cannot name) — only the shape is normalised.
+export function clampDoctor(
+  input: z.infer<typeof deviceDoctorSchema>
+): DeviceDoctor {
+  return {
+    checkedAt: isoStampOrNull(input.checkedAt) ?? input.checkedAt,
+    items: input.items.map((item) => ({
+      key: item.key,
+      group: item.group,
+      ...(item.parent ? { parent: item.parent } : {}),
+      state: item.state,
+      ...(item.detail ? { detail: item.detail } : {}),
+      ...(item.action ? { action: item.action } : {}),
+    })),
+  }
 }
 
 // EXP-484: same contract as clampLaunchDefaults — ALWAYS clamp, never reject.
@@ -564,6 +585,9 @@ export const devicesRouter = router({
         // good answer on one flaky pass.
         agentAccounts: deviceAgentAccountsSchema.optional(),
         version: z.string().min(1).max(32).optional(),
+        // EXP-1196: the device's readiness report (devices.doctor). Present
+        // = overwrite; absent keeps the stored one (an older build).
+        doctor: deviceDoctorSchema.nullish(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -588,6 +612,7 @@ export const devicesRouter = router({
             ? clampAgentAccounts(input.agentAccounts)
             : null,
           version: input.version ?? null,
+          doctor: input.doctor ? clampDoctor(input.doctor) : null,
           lastSeenAt: now,
         })
         .onConflictDoUpdate({
@@ -612,6 +637,7 @@ export const devicesRouter = router({
             ...(input.agentAccounts
               ? { agentAccounts: clampAgentAccounts(input.agentAccounts) }
               : {}),
+            ...(input.doctor ? { doctor: clampDoctor(input.doctor) } : {}),
             version: input.version ?? null,
             // Registering CONSUMES a pending Update click: the daemon
             // re-registers after acting on the request (whether or not a
@@ -664,6 +690,9 @@ export const devicesRouter = router({
         // deliberately not a convergence trigger for anything.
         agentAccounts: deviceAgentAccountsSchema.optional(),
         agentUsage: deviceAgentUsageSchema.optional(),
+        // EXP-1196: the readiness report, sent when it changed; absent =
+        // unchanged.
+        doctor: deviceDoctorSchema.nullish(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -683,6 +712,7 @@ export const devicesRouter = router({
                 agentUsageAt: now,
               }
             : {}),
+          ...(input.doctor ? { doctor: clampDoctor(input.doctor) } : {}),
         })
         .where(
           and(

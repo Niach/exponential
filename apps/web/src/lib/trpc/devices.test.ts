@@ -1607,6 +1607,130 @@ describe(`devices.register / heartbeat agent status (EXP-484)`, () => {
   })
 })
 
+// EXP-1196: the readiness report rides register + heartbeat.
+describe(`devices.register / heartbeat doctor (EXP-1196)`, () => {
+  const heartbeatRow = () => [
+    [
+      {
+        id: `row-1`,
+        updateRequestedAt: null,
+        launchDefaults: null,
+        launchDefaultsUpdatedAt: null,
+      },
+    ],
+  ]
+  const doctor = {
+    checkedAt: `2026-10-05T19:00:00.000Z`,
+    items: [
+      { key: `git`, group: `required`, state: `ok`, detail: `2.55.0` },
+      {
+        key: `claude`,
+        group: `agents`,
+        state: `action`,
+        detail: `Signed out`,
+        action: `sign_in`,
+      },
+      {
+        key: `accessibility`,
+        group: `computer_use`,
+        parent: `computer_use`,
+        state: `ok`,
+        detail: null,
+        action: null,
+      },
+    ],
+  }
+
+  it(`register stores the report on insert and on conflict`, async () => {
+    await caller.register({
+      deviceId: `dev-1`,
+      label: `buildbox`,
+      kind: `desktop`,
+      doctor,
+    })
+    const stored = {
+      checkedAt: `2026-10-05T19:00:00.000Z`,
+      items: [
+        { key: `git`, group: `required`, state: `ok`, detail: `2.55.0` },
+        {
+          key: `claude`,
+          group: `agents`,
+          state: `action`,
+          detail: `Signed out`,
+          action: `sign_in`,
+        },
+        {
+          key: `accessibility`,
+          group: `computer_use`,
+          parent: `computer_use`,
+          state: `ok`,
+        },
+      ],
+    }
+    expect((h.state.inserted[0] as Record<string, unknown>).doctor).toEqual(
+      stored
+    )
+    const upsert = h.state.upserts[0] as { set: Record<string, unknown> }
+    expect(upsert.set.doctor).toEqual(stored)
+  })
+
+  it(`a register without a report keeps the stored one`, async () => {
+    await caller.register({ deviceId: `dev-1`, label: `b`, kind: `desktop` })
+    const upsert = h.state.upserts[0] as { set: Record<string, unknown> }
+    expect(upsert.set).not.toHaveProperty(`doctor`)
+    expect((h.state.inserted[0] as Record<string, unknown>).doctor).toBeNull()
+  })
+
+  it(`parses leniently: unknown vocabulary survives, long lines truncate, extra items drop`, async () => {
+    await caller.register({
+      deviceId: `dev-1`,
+      label: `b`,
+      kind: `desktop`,
+      doctor: {
+        checkedAt: `2026-10-05T19:00:00.000Z`,
+        items: Array.from({ length: 30 }, (_, i) => ({
+          key: i === 0 ? `future_thing` : `git`,
+          group: i === 0 ? `future_group` : `required`,
+          state: i === 0 ? `degraded` : `ok`,
+          detail: `x`.repeat(300),
+          action: i === 0 ? `repair` : undefined,
+        })),
+      },
+    })
+    const upsert = h.state.upserts[0] as {
+      set: { doctor: { items: Record<string, string>[] } }
+    }
+    expect(upsert.set.doctor.items).toHaveLength(24)
+    expect(upsert.set.doctor.items[0]).toMatchObject({
+      key: `future_thing`,
+      group: `future_group`,
+      state: `degraded`,
+      action: `repair`,
+    })
+    expect(upsert.set.doctor.items[0]?.detail).toHaveLength(120)
+  })
+
+  it(`heartbeat writes the report only when present`, async () => {
+    h.state.updateReturning = heartbeatRow()
+    await caller.heartbeat({
+      deviceId: `dev-1`,
+      activeSessions: 0,
+      defaultsSyncedAt: null,
+      doctor,
+    })
+    const set = h.state.updates[0]?.set as Record<string, unknown>
+    expect(set.doctor).toMatchObject({ checkedAt: doctor.checkedAt })
+    h.state.updates = []
+    h.state.updateReturning = heartbeatRow()
+    await caller.heartbeat({
+      deviceId: `dev-1`,
+      activeSessions: 0,
+      defaultsSyncedAt: null,
+    })
+    expect(h.state.updates[0]?.set).not.toHaveProperty(`doctor`)
+  })
+})
+
 // EXP-849 retired `pi` from contract `codingAgent`, but the fleet below the
 // version floor keeps reporting it on EVERY field of its register and
 // heartbeat. The writes must still land (an old daemon that cannot register

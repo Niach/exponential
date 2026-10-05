@@ -74,6 +74,11 @@ use crate::icons::registry;
 #[derive(Default)]
 pub struct DoctorState {
     pub report: Option<DoctorReport>,
+    /// EXP-1196: THE readiness block for this device, built off the same
+    /// run (`coding::device_doctor::current`: the report + the usage cache's
+    /// re-login verdicts + the computer-use permissions). Lands with
+    /// `report`; `device_readiness` renders it.
+    pub device: Option<coding::device_doctor::DeviceDoctor>,
     pub running: bool,
     generation: u64,
 }
@@ -145,9 +150,13 @@ impl CodingHub {
         let hub = hub.clone();
         let data_dir = coding_data_dir(cx);
         cx.spawn(async move |cx| {
-            let report = cx
+            let (report, device) = cx
                 .background_executor()
-                .spawn(async move { run_doctor(&settings, &data_dir) })
+                .spawn(async move {
+                    let report = run_doctor(&settings, &data_dir);
+                    let device = coding::device_doctor::current(&settings, &data_dir, &report);
+                    (report, device)
+                })
                 .await;
             let landed = hub.update(cx, |this, cx| {
                 if this.doctor.generation != generation {
@@ -155,6 +164,7 @@ impl CodingHub {
                 }
                 this.doctor.running = false;
                 this.doctor.report = Some(report);
+                this.doctor.device = Some(device);
                 cx.notify();
                 true
             });
@@ -2087,22 +2097,34 @@ impl StartCodingControl {
             // EXP-201: the affordance needs git + at least ONE agent; the
             // dialog gates the specific agent the user selects.
             Some(report) => {
+                // EXP-1196: the tooltip IS the failing readiness row
+                // (`Git · Not installed`, `Claude Code · Signed out`) when
+                // the block has one.
+                let row_reason = || {
+                    hub.doctor
+                        .device
+                        .as_ref()
+                        .and_then(|doctor| crate::device_readiness::no_agent_row(doctor, true))
+                        .map(|row| SharedString::from(crate::device_readiness::summary(&row)))
+                };
                 if !report.git.ok {
-                    return Some(
+                    return Some(row_reason().unwrap_or_else(|| {
                         report
                             .git
                             .error
                             .clone()
                             .unwrap_or_else(|| "git is not available".to_string())
-                            .into(),
-                    );
+                            .into()
+                    }));
                 }
                 if !report.any_agent_ok() {
-                    return Some(if report.unauthed_agents().is_empty() {
-                        NO_AGENT_COPY.into()
-                    } else {
-                        NO_AGENT_SIGNED_IN_COPY.into()
-                    });
+                    return Some(row_reason().unwrap_or_else(|| {
+                        if report.unauthed_agents().is_empty() {
+                            NO_AGENT_COPY.into()
+                        } else {
+                            NO_AGENT_SIGNED_IN_COPY.into()
+                        }
+                    }));
                 }
             }
         }
@@ -2173,6 +2195,14 @@ pub(crate) fn no_agent_reason(cx: &App) -> Option<SharedString> {
     let report = hub.doctor.report.as_ref()?;
     if report.any_agent_ok() {
         return None;
+    }
+    // EXP-1196: the failing readiness row as the tooltip, when the block has
+    // one with a fix in reach (every agent simply missing keeps the copy).
+    if let Some(row) = hub.doctor.device.as_ref().and_then(|doctor| {
+        crate::device_readiness::no_agent_row(doctor, true)
+            .filter(|row| row.key != coding::device_doctor::KEY_GIT)
+    }) {
+        return Some(crate::device_readiness::summary(&row).into());
     }
     // Installed-but-signed-out (EXP-409) reads as "sign in", not "install".
     if !report.unauthed_agents().is_empty() {

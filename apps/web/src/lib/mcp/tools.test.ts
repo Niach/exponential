@@ -5158,10 +5158,24 @@ describe(`exponential_devices_list`, () => {
         agentAccounts: null,
         agentUsage: null,
         agentUsageAt: null,
+        // EXP-1196: null until the device reports a doctor.
+        doctor: null,
       },
     ])
     // No teamId ⇒ no shared join, so nothing is gated on team membership.
     expect(membership.assertTeamMember).not.toHaveBeenCalled()
+  })
+
+  it(`carries the device's readiness report (EXP-1196)`, async () => {
+    const doctor = {
+      checkedAt: `2026-10-05T19:00:00.000Z`,
+      items: [{ key: `git`, group: `required`, state: `ok`, detail: `2.55.0` }],
+    }
+    dbRows.current = [deviceRow({ doctor })]
+    const [device] = parseOk(
+      await tool(`exponential_devices_list`)({})
+    ) as Array<{ doctor: unknown }>
+    expect(device!.doctor).toEqual(doctor)
   })
 
   it(`reads a row past the window as offline`, async () => {

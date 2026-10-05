@@ -17,6 +17,7 @@ import {
 } from "@/lib/coding-launch-prefs"
 
 import { deviceAgentNotReady, type SteerDevice } from "@/lib/steer-devices"
+import { DeviceReadinessNotice } from "@/components/device-readiness-notice"
 import { contract } from "@exp/domain-contract"
 
 // The agent options cluster (EXP-257; the launch dialog's right half until
@@ -180,13 +181,16 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
           className="px-2 py-2"
         />
       )}
-      {deviceAgentNotReady(device, agent) && (
-        /* EXP-773: with the PTY path gone this combination cannot start at
-           all — the caller disables the start button on the same predicate. */
-        <div className="px-4 py-2 text-[0.6875rem] text-muted-foreground">
-          {`Not ready on ${device!.deviceLabel || device!.deviceId}. Run the doctor there.`}
-        </div>
-      )}
+      {/* EXP-773: with the PTY path gone a not-ready combination cannot
+          start at all — the caller disables the start button on the same
+          predicate. EXP-1196: the device's failing doctor row says why, with
+          its action; the old sentence stays for builds without a doctor. */}
+      <DeviceReadinessNotice
+        device={device}
+        agent={agent}
+        notReady={deviceAgentNotReady(device, agent)}
+        className="block px-4 py-2 text-[0.6875rem] text-muted-foreground"
+      />
       <Combobox
         triggerVariant="row"
         searchable={false}

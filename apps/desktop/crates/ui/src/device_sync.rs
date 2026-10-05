@@ -435,6 +435,9 @@ struct BeatSnapshot {
 struct AgentStatusSent {
     accounts_key: Option<String>,
     usage: Option<String>,
+    /// EXP-1196: the readiness block's `device_doctor::items_key` as last
+    /// accepted (`checkedAt` excluded, so an unchanged block never rides).
+    doctor_key: Option<String>,
 }
 
 /// What one beat has to write, with the accounts identity key that decides
@@ -603,10 +606,24 @@ fn beat(
     // payload (a 4xx), the next beat(s) go out BARE so `last_seen_at` still
     // lands; nothing is recorded as sent, so it rides again once a beat
     // succeeds.
-    if !lock_recover(health).begin_beat() {
+    let include_optional = lock_recover(health).begin_beat();
+    if !include_optional {
         writes = StatusWrites::default();
     }
-    let carried_optional = writes.accounts.is_some() || writes.usage.is_some();
+    // EXP-1196: the readiness block rides only when its items moved since
+    // the last accepted beat (and never before the first doctor probe).
+    let device_doctor = snapshot.doctor.as_ref().map(|report| {
+        coding::device_doctor::current(&snapshot.settings, &snapshot.data_dir, report)
+    });
+    let doctor_write = device_doctor.as_ref().and_then(|doctor| {
+        let key = coding::device_doctor::items_key(doctor);
+        if !include_optional || lock_recover(sent_status).doctor_key.as_deref() == Some(key.as_str()) {
+            return None;
+        }
+        serde_json::to_value(doctor).ok().map(|value| (value, key))
+    });
+    let carried_optional =
+        writes.accounts.is_some() || writes.usage.is_some() || doctor_write.is_some();
 
     match api::devices::heartbeat(
         &snapshot.trpc,
@@ -618,6 +635,7 @@ fn beat(
             // say, which keeps the historic body byte-for-byte.
             agent_accounts: writes.accounts.as_ref(),
             agent_usage: writes.usage.as_ref(),
+            doctor: doctor_write.as_ref().map(|(value, _)| value),
         },
     ) {
         Ok(result) => {
@@ -625,6 +643,9 @@ fn beat(
             // Accepted — remember what the row now carries, so the next
             // unchanged pass sends nothing.
             record_status_sent(&writes, sent_status);
+            if let Some((_, key)) = &doctor_write {
+                lock_recover(sent_status).doctor_key = Some(key.clone());
+            }
             // `ok: false` (row removed) heals via the control channel's own
             // register on its next re-dial; the beat keeps running.
             if result.launch_defaults.is_some() || result.launch_defaults_updated_at.is_some() {

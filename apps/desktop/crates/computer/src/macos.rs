@@ -72,6 +72,12 @@ pub fn idle() -> Option<Duration> {
     (seconds.is_finite() && seconds >= 0.0).then(|| Duration::from_secs_f64(seconds))
 }
 
+/// EXP-1196: `(screen_recording, accessibility)` granted, read without
+/// prompting (the device doctor's permission rows).
+pub fn permissions() -> (bool, bool) {
+    unsafe { (CGPreflightScreenCaptureAccess(), AXIsProcessTrusted()) }
+}
+
 pub fn readiness(prompt: bool) -> Readiness {
     let screen = unsafe { CGPreflightScreenCaptureAccess() };
     let accessibility = unsafe { AXIsProcessTrusted() };

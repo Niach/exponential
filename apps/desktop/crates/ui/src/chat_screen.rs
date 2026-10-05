@@ -72,6 +72,7 @@ use crate::chat_launch::{self, RemoteSubject, RepoState, SubjectKind};
 use domain::blocked_start;
 use crate::coding_flow::{self, CodingHub, SessionSubject};
 use crate::composer_images::{self, PendingImages};
+use crate::device_readiness;
 use crate::icons::registry;
 use crate::issue_picker::{self, IssueRow};
 use crate::launch_options::{self, inline_pin_trigger, LaunchOptionsSection};
@@ -1203,6 +1204,57 @@ impl ChatScreenView {
         })
     }
 
+    /// EXP-1196: the picked agent's run gate on the picked machine as ONE
+    /// readiness row (`device_readiness::blocking_row`: Git when Git fails,
+    /// else that agent's row), with the remote target when the machine is
+    /// not this one. `None` = no block for it (an older build's NULL doctor,
+    /// the first local run not landed) or nothing against the agent there.
+    fn readiness_blocker(
+        &self,
+        cx: &App,
+    ) -> Option<(device_readiness::ReadinessRow, Option<(String, SharedString)>)> {
+        let launch = self.launch.as_ref()?;
+        match self.remote_device() {
+            Some(device) => {
+                let store = Store::try_global(cx)?;
+                let rows = store.collections().devices.read(cx);
+                let row = rows.get(&device.row_id)?;
+                let doctor = device_readiness::parse(row.doctor.as_ref())?;
+                let row = device_readiness::blocking_row(&doctor, launch.agent, false)?;
+                Some((row, Some((device.device_id.clone(), device.label.clone().into()))))
+            }
+            None => {
+                let agent = match self.resume_active(cx) {
+                    true => self
+                        .resume_candidate()
+                        .map(|(_, record)| record.agent)
+                        .unwrap_or(launch.agent),
+                    false => launch.agent,
+                };
+                let hub = CodingHub::global_ref(cx)?;
+                let hub = hub.read(cx);
+                let doctor = hub.doctor.device.as_ref()?;
+                Some((device_readiness::blocking_row(doctor, agent, true)?, None))
+            }
+        }
+    }
+
+    /// The readiness row under the composer, wired to its action (THIS
+    /// device: every action; another: the remote ones only).
+    fn render_readiness_row(
+        row: &device_readiness::ReadinessRow,
+        target: Option<(String, SharedString)>,
+        cx: &App,
+    ) -> gpui::Div {
+        let props = match target {
+            None => device_readiness::local_props("chat-readiness", cx),
+            Some((device_id, label)) => {
+                device_readiness::remote_props("chat-readiness", device_id, label)
+            }
+        };
+        device_readiness::render_single(row, props, cx)
+    }
+
     // ── the gate ──────────────────────────────────────────────────────────
 
     fn composer_placeholder(&self) -> SharedString {
@@ -1258,6 +1310,11 @@ impl ChatScreenView {
         match self.remote_device() {
             Some(device) => {
                 if !device.agents.contains(&launch.agent) {
+                    // EXP-1196: the machine's own row says why, when it
+                    // sent one.
+                    if let Some((row, _)) = self.readiness_blocker(cx) {
+                        return Some(device_readiness::summary(&row).into());
+                    }
                     return Some(
                         format!("{} can't run {}.", device.label, launch.agent.label()).into(),
                     );
@@ -1276,6 +1333,9 @@ impl ChatScreenView {
                     None => return Some("Checking local tools…".into()),
                     Some(report) => {
                         if let Some(failed) = report.first_failure_for(gated_agent) {
+                            if let Some((row, _)) = self.readiness_blocker(cx) {
+                                return Some(device_readiness::summary(&row).into());
+                            }
                             return Some(
                                 failed
                                     .error
@@ -2615,7 +2675,13 @@ impl ChatScreenView {
         }
 
         let blocker = self.launch_blocker(cx);
-        let no_session_note = self.no_session_note();
+        // EXP-1196: a device/agent failure renders as THE failing readiness
+        // row (with its action) instead of a sentence.
+        let readiness = self.readiness_blocker(cx);
+        let readiness_summary = readiness
+            .as_ref()
+            .map(|(row, _)| SharedString::from(device_readiness::summary(row)));
+        let no_session_note = self.no_session_note().filter(|_| readiness.is_none());
         let request_note = self.device_request_note(cx);
         // EXP-827: ICON-ONLY — the ONE round send of `composer::glass_composer`
         // (the steer composer's button, same ring, same 32px hit box). The
@@ -2690,6 +2756,10 @@ impl ChatScreenView {
         let blocker_note = blocker
             .filter(|_| !self.launching && !self.sending)
             .filter(|reason| chat_launch::note_for_blocker(Some(reason.as_ref())).is_some());
+        let blocker_note = blocker_note.filter(|reason| Some(reason) != readiness_summary.as_ref());
+        if let Some((row, target)) = readiness {
+            notes = notes.child(Self::render_readiness_row(&row, target, cx));
+        }
         if let Some(reason) = blocker_note {
             // EXP-862: the blocker is a sentence and nothing else — the
             // "Sign in to <agent>" pill it used to carry is gone ×4; a login

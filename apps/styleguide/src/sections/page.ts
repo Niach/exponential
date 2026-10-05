@@ -127,6 +127,7 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`blocked-start-dialog`]: `Surfaces`,
   [`stack-merge-choice-dialog`]: `Surfaces`,
   [`readiness-checklist`]: `Surfaces`,
+  [`device-readiness`]: `Surfaces`,
   toast: `Feedback`,
   [`session-tree`]: `Lists & rows`,
   [`results-guide`]: `Lists & rows`,

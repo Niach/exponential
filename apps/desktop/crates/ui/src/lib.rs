@@ -97,6 +97,7 @@ mod join_team;
 mod launch_options;
 pub mod licenses;
 mod login;
+mod device_readiness;
 mod device_settings;
 mod devices_view;
 mod device_setup;

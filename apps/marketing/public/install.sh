@@ -65,17 +65,6 @@ case "$os" in
   *) fail "unsupported OS: $os (Linux and macOS only)" ;;
 esac
 
-# --- Preflight: warn, don't block (the CLI's doctor owns enforcement) --------
-command -v git >/dev/null 2>&1 || warn "git is not installed — coding sessions need it"
-found_agent=""
-for agent in claude codex; do
-  if command -v "$agent" >/dev/null 2>&1; then
-    found_agent="$agent"
-    break
-  fi
-done
-[ -n "$found_agent" ] || warn "no agent CLI found (claude or codex) — install one to run coding sessions"
-
 # --- Resolve the latest cli-v* release ---------------------------------------
 # per_page=100 (the GitHub max): the list is shared with the desktop/android/
 # ios release trains, which must not bury the newest cli-v* entry.
@@ -218,4 +207,8 @@ say "  Device:       ${device:-unknown}"
 say "  Daemon:       $daemon"
 say "  Auto-update:  $autoupdate"
 say ""
-say "Next: \`$BIN_NAME doctor\` checks the agent CLIs; \`$BIN_NAME devices\` lists your machines."
+# The device readiness block (git, agent CLIs, computer use): the same rows
+# every client shows for this machine. Informational: never fails the install.
+"$bin" doctor </dev/null || true
+say ""
+say "Next: \`$BIN_NAME devices\` lists your machines; \`$BIN_NAME doctor\` re-checks this one."

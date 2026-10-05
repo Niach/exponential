@@ -122,7 +122,9 @@ private struct SetLaunchDefaultsInput: Encodable {
 private struct CreateCommandInput: Encodable {
     let deviceId: String
     /// `agent_login` (EXP-484: `agent` required, `switch` optional) |
-    /// `agent_login_code` (EXP-765: `agent` + `code` required).
+    /// `agent_login_code` (EXP-765: `agent` + `code` required) |
+    /// `agent_update` (EXP-1196: `agent` required — the agent CLI's own
+    /// self-updater, the readiness block's Update pill).
     /// EXP-1042: this client no longer emits `worktree_remove` /
     /// `worktree_prune` — the worktree inventory is an IDE surface now, and
     /// EXP-1060 (compat round 26) retired those kinds server-side along with
@@ -323,6 +325,22 @@ public final class DevicesApi: Sendable {
             )
         )
     }
+
+    /// EXP-1196: the readiness block's remote Update pill — queue
+    /// `agent_update {agent}`; the machine runs that agent CLI's own
+    /// self-updater and its next doctor report shows the result.
+    @discardableResult
+    public func requestAgentUpdate(
+        accountId: String,
+        deviceId: String,
+        agent: String
+    ) async throws -> CreatedDeviceCommand {
+        try await createCommand(
+            accountId: accountId, deviceId: deviceId, kind: Self.agentUpdateKind, agent: agent
+        )
+    }
+
+    public static let agentUpdateKind = "agent_update"
 
     /// EXP-1111/1169: mint the one-time `EXP_INSTALL_TOKEN` the device-setup
     /// card puts into its install command (one live token per user; a remint

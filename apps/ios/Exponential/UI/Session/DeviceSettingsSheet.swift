@@ -3,7 +3,7 @@ import ExpCore
 import SwiftUI
 
 // The device settings sheet (EXP-481) — the settings gear on a device row
-// opens it, the iOS twin of the web/IDE device-settings dialog. Six sections,
+// opens it, the iOS twin of the web/IDE device-settings dialog. Seven sections,
 // no Save buttons above the last two (EXP-490):
 //   Name     — devices.rename (registry-authoritative, works offline),
 //              debounced while typing and flushed on blur/submit/close.
@@ -22,13 +22,19 @@ import SwiftUI
 //              row is the truth and the device's settings.json converges on its
 //              next heartbeat, so the only offline concession is a footer
 //              saying so.
-//              EXP-1196: a DEVICE-level "Computer use" toggle sits above the
-//              agent block (it belongs to the machine, not an agent) and rides
-//              the same debounced whole-object save as a top-level key.
+//              EXP-1196: the DEVICE-level "Computer use" switch rides the
+//              same debounced whole-object save as a top-level key; it lives
+//              in the Readiness block's Computer use group (below).
 //              EXP-862 took the ACCOUNT and USAGE rows back out (×4). A login
 //              is a flow, not a setting: signing in lives on the account chips
 //              (`AgentLoginSheet`) and the numbers live on ONE surface, Devices
 //              → Accounts.
+//   Readiness — EXP-1196/1218/1219: the device's doctor report as THE
+//              readiness block (`DeviceReadinessView`, fixture
+//              `device-doctor.json`), only when the row carries one. A phone
+//              is always ANOTHER device: Update queues `agent_update {agent}`,
+//              Sign in opens the remote `AgentLoginSheet`; local-only actions
+//              render no pill.
 //   Update   — EXP-909, SERVER devices only (a desktop app updates itself):
 //              the version, an amber "Update available" caption, and the
 //              Update / Queued / Updating… control the device ROW used to
@@ -111,6 +117,10 @@ struct DeviceSettingsSheet: View {
     @State private var updateRequested = false
     /// EXP-909: the device removal this sheet is confirming.
     @State private var confirmingRemove = false
+    /// EXP-1196: the readiness block's Sign in pill → the remote sign-in.
+    @State private var loginTarget: AgentLoginTarget?
+    /// EXP-1196: agents whose `agent_update` is on the wire.
+    @State private var updatingAgents: Set<String> = []
 
     /// The live row off the devices shape. Own machines only — the sheet is an
     /// owner surface, so a row that stops being ours reads as gone.
@@ -141,7 +151,9 @@ struct DeviceSettingsSheet: View {
                     if device.isServer {
                         sharingSection(device)
                     }
-                    computerUseSection
+                    if let doctor = device.doctor {
+                        readinessSection(device, doctor: doctor)
+                    }
                     defaultsSection(device)
                     if device.isServer {
                         updateSection(device)
@@ -198,6 +210,14 @@ struct DeviceSettingsSheet: View {
                     // The pinned sentence ×4 — unchanged from the row menu
                     // this moved out of (EXP-909).
                     Text("Remove “\(deviceName(device))” from your devices? A device with the daemon still running will re-register itself on its next heartbeat.")
+                }
+        )
+        .background(
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .sheet(item: $loginTarget) { target in
+                    AgentLoginSheet(viewModel: viewModel, target: target)
                 }
         )
     }
@@ -472,29 +492,64 @@ struct DeviceSettingsSheet: View {
         }
     }
 
-    // MARK: - Computer use (EXP-1196)
+    // MARK: - Readiness (EXP-1196/1218/1219)
 
-    /// The DEVICE's switch, outside the per-agent block: the same plain toggle
-    /// row as the agent toggles, the description in the section footer like
-    /// Sharing's. Saves through the debounced launch-defaults path.
-    private var computerUseSection: some View {
+    /// THE readiness block for this device. The Computer use group's switch
+    /// row IS the device-level toggle: it shows the draft (the report only
+    /// catches up on the next heartbeat) and saves through the debounced
+    /// launch-defaults path. No header, no footer: the bands label it.
+    private func readinessSection(_ device: SteerDevice, doctor: DeviceDoctor) -> some View {
         Section {
-            Toggle(
-                "Computer use",
-                isOn: Binding(
+            DeviceReadinessView(
+                groups: DeviceReadiness.groups(doctor, remote: true, computerUseOn: computerUse),
+                computerUse: Binding(
                     get: { computerUse },
                     set: { newValue in
                         computerUse = newValue
                         defaultsPending = true
                         scheduleDefaultsAutosave()
                     }
-                )
+                ),
+                busyActions: updatingAgents,
+                onAction: { row in runReadinessAction(row, device: device) }
             )
-            .accessibilityIdentifier("device-computer-use")
-        } footer: {
-            Text("Let agents on this device see the screen, click and type in any app.")
+            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
         }
-        .listRowBackground(glassFormRowFill)
+        .listRowBackground(Color.clear)
+    }
+
+    /// A phone only ever sees the REMOTE actions (`DeviceReadiness` drops the
+    /// rest): Update = `agent_update {agent}`, Sign in = the remote
+    /// `agent_login` flow.
+    private func runReadinessAction(_ row: DeviceReadiness.Row, device: SteerDevice) {
+        switch row.action {
+        case "update":
+            requestAgentUpdate(row.key)
+        case "sign_in":
+            loginTarget = AgentLoginTarget(
+                deviceId: device.deviceId,
+                deviceLabel: deviceName(device),
+                agent: row.key
+            )
+        default:
+            break
+        }
+    }
+
+    private func requestAgentUpdate(_ agent: String) {
+        guard !updatingAgents.contains(agent) else { return }
+        updatingAgents.insert(agent)
+        let api = deps.devicesApi
+        let account = accountId
+        let id = deviceId
+        Task {
+            do {
+                try await api.requestAgentUpdate(accountId: account, deviceId: id, agent: agent)
+            } catch {
+                toaster.error(error.userFacingMessage)
+            }
+            updatingAgents.remove(agent)
+        }
     }
 
     // MARK: - Agent defaults

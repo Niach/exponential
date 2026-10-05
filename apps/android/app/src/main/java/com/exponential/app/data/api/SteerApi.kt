@@ -1,5 +1,6 @@
 package com.exponential.app.data.api
 
+import com.exponential.app.domain.DeviceDoctor
 import com.exponential.app.domain.DomainContract
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -285,6 +286,12 @@ data class SteerDevice(
      * carry it); only the DeviceEntity → SteerDevice mapping stamps it.
      */
     @SerialName("rowId") val rowId: String? = null,
+    /**
+     * EXP-1196/1218/1219: the synced readiness report (`devices.doctor`).
+     * Only the DeviceEntity → SteerDevice mapping stamps it — never decoded
+     * off a relay / tRPC payload. Null = an older build: no readiness block.
+     */
+    @kotlinx.serialization.Transient val doctor: DeviceDoctor? = null,
 ) {
     /** A headless `exponential` daemon rather than the desktop IDE. */
     val isServer: Boolean get() = kind == KIND_SERVER

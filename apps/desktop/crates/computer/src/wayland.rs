@@ -69,6 +69,12 @@ pub struct WaylandBackend {
     tokens: AtomicU32,
 }
 
+/// EXP-1196: whether the person already granted the remote-desktop portal
+/// (a restore token is on disk), read without prompting.
+pub fn remote_desktop_granted() -> bool {
+    restore_token_path().is_some_and(|path| path.exists())
+}
+
 fn restore_token_path() -> Option<PathBuf> {
     let state = std::env::var_os("XDG_STATE_HOME")
         .map(PathBuf::from)

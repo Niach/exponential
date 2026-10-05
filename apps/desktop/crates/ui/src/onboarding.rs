@@ -14,11 +14,11 @@
 //!    along untouched).
 //! 3. **Invite** — mint one invite link for the team ([`InviteLinkPanel`]);
 //!    skippable, and REMOVED entirely when the plan has no seat left.
-//! 4. **Devices** — the shared
-//!    [`crate::settings::doctor_section::DoctorPanel`] (git + agent CLIs) plus
-//!    the headless-server install sub-card. LAST because it is the step that
-//!    means leaving for another machine. There is no download card: this IS
-//!    the desktop app.
+//! 4. **Devices** — "Set up this device" (EXP-1196): the shared
+//!    [`crate::settings::doctor_section::DoctorPanel`], THIS device's
+//!    readiness block, alone; the footer (Skip for now · Check again) is
+//!    pinned under it. LAST because it is the step that means leaving for
+//!    another machine. There is no download card: this IS the desktop app.
 //!
 //! Steps 3 and 4 run off a session latch (`post_board`), not off account
 //! state: creating the board already fires the server's `onboarding.complete`
@@ -89,9 +89,16 @@ pub(crate) mod copy {
     #[allow(dead_code)]
     pub const INVITE_COPIED: &str = "Copied";
 
+    // EXP-1196: the desktop's devices step is "Set up this device" (the
+    // device-doctor fixture's copy) with the readiness block alone; these
+    // stay because the shared copy contract (and its drift test) covers them.
+    #[allow(dead_code)]
     pub const DEVICES_TITLE: &str = "Set up your devices";
+    #[allow(dead_code)]
     pub const DEVICES_SUBTITLE: &str = "Runs happen on the desktop app or on a server with the Exponential CLI. Install one and sign your agents in. You can also do this later.";
+    #[allow(dead_code)]
     pub const DEVICES_YOURS: &str = "Your devices";
+    #[allow(dead_code)]
     pub const DEVICES_NONE: &str = "No devices yet. Sign in on the desktop app or a server and it shows up here.";
 
     pub const SKIP: &str = "Skip for now";
@@ -247,9 +254,6 @@ pub struct OnboardingView {
     /// Keyed by team id, same rule as the board form.
     invite_panel: Option<(String, Entity<InviteLinkPanel>)>,
     doctor: Option<Entity<DoctorPanel>>,
-    /// EXP-1169: the devices step's server card (mints its install token
-    /// once, on first show).
-    server_card: Option<Entity<crate::device_setup::ServerCard>>,
     /// Base subscriptions (session/collections/hub); page-event
     /// subscriptions are pushed here as pages are lazily created.
     _subscriptions: Vec<Subscription>,
@@ -284,7 +288,6 @@ impl OnboardingView {
             create_board: None,
             invite_panel: None,
             doctor: None,
-            server_card: None,
             _subscriptions: subscriptions,
         };
         this.sync_account(cx);
@@ -599,98 +602,22 @@ impl OnboardingView {
             .into_any_element()
     }
 
-    /// This user's own machines, newest registration surface first. Purely
-    /// informational: the row that matters (this install) appears once its
-    /// heartbeat has landed, which is exactly the confirmation the step is
-    /// asking for.
-    fn own_device_rows(cx: &App) -> Vec<(String, bool)> {
-        let Some(account) = queries::active_account(cx) else {
-            return Vec::new();
-        };
-        let now_ms = chrono::Utc::now().timestamp_millis();
-        let mut rows: Vec<(String, bool)> = Store::global(cx)
-            .collections()
-            .devices
-            .read(cx)
-            .iter()
-            .filter(|row| row.user_id.as_deref() == Some(account.user_id.as_str()))
-            .filter_map(|row| {
-                let label = row
-                    .label
-                    .clone()
-                    .filter(|label| !label.trim().is_empty())
-                    .or_else(|| row.device_id.clone())
-                    .filter(|label| !label.trim().is_empty())?;
-                let online =
-                    crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms);
-                Some((label, online))
-            })
-            .collect();
-        rows.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
-        rows
-    }
-
-    /// EXP-725 step 4 — the doctor (git + agent CLIs), the always-on-server
-    /// card (EXP-1169: the shared [`crate::device_setup::ServerCard`]), and this account's registered machines. NO download
-    /// card: this IS the desktop app.
+    /// EXP-725 step 4 / EXP-1196 — "Set up this device": THIS device's
+    /// readiness block and nothing else (the server card and the device list
+    /// live in the Add device dialog). NO download card: this IS the desktop
+    /// app.
     fn devices_page(
         &mut self,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         if self.doctor.is_none() {
-            self.doctor = Some(cx.new(|cx| DoctorPanel::new(window, cx)));
+            self.doctor =
+                Some(cx.new(|cx| DoctorPanel::new(window, cx).without_recheck()));
         }
-        let doctor = self.doctor.clone().expect("created above");
-        let muted = cx.theme().muted_foreground;
-
-        if self.server_card.is_none() {
-            self.server_card =
-                Some(cx.new(|cx| crate::device_setup::ServerCard::new(window, cx)));
-        }
-        let server_card = self.server_card.clone().expect("created above");
-
-        let devices = Self::own_device_rows(cx);
-        let mut devices_card = v_flex().gap_2().child(
-            div()
-                .text_sm()
-                .font_weight(FontWeight::MEDIUM)
-                .child(copy::DEVICES_YOURS),
-        );
-        if devices.is_empty() {
-            devices_card = devices_card.child(
-                div()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(copy::DEVICES_NONE),
-            );
-        } else {
-            devices_card = devices_card.child(crate::surface::glass_group_rows(
-                devices
-                    .into_iter()
-                    .map(|(label, online)| {
-                        crate::surface::glass_row_shell()
-                            .child(div().flex_1().min_w_0().text_sm().child(label))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(if online {
-                                        cx.theme().success
-                                    } else {
-                                        muted
-                                    })
-                                    .child(if online { "Online" } else { "Offline" }),
-                            )
-                    })
-                    .collect(),
-            ));
-        }
-
-        v_flex()
-            .gap_5()
-            .child(doctor)
-            .child(server_card)
-            .child(devices_card)
+        self.doctor
+            .clone()
+            .expect("created above")
             .into_any_element()
     }
 }
@@ -724,6 +651,7 @@ impl Render for OnboardingView {
         };
 
         let muted = cx.theme().muted_foreground;
+        let pinned_footer = matches!(step, WizardStep::Devices { .. });
         // EXP-1176: the welcome page (and the syncing frame before it) opens
         // like the login screen — the mark over the title, no disc, no blurb,
         // no card. Every form step keeps the card head below.
@@ -763,10 +691,11 @@ impl Render for OnboardingView {
                     copy::INVITE_TITLE,
                     copy::INVITE_SUBTITLE,
                 ),
+                // EXP-1196: the fixture's title, no subtitle.
                 WizardStep::Devices { .. } => (
                     registry::NAV_DEVICES,
-                    copy::DEVICES_TITLE,
-                    copy::DEVICES_SUBTITLE,
+                    crate::device_readiness::LOCAL_TITLE,
+                    "",
                 ),
             };
 
@@ -858,45 +787,43 @@ impl Render for OnboardingView {
             }
             WizardStep::Devices { team_id } => {
                 let in_wizard = team_id.is_some();
-                let report = CodingHub::global_ref(cx)
-                    .and_then(|hub| hub.read(cx).doctor.report.clone());
+                let (report, running) = CodingHub::global_ref(cx)
+                    .map(|hub| {
+                        let hub = hub.read(cx);
+                        (hub.doctor.report.clone(), hub.doctor.running)
+                    })
+                    .unwrap_or((None, false));
                 // EXP-369: git is a HARD gate — nothing the IDE does with a
                 // repository works without it, so there is no forward path
                 // out of this step (a still-running probe reads as not-ok and
                 // re-renders when it lands; `EXP_SKIP_ONBOARDING=1` is the
                 // dev/CI bypass for the whole wizard). A missing agent CLI
-                // only blocks coding, so it keeps the "Set up later" escape.
+                // only blocks coding, so it keeps the skip. EXP-1196: the
+                // footer is exactly the two pills, no sentence.
                 let git_ok = report.as_ref().is_some_and(|report| report.git.ok);
-                let all_green = report.is_some_and(|report| report.git.ok && report.any_agent_ok());
-                let mut row = h_flex().items_center().justify_end().gap_3();
-                if !git_ok {
-                    row = row.child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_xs()
-                            .text_color(muted)
-                            .child("git is required. You cannot start coding without an agent CLI."),
-                    );
-                }
                 Some(
-                    row.child(if all_green {
-                        Button::new("onboarding-tools-continue")
-                            .primary().web_md()
-                            .label(copy::CONTINUE)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.complete_devices_step(in_wizard, cx);
-                            }))
-                    } else {
-                        Button::new("onboarding-tools-continue")
-                            .outline().web_sm()
-                            .label(copy::SKIP)
+                    h_flex()
+                        .items_center()
+                        .justify_end()
+                        .gap_2()
+                        .child(
+                            crate::surface::glass_pill_button(
+                                "onboarding-tools-continue",
+                                crate::surface::PillSize::Sm,
+                                cx,
+                            )
+                            .label(crate::device_readiness::SKIP)
                             .disabled(!git_ok)
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.complete_devices_step(in_wizard, cx);
-                            }))
-                    })
-                    .into_any_element(),
+                            })),
+                        )
+                        .child(crate::settings::doctor_section::recheck_button(
+                            "onboarding-tools-recheck",
+                            running,
+                            cx,
+                        ))
+                        .into_any_element(),
                 )
             }
         };
@@ -941,46 +868,90 @@ impl Render for OnboardingView {
                 .child(head)
                 .child(v_flex().w_full().gap_4().child(body).children(footer))
         } else {
-            v_flex()
-                .w_full()
-                .max_w(px(672.))
-                .px_6()
-                .my_8()
+            let mut head = v_flex()
+                .p_6()
+                .items_center()
+                .gap_1p5()
+                .text_center()
                 .child(
-                    crate::surface::glass_group()
+                    div()
+                        .size(px(48.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_full()
+                        .bg(cx.theme().primary.opacity(0.1))
                         .child(
-                            v_flex()
-                                .p_6()
-                                .items_center()
-                                .gap_1p5()
-                                .text_center()
-                                .child(
-                                    div()
-                                        .size(px(48.))
-                                        .flex()
-                                        .items_center()
-                                        .justify_center()
-                                        .rounded_full()
-                                        .bg(cx.theme().primary.opacity(0.1))
-                                        .child(
-                                            Icon::new(icon)
-                                                .size(px(24.))
-                                                .text_color(cx.theme().primary),
-                                        ),
-                                )
-                                .child(
-                                    div()
-                                        .text_xl()
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .child(title),
-                                )
-                                .child(div().text_sm().text_color(muted).child(subtitle)),
-                        )
-                        .child(crate::surface::glass_row_divider(
-                            v_flex().p_6().gap_4().child(body).children(footer),
-                        )),
+                            Icon::new(icon)
+                                .size(px(24.))
+                                .text_color(cx.theme().primary),
+                        ),
                 )
+                .child(
+                    div()
+                        .text_xl()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(title),
+                );
+            if !subtitle.is_empty() {
+                head = head.child(div().text_sm().text_color(muted).child(subtitle));
+            }
+            if pinned_footer {
+                // EXP-1196: the devices step's card fits the window — the
+                // block scrolls inside it and the footer stays pinned under
+                // the scroll area.
+                v_flex()
+                    .w_full()
+                    .max_w(px(672.))
+                    .max_h_full()
+                    .min_h_0()
+                    .px_6()
+                    .child(
+                        crate::surface::glass_group()
+                            .max_h_full()
+                            .min_h_0()
+                            .child(head)
+                            .child(crate::surface::glass_row_divider(
+                                div()
+                                    .id("onboarding-devices-scroll")
+                                    .flex_1()
+                                    .min_h_0()
+                                    .overflow_y_scroll()
+                                    .p_6()
+                                    .child(body),
+                            ))
+                            .children(footer.map(|footer| {
+                                crate::surface::glass_row_divider(
+                                    div().px_6().py_4().child(footer),
+                                )
+                            })),
+                    )
+            } else {
+                v_flex()
+                    .w_full()
+                    .max_w(px(672.))
+                    .px_6()
+                    .my_8()
+                    .child(
+                        crate::surface::glass_group().child(head).child(
+                            crate::surface::glass_row_divider(
+                                v_flex().p_6().gap_4().child(body).children(footer),
+                            ),
+                        ),
+                    )
+            }
         };
+        if pinned_footer {
+            return div()
+                .size_full()
+                .py_8()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(cx.theme().foreground)
+                .child(column)
+                .into_any_element();
+        }
         div()
             .id("onboarding-scroll")
             .size_full()

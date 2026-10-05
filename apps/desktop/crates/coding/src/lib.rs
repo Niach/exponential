@@ -57,6 +57,7 @@ pub mod codex_app_server;
 pub mod codex_sessions;
 pub mod codex_trust;
 pub mod context_layout;
+pub mod device_doctor;
 pub mod doctor;
 pub mod git_credentials;
 pub mod git_worktree;

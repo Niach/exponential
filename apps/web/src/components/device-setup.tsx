@@ -60,6 +60,7 @@ import { trpc } from "@/lib/trpc-client"
 import { useNow } from "@/hooks/use-now"
 import { useSession } from "@/hooks/use-session"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
+import { DeviceReadinessBlock } from "@/components/device-readiness-notice"
 import { GETTING_STARTED_COPY } from "@/components/getting-started/getting-started-copy"
 import { ONBOARDING_COPY } from "@/components/onboarding/onboarding-copy"
 
@@ -397,28 +398,40 @@ export function OwnDevicesList({
             // offers nothing here.
             const signInAgent = deviceUnauthedAgentIds(device)[0]
             const KindIcon = getDeviceIcon(device)
+            // EXP-1196: a device that reports a doctor shows its readiness
+            // block collapsed to the rows that need something (each with its
+            // one action) instead of the bare Sign in pill.
+            const hasDoctor = Boolean(device.doctor)
             return (
-              <GlassRow key={device.deviceId}>
-                <KindIcon className="size-4 shrink-0 text-foreground/70" />
-                <div className="min-w-0 flex-1">
-                  <div className="min-w-0 truncate text-sm font-medium">
-                    {device.deviceLabel || device.deviceId}
+              <GlassRow
+                key={device.deviceId}
+                className={hasDoctor ? `flex-col items-stretch gap-1` : undefined}
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <KindIcon className="size-4 shrink-0 text-foreground/70" />
+                  <div className="min-w-0 flex-1">
+                    <div className="min-w-0 truncate text-sm font-medium">
+                      {device.deviceLabel || device.deviceId}
+                    </div>
+                    <DeviceStatusLine
+                      online={online}
+                      lastSeenAt={device.lastSeenAt}
+                    />
                   </div>
-                  <DeviceStatusLine
-                    online={online}
-                    lastSeenAt={device.lastSeenAt}
-                  />
+                  {!hasDoctor && signInAgent && (
+                    <Pill
+                      mode="action"
+                      onClick={() =>
+                        requestAgentLogin({ device, agent: signInAgent })
+                      }
+                    >
+                      <SignInIcon className="size-3" />
+                      Sign in
+                    </Pill>
+                  )}
                 </div>
-                {signInAgent && (
-                  <Pill
-                    mode="action"
-                    onClick={() =>
-                      requestAgentLogin({ device, agent: signInAgent })
-                    }
-                  >
-                    <SignInIcon className="size-3" />
-                    Sign in
-                  </Pill>
+                {hasDoctor && (
+                  <DeviceReadinessBlock device={device} problemsOnly className="-mx-3 -mb-3" />
                 )}
               </GlassRow>
             )

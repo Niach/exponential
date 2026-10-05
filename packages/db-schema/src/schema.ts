@@ -1422,6 +1422,74 @@ export const deviceAgentUsageSchema = z.record(
     .nullish()
 )
 
+// EXP-1196/1218/1219: the device's readiness report (`coding::device_doctor`),
+// shipped on register + heartbeat and rendered by every client as ONE block
+// (spec: domain-contract `fixtures/device-doctor.json`). The device writes
+// `detail`; clients never compose it. The key/group/state/action sets below
+// are the fixture's closed vocabulary, but the schema PARSES LENIENTLY: an
+// unknown string is kept (length-capped) so a newer device never 400s its
+// register; clients skip what they cannot name.
+export const deviceDoctorKeys = [
+  `git`,
+  `claude`,
+  `codex`,
+  `computer_use`,
+  `screen_recording`,
+  `accessibility`,
+  `remote_desktop`,
+] as const
+export const deviceDoctorGroups = [`required`, `agents`, `computer_use`] as const
+export const deviceDoctorStates = [
+  `ok`,
+  `action`,
+  `missing`,
+  `off`,
+  `error`,
+] as const
+export const deviceDoctorActions = [
+  `install`,
+  `update`,
+  `sign_in`,
+  `grant`,
+] as const
+export type DeviceDoctorKey = (typeof deviceDoctorKeys)[number]
+export type DeviceDoctorGroup = (typeof deviceDoctorGroups)[number]
+export type DeviceDoctorState = (typeof deviceDoctorStates)[number]
+export type DeviceDoctorAction = (typeof deviceDoctorActions)[number]
+export interface DeviceDoctorItem {
+  key: DeviceDoctorKey | (string & {})
+  group: DeviceDoctorGroup | (string & {})
+  parent?: string
+  state: DeviceDoctorState | (string & {})
+  detail?: string
+  action?: DeviceDoctorAction | (string & {})
+}
+export interface DeviceDoctor {
+  checkedAt: string
+  items: DeviceDoctorItem[]
+}
+export const MAX_DEVICE_DOCTOR_ITEMS = 24
+export const deviceDoctorItemSchema = z.object({
+  key: z.string().min(1).max(32),
+  group: z.string().min(1).max(32),
+  parent: z.string().max(32).nullish(),
+  state: z.string().min(1).max(32),
+  // Truncated, never refused: a long device-written line must not 400.
+  detail: z
+    .string()
+    .nullish()
+    .transform((v) => (v == null ? v : v.slice(0, 120))),
+  action: z.string().max(32).nullish(),
+})
+export const deviceDoctorSchema = z.object({
+  checkedAt: z.string().max(64),
+  // Extra items are dropped, not refused.
+  items: z
+    .array(deviceDoctorItemSchema)
+    .max(64)
+    .transform((items) => items.slice(0, MAX_DEVICE_DOCTOR_ITEMS)),
+})
+
 // EXP-403 registered devices — since EXP-481 an Electric shape (own rows plus
 // team-shared server rows; EXP-639 retired the devices router `list`).
 // One row per (user, deviceId): desktops and headless `exponential` daemon
@@ -1521,6 +1589,10 @@ export const devices = pgTable(
     // the fleet.
     agentUsage: jsonb(`agent_usage`).$type<DeviceAgentUsageMap>(),
     agentUsageAt: timestamp(`agent_usage_at`, { withTimezone: true }),
+    // EXP-1196: the device's readiness report (DeviceDoctor above), written
+    // on register + heartbeat. NULL = an older build: clients render no
+    // readiness block.
+    doctor: jsonb().$type<DeviceDoctor>(),
     ...timestamps,
   },
   (table) => [
@@ -2962,6 +3034,17 @@ export const selectDeviceSchema = createSelectSchema(devices, {
   launchDefaults: deviceLaunchDefaultsSchema.nullable(),
   agentAccounts: deviceAgentAccountsSchema.nullable(),
   agentUsage: deviceAgentUsageSchema.nullable(),
+  // EXP-1196: stored rows are already clamped server-side; the synced copy
+  // is taken as-is (no transforms in a collection schema) — clients skip
+  // vocabulary they cannot name.
+  doctor: z
+    .custom<DeviceDoctor>(
+      (value) =>
+        typeof value === `object` &&
+        value !== null &&
+        Array.isArray((value as { items?: unknown }).items)
+    )
+    .nullable(),
 })
 
 export const selectDeviceWorktreeSchema = createSelectSchema(deviceWorktrees, {

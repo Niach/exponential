@@ -6,7 +6,6 @@
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@exp/ui"
@@ -30,12 +29,13 @@ export function AddDeviceDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
+      {/* EXP-1196: no description line — the two cards say it. */}
+      <DialogContent
+        className="max-h-[90dvh] overflow-y-auto sm:max-w-lg"
+        aria-describedby={undefined}
+      >
         <DialogHeader>
           <DialogTitle>Add device</DialogTitle>
-          <DialogDescription>
-            To run coding sessions, install the desktop app.
-          </DialogDescription>
         </DialogHeader>
         <DeviceSetup origin={origin} active={open} />
       </DialogContent>

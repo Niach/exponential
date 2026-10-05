@@ -34,7 +34,7 @@ import {
 import { cn } from "@/lib/utils"
 import {
   deviceCanRefreshUsage,
-  deviceHasRunnableAgent,
+  deviceReadyForRuns,
   deviceIsMine,
   deviceIsOnline,
   deviceUpdateAvailable,
@@ -188,8 +188,9 @@ export function MyMachines({
           {mine.map((device) => {
             const online = deviceIsOnline(device)
             // EXP-409: a device with nothing runnable greys out — EXP-862
-            // leaves the WHY to the account chips.
-            const runnable = deviceHasRunnableAgent(device)
+            // leaves the WHY to the account chips; EXP-1196: the doctor
+            // report decides when the device sends one.
+            const runnable = deviceReadyForRuns(device)
             const KindIcon = getDeviceIcon(device)
             const latest =
               device.kind === `server`
@@ -348,7 +349,7 @@ export function MyMachines({
           <div className="flex flex-col gap-0">
             {teamShared.map((device) => {
               const online = deviceIsOnline(device)
-              const runnable = deviceHasRunnableAgent(device)
+              const runnable = deviceReadyForRuns(device)
               const KindIcon = getDeviceIcon(device)
               return (
                 <ListRow

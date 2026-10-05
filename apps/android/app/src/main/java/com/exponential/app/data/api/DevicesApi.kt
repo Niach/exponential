@@ -275,7 +275,7 @@ class DevicesApi @Inject constructor(private val trpc: TrpcClient) {
      * `devices.createCommand` (EXP-481) — queue a command for the machine.
      * Durable: an OFFLINE machine runs it when it returns (the sheet says so
      * instead of blocking). Build the payload with [agentLoginCommand],
-     * [agentLoginCodeCommand], [agentProfileSignOutCommand] or
+     * [agentLoginCodeCommand], [agentProfileSignOutCommand], [agentUpdateCommand] or
      * [agentProfileRemoveCommand] — the worktree kinds are no longer emitted
      * from here (see the file header).
      */
@@ -423,3 +423,16 @@ private fun parseVersionTuple(version: String?): List<Int>? {
     val major = parts.getOrNull(0)?.toIntOrNull() ?: return null
     return listOf(major, parts.getOrNull(1)?.toIntOrNull() ?: 0, parts.getOrNull(2)?.toIntOrNull() ?: 0)
 }
+
+/**
+ * The `agent_update` input for [DevicesApi.createCommand] (EXP-1196/1218):
+ * the machine runs [agent]'s OWN self-updater (`claude update` / `codex
+ * update`) and completes the row with the version move. The readiness block's
+ * `update` action — the only one besides `sign_in` another device may run.
+ */
+fun agentUpdateCommand(deviceId: String, agent: String): JsonObject =
+    buildJsonObject {
+        put("deviceId", deviceId)
+        put("kind", "agent_update")
+        put("agent", agent)
+    }

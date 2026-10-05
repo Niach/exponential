@@ -429,6 +429,10 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// desktop (and on a machine with nothing runnable) — read it through
     /// `defaultLaunchAgent` / `agentDefaults(for:)`, never raw.
     public let launchDefaults: DeviceLaunchDefaults?
+    /// EXP-1196: the machine's readiness report (the synced `doctor` column),
+    /// rendered through `DeviceReadiness`. Nil = an older build reporting
+    /// none (no readiness block), and on tRPC/relay rows.
+    public let doctor: DeviceDoctor?
     /// EXP-481: the synced devices ROW id — joins `device_worktrees` for the
     /// resume probe. Set only when the value came off the devices shape
     /// (DeviceRows mapping); nil on tRPC/relay rows, which never resume.
@@ -460,6 +464,7 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         agentUsage: [String: AgentUsage]? = nil,
         agentUsageAt: String? = nil,
         launchDefaults: DeviceLaunchDefaults? = nil,
+        doctor: DeviceDoctor? = nil,
         rowId: String? = nil
     ) {
         self.deviceId = deviceId
@@ -485,6 +490,7 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         self.agentUsage = agentUsage
         self.agentUsageAt = agentUsageAt
         self.launchDefaults = launchDefaults
+        self.doctor = doctor
         self.rowId = rowId
     }
 
@@ -492,7 +498,7 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         case deviceId, deviceLabel, connectedAt, agents, unauthedAgents, acpAgents, caps
         case kind, icon, platform, online, lastSeenAt, registered, version, updateRequested
         case updateBlocked, sharedTeamIds, owner, isDefault, agentAccounts, agentUsage
-        case agentUsageAt, launchDefaults, rowId
+        case agentUsageAt, launchDefaults, doctor, rowId
     }
 
     // Hand-written only because `sharedTeamIds` and `acpAgents` are
@@ -525,6 +531,8 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         agentUsage = try c.decodeIfPresent([String: AgentUsage].self, forKey: .agentUsage)
         agentUsageAt = try c.decodeIfPresent(String.self, forKey: .agentUsageAt)
         launchDefaults = try c.decodeIfPresent(DeviceLaunchDefaults.self, forKey: .launchDefaults)
+        // EXP-1196: lenient — a malformed report drops alone, never the row.
+        doctor = (try? c.decodeIfPresent(DeviceDoctor.self, forKey: .doctor)) ?? nil
         rowId = try c.decodeIfPresent(String.self, forKey: .rowId)
     }
 

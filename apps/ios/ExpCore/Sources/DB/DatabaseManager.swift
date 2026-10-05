@@ -2230,6 +2230,26 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v62 (EXP-1196): `devices.doctor` rides the devices shape — the
+        // machine's readiness report (jsonb, stored as stringified JSON),
+        // NULL on a build that reports none. Same guarded additive ALTER +
+        // offset reset as v45's `icon` (shape key `devices`).
+        migrator.registerMigration("v62_device_doctor") { db in
+            guard try db.tableExists("devices") else { return }
+            let existing = Set(try db.columns(in: "devices").map(\.name))
+            guard !existing.contains("doctor") else { return }
+            try db.alter(table: "devices") { t in
+                t.add(column: "doctor", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'devices'
+                    """)
+            }
+        }
+
         return migrator
     }
 

@@ -314,6 +314,14 @@ struct DeviceSetup: View {
                         .foregroundStyle(.white)
                         .lineLimit(1)
                     statusLine(device)
+                    // EXP-1196/1219: a machine reporting a doctor shows the
+                    // rows that need attention, not the signed-out line.
+                    if let doctor = device.doctor {
+                        let rows = DeviceReadiness.attentionRows(doctor, remote: true)
+                        if !rows.isEmpty {
+                            DeviceReadinessView(compactRows: rows)
+                        }
+                    }
                 }
 
                 Spacer(minLength: 0)
@@ -332,8 +340,9 @@ struct DeviceSetup: View {
     /// when nothing is runnable, and annotate it otherwise).
     @ViewBuilder
     private func statusLine(_ device: SteerDevice) -> some View {
-        let signedOut = device.unauthedAgentIds.joined(separator: ", ")
-        let signInNeeded = device.needsAgentSignIn
+        // EXP-1196: with a doctor report its rows say what is missing.
+        let signedOut = device.doctor == nil ? device.unauthedAgentIds.joined(separator: ", ") : ""
+        let signInNeeded = device.doctor == nil && device.needsAgentSignIn
         HStack(spacing: 5) {
             if device.isOnline {
                 Circle()

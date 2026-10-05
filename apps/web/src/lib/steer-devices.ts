@@ -5,6 +5,7 @@ import type {
   DeviceAgentAccounts,
   DeviceAgentProfileEntry,
   DeviceAgentUsageMap,
+  DeviceDoctor,
   SyncedDeviceWorktree,
   User,
 } from "@/db/schema"
@@ -87,6 +88,9 @@ export interface SteerDevice {
   /** EXP-484: when the device last wrote `agentUsage` — the offline "as of"
    * fallback when an entry carries no `fetchedAt`. */
   agentUsageAt?: string | null
+  /** EXP-1196: the device's readiness report (`device-doctor.json`); null /
+   * absent = an older build, render no readiness block. */
+  doctor?: DeviceDoctor | null
 }
 
 /** EXP-437: a device's launch-defaults advertisement — `agents` keyed by
@@ -195,6 +199,21 @@ export function deviceUnauthedAgentIds(device: SteerDevice | undefined): string[
  * machine" reason instead of an agent picker. */
 export function deviceHasRunnableAgent(device: SteerDevice): boolean {
   return deviceAgentIds(device).length > 0
+}
+
+/** EXP-1196: the device can start a run at all — with a doctor report, Git
+ * ok plus at least one coding agent ok (device-doctor.json `runnable`);
+ * without one (an older build), EXP-409's runnable-agent rule. Drives the
+ * device rows' "not ready" dimming. */
+export function deviceReadyForRuns(device: SteerDevice): boolean {
+  const doctor = device.doctor
+  if (!doctor) return deviceHasRunnableAgent(device)
+  const state = (key: string) =>
+    doctor.items.find((item) => item.key === key)?.state
+  return (
+    state(`git`) === `ok` &&
+    contract.codingAgent.values.some((agent) => state(agent) === `ok`)
+  )
 }
 
 /** EXP-530: only devices advertising this capability evaluate action
@@ -431,6 +450,7 @@ export function steerDeviceFromRow(
     agentUsageAt: row.agentUsageAt
       ? new Date(row.agentUsageAt).toISOString()
       : null,
+    doctor: row.doctor ?? null,
     online: deviceRowIsOnline(row.lastSeenAt, opts.now),
     lastSeenAt: new Date(row.lastSeenAt).toISOString(),
     registered: true,

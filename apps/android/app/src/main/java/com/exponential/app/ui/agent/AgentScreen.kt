@@ -66,6 +66,7 @@ import com.exponential.app.ui.issue.StaticDot
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.domain.MAX_STEER_IMAGES
 import com.exponential.app.domain.resumeWorktreeFor
+import com.exponential.app.ui.components.DeviceNotReadyRow
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.PillSize
@@ -645,7 +646,17 @@ fun AgentScreen(
                                     modifier = Modifier.testTag("launch-device-request-note"),
                                 )
                             }
+                            val notReadyDevice = device
                             when {
+                                // EXP-1196: the picked agent cannot run on the
+                                // picked machine — its failing readiness ROW
+                                // (with the action), the sentence as fallback.
+                                blocker != null && agentNotReady && notReadyDevice != null &&
+                                    teamId != null -> DeviceNotReadyRow(
+                                    device = notReadyDevice,
+                                    agent = launch.agent,
+                                    fallback = blocker,
+                                )
                                 blocker != null -> Text(
                                     blocker,
                                     style = MaterialTheme.typography.labelSmall,

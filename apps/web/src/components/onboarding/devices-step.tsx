@@ -20,7 +20,8 @@ const DevicesIcon = conceptIcon(`nav-devices`)
 // caller's own machines, which only this step lists (the dialog opens over a
 // page that already shows them). Neither
 // entrance sits under the team route, so the step mounts its own host for
-// the block's "Sign in" pill.
+// the readiness rows' Sign in action. EXP-1196: no subtitle — the cards
+// and the device rows (each with its readiness block) speak for themselves.
 export function DevicesStep({
   teamId,
   onNext,
@@ -38,7 +39,6 @@ export function DevicesStep({
     <StepCard
       icon={DevicesIcon}
       title={ONBOARDING_COPY.devices.title}
-      subtitle={ONBOARDING_COPY.devices.subtitle}
     >
       <div className="space-y-4 p-6">
         <DeviceSetup origin={origin} />

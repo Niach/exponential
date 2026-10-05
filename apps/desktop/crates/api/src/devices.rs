@@ -62,6 +62,10 @@ pub struct RegisterDevice<'a> {
     pub agent_accounts: Option<&'a serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<&'a str>,
+    /// EXP-1196: the device readiness block (`coding::device_doctor`'s
+    /// `DeviceDoctor`, as a raw value). Skipped when absent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub doctor: Option<&'a serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -123,6 +127,10 @@ pub struct HeartbeatInput<'a> {
     /// rides along — which is why hosts only send it when it CHANGED.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_usage: Option<&'a serde_json::Value>,
+    /// EXP-1196: the device readiness block, sent only when its items
+    /// CHANGED since the last send (like `agent_usage`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub doctor: Option<&'a serde_json::Value>,
 }
 
 /// EXP-481: one pending owner→device command riding the heartbeat response.
@@ -912,6 +920,7 @@ mod tests {
                 defaults_synced_at: None,
                 agent_accounts: Some(&accounts),
                 agent_usage: Some(&usage),
+                doctor: None,
             },
         )
         .unwrap();
@@ -958,6 +967,7 @@ mod tests {
                 launch_defaults: None,
                 agent_accounts: Some(&accounts),
                 version: None,
+                doctor: None,
             },
         )
         .unwrap();
@@ -982,6 +992,7 @@ mod tests {
                 launch_defaults: None,
                 agent_accounts: None,
                 version: None,
+                doctor: None,
             },
         )
         .unwrap();
@@ -1012,6 +1023,7 @@ mod tests {
                 launch_defaults: None,
                 agent_accounts: None,
                 version: None,
+                doctor: None,
             },
         )
         .unwrap();
@@ -1036,6 +1048,7 @@ mod tests {
                 launch_defaults: None,
                 agent_accounts: None,
                 version: None,
+                doctor: None,
             },
         )
         .unwrap();
