@@ -63,9 +63,9 @@ class IssueDraftPageTest {
         assertCopy(
             mapOf(
                 "title" to IssueDraftPage.LEAVE_TITLE,
-                "create" to IssueDraftPage.LEAVE_CREATE,
-                "keep" to IssueDraftPage.LEAVE_KEEP,
                 "discard" to IssueDraftPage.LEAVE_DISCARD,
+                "keep" to IssueDraftPage.LEAVE_KEEP,
+                "create" to IssueDraftPage.LEAVE_CREATE,
             ),
             fixture().getValue("copy").jsonObject.getValue("leave").jsonObject,
         )
@@ -114,15 +114,26 @@ class IssueDraftPageTest {
     @Test
     fun `a mode that writes no draft row offers no keep`() {
         assertEquals(
-            listOf(IssueDraftPage.LeaveChoice.Create, IssueDraftPage.LeaveChoice.Keep, IssueDraftPage.LeaveChoice.Discard),
+            listOf(IssueDraftPage.LeaveChoice.Discard, IssueDraftPage.LeaveChoice.Keep, IssueDraftPage.LeaveChoice.Create),
             IssueDraftPage.leaveChoices(canKeep = true),
         )
         assertEquals(
-            listOf(IssueDraftPage.LeaveChoice.Create, IssueDraftPage.LeaveChoice.Discard),
+            listOf(IssueDraftPage.LeaveChoice.Discard, IssueDraftPage.LeaveChoice.Create),
             IssueDraftPage.leaveChoices(canKeep = false),
         )
         // Its close button still confirms a discard with content.
         assertEquals(IssueDraftPage.Prompt.DiscardConfirm, IssueDraftPage.prompt(true, IssueDraftPage.Exit.Discard))
+    }
+
+    @Test
+    fun `create issue is the leave default unless it is disabled`() {
+        val withKeep = IssueDraftPage.leaveChoices(canKeep = true)
+        val noKeep = IssueDraftPage.leaveChoices(canKeep = false)
+        assertEquals(IssueDraftPage.LeaveChoice.Create, IssueDraftPage.leaveDefault(withKeep, createEnabled = true))
+        assertEquals(IssueDraftPage.LeaveChoice.Keep, IssueDraftPage.leaveDefault(withKeep, createEnabled = false))
+        assertEquals(IssueDraftPage.LeaveChoice.Create, IssueDraftPage.leaveDefault(noKeep, createEnabled = true))
+        // Never Discard: a disabled Create with no Keep has no default.
+        assertEquals(null, IssueDraftPage.leaveDefault(noKeep, createEnabled = false))
     }
 
     @Test

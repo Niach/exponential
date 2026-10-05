@@ -29,7 +29,7 @@
 //! first; every other way off the page is HELD at the ONE choke point all
 //! screen changes pass (`navigation::leave_hold`: navigate, replace, a tab
 //! click's `set_screen`, Back, Forward, a team switch) and asks Discard ·
-//! Create issue · Save draft (ONE dialog; every move held meanwhile appends), the
+//! Save draft · Create issue (ONE dialog; every move held meanwhile appends), the
 //! answer replaying the held moves in order. The page owns
 //! no tab, so there is no tab of its own to close; window close and quit are
 //! not held (the release hook above saves).
@@ -132,8 +132,9 @@ pub(crate) fn open_existing(window: &mut Window, cx: &mut App, draft: &IssueDraf
 /// one-line question over the button row, no empty band between them.
 const DRAFT_ALERT_HEIGHT: f32 = 136.;
 
-/// EXP-1212: the leave question — Discard (set apart, leading) · Create
-/// issue · Save draft (the primary, Enter), no Cancel (Esc / the ✕ stay).
+/// EXP-1212: the leave question — Discard (set apart, leading) · Save
+/// draft (plain) · Create issue (the primary, Enter), no Cancel (Esc / the
+/// ✕ stay).
 /// ONE builder for the page and the styleguide's `draft-leave-dialog`
 /// specimen. Like every other IDE alert, the window carries a SHORT title
 /// (the page's own "New issue") and the body slot the one-line question.
@@ -144,11 +145,11 @@ pub(crate) fn leave_alert(
     on_keep: impl Fn(&mut Window, &mut App) -> bool + 'static,
     on_discard: impl Fn(&mut Window, &mut App) -> bool + 'static,
 ) -> AlertSpec {
-    AlertSpec::new(copy::HEADER, copy::LEAVE_TITLE, copy::LEAVE_KEEP)
+    AlertSpec::new(copy::HEADER, copy::LEAVE_TITLE, copy::LEAVE_CREATE)
         .without_cancel()
         .height(px(DRAFT_ALERT_HEIGHT))
-        .on_ok(on_keep)
-        .secondary(copy::LEAVE_CREATE, on_create)
+        .on_ok(on_create)
+        .secondary(copy::LEAVE_KEEP, on_keep)
         .destructive(copy::LEAVE_DISCARD, on_discard)
 }
 
@@ -1100,8 +1101,8 @@ impl IssueDraftView {
 
     // -- leaving (EXP-1212) -------------------------------------------------------
 
-    /// A navigation was HELD (`navigation::leave_hold`): ask Create · Keep as
-    /// draft · Discard about `draft_id` — ONE dialog for every move held
+    /// A navigation was HELD (`navigation::leave_hold`): ask Discard · Save
+    /// draft · Create issue about `draft_id` — ONE dialog for every move held
     /// while it is pending. Esc or the window's close dismisses: the page
     /// stays and nothing held is ever replayed.
     fn prompt_leave(&mut self, draft_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) {

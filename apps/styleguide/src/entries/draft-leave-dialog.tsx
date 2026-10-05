@@ -26,7 +26,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1212`,
   title: `Draft leave dialog`,
-  blurb: `What leaving a New issue draft WITH content asks (EXP-1212; a title, a description or an attachment is content, and a reopened draft whose files are not known yet counts as content). Each prompt is ONE question (no body line, no ✕; Esc and the scrim dismiss) over ONE row of the app's 32px \`Pill\` capsules, the same capsules the natives' alert card draws. Its close button first asks "${copy.discardConfirm.title}": Cancel and "${copy.discardConfirm.confirm}" (the plain pill with a destructive label and tinted border, no fill). Every other way off the page (back, a nav entry, another screen, closing the IDE tab) is HELD and asks "${copy.leave.title}", Thunderbird's save prompt: "${copy.leave.discard}" set apart on the leading edge (quiet destructive text, no second confirm), then "${copy.leave.create}" (the plain pill, disabled without a title; the held navigation continues instead of opening the new issue) and the default "${copy.leave.keep}" (the primary pill, initial focus and Enter: save, then continue; a failed save stays on the page with the save error). Dismissing stays. Nothing is asked while a Create is in flight, and a draft with no content leaves silently. A mode that never writes a draft row (a sub-issue or share compose on phones) offers Discard and Create issue only. The copy is the contract's (\`issue-draft.json\`, byte-locked ×4).`,
+  blurb: `What leaving a New issue draft WITH content asks (EXP-1212; a title, a description or an attachment is content, and a reopened draft whose files are not known yet counts as content). Each prompt is ONE question (no body line, no ✕; Esc and the scrim dismiss) over ONE row of the app's 32px \`Pill\` capsules, the same capsules the natives' alert card draws. Its close button first asks "${copy.discardConfirm.title}": Cancel and "${copy.discardConfirm.confirm}" (the plain pill with a destructive label and tinted border, no fill). Every other way off the page (back, a nav entry, another screen, closing the IDE tab) is HELD and asks "${copy.leave.title}", Thunderbird's save prompt: "${copy.leave.discard}" set apart on the leading edge (quiet destructive text, no second confirm), then "${copy.leave.keep}" (the plain pill: save, then continue; a failed save stays on the page with the save error) and the default "${copy.leave.create}" (the primary pill, trailing, initial focus and Enter; the held navigation continues instead of opening the new issue; disabled without a title, then "${copy.leave.keep}" takes the focus). Dismissing stays. Nothing is asked while a Create is in flight, and a draft with no content leaves silently. A mode that never writes a draft row (a sub-issue or share compose on phones) offers Discard and Create issue only. The copy is the contract's (\`issue-draft.json\`, byte-locked ×4).`,
   status: {
     web: {
       state: `ok`,
@@ -79,10 +79,10 @@ export const entry: StyleguideEntry = {
               {copy.leave.discard}
             </Pill>
             <Pill size="md" mode="action">
-              {copy.leave.create}
+              {copy.leave.keep}
             </Pill>
             <Pill size="md" mode="action" primary>
-              {copy.leave.keep}
+              {copy.leave.create}
             </Pill>
           </DialogFooter>
         </DialogSpecimen>

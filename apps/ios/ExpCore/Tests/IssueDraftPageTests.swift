@@ -149,9 +149,18 @@ final class IssueDraftPageTests: XCTestCase {
     }
 
     func testLeaveChoices() {
-        XCTAssertEqual(IssueDraftPage.leaveChoices(canKeep: true), [.create, .keep, .discard])
+        XCTAssertEqual(IssueDraftPage.leaveChoices(canKeep: true), [.discard, .keep, .create])
         // A sub-issue draft never writes a row: nothing to keep.
-        XCTAssertEqual(IssueDraftPage.leaveChoices(canKeep: false), [.create, .discard])
+        XCTAssertEqual(IssueDraftPage.leaveChoices(canKeep: false), [.discard, .create])
+    }
+
+    func testLeaveDefaultIsCreateElseKeep() {
+        XCTAssertEqual(IssueDraftPage.leaveDefault(canKeep: true, createEnabled: true), .create)
+        XCTAssertEqual(IssueDraftPage.leaveDefault(canKeep: false, createEnabled: true), .create)
+        // Create disabled (no title): Save draft takes the default.
+        XCTAssertEqual(IssueDraftPage.leaveDefault(canKeep: true, createEnabled: false), .keep)
+        // Never Discard.
+        XCTAssertNil(IssueDraftPage.leaveDefault(canKeep: false, createEnabled: false))
     }
 
     func testLeaveCreateNeedsATitle() {

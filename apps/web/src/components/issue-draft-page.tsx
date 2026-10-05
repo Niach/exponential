@@ -252,9 +252,10 @@ export function IssueDraftPage({
     resolveLeave(async () => (await editor.create()) !== null)
   const leaveKeep = () => resolveLeave(() => editor.leave())
   const leaveDiscard = () => resolveLeave(() => editor.discard())
-  // R5: the dialog opens on its default "Save draft", never on the
-  // destructive Discard (Radix would focus the first button, and Enter
-  // would delete).
+  // R5: the dialog opens on its default "Create issue" (or "Save draft"
+  // while Create is disabled, no title), never on the destructive Discard
+  // (Radix would focus the first button, and Enter would delete).
+  const leaveCreateRef = useRef<HTMLButtonElement | null>(null)
   const leaveKeepRef = useRef<HTMLButtonElement | null>(null)
   const discardCancelRef = useRef<HTMLButtonElement | null>(null)
 
@@ -549,8 +550,9 @@ export function IssueDraftPage({
 
   // EXP-1212: the held navigation's three answers, Thunderbird's save
   // prompt: a quiet destructive Discard set apart on the leading edge, then
-  // Create issue (the plain pill) and the DEFAULT Save draft (the primary
-  // pill, initial focus, so Enter keeps). No ✕: dismissing (Esc, scrim)
+  // Save draft (the plain pill) and the DEFAULT Create issue (the primary
+  // pill, trailing, initial focus, so Enter creates; disabled without a
+  // title, then Save draft takes the focus). No ✕: dismissing (Esc, scrim)
   // stays on the page.
   const leaveDialog = (
     <Dialog
@@ -567,7 +569,7 @@ export function IssueDraftPage({
         data-testid="issue-draft-leave-dialog"
         onOpenAutoFocus={(event) => {
           event.preventDefault()
-          leaveKeepRef.current?.focus()
+          ;(editor.canCreate ? leaveCreateRef : leaveKeepRef).current?.focus()
         }}
       >
         <DialogTitle>{ISSUE_DRAFT_COPY.leave.title}</DialogTitle>
@@ -582,22 +584,23 @@ export function IssueDraftPage({
             {ISSUE_DRAFT_COPY.leave.discard}
           </Pill>
           <Pill
-            size="md"
-            mode="action"
-            disabled={leaveBusy || !editor.canCreate}
-            onClick={() => void leaveCreate()}
-          >
-            {ISSUE_DRAFT_COPY.leave.create}
-          </Pill>
-          <Pill
             ref={leaveKeepRef}
             size="md"
             mode="action"
-            primary
             disabled={leaveBusy}
             onClick={() => void leaveKeep()}
           >
             {ISSUE_DRAFT_COPY.leave.keep}
+          </Pill>
+          <Pill
+            ref={leaveCreateRef}
+            size="md"
+            mode="action"
+            primary
+            disabled={leaveBusy || !editor.canCreate}
+            onClick={() => void leaveCreate()}
+          >
+            {ISSUE_DRAFT_COPY.leave.create}
           </Pill>
         </DialogFooter>
       </DialogContent>

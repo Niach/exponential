@@ -457,13 +457,13 @@ fun IssueDraftScreen(
     }
     heldLeave?.let { proceed ->
         // One question: Discard (quiet, destructive) set apart on the leading
-        // edge; Create issue (plain pill) · Save draft (primary pill, the default) on
-        // the trailing edge. A mode with no Keep makes Create the primary.
-        // Dismissing (scrim, back) cancels the navigation.
+        // edge; Save draft (plain pill) · Create issue (primary pill, the default)
+        // on the trailing edge. While Create is disabled (no title) Save draft
+        // takes the focus. Dismissing (scrim, back) cancels the navigation.
         val canKeep = IssueDraftPage.LeaveChoice.Keep in leaveChoices
         val createAction = GlassAlertAction(
             label = IssueDraftPage.LEAVE_CREATE,
-            primary = !canKeep,
+            primary = true,
             enabled = canCreate,
             testTag = "issue-draft-leave-create",
             onClick = {
@@ -476,7 +476,6 @@ fun IssueDraftScreen(
         )
         val keepAction = GlassAlertAction(
             label = IssueDraftPage.LEAVE_KEEP,
-            primary = true,
             testTag = "issue-draft-leave-keep",
             onClick = {
                 heldLeave = null
@@ -494,6 +493,11 @@ fun IssueDraftScreen(
                 }
             },
         )
+        // The trailing row in `leaveChoices` order (Save draft · Create issue).
+        val trailingChoices = leaveChoices.filter { it != IssueDraftPage.LeaveChoice.Discard }
+        val trailing = trailingChoices.map { choice ->
+            if (choice == IssueDraftPage.LeaveChoice.Keep) keepAction else createAction
+        }
         GlassAlert(
             title = IssueDraftPage.LEAVE_TITLE,
             onDismiss = {
@@ -516,8 +520,9 @@ fun IssueDraftScreen(
             } else {
                 null
             },
-            trailing = if (canKeep) listOf(createAction, keepAction) else listOf(createAction),
-            defaultAction = if (canKeep) 1 else null,
+            trailing = trailing,
+            defaultAction = IssueDraftPage.leaveDefault(leaveChoices, canCreate)
+                ?.let { choice -> trailingChoices.indexOf(choice).takeIf { it >= 0 } },
         )
     }
 

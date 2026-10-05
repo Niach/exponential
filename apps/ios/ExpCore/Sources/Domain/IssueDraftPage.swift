@@ -32,14 +32,14 @@ public enum IssueDraftPage {
     public enum Leave {
         /// The prompt's ONE line: the question, no body.
         public static let title = "Save this issue as a draft?"
-        /// The page's Create (the secondary button); the held navigation
-        /// then continues.
-        public static let create = "Create issue"
-        /// Save, then continue: the DEFAULT answer (primary, Return).
-        public static let keep = "Save draft"
         /// Delete, then continue (a quiet destructive text button on the
         /// leading edge, never focused; no second confirmation).
         public static let discard = "Discard"
+        /// Save, then continue (the plain button beside Create).
+        public static let keep = "Save draft"
+        /// The page's Create: the DEFAULT answer (primary, trailing, Return);
+        /// the held navigation then continues.
+        public static let create = "Create issue"
     }
 
     /// How the page is being left.
@@ -75,18 +75,27 @@ public enum IssueDraftPage {
             || !attachmentsKnown
     }
 
-    /// The leave prompt's answers, in reading order.
+    /// The leave prompt's answers.
     public enum LeaveChoice: Equatable, Sendable {
-        case create
-        case keep
         case discard
+        case keep
+        case create
     }
 
-    /// The leave prompt's choices. `canKeep` = the page writes a draft row; a
-    /// mode that never does (sub-issue compose) has nothing to keep, so it
-    /// offers Create and Discard only (plus the platform's Cancel).
+    /// The leave prompt's choices in reading order: Discard (leading) …
+    /// Save draft · Create issue (trailing). `canKeep` = the page writes a
+    /// draft row; a mode that never does (sub-issue compose) has nothing to
+    /// keep, so it offers Discard and Create only.
     public static func leaveChoices(canKeep: Bool) -> [LeaveChoice] {
-        canKeep ? [.create, .keep, .discard] : [.create, .discard]
+        canKeep ? [.discard, .keep, .create] : [.discard, .create]
+    }
+
+    /// The leave prompt's default answer (initial focus + Return): Create,
+    /// unless it is disabled, then Save draft; nil when neither can take it
+    /// (no Keep and Create disabled). Never Discard.
+    public static func leaveDefault(canKeep: Bool, createEnabled: Bool) -> LeaveChoice? {
+        if createEnabled { return .create }
+        return canKeep ? .keep : nil
     }
 
     /// EXP-1212: a draft with no content never asks (it goes and is deleted

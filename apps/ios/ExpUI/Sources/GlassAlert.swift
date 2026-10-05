@@ -19,7 +19,8 @@ import UIKit
 public struct GlassAlertAction: Identifiable {
     public enum Role: Sendable {
         /// The loud `primary` pill (web `size="sm"` `default`); the default
-        /// answer: it takes Return on a hardware keyboard.
+        /// answer (Return on a hardware keyboard) unless `isDefault` says
+        /// otherwise.
         case primary
         /// The glass hairline pill (web `size="sm"` `outline`).
         case outline
@@ -37,12 +38,17 @@ public struct GlassAlertAction: Identifiable {
     public let role: Role
     /// A disabled action stays in place, dimmed (the pill's disabled paint).
     public let enabled: Bool
+    /// The default answer: it takes Return on a hardware keyboard. Defaults
+    /// to the `.primary` role; a caller moves it off a DISABLED primary onto
+    /// another answer (EXP-1212: Create issue disabled → Save draft).
+    public let isDefault: Bool
     public let handler: () -> Void
 
     public init(
         _ label: String,
         role: Role = .outline,
         enabled: Bool = true,
+        isDefault: Bool? = nil,
         id: String? = nil,
         handler: @escaping () -> Void
     ) {
@@ -50,6 +56,7 @@ public struct GlassAlertAction: Identifiable {
         self.label = label
         self.role = role
         self.enabled = enabled
+        self.isDefault = isDefault ?? (role == .primary)
         self.handler = handler
     }
 }
@@ -166,7 +173,7 @@ private struct GlassAlertButton: View {
         }
         .buttonStyle(.glassPillPrimary)
         .disabled(!action.enabled)
-        .modifier(DefaultAction(isDefault: action.role == .primary))
+        .modifier(DefaultAction(isDefault: action.isDefault && action.enabled))
         .accessibilityIdentifier("glass-alert-\(action.id)")
     }
 
@@ -197,7 +204,7 @@ private struct GlassAlertButton: View {
         }
     }
 
-    /// The primary answer takes Return on a hardware keyboard.
+    /// The default answer takes Return on a hardware keyboard.
     private struct DefaultAction: ViewModifier {
         let isDefault: Bool
 
@@ -274,6 +281,7 @@ private struct GlassAlertPresenter: ViewModifier {
                                 action.label,
                                 role: action.role,
                                 enabled: action.enabled,
+                                isDefault: action.isDefault,
                                 id: action.id
                             ) {
                                 setPresented(false)
@@ -337,8 +345,23 @@ private struct GlassAlertHost: View {
             title: "Save this issue as a draft?",
             actions: [
                 GlassAlertAction("Discard", role: .quietDestructive) {},
-                GlassAlertAction("Create issue", role: .outline) {},
-                GlassAlertAction("Save draft", role: .primary) {},
+                GlassAlertAction("Save draft", role: .outline) {},
+                GlassAlertAction("Create issue", role: .primary) {},
+            ]
+        )
+        .padding(.horizontal, GlassAlertMetrics.screenInset)
+    }
+}
+
+#Preview("draft-leave-dialog: leave, no title") {
+    ZStack {
+        GlassTokens.backgroundTop.ignoresSafeArea()
+        GlassAlert(
+            title: "Save this issue as a draft?",
+            actions: [
+                GlassAlertAction("Discard", role: .quietDestructive) {},
+                GlassAlertAction("Save draft", role: .outline, isDefault: true) {},
+                GlassAlertAction("Create issue", role: .primary, enabled: false, isDefault: false) {},
             ]
         )
         .padding(.horizontal, GlassAlertMetrics.screenInset)

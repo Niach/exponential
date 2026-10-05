@@ -133,11 +133,12 @@ struct IssueDraftPageView: View {
                 },
             ]
         )
-        // The leave dialog: Discard (quiet, leading) … Create issue · Save
-        // draft (the default, primary); a sub-issue draft offers no Keep
-        // (`IssueDraftPage.leaveChoices`), so Create issue is the primary
-        // there; Create without a title shows disabled, never hidden. A
-        // scrim tap is the no-answer path (Cancel).
+        // The leave dialog: Discard (quiet, leading) … Save draft (plain) ·
+        // Create issue (the default, primary, trailing); a sub-issue draft
+        // offers no Keep (`IssueDraftPage.leaveChoices`). Create without a
+        // title shows disabled, never hidden, and Return moves to Save
+        // draft (`IssueDraftPage.leaveDefault`). A scrim tap is the
+        // no-answer path (Cancel).
         .glassAlert(
             isPresented: $leavePresented,
             title: IssueDraftPage.Leave.title,
@@ -260,26 +261,33 @@ struct IssueDraftPageView: View {
         return true
     }
 
-    /// The leave dialog's buttons in reading order: Discard (leading), then
-    /// Create issue, then Save draft. Save draft is the primary; without it
-    /// Create issue is.
+    /// The leave dialog's buttons in reading order (`leaveChoices`): Discard
+    /// (leading), then Save draft, then Create issue (primary). Create is the
+    /// default answer; disabled, it hands Return to Save draft.
     private var leaveActions: [GlassAlertAction] {
         let choices = vm.leaveChoices
-        let canKeep = choices.contains(.keep)
-        let order: [IssueDraftPage.LeaveChoice] = [.discard, .create, .keep]
-        return order.filter(choices.contains).map { choice in
+        let createEnabled = IssueDraftPage.leaveCreateEnabled(title: vm.title, creating: vm.creating)
+        let defaultChoice = IssueDraftPage.leaveDefault(
+            canKeep: choices.contains(.keep),
+            createEnabled: createEnabled
+        )
+        return choices.map { choice in
             switch choice {
             case .create:
                 GlassAlertAction(
                     IssueDraftPage.Leave.create,
-                    role: canKeep ? .outline : .primary,
-                    enabled: IssueDraftPage.leaveCreateEnabled(title: vm.title, creating: vm.creating),
+                    role: .primary,
+                    enabled: createEnabled,
+                    isDefault: defaultChoice == .create,
                     id: "leave-create"
                 ) { answerLeave(.create) }
             case .keep:
-                GlassAlertAction(IssueDraftPage.Leave.keep, role: .primary, id: "leave-keep") {
-                    answerLeave(.keep)
-                }
+                GlassAlertAction(
+                    IssueDraftPage.Leave.keep,
+                    role: .outline,
+                    isDefault: defaultChoice == .keep,
+                    id: "leave-keep"
+                ) { answerLeave(.keep) }
             case .discard:
                 GlassAlertAction(IssueDraftPage.Leave.discard, role: .quietDestructive, id: "leave-discard") {
                     answerLeave(.discard)

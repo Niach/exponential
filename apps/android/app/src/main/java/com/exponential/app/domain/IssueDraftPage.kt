@@ -65,15 +65,27 @@ object IssueDraftPage {
         else -> Prompt.Leave
     }
 
-    /** The leave prompt's answers (the dialog lays them out: Discard leading, Create · Save draft trailing). */
-    enum class LeaveChoice { Create, Keep, Discard }
+    /** The leave prompt's answers (the dialog lays them out: Discard leading, Save draft · Create issue trailing). */
+    enum class LeaveChoice { Discard, Keep, Create }
 
     /**
-     * The leave prompt's choices. [canKeep] = the page writes a draft row; a
-     * mode that never does (sub-issue or share compose) has nothing to keep,
-     * so it offers Create and Discard only.
+     * The leave prompt's choices in row order (Discard … Save draft · Create
+     * issue). [canKeep] = the page writes a draft row; a mode that never does
+     * (sub-issue or share compose) has nothing to keep, so it offers Discard
+     * and Create only.
      */
     fun leaveChoices(canKeep: Boolean): List<LeaveChoice> =
-        if (canKeep) listOf(LeaveChoice.Create, LeaveChoice.Keep, LeaveChoice.Discard)
-        else listOf(LeaveChoice.Create, LeaveChoice.Discard)
+        if (canKeep) listOf(LeaveChoice.Discard, LeaveChoice.Keep, LeaveChoice.Create)
+        else listOf(LeaveChoice.Discard, LeaveChoice.Create)
+
+    /**
+     * The leave prompt's default answer (primary-ranked: initial focus +
+     * Enter): Create issue, unless it is disabled (no title), then Save draft
+     * where the mode offers it. Never Discard.
+     */
+    fun leaveDefault(choices: List<LeaveChoice>, createEnabled: Boolean): LeaveChoice? = when {
+        createEnabled && LeaveChoice.Create in choices -> LeaveChoice.Create
+        LeaveChoice.Keep in choices -> LeaveChoice.Keep
+        else -> null
+    }
 }

@@ -9,8 +9,8 @@
 //!
 //! EXP-1212: a draft WITH content never goes silently. The close button asks
 //! [`exit_prompt`]'s `DiscardConfirm` first; any other way off the page is
-//! HELD behind the `Leave` question (Discard · Create issue · Save draft,
-//! Save draft the default). Each prompt is ONE question: there is no body.
+//! HELD behind the `Leave` question (Discard · Save draft · Create issue,
+//! Create issue the default). Each prompt is ONE question: there is no body.
 
 /// The identifier slot of the collapsed title.
 pub const HEADER: &str = "New issue";
@@ -31,10 +31,10 @@ pub const DISCARD_CONFIRM_TITLE: &str = "Discard this draft and its files?";
 pub const DISCARD_CONFIRM: &str = "Discard";
 /// EXP-1212: the question a HELD navigation off a draft with content asks.
 pub const LEAVE_TITLE: &str = "Save this issue as a draft?";
-/// The page's Create (the secondary button), then the held navigation
-/// continues.
+/// The page's Create, then the held navigation continues: the DEFAULT
+/// answer (primary, trailing, Enter).
 pub const LEAVE_CREATE: &str = "Create issue";
-/// Save, then continue: the DEFAULT answer (primary, Enter).
+/// Save, then continue (the plain button beside Create issue).
 pub const LEAVE_KEEP: &str = "Save draft";
 /// Delete (no second confirmation), then continue.
 pub const LEAVE_DISCARD: &str = "Discard";
@@ -61,7 +61,7 @@ pub enum DraftPrompt {
     /// "Discard this draft and its files?" with a destructive Discard and
     /// Cancel.
     DiscardConfirm,
-    /// The navigation is held: Discard · Create issue · Save draft.
+    /// The navigation is held: Discard · Save draft · Create issue.
     Leave,
 }
 

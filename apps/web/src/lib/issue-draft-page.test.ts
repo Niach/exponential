@@ -28,9 +28,9 @@ describe(`issue draft page (contract fixture)`, () => {
       },
       leave: {
         title: `Save this issue as a draft?`,
-        create: `Create issue`,
-        keep: `Save draft`,
         discard: `Discard`,
+        keep: `Save draft`,
+        create: `Create issue`,
       },
     })
   })

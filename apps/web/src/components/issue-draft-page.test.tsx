@@ -223,7 +223,22 @@ describe(`IssueDraftPage leaving`, () => {
     expect(blockerState.shouldBlockFn!(away)).toBe(false)
   })
 
-  it(`opens with focus on Save draft, never on Discard`, async () => {
+  it(`opens with focus on Create issue, never on Discard`, async () => {
+    blockerState.status = `blocked`
+    renderPage()
+    await screen.findByTestId(`issue-draft-leave-dialog`)
+    await waitFor(() =>
+      expect(document.activeElement?.textContent).toBe(
+        ISSUE_DRAFT_COPY.leave.create
+      )
+    )
+    expect(document.activeElement?.textContent).not.toBe(
+      ISSUE_DRAFT_COPY.leave.discard
+    )
+  })
+
+  it(`opens with focus on Save draft while Create is disabled`, async () => {
+    editor.canCreate = false
     blockerState.status = `blocked`
     renderPage()
     await screen.findByTestId(`issue-draft-leave-dialog`)
@@ -232,12 +247,9 @@ describe(`IssueDraftPage leaving`, () => {
         ISSUE_DRAFT_COPY.leave.keep
       )
     )
-    expect(document.activeElement?.textContent).not.toBe(
-      ISSUE_DRAFT_COPY.leave.discard
-    )
   })
 
-  it(`asks one question over Discard · Create issue · Save draft, no ✕`, async () => {
+  it(`asks one question over Discard · Save draft · Create issue, no ✕`, async () => {
     blockerState.status = `blocked`
     renderPage()
     const dialog = await screen.findByTestId(`issue-draft-leave-dialog`)
@@ -247,8 +259,8 @@ describe(`IssueDraftPage leaving`, () => {
       Array.from(dialog.querySelectorAll(`button`)).map((b) => b.textContent)
     ).toEqual([
       ISSUE_DRAFT_COPY.leave.discard,
-      ISSUE_DRAFT_COPY.leave.create,
       ISSUE_DRAFT_COPY.leave.keep,
+      ISSUE_DRAFT_COPY.leave.create,
     ])
   })
 

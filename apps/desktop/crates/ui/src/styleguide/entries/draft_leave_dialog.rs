@@ -1,5 +1,5 @@
 //! EXP-1212: `draft-leave-dialog` (3 Special components): what leaving a New
-//! issue page with content asks, Discard · Create issue · Save draft, plus
+//! issue page with content asks, Discard · Save draft · Create issue, plus
 //! the `×`'s "Discard this draft and its files?" confirm.
 //!
 //! The IDE's dialogs are native alert windows (`issue_draft_screen`'s
