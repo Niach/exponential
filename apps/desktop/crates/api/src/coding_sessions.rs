@@ -574,6 +574,20 @@ pub fn context_budget(trpc: &TrpcClient) -> Result<McpContextBudget, ApiError> {
     trpc.query("codingSessions.contextBudget")
 }
 
+/// `codingSessions.prFiles` (EXP-1194) — the changed files of an ISSUE-LESS
+/// run's own PR (a chat or action run's `pr_open{repositoryId, head}`), the
+/// same output as [`crate::issues::pr_files`]: `repo`/`pr_number` are `None`
+/// and `files` empty when the run has no PR. Member-gated by the run's team,
+/// so a teammate's run reads too. Blocking; background executor only (§3.5).
+pub fn pr_files(trpc: &TrpcClient, session_id: &str) -> Result<crate::issues::PrFiles, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        session_id: &'a str,
+    }
+    trpc.query_with_input("codingSessions.prFiles", &Input { session_id })
+}
+
 /// `codingSessions.end` — mutation, idempotent server-side.
 pub fn end(trpc: &TrpcClient, id: &str) -> Result<CodingSession, ApiError> {
     end_with(trpc, id, false)
@@ -1610,6 +1624,23 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/codingSessions.setNeedsInput HTTP/1.1"));
         assert!(request.ends_with(r#"{"id":"sess-1","needsInput":true}"#));
+    }
+
+    /// EXP-1194: an issue-less run's own PR files, keyed by the session id.
+    #[test]
+    fn pr_files_queries_by_session_id_and_decodes_the_issue_shape() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"repo":"o/r","prNumber":7,"files":[]}}}"#,
+        );
+        let files = pr_files(&client(&base), "sess-1").unwrap();
+        assert_eq!(files.repo.as_deref(), Some("o/r"));
+        assert_eq!(files.pr_number, Some(7));
+        assert!(files.files.is_empty());
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with(
+            "GET /api/trpc/codingSessions.prFiles?input=%7B%22sessionId%22%3A%22sess-1%22%7D HTTP/1.1"
+        ));
     }
 
     /// EXP-848: the turn mirror — same shape, same fire-and-forget contract

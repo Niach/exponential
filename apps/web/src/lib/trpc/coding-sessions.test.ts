@@ -25,6 +25,12 @@ const h = vi.hoisted(() => ({
     boardId: `proj-1`,
     teamId: `ws-issue`,
   })),
+  // EXP-1194: prFiles' lazily imported GitHub read.
+  loadPrFiles: vi.fn(async (..._args: unknown[]) => ({
+    repo: `acme/app`,
+    prNumber: 12,
+    files: [{ filename: `a.ts`, status: `modified`, additions: 1, deletions: 0 }],
+  })),
 }))
 
 // lib/trpc.ts + lib/admin.ts import db/auth at module scope; runtime here only
@@ -42,6 +48,7 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
   repoFromPrUrl: (url: string) =>
     url.match(/github\.com\/([^/]+\/[^/]+)\/pull\/\d+/)?.[1] ?? null,
 }))
+vi.mock(`@/lib/integrations/pr-files`, () => ({ loadPrFiles: h.loadPrFiles }))
 vi.mock(`@/lib/trpc/repositories`, () => ({
   loadRepositoryByFullName: h.loadRepositoryByFullName,
   mergeRepositoryPull: h.mergeRepositoryPull,
@@ -316,6 +323,33 @@ describe(`codingSessions.mergePr`, () => {
     err = (await rejectionOf(caller.mergePr({ sessionId: SESSION_ID }))) as TRPCError
     expect(err.code).toBe(`NOT_FOUND`)
     expect(h.mergeRepositoryPull).not.toHaveBeenCalled()
+  })
+})
+
+// EXP-1194: an issue-less run's PR diff, keyed by the run.
+describe(`codingSessions.prFiles`, () => {
+  const PR_URL = `https://github.com/acme/app/pull/12`
+
+  it(`reads the run's PR files after the member check`, async () => {
+    h.loadPrFiles.mockClear()
+    selectResults.push([{ teamId: TEAM_ID, prUrl: PR_URL, prNumber: 12 }])
+    const result = await caller.prFiles({ sessionId: SESSION_ID })
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, TEAM_ID)
+    expect(h.loadPrFiles).toHaveBeenCalledWith(PR_URL, 12)
+    expect(result.files).toHaveLength(1)
+  })
+
+  it(`refuses a non-member and an unknown run`, async () => {
+    h.loadPrFiles.mockClear()
+    h.assertTeamMember.mockRejectedValueOnce(new TRPCError({ code: `FORBIDDEN` }))
+    selectResults.push([{ teamId: TEAM_ID, prUrl: PR_URL, prNumber: 12 }])
+    let err = (await rejectionOf(caller.prFiles({ sessionId: SESSION_ID }))) as TRPCError
+    expect(err.code).toBe(`FORBIDDEN`)
+
+    selectResults.push([])
+    err = (await rejectionOf(caller.prFiles({ sessionId: SESSION_ID }))) as TRPCError
+    expect(err.code).toBe(`NOT_FOUND`)
+    expect(h.loadPrFiles).not.toHaveBeenCalled()
   })
 })
 

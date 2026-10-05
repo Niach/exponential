@@ -9,6 +9,15 @@ public struct MergeSessionPrInput: Encodable, Sendable {
     }
 }
 
+/// Input for `codingSessions.prFiles` (EXP-1194).
+public struct SessionPrFilesInput: Encodable, Sendable {
+    public let sessionId: String
+
+    public init(sessionId: String) {
+        self.sessionId = sessionId
+    }
+}
+
 /// EXP-734: the run's own pull request — the one an action or chat run opened
 /// through MCP `exponential_pr_open({repositoryId, head})`, which links no
 /// issue at all. Issue and batch runs merge through `IssuesApi.mergePr`.
@@ -28,6 +37,18 @@ public final class CodingSessionsApi: Sendable {
             accountId: accountId,
             path: "codingSessions.mergePr",
             input: MergeSessionPrInput(sessionId: sessionId)
+        )
+    }
+
+    /// EXP-1194: the changed files of the session's own PR, for the Changes
+    /// view (Reviews → Agent runs). `codingSessions.prFiles` is a `.query`
+    /// with the same output as `issues.prFiles`; empty `files` when the run
+    /// has no PR.
+    public func prFiles(accountId: String, sessionId: String) async throws -> PrFilesResult {
+        try await trpc.query(
+            accountId: accountId,
+            path: "codingSessions.prFiles",
+            input: SessionPrFilesInput(sessionId: sessionId)
         )
     }
 }

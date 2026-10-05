@@ -634,6 +634,32 @@ export const codingSessionsRouter = router({
       })
     }),
 
+  // EXP-1194: the changed files of the PR a run opened for itself — the diff
+  // view of a run with no issue (a chat or action run's chore PR), which
+  // `issues.prFiles` cannot key. Member-gated via the run's team (every
+  // member reviews; PR diffs can expose private-repo contents). The repo is
+  // resolved from the stored url, like mergePr.
+  prFiles: authedProcedure
+    .input(z.object({ sessionId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const [session] = await ctx.db
+        .select({
+          teamId: codingSessions.teamId,
+          prUrl: codingSessions.prUrl,
+          prNumber: codingSessions.prNumber,
+        })
+        .from(codingSessions)
+        .where(eq(codingSessions.id, input.sessionId))
+        .limit(1)
+      if (!session) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
+      }
+      await assertTeamMember(ctx.session.user.id, session.teamId)
+      // Lazy: the GitHub helpers open the db connection at module scope.
+      const { loadPrFiles } = await import(`@/lib/integrations/pr-files`)
+      return loadPrFiles(session.prUrl, session.prNumber)
+    }),
+
   // EXP-403: the CLI daemon's REV2-24 one-session-per-issue probe — the
   // desktop reads its synced coding_sessions collection for this; the
   // headless daemon has no sync and asks the server instead. "Live" mirrors

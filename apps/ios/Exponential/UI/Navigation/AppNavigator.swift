@@ -44,6 +44,10 @@ enum AppRoute: Hashable {
     /// or the issue detail's coding card. A pushed destination (EXP-221), not
     /// a fullScreenCover, so it gets the native back button + swipe-back.
     case agentSession(accountId: String, sessionId: String)
+    /// EXP-1194: a run's OWN issue-less pull request on the Changes face
+    /// (`RunChangesView`) — what a Reviews → Agent runs row opens, like an
+    /// issue row opens its issue's `.issueFace(…, face: .changes)`.
+    case runChanges(accountId: String, sessionId: String)
     /// EXP-825: the team's Agent page — the ONE launcher (composer + the
     /// caller's Running/Recent sessions), a pushed detail. Every play button
     /// lands here with a `seed`; the Chat FAB with an empty one.
@@ -765,6 +769,9 @@ struct MainNavigator: View {
         case let .agentSession(accountId, sessionId):
             // EXP-893: the Work screen on its Run face.
             WorkScreen(subject: .session(id: sessionId))
+                .environment(\.accountId, accountId)
+        case let .runChanges(accountId, sessionId):
+            RunChangesView(sessionId: sessionId)
                 .environment(\.accountId, accountId)
         case let .agent(accountId, seed):
             // The Agent TAB is the empty-seed page at the bottom of the

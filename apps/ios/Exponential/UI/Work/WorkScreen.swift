@@ -1243,10 +1243,11 @@ struct WorkScreen: View {
             guard prChangesModel == nil, let issueId else { return }
             let model = ChangesViewModel(
                 accountId: accountId,
-                issueId: issueId,
+                source: .issue(issueId),
                 db: deps.db,
                 issuesApi: deps.issuesApi,
-                repositoriesApi: deps.repositoriesApi
+                repositoriesApi: deps.repositoriesApi,
+                codingSessionsApi: deps.codingSessionsApi
             )
             prChangesModel = model
             model.startObserving()

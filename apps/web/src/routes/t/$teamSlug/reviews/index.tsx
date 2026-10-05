@@ -229,6 +229,17 @@ function ReviewsPage() {
     })
   }
 
+  // EXP-1194: a run's own PR opens the same diff UI, on the RUN's Changes
+  // face (`codingSessions.prFiles`) — there is no issue to open. GitHub stays
+  // one click away in the face's header.
+  const openRunReview = (rowTeamSlug: string, sessionId: string) => {
+    void navigate({
+      to: `/t/$teamSlug/sessions/$sessionId`,
+      params: { teamSlug: rowTeamSlug, sessionId },
+      search: { from: `reviews`, view: `diff` },
+    })
+  }
+
   // A row's Merge (and its Retry merge): a stack member opens the stack
   // dialog, anything else the plain confirm. The rows are already the team's
   // open pull requests, exactly what the chain is read from.
@@ -586,11 +597,9 @@ function ReviewsPage() {
                         interactive
                         className="group/row grid grid-cols-[1.5rem_4.5rem_1fr_auto] gap-0"
                         onClick={() =>
-                          session.prUrl &&
-                          window.open(
-                            session.prUrl,
-                            `_blank`,
-                            `noopener,noreferrer`
+                          openRunReview(
+                            sessionGroup.team?.slug ?? teamSlug,
+                            session.id
                           )
                         }
                         data-testid={`review-run-${session.id}`}

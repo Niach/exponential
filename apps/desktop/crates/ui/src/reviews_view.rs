@@ -376,8 +376,11 @@ impl ReviewsView {
     /// trailing Merge, the branch as the sub-line, an error caption. Merging
     /// goes through `codingSessions.mergePr` and is ECHO-settled on the
     /// session row's `pr_state` — no local removal, unlike an unlinked pull.
-    /// Clicking the row opens the PR on GitHub; there is no local detail
-    /// behind it either.
+    /// EXP-1194: clicking the row opens the RUN on its Changes face beside
+    /// this queue (the issue rows' EXP-1154 rule) — the PR's files come from
+    /// `codingSessions.prFiles` when the run published no live diff, so a
+    /// teammate's or an ended run still lands on the PR diff. The work header
+    /// above that face carries the GitHub link.
     fn run_row(
         &self,
         run: &domain::rows::CodingSession,
@@ -438,7 +441,7 @@ impl ReviewsView {
             }))
         };
 
-        let url = run.pr_url.clone().unwrap_or_default();
+        let run_id = run.id.clone();
         crate::surface::flat_row()
             .id(SharedString::from(format!("run-{}", run.id)))
             .flex()
@@ -451,11 +454,23 @@ impl ReviewsView {
             .gap_2()
             .hover(move |this| this.bg(row_hover))
             .cursor_pointer()
-            .on_click(cx.listener(move |_, _, _, cx| {
+            .on_click(cx.listener(move |_, _, window, cx| {
                 MergeState::disarm(cx);
-                if !url.is_empty() {
-                    crate::settings::open_url(cx, url.clone());
-                }
+                // EXP-1194: the review of a run's PR is the run's Changes
+                // face, opened beside the Reviews queue it came from. The
+                // face request waits for the view `navigate_from` builds.
+                crate::session_screen::open_session_with_origin(
+                    &run_id,
+                    crate::navigation::Screen::Reviews.list_origin(),
+                    window,
+                    cx,
+                );
+                crate::screens::set_run_face(
+                    &run_id,
+                    crate::screens::RunFace::Diff,
+                    window,
+                    cx,
+                );
             }))
             .child(
                 v_flex()
