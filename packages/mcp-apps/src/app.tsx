@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
-import { ListEmpty, Skeleton } from "@exp/ui"
+import { GLASS_CARD_CLASS, ListEmpty, Skeleton, cn } from "@exp/ui"
 import { actionsFromBridge, McpActionsProvider } from "./actions"
 import { AppBridge, type ToolResult } from "./bridge"
 import { DevicesView } from "./devices-view"
@@ -135,7 +135,12 @@ export function App({ view }: { view: McpAppView }) {
 
   return (
     <McpActionsProvider value={actions}>
-      <div ref={root} className="bg-glass-bottom font-sans text-foreground antialiased">
+      <div
+        ref={root}
+        // The app's own card (GlassCard): the glass fill and hairline over
+        // the host's ground, clipped so bands and rows follow the radius.
+        className={cn(GLASS_CARD_CLASS, `overflow-hidden font-sans text-foreground antialiased`)}
+      >
         {screen.kind === `waiting` && (
           <div className="flex flex-col gap-2 p-4">
             <Skeleton className="h-6 w-1/3" />

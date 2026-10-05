@@ -3,9 +3,22 @@
 /* The views' own files; @exp/ui's stylesheet already scans the package. */
 @source "./**/*.{ts,tsx}";
 
+/* The view is a CARD on the host's chat, not a page: no ground of its own
+   (the package paints the app gradient on body + body::before), so the
+   host's background shows around the card exactly as the app's ground does
+   around its cards. */
 html,
 body {
-  background: transparent;
+  background: transparent !important;
+}
+/* A frame stays transparent only while its colour scheme matches its
+   parent's; hosts that render us dark declare dark, and so do we (the app
+   is dark-only). */
+:root {
+  color-scheme: dark;
+}
+body::before {
+  display: none !important;
 }
 
 /* Read-only GFM (markdown.tsx): the web editor's `.tiptap-content`
