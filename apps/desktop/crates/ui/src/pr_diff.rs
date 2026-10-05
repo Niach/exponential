@@ -120,6 +120,11 @@ impl PrDiffView {
             .update(cx, |diff, cx| diff.fetch(Arc::new(client), issue_id, cx));
     }
 
+    /// The issue whose PR files the pane holds (or is loading).
+    pub(crate) fn issue_id(&self) -> Option<&str> {
+        self.issue_id.as_deref()
+    }
+
     /// EXP-889 — the counts the pane is showing (`+N −M`), for the work
     /// header's Changes item. `None` until the files land (and for a pull
     /// request with none): the item then wears the word `Changes`, exactly
