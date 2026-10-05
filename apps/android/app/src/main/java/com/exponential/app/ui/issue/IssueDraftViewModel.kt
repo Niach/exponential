@@ -56,6 +56,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -99,6 +100,9 @@ data class IssueDraftUiState(
     val seeded: Boolean = false,
     val creating: Boolean = false,
     val loadFailed: Boolean = false,
+    /** EXP-1212: the row's files are listed (or there is no row). Until then
+     *  a reopened draft counts as content: it may be file-only. */
+    val attachmentsKnown: Boolean = false,
 )
 
 /**
@@ -141,6 +145,7 @@ class IssueDraftViewModel @Inject constructor(
         IssueDraftUiState(
             boardId = savedStateHandle.get<String>("board")?.takeIf { it.isNotBlank() },
             seeded = deferUploads,
+            attachmentsKnown = deferUploads,
         ),
     )
     val state: StateFlow<IssueDraftUiState> = _state
@@ -287,7 +292,7 @@ class IssueDraftViewModel @Inject constructor(
                 val row = db.issueDraftDao().observeById(draftId).first()
                 if (row == null) {
                     attachmentsKnown = true
-                    _state.update { it.copy(seeded = true) }
+                    _state.update { it.copy(seeded = true, attachmentsKnown = true) }
                 } else if (userEdited) {
                     // Typed before the row arrived: keep the typing, but the
                     // row is real (a leave may now owe a delete).
@@ -360,7 +365,9 @@ class IssueDraftViewModel @Inject constructor(
             android.util.Log.w("IssueDraftViewModel", "Draft attachments load failed", error)
             return
         }.filterNot { isInlineImage(it.contentType) || isInlineMedia(it.contentType) }
-        _state.update { s -> s.copy(attachments = files + s.attachments.filterNot { a -> files.any { it.id == a.id } }) }
+        _state.update { s ->
+            s.copy(attachments = files + s.attachments.filterNot { a -> files.any { it.id == a.id } }, attachmentsKnown = true)
+        }
         attachmentsKnown = true
     }
 
@@ -437,7 +444,7 @@ class IssueDraftViewModel @Inject constructor(
     // ── Autosave: ONE single-flight path ────────────────────────────────────
 
     private fun hasContent(s: IssueDraftUiState) =
-        s.title.isNotBlank() || s.description.isNotBlank() || s.attachments.isNotEmpty()
+        IssueDraftPage.hasContent(s.title, s.description, s.attachments.size)
 
     /** Coalesced save on the process-lifetime scope (a leave must outlive the VM). */
     private fun requestSave() {
@@ -477,22 +484,28 @@ class IssueDraftViewModel @Inject constructor(
         }
     }
 
-    private suspend fun writeOnce() {
-        if (sealed) return
+    /** One write; false = the form's content could not be saved. */
+    private suspend fun writeOnce(): Boolean {
+        if (sealed) return true
         val s = _state.value
-        if (!s.seeded) return
-        val accountId = auth.activeAccountId.value ?: return
+        // Unseeded: the row is as it was, unless the user already typed.
+        if (!s.seeded) return !userEdited
+        val accountId = auth.activeAccountId.value ?: return false
         if (!hasContent(s)) {
             // Emptied: the row goes, but only on the way out, and only once
             // its attachments are known (a file-only draft is content).
             if (leaving && s.rowExists && attachmentsKnown) deleteRow(accountId)
-            return
+            return true
         }
-        val team = board.value?.teamId ?: return
-        val boardId = s.boardId ?: return
-        if (s.rowExists && snapshotOf(s, boardId) == lastWritten) return
-        runCatching { upsert(accountId, team, boardId, s) }
-            .onFailure { android.util.Log.w("IssueDraftViewModel", "Draft save failed", it) }
+        val team = board.value?.teamId ?: return false
+        val boardId = s.boardId ?: return false
+        if (s.rowExists && snapshotOf(s, boardId) == lastWritten) return true
+        return runCatching { upsert(accountId, team, boardId, s) }
+            .onFailure { error ->
+                if (error is CancellationException) throw error
+                android.util.Log.w("IssueDraftViewModel", "Draft save failed", error)
+            }
+            .isSuccess
     }
 
     /** The row as `issueDrafts.upsert` would write it. */
@@ -562,12 +575,41 @@ class IssueDraftViewModel @Inject constructor(
         requestSave()
     }
 
+    /**
+     * EXP-1212 "Keep as draft": the leave write, AWAITED. On failure the page
+     * stays (the save error toasts) and the model is live again, so the next
+     * edit, leave or keep writes once more. Runs on the process-lifetime
+     * scope: the write outlives the page.
+     */
+    suspend fun keep(): Boolean {
+        if (deferUploads) return false
+        left = true
+        leaving = true
+        val ok = draftFlushScope.async {
+            dirtyAgain.set(true)
+            val saved = saveMutex.withLock {
+                var all = true
+                while (dirtyAgain.getAndSet(false)) all = writeOnce() && all
+                all
+            }
+            // A save requested while this held the lock lost its tryLock: run it.
+            if (dirtyAgain.get()) draftFlushScope.launch { drain() }
+            saved
+        }.await()
+        if (!ok) {
+            left = false
+            leaving = false
+            _message.value = "Couldn't save the draft"
+        }
+        return ok
+    }
+
     override fun onCleared() {
         leave()
         super.onCleared()
     }
 
-    /** Discard draft: the row goes (if any), no confirm. */
+    /** Discard draft: the row goes (if any). The page asks first (EXP-1212). */
     fun discard() {
         left = true
         if (deferUploads) return

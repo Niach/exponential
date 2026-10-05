@@ -27,6 +27,7 @@ import { entry as prGraphBadge } from "./pr-graph-badge.tsx"
 import { entry as deviceSettings } from "./device-settings.tsx"
 import { entry as blockedStartDialog } from "./blocked-start-dialog.tsx"
 import { entry as stackMergeChoiceDialog } from "./stack-merge-choice-dialog.tsx"
+import { entry as draftLeaveDialog } from "./draft-leave-dialog.tsx"
 import { entry as readinessChecklist } from "./readiness-checklist.tsx"
 import { entry as resultsGuide } from "./results-guide.tsx"
 import { entry as mcpAppViews } from "./mcp-app-views.tsx"
@@ -59,6 +60,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   deviceSettings,
   blockedStartDialog,
   stackMergeChoiceDialog,
+  draftLeaveDialog,
   readinessChecklist,
   resultsGuide,
   mcpAppViews,

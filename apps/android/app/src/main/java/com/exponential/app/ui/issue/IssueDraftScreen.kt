@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
@@ -15,7 +16,11 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -24,6 +29,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -44,6 +50,7 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssueDraftPage
 import com.exponential.app.domain.IssueRelationsView
 import com.exponential.app.domain.IssueStatusCategory
+import com.exponential.app.navigation.LocalLeaveGuard
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassPill
@@ -139,18 +146,55 @@ fun IssueDraftScreen(
         if (state.loadFailed) onBack()
     }
 
+    val uploadsInFlight by viewModel.uploadsInFlight.collectAsStateWithLifecycle()
+    val canCreate = IssueDraftPage.createEnabled(state.title, state.boardId != null, state.creating, uploadsInFlight)
+
+    // EXP-1212: a draft WITH content never goes silently, and nothing is
+    // asked while a Create is in flight. Share and parent mode write no draft
+    // row: their leave prompt has no Keep (`leaveChoices`).
+    val hasContent = IssueDraftPage.hasContent(
+        state.title,
+        state.description,
+        state.attachments.size + state.heldFiles.size + state.pendingUploads.size,
+        attachmentsKnown = state.attachmentsKnown,
+    )
+    fun prompt(exit: IssueDraftPage.Exit) = IssueDraftPage.prompt(hasContent, exit, creating = state.creating)
+    val leaveChoices = IssueDraftPage.leaveChoices(canKeep = !viewModel.deferUploads)
+    var discardConfirmOpen by remember { mutableStateOf(false) }
+    // The navigation the leave prompt holds; null = no prompt.
+    var heldLeave by remember { mutableStateOf<(() -> Unit)?>(null) }
+    // The leave prompt's Create: continue THIS instead of opening the issue.
+    var afterCreate by remember { mutableStateOf<(() -> Unit)?>(null) }
+    // Keep as draft's awaited save: the page holds still until it lands.
+    var keeping by remember { mutableStateOf(false) }
+
     fun leave() {
-        if (state.creating) return
+        if (state.creating || keeping) return
+        if (prompt(IssueDraftPage.Exit.Leave) == IssueDraftPage.Prompt.Leave) {
+            heldLeave = onBack
+            return
+        }
         viewModel.leave()
         onBack()
     }
     BackHandler(enabled = true) { leave() }
+    // Every other way out (a push tap, a share, a deep link) asks AppNavHost's
+    // guard, which hands it here while the draft has content.
+    val leaveGuard = LocalLeaveGuard.current
+    val holdsLeave by rememberUpdatedState(
+        !keeping && prompt(IssueDraftPage.Exit.Leave) == IssueDraftPage.Prompt.Leave,
+    )
+    DisposableEffect(leaveGuard) {
+        val unregister = leaveGuard?.register { proceed ->
+            if (holdsLeave) heldLeave = proceed
+            holdsLeave
+        }
+        onDispose { unregister?.invoke() }
+    }
     // Every way out flushes; the model's own clearing is the last write.
     DisposableEffect(viewModel) { onDispose { viewModel.flush() } }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.flush() }
 
-    val uploadsInFlight by viewModel.uploadsInFlight.collectAsStateWithLifecycle()
-    val canCreate = state.title.isNotBlank() && !state.creating && state.boardId != null && uploadsInFlight == 0
     // The create runs on the model's scope (a rotation never cancels it);
     // its one-shot result lands here.
     val createdIssueId by viewModel.createdIssueId.collectAsStateWithLifecycle()
@@ -158,10 +202,26 @@ fun IssueDraftScreen(
         val id = createdIssueId ?: return@LaunchedEffect
         viewModel.consumeCreated()
         if (sharePrefill != null) onSharePrefillConsumed()
-        onCreated(id)
+        val held = afterCreate
+        afterCreate = null
+        if (held != null) held() else onCreated(id)
     }
+    // A failed create stays on the page (its error toasts) and drops the
+    // held navigation.
+    LaunchedEffect(state.creating) {
+        if (!state.creating) afterCreate = null
+    }
+    // The page's own Create lands on the issue: never a stale held navigation.
     fun create() {
+        afterCreate = null
         if (canCreate) viewModel.create()
+    }
+    // Never while a Create is in flight (it would delete the row the create
+    // reparents from).
+    fun discard() {
+        if (state.creating) return
+        viewModel.discard()
+        if (shareMode && sharePrefill != null) onSharePrefillConsumed()
     }
 
     val issueRefHandler = remember(issueRefCandidates) {
@@ -220,9 +280,13 @@ fun IssueDraftScreen(
                         },
                         menu = {
                             DraftDiscardButton(onDiscard = {
-                                viewModel.discard()
-                                if (shareMode && sharePrefill != null) onSharePrefillConsumed()
-                                onBack()
+                                if (state.creating || keeping) return@DraftDiscardButton
+                                if (prompt(IssueDraftPage.Exit.Discard) == IssueDraftPage.Prompt.DiscardConfirm) {
+                                    discardConfirmOpen = true
+                                } else {
+                                    discard()
+                                    onBack()
+                                }
                             })
                         },
                         tabs = null,
@@ -365,6 +429,97 @@ fun IssueDraftScreen(
         }
     }
 
+    // ── Confirms (EXP-1212) ─────────────────────────────────────────────────
+    if (discardConfirmOpen) {
+        AlertDialog(
+            onDismissRequest = { discardConfirmOpen = false },
+            title = { Text(IssueDraftPage.DISCARD_CONFIRM_TITLE) },
+            text = { Text(IssueDraftPage.DISCARD_CONFIRM_BODY) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        discardConfirmOpen = false
+                        if (!state.creating) {
+                            discard()
+                            onBack()
+                        }
+                    },
+                    modifier = Modifier.testTag("issue-draft-discard-confirm"),
+                ) {
+                    Text(IssueDraftPage.DISCARD_CONFIRM, color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { discardConfirmOpen = false }) { Text("Cancel") }
+            },
+        )
+    }
+    heldLeave?.let { proceed ->
+        // The blocked-start shape: the primary right, the rest beside it.
+        // Dismissing (scrim, back) cancels the navigation. No button takes
+        // initial focus, so Discard is never the default.
+        AlertDialog(
+            onDismissRequest = {
+                heldLeave = null
+                afterCreate = null
+            },
+            title = { Text(IssueDraftPage.LEAVE_TITLE) },
+            text = { Text(IssueDraftPage.LEAVE_BODY) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        heldLeave = null
+                        if (canCreate) {
+                            afterCreate = proceed
+                            viewModel.create()
+                        }
+                    },
+                    enabled = canCreate,
+                    modifier = Modifier.testTag("issue-draft-leave-create"),
+                ) { Text(IssueDraftPage.LEAVE_CREATE) }
+            },
+            dismissButton = {
+                Row {
+                    if (IssueDraftPage.LeaveChoice.Discard in leaveChoices) {
+                        TextButton(
+                            onClick = {
+                                heldLeave = null
+                                afterCreate = null
+                                if (!state.creating) {
+                                    discard()
+                                    proceed()
+                                }
+                            },
+                            modifier = Modifier.testTag("issue-draft-leave-discard"),
+                        ) {
+                            Text(IssueDraftPage.LEAVE_DISCARD, color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                    if (IssueDraftPage.LeaveChoice.Keep in leaveChoices) {
+                        TextButton(
+                            onClick = {
+                                heldLeave = null
+                                afterCreate = null
+                                keeping = true
+                                // Awaited: a failed save stays here (the
+                                // model toasts it) and drops the navigation.
+                                scope.launch {
+                                    val kept = try {
+                                        viewModel.keep()
+                                    } finally {
+                                        keeping = false
+                                    }
+                                    if (kept) proceed()
+                                }
+                            },
+                            modifier = Modifier.testTag("issue-draft-leave-keep"),
+                        ) { Text(IssueDraftPage.LEAVE_KEEP) }
+                    }
+                }
+            },
+        )
+    }
+
     // ── Sheets (each pick saves at once) ────────────────────────────────────
     when (sheet) {
         DraftSheet.Status -> {
@@ -436,8 +591,9 @@ fun IssueDraftScreen(
     }
 }
 
-/** EXP-1191: the header's `×`, Discard draft (no confirm) — the draft's only
- *  action, so no one-item `…` menu; the copy is its content description. */
+/** EXP-1191: the header's `×`, Discard draft (EXP-1212: confirmed when the
+ *  draft has content) — the draft's only action, so no one-item `…` menu;
+ *  the copy is its content description. */
 @Composable
 private fun DraftDiscardButton(onDiscard: () -> Unit) {
     CircleIconButton(

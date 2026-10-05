@@ -204,7 +204,7 @@ import {
 import { requestSessionCompaction } from "./handlers/sessions-compact"
 import { deviceAccountLogin } from "./handlers/device-account-login"
 import { ALWAYS_LOAD_META } from "./always-load"
-import { mcpAppToolMeta } from "./apps"
+import { mcpAppToolMeta, type McpAppView } from "./apps"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "./gates"
 import type { McpUser } from "./server"
 import {
@@ -769,6 +769,10 @@ export function registerExponentialTools(
   // the context budget see the whole surface.
   gates: McpToolGates = ALL_MCP_TOOL_GATES
 ) {
+  // EXP-1212: a coding run gets no MCP Apps binding (server.ts registers no
+  // `ui://` resource for it either); the tools answer with their JSON.
+  const appMeta = (view: McpAppView) =>
+    sessionId ? undefined : mcpAppToolMeta(view)
   // The header session, but only when it is really THIS caller's run — owner
   // or host (EXP-432: a shared-device run is requester-owned while the
   // hosting daemon's key authenticates the agent). A foreign or vanished id
@@ -1374,7 +1378,7 @@ export function registerExponentialTools(
       title: `Exponential issues`,
       annotations: READ_ONLY,
       description: `Show issues as an interactive list where the client renders MCP Apps (OpenClaw, Claude, ChatGPT); elsewhere the same JSON as exponential_issues_list. OPEN only unless includeClosed.`,
-      _meta: mcpAppToolMeta(`issues`),
+      _meta: appMeta(`issues`),
       inputSchema: strictInput({
         boardId: uuidString.optional(),
         teamId: uuidString.optional(),
@@ -4014,7 +4018,7 @@ export function registerExponentialTools(
       annotations: READ_ONLY,
       description: `List coding sessions (newest first) across your teams or one team: status (in_review = PR open, still live), agentBusy (working now), issue, action, branch, device, blocked (usage-wall refusal, see exponential_sessions_get), parentSessionId (the run that started it), endedBy. mine = runs you started or host.`,
       // EXP-1183: the MCP Apps run list (lib/mcp/apps.ts).
-      _meta: mcpAppToolMeta(`runs`),
+      _meta: appMeta(`runs`),
       inputSchema: strictInput({
         teamId: uuidString.optional(),
         status: z.enum([`running`, `in_review`, `ended`]).optional(),
@@ -4082,7 +4086,7 @@ export function registerExponentialTools(
       annotations: READ_ONLY,
       description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open, still live) → ended; endedBy = who ended it; agentBusy = working now. ackedAt = the device's liveness ack, stamped seconds after launch; null for minutes = the launch died. blocked is set only when the agent itself REFUSED a call at its usage wall (never for a usage warning): blocked.window (session = 5h, weekly, model) and blocked.resetsAt describe the SAME window; the run stays running and clears it on its next successful turn.`,
       inputSchema: strictInput({ id: uuidString }),
-      _meta: mcpAppToolMeta(`run`),
+      _meta: appMeta(`run`),
     },
     async ({ id }) => {
       try {
@@ -4512,7 +4516,7 @@ export function registerExponentialTools(
       annotations: READ_ONLY,
       description: `List your registered machines (desktop app / CLI daemon), plus servers teammates shared with teamId. Pick an online device whose agents includes the agent you want; caps must include resume-run to resume an ended run. agentUsage.<agent> = its last used login: windows[] (percent + resetsAt), fetchedAt = when those numbers were read, stale: true = the last refresh failed and they are as old as fetchedAt; agentUsageAt = when the device last reported. A session running on another account moves that account's own row under agentAccounts.<agent>.profiles[].usage instead. A live session refreshes only the account it runs on, per turn; once it ends — or a window's resetsAt passes — that login returns to the polled cadence.`,
       // EXP-1183: the MCP Apps devices view (lib/mcp/apps.ts).
-      _meta: mcpAppToolMeta(`devices`),
+      _meta: appMeta(`devices`),
       inputSchema: strictInput({
         teamId: uuidString.optional(),
         ...pageInput,
@@ -4724,7 +4728,7 @@ export function registerExponentialTools(
       annotations: READ_ONLY,
       description: `List the MCP user's own notifications, newest first. Set unreadOnly to show only those not yet read.`,
       // EXP-1183: the MCP Apps inbox (lib/mcp/apps.ts).
-      _meta: mcpAppToolMeta(`inbox`),
+      _meta: appMeta(`inbox`),
       inputSchema: strictInput({
         unreadOnly: z.boolean().default(false),
         limit: z.number().int().min(1).max(200).default(50),

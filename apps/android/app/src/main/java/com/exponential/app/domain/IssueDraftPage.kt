@@ -13,6 +13,69 @@ object IssueDraftPage {
     const val DISCARD = "Discard draft"
     const val UNTITLED = "Untitled draft"
 
+    // EXP-1212: the close button's confirm (`copy.discardConfirm`).
+    const val DISCARD_CONFIRM_TITLE = "Discard draft?"
+    const val DISCARD_CONFIRM_BODY = "This draft and its files will be deleted."
+    const val DISCARD_CONFIRM = "Discard"
+
+    // EXP-1212: the held-navigation prompt (`copy.leave`).
+    const val LEAVE_TITLE = "This issue is still a draft"
+    const val LEAVE_BODY = "Create it now, keep it as a draft or discard it."
+    const val LEAVE_CREATE = "Create"
+    const val LEAVE_KEEP = "Keep as draft"
+    const val LEAVE_DISCARD = "Discard"
+
     /** Quiet time after the last title/description edit before the autosave. */
     const val AUTOSAVE_DEBOUNCE_MS = 800L
+
+    /**
+     * A title, description or attachment is content; chips alone never are.
+     * A reopened draft whose file list is not known yet ([attachmentsKnown]
+     * false) counts as content: it may be a file-only draft.
+     */
+    fun hasContent(
+        title: String,
+        description: String,
+        attachmentCount: Int,
+        attachmentsKnown: Boolean = true,
+    ): Boolean =
+        title.isNotBlank() || description.isNotBlank() || attachmentCount > 0 || !attachmentsKnown
+
+    /** Create (the header's and the leave prompt's): a title, a board, idle. */
+    fun createEnabled(title: String, hasBoard: Boolean, creating: Boolean, uploadsInFlight: Int): Boolean =
+        title.isNotBlank() && hasBoard && !creating && uploadsInFlight == 0
+
+    /** How the page is asked to go. */
+    enum class Exit {
+        /** The close button, Discard draft. */
+        Discard,
+
+        /** Anything else: back, a nav entry, opening another screen. */
+        Leave,
+    }
+
+    /** What an [Exit] asks before it happens. */
+    enum class Prompt { None, DiscardConfirm, Leave }
+
+    /**
+     * EXP-1212: a draft WITH content never goes silently. Nothing is asked
+     * while a Create is in flight (the page goes where the create lands).
+     */
+    fun prompt(hasContent: Boolean, exit: Exit, creating: Boolean = false): Prompt = when {
+        creating || !hasContent -> Prompt.None
+        exit == Exit.Discard -> Prompt.DiscardConfirm
+        else -> Prompt.Leave
+    }
+
+    /** The leave prompt's answers, in reading order. */
+    enum class LeaveChoice { Create, Keep, Discard }
+
+    /**
+     * The leave prompt's choices. [canKeep] = the page writes a draft row; a
+     * mode that never does (sub-issue or share compose) has nothing to keep,
+     * so it offers Create and Discard only.
+     */
+    fun leaveChoices(canKeep: Boolean): List<LeaveChoice> =
+        if (canKeep) listOf(LeaveChoice.Create, LeaveChoice.Keep, LeaveChoice.Discard)
+        else listOf(LeaveChoice.Create, LeaveChoice.Discard)
 }

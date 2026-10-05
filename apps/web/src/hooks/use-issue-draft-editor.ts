@@ -3,7 +3,7 @@ import { toast } from "@exp/ui"
 import type { Board, IssueDraft, User } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
 import { toIssueDescription, type IssuePriority } from "@/lib/domain"
-import { ISSUE_DRAFT_AUTOSAVE_MS } from "@/lib/issue-draft-page"
+import { ISSUE_DRAFT_AUTOSAVE_MS, canCreateDraft } from "@/lib/issue-draft-page"
 import {
   hasDraftContent,
   toDialogSeed,
@@ -154,6 +154,11 @@ export function useIssueDraftEditor({
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const finalizedRef = useRef(false)
   const creatingRef = useRef(false)
+  // EXP-1212 (R2): the WHOLE Create, from its first flush to the server's
+  // answer. `creatingRef` above only covers the request itself (it mutes
+  // the autosave, which the pre-create flush still needs); this one gates
+  // the leave prompt and Discard.
+  const createInFlightRef = useRef(false)
 
   const clearTimer = () => {
     if (timerRef.current !== null) {
@@ -193,22 +198,25 @@ export function useIssueDraftEditor({
   }
 
   /**
-   * Write NOW (cancelling a pending debounce). Never rejects. Debounced
-   * writes fail quietly (the next one retries with the full row), but a
-   * failed LEAVE write — the last chance — and a second failure in a row say
-   * so once.
+   * Write NOW (cancelling a pending debounce). Never rejects: resolves
+   * `true` when the write landed (or had nothing to do), `false` when it
+   * failed. Debounced writes fail quietly (the next one retries with the
+   * full row), but a failed LEAVE write — the last chance — and a second
+   * failure in a row say so once.
    */
-  const flush = (mode: WriteMode = `edit`): Promise<void> => {
+  const flush = (mode: WriteMode = `edit`): Promise<boolean> => {
     clearTimer()
     return enqueue(writeTask(mode)).then(
       () => {
         failedWritesRef.current = 0
+        return true
       },
       () => {
         failedWritesRef.current += 1
         if (mode === `leave` || failedWritesRef.current === 2) {
           toast.error(`Could not save the draft`)
         }
+        return false
       }
     )
   }
@@ -221,6 +229,8 @@ export function useIssueDraftEditor({
     }, ISSUE_DRAFT_AUTOSAVE_MS)
   }
 
+  /** The leave write. EXP-1212 (R3): `false` = it failed (and said so), so
+   *  "Keep as draft" stays on the page. */
   const leave = () => flush(`leave`)
 
   // Property picks write at once — after the pick has rendered.
@@ -307,6 +317,7 @@ export function useIssueDraftEditor({
     if (creatingRef.current || finalizedRef.current) return null
     if (uploadCountRef.current > 0) return null
     if (!snapshotRef.current.title.trim()) return null
+    createInFlightRef.current = true
     setCreating(true)
     await flush(`edit`)
     creatingRef.current = true
@@ -333,6 +344,7 @@ export function useIssueDraftEditor({
       txId = result.txId
     } catch (error) {
       creatingRef.current = false
+      createInFlightRef.current = false
       setCreating(false)
       toast.error(
         error instanceof Error ? error.message : `Failed to create issue`
@@ -341,6 +353,7 @@ export function useIssueDraftEditor({
     }
     // The create consumed the draft row in its own transaction.
     finalizedRef.current = true
+    createInFlightRef.current = false
     clearTimer()
     try {
       // Land on a row that is already synced, never a "not found" flash.
@@ -353,20 +366,23 @@ export function useIssueDraftEditor({
   }
 
   /** Throw the draft away: delete the row if there is one, write nothing on
-   *  the way out. The caller navigates. */
-  const discard = async (): Promise<void> => {
-    if (finalizedRef.current) return
+   *  the way out. The caller navigates. EXP-1212 (R2): never while a Create
+   *  is in flight — resolves `false` then, and the caller stays. */
+  const discard = async (): Promise<boolean> => {
+    if (createInFlightRef.current) return false
+    if (finalizedRef.current) return true
     finalizedRef.current = true
     clearTimer()
     // An eager upload may still be creating the row: queue behind it.
     await writeChainRef.current
-    if (!rowExistsRef.current) return
+    if (!rowExistsRef.current) return true
     try {
       await trpc.issueDrafts.delete.mutate({ id: draftId })
       rowExistsRef.current = false
     } catch {
       toast.error(`Could not discard the draft`)
     }
+    return true
   }
 
   return {
@@ -381,7 +397,15 @@ export function useIssueDraftEditor({
     files,
     creating,
     uploading: uploadCount > 0,
-    canCreate: title.trim().length > 0 && !creating && uploadCount === 0,
+    canCreate: canCreateDraft({
+      title,
+      creating,
+      uploading: uploadCount > 0,
+    }),
+    // EXP-1212: what makes leaving ask. A reopened draft whose files are not
+    // known yet counts as content, as it does for the leave write.
+    hasContent:
+      hasDraftContent(snapshotRef.current) || !filesLoadedRef.current,
     setTitle: (value: string) => {
       setTitleState(value)
       schedule()
@@ -440,6 +464,8 @@ export function useIssueDraftEditor({
       await trpc.attachments.delete.mutate({ id: file.id })
       setFiles((previous) => previous.filter((row) => row.id !== file.id))
     },
+    /** EXP-1212 (R2): a Create is in flight (read live, not from a render). */
+    isCreating: () => createInFlightRef.current,
     flush,
     leave,
     create,

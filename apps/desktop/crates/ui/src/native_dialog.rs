@@ -1054,6 +1054,13 @@ pub(crate) struct AlertSpec {
     /// Outline-styled like Cancel, because the primary answer stays the OK.
     /// `None` (every alert before it) draws the two-button footer unchanged.
     secondary: Option<(SharedString, OnOkFn)>,
+    /// EXP-1212: a DESTRUCTIVE choice leading the answers (the draft leave
+    /// question's Discard, beside Keep as draft and Create). Same contract
+    /// as [`Self::on_ok`]. `None` (every alert before it) changes nothing.
+    destructive: Option<(SharedString, OnOkFn)>,
+    /// EXP-1212: runs once the alert's window is GONE, answered or not (Esc,
+    /// the ✕, an answer). Lets a caller tell a dismiss from an answer.
+    on_closed: Option<Rc<dyn Fn(&mut App)>>,
     /// EXP-980: the OK button is SHOWN but not pressable: the answer stays
     /// visible (with a caption saying why it is off) instead of vanishing.
     ok_disabled: bool,
@@ -1080,6 +1087,8 @@ impl AlertSpec {
             cancel: true,
             content: None,
             secondary: None,
+            destructive: None,
+            on_closed: None,
             ok_disabled: false,
             on_ok: Rc::new(|_, _| true),
         }
@@ -1146,6 +1155,23 @@ impl AlertSpec {
         self.secondary = Some((text.into(), Rc::new(on_click)));
         self
     }
+
+    /// EXP-1212: the optional destructive answer (see
+    /// [`AlertSpec::destructive`]). Same contract as [`Self::on_ok`].
+    pub(crate) fn destructive(
+        mut self,
+        text: impl Into<SharedString>,
+        on_click: impl Fn(&mut Window, &mut App) -> bool + 'static,
+    ) -> Self {
+        self.destructive = Some((text.into(), Rc::new(on_click)));
+        self
+    }
+
+    /// EXP-1212: see [`AlertSpec::on_closed`].
+    pub(crate) fn on_closed(mut self, on_closed: impl Fn(&mut App) + 'static) -> Self {
+        self.on_closed = Some(Rc::new(on_closed));
+        self
+    }
 }
 
 /// Open a native confirm window over `window` (the opener).
@@ -1156,7 +1182,13 @@ pub(crate) fn open_alert(window: &mut Window, cx: &mut App, spec: AlertSpec) {
     let dialog_size = size(spec.width, content_height);
     let title = spec.title.clone();
     open_dialog_window(window, cx, DialogSpec::new(title, dialog_size), move |_, cx| {
-        let view = cx.new(|_| AlertView { spec });
+        let on_closed = spec.on_closed.clone();
+        let view = cx.new(|cx| {
+            if let Some(on_closed) = on_closed {
+                cx.on_release(move |_, cx| on_closed(cx)).detach();
+            }
+            AlertView { spec }
+        });
         let on_enter = view.clone();
         DialogContent::new(view)
             .padless()
@@ -1262,6 +1294,18 @@ impl Render for AlertView {
                                 .on_click(|_, window, cx| close_dialog_window(window, cx)),
                         )
                     })
+                    .children(self.spec.destructive.as_ref().map(|(label, on_click)| {
+                        let on_click = on_click.clone();
+                        Button::new("native-alert-destructive")
+                            .danger().cursor_pointer()
+                            .web_sm()
+                            .label(label.clone())
+                            .on_click(move |_, window, cx| {
+                                if on_click(window, cx) {
+                                    close_dialog_window(window, cx);
+                                }
+                            })
+                    }))
                     .children(self.spec.secondary.as_ref().map(|(label, on_click)| {
                         let on_click = on_click.clone();
                         Button::new("native-alert-secondary")

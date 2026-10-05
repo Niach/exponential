@@ -21,7 +21,9 @@
 //! In-tree click handlers that already hold `(window, cx)` (issue rows,
 //! sidebar items) may call [`navigate`] directly.
 
+use std::cell::Cell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use gpui::{
     AnyWindowHandle, App, AppContext as _, Entity, Global, Window, WindowId,
@@ -524,6 +526,118 @@ impl ChatSeed {
     }
 }
 
+/// EXP-1212: a navigation the New issue page HELD, replayed verbatim (the same
+/// call, now unheld) once its leave dialog is answered.
+pub(crate) type HeldNavigation = Box<dyn FnOnce(&mut Window, &mut App)>;
+
+/// EXP-1212: the New issue page's hold on its window's navigation
+/// (`issue_draft_screen`, installed once per window). `armed` = the page is up
+/// with a draft that has content (a Cell: the hold must never read the page's
+/// entity, a navigation can run inside its update); `hold` takes the draft id
+/// the page shows plus the held navigation, and asks the leave question.
+#[derive(Clone)]
+pub(crate) struct LeaveGuard {
+    pub armed: Rc<Cell<bool>>,
+    pub hold: Rc<dyn Fn(&Window, &mut App, String, HeldNavigation)>,
+}
+
+/// EXP-1212 (R6): the navigations ONE leave question is about, in order.
+/// Every move made while the question is pending APPENDS (one dialog for the
+/// whole sequence); a leaving answer replays them all in order, exactly once;
+/// a dismiss, a failed answer or the page going away clears them. Keyed by
+/// the draft the question was about (an answer for another draft takes
+/// nothing) and by the question's `ask` number (a stale dialog's dismiss
+/// never clears a newer question). Pure, so it is unit-tested as data.
+pub(crate) struct LeaveQueue<T> {
+    draft_id: Option<String>,
+    items: Vec<T>,
+    /// The open question's number; `None` = none open (not yet asked, or
+    /// answered and settling — a Keep waiting on its save).
+    asking: Option<u64>,
+    next_ask: u64,
+}
+
+impl<T> Default for LeaveQueue<T> {
+    fn default() -> Self {
+        Self {
+            draft_id: None,
+            items: Vec::new(),
+            asking: None,
+            next_ask: 0,
+        }
+    }
+}
+
+impl<T> LeaveQueue<T> {
+    /// Hold `item` for `draft_id`. `true` = the FIRST held move, the caller
+    /// must ask; `false` = a question is already pending, it rides along.
+    /// A different draft's leftovers are dropped first.
+    pub(crate) fn hold(&mut self, draft_id: &str, item: T) -> bool {
+        if self.draft_id.as_deref() != Some(draft_id) {
+            self.clear();
+            self.draft_id = Some(draft_id.to_string());
+        }
+        self.items.push(item);
+        self.items.len() == 1
+    }
+
+    /// Whether anything is held for `draft_id`.
+    pub(crate) fn holds_for(&self, draft_id: &str) -> bool {
+        !self.items.is_empty() && self.draft_id.as_deref() == Some(draft_id)
+    }
+
+    /// The question opened: its number (for [`Self::answer`] / [`Self::dismiss`]).
+    pub(crate) fn ask(&mut self) -> u64 {
+        self.next_ask += 1;
+        self.asking = Some(self.next_ask);
+        self.next_ask
+    }
+
+    /// Question `ask` about `draft_id` was answered: it is closed (its window's
+    /// dismiss is a no-op now). `false` = a stale answer (another draft, or a
+    /// question that is no longer the open one): nothing changes.
+    pub(crate) fn answer(&mut self, draft_id: &str, ask: u64) -> bool {
+        if self.asking != Some(ask) || self.draft_id.as_deref() != Some(draft_id) {
+            return false;
+        }
+        self.asking = None;
+        true
+    }
+
+    /// Everything held for `draft_id`, in order, emptied (replayed once).
+    /// Another draft's moves stay put.
+    pub(crate) fn take(&mut self, draft_id: &str) -> Vec<T> {
+        if self.draft_id.as_deref() != Some(draft_id) {
+            return Vec::new();
+        }
+        self.asking = None;
+        std::mem::take(&mut self.items)
+    }
+
+    /// Question `ask`'s window closed: unanswered (Esc / ✕), the page stays
+    /// and nothing held is ever replayed.
+    pub(crate) fn dismiss(&mut self, ask: u64) {
+        if self.asking == Some(ask) {
+            self.clear();
+        }
+    }
+
+    /// Drop everything (stay): a failed answer, the page went away.
+    pub(crate) fn clear(&mut self) {
+        self.items.clear();
+        self.asking = None;
+    }
+}
+
+/// EXP-1212: whether a navigation from `current` to `target` must be held —
+/// the pure rule behind [`leave_hold`]. Only an ARMED draft page holds, and
+/// re-navigating to the very screen it shows is not leaving. `target` `None`
+/// = a screen the caller cannot name yet (Back, Forward, a team switch) or
+/// the cleared center: always somewhere else.
+pub(crate) fn holds_leave(armed: bool, current: Option<&Screen>, target: Option<&Screen>) -> bool {
+    armed && matches!(current, Some(Screen::IssueDraft { .. })) && target != current
+}
+
 /// Per-window navigation state. Mutate through [`navigate`] /
 /// [`switch_team`] / [`go_back`] so observers fire consistently.
 pub struct Navigation {
@@ -563,6 +677,9 @@ pub struct Navigation {
     /// cleared by every screen change — the panel opens on the Chat screen,
     /// by its own button, and nowhere else.
     recent_runs: bool,
+    /// EXP-1212: the New issue page's hold ([`LeaveGuard`]); every screen
+    /// change in this module asks [`leave_hold`] first.
+    leave_guard: Option<LeaveGuard>,
 }
 
 impl Navigation {
@@ -606,6 +723,7 @@ impl Navigation {
                 .ok()
                 .as_deref()
                 .and_then(parse_dev_chat_seed),
+            leave_guard: None,
         }
     }
 
@@ -633,7 +751,6 @@ impl Navigation {
     }
 
     /// Whether [`go_forward`] has anywhere to go.
-    #[allow(dead_code)] // the mouse/keyboard paths call `go_forward` blind
     pub fn can_go_forward(&self) -> bool {
         !self.forward_stack.is_empty()
     }
@@ -1119,6 +1236,55 @@ pub fn remove_window(window_id: WindowId, cx: &mut App) {
     }
 }
 
+/// EXP-1212: install the New issue page's hold on `window`'s navigation.
+pub(crate) fn set_leave_guard(window: &Window, cx: &mut App, guard: LeaveGuard) {
+    if let Some(nav) = nav_for_window_readonly(window, cx) {
+        nav.update(cx, |nav, _| nav.leave_guard = Some(guard));
+    }
+}
+
+/// EXP-1212: THE choke point. Every function here that changes the window's
+/// screen asks this first; `Some(hold)` = the New issue page holds the move,
+/// and the caller hands it a replay of itself and returns. Window close and
+/// app quit never come through here (the autosave keeps the draft).
+fn leave_hold(
+    window: &Window,
+    cx: &App,
+    target: Option<&Screen>,
+) -> Option<Rc<dyn Fn(&Window, &mut App, HeldNavigation)>> {
+    let nav = nav_for_window_readonly(window, cx)?;
+    let nav = nav.read(cx);
+    let guard = nav.leave_guard.as_ref()?;
+    if !holds_leave(guard.armed.get(), nav.screen.as_ref(), target) {
+        return None;
+    }
+    let Some(Screen::IssueDraft { draft_id, .. }) = nav.screen.as_ref() else {
+        return None;
+    };
+    let draft_id = draft_id.clone();
+    let hold = guard.hold.clone();
+    Some(Rc::new(move |window, cx, navigation| {
+        hold(window, cx, draft_id.clone(), navigation)
+    }))
+}
+
+/// EXP-1212 (R6): run a COMPOUND navigation (a team switch, then a board
+/// scope, then a screen) as ONE held move: the New issue page holds the whole
+/// sequence and replays it in order, so no half of it lands while the user
+/// is still being asked (and a Stay leaves none of it behind). Unheld, `f`
+/// just runs.
+pub(crate) fn leave_held(
+    window: &mut Window,
+    cx: &mut App,
+    target: Option<&Screen>,
+    f: impl FnOnce(&mut Window, &mut App) + 'static,
+) {
+    match leave_hold(window, cx, target) {
+        Some(hold) => hold(window, cx, Box::new(f)),
+        None => f(window, cx),
+    }
+}
+
 /// Navigate the window to `screen`, pushing the previous screen onto the
 /// back stack (no-op when already there). The screens panel captures the
 /// tab's origin from the CURRENT rail tool + board (every sidebar-row click
@@ -1255,6 +1421,14 @@ fn navigate_inner(window: &Window, cx: &mut App, screen: Screen, origin: Pending
     if forward_to_owner_shell(window, cx, &screen) {
         return;
     }
+    if let Some(hold) = leave_hold(window, cx, Some(&screen)) {
+        hold(
+            window,
+            cx,
+            Box::new(move |window, cx| navigate_inner(window, cx, screen, origin)),
+        );
+        return;
+    }
     let Some(nav) = nav_for_window_readonly(window, cx) else {
         return;
     };
@@ -1280,6 +1454,14 @@ fn navigate_inner(window: &Window, cx: &mut App, screen: Screen, origin: Pending
 /// was opened from.
 pub(crate) fn navigate_replace(window: &Window, cx: &mut App, screen: Screen) {
     if forward_to_owner_shell(window, cx, &screen) {
+        return;
+    }
+    if let Some(hold) = leave_hold(window, cx, Some(&screen)) {
+        hold(
+            window,
+            cx,
+            Box::new(move |window, cx| navigate_replace(window, cx, screen)),
+        );
         return;
     }
     let Some(nav) = nav_for_window_readonly(window, cx) else {
@@ -1352,6 +1534,16 @@ fn navigate_to_chat_inner(window: &mut Window, cx: &mut App, seed: ChatSeed, fro
             return;
         }
     }
+    // EXP-1212: held BEFORE the seed lands, so a cancelled leave leaves no
+    // stale seed for the next Agent page.
+    if let Some(hold) = leave_hold(window, cx, Some(&Screen::Chat)) {
+        hold(
+            window,
+            cx,
+            Box::new(move |window, cx| navigate_to_chat_inner(window, cx, seed, from_rail)),
+        );
+        return;
+    }
     // EXP-851: NO list forcing. The Agent page is a full-width screen and
     // carries no list (EXP-1192), nor does the session the composer starts.
     if let Some(nav) = nav_for_window_readonly(window, cx) {
@@ -1404,6 +1596,12 @@ pub(crate) fn take_pending_origin(
 /// tab-close reactivation use this (only real navigations stack); `None`
 /// clears the center (last tab closed).
 pub fn set_screen(window: &Window, cx: &mut App, screen: Option<Screen>) {
+    // EXP-1212: a tab click from the New issue page leaves it (the page owns
+    // no tab of its own), so it is held like any navigation.
+    if let Some(hold) = leave_hold(window, cx, screen.as_ref()) {
+        hold(window, cx, Box::new(move |window, cx| set_screen(window, cx, screen)));
+        return;
+    }
     let Some(nav) = nav_for_window_readonly(window, cx) else {
         return;
     };
@@ -1512,6 +1710,12 @@ pub fn go_back(window: &Window, cx: &mut App) {
     let Some(nav) = nav_for_window_readonly(window, cx) else {
         return;
     };
+    if nav.read(cx).can_go_back() {
+        if let Some(hold) = leave_hold(window, cx, None) {
+            hold(window, cx, Box::new(|window, cx| go_back(window, cx)));
+            return;
+        }
+    }
     let landed = nav.update(cx, |nav, cx| {
         let previous = nav.step_back()?;
         cx.notify();
@@ -1528,6 +1732,12 @@ pub fn go_forward(window: &Window, cx: &mut App) {
     let Some(nav) = nav_for_window_readonly(window, cx) else {
         return;
     };
+    if nav.read(cx).can_go_forward() {
+        if let Some(hold) = leave_hold(window, cx, None) {
+            hold(window, cx, Box::new(|window, cx| go_forward(window, cx)));
+            return;
+        }
+    }
     let landed = nav.update(cx, |nav, cx| {
         let next = nav.step_forward()?;
         cx.notify();
@@ -1545,6 +1755,12 @@ pub fn switch_team(window: &Window, cx: &mut App, team_id: String) {
     let Some(nav) = nav_for_window_readonly(window, cx) else {
         return;
     };
+    if nav.read(cx).team_id.as_deref() != Some(team_id.as_str()) {
+        if let Some(hold) = leave_hold(window, cx, None) {
+            hold(window, cx, Box::new(move |window, cx| switch_team(window, cx, team_id)));
+            return;
+        }
+    }
     let changed = nav.update(cx, |nav, cx| {
         if nav.team_id.as_deref() == Some(team_id.as_str()) {
             return false;
@@ -1828,26 +2044,32 @@ pub fn init(cx: &mut App) {
     cx.on_action(|action: &OpenBoard, cx| {
         let board_id = action.board_id.clone();
         on_active_window(cx, move |window, cx| {
-            // EXP-69 merged picker: a board picked from ANOTHER team
-            // switches the window's team first (same reset semantics as
-            // the old footer switcher — screen + back stack cleared), then
-            // scopes to the picked board. One action, one gesture.
-            let nav = nav_for_window(window, cx);
-            let board_team = Store::global(cx)
-                .collections()
-                .boards
-                .read(cx)
-                .get(&board_id)
-                .map(|board| board.team_id.clone());
-            if let Some(board_team) = board_team {
-                if active_team_id(&nav, cx).as_deref()
-                    != Some(board_team.as_str())
-                {
-                    switch_team(window, cx, board_team);
+            // EXP-1212: the three steps are ONE held move on a New issue page.
+            let target = Screen::BoardIssues {
+                board_id: board_id.clone(),
+            };
+            leave_held(window, cx, Some(&target), move |window, cx| {
+                // EXP-69 merged picker: a board picked from ANOTHER team
+                // switches the window's team first (same reset semantics as
+                // the old footer switcher — screen + back stack cleared), then
+                // scopes to the picked board. One action, one gesture.
+                let nav = nav_for_window(window, cx);
+                let board_team = Store::global(cx)
+                    .collections()
+                    .boards
+                    .read(cx)
+                    .get(&board_id)
+                    .map(|board| board.team_id.clone());
+                if let Some(board_team) = board_team {
+                    if active_team_id(&nav, cx).as_deref()
+                        != Some(board_team.as_str())
+                    {
+                        switch_team(window, cx, board_team);
+                    }
                 }
-            }
-            set_active_board(window, cx, board_id.clone());
-            navigate(window, cx, Screen::BoardIssues { board_id });
+                set_active_board(window, cx, board_id.clone());
+                navigate(window, cx, Screen::BoardIssues { board_id });
+            });
         });
     });
     cx.on_action(|action: &OpenIssue, cx| {
@@ -2308,6 +2530,95 @@ mod tests {
             board_id: board_id.into(),
             status_id: None,
         }
+    }
+
+    /// EXP-1212 (R6): a compound move held under ONE question replays in
+    /// order, once; only the first held move asks.
+    #[test]
+    fn leave_queue_appends_and_replays_in_order_once() {
+        let mut queue = LeaveQueue::default();
+        assert!(queue.hold("d1", "switch_team"), "the first move asks");
+        assert!(!queue.hold("d1", "set_active_board"), "a pending question absorbs it");
+        assert!(!queue.hold("d1", "navigate"));
+        let ask = queue.ask();
+        assert!(queue.answer("d1", ask));
+        assert_eq!(
+            queue.take("d1"),
+            vec!["switch_team", "set_active_board", "navigate"]
+        );
+        // Replayed once: nothing left, and the closed question's window
+        // closing afterwards changes nothing.
+        assert!(queue.take("d1").is_empty());
+        queue.dismiss(ask);
+        assert!(queue.hold("d1", "next"), "a later move asks again");
+    }
+
+    /// EXP-1212 (R6): a dismiss (Esc / ✕) drops the held moves; a stale
+    /// dialog's dismiss never clears a newer question.
+    #[test]
+    fn leave_queue_clears_on_dismiss_only_for_the_open_question() {
+        let mut queue = LeaveQueue::default();
+        queue.hold("d1", 1);
+        queue.hold("d1", 2);
+        let ask = queue.ask();
+        queue.dismiss(ask);
+        assert!(!queue.holds_for("d1"));
+        assert!(queue.take("d1").is_empty());
+
+        queue.hold("d1", 3);
+        let stale = ask;
+        let fresh = queue.ask();
+        queue.dismiss(stale);
+        assert!(queue.holds_for("d1"), "a stale dismiss is a no-op");
+        assert!(!queue.answer("d1", stale), "so is a stale answer");
+        assert!(queue.answer("d1", fresh));
+        // Answered (a Keep still saving): its window closing keeps the moves.
+        queue.dismiss(fresh);
+        assert_eq!(queue.take("d1"), vec![3]);
+    }
+
+    /// EXP-1212 (R6): moves are keyed by the draft the question was about.
+    #[test]
+    fn leave_queue_never_replays_for_another_draft() {
+        let mut queue = LeaveQueue::default();
+        queue.hold("d1", 1);
+        let ask = queue.ask();
+        assert!(!queue.answer("d2", ask));
+        assert!(queue.take("d2").is_empty());
+        assert!(queue.holds_for("d1"));
+        // A hold for another draft drops the first draft's leftovers.
+        assert!(queue.hold("d2", 2));
+        assert!(!queue.holds_for("d1"));
+        assert_eq!(queue.take("d2"), vec![2]);
+        // A cleared queue (failed answer, page gone) replays nothing.
+        queue.hold("d2", 3);
+        queue.clear();
+        assert!(queue.take("d2").is_empty());
+    }
+
+    /// EXP-1212: only an ARMED draft page holds, and only a move that
+    /// actually leaves it (a re-navigation to the same draft does not).
+    #[test]
+    fn holds_leave_table() {
+        let draft = draft_screen("d1", "b1");
+        let other_draft = draft_screen("d2", "b1");
+        let issue = Screen::IssueDetail {
+            issue_id: "i1".into(),
+        };
+        // Armed on the draft: every other target holds.
+        assert!(holds_leave(true, Some(&draft), Some(&issue)));
+        assert!(holds_leave(true, Some(&draft), Some(&Screen::Chat)));
+        assert!(holds_leave(true, Some(&draft), Some(&other_draft)));
+        // Back / Forward / team switch / the cleared center.
+        assert!(holds_leave(true, Some(&draft), None));
+        // The same draft is not leaving.
+        assert!(!holds_leave(true, Some(&draft), Some(&draft)));
+        // Disarmed (no content, a Create in flight, already answered).
+        assert!(!holds_leave(false, Some(&draft), Some(&issue)));
+        assert!(!holds_leave(false, Some(&draft), None));
+        // Not on the draft page at all: a stale arm never holds.
+        assert!(!holds_leave(true, Some(&issue), Some(&Screen::Chat)));
+        assert!(!holds_leave(true, None, Some(&issue)));
     }
 
     /// EXP-1192: only an issue and a run carry a list — the New issue page,
