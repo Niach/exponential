@@ -1,5 +1,6 @@
 //! Manual probe of the real backend, off the main thread like the server:
-//! `cargo run -p computer --example probe -- [shot <path>] [ui] [click X Y] [type TEXT] [key CHORD] [focus ID]`.
+//! `cargo run -p computer --example probe -- [shot <path>] [display N <path>] [window ID <path>]
+//! [ui] [click X Y] [scroll X Y DY] [type TEXT] [key CHORD] [focus ID]`.
 
 use computer::backend::{self, Button, Target};
 use computer::guard::Guard;
@@ -16,9 +17,14 @@ fn main() {
         while let Some(arg) = args.next() {
             let mut next = || args.next().cloned().unwrap_or_default();
             let outcome = match arg.as_str() {
-                "shot" => {
+                "shot" | "display" | "window" => {
+                    let target = match arg.as_str() {
+                        "display" => Target::Display(next().parse().unwrap()),
+                        "window" => Target::Window(next().parse().unwrap()),
+                        _ => Target::Display(0),
+                    };
                     let path = next();
-                    guard.screenshot(Target::Display(0), Some(path.as_ref())).map(|(output, map)| {
+                    guard.screenshot(target, Some(path.as_ref())).map(|(output, map)| {
                         mapping = Some(map);
                         output
                     })
@@ -27,6 +33,11 @@ fn main() {
                 "click" => {
                     let (x, y) = (next().parse().unwrap(), next().parse().unwrap());
                     guard.click(mapping, x, y, Button::Left, 1)
+                }
+                "scroll" => {
+                    let (x, y, dy) =
+                        (next().parse().unwrap(), next().parse().unwrap(), next().parse().unwrap());
+                    guard.scroll(mapping, x, y, 0, dy)
                 }
                 "type" => guard.type_text(&next()),
                 "key" => guard.key(&next()),

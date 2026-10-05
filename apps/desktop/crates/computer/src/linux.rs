@@ -1,12 +1,13 @@
 //! The Linux backend: X11 only, over x11rb's pure-Rust connection (no libxcb,
 //! so the CLI builds without X headers). `GetImage` for pixels, XTest for
-//! input, EWMH for the window list. A Wayland session is refused up front:
+//! input, EWMH for the window list, RandR for the monitors. A Wayland session is refused up front:
 //! XTest through XWayland would reach X clients only and capture nothing.
 
 use std::fmt::Display;
 use std::time::Duration;
 
 use x11rb::connection::Connection;
+use x11rb::protocol::randr::ConnectionExt as _;
 use x11rb::protocol::screensaver::ConnectionExt as _;
 use x11rb::protocol::xproto::{
     self, Atom, AtomEnum, ClientMessageEvent, ConnectionExt as _, EventMask, ImageFormat, Window,
@@ -81,6 +82,41 @@ impl X11Backend {
             utf8_string: atom(b"UTF8_STRING")?,
         };
         Ok(Self { conn, root, width, height, min_keycode, max_keycode, atoms })
+    }
+
+    /// The monitors on the one X screen, primary first. Without RandR 1.5
+    /// (or with no monitor reported) the whole screen is the one display.
+    fn monitors(&self) -> Vec<Rect> {
+        let mut monitors: Vec<(bool, Rect)> = self
+            .conn
+            .randr_get_monitors(self.root, true)
+            .ok()
+            .and_then(|cookie| cookie.reply().ok())
+            .map(|reply| {
+                reply
+                    .monitors
+                    .iter()
+                    .map(|monitor| {
+                        let rect = Rect {
+                            x: f64::from(monitor.x),
+                            y: f64::from(monitor.y),
+                            width: f64::from(monitor.width),
+                            height: f64::from(monitor.height),
+                        };
+                        (monitor.primary, rect)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        monitors.sort_by_key(|(primary, _)| !primary);
+        if monitors.is_empty() {
+            return vec![self.screen()];
+        }
+        monitors.into_iter().map(|(_, rect)| rect).collect()
+    }
+
+    fn screen(&self) -> Rect {
+        Rect { x: 0.0, y: 0.0, width: f64::from(self.width), height: f64::from(self.height) }
     }
 
     fn property(&self, window: Window, property: Atom) -> Option<xproto::GetPropertyReply> {
@@ -251,12 +287,15 @@ impl Backend for X11Backend {
     }
 
     fn capture(&self, target: Target) -> BackendResult<Frame> {
-        let screen = Rect { x: 0.0, y: 0.0, width: f64::from(self.width), height: f64::from(self.height) };
+        let screen = self.screen();
         let area = match target {
-            // One X screen spans every monitor.
-            Target::Display(0) => screen,
+            // One X screen spans every monitor; a display is its RandR part.
             Target::Display(index) => {
-                return Err(format!("There is no display {index}; X11 exposes one screen (display 0)."))
+                let monitors = self.monitors();
+                let count = monitors.len();
+                monitors.into_iter().nth(index).ok_or_else(|| {
+                    format!("There is no display {index}; this computer has {count}.")
+                })?
             }
             Target::Window(id) => {
                 let rect = self

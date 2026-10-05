@@ -46,8 +46,9 @@ const AUTH_PROMPTS: &[&str] = &[
     "polkit-gnome-authentication-agent-1", "polkit-kde-authentication-agent-1", "lxpolkit",
     "gcr-prompter", "pinentry", "pinentry-mac", "pinentry-gnome3", "pinentry-qt",
 ];
-/// Exponential itself, by name prefix (the IDE, staging builds, the daemon).
-const SELF_PREFIXES: &[&str] = &["exponential", "exp-desktop"];
+/// Exponential itself, by name prefix (the IDE, staging builds, the daemon;
+/// on Linux the IDE's WM_CLASS is its app id and an AppImage's exe `AppRun`).
+const SELF_PREFIXES: &[&str] = &["exponential", "exp-desktop", "at.exponential"];
 
 /// Lowercase, without a `.exe`/`.app` suffix.
 pub fn normalize(name: &str) -> String {
@@ -535,6 +536,7 @@ mod tests {
             ("", "consent.exe", "a system authentication prompt"),
             ("Exponential", "exp-desktop", "Exponential itself"),
             ("Exponential Staging", "exp-desktop", "Exponential itself"),
+            ("at.exponential.staging", "AppRun", "Exponential itself"),
         ] {
             assert_eq!(blocked_reason(&window(app, exe, 7), 1), Some(reason), "{app}/{exe}");
         }

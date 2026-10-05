@@ -48,7 +48,7 @@ windows = { version = "0.61", features = [
 ] }
 
 # Linux = X11 only, pure Rust (the rust connection, no libxcb): GetImage for
-# pixels, XTest for input, EWMH for windows. Wayland is refused with a clear
+# pixels, XTest for input, EWMH for windows, RandR for the monitors. Wayland is refused with a clear
 # message until the portal backend lands.
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
-x11rb = { version = "0.13", features = ["xtest", "screensaver"] }
+x11rb = { version = "0.13", features = ["xtest", "screensaver", "randr"] }
