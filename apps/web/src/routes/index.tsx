@@ -5,6 +5,13 @@ import { hasCompletedOnboarding } from "@/lib/auth/app-user"
 import { clearLastVisited, readLastVisited } from "@/lib/last-visited"
 import { trpc } from "@/lib/trpc-client"
 
+// The phone opens on the Agent tab (×3 with iOS and Android): it leads the
+// tab bar and needs no board. md+ keeps the board landing (`useIsMobile`'s
+// 768px breakpoint).
+function opensOnAgent(): boolean {
+  return typeof window !== `undefined` && window.innerWidth < 768
+}
+
 export const Route = createFileRoute(`/`)({
   ssr: false,
   beforeLoad: async () => {
@@ -37,7 +44,7 @@ export const Route = createFileRoute(`/`)({
         }
         if (isMember) {
           throw redirect({
-            to: `/t/$teamSlug`,
+            to: opensOnAgent() ? `/t/$teamSlug/agent` : `/t/$teamSlug`,
             params: { teamSlug: last.teamSlug },
           })
         }
@@ -47,7 +54,7 @@ export const Route = createFileRoute(`/`)({
     // teams.getDefault (never creates — EXP-188) and routes team-less users
     // to the onboarding create-or-join choice.
     throw redirect({
-      to: `/t/$teamSlug`,
+      to: opensOnAgent() ? `/t/$teamSlug/agent` : `/t/$teamSlug`,
       params: { teamSlug: `default` },
     })
   },

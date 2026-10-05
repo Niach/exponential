@@ -10,12 +10,18 @@ import SwiftUI
 /// route since EXP-973 — the chat arm opens the Agent page (the sessions list
 /// lives there since EXP-825, so it wears the running-session dot the Devices
 /// tab used to carry) and the New-issue arm files into the board in view,
-/// dimmed only while the team has no board at all. Search is no longer a tab
+/// dimmed only while the team has no board at all. The Agent page is a
+/// bar-visible ROOT and the app's landing screen (mobile parity ×3): the chat
+/// arm switches to it rather than pushing, and wears the tabs' selected
+/// circle while it is up; only New issue still pushes on top of the tabs. Search is no longer a tab
 /// (EXP-686): it is a pushed detail reached from the board header. Attached via
 /// `.overlay(alignment: .bottom)` so content
 /// scrolls underneath it; each bar-visible scrollable reserves clearance with
 /// `.tabBarBottomInset()` (EXP-36). MainNavigator hides it on detail screens.
 struct MobileTabBar: View {
+    /// Lit while the Agent tab ROOT (the empty-seed Agent page) is up: the
+    /// chat arm wears the selected circle and no pill tab is lit.
+    let agentActive: Bool
     let issuesActive: Bool
     let devicesActive: Bool
     /// EXP-1187: lit while the Actions list (or an action) is up.
@@ -155,7 +161,7 @@ struct MobileTabBar: View {
 
     private var launcherCapsule: some View {
         HStack(spacing: 0) {
-            arm(glyph: AppIcons.actionChat, badge: agentBadge, action: onChat)
+            arm(glyph: AppIcons.actionChat, badge: agentBadge, selected: agentActive, action: onChat)
                 .accessibilityLabel("Start chat")
                 .accessibilityIdentifier("chat-button")
             Rectangle()
@@ -183,6 +189,7 @@ struct MobileTabBar: View {
     private func arm(
         glyph: String,
         badge: Color? = nil,
+        selected: Bool = false,
         enabled: Bool = true,
         action: @escaping () -> Void
     ) -> some View {
@@ -193,6 +200,18 @@ struct MobileTabBar: View {
                     width: MobileTabBarMetrics.launcherArm,
                     height: MobileTabBarMetrics.launcherArm
                 )
+                .background {
+                    // The tabs' selected circle (the ONE bright glass fill),
+                    // a tab-sized 44pt disc centred in the 52pt arm.
+                    if selected {
+                        Circle()
+                            .fill(GlassTokens.fillActive)
+                            .frame(
+                                width: MobileTabBarMetrics.tabWidth,
+                                height: MobileTabBarMetrics.tabHeight
+                            )
+                    }
+                }
                 .overlay(alignment: .topTrailing) { launcherDot(badge) }
                 .contentShape(Rectangle())
         }
@@ -267,13 +286,18 @@ struct MobileTabBar: View {
     }
 }
 
+/// The height `.tabBarBottomInset()` reserves — exposed for the one layout
+/// that has to subtract it (the Agent page's centred empty state).
+let tabBarBottomClearance: CGFloat = 80
+
 extension View {
     /// Bottom clearance for the floating MobileTabBar (EXP-36): bar height
     /// (42pt tab frame + 2×5pt pill padding + 8pt top + 4pt bottom = 64pt)
     /// plus 16pt of breathing room. The bar is an ancestor OVERLAY (see
     /// MainNavigator) — ancestor safe-area insets don't reliably reach List
     /// content inside pushed destinations, so every bar-visible scrollable
-    /// (Issues list, Devices, Inbox's inbox/my-issues, Reviews) applies
+    /// (Agent root, Issues list, Devices, Inbox's inbox/my-issues, Reviews,
+    /// Actions) applies
     /// this ONE modifier directly. Detail screens (showsTabBar == false) must
     /// NOT reserve it — pass `false` when the same scrollable is reused on a
     /// bar-less surface.
@@ -281,7 +305,7 @@ extension View {
     func tabBarBottomInset(_ enabled: Bool = true) -> some View {
         if enabled {
             safeAreaInset(edge: .bottom) {
-                Color.clear.frame(height: 80)
+                Color.clear.frame(height: tabBarBottomClearance)
             }
         } else {
             self

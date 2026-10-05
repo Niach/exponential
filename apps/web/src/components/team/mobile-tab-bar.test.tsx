@@ -94,6 +94,7 @@ describe(`MobileTabBar FAB (EXP-973)`, () => {
     for (const path of [
       ``,
       `/t/$teamSlug`,
+      `/t/$teamSlug/agent`,
       `/t/$teamSlug/boards/$boardSlug`,
       `/t/$teamSlug/inbox`,
       `/t/$teamSlug/devices`,
@@ -203,6 +204,21 @@ describe(`MobileTabBar tabs (EXP-1187)`, () => {
     expect(screen.queryByTestId(`nav-more`)).toBeNull()
     expect(screen.queryByLabelText(`More`)).toBeNull()
     expect(screen.queryByLabelText(`Settings`)).toBeNull()
+  })
+
+  it(`selects the chat arm on the Agent page only`, () => {
+    route.value = `/t/$teamSlug/agent`
+    const view = renderBar()
+    const chat = screen.getByTestId(`chat-button`)
+    expect(chat.getAttribute(`aria-current`)).toBe(`page`)
+    expect(chat.innerHTML).toContain(`bg-glass-active`)
+    view.unmount()
+    route.value = `/t/$teamSlug/devices`
+    renderBar()
+    expect(screen.getByTestId(`chat-button`).getAttribute(`aria-current`)).toBeNull()
+    expect(screen.getByTestId(`chat-button`).innerHTML).not.toContain(
+      `bg-glass-active`
+    )
   })
 
   it(`links the Actions tab to the team's actions`, () => {

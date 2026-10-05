@@ -199,6 +199,10 @@ class StyleguideScreenshotsTest {
         flow.awaitLoginScreen()
         flow.submitLogin()
 
+        // The app lands on the Agent tab; the board shots start on Issues.
+        flow.waitFor(hasTestTag("tab-issues"), SYNC_TIMEOUT)
+        composeRule.onNode(hasTestTag("tab-issues")).performClick()
+
         // --- Board: wait out session fetch + first Electric sync, then let the
         // transient "Syncing…" pill clear (it photobombed a board shot once —
         // EXP-348).
@@ -351,7 +355,7 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_agents")
 
         // --- sg_chat / sg_chat-issues / sg_chat-action: the Agent page
-        // (EXP-825, the ONE launcher). The bottom bar's Chat circle pushes it
+        // (EXP-825, the ONE launcher). The bottom bar's Chat arm switches to it
         // on the default machine (the EXP-909 follow-up retired the device
         // row's play glyph — a device list starts nothing): an empty composer
         // is a chat; the `#` tool checks issues (two chips, a batch); the ▶
@@ -395,8 +399,8 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasContentDescription("Run action"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_chat-action")
-        // A pushed detail: back pops to the Devices tab.
-        Espresso.pressBack()
+        // A tab now (Back would leave the app): the Devices tab returns.
+        composeRule.onNode(hasTestTag("tab-devices")).performClick()
         flow.waitForGone(hasTestTag("agent-page"), NAV_TIMEOUT)
         flow.waitFor(hasText(DEMO_DEVICE_NAME, substring = true), SYNC_TIMEOUT)
         flow.settle(longer = true)

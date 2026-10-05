@@ -66,6 +66,7 @@ import com.exponential.app.ui.issue.StaticDot
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.domain.MAX_STEER_IMAGES
 import com.exponential.app.domain.resumeWorktreeFor
+import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.TopBarBackButton
@@ -106,9 +107,10 @@ import kotlinx.coroutines.withContext
  * sessions ([agentSessionsList], moved here from the Devices tab, which keeps
  * machines only — web parity, EXP-818).
  *
- * A PUSHED detail (no tab bar, native back), reached from the Chat FAB on
- * Devices/Actions with an empty seed and from every play button with a
- * preselection ([AgentComposerSeed] on the `agent?…` route): the issue
+ * Two mounts: the Agent TAB (the bar's chat arm and the app's landing
+ * screen; empty seed, no back button, the floating bar overlays it — [onBack]
+ * null) and a PUSHED detail (no tab bar, native back) reached from every play
+ * button with a preselection ([AgentComposerSeed] on the `agent?…` route): the issue
  * detail's Start coding, the bulk bar, an action's Run, New action / a
  * suggestion, a machine's play glyph, the Fix conflicts pills. A start is
  * only a COMMAND — the shared delegate waits for the desktop's synced row and
@@ -117,7 +119,8 @@ import kotlinx.coroutines.withContext
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AgentScreen(
-    onBack: () -> Unit,
+    /** Null on the Agent TAB: no back button, and the list clears the bar. */
+    onBack: (() -> Unit)?,
     onOpenSteer: (codingSessionId: String) -> Unit,
     onOpenIssue: (issueId: String) -> Unit,
     viewModel: AgentComposerViewModel = hiltViewModel(),
@@ -405,7 +408,7 @@ fun AgentScreen(
         topBar = {
             CenterAlignedTopAppBar(
                 title = { Text("Agent") },
-                navigationIcon = { TopBarBackButton(onClick = onBack) },
+                navigationIcon = { onBack?.let { TopBarBackButton(onClick = it) } },
                 // EXP-923: history, where history belongs — the finished runs
                 // are one tap away instead of a band under the composer.
                 actions = {
@@ -429,7 +432,14 @@ fun AgentScreen(
                 .padding(padding)
                 .fillMaxSize()
                 .testTag("agent-page"),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
+            // As a tab the floating bar overlays the page: the last row (and a
+            // centred composer) must sit above the pill, not under it.
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
+                top = 4.dp,
+                bottom = if (onBack == null) BottomBarInset else 24.dp,
+            ),
             verticalArrangement = if (emptyRuns) {
                 Arrangement.spacedBy(6.dp, Alignment.CenterVertically)
             } else {

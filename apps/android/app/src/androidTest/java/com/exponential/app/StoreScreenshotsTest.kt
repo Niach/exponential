@@ -125,6 +125,9 @@ class StoreScreenshotsTest {
         // --- Instance picker + login: the email field only shows once
         // /api/auth-config resolved.
         flow.signIn(instanceUrl)
+        // The app lands on the Agent tab; the board shot starts on Issues.
+        flow.waitFor(hasTestTag("tab-issues"), SYNC_TIMEOUT)
+        composeRule.onNode(hasTestTag("tab-issues")).performClick()
 
         // --- Board: wait out session fetch + first Electric sync until the
         // showcase issue row is on screen (in-progress group sits at the top),

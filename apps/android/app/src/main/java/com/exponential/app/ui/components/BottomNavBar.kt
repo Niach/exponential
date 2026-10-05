@@ -42,10 +42,12 @@ import com.exponential.app.ui.theme.TextEmphasis
 // Linear-style floating bottom navigation: a dark pill with the top-level
 // destinations (Issues, Inbox — the merged Inbox + My Issues personal tab,
 // with an unread dot — Devices — the machines surface — Reviews — and
-// Actions, a top-level tab since EXP-1187; Settings = the Issues gear) plus a detached launcher on the right: the Chat circle that
-// opens the Agent page on EVERY top-level surface (the sessions list lives
-// there since EXP-825, so it carries the green live dot the Devices tab used
-// to wear), joined by New issue in one capsule — on every tab since EXP-973. Search left the
+// Actions, a top-level tab since EXP-1187; Settings = the Issues gear) plus a detached launcher on the right: the Chat arm that
+// switches to the Agent page — the app's landing screen and a top-level
+// destination like the tabs, so the arm wears the SELECTED state while it is
+// up (the sessions list lives there since EXP-825, so it carries the green
+// live dot the Devices tab used to wear), joined by New issue in one capsule —
+// on every tab since EXP-973. Search left the
 // bar in EXP-686: it is a button in the board header now.
 // Overlaid above the NavHost; AppNavHost shows it only on the top-level routes.
 // (Compose has no cheap backdrop blur, so the bar takes the shared OPAQUE glass
@@ -85,6 +87,11 @@ private val ReviewsGreen = DesignTokens.Semantic.Green
 
 @Composable
 fun BottomNavBar(
+    /**
+     * Lit while the plain Agent page (the `agent-tab` start destination) is
+     * up: the chat arm wears the tab's active fill, and no pill tab is lit.
+     */
+    agentActive: Boolean,
     issuesActive: Boolean,
     devicesActive: Boolean,
     /** EXP-1187: lit while the Actions route is up. */
@@ -209,6 +216,7 @@ fun BottomNavBar(
         LauncherCapsule(
             onChat = onChat,
             onCompose = onCompose,
+            chatSelected = agentActive,
             chatDot = agentDot,
             composeEnabled = composeEnabled,
         )
@@ -224,6 +232,8 @@ fun BottomNavBar(
 private fun LauncherCapsule(
     onChat: () -> Unit,
     onCompose: () -> Unit,
+    /** The Agent page is the current destination: the arm reads selected. */
+    chatSelected: Boolean,
     chatDot: Color?,
     /** EXP-973: false with no board to file onto — the arm dims and no-ops. */
     composeEnabled: Boolean,
@@ -242,6 +252,7 @@ private fun LauncherCapsule(
             testTag = "chat-button",
             onClick = onChat,
             dotColor = chatDot,
+            selected = chatSelected,
         )
         Box(
             Modifier
@@ -271,7 +282,17 @@ private fun LauncherArm(
     onClick: () -> Unit,
     dotColor: Color? = null,
     enabled: Boolean = true,
+    /**
+     * The chat arm's selected state: the tab pill's active fill as a 44dp
+     * circle behind the glyph, cross-faded like a tab (EXP-523).
+     */
+    selected: Boolean = false,
 ) {
+    val selectedFill by animateColorAsState(
+        targetValue = if (selected) GlassTokens.RowFillActive else Color.Transparent,
+        animationSpec = Motion.standard(),
+        label = "launcher-arm-pill",
+    )
     Box(
         modifier = Modifier
             .size(52.dp)
@@ -279,6 +300,12 @@ private fun LauncherArm(
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
+        Box(
+            Modifier
+                .size(BottomNavDefaults.ItemSize)
+                .clip(CircleShape)
+                .background(selectedFill, CircleShape),
+        )
         Icon(
             icon,
             contentDescription = contentDescription,

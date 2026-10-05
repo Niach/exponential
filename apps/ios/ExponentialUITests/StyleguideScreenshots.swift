@@ -137,6 +137,11 @@ final class StyleguideScreenshots: XCTestCase {
             print("EXP-566 sign-in SKIPPED: the app booted already signed in (stale keychain — is erase_simulator on?)")
         }
 
+        // The app lands on the Agent tab — switch to Issues for the board.
+        let issuesTab = app.buttons["tab-issues"]
+        XCTAssertTrue(issuesTab.waitForExistence(timeout: 60), "Tab bar never appeared")
+        issuesTab.tap()
+
         // Wait for Electric to sync the board; the first login can take a while.
         let showcaseRowTitle = app.staticTexts[Self.showcaseTitle]
         XCTAssertTrue(
@@ -386,7 +391,7 @@ final class StyleguideScreenshots: XCTestCase {
         // ── sg_chat / sg_chat-issues / sg_chat-action: the Agent page ────────
         // EXP-825: the ONE launcher. EXP-909: a device row starts nothing any
         // more (its one control is the settings gear), so the bar's Chat
-        // circle opens the Agent page on the default device: an empty
+        // arm opens the Agent page on the default device: an empty
         // composer is a chat; the `#` tool checks issues (two chips, a
         // batch); the ▶ tool picks an action (the Fix merge conflicts
         // builtin, with its PR input). Nothing is ever submitted — a run
@@ -394,7 +399,7 @@ final class StyleguideScreenshots: XCTestCase {
         let chatButton = app.buttons["chat-button"].firstMatch
         XCTAssertTrue(
             chatButton.waitForExistence(timeout: 20),
-            "The bar offers no Chat circle — is the demo team's device online with an agent?"
+            "The bar offers no Chat arm — is the demo team's device online with an agent?"
         )
         chatButton.tap()
         let composer = anyElement(app, identified: "agent-composer")
@@ -438,7 +443,11 @@ final class StyleguideScreenshots: XCTestCase {
             "No action chip after picking"
         )
         snapshot("sg_chat-action", settle: 2)
-        goBack(app)
+        // The Agent page is a bar root now (the chat arm switches to it) —
+        // back to Devices through the bar.
+        let devicesTabAgain = app.buttons["tab-devices"]
+        XCTAssertTrue(devicesTabAgain.waitForExistence(timeout: 15), "Devices tab missing")
+        devicesTabAgain.tap()
         XCTAssertTrue(
             app.navigationBars["Devices"].waitForExistence(timeout: 30),
             "Did not return to the Devices surface"

@@ -2411,7 +2411,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `tab-bar`,
     title: `Bottom tab bar`,
     kind: `Surfaces`,
-    blurb: `A floating capsule: padding 4 inside a strong hairline, over the OPAQUE card fill. Items are 44px circles; the active one takes the active fill. On a board the detached slot is one 52px capsule with two arms, Start chat | New issue, split by a hairline; elsewhere a single circle.`,
+    blurb: `A floating capsule: padding 4 inside a strong hairline, over the OPAQUE card fill. Items are 44px circles; the active one takes the active fill. The detached slot is one 52px capsule with two arms, Start chat | New issue, split by a hairline, on every tab-bar route (New issue dims with no board). The chat arm opens the Agent page, the screen a phone OPENS on: it keeps the bar, and the arm is SELECTED there (the tabs' active circle inside the arm). New issue is the only screen pushed over the bar.`,
     status: {
       web: ok(`MobileTabBar`, `apps/web/src/components/team/mobile-tab-bar.tsx`),
       desktop: na(`no bottom bar`),

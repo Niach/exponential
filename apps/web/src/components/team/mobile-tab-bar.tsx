@@ -153,6 +153,9 @@ function TabDot({ className }: { className: string }) {
 // board in the team at all there is nothing to file into — the arm then dims
 // (disabled, "New issue (no board)") instead of disappearing, so the control
 // never moves under the thumb. Same shape ×3 (iOS / Android `composeEnabled`).
+// The Agent page is the phone's FIRST screen and keeps the bar, so the chat
+// arm is SELECTED there — the tabs' active circle inside the arm — the way a
+// tab is lit on its own surface.
 const FAB_GROUP_CLASS = `pointer-events-auto flex h-[52px] shrink-0 items-stretch overflow-hidden rounded-full text-foreground ${FAB_CHROME_CLASS}`
 const FAB_ARM_CLASS = `relative flex w-[52px] items-center justify-center text-foreground transition-colors active:bg-glass-active`
 
@@ -175,7 +178,8 @@ interface MobileTabBarProps {
 // EXP-686: Search left the bar for the board header (`use-issue-search.tsx`).
 // EXP-1187: Issues · Inbox · Devices · Reviews · Actions — no More on the
 // phone: Actions is a tab of its own and Settings lives in the topbar's
-// avatar menu (×3 with the iOS and Android bars).
+// avatar menu (×3 with the iOS and Android bars). The phone OPENS on the
+// Agent page (`routes/index.tsx`), whose entry is the FAB's chat arm.
 export function MobileTabBar({
   teamSlug,
   team,
@@ -205,6 +209,7 @@ export function MobileTabBar({
     matchRoute({ to: `/t/$teamSlug/boards/$boardSlug`, fuzzy: true })
   )
   const onTeamIndex = Boolean(matchRoute({ to: `/t/$teamSlug` }))
+  const onAgent = Boolean(matchRoute({ to: `/t/$teamSlug/agent`, fuzzy: true }))
   const onInbox = Boolean(matchRoute({ to: `/t/$teamSlug/inbox`, fuzzy: true }))
   const onDevices = Boolean(
     matchRoute({ to: `/t/$teamSlug/devices`, fuzzy: true })
@@ -304,9 +309,17 @@ export function MobileTabBar({
           params={{ teamSlug }}
           aria-label="Start chat"
           data-testid="chat-button"
+          aria-current={onAgent ? `page` : undefined}
           className={FAB_ARM_CLASS}
         >
-          <ActionChatIcon className="size-5" />
+          <span
+            className={cn(
+              `flex size-11 items-center justify-center rounded-full transition-colors`,
+              onAgent && `bg-glass-active`
+            )}
+          >
+            <ActionChatIcon className="size-5" />
+          </span>
           <AgentDot teamIds={scope.teamIds} />
         </Link>
         <span aria-hidden className="my-3 w-px shrink-0 bg-glass-stroke-card" />
