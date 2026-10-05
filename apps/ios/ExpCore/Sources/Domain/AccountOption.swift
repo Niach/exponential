@@ -24,8 +24,8 @@ import Foundation
 ///
 /// EXP-1158: last used = per agent, the login a PERSON last started or
 /// switched a run on, on that device (`agent_accounts[agent].profiles[].active`);
-/// the last used agent = `launch_defaults.defaultAgent`. Automations, workflow
-/// nodes, agent-started runs and auto-rotation never move it. A launch naming
+/// the last used agent = `launch_defaults.defaultAgent`. Triggered action
+/// runs, agent-started runs and auto-rotation never move it. A launch naming
 /// no account runs on it; `account: "system"` names the ambient login.
 ///
 /// `limits` are FRACTIONS 0..1 off the usage windows (`percent / 100`):

@@ -3103,8 +3103,19 @@ impl ScreensPanel {
 
     /// EXP-1192: the Inbox screen's main view — the notifications live in
     /// the second sidebar beside it, so with none picked yet the main view
-    /// says so.
-    fn render_inbox_empty(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+    /// says so, in the words of the tab that list is on.
+    fn render_inbox_empty(
+        &self,
+        tab: InboxTab,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let (title, hint) = match tab {
+            InboxTab::Inbox => (
+                "No notification selected",
+                "Pick a notification to open its issue here.",
+            ),
+            InboxTab::MyIssues => ("No issue selected", "Pick an issue to open it here."),
+        };
         v_flex()
             .size_full()
             .min_w_0()
@@ -3113,8 +3124,8 @@ impl ScreensPanel {
             .justify_center()
             .child(crate::controls::empty_state(
                 Icon::new(registry::NAV_INBOX),
-                "No notification selected",
-                "Pick a notification to open its issue here.",
+                title,
+                hint,
                 cx,
             ))
             .into_any_element()
@@ -3789,7 +3800,7 @@ impl Render for ScreensPanel {
             // EXP-851: a board's list, full width.
             Some(Screen::BoardIssues { .. }) => self.list.clone().into_any_element(),
             // EXP-1192: the notifications are the second sidebar beside this.
-            Some(Screen::Inbox { .. }) => self.render_inbox_empty(cx),
+            Some(Screen::Inbox { tab }) => self.render_inbox_empty(*tab, cx),
             Some(Screen::Files) => self.render_files_screen(cx),
             Some(Screen::SourceControl) => self.render_source_control_screen(window, cx),
             Some(Screen::Devices) => self.devices.clone().into_any_element(),

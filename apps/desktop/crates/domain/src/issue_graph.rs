@@ -25,14 +25,11 @@ pub const ISSUE_GRAPH_TRUNCATED_NOTE: &str = "Showing the nearest 60 issues.";
 pub const ISSUE_GRAPH_CYCLE_NOTE: &str = "Red issues block each other in a cycle.";
 
 /// How a mini-graph edge is drawn (formerly `workflow_view::WorkflowEdgeStyle`).
-/// Grey solid is the default; the others say something.
+/// Grey solid is the default; red says the edge closes a cycle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkflowEdgeStyle {
     Plain,
     Cycle,
-    Stale,
-    Landed,
-    Speculative,
 }
 
 impl WorkflowEdgeStyle {
@@ -41,9 +38,6 @@ impl WorkflowEdgeStyle {
         match self {
             WorkflowEdgeStyle::Plain => "plain",
             WorkflowEdgeStyle::Cycle => "cycle",
-            WorkflowEdgeStyle::Stale => "stale",
-            WorkflowEdgeStyle::Landed => "landed",
-            WorkflowEdgeStyle::Speculative => "speculative",
         }
     }
 }

@@ -957,7 +957,7 @@ describe(`devices.setLaunchDefaults`, () => {
   // Compat round 26: a save REPLACES the stored object. Every client at the
   // version floors sends every key it knows, so an ABSENT key is a clear —
   // nothing stored rides along any more (subagentModel, autoRotateAccounts,
-  // the workflow pair) — except `defaultAgent` (EXP-1158, below).
+  // a legacy `workflow` key) — except `defaultAgent` (EXP-1158, below).
   it(`carries nothing stored forward when the save omits a KEY`, async () => {
     h.state.selectQueue = deviceRow({
       launchDefaults: {

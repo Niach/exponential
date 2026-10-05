@@ -1567,6 +1567,9 @@ export function AgentSessionView({
                   ref={setContentRef}
                   className={cn(
                     `flex min-h-full flex-col justify-end py-2`,
+                    // The md+ fade masks the scroller's last 48px: the
+                    // newest row rests above it (the desktop's list `pb`).
+                    !isMobile && `pb-10`,
                     TRANSCRIPT_COLUMN
                   )}
                 >
@@ -1580,6 +1583,7 @@ export function AgentSessionView({
                   ref={setContentRef}
                   className={cn(
                     `flex min-h-full flex-col justify-end py-2`,
+                    !isMobile && `pb-10`,
                     TRANSCRIPT_COLUMN
                   )}
                 >

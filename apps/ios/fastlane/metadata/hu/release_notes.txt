@@ -1,8 +1,5 @@
-- GitHub: egyetlen vezetett oldal összeköti a GitHub-fiókodat, telepíti az appot, és listázza a repókat, ahová pusholhatsz
-- Visszajelzés: a widgetből küldött bejelentés egy issue, a bejelentőnek a hozzászólásmezőből válaszolsz, és a válaszai hozzászólásként érkeznek
-- Új issue: a létrehozás egy teljes oldalt nyit minden tulajdonsággal, gépelés közben piszkozatként mentve
-- Navigáció: Inbox, Devices, Reviews, Agent és Actions fülek; a Reviews, a futások, a műveletek és az eszközök minden csapatodat mutatják
-- Pull requestek: a diff az issue Changes nézete, a Results számozott útmutatóként olvasható, a Merge az alsó sávon van
-- Runs: az agent jele forog, amíg dolgozik, a borostyán rád vár, a zöldnek nyitott pull requestje van, a kék kész
-- Issue nézet: görgetéskor a cím a fejlécbe húzódik, a tartalom pedig egy elmosott perem alá csúszik
-- Csatlakozás csapathoz: a meghívó felajánlja az eszközbeállítási lépést, ha még nincs eszközöd
+- Indítás: az app az Agent oldalon nyílik meg, és a chat gomb világít, amíg ott vagy
+- Fülek: az Inbox, a My Issues és a Drafts oldalra húzással váltható, ahogy az Actions és a Suggestions is
+- Reviews: egy chat- vagy műveletfutás pull requestje az appban nyitja meg a változásait
+- Runs: egy nyíl a legújabb üzenetre ugrik, a feladatlista pedig mutatja a haladását
+- Új issue: egy koppintás az ×-re elveti a piszkozatot

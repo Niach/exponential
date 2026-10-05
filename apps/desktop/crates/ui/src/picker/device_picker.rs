@@ -1,7 +1,7 @@
 //! EXP-1029 contract — the device picker: the machines a run may start on,
 //! each by its device glyph (contract `deviceIcon`) + name, offline ones
-//! disabled with the reason as the description. The composer, the
-//! trigger form and the workflow runner row pick one.
+//! disabled with the reason as the description. The composer and an
+//! action's trigger form pick one.
 
 use gpui::AnyElement;
 
@@ -19,7 +19,7 @@ pub(crate) struct DevicePickerDevice {
     /// default: a headless daemon falls back to the server glyph, every other
     /// machine to the device one.
     pub server: bool,
-    /// A muted reason under the name (`Offline`, `Update to run workflows`).
+    /// A muted reason under the name (`Offline`).
     pub description: Option<String>,
     pub disabled: bool,
 }

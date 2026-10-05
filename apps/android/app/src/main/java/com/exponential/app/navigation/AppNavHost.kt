@@ -389,8 +389,13 @@ private fun AuthenticatedNav(
     LaunchedEffect(showsReviews) {
         val flippedOff = hadReviews && !showsReviews
         hadReviews = showsReviews
-        if (flippedOff) {
-            navController.popBackStack("reviews", inclusive = true)
+        // Every tab sits on the Agent root, so the pop alone would reveal the
+        // Agent page: switch to Issues like the tab does (iOS parity).
+        if (flippedOff && navController.popBackStack("reviews", inclusive = true)) {
+            navController.navigate("home") {
+                launchSingleTop = true
+                popUpTo(AGENT_TAB_ROUTE)
+            }
         }
     }
     // EXP-825: every launcher entry point is NAVIGATION onto the Agent page

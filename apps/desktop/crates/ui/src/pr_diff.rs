@@ -40,6 +40,9 @@ pub struct PrDiffView {
     /// EXP-1154: a file the Results Guide asked for (a file row click) before
     /// the PR's files had landed — selected as soon as they do.
     pending_path: Option<String>,
+    /// The pane's own painted width — [`crate::diff_pane`]'s tree gate (it
+    /// writes and reads it; 0 before the first paint).
+    pane_width: std::rc::Rc<std::cell::Cell<f32>>,
     _subscriptions: Vec<gpui::Subscription>,
 }
 
@@ -84,6 +87,7 @@ impl PrDiffView {
             folded_dirs: std::collections::HashSet::new(),
             filter,
             pending_path: None,
+            pane_width: std::rc::Rc::new(std::cell::Cell::new(0.)),
             _subscriptions: subscriptions,
         }
     }
@@ -261,6 +265,7 @@ impl Render for PrDiffView {
                 folded_dirs: self.folded_dirs.clone(),
                 caption,
                 diff: self.diff.clone(),
+                pane_width: self.pane_width.clone(),
                 on_pick: std::rc::Rc::new(|this: &mut Self, index, cx| {
                     this.select_file(index, cx);
                 }),

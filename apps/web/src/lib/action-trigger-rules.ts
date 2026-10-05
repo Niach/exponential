@@ -154,12 +154,7 @@ export async function assertDeviceUsable(
   deviceId: string,
   teamId: string,
   callerUserId: string,
-  agent: string | null | undefined,
-  // EXP-981: workflows bind a runner the same way, behind their own cap.
-  what: { noun: string; cap: string; capMessage?: string } = {
-    noun: `Trigger`,
-    cap: `automations`,
-  }
+  agent: string | null | undefined
 ): Promise<void> {
   const { db } = await import(`@/db/connection`)
   const rows = await db
@@ -196,12 +191,11 @@ export async function assertDeviceUsable(
     }
   }
   if (usableRows.length === 0) {
-    throw bad(`${what.noun} device must be yours or shared with this team`)
+    throw bad(`Trigger device must be yours or shared with this team`)
   }
-  if (!usableRows.some((row) => (row.caps ?? []).includes(what.cap))) {
+  if (!usableRows.some((row) => (row.caps ?? []).includes(`automations`))) {
     throw bad(
-      what.capMessage ??
-        `No agent is signed in on that machine — sign in on the device first`
+      `No agent is signed in on that machine — sign in on the device first`
     )
   }
   if (agent && !usableRows.some((row) => (row.agents ?? []).includes(agent))) {

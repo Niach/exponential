@@ -4591,6 +4591,8 @@ export function registerExponentialTools(
     },
     async (input) => {
       try {
+        // A machine's logins sit outside any selectable grant — full access only.
+        assertFullAccess(access)
         const trpc = caller(user, request)
         return ok(
           await deviceAccountLogin(input, {

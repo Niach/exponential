@@ -167,6 +167,7 @@ async function resolveSessionDevice(
 // the host in `host_user_id`).
 interface ResumedFrom {
   id: string
+  teamId: string
   parentSessionId: string | null
   startedReason: string | null
   branch: string | null
@@ -184,6 +185,7 @@ async function resolveResumedFrom(
   const [row] = await db
     .select({
       id: codingSessions.id,
+      teamId: codingSessions.teamId,
       userId: codingSessions.userId,
       hostUserId: codingSessions.hostUserId,
       parentSessionId: codingSessions.parentSessionId,
@@ -217,6 +219,7 @@ async function resolveResumedFrom(
   }
   return {
     id: row.id,
+    teamId: row.teamId,
     parentSessionId: row.parentSessionId ?? null,
     startedReason: row.startedReason ?? null,
     branch: row.branch ?? null,
@@ -247,19 +250,24 @@ function startTree(
  * rotation) carries the predecessor's PR forward — else the merge sweep,
  * which reaches runs by `pr_url` alone, never ends the successor and
  * `mergePr` finds no PR on it. The status stays `running` like every start;
- * the sweep matches running and in_review alike. The frame's branch wins. */
+ * the sweep matches running and in_review alike. The frame's branch wins.
+ * Confined to the successor's team like `adoptPredecessor`: a predecessor in
+ * ANOTHER team hands nothing over (its PR names that team's repo), and the
+ * start still goes through. */
 function inheritedPr(
   predecessor: ResumedFrom | null,
-  frameBranch: string | undefined
+  frameBranch: string | undefined,
+  teamId: string
 ): Pick<
   typeof codingSessions.$inferInsert,
   `branch` | `prUrl` | `prNumber` | `prState`
 > {
+  const source = predecessor?.teamId === teamId ? predecessor : null
   return {
-    branch: frameBranch ?? predecessor?.branch ?? null,
-    prUrl: predecessor?.prUrl ?? null,
-    prNumber: predecessor?.prNumber ?? null,
-    prState: predecessor?.prState ?? null,
+    branch: frameBranch ?? source?.branch ?? null,
+    prUrl: source?.prUrl ?? null,
+    prNumber: source?.prNumber ?? null,
+    prState: source?.prState ?? null,
   }
 }
 
@@ -638,7 +646,7 @@ export const codingSessionsRouter = router({
   // view of a run with no issue (a chat or action run's chore PR), which
   // `issues.prFiles` cannot key. Member-gated via the run's team (every
   // member reviews; PR diffs can expose private-repo contents). The repo is
-  // resolved from the stored url, like mergePr.
+  // resolved from the stored url and must be the team's, like mergePr.
   prFiles: authedProcedure
     .input(z.object({ sessionId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
@@ -657,6 +665,16 @@ export const codingSessionsRouter = router({
       await assertTeamMember(ctx.session.user.id, session.teamId)
       // Lazy: the GitHub helpers open the db connection at module scope.
       const { loadPrFiles } = await import(`@/lib/integrations/pr-files`)
+      // Membership alone does not make a repo this team's to read: the
+      // stored url must name a repository registered in it, like mergePr.
+      const { repoFromPrUrl } = await import(`@/lib/integrations/pr-sync`)
+      const repoFullName = session.prUrl ? repoFromPrUrl(session.prUrl) : null
+      if (repoFullName && session.prNumber != null) {
+        const { loadRepositoryByFullName } = await import(
+          `@/lib/trpc/repositories`
+        )
+        await loadRepositoryByFullName(session.teamId, repoFullName)
+      }
       return loadPrFiles(session.prUrl, session.prNumber)
     }),
 
@@ -856,7 +874,7 @@ export const codingSessionsRouter = router({
             ...device,
             agent: input.agent ?? null,
             agentAccount: input.agentAccount ?? null,
-            ...inheritedPr(predecessor, input.branch),
+            ...inheritedPr(predecessor, input.branch, input.teamId!),
             mcpServerIds,
             resumedFromId,
             status: `running`,
@@ -928,7 +946,7 @@ export const codingSessionsRouter = router({
             ...device,
             agent: input.agent ?? null,
             agentAccount: input.agentAccount ?? null,
-            ...inheritedPr(predecessor, input.branch),
+            ...inheritedPr(predecessor, input.branch, action.teamId),
             mcpServerIds,
             resumedFromId,
             status: `running`,
@@ -979,7 +997,7 @@ export const codingSessionsRouter = router({
             agent: input.agent ?? null,
             agentAccount: input.agentAccount ?? null,
             // Issue rows never took the frame's branch; only a resume's.
-            ...inheritedPr(predecessor, undefined),
+            ...inheritedPr(predecessor, undefined, issueCtx.teamId),
             mcpServerIds,
             resumedFromId,
             status: `running`,
@@ -1035,7 +1053,7 @@ export const codingSessionsRouter = router({
           ...device,
           agent: input.agent ?? null,
           agentAccount: input.agentAccount ?? null,
-          ...inheritedPr(predecessor, input.branch),
+          ...inheritedPr(predecessor, input.branch, input.teamId!),
           batchIssueIds,
           mcpServerIds,
           resumedFromId,

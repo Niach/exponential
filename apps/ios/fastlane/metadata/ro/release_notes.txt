@@ -1,8 +1,5 @@
-- GitHub: o singură pagină ghidată conectează contul tău GitHub, instalează aplicația și listează repository-urile în care poți face push
-- Feedback: o trimitere din widget este un issue, îi răspunzi celui care a raportat din câmpul de comentarii, iar răspunsurile lui revin ca comentarii
-- Issue nou: crearea deschide o pagină întreagă cu toate proprietățile, salvată ca ciornă în timp ce scrii
-- Navigare: filele Inbox, Devices, Reviews, Agent și Actions; Reviews, rulările, acțiunile și dispozitivele arată toate echipele tale
-- Pull requesturi: diff-ul este vizualizarea Changes a issue-ului, Results se citește ca un ghid numerotat, Merge stă în bara de jos
-- Runs: semnul agentului se rotește cât lucrează, chihlimbar te așteaptă, verde are un pull request deschis, albastru e gata
-- Ecranul issue: titlul se strânge în antet la derulare, iar conținutul alunecă sub o margine estompată
-- Intrarea într-o echipă: invitația oferă pasul de configurare a dispozitivului când nu ai încă niciun dispozitiv
+- Pornire: aplicația se deschide pe pagina Agent, iar butonul de chat se aprinde cât timp ești acolo
+- File: Inbox, My Issues și Drafts se schimbă glisând în lateral, la fel și Actions și Suggestions
+- Reviews: un pull request dintr-o rulare de chat sau de acțiune își deschide modificările în aplicație
+- Runs: o săgeată sare la cel mai nou mesaj, iar lista de sarcini își arată progresul
+- Issue nou: o singură atingere pe × renunță la o ciornă

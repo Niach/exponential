@@ -1,8 +1,5 @@
-- GitHub : une page guidée connecte votre compte GitHub, installe l'app et liste les dépôts sur lesquels vous pouvez pousser
-- Retours : un envoi du widget est une issue, répondez à l'auteur depuis la zone de commentaire et ses réponses reviennent en commentaires
-- Nouvelle issue : la création ouvre une page complète avec toutes les propriétés, enregistrée en brouillon pendant la saisie
-- Navigation : onglets Inbox, Devices, Reviews, Agent et Actions ; Reviews, exécutions, actions et appareils affichent toutes vos équipes
-- Pull requests : le diff est la vue Changes de l'issue, Results se lit comme un guide numéroté, Merge est dans la barre du bas
-- Runs : le symbole de l'agent tourne pendant qu'il travaille, ambre vous attend, vert a une pull request ouverte, bleu est terminé
-- Écran d'issue : le titre se replie dans l'en-tête au défilement et le contenu glisse sous un bord flouté
-- Rejoindre une équipe : l'invitation propose l'étape de configuration d'un appareil si vous n'en avez pas encore
+- Démarrage : l'app s'ouvre sur la page Agent, et le bouton de chat s'allume tant que vous y êtes
+- Onglets : Inbox, My Issues et Drafts se changent d'un balayage latéral, tout comme Actions et Suggestions
+- Reviews : une pull request issue d'une exécution de chat ou d'action ouvre ses modifications dans l'app
+- Runs : une flèche saute au message le plus récent et la liste des tâches affiche sa progression
+- Nouvelle issue : un seul toucher sur le × supprime un brouillon
