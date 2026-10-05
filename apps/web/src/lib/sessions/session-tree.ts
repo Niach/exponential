@@ -246,9 +246,3 @@ export function sessionDescendantIds<T extends SessionTreeRow>(
     child.chain.map((row) => row.id)
   )
 }
-
-/** EXP-1068: the needs-you dot = a LIVE row with an open question. The amber
- *  needs-input/blocked flags are a separate mark, never this one. */
-export function sessionNeedsYou(row: { status: string; pendingQuestion?: unknown }): boolean {
-  return sessionRowIsLive(row) && row.pendingQuestion != null
-}

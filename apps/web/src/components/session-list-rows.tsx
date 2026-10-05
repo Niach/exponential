@@ -36,23 +36,9 @@ const ChevronDownIcon = conceptIcon(`ui-chevron-down`)
 const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
 
 /** What a row adds to the two rows below — a title that beats the identity
- *  (a caller's own, an action's Runs) and the red "needs you" dot of an open
- *  question. Every field optional: a plain run passes none. */
+ *  (a caller's own, an action's Runs). A plain run passes none. */
 export interface SessionRowDecor {
   title?: string
-  /** EXP-1082 §4: the run parked on a question for a person. */
-  needsYou?: boolean
-}
-
-/** EXP-1068: the red dot beside the state dot while a question is open. */
-export function NeedsYouDot({ className }: { className?: string }) {
-  return (
-    <span
-      aria-label="Needs you"
-      title="Needs you"
-      className={cn(`inline-block size-1.5 shrink-0 rounded-full bg-red-500`, className)}
-    />
-  )
 }
 
 const TONE_CLASS: Record<SessionStatusTone, string> = {
@@ -151,7 +137,6 @@ export function RunningSessionRow({
             </span>
           )}
           <span className="truncate font-medium">{decor?.title ?? identity.subject}</span>
-          {decor?.needsYou && <NeedsYouDot />}
         </div>
         {caption && (
           <div

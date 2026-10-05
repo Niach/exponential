@@ -98,31 +98,6 @@ pub(crate) struct PastRunFacts {
     pub(crate) identifier: Option<SharedString>,
     pub(crate) title: SharedString,
     pub(crate) byline: SharedString,
-    /// EXP-1068: what the session TREE adds (empty off a flat list).
-    pub(crate) marks: RunTreeMarks,
-}
-
-/// EXP-1068 — what a session TREE node adds to its run's row, beyond the
-/// session row itself: the red "needs you" dot of a pending question.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub(crate) struct RunTreeMarks {
-    /// `pending_question` is set — a person has to answer.
-    pub(crate) needs_you: bool,
-}
-
-impl RunTreeMarks {
-    pub(crate) fn derive(
-        node: &domain::session_tree::SessionNode<&domain::rows::CodingSession>,
-        _cx: &App,
-    ) -> Self {
-        let session: &domain::rows::CodingSession = node.session();
-        Self {
-            needs_you: domain::session_tree::session_needs_you(
-                session.status.as_deref().unwrap_or_default(),
-                session.pending_question.as_ref().is_some_and(|question| !question.is_null()),
-            ),
-        }
-    }
 }
 
 /// A LIVE run's row facts. `local_caption` and `local_busy` are the engine's
@@ -231,7 +206,6 @@ pub(crate) fn past_run_facts(
         identifier: run_identifier(session, issue.as_ref(), &batch_issues),
         title: run_title(session, issue.as_ref(), &batch_issues),
         byline: SharedString::from(past_run_byline(session, device_label.as_deref(), now_epoch)),
-        marks: RunTreeMarks::default(),
     }
 }
 
@@ -496,7 +470,6 @@ pub(crate) fn render_past_run_row(spec: PastRunSpec, active: bool, cx: &App) -> 
     } = spec;
     let theme = cx.theme();
     let muted = theme.muted_foreground;
-    let marks = facts.marks.clone();
     let title = facts.title;
     let byline = facts.byline;
     let line1 = div()
@@ -506,7 +479,6 @@ pub(crate) fn render_past_run_row(spec: PastRunSpec, active: bool, cx: &App) -> 
         .items_center()
         .gap_2()
         .children(fold.map(|fold| fold_chevron(id_prefix, index, fold, muted)))
-        .children(needs_you_dot(marks.needs_you))
         .children(facts.identifier.map(|identifier| {
             div()
                 .flex_shrink_0()
@@ -548,12 +520,6 @@ pub(crate) fn render_past_run_row(spec: PastRunSpec, active: bool, cx: &App) -> 
                 .child(Icon::from(registry::UI_CHEVRON_RIGHT).xsmall().text_color(muted)),
         )
         .into_any_element()
-}
-
-/// EXP-1068: the red "needs you" dot of a run with a pending question — beside
-/// the state dot, never instead of the amber needs-input tone.
-pub(crate) fn needs_you_dot(needs_you: bool) -> Option<gpui::AnyElement> {
-    needs_you.then(|| crate::surface::live_dot(theme::tokens::RED.to_hsla(), false))
 }
 
 /// A row of a mixed list (an action's Runs): live runs

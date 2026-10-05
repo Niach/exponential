@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest"
-import marks from "@exp/domain-contract/fixtures/session-tree-marks.json"
 import {
   flattenSessionTree,
   sessionDescendantIds,
-  sessionNeedsYou,
   sessionTree,
   sessionTreeNodeKey,
   visibleSessionTreeRows,
@@ -173,13 +171,4 @@ describe(`sessionDescendantIds`, () => {
     expect(sessionDescendantIds(nodes, `g`)).toEqual([])
     expect(sessionDescendantIds(nodes, `missing`)).toEqual([])
   })
-})
-
-// EXP-1108: the row marks, replayed off the ONE contract fixture ×4.
-describe(`session row marks (contract fixture)`, () => {
-  for (const entry of marks.needsYou) {
-    it(`needs you: ${entry.name}`, () => {
-      expect(sessionNeedsYou(entry)).toBe(entry.needsYou)
-    })
-  }
 })

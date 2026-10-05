@@ -1189,7 +1189,6 @@ impl RailView {
             ))
             .children(fold)
             .child(lead)
-            .children(crate::run_rows::needs_you_dot(run.marks.needs_you))
             .children(run.identifier.clone().map(|identifier| {
                 div()
                     .flex_shrink_0()

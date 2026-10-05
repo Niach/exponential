@@ -1,13 +1,7 @@
 package com.exponential.app.domain
 
 import com.exponential.app.data.db.CodingSessionEntity
-import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.boolean
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 // EXP-818 — the session tree's four rules, the same four tests web
@@ -225,31 +219,5 @@ class SessionTreeNodeTest {
     @Test
     fun `keys a session by its id`() {
         assertEquals("p", sessionTreeNodeKey(familyTree()[0]))
-    }
-}
-
-// EXP-1108: the needs-you mark, replayed from `session-tree-marks.json` by case
-// name (web `session-tree.test.ts`, iOS, desktop the same).
-class SessionTreeMarksTest {
-    private val marks by lazy {
-        kotlinx.serialization.json.Json.parseToJsonElement(contractFixtureJson("session-tree-marks.json")).jsonObject
-    }
-
-    @Test
-    fun `the needs-you dot matches every fixture case`() {
-        val cases = marks.getValue("needsYou").jsonArray
-        assertTrue(cases.size >= 4)
-        cases.forEach { element ->
-            val case = element.jsonObject
-            val question = case["pendingQuestion"]
-            assertEquals(
-                case.getValue("name").jsonPrimitive.content,
-                case.getValue("needsYou").jsonPrimitive.boolean,
-                SessionTree.sessionNeedsYou(
-                    case.getValue("status").jsonPrimitive.content,
-                    question != null && question !is JsonNull,
-                ),
-            )
-        }
     }
 }

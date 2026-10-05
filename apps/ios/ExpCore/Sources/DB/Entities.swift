@@ -470,7 +470,6 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
     public let parentSessionId: String?
     // EXP-1082: the run's open question to a person (`{question, askedAt}`),
     // the raw jsonb TEXT off the wire like `blocked`; nil = none pending.
-    // The session tree marks a run with one as needing you (`needsYou`).
     public let pendingQuestion: String?
     public let startedAt: String
     public let endedAt: String?

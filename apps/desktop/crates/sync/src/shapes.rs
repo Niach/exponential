@@ -866,7 +866,7 @@ mod tests {
         assert!(spec.columns.contains(&"agent_title"));
     }
 
-    /// EXP-1082: the open question the needs-you mark reads.
+    /// EXP-1082: the run's open question rides the shape.
     #[test]
     fn coding_sessions_syncs_the_pending_question() {
         let spec = shape_by_name("coding_sessions").unwrap();

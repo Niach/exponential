@@ -23,12 +23,10 @@ import { deviceCollection } from "@/lib/collections"
 import { sessionDisplayState } from "@/lib/coding-session-display"
 import { sessionIdentity } from "@/lib/session-identity"
 import {
-  sessionNodeDecor,
   TreeFoldToggle,
   useCollapsedNodes,
   useSessionTreeRows,
 } from "@/components/session-tree"
-import type { SessionRowDecor } from "@/components/session-list-rows"
 import { rowPrState, useSessionListRows, type SessionListRow } from "@/hooks/use-agents-data"
 import { useMyLiveRuns } from "@/hooks/use-my-live-runs"
 import { useOpenSession } from "@/hooks/use-open-session"
@@ -70,8 +68,6 @@ export interface RunningSessionEntry {
   state: RunMarkState | undefined
   identifier: string | null
   subject: string
-  /** EXP-1068: the red needs-you dot of an open question. */
-  decor: SessionRowDecor | undefined
 }
 
 /** My live runs in the team, joined and nested — the section's model, shared
@@ -102,7 +98,6 @@ export function useMyRunningRows(
         row.session,
         rowPrState(row.session, row.issue)
       )
-      const decor = sessionNodeDecor(flat.node)
       return [
         {
           key: flat.key,
@@ -116,8 +111,7 @@ export function useMyRunningRows(
           // paused run (offline host) wears the bare mark.
           state: row.paused ? undefined : state,
           identifier: identity.identifier,
-          subject: decor?.title ?? identity.subject,
-          decor,
+          subject: identity.subject,
         } satisfies RunningSessionEntry,
       ]
     })
@@ -202,11 +196,7 @@ export function SidebarRunningSection({
                     onToggle={() => toggle(entry.key)}
                   />
                 )}
-                <RunningMark
-                  agent={session.agent}
-                  state={entry.state}
-                  needsYou={entry.decor?.needsYou}
-                />
+                <RunningMark agent={session.agent} state={entry.state} />
                 {entry.identifier && (
                   <span className="shrink-0 font-mono text-xs text-muted-foreground">
                     {entry.identifier}
@@ -270,11 +260,7 @@ export function SidebarRunningIcons({
           active: isShown(entry, shown),
           onClick: () => openSession(session, { origin: { kind: `running` } }),
           icon: (
-            <RunningMark
-              agent={session.agent}
-              state={entry.state}
-              needsYou={entry.decor?.needsYou}
-            />
+            <RunningMark agent={session.agent} state={entry.state} />
           ),
         })
       })}

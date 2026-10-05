@@ -94,8 +94,6 @@ pub(crate) struct RailRunRow {
     /// Web `ownsLiveRow`: a paused host is never killed (it resumes when the
     /// lid opens), so its row offers no Stop.
     pub(crate) paused: bool,
-    /// EXP-1068: the tree's needs-you dot.
-    pub(crate) marks: run_rows::RunTreeMarks,
 }
 
 /// EXP-996 — one flattened row of a session TREE: a built run row. `key` is
@@ -124,7 +122,6 @@ fn live_run_tree<T>(
     cx: &mut App,
     build: impl Fn(
         &domain::rows::CodingSession,
-        run_rows::RunTreeMarks,
         Option<&LocalSessionHost>,
         i64,
         &App,
@@ -196,7 +193,7 @@ fn live_run_tree<T>(
             .iter()
             .find(|(id, _)| id == &session.id)
             .map(|(_, host)| host);
-        build(session, run_rows::RunTreeMarks::derive(node, cx), host, now, cx)
+        build(session, host, now, cx)
     })
 }
 
@@ -230,7 +227,7 @@ pub(crate) fn rail_running_rows(
     nav: &Entity<Navigation>,
     cx: &mut App,
 ) -> Vec<SessionTreeRow<RailRunRow>> {
-    live_run_tree(nav, cx, |session, marks, host, now, cx| {
+    live_run_tree(nav, cx, |session, host, now, cx| {
         let collections = sync::Store::try_global(cx).map(|store| store.collections().clone());
         let issue = collections.as_ref().and_then(|collections| {
             session
@@ -288,7 +285,6 @@ pub(crate) fn rail_running_rows(
             device_label: presentation.label.clone().map(SharedString::from),
             local: host.cloned(),
             paused,
-            marks,
         }
     })
 }
@@ -365,10 +361,7 @@ impl PastSessionsSection {
         rows.truncate(RECENT_CAP);
         // EXP-996: the ONE tree the rail draws too — a finished sub-session
         // under the run that started it, a resume succession as one row.
-        flatten_session_tree(rows, |node| run_rows::PastRunFacts {
-            marks: run_rows::RunTreeMarks::derive(node, cx),
-            ..run_rows::past_run_facts(node.session(), now, cx)
-        })
+        flatten_session_tree(rows, |node| run_rows::past_run_facts(node.session(), now, cx))
         .into_iter()
         .map(|row| PastRow {
             key: row.key,

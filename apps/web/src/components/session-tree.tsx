@@ -5,17 +5,14 @@ import type { SessionDevice } from "@/lib/session-device"
 import { runHasEnded } from "@/lib/past-runs"
 import { sessionIdentity } from "@/lib/session-identity"
 import {
-  sessionNeedsYou,
   sessionTree,
   visibleSessionTreeRows,
-  type SessionNode,
   type SessionTreeFlatRow,
 } from "@/lib/sessions/session-tree"
 import { pastRunRowByline } from "@/components/agent-session-row"
 import {
   PastSessionRow,
   RunningSessionRow,
-  type SessionRowDecor,
 } from "@/components/session-list-rows"
 import type {
   SessionListRow,
@@ -69,14 +66,6 @@ export function useSessionTreeRows<T extends TreeListRow>(
       guide: guides[index]!,
     }))
   }, [rows, collapsed])
-}
-
-/** EXP-1068: what a session node adds to its row beyond the identity — the
- *  red needs-you dot while its run waits on an open question. */
-export function sessionNodeDecor(
-  node: SessionNode<CodingSession>
-): SessionRowDecor | undefined {
-  return sessionNeedsYou(node.session) ? { needsYou: true } : undefined
 }
 
 /** EXP-996: the collapse set every session list holds — expanded by default,
@@ -183,7 +172,6 @@ export function SessionTree({
         if (!row) return null
         const session = node.session
         const active = session.id === activeSessionId
-        const decor = sessionNodeDecor(node)
         return runHasEnded(session) ? (
           <PastSessionRow
             key={key}
@@ -204,7 +192,7 @@ export function SessionTree({
             key={key}
             row={{ ...row, paused: row.paused ?? false } as SessionListRow}
             // A caller's title names a LIVE row too (an action's Runs).
-            decor={titleOf ? { ...decor, title: titleOf(row) } : decor}
+            decor={titleOf ? { title: titleOf(row) } : undefined}
             depth={depth}
             guide={guide}
             active={active}

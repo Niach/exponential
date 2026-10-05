@@ -59,12 +59,10 @@ struct AgentWorkingMark: View {
 /// A LIVE run's mark — wherever a run is named by its agent (the Work
 /// screen's Run tab) it reads the same: the working mark while the agent
 /// works, else its brand mark with a small state badge (amber: wants you,
-/// green: PR open, blue: done). The red needs-you badge beats every state
-/// badge. No `state` = a paused run, the bare mark. The caller sizes it.
+/// green: PR open, blue: done). No `state` = a paused run, the bare mark. The caller sizes it.
 struct AgentRunMark: View {
     let agent: String?
     let state: CodingSessionDisplayState?
-    var needsYou: Bool = false
     var badgeSize: CGFloat = 6
 
     var body: some View {
@@ -89,7 +87,6 @@ struct AgentRunMark: View {
     }
 
     private var badge: Color? {
-        if needsYou { return DesignTokens.Semantic.red }
         guard let state, state != .working else { return nil }
         return sessionStateColor(state)
     }
