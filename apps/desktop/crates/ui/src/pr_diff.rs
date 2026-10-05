@@ -257,7 +257,6 @@ impl Render for PrDiffView {
             crate::diff_pane::DiffPaneSpec {
                 files: self.pane_files(cx),
                 selected: self.selected,
-                tree: true,
                 filter: Some(self.filter.clone()),
                 folded_dirs: self.folded_dirs.clone(),
                 caption,

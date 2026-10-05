@@ -2744,10 +2744,7 @@ impl SteerSessionView {
         }
     }
 
-    /// EXP-945 — fold or unfold one directory of the Changes tree. A method,
-    /// not an inline closure, because the tree is painted from TWO places now:
-    /// the window's left column ([`crate::review_files_nav`]) and — in a
-    /// column-less window — the pane's own card.
+    /// EXP-945 — fold or unfold one directory of the Changes tree.
     pub(crate) fn toggle_diff_dir(&mut self, path: String, cx: &mut gpui::Context<Self>) {
         if !self.folded_dirs.insert(path.clone()) {
             self.folded_dirs.remove(&path);
@@ -2755,26 +2752,13 @@ impl SteerSessionView {
         cx.notify();
     }
 
-    /// EXP-945 — the four things a file tree needs: the run's Changes files, the
-    /// selected one, the `Filter files` field and the folded directories. The
-    /// sidebar panel reads them; the run stays the owner.
-    pub(crate) fn diff_pane_files(&self) -> Vec<crate::diff_pane::PaneFile> {
+    /// EXP-945 — the run's Changes files as the pane's rows (the Results
+    /// Guide counts off them).
+    fn diff_pane_files(&self) -> Vec<crate::diff_pane::PaneFile> {
         self.changes_files_ref()
             .iter()
             .map(crate::diff_pane::PaneFile::new)
             .collect()
-    }
-
-    pub(crate) fn diff_selected(&self) -> usize {
-        self.diff_selected
-    }
-
-    pub(crate) fn diff_filter(&self) -> &Entity<InputState> {
-        &self.diff_filter
-    }
-
-    pub(crate) fn diff_folded_dirs(&self) -> &std::collections::HashSet<String> {
-        &self.folded_dirs
     }
 
     /// EXP-916 — the Changes FACE: the file tree beside the per-file cards.
@@ -2797,16 +2781,12 @@ impl SteerSessionView {
             .iter()
             .map(crate::diff_pane::PaneFile::new)
             .collect();
-        // EXP-945: the run's Changes files are its context, so they go in the
-        // window's LEFT COLUMN ([`crate::review_files_nav`]), not a floating
-        // tree inside the reading column. The pane paints its own only where
-        // no such column exists (an undocked run window).
-        let tree_in_sidebar = crate::screens::screens_for_window(window, cx).is_some();
+        // EXP-1192: the pane paints its own file tree, like the issue's
+        // Changes face (it used to sit in the window's left column).
         Some(crate::diff_pane::render(
             crate::diff_pane::DiffPaneSpec {
                 files,
                 selected: self.diff_selected,
-                tree: !tree_in_sidebar,
                 filter: Some(self.diff_filter.clone()),
                 folded_dirs: self.folded_dirs.clone(),
                 caption: None,

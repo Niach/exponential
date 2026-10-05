@@ -3,8 +3,8 @@
 //!
 //! Shell layout (EXP-269 glass): the in-app **titlebar** (34px drag strip
 //! with embedded window controls, `crate::app_title_bar`) above everything,
-//! the **left column** (the rail, folding to a 48px icon column beside a
-//! list or the settings nav — EXP-870) left of the dock area, and the dock area filling
+//! the **left column** (the rail, or the settings nav in Settings — EXP-1192:
+//! it never folds) left of the dock area, and the dock area filling
 //! the rest — all over the page gradient. The dock area's **center** is the
 //! [`ScreensPanel`] — ONE main view, full width (EXP-851 retired the
 //! sidebar/screens split); UNDER the cutout panel, on the bare ground, sits
@@ -46,6 +46,7 @@ use crate::{
     screens::ScreensPanel,
     settings::SettingsNavPanel,
     sidebar::RailView,
+    slide_swap::{self, SwapAnim},
     update::{self, UpdatePhase, UpdateState},
     window_size::SizeFrame,
 };
@@ -83,17 +84,6 @@ use crate::icons::registry;
 const LAYOUT_VERSION: usize = 11;
 
 const DOCK_AREA_ID: &str = "exp-workspace";
-
-/// EXP-870: the rail FOLDED to its icon column — what stays of it while a
-/// list or the settings nav sits beside it (web `SIDEBAR_WIDTH_ICON`, 3rem).
-/// The rail never leaves the window: every destination stays one click away.
-/// EXP-1156: the generated token, the one width in the column that is NOT
-/// dragged. Every other width here — the expanded rail, each panel, the
-/// Files / Source Control lists (which replaced EXP-862's
-/// `SCREEN_LIST_WIDTH`) — is a [`SidebarPanel`]'s remembered width
-/// ([`crate::resize_edge::panel_width`]); the old one-number
-/// `LEFT_COLUMN_WIDTH` (272) lives on as `DEFAULT_MAIN`.
-pub(crate) const COMPACT_RAIL_WIDTH: f32 = theme::tokens::sidebar::RAIL_WIDTH;
 
 /// EXP-723 cutout: the gap between the working panel and the window edges —
 /// the same 10px the web shell uses (`app-shell.ts` `md:m-[10px]`).
@@ -138,116 +128,39 @@ fn card_vertical_gaps(client_chrome: bool, bar_visible: bool, bottom_resize_inse
     (top, bottom)
 }
 
-/// EXP-851: who owns the window's leftmost column. FOUR occupants — the
-/// rail (the default), the settings nav (Settings replaces the rail
-/// outright, EXP-456), the `ListNav` (the list an open detail was picked
-/// from, EXP-851) and (EXP-945) a RUN's file tree on its Changes face
-/// ([`crate::review_files_nav`]): its files are its context, so THAT sits
-/// beside it instead of the list it was opened from. (EXP-1154: the review
-/// screen that first took this slot is gone — a PR's review is the issue
-/// tab's Changes face, beside the Reviews list.)
+/// EXP-851: who owns the window's leftmost column — the rail (the default)
+/// or the settings nav (Settings replaces the rail outright, EXP-456).
+/// EXP-1192: nothing else; the lists a detail was opened from, a run's file
+/// tree and Recent runs moved INTO the content card (`ScreensPanel`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum LeftOccupant {
     Rail,
     Settings,
-    ListNav,
-    ReviewFiles,
-    /// EXP-923: the Agent page's Recent runs, behind its history button. Not
-    /// a list a detail was opened FROM — a drawer the composer's page opens
-    /// on itself, which is why it is an occupant of its own and not a
-    /// `ListNav` origin.
-    RecentRuns,
 }
 
-/// EXP-851: the pure occupant rule — Settings wins, then (EXP-945) a run
-/// sitting on its Changes
-/// face, then (EXP-923) the Agent page's history panel, then a list origin,
-/// else the rail. `origin` is the list the ACTIVE
-/// screen carries ([`list_nav_origin`]); `run_diff` = the active screen is a
-/// run whose Changes face is up ([`window_run_diff`]), which outranks the
-/// run's own list because the files ARE the context there.
-pub(crate) fn left_occupant_for(
-    screen: Option<&Screen>,
-    origin: Option<&crate::navigation::TabOrigin>,
-    run_diff: bool,
-    recent_runs: bool,
-) -> LeftOccupant {
+/// EXP-851: the pure occupant rule — Settings, else the rail.
+pub(crate) fn left_occupant_for(screen: Option<&Screen>) -> LeftOccupant {
     if matches!(screen, Some(Screen::Settings)) {
-        return LeftOccupant::Settings;
+        LeftOccupant::Settings
+    } else {
+        LeftOccupant::Rail
     }
-    if run_diff && matches!(screen, Some(Screen::Session { .. })) {
-        return LeftOccupant::ReviewFiles;
-    }
-    // EXP-923: the history panel is an explicit ask, so it outranks the list
-    // the Agent page happened to inherit on the way here.
-    if recent_runs && matches!(screen, Some(Screen::Chat)) {
-        return LeftOccupant::RecentRuns;
-    }
-    if origin.is_some() {
-        return LeftOccupant::ListNav;
-    }
-    LeftOccupant::Rail
-}
-
-/// EXP-851: the list the ACTIVE screen sits beside, or `None` for the rail.
-/// A detail's list rides its TAB ([`crate::screens::ScreensPanel::origin_of`],
-/// stamped by `navigation::derive_origin`), so a tab click, a go-back and a
-/// go-forward all restore the column for free; every other screen — a list
-/// screen included — shows the rail.
-pub(crate) fn list_nav_origin(
-    window: &Window,
-    cx: &App,
-) -> Option<crate::navigation::TabOrigin> {
-    let nav = crate::navigation::nav_for_window_id(window.window_handle().window_id(), cx)?;
-    let screen = crate::navigation::resolved_screen(&nav, cx)?;
-    if !screen.carries_list() {
-        return None;
-    }
-    crate::screens::screens_for_window(window, cx)
-        .and_then(|panel| panel.read(cx).origin_of(&screen))
-}
-
-/// EXP-945: is this window's ACTIVE screen a run sitting on its Changes
-/// face? Derived from the viewer's LIVE face, never from the click that asked
-/// for it — `set_run_face` defers through `pending_run_face` when the screen
-/// has not been built yet, so a click-derived answer would be a frame early.
-pub(crate) fn window_run_diff(window: &Window, cx: &App) -> bool {
-    let Some(nav) = crate::navigation::nav_for_window_id(window.window_handle().window_id(), cx)
-    else {
-        return false;
-    };
-    let Some(Screen::Session { session_id }) = crate::navigation::resolved_screen(&nav, cx) else {
-        return false;
-    };
-    crate::screens::screens_for_window(window, cx)
-        .and_then(|panel| panel.read(cx).run_screen(&session_id))
-        .is_some_and(|view| view.read(cx).run_face(cx) == crate::screens::RunFace::Diff)
 }
 
 /// EXP-456/EXP-851: which occupant this window's left column shows.
 pub(crate) fn window_left_occupant(window: &Window, cx: &App) -> LeftOccupant {
     let screen = crate::navigation::nav_for_window_id(window.window_handle().window_id(), cx)
         .and_then(|nav| crate::navigation::resolved_screen(&nav, cx));
-    let origin = list_nav_origin(window, cx);
-    left_occupant_for(
-        screen.as_ref(),
-        origin.as_ref(),
-        window_run_diff(window, cx),
-        crate::navigation::recent_runs_open(window, cx),
-    )
+    left_occupant_for(screen.as_ref())
 }
 
 impl LeftOccupant {
     /// EXP-1156: the panel whose remembered width this occupant renders at —
-    /// the rail's EXPANDED width is the `main` panel's; the folded rail is
-    /// [`COMPACT_RAIL_WIDTH`] and never dragged.
+    /// the rail's is the FIXED `main` panel's.
     pub(crate) const fn panel(self) -> SidebarPanel {
         match self {
             LeftOccupant::Rail => SidebarPanel::Main,
-            LeftOccupant::ListNav => SidebarPanel::List,
-            LeftOccupant::ReviewFiles => SidebarPanel::Review,
             LeftOccupant::Settings => SidebarPanel::Settings,
-            LeftOccupant::RecentRuns => SidebarPanel::Recent,
         }
     }
 }
@@ -258,30 +171,11 @@ pub(crate) fn window_extent(window: &Window) -> f32 {
     f32::from(window.viewport_size().width - crate::window_frame::frame_horizontal_chrome(window))
 }
 
-/// EXP-870/EXP-1156: the RAIL slot's width under `occupant` — the expanded
-/// rail at the `main` width, else the folded icon column.
-pub(crate) fn rail_slot_width(occupant: LeftOccupant, extent: f32) -> f32 {
-    match occupant {
-        LeftOccupant::Rail => crate::resize_edge::panel_width(SidebarPanel::Main, extent),
-        _ => COMPACT_RAIL_WIDTH,
-    }
-}
-
-/// EXP-870/EXP-1156: the PANEL slot's width under `occupant` — zero under the
-/// expanded rail, else that occupant's own remembered width.
-pub(crate) fn panel_slot_width(occupant: LeftOccupant, extent: f32) -> f32 {
-    match occupant {
-        LeftOccupant::Rail => 0.,
-        other => crate::resize_edge::panel_width(other.panel(), extent),
-    }
-}
-
-/// EXP-870: the left column's width for `occupant` — the expanded rail
-/// alone, or the icon column plus the list / settings panel beside it.
-/// EXP-1156: both halves are dragged widths now, clamped into `extent` (the
-/// window width, [`window_extent`]) at read time.
+/// EXP-870: the left column's width for `occupant` — its panel's width.
+/// EXP-1156: a dragged width, clamped into `extent` (the window width,
+/// [`window_extent`]) at read time.
 pub(crate) fn left_column_width_for(occupant: LeftOccupant, extent: f32) -> f32 {
-    rail_slot_width(occupant, extent) + panel_slot_width(occupant, extent)
+    crate::resize_edge::panel_width(occupant.panel(), extent)
 }
 
 /// EXP-456/EXP-870: this window's left column width, for the surfaces that
@@ -290,99 +184,10 @@ pub(crate) fn window_left_column_width(window: &Window, cx: &App) -> f32 {
     left_column_width_for(window_left_occupant(window, cx), window_extent(window))
 }
 
-/// EXP-870: how deep an occupant sits — the rail alone, a list beside it,
-/// Settings beyond that. The swap slides FORWARD into a deeper occupant and
-/// BACK out of it, so going back never looks like going deeper.
-pub(crate) const fn occupant_depth(occupant: LeftOccupant) -> u8 {
-    match occupant {
-        LeftOccupant::Rail => 0,
-        LeftOccupant::ListNav | LeftOccupant::ReviewFiles | LeftOccupant::RecentRuns => 1,
-        LeftOccupant::Settings => 2,
-    }
-}
-
 /// EXP-456: duration of the left-column occupant swap. The shared `standard`
 /// motion token — every client's default duration — rather than the 200ms it
 /// was hand-set to when this was the app's only animation.
 const LEFT_COL_ANIM_DURATION: Duration = theme::motion::STANDARD;
-
-/// EXP-456/EXP-851: pure state machine for the left column's occupant swap —
-/// the upstream `Sidebar` recipe (`gpui_component::sidebar`'s animation
-/// state) as plain `Shell` fields: WHICH occupants are coming and going,
-/// whether both children stay mounted, and an epoch guarding the unmount
-/// timer against retargets.
-///
-/// The widths are not state: every slot width is a pure function of the
-/// occupant ([`left_column_width_for`]), so a swap animates from
-/// `from_occupant`'s layout to `occupant`'s (EXP-870 — the rail folds to its
-/// icon column while the panel slot opens beside it). EXP-1156: they are a
-/// function of the occupant AND the remembered drag widths, which cannot
-/// move mid-swap — the edge handle is not mounted while `swapping`, and a
-/// swap that starts drops a live drag ([`Shell::sync_left_column`]).
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct LeftColumnAnim {
-    /// The occupant sliding OUT (only meaningful while `swapping`).
-    from_occupant: LeftOccupant,
-    /// Target occupant.
-    occupant: LeftOccupant,
-    /// Both children stay mounted while the swap transition runs.
-    swapping: bool,
-    /// Guards the unmount timer against retargets (upstream `hide_request`).
-    epoch: u64,
-}
-
-impl LeftColumnAnim {
-    fn new(occupant: LeftOccupant) -> Self {
-        Self {
-            from_occupant: occupant,
-            occupant,
-            swapping: false,
-            epoch: 0,
-        }
-    }
-
-    /// Sync with the rendered state. Returns `Some(epoch)` when a swap
-    /// STARTED and the caller must spawn the settle timer.
-    fn retarget(&mut self, occupant: LeftOccupant) -> Option<u64> {
-        if self.occupant == occupant {
-            // No change (this runs on every render).
-            return None;
-        }
-        // Mid-flight reversal restarts the slide from the occupant that is
-        // live right now (upstream has the same limitation) — acceptable over
-        // 200ms.
-        self.from_occupant = self.occupant;
-        self.occupant = occupant;
-        self.swapping = true;
-        self.epoch += 1;
-        Some(self.epoch)
-    }
-
-    /// Timer callback. True = the swap this epoch belongs to just settled.
-    fn finish(&mut self, epoch: u64) -> bool {
-        if self.swapping && self.epoch == epoch {
-            self.swapping = false;
-            self.from_occupant = self.occupant;
-            true
-        } else {
-            false
-        }
-    }
-}
-
-/// EXP-456/EXP-862: the slide's animation id. It carries the EPOCH, so a
-/// retargeted swap gets a new id and restarts cleanly (upstream
-/// `sidebar_animation_id`, which encoded the from/to widths that no longer
-/// differ).
-fn left_slide_id(epoch: u64) -> gpui::ElementId {
-    left_anim_id("shell-leftcol-slide", epoch)
-}
-
-/// EXP-870: the column's other animated elements (its width, the rail and
-/// panel slots) — one id each, epoch-keyed like the slide.
-fn left_anim_id(name: &'static str, epoch: u64) -> gpui::ElementId {
-    gpui::ElementId::NamedInteger(name.into(), epoch)
-}
 
 /// Debounce for persisting layout changes (`DockEvent::LayoutChanged` fires on
 /// every drag tick).
@@ -411,18 +216,11 @@ pub struct Shell {
     /// as the rail slides out; the settings detail fills everything right of
     /// it.
     settings_nav: Entity<SettingsNavPanel>,
-    /// EXP-851: the `ListNav` — the third occupant of that same slot, the
-    /// simplified list an open detail was picked from.
-    list_nav: Entity<crate::sidebar::ListPanel>,
-    /// EXP-916/EXP-945: the fourth — a run's Changes file tree.
-    review_files: Entity<crate::review_files_nav::ReviewFilesNav>,
-    /// EXP-923: the Agent page's Recent-runs panel, built once per window.
-    recent_runs: Entity<crate::sessions_section::RecentRunsNav>,
     /// EXP-456/EXP-851: the left column's occupant-swap transition state.
-    left_anim: LeftColumnAnim,
+    left_anim: SwapAnim<LeftOccupant>,
     _left_anim_task: Option<Task<()>>,
-    /// EXP-1156: the left column's live edge drag (the expanded rail's or the
-    /// panel's — whichever occupies the column), `None` at rest. The Shell
+    /// EXP-1156: the left column's live edge drag (the settings nav's — the
+    /// rail has no handle), `None` at rest. The Shell
     /// hosts it because the column, its handle and the capture are all
     /// rendered here ([`crate::resize_edge`]).
     resize_drag: Option<ResizeDrag>,
@@ -677,15 +475,11 @@ impl Shell {
         // docs); building it here keeps its subscriptions alive across
         // settings round-trips.
         let settings_nav = cx.new(|cx| SettingsNavPanel::new(window, cx));
-        let list_nav =
-            cx.new(|cx| crate::sidebar::ListPanel::new(crate::sidebar::ListMode::Nav, window, cx));
-        let review_files = cx.new(|cx| crate::review_files_nav::ReviewFilesNav::new(window, cx));
-        let recent_runs = cx.new(|cx| crate::sessions_section::RecentRunsNav::new(window, cx));
 
         // EXP-456: seed the swap state from the CURRENT screen so a window
         // that opens straight into settings (EXP_DEV_SCREEN=settings) shows
         // no spurious entry animation.
-        let left_anim = LeftColumnAnim::new(window_left_occupant(window, cx));
+        let left_anim = SwapAnim::new(window_left_occupant(window, cx));
 
         Self {
             dock_area,
@@ -693,9 +487,6 @@ impl Shell {
             title_bar,
             rail,
             settings_nav,
-            list_nav,
-            review_files,
-            recent_runs,
             left_anim,
             _left_anim_task: None,
             resize_drag: None,
@@ -768,11 +559,10 @@ impl Shell {
     /// (`left_column_top_strip`, or the 8px inset where the traffic lights
     /// do not land), the header row (team switcher · Search · New issue,
     /// `sidebar::render_left_column_header`) and the rule under it render
-    /// ONCE here, and only the pane beneath them swaps: the rail, the
-    /// settings nav and the `ListNav` all start at their first own row. The
-    /// three occupants used to render their own copies of the strip, and
-    /// the rail its header, so opening Settings or a detail slid the
-    /// switcher off-screen with the rows.
+    /// ONCE here, and only the pane beneath them swaps: the rail and the
+    /// settings nav both start at their first own row. The occupants used to
+    /// render their own copies of the strip, and the rail its header, so
+    /// opening Settings slid the switcher off-screen with the rows.
     ///
     /// EXP-767: the column paints NOTHING — no ramp of its own, no wash, no
     /// edge. The Shell ROOT paints the one window ground (`Shell::render`)
@@ -807,125 +597,49 @@ impl Shell {
         let header =
             crate::sidebar::render_left_column_header(&nav, &self.team_live_runs, cx);
 
-        // EXP-870: under the fixed header the column is TWO slots side by
-        // side — the rail (expanded, or folded to its icon column while a
-        // panel is up) and the panel slot (the `ListNav` / settings nav, zero
-        // wide under the expanded rail). A swap animates both widths on the
-        // same curve, so their sum IS the column's animated width.
+        // EXP-1192: under the fixed header the column is ONE slot — the rail
+        // or the settings nav. Rail ⇄ Settings slides a [rail | settings]
+        // strip FORWARD into Settings and back out of it while the column's
+        // width morphs between the two on the same curve.
         let anim = self.left_anim;
         let easing = theme::motion::standard;
         let transition = || {
             gpui_component::animation::EffectTransition::new(LEFT_COL_ANIM_DURATION)
                 .ease(easing())
         };
-        // EXP-1156: every slot width is the occupant's remembered drag width,
+        // EXP-1156: every width is the occupant's remembered drag width,
         // clamped against this window — read per frame, so a shrunk window
         // narrows the column without touching the prefs.
         let extent = window_extent(window);
-        let rail_w = |occupant: LeftOccupant| rail_slot_width(occupant, extent);
-        let panel_w = |occupant: LeftOccupant| panel_slot_width(occupant, extent);
-        let rail_slot = div()
-            .h_full()
-            .flex_shrink_0()
-            .overflow_hidden()
-            .child(self.rail.clone());
-        let rail_slot = if anim.swapping && rail_w(anim.from_occupant) != rail_w(anim.occupant) {
-            transition()
-                .width(px(rail_w(anim.from_occupant)), px(rail_w(anim.occupant)))
-                .apply(rail_slot, left_anim_id("shell-leftcol-rail", anim.epoch))
-                .into_any_element()
-        } else {
-            rail_slot.w(px(rail_w(anim.occupant))).into_any_element()
-        };
-
-        // EXP-874: the hairline between the rail and the panel (web
-        // `border-l border-glass-stroke` on the panel slot) — the slot only
-        // exists while a panel is up, so the line does too.
-        let panel_slot = div()
-            .h_full()
-            .flex_shrink_0()
-            .relative()
-            .overflow_hidden()
-            .border_l_1()
-            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla());
-        let panel_slot = match (anim.swapping, anim.from_occupant, anim.occupant) {
-            (false, _, LeftOccupant::Rail) => None,
-            (false, _, occupant) => Some(
-                panel_slot
-                    .w(px(panel_w(occupant)))
-                    .child(self.left_child(occupant, panel_w(occupant)))
-                    .into_any_element(),
-            ),
-            // The panel comes OUT from under the rail's edge (and goes back
-            // under it) while its slot opens — the directional half of the
-            // swap, which is why forward and back no longer look alike.
-            (true, LeftOccupant::Rail, occupant) | (true, occupant, LeftOccupant::Rail) => {
-                let entering = anim.from_occupant == LeftOccupant::Rail;
-                // EXP-1156: the panel slides by ITS width, not one shared one.
-                let width = panel_w(occupant);
-                let (from_x, to_x) = if entering { (-width, 0.) } else { (0., -width) };
-                let child = div()
-                    .absolute()
-                    .top_0()
-                    .bottom_0()
-                    .w(px(width))
-                    .child(self.left_child(occupant, width));
-                let child = transition()
-                    .slide_x(px(from_x), px(to_x))
-                    .apply(child, left_slide_id(anim.epoch));
-                Some(
-                    transition()
-                        .width(px(panel_w(anim.from_occupant)), px(panel_w(anim.occupant)))
-                        .apply(
-                            panel_slot.child(child),
-                            left_anim_id("shell-leftcol-panel", anim.epoch),
-                        )
-                        .into_any_element(),
-                )
-            }
-            // ListNav ⇄ Settings: both panels ride a [shallower | deeper]
-            // strip that wipes toward the deeper one going forward and back
-            // toward the shallower one going back.
-            (true, from, to) => {
-                let forward = occupant_depth(to) > occupant_depth(from);
-                let (first, second) = if forward { (from, to) } else { (to, from) };
-                // EXP-1156: the two panels keep their own widths, so the
-                // strip is their SUM and the wipe travels the FIRST one's
-                // width (the deeper panel's left edge lands on the slot's).
-                let (first_w, second_w) = (panel_w(first), panel_w(second));
-                let (from_x, to_x) = if forward { (0., -first_w) } else { (-first_w, 0.) };
-                let strip = h_flex()
-                    .absolute()
-                    .top_0()
-                    .bottom_0()
-                    .w(px(first_w + second_w))
-                    .child(self.left_child(first, first_w))
-                    .child(self.left_child(second, second_w));
-                let strip = transition()
-                    .slide_x(px(from_x), px(to_x))
-                    .apply(strip, left_slide_id(anim.epoch));
-                let (slot_from, slot_to) = (panel_w(from), panel_w(to));
-                let slot = panel_slot.child(strip);
-                Some(if slot_from != slot_to {
-                    // The slot opens or closes between the two widths on the
-                    // same curve (the column's own width follows below).
-                    transition()
-                        .width(px(slot_from), px(slot_to))
-                        .apply(slot, left_anim_id("shell-leftcol-panel", anim.epoch))
-                        .into_any_element()
-                } else {
-                    slot.w(px(slot_to)).into_any_element()
-                })
-            }
-        };
-        let pane = h_flex()
+        let width = |occupant: LeftOccupant| left_column_width_for(occupant, extent);
+        let pane = div()
             .w_full()
             .flex_1()
             .min_h_0()
-            .items_start()
-            .overflow_hidden()
-            .child(rail_slot)
-            .children(panel_slot);
+            .relative()
+            .overflow_hidden();
+        let pane = if anim.swapping && anim.from != anim.to {
+            let forward = anim.to == LeftOccupant::Settings;
+            let (rail_w, settings_w) = (
+                width(LeftOccupant::Rail),
+                width(LeftOccupant::Settings),
+            );
+            let (from_x, to_x) = if forward { (0., -rail_w) } else { (-rail_w, 0.) };
+            let strip = h_flex()
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .w(px(rail_w + settings_w))
+                .child(self.left_child(LeftOccupant::Rail, rail_w))
+                .child(self.left_child(LeftOccupant::Settings, settings_w));
+            pane.child(
+                transition()
+                    .slide_x(px(from_x), px(to_x))
+                    .apply(strip, slide_swap::anim_id("shell-leftcol-slide", anim.epoch)),
+            )
+        } else {
+            pane.child(self.left_child(anim.to, width(anim.to)))
+        };
 
         let column = v_flex()
             .h_full()
@@ -935,8 +649,8 @@ impl Shell {
             .when(top_strip.is_none(), |column| column.pt_2())
             .children(top_strip)
             // The header wears the rail's horizontal inset (the occupants
-            // keep their own), and the rail's rule under it (the ListNav's
-            // and the settings nav's back rows sit right beneath the line).
+            // keep their own), and the rail's rule under it (the settings
+            // nav's back row sits right beneath the line).
             .child(
                 v_flex()
                     .w_full()
@@ -947,14 +661,11 @@ impl Shell {
                     .child(crate::sidebar::left_column_divider(cx)),
             )
             .child(pane);
-        let (from_w, to_w) = (
-            left_column_width_for(anim.from_occupant, extent),
-            left_column_width_for(anim.occupant, extent),
-        );
+        let (from_w, to_w) = (width(anim.from), width(anim.to));
         if anim.swapping && from_w != to_w {
             transition()
                 .width(px(from_w), px(to_w))
-                .apply(column, left_anim_id("shell-leftcol-width", anim.epoch))
+                .apply(column, slide_swap::anim_id("shell-leftcol-width", anim.epoch))
                 .into_any_element()
         } else {
             column.w(px(to_w)).into_any_element()
@@ -963,8 +674,8 @@ impl Shell {
 
     /// EXP-1156: the left column's edge handle, an overlay the Shell's body
     /// row positions (the card clips, so it cannot carry the strip itself).
-    /// It drives the occupant's panel: the expanded rail's `main` width, or
-    /// the panel beside the folded rail. Not mounted mid-swap — the widths
+    /// It drives the occupant's panel — the settings nav's (the rail is
+    /// fixed and has none). Not mounted mid-swap — the widths
     /// are animating then, and a press would start from a width that is
     /// about to change.
     ///
@@ -983,7 +694,7 @@ impl Shell {
         if self.left_anim.swapping {
             return None;
         }
-        let occupant = self.left_anim.occupant;
+        let occupant = self.left_anim.to;
         if !occupant.panel().resizable() {
             return None;
         }
@@ -1009,14 +720,11 @@ impl Shell {
 
     /// One occupant of the left column, in a sized wrapper (load-bearing for
     /// entity children — the dock wrapper's flex-child rule). EXP-1156: at
-    /// ITS width — the panels no longer share one.
+    /// ITS width.
     fn left_child(&self, occupant: LeftOccupant, width: f32) -> AnyElement {
         let child: AnyElement = match occupant {
             LeftOccupant::Rail => self.rail.clone().into_any_element(),
             LeftOccupant::Settings => self.settings_nav.clone().into_any_element(),
-            LeftOccupant::ListNav => self.list_nav.clone().into_any_element(),
-            LeftOccupant::ReviewFiles => self.review_files.clone().into_any_element(),
-            LeftOccupant::RecentRuns => self.recent_runs.clone().into_any_element(),
         };
         div()
             .w(px(width))
@@ -1289,17 +997,27 @@ impl Render for Shell {
                             let band_w = (window.viewport_size().width
                                 - crate::window_frame::frame_horizontal_chrome(window)
                                 - px(left_column_width_for(
-                                    self.left_anim.occupant,
+                                    self.left_anim.to,
                                     window_extent(window),
                                 )))
                             .max(px(160.));
+                            // EXP-1192: Settings is tab-less — the band keeps
+                            // its height and the window controls / drag, but
+                            // carries no tab row.
+                            let band: AnyElement = if self.left_anim.to == LeftOccupant::Settings {
+                                div()
+                                    .w(band_w)
+                                    .h(px(crate::app_title_bar::WORK_TABS_BAND_H))
+                                    .child(crate::app_title_bar::chrome_only_title_bar())
+                                    .into_any_element()
+                            } else {
+                                div().w(band_w).child(self.title_bar.clone()).into_any_element()
+                            };
                             col.child(
-                                h_flex().flex_shrink_0().child(
-                                    // EXP-723: NO fill of its own — the band
-                                    // is bare ground above the panel, which is
-                                    // what makes the panel read as a cutout.
-                                    div().w(band_w).child(self.title_bar.clone()),
-                                ),
+                                // EXP-723: NO fill of its own — the band is
+                                // bare ground above the panel, which is what
+                                // makes the panel read as a cutout.
+                                h_flex().flex_shrink_0().child(band),
                             )
                         })
                         .child(
@@ -1929,249 +1647,41 @@ mod tests {
         assert_eq!(card_vertical_gaps(true, true, 5.), (44., 47.));
     }
 
-    /// EXP-851: the occupant rule. Settings wins over everything (it replaces
-    /// the rail outright); a detail carrying a list gets the ListNav; the
-    /// rail is the default, including on every LIST screen.
+    /// EXP-851/EXP-1192: the occupant rule — Settings replaces the rail,
+    /// every other screen (a detail with a list included: that list is in
+    /// the card now) shows the rail.
     #[test]
-    fn the_occupant_is_settings_then_a_list_then_the_rail() {
-        use crate::navigation::TabOrigin;
-        use crate::sidebar::ToolWindow;
-        let board = TabOrigin {
-            tool: ToolWindow::BoardIssues,
-            board_id: Some("b1".into()),
-            inbox_tab: None,
-        };
-        let issue = Screen::IssueDetail {
-            issue_id: "i1".into(),
-        };
-        assert_eq!(
-            left_occupant_for(Some(&Screen::Settings), Some(&board), false, false),
-            LeftOccupant::Settings,
-            "settings replaces the rail even beside a list"
-        );
-        assert_eq!(
-            left_occupant_for(Some(&issue), Some(&board), false, false),
-            LeftOccupant::ListNav
-        );
-        assert_eq!(
-            left_occupant_for(Some(&issue), None, false, false),
-            LeftOccupant::Rail
-        );
-        // EXP-1154: the review of a PR is the issue tab's Changes face — the
-        // issue keeps the Reviews list it was opened from (its pane paints
-        // its own file tree), never the files occupant.
-        let reviews = crate::navigation::Screen::Reviews.list_origin().unwrap();
-        assert_eq!(
-            left_occupant_for(Some(&issue), Some(&reviews), false, false),
-            LeftOccupant::ListNav
-        );
-        // EXP-945: a run on its CHANGES face takes the same occupant — its
-        // files are its context, so they go where a review's go, over the
-        // list the run was opened from. Every other face keeps that list.
-        let run = Screen::Session {
-            session_id: "s1".into(),
-        };
-        assert_eq!(
-            left_occupant_for(Some(&run), Some(&board), true, false),
-            LeftOccupant::ReviewFiles
-        );
-        assert_eq!(
-            left_occupant_for(Some(&run), None, true, false),
-            LeftOccupant::ReviewFiles
-        );
-        assert_eq!(
-            left_occupant_for(Some(&run), Some(&board), false, false),
-            LeftOccupant::ListNav,
-            "the Run face keeps the list the run was opened from"
-        );
-        assert_eq!(left_occupant_for(Some(&run), None, false, false), LeftOccupant::Rail);
-        // The flag alone never moves a screen that is not a run.
-        assert_eq!(
-            left_occupant_for(Some(&issue), Some(&board), true, false),
-            LeftOccupant::ListNav
-        );
-        assert_eq!(
-            left_occupant_for(
-                Some(&Screen::BoardIssues {
-                    board_id: "b1".into()
-                }),
-                None,
-                false,
-                false
-            ),
-            LeftOccupant::Rail,
-            "a list screen shows the rail, not a copy of itself"
-        );
-        assert_eq!(left_occupant_for(None, None, false, false), LeftOccupant::Rail);
+    fn the_occupant_is_settings_or_the_rail() {
+        assert_eq!(left_occupant_for(Some(&Screen::Settings)), LeftOccupant::Settings);
+        for screen in [
+            Screen::IssueDetail {
+                issue_id: "i1".into(),
+            },
+            Screen::Session {
+                session_id: "s1".into(),
+            },
+            Screen::Chat,
+            Screen::Reviews,
+            Screen::BoardIssues {
+                board_id: "b1".into(),
+            },
+        ] {
+            assert_eq!(left_occupant_for(Some(&screen)), LeftOccupant::Rail, "{screen:?}");
+        }
+        assert_eq!(left_occupant_for(None), LeftOccupant::Rail);
     }
 
-    /// EXP-923: the Recent-runs panel lives on the CHAT screen and nowhere
-    /// else — its flag is ignored anywhere it could not have been set, and on
-    /// the Chat screen it beats the list that page was reached with.
-    #[test]
-    fn the_recent_runs_panel_only_opens_on_the_chat_screen() {
-        let board = crate::navigation::TabOrigin {
-            tool: crate::sidebar::ToolWindow::BoardIssues,
-            board_id: Some("b1".into()),
-            inbox_tab: None,
-        };
-        let issue = Screen::IssueDetail {
-            issue_id: "i1".into(),
-        };
-        assert_eq!(
-            left_occupant_for(Some(&Screen::Chat), None, false, true),
-            LeftOccupant::RecentRuns
-        );
-        assert_eq!(
-            left_occupant_for(Some(&Screen::Chat), Some(&board), false, true),
-            LeftOccupant::RecentRuns,
-            "an explicit ask outranks the list the page inherited"
-        );
-        assert_eq!(
-            left_occupant_for(Some(&Screen::Chat), Some(&board), false, false),
-            LeftOccupant::ListNav,
-            "closed, the page is back to whatever led to it"
-        );
-        assert_eq!(
-            left_occupant_for(Some(&Screen::Chat), None, false, false),
-            LeftOccupant::Rail,
-            "and to the rail when nothing did"
-        );
-        assert_eq!(
-            left_occupant_for(Some(&issue), Some(&board), false, true),
-            LeftOccupant::ListNav,
-            "an issue keeps its board list — the panel is the Agent page's"
-        );
-    }
-
-    /// EXP-870: the rail never leaves — beside a list or the settings nav it
-    /// keeps its icon column, so the column grows by exactly that much. The
-    /// expanded rail's measure is the web sidebar's 17rem, the icon column
-    /// its 3rem. EXP-1156: each occupant maps to its OWN dragged panel, and
-    /// these are the token defaults a never-dragged machine opens at (read
-    /// off the table, not through `panel_width`, which would consult this
-    /// machine's real `ui-prefs.json`).
+    /// EXP-1156: each occupant renders at its OWN panel's width; these are
+    /// the token defaults a never-dragged machine opens at (read off the
+    /// table, not through `panel_width`, which would consult this machine's
+    /// real `ui-prefs.json`). The rail is the web sidebar's 17rem.
     #[test]
     fn left_column_width_follows_the_occupant() {
-        assert_eq!(COMPACT_RAIL_WIDTH, 48.);
-        let occupants = [
-            LeftOccupant::Rail,
-            LeftOccupant::ListNav,
-            LeftOccupant::ReviewFiles,
-            LeftOccupant::Settings,
-            LeftOccupant::RecentRuns,
-        ];
-        let panels: Vec<SidebarPanel> = occupants.iter().map(|o| o.panel()).collect();
-        assert_eq!(
-            panels,
-            vec![
-                SidebarPanel::Main,
-                SidebarPanel::List,
-                SidebarPanel::Review,
-                SidebarPanel::Settings,
-                SidebarPanel::Recent,
-            ]
-        );
-        let default_column = |occupant: LeftOccupant| match occupant {
-            LeftOccupant::Rail => occupant.panel().default_width(),
-            _ => COMPACT_RAIL_WIDTH + occupant.panel().default_width(),
-        };
-        assert_eq!(default_column(LeftOccupant::Rail), 272.);
-        assert_eq!(default_column(LeftOccupant::ListNav), 400.);
-        assert_eq!(default_column(LeftOccupant::Settings), 320.);
-        assert_eq!(default_column(LeftOccupant::ReviewFiles), 320.);
-        assert_eq!(default_column(LeftOccupant::RecentRuns), 320.);
-        // Only the panel beside the folded rail counts the rail against the
-        // half-window bound; the expanded rail IS the column.
-        assert!(!SidebarPanel::Main.beside_rail());
-        assert!(occupants[1..].iter().all(|o| o.panel().beside_rail()));
-    }
-
-    /// EXP-870: the slide direction reads off depth — deeper is forward.
-    #[test]
-    fn slide_direction_follows_depth() {
-        assert!(occupant_depth(LeftOccupant::ListNav) > occupant_depth(LeftOccupant::Rail));
-        assert!(occupant_depth(LeftOccupant::Settings) > occupant_depth(LeftOccupant::ListNav));
-        // EXP-916: the review's tree is a panel like the ListNav — one step in.
-        assert_eq!(
-            occupant_depth(LeftOccupant::ReviewFiles),
-            occupant_depth(LeftOccupant::ListNav)
-        );
-    }
-
-    #[test]
-    fn retarget_into_settings_starts_swap_and_bumps_epoch() {
-        let mut anim = LeftColumnAnim::new(LeftOccupant::Rail);
-        let epoch = anim.retarget(LeftOccupant::Settings);
-        assert_eq!(epoch, Some(1));
-        assert!(anim.swapping);
-        assert_eq!(anim.from_occupant, LeftOccupant::Rail);
-        assert_eq!(anim.occupant, LeftOccupant::Settings);
-    }
-
-    /// EXP-851: the rail ⇄ ListNav swap — the same machine in both
-    /// directions, and (EXP-862) a re-render with the same occupant is a
-    /// no-op, which is what keeps the slide off every frame.
-    #[test]
-    fn rail_and_list_nav_swap_in_both_directions() {
-        let mut anim = LeftColumnAnim::new(LeftOccupant::Rail);
-        assert_eq!(anim.retarget(LeftOccupant::ListNav), Some(1));
-        assert!(anim.swapping);
-        assert_eq!(anim.from_occupant, LeftOccupant::Rail);
-        assert!(anim.finish(1));
-        assert!(!anim.swapping);
-        assert_eq!(anim.from_occupant, LeftOccupant::ListNav);
-        // … and back out to the rail.
-        assert_eq!(anim.retarget(LeftOccupant::Rail), Some(2));
-        assert!(anim.swapping);
-        assert_eq!(anim.from_occupant, LeftOccupant::ListNav);
-        assert_eq!(anim.occupant, LeftOccupant::Rail);
-        // A re-render with the SAME occupant is a no-op (this runs every frame).
-        assert_eq!(anim.retarget(LeftOccupant::Rail), None);
-    }
-
-    /// EXP-851: ListNav → Settings (the gear, clicked while a detail sits
-    /// beside its list) is a swap like any other — two equal-width columns
-    /// would have looked like nothing happened without the occupant field,
-    /// which since EXP-862 is ALL the state there is.
-    #[test]
-    fn list_nav_swaps_into_settings() {
-        let mut anim = LeftColumnAnim::new(LeftOccupant::ListNav);
-        let epoch = anim.retarget(LeftOccupant::Settings).unwrap();
-        assert!(anim.swapping);
-        assert_eq!(anim.from_occupant, LeftOccupant::ListNav);
-        assert_eq!(anim.occupant, LeftOccupant::Settings);
-        assert!(anim.finish(epoch));
-        assert_eq!(anim.from_occupant, LeftOccupant::Settings);
-    }
-
-    #[test]
-    fn finish_ignores_stale_epochs() {
-        let mut anim = LeftColumnAnim::new(LeftOccupant::Rail);
-        let first = anim.retarget(LeftOccupant::Settings).unwrap();
-        // Mid-flight reversal: the new swap replaces the old one.
-        let second = anim.retarget(LeftOccupant::Rail).unwrap();
-        assert_ne!(first, second);
-        // The superseded timer fires anyway (cancellation raced) — no-op.
-        assert!(!anim.finish(first));
-        assert!(anim.swapping);
-        // The live one settles the swap.
-        assert!(anim.finish(second));
-        assert!(!anim.swapping);
-        assert_eq!(anim.from_occupant, anim.occupant);
-    }
-
-    /// Upstream sidebar rule: a retarget restarts the transition (the
-    /// animation id carries the epoch, so the visual jump is bounded by one
-    /// swap). EXP-851: a mid-flight reversal also swaps the OUTGOING occupant
-    /// back, or the strip would keep sliding the wrong child out.
-    #[test]
-    fn midflight_reversal_restarts_from_the_live_occupant() {
-        let mut anim = LeftColumnAnim::new(LeftOccupant::Rail);
-        let first = anim.retarget(LeftOccupant::ListNav).unwrap();
-        let second = anim.retarget(LeftOccupant::Rail).unwrap();
-        assert_eq!(anim.from_occupant, LeftOccupant::ListNav);
-        assert_eq!(anim.occupant, LeftOccupant::Rail);
-        assert_ne!(left_slide_id(first), left_slide_id(second));
+        assert_eq!(LeftOccupant::Rail.panel(), SidebarPanel::Main);
+        assert_eq!(LeftOccupant::Settings.panel(), SidebarPanel::Settings);
+        assert_eq!(LeftOccupant::Rail.panel().default_width(), 272.);
+        assert_eq!(LeftOccupant::Settings.panel().default_width(), 272.);
+        assert!(!LeftOccupant::Rail.panel().resizable());
+        assert!(LeftOccupant::Settings.panel().resizable());
     }
 }

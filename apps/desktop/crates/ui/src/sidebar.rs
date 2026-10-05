@@ -10,8 +10,8 @@
 //!   toggle, no logo). Top: the team switcher + Search + New issue header
 //!   ([`render_left_column_header`], rendered FIXED by the `Shell` since
 //!   EXP-863). Middle (scrolling): the tool-window
-//!   selectors — **Inbox / Devices / Actions /
-//!   Reviews / Agent**, the team's boards, the **Sessions** section (EXP-791:
+//!   selectors — **Agent / Inbox / Devices / Reviews / Actions** (EXP-1192:
+//!   Agent first, the landing page), the team's boards, the **Sessions** section (EXP-791:
 //!   one row per open session tab or live run of the caller's — the rail is
 //!   the ONE navigation for coding sessions; hidden while empty), then
 //!   **This device**: **Files / Source Control** (Source Control carries an
@@ -24,12 +24,13 @@
 //!   and the settings gear on its right. The account dropdown is the web's
 //!   exactly: What's new, About, Sign out (team switching lives in the
 //!   header).
-//! - [`ListPanel`] — the team's LIST surfaces (a board, the Inbox).
-//!   EXP-851: it renders EITHER as the full-width main view
-//!   ([`ListMode::Screen`], the list screen a rail entry navigates to) or as
-//!   the `ListNav` in the left column ([`ListMode::Nav`], the
-//!   simplified list beside an open detail). One type either way, so the
-//!   board query and the inbox grouping exist once.
+//! - [`ListPanel`] — the team's LIST surfaces. EXP-851/EXP-1192: it renders
+//!   EITHER as the full-width board list ([`ListMode::Screen`], what a board
+//!   row navigates to) or as a SECOND SIDEBAR inside the content card
+//!   ([`ListMode::Nav`]): the Inbox (always up on the Inbox screen and beside
+//!   every detail opened from it, its Inbox | My Issues strip on top) or the
+//!   Reviews queue beside a review it opened. The rail itself never folds or
+//!   leaves.
 //!
 //! Every affordance dispatches a typed action (§3.6) or navigates directly;
 //! menus render in the Root overlay, outside this element tree.
@@ -71,13 +72,14 @@ use crate::issue_list::{
 };
 use crate::navigation::{
     active_board_id, active_team_id, nav_for_window, navigate, resolved_screen, switch_team,
-    GettingStartedTab, Navigation, Screen, TabOrigin,
+    GettingStartedTab, Navigation, Screen, SecondSidebar, TabOrigin,
 };
 use crate::issue_header::parse_hex_color;
 use crate::queries;
 
-/// EXP-851: which LIST a detail was opened from — the left column's
-/// `ListNav` occupant, and the kind half of [`crate::navigation::TabOrigin`].
+/// EXP-851: which LIST a detail was opened from — the kind half of
+/// [`crate::navigation::TabOrigin`] (EXP-1192: only the Inbox and Reviews
+/// still lend a second sidebar).
 ///
 /// It used to name the rail's active TOOL WINDOW (a docked column beside the
 /// centre). There is no tool column anymore: every one of these is a
@@ -105,9 +107,8 @@ pub(crate) enum ToolWindow {
 }
 
 impl ToolWindow {
-    /// EXP-851: the SCREEN this list is — what its rail entry navigates to,
-    /// what a `ListNav` back row hops out to, and what the legacy
-    /// `activate_tool` callers mean. `board` supplies the window's active
+    /// EXP-851: the SCREEN this list is — what its rail entry navigates to
+    /// and what the legacy `activate_tool` callers mean. `board` supplies the window's active
     /// board for the board list (the only kind that needs an argument);
     /// `None` there yields the dev sentinel, resolved at render time.
     pub(crate) fn origin_screen(self, board: Option<String>) -> Screen {
@@ -121,19 +122,6 @@ impl ToolWindow {
             ToolWindow::Files => Screen::Files,
             ToolWindow::SourceControl => Screen::SourceControl,
             ToolWindow::Reviews => Screen::Reviews,
-        }
-    }
-
-    /// EXP-851: the `ListNav` back row's label — the list the detail came
-    /// from, named the way its rail entry is. A board names ITSELF (the
-    /// caller passes the synced board name), so it degrades generically here.
-    pub(crate) fn list_label(self) -> &'static str {
-        match self {
-            ToolWindow::Inbox => "Inbox",
-            ToolWindow::BoardIssues => "Board",
-            ToolWindow::Files => "Files",
-            ToolWindow::SourceControl => "Source Control",
-            ToolWindow::Reviews => "Reviews",
         }
     }
 }
@@ -165,8 +153,6 @@ pub(crate) struct RailShared {
     /// so the issue detail's prev/next switcher (EXP-48) can read the same
     /// query + filter state the visible list applies.
     board_active: Entity<BoardView>,
-    /// The "My Issues" board (assignee == me across the team).
-    board_my: Entity<BoardView>,
     /// What the Source Control screen's diff pane shows — the sidebar
     /// history list selects it (EXP-253; EXP-509 added the working tree).
     sc_selection: ScSelection,
@@ -343,7 +329,6 @@ pub(crate) fn rail_shared_for_window(
     let file_tree =
         cx.new(|cx| crate::file_tree::FileTreeView::new(git_bar.clone(), window, cx));
     let board_active = cx.new(|cx| BoardView::new(window, cx));
-    let board_my = cx.new(|cx| BoardView::new(window, cx));
     // DEV-ONLY (§11.4 headless verification, same family as
     // EXP_DEV_SERVER/EXP_DEV_SCREEN): pre-select the settings section so a
     // capture run lands on one pane without synthetic input. EXP-851 moved
@@ -353,7 +338,6 @@ pub(crate) fn rail_shared_for_window(
         git_bar,
         file_tree,
         board_active,
-        board_my,
         sc_selection: ScSelection::None,
         selected_file: None,
         settings_section: std::env::var("EXP_DEV_SETTINGS")
@@ -404,12 +388,11 @@ pub(crate) fn focused_list(screen: Option<&Screen>) -> (ToolWindow, InboxTab) {
 /// rule ([`crate::navigation::derive_origin`]) work it out from the screen
 /// that was up. Beside a detail opened from the RAIL that rule derives
 /// NOTHING — a rail-opened detail carries no list — so clicking a row in the
-/// left column blanked the column and threw the reader back to the rail,
-/// mid-click, in the one place a list was plainly on screen.
+/// second sidebar would have slid it away mid-click.
 ///
-/// * [`ListMode::Screen`]: the full-width list screen IS the list, so its rows
-///   hand on their own screen's origin.
-/// * [`ListMode::Nav`]: the left column's list stays put — the detail that
+/// * [`ListMode::Screen`]: the full-width list screen's own origin — EXP-1192:
+///   none for a board (its issues open with nothing beside them).
+/// * [`ListMode::Nav`]: the second sidebar stays put — the detail that
 ///   replaces the open one is pinned to the very list it was picked from.
 ///
 /// Pure, so both modes are a unit test.
@@ -421,6 +404,35 @@ pub(crate) fn row_origin_for(
     match mode {
         ListMode::Screen => screen.and_then(Screen::list_origin),
         ListMode::Nav => nav_origin.cloned(),
+    }
+}
+
+/// EXP-1192: what one [`ListPanel::set_side`] push changes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SidePush {
+    /// The same kind and the same tab as the last push — nothing.
+    Same,
+    /// The same kind, a CHANGED pushed tab — the list takes it.
+    NewTab,
+    /// Another kind — the list resets.
+    NewKind,
+}
+
+/// EXP-1192: [`ListPanel::set_side`]'s pure rule over the last push
+/// (`side`, `last_tab`) and this one. A `None` tab never counts as a change
+/// (only the Inbox kind carries one).
+fn side_push(
+    side: Option<SecondSidebar>,
+    last_tab: Option<InboxTab>,
+    kind: SecondSidebar,
+    tab: Option<InboxTab>,
+) -> SidePush {
+    if side != Some(kind) {
+        SidePush::NewKind
+    } else if tab.is_some() && tab != last_tab {
+        SidePush::NewTab
+    } else {
+        SidePush::Same
     }
 }
 
@@ -511,23 +523,23 @@ fn yolo_rail(yolo: bool, has_reviews: bool, sc_failing: bool) -> YoloRail {
     }
 }
 
-/// FEED-3: hover-reveal group name for the expanded rail's board rows — the
+/// FEED-3: hover-reveal group name for the rail's board rows — the
 /// gear that jumps to the board's settings page shows only under the cursor.
 const BOARD_ROW_GROUP: &str = "rail-board-row";
 /// EXP-863: the Pinned rows' hover group — reveals the trailing Unpin button
 /// (the board rows' gear recipe).
 const PIN_ROW_GROUP: &str = "rail-pin-row";
-/// EXP-863: the `ListNav` issue rows' hover group — reveals the leading
+/// EXP-863: the side list's issue rows' hover group — reveals the leading
 /// bulk-select checkbox (the big list's `issue-row` group).
 const NAV_ROW_GROUP: &str = "list-nav-issue-row";
 
-/// EXP-915: the `ListNav` issue lists' row heights — the group band and the
+/// EXP-915: the side list's My Issues rows' heights — the group band and the
 /// `rail_row_lead` row — plus the 2px the old `gap_0p5` column put between
 /// them, folded into each virtual-list item so the fixed sizes stay exact.
 const NAV_HEADER_HEIGHT: f32 = 24.;
 const NAV_ISSUE_ROW_HEIGHT: f32 = 28.;
 const NAV_ROW_GAP: f32 = 2.;
-/// EXP-980: the `ListNav` row's own left padding (`flat_row_compact`'s
+/// EXP-980: the side list row's own left padding (`flat_row_compact`'s
 /// `px_2`) — the base the sub-issue indent is measured off.
 const NAV_ROW_PAD: f32 = 8.;
 /// EXP-998: the gutters start under the STATUS glyph — past the 16px select
@@ -541,10 +553,9 @@ const NAV_GUIDE_INSET: f32 = 16. + 4. + 5.;
 /// would drift the moment the other moved.
 const RUNNING_ROW_GAP: f32 = 0.25 * theme::FONT_SIZE_PX;
 
-/// EXP-1022: the breathing room between two of the EXPANDED rail's sections
+/// EXP-1022: the breathing room between two of the rail's sections
 /// (nav entries / Pinned / Boards / Running / This device) — plain space, like
-/// the web sidebar's group padding; the rules are gone. The compact icon
-/// column keeps its rules: with no labels they are its only grouping cue.
+/// the web sidebar's group padding; the rules are gone.
 const SECTION_GAP: f32 = 8.;
 
 /// EXP-1022: the room the rail's scroll content keeps under its last row
@@ -554,7 +565,7 @@ const SECTION_GAP: f32 = 8.;
 /// `WHATS_NEW_CLEARANCE_CLASS`).
 const WHATS_NEW_CLEARANCE: f32 = 80.;
 
-/// One flattened `ListNav` virtual-list row (EXP-915) — the big list's
+/// One flattened side-list virtual-list row (EXP-915) — the big list's
 /// `ListRow` at the column's density: the issue rides behind the memoized
 /// query's `Rc`, so rebuilding the vector per frame clones handles, never
 /// payloads.
@@ -589,7 +600,7 @@ impl NavRow {
     }
 }
 
-/// The `ListNav` board query's memo key (EXP-915): the scope plus every
+/// The side list's issue query memo key (EXP-915): the scope plus every
 /// collection input ([`queries::BoardDataKey`]).
 #[derive(PartialEq, Eq)]
 struct NavBoardKey {
@@ -597,7 +608,7 @@ struct NavBoardKey {
     base: queries::BoardDataKey,
 }
 
-/// EXP-282: one row of the EXPANDED rail — icon + label, left-aligned, glass
+/// EXP-282: one row of the rail — icon + label, left-aligned, glass
 /// row fills. Hand-rolled on purpose: gpui-component's `Button` centers its
 /// inner layout with no `Styled` reach into it (the settings-nav rows set the
 /// same precedent), and a centered label would defeat the whole point of the
@@ -649,54 +660,6 @@ fn rail_badge_element(badge: RailBadge, glyph_px: f32, cx: &App) -> gpui::AnyEle
             )
             .into_any_element(),
     }
-}
-
-/// EXP-870: the COMPACT rail's entry — a 32px square holding the row's lead
-/// glyph, the label demoted to a tooltip and the badge riding the top-right
-/// corner. The expanded [`rail_row_lead`]'s twin: same fills, same hover, so
-/// the icon column reads as the rail with its labels folded away.
-fn rail_compact_button(
-    id: impl Into<gpui::ElementId>,
-    lead: gpui::AnyElement,
-    label: impl Into<SharedString>,
-    active: bool,
-    badge: Option<RailBadge>,
-    cx: &App,
-) -> gpui::Stateful<gpui::Div> {
-    let label: SharedString = label.into();
-    div()
-        .id(id)
-        .relative()
-        .size(px(32.))
-        .flex_shrink_0()
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(cx.theme().radius)
-        .cursor_pointer()
-        .when(active, |this| {
-            this.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla())
-        })
-        .hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
-        .child(lead)
-        .when_some(badge, |this, badge| {
-            // A count capsule overhangs the glyph's corner (web `-top-0.5
-            // -right-0.5`); the dots and glyphs sit inside it.
-            let (top, right) = match badge {
-                RailBadge::Count(..) => (-2., -2.),
-                _ => (3., 3.),
-            };
-            this.child(
-                div()
-                    .absolute()
-                    .top(px(top))
-                    .right(px(right))
-                    .child(rail_badge_element(badge, 10., cx)),
-            )
-        })
-        .tooltip(move |window, cx| {
-            gpui_component::tooltip::Tooltip::new(label.clone()).build(window, cx)
-        })
 }
 
 fn rail_row(
@@ -786,11 +749,6 @@ pub struct RailView {
     /// Scroll position of the rail's middle zone (tools + board icons) —
     /// small windows with many boards must not push Settings/Account off.
     rail_scroll: ScrollHandle,
-    /// EXP-870: whether the rail renders as the 48px ICON column — true
-    /// while a list or the settings nav sits beside it (the rail never
-    /// leaves the window any more; it folds its labels away instead).
-    /// Re-derived at the top of every render from the window's occupant.
-    compact: bool,
     /// EXP-923/EXP-996: the folded rows of the Running section, by
     /// [`domain::session_tree::session_tree_node_key`] — a parent run's id.
     /// Per window, never persisted.
@@ -868,7 +826,6 @@ impl RailView {
             shared,
             last_branch: None,
             rail_scroll: ScrollHandle::new(),
-            compact: false,
             collapsed_runs: HashSet::new(),
             _tick: crate::sessions_section::tick(cx, |_: &mut Self, cx| cx.notify()),
             _subscriptions: subscriptions,
@@ -937,28 +894,14 @@ impl RailView {
                         issue_id: issue.id.clone(),
                     };
                     let active = active_screen.as_ref() == Some(&screen);
-                    // EXP-870: the identifier does not fit the compact
-                    // square — the issue glyph stands in, the tooltip names it.
-                    let lead = if self.compact {
-                        Icon::new(registry::NAV_ISSUES)
-                            .with_size(gpui_component::Size::Medium)
-                            .flex_shrink_0()
-                            .text_color(muted)
-                            .into_any_element()
-                    } else {
-                        div()
-                            .flex_shrink_0()
-                            .text_xs()
-                            .text_color(muted)
-                            .font_family(theme::terminal::FONT_FAMILY)
-                            .child(SharedString::from(issue.identifier.clone()))
-                            .into_any_element()
-                    };
-                    let title = if self.compact {
-                        format!("{} {}", issue.identifier, issue.title)
-                    } else {
-                        issue.title.clone()
-                    };
+                    let lead = div()
+                        .flex_shrink_0()
+                        .text_xs()
+                        .text_color(muted)
+                        .font_family(theme::terminal::FONT_FAMILY)
+                        .child(SharedString::from(issue.identifier.clone()))
+                        .into_any_element();
+                    let title = issue.title.clone();
                     let issue_id = issue.id.clone();
                     let board_id = issue.board_id.clone();
                     self.entry(("rail-pin", index), lead, title, active, None, cx)
@@ -1034,11 +977,7 @@ impl RailView {
                             }),
                     )
             };
-            if self.compact {
-                out.push(row_el.into_any_element());
-            } else {
-                out.push(row_el.group(PIN_ROW_GROUP).child(unpin).into_any_element());
-            }
+            out.push(row_el.group(PIN_ROW_GROUP).child(unpin).into_any_element());
         }
         out
     }
@@ -1105,11 +1044,8 @@ impl RailView {
             v_flex()
                 .w_full()
                 .gap(px(RUNNING_ROW_GAP))
-                .when(self.compact, |section| section.items_center())
                 .child(rule)
-                .when(!self.compact, |section| {
-                    section.child(self.section_label("Running", cx))
-                })
+                .child(self.section_label("Running", cx))
                 .children(elements)
                 .into_any_element(),
         )
@@ -1156,8 +1092,7 @@ impl RailView {
         )
     }
 
-    /// ONE Running row ([`Self::render_running_section`]) in the rail's
-    /// current shape — the labelled row, or the icon column's 32px mark.
+    /// ONE Running row ([`Self::render_running_section`]) — the labelled row.
     fn rail_running_row(
         &self,
         index: usize,
@@ -1172,16 +1107,10 @@ impl RailView {
         let issue_id = run.issue_id.clone();
         // EXP-923/EXP-1184: the lead is the agent's mark — its working
         // spark mid-turn, else the brand mark with the run state's badge on
-        // its corner (the compact column's badge rule, on a glyph).
+        // its corner (the rail's badge rule, on a glyph).
         let lead = crate::coding_selects::run_lead(Some(run.agent), 16., 6., run.state)
             .into_any_element();
-        // The compact square has no room for two texts: the tooltip is the
-        // whole label the expanded row splits into identifier + title.
         let title = run.title.clone();
-        let label: SharedString = match &run.identifier {
-            Some(identifier) => format!("{identifier} {title}").into(),
-            None => title.clone(),
-        };
         let open = {
             let session_id = session_id.clone();
             move |window: &mut Window, cx: &mut App| {
@@ -1196,20 +1125,6 @@ impl RailView {
                 );
             }
         };
-        if self.compact {
-            // EXP-923: nesting is not drawn in the icon column — 14px of
-            // indent inside a 32px square would only clip the mark.
-            return rail_compact_button(
-                ("rail-running", index),
-                lead,
-                label,
-                active,
-                None,
-                cx,
-            )
-            .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| open(window, cx)))
-            .into_any_element();
-        }
         let fold = self.rail_run_fold(index, &row.key, row.has_children, cx);
         let device_label: Option<SharedString> = run.device_label.clone();
         let device = div()
@@ -1338,10 +1253,9 @@ impl RailView {
     /// `tooltip` is `Some` only where the row has something the label cannot
     /// say — Source Control's "synced 3m ago" / failure reason. Everywhere
     /// else a tooltip would just repeat the visible label.
-    /// EXP-870: one rail entry in the rail's CURRENT shape — the labelled
-    /// 28px row, or the compact column's 32px icon square with the label as
-    /// its tooltip. Every nav/board/pinned entry goes through here so the two
-    /// shapes can never list different destinations.
+    /// EXP-870: one rail entry — the labelled 28px row (EXP-1192: the rail
+    /// never folds to an icon column any more). Every nav/board/pinned entry
+    /// goes through here.
     fn entry(
         &self,
         id: impl Into<gpui::ElementId>,
@@ -1351,11 +1265,7 @@ impl RailView {
         badge: Option<RailBadge>,
         cx: &App,
     ) -> gpui::Stateful<gpui::Div> {
-        if self.compact {
-            rail_compact_button(id, lead, label, active, badge, cx)
-        } else {
-            rail_row_lead(id, lead, label, active, None, badge, cx)
-        }
+        rail_row_lead(id, lead, label, active, None, badge, cx)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1370,28 +1280,22 @@ impl RailView {
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         // EXP-851: a list is a SCREEN — the entry highlights while that
-        // screen is up, exactly like every other rail row.
+        // screen is up, exactly like every other rail row. EXP-1192: the
+        // Inbox on EITHER tab (My Issues lives in its sidebar); a detail
+        // opened beside it is not the Inbox screen and lights nothing.
         let screen = tool.origin_screen(None);
         let active = match (&screen, resolved_screen(&self.nav, cx)) {
             // A board list highlights through its BOARD row, never here.
             (Screen::BoardIssues { .. }, _) => false,
+            (Screen::Inbox { .. }, Some(Screen::Inbox { .. })) => true,
             (screen, Some(current)) => *screen == current,
             _ => false,
         };
-        // EXP-870: the compact square already wears its label as a tooltip;
-        // a richer caller tooltip (Source Control's sync stamp) replaces it.
         let lead = icon.with_size(gpui_component::Size::Medium).flex_shrink_0().into_any_element();
-        let label: SharedString = match (&tooltip, self.compact) {
-            (Some(text), true) => text.clone(),
-            _ => label.into(),
-        };
-        let compact = self.compact;
         self.entry(id, lead, label, active, badge, cx)
-            .when(!compact, |row| {
-                row.when_some(tooltip, |row, text| {
-                    row.tooltip(move |window, cx| {
-                        gpui_component::tooltip::Tooltip::new(text.clone()).build(window, cx)
-                    })
+            .when_some(tooltip, |row, text| {
+                row.tooltip(move |window, cx| {
+                    gpui_component::tooltip::Tooltip::new(text.clone()).build(window, cx)
                 })
             })
             .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
@@ -1648,21 +1552,13 @@ impl RailView {
             }
         };
 
-        // EXP-870: the compact rail's trigger is the avatar alone.
-        let compact = self.compact;
         Button::new("rail-account")
             .ghost().cursor_pointer()
             .small()
-            .when(compact, |button| {
-                button.size(px(32.)).child(make_avatar(
-                    gpui_component::Size::Small,
-                    avatar_image.clone(),
-                ))
-            })
             // The trigger is a full-width row — the Button's own inner layout
             // is centered and unreachable, so the row is a `w_full` child that
             // left-aligns inside it.
-            .when(!compact, |button| {
+            .map(|button| {
                 button.w_full().h(px(36.)).px_1p5().child(
                 h_flex()
                     .w_full()
@@ -1749,7 +1645,6 @@ impl RailView {
             let settings_board_id = board.id.clone();
             // EXP-282: the board's own color tints the glyph whether the
             // row is active or not — `active` only adds the row fill.
-            let compact = self.compact;
             self.entry(
                 ("rail-board", index),
                 icon.with_size(gpui_component::Size::Medium).flex_shrink_0().into_any_element(),
@@ -1769,7 +1664,7 @@ impl RailView {
                     },
                 );
             }))
-            .when(owner && !compact, |row| {
+            .when(owner, |row| {
                 row.child(
                     div()
                         .invisible()
@@ -1799,32 +1694,21 @@ impl RailView {
         }
     }
 
-    /// The compact icon column's section rule — full width, like the web
-    /// icon rail's separators.
-    fn divider(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        left_column_divider(cx)
-    }
-
-    /// EXP-1022: what separates two sections in the rail's CURRENT shape —
-    /// the rule in the compact icon column, plain [`SECTION_GAP`] space in
-    /// the expanded rail (the web sidebar draws no rules between its groups
-    /// either).
-    fn section_rule(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        if self.compact {
-            self.divider(cx)
-        } else {
-            div()
-                .w_full()
-                .h(px(SECTION_GAP))
-                .flex_shrink_0()
-                .into_any_element()
-        }
+    /// EXP-1022: what separates two sections in the rail — plain
+    /// [`SECTION_GAP`] space (the web sidebar draws no rules between its
+    /// groups either).
+    fn section_rule(&self, _cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        div()
+            .w_full()
+            .h(px(SECTION_GAP))
+            .flex_shrink_0()
+            .into_any_element()
     }
 }
 
 /// The left column's section rule — full width, like the web sidebar's. The
-/// rail's own dividers and the one under the FIXED header (`Shell`) are the
-/// same line.
+/// one under the FIXED header (`Shell`) and the back rows' rules are the same
+/// line.
 pub(crate) fn left_column_divider(cx: &App) -> gpui::AnyElement {
     div()
         .w_full()
@@ -1857,8 +1741,8 @@ fn team_run_dot(live: Option<&queries::TeamLiveRuns>) -> Option<Hsla> {
 /// switcher taking the width, then icon-only Search and New issue.
 ///
 /// EXP-863: it is the LEFT COLUMN's header, not the rail's — the `Shell`
-/// renders it ONCE, fixed, above whichever occupant (rail / settings nav /
-/// `ListNav`) is sliding underneath, so the switcher, Search and New issue
+/// renders it ONCE, fixed, above whichever occupant (rail / settings nav) is
+/// sliding underneath, so the switcher, Search and New issue
 /// never move. Hence a free fn over the window's navigation and no listener
 /// on any view: both buttons call their openers directly with the `window`
 /// the click hands them.
@@ -2134,10 +2018,6 @@ impl RailView {
 
 impl Render for RailView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        // EXP-870: a list or the settings nav beside the rail folds it into
-        // the icon column — strictly derived, never a user toggle.
-        self.compact =
-            crate::shell::window_left_occupant(window, cx) != crate::shell::LeftOccupant::Rail;
         // Keep the git lifecycle live regardless of which tool window is
         // open: auto-clone on board open + the attention badge both ride the
         // GitBar's load gate.
@@ -2219,7 +2099,7 @@ impl Render for RailView {
         // EXP-525: the section reads like the web sidebar — a "Boards" group
         // label with a trailing `+`.
         let boards_header: Option<gpui::AnyElement> =
-            active_team.clone().filter(|_| !self.compact).map(|team_id| {
+            active_team.clone().map(|team_id| {
                 self.section_label("Boards", cx)
                     .child(
                         Button::new("rail-new-board")
@@ -2248,11 +2128,8 @@ impl Render for RailView {
             v_flex()
                 .w_full()
                 .gap_1()
-                .when(self.compact, |section| section.items_center())
                 .child(rule)
-                .when(!self.compact, |section| {
-                    section.child(self.section_label("Pinned", cx))
-                })
+                .child(self.section_label("Pinned", cx))
                 .children(pinned_rows)
                 .into_any_element()
         });
@@ -2304,9 +2181,9 @@ impl Render for RailView {
         // Settings gear — the SINGLE settings entry point (EXP-282 dropped
         // the duplicate account-menu item). Navigates directly for the same
         // EXP-17 reason as the search button above; the keymap still
-        // dispatches `OpenSettings`. EXP-340: icon-only in BOTH rail states —
-        // expanded it sits in the account row, hugging the rail's right edge,
-        // instead of taking a full-width row of its own.
+        // dispatches `OpenSettings`. EXP-340: icon-only — it sits in the
+        // account row, hugging the rail's right edge, instead of taking a
+        // full-width row of its own.
         let settings_entry = Button::new("rail-settings")
             .ghost().cursor_pointer()
             .small()
@@ -2372,64 +2249,10 @@ impl Render for RailView {
             cx,
         );
 
-        if self.compact {
-            // EXP-870: the ICON column. Same destinations in the same order
-            // as the expanded rail below (Inbox, Devices, Reviews, Agent,
-            // Actions, Drafts), minus everything that needs a label to mean anything
-            // (section labels, the What's-new card, Getting started, the
-            // sync caption); the footer stacks vertically.
-            return v_flex()
-                .w(px(crate::shell::COMPACT_RAIL_WIDTH))
-                .flex_shrink_0()
-                .h_full()
-                .pb_2()
-                .gap_1()
-                .items_center()
-                .text_color(cx.theme().sidebar_foreground)
-                .child(crate::scroll_pane::sidebar_scroll_pane(
-                    "rail-scroll-compact",
-                    &self.rail_scroll,
-                    v_flex()
-                        .w_full()
-                        .px_2()
-                        .gap_1()
-                        .items_center()
-                        .child(self.rail_tool_icon(
-                            "rail-inbox",
-                            Icon::new(registry::NAV_INBOX),
-                            ToolWindow::Inbox,
-                            "Inbox",
-                            None,
-                            inbox_badge,
-                            cx,
-                        ))
-                        .child(self.rail_screen_entry(
-                            "rail-devices",
-                            Icon::from(icons::registry::NAV_DEVICES),
-                            "Devices",
-                            Screen::Devices,
-                            None,
-                            cx,
-                        ))
-                        .children(reviews_entry)
-                        .child(self.rail_agent_entry(active_chat_action.as_deref(), cx))
-                        .child(actions_entry)
-                        .children(drafts_entry)
-                        .children(pinned_section)
-                        .child(self.divider(cx))
-                        .children(board_icons)
-                        .children(running_section),
-                ))
-                .child(self.render_account_button(cx))
-                .child(computer_entry)
-                .child(settings_entry)
-                .into_any_element();
-        }
-
         // EXP-863: the rail starts UNDER the left column's fixed header —
         // the titlebar strip, the team switcher row and the rule beneath
         // them are the `Shell`'s (`render_left_column`), shared with the
-        // settings nav and the `ListNav`, so the rail neither pads its top
+        // settings nav, so the rail neither pads its top
         // nor renders a header of its own.
         // EXP-1022: the What's-new card FLOATS over the scroll area's bottom
         // edge (rows slide behind it) — rendered up front so the scroll
@@ -2443,10 +2266,10 @@ impl Render for RailView {
         // scrollers take `sidebar_scroll_pane`'s slim variant: a 3-4px thumb
         // inset 1px from the column's right edge in an 8px hit strip, i.e.
         // wholly inside that gutter, beside the rows instead of over them.
-        // EXP-1156: the dragged `main` width, read exactly as the Shell's
-        // rail slot reads it — a FIXED width rather than `w_full`, so while
-        // the slot animates between the expanded and folded widths the rows
-        // are clipped instead of reflowing frame by frame.
+        // EXP-1156: the `main` width, read exactly as the Shell's column
+        // reads it — a FIXED width rather than `w_full`, so while the column
+        // animates into Settings the rows are clipped instead of reflowing
+        // frame by frame.
         v_flex()
             .w(px(crate::resize_edge::panel_width(
                 crate::resize_edge::SidebarPanel::Main,
@@ -2469,8 +2292,8 @@ impl Render for RailView {
             .text_color(cx.theme().sidebar_foreground)
             // Middle zone — scrollable so many boards never push the pinned
             // Settings/Account off small windows. Rail order (SLOP-5, the
-            // four nouns plus Reviews and Inbox, ×4 with the web sidebar and
-            // the phone tab bars): [Inbox, Devices, Reviews?, Agent, Actions,
+            // four nouns plus Reviews and Inbox; EXP-1192: Agent first, the
+            // landing page): [Agent, Inbox, Devices, Reviews?, Actions,
             // Drafts?] / Pinned (EXP-778) / boards + "+" / Running (EXP-923).
             // Terminal, Files and Source Control are the footer's Computer
             // menu.
@@ -2484,6 +2307,10 @@ impl Render for RailView {
                     .when(whats_new_clearance, |content| {
                         content.pb(px(WHATS_NEW_CLEARANCE))
                     })
+                    // EXP-791: "Agent", the web sidebar's word for the Chat
+                    // page (EXP-772). EXP-1192: the first entry — the page
+                    // the window lands on.
+                    .child(self.rail_agent_entry(active_chat_action.as_deref(), cx))
                     .child(self.rail_tool_icon(
                         "rail-inbox",
                         Icon::new(registry::NAV_INBOX),
@@ -2506,11 +2333,6 @@ impl Render for RailView {
                     // above it, not a tool window with a docked list.
                     // EXP-1105: absent in yolo mode unless a merge failed.
                     .children(reviews_entry)
-                    // EXP-791: "Agent", the web sidebar's word for the Chat
-                    // page (EXP-772). EXP-818: it is a TOOL now — the sessions
-                    // list on the left, the Chat prompt in the center until a
-                    // row is clicked (the master-detail shape).
-                    .child(self.rail_agent_entry(active_chat_action.as_deref(), cx))
                     // Actions and Drafts (while any) close the nav entries.
                     .child(actions_entry)
                     .children(drafts_entry)
@@ -2570,46 +2392,47 @@ impl Render for RailView {
 }
 
 // ---------------------------------------------------------------------------
-// ListPanel — the list surfaces, full width or as the left column's ListNav
+// ListPanel — the board list, or a second sidebar inside the content card
 // ---------------------------------------------------------------------------
 
 /// EXP-851: WHERE a [`ListPanel`] renders, which is the only thing that
 /// differs between its two instances per window.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ListMode {
-    /// The main view — the full list screen (`Screen::BoardIssues` /
-    /// `Screen::Inbox`) with its filter bar and tab strip.
+    /// The main view — the full board list (`Screen::BoardIssues`) with its
+    /// filter bar. EXP-1192: the Inbox has no full-width body any more; its
+    /// list IS the second sidebar.
     Screen,
-    /// The left column's `ListNav` — a back row over the SIMPLIFIED list the
-    /// open detail was picked from.
+    /// EXP-1192: the SECOND SIDEBAR inside the content card, pushed its kind
+    /// by the host ([`ListPanel::set_side`]) — the Inbox (strip + rows) or
+    /// the Reviews queue (a back row over its rows).
     Nav,
 }
 
-/// EXP-851: the team's list surfaces in one view. It used to be the
-/// `SidebarPanel` tool column beside the centre; the centre split is gone,
-/// so the same rows render EITHER as the full-width main view
-/// ([`ListMode::Screen`]) or as the `ListNav` beside an open detail
-/// ([`ListMode::Nav`]). One type, so the board query and the inbox grouping
-/// exist once.
+/// EXP-851: the team's list surfaces in one view — the full-width board list
+/// ([`ListMode::Screen`]) or a second sidebar ([`ListMode::Nav`]). One type,
+/// so the issue queries and the inbox grouping exist once.
 pub struct ListPanel {
     mode: ListMode,
     nav: Entity<Navigation>,
-    /// [`ListMode::Nav`] only: the Inbox tab the LIST shows. It rides the
-    /// SCREEN in the other mode; beside a detail there is no screen to carry
-    /// it, and flipping it must not navigate.
+    /// [`ListMode::Nav`] only: the Inbox tab the LIST shows. On the Inbox
+    /// screen it follows the screen's tab (pushed through [`Self::set_side`]);
+    /// beside a detail there is no screen to carry it, and flipping it must
+    /// not navigate.
     nav_inbox_tab: InboxTab,
-    /// The origin rendered last, so the outgoing `ListNav` keeps its rows
-    /// through the ~200ms left-column swap (the live origin is already gone
-    /// by then).
-    last_origin: Option<crate::navigation::TabOrigin>,
+    /// [`ListMode::Nav`] only (EXP-1192): the second sidebar this panel
+    /// shows, PUSHED by its host ([`Self::set_side`]) rather than read off
+    /// the window — so an outgoing sidebar keeps its rows through its slide.
+    side: Option<SecondSidebar>,
+    /// The Inbox tab the host pushed LAST ([`Self::set_side`]) — only a
+    /// CHANGE of it moves [`Self::nav_inbox_tab`], so a local flip beside a
+    /// detail survives the host's per-render push.
+    side_tab: Option<InboxTab>,
     /// The Board Issues tool window — the full board (filter bar with
     /// All/Active/Backlog tabs + New Issue + the grouped virtualized list
     /// with inline status/priority menus), scoped to the active board.
     /// Lives in [`RailShared`] (EXP-48 — the detail switcher reads it too).
     board_active: Entity<BoardView>,
-    /// The "My Issues" tool window — same board pinned to assignee == me
-    /// (also shared via [`RailShared`]).
-    board_my: Entity<BoardView>,
     /// [`ListMode::Nav`] only (EXP-862): the status groups folded away in the
     /// issue lists, by `group_key` — the big list's own `collapsed` set. Per
     /// panel, never persisted.
@@ -2617,7 +2440,7 @@ pub struct ListPanel {
     /// [`ListMode::Nav`] only (EXP-863): the issue rows' bulk selection — the
     /// big list's `selected` + `select_anchor`, with the same click grammar
     /// (Cmd/Ctrl toggles, Shift extends, the hover checkbox toggles). Cleared
-    /// when the column's origin changes; pruned each render to rows that
+    /// when the side list's kind changes; pruned each render to rows that
     /// still exist.
     nav_selected: HashSet<String>,
     nav_select_anchor: Option<String>,
@@ -2629,7 +2452,7 @@ pub struct ListPanel {
     /// universe). Empty while the column shows a list without issue rows.
     nav_issue_ids: Vec<String>,
     nav_visible_ids: Vec<String>,
-    /// EXP-915: the `ListNav` issue lists' memoized board query — the big
+    /// EXP-915: the side list's memoized My Issues query — the big
     /// list's REV-39 cache. gpui re-renders this panel on every window
     /// refresh (each scroll tick, each hover flip, every Electric batch);
     /// before this the column re-ran the full clone+sort+group pipeline AND
@@ -2642,7 +2465,7 @@ pub struct ListPanel {
     /// EXP-915: the flattened rows of the CURRENT render, read by the virtual
     /// list's range closure afterwards (the big list's `rows`).
     nav_rows: Rc<Vec<NavRow>>,
-    /// EXP-998: the `ListNav` issue list's blocks rail column width (0 =
+    /// EXP-998: the side list's My Issues blocks rail column width (0 =
     /// none). EXP-1057: dots only; each dot owns its hover card.
     nav_rail_width: f32,
     /// Per-render snapshots the row builders read instead of re-resolving
@@ -2651,8 +2474,8 @@ pub struct ListPanel {
     nav_row_statuses: Rc<Vec<ResolvedStatus>>,
     nav_active_issue_id: Option<String>,
     nav_row_origin: Option<TabOrigin>,
-    /// The issue lists' virtual-list scroll — reset to the top when the
-    /// column's origin (or the Inbox tab) changes, since both lists share it.
+    /// The My Issues virtual-list scroll — reset to the top when the side
+    /// list's kind (or the Inbox tab) changes.
     nav_list_scroll: VirtualListScrollHandle,
     /// EXP-915: the other sidebar lists' memoized queries — the inbox
     /// grouping and the Reviews queue.
@@ -2725,12 +2548,74 @@ fn notification_type_icon(kind: Option<&str>) -> Icon {
 }
 
 impl ListPanel {
+    /// EXP-1192: point the [`ListMode::Nav`] panel at a second sidebar —
+    /// called by its host every render, with the Inbox screen's tab (or the
+    /// open detail's `origin.inbox_tab`) for the Inbox kind. The same kind
+    /// and the same tab as the LAST push = a no-op, no notify. A pushed tab
+    /// that CHANGED becomes the list's tab (the Inbox screen flipped, or a
+    /// detail picked from the other tab opened); an unchanged one leaves a
+    /// local flip beside a detail alone. A new kind resets the list.
+    pub(crate) fn set_side(
+        &mut self,
+        kind: SecondSidebar,
+        inbox_tab: Option<InboxTab>,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        match side_push(self.side, self.side_tab, kind, inbox_tab) {
+            SidePush::Same => return,
+            SidePush::NewKind => {}
+            SidePush::NewTab => {
+                self.side_tab = inbox_tab;
+                if let Some(tab) = inbox_tab.filter(|tab| *tab != self.nav_inbox_tab) {
+                    self.nav_inbox_tab = tab;
+                    self.nav_list_scroll.scroll_to_item(0, ScrollStrategy::Top);
+                    cx.notify();
+                }
+                return;
+            }
+        }
+        self.side = Some(kind);
+        self.side_tab = inbox_tab;
+        if let Some(tab) = inbox_tab {
+            self.nav_inbox_tab = tab;
+        }
+        // EXP-863: the selection is per list, like the big list's
+        // (`set_query` clears it on a scope change).
+        self.nav_selected.clear();
+        self.nav_select_anchor = None;
+        // EXP-915: a new list starts at its top (the issue lists share one
+        // virtual-list scroll) …
+        self.nav_list_scroll.scroll_to_item(0, ScrollStrategy::Top);
+        // … and the outgoing list's memoized rows go with it: the slots are
+        // keyed, so keeping them only pinned an `Rc` of a query nothing will
+        // ask for again.
+        self.nav_data.clear();
+        self.nav_statuses.clear();
+        self.inbox_data.clear();
+        self.reviews_data.clear();
+        cx.notify();
+    }
+
+    /// EXP-1192: the list [`Self::side`] names, as the origin its rows pin on
+    /// the detail they open (Recent runs is not a `ListPanel` body).
+    fn side_origin(&self) -> Option<crate::navigation::TabOrigin> {
+        let (tool, inbox_tab) = match self.side? {
+            SecondSidebar::Inbox => (ToolWindow::Inbox, Some(self.nav_inbox_tab)),
+            SecondSidebar::Reviews => (ToolWindow::Reviews, None),
+            SecondSidebar::RecentRuns => return None,
+        };
+        Some(crate::navigation::TabOrigin {
+            tool,
+            board_id: None,
+            inbox_tab,
+        })
+    }
+
     pub fn new(mode: ListMode, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let nav = nav_for_window(window, cx);
         let shared = rail_shared_for_window(window, cx);
         let git_bar = shared.read(cx).git_bar.clone();
         let board_active = shared.read(cx).board_active.clone();
-        let board_my = shared.read(cx).board_my.clone();
         let collections = Store::global(cx).collections().clone();
         let local_sessions = coding_flow::LocalSessions::global(cx);
         let merge_state = crate::pr_merge::MergeState::global(cx);
@@ -2766,9 +2651,9 @@ impl ListPanel {
             mode,
             nav,
             nav_inbox_tab: InboxTab::Inbox,
-            last_origin: None,
+            side: None,
+            side_tab: None,
             board_active,
-            board_my,
             nav_collapsed: HashSet::new(),
             nav_selected: HashSet::new(),
             nav_select_anchor: None,
@@ -2863,16 +2748,16 @@ impl ListPanel {
     }
 
     /// EXP-862: the origin THIS panel's rows pin ([`row_origin_for`]). In
-    /// `Nav` mode that is the list the column is rendering — `last_origin`,
-    /// which the render pass has already reconciled with the live one.
+    /// `Nav` mode that is the second sidebar the host pushed
+    /// ([`Self::side_origin`], with the list's CURRENT Inbox tab).
     fn row_origin(&self, cx: &App) -> Option<crate::navigation::TabOrigin> {
         let screen = resolved_screen(&self.nav, cx);
-        row_origin_for(self.mode, self.last_origin.as_ref(), screen.as_ref())
+        row_origin_for(self.mode, self.side_origin().as_ref(), screen.as_ref())
     }
 
-    /// EXP-862: open `screen` FROM this list — explicitly, so the left column
-    /// keeps showing the rows the click came from. Every row of every mode
-    /// goes through here.
+    /// EXP-862: open `screen` FROM this list — explicitly, so the second
+    /// sidebar keeps showing the rows the click came from. Every row of every
+    /// mode goes through here.
     fn open_from_list(&self, screen: Screen, window: &Window, cx: &mut App) {
         match self.row_origin(cx) {
             Some(origin) => crate::navigation::navigate_from(window, cx, screen, origin),
@@ -2882,12 +2767,14 @@ impl ListPanel {
 
     // -- issue tool windows ---------------------------------------------------
 
-    /// *Inbox* tool window (EXP-186): the merged personal surface — an Inbox
-    /// tab (notification stream) + a My Issues tab (the full board pinned to
-    /// assignee == me across the team), switched by header tab buttons,
-    /// mirroring mobile's segmented My Work screen.
+    /// The Inbox second sidebar (EXP-186/EXP-1192): the merged personal
+    /// surface — an Inbox tab (notification stream) + a My Issues tab (issues
+    /// assigned to me across the team), switched by the segmented strip on
+    /// top (Mark all read on its right), mirroring mobile's My Work screen.
+    /// No back row: the Inbox IS this list, the main pane beside it shows
+    /// what a row opened.
     fn render_inbox_tool(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        let tab = self.inbox_tab(cx);
+        let tab = self.nav_inbox_tab;
         // EXP-282: centered icon tabs instead of the icon+title header.
         let inbox_tab = self
             .tool_tab(
@@ -2915,10 +2802,7 @@ impl ListPanel {
             .into_any_element();
         if tab == InboxTab::MyIssues {
             let header = self.tool_tab_strip(vec![inbox_tab, mine_tab], None, cx);
-            let body = match self.mode {
-                ListMode::Screen => self.my_issues_body(cx),
-                ListMode::Nav => self.render_my_issues_nav(cx),
-            };
+            let body = self.render_my_issues_nav(cx);
             return v_flex()
                 .flex_1()
                 .min_h_0()
@@ -3288,6 +3172,14 @@ impl ListPanel {
             Vec::new()
         };
         let session_id = entry.session_id().map(str::to_string);
+        // EXP-1192: the run this row opened reads selected beside it, like
+        // an issue row beside its detail.
+        let selected = session_id.as_deref().is_some_and(|id| {
+            matches!(
+                resolved_screen(&self.nav, cx),
+                Some(Screen::Session { session_id }) if session_id == id
+            )
+        });
         let target_team = entry.item.team_id.clone();
         let time: SharedString = entry
             .item
@@ -3314,12 +3206,14 @@ impl ListPanel {
             .px_2()
             .py_1p5()
             .rounded(theme_radius)
+            .when(selected, |this| this.bg(theme.list_active))
             .hover(|this| this.bg(theme.list_hover))
             .cursor_pointer()
             .on_click(cx.listener(move |this, _, window, cx| {
                 // Web `markGroupRead`, then open the run itself (a
-                // cross-team row switches the window's team first). A pruned
-                // run leads nowhere.
+                // cross-team row switches the window's team first), pinned
+                // to this list so the Inbox stays beside it (EXP-1192). A
+                // pruned run leads nowhere.
                 mark_group_read(&unread_ids, cx);
                 let Some(session_id) = session_id.clone() else {
                     return;
@@ -3329,7 +3223,13 @@ impl ListPanel {
                         switch_team(window, cx, team_id);
                     }
                 }
-                crate::session_screen::open_session(&session_id, window, cx);
+                let origin = this.row_origin(cx);
+                crate::session_screen::open_session_with_origin(
+                    &session_id,
+                    origin,
+                    window,
+                    cx,
+                );
             }))
             .child(
                 h_flex()
@@ -3406,55 +3306,22 @@ impl ListPanel {
             .into_any_element()
     }
 
-    /// The Inbox tab this panel shows: the SCREEN's in [`ListMode::Screen`],
-    /// the panel's own beside a detail (EXP-851).
-    fn inbox_tab(&self, cx: &App) -> InboxTab {
-        match (self.mode, resolved_screen(&self.nav, cx)) {
-            (ListMode::Screen, Some(Screen::Inbox { tab })) => tab,
-            (ListMode::Screen, _) => InboxTab::Inbox,
-            (ListMode::Nav, _) => self.nav_inbox_tab,
-        }
-    }
-
-    /// Switch the Inbox tab (EXP-186). As the main view that IS the screen —
-    /// `set_screen`, not a navigation, so a tab flip never stacks history;
-    /// in the `ListNav` it is local state and the open detail stays put.
+    /// Switch the Inbox tab (EXP-186). On the Inbox SCREEN the tab is the
+    /// screen's — `set_screen`, not a navigation, so a flip never stacks
+    /// history (the host pushes the new tab back through [`Self::set_side`]).
+    /// Beside a detail it is local state and the open detail stays put.
     fn set_inbox_tab(&mut self, tab: InboxTab, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if self.mode == ListMode::Nav {
-            if self.nav_inbox_tab != tab {
-                self.nav_inbox_tab = tab;
-                self.nav_list_scroll.scroll_to_item(0, ScrollStrategy::Top);
-                cx.notify();
-            }
-            return;
+        if self.nav_inbox_tab != tab {
+            self.nav_inbox_tab = tab;
+            self.nav_list_scroll.scroll_to_item(0, ScrollStrategy::Top);
+            cx.notify();
         }
-        crate::navigation::set_screen(window, cx, Some(Screen::Inbox { tab }));
-        cx.notify();
+        if matches!(resolved_screen(&self.nav, cx), Some(Screen::Inbox { .. })) {
+            crate::navigation::set_screen(window, cx, Some(Screen::Inbox { tab }));
+        }
     }
 
-    /// The Inbox tool window's *My Issues* tab body: the full board pinned to
-    /// assignee == me across the team (its bar renders the tabs and filter).
-    fn my_issues_body(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        let query = match (
-            active_team_id(&self.nav, cx),
-            queries::active_account(cx),
-        ) {
-            (Some(team_id), Some(account)) => IssueQuery::MyIssues {
-                team_id,
-                user_id: account.user_id,
-            },
-            _ => IssueQuery::None,
-        };
-        self.board_my.update(cx, |board, cx| board.set_query(query, cx));
-        div()
-            .flex_1()
-            .min_h_0()
-            .min_w_0()
-            .child(self.board_my.clone())
-            .into_any_element()
-    }
-
-    /// *Board Issues* tool window: the board view, relocated — filter bar
+    /// The full-width board list ([`ListMode::Screen`]): the board view — filter bar
     /// (All/Active/Backlog tabs, filter popover, New Issue) + the grouped
     /// virtualized list with inline status/priority menus.
     fn render_board_issues_tool(
@@ -3475,7 +3342,7 @@ impl ListPanel {
             .into_any_element()
     }
 
-    // -- ListNav bulk selection (EXP-863) -------------------------------------
+    // -- side list bulk selection (EXP-863) -----------------------------------
 
     /// Toggle one row (checkbox / Cmd/Ctrl-click) and re-anchor on it.
     fn nav_toggle_selected(&mut self, issue_id: String, cx: &mut gpui::Context<Self>) {
@@ -3512,8 +3379,8 @@ impl ListPanel {
         cx.notify();
     }
 
-    /// The bulk bar over the `ListNav`'s selection, or `None` while nothing
-    /// is selected (or the column lists no issue rows / no team is in
+    /// The bulk bar over the side list's selection, or `None` while nothing
+    /// is selected (or the list shows no issue rows / no team is in
     /// scope). The ids come off the CURRENT render's rows, in list order and
     /// pruned to rows that still exist — the big list's `bulk_bar` rule.
     fn nav_bulk_bar(&mut self, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
@@ -3530,7 +3397,7 @@ impl ListPanel {
             return None;
         }
         let team_id = active_team_id(&self.nav, cx)?;
-        // Icon-only and allowed to fold: the column is 264px wide.
+        // Icon-only and allowed to fold: the side list is a narrow column.
         Some(render_bulk_bar(team_id, ids, self.nav_bulk_busy, false, true, cx))
     }
 
@@ -3554,55 +3421,21 @@ impl ListPanel {
         })
     }
 
-    // -- ListNav bodies (EXP-851) --------------------------------------------
+    // -- second sidebar bodies (EXP-851/EXP-1192) -----------------------------
 
-    /// The `ListNav`'s back row — the SETTINGS nav's row, shared
-    /// (`settings::nav_back_row`), labelled with the list the detail came
-    /// from and hopping one layer outward: the main view becomes that list
-    /// screen and the left column becomes the rail.
-    fn nav_back_row(
-        &self,
-        origin: &crate::navigation::TabOrigin,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let board_name = origin.board_id.as_deref().and_then(|board_id| {
-            Store::global(cx)
-                .collections()
-                .boards
-                .read(cx)
-                .get(board_id)
-                .map(|board| board.name.clone())
-        });
-        let label: SharedString = board_name
-            .map(SharedString::from)
-            .unwrap_or_else(|| origin.tool.list_label().into());
-        let target = origin.tool.origin_screen(origin.board_id.clone());
-        crate::settings::nav_back_row("list-nav-back", label, cx)
-            .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                crate::navigation::go_back_to(window, cx, target.clone());
+    /// The Reviews side list's back row — the SETTINGS nav's row, shared
+    /// (`settings::nav_back_row`): "Reviews", hopping out to the full queue
+    /// page. The Inbox side has none (the Inbox IS its list).
+    fn nav_back_row(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        crate::settings::nav_back_row("list-nav-back", "Reviews", cx)
+            .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
+                crate::navigation::go_back_to(window, cx, Screen::Reviews);
             }))
             .into_any_element()
     }
 
-    /// The board `ListNav` body: the board's issues as plain rows — status
-    /// glyph, identifier, title — with the open detail highlighted.
-    fn render_board_nav(
-        &mut self,
-        board_id: Option<String>,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let Some(board_id) = board_id else {
-            return self.list_note("No board selected.", cx);
-        };
-        self.render_nav_issue_list(
-            IssueQuery::Board { board_id },
-            ("list-nav-board-scroll", "list-nav-board-rows"),
-            "No issues yet.",
-            cx,
-        )
-    }
-
-    /// The My Issues `ListNav` body — the same plain rows over the team-wide
+    /// The Inbox side list's My Issues body: plain rows — status glyph,
+    /// identifier, title, the open detail highlighted — over the team-wide
     /// assignee query.
     fn render_my_issues_nav(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let (Some(team_id), Some(account)) =
@@ -3621,7 +3454,7 @@ impl ListPanel {
         )
     }
 
-    /// EXP-915: the shared body of the two `ListNav` issue lists — the
+    /// EXP-915: the side list's virtualized issue body — the
     /// memoized board query ([`Self::nav_data`], keyed by scope + every
     /// collection input), flattened into [`NavRow`]s and drawn by a
     /// `v_virtual_list` (the big list's element), so a scroll tick lays out
@@ -3686,8 +3519,8 @@ impl ListPanel {
             .into_any_element()
     }
 
-    /// One virtual-list item of the `ListNav` issue lists (EXP-915): the row
-    /// at `ix` in the column's old `px_2` gutter, with its trailing gap.
+    /// One virtual-list item of the side list's issue rows (EXP-915): the row
+    /// at `ix` in the column's `px_2` gutter, with its trailing gap.
     fn nav_render_row(
         &mut self,
         ix: usize,
@@ -3726,12 +3559,9 @@ impl ListPanel {
             .into_any_element()
     }
 
-    /// EXP-862: the `ListNav`'s issue rows, grouped by STATUS exactly like the
+    /// EXP-862: the side list's issue rows, grouped by STATUS exactly like the
     /// full-width list — a group band (glyph, name, count over the status'
-    /// own tint) that folds its rows away when clicked. The left column used
-    /// to be an undifferentiated run of issues, which is the one thing the
-    /// big list never was; web's `board-issue-list-pane.tsx` got the same
-    /// header in this wave.
+    /// own tint) that folds its rows away when clicked.
     fn nav_prepare_rows(&mut self, data: &queries::BoardData, cx: &mut gpui::Context<Self>) {
         let groups = &data.groups;
         let counts = &data.block_counts;
@@ -3810,7 +3640,7 @@ impl ListPanel {
         self.nav_rows = Rc::new(rows);
     }
 
-    /// One `ListNav` status band — the big list's group header
+    /// One side-list status band — the big list's group header
     /// (`issue_list::render_group_header`) at the narrow column's density: a
     /// bare chevron, the status glyph, its name and the count, over a wash in
     /// the status' own hue. The WHOLE band folds the group (EXP-862 ×4 — the
@@ -3872,10 +3702,9 @@ impl ListPanel {
             .into_any_element()
     }
 
-    /// One `ListNav` issue row (spec C: status glyph, identifier, title; the
-    /// open detail highlighted). A plain click navigates to that detail —
-    /// the `ListNav` stays, because the origin is inherited from the detail
-    /// already open (`navigation::derive_origin`).
+    /// One side-list issue row (spec C: status glyph, identifier, title; the
+    /// open detail highlighted). A plain click opens that detail pinned to
+    /// this list ([`Self::open_from_list`]), so the sidebar stays beside it.
     ///
     /// EXP-863: the big list's row grammar at the column's density — a
     /// hover-revealed bulk-select checkbox (pinned visible while ANY row is
@@ -4005,8 +3834,8 @@ impl ListPanel {
         .into_any_element()
     }
 
-    /// The Reviews `ListNav` body: the open-PR queue's rows, each opening its
-    /// issue on the Changes face (the Reviews page's own click target).
+    /// The Reviews side list's body: the open-PR queue's rows, each opening
+    /// its issue on the Changes face (the Reviews page's own click target).
     fn render_reviews_nav(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let Some(team_id) = active_team_id(&self.nav, cx) else {
             return self.list_note("No team selected.", cx);
@@ -4064,7 +3893,7 @@ impl ListPanel {
         self.nav_scroll("list-nav-reviews-scroll", rows, cx)
     }
 
-    /// The shared `ListNav` scroll body.
+    /// The side list's plain scroll body.
     fn nav_scroll(
         &self,
         id: &'static str,
@@ -4078,86 +3907,50 @@ impl ListPanel {
         .into_any_element()
     }
 
-    /// The `ListNav`'s body for `origin` (spec C's table).
-    fn render_nav_body(
-        &mut self,
-        origin: &crate::navigation::TabOrigin,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        match origin.tool {
-            ToolWindow::BoardIssues => {
-                let board_id = origin
-                    .board_id
-                    .clone()
-                    .or_else(|| active_board_id(&self.nav, cx));
-                self.render_board_nav(board_id, cx)
-            }
-            // Strip + rows for both tabs (`render_inbox_tool` picks the
-            // simplified body in Nav mode).
-            ToolWindow::Inbox => self.render_inbox_tool(cx),
-            ToolWindow::Reviews => self.render_reviews_nav(cx),
-            // Files / Source Control are not list ORIGINS (`Screen::list_origin`).
-            ToolWindow::Files | ToolWindow::SourceControl => div().into_any_element(),
-        }
-    }
 }
 
 impl Render for ListPanel {
-    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let screen = resolved_screen(&self.nav, cx);
         let body = match self.mode {
             ListMode::Screen => match screen {
-                // The tab strip lives inside the view; it reads the screen.
-                Some(Screen::Inbox { .. }) => self.render_inbox_tool(cx),
                 Some(Screen::BoardIssues { board_id }) => {
                     let board_id = (!board_id.is_empty())
                         .then_some(board_id)
                         .or_else(|| active_board_id(&self.nav, cx));
                     self.render_board_issues_tool(board_id, cx)
                 }
-                // The panel is only mounted for the two list screens.
+                // EXP-1192: the panel is only mounted for the board list
+                // (the Inbox's list is the second sidebar).
                 _ => div().into_any_element(),
             },
             ListMode::Nav => {
-                // The live origin is gone the moment the swap starts, so the
-                // outgoing column keeps rendering the one it had.
-                let origin = crate::shell::list_nav_origin(window, cx);
-                if let Some(origin) = origin.clone() {
-                    if self.last_origin.as_ref() != Some(&origin) {
-                        // A NEW origin reseeds the local Inbox tab (the tab
-                        // the detail was picked from); flipping it afterwards
-                        // is the reader's business, not the origin's.
-                        if let Some(tab) = origin.inbox_tab {
-                            self.nav_inbox_tab = tab;
-                        }
-                        self.last_origin = Some(origin);
-                        // EXP-863: the selection is per list, like the big
-                        // list's (`set_query` clears it on a scope change).
-                        self.nav_selected.clear();
-                        self.nav_select_anchor = None;
-                        // EXP-915: a new list starts at its top (the two
-                        // issue lists share one virtual-list scroll).
-                        self.nav_list_scroll.scroll_to_item(0, ScrollStrategy::Top);
-                        // …and the outgoing list's memoized rows go with it:
-                        // the slots are keyed, so keeping them only pinned an
-                        // `Rc` of a query nothing will ask for again.
-                        self.nav_data.clear();
-                        self.nav_statuses.clear();
-                        self.inbox_data.clear();
-                        self.reviews_data.clear();
-                    }
-                }
                 // EXP-863: the issue bodies refill these; any other list
                 // leaves them empty, which hides the bulk bar.
                 self.nav_issue_ids.clear();
                 self.nav_visible_ids.clear();
-                match origin.or_else(|| self.last_origin.clone()) {
-                    Some(origin) => {
-                        // EXP-863: the column's titlebar strip and header are
-                        // the `Shell`'s, fixed above this pane — the ListNav
-                        // starts at its back row.
-                        let back = self.nav_back_row(&origin, cx);
-                        let body = self.render_nav_body(&origin, cx);
+                // EXP-1192: the host draws the column's hairline and resize
+                // edge; the list starts at its own top under the tab band —
+                // the Inbox at its tab strip, Reviews at its back row.
+                let header: Option<gpui::AnyElement> = match self.side {
+                    Some(SecondSidebar::Reviews) => Some(
+                        v_flex()
+                            .flex_shrink_0()
+                            .w_full()
+                            .child(self.nav_back_row(cx))
+                            .child(crate::settings::nav_back_rule(cx))
+                            .into_any_element(),
+                    ),
+                    _ => None,
+                };
+                let body = match self.side {
+                    Some(SecondSidebar::Inbox) => Some(self.render_inbox_tool(cx)),
+                    Some(SecondSidebar::Reviews) => Some(self.render_reviews_nav(cx)),
+                    // Recent runs is the host's own `RecentRunsNav`.
+                    Some(SecondSidebar::RecentRuns) | None => None,
+                };
+                match body {
+                    Some(body) => {
                         // EXP-863: the bulk bar FLOATS over the bottom of the
                         // rows while a selection exists (EXP-289's no-jump
                         // rule — the rows never move for it).
@@ -4166,8 +3959,7 @@ impl Render for ListPanel {
                             .flex_1()
                             .min_h_0()
                             .min_w_0()
-                            .child(back)
-                            .child(crate::settings::nav_back_rule(cx))
+                            .children(header)
                             .child(
                                 v_flex()
                                     .flex_1()
@@ -4205,9 +3997,10 @@ impl Render for ListPanel {
 #[cfg(test)]
 mod tests {
     use super::{
-        focused_list, row_origin_for, yolo_rail, InboxTab, ListMode, ToolWindow, YoloRail,
+        focused_list, row_origin_for, side_push, yolo_rail, InboxTab, ListMode, SidePush,
+        ToolWindow, YoloRail,
     };
-    use crate::navigation::{Screen, TabOrigin};
+    use crate::navigation::{Screen, SecondSidebar, TabOrigin};
 
     /// EXP-1105: yolo mode hides Reviews / Files / Source Control, but a git
     /// failure (an open PR = a failed auto-merge; trunk attention or a sync
@@ -4241,10 +4034,10 @@ mod tests {
     }
 
     /// EXP-851: every list in the origin vocabulary maps onto exactly the
-    /// SCREEN it became — what a rail entry opens, what a ListNav back row
-    /// hops out to, and what the legacy `activate_tool` callers mean.
+    /// SCREEN it became — what a rail entry opens and what the legacy
+    /// `activate_tool` callers mean.
     #[test]
-    fn every_list_names_its_screen_and_its_label() {
+    fn every_list_names_its_screen() {
         assert_eq!(
             ToolWindow::BoardIssues.origin_screen(Some("b1".into())),
             Screen::BoardIssues {
@@ -4270,33 +4063,68 @@ mod tests {
             Screen::SourceControl
         );
         assert_eq!(ToolWindow::Reviews.origin_screen(None), Screen::Reviews);
-        // The back row's words — a board overrides with its own name.
-        assert_eq!(ToolWindow::Inbox.list_label(), "Inbox");
-        assert_eq!(ToolWindow::Reviews.list_label(), "Reviews");
+    }
+
+    /// EXP-1192: the host pushes the second sidebar every render. Only a new
+    /// kind resets the list; only a CHANGED pushed tab moves the Inbox tab
+    /// (so a local flip beside a detail survives the next unchanged push).
+    #[test]
+    fn a_side_push_changes_only_what_moved() {
+        use InboxTab::{Inbox, MyIssues};
+        use SecondSidebar::{Inbox as InboxSide, Reviews};
+        // First push, and a kind change: reset.
+        assert_eq!(side_push(None, None, InboxSide, Some(Inbox)), SidePush::NewKind);
+        assert_eq!(
+            side_push(Some(Reviews), None, InboxSide, Some(Inbox)),
+            SidePush::NewKind
+        );
+        assert_eq!(
+            side_push(Some(InboxSide), Some(Inbox), Reviews, None),
+            SidePush::NewKind
+        );
+        // The same push again: nothing (no notify).
+        assert_eq!(
+            side_push(Some(InboxSide), Some(Inbox), InboxSide, Some(Inbox)),
+            SidePush::Same
+        );
+        assert_eq!(side_push(Some(Reviews), None, Reviews, None), SidePush::Same);
+        // The Inbox screen flipped tabs (or a detail from the other tab
+        // opened): the list follows.
+        assert_eq!(
+            side_push(Some(InboxSide), Some(Inbox), InboxSide, Some(MyIssues)),
+            SidePush::NewTab
+        );
+        // A missing tab never counts as a change.
+        assert_eq!(
+            side_push(Some(InboxSide), Some(MyIssues), InboxSide, None),
+            SidePush::Same
+        );
     }
 
     /// EXP-862: which list a row click pins on the detail it opens. The bug
     /// this rule fixes is the `Nav` line: beside a RAIL-opened detail the
-    /// breadcrumb rule derives nothing, so a click in the left column used to
-    /// blank the column and throw the reader back to the rail.
+    /// breadcrumb rule derives nothing, so a click in the second sidebar
+    /// would slide it away mid-click.
     #[test]
     fn a_row_pins_its_own_list() {
-        let board = TabOrigin {
-            tool: ToolWindow::BoardIssues,
-            board_id: Some("b1".into()),
-            inbox_tab: None,
+        let inbox = TabOrigin {
+            tool: ToolWindow::Inbox,
+            board_id: None,
+            inbox_tab: Some(InboxTab::MyIssues),
         };
         let issue = Screen::IssueDetail {
             issue_id: "i1".into(),
         };
-        // The left column: whatever the column is rendering comes along, and
-        // the screen that is up is irrelevant (here: a rail-opened detail).
+        // The second sidebar: whatever it is rendering comes along (with
+        // its current tab), and the screen that is up is irrelevant (here: a
+        // rail-opened detail).
         assert_eq!(
-            row_origin_for(ListMode::Nav, Some(&board), Some(&issue)),
-            Some(board.clone())
+            row_origin_for(ListMode::Nav, Some(&inbox), Some(&issue)),
+            Some(inbox.clone())
         );
         assert_eq!(row_origin_for(ListMode::Nav, None, Some(&issue)), None);
-        // The full-width list screen IS the list.
+        // The full-width board list pins nothing — EXP-1192: its issues
+        // open with nothing beside them.
         assert_eq!(
             row_origin_for(
                 ListMode::Screen,
@@ -4305,7 +4133,7 @@ mod tests {
                     board_id: "b1".into()
                 })
             ),
-            Some(board)
+            None
         );
         assert_eq!(
             row_origin_for(ListMode::Screen, None, Some(&Screen::Reviews))
@@ -4313,7 +4141,7 @@ mod tests {
             Some(ToolWindow::Reviews)
         );
         // A screen that is no list pins nothing (the panel is only mounted
-        // for the list screens, so this is the defensive arm).
+        // for the board list, so this is the defensive arm).
         assert_eq!(row_origin_for(ListMode::Screen, None, Some(&issue)), None);
         assert_eq!(row_origin_for(ListMode::Screen, None, None), None);
     }

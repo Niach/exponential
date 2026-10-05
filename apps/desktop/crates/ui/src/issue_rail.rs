@@ -1,5 +1,5 @@
 //! EXP-998 / EXP-1057 — painting [`domain::issue_rail`] over an issue list:
-//! the blocks RAIL at the right edge of the big list and of the `ListNav`
+//! the blocks RAIL at the right edge of the big list and of the side list
 //! column (web `components/issue-rail.tsx`, the same geometry).
 //!
 //! The rail draws DOTS only (EXP-1057 dropped the lanes and arrows): a small
