@@ -1,0 +1,9 @@
+{
+  "extends": "@exp/tsconfig/base.json",
+  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts", "vitest.config.ts"],
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["vitest/globals", "node", "vite/client"]
+  }
+}

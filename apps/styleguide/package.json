@@ -13,6 +13,7 @@
     "@exp/design-tokens": "workspace:*",
     "@exp/domain-contract": "workspace:*",
     "@exp/icons": "workspace:*",
+    "@exp/mcp-apps": "workspace:*",
     "@exp/ui": "workspace:*",
     "@exp/view-catalog": "workspace:*",
     "react": "^19.2.0",
