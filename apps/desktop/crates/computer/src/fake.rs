@@ -10,6 +10,7 @@ pub struct FakeBackend {
     log: Arc<Mutex<Vec<String>>>,
     idle: Mutex<Option<Duration>>,
     readiness: Mutex<Readiness>,
+    blind_focus: bool,
 }
 
 impl FakeBackend {
@@ -19,11 +20,18 @@ impl FakeBackend {
             log: Arc::default(),
             idle: Mutex::new(Some(Duration::from_secs(60))),
             readiness: Mutex::new(Readiness::Ready),
+            blind_focus: false,
         }
     }
 
     pub fn log(&self) -> Arc<Mutex<Vec<String>>> {
         self.log.clone()
+    }
+
+    /// Like Wayland: an app may hold the keyboard unseen.
+    pub fn blind(mut self) -> Self {
+        self.blind_focus = true;
+        self
     }
 
     pub fn set_idle(&self, idle: Option<Duration>) {
@@ -83,6 +91,10 @@ impl Backend for FakeBackend {
 
     fn idle(&self) -> Option<Duration> {
         *self.idle.lock().unwrap()
+    }
+
+    fn blind_focus(&self) -> bool {
+        self.blind_focus
     }
 
     fn read_ui(&self, _window: Option<u32>) -> Option<BackendResult<Vec<UiNode>>> {

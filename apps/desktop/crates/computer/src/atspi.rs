@@ -135,6 +135,11 @@ impl Atspi {
         })
     }
 
+    /// Ask the toolkit to focus `node` (a frame: activate its window).
+    pub fn grab_focus(&self, node: &Node) -> bool {
+        self.call(node, "org.a11y.atspi.Component", "GrabFocus", &()).unwrap_or(false)
+    }
+
     fn pid(&self, bus: &str) -> Option<u32> {
         self.conn
             .call_method(

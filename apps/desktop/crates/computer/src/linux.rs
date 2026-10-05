@@ -1,7 +1,8 @@
 //! The Linux backend: X11 only, over x11rb's pure-Rust connection (no libxcb,
 //! so the CLI builds without X headers). `GetImage` for pixels, XTest for
-//! input, EWMH for the window list, RandR for the monitors. A Wayland session is refused up front:
-//! XTest through XWayland would reach X clients only and capture nothing.
+//! input, EWMH for the window list, RandR for the monitors. A Wayland session
+//! goes to `wayland.rs` instead: XTest through XWayland would reach X clients
+//! only and capture nothing.
 
 use std::fmt::Display;
 use std::time::Duration;
@@ -53,13 +54,6 @@ fn settle() {
 
 impl X11Backend {
     pub fn connect() -> Result<Self, String> {
-        let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some_and(|value| !value.is_empty())
-            || std::env::var("XDG_SESSION_TYPE").is_ok_and(|kind| kind == "wayland");
-        if wayland {
-            return Err("Computer use does not support Wayland sessions yet; this device needs \
-                        an X11 session."
-                .to_string());
-        }
         if std::env::var_os("DISPLAY").is_none_or(|value| value.is_empty()) {
             return Err("Computer use needs a desktop session; this device has no display."
                 .to_string());
@@ -245,7 +239,7 @@ impl X11Backend {
 
 /// The keysym a character types as: Latin-1 maps to itself, everything else
 /// is the Unicode keysym range.
-fn char_keysym(c: char) -> u32 {
+pub(crate) fn char_keysym(c: char) -> u32 {
     match c {
         '\n' | '\r' => KEYSYM_RETURN,
         '\t' => KEYSYM_TAB,
@@ -254,7 +248,7 @@ fn char_keysym(c: char) -> u32 {
     }
 }
 
-fn key_keysym(key: Key) -> u32 {
+pub(crate) fn key_keysym(key: Key) -> u32 {
     match key {
         Key::Char(c) => char_keysym(c),
         Key::Enter => KEYSYM_RETURN,
@@ -275,7 +269,7 @@ fn key_keysym(key: Key) -> u32 {
     }
 }
 
-fn modifier_keysym(modifier: Modifier) -> u32 {
+pub(crate) fn modifier_keysym(modifier: Modifier) -> u32 {
     match modifier {
         Modifier::Shift => 0xffe1,
         Modifier::Control => 0xffe3,

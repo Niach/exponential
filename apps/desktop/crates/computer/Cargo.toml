@@ -47,11 +47,11 @@ windows = { version = "0.61", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 
-# Linux = X11 only, pure Rust (the rust connection, no libxcb): GetImage for
-# pixels, XTest for input, EWMH for windows, RandR for the monitors. Wayland is refused with a clear
-# message until the portal backend lands.
+# Linux, pure Rust, no system libraries. X11 over the rust connection (no
+# libxcb): GetImage for pixels, XTest for input, EWMH for windows, RandR for
+# the monitors. Wayland and read_ui over D-Bus: the desktop portals and AT-SPI.
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 x11rb = { version = "0.13", features = ["xtest", "screensaver", "randr"] }
-# read_ui over AT-SPI: D-Bus in pure Rust (its own async-io thread, no tokio);
-# the version the IDE's gpui already resolves.
+# D-Bus in pure Rust (its own async-io thread, no tokio); the version the
+# IDE's gpui already resolves.
 zbus = "5"

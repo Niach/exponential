@@ -325,6 +325,14 @@ impl Guard {
         self.backend.focused()
     }
 
+    /// Keyboard input needs a known, allowed target where the OS can hide it.
+    fn refuse_keyboard(&self, window: Option<&WindowInfo>) -> Result<(), String> {
+        if window.is_none() && self.backend.blind_focus() {
+            return Err(BLIND_FOCUS.to_string());
+        }
+        self.refuse_blocked(window)
+    }
+
     fn refuse_blocked(&self, window: Option<&WindowInfo>) -> Result<(), String> {
         match window.and_then(|w| blocked_reason(w, self.own_pid).map(|reason| (w, reason))) {
             Some((window, reason)) => Err(refusal(window, reason)),
@@ -394,7 +402,7 @@ impl Guard {
 
     pub fn type_text(&self, text: &str) -> Result<ToolOutput, String> {
         let target = self.focused_window();
-        self.refuse_blocked(target.as_ref())?;
+        self.refuse_keyboard(target.as_ref())?;
         self.act(|| self.backend.type_text(text))?;
         Ok(ToolOutput::text(format!(
             "Typed {} characters{}.",
@@ -406,7 +414,7 @@ impl Guard {
     pub fn key(&self, keys: &str) -> Result<ToolOutput, String> {
         let chord = parse_chord(keys)?;
         let target = self.focused_window();
-        self.refuse_blocked(target.as_ref())?;
+        self.refuse_keyboard(target.as_ref())?;
         self.act(|| self.backend.key(&chord))?;
         Ok(ToolOutput::text(format!("Pressed {keys}{}.", in_app(target.as_ref()))))
     }
@@ -465,6 +473,10 @@ impl Guard {
         Ok(ToolOutput::text(render_ui(&nodes, mapping)))
     }
 }
+
+const BLIND_FOCUS: &str = "Cannot tell which app has the keyboard (it exposes no \
+accessibility information, as terminals usually do), so nothing was typed. Click into the app \
+you mean first; if it still fails, that app cannot be typed into.";
 
 const NO_SHOT: &str = "Take a screenshot first: positions are pixels in the last screenshot.";
 
@@ -634,6 +646,21 @@ mod tests {
         }
         assert!(log.lock().unwrap().is_empty());
         assert!(guard.list_windows().unwrap().text.contains("off limits"));
+    }
+
+    #[test]
+    fn where_focus_can_hide_typing_needs_a_known_focused_app() {
+        let blind = FakeBackend::with_windows(vec![]).blind();
+        let log = blind.log();
+        let guard = Guard::new(Box::new(blind));
+        assert!(guard.type_text("ls").unwrap_err().contains("Cannot tell which app"));
+        assert!(guard.key("enter").unwrap_err().contains("Cannot tell which app"));
+        assert!(log.lock().unwrap().is_empty());
+        // Where the OS always names the focused window, nothing focused is fine.
+        let seeing = FakeBackend::with_windows(vec![]);
+        let log = seeing.log();
+        Guard::new(Box::new(seeing)).type_text("ls").unwrap();
+        assert_eq!(*log.lock().unwrap(), vec!["type ls".to_string()]);
     }
 
     #[test]

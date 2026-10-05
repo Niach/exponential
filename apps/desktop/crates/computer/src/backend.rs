@@ -103,7 +103,7 @@ pub enum Readiness {
     /// The OS withholds a permission; the text says which and where to
     /// grant it.
     MissingPermission(String),
-    /// This session type has no backend (Wayland, a headless box).
+    /// This session type has no backend (a headless box).
     Unsupported(String),
 }
 
@@ -136,6 +136,12 @@ pub trait Backend: Send + Sync {
     fn idle_counts_injected(&self) -> bool {
         true
     }
+    /// Whether an app can hold the keyboard without [`Self::focused`] seeing
+    /// it (Wayland: apps without AT-SPI). The guard then refuses to type
+    /// while no known app has focus.
+    fn blind_focus(&self) -> bool {
+        false
+    }
     /// The accessibility tree of a window (the focused one when `None`), as
     /// indented text lines with element centers in global coordinates.
     /// `None` = this OS has no reader.
@@ -159,6 +165,9 @@ pub fn platform() -> Result<Box<dyn Backend>, String> {
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
+        if crate::wayland::is_wayland_session() {
+            return crate::wayland::WaylandBackend::connect().map(|backend| Box::new(backend) as Box<dyn Backend>);
+        }
         crate::linux::X11Backend::connect().map(|backend| Box::new(backend) as Box<dyn Backend>)
     }
     #[cfg(not(any(unix, target_os = "windows")))]
