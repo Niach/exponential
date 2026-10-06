@@ -68,9 +68,14 @@ enum AppRoute: Hashable {
 /// selected one IS the navigation stack's root, so switching swaps the root
 /// (no push animation, no back chevron, no swipe-back) and the path holds
 /// only the pushes made inside it. `agent` = the chat arm's Agent page, the
-/// screen the app opens on.
+/// screen the app opens on. A tab's pushes are parked while another tab is
+/// up and handed back on return, EXCEPT the Agent tab's: it always lands on
+/// its root (Android parity: `popUpTo(agent-tab)` never restores it).
 enum MainTab: Hashable {
     case agent, issues, inbox, devices, reviews, actions
+
+    /// Whether this tab's pushes are parked across a switch.
+    var keepsPushes: Bool { self != .agent }
 }
 
 /// The board the Issues tab is currently showing. May belong to a
@@ -306,7 +311,8 @@ struct MainNavigator: View {
     // New issue page…); a tab switch parks it in `savedPaths`.
     @State private var path: [AppRoute] = []
     /// Each OTHER tab's pushes, parked while it is not selected and handed
-    /// back when it is (Android `restoreState`, UITabBarController parity).
+    /// back when it is (Android `restoreState` parity); never the Agent
+    /// tab's (`MainTab.keepsPushes`).
     @State private var savedPaths: [MainTab: [AppRoute]] = [:]
     @State private var teamState = TeamState()
     /// EXP-698 r5: the bulk-selection bar takes the tab bar's slot, so the
@@ -595,7 +601,7 @@ struct MainNavigator: View {
             var swap = Transaction()
             swap.disablesAnimations = true
             withTransaction(swap) {
-                savedPaths[tab] = path
+                park()
                 tab = target
                 path = savedPaths.removeValue(forKey: target) ?? []
             }
@@ -605,10 +611,16 @@ struct MainNavigator: View {
     /// A link's landing (a push tap, a universal link): the tab's ROOT, its
     /// parked pushes dropped; the tab being left is parked as usual.
     private func landOnRoot(of target: MainTab) {
-        if tab != target { savedPaths[tab] = path }
+        if tab != target { park() }
         savedPaths[target] = nil
         tab = target
         path = []
+    }
+
+    /// Parks the current tab's pushes before a switch away from it; the
+    /// Agent tab drops them (it always lands on its root).
+    private func park() {
+        savedPaths[tab] = tab.keepsPushes ? path : nil
     }
 
     /// The bar destination a route NAMES, if any — those routes never push

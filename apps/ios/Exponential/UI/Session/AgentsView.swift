@@ -85,6 +85,7 @@ struct AgentsView: View {
             }
         }
         .navigationTitle("Devices")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .task(id: accountId) {
             let config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
