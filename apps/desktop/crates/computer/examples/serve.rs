@@ -44,9 +44,28 @@ fn post(grant: &computer::Grant, tool: &str, arguments: &str) -> Value {
         body.len()
     )
     .unwrap();
-    let mut reply = String::new();
-    stream.read_to_string(&mut reply).unwrap();
-    serde_json::from_str(reply.rsplit("\r\n\r\n").next().unwrap()).unwrap()
+    let mut reply = Vec::new();
+    stream.read_to_end(&mut reply).unwrap();
+    let split = reply.windows(4).position(|w| w == b"\r\n\r\n").expect("headers") + 4;
+    let (head, body) = reply.split_at(split);
+    let head = String::from_utf8_lossy(head).to_ascii_lowercase();
+    let body = if head.contains("transfer-encoding: chunked") { dechunk(body) } else { body.to_vec() };
+    serde_json::from_slice(&body).unwrap()
+}
+
+/// A large reply comes chunked (tiny_http's choice); join the chunks.
+fn dechunk(mut body: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    loop {
+        let line_end = body.windows(2).position(|w| w == b"\r\n").unwrap();
+        let size = usize::from_str_radix(std::str::from_utf8(&body[..line_end]).unwrap().trim(), 16).unwrap();
+        body = &body[line_end + 2..];
+        if size == 0 {
+            return out;
+        }
+        out.extend_from_slice(&body[..size]);
+        body = &body[size + 2..];
+    }
 }
 
 fn elide(mut value: Value) -> String {

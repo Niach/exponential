@@ -109,10 +109,15 @@ impl Driver {
         if let Some(session) = live.sessions.get(session_id) {
             return Ok(session.clone());
         }
+        // The public session names the cursor badge AND must be unique
+        // among live sessions (two chats are both "Chat"): the run's id
+        // tails the label.
+        let short = session_id.get(..8).unwrap_or(session_id);
+        let public_session = if label.is_empty() { short.to_string() } else { format!("{label} {short}") };
         let session = live
             .cua
             .create_trusted_session(TrustedSessionOptions {
-                public_session: label.to_string(),
+                public_session,
                 mode: SessionPermissionMode::Unrestricted,
                 ttl_seconds: SESSION_TTL.as_secs(),
                 idle_ttl_seconds: SESSION_IDLE_TTL.as_secs(),
