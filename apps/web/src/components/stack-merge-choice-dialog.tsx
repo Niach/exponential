@@ -71,7 +71,7 @@ export function StackMergeChoiceDialog({
           ) : undefined
         }
         actions={[
-          { label: STACK_MERGE_CANCEL_LABEL },
+          { label: STACK_MERGE_CANCEL_LABEL, role: `cancel` },
           {
             label: MERGE_THIS_PR_LABEL,
             onSelect: () => {

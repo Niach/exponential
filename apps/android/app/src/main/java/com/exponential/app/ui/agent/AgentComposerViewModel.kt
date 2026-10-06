@@ -245,10 +245,11 @@ class AgentComposerViewModel @Inject constructor(
         allIssues,
     ) { ids, relations, issues ->
         if (ids.isEmpty()) emptyList() else IssueGraph.openBlockersOfSet(ids, relations, issues)
-        // EAGER (EXP-1215): nothing on screen collects this, and [submit] reads
-        // `.value`; a WhileSubscribed flow stayed at its empty seed, so a
-        // blocked start never asked. Eager keeps it (and the issue/relation
-        // rows it reads) live for the composer's lifetime.
+        // EAGER (EXP-1215): nothing on screen collects this, and a
+        // WhileSubscribed flow would leave the issue/relation pools at their
+        // empty seeds; eager keeps them live for the composer's lifetime.
+        // [submit] does NOT read this flow's `.value` (a combine lands a hop
+        // behind its sources): it recomputes from the pools on the tap.
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /**
@@ -744,14 +745,18 @@ class AgentComposerViewModel @Inject constructor(
         // nothing to ask (desktop parity).
         val ids = (_subject.value as? ComposerSubject.Issues)?.ids.orEmpty()
         val resuming = resumeOffered && _resume.value && ids.size == 1
-        val blockers = openBlockers.value
+        // Computed HERE from the synced pools, not read off [openBlockers]: the
+        // combined flow lands a dispatcher hop behind its sources, so a Start
+        // tapped right after they filled could still see its empty seed and
+        // skip the question (the ×4 rule, `IssueGraph.openBlockersOfSet`).
+        val issues = allIssues.value
+        val relations = allRelations.value
+        val blockers = if (ids.isEmpty()) emptyList() else IssueGraph.openBlockersOfSet(ids, relations, issues)
         if (!resuming && blockers.isNotEmpty() && _blockedPrompt.value == null) {
-            val issues = allIssues.value
             heldStart = HeldStart(action, resumeOffered)
             val issuesById = issues.associateBy { it.id }
             val repoOfBoard = allBoards.value.associate { it.id to it.repositoryId }
             fun repoOf(issue: IssueEntity?) = issue?.let { repoOfBoard[it.boardId] }
-            val relations = allRelations.value
             val subject = ids.singleOrNull()?.let(issuesById::get)
             val line = subject?.let { BlockedStart.stackLine(it.id, relations, issues) }
             val live = liveRunIssueIds.value

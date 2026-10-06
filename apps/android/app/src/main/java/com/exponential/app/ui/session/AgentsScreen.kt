@@ -291,7 +291,8 @@ fun AgentsScreen(
             AgentAccountsRows.removeAccountConfirm(AgentAccountsRows.loginLabel(row), device.displayLabel)
         }
         AccountConfirmDialog(
-            title = AgentAccountsRows.ACTION_REMOVE,
+            // The question form of the menu label, as web/iOS ask it.
+            title = "${AgentAccountsRows.ACTION_REMOVE}?",
             text = text,
             confirmLabel = "Remove",
             onConfirm = {
@@ -306,7 +307,7 @@ fun AgentsScreen(
     // row; the machine's own login names the terminal CLI that goes with it.
     signOutTargetAccount?.let { (device, row) ->
         AccountConfirmDialog(
-            title = AgentAccountsRows.ACTION_SIGN_OUT,
+            title = "${AgentAccountsRows.ACTION_SIGN_OUT}?",
             text = AgentAccountsRows.signOutConfirm(
                 AgentAccountsRows.loginLabel(row),
                 device.displayLabel,

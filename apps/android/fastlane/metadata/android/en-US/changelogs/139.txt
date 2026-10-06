@@ -1,0 +1,6 @@
+- Dialogs: every confirm and choice prompt uses the same card
+- New issue: the × asks before discarding a draft; leaving a draft with content asks Create, Keep as draft or Discard
+- Runs: the run mark leads every row, live tool rows show only their headline, and a run reads Working until the agent is done
+- Boards: no other-teams dot on the board picker
+- Account: unlink a sign-in method while another way in remains
+- Devices: a readiness block per machine and a Computer use switch

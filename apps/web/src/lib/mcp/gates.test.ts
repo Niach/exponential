@@ -8,12 +8,18 @@ import { PgDialect } from "drizzle-orm/pg-core"
 // EXP-679 / EXP-1222: it decides whether exponential_sessions_end registers —
 // for any of the caller's OWN runs — and whether that run is unattended
 // (started_reason set), which only picks the instructions' wording.
+//
+// Compat shim (release train 2026-10-06): an ATTENDED run on a daemon older
+// than 0.14.63 does NOT get the tool (that playbook would end the run at
+// close-out), so the rows below carry the host device's `deviceVersion`.
+// Delete the shim cases once CLIENT_MIN_VERSION_DESKTOP and _CLI are
+// >= 0.14.63.
 
 const h = vi.hoisted(() => {
   const dbRows: { current: Array<unknown> } = { current: [] }
   const state: { capturedWhere: unknown } = { capturedWhere: undefined }
   const queryBuilder: Record<string, unknown> = {}
-  for (const method of [`from`, `limit`]) {
+  for (const method of [`from`, `leftJoin`, `limit`]) {
     queryBuilder[method] = vi.fn(() => queryBuilder)
   }
   queryBuilder.where = vi.fn((cond: unknown) => {
@@ -85,12 +91,68 @@ describe(`resolveMcpToolGates — sessionsEnd (EXP-679, EXP-1222)`, () => {
     expect(h.db.select).not.toHaveBeenCalled()
   })
 
-  it(`is on for a person-started run, which is not unattended`, async () => {
+  it(`is on for a person-started run on a current daemon, which is not unattended`, async () => {
     h.dbRows.current = [
-      { userId: `u`, hostUserId: null, startedReason: null },
+      {
+        userId: `u`,
+        hostUserId: null,
+        startedReason: null,
+        deviceVersion: `0.14.63`,
+      },
     ]
     const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
     expect(gates).toMatchObject({ sessionsEnd: true, unattended: false })
+    // The host device's row rides the one lookup (no second query).
+    expect(h.db.select).toHaveBeenCalledTimes(1)
+  })
+
+  // Compat shim: delete once CLIENT_MIN_VERSION_DESKTOP and _CLI are >= 0.14.63.
+  it(`is OFF for a person-started run on a daemon older than 0.14.63 (its playbook would end it at close-out)`, async () => {
+    for (const deviceVersion of [`0.14.62`, `0.14.61`, `0.13.99`, `0.14.62-staging`]) {
+      h.dbRows.current = [
+        { userId: `u`, hostUserId: null, startedReason: null, deviceVersion },
+      ]
+      const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
+      expect(gates, deviceVersion).toMatchObject({
+        sessionsEnd: false,
+        unattended: false,
+        askParent: true,
+        sessionResults: true,
+      })
+    }
+  })
+
+  it(`treats a missing or unparseable device version as OLD for an attended run`, async () => {
+    for (const deviceVersion of [null, undefined, ``, `dev`, `v0.14.63`]) {
+      h.dbRows.current = [
+        { userId: `u`, hostUserId: null, startedReason: null, deviceVersion },
+      ]
+      const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
+      expect(gates.sessionsEnd, String(deviceVersion)).toBe(false)
+    }
+  })
+
+  it(`is on for a person-started run on any daemon past 0.14.63`, async () => {
+    for (const deviceVersion of [`0.14.64`, `0.15.0`, `1.0.0`, `0.14.63-staging`]) {
+      h.dbRows.current = [
+        { userId: `u`, hostUserId: null, startedReason: null, deviceVersion },
+      ]
+      const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
+      expect(gates.sessionsEnd, deviceVersion).toBe(true)
+    }
+  })
+
+  it(`is on for an unattended run whatever the daemon's version`, async () => {
+    for (const deviceVersion of [`0.14.61`, null, `dev`]) {
+      h.dbRows.current = [
+        { userId: `u`, hostUserId: null, startedReason: `agent`, deviceVersion },
+      ]
+      const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
+      expect(gates, String(deviceVersion)).toMatchObject({
+        sessionsEnd: true,
+        unattended: true,
+      })
+    }
   })
 
   it(`is on for the caller's own automation-started run, unattended`, async () => {
@@ -170,6 +232,7 @@ describe(`resolveMcpToolGates — askParent (EXP-700, EXP-1089)`, () => {
         hostUserId: null,
         startedReason: null,
         parentSessionId: null,
+        deviceVersion: `0.14.63`,
       },
     ]
     const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
@@ -221,7 +284,14 @@ describe(`resolveMcpToolGates — sessionResults (EXP-879)`, () => {
   })
 
   it(`is on for the caller's own PERSON-started run`, async () => {
-    h.dbRows.current = [{ userId: `u`, hostUserId: null, startedReason: null }]
+    h.dbRows.current = [
+      {
+        userId: `u`,
+        hostUserId: null,
+        startedReason: null,
+        deviceVersion: `0.14.63`,
+      },
+    ]
     const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
     // EXP-1222: an attended run gets the close-out and publishing alike.
     expect(gates).toMatchObject({

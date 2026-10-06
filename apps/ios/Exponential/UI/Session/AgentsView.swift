@@ -259,7 +259,7 @@ struct AgentsView: View {
                         title: "Remove account?",
                         message: confirmCopy(forRemoving: target.row),
                         actions: [
-                            GlassAlertAction("Cancel", role: .outline, id: "cancel") {},
+                            GlassAlertAction("Cancel", role: .outline, isDefault: true, isCancel: true, id: "cancel") {},
                             GlassAlertAction("Remove", role: .destructive, id: "remove") {
                                 viewModel?.removeAccount(target.row)
                             },
@@ -284,7 +284,7 @@ struct AgentsView: View {
                                 : nil
                         ),
                         actions: [
-                            GlassAlertAction("Cancel", role: .outline, id: "cancel") {},
+                            GlassAlertAction("Cancel", role: .outline, isDefault: true, isCancel: true, id: "cancel") {},
                             GlassAlertAction("Sign out", role: .destructive, id: "sign-out") {
                                 viewModel?.signOutAccount(target.row)
                             },

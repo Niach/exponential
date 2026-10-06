@@ -1050,6 +1050,12 @@ fun IssueFace(
         )
     }
 
+    // The prompt needs the row for its identifier; once the row is gone (the
+    // delete landed, the issue left the shape) the request is void too, so
+    // it does not pop back up should a row return under the same id.
+    LaunchedEffect(issue == null) {
+        if (issue == null) controller.confirmDelete = false
+    }
     if (controller.confirmDelete && issue != null) {
         PromptAlert(
             prompt = Prompts.DeleteIssue.prompt(issue.identifier),

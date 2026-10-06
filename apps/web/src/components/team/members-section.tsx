@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react"
 import {
   leaveTeamPrompt,
+  makeMemberPrompt,
+  makeOwnerPrompt,
   promptActions,
   removeMemberPrompt,
 } from "@/lib/prompts"
@@ -98,12 +100,33 @@ export function TeamMembersSection({
   const team = useTeamById(teamId)
   const placeholders = useMemo(() => placeholderStatuses(invites), [invites])
 
-  const handleUpdateRole = async (
-    memberId: string,
+  // EXP-1215: a role change confirms with the fixture prompt (make-owner /
+  // make-member), the way iOS and Android do.
+  const [roleTarget, setRoleTarget] = useState<{
+    memberId: string
     role: `owner` | `member`
-  ) => {
-    await trpc.teamMembers.updateRole.mutate({ memberId, role })
+    displayName: string
+  } | null>(null)
+  const [updatingRole, setUpdatingRole] = useState(false)
+
+  const handleUpdateRole = async () => {
+    if (!roleTarget) return
+    setUpdatingRole(true)
+    try {
+      await trpc.teamMembers.updateRole.mutate({
+        memberId: roleTarget.memberId,
+        role: roleTarget.role,
+      })
+      setRoleTarget(null)
+    } finally {
+      setUpdatingRole(false)
+    }
   }
+
+  const roleCopy =
+    roleTarget?.role === `owner`
+      ? makeOwnerPrompt(roleTarget.displayName)
+      : makeMemberPrompt(roleTarget?.displayName ?? ``)
 
   const handleRemove = async () => {
     if (!removeTarget) return
@@ -222,7 +245,11 @@ export function TeamMembersSection({
                             {member.role !== `owner` && (
                               <DropdownMenuItem
                                 onClick={() =>
-                                  handleUpdateRole(member.id, `owner`)
+                                  setRoleTarget({
+                                    memberId: member.id,
+                                    role: `owner`,
+                                    displayName,
+                                  })
                                 }
                               >
                                 <Crown className="mr-2 h-4 w-4" />
@@ -232,7 +259,11 @@ export function TeamMembersSection({
                             {member.role !== `member` && (
                               <DropdownMenuItem
                                 onClick={() =>
-                                  handleUpdateRole(member.id, `member`)
+                                  setRoleTarget({
+                                    memberId: member.id,
+                                    role: `member`,
+                                    displayName,
+                                  })
                                 }
                               >
                                 <ShieldCheck className="mr-2 h-4 w-4" />
@@ -335,6 +366,23 @@ export function TeamMembersSection({
           [removeTarget?.isSelf ? `leave` : `remove`]: {
             busy: removing,
             onSelect: handleRemove,
+          },
+        })}
+      />
+
+      <Prompt
+        open={roleTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setRoleTarget(null)
+        }}
+        busy={updatingRole}
+        data-testid="member-role-confirm"
+        title={roleCopy.title}
+        body={roleCopy.body}
+        actions={promptActions(roleCopy, {
+          [roleTarget?.role === `owner` ? `make-owner` : `make-member`]: {
+            busy: updatingRole,
+            onSelect: handleUpdateRole,
           },
         })}
       />

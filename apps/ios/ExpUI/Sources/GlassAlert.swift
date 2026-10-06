@@ -18,7 +18,12 @@ import UIKit
 // actions in reading order and the no-answer path. A prompt with an entry in
 // `prompts.json` is built from its `PromptCopy` (`GlassAlert(prompt:)`), so
 // its words, roles, order and focus come from the contract. A tap on the scrim is that
-// path (`onDismiss`); no close ✕, as on every phone alert (EXP-687).
+// path (`onDismiss`), so is the VoiceOver escape gesture; a hardware Esc takes
+// the action marked `isCancel`; no close ✕, as on every phone alert (EXP-687).
+//
+// Not mirrored (an iOS deviation from `prompts.json`): the busy state. The
+// presenter closes the card in the same update as the answer's tap, so there
+// is no row to disable while an answer runs.
 
 /// One button of a `GlassAlert`.
 public struct GlassAlertAction: Identifiable {
@@ -48,6 +53,10 @@ public struct GlassAlertAction: Identifiable {
     /// answer; a caller moves it off a DISABLED primary onto another answer
     /// (EXP-1212: Create issue disabled, then Save draft).
     public let isDefault: Bool
+    /// The no-answer pill (the contract's `cancel` role): it takes Esc on a
+    /// hardware keyboard and is announced as a cancel button. Its paint stays
+    /// the `role`'s; a contract prompt marks its `cancel` action itself.
+    public let isCancel: Bool
     public let handler: () -> Void
 
     public init(
@@ -55,6 +64,7 @@ public struct GlassAlertAction: Identifiable {
         role: Role = .outline,
         enabled: Bool = true,
         isDefault: Bool? = nil,
+        isCancel: Bool = false,
         id: String? = nil,
         handler: @escaping () -> Void
     ) {
@@ -64,6 +74,7 @@ public struct GlassAlertAction: Identifiable {
         self.enabled = enabled
         self.isDefault = (isDefault ?? (role == .primary))
             && role != .destructive && role != .quietDestructive
+        self.isCancel = isCancel
         self.handler = handler
     }
 }
@@ -231,15 +242,28 @@ private struct GlassAlertButton: View {
     let action: GlassAlertAction
 
     var body: some View {
-        Button(action: action.handler) {
+        Button(role: buttonRole, action: action.handler) {
             label
                 .frame(minHeight: GlassAlertMetrics.minTapHeight)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.glassPillPrimary)
         .disabled(!action.enabled)
-        .modifier(DefaultAction(isDefault: action.isDefault && action.enabled))
+        .modifier(KeyboardAction(
+            isDefault: action.isDefault && action.enabled,
+            isCancel: action.isCancel && action.enabled
+        ))
         .accessibilityIdentifier("glass-alert-\(action.id)")
+    }
+
+    /// The system role VoiceOver announces: destructive for both destructive
+    /// paints, cancel for the marked no-answer pill. The paint is ours, so the
+    /// role never changes the look.
+    private var buttonRole: ButtonRole? {
+        switch action.role {
+        case .destructive, .quietDestructive: .destructive
+        case .primary, .outline: action.isCancel ? .cancel : nil
+        }
     }
 
     @ViewBuilder
@@ -269,13 +293,17 @@ private struct GlassAlertButton: View {
         }
     }
 
-    /// The default answer takes Return on a hardware keyboard.
-    private struct DefaultAction: ViewModifier {
+    /// The default answer takes Return on a hardware keyboard, the cancel
+    /// answer Esc.
+    private struct KeyboardAction: ViewModifier {
         let isDefault: Bool
+        let isCancel: Bool
 
         func body(content: Content) -> some View {
             if isDefault {
                 content.keyboardShortcut(.defaultAction)
+            } else if isCancel {
+                content.keyboardShortcut(.cancelAction)
             } else {
                 content
             }
@@ -370,6 +398,7 @@ private struct GlassAlertPresenter<C: View>: ViewModifier {
                                 role: action.role,
                                 enabled: action.enabled,
                                 isDefault: action.isDefault,
+                                isCancel: action.isCancel,
                                 id: action.id
                             ) {
                                 setPresented(false)
@@ -420,6 +449,9 @@ private struct GlassAlertHost<C: View>: View {
         }
         .opacity(appeared ? 1 : 0)
         .ignoresSafeArea()
+        // The VoiceOver escape gesture (two-finger Z) = the no-answer path,
+        // like the scrim tap.
+        .accessibilityAction(.escape) { dismiss() }
         .onAppear {
             withAnimation(motion.decelerate()) { appeared = true }
         }
@@ -461,6 +493,7 @@ public extension GlassAlert where Content == EmptyView {
                     role: GlassAlertAction.Role(action.role),
                     enabled: enabled[action.id] ?? true,
                     isDefault: action.id == prompt.focus,
+                    isCancel: action.role == .cancel,
                     id: action.id,
                     handler: handlers[action.id] ?? {}
                 )
@@ -507,7 +540,7 @@ public extension GlassAlert where Content == EmptyView {
         GlassAlert(
             title: "Discard this draft and its files?",
             actions: [
-                GlassAlertAction("Cancel", role: .outline) {},
+                GlassAlertAction("Cancel", role: .outline, isDefault: true, isCancel: true) {},
                 GlassAlertAction("Discard", role: .destructive) {},
             ]
         )

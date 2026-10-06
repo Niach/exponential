@@ -222,22 +222,43 @@ export function IssueDraftPage({
   // Run the choice, then continue to the HELD destination; a choice that
   // failed (a Create the server refused, a "Keep" whose save failed) stays
   // on the page — its toast already said why — and drops the held
-  // navigation (R3).
-  const resolveLeave = async (choice: () => Promise<boolean>) => {
+  // navigation (R3). A choice that CONSUMED the draft (Create, Discard)
+  // never replays the held push (`proceed`): that keeps this draft's entry
+  // in history and lands Back on an empty New issue page at the consumed
+  // id. It resets the blocker and REPLACES the entry with the destination
+  // instead. Save draft keeps the entry (Back reopens the draft); a held
+  // Back/Forward has no push to replace and goes on as held.
+  const resolveLeave = async (
+    choice: () => Promise<boolean>,
+    consumed = false
+  ) => {
     if (blocker.status !== `blocked` || leaveBusyRef.current) return
-    const { proceed, reset } = blocker
+    const { proceed, reset, next, action } = blocker
     leaveBusyRef.current = true
     setLeaveBusy(true)
     const ok = await choice()
     leaveBusyRef.current = false
     setLeaveBusy(false)
-    if (ok) proceed()
-    else reset()
+    if (!ok) {
+      reset()
+      return
+    }
+    if (consumed && action === `PUSH`) {
+      reset()
+      void navigate({
+        to: next.pathname,
+        search: next.search,
+        replace: true,
+        ignoreBlocker: true,
+      } as never)
+      return
+    }
+    proceed()
   }
   const leaveCreate = () =>
-    resolveLeave(async () => (await editor.create()) !== null)
+    resolveLeave(async () => (await editor.create()) !== null, true)
   const leaveKeep = () => resolveLeave(() => editor.leave())
-  const leaveDiscard = () => resolveLeave(() => editor.discard())
+  const leaveDiscard = () => resolveLeave(() => editor.discard(), true)
   // R5: the dialog opens on its default "Create issue" (or "Save draft"
   // while Create is disabled, no title), never on the destructive Discard
   // (`Prompt` never focuses a destructive answer).
@@ -496,7 +517,7 @@ export function IssueDraftPage({
       data-testid="issue-draft-discard-confirm"
       title={ISSUE_DRAFT_COPY.discardConfirm.title}
       actions={[
-        { label: `Cancel` },
+        { label: `Cancel`, role: `cancel` },
         {
           label: ISSUE_DRAFT_COPY.discardConfirm.confirm,
           role: `destructive`,

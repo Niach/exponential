@@ -170,6 +170,26 @@ export const VENDORED: CuratedEntry[] = [
       },
     ],
   },
+  // EXP-1196: the cua driver crates are a git-pinned dependency (not
+  // vendored source), but the rust collector cannot attribute them: the
+  // repository keeps ONE LICENSE.md at its root and none of the eight crate
+  // directories ships a licence file, so the collector falls back to the
+  // bare SPDX MIT template and the copyright line never reaches the notices.
+  // The root file is fetched verbatim into texts/git/ (pinned to the same
+  // rev as apps/desktop/crates/computer/Cargo.toml) and reproduced here.
+  {
+    title: `cua driver crates (git dependency)`,
+    clients: [`desktop`],
+    body: [
+      `The desktop application's computer-use feature links eight crates from the cua repository (https://github.com/trycua/cua, pinned to commit 73387960d56a99dd2f607cef9b2bdae57e373217): cua-driver-contract, cua-driver-core, cua-driver-sdk, cursor-overlay, pip-preview, platform-linux, platform-macos and platform-windows. They are listed under MIT in the open-source components above, but each crate directory ships no licence file of its own, so the body there is the generic SPDX template. The repository's own LICENSE.md, with its copyright line, is reproduced below.`,
+    ],
+    reproduce: [
+      {
+        label: `MIT License (Copyright (c) 2025 Cua AI, Inc.)`,
+        path: `packages/licenses/texts/git/cua-LICENSE.txt`,
+      },
+    ],
+  },
 ]
 
 // ---------------------------------------------------------------------------

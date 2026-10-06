@@ -1,5 +1,6 @@
-- Početak: aplikacija se otvara na stranici Agent, a gumb za chat svijetli dok ste ondje
-- Kartice: Inbox, My Issues i Drafts mijenjaju se povlačenjem u stranu, a jednako tako Actions i Suggestions
-- Reviews: pull request iz pokretanja chata ili akcije otvara svoje promjene u aplikaciji
-- Runs: strelica skače na najnoviju poruku, a popis zadataka prikazuje svoj napredak
-- Novi issue: jedan dodir na × odbacuje skicu
+- Dijalozi: svaka potvrda i izbor koriste istu karticu, a Return nikad ne bira destruktivan odgovor
+- Novi issue: × pita prije odbacivanja skice, a napuštanje skice sa sadržajem nudi Create, Keep as draft ili Discard
+- Runs: oznaka pokretanja vodi svaki redak popisa, aktivan redak alata prikazuje samo svoj naslov, a pokretanje prikazuje Working dok agent stvarno ne završi
+- Boardovi: odabir boarda više ne prikazuje točku drugih timova
+- Račun: odvojite način prijave sve dok ostaje drugi put za ulaz
+- Uređaji: blok spremnosti kaže što računalu još treba, a Computer use uključuje se po uređaju

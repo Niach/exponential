@@ -441,11 +441,25 @@ describe(`IssueContextMenuProvider`, () => {
     expect(mockState.moveMutate).toHaveBeenCalledWith({ id: `issue-1`, boardId: `board-2` })
   })
 
-  it(`deletes the issue when confirm delete is selected`, async () => {
+  // EXP-1215: Delete confirms in the shared `delete-issue` prompt (deferred
+  // past the menu close like the move confirm), never on a submenu step.
+  it(`deletes the issue once the delete prompt is answered`, async () => {
     render(<Host>{row()}</Host>)
     openOn()
+    expect(screen.queryByTestId(`issue-delete-confirm`)).toBeNull()
 
-    fireEvent.click(screen.getByText(`Confirm delete`))
+    fireEvent.click(screen.getByText(`Delete issue`))
+    await act(async () => {
+      vi.runAllTimers()
+    })
+
+    expect(mockState.deleteMutate).not.toHaveBeenCalled()
+    const prompt = screen.getByTestId(`issue-delete-confirm`)
+    expect(prompt.textContent).toContain(`Delete APP-1?`)
+    expect(prompt.textContent).toContain(
+      `Its comments and files are deleted with it.`
+    )
+    fireEvent.click(screen.getByRole(`button`, { name: `Delete` }))
     await Promise.resolve()
 
     expect(mockState.deleteMutate).toHaveBeenCalledTimes(1)

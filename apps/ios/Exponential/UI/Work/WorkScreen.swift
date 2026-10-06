@@ -967,28 +967,46 @@ struct WorkScreen: View {
                     )
                 }
             }
-            .moveBoardConfirm(
-                target: $moveTarget,
-                identifier: issue?.identifier,
-                onConfirm: { target in Task { await issueVM?.moveToBoard(target.id) } }
-            )
+            // The alert cards (`.glassAlert` = a full-screen cover) hang off
+            // zero-size nodes of their own as well: stacking presentations
+            // on one node is where SwiftUI starts dropping them.
+            .background {
+                Color.clear
+                    .frame(width: 0, height: 0)
+                    .allowsHitTesting(false)
+                    .moveBoardConfirm(
+                        target: $moveTarget,
+                        identifier: issue?.identifier,
+                        onConfirm: { target in Task { await issueVM?.moveToBoard(target.id) } }
+                    )
+            }
             // EXP-1154: Close PR, off the `…` menu — the fixture copy ×4.
-            .glassAlert(isPresented: $showClosePrConfirm) {
-                GlassAlert(
-                    title: ClosePrCopy.title,
-                    message: ClosePrCopy.message(otherLinkedIssues: closePrOtherIssues),
-                    actions: [
-                        GlassAlertAction("Cancel", role: .outline, id: "cancel") {},
-                        GlassAlertAction(ClosePrCopy.confirm, role: .destructive, id: "close-pr") { closePr() },
-                    ]
-                )
+            .background {
+                Color.clear
+                    .frame(width: 0, height: 0)
+                    .allowsHitTesting(false)
+                    .glassAlert(isPresented: $showClosePrConfirm) {
+                        GlassAlert(
+                            title: ClosePrCopy.title,
+                            message: ClosePrCopy.message(otherLinkedIssues: closePrOtherIssues),
+                            actions: [
+                                GlassAlertAction("Cancel", role: .outline, isDefault: true, isCancel: true, id: "cancel") {},
+                                GlassAlertAction(ClosePrCopy.confirm, role: .destructive, id: "close-pr") { closePr() },
+                            ]
+                        )
+                    }
             }
             // EXP-1215: the app's own alert card (`GlassAlert`), ×4.
-            .glassAlert(isPresented: $showDeleteConfirm) {
-                GlassAlert(
-                    prompt: Prompts.DeleteIssue.copy(identifier: issue?.identifier ?? "this issue"),
-                    handlers: ["delete": { deleteIssue() }]
-                )
+            .background {
+                Color.clear
+                    .frame(width: 0, height: 0)
+                    .allowsHitTesting(false)
+                    .glassAlert(isPresented: $showDeleteConfirm) {
+                        GlassAlert(
+                            prompt: Prompts.DeleteIssue.copy(identifier: issue?.identifier ?? "this issue"),
+                            handlers: ["delete": { deleteIssue() }]
+                        )
+                    }
             }
             // EXP-897 Part 4: the badge's overlay, the same on every face.
             .background {
@@ -1040,11 +1058,16 @@ struct WorkScreen: View {
                         }
                     }
             }
-            .glassAlert(isPresented: $showResumeConfirm) {
-                GlassAlert(
-                    prompt: Prompts.ResumeRun.copy(device: resumeDevice?.deviceLabel),
-                    handlers: ["resume": { resumeRun() }]
-                )
+            .background {
+                Color.clear
+                    .frame(width: 0, height: 0)
+                    .allowsHitTesting(false)
+                    .glassAlert(isPresented: $showResumeConfirm) {
+                        GlassAlert(
+                            prompt: Prompts.ResumeRun.copy(device: resumeDevice?.deviceLabel),
+                            handlers: ["resume": { resumeRun() }]
+                        )
+                    }
             }
     }
 

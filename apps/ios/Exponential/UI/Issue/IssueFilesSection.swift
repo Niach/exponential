@@ -65,11 +65,18 @@ struct IssueFilesSection: View {
         .sheet(item: $markdownPreview) { attachment in
             AttachmentMarkdownPreviewSheet(attachment: attachment)
         }
-        // EXP-1215: the app's own alert card (`GlassAlert`), ×4.
-        .glassAlert(item: $pendingDelete) { attachment in
-            GlassAlert(prompt: Prompts.DeleteFile.copy(filename: attachment.filename), handlers: [
-                "delete": { Task { await viewModel.deleteAttachment(id: attachment.id) } },
-            ])
+        // EXP-1215: the app's own alert card (`GlassAlert`), ×4, on a
+        // zero-size node of its own (EXP-240): stacked on the preview
+        // sheet's node SwiftUI drops it.
+        .background {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .glassAlert(item: $pendingDelete) { attachment in
+                    GlassAlert(prompt: Prompts.DeleteFile.copy(filename: attachment.filename), handlers: [
+                        "delete": { Task { await viewModel.deleteAttachment(id: attachment.id) } },
+                    ])
+                }
         }
     }
 

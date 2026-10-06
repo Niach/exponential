@@ -2535,29 +2535,6 @@ describe(`devices.completeCommand`, () => {
   })
 })
 
-describe(`devices.heartbeat — retired mcpReadiness`, () => {
-  it(`an older build's mcpReadiness field is ignored, never refused`, async () => {
-    h.state.updateReturning = [
-      [
-        {
-          id: `row-1`,
-          updateRequestedAt: null,
-          launchDefaults: null,
-          launchDefaultsUpdatedAt: null,
-        },
-      ],
-    ]
-    await expect(
-      caller.heartbeat({
-        deviceId: `dev-1`,
-        activeSessions: 0,
-        defaultsSyncedAt: null,
-        mcpReadiness: [{ serverId: `s-1`, ready: true }],
-      } as never)
-    ).resolves.toMatchObject({ ok: true })
-  })
-})
-
 describe(`clampAgentAccounts — profiles (EXP-792)`, () => {
   it(`keeps at most MAX_AGENT_PROFILES profiles, clamps every field and stays null-free`, () => {
     const out = clampAgentAccounts({

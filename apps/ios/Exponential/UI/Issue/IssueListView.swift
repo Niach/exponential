@@ -175,15 +175,22 @@ struct IssueListView: View {
             // Never strand the tab bar hidden behind a pushed screen.
             tabBarChrome?.suppressed = false
         }
-        // EXP-1215: the app's own alert card (`GlassAlert`), ×4.
-        .glassAlert(isPresented: $showBulkDeleteConfirm) {
-            GlassAlert(prompt: Prompts.DeleteIssues.copy(count: selectedIds.count), handlers: [
-                "delete": {
-                    let ids = Array(selectedIds)
-                    exitSelection()
-                    Task { await viewModel?.bulkDelete(issueIds: ids) }
-                },
-            ])
+        // EXP-1215: the app's own alert card (`GlassAlert`), ×4, on a
+        // zero-size node of its own (EXP-240): stacked on the graph sheet's
+        // node SwiftUI drops it.
+        .background {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .glassAlert(isPresented: $showBulkDeleteConfirm) {
+                    GlassAlert(prompt: Prompts.DeleteIssues.copy(count: selectedIds.count), handlers: [
+                        "delete": {
+                            let ids = Array(selectedIds)
+                            exitSelection()
+                            Task { await viewModel?.bulkDelete(issueIds: ids) }
+                        },
+                    ])
+                }
         }
     }
 

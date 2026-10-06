@@ -122,29 +122,41 @@ struct IssueDraftPageView: View {
         // EXP-1212: the app's own centred alert card (`GlassAlert`), never
         // the system alert / confirmation popover: one question, then one
         // compact row, Cancel · Discard (destructive text on the outline
-        // pill) trailing; a scrim tap = Cancel.
-        .glassAlert(
-            isPresented: $confirmDiscard,
-            title: IssueDraftPage.DiscardConfirm.title,
-            actions: [
-                GlassAlertAction("Cancel", role: .outline, id: "cancel") {},
-                GlassAlertAction(IssueDraftPage.DiscardConfirm.confirm, role: .destructive, id: "discard") {
-                    discardAndClose()
-                },
-            ]
-        )
+        // pill) trailing; a scrim tap = Cancel. Each card on a zero-size
+        // node of its own (EXP-240): stacked with the child sheet on one
+        // node SwiftUI drops them.
+        .background {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .glassAlert(
+                    isPresented: $confirmDiscard,
+                    title: IssueDraftPage.DiscardConfirm.title,
+                    actions: [
+                        GlassAlertAction("Cancel", role: .outline, isDefault: true, isCancel: true, id: "cancel") {},
+                        GlassAlertAction(IssueDraftPage.DiscardConfirm.confirm, role: .destructive, id: "discard") {
+                            discardAndClose()
+                        },
+                    ]
+                )
+        }
         // The leave dialog: Discard (quiet, leading) … Save draft (plain) ·
         // Create issue (the default, primary, trailing); a sub-issue draft
         // offers no Keep (`IssueDraftPage.leaveChoices`). Create without a
         // title shows disabled, never hidden, and Return moves to Save
         // draft (`IssueDraftPage.leaveDefault`). A scrim tap is the
         // no-answer path (Cancel).
-        .glassAlert(
-            isPresented: $leavePresented,
-            title: IssueDraftPage.Leave.title,
-            actions: leaveActions,
-            onDismiss: { answerLeave(nil) }
-        )
+        .background {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .glassAlert(
+                    isPresented: $leavePresented,
+                    title: IssueDraftPage.Leave.title,
+                    actions: leaveActions,
+                    onDismiss: { answerLeave(nil) }
+                )
+        }
         // Gone WITHOUT an answer (the page torn down under it; a scrim tap
         // already answers nil above): the held navigation is dropped, the page
         // stays. Every button sets `leaveAnswered` synchronously in the tap

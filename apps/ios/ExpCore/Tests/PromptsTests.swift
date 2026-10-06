@@ -97,6 +97,27 @@ final class PromptsTests: XCTestCase {
         XCTAssertNil(Prompts.RemoveRepository.copy(fullName: "a/b").body)
     }
 
+    // A value is inserted verbatim in ONE pass: a user-typed name holding
+    // another `{param}` is never filled again, whatever the dictionary order;
+    // an unnamed placeholder stays.
+    func testFillIsASinglePass() {
+        XCTAssertEqual(
+            Prompts.fill("Delete \"{name}\"?", ["name": "{server}", "server": "Cloud"]),
+            "Delete \"{server}\"?"
+        )
+        XCTAssertEqual(
+            Prompts.fill("Delete \"{name}\"?", ["server": "Cloud", "name": "{server}"]),
+            "Delete \"{server}\"?"
+        )
+        XCTAssertEqual(
+            Prompts.DeleteTeam.copy(name: "{name}").title, "Delete \"{name}\"?"
+        )
+        XCTAssertEqual(Prompts.fill("Move {identifier} to {board}?", ["board": "Mobile"]), "Move {identifier} to Mobile?")
+        XCTAssertEqual(Prompts.fill("{a}{a} {b}", ["a": "x", "b": "{"]), "xx {")
+        XCTAssertEqual(Prompts.fill("no params", ["a": "x"]), "no params")
+        XCTAssertEqual(Prompts.fill("{a}", [:]), "{a}")
+    }
+
     func testCountVariants() {
         XCTAssertEqual(Prompts.DeleteIssues.copy(count: 1).title, "Delete 1 issue?")
         XCTAssertEqual(Prompts.DeleteIssues.copy(count: 1).body, "Its comments and files are deleted with it.")

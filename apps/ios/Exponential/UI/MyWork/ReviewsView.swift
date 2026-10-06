@@ -81,44 +81,62 @@ struct ReviewsListContent: View {
         .onDisappear {
             viewModel?.stopObserving()
         }
-        // EXP-1215: the app's own alert card (`GlassAlert`), ×4.
-        .glassAlert(item: $mergeTarget) { entry in
-            GlassAlert(
-                prompt: Prompts.MergeIssuePr.copy(number: entry.prNumber, issueCount: entry.issues.count),
-                handlers: ["merge": { merge(entry) }]
-            )
+        // EXP-1215: the app's own alert card (`GlassAlert`), ×4. Each
+        // presentation (the three cards, the batch sheet) on a zero-size
+        // node of its own (EXP-240): stacked on one node SwiftUI drops the
+        // second.
+        .background {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .glassAlert(item: $mergeTarget) { entry in
+                    GlassAlert(
+                        prompt: Prompts.MergeIssuePr.copy(number: entry.prNumber, issueCount: entry.issues.count),
+                        handlers: ["merge": { merge(entry) }]
+                    )
+                }
         }
         // EXP-1145: a member of an open PR stack asks first. The list stays
         // FLAT; only the dialog knows the stack. Copy byte-locked by the
         // `stack-merge-choice.json` fixture.
-        .glassAlert(item: $stackTarget) { target in
-            GlassAlert(
-                title: PrStack.stackMergeChoiceTitle,
-                message: target.choice.body,
-                actions: [
-                    GlassAlertAction(PrStack.stackMergeCancelLabel, role: .outline, id: "cancel") {},
-                    GlassAlertAction(PrStack.mergeThisPrLabel, role: .outline, id: "merge-this") {
-                        // The bottom merges plainly, any other member lands
-                        // the chain bottom-up THROUGH itself.
-                        merge(
-                            target.entry,
-                            issueId: target.entry.representative.id,
-                            mergeStack: target.choice.mergeThisUsesStack
-                        )
-                    },
-                    GlassAlertAction(PrStack.mergeStackLabel, role: .primary, id: "merge-stack") {
-                        merge(target.entry, issueId: target.choice.topIssueId, mergeStack: true)
-                    },
-                ]
-            )
+        .background {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .glassAlert(item: $stackTarget) { target in
+                    GlassAlert(
+                        title: PrStack.stackMergeChoiceTitle,
+                        message: target.choice.body,
+                        actions: [
+                            GlassAlertAction(PrStack.stackMergeCancelLabel, role: .outline, isCancel: true, id: "cancel") {},
+                            GlassAlertAction(PrStack.mergeThisPrLabel, role: .outline, id: "merge-this") {
+                                // The bottom merges plainly, any other member lands
+                                // the chain bottom-up THROUGH itself.
+                                merge(
+                                    target.entry,
+                                    issueId: target.entry.representative.id,
+                                    mergeStack: target.choice.mergeThisUsesStack
+                                )
+                            },
+                            GlassAlertAction(PrStack.mergeStackLabel, role: .primary, id: "merge-stack") {
+                                merge(target.entry, issueId: target.choice.topIssueId, mergeStack: true)
+                            },
+                        ]
+                    )
+                }
         }
         // EXP-734: a run's own pull request links no issue, so it confirms
         // with its own copy.
-        .glassAlert(item: $runMergeTarget) { entry in
-            GlassAlert(
-                prompt: Prompts.MergeRunPr.copy(number: entry.prNumber),
-                handlers: ["merge": { merge(run: entry) }]
-            )
+        .background {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .glassAlert(item: $runMergeTarget) { entry in
+                    GlassAlert(
+                        prompt: Prompts.MergeRunPr.copy(number: entry.prNumber),
+                        handlers: ["merge": { merge(run: entry) }]
+                    )
+                }
         }
         // EXP-897 Part 4: a batch row's issues are the overlay's content.
         .sheet(item: $batchTarget) { entry in

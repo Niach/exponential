@@ -56,26 +56,38 @@ struct WorkMergePill: View {
             case .circle: circle
             }
         }
-        // EXP-1215: the app's own alert card (`GlassAlert`), ×4.
-        .glassAlert(isPresented: $showMergeConfirm) {
-            GlassAlert(prompt: mergePrompt, handlers: ["merge": { merge() }])
+        // EXP-1215: the app's own alert card (`GlassAlert`), ×4. Each
+        // presentation on a zero-size node of its own (EXP-240): stacked on
+        // one node SwiftUI drops the second.
+        .background {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .glassAlert(isPresented: $showMergeConfirm) {
+                    GlassAlert(prompt: mergePrompt, handlers: ["merge": { merge() }])
+                }
         }
         // EXP-1145: the stack dialog, its copy byte-locked by the
         // `stack-merge-choice.json` fixture.
-        .glassAlert(item: $stackChoice) { choice in
-            GlassAlert(
-                title: PrStack.stackMergeChoiceTitle,
-                message: choice.body,
-                actions: [
-                    GlassAlertAction(PrStack.stackMergeCancelLabel, role: .outline, id: "cancel") {},
-                    GlassAlertAction(PrStack.mergeThisPrLabel, role: .outline, id: "merge-this") {
-                        mergeThis(choice)
-                    },
-                    GlassAlertAction(PrStack.mergeStackLabel, role: .primary, id: "merge-stack") {
-                        mergeStack(issueId: choice.topIssueId)
-                    },
-                ]
-            )
+        .background {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .glassAlert(item: $stackChoice) { choice in
+                    GlassAlert(
+                        title: PrStack.stackMergeChoiceTitle,
+                        message: choice.body,
+                        actions: [
+                            GlassAlertAction(PrStack.stackMergeCancelLabel, role: .outline, isCancel: true, id: "cancel") {},
+                            GlassAlertAction(PrStack.mergeThisPrLabel, role: .outline, id: "merge-this") {
+                                mergeThis(choice)
+                            },
+                            GlassAlertAction(PrStack.mergeStackLabel, role: .primary, id: "merge-stack") {
+                                mergeStack(issueId: choice.topIssueId)
+                            },
+                        ]
+                    )
+                }
         }
     }
 

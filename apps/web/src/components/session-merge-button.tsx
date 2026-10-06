@@ -227,7 +227,9 @@ export function SessionMergeButton({
   const [armed, setArmed] = useState(false)
   const [stackChoice, setStackChoice] = useState<StackMergeChoice | null>(null)
   const stack = useStackMergeChoice(issueId, armed)
-  const linkedCount = useLinkedIssueCount(issueId, confirmOpen)
+  // Armed with the stack read, so a batch PR's body counts its issues on the
+  // confirm's first paint instead of flipping after it opens.
+  const linkedCount = useLinkedIssueCount(issueId, armed || confirmOpen)
   const mergeCopy = issueId
     ? mergeIssuePrPrompt({ number: prNumber, count: linkedCount })
     : mergeRunPrPrompt(prNumber)

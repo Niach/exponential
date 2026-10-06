@@ -1,5 +1,6 @@
-- Pornire: aplicația se deschide pe pagina Agent, iar butonul de chat se aprinde cât timp ești acolo
-- File: Inbox, My Issues și Drafts se schimbă glisând în lateral, la fel și Actions și Suggestions
-- Reviews: un pull request dintr-o rulare de chat sau de acțiune își deschide modificările în aplicație
-- Runs: o săgeată sare la cel mai nou mesaj, iar lista de sarcini își arată progresul
-- Issue nou: o singură atingere pe × renunță la o ciornă
+- Dialoguri: fiecare confirmare și alegere folosește același card, iar Return nu alege niciodată un răspuns distructiv
+- Issue nou: × întreabă înainte de a renunța la o ciornă, iar ieșirea dintr-o ciornă cu conținut întreabă Create, Keep as draft sau Discard
+- Runs: semnul rulării deschide fiecare rând din listă, un rând de unealtă activ arată doar titlul, iar o rulare arată Working până când agentul a terminat cu adevărat
+- Board-uri: selectorul de board nu mai arată punctul celorlalte echipe
+- Cont: deconectează o metodă de autentificare cât timp rămâne altă cale de intrare
+- Dispozitive: blocul de pregătire spune ce îi mai trebuie unei mașini, iar Computer use se poate activa pentru fiecare dispozitiv

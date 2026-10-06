@@ -12,6 +12,7 @@ import type { Board, Issue, IssueLabel, Team } from "@/db/schema"
 import { formatDateForMutation, type IssueEstimation } from "@/lib/domain"
 import { issueCollection, issueLabelCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
+import { deleteIssuePrompt, promptActions } from "@/lib/prompts"
 import {
   useTeamBoards,
   useTeamLabels,
@@ -40,6 +41,7 @@ import {
   MENU_HEADER_CLASS,
   MENU_VALUE_CLASS,
   MenuHeaderBody,
+  Prompt,
   conceptIcon,
 } from "@exp/ui"
 import type { IssueMenuTarget } from "./gestures"
@@ -146,6 +148,10 @@ export function IssueMenuSession({
   // server renumbers the issue in the target board (EXP-428 — same flow as
   // the detail sidebar's BoardPicker).
   const [pendingBoard, setPendingBoard] = useState<Board | null>(null)
+  // EXP-1215: Delete confirms in the shared `delete-issue` prompt, the card
+  // the header's `…` menu and the phone menu raise too.
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const deleteCopy = deleteIssuePrompt(issue?.identifier ?? ``)
 
   const openedAt = useRef(performance.now())
 
@@ -370,24 +376,15 @@ export function IssueMenuSession({
             </DropdownMenuSub>
 
             {/* No separator above a destructive item (EXP-687): the red is
-                the divider, on every client. */}
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger variant="destructive">
-                <UiDeleteIcon />
-                Delete issue
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-[14rem]">
-                <DropdownMenuItem
-                  variant="destructive"
-                  onSelect={() => {
-                    void trpc.issues.delete.mutate({ id: issueId })
-                  }}
-                >
-                  <UiDeleteIcon />
-                  Confirm delete
-                </DropdownMenuItem>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
+                the divider, on every client. The prompt opens deferred past
+                the menu close + focus restore, like the move confirm. */}
+            <DropdownMenuItem
+              variant="destructive"
+              onSelect={() => setTimeout(() => setDeleteOpen(true), 0)}
+            >
+              <UiDeleteIcon />
+              Delete issue
+            </DropdownMenuItem>
           </DropdownMenuContent>
         )}
       </DropdownMenu>
@@ -403,6 +400,22 @@ export function IssueMenuSession({
           if (board.id === issue?.boardId) return
           void trpc.issues.move.mutate({ id: issueId, boardId: board.id })
         }}
+      />
+
+      <Prompt
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        data-testid="issue-delete-confirm"
+        title={deleteCopy.title}
+        body={deleteCopy.body}
+        actions={promptActions(deleteCopy, {
+          delete: {
+            onSelect: async () => {
+              await trpc.issues.delete.mutate({ id: issueId })
+              setDeleteOpen(false)
+            },
+          },
+        })}
       />
     </>
   )

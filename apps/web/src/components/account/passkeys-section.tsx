@@ -261,7 +261,10 @@ export function PasskeysSection({
       <Prompt
         open={removeTarget !== null}
         onOpenChange={(open) => {
-          if (!open) setRemoveTarget(null)
+          if (!open) {
+            setRemoveTarget(null)
+            setRemoveError(``)
+          }
         }}
         busy={removing}
         title={removeCopy.title}

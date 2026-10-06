@@ -1,5 +1,6 @@
-- Start: the app opens on the Agent page, and the chat button lights up while you are there
-- Tabs: Inbox, My Issues and Drafts swipe sideways, and so do Actions and Suggestions
-- Reviews: a pull request from a chat or action run opens its changes in the app
-- Runs: an arrow jumps to the newest message and the task list shows its progress
-- New issue: one tap on the × discards a draft
+- Dialogs: every confirm and choice prompt uses the same card, and Return never picks a destructive answer
+- New issue: the × asks before discarding a draft, and leaving a draft with content asks Create, Keep as draft or Discard
+- Runs: the run mark leads every list row, a live tool row shows only its headline, and a run reads Working until the agent is really done
+- Boards: the board picker no longer shows the other-teams dot
+- Account: unlink a sign-in method as long as another way in remains
+- Devices: the readiness block says what a machine still needs, and Computer use can be switched on per device

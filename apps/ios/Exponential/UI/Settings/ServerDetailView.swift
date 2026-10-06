@@ -73,18 +73,30 @@ struct ServerDetailView: View {
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .onAppear { startObservingUser() }
         .onDisappear { userObservationTask?.cancel() }
-        // EXP-1215: the app's own alert card (`GlassAlert`), ×4.
-        .glassAlert(isPresented: $showRemoveConfirm) {
-            GlassAlert(
-                prompt: Prompts.RemoveServer.copy(server: account?.displayName ?? "this server"),
-                handlers: ["remove": { removeServer() }]
-            )
+        // EXP-1215: the app's own alert card (`GlassAlert`), ×4. Each on a
+        // zero-size node of its own (EXP-240): two presentations stacked on
+        // one node and SwiftUI drops the second.
+        .background {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .glassAlert(isPresented: $showRemoveConfirm) {
+                    GlassAlert(
+                        prompt: Prompts.RemoveServer.copy(server: account?.displayName ?? "this server"),
+                        handlers: ["remove": { removeServer() }]
+                    )
+                }
         }
-        .glassAlert(isPresented: $showDeleteAccountConfirm) {
-            GlassAlert(
-                prompt: Prompts.DeleteAccount.copy(server: account?.displayName),
-                handlers: ["delete": { Task { await deleteAccount() } }]
-            )
+        .background {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .glassAlert(isPresented: $showDeleteAccountConfirm) {
+                    GlassAlert(
+                        prompt: Prompts.DeleteAccount.copy(server: account?.displayName),
+                        handlers: ["delete": { Task { await deleteAccount() } }]
+                    )
+                }
         }
     }
 

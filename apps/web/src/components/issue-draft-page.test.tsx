@@ -15,8 +15,12 @@ type ShouldBlock = (args: {
   current: { pathname: string }
   next: { pathname: string }
 }) => boolean
+const HELD = { pathname: `/t/acme/inbox`, search: { tab: `my-issues` } }
 const blockerState = vi.hoisted(() => ({
   status: `idle` as `idle` | `blocked`,
+  // The held navigation: a push by default (the case that leaves the draft
+  // entry behind), BACK for a popstate.
+  action: `PUSH` as `PUSH` | `BACK`,
   proceed: vi.fn(),
   reset: vi.fn(),
   shouldBlockFn: null as null | ShouldBlock,
@@ -47,6 +51,8 @@ vi.mock(`@tanstack/react-router`, () => ({
     return blockerState.status === `blocked`
       ? {
           status: `blocked`,
+          action: blockerState.action,
+          next: { pathname: `/t/acme/inbox`, search: { tab: `my-issues` } },
           proceed: blockerState.proceed,
           reset: blockerState.reset,
         }
@@ -122,6 +128,7 @@ beforeEach(() => {
   mobileState.mobile = false
   navigate.mockReset()
   blockerState.status = `idle`
+  blockerState.action = `PUSH`
   blockerState.proceed.mockReset()
   blockerState.reset.mockReset()
   editor.hasContent = true
@@ -314,7 +321,10 @@ describe(`IssueDraftPage leaving`, () => {
     }
   )
 
-  it(`Discard deletes, then continues without a second confirm`, async () => {
+  // EXP-1212: a consumed draft (Discard, Create) REPLACES its history entry
+  // with the held destination instead of replaying the push, so Back never
+  // lands on an empty New issue page at the consumed id.
+  it(`Discard deletes, then replaces the draft entry with the held destination`, async () => {
     blockerState.status = `blocked`
     renderPage()
     const dialog = await screen.findByTestId(`issue-draft-leave-dialog`)
@@ -323,12 +333,20 @@ describe(`IssueDraftPage leaving`, () => {
         (button) => button.textContent === ISSUE_DRAFT_COPY.leave.discard
       )!
     )
-    await waitFor(() => expect(blockerState.proceed).toHaveBeenCalled())
+    await waitFor(() => expect(navigate).toHaveBeenCalledTimes(1))
     expect(editor.discard).toHaveBeenCalledTimes(1)
+    expect(navigate.mock.calls[0][0]).toEqual({
+      to: HELD.pathname,
+      search: HELD.search,
+      replace: true,
+      ignoreBlocker: true,
+    })
+    expect(blockerState.reset).toHaveBeenCalledTimes(1)
+    expect(blockerState.proceed).not.toHaveBeenCalled()
     expect(screen.queryByTestId(`issue-draft-discard-confirm`)).toBeNull()
   })
 
-  it(`Create files it and continues to the HELD destination`, async () => {
+  it(`Create files it and replaces the draft entry with the HELD destination`, async () => {
     editor.create.mockResolvedValue({ identifier: `WEB-1`, boardSlug: `web` })
     blockerState.status = `blocked`
     renderPage()
@@ -338,9 +356,31 @@ describe(`IssueDraftPage leaving`, () => {
         (button) => button.textContent === ISSUE_DRAFT_COPY.leave.create
       )!
     )
-    await waitFor(() => expect(blockerState.proceed).toHaveBeenCalled())
-    // Never the new issue: the held navigation goes on instead.
+    await waitFor(() => expect(navigate).toHaveBeenCalledTimes(1))
+    // Never the new issue: the held destination, in place of this entry.
+    expect(navigate.mock.calls[0][0]).toMatchObject({
+      to: HELD.pathname,
+      replace: true,
+      ignoreBlocker: true,
+    })
+    expect(blockerState.reset).toHaveBeenCalledTimes(1)
+    expect(blockerState.proceed).not.toHaveBeenCalled()
+  })
+
+  it(`a consumed draft on a held Back goes on as held (nothing to replace)`, async () => {
+    blockerState.status = `blocked`
+    blockerState.action = `BACK`
+    renderPage()
+    const dialog = await screen.findByTestId(`issue-draft-leave-dialog`)
+    fireEvent.click(
+      Array.from(dialog.querySelectorAll(`button`)).find(
+        (button) => button.textContent === ISSUE_DRAFT_COPY.leave.discard
+      )!
+    )
+    await waitFor(() => expect(blockerState.proceed).toHaveBeenCalledTimes(1))
+    expect(editor.discard).toHaveBeenCalledTimes(1)
     expect(navigate).not.toHaveBeenCalled()
+    expect(blockerState.reset).not.toHaveBeenCalled()
   })
 
   it(`a failed Create stays on the page`, async () => {

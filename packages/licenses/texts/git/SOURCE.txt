@@ -1,0 +1,10 @@
+Repository-root licence files of git-pinned Rust dependencies whose crate
+directories ship no licence file of their own, vendored verbatim:
+
+  cua-LICENSE.txt
+    https://github.com/trycua/cua/blob/73387960d56a99dd2f607cef9b2bdae57e373217/LICENSE.md
+
+The curated supplement (curated/supplement.ts) reproduces each one under its
+own heading, so the copyright line the SPDX template lacks reaches the
+notices. Re-fetch by hand when apps/desktop/crates/computer/Cargo.toml moves
+the pin; do not hand-edit these files.

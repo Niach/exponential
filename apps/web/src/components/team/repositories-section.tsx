@@ -461,7 +461,7 @@ export function TeamRepositoriesSection({
         title={GH_DISCONNECT_CONFIRM_TITLE}
         body={GH_DISCONNECT_BODY}
         actions={[
-          { label: GH_CANCEL },
+          { label: GH_CANCEL, role: `cancel` },
           {
             label: GH_DISCONNECT,
             role: `destructive`,

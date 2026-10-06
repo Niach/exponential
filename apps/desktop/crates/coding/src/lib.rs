@@ -177,7 +177,7 @@ pub use remote_admin::{
     DefaultsPatch,
 };
 pub use prompt::{render_prompt, render_resume_prompt};
-pub use settings::{remove_legacy_workflow_state, Settings};
+pub use settings::Settings;
 pub use token_refresh::{
     next_refresh_delay, refresh_clone_token, REFRESH_LEAD, TOKEN_REFRESH_RETRY,
 };

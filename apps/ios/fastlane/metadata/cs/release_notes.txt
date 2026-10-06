@@ -1,5 +1,6 @@
-- Start: aplikace se otevře na stránce Agent a tlačítko chatu tam svítí
-- Karty: Inbox, My Issues a Drafts se přepínají přejetím do strany, stejně jako Actions a Suggestions
-- Reviews: pull request z běhu chatu nebo akce otevře své změny přímo v aplikaci
-- Runs: šipka skočí na nejnovější zprávu a seznam úkolů ukazuje svůj postup
-- Nové issue: jedno klepnutí na × zahodí koncept
+- Dialogy: každé potvrzení a volba používá stejnou kartu a Return nikdy nevybere destruktivní odpověď
+- Nové issue: × se před zahozením konceptu zeptá a odchod z konceptu s obsahem nabídne Create, Keep as draft nebo Discard
+- Runs: značka běhu vede každý řádek seznamu, živý řádek nástroje ukazuje jen svůj nadpis a běh ukazuje Working, dokud agent opravdu neskončí
+- Boardy: výběr boardu už neukazuje tečku ostatních týmů
+- Účet: způsob přihlášení můžete odpojit, pokud zbývá jiná cesta dovnitř
+- Zařízení: blok připravenosti říká, co počítač ještě potřebuje, a Computer use lze zapnout pro každé zařízení zvlášť

@@ -491,7 +491,10 @@ export function SteerComposer({
         title={steerCommandConfirmCopy(confirming?.name ?? ``).title}
         body={steerCommandConfirmCopy(confirming?.name ?? ``).body}
         actions={[
-          { label: steerCommandConfirmCopy(confirming?.name ?? ``).cancel },
+          {
+            label: steerCommandConfirmCopy(confirming?.name ?? ``).cancel,
+            role: `cancel`,
+          },
           {
             label: steerCommandConfirmCopy(confirming?.name ?? ``).confirm,
             role: `destructive`,
