@@ -170,7 +170,7 @@ struct SignInMethodsSection: View {
 
     private func passkeyRow(_ passkey: SignInPasskey, in methods: SignInMethods) -> some View {
         let blocked = !methods.canRemovePasskey
-        return methodRow(title: passkey.displayName, subtitle: passkeySubtitle(passkey)) {
+        return methodRow(title: passkey.displayName, subtitle: passkeySubtitle(passkey, blocked: blocked)) {
             AppIcon(AppIcons.authPasskey, size: AppIcon.Size.medium)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
         } trailing: {
@@ -242,12 +242,17 @@ struct SignInMethodsSection: View {
         return "Linked"
     }
 
-    private func passkeySubtitle(_ passkey: SignInPasskey) -> String {
+    /// EXP-1209: the last way in reads like the web row, `added <date> · your only way to sign in`.
+    private func passkeySubtitle(_ passkey: SignInPasskey, blocked: Bool) -> String {
         var parts: [String] = []
         if let date = passkey.createdAt.flatMap(WireTimestamps.parse) {
             parts.append("added \(Self.formatDate(date))")
         }
-        if passkey.backedUp { parts.append("synced across your devices") }
+        if blocked {
+            parts.append("your only way to sign in")
+        } else if passkey.backedUp {
+            parts.append("synced across your devices")
+        }
         return parts.isEmpty ? "Passkey" : parts.joined(separator: " · ")
     }
 

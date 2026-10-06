@@ -229,8 +229,13 @@ private fun ProviderRow(
 @Composable
 private fun PasskeyRow(passkey: SignInPasskeyDto, enabled: Boolean, onRemove: () -> Unit) {
     val added = formatMethodDate(passkey.createdAt)?.let { "added $it" }
-    val subtitle = listOfNotNull(added, if (passkey.backedUp) "synced across your devices" else null)
-        .joinToString(" · ")
+    // EXP-1209: the last way in reads like the web row, `added <date> · your only way to sign in`.
+    val qualifier = when {
+        !enabled -> "your only way to sign in"
+        passkey.backedUp -> "synced across your devices"
+        else -> null
+    }
+    val subtitle = listOfNotNull(added, qualifier).joinToString(" · ")
     MethodRow(
         glyph = {
             Icon(
