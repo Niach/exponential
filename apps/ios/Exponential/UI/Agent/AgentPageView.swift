@@ -10,9 +10,9 @@ import SwiftUI
 /// the caller's Running and Recent sessions (`AgentSessionsList`, moved here
 /// from the Devices tab, which keeps machines only — web parity, EXP-818).
 ///
-/// Two shapes: the Agent ROOT (`isTabRoot`, an empty seed at the bottom of
-/// the stack — the app's landing screen, under the floating tab bar, its chat
-/// arm selected), and a
+/// Two shapes: the Agent ROOT (`isTabRoot`, an empty seed as the stack's
+/// root — EXP-1210: a tab root like its siblings, no back — the app's
+/// landing screen, under the floating tab bar, its chat arm selected), and a
 /// PUSHED detail (no tab bar, native back) from every play button with a
 /// preselection (`AgentComposerSeed`): the issue detail's Start coding, the
 /// bulk bar, an action's Run, New action / a suggestion, a machine's play

@@ -64,6 +64,15 @@ enum AppRoute: Hashable {
     case thirdPartyLicenses
 }
 
+/// EXP-1210: the bottom bar's destinations — ROOT siblings on phones. The
+/// selected one IS the navigation stack's root, so switching swaps the root
+/// (no push animation, no back chevron, no swipe-back) and the path holds
+/// only the pushes made inside it. `agent` = the chat arm's Agent page, the
+/// screen the app opens on.
+enum MainTab: Hashable {
+    case agent, issues, inbox, devices, reviews, actions
+}
+
 /// The board the Issues tab is currently showing. May belong to a
 /// non-active account while the fallback resolve crosses servers — but a
 /// switcher pick of another server's board activates that account
@@ -119,7 +128,7 @@ struct AppNavigator: View {
                 OnboardingView()
                     .id(deps.auth.activeAccountId ?? "none")
             } else {
-                MainNavigator(accountId: deps.auth.activeAccountId ?? "")
+                MainNavigator()
                     .id(deps.auth.activeAccountId ?? "none")
             }
         }
@@ -288,15 +297,17 @@ struct AppNavigator: View {
 struct MainNavigator: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.motion) private var motion
+    /// EXP-1210: the selected bottom-bar destination = the stack's ROOT. The
+    /// app LANDS on the Agent tab, so a cold start and an account switch
+    /// (`.id(activeAccountId)` recreates this view) both open there.
+    @State private var tab: MainTab = .agent
     // Typed path (not NavigationPath) so the tab bar can inspect the top route.
-    // The app LANDS on the Agent tab: its root (`agentTabRoot`) is the initial
-    // path, so a cold start and an account switch (`.id(activeAccountId)`
-    // recreates this view) both open there. The Issues tab is `path = []`.
-    @State private var path: [AppRoute]
-
-    init(accountId: String) {
-        _path = State(initialValue: [.agent(accountId: accountId, seed: .empty)])
-    }
+    // Only the pushes made INSIDE the current tab (issue, run, board list, the
+    // New issue page…); a tab switch parks it in `savedPaths`.
+    @State private var path: [AppRoute] = []
+    /// Each OTHER tab's pushes, parked while it is not selected and handed
+    /// back when it is (Android `restoreState`, UITabBarController parity).
+    @State private var savedPaths: [MainTab: [AppRoute]] = [:]
     @State private var teamState = TeamState()
     /// EXP-698 r5: the bulk-selection bar takes the tab bar's slot, so the
     /// list tells the bar to stand down while a selection is live.
@@ -337,15 +348,8 @@ struct MainNavigator: View {
             AppBackground()
 
             NavigationStack(path: $path) {
-                IssuesHomeView(
-                    syncing: syncing,
-                    currentBoard: currentBoard,
-                    boardLoader: boardLoader,
-                    onSelectBoard: { accountId, boardId in
-                        selectBoard(accountId: accountId, boardId: boardId)
-                    }
-                )
-                .navigationDestination(for: AppRoute.self) { destination(for: $0) }
+                tabRoot
+                    .navigationDestination(for: AppRoute.self) { destination(for: $0) }
             }
         }
         .environment(teamState)
@@ -357,7 +361,15 @@ struct MainNavigator: View {
         .environment(\.issueDraftLeaveGuard, draftLeaveGuard)
         .environment(\.accountId, deps.auth.activeAccountId ?? "")
         .onAppear {
-            pushRouteAction.setHandler { route in navigate { path.append(route) } }
+            pushRouteAction.setHandler { route in
+                // EXP-1210: a bar destination is never pushed — a link to one
+                // (an entity chip, a getting-started card) switches to it.
+                if let target = Self.tab(for: route) {
+                    selectTab(target)
+                } else {
+                    navigate { path.append(route) }
+                }
+            }
             if boardLoader == nil {
                 boardLoader = MultiAccountBoardLoader(auth: deps.auth, db: deps.db)
             }
@@ -447,7 +459,9 @@ struct MainNavigator: View {
         // A team was deleted in-app (EXP-43): back to the landing tab (Agent)
         // so no pushed view (team settings, server detail) still targets it.
         .onReceive(NotificationCenter.default.publisher(for: .teamDeleted)) { _ in
-            path = [agentTabRoot]
+            savedPaths = [:]
+            tab = .agent
+            path = []
         }
         // Drain links that arrived before this navigator mounted (cold launch).
         // They push ON TOP of the Agent tab the app lands on, so Back returns
@@ -486,12 +500,12 @@ struct MainNavigator: View {
         .overlay(alignment: .bottom) {
             if showsTabBar && !tabBarChrome.suppressed {
                 MobileTabBar(
-                    agentActive: isOnAgentTab,
-                    issuesActive: path.isEmpty,
-                    devicesActive: isOnAgents,
-                    actionsActive: isOnActions,
-                    myWorkActive: isOnMyWork,
-                    reviewsActive: isOnReviews,
+                    agentActive: tab == .agent,
+                    issuesActive: tab == .issues,
+                    devicesActive: tab == .devices,
+                    actionsActive: tab == .actions,
+                    myWorkActive: tab == .inbox,
+                    reviewsActive: tab == .reviews,
                     unreadCount: unreadCount,
                     agentsRunning: agentsRunning,
                     agentsNeedInput: agentsNeedInput,
@@ -501,15 +515,15 @@ struct MainNavigator: View {
                     // bar-visible surface (EXP-827/EXP-973); only a team with
                     // no board leaves the New-issue arm inert.
                     composeEnabled: composeTarget != nil,
-                    // EXP-1212: the bar's entries go through the draft hold
-                    // like every other path change.
-                    onIssues: { navigate { path = [] } },
-                    onDevices: { if !isOnAgents { navigate { path = [.agents] } } },
-                    // EXP-1187: Actions is a top-level tab; Settings is the
-                    // Issues header's gear only.
-                    onActions: { if !isOnActions { navigate { path = [.actions] } } },
-                    onMyWork: { if !isOnMyWork { navigate { path = [.myWork] } } },
-                    onReviews: { if !isOnReviews { navigate { path = [.reviews] } } },
+                    // EXP-1210: every entry SWITCHES the root (a re-tap pops
+                    // back to it); EXP-1212: through the draft hold like
+                    // every other path change. EXP-1187: Actions is a
+                    // top-level tab; Settings is the Issues header's gear only.
+                    onIssues: { selectTab(.issues) },
+                    onDevices: { selectTab(.devices) },
+                    onActions: { selectTab(.actions) },
+                    onMyWork: { selectTab(.inbox) },
+                    onReviews: { selectTab(.reviews) },
                     onCompose: {
                         // EXP-1170: the draft id is minted HERE, at tap time.
                         guard let target = composeTarget else { return }
@@ -523,7 +537,7 @@ struct MainNavigator: View {
                     },
                     // EXP-825: the chat arm SWITCHES to the Agent root (the
                     // empty-seed page, a bar-visible root) — never a push.
-                    onChat: { if !isOnAgentTab { navigate { path = [agentTabRoot] } } }
+                    onChat: { selectTab(.agent) }
                 )
                 // Slides out of the way when a screen claims its slot, so the
                 // bulk bar arrives in the space the bar just left rather than
@@ -542,28 +556,103 @@ struct MainNavigator: View {
         // flips on, or the last open PR in a yolo team merges) — then land
         // back on Issues instead of stranding a tab-less screen.
         .onChange(of: showsReviews) { _, shown in
-            if !shown {
-                path.removeAll { $0 == .reviews }
+            guard !shown else { return }
+            savedPaths[.reviews] = nil
+            if tab == .reviews {
+                tab = .issues
+                path = savedPaths.removeValue(forKey: .issues) ?? []
             }
         }
     }
 
     // MARK: - Tab bar
 
-    /// The bar floats only over the top-level surfaces (Agent tab root, Issues
-    /// root, Devices, Actions, Inbox, Reviews, pushed board lists); detail and
-    /// settings screens — Search among them since EXP-686, and a SEEDED Agent
-    /// page pushed by a play button — get the full height back. On the Agent
-    /// tab the bar also stands down while the keyboard is up, so it never
-    /// rides above the keyboard over the composer.
+    /// The bar floats only over the tab ROOTS (EXP-1210) and pushed board
+    /// lists; detail and settings screens — Search among them since EXP-686,
+    /// and a SEEDED Agent page pushed by a play button — get the full height
+    /// back. On the Agent root the bar also stands down while the keyboard is
+    /// up, so it never rides above the keyboard over the composer.
     private var showsTabBar: Bool {
-        if isOnAgentTab { return !keyboardVisible }
-        guard let top = path.last else { return true }
-        switch top {
-        case .agents, .actions, .myWork, .reviews, .board:
-            return true
-        default:
-            return false
+        guard let top = path.last else {
+            return tab == .agent ? !keyboardVisible : true
+        }
+        if case .board = top { return true }
+        return false
+    }
+
+    /// EXP-1210: the root a bar entry (or a link to its destination) lands
+    /// on. Re-selecting the current tab pops back to its root; a switch
+    /// replaces the root, parking the old tab's pushes and handing the
+    /// target's back. Through the draft hold (EXP-1212) like every other
+    /// path change, so a New issue page is never parked.
+    private func selectTab(_ target: MainTab) {
+        if tab == target {
+            if !path.isEmpty { navigate { path = [] } }
+            return
+        }
+        navigate {
+            // A root SWAP, never a pop/push transition.
+            var swap = Transaction()
+            swap.disablesAnimations = true
+            withTransaction(swap) {
+                savedPaths[tab] = path
+                tab = target
+                path = savedPaths.removeValue(forKey: target) ?? []
+            }
+        }
+    }
+
+    /// A link's landing (a push tap, a universal link): the tab's ROOT, its
+    /// parked pushes dropped; the tab being left is parked as usual.
+    private func landOnRoot(of target: MainTab) {
+        if tab != target { savedPaths[tab] = path }
+        savedPaths[target] = nil
+        tab = target
+        path = []
+    }
+
+    /// The bar destination a route NAMES, if any — those routes never push
+    /// (EXP-1210); an empty-seed Agent page is the Agent root itself.
+    private static func tab(for route: AppRoute) -> MainTab? {
+        switch route {
+        case .agents: return .devices
+        case .actions: return .actions
+        case .myWork: return .inbox
+        case .reviews: return .reviews
+        case let .agent(_, seed) where seed == .empty: return .agent
+        default: return nil
+        }
+    }
+
+    /// The selected tab's screen — the navigation stack's ROOT.
+    @ViewBuilder
+    private var tabRoot: some View {
+        let accountId = deps.auth.activeAccountId ?? ""
+        switch tab {
+        case .agent:
+            AgentPageView(seed: .empty, isTabRoot: true)
+                .environment(\.accountId, accountId)
+        case .issues:
+            IssuesHomeView(
+                syncing: syncing,
+                currentBoard: currentBoard,
+                boardLoader: boardLoader,
+                onSelectBoard: { accountId, boardId in
+                    selectBoard(accountId: accountId, boardId: boardId)
+                }
+            )
+        case .inbox:
+            MyWorkView()
+                .environment(\.accountId, accountId)
+        case .devices:
+            AgentsView()
+                .environment(\.accountId, accountId)
+        case .reviews:
+            ReviewsView()
+                .environment(\.accountId, accountId)
+        case .actions:
+            ActionsListView()
+                .environment(\.accountId, accountId)
         }
     }
 
@@ -594,40 +683,6 @@ struct MainNavigator: View {
         }
         // EXP-734: a run's own chore PR belongs to the team, not a board.
         return observedOpenPrSessions.contains { teamIds.contains($0.teamId) && $0.hasOpenPr }
-    }
-
-    /// The Agent tab's root: the empty-seed Agent page under the active
-    /// account. Seeded `.agent` pushes (issue play buttons, actions, Fix
-    /// conflicts) stay plain pushed details.
-    private var agentTabRoot: AppRoute {
-        .agent(accountId: deps.auth.activeAccountId ?? "", seed: .empty)
-    }
-
-    /// The Agent tab is up only when the path is EXACTLY its root — an
-    /// empty-seed Agent page pushed on top of another route is a detail.
-    private var isOnAgentTab: Bool {
-        guard path.count == 1, case let .agent(_, seed) = path[0] else { return false }
-        return seed == .empty
-    }
-
-    private var isOnMyWork: Bool {
-        if case .myWork = path.last { return true }
-        return false
-    }
-
-    private var isOnReviews: Bool {
-        if case .reviews = path.last { return true }
-        return false
-    }
-
-    private var isOnAgents: Bool {
-        if case .agents = path.last { return true }
-        return false
-    }
-
-    private var isOnActions: Bool {
-        if case .actions = path.last { return true }
-        return false
     }
 
     /// Compose targets the board in view: a pushed board list wins, and every
@@ -808,14 +863,10 @@ struct MainNavigator: View {
             RunChangesView(sessionId: sessionId)
                 .environment(\.accountId, accountId)
         case let .agent(accountId, seed):
-            // The Agent TAB is the empty-seed page at the bottom of the
-            // stack; keyed off the route's position, not the live top, so it
-            // keeps its bar clearance while a detail sits on top of it.
-            AgentPageView(
-                seed: seed,
-                isTabRoot: seed == .empty && path.first == AppRoute.agent(accountId: accountId, seed: seed)
-            )
-            .environment(\.accountId, accountId)
+            // Always a pushed detail (a play button's seed): the Agent TAB is
+            // the stack's root (`tabRoot`, EXP-1210).
+            AgentPageView(seed: seed)
+                .environment(\.accountId, accountId)
         case .settings:
             SettingsView()
         case let .serverDetail(accountId):
@@ -1104,7 +1155,7 @@ struct MainNavigator: View {
         }
         // MyWorkView persists its segment in AppStorage — point it at Inbox.
         UserDefaults.standard.set("inbox", forKey: "myWorkSegment")
-        path = [.myWork]
+        landOnRoot(of: .inbox)
     }
 
     /// EXP-825: land on the linked team's Agent page — switch account first
@@ -1125,7 +1176,7 @@ struct MainNavigator: View {
         if let team = teamState.teams.first(where: { $0.slug == slug }) {
             teamState.activeTeamId = team.id
         }
-        path = [.agent(accountId: accountId, seed: .empty)]
+        landOnRoot(of: .agent)
     }
 
     private func stopObserving() {
