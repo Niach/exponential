@@ -143,7 +143,7 @@ const TOOL_GROUPS: {
       { name: `exponential_sessions_results`, desc: `Publish a screenshot of this run's work: it hands back a short-lived upload link and a curl line, filed under a topic with one label per picture, and shows up on the run's Results face everywhere.` },
       { name: `exponential_sessions_show`, desc: `Show a screenshot while the run works: it appears in the run's transcript at the call, on every client, and is filed under the Results face (topic Progress by default). A local file gets a curl line; small images upload inline as base64.` },
       { name: `exponential_sessions_kill`, desc: `Abort a live session you own or host. Never your own run.` },
-      { name: `exponential_sessions_end`, desc: `End this run with a close-out summary for whoever started it (not stored on the run). Registered only inside an unattended (trigger- or agent-started) run.` },
+      { name: `exponential_sessions_end`, desc: `End this run with a close-out summary for whoever started it (not stored on the run). Unattended (trigger- or agent-started) runs call it last; a person-started run only when asked.` },
       { name: `exponential_sessions_ask_parent`, desc: `Registered only in a run another run started: ask the starting run a question and end your turn; its answer arrives as a user message.` },
     ],
   },

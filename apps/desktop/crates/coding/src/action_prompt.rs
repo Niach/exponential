@@ -196,9 +196,10 @@ board, label, and comment operations. \
 /// EXP-615/EXP-637: the chat run's seed prompt. The user's words ride LAST
 /// and VERBATIM (this is the "open a terminal tab on the repo" shape —
 /// anything we wrap around it is words the user did not write), preceded by
-/// a two-line preamble: where the run lives, and how it reports. EXP-679: a
-/// chat a person started has no `exponential_sessions_end` tool to call and
-/// stays open for follow-ups, so it is simply told to summarize; only an
+/// a two-line preamble: where the run lives, and how it reports. EXP-679 /
+/// EXP-1222: a chat a person started stays open for follow-ups, so it is
+/// simply told to summarize (it has `exponential_sessions_end` too, but calls
+/// it only when the person asks — the server instructions say so); only an
 /// unattended chat (one another coding session started) reports through the
 /// tool that ends it.
 pub fn chat_prompt(
@@ -272,7 +273,8 @@ as the action's execution context."
 access (then pick the right repo id from `exponential_repositories_list`)."
             .to_string(),
     };
-    // EXP-679: only an unattended creator run has the close-out tool.
+    // EXP-679 / EXP-1222: only an unattended creator run closes out with the
+    // tool (an attended one has it, but only for the person's "end the run").
     let report_rule = if unattended {
         "After the action is created, report with `exponential_sessions_end` (a one-paragraph \
 summary); that call ends this run."
@@ -327,8 +329,8 @@ pub fn fix_pr_conflicts_prompt(
     unattended: bool,
     extra: Option<&str>,
 ) -> String {
-    // EXP-679: the merge result goes into the conversation for a person's
-    // run (no close-out tool there), through the tool for an unattended one.
+    // EXP-679 / EXP-1222: the merge result goes into the conversation for a
+    // person's run (it stays open), through the tool for an unattended one.
     let report_rule = if unattended {
         "Finally call `exponential_sessions_end` with the merge result (merged, or why you \
 stopped)."
@@ -610,9 +612,10 @@ mod tests {
         // The body rides verbatim after the divider — never rewritten.
         assert!(prompt.ends_with("---\n\n# Review\nScan the repo."));
         // EXP-637: the preamble's last sentence IS the shared close-out —
-        // EXP-679: without the tool a person-started run never gets.
+        // EXP-1222: a person-started run ends itself only when asked.
         assert!(prompt.contains("leave the worktree clean"));
-        assert!(!prompt.contains("exponential_sessions_end"));
+        assert!(prompt.contains("only when the person asks you to end the run"));
+        assert!(!prompt.contains("That call ends this run"));
         // EXP-764: no repo means the scratch note, never a branch.
         assert!(prompt.contains(SCRATCH_CWD_NOTE), "{prompt}");
         assert!(!prompt.contains("You work on branch"));
@@ -659,7 +662,8 @@ board, label, and comment operations. {}\n\n## Workspace\n\n{SCRATCH_CWD_NOTE}\n
     #[test]
     fn only_an_unattended_action_run_is_told_to_call_the_close_out_tool() {
         let attended = render_action_prompt_full("Code review", "# Review", &[], None, None, false, None);
-        assert!(!attended.contains("exponential_sessions_end"));
+        assert!(attended.contains("only when the person asks you to end the run"));
+        assert!(!attended.contains("That call ends this run"));
         assert!(attended.contains("This session stays open after you finish"));
 
         let unattended = render_action_prompt_full("Code review", "# Review", &[], None, None, true, None);
@@ -1170,7 +1174,8 @@ why you stopped)."
         assert!(!prompt.contains("This run was started automatically"));
         assert!(!prompt.contains(crate::prompt::ADDITIONAL_INSTRUCTIONS_HEADING));
         assert!(prompt.contains("This session stays open after you finish"));
-        assert!(!prompt.contains("exponential_sessions_end"));
+        assert!(prompt.contains("only when the person asks you to end the run"));
+        assert!(!prompt.contains("That call ends this run"));
         assert!(prompt.ends_with(&format!("---\n\nTeam: `team-1`\n\n{TIDY_UP_PROGRAM}")));
         // The hard rules survive verbatim.
         assert!(TIDY_UP_PROGRAM.contains("do not call `exponential_issues_update`"));

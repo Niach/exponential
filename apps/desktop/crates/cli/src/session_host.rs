@@ -412,13 +412,12 @@ impl engine::EngineHost for CliEngineHost {
 /// Fires ONLY on an explicit own-row `ended` (vanished row ≠ kill; a
 /// resurrected row owned by someone else must never kill this run).
 /// EXP-674: this edge is the daemon's ONLY reaper besides the child's own
-/// exit — deliberately no idle bound. A person-started run never reports at
-/// all: since EXP-679 `exponential_sessions_end` is registered only for
-/// UNATTENDED runs, so this one just keeps waiting for the next reply,
-/// exactly like in a desktop tab or an attached terminal, until a web/mobile
-/// "Kill session", a merge or the sweep ends the row. Unattended runs
-/// (schedule/event/agent-started) do get the tool, and their close-out ends
-/// the row and reaps right away.
+/// exit — deliberately no idle bound. A person-started run keeps waiting for
+/// the next reply, exactly like in a desktop tab or an attached terminal,
+/// until a web/mobile "Kill session", a merge, the sweep, or (EXP-1222) the
+/// person asking the agent to end the run with `exponential_sessions_end`
+/// ends the row. Unattended runs (schedule/event/agent-started) close out
+/// with that tool on their own, which ends the row and reaps right away.
 /// EXP-681: the ONE exception to "vanished row ≠ kill" — a SUSTAINED 426
 /// min-version gate. This build can no longer read the edge (the poll is
 /// rejected) nor keep the row alive (so is the heartbeat), so once the server

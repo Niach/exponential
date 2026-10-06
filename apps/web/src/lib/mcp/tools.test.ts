@@ -393,10 +393,16 @@ function collectTools(
  * inputSchema is a strict z.object INSTANCE, not a raw shape. */
 function collectToolDefs(
   gates: McpToolGates = ALL_MCP_TOOL_GATES
-): Map<string, { inputSchema?: z.ZodType }> {
-  const defs = new Map<string, { inputSchema?: z.ZodType }>()
+): Map<string, { inputSchema?: z.ZodType; description?: string }> {
+  const defs = new Map<
+    string,
+    { inputSchema?: z.ZodType; description?: string }
+  >()
   const fakeServer = {
-    registerTool: (name: string, def: { inputSchema?: z.ZodType }) => {
+    registerTool: (
+      name: string,
+      def: { inputSchema?: z.ZodType; description?: string }
+    ) => {
       defs.set(name, def)
     },
   }
@@ -2637,9 +2643,14 @@ describe(`exponential_comments_create audience reporter`, () => {
 })
 
 describe(`exponential_sessions_end`, () => {
-  // EXP-679: the tool only registers for an unattended run, so these cases
-  // hand in the gate the route would have resolved for one.
-  const UNATTENDED = { sessionsEnd: true, askParent: false, sessionResults: true }
+  // EXP-679 / EXP-1222: the tool registers for every run of the caller's;
+  // these cases hand in the gate the route would resolve for an unattended one.
+  const UNATTENDED = {
+    sessionsEnd: true,
+    unattended: true,
+    askParent: false,
+    sessionResults: true,
+  }
 
   it(`refuses outside a launched session, naming the missing header`, async () => {
     const result = await collectTools(USER, null, UNATTENDED).get(
@@ -2711,13 +2722,26 @@ describe(`exponential_sessions_end`, () => {
     expect(schema.safeParse({ summary: `Shipped it.` }).success).toBe(true)
   })
 
-  // EXP-679: a person-started run never gets the tool — the human is right
-  // there, and a close-out would end a conversation they are still having.
-  it(`is not registered for a person-started session`, async () => {
-    const tools = collectTools(USER, SESSION, {
-      sessionsEnd: false,
-      askParent: false,
+  // EXP-1222: a person-started run gets the tool too (the person may ask the
+  // agent to end the run); the description says when to call it.
+  it(`is registered for a person-started session`, async () => {
+    const defs = collectToolDefs({
+      sessionsEnd: true,
+      unattended: false,
+      askParent: true,
       sessionResults: true,
+    })
+    expect(defs.get(`exponential_sessions_end`)?.description).toContain(
+      `only when the person asks`
+    )
+  })
+
+  it(`is not registered without a run of the caller's`, async () => {
+    const tools = collectTools(USER, null, {
+      sessionsEnd: false,
+      unattended: false,
+      askParent: false,
+      sessionResults: false,
     })
     expect(tools.has(`exponential_sessions_end`)).toBe(false)
   })
@@ -2737,7 +2761,12 @@ describe(`exponential_sessions_end`, () => {
 // ── EXP-700: the child's ask rail ────────────────────────────────────────────
 describe(`exponential_sessions_ask_parent`, () => {
   const PARENT = `77777777-7777-4777-8777-777777777777`
-  const AGENT_CHILD = { sessionsEnd: true, askParent: true, sessionResults: true }
+  const AGENT_CHILD = {
+    sessionsEnd: true,
+    unattended: true,
+    askParent: true,
+    sessionResults: true,
+  }
   const RELAY = { url: `https://relay.test`, secret: `s` }
 
   // The row loadChildParentContext's one select serves: the child, its issue
@@ -2757,6 +2786,7 @@ describe(`exponential_sessions_ask_parent`, () => {
   it(`is not registered without its gate`, () => {
     const tools = collectTools(USER, SESSION, {
       sessionsEnd: true,
+      unattended: true,
       askParent: false,
       sessionResults: true,
     })
@@ -2845,7 +2875,12 @@ describe(`exponential_sessions_ask_parent`, () => {
 
 // ── EXP-1089 / EXP-1065: `to: 'user'` from any run, the question on the row ──
 describe(`exponential_sessions_ask_parent — to: 'user' (EXP-1089)`, () => {
-  const OWN_RUN = { sessionsEnd: false, askParent: true, sessionResults: true }
+  const OWN_RUN = {
+    sessionsEnd: true,
+    unattended: false,
+    askParent: true,
+    sessionResults: true,
+  }
 
   const childRow = (over: Record<string, unknown> = {}) => ({
     id: SESSION,
@@ -2926,6 +2961,7 @@ describe(`exponential_sessions_ask_parent — to: 'user' (EXP-1089)`, () => {
 describe(`exponential_sessions_show`, () => {
   const OWN_RUN = {
     sessionsEnd: false,
+    unattended: false,
     askParent: false,
     sessionResults: true,
   }
@@ -3013,6 +3049,7 @@ describe(`exponential_sessions_results`, () => {
   // close-out.
   const OWN_RUN = {
     sessionsEnd: false,
+    unattended: false,
     askParent: false,
     sessionResults: true,
   }
@@ -3066,6 +3103,7 @@ describe(`exponential_sessions_results`, () => {
     expect(
       collectTools(USER, SESSION, {
         sessionsEnd: true,
+        unattended: true,
         askParent: true,
         sessionResults: false,
       }).has(`exponential_sessions_results`)
@@ -5817,7 +5855,12 @@ describe(`exponential_pr_open — a follow-up run based on its parent's branch`,
 })
 
 describe(`exponential_sessions_ask_parent — targets`, () => {
-  const AGENT_CHILD = { sessionsEnd: true, askParent: true, sessionResults: true }
+  const AGENT_CHILD = {
+    sessionsEnd: true,
+    unattended: true,
+    askParent: true,
+    sessionResults: true,
+  }
   const RELAY = { url: `https://relay.test`, secret: `s` }
   const PARENT = `77777777-7777-4777-8777-777777777777`
 

@@ -22,10 +22,10 @@ pub struct BatchPromptArgs<'a> {
     /// The batch working branch (`exp/batch-<id8>`), already checked out.
     pub branch: &'a str,
     pub issues: &'a [BatchIssueSpec],
-    /// EXP-679: an UNATTENDED run (an automation's, or one another coding
-    /// session started) is the only one told to call
-    /// `exponential_sessions_end` — the server registers that tool for
-    /// nobody else.
+    /// EXP-679 / EXP-1222: an UNATTENDED run (an automation's, or one another
+    /// coding session started) is the only one told to close out with
+    /// `exponential_sessions_end` LAST; an attended one (the server registers
+    /// the tool for it too) calls it only when the person asks.
     pub unattended: bool,
     /// EXP-825: the composer's free text — appended LAST as the
     /// additional-instructions section ([`crate::prompt::additional_instructions`]);
@@ -175,10 +175,11 @@ mod tests {
         assert!(!prompt.contains("pre-defined subagent"));
         assert!(!prompt.contains("wave"));
         assert!(!prompt.contains("per-issue worktree"));
-        // EXP-637/EXP-679: the shared close-out rides every prompt — but a
-        // person-started batch is never told to call the tool it doesn't get.
+        // EXP-637/EXP-1222: the shared close-out rides every prompt — a
+        // person-started batch ends itself only when the person asks.
         assert!(prompt.contains("leave the worktree clean"));
-        assert!(!prompt.contains("exponential_sessions_end"));
+        assert!(prompt.contains("only when the person asks you to end the run"));
+        assert!(!prompt.contains("That call ends this run"));
         let unattended = render_batch_prompt(&BatchPromptArgs {
             default_branch: "main",
             branch: "exp/batch-a1b2c3d4",

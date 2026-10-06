@@ -111,8 +111,8 @@ pub enum LaunchOrigin {
         /// EXP-679: the frame's `startedReason` — `agent` when ANOTHER
         /// coding session started this run (MCP `exponential_sessions_start`).
         /// Echoed into `codingSessions.start`, which makes the run
-        /// unattended: the server registers `exponential_sessions_end` for
-        /// it and that call ends it. `None` = a person asked for this start.
+        /// unattended: its prompt closes out with `exponential_sessions_end`
+        /// LAST, and that call ends it. `None` = a person asked for this start.
         started_reason: Option<String>,
     },
 }
@@ -148,8 +148,8 @@ fn attribution<'a>(
 /// (`schedule`/`event`) when one fired it, else the reason the relay frame
 /// carried (`agent` — another coding session started this run). `None` = a
 /// person started it, and the run is ATTENDED: it stays open after the agent
-/// finishes (EXP-673), the server registers no `exponential_sessions_end`
-/// tool for it, and its prompt must not name one.
+/// finishes (EXP-673); the server registers `exponential_sessions_end` for it
+/// too (EXP-1222), but its prompt says to call it only when the person asks.
 fn started_reason<'a>(
     origin: &'a LaunchOrigin,
     trigger: Option<&'a TriggerNote>,
@@ -1655,8 +1655,8 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
     // case where no record could be resolved, so it gets a fresh session in
     // the reused worktree told to pick the branch work back up.
     // EXP-679: only an unattended run (relay `startedReason`) is told to
-    // report through `exponential_sessions_end` — a person's run keeps its
-    // session open instead.
+    // report through `exponential_sessions_end` LAST — a person's run keeps
+    // its session open and ends itself only when asked (EXP-1222).
     let run_reason = match req {
         PrepareRequest::Issue(issue_req) => started_reason(&issue_req.origin, None),
         PrepareRequest::Batch(batch_req) => started_reason(&batch_req.origin, None),
@@ -2182,9 +2182,10 @@ fn prepare_action(
         _ => None,
     };
     // EXP-679: an automation's trigger or a relay `agent` reason makes this
-    // run unattended — the only shape whose prompt names
-    // `exponential_sessions_end` (the only shape the server registers it
-    // for). Computed up front because the chat validation below depends on it.
+    // run unattended — the only shape whose prompt closes out with
+    // `exponential_sessions_end` LAST (EXP-1222: every run has the tool, an
+    // attended one calls it only when asked). Computed up front because the
+    // chat validation below depends on it.
     let run_reason = started_reason(&req.origin, req.trigger.as_ref());
     let unattended = run_reason.is_some();
     // EXP-739: a chat run is NOT repo-bound. The chat is a conversation with
@@ -5551,7 +5552,7 @@ mod tests {
             "{prompt}"
         );
         assert!(prompt.starts_with("You work on branch `exp/chat-1a2b3c4d`"));
-        // EXP-679: a person's chat has no close-out tool — it stays open.
+        // EXP-679: a person's chat is never told to close out — it stays open.
         assert!(!prompt.contains("exponential_sessions_end"), "{prompt}");
         assert!(prompt.contains("the session stays open afterwards"));
         // Named after the repo (`owner/repo` → `repo`).
@@ -5691,9 +5692,10 @@ mod tests {
         assert!(prompt.contains("## Workspace"), "{prompt}");
         assert!(prompt.contains("branch `exp/code-review-1a2b3c4d`"));
         assert!(prompt.contains("`repositoryId: \"repo-run-wt\"`"));
-        // EXP-679: a hand-started action run keeps its session open, so the
-        // close-out tool (which it is not given) is never named.
-        assert!(!prompt.contains("exponential_sessions_end"), "{prompt}");
+        // EXP-679 / EXP-1222: a hand-started action run keeps its session
+        // open and ends itself only when the person asks.
+        assert!(prompt.contains("only when the person asks you to end the run"), "{prompt}");
+        assert!(!prompt.contains("That call ends this run"), "{prompt}");
         assert!(prompt.contains("This session stays open after you finish"));
         // The run is recorded so it can be resumed after it ends.
         let record = crate::run_registry::get(&dir.0, "sess-a").expect("run record");
@@ -6316,7 +6318,8 @@ mod tests {
         let prompt = seed_prompt(&prepared);
         assert!(prompt.contains("RESUMING the run \"Code review\""), "{prompt}");
         // EXP-679: a LOCAL resume is a person's — attended close-out.
-        assert!(!prompt.contains("exponential_sessions_end"), "{prompt}");
+        assert!(prompt.contains("only when the person asks you to end the run"), "{prompt}");
+        assert!(!prompt.contains("That call ends this run"), "{prompt}");
         assert!(prompt.contains("This session stays open after you finish"));
     }
 
@@ -6717,7 +6720,8 @@ mod tests {
             other => panic!("expected Ready, got {other:?}"),
         };
         let prompt = seed_prompt(&prepared);
-        assert!(!prompt.contains("exponential_sessions_end"), "{prompt}");
+        assert!(prompt.contains("only when the person asks you to end the run"), "{prompt}");
+        assert!(!prompt.contains("That call ends this run"), "{prompt}");
         assert_eq!(prepared.heartbeat_scope.started_reason, None);
         let requests = captured.lock().unwrap();
         assert!(!requests.iter().any(|r| r.contains("startedReason")));

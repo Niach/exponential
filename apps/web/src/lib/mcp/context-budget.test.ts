@@ -118,20 +118,30 @@ it(`keeps the always-loaded MCP tool set exactly ALWAYS_LOAD_TOOLS`, () => {
   expect(flagged).not.toContain(`exponential_report_bug`)
 })
 
-// EXP-679: the close-out tool is registered only for an unattended run, so a
-// person-started session must not even see the name.
+// EXP-679 / EXP-1222: the close-out tool registers for every run of the
+// caller's, attended included — only a human's MCP client (no run) lacks it.
 it(`registers exponential_sessions_end only behind its gate`, () => {
   expect(
     serializeToolDefs().some((def) => def.name === `exponential_sessions_end`)
   ).toBe(true)
   const person = serializeToolDefs({
-    sessionsEnd: false,
-    askParent: false,
+    sessionsEnd: true,
+    unattended: false,
+    askParent: true,
     sessionResults: true,
   })
   expect(person.some((def) => def.name === `exponential_sessions_end`)).toBe(
-    false
+    true
   )
+  const headerless = serializeToolDefs({
+    sessionsEnd: false,
+    unattended: false,
+    askParent: false,
+    sessionResults: false,
+  })
+  expect(
+    headerless.some((def) => def.name === `exponential_sessions_end`)
+  ).toBe(false)
 })
 
 // EXP-700: the ask tool is registered only for an AGENT-started run with a
@@ -144,6 +154,7 @@ it(`registers exponential_sessions_ask_parent only behind its gate`, () => {
   ).toBe(true)
   const automation = serializeToolDefs({
     sessionsEnd: true,
+    unattended: true,
     askParent: false,
     sessionResults: true,
   })
@@ -167,6 +178,7 @@ it(`registers exponential_sessions_results only behind its gate`, () => {
   ).toBe(true)
   const headerless = serializeToolDefs({
     sessionsEnd: false,
+    unattended: false,
     askParent: false,
     sessionResults: false,
   })
@@ -176,6 +188,7 @@ it(`registers exponential_sessions_results only behind its gate`, () => {
   // It does NOT ride the close-out's gate: an attended run publishes too.
   const attended = serializeToolDefs({
     sessionsEnd: false,
+    unattended: false,
     askParent: false,
     sessionResults: true,
   })
@@ -194,6 +207,7 @@ it(`registers exponential_sessions_compact only behind the session gate`, () => 
   ).toBe(true)
   const headerless = serializeToolDefs({
     sessionsEnd: false,
+    unattended: false,
     askParent: false,
     sessionResults: false,
   })
@@ -258,22 +272,30 @@ it(`keeps the MCP server instructions self-contained and in budget`, () => {
   expect(MCP_SERVER_INSTRUCTIONS.split(`\n\n`)[0].length).toBeLessThanOrEqual(
     512
   )
-  // EXP-679: the person-started variant must not mention a tool it does not
-  // get, and must stay inside the same two budgets.
+  // EXP-679 / EXP-1222: the person-started variant has the close-out tool
+  // but is told to call it only when asked — never the unattended LAST rule —
+  // and must stay inside the same two budgets.
   const person = mcpServerInstructions({
-    sessionsEnd: false,
-    askParent: false,
+    sessionsEnd: true,
+    unattended: false,
+    askParent: true,
     reportBug: true,
     sessionResults: true,
   })
-  expect(person).not.toContain(`exponential_sessions_end`)
-  expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_sessions_end`)
+  expect(person).toContain(
+    `exponential_sessions_end ends this run; call it only when the person asks you to end the run.`
+  )
+  expect(person).not.toContain(`This run is unattended`)
+  expect(person).toContain(`exponential_sessions_ask_parent with to 'user'`)
+  expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_sessions_end LAST`)
+  expect(MCP_SERVER_INSTRUCTIONS).not.toContain(`only when the person asks`)
   expect(person.length).toBeLessThan(2_000)
   expect(person.split(`\n\n`)[0].length).toBeLessThanOrEqual(512)
   // EXP-700: same rule for the ask tool — an automation-started run (no
   // parent) must not be told to ask a starter it does not have.
   const automation = mcpServerInstructions({
     sessionsEnd: true,
+    unattended: true,
     askParent: false,
     reportBug: true,
     sessionResults: true,
@@ -284,6 +306,7 @@ it(`keeps the MCP server instructions self-contained and in budget`, () => {
   // self-hosted instance never registers the tool, so it must not name it.
   const selfHosted = mcpServerInstructions({
     sessionsEnd: true,
+    unattended: true,
     askParent: true,
     reportBug: false,
     sessionResults: true,
@@ -293,11 +316,13 @@ it(`keeps the MCP server instructions self-contained and in budget`, () => {
   // EXP-879: the screenshot ask follows its own gate, and lands LAST.
   const noRun = mcpServerInstructions({
     sessionsEnd: false,
+    unattended: false,
     askParent: false,
     reportBug: true,
     sessionResults: false,
   })
   expect(noRun).not.toContain(`exponential_sessions_results`)
+  expect(noRun).not.toContain(`exponential_sessions_end`)
   expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_sessions_results`)
   // EXP-933: the notify rule rides the same run-only paragraph.
   expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_notifications_send`)

@@ -25,10 +25,10 @@ export const ALWAYS_LOAD_TOOLS = [
   `exponential_actions_create`,
 ] as const
 
-// EXP-679: always-loaded WHEN registered. `exponential_sessions_end` only
-// registers for an unattended run (gates.sessionsEnd) — and that run needs it
-// on turn one, so it keeps the flag. It stays out of ALWAYS_LOAD_TOOLS
-// because most sessions never see the tool at all.
+// EXP-679: always-loaded WHEN registered. `exponential_sessions_end`
+// registers for every run of the caller's (gates.sessionsEnd, EXP-1222) — an
+// unattended run needs it on turn one, so it keeps the flag. It stays out of
+// ALWAYS_LOAD_TOOLS because a human's MCP client (no run) never sees it.
 export const GATED_ALWAYS_LOAD_TOOLS = [
   `exponential_sessions_end`,
   // EXP-700: a child run must know it CAN ask before it ever searches.

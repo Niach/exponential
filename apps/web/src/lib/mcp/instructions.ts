@@ -9,9 +9,9 @@
 // always-loaded tools by their exact names and tells the agent that everything
 // else is found by searching for `exponential_*`.
 //
-// EXP-679: the close-out paragraph is per-caller, like the tool itself — only
-// an unattended run is told about exponential_sessions_end, because only an
-// unattended run has it registered.
+// EXP-679 / EXP-1222: the close-out wording is per-caller. Every run has
+// exponential_sessions_end now; an unattended run is told to call it LAST, an
+// attended one to call it only when the person asks.
 //
 // FEED-21: the report-bug paragraph follows the tool's own EXP-496 gate (the
 // instance has a feedback widget, i.e. cloud) — a deferred tool description is
@@ -21,6 +21,8 @@
 
 export function mcpServerInstructions(gates: {
   sessionsEnd: boolean
+  // EXP-1222: `started_reason` set — picks the close-out wording.
+  unattended: boolean
   askParent: boolean
   reportBug: boolean
   // EXP-879: the caller runs inside a session of its own, so it has a run to
@@ -43,9 +45,9 @@ export function mcpServerInstructions(gates: {
       `When Exponential ITSELF misbehaves (a tool result contradicting its docs, a dropped remote start, a sync glitch), file it with exponential_report_bug. It reaches Exponential's developers, not the user's project.`
     )
   }
-  if (gates.sessionsEnd) {
+  if (gates.sessionsEnd && gates.unattended) {
     // EXP-700: only a run another run started can ask its starter — the
-    // exception rides the same paragraph, and askParent implies sessionsEnd.
+    // exception rides the same paragraph.
     paragraphs.push(
       `This run is unattended (a trigger or another agent started it). Finish with exponential_sessions_end LAST: a one-paragraph summary (finished, stopped for a human, or changed nothing), worktree clean. It ends the run; nobody is watching, so never wait for replies.` +
         (gates.askParent
@@ -53,9 +55,17 @@ export function mcpServerInstructions(gates: {
           : ``)
     )
   }
-  // EXP-1089: an attended run (a person's chat) may ask its owner too — the tool is registered for
-  // every run now, and the paragraph above only rides the close-out.
-  if (gates.askParent && !gates.sessionsEnd) {
+  // EXP-1222: an attended run has the tool too, for the person's "end this
+  // run" — never as a sign-off of its own.
+  if (gates.sessionsEnd && !gates.unattended) {
+    paragraphs.push(
+      `exponential_sessions_end ends this run; call it only when the person asks you to end the run.`
+    )
+  }
+  // EXP-1089: an attended run (a person's chat) may ask its owner too — the
+  // tool is registered for every run, and the paragraph above only rides the
+  // unattended close-out.
+  if (gates.askParent && !gates.unattended) {
     paragraphs.push(
       `A question only the person who owns this run can answer: exponential_sessions_ask_parent with to 'user' notifies them and parks this run as needing input; stop and wait, the answer arrives as a user message.`
     )
@@ -79,6 +89,7 @@ export function mcpServerInstructions(gates: {
 /** The full variant — what the context budget measures. */
 export const MCP_SERVER_INSTRUCTIONS = mcpServerInstructions({
   sessionsEnd: true,
+  unattended: true,
   askParent: true,
   reportBug: true,
   sessionResults: true,
