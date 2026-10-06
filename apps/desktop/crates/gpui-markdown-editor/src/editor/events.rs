@@ -2409,6 +2409,13 @@ impl Editor {
                     }
                 };
                 self.focus_block(target.entity_id());
+                // EXP-1221: Tab on an image — land the caret below it and
+                // insert nothing (a reused neighbor keeps its content).
+                if text.is_empty() {
+                    target.update(cx, |target, cx| target.move_to(0, cx));
+                    cx.notify();
+                    return;
+                }
                 let text = text.clone();
                 // EXP-285: a multiline paste routed below the image — hand the
                 // lines to the normal paste path on the (empty) target
@@ -2526,9 +2533,9 @@ mod tests {
     use super::Editor;
     use crate::components::{
         Block, BlockEvent, BlockKind, BlockRecord, CalloutVariant, Delete, DeleteBack,
-        ExitCodeBlock, InlineTextTree, Newline, Paste,
+        ExitCodeBlock, IndentBlock, InlineTextTree, Newline, OutdentBlock, Paste,
     };
-    use gpui::{App, AppContext, ClipboardItem, Entity, TestAppContext};
+    use gpui::{App, AppContext, ClipboardItem, Entity, EntityInputHandler, TestAppContext};
 
     #[gpui::test]
     async fn request_quote_break_creates_new_root_leaf_quote_group(cx: &mut TestAppContext) {
@@ -2603,6 +2610,95 @@ mod tests {
             assert_eq!(editor.pending_focus, Some(landing.entity_id()));
             // The image block's source is untouched.
             assert_eq!(visible[0].entity.read(cx).display_text(), "![a](p.png)");
+        });
+    }
+
+    // EXP-1221: Tab on a rendered image moved its four spaces into the
+    // paragraph below, so the next typed text saved as indented code.
+    #[gpui::test]
+    async fn tab_on_a_standalone_image_moves_below_without_inserting_spaces(
+        cx: &mut TestAppContext,
+    ) {
+        let cx = cx.add_empty_window();
+        let editor = cx.new(|cx| Editor::from_markdown(cx, "![a](p.png)".to_string(), None));
+
+        cx.update(|window, cx| {
+            editor.update(cx, |editor, cx| {
+                let image = editor.document.first_root().expect("image block").clone();
+                assert!(image.read(cx).showing_rendered_image());
+                image.update(cx, |block, block_cx| {
+                    block.on_indent_block(&IndentBlock, window, block_cx);
+                });
+            });
+        });
+
+        cx.update(|window, cx| {
+            editor.update(cx, |editor, cx| {
+                let visible = editor.document.visible_blocks().to_vec();
+                assert_eq!(visible.len(), 2);
+                assert_eq!(visible[0].entity.read(cx).display_text(), "![a](p.png)");
+                let landing = visible[1].entity.clone();
+                assert_eq!(landing.read(cx).kind(), BlockKind::Paragraph);
+                assert_eq!(landing.read(cx).display_text(), "");
+                assert_eq!(editor.pending_focus, Some(landing.entity_id()));
+                landing.update(cx, |block, block_cx| {
+                    block.replace_text_in_range(None, "x", window, block_cx);
+                });
+            });
+        });
+
+        editor.update(cx, |editor, cx| {
+            let markdown = editor.markdown(cx);
+            assert_eq!(markdown, "![a](p.png)\n\nx");
+            assert!(!markdown.lines().any(|line| line.starts_with("    ")));
+        });
+    }
+
+    #[gpui::test]
+    async fn shift_tab_on_a_standalone_image_is_a_no_op(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let editor = cx.new(|cx| Editor::from_markdown(cx, "![a](p.png)".to_string(), None));
+
+        cx.update(|window, cx| {
+            editor.update(cx, |editor, cx| {
+                let image = editor.document.first_root().expect("image block").clone();
+                image.update(cx, |block, block_cx| {
+                    block.on_outdent_block(&OutdentBlock, window, block_cx);
+                });
+            });
+        });
+
+        editor.update(cx, |editor, cx| {
+            assert_eq!(editor.document.visible_blocks().len(), 1);
+            assert_eq!(editor.markdown(cx), "![a](p.png)");
+        });
+    }
+
+    // EXP-1221: Tab at the start of a root paragraph still indents what the
+    // user sees, but the saved markdown stays a paragraph after a reload.
+    #[gpui::test]
+    async fn tab_at_paragraph_start_never_saves_an_indented_code_block(cx: &mut TestAppContext) {
+        let cx = cx.add_empty_window();
+        let editor = cx.new(|cx| Editor::from_markdown(cx, "hello".to_string(), None));
+
+        cx.update(|window, cx| {
+            editor.update(cx, |editor, cx| {
+                let paragraph = editor.document.first_root().expect("paragraph").clone();
+                paragraph.update(cx, |block, block_cx| {
+                    block.move_to(0, block_cx);
+                    block.on_indent_block(&IndentBlock, window, block_cx);
+                });
+                assert_eq!(paragraph.read(cx).display_text(), "    hello");
+            });
+        });
+
+        let markdown = editor.update(cx, |editor, cx| editor.markdown(cx));
+        assert_eq!(markdown, "hello");
+        let reloaded = cx.new(|cx| Editor::from_markdown(cx, markdown, None));
+        reloaded.update(cx, |editor, cx| {
+            let root = editor.document.first_root().expect("paragraph").clone();
+            assert_eq!(root.read(cx).kind(), BlockKind::Paragraph);
+            assert_eq!(root.read(cx).display_text(), "hello");
         });
     }
 
