@@ -15,10 +15,12 @@
 //! Unrestricted by decision: the switch is the one gate. No app blocklist,
 //! no approval cards, nothing on top of what cua itself refuses.
 
+#[cfg(feature = "cua")]
 mod driver;
 mod server;
 pub mod worker;
 
+#[cfg(feature = "cua")]
 use std::sync::{Arc, OnceLock};
 
 pub use server::SERVER_NAME;
@@ -69,6 +71,7 @@ impl Permission {
     }
 }
 
+#[cfg(feature = "cua")]
 struct Host {
     hub: Arc<server::Hub>,
     driver: Arc<driver::Driver>,
@@ -78,8 +81,10 @@ struct Host {
 /// The process-wide host, started on the first grant or prepare. An `Err`
 /// (no free port, no runtime) is remembered: it will not change under a
 /// running process.
+#[cfg(feature = "cua")]
 static HOST: OnceLock<Result<Host, String>> = OnceLock::new();
 
+#[cfg(feature = "cua")]
 fn host() -> Result<&'static Host, String> {
     HOST.get_or_init(|| {
         let driver = Arc::new(driver::Driver::new(&host_bundle_id())?);
@@ -92,8 +97,16 @@ fn host() -> Result<&'static Host, String> {
     .map_err(Clone::clone)
 }
 
+/// Why computer use is not in this binary at all, if so.
+const NOT_LINKED: Option<&str> = if cfg!(feature = "cua") {
+    None
+} else {
+    Some("Not available in this build (the Linux daemon); use the desktop app.")
+};
+
 /// The advisory host identity cua echoes in its diagnostics (never a trust
 /// signal): the executable's name under the app's reverse domain.
+#[cfg(feature = "cua")]
 fn host_bundle_id() -> String {
     let stem = std::env::current_exe()
         .ok()
@@ -104,6 +117,9 @@ fn host_bundle_id() -> String {
 
 /// Why this machine cannot drive anything at all, if so.
 fn unsupported() -> Option<String> {
+    if let Some(reason) = NOT_LINKED {
+        return Some(reason.to_string());
+    }
     #[cfg(target_os = "linux")]
     if std::env::var_os("DISPLAY").is_none() && std::env::var_os("WAYLAND_DISPLAY").is_none() {
         return Some("No display session (neither DISPLAY nor WAYLAND_DISPLAY).".to_string());
@@ -118,15 +134,23 @@ pub fn grant(session_id: &str, label: &str) -> Result<Grant, String> {
     if let Some(reason) = unsupported() {
         return Err(reason);
     }
-    let host = host()?;
-    Ok(Grant { url: host.url.clone(), token: host.hub.grant(session_id, label) })
+    #[cfg(feature = "cua")]
+    {
+        let host = host()?;
+        Ok(Grant { url: host.url.clone(), token: host.hub.grant(session_id, label) })
+    }
+    #[cfg(not(feature = "cua"))]
+    unreachable!("{session_id} {label}")
 }
 
 /// The run ended: its token is dead and its session closed.
 pub fn revoke(session_id: &str) {
+    #[cfg(feature = "cua")]
     if let Some(Ok(host)) = HOST.get() {
         host.hub.revoke(session_id);
     }
+    #[cfg(not(feature = "cua"))]
+    let _ = session_id;
 }
 
 /// Every OS permission computer use needs here and whether it is granted,
@@ -134,7 +158,7 @@ pub fn revoke(session_id: &str) {
 /// asks for none up front (Windows, X11; a Wayland desktop's portals ask
 /// per session, inside cua).
 pub fn permissions() -> Vec<(Permission, bool)> {
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", feature = "cua"))]
     {
         let status = cua_driver_sdk::current_mac_os_permission_status();
         vec![
@@ -142,7 +166,7 @@ pub fn permissions() -> Vec<(Permission, bool)> {
             (Permission::Accessibility, status.accessibility),
         ]
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(all(target_os = "macos", feature = "cua")))]
     {
         Vec::new()
     }
@@ -175,7 +199,7 @@ pub fn readiness() -> Readiness {
 /// a run. Blocks while a dialog waits: off the UI thread, see
 /// [`prepare_in_background`].
 pub fn prepare() -> Readiness {
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", feature = "cua"))]
     let permissions = {
         let status = cua_driver_sdk::request_mac_os_permissions();
         vec![
@@ -183,9 +207,10 @@ pub fn prepare() -> Readiness {
             (Permission::Accessibility, status.accessibility),
         ]
     };
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(all(target_os = "macos", feature = "cua")))]
     let permissions = permissions();
     let readiness = readiness_of(&permissions);
+    #[cfg(feature = "cua")]
     if readiness == Readiness::Ready {
         if let Err(reason) = host().and_then(|host| host.driver.start()) {
             log::warn!("[computer] {reason}");
@@ -215,13 +240,17 @@ pub fn prepare_in_background() {
 /// The switch turned off: every run's grant ends and the worker stops (its
 /// agent cursor with it). Grants after this start it again.
 pub fn shutdown() {
+    #[cfg(feature = "cua")]
     if let Some(Ok(host)) = HOST.get() {
         host.hub.revoke_all();
         host.driver.stop();
     }
 }
 
-/// Whether the worker runs right now (the doctor's "running" detail).
+/// Whether the worker runs right now.
 pub fn running() -> bool {
-    matches!(HOST.get(), Some(Ok(host)) if host.driver.is_live())
+    #[cfg(feature = "cua")]
+    return matches!(HOST.get(), Some(Ok(host)) if host.driver.is_live());
+    #[cfg(not(feature = "cua"))]
+    false
 }

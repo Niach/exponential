@@ -12,15 +12,21 @@
 //! permissions the person granted the app answer the worker's checks too,
 //! and no second prompt names a second program.
 
+#[cfg(feature = "cua")]
 use std::collections::HashMap;
+#[cfg(feature = "cua")]
 use std::io::{BufRead, Write};
+#[cfg(feature = "cua")]
 use std::sync::Arc;
 
+#[cfg(feature = "cua")]
 use cua_driver_sdk::worker::{
     ActionCompletion, ChannelRequest, ChannelResponse, WorkerInitialization,
     PRIVATE_WORKER_PROTOCOL_VERSION,
 };
+#[cfg(feature = "cua")]
 use cua_driver_sdk::{CuaDriver, CuaDriverSession, DriverHostOptions};
+#[cfg(feature = "cua")]
 use serde_json::Value;
 
 /// The argv marker cua's worker client passes; a host checks for it before
@@ -28,8 +34,12 @@ use serde_json::Value;
 pub const ARGV_MARKER: &str = "__private-worker";
 
 /// `Some(generation)` when this process was started as the worker. Mirrors
-/// cua's own check: `<exe> __private-worker --generation <id>`.
+/// cua's own check: `<exe> __private-worker --generation <id>`. A binary
+/// built without cua never is one.
 pub fn requested_generation() -> Option<String> {
+    if cfg!(not(feature = "cua")) {
+        return None;
+    }
     let mut args = std::env::args();
     let _executable = args.next();
     if args.next().as_deref() != Some(ARGV_MARKER) {
@@ -49,6 +59,14 @@ pub fn requested_generation() -> Option<String> {
 
 /// Run the worker to completion and exit the process. Call it from `main`
 /// when [`requested_generation`] answers; it never returns.
+#[cfg(not(feature = "cua"))]
+pub fn run_and_exit(_generation: String) -> ! {
+    std::process::exit(2)
+}
+
+/// Run the worker to completion and exit the process. Call it from `main`
+/// when [`requested_generation`] answers; it never returns.
+#[cfg(feature = "cua")]
 pub fn run_and_exit(generation: String) -> ! {
     // The native Wayland backend is opt-in by env in cua; a Wayland session
     // is one we want it on for (the worker's environment is the allowlisted
@@ -84,6 +102,7 @@ pub fn run_and_exit(generation: String) -> ! {
     std::process::exit(code)
 }
 
+#[cfg(feature = "cua")]
 fn run(generation: String, ready: Option<std::sync::mpsc::SyncSender<bool>>) -> i32 {
     if generation.is_empty() {
         eprintln!("[computer worker] missing --generation");
@@ -106,8 +125,10 @@ fn run(generation: String, ready: Option<std::sync::mpsc::SyncSender<bool>>) -> 
 }
 
 /// `ready` is told once (true = the runtime stands, false = it never will).
+#[cfg(feature = "cua")]
 struct Ready(Option<std::sync::mpsc::SyncSender<bool>>);
 
+#[cfg(feature = "cua")]
 impl Ready {
     fn up(&mut self) {
         if let Some(tx) = self.0.take() {
@@ -116,6 +137,7 @@ impl Ready {
     }
 }
 
+#[cfg(feature = "cua")]
 impl Drop for Ready {
     fn drop(&mut self) {
         if let Some(tx) = self.0.take() {
@@ -124,6 +146,7 @@ impl Drop for Ready {
     }
 }
 
+#[cfg(feature = "cua")]
 async fn serve(
     generation: String,
     ready: Option<std::sync::mpsc::SyncSender<bool>>,
@@ -219,6 +242,7 @@ async fn serve(
     driver.shutdown().await.map_err(|err| err.to_string())
 }
 
+#[cfg(feature = "cua")]
 async fn handle(
     driver: &Arc<CuaDriver>,
     sessions: &mut HashMap<String, Arc<CuaDriverSession>>,
@@ -303,6 +327,7 @@ async fn handle(
     }
 }
 
+#[cfg(feature = "cua")]
 fn write_line(out: &mut dyn Write, response: &ChannelResponse) -> Result<(), String> {
     serde_json::to_writer(&mut *out, response).map_err(|err| err.to_string())?;
     out.write_all(b"\n").and_then(|()| out.flush()).map_err(|err| err.to_string())

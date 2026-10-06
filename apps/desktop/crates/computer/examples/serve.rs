@@ -1,5 +1,5 @@
 //! Manual probe of the linked cua driver, the way a host runs it:
-//! `cargo run -p computer --example serve -- [TOOL [JSON_ARGS]]...`
+//! `cargo run -p computer --features cua --example serve -- [TOOL [JSON_ARGS]]...`
 //! calls each tool through a granted session and prints the result (images
 //! elided), then serves the loopback MCP endpoint until Ctrl-C, printing its
 //! URL and token for a hand-written MCP client. This same binary is what the

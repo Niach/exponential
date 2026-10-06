@@ -10,7 +10,17 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
 
-use crate::driver::ToolHost;
+/// What the hub asks of the driver ([`crate::driver::Driver`] when cua is
+/// linked; a fake in tests).
+pub(crate) trait ToolHost: Send + Sync {
+    /// cua's `tools/list` tools array.
+    fn tools(&self) -> Result<Value, String>;
+    /// One `tools/call`, answered as an MCP call result (never an error at
+    /// the JSON-RPC level: a refusal is content the agent must read).
+    fn call(&self, session_id: &str, label: &str, name: &str, arguments: Value) -> Value;
+    /// The run ended.
+    fn end(&self, session_id: &str);
+}
 
 /// The config key and server name the agents see (`mcp__computer__click`).
 pub const SERVER_NAME: &str = "computer";
@@ -48,6 +58,7 @@ impl Hub {
         self.host.end(session_id);
     }
 
+    #[cfg_attr(not(feature = "cua"), allow(dead_code))]
     pub fn revoke_all(&self) {
         let runs = std::mem::take(&mut *self.runs.lock().unwrap());
         for run in runs.values() {

@@ -17,22 +17,13 @@ use cua_driver_sdk::{
 };
 use serde_json::{json, Value};
 
+use crate::server::ToolHost;
+
 /// How long a run's session may live and idle (cua's ceilings; a run that
 /// outlives them is bound again on its next call).
 const SESSION_TTL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const SESSION_IDLE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const WORKER_STARTUP: Duration = Duration::from_secs(30);
-
-/// What the server asks of the driver; a fake stands in for tests.
-pub(crate) trait ToolHost: Send + Sync {
-    /// cua's `tools/list` tools array.
-    fn tools(&self) -> Result<Value, String>;
-    /// One `tools/call`, answered as an MCP call result (never an error at
-    /// the JSON-RPC level: a refusal is content the agent must read).
-    fn call(&self, session_id: &str, label: &str, name: &str, arguments: Value) -> Value;
-    /// The run ended.
-    fn end(&self, session_id: &str);
-}
 
 struct Live {
     cua: Arc<CuaDriver>,
