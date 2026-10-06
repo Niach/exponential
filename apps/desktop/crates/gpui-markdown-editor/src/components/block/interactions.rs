@@ -642,6 +642,16 @@ impl Block {
             cx.emit(BlockEvent::RequestIndent);
             return;
         }
+        // EXP-1221: a focused rendered image has no caret — Tab used to route
+        // its four spaces into the paragraph below (EXP-285 typing path), so
+        // the next typed text saved as an indented code block. Tab on an
+        // image just moves the caret below it and inserts nothing.
+        if self.showing_rendered_image() {
+            cx.emit(BlockEvent::RequestTypeBelowStructural {
+                text: String::new(),
+            });
+            return;
+        }
         if self.kind() == BlockKind::Paragraph || self.kind().is_code_block() {
             self.replace_text_in_range(None, "    ", window, cx);
         }

@@ -604,7 +604,10 @@ impl BlockRecord {
         let indentation = "  ".repeat(depth);
         let title_markdown = self.title_markdown_for_output();
         match self.kind {
-            BlockKind::Paragraph => indent_multiline(&title_markdown, &indentation),
+            BlockKind::Paragraph => {
+                let title_markdown = self.paragraph_markdown_without_code_indent(title_markdown);
+                indent_multiline(&title_markdown, &indentation)
+            }
             BlockKind::Separator => "---".to_string(),
             BlockKind::Heading { level } => {
                 format!(
@@ -670,6 +673,26 @@ impl BlockRecord {
         }
 
         self.title_markdown()
+    }
+
+    /// EXP-1221: leading spaces/tabs carry no meaning in a GFM paragraph, but
+    /// 4+ of them on a paragraph's first line re-parse as an INDENTED CODE
+    /// block on every client. Drop them from the visible text before it is
+    /// escaped, so a line-start marker uncovered by the strip (`#`, `- `,
+    /// `1.`, `>`) still gets its escape. Whitespace-only paragraphs are a
+    /// blank line either way and stay untouched.
+    fn paragraph_markdown_without_code_indent(&self, markdown: String) -> String {
+        if !markdown.starts_with([' ', '\t']) {
+            return markdown;
+        }
+        let visible = self.title.visible_text();
+        let leading = visible.len() - visible.trim_start_matches([' ', '\t']).len();
+        if leading == 0 || leading == visible.len() {
+            return markdown;
+        }
+        let mut trimmed = self.title.clone();
+        trimmed.remove_visible_prefix(leading);
+        trimmed.serialize_markdown()
     }
 
     fn can_present_title_as_standalone_image(&self) -> bool {
@@ -893,7 +916,8 @@ pub enum BlockEvent {
     /// focused. The image source must never receive it (a caret-less block
     /// was writing into the raw `![alt](src)` at a stale offset) — the
     /// editor routes the text into the paragraph below the image, reusing an
-    /// empty neighbor or inserting one.
+    /// empty neighbor or inserting one. Empty `text` (Tab on an image,
+    /// EXP-1221) only moves the caret there.
     RequestTypeBelowStructural { text: String },
     /// The user clicked this block; notify siblings so they re-render
     /// in display mode.
@@ -1092,6 +1116,26 @@ mod tests {
         assert_eq!(paragraph.markdown_line(1, None), "  plain");
         assert_eq!(comment.markdown_line(0, None), "<!--\ncomment\n-->");
         assert_eq!(comment.markdown_line(1, None), "  <!--\n  comment\n  -->");
+    }
+
+    // EXP-1221: a root paragraph never serializes as an indented code block.
+    #[test]
+    fn paragraph_leading_whitespace_is_dropped_on_output() {
+        let line = |text: &str| BlockRecord::paragraph(text).markdown_line(0, None);
+        assert_eq!(line("    hello"), "hello");
+        assert_eq!(line("\thello"), "hello");
+        assert_eq!(line("  hello"), "hello");
+        // A marker uncovered by the strip still gets its escape.
+        assert_eq!(line("    # not a heading"), "\\# not a heading");
+        assert_eq!(line("    - not a bullet"), "\\- not a bullet");
+        assert_eq!(line("    1. not a list"), "1\\. not a list");
+        // Mid-text whitespace is content and stays.
+        assert_eq!(line("a    b"), "a    b");
+        // Nested paragraphs keep their structural indentation only.
+        assert_eq!(
+            BlockRecord::paragraph("    plain").markdown_line(1, None),
+            "  plain"
+        );
     }
 
     #[test]
