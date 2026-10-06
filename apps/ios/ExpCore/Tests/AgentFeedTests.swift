@@ -1744,7 +1744,7 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertEqual(run.map(\.id), [2, 3])
     }
 
-    func testWorkflowAgentsAreNeitherTranscriptRowsNorTabs() {
+    func testWorkflowAgentsAreTabsButNeverTranscriptRows() {
         let feed: [AgentFeedItem] = [
             .subagent(
                 id: 1, subagentId: "a1", agentType: "general-purpose", status: .started,
@@ -1767,13 +1767,22 @@ final class AgentFeedTests: XCTestCase {
         let runs = AgentFeed.subagents(feed)
         XCTAssertEqual(runs.map(\.subagentId), ["a1", "b1"])
         XCTAssertEqual(runs[0].workflowId, "w1")
-        // …and the tab strip offers only the steerable one.
+        // …and EXP-1225: the tab strip offers both, by the ordinary rule —
+        // the workflow agent's rows live in its tab.
         XCTAssertEqual(
-            AgentFeed.visibleSubagentTabs(runs, selected: nil).map(\.subagentId), ["b1"]
+            AgentFeed.visibleSubagentTabs(runs, selected: nil).map(\.subagentId), ["a1", "b1"]
         )
-        // Even when it is the selected tab, a workflow agent is never offered.
+        let done = AgentFeed.subagents(feed + [
+            .subagent(
+                id: 5, subagentId: "a1", agentType: "agent", status: .completed,
+                detail: nil, title: "alpha:one", workflowId: "w1"
+            ),
+        ])
         XCTAssertEqual(
-            AgentFeed.visibleSubagentTabs(runs, selected: "a1").map(\.subagentId), ["b1"]
+            AgentFeed.visibleSubagentTabs(done, selected: nil).map(\.subagentId), ["b1"]
+        )
+        XCTAssertEqual(
+            AgentFeed.visibleSubagentTabs(done, selected: "a1").map(\.subagentId), ["a1", "b1"]
         )
     }
 

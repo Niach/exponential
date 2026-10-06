@@ -615,8 +615,7 @@ final class AgentSessionModel {
         // nested INSIDE the card, so the transcript projection drops them.
         rows = AgentFeed.rows(feed, from: start, workflowIds: Set(workflows.map(\.id)))
         // The runs list keeps the workflow agents — the card looks its own
-        // agents up here; `visibleSubagentTabs` is what hides them from the
-        // tab strip.
+        // agents' duplicate warnings up here, and (EXP-1225) they are tabs.
         subagents = AgentFeed.subagents(feed, from: start)
         // §1/§2: an open `wait` row is a feed row, so the strip follows it.
         rebuildStripLines()

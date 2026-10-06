@@ -322,17 +322,12 @@ struct AgentDuplicateWarningRow: View {
 /// phase strip with per-phase queued/running/done/error counts, one nested row
 /// per agent, and the summary once it finishes.
 ///
-/// A workflow's agents are never subagent tabs and are never steerable; an
-/// agent row expands to a collapsible preview of that agent's nested events
-/// when it has any.
+/// The card SUMMARISES its agents, one line each; EXP-1225: their rows live
+/// in their own subagent tabs, never folded in here.
 struct AgentWorkflowCardRow: View {
     let workflow: AgentWorkflow
-    /// The nested run behind one agent id — the card's expandable preview and
-    /// its duplicate warning come out of it.
+    /// The run behind one agent id — the card reads its duplicate warning.
     let runFor: (String?) -> AgentSubagentRun?
-    let context: AgentMarkdownContext
-
-    @State private var expandedAgents: Set<Int> = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -430,22 +425,8 @@ struct AgentWorkflowCardRow: View {
     @ViewBuilder
     private func agentRow(_ agent: AgentWorkflowAgent) -> some View {
         let run = runFor(agent.agentId)
-        let nested = run?.items ?? []
-        let expanded = expandedAgents.contains(agent.index)
         VStack(alignment: .leading, spacing: 2) {
-            Button {
-                guard !nested.isEmpty else { return }
-                if expanded {
-                    expandedAgents.remove(agent.index)
-                } else {
-                    expandedAgents.insert(agent.index)
-                }
-            } label: {
-                agentHeader(agent, expandable: !nested.isEmpty, expanded: expanded)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(nested.isEmpty)
+            agentHeader(agent)
             if let detail = agentDetail(agent) {
                 Text(detail)
                     .font(.caption2)
@@ -453,27 +434,15 @@ struct AgentWorkflowCardRow: View {
                     .lineLimit(2)
                     .padding(.leading, 19)
             }
-            // EXP-856: the warning stays whether or not the row is expanded.
+            // EXP-856: the warning sits under the agent it is about.
             if let duplicate = run?.duplicateDetail {
                 AgentDuplicateWarningRow(detail: duplicate)
                     .padding(.leading, 19)
             }
-            if expanded, !nested.isEmpty {
-                // EXP-916: the agent's lane projects like every other one —
-                // its edit runs are edited-files cards, not loose tool rows.
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(AgentFeed.laneRows(nested)) { row in
-                        SubagentLaneRow(row: row, context: context)
-                    }
-                }
-                .padding(.leading, 19)
-            }
         }
     }
 
-    private func agentHeader(
-        _ agent: AgentWorkflowAgent, expandable: Bool, expanded: Bool
-    ) -> some View {
+    private func agentHeader(_ agent: AgentWorkflowAgent) -> some View {
         HStack(spacing: 6) {
             AppIcon(Self.stateGlyph(agent.state), size: 11)
                 .foregroundStyle(Self.stateColor(agent.state))
@@ -493,10 +462,6 @@ struct AgentWorkflowCardRow: View {
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .lineLimit(1)
-            }
-            if expandable {
-                AppIcon(expanded ? AppIcons.uiChevronDown : AppIcons.uiChevronRight, size: 11)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
         }
     }

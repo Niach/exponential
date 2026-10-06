@@ -476,8 +476,8 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     /// publishers and on a spawn that named neither.
     ///
     /// EXP-850/856: `workflowId` is set on every edge of a WORKFLOW agent —
-    /// those nest under the workflow card, never as loose rows, and are never
-    /// offered as steerable tabs.
+    /// those nest under the workflow card, never as loose rows. EXP-1225: the
+    /// agent is a tab like any other subagent; its rows live there.
     case subagent(
         id: Int, subagentId: String, agentType: String,
         status: AgentSubagentStatus, detail: String?, toolCalls: Int? = nil,
@@ -599,8 +599,8 @@ public struct AgentSubagentRun: Equatable, Sendable, Identifiable {
     /// Replay evicts subagent tool events first, so `items` can undercount.
     public let reportedToolCalls: Int?
     /// EXP-850 §3/§4: the workflow card this agent belongs to. Such a run is
-    /// never a loose transcript row and never a steerable tab — it renders
-    /// INSIDE its card.
+    /// never a loose transcript row — the card summarises it; EXP-1225: its
+    /// rows are its own tab's.
     public let workflowId: String?
     /// EXP-856: the duplicate warning's sentence, verbatim off the wire, when
     /// a second copy of this agent started while the first was still running.
@@ -1826,12 +1826,13 @@ public enum AgentFeed {
     /// of a conversation they are reading; the tab disappears once they click
     /// away. Completed runs stay readable via their inline group row in Main.
     ///
-    /// EXP-850 §3: a WORKFLOW's agents are never tabs — they are not steerable
-    /// and they render inside their card.
+    /// EXP-1225: a WORKFLOW's agents are tabs by the same rule — their lanes
+    /// are the engine's synthesized rows; the workflow card only summarises
+    /// them.
     public static func visibleSubagentTabs(
         _ agents: [AgentSubagentRun], selected: String?
     ) -> [AgentSubagentRun] {
-        agents.filter { $0.workflowId == nil && (!$0.done || $0.subagentId == selected) }
+        agents.filter { !$0.done || $0.subagentId == selected }
     }
 
     /// Mutable accumulator behind `rows` — the row cases carry immutable
